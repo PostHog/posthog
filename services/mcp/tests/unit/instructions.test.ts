@@ -5,7 +5,6 @@ import {
     buildActiveEnvironmentContextPrompt,
     buildDefinedGroupsBlock,
     buildQueryToolsBlock,
-    buildQueryToolsCompact,
     buildToolDomainsBlock,
     buildToolDomainsCompact,
     QueryToolCatalog,
@@ -58,7 +57,7 @@ describe('buildToolDomainsBlock', () => {
         expect(result).toContain('- survey')
     })
 
-    it('should list standalone tools as-is', () => {
+    it('keeps a singleton tool whole but collapses siblings to a shared root', () => {
         const tools = [
             { name: 'execute-sql', category: 'SQL' },
             { name: 'read-data-schema', category: 'Data schema' },
@@ -66,19 +65,56 @@ describe('buildToolDomainsBlock', () => {
         ]
         const result = buildToolDomainsBlock(tools)
         expect(result).toContain('- execute-sql')
-        expect(result).toContain('- read-data-schema')
-        expect(result).toContain('- read-data-warehouse-schema')
+        // read-data-* siblings collapse to their shared prefix, not listed verbatim
+        expect(result).toContain('- read-data')
+        expect(result).not.toContain('- read-data-schema')
+        expect(result).not.toContain('- read-data-warehouse-schema')
     })
 
-    it('should skip query-* tools', () => {
+    it('splits an oversized family into sub-family roots, one level deep', () => {
+        // A flat CRUD family below the size cap stays whole; a large area is
+        // broken into searchable sub-roots instead of listing leaf tools verbatim.
+        const llma = [
+            'llma-personal-spend',
+            'llma-prompt-create',
+            'llma-prompt-get',
+            'llma-skill-archive',
+            'llma-skill-file-rename',
+            'llma-evaluation-config-set-active-key',
+            'llma-evaluation-judge-models',
+            'llma-evaluation-run',
+        ]
+        const tools = [
+            ...Array.from({ length: 30 }, (_, i) => ({ name: `llma-filler-${i}`, category: 'AI observability' })),
+            ...llma.map((name) => ({ name, category: 'AI observability' })),
+        ]
+        const result = buildToolDomainsCompact(tools)
+        const domains = result.split('|')
+        // sub-family roots, never the verbose leaf names
+        expect(domains).toContain('llma-prompt')
+        expect(domains).toContain('llma-skill')
+        expect(domains).toContain('llma-evaluation')
+        expect(result).not.toContain('llma-skill-file-rename')
+        expect(result).not.toContain('llma-evaluation-config-set-active-key')
+    })
+
+    it('collapses all query-* tools into a single "query" domain', () => {
         const tools = [
             { name: 'query-trends', category: 'Query wrappers' },
             { name: 'query-funnel', category: 'Query wrappers' },
             { name: 'experiment-create', category: 'Experiments' },
         ]
         const result = buildToolDomainsBlock(tools)
-        expect(result).not.toContain('query')
+        expect(result).toContain('- query')
+        // never fragmented into per-insight roots
+        expect(result).not.toContain('query-trends')
+        expect(result).not.toContain('query-funnel')
         expect(result).toContain('- experiment')
+    })
+
+    it('omits the "query" domain when no query-* tools are present', () => {
+        const result = buildToolDomainsBlock([{ name: 'experiment-create', category: 'Experiments' }])
+        expect(result).not.toContain('query')
     })
 
     it('should collapse plural/singular duplicates', () => {
@@ -192,50 +228,27 @@ describe('QueryToolCatalog', () => {
         const tools: QueryToolInfo[] = [{ name: 'query-trends', title: 'Trends', systemPromptHint: 'time series' }]
         expect(buildQueryToolsBlock(tools)).toBe('- `query-trends` — time series')
     })
-
-    describe('toCompact', () => {
-        it('renders names pipe-separated and strips the query- prefix', () => {
-            const tools: QueryToolInfo[] = [
-                { name: 'query-trends', title: 'Trends', systemPromptHint: 'time series' },
-                { name: 'query-funnel', title: 'Funnel', systemPromptHint: 'conversion' },
-                { name: 'query-lifecycle', title: 'Lifecycle' },
-            ]
-            expect(new QueryToolCatalog(tools).toCompact()).toBe('funnel|lifecycle|trends')
-        })
-
-        it('ignores non-query tools', () => {
-            const tools: QueryToolInfo[] = [
-                { name: 'query-trends', title: 'Trends' },
-                { name: 'dashboard-create', title: 'Create dashboard' },
-            ]
-            expect(new QueryToolCatalog(tools).toCompact()).toBe('trends')
-        })
-
-        it('returns empty string for empty input', () => {
-            expect(new QueryToolCatalog([]).toCompact()).toBe('')
-        })
-
-        it('buildQueryToolsCompact delegates to QueryToolCatalog.toCompact', () => {
-            const tools: QueryToolInfo[] = [{ name: 'query-trends', title: 'Trends' }]
-            expect(buildQueryToolsCompact(tools)).toBe('trends')
-        })
-    })
 })
 
 describe('buildActiveEnvironmentContextPrompt', () => {
+    const org = { id: 'org_1', name: 'Acme' } satisfies Partial<CachedOrg> as unknown as CachedOrg
     const project = {
         id: 1,
         name: 'My App',
         timezone: 'America/New_York',
+        api_token: 'token_1',
         person_on_events_querying_enabled: false,
-    } as unknown as CachedProject
-    const org = { id: 'org_1', name: 'Acme' } as unknown as CachedOrg
-    const user = { first_name: 'Jane', last_name: 'Doe', email: 'jane@acme.com' } as unknown as CachedUser
+    } satisfies Partial<CachedProject> as unknown as CachedProject
+    const user = {
+        first_name: 'Jane',
+        last_name: 'Doe',
+        email: 'jane@acme.com',
+    } satisfies Partial<CachedUser> as unknown as CachedUser
 
     it('renders the full project + org line when both are present', () => {
         const result = buildActiveEnvironmentContextPrompt(user, org, project)
         expect(result).toContain(
-            'You are currently in project "My App" (id: 1) within organization "Acme" (id: org_1).'
+            'You are currently in project "My App" (id: 1, token: token_1) within organization "Acme" (id: org_1).'
         )
     })
 
@@ -244,7 +257,7 @@ describe('buildActiveEnvironmentContextPrompt', () => {
         // fetch is skipped. The line drops the "within organization …" tail
         // rather than rendering a fabricated "Unknown" placeholder.
         const result = buildActiveEnvironmentContextPrompt(user, undefined, project)
-        expect(result).toContain('You are currently in project "My App" (id: 1).')
+        expect(result).toContain('You are currently in project "My App" (id: 1, token: token_1).')
         expect(result).not.toContain('within organization')
         expect(result).not.toContain('Unknown')
         expect(result).not.toContain('unknown')
@@ -256,6 +269,29 @@ describe('buildActiveEnvironmentContextPrompt', () => {
         expect(result).toContain("The user's name is Jane Doe (jane@acme.com).")
     })
 
+    it('renders a single base URL line (scheme stripped, project segment appended) when a base URL is given', () => {
+        const result = buildActiveEnvironmentContextPrompt(user, org, project, 'https://us.posthog.com')
+        expect(result).toContain('Base URL: us.posthog.com — add /project/1 for project-scoped paths.')
+        // Sits right after the project/org context line.
+        const lines = (result ?? '').split('\n')
+        expect(lines.indexOf('Base URL: us.posthog.com — add /project/1 for project-scoped paths.')).toBe(
+            lines.indexOf(
+                'You are currently in project "My App" (id: 1, token: token_1) within organization "Acme" (id: org_1).'
+            ) + 1
+        )
+    })
+
+    it('renders the base URL without a project segment when no project is active', () => {
+        const result = buildActiveEnvironmentContextPrompt(user, undefined, undefined, 'https://us.posthog.com')
+        expect(result).toContain('Base URL: us.posthog.com.')
+        expect(result).not.toContain('/project/')
+    })
+
+    it('omits the base URL line when no base URL is given', () => {
+        const result = buildActiveEnvironmentContextPrompt(user, org, project)
+        expect(result).not.toContain('Base URL:')
+    })
+
     it('returns undefined when no context is available at all', () => {
         expect(buildActiveEnvironmentContextPrompt(undefined, undefined, undefined)).toBeUndefined()
     })
@@ -264,7 +300,7 @@ describe('buildActiveEnvironmentContextPrompt', () => {
         // The org branch is unchanged — only the no-org branch was added.
         const result = buildActiveEnvironmentContextPrompt(user, org, undefined)
         expect(result).toContain(
-            'You are currently in project "Unknown" (id: unknown) within organization "Acme" (id: org_1).'
+            'You are currently in project "Unknown" (id: unknown, token: unknown) within organization "Acme" (id: org_1).'
         )
     })
 })

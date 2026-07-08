@@ -2,6 +2,8 @@ from __future__ import annotations
 
 from typing import Any
 
+from rest_framework.exceptions import PermissionDenied
+
 from posthog.api.file_system.deletion import (
     HOG_FUNCTION_TYPES,
     DeletionContext,
@@ -12,12 +14,12 @@ from posthog.api.file_system.deletion import (
     register_pre_delete_hook,
     register_pre_restore_hook,
 )
+from posthog.helpers.impersonation import is_impersonated
 from posthog.models.activity_logging.activity_log import Change, Detail, log_activity
-from posthog.models.activity_logging.model_activity import is_impersonated_session
 from posthog.models.user import User
-from posthog.session_recordings.session_recording_playlist_api import log_playlist_activity
 
 from products.cdp.backend.models.hog_functions.utils import humanize_hog_function_type
+from products.tasks.backend.facade import api as tasks_facade
 
 
 def _first_non_blank(*values: str | None) -> str | None:
@@ -50,7 +52,7 @@ def _log_deletion_activity(
         organization_id=organization.id,
         team_id=team_id,
         user=context.user,
-        was_impersonated=is_impersonated_session(context.request) if context.request else False,
+        was_impersonated=is_impersonated(context.request),
         item_id=str(item_id),
         scope=scope,
         activity="deleted",
@@ -80,7 +82,7 @@ def _log_restore_activity(
         organization_id=organization.id,
         team_id=team_id,
         user=context.user,
-        was_impersonated=is_impersonated_session(context.request) if context.request else False,
+        was_impersonated=is_impersonated(context.request),
         item_id=str(item_id),
         scope=scope,
         activity="restored",
@@ -164,6 +166,11 @@ def _link_post_delete(context: DeletionContext, link: Any) -> None:
 
 
 def _playlist_post_restore(context: RestoreContext, playlist: Any) -> None:
+    # Deferred: session_recording_playlist_api pulls session_recording_api -> the session_summary
+    # temporal workflow (-> google-genai). This module is imported from AppConfig.ready(), so a
+    # module-level import would drag all of that onto every process's startup path.
+    from posthog.session_recordings.session_recording_playlist_api import log_playlist_activity  # noqa: PLC0415
+
     organization = context.organization
     if not organization:
         return
@@ -185,7 +192,7 @@ def _playlist_post_restore(context: RestoreContext, playlist: Any) -> None:
         organization_id=organization.id,
         team_id=team_id,
         user=user,
-        was_impersonated=is_impersonated_session(context.request) if context.request else False,
+        was_impersonated=is_impersonated(context.request),
         changes=[
             Change(
                 type="SessionRecordingPlaylist",
@@ -199,6 +206,8 @@ def _playlist_post_restore(context: RestoreContext, playlist: Any) -> None:
 
 
 def _playlist_post_delete(context: DeletionContext, playlist: Any) -> None:
+    from posthog.session_recordings.session_recording_playlist_api import log_playlist_activity  # noqa: PLC0415
+
     organization = context.organization
     if not organization:
         return
@@ -224,7 +233,7 @@ def _playlist_post_delete(context: DeletionContext, playlist: Any) -> None:
         organization_id=organization.id,
         team_id=team_id,
         user=user,
-        was_impersonated=is_impersonated_session(context.request) if context.request else False,
+        was_impersonated=is_impersonated(context.request),
         changes=[
             Change(
                 type="SessionRecordingPlaylist",
@@ -274,6 +283,44 @@ def _action_post_restore(context: RestoreContext, action: Any) -> None:
         item_id=action.id,
         name=_first_non_blank(getattr(action, "name", None)) or "Untitled action",
         object_type="action",
+    )
+
+
+def _ensure_task_controllable_by_user(task: Any, user: Any | None) -> None:
+    # Mirror the tasks control rules (task_control_q): tasks belong to their creator (plus
+    # team-wide signal-pipeline tasks and legacy unowned tasks); public-channel read visibility
+    # does not grant mutation. Without this, anyone with file system write access could delete
+    # or restore another user's filed task via the generic flow.
+    user_id = getattr(user, "id", None)
+    if not tasks_facade.is_task_controllable_by_user(task.id, user_id):
+        raise PermissionDenied("You do not have permission to modify this task.")
+
+
+def _task_pre_delete(context: DeletionContext, task: Any) -> None:
+    _ensure_task_controllable_by_user(task, context.user)
+
+
+def _task_pre_restore(context: RestoreContext, task: Any) -> None:
+    _ensure_task_controllable_by_user(task, context.user)
+
+
+def _task_post_delete(context: DeletionContext, task: Any) -> None:
+    _log_deletion_activity(
+        context,
+        scope="Task",
+        item_id=task.id,
+        name=_first_non_blank(getattr(task, "title", None)) or "Untitled task",
+        object_type="task",
+    )
+
+
+def _task_post_restore(context: RestoreContext, task: Any) -> None:
+    _log_restore_activity(
+        context,
+        scope="Task",
+        item_id=task.id,
+        name=_first_non_blank(getattr(task, "title", None)) or "Untitled task",
+        object_type="task",
     )
 
 
@@ -407,12 +454,23 @@ def register_core_file_system_types() -> None:
 
     register_file_system_type(
         "cohort",
-        "posthog",
+        "cohorts",
         "Cohort",
         undo_message="Send PATCH /api/projects/@current/cohorts/{id} with deleted=false.",
     )
     register_post_delete_hook("cohort", _cohort_post_delete)
     register_post_restore_hook("cohort", _cohort_post_restore)
+
+    register_file_system_type(
+        "task",
+        "tasks",
+        "Task",
+        undo_message="Send PATCH /api/projects/@current/tasks/{id} with deleted=false.",
+    )
+    register_pre_delete_hook("task", _task_pre_delete)
+    register_pre_restore_hook("task", _task_pre_restore)
+    register_post_delete_hook("task", _task_post_delete)
+    register_post_restore_hook("task", _task_post_restore)
 
     for hog_type in HOG_FUNCTION_TYPES:
         type_string = f"hog_function/{hog_type}"

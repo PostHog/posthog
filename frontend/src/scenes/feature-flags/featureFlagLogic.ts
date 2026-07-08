@@ -29,9 +29,10 @@ import { scrollToFormError } from 'lib/forms/scrollToFormError'
 import { LemonDialog } from 'lib/lemon-ui/LemonDialog'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { featureFlagLogic as enabledFeaturesLogic } from 'lib/logic/featureFlagLogic'
-import { objectsEqual, slugify } from 'lib/utils'
 import { deleteWithUndo } from 'lib/utils/deleteWithUndo'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
+import { objectsEqual } from 'lib/utils/objects'
+import { slugify } from 'lib/utils/strings'
 import { experimentLogic } from 'scenes/experiments/experimentLogic'
 import { FeatureFlagsTab, featureFlagsLogic } from 'scenes/feature-flags/featureFlagsLogic'
 import { projectLogic } from 'scenes/projectLogic'
@@ -83,7 +84,8 @@ import { TEMPLATE_NAMES } from 'products/feature_flags/frontend/featureFlagTempl
 import { organizationLogic } from '../organizationLogic'
 import { teamLogic } from '../teamLogic'
 import { defaultEvaluationContextsLogic } from './defaultEvaluationContextsLogic'
-import { defaultReleaseConditionsLogic } from './defaultReleaseConditionsLogic'
+import { defaultReleaseConditionsLogic, resolveDefaultReleaseConditions } from './defaultReleaseConditionsLogic'
+import { uniformAggregationGroupTypeIndex } from './defaultReleaseConditionsUtils'
 import { checkFeatureFlagConfirmation } from './featureFlagConfirmationLogic'
 import type { FlagIntent } from './featureFlagIntentWarningLogic'
 import type { featureFlagLogicType } from './featureFlagLogicType'
@@ -176,6 +178,34 @@ export function scheduleDateFromStoredISO(isoString: string, timezone: string): 
     return dayjs(dayjs.utc(isoString).tz(timezone).format('YYYY-MM-DDTHH:mm:ss.SSS'))
 }
 
+// Order scheduled changes by their `scheduled_at` time, soonest first. `scheduled_at` holds the
+// next occurrence for recurring changes too, so it is a uniform sort key across all change types.
+// Unparseable/missing dates sort last; ties break by `id` (creation order) for a stable order.
+export function byScheduledAt(a: ScheduledChangeType, b: ScheduledChangeType): number {
+    const epoch = (sc: ScheduledChangeType): number => {
+        if (!sc.scheduled_at) {
+            return Number.POSITIVE_INFINITY
+        }
+        const ms = dayjs(sc.scheduled_at).valueOf()
+        return Number.isNaN(ms) ? Number.POSITIVE_INFINITY : ms
+    }
+    return epoch(a) - epoch(b) || a.id - b.id
+}
+
+// Order executed changes by `executed_at`, most recently executed first, so the history reads as a
+// real execution timeline even when execution is delayed. Unparseable/missing dates sort last; ties
+// break by `id` (creation order) for a stable order.
+export function byExecutedAt(a: ScheduledChangeType, b: ScheduledChangeType): number {
+    const epoch = (sc: ScheduledChangeType): number => {
+        if (!sc.executed_at) {
+            return Number.NEGATIVE_INFINITY
+        }
+        const ms = dayjs(sc.executed_at).valueOf()
+        return Number.isNaN(ms) ? Number.NEGATIVE_INFINITY : ms
+    }
+    return epoch(b) - epoch(a) || b.id - a.id
+}
+
 export const PAIRED_PRESETS: Record<Exclude<PairedPresetKey, 'custom_pair'>, PairedPresetDefinition> = {
     business_hours: {
         label: 'Business hours',
@@ -219,6 +249,7 @@ export const NEW_FLAG: FeatureFlagType = {
     },
     deleted: false,
     active: true,
+    archived: false,
     created_by: null,
     ensure_experience_continuity: false,
     experiment_set: null,
@@ -698,7 +729,18 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
                     return featureFlag
                 },
                 setFeatureFlagFilters: (state, { filters }) => {
-                    return { ...state, filters }
+                    if (!state) {
+                        return state
+                    }
+                    return {
+                        ...state,
+                        filters: {
+                            ...filters,
+                            // Preserve current payloads: this action only carries release-condition changes;
+                            // the child component's payloads snapshot is always stale.
+                            payloads: state.filters.payloads,
+                        },
+                    }
                 },
                 setMultivariateOptions: (state, { multivariateOptions }) => {
                     if (!state) {
@@ -878,7 +920,18 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
                     }
                     return {
                         ...state,
-                        features: [...(state.features || []), newEarlyAccessFeature],
+                        features: [
+                            ...(state.features || []),
+                            {
+                                id: newEarlyAccessFeature.id,
+                                name: newEarlyAccessFeature.name,
+                                description: newEarlyAccessFeature.description,
+                                stage: newEarlyAccessFeature.stage,
+                                documentationUrl: newEarlyAccessFeature.documentation_url,
+                                flagKey: newEarlyAccessFeature.feature_flag?.key ?? null,
+                                payload: newEarlyAccessFeature.payload,
+                            },
+                        ],
                     }
                 },
                 createSurveySuccess: (state, { newSurvey }) => {
@@ -1248,13 +1301,22 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
                     }
 
                     if (flagType !== 'remote_config') {
-                        const conditionsConfig = values.defaultReleaseConditions
+                        // Use cached value if already loaded; fetch directly if not yet available
+                        // to avoid a race where defaultReleaseConditionsLogic's async load hasn't
+                        // completed before loadFeatureFlag reads values.defaultReleaseConditions.
+                        const conditionsConfig = await resolveDefaultReleaseConditions(
+                            values.defaultReleaseConditions,
+                            values.currentTeam?.id
+                        )
                         if (conditionsConfig?.enabled && conditionsConfig.default_groups?.length > 0) {
                             baseFlagConfig = {
                                 ...baseFlagConfig,
                                 filters: {
                                     ...baseFlagConfig.filters,
                                     groups: conditionsConfig.default_groups,
+                                    aggregation_group_type_index: uniformAggregationGroupTypeIndex(
+                                        conditionsConfig.default_groups
+                                    ),
                                 },
                             }
                         }
@@ -1335,10 +1397,7 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
                             ?.values.featureFlags.results.find((flag) => flag.id === props.id)
 
                         // If we've got a cached flag and the filters have changed, we've updated the release conditions
-                        if (
-                            cachedFlag &&
-                            JSON.stringify(cachedFlag?.filters) !== JSON.stringify(values.featureFlag.filters)
-                        ) {
+                        if (cachedFlag && !objectsEqual(cachedFlag?.filters, values.featureFlag.filters)) {
                             globalSetupLogic
                                 .findMounted()
                                 ?.actions.markTaskAsCompleted(SetupTaskId.UpdateFeatureFlagReleaseConditions)
@@ -1405,6 +1464,19 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
                     const savedFlag = await api.update(
                         `api/projects/${values.currentProjectId}/feature_flags/${values.featureFlag.id}`,
                         { active }
+                    )
+                    savedFlag.id && refreshTreeItem('feature_flag', String(savedFlag.id))
+                    return variantKeyToIndexFeatureFlagPayloads(savedFlag)
+                },
+                // Shares the featureFlagActiveUpdate loader key (and its loading/success state)
+                updateFeatureFlagArchived: async (archived: boolean) => {
+                    if (!values.featureFlag.id) {
+                        throw new Error('Cannot archive an unsaved flag')
+                    }
+                    // Archiving also disables the flag — the backend rejects archived+enabled flags
+                    const savedFlag = await api.update(
+                        `api/projects/${values.currentProjectId}/feature_flags/${values.featureFlag.id}`,
+                        archived ? { archived: true, active: false } : { archived: false }
                     )
                     savedFlag.id && refreshTreeItem('feature_flag', String(savedFlag.id))
                     return variantKeyToIndexFeatureFlagPayloads(savedFlag)
@@ -1823,13 +1895,22 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
         },
         saveFeatureFlagSuccess: ({ featureFlag }) => {
             lemonToast.success('Feature flag saved')
-            tryShowMCPHint(props.id === 'new' ? 'feature_flags.create' : 'feature_flags.update', {
-                entityName: featureFlag.key,
-            })
             actions.setFeatureFlag(featureFlag)
             actions.updateFlag(featureFlag)
             featureFlag.id && router.actions.replace(urls.featureFlag(featureFlag.id))
             actions.editFeatureFlag(false)
+
+            const isCreate = props.id === 'new'
+            const rolloutPercent = featureFlag.filters?.groups?.[0]?.rollout_percentage ?? null
+            const flagKey = featureFlag.key || featureFlag.name || 'this-flag'
+            const derivedPrompt = isCreate
+                ? rolloutPercent != null
+                    ? `Create a feature flag called ${flagKey} rolled out to ${rolloutPercent}% of users`
+                    : `Create a feature flag called ${flagKey}`
+                : rolloutPercent != null
+                  ? `Bump rollout for ${flagKey} to ${rolloutPercent}%`
+                  : `Update the ${flagKey} flag`
+            tryShowMCPHint(isCreate ? 'feature_flags.create' : 'feature_flags.update', { derivedPrompt })
 
             // Collect all completed setup tasks
             const completedTasks: SetupTaskId[] = [SetupTaskId.CreateFeatureFlag]
@@ -1863,6 +1944,21 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
                 actions.setFeatureFlag(featureFlagActiveUpdate)
                 actions.updateFlag(featureFlagActiveUpdate)
             }
+        },
+        updateFeatureFlagArchivedSuccess: ({ featureFlagActiveUpdate }) => {
+            if (featureFlagActiveUpdate) {
+                lemonToast.success(`Feature flag ${featureFlagActiveUpdate.archived ? 'archived' : 'unarchived'}`)
+                actions.setFeatureFlag(featureFlagActiveUpdate)
+                actions.updateFlag(featureFlagActiveUpdate)
+            }
+        },
+        updateFeatureFlagArchivedFailure: ({ errorObject }) => {
+            // Archiving an enabled flag also disables it, which can trip the approval gate (409).
+            // Surface the change-request flow instead of silently doing nothing.
+            if (values.featureFlag.id && handleApprovalRequired(errorObject, 'feature_flag', values.featureFlag.id)) {
+                return
+            }
+            // For non-approval errors, let the global error handler show the toast to avoid duplicates
         },
         saveSidebarExperimentFeatureFlagSuccess: ({ featureFlag }) => {
             lemonToast.success('Release conditions updated')
@@ -1933,14 +2029,20 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
                 maybeApplyUrlIntent(values, actions)
             }
         },
-        applyTemplate: ({ templateId }) => {
+        applyTemplate: async ({ templateId }, breakpoint) => {
             const template = values.templates.find((t) => t.id === templateId)
             if (!template || !values.featureFlag) {
                 return
             }
             const templateValues = template.getValues(values.featureFlag)
 
-            const defaultConfig = values.defaultReleaseConditions
+            const defaultConfig = await resolveDefaultReleaseConditions(
+                values.defaultReleaseConditions,
+                values.currentTeam?.id
+            )
+            // Bail if the logic unmounted or applyTemplate was re-invoked while release conditions
+            // were loading — otherwise the reads below hit a store path that no longer exists and kea throws.
+            breakpoint()
             const defaultGroups =
                 defaultConfig?.enabled && defaultConfig.default_groups?.length > 0 ? defaultConfig.default_groups : []
             const templateGroups = templateValues.filters?.groups ?? []
@@ -1983,6 +2085,14 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
                     : 'copied'
                 lemonToast.success(`Feature flag ${operation} successfully!`)
                 eventUsageLogic.actions.reportFeatureFlagCopySuccess()
+
+                // Surface any warnings the copy returned (e.g. a flag dependency dropped because it
+                // doesn't exist in the target, or scheduled changes that failed to copy).
+                const warnings = featureFlagCopy.success.flatMap((flag) => [
+                    ...(flag.flag_dependency_warnings ?? []),
+                    ...(flag.schedule_copy_warning ? [flag.schedule_copy_warning] : []),
+                ])
+                warnings.forEach((warning) => lemonToast.warning(warning))
             } else {
                 const errorMessage = JSON.stringify(featureFlagCopy?.failed) || featureFlagCopy
                 lemonToast.error(`Error while saving feature flag: ${errorMessage}`)
@@ -2495,15 +2605,14 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
         ],
         completedSchedules: [
             (s) => [s.scheduledChanges],
-            (scheduledChanges: ScheduledChangeType[]) => scheduledChanges.filter((sc) => !!sc.executed_at),
+            (scheduledChanges: ScheduledChangeType[]) =>
+                scheduledChanges.filter((sc) => !!sc.executed_at).sort(byExecutedAt),
         ],
         activeSchedules: [
             (s) => [s.activeRecurringSchedules, s.pausedRecurringSchedules, s.upcomingOneTimeSchedules],
-            (activeRecurring, pausedRecurring, upcomingOneTime) => [
-                ...activeRecurring,
-                ...pausedRecurring,
-                ...upcomingOneTime,
-            ],
+            // Interleave all schedule types so the upcoming list reads soonest first.
+            (activeRecurring, pausedRecurring, upcomingOneTime) =>
+                [...activeRecurring, ...pausedRecurring, ...upcomingOneTime].sort(byScheduledAt),
         ],
         emailDomain: [(s) => [s.user], (user) => user?.email?.split('@')[1] || 'example.com'],
         templates: [
@@ -2669,9 +2778,6 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
         },
     })),
 
-    // TODO(#58936): this block is missing the scene-tab-cache guard that
-    // `actionEditLogic.tsx` (L305-332) uses, so the prompt can fire twice on tab
-    // switches. Fix requires making this scene tab-aware (`/making-scenes-tab-aware`).
     beforeUnload((logic) => ({
         enabled: (newLocation?: CombinedLocation) => {
             if (!logic.values.isFormDirty) {

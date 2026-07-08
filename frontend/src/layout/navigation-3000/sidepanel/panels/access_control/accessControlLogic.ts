@@ -1,13 +1,13 @@
 import { actions, afterMount, connect, kea, key, listeners, path, props, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
-import posthog from 'posthog-js'
 
 import { LemonSelectOption } from '@posthog/lemon-ui'
 
 import api from 'lib/api'
 import { upgradeModalLogic } from 'lib/components/UpgradeModal/upgradeModalLogic'
 import { OrganizationMembershipLevel } from 'lib/constants'
-import { toSentenceCase } from 'lib/utils'
+import { AccessControlUIVersion, captureAccessControlEvent } from 'lib/utils/accessControlUtils'
+import { toSentenceCase } from 'lib/utils/strings'
 import { membersLogic } from 'scenes/organization/membersLogic'
 import { teamLogic } from 'scenes/teamLogic'
 
@@ -56,21 +56,24 @@ export const accessControlLogic = kea<accessControlLogicType>([
         updateAccessControl: (
             accessControl: Pick<AccessControlType, 'access_level' | 'organization_member' | 'role'>
         ) => ({ accessControl }),
-        updateAccessControlDefault: (level: AccessControlLevel) => ({
+        updateAccessControlDefault: (level: AccessControlLevel, source: AccessControlUIVersion = 'v1') => ({
             level,
+            source,
         }),
         updateAccessControlRoles: (
             accessControls: {
                 role: RoleType['id']
                 level: AccessControlLevel | null
-            }[]
-        ) => ({ accessControls }),
+            }[],
+            source: AccessControlUIVersion = 'v1'
+        ) => ({ accessControls, source }),
         updateAccessControlMembers: (
             accessControls: {
                 member: OrganizationMemberType['id']
                 level: AccessControlLevel | null
-            }[]
-        ) => ({ accessControls }),
+            }[],
+            source: AccessControlUIVersion = 'v1'
+        ) => ({ accessControls, source }),
     }),
     loaders(({ values }) => ({
         accessControls: [
@@ -97,21 +100,22 @@ export const accessControlLogic = kea<accessControlLogicType>([
                     }
                 },
 
-                updateAccessControlDefault: async ({ level }) => {
+                updateAccessControlDefault: async ({ level, source }) => {
                     await api.put<AccessControlType, AccessControlUpdateType>(values.endpoint, {
                         access_level: level,
                     })
 
-                    posthog.capture('access control default access level changed', {
+                    captureAccessControlEvent('access control default access level changed', {
                         resource: values.resource,
                         access_level: level,
                         old_access_level: values.accessControlDefault?.access_level,
+                        ui_version: source,
                     })
 
                     return values.accessControls
                 },
 
-                updateAccessControlRoles: async ({ accessControls }) => {
+                updateAccessControlRoles: async ({ accessControls, source }) => {
                     for (const { role, level } of accessControls) {
                         await api.put<AccessControlType, AccessControlUpdateType>(values.endpoint, {
                             role: role,
@@ -119,19 +123,20 @@ export const accessControlLogic = kea<accessControlLogicType>([
                         })
 
                         const oldAccessControl = values.accessControlRoles.find((ac) => ac.role === role)
-                        posthog.capture('access control role access level changed', {
+                        captureAccessControlEvent('access control role access level changed', {
                             resource: values.resource,
                             action: oldAccessControl ? (level === null ? 'removed' : 'changed') : 'added',
                             role: role,
                             access_level: level,
                             old_access_level: oldAccessControl?.access_level,
+                            ui_version: source,
                         })
                     }
 
                     return values.accessControls
                 },
 
-                updateAccessControlMembers: async ({ accessControls }) => {
+                updateAccessControlMembers: async ({ accessControls, source }) => {
                     for (const { member, level } of accessControls) {
                         await api.put<AccessControlType, AccessControlUpdateType>(values.endpoint, {
                             organization_member: member,
@@ -141,12 +146,13 @@ export const accessControlLogic = kea<accessControlLogicType>([
                         const oldAccessControl = values.accessControlMembers.find(
                             (ac) => ac.organization_member === member
                         )
-                        posthog.capture('access control member access level changed', {
+                        captureAccessControlEvent('access control member access level changed', {
                             resource: values.resource,
                             action: oldAccessControl ? (level === null ? 'removed' : 'changed') : 'added',
                             member: member,
                             access_level: level,
                             old_access_level: oldAccessControl?.access_level,
+                            ui_version: source,
                         })
                     }
 
@@ -170,7 +176,13 @@ export const accessControlLogic = kea<accessControlLogicType>([
                 if (resource === 'project') {
                     return `api/projects/${currentProjectId}/access_controls`
                 }
-                return `api/projects/${currentProjectId}/${resource}s/${resource_id}/access_controls`
+                // Resources whose API route doesn't match the naive `${resource}s` pluralization
+                const resourceToRoute: Partial<Record<APIScopeObject, string>> = {
+                    warehouse_view: 'warehouse_saved_queries',
+                    early_access_feature: 'early_access_feature',
+                }
+                const route = resourceToRoute[resource] ?? `${resource}s`
+                return `api/projects/${currentProjectId}/${route}/${resource_id}/access_controls`
             },
         ],
 

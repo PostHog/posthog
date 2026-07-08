@@ -38,7 +38,7 @@ export function LegacyVariantTag({
 
     const variantColor = experiment.feature_flag?.filters.multivariate?.variants
         ? getVariantColor(variantKey, experiment.feature_flag?.filters.multivariate?.variants)
-        : 'var(--text-muted)'
+        : 'var(--muted)'
 
     if (experiment.holdout && variantKey === `holdout-${experiment.holdout_id}`) {
         return (

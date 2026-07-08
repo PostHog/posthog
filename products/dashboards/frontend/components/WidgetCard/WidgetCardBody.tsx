@@ -1,11 +1,15 @@
 import clsx from 'clsx'
 import React from 'react'
 
+import * as chartHogPng from '@posthog/brand/hoggies/png/chart-hog'
 import { IconLock } from '@posthog/icons'
 import { LemonSkeleton } from '@posthog/lemon-ui'
 
+import { pngHoggie } from 'lib/brand/hoggies'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { cn } from 'lib/utils/css-classes'
+
+const HedgehogChartHog = pngHoggie(chartHogPng)
 
 export type WidgetCardBodyProps = React.HTMLAttributes<HTMLDivElement> & {
     locked?: boolean
@@ -84,7 +88,7 @@ export function WidgetCardBody({
     )
 }
 
-/** Passes flex height from the card shell into widget body content. Scroll lives in `WidgetCardContent`. */
+/** Passes flex height from the card shell into widget body content. */
 function WidgetCardBodySlot({ children }: { children: React.ReactNode }): JSX.Element {
     return <div className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden">{children}</div>
 }
@@ -193,20 +197,111 @@ export function WidgetLoadingState({ children, rowCount, className }: WidgetLoad
 
 type WidgetCardContentProps = {
     children: React.ReactNode
-    footer?: React.ReactNode
     className?: string
 }
 
-/** Scrollable widget body — use for all tile content (lists, setup prompts, empty states). */
-export function WidgetCardContent({ children, footer, className }: WidgetCardContentProps): JSX.Element {
+/** Scrollable widget body — compose with optional `WidgetContentFooter` as a sibling. */
+export function WidgetCardContent({ children, className }: WidgetCardContentProps): JSX.Element {
     return (
-        <div data-slot="widget-card-content" className={clsx('flex min-h-0 min-w-0 flex-1 flex-col gap-2', className)}>
-            <div className="min-h-0 min-w-0 flex-1 overflow-auto">{children}</div>
-            {footer ? (
-                <div className="flex shrink-0 justify-center pt-0.5" data-slot="widget-card-content-footer">
-                    {footer}
-                </div>
-            ) : null}
+        <div
+            data-slot="widget-card-content"
+            className={clsx('min-h-0 min-w-0 flex-1 overflow-y-auto overflow-x-hidden', className)}
+        >
+            {children}
         </div>
+    )
+}
+
+type WidgetContentFooterProps = {
+    children: React.ReactNode
+    className?: string
+}
+
+/** Pinned footer slot for list widgets — sibling of `WidgetCardContent`. */
+export function WidgetContentFooter({ children, className }: WidgetContentFooterProps): JSX.Element {
+    return (
+        <div data-slot="widget-card-content-footer" className={cn('flex shrink-0 justify-center pt-0.5', className)}>
+            {children}
+        </div>
+    )
+}
+
+export type WidgetListCountNoun = {
+    singular: string
+    plural: string
+}
+
+export const WIDGET_LIST_COUNT_EVENTS: WidgetListCountNoun = { singular: 'event', plural: 'events' }
+export const WIDGET_LIST_COUNT_ISSUES: WidgetListCountNoun = { singular: 'issue', plural: 'issues' }
+export const WIDGET_LIST_COUNT_RECORDINGS: WidgetListCountNoun = { singular: 'recording', plural: 'recordings' }
+export const WIDGET_LIST_COUNT_EXPERIMENTS: WidgetListCountNoun = { singular: 'experiment', plural: 'experiments' }
+export const WIDGET_LIST_COUNT_LOGS: WidgetListCountNoun = { singular: 'log line', plural: 'log lines' }
+
+export function formatWidgetListCountFooter(
+    shown: number,
+    totalCount: number | undefined,
+    totalCountIsLowerBound?: boolean,
+    noun: WidgetListCountNoun = WIDGET_LIST_COUNT_ISSUES,
+    hasMore?: boolean
+): string {
+    const label = shown === 1 && totalCount === 1 && !totalCountIsLowerBound ? noun.singular : noun.plural
+
+    if (totalCount === undefined) {
+        if (hasMore && shown > 0) {
+            return `${shown}+ ${shown === 1 ? noun.singular : noun.plural}`
+        }
+        return `${shown} ${shown === 1 ? noun.singular : noun.plural}`
+    }
+
+    const totalLabel = totalCountIsLowerBound ? `${totalCount}+` : String(totalCount)
+    return `${shown} of ${totalLabel} ${label}`
+}
+
+type WidgetListCountProps = {
+    shown: number
+    totalCount?: number
+    totalCountIsLowerBound?: boolean
+    noun?: WidgetListCountNoun
+    hasMore?: boolean
+    dataAttr: string
+}
+
+export function WidgetListCount({
+    shown,
+    totalCount,
+    totalCountIsLowerBound,
+    noun = WIDGET_LIST_COUNT_ISSUES,
+    hasMore,
+    dataAttr,
+}: WidgetListCountProps): JSX.Element {
+    return (
+        <p className="text-xs text-muted m-0 text-center" data-attr={dataAttr}>
+            {formatWidgetListCountFooter(shown, totalCount, totalCountIsLowerBound, noun, hasMore)}
+        </p>
+    )
+}
+
+export type WidgetCardSharedPlaceholderCopy = {
+    title: string
+    message: string
+}
+
+/** Shared/public dashboard placeholder when live widget data is not loaded. */
+export function WidgetCardSharedPlaceholderBody({ copy }: { copy: WidgetCardSharedPlaceholderCopy }): JSX.Element {
+    return (
+        <WidgetCardBody>
+            <WidgetCardContent>
+                <WidgetCardBodyMessage>
+                    <div
+                        className="flex max-w-xs flex-col items-center gap-2 px-2 text-balance"
+                        data-attr="shared-dashboard-widget-placeholder"
+                    >
+                        <HedgehogChartHog className="size-20 shrink-0" />
+                        <p className="m-0 text-base font-semibold text-primary">{copy.title}</p>
+                        <p className="m-0 text-sm text-muted">{copy.message}</p>
+                    </div>
+                </WidgetCardBodyMessage>
+            </WidgetCardContent>
+        </WidgetCardBody>
     )
 }

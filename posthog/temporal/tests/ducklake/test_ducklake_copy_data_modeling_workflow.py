@@ -25,13 +25,13 @@ from posthog.temporal.ducklake.ducklake_copy_data_modeling_workflow import (
 )
 from posthog.temporal.ducklake.types import DataModelingDuckLakeCopyInputs, DuckLakeCopyModelInput
 
-from products.data_modeling.backend.models.datawarehouse_saved_query import DataWarehouseSavedQuery
+from products.data_modeling.backend.facade.models import DataWarehouseSavedQuery
 
 
-def _create_mock_catalog():
-    """Create a mock DuckLakeCatalog with cross-account settings."""
-    mock_catalog = MagicMock()
-    mock_catalog.to_public_config.return_value = {
+def _create_mock_server():
+    """Create a mock DuckgresServer (catalog connection config + bucket)."""
+    mock_server = MagicMock()
+    mock_server.to_catalog_public_config.return_value = {
         "DUCKLAKE_RDS_HOST": "localhost",
         "DUCKLAKE_RDS_PORT": "5432",
         "DUCKLAKE_RDS_DATABASE": "ducklake",
@@ -42,14 +42,9 @@ def _create_mock_catalog():
         "DUCKLAKE_S3_ACCESS_KEY": "",
         "DUCKLAKE_S3_SECRET_KEY": "",
     }
-    mock_catalog.bucket = "test-bucket"
-    mock_catalog.cross_account_role_arn = "arn:aws:iam::123456789012:role/test-role"
-    mock_catalog.cross_account_external_id = "external-id-123"
-    mock_cross_account_dest = MagicMock()
-    mock_cross_account_dest.role_arn = "arn:aws:iam::123456789012:role/test-role"
-    mock_cross_account_dest.bucket_name = "test-bucket"
-    mock_catalog.to_cross_account_destination.return_value = mock_cross_account_dest
-    return mock_catalog
+    mock_server.catalog_password = "password"
+    mock_server.bucket = "test-bucket"
+    return mock_server
 
 
 @pytest.mark.asyncio
@@ -208,13 +203,8 @@ def test_copy_data_modeling_model_to_ducklake_activity_via_duckgres(monkeypatch)
         MagicMock(return_value="org-123"),
     )
     monkeypatch.setattr(
-        "posthog.temporal.ducklake.ducklake_copy_data_modeling_workflow.get_ducklake_catalog_for_organization",
-        MagicMock(return_value=_create_mock_catalog()),
-    )
-    mock_server = MagicMock()
-    monkeypatch.setattr(
         "posthog.temporal.ducklake.ducklake_copy_data_modeling_workflow.get_duckgres_server_for_organization",
-        MagicMock(return_value=mock_server),
+        MagicMock(return_value=_create_mock_server()),
     )
     mock_stage = MagicMock()
     monkeypatch.setattr(
@@ -248,8 +238,6 @@ def test_copy_data_modeling_model_to_ducklake_activity_via_duckgres(monkeypatch)
     mock_stage.assert_called_once_with(
         source_uri="s3://source/table",
         catalog_bucket="test-bucket",
-        role_arn="arn:aws:iam::123456789012:role/test-role",
-        external_id="external-id-123",
         organization_id="org-123",
     )
     execute_calls = mock_conn.execute.call_args_list
@@ -307,11 +295,11 @@ def test_verify_ducklake_copy_activity_runs_queries(monkeypatch):
         MagicMock(return_value=False),
     )
     monkeypatch.setattr(
-        "posthog.temporal.ducklake.ducklake_copy_data_modeling_workflow.get_ducklake_catalog_by_team_org",
-        MagicMock(return_value=_create_mock_catalog()),
+        "posthog.temporal.ducklake.ducklake_copy_data_modeling_workflow.get_duckgres_server_by_team_org",
+        MagicMock(return_value=_create_mock_server()),
     )
     monkeypatch.setattr(
-        "posthog.temporal.ducklake.ducklake_copy_data_modeling_workflow.configure_cross_account_connection",
+        "posthog.temporal.ducklake.ducklake_copy_data_modeling_workflow.configure_connection",
         MagicMock(),
     )
 
@@ -369,8 +357,8 @@ async def test_ducklake_copy_workflow_skips_when_feature_flag_disabled(monkeypat
         call_counts["copy"] += 1
 
     monkeypatch.setattr(
-        ducklake_module.posthoganalytics,
-        "feature_enabled",
+        ducklake_module,
+        "feature_enabled_or_false",
         lambda *args, **kwargs: False,
     )
     monkeypatch.setattr(ducklake_module, "prepare_data_modeling_ducklake_metadata_activity", metadata_stub)
@@ -456,11 +444,11 @@ def test_verify_ducklake_copy_activity_reports_failures(monkeypatch):
         MagicMock(return_value=False),
     )
     monkeypatch.setattr(
-        "posthog.temporal.ducklake.ducklake_copy_data_modeling_workflow.get_ducklake_catalog_by_team_org",
-        MagicMock(return_value=_create_mock_catalog()),
+        "posthog.temporal.ducklake.ducklake_copy_data_modeling_workflow.get_duckgres_server_by_team_org",
+        MagicMock(return_value=_create_mock_server()),
     )
     monkeypatch.setattr(
-        "posthog.temporal.ducklake.ducklake_copy_data_modeling_workflow.configure_cross_account_connection",
+        "posthog.temporal.ducklake.ducklake_copy_data_modeling_workflow.configure_connection",
         MagicMock(),
     )
 
@@ -612,11 +600,11 @@ def test_verify_ducklake_copy_activity_respects_tolerance(monkeypatch, observed,
         MagicMock(return_value=False),
     )
     monkeypatch.setattr(
-        "posthog.temporal.ducklake.ducklake_copy_data_modeling_workflow.get_ducklake_catalog_by_team_org",
-        MagicMock(return_value=_create_mock_catalog()),
+        "posthog.temporal.ducklake.ducklake_copy_data_modeling_workflow.get_duckgres_server_by_team_org",
+        MagicMock(return_value=_create_mock_server()),
     )
     monkeypatch.setattr(
-        "posthog.temporal.ducklake.ducklake_copy_data_modeling_workflow.configure_cross_account_connection",
+        "posthog.temporal.ducklake.ducklake_copy_data_modeling_workflow.configure_connection",
         MagicMock(),
     )
 
@@ -693,11 +681,11 @@ def test_verify_ducklake_copy_activity_includes_additional_checks(monkeypatch):
         MagicMock(return_value=False),
     )
     monkeypatch.setattr(
-        "posthog.temporal.ducklake.ducklake_copy_data_modeling_workflow.get_ducklake_catalog_by_team_org",
-        MagicMock(return_value=_create_mock_catalog()),
+        "posthog.temporal.ducklake.ducklake_copy_data_modeling_workflow.get_duckgres_server_by_team_org",
+        MagicMock(return_value=_create_mock_server()),
     )
     monkeypatch.setattr(
-        "posthog.temporal.ducklake.ducklake_copy_data_modeling_workflow.configure_cross_account_connection",
+        "posthog.temporal.ducklake.ducklake_copy_data_modeling_workflow.configure_connection",
         MagicMock(),
     )
 
@@ -752,7 +740,7 @@ def test_copy_data_modeling_model_to_ducklake_activity_raises_when_no_catalog(mo
         MagicMock(return_value="org-123"),
     )
     monkeypatch.setattr(
-        "posthog.temporal.ducklake.ducklake_copy_data_modeling_workflow.get_ducklake_catalog_for_organization",
+        "posthog.temporal.ducklake.ducklake_copy_data_modeling_workflow.get_duckgres_server_for_organization",
         MagicMock(return_value=None),
     )
 
@@ -772,12 +760,12 @@ def test_copy_data_modeling_model_to_ducklake_activity_raises_when_no_catalog(mo
     with pytest.raises(ApplicationError) as exc_info:
         copy_data_modeling_model_to_ducklake_activity(inputs)
 
-    assert "No DuckLakeCatalog configured for team 1" in str(exc_info.value)
+    assert "No DuckgresServer configured for team 1" in str(exc_info.value)
     assert exc_info.value.non_retryable is True
 
 
 def test_verify_ducklake_copy_activity_raises_when_no_catalog(monkeypatch):
-    """Test that verify activity raises ApplicationError when no DuckLakeCatalog is configured."""
+    """Test that verify activity raises ApplicationError when no DuckgresServer is configured."""
     from temporalio.exceptions import ApplicationError
 
     mock_heartbeater = MagicMock()
@@ -793,7 +781,7 @@ def test_verify_ducklake_copy_activity_raises_when_no_catalog(monkeypatch):
         MagicMock(return_value=False),
     )
     monkeypatch.setattr(
-        "posthog.temporal.ducklake.ducklake_copy_data_modeling_workflow.get_ducklake_catalog_by_team_org",
+        "posthog.temporal.ducklake.ducklake_copy_data_modeling_workflow.get_duckgres_server_by_team_org",
         MagicMock(return_value=None),
     )
 
@@ -821,7 +809,7 @@ def test_verify_ducklake_copy_activity_raises_when_no_catalog(monkeypatch):
     with pytest.raises(ApplicationError) as exc_info:
         verify_ducklake_copy_activity(inputs)
 
-    assert "No DuckLakeCatalog configured for team 42" in str(exc_info.value)
+    assert "No DuckgresServer configured for team 42" in str(exc_info.value)
     assert exc_info.value.non_retryable is True
 
 
@@ -855,8 +843,8 @@ async def test_ducklake_copy_workflow_runs_when_feature_flag_enabled(monkeypatch
         return []
 
     monkeypatch.setattr(
-        ducklake_module.posthoganalytics,
-        "feature_enabled",
+        ducklake_module,
+        "feature_enabled_or_false",
         lambda *args, **kwargs: True,
     )
 
@@ -938,8 +926,8 @@ async def test_ducklake_copy_workflow_calls_cleanup_after_verify(monkeypatch, at
         call_counts["cleanup"] += 1
 
     monkeypatch.setattr(
-        ducklake_module.posthoganalytics,
-        "feature_enabled",
+        ducklake_module,
+        "feature_enabled_or_false",
         lambda *args, **kwargs: True,
     )
     monkeypatch.setattr(ducklake_module, "prepare_data_modeling_ducklake_metadata_activity", metadata_stub)

@@ -44,6 +44,12 @@ class Command(BaseCommand):
             help="Comma-separated team IDs to filter orphans by (uses search attributes if available, falls back to describe)",
         )
         parser.add_argument(
+            "--start-after-schedule-id",
+            default=None,
+            type=str,
+            help="Resume after this schedule ID (exclusive), following the sorted schedule ID ordering used by this command",
+        )
+        parser.add_argument(
             "--dry-run",
             action="store_true",
             default=False,
@@ -88,6 +94,10 @@ class Command(BaseCommand):
             # Pass team_ids to use search attribute filtering in the listing query
             orphans = await self._find_orphans_from_listing(temporal, team_ids=team_ids)
 
+        start_after_schedule_id = options.get("start_after_schedule_id")
+        if start_after_schedule_id:
+            orphans = {sid for sid in orphans if sid > start_after_schedule_id}
+
         if not orphans:
             logger.info("No orphaned schedules found")
             return
@@ -120,6 +130,11 @@ class Command(BaseCommand):
         valid_uuids: set[str] = set()
 
         for sid in target_ids:
+            if ":" in sid:
+                # "{dag_id}:{interval_seconds}" is a v2 cadence-tier execute-dag schedule,
+                # not a saved-query schedule — never sweep it as an orphan.
+                logger.warning("v2 cadence-tier schedule id, skipping", schedule_id=sid)
+                continue
             try:
                 UUID(sid)
                 valid_uuids.add(sid)
@@ -188,7 +203,7 @@ class Command(BaseCommand):
 
         from posthog.temporal.common.codec import EncryptionCodec
 
-        codec = EncryptionCodec(settings=settings)
+        codec = EncryptionCodec.from_settings(settings=settings)
         payload_converter = temporalio.converter.default().payload_converter
         semaphore = asyncio.Semaphore(concurrency)
         results: dict[str, int | None] = {}

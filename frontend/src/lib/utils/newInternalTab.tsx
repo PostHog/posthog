@@ -1,4 +1,4 @@
-import { addProjectIdIfMissing } from 'lib/utils/router-utils'
+import { addProjectIdIfMissing } from 'lib/utils/kea-router'
 
 export const NEW_INTERNAL_TAB = 'NEW_INTERNAL_TAB'
 

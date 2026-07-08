@@ -12,14 +12,12 @@ use personhog_coordination::coordinator::{Coordinator, CoordinatorConfig};
 use personhog_coordination::routing_table::{RoutingTable, RoutingTableConfig, StashHandler};
 use personhog_coordination::store::PersonhogStore;
 use personhog_coordination::strategy::StickyBalancedStrategy;
-use personhog_proto::personhog::service::v1::person_hog_service_server::PersonHogServiceServer;
+use personhog_router::backend::discovery::{EndpointConfig, EndpointDiscovery};
 use personhog_router::backend::{
-    LeaderBackend, LeaderBackendConfig, ReplicaBackend, ReplicaBackendConfig, StashTable,
+    LeaderBackend, LeaderBackendConfig, ReplicaBackend, ReplicaDnsConfig, StashTable,
 };
-use personhog_router::config::{Config, ProxyMode, RouterMode};
+use personhog_router::config::{Config, ReplicaDiscoveryMode, RouterMode};
 use personhog_router::proxy::RawProxyService;
-use personhog_router::router::PersonHogRouter;
-use personhog_router::service::PersonHogRouterService;
 use personhog_router::stash_handler::RouterStashHandler;
 use tokio_util::sync::CancellationToken;
 use tonic::transport::Server;
@@ -56,14 +54,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     tracing::info!("Starting personhog-router service");
     tracing::info!("Router mode: {}", config.router_mode);
-    tracing::info!("Proxy mode: {}", config.proxy_mode);
     tracing::info!("gRPC address: {}", config.grpc_address);
+    tracing::info!("Replica discovery mode: {}", config.replica_discovery_mode);
     tracing::info!("Replica URL: {}", config.replica_url);
-    tracing::info!(
-        "Replica channels: {} heavy, {} light",
-        config.replica_channels,
-        config.replica_light_channels
-    );
     tracing::info!("Backend timeout: {}ms", config.backend_timeout_ms);
     tracing::info!("Metrics port: {}", config.metrics_port);
     tracing::info!(
@@ -101,12 +94,73 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         (None, None)
     };
 
+    // Register discovery handle before monitor_background() consumes the manager
+    let discovery_handle = if config.replica_discovery_mode == ReplicaDiscoveryMode::K8s {
+        Some(manager.register(
+            "replica-discovery",
+            ComponentOptions::new().with_graceful_shutdown(Duration::from_secs(5)),
+        ))
+    } else {
+        None
+    };
+
     let readiness = manager.readiness_handler();
     let liveness = manager.liveness_handler();
 
     let monitor_guard = manager.monitor_background();
 
-    // Metrics/health HTTP server (observability handle — stays alive during standard drain)
+    // Create backend connection(s) to personhog-replica
+    let (replica_backend, discovery_readiness) = match config.replica_discovery_mode {
+        ReplicaDiscoveryMode::Dns => (
+            Arc::new(ReplicaBackend::new_dns(ReplicaDnsConfig {
+                url: config.replica_url.clone(),
+                timeout: config.backend_timeout(),
+                retry_config: config.retry_config(),
+                keepalive_interval: config.backend_keepalive_interval(),
+                keepalive_timeout: config.backend_keepalive_timeout(),
+                num_channels: config.replica_channels,
+            })),
+            None,
+        ),
+        ReplicaDiscoveryMode::K8s => {
+            let kube_client = kube::Client::try_default()
+                .await
+                .expect("failed to create K8s client for replica discovery");
+            let namespace = config
+                .resolve_replica_namespace()
+                .expect("failed to resolve replica service namespace");
+
+            let discovery_handle =
+                discovery_handle.expect("discovery handle must be registered in k8s mode");
+
+            let (channel, disc_readiness, discovery) = EndpointDiscovery::new(
+                kube_client,
+                namespace,
+                config.replica_service_name.clone(),
+                config.replica_port,
+                EndpointConfig {
+                    timeout: config.backend_timeout(),
+                    connect_timeout: config.backend_connect_timeout(),
+                    keepalive_interval: config.backend_keepalive_interval(),
+                    keepalive_timeout: config.backend_keepalive_timeout(),
+                },
+                discovery_handle.shutdown_token(),
+            );
+
+            tokio::spawn(async move {
+                let _guard = discovery_handle.process_scope();
+                discovery.run().await;
+            });
+
+            (
+                Arc::new(ReplicaBackend::new_k8s(channel, config.retry_config())),
+                Some(disc_readiness),
+            )
+        }
+    };
+
+    // Metrics/health HTTP server (spawned after backend creation so it can
+    // include discovery readiness in the health check)
     let metrics_port = config.metrics_port;
     tokio::spawn(async move {
         let _guard = metrics_handle.process_scope();
@@ -115,8 +169,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             1.0, 5.0, 10.0, 50.0, 100.0, 250.0, 500.0, 1000.0, 2000.0, 5000.0, 10000.0,
         ];
         const RESPONSE_SIZE_BUCKETS: &[f64] = &[
-            256.0, 1024.0, 4096.0, 16384.0, 65536.0, 262144.0, 1048576.0, 4194304.0, 16777216.0,
-            67108864.0,
+            256.0, 1024.0, 4096.0, 16384.0, 65536.0, 262144.0, 1048576.0, 4194304.0, 8388608.0,
+            16777216.0, 33554432.0, 67108864.0,
         ];
         let recorder_handle = PrometheusBuilder::new()
             .add_global_label("service", "personhog-router")
@@ -137,7 +191,15 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 "/_readiness",
                 get(move || {
                     let r = readiness.clone();
-                    async move { r.check().await }
+                    let dr = discovery_readiness.clone();
+                    async move {
+                        if let Some(ref dr) = dr {
+                            if !dr.is_ready() {
+                                return axum::http::StatusCode::SERVICE_UNAVAILABLE;
+                            }
+                        }
+                        r.check().await
+                    }
                 }),
             )
             .route("/_liveness", get(move || async move { liveness.check() }))
@@ -156,19 +218,6 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             .await
             .expect("Metrics server error");
     });
-
-    // Create backend connection(s) to personhog-replica
-    let replica_backend = Arc::new(ReplicaBackend::new(ReplicaBackendConfig {
-        url: config.replica_url.clone(),
-        timeout: config.backend_timeout(),
-        retry_config: config.retry_config(),
-        keepalive_interval: config.backend_keepalive_interval(),
-        keepalive_timeout: config.backend_keepalive_timeout(),
-        max_send_message_size: config.grpc_max_send_message_size,
-        max_recv_message_size: config.grpc_max_recv_message_size,
-        num_channels: config.replica_channels,
-        num_light_channels: config.replica_light_channels,
-    }));
 
     // In leader mode, wire up etcd coordination and the leader backend
     // for person writes / strong reads.
@@ -214,8 +263,6 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 num_partitions,
                 timeout: config.backend_timeout(),
                 retry_config: config.retry_config(),
-                max_send_message_size: config.grpc_max_send_message_size,
-                max_recv_message_size: config.grpc_max_recv_message_size,
             },
             StashTable::with_bounds(
                 config.stash_max_messages_per_partition,
@@ -274,6 +321,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 keepalive_interval: config.coordinator_keepalive_interval(),
                 election_retry_interval: config.coordinator_election_retry_interval(),
                 rebalance_debounce_interval: config.coordinator_rebalance_debounce_interval(),
+                reconcile_interval: config.coordinator_reconcile_interval(),
             },
             Arc::new(StickyBalancedStrategy),
             k8s_awareness,
@@ -297,9 +345,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let grpc_addr = config.grpc_address;
     let keepalive_interval = config.grpc_keepalive_interval();
     let keepalive_timeout = config.grpc_keepalive_timeout();
-    let max_send = config.grpc_max_send_message_size;
     let max_recv = config.grpc_max_recv_message_size;
-    let proxy_mode = config.proxy_mode;
     let retry_config = config.retry_config();
     tracing::info!("Starting gRPC server on {}", grpc_addr);
 
@@ -314,40 +360,20 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         };
         let incoming = tracked_tcp_incoming(listener);
 
-        let result = if proxy_mode == ProxyMode::Raw {
-            let proxy = RawProxyService::new(
-                replica_backend,
-                leader_backend,
-                retry_config,
-                max_recv,
-                config.response_size_warn_bytes,
-            );
-            Server::builder()
-                .http2_keepalive_interval(keepalive_interval)
-                .http2_keepalive_timeout(keepalive_timeout)
-                .layer(GrpcMetricsLayer::default())
-                .add_service(proxy)
-                .serve_with_incoming_shutdown(incoming, grpc_handle.shutdown_signal())
-                .await
-        } else {
-            let replica_dyn: Arc<dyn personhog_router::backend::PersonHogBackend> = replica_backend;
-            let mut router = PersonHogRouter::new(replica_dyn);
-            if let Some(leader) = leader_backend {
-                router = router.with_leader(leader);
-            }
-            let service = PersonHogRouterService::new(Arc::new(router));
-            Server::builder()
-                .http2_keepalive_interval(keepalive_interval)
-                .http2_keepalive_timeout(keepalive_timeout)
-                .layer(GrpcMetricsLayer::default())
-                .add_service(
-                    PersonHogServiceServer::new(service)
-                        .max_encoding_message_size(max_send)
-                        .max_decoding_message_size(max_recv),
-                )
-                .serve_with_incoming_shutdown(incoming, grpc_handle.shutdown_signal())
-                .await
-        };
+        let proxy = RawProxyService::new(
+            replica_backend,
+            leader_backend,
+            retry_config,
+            max_recv,
+            config.response_size_warn_bytes,
+        );
+        let result = Server::builder()
+            .http2_keepalive_interval(keepalive_interval)
+            .http2_keepalive_timeout(keepalive_timeout)
+            .layer(GrpcMetricsLayer::default())
+            .add_service(proxy)
+            .serve_with_incoming_shutdown(incoming, grpc_handle.shutdown_signal())
+            .await;
 
         if let Err(e) = result {
             grpc_handle.signal_failure(format!("gRPC server error: {e}"));

@@ -18,8 +18,8 @@ def get_mcp_analytics_default_template() -> DashboardTemplate:
                         "kind": "TrendsQuery",
                         "series": [
                             {
-                                "event": "mcp_initialize",
-                                "name": "mcp_initialize",
+                                "event": "$mcp_initialize",
+                                "name": "$mcp_initialize",
                                 "kind": "EventsNode",
                             }
                         ],
@@ -55,19 +55,19 @@ def get_mcp_analytics_default_template() -> DashboardTemplate:
                         "series": [
                             {
                                 "kind": "EventsNode",
-                                "event": "mcp_initialize",
-                                "name": "mcp_initialize",
+                                "event": "$mcp_initialize",
+                                "name": "$mcp_initialize",
                                 "custom_name": "users",
                                 "math": "hogql",
                                 "math_hogql": "count(DISTINCT person_id)",
                             },
                             {
                                 "kind": "EventsNode",
-                                "event": "mcp_initialize",
-                                "name": "mcp_initialize",
+                                "event": "$mcp_initialize",
+                                "name": "$mcp_initialize",
                                 "custom_name": "sessions",
                                 "math": "hogql",
-                                "math_hogql": "count(DISTINCT properties.$mcp_session_id)",
+                                "math_hogql": "count(DISTINCT properties.$session_id)",
                             },
                         ],
                         "trendsFilter": {},
@@ -94,8 +94,8 @@ def get_mcp_analytics_default_template() -> DashboardTemplate:
                         "series": [
                             {
                                 "kind": "EventsNode",
-                                "event": "mcp_tool_call",
-                                "name": "mcp_tool_call",
+                                "event": "$mcp_tool_call",
+                                "name": "$mcp_tool_call",
                                 "math": "total",
                             }
                         ],

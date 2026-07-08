@@ -1,4 +1,4 @@
-import { actions, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
+import { actions, afterMount, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 
 import { IconBell, IconClock, IconDownload, IconLeave, IconNotification } from '@posthog/icons'
@@ -6,11 +6,10 @@ import { IconBell, IconClock, IconDownload, IconLeave, IconNotification } from '
 import api from 'lib/api'
 import { commandLogic } from 'lib/components/Command/commandLogic'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { toSentenceCase } from 'lib/utils'
 import { GroupQueryResult, mapGroupQueryResponse } from 'lib/utils/groups'
+import { toSentenceCase } from 'lib/utils/strings'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { organizationIntegrationsLogic } from 'scenes/settings/organization/organizationIntegrationsLogic'
-import { matchesFlagDefinition } from 'scenes/settings/settingsLogic'
 import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
 
@@ -21,8 +20,8 @@ import { groupsModel } from '~/models/groupsModel'
 import { recentItemsModel } from '~/models/recentItemsModel'
 import { getTreeItemsMetadata, getTreeItemsNew, getTreeItemsProducts } from '~/products'
 import { FileSystemEntry, GroupsQueryResponse } from '~/queries/schema/schema-general'
-import { SETTINGS_MAP } from '~/scenes/settings/SettingsMap'
-import { Setting, SettingSectionId } from '~/scenes/settings/types'
+import { matchesFlagDefinition } from '~/scenes/settings/flagGating'
+import { Setting, SettingSection, SettingSectionId } from '~/scenes/settings/types'
 import { ActivityTab, FileSystemIconColor, GroupTypeIndex, PersonType, SearchResponse } from '~/types'
 
 import type { searchLogicType } from './searchLogicType'
@@ -30,6 +29,7 @@ import { filterSearchItems } from './utils'
 
 let cachedProductIconColorByType: Map<string, FileSystemIconColor> | null = null
 let cachedProductDisplayLabelByPath: Map<string, string> | null = null
+let cachedProductIconTypeByPath: Map<string, string> | null = null
 
 const getProductIconColorByType = (): Map<string, FileSystemIconColor> => {
     if (cachedProductIconColorByType === null) {
@@ -56,6 +56,19 @@ const getProductDisplayLabelByPath = (): Map<string, string> => {
     return cachedProductDisplayLabelByPath
 }
 
+const getProductIconTypeByPath = (): Map<string, string> => {
+    if (cachedProductIconTypeByPath === null) {
+        cachedProductIconTypeByPath = new Map()
+        for (const product of getTreeItemsProducts()) {
+            const iconType = product.type || product.iconType
+            if (iconType) {
+                cachedProductIconTypeByPath.set(product.path, iconType)
+            }
+        }
+    }
+    return cachedProductIconTypeByPath
+}
+
 const fileSystemEntryToSearchItem = (
     item: FileSystemEntry,
     overrides: { id: string; category: string; searchKeywords?: string[] }
@@ -63,13 +76,17 @@ const fileSystemEntryToSearchItem = (
     const name = splitPath(item.path).pop()
     const itemName = name ? unescapePath(name) : item.path
     const displayName = getProductDisplayLabelByPath().get(itemName)
-    const productIconColor = item.type ? getProductIconColorByType().get(item.type) : undefined
+    // Older starred shortcuts (e.g. Logs, Web analytics) were saved with a blank (empty-string)
+    // type because their product only defines `iconType`. The `||` (not `??`) is deliberate: an
+    // empty string must fall through to the product registry, keyed by name, so the icon resolves.
+    const itemType = item.type || getProductIconTypeByPath().get(itemName) || null
+    const productIconColor = itemType ? getProductIconColorByType().get(itemType) : undefined
     return {
         name: itemName,
         displayName,
         href: item.href || '#',
         lastViewedAt: item.last_viewed_at ?? null,
-        itemType: item.type ?? null,
+        itemType,
         record: { ...item, iconColor: productIconColor },
         ...overrides,
     }
@@ -114,6 +131,27 @@ const SEARCH_LIMIT = 5
 /** Safely extract a string — returns undefined for objects/arrays to avoid rendering [object Object]. */
 const safeString = (val: unknown): string | undefined => (typeof val === 'string' ? val : undefined)
 
+/**
+ * Lean projection of SETTINGS_MAP for search. The full map statically imports every
+ * settings component (the whole configuration UI graph), so it is loaded dynamically
+ * on mount and only the searchable metadata is kept.
+ */
+export interface SettingsSectionSummary {
+    id: SettingSection['id']
+    level: SettingSection['level']
+    titleString: string | null
+    hideFromNavigation?: boolean
+    flag?: SettingSection['flag']
+    to?: string
+    settings: {
+        id: string
+        hasTitle: boolean
+        titleString: string | null
+        descriptionString: string | null
+        keywords?: string[]
+    }[]
+}
+
 export const searchLogic = kea<searchLogicType>([
     path((logicKey) => ['lib', 'components', 'Search', 'searchLogic', logicKey]),
     props({} as SearchLogicProps),
@@ -140,6 +178,7 @@ export const searchLogic = kea<searchLogicType>([
     })),
     actions({
         setSearch: (search: string) => ({ search }),
+        setSettingsSections: (sections: SettingsSectionSummary[]) => ({ sections }),
     }),
     loaders(({ values }) => ({
         searchedRecents: [
@@ -274,6 +313,12 @@ export const searchLogic = kea<searchLogicType>([
                 loadUnifiedSearchResultsFailure: () => false,
             },
         ],
+        settingsSections: [
+            [] as SettingsSectionSummary[],
+            {
+                setSettingsSections: (_, { sections }) => sections,
+            },
+        ],
     }),
     selectors({
         isSearching: [
@@ -325,7 +370,7 @@ export const searchLogic = kea<searchLogicType>([
                     )
             },
         ],
-        appsItems: [
+        toolsItems: [
             (s) => [s.featureFlags, s.isDev, s.user, s.sceneLogViewsByRef],
             (featureFlags, isDev, user, sceneLogViewsByRef): SearchItem[] => {
                 const allProducts = getTreeItemsProducts()
@@ -346,7 +391,7 @@ export const searchLogic = kea<searchLogicType>([
                     id: `app-${product.path}`,
                     name: product.path,
                     displayName: product.displayLabel ?? product.path,
-                    category: 'apps',
+                    category: 'tools',
                     productCategory: product.category || null,
                     href: product.href || '#',
                     itemType: product.iconType || product.type || null,
@@ -362,7 +407,7 @@ export const searchLogic = kea<searchLogicType>([
                     id: 'app-activity',
                     name: 'Activity',
                     displayName: 'Activity',
-                    category: 'apps',
+                    category: 'tools',
                     productCategory: null,
                     href: urls.activity(ActivityTab.ExploreEvents),
                     icon: <IconClock />,
@@ -600,14 +645,14 @@ export const searchLogic = kea<searchLogicType>([
                     record: { type: 'pipeline_status', iconType: 'pipeline_status' },
                 },
                 {
-                    id: 'health-sdk-doctor',
-                    name: 'SDK doctor',
-                    displayName: 'SDK doctor',
+                    id: 'health-sdk-health',
+                    name: 'SDK health',
+                    displayName: 'SDK health',
                     category: 'health',
-                    href: urls.sdkDoctor(),
-                    itemType: 'sdk_doctor',
-                    lastViewedAt: sceneLogViewsByRef['SdkDoctor'] ?? null,
-                    record: { type: 'sdk_doctor', iconType: 'sdk_doctor' },
+                    href: urls.sdkHealth(),
+                    itemType: 'sdk_health',
+                    lastViewedAt: sceneLogViewsByRef['SdkHealth'] ?? null,
+                    record: { type: 'sdk_health', iconType: 'sdk_health' },
                 },
             ],
         ],
@@ -661,8 +706,8 @@ export const searchLogic = kea<searchLogicType>([
             ],
         ],
         settingsItems: [
-            (s) => [s.featureFlags, s.organizationIntegrations],
-            (featureFlags, organizationIntegrations): SearchItem[] => {
+            (s) => [s.featureFlags, s.organizationIntegrations, s.settingsSections],
+            (featureFlags, organizationIntegrations, settingsSections): SearchItem[] => {
                 const checkFlag = (flagKey: Pick<Setting, 'flag'>['flag']): boolean =>
                     matchesFlagDefinition(flagKey, featureFlags)
 
@@ -671,7 +716,7 @@ export const searchLogic = kea<searchLogicType>([
                 // Skip project-level sections as they are duplicates of environment sections
                 const seenSectionIds = new Set<string>()
 
-                for (const section of SETTINGS_MAP) {
+                for (const section of settingsSections) {
                     // Skip sections hidden from navigation (they are only accessible
                     // from their product's own configuration page)
                     if (section.hideFromNavigation) {
@@ -709,19 +754,16 @@ export const searchLogic = kea<searchLogicType>([
                     const levelPrefix = toSentenceCase(effectiveLevel)
 
                     const settings = section.settings
-                        .filter((setting) => !!setting.title)
+                        .filter((setting) => setting.hasTitle)
                         .flatMap((setting) => [
                             toSentenceCase(setting.id.replace(/[-]/g, ' ')),
-                            ...(typeof setting.title === 'string' ? [setting.title] : []),
-                            ...(typeof setting.description === 'string' ? [setting.description] : []),
+                            ...(setting.titleString ? [setting.titleString] : []),
+                            ...(setting.descriptionString ? [setting.descriptionString] : []),
                             ...(setting.keywords ?? []),
                         ])
 
                     // Create the display name for each settings section
-                    const displayName =
-                        typeof section.title === 'string'
-                            ? section.title
-                            : toSentenceCase(section.id.replace(/[-]/g, ' '))
+                    const displayName = section.titleString ?? toSentenceCase(section.id.replace(/[-]/g, ' '))
 
                     const displayNameSuffix =
                         displayName === 'General' || displayName === 'Danger zone' || displayName === 'Integrations'
@@ -856,7 +898,7 @@ export const searchLogic = kea<searchLogicType>([
                 recentsHasLoaded,
                 starredLoading: !shortcutDataHasLoaded,
                 starredHasLoaded: shortcutDataHasLoaded,
-                isAppsLoading: !sceneLogViewsHasLoaded,
+                isToolsLoading: !sceneLogViewsHasLoaded,
                 personSearchResultsLoading,
                 groupSearchResultsLoading,
                 playlistSearchResultsLoading,
@@ -866,7 +908,7 @@ export const searchLogic = kea<searchLogicType>([
             (s) => [
                 s.recentItems,
                 s.starredItems,
-                s.appsItems,
+                s.toolsItems,
                 s.dataManagementItems,
                 s.peopleItems,
                 s.healthItems,
@@ -883,7 +925,7 @@ export const searchLogic = kea<searchLogicType>([
             (
                 recentItems: SearchItem[],
                 starredItems: SearchItem[],
-                appsItems: SearchItem[],
+                toolsItems: SearchItem[],
                 dataManagementItems: SearchItem[],
                 peopleItems: SearchItem[],
                 healthItems: SearchItem[],
@@ -900,7 +942,7 @@ export const searchLogic = kea<searchLogicType>([
                     recentsHasLoaded: boolean
                     starredLoading: boolean
                     starredHasLoaded: boolean
-                    isAppsLoading: boolean
+                    isToolsLoading: boolean
                     personSearchResultsLoading: boolean
                     groupSearchResultsLoading: boolean
                     playlistSearchResultsLoading: boolean
@@ -913,7 +955,7 @@ export const searchLogic = kea<searchLogicType>([
                     recentsHasLoaded,
                     starredLoading,
                     starredHasLoaded,
-                    isAppsLoading,
+                    isToolsLoading,
                     personSearchResultsLoading,
                     groupSearchResultsLoading,
                     playlistSearchResultsLoading,
@@ -945,16 +987,16 @@ export const searchLogic = kea<searchLogicType>([
                     isLoading: isStarredLoading,
                 })
 
-                // Filter apps and data management by search
-                const filteredApps = filterBySearch(appsItems)
+                // Filter tools and data management by search
+                const filteredTools = filterBySearch(toolsItems)
                 const filteredDataManagement = filterBySearch(dataManagementItems)
 
-                // Show apps if not searching or has matching results
-                if (!hasSearch || filteredApps.length > 0) {
+                // Show tools if not searching or has matching results
+                if (!hasSearch || filteredTools.length > 0) {
                     categories.push({
-                        key: 'apps',
-                        items: isAppsLoading ? [] : filteredApps,
-                        isLoading: isAppsLoading,
+                        key: 'tools',
+                        items: isToolsLoading ? [] : filteredTools,
+                        isLoading: isToolsLoading,
                     })
                 }
 
@@ -962,8 +1004,8 @@ export const searchLogic = kea<searchLogicType>([
                 if (!hasSearch || filteredDataManagement.length > 0) {
                     categories.push({
                         key: 'data-management',
-                        items: isAppsLoading ? [] : filteredDataManagement,
-                        isLoading: isAppsLoading,
+                        items: isToolsLoading ? [] : filteredDataManagement,
+                        isLoading: isToolsLoading,
                     })
                 }
 
@@ -1127,4 +1169,31 @@ export const searchLogic = kea<searchLogicType>([
             }
         },
     })),
+    afterMount(({ actions }) => {
+        import('~/scenes/settings/SettingsMap')
+            .then(({ SETTINGS_MAP }) => {
+                actions.setSettingsSections(
+                    SETTINGS_MAP.map((section) => ({
+                        id: section.id,
+                        level: section.level,
+                        titleString: typeof section.title === 'string' ? section.title : null,
+                        hideFromNavigation: section.hideFromNavigation,
+                        flag: section.flag,
+                        to: section.to,
+                        settings: section.settings.map((setting) => ({
+                            id: setting.id,
+                            // A JSX-titled setting has no title string to search but must stay
+                            // findable via its id token — hasTitle preserves that distinction.
+                            hasTitle: !!setting.title,
+                            titleString: typeof setting.title === 'string' ? setting.title : null,
+                            descriptionString: typeof setting.description === 'string' ? setting.description : null,
+                            keywords: setting.keywords,
+                        })),
+                    }))
+                )
+            })
+            .catch((error) => {
+                console.error('Failed to load SETTINGS_MAP for settings search:', error)
+            })
+    }),
 ])

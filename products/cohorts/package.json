@@ -1,5 +1,8 @@
 {
     "name": "@posthog/products-cohorts",
+    "scripts": {
+        "backend:test": "pytest -c ../../pytest.ini --rootdir ../.. backend/ -v --tb=short"
+    },
     "dependencies": {
         "kea": "catalog:",
         "kea-loaders": "catalog:",
@@ -9,7 +12,7 @@
         "@storybook/react": "catalog:"
     },
     "peerDependencies": {
-        "@posthog/icons": "*",
+        "@posthog/icons": "catalog:",
         "@types/react": "*",
         "clsx": "*",
         "fuse.js": "*",

@@ -23,7 +23,7 @@ jobs:
             contents: read
             pull-requests: read
         timeout-minutes: 5
-        if: github.repository == 'PostHog/posthog' && github.event_name != 'merge_group'
+        if: github.repository_owner == 'PostHog' && github.event_name != 'merge_group'
         name: Determine need to run recording-rasterizer Docker build
         outputs:
             rasterizer_files: ${{ steps.filter.outputs.rasterizer_files }}
@@ -67,9 +67,9 @@ jobs:
         if: |
             (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && needs.changes.outputs.rasterizer_files == 'true') ||
             github.event_name == 'merge_group' ||
-            github.event_name == 'workflow_dispatch' ||
-            github.event_name == 'schedule' ||
-            (github.event_name == 'push' && github.ref == 'refs/heads/master' && needs.changes.outputs.rasterizer_files == 'true')
+            (github.event_name == 'workflow_dispatch' && github.repository_owner == 'PostHog' && vars.CD_DEPLOY_ENABLED == 'true') ||
+            (github.event_name == 'schedule' && github.repository_owner == 'PostHog' && vars.CD_DEPLOY_ENABLED == 'true') ||
+            (github.event_name == 'push' && github.ref == 'refs/heads/master' && needs.changes.outputs.rasterizer_files == 'true' && github.repository_owner == 'PostHog' && vars.CD_DEPLOY_ENABLED == 'true')
         runs-on: depot-ubuntu-latest
         timeout-minutes: 30
         permissions:
@@ -102,6 +102,8 @@ jobs:
                   github-token: ${{ secrets.GITHUB_TOKEN }}
                   dockerhub-username: ${{ secrets.DOCKERHUB_USER }}
                   dockerhub-password: ${{ secrets.DOCKERHUB_TOKEN }}
+                  # Prod deploys from private ECR; pause the public ghcr push during an embargo.
+                  push-to-ghcr: ${{ vars.PUBLIC_IMAGE_PUSH_PAUSED != 'true' }}
 
             - name: Build and push container image
               id: build
@@ -110,7 +112,7 @@ jobs:
                   context: .
                   buildx-fallback: false
                   project: '00mrvlsdvh'
-                  push: true
+                  push: ${{ github.event_name == 'pull_request' || github.event_name == 'merge_group' || vars.CD_DEPLOY_ENABLED == 'true' }}
                   file: Dockerfile.recording-rasterizer
                   tags: ${{ steps.docker-meta.outputs.tags }}
                   labels: ${{ steps.docker-meta.outputs.labels }}
@@ -157,7 +159,7 @@ jobs:
         runs-on: ubuntu-24.04
         timeout-minutes: 5
         needs: build
-        if: (github.event_name == 'push' && github.ref == 'refs/heads/master') || github.event_name == 'schedule'
+        if: github.repository_owner == 'PostHog' && vars.CD_DEPLOY_ENABLED == 'true' && ((github.event_name == 'push' && github.ref == 'refs/heads/master') || github.event_name == 'schedule')
         permissions:
             contents: read
         steps:

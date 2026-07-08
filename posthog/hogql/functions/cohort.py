@@ -5,13 +5,13 @@ from django.utils import timezone
 
 import posthoganalytics
 
-from posthog.schema import InlineCohortCalculation
-
 from posthog.hogql import ast
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.errors import QueryError
 from posthog.hogql.escape_sql import escape_clickhouse_string
 from posthog.hogql.parser import parse_expr
+
+from posthog.schema_enums import InlineCohortCalculation
 
 INLINE_COHORT_THRESHOLD_SECONDS = 10
 
@@ -41,7 +41,7 @@ def _is_inline_flag_enabled(context: HogQLContext) -> bool:
 
 
 def _is_cohort_fast_enough_to_inline(cohort_id: int) -> bool:
-    from posthog.models.cohort.calculation_history import CohortCalculationHistory
+    from products.cohorts.backend.models.calculation_history import CohortCalculationHistory
 
     seven_days_ago = timezone.now() - datetime.timedelta(days=7)
     recent_calcs = list(
@@ -72,7 +72,8 @@ def inline_cohort_query(
     context: HogQLContext,
 ) -> Optional[ast.SelectQuery | ast.SelectSetQuery]:
     from posthog.hogql_queries.hogql_cohort_query import HogQLCohortQuery
-    from posthog.models import Cohort
+
+    from products.cohorts.backend.models.cohort import Cohort
 
     if is_static:
         return None
@@ -114,7 +115,7 @@ def cohort_query_node(node: ast.Expr, context: HogQLContext) -> ast.Expr:
 
 
 def cohort(node: ast.Expr, args: list[ast.Expr], context: HogQLContext) -> ast.Expr:
-    from posthog.models import Cohort
+    from products.cohorts.backend.models.cohort import Cohort
 
     arg = args[0]
     if not isinstance(arg, ast.Constant):

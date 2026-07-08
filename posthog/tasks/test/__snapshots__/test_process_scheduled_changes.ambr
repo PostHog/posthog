@@ -103,6 +103,7 @@
          "posthog_organization"."is_ai_training_cta_shown",
          "posthog_organization"."enforce_2fa",
          "posthog_organization"."members_can_invite",
+         "posthog_organization"."members_can_create_projects",
          "posthog_organization"."members_can_use_personal_api_keys",
          "posthog_organization"."allow_publicly_shared_resources",
          "posthog_organization"."default_role_id",
@@ -271,41 +272,44 @@
 # ---
 # name: TestProcessScheduledChanges.test_schedule_feature_flag_multiple_changes.18
   '''
-  SELECT "posthog_experiment"."id",
-         "posthog_experiment"."name",
-         "posthog_experiment"."description",
-         "posthog_experiment"."team_id",
-         "posthog_experiment"."filters",
-         "posthog_experiment"."parameters",
-         "posthog_experiment"."secondary_metrics",
-         "posthog_experiment"."created_by_id",
-         "posthog_experiment"."feature_flag_id",
-         "posthog_experiment"."exposure_cohort_id",
-         "posthog_experiment"."holdout_id",
-         "posthog_experiment"."start_date",
-         "posthog_experiment"."end_date",
-         "posthog_experiment"."created_at",
-         "posthog_experiment"."updated_at",
-         "posthog_experiment"."archived",
-         "posthog_experiment"."deleted",
-         "posthog_experiment"."type",
-         "posthog_experiment"."variants",
-         "posthog_experiment"."exposure_criteria",
-         "posthog_experiment"."metrics",
-         "posthog_experiment"."metrics_secondary",
-         "posthog_experiment"."primary_metrics_ordered_uuids",
-         "posthog_experiment"."secondary_metrics_ordered_uuids",
-         "posthog_experiment"."stats_config",
-         "posthog_experiment"."scheduling_config",
-         "posthog_experiment"."only_count_matured_users",
-         "posthog_experiment"."status",
-         "posthog_experiment"."conclusion",
-         "posthog_experiment"."conclusion_comment"
-  FROM "posthog_experiment"
-  WHERE "posthog_experiment"."feature_flag_id" = 99999
+  SELECT "ee_featureflagroleaccess"."id",
+         "ee_featureflagroleaccess"."feature_flag_id",
+         "ee_featureflagroleaccess"."role_id",
+         "ee_featureflagroleaccess"."added_at",
+         "ee_featureflagroleaccess"."updated_at"
+  FROM "ee_featureflagroleaccess"
+  WHERE "ee_featureflagroleaccess"."feature_flag_id" = 99999
   '''
 # ---
 # name: TestProcessScheduledChanges.test_schedule_feature_flag_multiple_changes.19
+  '''
+  SELECT "ee_featureflagroleaccess"."id",
+         "ee_featureflagroleaccess"."feature_flag_id",
+         "ee_featureflagroleaccess"."role_id",
+         "ee_featureflagroleaccess"."added_at",
+         "ee_featureflagroleaccess"."updated_at"
+  FROM "ee_featureflagroleaccess"
+  WHERE "ee_featureflagroleaccess"."feature_flag_id" = 99999
+  '''
+# ---
+# name: TestProcessScheduledChanges.test_schedule_feature_flag_multiple_changes.2
+  '''
+  SELECT "posthog_organizationintegration"."id",
+         "posthog_organizationintegration"."organization_id",
+         "posthog_organizationintegration"."kind",
+         "posthog_organizationintegration"."integration_id",
+         "posthog_organizationintegration"."config",
+         "posthog_organizationintegration"."sensitive_config",
+         "posthog_organizationintegration"."created_by_id",
+         "posthog_organizationintegration"."created_at",
+         "posthog_organizationintegration"."updated_at"
+  FROM "posthog_organizationintegration"
+  WHERE ("posthog_organizationintegration"."kind" = 'vercel'
+         AND "posthog_organizationintegration"."organization_id" = '00000000-0000-0000-0000-000000000000'::uuid)
+  LIMIT 21
+  '''
+# ---
+# name: TestProcessScheduledChanges.test_schedule_feature_flag_multiple_changes.20
   '''
   SELECT "posthog_organization"."id",
          "posthog_organization"."name",
@@ -323,6 +327,7 @@
          "posthog_organization"."is_ai_training_cta_shown",
          "posthog_organization"."enforce_2fa",
          "posthog_organization"."members_can_invite",
+         "posthog_organization"."members_can_create_projects",
          "posthog_organization"."members_can_use_personal_api_keys",
          "posthog_organization"."allow_publicly_shared_resources",
          "posthog_organization"."default_role_id",
@@ -346,24 +351,7 @@
   LIMIT 21
   '''
 # ---
-# name: TestProcessScheduledChanges.test_schedule_feature_flag_multiple_changes.2
-  '''
-  SELECT "posthog_organizationintegration"."id",
-         "posthog_organizationintegration"."organization_id",
-         "posthog_organizationintegration"."kind",
-         "posthog_organizationintegration"."integration_id",
-         "posthog_organizationintegration"."config",
-         "posthog_organizationintegration"."sensitive_config",
-         "posthog_organizationintegration"."created_by_id",
-         "posthog_organizationintegration"."created_at",
-         "posthog_organizationintegration"."updated_at"
-  FROM "posthog_organizationintegration"
-  WHERE ("posthog_organizationintegration"."kind" = 'vercel'
-         AND "posthog_organizationintegration"."organization_id" = '00000000-0000-0000-0000-000000000000'::uuid)
-  LIMIT 21
-  '''
-# ---
-# name: TestProcessScheduledChanges.test_schedule_feature_flag_multiple_changes.20
+# name: TestProcessScheduledChanges.test_schedule_feature_flag_multiple_changes.21
   '''
   SELECT "posthog_team"."id",
          "posthog_team"."uuid",
@@ -381,6 +369,8 @@
          "posthog_team"."has_completed_onboarding_for",
          "posthog_team"."onboarding_tasks",
          "posthog_team"."ingested_event",
+         "posthog_team"."ingested_production_event",
+         "posthog_team"."ingested_production_event_last_checked_at",
          "posthog_team"."person_processing_opt_out",
          "posthog_team"."secret_api_token",
          "posthog_team"."secret_api_token_backup",
@@ -397,6 +387,7 @@
          "posthog_team"."session_recording_trigger_groups",
          "posthog_team"."session_replay_config",
          "posthog_team"."session_recording_retention_period",
+         "posthog_team"."event_retention_months",
          "posthog_team"."conversations_enabled",
          "posthog_team"."conversations_settings",
          "posthog_team"."proactive_tasks_enabled",
@@ -414,6 +405,7 @@
          "posthog_team"."logs_settings",
          "posthog_team"."llm_gateway_enabled_at",
          "posthog_team"."llm_gateway_revoked_at",
+         "posthog_team"."llm_gateway_overspend_allowance_usd",
          "posthog_team"."heatmaps_opt_in",
          "posthog_team"."receive_org_level_activity_logs",
          "posthog_team"."web_analytics_pre_aggregated_tables_enabled",
@@ -447,17 +439,9 @@
          "posthog_team"."modifiers",
          "posthog_team"."correlation_config",
          "posthog_team"."session_recording_retention_period_days",
-         "posthog_team"."plugins_opt_in",
-         "posthog_team"."opt_out_capture",
-         "posthog_team"."event_names",
-         "posthog_team"."event_names_with_usage",
-         "posthog_team"."event_properties",
-         "posthog_team"."event_properties_with_usage",
-         "posthog_team"."event_properties_numerical",
          "posthog_team"."external_data_workspace_id",
          "posthog_team"."external_data_workspace_last_synced_at",
          "posthog_team"."api_query_rate_limit",
-         "posthog_team"."revenue_tracking_config",
          "posthog_team"."drop_events_older_than",
          "posthog_team"."base_currency",
          "posthog_team"."experiment_recalculation_time",
@@ -469,7 +453,7 @@
   LIMIT 21
   '''
 # ---
-# name: TestProcessScheduledChanges.test_schedule_feature_flag_multiple_changes.21
+# name: TestProcessScheduledChanges.test_schedule_feature_flag_multiple_changes.22
   '''
   SELECT "posthog_featureflag"."id",
          "posthog_featureflag"."key",
@@ -481,6 +465,7 @@
          "posthog_featureflag"."updated_at",
          "posthog_featureflag"."deleted",
          "posthog_featureflag"."active",
+         "posthog_featureflag"."archived",
          "posthog_featureflag"."version",
          "posthog_featureflag"."last_modified_by_id",
          "posthog_featureflag"."rollback_conditions",
@@ -507,7 +492,7 @@
   LIMIT 21
   '''
 # ---
-# name: TestProcessScheduledChanges.test_schedule_feature_flag_multiple_changes.22
+# name: TestProcessScheduledChanges.test_schedule_feature_flag_multiple_changes.23
   '''
   SELECT "posthog_user"."id",
          "posthog_user"."password",
@@ -553,7 +538,7 @@
   LIMIT 21
   '''
 # ---
-# name: TestProcessScheduledChanges.test_schedule_feature_flag_multiple_changes.23
+# name: TestProcessScheduledChanges.test_schedule_feature_flag_multiple_changes.24
   '''
   SELECT "posthog_team"."id",
          "posthog_team"."uuid",
@@ -571,6 +556,8 @@
          "posthog_team"."has_completed_onboarding_for",
          "posthog_team"."onboarding_tasks",
          "posthog_team"."ingested_event",
+         "posthog_team"."ingested_production_event",
+         "posthog_team"."ingested_production_event_last_checked_at",
          "posthog_team"."person_processing_opt_out",
          "posthog_team"."secret_api_token",
          "posthog_team"."secret_api_token_backup",
@@ -587,6 +574,7 @@
          "posthog_team"."session_recording_trigger_groups",
          "posthog_team"."session_replay_config",
          "posthog_team"."session_recording_retention_period",
+         "posthog_team"."event_retention_months",
          "posthog_team"."conversations_enabled",
          "posthog_team"."conversations_settings",
          "posthog_team"."proactive_tasks_enabled",
@@ -604,6 +592,7 @@
          "posthog_team"."logs_settings",
          "posthog_team"."llm_gateway_enabled_at",
          "posthog_team"."llm_gateway_revoked_at",
+         "posthog_team"."llm_gateway_overspend_allowance_usd",
          "posthog_team"."heatmaps_opt_in",
          "posthog_team"."receive_org_level_activity_logs",
          "posthog_team"."web_analytics_pre_aggregated_tables_enabled",
@@ -637,17 +626,9 @@
          "posthog_team"."modifiers",
          "posthog_team"."correlation_config",
          "posthog_team"."session_recording_retention_period_days",
-         "posthog_team"."plugins_opt_in",
-         "posthog_team"."opt_out_capture",
-         "posthog_team"."event_names",
-         "posthog_team"."event_names_with_usage",
-         "posthog_team"."event_properties",
-         "posthog_team"."event_properties_with_usage",
-         "posthog_team"."event_properties_numerical",
          "posthog_team"."external_data_workspace_id",
          "posthog_team"."external_data_workspace_last_synced_at",
          "posthog_team"."api_query_rate_limit",
-         "posthog_team"."revenue_tracking_config",
          "posthog_team"."drop_events_older_than",
          "posthog_team"."base_currency",
          "posthog_team"."experiment_recalculation_time",
@@ -659,7 +640,7 @@
   LIMIT 21
   '''
 # ---
-# name: TestProcessScheduledChanges.test_schedule_feature_flag_multiple_changes.24
+# name: TestProcessScheduledChanges.test_schedule_feature_flag_multiple_changes.25
   '''
   SELECT "posthog_featureflag"."id",
          "posthog_featureflag"."key",
@@ -671,6 +652,7 @@
          "posthog_featureflag"."updated_at",
          "posthog_featureflag"."deleted",
          "posthog_featureflag"."active",
+         "posthog_featureflag"."archived",
          "posthog_featureflag"."version",
          "posthog_featureflag"."last_modified_by_id",
          "posthog_featureflag"."rollback_conditions",
@@ -690,7 +672,7 @@
   UPDATE
   '''
 # ---
-# name: TestProcessScheduledChanges.test_schedule_feature_flag_multiple_changes.25
+# name: TestProcessScheduledChanges.test_schedule_feature_flag_multiple_changes.26
   '''
   SELECT "posthog_featureflag"."id",
          "posthog_featureflag"."key",
@@ -702,6 +684,7 @@
          "posthog_featureflag"."updated_at",
          "posthog_featureflag"."deleted",
          "posthog_featureflag"."active",
+         "posthog_featureflag"."archived",
          "posthog_featureflag"."version",
          "posthog_featureflag"."last_modified_by_id",
          "posthog_featureflag"."rollback_conditions",
@@ -721,7 +704,7 @@
   LIMIT 1
   '''
 # ---
-# name: TestProcessScheduledChanges.test_schedule_feature_flag_multiple_changes.26
+# name: TestProcessScheduledChanges.test_schedule_feature_flag_multiple_changes.27
   '''
   SELECT "posthog_filesystem"."team_id",
          "posthog_filesystem"."id",
@@ -746,7 +729,7 @@
                   AND "posthog_filesystem"."shortcut" IS NOT NULL))
   '''
 # ---
-# name: TestProcessScheduledChanges.test_schedule_feature_flag_multiple_changes.27
+# name: TestProcessScheduledChanges.test_schedule_feature_flag_multiple_changes.28
   '''
   SELECT "posthog_filesystemshortcut"."id",
          "posthog_filesystemshortcut"."team_id",
@@ -769,7 +752,7 @@
                   AND "posthog_filesystemshortcut"."href" IS NOT NULL))
   '''
 # ---
-# name: TestProcessScheduledChanges.test_schedule_feature_flag_multiple_changes.28
+# name: TestProcessScheduledChanges.test_schedule_feature_flag_multiple_changes.29
   '''
   SELECT "posthog_integration"."id",
          "posthog_integration"."team_id",
@@ -785,47 +768,6 @@
   FROM "posthog_integration"
   WHERE ("posthog_integration"."kind" = 'vercel'
          AND "posthog_integration"."team_id" = 99999)
-  LIMIT 21
-  '''
-# ---
-# name: TestProcessScheduledChanges.test_schedule_feature_flag_multiple_changes.29
-  '''
-  SELECT "posthog_organization"."id",
-         "posthog_organization"."name",
-         "posthog_organization"."slug",
-         "posthog_organization"."logo_media_id",
-         "posthog_organization"."created_at",
-         "posthog_organization"."updated_at",
-         "posthog_organization"."is_active",
-         "posthog_organization"."is_not_active_reason",
-         "posthog_organization"."session_cookie_age",
-         "posthog_organization"."is_member_join_email_enabled",
-         "posthog_organization"."is_ai_data_processing_approved",
-         "posthog_organization"."is_ai_training_opted_in",
-         "posthog_organization"."is_ai_training_locked",
-         "posthog_organization"."is_ai_training_cta_shown",
-         "posthog_organization"."enforce_2fa",
-         "posthog_organization"."members_can_invite",
-         "posthog_organization"."members_can_use_personal_api_keys",
-         "posthog_organization"."allow_publicly_shared_resources",
-         "posthog_organization"."default_role_id",
-         "posthog_organization"."plugins_access_level",
-         "posthog_organization"."for_internal_metrics",
-         "posthog_organization"."default_experiment_stats_method",
-         "posthog_organization"."default_anonymize_ips",
-         "posthog_organization"."is_hipaa",
-         "posthog_organization"."is_pending_deletion",
-         "posthog_organization"."customer_id",
-         "posthog_organization"."available_product_features",
-         "posthog_organization"."usage",
-         "posthog_organization"."never_drop_data",
-         "posthog_organization"."customer_trust_scores",
-         "posthog_organization"."setup_section_2_completed",
-         "posthog_organization"."personalization",
-         "posthog_organization"."domain_whitelist",
-         "posthog_organization"."is_platform"
-  FROM "posthog_organization"
-  WHERE "posthog_organization"."id" = '00000000-0000-0000-0000-000000000000'::uuid
   LIMIT 21
   '''
 # ---
@@ -860,6 +802,48 @@
 # ---
 # name: TestProcessScheduledChanges.test_schedule_feature_flag_multiple_changes.30
   '''
+  SELECT "posthog_organization"."id",
+         "posthog_organization"."name",
+         "posthog_organization"."slug",
+         "posthog_organization"."logo_media_id",
+         "posthog_organization"."created_at",
+         "posthog_organization"."updated_at",
+         "posthog_organization"."is_active",
+         "posthog_organization"."is_not_active_reason",
+         "posthog_organization"."session_cookie_age",
+         "posthog_organization"."is_member_join_email_enabled",
+         "posthog_organization"."is_ai_data_processing_approved",
+         "posthog_organization"."is_ai_training_opted_in",
+         "posthog_organization"."is_ai_training_locked",
+         "posthog_organization"."is_ai_training_cta_shown",
+         "posthog_organization"."enforce_2fa",
+         "posthog_organization"."members_can_invite",
+         "posthog_organization"."members_can_create_projects",
+         "posthog_organization"."members_can_use_personal_api_keys",
+         "posthog_organization"."allow_publicly_shared_resources",
+         "posthog_organization"."default_role_id",
+         "posthog_organization"."plugins_access_level",
+         "posthog_organization"."for_internal_metrics",
+         "posthog_organization"."default_experiment_stats_method",
+         "posthog_organization"."default_anonymize_ips",
+         "posthog_organization"."is_hipaa",
+         "posthog_organization"."is_pending_deletion",
+         "posthog_organization"."customer_id",
+         "posthog_organization"."available_product_features",
+         "posthog_organization"."usage",
+         "posthog_organization"."never_drop_data",
+         "posthog_organization"."customer_trust_scores",
+         "posthog_organization"."setup_section_2_completed",
+         "posthog_organization"."personalization",
+         "posthog_organization"."domain_whitelist",
+         "posthog_organization"."is_platform"
+  FROM "posthog_organization"
+  WHERE "posthog_organization"."id" = '00000000-0000-0000-0000-000000000000'::uuid
+  LIMIT 21
+  '''
+# ---
+# name: TestProcessScheduledChanges.test_schedule_feature_flag_multiple_changes.31
+  '''
   SELECT "posthog_organizationintegration"."id",
          "posthog_organizationintegration"."organization_id",
          "posthog_organizationintegration"."kind",
@@ -873,24 +857,6 @@
   WHERE ("posthog_organizationintegration"."kind" = 'vercel'
          AND "posthog_organizationintegration"."organization_id" = '00000000-0000-0000-0000-000000000000'::uuid)
   LIMIT 21
-  '''
-# ---
-# name: TestProcessScheduledChanges.test_schedule_feature_flag_multiple_changes.31
-  '''
-  SELECT "posthog_taggeditem"."id",
-         "posthog_taggeditem"."tag_id",
-         "posthog_taggeditem"."dashboard_id",
-         "posthog_taggeditem"."insight_id",
-         "posthog_taggeditem"."event_definition_id",
-         "posthog_taggeditem"."property_definition_id",
-         "posthog_taggeditem"."action_id",
-         "posthog_taggeditem"."feature_flag_id",
-         "posthog_taggeditem"."experiment_saved_metric_id",
-         "posthog_taggeditem"."ticket_id",
-         "posthog_taggeditem"."account_id",
-         "posthog_taggeditem"."endpoint_id"
-  FROM "posthog_taggeditem"
-  WHERE "posthog_taggeditem"."feature_flag_id" = 99999
   '''
 # ---
 # name: TestProcessScheduledChanges.test_schedule_feature_flag_multiple_changes.32
@@ -913,47 +879,20 @@
 # ---
 # name: TestProcessScheduledChanges.test_schedule_feature_flag_multiple_changes.33
   '''
-  SELECT "posthog_survey"."id",
-         "posthog_survey"."team_id",
-         "posthog_survey"."name",
-         "posthog_survey"."description",
-         "posthog_survey"."linked_flag_id",
-         "posthog_survey"."targeting_flag_id",
-         "posthog_survey"."linked_insight_id",
-         "posthog_survey"."internal_targeting_flag_id",
-         "posthog_survey"."internal_response_sampling_flag_id",
-         "posthog_survey"."type",
-         "posthog_survey"."conditions",
-         "posthog_survey"."questions",
-         "posthog_survey"."appearance",
-         "posthog_survey"."created_at",
-         "posthog_survey"."created_by_id",
-         "posthog_survey"."start_date",
-         "posthog_survey"."end_date",
-         "posthog_survey"."updated_at",
-         "posthog_survey"."archived",
-         "posthog_survey"."responses_limit",
-         "posthog_survey"."response_sampling_start_date",
-         "posthog_survey"."response_sampling_interval_type",
-         "posthog_survey"."response_sampling_interval",
-         "posthog_survey"."response_sampling_limit",
-         "posthog_survey"."response_sampling_daily_limits",
-         "posthog_survey"."iteration_count",
-         "posthog_survey"."iteration_frequency_days",
-         "posthog_survey"."iteration_start_dates",
-         "posthog_survey"."current_iteration",
-         "posthog_survey"."current_iteration_start_date",
-         "posthog_survey"."schedule",
-         "posthog_survey"."enable_partial_responses",
-         "posthog_survey"."enable_iframe_embedding",
-         "posthog_survey"."headline_summary",
-         "posthog_survey"."headline_response_count",
-         "posthog_survey"."question_summaries",
-         "posthog_survey"."form_content",
-         "posthog_survey"."base_language",
-         "posthog_survey"."translations"
-  FROM "posthog_survey"
-  WHERE "posthog_survey"."internal_response_sampling_flag_id" = 99999
+  SELECT "posthog_taggeditem"."id",
+         "posthog_taggeditem"."tag_id",
+         "posthog_taggeditem"."dashboard_id",
+         "posthog_taggeditem"."insight_id",
+         "posthog_taggeditem"."event_definition_id",
+         "posthog_taggeditem"."property_definition_id",
+         "posthog_taggeditem"."action_id",
+         "posthog_taggeditem"."feature_flag_id",
+         "posthog_taggeditem"."experiment_saved_metric_id",
+         "posthog_taggeditem"."ticket_id",
+         "posthog_taggeditem"."account_id",
+         "posthog_taggeditem"."endpoint_id"
+  FROM "posthog_taggeditem"
+  WHERE "posthog_taggeditem"."feature_flag_id" = 99999
   '''
 # ---
 # name: TestProcessScheduledChanges.test_schedule_feature_flag_multiple_changes.34
@@ -1003,41 +942,72 @@
 # ---
 # name: TestProcessScheduledChanges.test_schedule_feature_flag_multiple_changes.35
   '''
-  SELECT "posthog_experiment"."id",
-         "posthog_experiment"."name",
-         "posthog_experiment"."description",
-         "posthog_experiment"."team_id",
-         "posthog_experiment"."filters",
-         "posthog_experiment"."parameters",
-         "posthog_experiment"."secondary_metrics",
-         "posthog_experiment"."created_by_id",
-         "posthog_experiment"."feature_flag_id",
-         "posthog_experiment"."exposure_cohort_id",
-         "posthog_experiment"."holdout_id",
-         "posthog_experiment"."start_date",
-         "posthog_experiment"."end_date",
-         "posthog_experiment"."created_at",
-         "posthog_experiment"."updated_at",
-         "posthog_experiment"."archived",
-         "posthog_experiment"."deleted",
-         "posthog_experiment"."type",
-         "posthog_experiment"."variants",
-         "posthog_experiment"."exposure_criteria",
-         "posthog_experiment"."metrics",
-         "posthog_experiment"."metrics_secondary",
-         "posthog_experiment"."primary_metrics_ordered_uuids",
-         "posthog_experiment"."secondary_metrics_ordered_uuids",
-         "posthog_experiment"."stats_config",
-         "posthog_experiment"."scheduling_config",
-         "posthog_experiment"."only_count_matured_users",
-         "posthog_experiment"."status",
-         "posthog_experiment"."conclusion",
-         "posthog_experiment"."conclusion_comment"
-  FROM "posthog_experiment"
-  WHERE "posthog_experiment"."feature_flag_id" = 99999
+  SELECT "posthog_survey"."id",
+         "posthog_survey"."team_id",
+         "posthog_survey"."name",
+         "posthog_survey"."description",
+         "posthog_survey"."linked_flag_id",
+         "posthog_survey"."targeting_flag_id",
+         "posthog_survey"."linked_insight_id",
+         "posthog_survey"."internal_targeting_flag_id",
+         "posthog_survey"."internal_response_sampling_flag_id",
+         "posthog_survey"."type",
+         "posthog_survey"."conditions",
+         "posthog_survey"."questions",
+         "posthog_survey"."appearance",
+         "posthog_survey"."created_at",
+         "posthog_survey"."created_by_id",
+         "posthog_survey"."start_date",
+         "posthog_survey"."end_date",
+         "posthog_survey"."updated_at",
+         "posthog_survey"."archived",
+         "posthog_survey"."responses_limit",
+         "posthog_survey"."response_sampling_start_date",
+         "posthog_survey"."response_sampling_interval_type",
+         "posthog_survey"."response_sampling_interval",
+         "posthog_survey"."response_sampling_limit",
+         "posthog_survey"."response_sampling_daily_limits",
+         "posthog_survey"."iteration_count",
+         "posthog_survey"."iteration_frequency_days",
+         "posthog_survey"."iteration_start_dates",
+         "posthog_survey"."current_iteration",
+         "posthog_survey"."current_iteration_start_date",
+         "posthog_survey"."schedule",
+         "posthog_survey"."enable_partial_responses",
+         "posthog_survey"."enable_iframe_embedding",
+         "posthog_survey"."headline_summary",
+         "posthog_survey"."headline_response_count",
+         "posthog_survey"."question_summaries",
+         "posthog_survey"."form_content",
+         "posthog_survey"."base_language",
+         "posthog_survey"."translations"
+  FROM "posthog_survey"
+  WHERE "posthog_survey"."internal_response_sampling_flag_id" = 99999
   '''
 # ---
 # name: TestProcessScheduledChanges.test_schedule_feature_flag_multiple_changes.36
+  '''
+  SELECT "ee_featureflagroleaccess"."id",
+         "ee_featureflagroleaccess"."feature_flag_id",
+         "ee_featureflagroleaccess"."role_id",
+         "ee_featureflagroleaccess"."added_at",
+         "ee_featureflagroleaccess"."updated_at"
+  FROM "ee_featureflagroleaccess"
+  WHERE "ee_featureflagroleaccess"."feature_flag_id" = 99999
+  '''
+# ---
+# name: TestProcessScheduledChanges.test_schedule_feature_flag_multiple_changes.37
+  '''
+  SELECT "ee_featureflagroleaccess"."id",
+         "ee_featureflagroleaccess"."feature_flag_id",
+         "ee_featureflagroleaccess"."role_id",
+         "ee_featureflagroleaccess"."added_at",
+         "ee_featureflagroleaccess"."updated_at"
+  FROM "ee_featureflagroleaccess"
+  WHERE "ee_featureflagroleaccess"."feature_flag_id" = 99999
+  '''
+# ---
+# name: TestProcessScheduledChanges.test_schedule_feature_flag_multiple_changes.38
   '''
   SELECT "posthog_organization"."id",
          "posthog_organization"."name",
@@ -1055,6 +1025,7 @@
          "posthog_organization"."is_ai_training_cta_shown",
          "posthog_organization"."enforce_2fa",
          "posthog_organization"."members_can_invite",
+         "posthog_organization"."members_can_create_projects",
          "posthog_organization"."members_can_use_personal_api_keys",
          "posthog_organization"."allow_publicly_shared_resources",
          "posthog_organization"."default_role_id",
@@ -1078,7 +1049,7 @@
   LIMIT 21
   '''
 # ---
-# name: TestProcessScheduledChanges.test_schedule_feature_flag_multiple_changes.37
+# name: TestProcessScheduledChanges.test_schedule_feature_flag_multiple_changes.39
   '''
   SELECT "posthog_team"."id",
          "posthog_team"."uuid",
@@ -1096,6 +1067,8 @@
          "posthog_team"."has_completed_onboarding_for",
          "posthog_team"."onboarding_tasks",
          "posthog_team"."ingested_event",
+         "posthog_team"."ingested_production_event",
+         "posthog_team"."ingested_production_event_last_checked_at",
          "posthog_team"."person_processing_opt_out",
          "posthog_team"."secret_api_token",
          "posthog_team"."secret_api_token_backup",
@@ -1112,6 +1085,7 @@
          "posthog_team"."session_recording_trigger_groups",
          "posthog_team"."session_replay_config",
          "posthog_team"."session_recording_retention_period",
+         "posthog_team"."event_retention_months",
          "posthog_team"."conversations_enabled",
          "posthog_team"."conversations_settings",
          "posthog_team"."proactive_tasks_enabled",
@@ -1129,6 +1103,7 @@
          "posthog_team"."logs_settings",
          "posthog_team"."llm_gateway_enabled_at",
          "posthog_team"."llm_gateway_revoked_at",
+         "posthog_team"."llm_gateway_overspend_allowance_usd",
          "posthog_team"."heatmaps_opt_in",
          "posthog_team"."receive_org_level_activity_logs",
          "posthog_team"."web_analytics_pre_aggregated_tables_enabled",
@@ -1162,17 +1137,9 @@
          "posthog_team"."modifiers",
          "posthog_team"."correlation_config",
          "posthog_team"."session_recording_retention_period_days",
-         "posthog_team"."plugins_opt_in",
-         "posthog_team"."opt_out_capture",
-         "posthog_team"."event_names",
-         "posthog_team"."event_names_with_usage",
-         "posthog_team"."event_properties",
-         "posthog_team"."event_properties_with_usage",
-         "posthog_team"."event_properties_numerical",
          "posthog_team"."external_data_workspace_id",
          "posthog_team"."external_data_workspace_last_synced_at",
          "posthog_team"."api_query_rate_limit",
-         "posthog_team"."revenue_tracking_config",
          "posthog_team"."drop_events_older_than",
          "posthog_team"."base_currency",
          "posthog_team"."experiment_recalculation_time",
@@ -1181,56 +1148,6 @@
          "posthog_team"."business_model"
   FROM "posthog_team"
   WHERE "posthog_team"."id" = 99999
-  LIMIT 21
-  '''
-# ---
-# name: TestProcessScheduledChanges.test_schedule_feature_flag_multiple_changes.38
-  '''
-  SELECT "posthog_scheduledchange"."id",
-         "posthog_scheduledchange"."record_id",
-         "posthog_scheduledchange"."model_name",
-         "posthog_scheduledchange"."payload",
-         "posthog_scheduledchange"."scheduled_at",
-         "posthog_scheduledchange"."executed_at",
-         "posthog_scheduledchange"."failure_reason",
-         "posthog_scheduledchange"."failure_count",
-         "posthog_scheduledchange"."is_recurring",
-         "posthog_scheduledchange"."recurrence_interval",
-         "posthog_scheduledchange"."last_executed_at",
-         "posthog_scheduledchange"."cron_expression",
-         "posthog_scheduledchange"."end_date",
-         "posthog_scheduledchange"."timezone",
-         "posthog_scheduledchange"."team_id",
-         "posthog_scheduledchange"."created_at",
-         "posthog_scheduledchange"."created_by_id",
-         "posthog_scheduledchange"."updated_at"
-  FROM "posthog_scheduledchange"
-  WHERE "posthog_scheduledchange"."id" = 99999
-  LIMIT 21
-  '''
-# ---
-# name: TestProcessScheduledChanges.test_schedule_feature_flag_multiple_changes.39
-  '''
-  SELECT "posthog_scheduledchange"."id",
-         "posthog_scheduledchange"."record_id",
-         "posthog_scheduledchange"."model_name",
-         "posthog_scheduledchange"."payload",
-         "posthog_scheduledchange"."scheduled_at",
-         "posthog_scheduledchange"."executed_at",
-         "posthog_scheduledchange"."failure_reason",
-         "posthog_scheduledchange"."failure_count",
-         "posthog_scheduledchange"."is_recurring",
-         "posthog_scheduledchange"."recurrence_interval",
-         "posthog_scheduledchange"."last_executed_at",
-         "posthog_scheduledchange"."cron_expression",
-         "posthog_scheduledchange"."end_date",
-         "posthog_scheduledchange"."timezone",
-         "posthog_scheduledchange"."team_id",
-         "posthog_scheduledchange"."created_at",
-         "posthog_scheduledchange"."created_by_id",
-         "posthog_scheduledchange"."updated_at"
-  FROM "posthog_scheduledchange"
-  WHERE "posthog_scheduledchange"."id" = 99999
   LIMIT 21
   '''
 # ---
@@ -1246,6 +1163,7 @@
          "posthog_featureflag"."updated_at",
          "posthog_featureflag"."deleted",
          "posthog_featureflag"."active",
+         "posthog_featureflag"."archived",
          "posthog_featureflag"."version",
          "posthog_featureflag"."last_modified_by_id",
          "posthog_featureflag"."rollback_conditions",
@@ -1324,6 +1242,56 @@
 # ---
 # name: TestProcessScheduledChanges.test_schedule_feature_flag_multiple_changes.42
   '''
+  SELECT "posthog_scheduledchange"."id",
+         "posthog_scheduledchange"."record_id",
+         "posthog_scheduledchange"."model_name",
+         "posthog_scheduledchange"."payload",
+         "posthog_scheduledchange"."scheduled_at",
+         "posthog_scheduledchange"."executed_at",
+         "posthog_scheduledchange"."failure_reason",
+         "posthog_scheduledchange"."failure_count",
+         "posthog_scheduledchange"."is_recurring",
+         "posthog_scheduledchange"."recurrence_interval",
+         "posthog_scheduledchange"."last_executed_at",
+         "posthog_scheduledchange"."cron_expression",
+         "posthog_scheduledchange"."end_date",
+         "posthog_scheduledchange"."timezone",
+         "posthog_scheduledchange"."team_id",
+         "posthog_scheduledchange"."created_at",
+         "posthog_scheduledchange"."created_by_id",
+         "posthog_scheduledchange"."updated_at"
+  FROM "posthog_scheduledchange"
+  WHERE "posthog_scheduledchange"."id" = 99999
+  LIMIT 21
+  '''
+# ---
+# name: TestProcessScheduledChanges.test_schedule_feature_flag_multiple_changes.43
+  '''
+  SELECT "posthog_scheduledchange"."id",
+         "posthog_scheduledchange"."record_id",
+         "posthog_scheduledchange"."model_name",
+         "posthog_scheduledchange"."payload",
+         "posthog_scheduledchange"."scheduled_at",
+         "posthog_scheduledchange"."executed_at",
+         "posthog_scheduledchange"."failure_reason",
+         "posthog_scheduledchange"."failure_count",
+         "posthog_scheduledchange"."is_recurring",
+         "posthog_scheduledchange"."recurrence_interval",
+         "posthog_scheduledchange"."last_executed_at",
+         "posthog_scheduledchange"."cron_expression",
+         "posthog_scheduledchange"."end_date",
+         "posthog_scheduledchange"."timezone",
+         "posthog_scheduledchange"."team_id",
+         "posthog_scheduledchange"."created_at",
+         "posthog_scheduledchange"."created_by_id",
+         "posthog_scheduledchange"."updated_at"
+  FROM "posthog_scheduledchange"
+  WHERE "posthog_scheduledchange"."id" = 99999
+  LIMIT 21
+  '''
+# ---
+# name: TestProcessScheduledChanges.test_schedule_feature_flag_multiple_changes.44
+  '''
   SELECT "posthog_featureflag"."id",
          "posthog_featureflag"."key",
          "posthog_featureflag"."name",
@@ -1334,6 +1302,7 @@
          "posthog_featureflag"."updated_at",
          "posthog_featureflag"."deleted",
          "posthog_featureflag"."active",
+         "posthog_featureflag"."archived",
          "posthog_featureflag"."version",
          "posthog_featureflag"."last_modified_by_id",
          "posthog_featureflag"."rollback_conditions",
@@ -1416,6 +1385,8 @@
          "posthog_team"."has_completed_onboarding_for",
          "posthog_team"."onboarding_tasks",
          "posthog_team"."ingested_event",
+         "posthog_team"."ingested_production_event",
+         "posthog_team"."ingested_production_event_last_checked_at",
          "posthog_team"."person_processing_opt_out",
          "posthog_team"."secret_api_token",
          "posthog_team"."secret_api_token_backup",
@@ -1432,6 +1403,7 @@
          "posthog_team"."session_recording_trigger_groups",
          "posthog_team"."session_replay_config",
          "posthog_team"."session_recording_retention_period",
+         "posthog_team"."event_retention_months",
          "posthog_team"."conversations_enabled",
          "posthog_team"."conversations_settings",
          "posthog_team"."proactive_tasks_enabled",
@@ -1449,6 +1421,7 @@
          "posthog_team"."logs_settings",
          "posthog_team"."llm_gateway_enabled_at",
          "posthog_team"."llm_gateway_revoked_at",
+         "posthog_team"."llm_gateway_overspend_allowance_usd",
          "posthog_team"."heatmaps_opt_in",
          "posthog_team"."receive_org_level_activity_logs",
          "posthog_team"."web_analytics_pre_aggregated_tables_enabled",
@@ -1482,17 +1455,9 @@
          "posthog_team"."modifiers",
          "posthog_team"."correlation_config",
          "posthog_team"."session_recording_retention_period_days",
-         "posthog_team"."plugins_opt_in",
-         "posthog_team"."opt_out_capture",
-         "posthog_team"."event_names",
-         "posthog_team"."event_names_with_usage",
-         "posthog_team"."event_properties",
-         "posthog_team"."event_properties_with_usage",
-         "posthog_team"."event_properties_numerical",
          "posthog_team"."external_data_workspace_id",
          "posthog_team"."external_data_workspace_last_synced_at",
          "posthog_team"."api_query_rate_limit",
-         "posthog_team"."revenue_tracking_config",
          "posthog_team"."drop_events_older_than",
          "posthog_team"."base_currency",
          "posthog_team"."experiment_recalculation_time",
@@ -1516,6 +1481,7 @@
          "posthog_featureflag"."updated_at",
          "posthog_featureflag"."deleted",
          "posthog_featureflag"."active",
+         "posthog_featureflag"."archived",
          "posthog_featureflag"."version",
          "posthog_featureflag"."last_modified_by_id",
          "posthog_featureflag"."rollback_conditions",
@@ -1547,6 +1513,7 @@
          "posthog_featureflag"."updated_at",
          "posthog_featureflag"."deleted",
          "posthog_featureflag"."active",
+         "posthog_featureflag"."archived",
          "posthog_featureflag"."version",
          "posthog_featureflag"."last_modified_by_id",
          "posthog_featureflag"."rollback_conditions",

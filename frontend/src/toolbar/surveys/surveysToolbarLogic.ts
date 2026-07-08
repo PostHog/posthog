@@ -2,11 +2,12 @@ import { actions, kea, listeners, path, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
-import { urls } from 'scenes/urls'
 
 import { toolbarLogic } from '~/toolbar/bar/toolbarLogic'
-import { toolbarConfigLogic, toolbarFetch } from '~/toolbar/toolbarConfigLogic'
+import { toolbarApi } from '~/toolbar/toolbarApi'
+import { toolbarConfigLogic } from '~/toolbar/toolbarConfigLogic'
 import { toolbarPosthogJS } from '~/toolbar/toolbarPosthogJS'
+import { urls } from '~/toolbar/urls'
 import { joinWithUiHost } from '~/toolbar/utils'
 import {
     Survey,
@@ -329,46 +330,15 @@ async function patchAndRefreshSurvey(
     payload: Record<string, unknown>,
     successMessage: string
 ): Promise<boolean> {
-    try {
-        const response = await toolbarFetch(`/api/projects/@current/surveys/${surveyId}/`, 'PATCH', payload)
-        if (!response.ok) {
-            const error = await response.json().catch(() => ({}))
-            lemonToast.error(formatApiError(error, response.status, 'Failed to update survey'))
-            return false
-        }
-        lemonToast.success(successMessage)
-        return true
-    } catch (e) {
-        // eslint-disable-next-line no-console
-        console.warn('[Toolbar] survey lifecycle update failed', e)
-        lemonToast.error('Failed to update survey')
+    const result = await toolbarApi.surveys.update(surveyId, payload, {
+        context: 'update_survey',
+        toastOnError: 'Failed to update survey',
+    })
+    if (!result.ok) {
         return false
     }
-}
-
-function formatApiError(error: unknown, status: number, fallback: string): string {
-    if (status === 401 || status === 403) {
-        return 'Your toolbar session lacks permission. Please re-authenticate the toolbar from PostHog.'
-    }
-    if (error && typeof error === 'object') {
-        const errObj = error as Record<string, unknown>
-        if (typeof errObj.detail === 'string' && errObj.detail) {
-            return errObj.detail
-        }
-        // Surface DRF field-level errors: { name: ["..."], questions: [...] }.
-        const fieldMessages: string[] = []
-        for (const [key, value] of Object.entries(errObj)) {
-            if (Array.isArray(value) && value.length > 0 && typeof value[0] === 'string') {
-                fieldMessages.push(`${key}: ${value[0]}`)
-            } else if (typeof value === 'string') {
-                fieldMessages.push(`${key}: ${value}`)
-            }
-        }
-        if (fieldMessages.length > 0) {
-            return fieldMessages.join('; ')
-        }
-    }
-    return fallback
+    lemonToast.success(successMessage)
+    return true
 }
 
 export const surveysToolbarLogic = kea<surveysToolbarLogicType>([
@@ -402,27 +372,21 @@ export const surveysToolbarLogic = kea<surveysToolbarLogicType>([
             {
                 loadSurveys: async () => {
                     const search = values.searchTerm
-                    const params = new URLSearchParams()
-                    params.set('archived', 'false')
-                    params.set('limit', String(SURVEYS_PAGE_SIZE))
-                    params.set('offset', '0')
-                    if (search) {
-                        params.set('search', search)
-                    }
-                    const url = `/api/projects/@current/surveys/?${params}`
-                    const response = await toolbarFetch(url)
+                    const result = await toolbarApi.surveys.list(
+                        { limit: SURVEYS_PAGE_SIZE, offset: 0, search: search || undefined },
+                        { context: 'load_surveys' }
+                    )
                     // If the search term changed while we were awaiting,
                     // abandon this result to avoid clobbering newer state.
                     if (search !== values.searchTerm) {
                         return values.allSurveys
                     }
-                    if (!response.ok) {
+                    if (!result.ok) {
                         actions.setHasMoreSurveys(false)
                         return []
                     }
-                    const data = await response.json().catch(() => ({}))
-                    actions.setHasMoreSurveys(!!data.next)
-                    return data.results ?? data ?? []
+                    actions.setHasMoreSurveys(!!result.data.next)
+                    return result.data.results ?? []
                 },
                 loadMoreSurveys: async () => {
                     if (!values.hasMoreSurveys || values.allSurveysLoading) {
@@ -430,25 +394,19 @@ export const surveysToolbarLogic = kea<surveysToolbarLogicType>([
                     }
                     const search = values.searchTerm
                     const previousIds = new Set(values.allSurveys.map((s) => s.id))
-                    const params = new URLSearchParams()
-                    params.set('archived', 'false')
-                    params.set('limit', String(SURVEYS_PAGE_SIZE))
-                    params.set('offset', String(values.allSurveys.length))
-                    if (search) {
-                        params.set('search', search)
-                    }
-                    const url = `/api/projects/@current/surveys/?${params}`
-                    const response = await toolbarFetch(url)
+                    const result = await toolbarApi.surveys.list(
+                        { limit: SURVEYS_PAGE_SIZE, offset: values.allSurveys.length, search: search || undefined },
+                        { context: 'load_more_surveys' }
+                    )
                     // Search changed while we were paging — drop the result.
                     if (search !== values.searchTerm) {
                         return values.allSurveys
                     }
-                    if (!response.ok) {
+                    if (!result.ok) {
                         return values.allSurveys
                     }
-                    const data = await response.json().catch(() => ({}))
-                    actions.setHasMoreSurveys(!!data.next)
-                    const newRows: Survey[] = (data.results ?? data ?? []).filter((s: Survey) => !previousIds.has(s.id))
+                    actions.setHasMoreSurveys(!!result.data.next)
+                    const newRows: Survey[] = (result.data.results ?? []).filter((s: Survey) => !previousIds.has(s.id))
                     return [...values.allSurveys, ...newRows]
                 },
             },
@@ -681,62 +639,51 @@ export const surveysToolbarLogic = kea<surveysToolbarLogicType>([
             } else if (editingId) {
                 delete payload.start_date
             }
-            try {
-                const response = await toolbarFetch(
-                    editingId ? `/api/projects/@current/surveys/${editingId}/` : '/api/projects/@current/surveys/',
-                    editingId ? 'PATCH' : 'POST',
-                    payload
-                )
-                // If the user cancelled while we were awaiting, drop the result
-                // silently — they explicitly threw the work away.
-                if (!values.isCreating) {
-                    return
-                }
-                if (!response.ok) {
-                    const error = await response.json().catch(() => ({}))
-                    lemonToast.error(
-                        formatApiError(
-                            error,
-                            response.status,
-                            editingId ? 'Failed to save survey' : 'Failed to create survey'
-                        )
-                    )
-                    actions.submitQuickCreateFailure()
-                    return
-                }
-                const saved = await response.json().catch(() => ({}))
-                toolbarPosthogJS.capture(editingId ? 'toolbar survey edited' : 'toolbar survey created', {
-                    question_type: values.quickForm.questionType,
-                    has_url_targeting: values.quickForm.targetingMode === 'specific',
-                    frequency: values.quickForm.frequency,
-                    trigger_mode: values.quickForm.triggerMode,
-                    launched: launch,
-                })
-                const { uiHost } = toolbarConfigLogic.values
-                const surveyUrl = saved.id ? joinWithUiHost(uiHost, urls.survey(saved.id)) : null
-                const message = editingId
-                    ? launch
-                        ? 'Survey saved and launched'
-                        : 'Survey saved'
-                    : launch
-                      ? 'Survey launched'
-                      : 'Draft survey created'
-                lemonToast.success(message, {
-                    button: surveyUrl
-                        ? {
-                              label: 'Open in PostHog',
-                              action: () => window.open(surveyUrl, '_blank'),
-                          }
-                        : undefined,
-                })
-                actions.submitQuickCreateSuccess()
-                actions.loadSurveys()
-            } catch (e) {
-                // eslint-disable-next-line no-console
-                console.warn('[Toolbar] survey submit failed', e)
-                lemonToast.error(editingId ? 'Failed to save survey' : 'Failed to create survey')
-                actions.submitQuickCreateFailure()
+            const result = editingId
+                ? await toolbarApi.surveys.update(editingId, payload, {
+                      context: 'save_survey',
+                      toastOnError: 'Failed to save survey',
+                  })
+                : await toolbarApi.surveys.create(payload, {
+                      context: 'create_survey',
+                      toastOnError: 'Failed to create survey',
+                  })
+            // If the user cancelled while we were awaiting, drop the result
+            // silently — they explicitly threw the work away.
+            if (!values.isCreating) {
+                return
             }
+            if (!result.ok) {
+                actions.submitQuickCreateFailure()
+                return
+            }
+            const saved = result.data
+            toolbarPosthogJS.capture(editingId ? 'toolbar survey edited' : 'toolbar survey created', {
+                question_type: values.quickForm.questionType,
+                has_url_targeting: values.quickForm.targetingMode === 'specific',
+                frequency: values.quickForm.frequency,
+                trigger_mode: values.quickForm.triggerMode,
+                launched: launch,
+            })
+            const { uiHost } = toolbarConfigLogic.values
+            const surveyUrl = saved.id ? joinWithUiHost(uiHost, urls.survey(saved.id)) : null
+            const message = editingId
+                ? launch
+                    ? 'Survey saved and launched'
+                    : 'Survey saved'
+                : launch
+                  ? 'Survey launched'
+                  : 'Draft survey created'
+            lemonToast.success(message, {
+                button: surveyUrl
+                    ? {
+                          label: 'Open in PostHog',
+                          action: () => window.open(surveyUrl, '_blank'),
+                      }
+                    : undefined,
+            })
+            actions.submitQuickCreateSuccess()
+            actions.loadSurveys()
         },
     })),
 ])

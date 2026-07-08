@@ -45,7 +45,7 @@ def _make_team(organization: Organization, name: str) -> Team:
 
 def _canned_query_payload(query_name: str, team_a_id: int, team_b_id: int, *extra_team_ids: int) -> Any:
     """Default payload per query — uses team rows where it makes sense, and
-    multi-key dicts for the three multi-output specs.
+    multi-key dicts for the multi-output specs.
 
     `extra_team_ids` lets callers seed billable events for additional teams
     so the orgs they belong to survive the upstream `has_non_zero_usage`
@@ -98,10 +98,18 @@ def _canned_query_payload(query_name: str, team_a_id: int, team_b_id: int, *extr
         return {"count": [(team_b_id, 100)], "read_bytes": [(team_b_id, 5_000_000)]}
     if query_name == "sdk_logs_records":
         return {
+            "web": [(team_a_id, 3)],
             "ios": [(team_a_id, 4)],
             "react_native": [(team_b_id, 6)],
             "android": [],
             "flutter": [],
+            "ruby": [(team_a_id, 7)],
+        }
+    if query_name == "logs_retention_bytes":
+        return {
+            "14d": [(team_a_id, 1_000)],
+            "30d": [(team_b_id, 2_000)],
+            "90d": [],
         }
 
     if query_name == "teams_with_event_count_in_period":
@@ -228,6 +236,11 @@ async def test_aggregate_writes_chunks_and_manifest(minio_workflow_ctx: Workflow
     # api_queries_metrics fans out to count + read_bytes destination keys.
     assert by_org[str(org_b.id)]["api_queries_query_count"] == 100
     assert by_org[str(org_b.id)]["api_queries_bytes_read"] == 5_000_000
+
+    # sdk_logs_records multi-key fan-out reaches the per-SDK log counters.
+    assert by_org[str(org_a.id)]["web_logs_records_in_period"] == 3
+    assert by_org[str(org_a.id)]["ios_logs_records_in_period"] == 4
+    assert by_org[str(org_a.id)]["ruby_logs_records_in_period"] == 7
 
     # has_non_zero_usage is computed and present on every line.
     assert by_org[str(org_a.id)]["has_non_zero_usage"] is True

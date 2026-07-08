@@ -1,0 +1,136 @@
+rules:
+    - id: no-environments-api-urls-frontend
+      message: |
+          Hand-coded `/api/environments/...` URL in product frontend code. The
+          canonical path is `/api/projects/:team_id/...`; `/api/environments/`
+          is a backward-compat alias that's auto-marked `deprecated: true` in
+          the OpenAPI schema and skipped by Orval's TypeScript codegen.
+
+          Prefer one of:
+            • the generated client function — see `/products/<product>/frontend/generated/api.ts`
+              (run `hogli product:maturity --codegen <product>` for the suggested function)
+            • a literal `/api/projects/${teamId}/...` URL with one of the
+              `currentTeamIdStrict` / `currentProjectIdStrict` selectors
+
+          A handful of legacy files are listed under `paths.exclude` below as the
+          existing migration backlog — when you migrate one of them, remove it
+          from the list so the rule gates regressions there too. The list should
+          only shrink over time.
+
+          If a specific call genuinely has to stay on the env path (e.g. the
+          backend hasn't migrated yet — `persons/properties` is one such case),
+          add `// nosemgrep: no-environments-api-urls-frontend` above the line
+          with a short comment explaining why.
+      severity: ERROR
+      languages: [typescript, javascript]
+      paths:
+          include:
+              - 'frontend/'
+              - 'products/*/frontend/'
+          exclude:
+              # tests, fixtures, and stories legitimately exercise env URLs to
+              # match what the calling logic currently constructs
+              - '**/*.test.ts'
+              - '**/*.test.tsx'
+              - '**/*.spec.ts'
+              - '**/*.spec.tsx'
+              - '**/test/**'
+              - '**/__tests__/**'
+              - '**/testUtils.ts'
+              - '**/testUtils.tsx'
+              - '**/*.stories.tsx'
+              - '**/*.stories.ts'
+              - '**/__mocks__/**'
+              - '**/mocks/**'
+              # codegen output mirrors the OpenAPI schema (which still has env paths)
+              - '**/generated/**'
+              # toolbar runs in third-party page context — separate concern
+              - '/frontend/src/toolbar/'
+              # --- Migration backlog: shrink this list as files migrate ---
+              # Each file below still constructs hand-coded `/api/environments/`
+              # or `api/environments/` URLs. Removing a file from this list
+              # re-enables the gate for it.
+              - '/frontend/src/layout/navigation-3000/sidepanel/panels/activity/sidePanelNotificationsLogic.tsx'
+              - '/frontend/src/lib/approvals/approvalsGateLogic.ts'
+              - '/frontend/src/lib/components/HelpMenu/healthSummaryLogic.tsx'
+              - '/frontend/src/lib/components/PropertiesTimeline/propertiesTimelineLogic.ts'
+              - '/frontend/src/lib/components/PropertyFilters/components/TaxonomicPropertyFilter.tsx'
+              - '/frontend/src/lib/components/PropertyFilters/components/groupKeySelectLogic.ts'
+              - '/frontend/src/lib/components/TaxonomicFilter/taxonomicFilterLogic.tsx'
+              - '/frontend/src/lib/components/TaxonomicFilter/utils/buildGroupAnalyticsGroups.ts'
+              - '/frontend/src/lib/components/TaxonomicFilter/utils/buildTaxonomicGroups.tsx'
+              - '/frontend/src/lib/logic/eventIngestionRestrictionLogic.ts'
+              - '/frontend/src/lib/readOnlyGuard.ts'
+              - '/frontend/src/models/dashboardsModel.tsx'
+              - '/frontend/src/models/propertyDefinitionsModel.ts'
+              - '/frontend/src/queries/nodes/DataNode/dataNodeLogic.ts'
+              - '/frontend/src/scenes/approvals/approvalLogic.tsx'
+              - '/frontend/src/scenes/approvals/approvalsLogic.tsx'
+              - '/frontend/src/scenes/approvals/changeRequestsLogic.ts'
+              - '/frontend/src/scenes/approvals/pendingApprovalsLogic.ts'
+              - '/frontend/src/scenes/audit-logs/ExportsListHelpers.tsx'
+              - '/frontend/src/scenes/audit-logs/advancedActivityLogsLogic.tsx'
+              - '/frontend/src/scenes/authentication/cli/cliLiveLogic.ts'
+              - '/frontend/src/scenes/dashboard/dashboardLogic.tsx'
+              - '/frontend/src/scenes/dashboard/dashboardUtils.ts'
+              - '/frontend/src/scenes/dashboard/dashboards/dashboardsLogic.ts'
+              - '/frontend/src/scenes/dashboard/newDashboardLogic.ts'
+              - '/frontend/src/scenes/data-management/MaterializedColumns/CreateSlotModal.tsx'
+              - '/frontend/src/scenes/data-management/MaterializedColumns/materializedColumnsLogic.ts'
+              - '/frontend/src/scenes/data-management/events/eventInsightsLogic.ts'
+              - '/frontend/src/scenes/data-management/variables/insightsLoader.ts'
+              - '/frontend/src/scenes/data-pipelines/event-filtering/eventFilterLogic.ts'
+              - '/frontend/src/scenes/experiments/experimentLogic.tsx'
+              - '/frontend/src/scenes/feature-flags/defaultEvaluationContextsLogic.ts'
+              - '/frontend/src/scenes/feature-flags/defaultReleaseConditionsLogic.ts'
+              - '/frontend/src/scenes/feature-flags/featureFlagLogic.ts'
+              - '/frontend/src/scenes/groups/groupLogic.ts'
+              - '/frontend/src/scenes/groups/relatedGroupsLogic.ts'
+              - '/frontend/src/scenes/health/categoryDetail/healthCategoryDetailLogic.ts'
+              - '/frontend/src/scenes/health/healthSceneLogic.tsx'
+              - '/frontend/src/scenes/health/pipelineStatus/pipelineHealthLogic.ts'
+              - '/frontend/src/scenes/heatmaps/scenes/heatmap/heatmapLogic.ts'
+              - '/frontend/src/scenes/insights/insightUsageLogic.ts'
+              - '/frontend/src/scenes/insights/utils.tsx'
+              - '/frontend/src/scenes/project-homepage/projectHomepageLogic.tsx'
+              - '/frontend/src/scenes/saved-insights/addSavedInsightsModalLogic.ts'
+              - '/frontend/src/scenes/saved-insights/savedInsightsLogic.ts'
+              - '/frontend/src/scenes/settings/environment/coreEventsLogic.ts'
+              - '/frontend/src/scenes/settings/environment/experimentsConfigLogic.ts'
+              - '/frontend/src/scenes/settings/organization/Approvals/approvalPoliciesLogic.tsx'
+              - '/frontend/src/scenes/surveys/surveyLogic.tsx'
+              - '/frontend/src/scenes/teamLogic.tsx'
+              - '/frontend/src/scenes/web-analytics/tabs/marketing-analytics/frontend/logic/marketingAnalyticsSettingsLogic.ts'
+              - '/frontend/src/scenes/web-analytics/tabs/marketing-analytics/frontend/logic/utmAuditLogic.ts'
+              - '/products/ai_observability/frontend/aiObservabilitySessionDataLogic.ts'
+              - '/products/ai_observability/frontend/clusters/clusteringConfigLogic.ts'
+              - '/products/ai_observability/frontend/clusters/clusteringJobsLogic.ts'
+              - '/products/ai_observability/frontend/clusters/clustersAdminLogic.ts'
+              - '/products/ai_observability/frontend/evaluations/evaluationReportLogic.ts'
+              - '/products/ai_observability/frontend/evaluations/llmEvaluationLogic.ts'
+              - '/products/ai_observability/frontend/evaluations/llmEvaluationsLogic.ts'
+              - '/products/ai_observability/frontend/llmGenerationSentimentLazyLoaderLogic.ts'
+              - '/products/ai_observability/frontend/llmPersonsLazyLoaderLogic.ts'
+              - '/products/ai_observability/frontend/llmSentimentLazyLoaderLogic.ts'
+              - '/products/ai_observability/frontend/playground/llmPlaygroundModelLogic.ts'
+              - '/products/ai_observability/frontend/playground/llmPlaygroundPromptsLogic.ts'
+              - '/products/ai_observability/frontend/settings/llmProviderKeysLogic.ts'
+              - '/products/ai_observability/frontend/summary-view/summaryViewLogic.ts'
+              - '/products/ai_observability/frontend/tags/llmTaggerLogic.ts'
+              - '/products/ai_observability/frontend/tags/llmTaggersLogic.ts'
+              - '/products/ai_observability/frontend/text-view/textViewLogic.ts'
+              - '/products/ai_observability/frontend/traceReviews/traceReviewsApi.ts'
+              - '/products/conversations/frontend/components/SavedViews/ticketViewsLogic.ts'
+              - '/products/conversations/frontend/scenes/tickets/supportTicketsSceneLogic.ts'
+              - '/products/error_tracking/frontend/scenes/ErrorTrackingScene/ErrorTrackingScene.tsx'
+              - '/products/logs/frontend/components/LogsViewer/Filters/serviceFilterLogic.ts'
+              - '/products/logs/frontend/components/LogsViews/logsViewsLogic.ts'
+              - '/products/mcp_store/frontend/scene/ServerDetailPanel.tsx'
+              - '/products/workflows/frontend/OptOuts/customerIOImportLogic.ts'
+      # No leading slash on the regex — catches both `/api/environments/` and
+      # bare `api/environments/` (the form used by api.get/create callers).
+      pattern-regex: 'api/environments/'
+      metadata:
+          category: best-practice
+          subcategory:
+              - audit

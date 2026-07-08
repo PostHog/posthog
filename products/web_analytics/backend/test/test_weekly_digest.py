@@ -183,6 +183,37 @@ class TestGetTopPages(ClickhouseTestMixin, APIBaseTest):
         assert "change" in result[0]
         assert result[0]["change"] is None
 
+    def test_includes_week_over_week_change(self):
+        with freeze_time(QUERY_TIMESTAMP):
+            _create_person(team_id=self.team.pk, distinct_ids=["prev_user"])
+            _create_pageview(
+                self.team,
+                distinct_id="prev_user",
+                session_id=str(uuid7("2025-01-18")),
+                url="https://example.com/pricing",
+                timestamp="2025-01-18",
+            )
+            for i in range(3):
+                distinct_id = f"curr_user_{i}"
+                _create_person(team_id=self.team.pk, distinct_ids=[distinct_id])
+                _create_pageview(
+                    self.team,
+                    distinct_id=distinct_id,
+                    session_id=str(uuid7("2025-01-25")),
+                    url="https://example.com/pricing",
+                    timestamp="2025-01-25",
+                )
+            flush_persons_and_events()
+
+            result = get_top_pages(self.team)
+
+        assert len(result) == 1
+        assert result[0]["visitors"] == 3
+        change = result[0]["change"]
+        assert change is not None
+        assert change["direction"] == "Up"
+        assert change["text"].startswith("Up")
+
     def test_respects_limit(self):
         with freeze_time(QUERY_TIMESTAMP):
             _create_person(team_id=self.team.pk, distinct_ids=["user_1"])
@@ -229,6 +260,39 @@ class TestGetTopSources(ClickhouseTestMixin, APIBaseTest):
         assert all(r["visitors"] > 0 for r in result)
         assert "change" in result[0]
         assert result[0]["change"] is None
+
+    def test_includes_week_over_week_change(self):
+        with freeze_time(QUERY_TIMESTAMP):
+            _create_person(team_id=self.team.pk, distinct_ids=["prev_user"])
+            _create_pageview(
+                self.team,
+                distinct_id="prev_user",
+                session_id=str(uuid7("2025-01-18")),
+                referring_domain="google.com",
+                url="https://example.com/",
+                timestamp="2025-01-18",
+            )
+            for i in range(3):
+                distinct_id = f"curr_user_{i}"
+                _create_person(team_id=self.team.pk, distinct_ids=[distinct_id])
+                _create_pageview(
+                    self.team,
+                    distinct_id=distinct_id,
+                    session_id=str(uuid7("2025-01-25")),
+                    referring_domain="google.com",
+                    url="https://example.com/",
+                    timestamp="2025-01-25",
+                )
+            flush_persons_and_events()
+
+            result = get_top_sources(self.team)
+
+        google = next(r for r in result if r["name"] == "google.com")
+        assert google["visitors"] == 3
+        change = google["change"]
+        assert change is not None
+        assert change["direction"] == "Up"
+        assert change["text"].startswith("Up")
 
     def test_filters_out_empty_sources(self):
         with freeze_time(QUERY_TIMESTAMP):

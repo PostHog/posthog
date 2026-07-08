@@ -1,3 +1,4 @@
+import os
 import json
 from typing import Any
 
@@ -24,7 +25,6 @@ from posthog.storage.hypercache import HyperCache, HyperCacheStoreMissing
 
 from products.cdp.backend.models.hog_functions.hog_function import HogFunction
 from products.cdp.backend.models.plugin import PluginConfig
-from products.error_tracking.backend.models import ErrorTrackingSuppressionRule
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
 from products.product_tours.backend.models import ProductTour
 from products.surveys.backend.models import Survey
@@ -45,6 +45,14 @@ REMOTE_CONFIG_CDN_PURGE_COUNTER = Counter(
 
 
 logger = structlog.get_logger(__name__)
+
+# Sorted set tracking each team's array/config.json cache-entry expiry, so the hourly
+# refresh task can re-stamp entries before the TTL lapses and reads fall through to S3.
+REMOTE_CONFIG_CACHE_EXPIRY_SORTED_SET = "remote_config_cache_expiry"
+
+# 30-day Redis TTL for array/config.json (env-tunable). The refresh task and sync()
+# re-stamp entries well within this window, so the TTL is only a backstop.
+REMOTE_CONFIG_CACHE_TTL = int(os.environ.get("REMOTE_CONFIG_CACHE_TTL", str(60 * 60 * 24 * 30)))
 
 
 @tracer.start_as_current_span("RemoteConfig.indent_js")
@@ -69,10 +77,12 @@ class RemoteConfig(UUIDTModel):
 
     @classmethod
     def get_hypercache(cls):
-        def load_config(token):
+        def load_config(key):
+            # Key may be a Team, api_token, or team id depending on the caller.
             try:
-                return RemoteConfig.objects.select_related("team").get(team__api_token=token).build_config()
-            except RemoteConfig.DoesNotExist:
+                team = HyperCache.team_from_key(key)
+                return RemoteConfig.objects.select_related("team").get(team=team).build_config()
+            except (Team.DoesNotExist, RemoteConfig.DoesNotExist):
                 return HyperCacheStoreMissing()
 
         has_dedicated_cache = FLAGS_DEDICATED_CACHE_ALIAS in settings.CACHES
@@ -81,10 +91,12 @@ class RemoteConfig(UUIDTModel):
             value="config.json",
             token_based=True,  # We store and load via the team token
             load_fn=load_config,
+            cache_ttl=REMOTE_CONFIG_CACHE_TTL,
             cache_alias=FLAGS_DEDICATED_CACHE_ALIAS if has_dedicated_cache else None,
             # Mirror to the shared Redis so the hypercache-server doesn't fall
             # through to (potentially stale) S3.
             secondary_cache_alias="default" if has_dedicated_cache else None,
+            expiry_sorted_set_key=REMOTE_CONFIG_CACHE_EXPIRY_SORTED_SET,
         )
 
     def _build_session_recording_config(self, team: Team) -> dict:
@@ -198,7 +210,7 @@ class RemoteConfig(UUIDTModel):
         from posthog.models.team import Team
         from posthog.plugins.site import get_decide_site_apps
 
-        from products.error_tracking.backend.remote_config import build_error_tracking_config
+        from products.error_tracking.backend.facade import build_error_tracking_config
         from products.feature_flags.backend.models.feature_flag import FeatureFlag
         from products.surveys.backend.api.survey import get_surveys_opt_in, get_surveys_response
 
@@ -212,7 +224,7 @@ class RemoteConfig(UUIDTModel):
         config = {
             "token": team.api_token,
             "supportedCompression": ["gzip", "gzip-js"],
-            "hasFeatureFlags": FeatureFlag.objects.filter(team=team, active=True).count() > 0,
+            "hasFeatureFlags": FeatureFlag.objects.filter(team=team, active=True).exists(),
             "captureDeadClicks": bool(team.capture_dead_clicks),
             "capturePerformance": (
                 {
@@ -398,6 +410,14 @@ class RemoteConfig(UUIDTModel):
             config = self.build_config(bypass_recordings_quota_cache=bypass_recordings_quota_cache)
 
             if not force and config == self.config:
+                # Content is unchanged: skip S3 + CDN purge, but still re-stamp the Redis
+                # TTL and expiry entry so an unchanged team's cache never silently expires.
+                try:
+                    RemoteConfig.get_hypercache().set_cache_value_redis_only(self.team, config, track_expiry=True)
+                except Exception as e:
+                    logger.exception(f"Failed to refresh hypercache TTL for team {self.team_id}")
+                    capture_exception(e)
+
                 CELERY_TASK_REMOTE_CONFIG_SYNC.labels(result="no_changes").inc()
                 logger.info(f"RemoteConfig for team {self.team_id} is unchanged")
                 return
@@ -407,7 +427,9 @@ class RemoteConfig(UUIDTModel):
             self.save()
 
             try:
-                RemoteConfig.get_hypercache().update_cache(self.team.api_token)
+                # Pass the already-built config via data= so update_cache() reuses it
+                # instead of rebuilding via load_fn.
+                RemoteConfig.get_hypercache().update_cache(self.team, data=config)
             except Exception as e:
                 logger.exception(f"Failed to update hypercache for team {self.team_id}")
                 capture_exception(e)
@@ -557,8 +579,8 @@ def product_tour_deleted(sender, instance, **kwargs):
     transaction.on_commit(_on_commit)
 
 
-@receiver(post_save, sender=ErrorTrackingSuppressionRule)
-def error_tracking_suppression_rule_saved(sender, instance: "ErrorTrackingSuppressionRule", created, **kwargs):
+@receiver(post_save, sender="error_tracking.ErrorTrackingSuppressionRule")
+def error_tracking_suppression_rule_saved(sender, instance, created, **kwargs):
     transaction.on_commit(lambda: _update_team_remote_config(instance.team_id))
 
 

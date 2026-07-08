@@ -3,12 +3,13 @@ import { MOCK_DEFAULT_USER, MOCK_USER_UUID } from 'lib/api.mock'
 import { router } from 'kea-router'
 import { expectLogic } from 'kea-test-utils'
 
+import { TargetTypeEnumApi } from '@posthog/products-subscriptions/frontend/generated/api.schemas'
+
 import { sceneLogic } from 'scenes/sceneLogic'
 import { Scene } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
 
-import { TargetTypeEnumApi } from '~/generated/core/api.schemas'
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
 
@@ -31,21 +32,18 @@ describe('subscriptionsSceneLogic', () => {
         subscriptionRequestUrls = []
         useMocks({
             get: {
-                '/api/projects/:team_id/subscriptions/': (req) => {
-                    subscriptionRequestUrls.push(req.url.toString())
+                '/api/projects/:team_id/subscriptions/': ({ request }) => {
+                    subscriptionRequestUrls.push(request.url)
                     return [200, EMPTY_SUBSCRIPTIONS]
                 },
             },
         })
         initKeaTests()
         sceneLogic({ scenes }).mount()
-        sceneLogic.actions.setTabs([
-            { id: '1', title: '...', pathname: '/', search: '', hash: '', active: true, iconType: 'blank' },
-        ])
         userLogic.mount()
         userLogic.actions.loadUserSuccess(MOCK_DEFAULT_USER)
         router.actions.push(urls.subscriptions())
-        logic = subscriptionsSceneLogic({ tabId: '1' })
+        logic = subscriptionsSceneLogic()
         logic.mount()
     })
 
@@ -84,6 +82,19 @@ describe('subscriptionsSceneLogic', () => {
             expect(subscriptionRequestUrls).toHaveLength(1)
             const params = subscriptionListParamsFromUrl(subscriptionRequestUrls[0])
             expect(params.get('resource_type')).toBe('insight')
+        })
+
+        it('sends resource_type=ai_prompt on AI reports tab', async () => {
+            await expectLogic(logic).toDispatchActions(['loadSubscriptionsSuccess'])
+            subscriptionRequestUrls.length = 0
+
+            await expectLogic(logic, () => {
+                logic.actions.setCurrentTab(SubscriptionsTab.AI)
+            }).toDispatchActions(['setCurrentTab', 'loadSubscriptions', 'loadSubscriptionsSuccess'])
+
+            expect(subscriptionRequestUrls).toHaveLength(1)
+            const params = subscriptionListParamsFromUrl(subscriptionRequestUrls[0])
+            expect(params.get('resource_type')).toBe('ai_prompt')
         })
 
         it('sends created_by for Mine tab', async () => {
@@ -181,6 +192,28 @@ describe('subscriptionsSceneLogic', () => {
             expect(subscriptionRequestUrls).toHaveLength(1)
             const params = subscriptionListParamsFromUrl(subscriptionRequestUrls[0])
             expect(params.get('target_type')).toBe('slack')
+        })
+    })
+
+    describe('modal routing', () => {
+        it('opens the modal on /subscriptions/new and closes when navigating back to the list', async () => {
+            await expectLogic(logic).toDispatchActions(['loadSubscriptionsSuccess'])
+
+            await expectLogic(logic, () => {
+                router.actions.push(urls.subscriptionNew())
+            }).toMatchValues({ subscriptionModalId: 'new' })
+
+            await expectLogic(logic, () => {
+                router.actions.push(urls.subscriptions())
+            }).toMatchValues({ subscriptionModalId: null })
+        })
+
+        it('opens the modal with the subscription id on /subscriptions/:id/edit', async () => {
+            await expectLogic(logic).toDispatchActions(['loadSubscriptionsSuccess'])
+
+            await expectLogic(logic, () => {
+                router.actions.push(urls.subscriptionEdit('42'))
+            }).toMatchValues({ subscriptionModalId: 42 })
         })
     })
 })

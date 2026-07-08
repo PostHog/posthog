@@ -6,17 +6,30 @@ edition = "2021"
 [dependencies]
 anyhow = { workspace = true }
 axum = { workspace = true }
+chrono = { workspace = true }
 common-alloc = { path = "../common/alloc" }
+dashmap = { workspace = true }
 envconfig = { workspace = true }
 futures = { workspace = true }
+k8s-openapi = { version = "0.24", features = ["latest"] }
+kube = { version = "0.98", features = ["client", "runtime"] }
 lifecycle = { path = "../common/lifecycle" }
 metrics = { workspace = true }
 metrics-exporter-prometheus = { workspace = true }
 rand = { workspace = true }
 rdkafka = { workspace = true }
 reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls"] }
+# Direct dep only to install a process-wide rustls CryptoProvider at startup (see
+# main.rs): kube's HTTPS client uses rustls 0.23, which can't auto-pick a provider
+# with both aws-lc-rs and ring in the tree. Matches personhog-router/cymbal.
+rustls = { version = "0.23", default-features = false, features = ["ring", "std"] }
 serde = { workspace = true }
 thiserror = { workspace = true }
 tokio = { workspace = true }
+tokio-util = { workspace = true }
 tracing = { workspace = true }
 tracing-subscriber = { workspace = true, features = ["env-filter", "json"] }
+
+[dev-dependencies]
+serde_json = { workspace = true }
+uuid = { workspace = true }

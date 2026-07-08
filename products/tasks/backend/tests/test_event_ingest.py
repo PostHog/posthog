@@ -5,28 +5,29 @@ from collections.abc import Sequence
 
 from unittest.mock import patch
 
-from django.test import TransactionTestCase, override_settings
+from django.db import OperationalError
+from django.test import TestCase, override_settings
 
+from asgiref.sync import async_to_sync
 from parameterized import parameterized
 
-from posthog.models import Organization, Team
+from posthog.models import Organization, Team, User
 from posthog.redis import TEST_clear_clients
 
-from products.tasks.backend.models import Task, TaskRun
-from products.tasks.backend.services.connection_token import (
+from products.tasks.backend.logic.services.connection_token import (
     SANDBOX_EVENT_INGEST_TOKEN_TTL,
     create_sandbox_connection_token,
     create_sandbox_event_ingest_token,
     reset_sandbox_jwt_key_cache,
 )
-from products.tasks.backend.services.sandbox_config import SANDBOX_TTL_SECONDS
-from products.tasks.backend.stream.event_ingest import (
+from products.tasks.backend.logic.services.sandbox_config import SANDBOX_TTL_SECONDS
+from products.tasks.backend.logic.stream.event_ingest import (
     MAX_EVENT_LINE_BYTES,
     MAX_EVENTS_PER_REQUEST,
     STREAM_COMPLETE_CONTROL_TYPE,
     handle_task_run_event_ingest,
 )
-from products.tasks.backend.stream.redis_stream import (
+from products.tasks.backend.logic.stream.redis_stream import (
     TASK_RUN_STREAM_SEQUENCE_TIMEOUT,
     TASK_RUN_STREAM_TIMEOUT,
     TaskRunRedisStream,
@@ -34,10 +35,11 @@ from products.tasks.backend.stream.redis_stream import (
     get_task_run_stream_key,
     get_task_run_stream_sequence_key,
 )
+from products.tasks.backend.models import Task, TaskRun
 from products.tasks.backend.tests.test_api import TEST_RSA_PRIVATE_KEY
 
 
-class TestTaskRunEventIngest(TransactionTestCase):
+class TestTaskRunEventIngest(TestCase):
     def setUp(self) -> None:
         super().setUp()
         TEST_clear_clients()
@@ -129,7 +131,9 @@ class TestTaskRunEventIngest(TransactionTestCase):
             body = json.loads(sent[1]["body"])
             return status, body
 
-        return asyncio.run(_call())
+        # async_to_sync (not asyncio.run) so the handler's thread_sensitive DB
+        # access runs on the test thread's connection and sees uncommitted rows.
+        return async_to_sync(_call)()
 
     def _read_stream_events(self) -> list[dict]:
         async def _read() -> list[dict]:
@@ -198,6 +202,47 @@ class TestTaskRunEventIngest(TransactionTestCase):
         self.assertEqual(body["accepted"], 1)
         self.assertEqual(self._read_notification_methods(), ["session/update"])
 
+    @parameterized.expand([(True,), (False,)])
+    @override_settings(SANDBOX_JWT_PRIVATE_KEY=TEST_RSA_PRIVATE_KEY)
+    def test_turn_complete_ingest_notifies_interactive_run_awaiting_input_only_with_flag(
+        self, flag_enabled: bool
+    ) -> None:
+        self.task.created_by = User.objects.create_user("ingest-push@posthog.com", None, "Ingest")
+        self.task.save(update_fields=["created_by"])
+        self.task_run.state = {"mode": "interactive"}
+        self.task_run.save(update_fields=["state"])
+        token = self._create_token()
+
+        with (
+            patch(
+                "products.tasks.backend.logic.stream.event_ingest.notify_task_run_awaiting_input"
+            ) as notify_awaiting_input,
+            patch(
+                "products.tasks.backend.logic.stream.event_ingest.posthoganalytics.feature_enabled",
+                return_value=flag_enabled,
+            ),
+        ):
+            status, body = self._call_ingest(
+                token,
+                [
+                    {
+                        "seq": 1,
+                        "event": {
+                            "type": "notification",
+                            "notification": {"method": "_posthog/turn_complete"},
+                        },
+                    }
+                ],
+            )
+
+        self.assertEqual(status, 200)
+        self.assertEqual(body["accepted"], 1)
+        if flag_enabled:
+            notify_awaiting_input.assert_called_once()
+            self.assertEqual(notify_awaiting_input.call_args.args[0].id, self.task_run.id)
+        else:
+            notify_awaiting_input.assert_not_called()
+
     @override_settings(SANDBOX_JWT_PRIVATE_KEY=TEST_RSA_PRIVATE_KEY)
     def test_workflow_heartbeat_does_not_block_event_loop(self) -> None:
         token = self._create_token()
@@ -251,8 +296,10 @@ class TestTaskRunEventIngest(TransactionTestCase):
             )
             return sent[0]["status"], json.loads(sent[1]["body"])
 
-        with patch("products.tasks.backend.stream.event_ingest._heartbeat_workflow", side_effect=blocking_heartbeat):
-            status, body = asyncio.run(_call())
+        with patch(
+            "products.tasks.backend.logic.stream.event_ingest._heartbeat_workflow", side_effect=blocking_heartbeat
+        ):
+            status, body = async_to_sync(_call)()
 
         self.assertEqual(status, 200)
         self.assertEqual(body["accepted"], 1)
@@ -546,6 +593,29 @@ class TestTaskRunEventIngest(TransactionTestCase):
 
         self.assertEqual(status, 401)
         self.assertEqual(body["error"], "Invalid event ingest token")
+
+    @override_settings(SANDBOX_JWT_PRIVATE_KEY=TEST_RSA_PRIVATE_KEY)
+    def test_stale_db_connection_during_authorization_retries(self) -> None:
+        # A stale pooled connection makes the run-existence check raise OperationalError.
+        # Without the retry this crashes the ingest mid-stream; the reconnect must recover it.
+        token = self._create_token()
+
+        real_exists = TaskRun.objects.filter(id=self.task_run.id).exists()
+        self.assertTrue(real_exists)
+
+        with patch(
+            "products.tasks.backend.logic.stream.event_ingest._task_run_exists_sync",
+            side_effect=[OperationalError("server closed the connection unexpectedly"), True],
+        ) as exists_sync:
+            status, body = self._call_ingest(
+                token,
+                [{"seq": 1, "event": {"type": "notification", "notification": {"method": "session/update"}}}],
+            )
+
+        self.assertEqual(exists_sync.call_count, 2)
+        self.assertEqual(status, 200)
+        self.assertEqual(body["accepted"], 1)
+        self.assertEqual(self._read_notification_methods(), ["session/update"])
 
     @parameterized.expand(
         [

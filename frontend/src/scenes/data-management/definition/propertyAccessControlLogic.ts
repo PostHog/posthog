@@ -1,6 +1,7 @@
 import { actions, afterMount, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 
+import { captureAccessControlEvent } from 'lib/utils/accessControlUtils'
 import { membersLogic } from 'scenes/organization/membersLogic'
 import { rolesLogic } from 'scenes/settings/organization/Permissions/Roles/rolesLogic'
 
@@ -182,6 +183,28 @@ export const propertyAccessControlLogic = kea<propertyAccessControlLogicType>([
     }),
 
     listeners(({ values, actions, props }) => ({
+        setLocalDefaultLevel: ({ level }) => {
+            captureAccessControlEvent('access_control_property_default_level_changed', {
+                property_definition_id: props.propertyDefinitionId,
+                access_level: level,
+            })
+        },
+        setLocalMemberOverride: ({ level }) => {
+            captureAccessControlEvent('access_control_property_override_changed', {
+                property_definition_id: props.propertyDefinitionId,
+                subject: 'member',
+                action: level === null ? 'removed' : 'changed',
+                access_level: level,
+            })
+        },
+        setLocalRoleOverride: ({ level }) => {
+            captureAccessControlEvent('access_control_property_override_changed', {
+                property_definition_id: props.propertyDefinitionId,
+                subject: 'role',
+                action: level === null ? 'removed' : 'changed',
+                access_level: level,
+            })
+        },
         saveAccessControls: async () => {
             if (!values.localState || !values.remoteState) {
                 return
@@ -248,6 +271,14 @@ export const propertyAccessControlLogic = kea<propertyAccessControlLogicType>([
                     })
                 }
             }
+
+            captureAccessControlEvent('access_control_property_settings_saved', {
+                property_definition_id: props.propertyDefinitionId,
+                default_access_level: values.localState.defaultLevel,
+                default_changed: values.localState.defaultLevel !== values.remoteState.default_access_level,
+                member_overrides: Object.values(values.localState.memberOverrides).filter((l) => l !== null).length,
+                role_overrides: Object.values(values.localState.roleOverrides).filter((l) => l !== null).length,
+            })
 
             // Reload remote state to sync
             actions.loadRemoteState()

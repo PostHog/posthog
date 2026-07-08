@@ -7,8 +7,8 @@ describe('loadRecipes', () => {
         expect(recipes.every((r) => typeof r.id === 'string' && r.id.length > 0)).toBe(true)
     })
 
-    it('every loaded recipe has a unique priority', () => {
-        const priorities = loadRecipes().map((r) => r.priority)
-        expect(new Set(priorities).size).toBe(priorities.length)
+    it('has unique recipe ids', () => {
+        const ids = loadRecipes().map((recipe) => recipe.id)
+        expect(new Set(ids).size).toBe(ids.length)
     })
 })

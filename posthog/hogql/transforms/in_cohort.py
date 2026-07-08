@@ -97,7 +97,7 @@ class MultipleInCohortResolver(TraversingVisitor):
     def _resolve_cohorts(
         self, compare_operations: list[ast.CompareOperation]
     ) -> list[tuple[int, StaticOrDynamic, int]]:
-        from posthog.models import Cohort
+        from products.cohorts.backend.models.cohort import Cohort
 
         cohorts: list[tuple[int, StaticOrDynamic, int]] = []
 
@@ -310,8 +310,7 @@ class InCohortResolver(TraversingVisitor):
             arg = node.right
             if not isinstance(arg, ast.Constant):
                 raise QueryError("IN COHORT only works with constant arguments", node=arg)
-
-            from posthog.models import Cohort
+            from products.cohorts.backend.models.cohort import Cohort
 
             if (isinstance(arg.value, int) or isinstance(arg.value, float)) and not isinstance(arg.value, bool):
                 cohorts = Cohort.objects.filter(
@@ -379,13 +378,20 @@ class InCohortResolver(TraversingVisitor):
         must_add_join = True
         last_join = select.select_from
         while last_join:
-            if isinstance(last_join.table, ast.Field) and last_join.table.chain[0] == f"in_cohort__{cohort_id}":
+            # Dedup on the join alias: a second `IN COHORT <id>` in the same scope must reuse the
+            # existing join, not add a colliding one. (The join's `table` is the cohort subquery, so
+            # the alias is the only place the `in_cohort__<id>` name lives.)
+            if last_join.alias == f"in_cohort__{cohort_id}":
                 must_add_join = False
                 break
             if last_join.next_join:
                 last_join = last_join.next_join
             else:
                 break
+
+        current_scope = self.stack[-1].type
+        if current_scope is None:
+            raise QueryError("Could not resolve current select scope")
 
         if must_add_join:
             inline_ast = inline_cohort_query(cohort_id, is_static, version, self.context)
@@ -422,9 +428,6 @@ class InCohortResolver(TraversingVisitor):
                     constraint_type="ON",
                 ),
             )
-            current_scope = self.stack[-1].type
-            if current_scope is None:
-                raise QueryError("Could not resolve current select scope")
             new_join = cast(
                 ast.JoinExpr,
                 resolve_types(
@@ -454,9 +457,6 @@ class InCohortResolver(TraversingVisitor):
                 last_join.next_join = new_join
             else:
                 select.select_from = new_join
-
-        if current_scope is None:
-            raise ValueError("Expected current scope when resolving cohort comparison")
 
         compare.op = ast.CompareOperationOp.NotEq if negative else ast.CompareOperationOp.Eq
         compare.left = resolve_types(

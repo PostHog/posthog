@@ -2,11 +2,12 @@ from posthog.test.base import BaseTest
 
 from langgraph.checkpoint.memory import InMemorySaver
 
+from products.posthog_ai.backend.models.assistant import Conversation
+
 from ee.hogai.core.base import BaseAssistantGraph
 from ee.hogai.core.node import AssistantNode
 from ee.hogai.utils.types import AssistantNodeName, AssistantState, PartialAssistantState
 from ee.hogai.utils.types.base import AssistantGraphName
-from ee.models import Conversation
 
 
 class TestAssistantGraph(BaseTest):

@@ -8,9 +8,9 @@ from django.conf import settings
 from django.core.management.base import BaseCommand, CommandError
 
 from posthog.models import Team
-from posthog.temporal.data_imports.signals import get_signal_config
-from posthog.temporal.data_imports.signals.pipeline import run_signal_pipeline
 
+from products.signals.backend.emission import get_signal_config
+from products.signals.backend.emission.pipeline import run_signal_pipeline
 from products.signals.backend.models import SignalSourceConfig
 from products.signals.eval.llm_gen import SOURCE_KINDS, WRAPPERS, generate_canonical_signals
 from products.signals.eval.llm_gen.client import CanonicalSignal
@@ -170,6 +170,7 @@ class Command(BaseCommand):
             )
             cluster_signals = asyncio.run(
                 generate_canonical_signals(
+                    team_id=team.id,
                     system_prompt=SYSTEM_PROMPT,
                     user_prompt=user_prompt,
                     temperature=options["temperature"],

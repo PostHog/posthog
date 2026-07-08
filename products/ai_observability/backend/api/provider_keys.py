@@ -1,4 +1,5 @@
 import logging
+from uuid import UUID
 
 from django.core.cache import cache
 from django.db import transaction
@@ -17,6 +18,7 @@ from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
 from posthog.event_usage import report_user_action
 from posthog.permissions import TeamMemberStrictManagementPermission
+from posthog.plugins.plugin_server_api import reload_evaluations_on_workers, reload_taggers_on_workers
 from posthog.rbac.access_control_api_mixin import AccessControlViewSetMixin
 
 from ..llm.client import Client
@@ -30,10 +32,38 @@ from ..models.evaluation_config import EvaluationConfig
 from ..models.evaluations import Evaluation
 from ..models.model_configuration import LLMModelConfiguration
 from ..models.provider_keys import LLMProvider, LLMProviderKey
+from ..models.taggers import Tagger
 from .metrics import llma_track_latency
 from .proxy import models_cache_key
 
 logger = logging.getLogger(__name__)
+
+
+def _reload_model_config_dependents_on_commit(team_id: int, model_config_ids: list[UUID]) -> None:
+    if not model_config_ids:
+        return
+
+    evaluation_ids = [
+        str(evaluation_id)
+        for evaluation_id in Evaluation.objects.filter(
+            team_id=team_id,
+            model_configuration_id__in=model_config_ids,
+            deleted=False,
+        ).values_list("id", flat=True)
+    ]
+    tagger_ids = [
+        str(tagger_id)
+        for tagger_id in Tagger.objects.filter(
+            team_id=team_id,
+            model_configuration_id__in=model_config_ids,
+            deleted=False,
+        ).values_list("id", flat=True)
+    ]
+
+    if evaluation_ids:
+        transaction.on_commit(lambda: reload_evaluations_on_workers(team_id=team_id, evaluation_ids=evaluation_ids))
+    if tagger_ids:
+        transaction.on_commit(lambda: reload_taggers_on_workers(team_id=team_id, tagger_ids=tagger_ids))
 
 
 def validate_provider_key(provider: str, api_key: str, **kwargs) -> tuple[str, str | None]:
@@ -117,7 +147,7 @@ class LLMProviderKeySerializer(serializers.ModelSerializer):
         elif provider == LLMProvider.ANTHROPIC:
             if not value.startswith("sk-ant-"):
                 raise serializers.ValidationError("Invalid Anthropic API key format. Key should start with 'sk-ant-'.")
-        # Azure, Gemini, Together AI, OpenRouter, and Fireworks keys have no standard
+        # Azure, Gemini, Together AI, OpenRouter, Fireworks, and MiniMax keys have no standard
         # prefix, so no format validation is enforced here.
 
         return value
@@ -409,9 +439,12 @@ class LLMProviderKeyViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, v
         if provider == "openai":
             trial_filter |= Q(model_configuration__isnull=True)
 
-        trial_evals = Evaluation.objects.filter(trial_filter, team_id=self.team_id, deleted=False).values(
-            "id", "name", "enabled"
-        )[:50]
+        # The legacy "no model_configuration" clause above would otherwise include Hog/Sentiment evals.
+        trial_evals = (
+            Evaluation.objects.filter(trial_filter, team_id=self.team_id, deleted=False)
+            .using_provider_keys()
+            .values("id", "name", "enabled")[:50]
+        )
 
         return Response({"evaluations": list(trial_evals)})
 
@@ -429,22 +462,32 @@ class LLMProviderKeyViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, v
 
         with transaction.atomic():
             # Update model configurations to use this key
+            model_config_ids = list(
+                LLMModelConfiguration.objects.filter(
+                    evaluations__id__in=evaluation_ids,
+                    evaluations__team_id=self.team_id,
+                    evaluations__deleted=False,
+                    provider=instance.provider,
+                )
+                .distinct()
+                .values_list("id", flat=True)
+            )
             configs_updated = LLMModelConfiguration.objects.filter(
-                evaluations__id__in=evaluation_ids,
-                evaluations__team_id=self.team_id,
-                evaluations__deleted=False,
-                provider=instance.provider,
+                id__in=model_config_ids,
+                team_id=self.team_id,
             ).update(provider_key=instance)
+            _reload_model_config_dependents_on_commit(self.team_id, model_config_ids)
 
             # Handle legacy evaluations (no model_configuration) — these are always
-            # OpenAI, so only create a config if the key matches.
+            # OpenAI, so only create a config if the key matches. Exclude Hog/Sentiment: minting a
+            # config for them locks the eval out of all future edits.
             if instance.provider == "openai":
                 legacy_evals = Evaluation.objects.filter(
                     id__in=evaluation_ids,
                     team_id=self.team_id,
                     model_configuration__isnull=True,
                     deleted=False,
-                )
+                ).using_provider_keys()
                 for eval_obj in legacy_evals:
                     mc = LLMModelConfiguration.objects.create(
                         team_id=self.team_id,
@@ -460,14 +503,14 @@ class LLMProviderKeyViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, v
             # dependent evals — the cause no longer applies once they're attached to a live key.
             for eval_obj in Evaluation.objects.filter(
                 id__in=evaluation_ids, team_id=self.team_id, deleted=False, status="error"
-            ):
+            ).using_provider_keys():
                 eval_obj.set_status("paused")
 
             evals_enabled = 0
             if enable:
                 for eval_obj in Evaluation.objects.filter(
                     id__in=evaluation_ids, team_id=self.team_id, deleted=False, enabled=False
-                ):
+                ).using_provider_keys():
                     eval_obj.set_status("active")
                     evals_enabled += 1
 
@@ -505,17 +548,23 @@ class LLMProviderKeyViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, v
                 )
 
             with transaction.atomic():
-                LLMModelConfiguration.objects.filter(provider_key=instance, team_id=self.team_id).update(
+                model_config_ids = list(
+                    LLMModelConfiguration.objects.filter(provider_key=instance, team_id=self.team_id).values_list(
+                        "id", flat=True
+                    )
+                )
+                LLMModelConfiguration.objects.filter(id__in=model_config_ids, team_id=self.team_id).update(
                     provider_key=replacement_key
                 )
+                _reload_model_config_dependents_on_commit(self.team_id, model_config_ids)
                 return super().destroy(request, *args, **kwargs)
         else:
-            model_config_ids = list(
-                LLMModelConfiguration.objects.filter(provider_key=instance, team_id=self.team_id).values_list(
-                    "id", flat=True
-                )
-            )
             with transaction.atomic():
+                model_config_ids = list(
+                    LLMModelConfiguration.objects.filter(provider_key=instance, team_id=self.team_id).values_list(
+                        "id", flat=True
+                    )
+                )
                 # Deleting the key leaves dependent evals unrunnable. Only promote currently-active
                 # evals to the error state — user-paused evals should stay paused (the user's intent
                 # is preserved), and already-errored evals don't need their existing reason overwritten.
@@ -526,6 +575,7 @@ class LLMProviderKeyViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, v
                     status="active",
                 ):
                     eval_obj.set_status("error", "provider_key_deleted")
+                _reload_model_config_dependents_on_commit(self.team_id, model_config_ids)
                 return super().destroy(request, *args, **kwargs)
 
 

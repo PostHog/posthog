@@ -1,19 +1,46 @@
 import { Browser, Page } from 'puppeteer'
 import { launch as launchForCapture } from 'puppeteer-capture'
 
-import { config } from '../config'
-import { createLogger } from '../logger'
-import { RasterizationMetrics } from '../metrics'
+import { config } from '~/session-replay/recording-rasterizer/config'
+import { createLogger } from '~/session-replay/recording-rasterizer/logger'
+import { RasterizationMetrics } from '~/session-replay/recording-rasterizer/metrics'
 
 const log = createLogger()
 
-const LAUNCH_ARGS = [
-    '--disable-dev-shm-usage',
-    '--mute-audio',
-    ...(process.env.CHROME_HOST_RESOLVER_RULES
-        ? [`--host-resolver-rules=${process.env.CHROME_HOST_RESOLVER_RULES}`]
-        : []),
-]
+function resolveProxyArgs(): string[] {
+    const killed = ['false', '0', 'no', 'off'].includes((process.env.RASTERIZER_USE_PROXY ?? '').trim().toLowerCase())
+    const upstream =
+        process.env.HTTPS_PROXY || process.env.HTTP_PROXY || process.env.https_proxy || process.env.http_proxy
+    if (!upstream) {
+        return []
+    }
+    if (killed) {
+        log.warn(
+            { RASTERIZER_USE_PROXY: process.env.RASTERIZER_USE_PROXY },
+            'RASTERIZER_USE_PROXY disables egress proxy — chrome will dial direct'
+        )
+        return []
+    }
+    // Chrome's --proxy-server takes scheme://host:port — drop userinfo / path.
+    // `new URL("smokescreen:4750")` parses as scheme-only with empty host; fail
+    // fast rather than silently rendering --proxy-server=smokescreen:// (which
+    // would bypass the proxy and break egress containment).
+    const u = new URL(upstream)
+    if (!u.host) {
+        throw new Error(
+            `Egress proxy URL has no host — pass a fully-qualified URL like http://smokescreen:4750, not "${upstream}"`
+        )
+    }
+    const proxyServer = `${u.protocol}//${u.host}`
+    log.info({ proxy_server: proxyServer }, 'chrome routing egress through proxy')
+    return [
+        `--proxy-server=${proxyServer}`,
+        // Override Chrome's implicit loopback/link-local bypass so customer
+        // DOM pointing at localhost / 127.0.0.1 / 169.254.169.254 (IMDS)
+        // still goes through the proxy.
+        '--proxy-bypass-list=<-loopback>',
+    ]
+}
 
 interface BrowserSlot {
     browser: Browser
@@ -23,14 +50,28 @@ interface BrowserSlot {
 export class BrowserPool {
     private slots = new Map<Page, BrowserSlot>()
     private idle: BrowserSlot[] = []
+    private proxyArgs = resolveProxyArgs()
 
     constructor(private recycleAfter: number = config.browserRecycleAfter) {}
 
+    private launchArgs(): string[] {
+        return [
+            '--disable-dev-shm-usage',
+            // Pin crashpad to /tmp — the container root filesystem is read-only.
+            '--crash-dumps-dir=/tmp/chrome-crash-dumps',
+            '--mute-audio',
+            ...this.proxyArgs,
+            ...(config.disableBrowserSecurity ? ['--disable-web-security'] : []),
+            ...(process.env.CHROME_HOST_RESOLVER_RULES
+                ? [`--host-resolver-rules=${process.env.CHROME_HOST_RESOLVER_RULES}`]
+                : []),
+        ]
+    }
+
     private async launchBrowser(): Promise<BrowserSlot> {
-        const args = config.disableBrowserSecurity ? [...LAUNCH_ARGS, '--disable-web-security'] : LAUNCH_ARGS
         const browser = await launchForCapture({
             executablePath: process.env.PUPPETEER_EXECUTABLE_PATH || undefined,
-            args,
+            args: this.launchArgs(),
         })
         RasterizationMetrics.browserLaunched()
         return { browser, usageCount: 0 }
@@ -45,7 +86,6 @@ export class BrowserPool {
     }
 
     async launch(): Promise<void> {
-        // Pre-warm one browser so the first getPage() is fast
         if (this.idle.length === 0) {
             this.idle.push(await this.launchBrowser())
         }
@@ -58,7 +98,6 @@ export class BrowserPool {
         } else {
             slot = await this.launchBrowser()
         }
-
         const page = await slot.browser.newPage()
         slot.usageCount++
         this.slots.set(page, slot)

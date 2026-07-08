@@ -23,7 +23,6 @@ from posthog.clickhouse.query_tagging import Feature, Product, tag_queries
 from products.analytics_platform.backend.lazy_computation.lazy_computation_executor import (
     LazyComputationResult,
     LazyComputationTable,
-    ensure_precomputed,
 )
 from products.web_analytics.backend.hogql_queries.web_analytics_lazy_precompute import (
     LAZY_TTL_SECONDS,
@@ -39,6 +38,7 @@ from products.web_analytics.backend.hogql_queries.web_analytics_lazy_precompute 
     test_account_filter_expr,
     user_filter_expr,
 )
+from products.web_analytics.backend.hogql_queries.web_lazy_precompute_common import web_ensure_precomputed
 
 _FAMILY = "web_stats"
 
@@ -57,21 +57,41 @@ WEB_STATS_LAZY_FAILED = Counter(
 # Breakdowns served by `SimpleBreakdownStrategy` / `ChannelTypeStrategy` that we
 # expect to behave well under precompute. UTM/browser/OS/region/city values are
 # user-controlled at ingestion so cardinality is not strictly bounded, but in
-# practice they sit several orders of magnitude below the per-URL breakdowns we
-# deliberately route to the raw path (page/path/referring-URL, FRUSTRATION_METRICS,
-# LANGUAGE). The failure mode for a pathological team is a slow precompute INSERT,
-# not an incorrect result — sort, pagination and HAVING all run in SQL so the
-# read returns exactly the page the user asked for regardless of total distinct
+# practice they sit several orders of magnitude below the per-page breakdowns we
+# deliberately route to the raw path (page/path, FRUSTRATION_METRICS).
+# The failure mode for a pathological team is a slow precompute INSERT, not an
+# incorrect result — sort, pagination and HAVING all run in SQL so the read
+# returns exactly the page the user asked for regardless of total distinct
 # values. If a team's INSERT becomes a hotspot we can carve them out via the
 # rollout gate; we are not adding a defensive SQL-side cardinality cap because
 # it would silently truncate results vs. the raw path.
 #
+# INITIAL_REFERRING_URL is the one high-cardinality URL breakdown we precompute:
+# the lazy INSERT runs per daily bucket, which stays tractable where the 28-day
+# raw query times out, so precompute is strictly better than the raw fallback.
+#
 # Tuple/float breakdowns (REGION, CITY, VIEWPORT, TIMEZONE) are supported: the
 # breakdown value is JSON-encoded into the `breakdown_value` String column and
 # decoded back to its native shape on read.
+#
+# LANGUAGE is supported but special: the raw query groups by the language prefix
+# ("en" from "en-US") and labels each group with its most-common region via
+# topK(1). The INSERT stores the full `$browser_language` ("en-US") as the
+# breakdown_value; the read derives the prefix + most-common-region deterministically
+# via a two-level aggregation (see `_LANGUAGE_READ_SQL_TEMPLATE`). The region label
+# is window-dependent, so it must be computed on read, not baked into the per-hour
+# INSERT. The raw `topK(1)` picks the region with the most sessions; the precompute
+# stores no session-count state, so the read approximates it with `argMax` over
+# pageviews — the closest stored signal (the dominant region almost always leads on
+# both). Matching session-topK exactly would need a new stored state and is deferred
+# since it only changes the displayed region (not any count) in rare ties. Missing
+# `$browser_language` is kept (not filtered) to match the raw query's
+# `outer_where_breakdown() is None` for LANGUAGE, so the tile total stays consistent
+# with the overview.
 SUPPORTED_BREAKDOWNS: set[WebStatsBreakdown] = {
     WebStatsBreakdown.INITIAL_CHANNEL_TYPE,
     WebStatsBreakdown.INITIAL_REFERRING_DOMAIN,
+    WebStatsBreakdown.INITIAL_REFERRING_URL,
     WebStatsBreakdown.INITIAL_UTM_SOURCE,
     WebStatsBreakdown.INITIAL_UTM_CAMPAIGN,
     WebStatsBreakdown.INITIAL_UTM_MEDIUM,
@@ -86,6 +106,13 @@ SUPPORTED_BREAKDOWNS: set[WebStatsBreakdown] = {
     WebStatsBreakdown.REGION,
     WebStatsBreakdown.CITY,
     WebStatsBreakdown.TIMEZONE,
+    WebStatsBreakdown.LANGUAGE,
+    # EXIT_PAGE is a session-scoped path (`session.$end_pathname`) served as a simple
+    # breakdown — no bounce-rate join, unlike PAGE/INITIAL_PAGE which route to the
+    # paths precompute family. It reads a materialized sessions column, so it carries
+    # none of the unmaterialized-property OOM risk that keeps INITIAL_REFERRING_URL
+    # out of the eager warmer.
+    WebStatsBreakdown.EXIT_PAGE,
 }
 
 # Breakdowns whose value is a tuple — JSON-decoded as a list and converted back
@@ -247,7 +274,7 @@ def ensure_web_stats_precomputed(
         "pad_minutes": ast.Constant(value=SESSION_FORWARD_PAD_MINUTES),
     }
 
-    return ensure_precomputed(
+    return web_ensure_precomputed(
         team=runner.team,
         insert_query=INSERT_QUERY_TEMPLATE,
         time_range_start=time_range_start,
@@ -256,6 +283,7 @@ def ensure_web_stats_precomputed(
         table=LazyComputationTable.WEB_STATS_PREAGGREGATED,
         placeholders=placeholders,
         query_type=f"web_stats_{runner.query.breakdownBy.value}_lazy_insert",
+        spill_to_disk=True,  # high-cardinality breakdown GROUP BY; can build a large hash table
     )
 
 
@@ -284,6 +312,59 @@ SELECT
 FROM posthog.web_stats_preaggregated
 WHERE and(team_id = {team_id}, job_id IN {job_ids}, breakdown_by = {breakdown_by})
 GROUP BY breakdown_value
+"""
+
+
+# LANGUAGE read. The INSERT stores the full `$browser_language` ("en-US") as the
+# JSON-encoded `breakdown_value`; here we reproduce the raw query's behaviour —
+# group by the language prefix ("en") and label each group with its most-common
+# region — entirely on read.
+#
+# `m` computes the prefix-level visitor/view metrics: `uniqMergeIf` over a GROUP BY
+# prefix dedups users across regions exactly (no double-count), matching the raw
+# query's prefix-level `uniq`. `r` derives the displayed region per prefix via
+# `argMax(region, region_views)` — a best-effort *approximation* of the raw query's
+# `topK(1)` over the region part, NOT an exact equivalent: `topK(1)` weights by session
+# count, which the precompute does not store, so the region *suffix* on a multi-region
+# language (e.g. `cs-CZ` vs `cs-`) can differ from raw. Counts are unaffected; see the
+# module-level LANGUAGE note above for why this is accepted. The `splitByChar('-', ..., 2)` limit mirrors the raw
+# query's exact split signature so the prefix/region split stays identical to the raw
+# path for multi-part BCP-47 tags (e.g. `zh-Hans-CN`) regardless of the cluster's
+# `splitby_max_substrings_includes_remaining_string` setting. Empty/null languages are
+# kept (not filtered), matching the raw query's `outer_where_breakdown() is None` for
+# LANGUAGE.
+_LANGUAGE_READ_SQL_TEMPLATE = """
+SELECT
+    concat(m.lang_prefix, '-', r.top_region) AS breakdown_value,
+    m.visitors AS visitors,
+    m.previous_visitors AS previous_visitors,
+    m.views AS views,
+    m.previous_views AS previous_views,
+    sum({sort_metric}) OVER () AS fill_total
+FROM (
+    SELECT
+        arrayElement(splitByChar('-', JSONExtractString(breakdown_value), 2), 1) AS lang_prefix,
+        uniqMergeIf(uniq_users_state, and(time_window_start >= {cur_start}, time_window_start < {cur_end})) AS visitors,
+        uniqMergeIf(uniq_users_state, and(time_window_start >= {prev_start}, time_window_start < {prev_end})) AS previous_visitors,
+        sumMergeIf(sum_pageviews_state, and(time_window_start >= {cur_start}, time_window_start < {cur_end})) AS views,
+        sumMergeIf(sum_pageviews_state, and(time_window_start >= {prev_start}, time_window_start < {prev_end})) AS previous_views
+    FROM posthog.web_stats_preaggregated
+    WHERE and(team_id = {team_id}, job_id IN {job_ids}, breakdown_by = {breakdown_by})
+    GROUP BY lang_prefix
+) AS m
+LEFT JOIN (
+    SELECT lang_prefix, argMax(region, region_views) AS top_region
+    FROM (
+        SELECT
+            arrayElement(splitByChar('-', JSONExtractString(breakdown_value), 2), 1) AS lang_prefix,
+            arrayElement(splitByChar('-', JSONExtractString(breakdown_value), 2), 2) AS region,
+            sumMergeIf(sum_pageviews_state, and(time_window_start >= {cur_start}, time_window_start < {cur_end})) AS region_views
+        FROM posthog.web_stats_preaggregated
+        WHERE and(team_id = {team_id}, job_id IN {job_ids}, breakdown_by = {breakdown_by})
+        GROUP BY lang_prefix, region
+    )
+    GROUP BY lang_prefix
+) AS r ON m.lang_prefix = r.lang_prefix
 """
 
 
@@ -328,6 +409,26 @@ def _resolve_sort_metric(query: WebStatsTableQuery) -> tuple[str, bool]:
     return sort_metric, descending
 
 
+# Breakdowns where the raw query keeps NULL rows (surfaced as a "(none)" row) instead
+# of dropping them — must stay in lockstep with the `outer_where_breakdown() is None`
+# cases in `WebStatsTableQueryRunner`. `test_breakdown_having_matches_live_null_handling`
+# enforces the parity so the two can't drift.
+_KEEP_NULL_BREAKDOWNS = {
+    WebStatsBreakdown.COUNTRY,
+    WebStatsBreakdown.BROWSER,
+    WebStatsBreakdown.OS,
+    WebStatsBreakdown.DEVICE_TYPE,
+    WebStatsBreakdown.LANGUAGE,
+    WebStatsBreakdown.TIMEZONE,
+    WebStatsBreakdown.INITIAL_REFERRING_DOMAIN,
+    WebStatsBreakdown.INITIAL_UTM_SOURCE,
+    WebStatsBreakdown.INITIAL_UTM_CAMPAIGN,
+    WebStatsBreakdown.INITIAL_UTM_MEDIUM,
+    WebStatsBreakdown.INITIAL_UTM_TERM,
+    WebStatsBreakdown.INITIAL_UTM_CONTENT,
+}
+
+
 def _breakdown_having_expr(breakdown_by: WebStatsBreakdown) -> ast.Expr:
     """HAVING-clause equivalent of the raw query's `outer_where_breakdown()` —
     operates on the JSON-encoded `breakdown_value` column produced by the INSERT.
@@ -346,14 +447,10 @@ def _breakdown_having_expr(breakdown_by: WebStatsBreakdown) -> ast.Expr:
             "JSONExtractRaw(breakdown_value, 1) NOT IN ('null', '0') "
             "AND JSONExtractRaw(breakdown_value, 2) NOT IN ('null', '0')"
         )
-    if breakdown_by in {
-        WebStatsBreakdown.INITIAL_UTM_SOURCE,
-        WebStatsBreakdown.INITIAL_UTM_CAMPAIGN,
-        WebStatsBreakdown.INITIAL_UTM_MEDIUM,
-        WebStatsBreakdown.INITIAL_UTM_TERM,
-        WebStatsBreakdown.INITIAL_UTM_CONTENT,
-    }:
-        # The raw query intentionally keeps null UTM values.
+    if breakdown_by in _KEEP_NULL_BREAKDOWNS:
+        # Mirror the raw query's `outer_where_breakdown() is None` set: missing data is
+        # real for these dimensions and surfaces as a "(none)" row, so it must not be
+        # dropped. Source of truth is `WebStatsTableQueryRunner.outer_where_breakdown`.
         return ast.Constant(value=True)
     if breakdown_by == WebStatsBreakdown.INITIAL_CHANNEL_TYPE:
         # JSON scalars: 'null' is genuine null, '""' is empty string.
@@ -370,6 +467,10 @@ def _decode_breakdown_value(breakdown_by: WebStatsBreakdown, raw: str) -> object
         # A non-nullable String column can surface a genuine NULL breakdown as
         # an empty string; treat it as the null breakdown value.
         return None
+    if breakdown_by == WebStatsBreakdown.LANGUAGE:
+        # The LANGUAGE read emits the final "lang-region" string directly
+        # (concat of prefix + most-common region), not a JSON-wrapped value.
+        return raw
     value = json.loads(raw)
     if breakdown_by in TUPLE_BREAKDOWNS and isinstance(value, list):
         return tuple(value)
@@ -413,13 +514,19 @@ def execute_read_query(
         "sort_metric": ast.Field(chain=[sort_metric]),
     }
 
-    parsed = parse_select(_READ_SQL_TEMPLATE, placeholders=placeholders)
+    read_template = (
+        _LANGUAGE_READ_SQL_TEMPLATE if runner.query.breakdownBy == WebStatsBreakdown.LANGUAGE else _READ_SQL_TEMPLATE
+    )
+    parsed = parse_select(read_template, placeholders=placeholders)
     assert isinstance(parsed, ast.SelectQuery)
 
     # Filter equivalent to the raw query's `outer_where_breakdown()`. Pushing
     # this to HAVING means ORDER BY + LIMIT downstream see the same row set the
-    # raw path's pagination operates on.
-    parsed.having = _breakdown_having_expr(runner.query.breakdownBy)
+    # raw path's pagination operates on. LANGUAGE applies its breakdown filter in
+    # the subquery WHERE instead — its outer SELECT has no GROUP BY, so a HAVING
+    # there would be invalid.
+    if runner.query.breakdownBy != WebStatsBreakdown.LANGUAGE:
+        parsed.having = _breakdown_having_expr(runner.query.breakdownBy)
 
     direction: Literal["ASC", "DESC"] = "DESC" if descending else "ASC"
     secondary = "views" if sort_metric == "visitors" else "visitors"

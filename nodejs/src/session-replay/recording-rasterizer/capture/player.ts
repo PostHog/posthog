@@ -3,8 +3,9 @@ import type { Page } from 'puppeteer'
 import { PLAYER_CONFIG_KEY, PLAYER_EMIT_FN, PLAYER_START_EVENT } from '@posthog/replay-headless/protocol'
 import type { InactivityPeriod, PlayerConfig, PlayerMessage } from '@posthog/replay-headless/protocol'
 
-import { RasterizationError } from '../errors'
-import { type Logger, createLogger } from '../logger'
+import { RasterizationError } from '~/session-replay/recording-rasterizer/errors'
+import { type Logger, createLogger } from '~/session-replay/recording-rasterizer/logger'
+
 import { BlockProxy } from './block-proxy'
 import { CapturePage } from './capture-page'
 import { RequestInterceptor } from './request-interceptor'

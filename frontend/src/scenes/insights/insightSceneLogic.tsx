@@ -1,14 +1,13 @@
 import { BuiltLogic, actions, connect, kea, listeners, path, reducers, selectors, sharedListeners } from 'kea'
+import { urlToAction } from 'kea-router'
 import { objectsEqual } from 'kea-test-utils'
 
 import api from 'lib/api'
 import { AlertType } from 'lib/components/Alerts/types'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { tabAwareActionToUrl } from 'lib/logic/scenes/tabAwareActionToUrl'
-import { tabAwareScene } from 'lib/logic/scenes/tabAwareScene'
-import { tabAwareUrlToAction } from 'lib/logic/scenes/tabAwareUrlToAction'
-import { isEmptyObject, isObject } from 'lib/utils'
+import { trackedActionToUrl } from 'lib/logic/scenes/trackedActionToUrl'
 import { InsightEventSource, eventUsageLogic } from 'lib/utils/eventUsageLogic'
+import { isEmptyObject, isObject } from 'lib/utils/guards'
 import { isDashboardFilterEmpty } from 'scenes/dashboard/dashboardFilterEmpty'
 import { dashboardLogic } from 'scenes/dashboard/dashboardLogic'
 import { createEmptyInsight, insightLogic } from 'scenes/insights/insightLogic'
@@ -23,11 +22,21 @@ import { urls } from 'scenes/urls'
 
 import { sidePanelStateLogic } from '~/layout/navigation-3000/sidepanel/sidePanelStateLogic'
 import { SIDE_PANEL_CONTEXT_KEY, SidePanelSceneContext } from '~/layout/navigation-3000/sidepanel/types'
+import { sceneLayoutLogic } from '~/layout/scenes/sceneLayoutLogic'
 import { getDefaultQuery } from '~/queries/nodes/InsightViz/utils'
-import { DashboardFilter, FileSystemIconType, HogQLVariable, Node, TileFilters } from '~/queries/schema/schema-general'
+import {
+    DashboardFilter,
+    FileSystemIconType,
+    HogQLVariable,
+    Node,
+    NodeKind,
+    QueryLogTags,
+    TileFilters,
+} from '~/queries/schema/schema-general'
 import {
     checkLatestVersionsOnQuery,
     convertDataTableNodeToDataVisualizationNode,
+    isDataTableNode,
     isInsightVizNode,
 } from '~/queries/utils'
 import {
@@ -54,10 +63,6 @@ import { getInsightIconTypeFromQuery, parseDraftQueryFromURL } from './utils'
 const NEW_INSIGHT = 'new' as const
 export type InsightId = InsightShortId | typeof NEW_INSIGHT | null
 
-export interface InsightSceneLogicProps {
-    tabId?: string
-}
-
 function normalizeItemId(itemId: string | undefined): string | number | null {
     if (itemId === undefined) {
         return null
@@ -71,9 +76,31 @@ function normalizeItemId(itemId: string | undefined): string | number | null {
     return itemId
 }
 
+// Tag a new insight's query with the product_analytics productKey (on the executed source query) so
+// ClickHouse doesn't reject it as untagged. Leaves an existing productKey untouched.
+function withDefaultProductAnalyticsTags(query: Node): Node {
+    if (isInsightVizNode(query) && !query.source.tags?.productKey) {
+        return {
+            ...query,
+            source: { ...query.source, tags: { ...query.source.tags, ...PRODUCT_ANALYTICS_DEFAULT_QUERY_TAGS } },
+        } as Node
+    }
+    // EventsNode is the only DataTableNode source kind without a `tags` field and its schema forbids
+    // extra keys, so tagging it would make the payload invalid.
+    if (isDataTableNode(query) && query.source.kind !== NodeKind.EventsNode) {
+        const source = query.source as { tags?: QueryLogTags | null }
+        if (!source.tags?.productKey) {
+            return {
+                ...query,
+                source: { ...query.source, tags: { ...source.tags, ...PRODUCT_ANALYTICS_DEFAULT_QUERY_TAGS } },
+            } as Node
+        }
+    }
+    return query
+}
+
 export const insightSceneLogic = kea<insightSceneLogicType>([
     path(['scenes', 'insights', 'insightSceneLogic']),
-    tabAwareScene(),
     connect(() => ({
         logic: [eventUsageLogic],
         values: [
@@ -87,7 +114,10 @@ export const insightSceneLogic = kea<insightSceneLogicType>([
             ['filterTestAccountsDefault'],
             featureFlagLogic,
             ['featureFlags'],
+            sceneLayoutLogic,
+            ['scenePanelIsPresent'],
         ],
+        actions: [sceneLayoutLogic, ['setScenePanelIsPresent']],
     })),
     actions({
         setInsightId: (insightId: InsightShortId) => ({ insightId }),
@@ -210,7 +240,6 @@ export const insightSceneLogic = kea<insightSceneLogicType>([
         freshQuery: [false, { setFreshQuery: (_, { freshQuery }) => freshQuery }],
     }),
     selectors({
-        tabId: [() => [(_, props: InsightSceneLogicProps) => props.tabId], (tabId) => tabId],
         insightQuerySelector: [
             (s) => [s.insightDataLogicRef],
             (insightDataLogicRef) => insightDataLogicRef?.logic.selectors.query,
@@ -258,16 +287,8 @@ export const insightSceneLogic = kea<insightSceneLogicType>([
             (insight) => insight,
         ],
         breadcrumbs: [
-            (s) => [
-                s.insightLogicRef,
-                s.insight,
-                s.insightQuery,
-                s.dashboardId,
-                s.dashboardName,
-                (_, props: InsightSceneLogicProps) => props.tabId,
-                s.sceneSource,
-            ],
-            (insightLogicRef, insight, insightQuery, dashboardId, dashboardName, tabId, sceneSource): Breadcrumb[] => {
+            (s) => [s.insightLogicRef, s.insight, s.insightQuery, s.dashboardId, s.dashboardName, s.sceneSource],
+            (insightLogicRef, insight, insightQuery, dashboardId, dashboardName, sceneSource): Breadcrumb[] => {
                 const dashboardLabel = dashboardName ?? 'Dashboard'
                 return [
                     ...(dashboardId !== null
@@ -315,7 +336,7 @@ export const insightSceneLogic = kea<insightSceneLogicType>([
                                         },
                           ]),
                     {
-                        key: [Scene.Insight, insight?.short_id || `new-${tabId}`],
+                        key: [Scene.Insight, insight?.short_id || 'new'],
                         name: insightLogicRef?.logic.values.insightName,
                         forceEditMode: insightLogicRef?.logic.values.canEditInsight,
                         iconType: getInsightIconTypeFromQuery(insightQuery),
@@ -393,7 +414,6 @@ export const insightSceneLogic = kea<insightSceneLogicType>([
                         filtersOverride: values.filtersOverride,
                         variablesOverride: values.variablesOverride,
                         tileFiltersOverride: values.tileFiltersOverride,
-                        tabId: values.tabId,
                     }
 
                     const logic = insightLogic.build(insightProps)
@@ -428,11 +448,19 @@ export const insightSceneLogic = kea<insightSceneLogicType>([
         setSceneState: [
             sharedListeners.reloadInsightLogic,
             ({ sceneSource }) => {
-                if (sceneSource === 'endpoints') {
+                // Only open here when the scene panel already exists; otherwise Info isn't in
+                // `enabledTabs` yet and SidePanel's fallback reroutes to Max. The fresh-navigation
+                // case is handled by the `setScenePanelIsPresent` listener below.
+                if (sceneSource === 'endpoints' && values.scenePanelIsPresent) {
                     sidePanelStateLogic.findMounted()?.actions.openSidePanel(SidePanelTab.Info)
                 }
             },
         ],
+        setScenePanelIsPresent: ({ active }) => {
+            if (active && values.sceneSource === 'endpoints') {
+                sidePanelStateLogic.findMounted()?.actions.openSidePanel(SidePanelTab.Info)
+            }
+        },
         upgradeQuery: async ({ query }) => {
             let upgradedQuery: Node | null = null
 
@@ -448,9 +476,9 @@ export const insightSceneLogic = kea<insightSceneLogicType>([
             if (values.insightId === 'new' || values.insightId?.startsWith('new-')) {
                 values.insightLogicRef?.logic.actions.setInsight(
                     {
-                        ...createEmptyInsight(`new-${values.tabId}`),
+                        ...createEmptyInsight('new'),
                         ...(values.dashboardId ? { dashboards: [values.dashboardId] } : {}),
-                        query: upgradedQuery,
+                        query: upgradedQuery ? withDefaultProductAnalyticsTags(upgradedQuery) : upgradedQuery,
                     },
                     {
                         fromPersistentApi: false,
@@ -462,7 +490,7 @@ export const insightSceneLogic = kea<insightSceneLogicType>([
             }
         },
     })),
-    tabAwareUrlToAction(({ actions, values }) => ({
+    urlToAction(({ actions, values }) => ({
         '/insights/:shortId(/:mode)(/:itemId)': (
             { shortId, mode, itemId }, // url params
             { dashboard, alert_id, ...searchParams }, // search params
@@ -488,7 +516,7 @@ export const insightSceneLogic = kea<insightSceneLogicType>([
                           : ItemMode.View
             let insightId = String(shortId) as InsightShortId
             if (insightId === 'new') {
-                insightId = `new-${values.tabId}` as InsightShortId
+                insightId = 'new' as InsightShortId
             }
 
             const currentScene = sceneLogic.findMounted()?.values
@@ -496,18 +524,21 @@ export const insightSceneLogic = kea<insightSceneLogicType>([
             const alertChanged = (alert_id ?? null) !== values.alertId
             const isExistingInsight = shortId !== 'new'
 
-            const itemIdChanged =
-                (currentScene?.activeSceneLogic as BuiltLogic<insightSceneLogicType>)?.values.itemId !==
-                normalizeItemId(itemId)
+            // `activeSceneLogic` can unmount mid-transition (e.g. navigating dashboard ↔ insight edit).
+            // Reading `.values` on an unmounted logic throws `[KEA] Can not find path`, so only read it
+            // while it's still mounted — otherwise treat the scene as changed and re-process below.
+            const activeSceneLogic = currentScene?.activeSceneLogic as BuiltLogic<insightSceneLogicType> | undefined
+            const activeSceneValues = activeSceneLogic?.isMounted() ? activeSceneLogic.values : undefined
+
+            const itemIdChanged = activeSceneValues?.itemId !== normalizeItemId(itemId)
 
             if (
                 isExistingInsight &&
                 method !== 'PUSH' &&
                 currentScene?.activeSceneId === Scene.Insight &&
-                currentScene.activeSceneLogic &&
-                (currentScene.activeSceneLogic as BuiltLogic<insightSceneLogicType>).values.insightId === insightId &&
-                (currentScene.activeSceneLogic as BuiltLogic<insightSceneLogicType>).values.insightMode ===
-                    insightMode &&
+                activeSceneValues &&
+                activeSceneValues.insightId === insightId &&
+                activeSceneValues.insightMode === insightMode &&
                 !alertChanged &&
                 !itemIdChanged
             ) {
@@ -583,19 +614,10 @@ export const insightSceneLogic = kea<insightSceneLogicType>([
             if ((initial || queryFromUrl || method === 'PUSH') && !validatingQuery) {
                 if (insightId === 'new' || insightId.startsWith('new-')) {
                     const query = queryFromUrl || getDefaultQuery(InsightType.TRENDS, values.filterTestAccountsDefault)
-                    const taggedQuery =
-                        isInsightVizNode(query) && !query.source.tags?.productKey
-                            ? {
-                                  ...query,
-                                  source: {
-                                      ...query.source,
-                                      tags: { ...query.source.tags, ...PRODUCT_ANALYTICS_DEFAULT_QUERY_TAGS },
-                                  },
-                              }
-                            : query
+                    const taggedQuery = withDefaultProductAnalyticsTags(query)
                     values.insightLogicRef?.logic.actions.setInsight(
                         {
-                            ...createEmptyInsight(`new-${values.tabId}`),
+                            ...createEmptyInsight('new'),
                             ...(dashboard ? { dashboards: [dashboard] } : {}),
                             query: taggedQuery,
                         },
@@ -609,12 +631,12 @@ export const insightSceneLogic = kea<insightSceneLogicType>([
                         actions.setFreshQuery(true)
                     }
 
-                    eventUsageLogic.actions.reportInsightCreated(query)
+                    eventUsageLogic.actions.reportInsightStarted(query)
                 }
             }
         },
     })),
-    tabAwareActionToUrl(({ values }) => {
+    trackedActionToUrl(({ values }) => {
         // Use the browser redirect to determine state to hook into beforeunload prevention
         const actionToUrl = ({
             insightMode = values.insightMode,
@@ -626,7 +648,8 @@ export const insightSceneLogic = kea<insightSceneLogicType>([
             | [string, Record<string, any> | string | undefined, Record<string, any> | string | undefined]
             | undefined => {
             if (!insightId || insightId === 'new' || insightId.startsWith('new-')) {
-                return [urls.insightNew(), undefined, undefined]
+                // Preserve search + hash (e.g. the `#q=` query) so post-load URL sync doesn't strip the drill-down query
+                return [urls.insightNew(), window.location.search, window.location.hash]
             }
 
             const baseUrl = insightMode === ItemMode.View ? urls.insightView(insightId) : urls.insightEdit(insightId)

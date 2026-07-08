@@ -4,6 +4,13 @@
         padding: 0.25rem;
     }
 
+    /* Ungrouped items sit directly in the list with no group to pad them, so the
+       list takes over the group's padding. Suppressed when any group is present
+       (the group owns its own padding then). */
+    .quill-select__list:not(:has(.quill-select__group)) {
+        padding: 0.25rem;
+    }
+
     .quill-select__value {
         display: flex;
         flex: 1 1 auto;
@@ -53,7 +60,6 @@
     .quill-select__content {
         position: relative;
         z-index: var(--quill-z-popover, 50);
-        width: var(--anchor-width);
         min-width: 8rem;
         max-height: var(--available-height);
         overflow: hidden auto;
@@ -69,16 +75,36 @@
         transform-origin: var(--transform-origin);
     }
 
+    /* Aligned mode: Base UI shifts the popup left so the selected item's TEXT
+       overlays the trigger's value text (it measures the inset difference —
+       ~4px here from the list padding). The popup must be allowed to outgrow
+       the trigger: pinning width to --anchor-width leaves a sliver of trigger
+       exposed on the right after the shift. The +0.5rem absorbs the shift on
+       the left and overhangs the same amount on the right. */
+
+    /* Also skips the open/close animation — the popup should appear locked to
+       the selected item's position, not bounce around. */
+    .quill-select__content[data-align-trigger='true'] {
+        width: max-content;
+        min-width: max(8rem, calc(var(--anchor-width) + 0.5rem));
+        max-width: var(--available-width);
+        transition: none;
+    }
+
+    /* When items aren't locked to the trigger, the popup is a normal
+       dropdown — size it to its widest option (capped at the viewport)
+       instead of the (often narrow) trigger, so long labels don't clip.
+       Still never narrower than the trigger. */
+    .quill-select__content[data-align-trigger='false'] {
+        width: max-content;
+        min-width: max(8rem, var(--anchor-width));
+        max-width: var(--available-width);
+    }
+
     .quill-select__content[data-starting-style],
     .quill-select__content[data-ending-style] {
         opacity: 0;
         transform: scale(0.97);
-    }
-
-    /* Skip anim when item is aligned with trigger — the popup should appear
-       locked to the selected item's position, not bounce around. */
-    .quill-select__content[data-align-trigger='true'] {
-        transition: none;
     }
 
     .quill-select__content[data-align-trigger='true'][data-starting-style],

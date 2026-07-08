@@ -6,8 +6,9 @@ from posthog.test.base import BaseTest
 
 from django.core.management import call_command
 
-from posthog.models.cohort.cohort import Cohort
 from posthog.models.team.team import Team
+
+from products.cohorts.backend.models.cohort import Cohort
 
 from common.hogvm.python.operation import HOGQL_BYTECODE_VERSION
 

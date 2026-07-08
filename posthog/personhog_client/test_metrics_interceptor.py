@@ -84,20 +84,22 @@ class TestMetricsInterceptorReturnsBehavior:
             interceptor.intercept_unary_unary(_make_raising_continuation(status_code), details, request=b"")
 
 
-class TestMetricsInterceptorTimeoutTracking:
-    @patch("posthog.personhog_client.interceptor.PERSONHOG_DJANGO_TIMEOUT_TOTAL")
-    def test_increments_timeout_counter_on_deadline_exceeded_response(self, mock_timeout_counter):
+class TestMetricsInterceptorErrorTracking:
+    @patch("posthog.personhog_client.interceptor.PERSONHOG_ERRORS_TOTAL")
+    def test_increments_error_counter_on_non_ok_response(self, mock_errors_counter):
         interceptor = MetricsInterceptor("test-client")
         details = _make_call_details()
-        response = _make_error_response(grpc.StatusCode.DEADLINE_EXCEEDED)
+        response = _make_error_response(grpc.StatusCode.UNAVAILABLE)
 
         interceptor.intercept_unary_unary(lambda d, r: response, details, request=b"")
 
-        mock_timeout_counter.labels.assert_called_with(method="GetPerson", client_name="test-client")
-        mock_timeout_counter.labels.return_value.inc.assert_called_once()
+        mock_errors_counter.labels.assert_called_with(
+            method="GetPerson", client="test-client", error_type="Unavailable"
+        )
+        mock_errors_counter.labels.return_value.inc.assert_called_once()
 
-    @patch("posthog.personhog_client.interceptor.PERSONHOG_DJANGO_TIMEOUT_TOTAL")
-    def test_increments_timeout_counter_on_deadline_exceeded_exception(self, mock_timeout_counter):
+    @patch("posthog.personhog_client.interceptor.PERSONHOG_ERRORS_TOTAL")
+    def test_increments_error_counter_on_rpc_exception(self, mock_errors_counter):
         interceptor = MetricsInterceptor("test-client")
         details = _make_call_details()
 
@@ -108,24 +110,16 @@ class TestMetricsInterceptorTimeoutTracking:
                 request=b"",
             )
 
-        mock_timeout_counter.labels.assert_called_with(method="GetPerson", client_name="test-client")
-        mock_timeout_counter.labels.return_value.inc.assert_called_once()
+        mock_errors_counter.labels.assert_called_with(
+            method="GetPerson", client="test-client", error_type="DeadlineExceeded"
+        )
+        mock_errors_counter.labels.return_value.inc.assert_called_once()
 
-    @patch("posthog.personhog_client.interceptor.PERSONHOG_DJANGO_TIMEOUT_TOTAL")
-    def test_does_not_increment_timeout_counter_on_other_errors(self, mock_timeout_counter):
-        interceptor = MetricsInterceptor("test-client")
-        details = _make_call_details()
-        response = _make_error_response(grpc.StatusCode.UNAVAILABLE)
-
-        interceptor.intercept_unary_unary(lambda d, r: response, details, request=b"")
-
-        mock_timeout_counter.labels.return_value.inc.assert_not_called()
-
-    @patch("posthog.personhog_client.interceptor.PERSONHOG_DJANGO_TIMEOUT_TOTAL")
-    def test_does_not_increment_timeout_counter_on_success(self, mock_timeout_counter):
+    @patch("posthog.personhog_client.interceptor.PERSONHOG_ERRORS_TOTAL")
+    def test_does_not_increment_error_counter_on_success(self, mock_errors_counter):
         interceptor = MetricsInterceptor("test-client")
         details = _make_call_details()
 
         interceptor.intercept_unary_unary(lambda d, r: _make_ok_response(), details, request=b"")
 
-        mock_timeout_counter.labels.return_value.inc.assert_not_called()
+        mock_errors_counter.labels.return_value.inc.assert_not_called()

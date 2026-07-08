@@ -6,6 +6,7 @@ from products.wizard.backend.facade.contracts import UpsertWizardSessionInput, W
 from products.wizard.backend.facade.enums import RunPhase, TaskStatus
 from products.wizard.backend.logic.pubsub import publish_session_update
 from products.wizard.backend.logic.utils import is_stale
+from products.wizard.backend.metrics import report_session_upserted
 from products.wizard.backend.models import WizardSession
 
 
@@ -18,6 +19,11 @@ def upsert_session(params: UpsertWizardSessionInput) -> tuple[WizardSessionDTO, 
     a brand-new session_id can race the unique constraint and surface as a
     500; the CLI's normal HTTP retry handles that on the next attempt.
     """
+    previous_run_phase = (
+        WizardSession.objects.filter(team_id=params.team_id, session_id=params.session_id)
+        .values_list("run_phase", flat=True)
+        .first()
+    )
     instance, created = WizardSession.objects.update_or_create(
         team_id=params.team_id,
         session_id=params.session_id,
@@ -39,6 +45,7 @@ def upsert_session(params: UpsertWizardSessionInput) -> tuple[WizardSessionDTO, 
         },
     )
     dto = _to_dto(instance)
+    report_session_upserted(previous_run_phase, dto)
     publish_session_update(dto)
     return dto, created
 
@@ -52,7 +59,8 @@ def get_latest_session(team_id: int, workflow_id: str, skill_id: str | None = No
     qs = WizardSession.objects.filter(team_id=team_id, workflow_id=workflow_id)
     if skill_id:
         qs = qs.filter(skill_id=skill_id)
-    instance = qs.order_by("-started_at").first()
+    # created_at breaks ties on equal (client-supplied, second-granularity) started_at
+    instance = qs.order_by("-started_at", "-created_at").first()
     return _to_dto(instance) if instance else None
 
 
@@ -75,7 +83,8 @@ def list_sessions(
         qs = qs.filter(workflow_id=workflow_id)
     if skill_id:
         qs = qs.filter(skill_id=skill_id)
-    qs = qs.order_by("-started_at")
+    # created_at breaks ties on equal (client-supplied, second-granularity) started_at
+    qs = qs.order_by("-started_at", "-created_at")
     if limit is not None:
         qs = qs[offset : offset + limit]
     elif offset:

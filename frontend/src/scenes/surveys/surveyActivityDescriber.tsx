@@ -11,7 +11,7 @@ import {
     userNameForLogItem,
 } from 'lib/components/ActivityLog/humanizeActivity'
 import { Link } from 'lib/lemon-ui/Link'
-import { truncate } from 'lib/utils'
+import { truncate } from 'lib/utils/strings'
 import { urls } from 'scenes/urls'
 
 import {
@@ -187,6 +187,8 @@ const surveyActionsMapping: Record<
             tabPosition: 'survey button position',
             shuffleQuestions: 'question shuffling',
             surveyPopupDelaySeconds: 'survey popup delay',
+            allowGoBack: 'back button',
+            backButtonText: 'back button text',
             widgetType: 'widget type',
             widgetSelector: 'widget selector',
             widgetLabel: 'widget label',

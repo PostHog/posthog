@@ -9,6 +9,8 @@ from posthog.schema import ArtifactContentType, ArtifactMessage, ArtifactSource,
 from posthog.models import User
 from posthog.models.team import Team
 
+from products.posthog_ai.backend.models.assistant import AgentArtifact
+
 from ee.hogai.artifacts.handlers import (
     EnrichmentContext,
     NotebookArtifactManagerMixin,
@@ -20,7 +22,6 @@ from ee.hogai.artifacts.handlers import (
 from ee.hogai.artifacts.types import ArtifactContent, ContentT, StoredContent
 from ee.hogai.core.mixins import AssistantContextMixin
 from ee.hogai.utils.types.base import ArtifactRefMessage, AssistantMessageUnion
-from ee.models.assistant import AgentArtifact
 
 
 class ArtifactManager(

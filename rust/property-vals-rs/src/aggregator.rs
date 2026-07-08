@@ -48,7 +48,6 @@ mod tests {
             property_type: PropertyType::Event,
             property_key: key.to_string(),
             property_value: value.to_string(),
-            event_name: String::new(),
         }
     }
 
@@ -66,9 +65,8 @@ mod tests {
             property_type in arb_property_type(),
             property_key in "[a-c]{1,3}",
             property_value in "[x-z]{1,3}",
-            event_name in "[a-b]{0,2}",
         ) -> TupleKey {
-            TupleKey { team_id, property_type, property_key, property_value, event_name }
+            TupleKey { team_id, property_type, property_key, property_value }
         }
     }
 

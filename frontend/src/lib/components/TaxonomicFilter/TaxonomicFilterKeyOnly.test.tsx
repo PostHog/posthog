@@ -20,6 +20,13 @@ jest.mock('lib/components/AutoSizer', () => ({
         renderProp({ height: 400, width: 400 }),
 }))
 
+// Rows only appear after a chain of async hops (kea mount -> loader breakpoint -> mocked API -> reducer ->
+// virtualized render). That resolves in ~250ms locally but can exceed RTL's 1s default under CI parallelism,
+// which is what makes the mount-gated assertions flake. Give them generous headroom.
+const RENDER_TIMEOUT_MS = 3000
+const waitForTestId = (testId: string): Promise<void> =>
+    waitFor(() => expect(screen.getByTestId(testId)).toBeInTheDocument(), { timeout: RENDER_TIMEOUT_MS })
+
 describe('TaxonomicFilter selectingKeyOnly mode', () => {
     let recents: ReturnType<typeof recentTaxonomicFiltersLogic.build>
 
@@ -76,9 +83,7 @@ describe('TaxonomicFilter selectingKeyOnly mode', () => {
         it('records an EventProperty selection to recents when selectingKeyOnly is set', async () => {
             renderFilter({ selectingKeyOnly: true })
 
-            await waitFor(() => {
-                expect(screen.getByTestId('prop-filter-event_properties-0')).toBeInTheDocument()
-            })
+            await waitForTestId('prop-filter-event_properties-0')
 
             await userEvent.click(screen.getByTestId('prop-filter-event_properties-0'))
 
@@ -94,9 +99,7 @@ describe('TaxonomicFilter selectingKeyOnly mode', () => {
             const recordSpy = jest.spyOn(recents.actions, 'recordRecentFilter')
             renderFilter()
 
-            await waitFor(() => {
-                expect(screen.getByTestId('prop-filter-event_properties-0')).toBeInTheDocument()
-            })
+            await waitForTestId('prop-filter-event_properties-0')
 
             await userEvent.click(screen.getByTestId('prop-filter-event_properties-0'))
 
@@ -114,9 +117,7 @@ describe('TaxonomicFilter selectingKeyOnly mode', () => {
 
             renderFilter({ selectingKeyOnly: true, onChange })
 
-            await waitFor(() => {
-                expect(screen.getByTestId('taxonomic-tab-recent_filters')).toBeInTheDocument()
-            })
+            await waitForTestId('taxonomic-tab-recent_filters')
             await userEvent.click(screen.getByTestId('taxonomic-tab-recent_filters'))
 
             await waitFor(() => {
@@ -157,9 +158,7 @@ describe('TaxonomicFilter selectingKeyOnly mode', () => {
 
             renderFilter({ selectingKeyOnly: true })
 
-            await waitFor(() => {
-                expect(screen.getByTestId('taxonomic-tab-recent_filters')).toBeInTheDocument()
-            })
+            await waitForTestId('taxonomic-tab-recent_filters')
 
             await userEvent.click(screen.getByTestId('taxonomic-tab-recent_filters'))
 
@@ -176,9 +175,7 @@ describe('TaxonomicFilter selectingKeyOnly mode', () => {
 
             renderFilter({ selectingKeyOnly: true })
 
-            await waitFor(() => {
-                expect(screen.getByTestId('taxonomic-tab-recent_filters')).toBeInTheDocument()
-            })
+            await waitForTestId('taxonomic-tab-recent_filters')
             await userEvent.click(screen.getByTestId('taxonomic-tab-recent_filters'))
 
             await waitFor(() => {
@@ -190,20 +187,43 @@ describe('TaxonomicFilter selectingKeyOnly mode', () => {
             expect(row.textContent).not.toMatch(/Chrome/)
         })
 
-        it('renders complete recents WITH their value label in default (non-selectingKeyOnly) mode', async () => {
+        it('renders complete recents with their value label AND a separate bare key row in default mode', async () => {
             preloadCompleteRecent('$browser', 'Chrome')
 
             renderFilter()
 
-            await waitFor(() => {
-                expect(screen.getByTestId('taxonomic-tab-recent_filters')).toBeInTheDocument()
-            })
+            await waitForTestId('taxonomic-tab-recent_filters')
             await userEvent.click(screen.getByTestId('taxonomic-tab-recent_filters'))
 
             await waitFor(() => {
                 expect(screen.getByTestId('prop-filter-recent_filters-0')).toBeInTheDocument()
             })
-            expect(screen.getByTestId('prop-filter-recent_filters-0').textContent).toMatch(/Chrome/)
+            const bareKeyRow = screen.getByTestId('prop-filter-recent_filters-0')
+            expect(bareKeyRow.textContent).toMatch(/Browser/)
+            expect(bareKeyRow.textContent).not.toMatch(/Chrome/)
+            expect(screen.getByTestId('prop-filter-recent_filters-1').textContent).toMatch(/Chrome/)
+        })
+
+        it('selecting the bare key row hands back an item with no propertyFilter so the user picks a fresh value', async () => {
+            preloadCompleteRecent('$browser', 'Chrome')
+            const onChange = jest.fn()
+
+            renderFilter({ onChange })
+
+            await waitForTestId('taxonomic-tab-recent_filters')
+            await userEvent.click(screen.getByTestId('taxonomic-tab-recent_filters'))
+
+            await waitFor(() => {
+                expect(screen.getByTestId('prop-filter-recent_filters-1')).toBeInTheDocument()
+            })
+            await userEvent.click(screen.getByTestId('prop-filter-recent_filters-0'))
+
+            await waitFor(() => {
+                expect(onChange).toHaveBeenCalled()
+            })
+            const [, value, item] = onChange.mock.calls[0]
+            expect(value).toBe('$browser')
+            expect(item?._recentContext?.propertyFilter).toBeUndefined()
         })
 
         it('dedups multiple complete recents for the same key into one row in selectingKeyOnly mode', async () => {
@@ -212,9 +232,7 @@ describe('TaxonomicFilter selectingKeyOnly mode', () => {
 
             renderFilter({ selectingKeyOnly: true })
 
-            await waitFor(() => {
-                expect(screen.getByTestId('taxonomic-tab-recent_filters')).toBeInTheDocument()
-            })
+            await waitForTestId('taxonomic-tab-recent_filters')
             await userEvent.click(screen.getByTestId('taxonomic-tab-recent_filters'))
 
             await waitFor(() => {

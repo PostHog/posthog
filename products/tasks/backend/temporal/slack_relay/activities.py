@@ -2,11 +2,62 @@ import re
 from dataclasses import dataclass
 from typing import Any
 
+from markdown_to_mrkdwn import SlackMarkdownConverter
 from temporalio import activity
 
 from posthog.temporal.common.logger import get_logger
+from posthog.temporal.common.utils import close_db_connections
 
 logger = get_logger(__name__)
+
+_CONVERTER = SlackMarkdownConverter()
+
+_RE_TABLE_ROW = re.compile(r"^\s*\|.*\|\s*$")
+_RE_TABLE_SEPARATOR_CELL = re.compile(r"^:?-{2,}:?$")
+_RE_FENCE = re.compile(r"^\s*(```|~~~)")
+_RE_INLINE_MARKDOWN_MARKERS = re.compile(r"\*\*|__|\*|_|~~|`")
+_RE_MD_LINK = re.compile(r"\[([^\]]+)\]\(([^)]+)\)")
+
+# Repair pattern: bold/italic markers placed *inside* the close of a Slack-style
+# angle-bracket link, e.g. ``**<https://example.com**>`` instead of
+# ``**<https://example.com>**``. The agent hand-rolls Slack mrkdwn occasionally
+# and types the closing marker before ``>``; the standard converter has no way
+# to recover, so the asterisks end up adjacent to ``>`` in the final output and
+# Slack renders neither the bold nor the link. The flanking lookbehind/lookahead
+# require the opening and closing marker runs to be balanced — they refuse to
+# half-match a longer asterisk run, so unbalanced edge cases like ``**<url*>``
+# are left alone rather than silently rewritten into a different broken shape.
+_RE_LINK_TRAILING_MARKER = re.compile(r"(?<![*_~])(\*+|_+|~+)<([^<>]+?)\1>(?![*_~])")
+
+# Repair pattern: a bare ``http(s)`` URL wrapped directly in emphasis markers,
+# e.g. ``**https://example.com**``. The converter halves the markers in place
+# and emits ``*https://example.com*``; Slack then auto-links the URL but
+# renders the surrounding ``*`` as literal text because there is no whitespace
+# flanking the markers. Pre-wrapping the URL in ``<>`` lets the converter emit
+# the well-formed ``*<https://example.com>*`` — a clean bolded clickable link.
+# The URL group excludes whitespace and angle brackets so already well-formed
+# links (``**<url>**``) and bracketed markdown links (``**[text](url)**``) are
+# left alone.
+_RE_BARE_URL_IN_EMPHASIS = re.compile(r"(?<![*_~])(\*+|_+|~+)(https?://[^\s<>]+?)\1(?![*_~])")
+
+# A ``~`` on a word boundary directly in front of a quantity (``~$36k``, ``~2pm``, ``~10%``)
+# is the agent writing "approximately". In Markdown a single tilde is a literal character, but
+# Slack mrkdwn uses a single tilde as its strikethrough delimiter, so two such approximations
+# on one line pair up and strike through everything between them. The lookbehind requires a
+# non-word, non-tilde char before the tilde so a git ref (``HEAD~1``), a range (``5~10``), and
+# the first ``~`` of a ``~~strikethrough~~`` run are left alone; the lookahead leaves paths
+# (``~/dir``) and standalone tildes alone.
+_RE_APPROX_TILDE = re.compile(r"(?<![\w~])~(?=[$€£¥₹]?\d)")
+
+# Unicode "tilde operator" — visually a tilde, but not the ASCII strikethrough delimiter, so
+# Slack renders it literally.
+_APPROX_TILDE = "∼"
+
+# Fenced blocks and inline code spans, kept whole so the tilde substitution skips them: inside
+# a code span Slack has no strikethrough semantics anyway, and rewriting ``~`` there would alter
+# literal content (``HEAD~1``, npm ranges like ``~1.2.0``). Triple backticks are matched before
+# the single-backtick form so a fence isn't split at its inner backticks.
+_RE_CODE_SEGMENT = re.compile(r"(```[\s\S]*?```|`[^`\n]*`)")
 
 
 class _RelayAlreadyRecorded(Exception):
@@ -14,89 +65,247 @@ class _RelayAlreadyRecorded(Exception):
 
 
 def _markdown_to_slack_mrkdwn(text: str) -> str:
-    """Convert markdown to Slack mrkdwn format.
+    """Convert markdown to Slack ``mrkdwn`` via ``markdown_to_mrkdwn``.
 
-    Handles the most common differences while preserving code blocks.
+    Tables are pre-converted to fenced code blocks before the library runs because
+    Slack ``mrkdwn`` is rendered in a proportional font — pipe-separated rows do
+    not line up. A fenced code block forces monospace and the columns align.
+
+    Misplaced link markers (e.g. ``**<url**>``), bare URLs wrapped in emphasis
+    (e.g. ``**https://example.com**``), and "approximately" tildes (e.g. ``~$36k``)
+    are normalized first so the converter sees well-formed input.
     """
-    # Preserve code blocks from transformation
-    code_blocks: list[str] = []
-
-    def _stash_code_block(match: re.Match) -> str:
-        code_blocks.append(match.group(0))
-        return f"\x00CODE{len(code_blocks) - 1}\x00"
-
-    text = re.sub(r"```[\s\S]*?```", _stash_code_block, text)
-    text = re.sub(r"`[^`]+`", _stash_code_block, text)
-
-    # Markdown tables → plain text columns
-    text = _convert_tables(text)
-
-    # Headers → bold (### Header → *Header*)
-    text = re.sub(r"^#{1,6}\s+(.+)$", r"*\1*", text, flags=re.MULTILINE)
-
-    # Bold: **text** → *text* (but not inside already-converted bold)
-    text = re.sub(r"\*\*(.+?)\*\*", r"*\1*", text)
-
-    # Strikethrough: ~~text~~ → ~text~
-    text = re.sub(r"~~(.+?)~~", r"~\1~", text)
-
-    # Images before links since ![...] is more specific than [...]
-    text = re.sub(r"!\[([^\]]*)\]\(([^)]+)\)", r"<\2|\1>", text)
-
-    # Links: [text](url) → <url|text>
-    text = re.sub(r"\[([^\]]+)\]\(([^)]+)\)", r"<\2|\1>", text)
-
-    # Restore code blocks
-    for i, block in enumerate(code_blocks):
-        text = text.replace(f"\x00CODE{i}\x00", block)
-
-    return text
+    if not text:
+        return text
+    repaired = _neutralize_approx_tildes(_wrap_bare_urls_in_emphasis(_repair_link_trailing_markers(text)))
+    return _CONVERTER.convert(_tables_to_fenced_code_blocks(repaired))
 
 
-def _convert_tables(text: str) -> str:
-    """Convert markdown tables to aligned plain-text columns."""
+def _repair_link_trailing_markers(text: str) -> str:
+    """Move emphasis markers from inside a Slack-style link close to outside.
+
+    Handles ``**<url**>``/``*<url*>``/``_<url_>`` (and the ``<url|label>``
+    variants) by relocating the closing marker after ``>``. The negated
+    character class stops the match at the next ``<`` or ``>``, so adjacent
+    links don't cross-contaminate.
+    """
+    return _RE_LINK_TRAILING_MARKER.sub(r"\1<\2>\1", text)
+
+
+def _wrap_bare_urls_in_emphasis(text: str) -> str:
+    """Wrap bare ``http(s)`` URLs adjacent to emphasis markers with angle brackets.
+
+    ``**https://example.com**`` becomes ``**<https://example.com>**`` so the
+    downstream converter produces a properly formatted Slack link. Already
+    bracketed URLs (``**<url>**``) and markdown links (``**[label](url)**``)
+    are left untouched because the URL group rejects ``<`` and ``[``.
+    """
+    return _RE_BARE_URL_IN_EMPHASIS.sub(r"\1<\2>\1", text)
+
+
+def _neutralize_approx_tildes(text: str) -> str:
+    """Replace "approximately" tildes in front of a quantity with the tilde operator.
+
+    ``~$36k`` / ``~2pm`` / ``~10%`` becomes ``∼$36k`` / ``∼2pm`` / ``∼10%``. The agent
+    means "approximately", but Slack mrkdwn reads a single ``~`` as a strikethrough
+    delimiter, so two of them on one line strike through the text in between. The tilde
+    operator looks the same and carries no formatting meaning. ``~~strikethrough~~``,
+    git refs (``HEAD~1``), paths (``~/dir``), and standalone tildes are left alone, and
+    code spans/fences are skipped so literal code is never rewritten.
+    """
+    # ``re.split`` with a capturing group yields alternating text/code segments; the odd
+    # (code) segments pass through untouched.
+    return "".join(
+        segment if index % 2 else _RE_APPROX_TILDE.sub(_APPROX_TILDE, segment)
+        for index, segment in enumerate(_RE_CODE_SEGMENT.split(text))
+    )
+
+
+def _tables_to_fenced_code_blocks(text: str) -> str:
+    """Replace pipe-syntax markdown tables with fenced code blocks of padded columns.
+
+    A run of consecutive ``|…|`` lines surrounding a ``---`` separator row is
+    treated as a table; runs without a separator are left untouched. Lines inside
+    an existing fenced code block are skipped entirely so we don't mis-detect a
+    pipe-shaped line of source code as a table.
+    """
     lines = text.split("\n")
-    result: list[str] = []
-    table_lines: list[str] = []
+    out: list[str] = []
+    run: list[str] = []
+    in_fence = False
 
-    def _flush_table() -> None:
-        if not table_lines:
+    def _flush() -> None:
+        if not run:
             return
-        rows: list[list[str]] = []
-        for line in table_lines:
-            cells = [c.strip() for c in line.strip().strip("|").split("|")]
-            # Skip separator rows (----, :---:, etc.)
-            if all(re.match(r"^:?-+:?$", c) for c in cells):
-                continue
-            rows.append(cells)
-        if not rows:
-            table_lines.clear()
-            return
-        # Calculate column widths
-        col_count = max(len(r) for r in rows)
-        widths = [0] * col_count
-        for row in rows:
-            for i, cell in enumerate(row):
-                if i < col_count:
-                    widths[i] = max(widths[i], len(cell))
-        for row in rows:
-            padded = []
-            for i in range(col_count):
-                cell = row[i] if i < len(row) else ""
-                padded.append(cell.ljust(widths[i]))
-            result.append("  ".join(padded).rstrip())
-        table_lines.clear()
+        rendered = _render_table(run)
+        out.extend(run if rendered is None else [rendered])
+        run.clear()
 
     for line in lines:
-        stripped = line.strip()
-        if re.match(r"^\|.*\|$", stripped):
-            table_lines.append(stripped)
+        if _RE_FENCE.match(line):
+            _flush()
+            in_fence = not in_fence
+            out.append(line)
+            continue
+        if not in_fence and _RE_TABLE_ROW.match(line):
+            run.append(line)
         else:
-            _flush_table()
-            result.append(line)
-    _flush_table()
+            _flush()
+            out.append(line)
+    _flush()
 
-    return "\n".join(result)
+    return "\n".join(out)
+
+
+def _render_table(rows_raw: list[str]) -> str | None:
+    """Render a candidate table block to a fenced code block, or ``None`` if invalid.
+
+    A separator row of all-dashes cells (``---``, ``:---:``) is required — without
+    it the pipes are likely incidental rather than a table.
+    """
+    parsed: list[list[str]] = []
+    has_separator = False
+    for line in rows_raw:
+        cells = [c.strip() for c in line.strip().strip("|").split("|")]
+        if cells and all(_RE_TABLE_SEPARATOR_CELL.match(c) for c in cells):
+            has_separator = True
+            continue
+        parsed.append([_strip_inline_markdown(c) for c in cells])
+
+    if not has_separator or not parsed:
+        return None
+
+    col_count = max(len(r) for r in parsed)
+    widths = [0] * col_count
+    for row in parsed:
+        for i, cell in enumerate(row):
+            widths[i] = max(widths[i], len(cell))
+
+    body_lines = [
+        "  ".join((row[i] if i < len(row) else "").ljust(widths[i]) for i in range(col_count)).rstrip()
+        for row in parsed
+    ]
+    return "```\n" + "\n".join(body_lines) + "\n```"
+
+
+def _strip_inline_markdown(cell: str) -> str:
+    """Strip emphasis markers and unwrap links inside a cell.
+
+    The cell ends up inside a fenced code block where ``*bold*`` and ``[text](url)``
+    are not interpreted, so leaving the markers in just shifts column widths and
+    adds visual noise.
+    """
+    cell = _RE_MD_LINK.sub(r"\1", cell)
+    cell = _RE_INLINE_MARKDOWN_MARKERS.sub("", cell)
+    return cell.strip()
+
+
+# Slack renders text above ~4000 characters as a "Show more" affordance and silently truncates;
+# splitting at 3500 leaves comfortable headroom for the mention prefix and code-fence overhead.
+SLACK_MESSAGE_TEXT_LIMIT = 3500
+
+_FENCED_CODE_RE = re.compile(r"```([^\n]*)\n([\s\S]*?)\n```")
+
+
+def _split_markdown_for_slack(text: str, limit: int = SLACK_MESSAGE_TEXT_LIMIT) -> list[str]:
+    """Split raw markdown into Slack-sized chunks at safe structural boundaries.
+
+    Splits prefer paragraph (``\\n\\n``) and line (``\\n``) boundaries, then a hard
+    character break as a last resort. Fenced code blocks that cross a chunk
+    boundary are closed at the end of one chunk and reopened (with the same
+    language hint) at the start of the next so each chunk is a self-contained
+    markdown document. Callers convert each chunk to Slack mrkdwn independently;
+    that ordering means a hard char break inside an inline span like ``**bold**``
+    or ``[text](url)`` leaves the broken halves as literal text rather than
+    producing dangling unbalanced markers in the rendered output.
+    """
+    if len(text) <= limit:
+        return [text]
+
+    segments: list[tuple[str, str, str]] = []
+    pos = 0
+    for match in _FENCED_CODE_RE.finditer(text):
+        if match.start() > pos:
+            segments.append(("text", "", text[pos : match.start()]))
+        segments.append(("code", match.group(1), match.group(2)))
+        pos = match.end()
+    if pos < len(text):
+        segments.append(("text", "", text[pos:]))
+
+    chunks: list[str] = []
+    current = ""
+
+    def flush() -> None:
+        nonlocal current
+        stripped = current.rstrip()
+        if stripped:
+            chunks.append(stripped)
+        current = ""
+
+    def append_atom(atom: str, separator: str = "") -> None:
+        """Append ``atom`` to the current chunk, flushing first if it would overflow."""
+        nonlocal current
+        candidate = current + (separator if current else "") + atom
+        if len(candidate) <= limit:
+            current = candidate
+            return
+        flush()
+        current = atom
+
+    def split_long_line(line: str) -> None:
+        """Hard-split a single line that is itself longer than the limit."""
+        nonlocal current
+        remaining = line
+        while len(remaining) > limit:
+            flush()
+            chunks.append(remaining[:limit])
+            remaining = remaining[limit:]
+        if remaining:
+            append_atom(remaining, separator="\n")
+
+    for kind, lang, body in segments:
+        if kind == "text":
+            for paragraph_index, paragraph in enumerate(body.split("\n\n")):
+                separator = "\n\n" if paragraph_index > 0 or current else ""
+                if len(current) + len(separator) + len(paragraph) <= limit:
+                    current = current + separator + paragraph
+                    continue
+                if len(paragraph) <= limit:
+                    append_atom(paragraph, separator="\n\n")
+                    continue
+                # Paragraph alone overflows — fall back to per-line packing.
+                for line_index, line in enumerate(paragraph.split("\n")):
+                    sep = "\n" if line_index > 0 or current else ""
+                    if len(current) + len(sep) + len(line) <= limit:
+                        current = current + sep + line
+                    elif len(line) <= limit:
+                        append_atom(line, separator="\n")
+                    else:
+                        split_long_line(line)
+            continue
+
+        fence_open = f"```{lang}\n" if lang else "```\n"
+        fence_close = "\n```"
+        full_block = f"{fence_open}{body}{fence_close}"
+        if len(full_block) <= limit:
+            append_atom(full_block, separator="\n\n")
+            continue
+        # Block itself overflows — emit it across multiple fenced chunks, line-aligned.
+        flush()
+        overhead = len(fence_open) + len(fence_close)
+        room = max(1, limit - overhead)
+        cursor = 0
+        while cursor < len(body):
+            end = min(cursor + room, len(body))
+            if end < len(body):
+                newline = body.rfind("\n", cursor, end)
+                if newline > cursor:
+                    end = newline
+            chunks.append(f"{fence_open}{body[cursor:end]}{fence_close}")
+            cursor = end + 1 if end < len(body) and body[end] == "\n" else end
+
+    flush()
+    return chunks
 
 
 @dataclass
@@ -110,6 +319,7 @@ class RelaySlackMessageInput:
 
 
 @activity.defn
+@close_db_connections
 def relay_slack_message(input: RelaySlackMessageInput) -> None:
     from products.slack_app.backend.models import SlackThreadTaskMapping
     from products.slack_app.backend.slack_thread import SlackThreadContext, SlackThreadHandler
@@ -137,11 +347,11 @@ def relay_slack_message(input: RelaySlackMessageInput) -> None:
         logger.info("slack_relay_empty_text", run_id=input.run_id, relay_id=input.relay_id)
         return
 
-    text = _markdown_to_slack_mrkdwn(text)
-
-    SLACK_MESSAGE_TEXT_LIMIT = 3900
-    if len(text) > SLACK_MESSAGE_TEXT_LIMIT:
-        text = f"{text[: SLACK_MESSAGE_TEXT_LIMIT - 3]}..."
+    # Split the raw markdown first, then convert each chunk independently. Converting
+    # per-chunk means an inline span broken by a hard char split (e.g. ``**bold**``
+    # halved) stays literal in the output instead of leaving dangling Slack-mrkdwn
+    # markers that would garble the rendering of surrounding text.
+    chunks = [_markdown_to_slack_mrkdwn(chunk) for chunk in _split_markdown_for_slack(text)]
 
     context = SlackThreadContext(
         integration_id=mapping.integration_id,
@@ -152,10 +362,13 @@ def relay_slack_message(input: RelaySlackMessageInput) -> None:
     )
     handler = SlackThreadHandler(context)
 
-    mention_prefix = f"<@{mapping.mentioning_slack_user_id}> " if mapping.mentioning_slack_user_id else ""
+    target = mapping.latest_actor_slack_user_id or mapping.mentioning_slack_user_id
+    mention_prefix = f"<@{target}> " if target else ""
     if input.delete_progress:
         handler.delete_progress()
-    handler.post_thread_message(f"{mention_prefix}{text}")
+    for index, chunk in enumerate(chunks):
+        prefix = mention_prefix if index == 0 else ""
+        handler.post_thread_message(f"{prefix}{chunk}")
     if input.reaction_emoji is not None:
         handler.update_reaction(input.reaction_emoji)
 

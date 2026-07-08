@@ -33,7 +33,7 @@ import { LemonField } from 'lib/lemon-ui/LemonField'
 import { LemonRadio, LemonRadioOption } from 'lib/lemon-ui/LemonRadio'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { featureFlagLogic as enabledFeaturesLogic } from 'lib/logic/featureFlagLogic'
-import { formatDate } from 'lib/utils'
+import { formatDate } from 'lib/utils/datetime'
 import { ValueOf } from 'lib/utils/types'
 import { featureFlagLogic } from 'scenes/feature-flags/featureFlagLogic'
 import { FeatureFlagReleaseConditions } from 'scenes/feature-flags/FeatureFlagReleaseConditions'
@@ -1319,6 +1319,9 @@ export default function SurveyEdit({ id }: { id: string }): JSX.Element {
                                                               survey={survey}
                                                               hasBranchingLogic={hasBranchingLogic}
                                                               deleteBranchingLogic={deleteBranchingLogic}
+                                                              onTranslationsChange={(translations) =>
+                                                                  setSurveyValue('translations', translations)
+                                                              }
                                                               hasRatingButtons={survey.questions.some(
                                                                   (question) =>
                                                                       question.type === SurveyQuestionType.Rating
@@ -1586,7 +1589,10 @@ export default function SurveyEdit({ id }: { id: string }): JSX.Element {
                                                                               }
                                                                               help={
                                                                                   <>
-                                                                                      <Link to="https://posthog.com/docs/surveys/creating-surveys#display-conditions">
+                                                                                      <Link
+                                                                                          to="https://posthog.com/docs/surveys/creating-surveys#display-conditions"
+                                                                                          target="_blank"
+                                                                                      >
                                                                                           See accepted values
                                                                                       </Link>
                                                                                       . Needs posthog-js 1.214+.

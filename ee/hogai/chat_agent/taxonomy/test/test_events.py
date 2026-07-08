@@ -1,4 +1,9 @@
+from datetime import UTC, datetime
+
 from posthog.test.base import ClickhouseTestMixin, NonAtomicBaseTest, _create_event, flush_persons_and_events
+from unittest.mock import AsyncMock, patch
+
+from posthog.schema import CachedEventTaxonomyQueryResponse
 
 from posthog.models.group_type_mapping import invalidate_group_types_cache
 from posthog.test.test_utils import create_group_type_mapping_without_created_at
@@ -105,6 +110,26 @@ class TestEvents(ClickhouseTestMixin, NonAtomicBaseTest):
             property_vals.get("event1", [])
         )
 
+    async def test_events_property_values_virtual_property_without_property_definition(self):
+        now = datetime(2024, 1, 1, tzinfo=UTC)
+        response = CachedEventTaxonomyQueryResponse(
+            cache_key="virtual-event-property",
+            is_cached=True,
+            last_refresh=now,
+            next_allowed_client_refresh=now,
+            results=[],
+            timezone="UTC",
+        )
+
+        with patch.object(
+            DummyToolkit,
+            "_retrieve_event_or_action_taxonomy",
+            AsyncMock(return_value=(response, "event event1")),
+        ):
+            property_vals = await self.toolkit.retrieve_event_or_action_property_values({"event1": ["$virt_is_bot"]})
+
+        assert property_vals == {"event1": ["property: $virt_is_bot\nvalues:\n- 'true'\n- 'false'\n"]}
+
     async def test_events_property_values_action_values_not_found(self):
         result = await self.toolkit._get_entity_names()
         expected = ["person", "session", "organization", "project"]
@@ -147,10 +172,13 @@ class TestEvents(ClickhouseTestMixin, NonAtomicBaseTest):
         result = await self.toolkit.retrieve_event_or_action_properties_parallel([232, "event1"])
 
         assert "event1" in result
+        assert "<prop><name>id</name></prop>" in result["event1"]
         assert (
-            "<properties><String><prop><name>id</name></prop><prop><name>$browser</name><description>Name of the browser the user has used.</description></prop></String></properties>"
-            == result["event1"]
+            "<prop><name>$browser</name><description>Name of the browser the user has used.</description></prop>"
+            in result["event1"]
         )
+        # Virtual event properties are surfaced even though they never appear in stored event data.
+        assert "<name>$virt_is_bot</name>" in result["event1"]
         assert "<properties>" in result["232"]
 
     async def test_retrieve_event_or_action_properties_action_no_properties(self):

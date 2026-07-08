@@ -3,22 +3,24 @@ from posthog.test.base import APIBaseTest, ClickhouseTestMixin
 from posthog.hogql.parser import parse_select
 from posthog.hogql.query import execute_hogql_query
 
-from posthog.models import Cohort, Person
+from posthog.test.persons import create_person
+
+from products.cohorts.backend.models.cohort import Cohort
 
 
 class TestCohortPeopleTable(ClickhouseTestMixin, APIBaseTest):
     def test_select_star(self):
-        Person.objects.create(
+        create_person(
             team_id=self.team.pk,
             distinct_ids=["1"],
             properties={"$some_prop": "something", "$another_prop": "something1"},
         )
-        Person.objects.create(
+        create_person(
             team_id=self.team.pk,
             distinct_ids=["2"],
             properties={"$some_prop": "something", "$another_prop": "something2"},
         )
-        Person.objects.create(
+        create_person(
             team_id=self.team.pk,
             distinct_ids=["3"],
             properties={"$some_prop": "not something", "$another_prop": "something3"},
@@ -51,7 +53,7 @@ class TestCohortPeopleTable(ClickhouseTestMixin, APIBaseTest):
         assert response.results[1][2] == "something2"
 
     def test_empty_version(self):
-        Person.objects.create(
+        create_person(
             team_id=self.team.pk,
             distinct_ids=["1"],
             properties={"$some_prop": "something", "$another_prop": "something1"},

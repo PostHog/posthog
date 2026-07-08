@@ -1,22 +1,21 @@
 use axum::body::Body;
-use axum::extract::{MatchedPath, Query as AxumQuery, State};
+use axum::extract::{MatchedPath, RawQuery, State};
 use axum::http::{header, HeaderMap, Method};
 use axum::response::IntoResponse;
 use axum_client_ip::InsecureClientIp;
 
 use super::constants::{CAPTURE_V1_PATH, CAPTURE_V1_PATH_TRAILING};
-use super::query::Query;
+use super::context::Context;
 use super::types::Batch;
 use tracing::Level;
 
 use crate::v1::constants::*;
-use crate::v1::context::Context;
 use crate::{ctx_log, log_stat_error, router, v1};
 
 pub async fn handle_request(
     state: State<router::State>,
     headers: HeaderMap,
-    query: AxumQuery<Query>,
+    RawQuery(raw_query): RawQuery,
     ip: InsecureClientIp,
     method: Method,
     path: MatchedPath,
@@ -30,11 +29,38 @@ pub async fn handle_request(
             CAPTURE_V1_PATH
         }
     };
-    let mut context = Context::new(&headers, &ip, &query, method.clone(), static_path)
-        .map_err(|err| log_and_return_header_error(err, &headers, &ip, &query, &method, &path))?;
+    let mut context = Context::new(
+        &headers,
+        &ip,
+        raw_query.clone(),
+        method.clone(),
+        static_path,
+    )
+    .map_err(|err| {
+        log_and_return_header_error(err, &headers, &ip, raw_query.as_deref(), &method, &path)
+    })?;
 
     // TODO: purposely chatty, for now
     ctx_log!(Level::INFO, context, "handle_request called");
+
+    let skew_seconds = context.clock_skew().num_milliseconds().saturating_abs() as f64 / 1000.0;
+    metrics::histogram!(CAPTURE_V1_CLOCK_SKEW_SECONDS).record(skew_seconds);
+
+    // Non-fatal: unusable PostHog-Sdk-Info means $lib/$lib_version can't be
+    // materialized for this batch. Count once per request for visibility.
+    if context.sdk_lib_and_version().is_none() {
+        let reason = if context.sdk_info.len() > MAX_SDK_INFO_LEN {
+            "sdk_info_oversized"
+        } else {
+            "sdk_info_unparseable"
+        };
+        metrics::counter!(
+            CAPTURE_V1_WARNING_METRIC,
+            "reason" => reason,
+            "path" => context.path,
+        )
+        .increment(1);
+    }
 
     let raw_bytes = v1::util::extract_body_with_timeout(
         body,
@@ -49,6 +75,9 @@ pub async fn handle_request(
         err
     })?;
 
+    metrics::histogram!(CAPTURE_V1_PAYLOAD_SIZE, "stage" => "compressed", "encoding" => v1::util::encoding_tag(context.content_encoding.as_deref()))
+        .record(raw_bytes.len() as f64);
+
     let payload = v1::util::decompress_payload(
         context.content_encoding.as_deref(),
         raw_bytes,
@@ -61,11 +90,16 @@ pub async fn handle_request(
         err
     })?;
 
+    metrics::histogram!(CAPTURE_V1_PAYLOAD_SIZE, "stage" => "decompressed", "encoding" => v1::util::encoding_tag(context.content_encoding.as_deref()))
+        .record(payload.len() as f64);
+
     let batch: Batch = serde_json::from_slice(&payload).map_err(|e| {
         let err = v1::Error::RequestParsingError(e.to_string());
         log_stat_error!(err, &context);
         err
     })?;
+
+    metrics::histogram!(CAPTURE_V1_EVENT_BATCH_SIZE).record(batch.batch.len() as f64);
 
     match super::process::process_batch(&state, &mut context, batch).await {
         Ok(resp) => Ok(resp.into_response()),
@@ -83,7 +117,7 @@ fn log_and_return_header_error(
     err: v1::Error,
     headers: &HeaderMap,
     ip: &InsecureClientIp,
-    query: &AxumQuery<Query>,
+    raw_query: Option<&str>,
     method: &Method,
     path: &MatchedPath,
 ) -> v1::Error {
@@ -109,7 +143,7 @@ fn log_and_return_header_error(
             content_encoding = %content_encoding,
             client_ip = %ip.0,
             method = %method,
-            query = ?query.0,
+            query = ?raw_query,
             path = %path.as_str(),
             "{}", msg
         ),
@@ -124,12 +158,12 @@ fn log_and_return_header_error(
             content_encoding = %content_encoding,
             client_ip = %ip.0,
             method = %method,
-            query = ?query.0,
+            query = ?raw_query,
             path = %path.as_str(),
             "{}", msg
         ),
     }
-    err.stat_error(None::<&Context>);
+    err.stat_error(None::<&crate::v1::context::RequestContext>);
     err
 }
 
@@ -157,7 +191,7 @@ mod tests {
         Router::new()
             .route(CAPTURE_V1_PATH, axum::routing::post(super::handle_request))
             .layer(axum::middleware::from_fn(
-                super::super::router::v1_common_headers,
+                crate::v1::middleware::v1_common_headers,
             ))
             .with_state(state)
     }
@@ -169,7 +203,7 @@ mod tests {
             .header("Authorization", "Bearer phc_test_token")
             .header("Content-Type", "application/json")
             .header("X-Forwarded-For", "127.0.0.1")
-            .header(POSTHOG_SDK_INFO, "posthog-rust/1.0.0")
+            .header(POSTHOG_SDK_INFO, "posthog-rs/1.0.0")
             .header(POSTHOG_ATTEMPT, "1")
             .header(POSTHOG_REQUEST_ID, Uuid::new_v4().to_string())
             .header(POSTHOG_REQUEST_TIMESTAMP, "2026-03-19T14:30:00Z")
@@ -236,7 +270,7 @@ mod tests {
             .uri(CAPTURE_V1_PATH)
             .header("Content-Type", "application/json")
             .header("X-Forwarded-For", "127.0.0.1")
-            .header(POSTHOG_SDK_INFO, "posthog-rust/1.0.0")
+            .header(POSTHOG_SDK_INFO, "posthog-rs/1.0.0")
             .header(POSTHOG_ATTEMPT, "1")
             .header(POSTHOG_REQUEST_ID, Uuid::new_v4().to_string())
             .header(POSTHOG_REQUEST_TIMESTAMP, "2026-03-19T14:30:00Z")
@@ -327,7 +361,7 @@ mod tests {
             .header("Content-Type", "application/json")
             .header("Content-Encoding", "gzip")
             .header("X-Forwarded-For", "127.0.0.1")
-            .header(POSTHOG_SDK_INFO, "posthog-rust/1.0.0")
+            .header(POSTHOG_SDK_INFO, "posthog-rs/1.0.0")
             .header(POSTHOG_ATTEMPT, "1")
             .header(POSTHOG_REQUEST_ID, Uuid::new_v4().to_string())
             .header(POSTHOG_REQUEST_TIMESTAMP, "2026-03-19T14:30:00Z")
@@ -358,7 +392,7 @@ mod tests {
             .header("Content-Type", "application/json")
             .header("Content-Encoding", "zstd")
             .header("X-Forwarded-For", "127.0.0.1")
-            .header(POSTHOG_SDK_INFO, "posthog-rust/1.0.0")
+            .header(POSTHOG_SDK_INFO, "posthog-rs/1.0.0")
             .header(POSTHOG_ATTEMPT, "1")
             .header(POSTHOG_REQUEST_ID, Uuid::new_v4().to_string())
             .header(POSTHOG_REQUEST_TIMESTAMP, "2026-03-19T14:30:00Z")
@@ -385,7 +419,7 @@ mod tests {
             .header("Content-Type", "application/json")
             .header("Content-Encoding", "lz4")
             .header("X-Forwarded-For", "127.0.0.1")
-            .header(POSTHOG_SDK_INFO, "posthog-rust/1.0.0")
+            .header(POSTHOG_SDK_INFO, "posthog-rs/1.0.0")
             .header(POSTHOG_ATTEMPT, "1")
             .header(POSTHOG_REQUEST_ID, Uuid::new_v4().to_string())
             .header(POSTHOG_REQUEST_TIMESTAMP, "2026-03-19T14:30:00Z")

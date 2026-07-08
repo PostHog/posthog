@@ -1,11 +1,12 @@
 import { useActions, useValues } from 'kea'
 import React from 'react'
 
+import * as magnifyingGlassPng from '@posthog/brand/hoggies/png/magnifying-glass'
 import { IconChevronLeft, IconChevronRight } from '@posthog/icons'
-import { LemonButton, LemonSkeleton, Link } from '@posthog/lemon-ui'
+import { LemonButton, LemonCheckbox, LemonSkeleton, Link } from '@posthog/lemon-ui'
 import { PostHogCaptureOnViewed } from '@posthog/react'
 
-import { DetectiveHog } from 'lib/components/hedgehogs'
+import { pngHoggie } from 'lib/brand/hoggies'
 import { useKeyboardHotkeys } from 'lib/hooks/useKeyboardHotkeys'
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { Spinner } from 'lib/lemon-ui/Spinner/Spinner'
@@ -21,6 +22,8 @@ import { SnapshotStatusIndicator } from '../components/SnapshotStatusIndicator'
 import { VisualReviewTabs } from '../components/VisualReviewTabs'
 import type { SnapshotApi } from '../generated/api.schemas'
 import { VisualReviewRunSceneLogicProps, visualReviewRunSceneLogic } from './visualReviewRunSceneLogic'
+
+const HedgehogMagnifyingGlass = pngHoggie(magnifyingGlassPng)
 
 export const scene: SceneExport = {
     component: VisualReviewRunScene,
@@ -133,6 +136,32 @@ function SnapshotThumbnail({
     )
 }
 
+function QuarantinedThumbnailsToggle({
+    hiddenCount,
+    isExpanded,
+    onClick,
+}: {
+    hiddenCount: number
+    isExpanded: boolean
+    onClick: () => void
+}): JSX.Element {
+    const label = isExpanded
+        ? 'Hide quarantined'
+        : `${hiddenCount} quarantined item${hiddenCount === 1 ? '' : 's'} hidden`
+
+    return (
+        <button
+            type="button"
+            onClick={onClick}
+            aria-expanded={isExpanded}
+            data-attr="visual-review-toggle-quarantined-thumbnails"
+            className="shrink-0 text-xs text-muted hover:text-default hover:underline underline-offset-2 transition-colors"
+        >
+            {label}
+        </button>
+    )
+}
+
 const PENDING_STALE_THRESHOLD_MS = 15 * 60 * 1000
 
 function RunInProgressEmptyState({
@@ -173,7 +202,7 @@ function RunInProgressEmptyState({
                     )}
                 </LemonBanner>
             ) : null}
-            <DetectiveHog className="w-32 h-32" />
+            <HedgehogMagnifyingGlass className="w-32 h-32" />
             <h2 className="m-0">{title}</h2>
             <p className="max-w-md text-tertiary m-0">
                 {copy}
@@ -194,14 +223,17 @@ export function VisualReviewRunScene(): JSX.Element {
         toleratedHashesLoading,
         quarantinedIdentifiers,
         quarantinedIdentifierSet,
+        showQuarantinedThumbnails,
         repoFullName,
         isFinalizing,
         isApprovingSnapshot,
         isRecomputing,
         isRunInProgress,
         isRunProcessing,
+        isReportingOnly,
         failedThumbnails,
         thumbnailBasePath,
+        addImagesToComment,
     } = useValues(visualReviewRunSceneLogic)
     const {
         setSelectedSnapshotId,
@@ -212,25 +244,41 @@ export function VisualReviewRunScene(): JSX.Element {
         unquarantineSnapshot,
         recomputeRun,
         markThumbnailFailed,
+        toggleQuarantinedThumbnails,
+        setAddImagesToComment,
     } = useActions(visualReviewRunSceneLogic)
 
     // Navigation — use changed snapshots when there are changes, otherwise all snapshots
     const navSnapshots = sortedChangedSnapshots.length > 0 ? sortedChangedSnapshots : snapshots
+
+    const quarantinedNavCount = navSnapshots.filter((s: SnapshotApi) =>
+        quarantinedIdentifierSet.has(s.identifier)
+    ).length
+    const isHiddenQuarantined = (s: SnapshotApi): boolean =>
+        quarantinedIdentifierSet.has(s.identifier) && s.id !== selectedSnapshot?.id
+    const visibleNavSnapshots = showQuarantinedThumbnails
+        ? navSnapshots
+        : navSnapshots.filter((s: SnapshotApi) => !isHiddenQuarantined(s))
+    const hiddenQuarantinedCount = navSnapshots.length - visibleNavSnapshots.length
+    const showQuarantinedToggle = quarantinedNavCount > 0 && (hiddenQuarantinedCount > 0 || showQuarantinedThumbnails)
+
+    // Navigate over what's actually visible — when quarantined items are hidden, next/previous
+    // must skip them rather than selecting a hidden quarantined snapshot.
     const currentIndex = selectedSnapshot
-        ? navSnapshots.findIndex((s: SnapshotApi) => s.id === selectedSnapshot.id)
+        ? visibleNavSnapshots.findIndex((s: SnapshotApi) => s.id === selectedSnapshot.id)
         : -1
     const hasPrevious = currentIndex > 0
-    const hasNext = currentIndex >= 0 && currentIndex < navSnapshots.length - 1
+    const hasNext = currentIndex >= 0 && currentIndex < visibleNavSnapshots.length - 1
 
     const goToPrevious = (): void => {
         if (hasPrevious) {
-            setSelectedSnapshotId(navSnapshots[currentIndex - 1].id)
+            setSelectedSnapshotId(visibleNavSnapshots[currentIndex - 1].id)
         }
     }
 
     const goToNext = (): void => {
         if (hasNext) {
-            setSelectedSnapshotId(navSnapshots[currentIndex + 1].id)
+            setSelectedSnapshotId(visibleNavSnapshots[currentIndex + 1].id)
         }
     }
 
@@ -239,7 +287,7 @@ export function VisualReviewRunScene(): JSX.Element {
             p: { action: goToPrevious, disabled: !hasPrevious },
             n: { action: goToNext, disabled: !hasNext },
         },
-        [currentIndex, navSnapshots.length]
+        [currentIndex, visibleNavSnapshots.length]
     )
 
     // Show skeleton only on initial load — once `run` is populated, keep showing it
@@ -324,12 +372,14 @@ export function VisualReviewRunScene(): JSX.Element {
 
     const hasMore = diffChanged + diffNew + diffRemoved > reviewPending + reviewApproved + reviewTolerated
 
-    // Re-trigger calls the GitHub API `/actions/jobs/{job_id}/rerun`; we only have that ID
-    // when the workflow wired `JOB_CHECK_RUN_ID=${{ job.check_run_id }}` into the CLI env.
-    // Older runs and runs from forks without that env var can't be re-triggered.
-    const ciRetriggerUnavailableReason = !run.metadata?.github_check_run_id
-        ? "This run wasn't recorded with a CI job ID, so it can't be re-triggered. Push a new commit to re-run CI."
-        : undefined
+    // Re-trigger calls the GitHub API `/actions/jobs/{job_id}/rerun`; the backend needs both the
+    // job ID and the workflow run ID (it binds the rerun to the originating run), wired in via
+    // `JOB_CHECK_RUN_ID` and `GITHUB_RUN_ID`. Older runs and forks without those env vars can't
+    // be re-triggered — don't offer the banner when the rerun would just error.
+    const ciRetriggerUnavailableReason =
+        !run.metadata?.github_check_run_id || !run.metadata?.github_run_id
+            ? "This run wasn't recorded with a CI job ID, so it can't be re-triggered. Push a new commit to re-run CI."
+            : undefined
 
     const handleApproveSnapshot = (): void => {
         if (selectedSnapshot) {
@@ -343,19 +393,36 @@ export function VisualReviewRunScene(): JSX.Element {
                 name={run.branch}
                 resourceType={{ type: 'visual_review' }}
                 actions={
-                    !run.approved && !run.is_stale && (reviewPending > 0 || reviewApproved > 0) ? (
-                        <LemonButton
-                            type="primary"
-                            onClick={finalizeRun}
-                            loading={isFinalizing}
-                            data-attr="visual-review-finalize-run"
-                        >
-                            {reviewPending > 0 ? `Approve ${reviewPending} and finalize` : 'Finalize run'}
-                        </LemonButton>
+                    !isReportingOnly && !run.approved && !run.is_stale && (reviewPending > 0 || reviewApproved > 0) ? (
+                        <div className="flex items-center gap-2">
+                            <LemonCheckbox
+                                checked={addImagesToComment}
+                                onChange={setAddImagesToComment}
+                                disabledReason={isFinalizing ? 'Finalizing…' : undefined}
+                                label="Add snapshots to the PR comment"
+                                info="The PR comment is always posted; tick this to attach the before/after snapshot images to it. Remembered for next time."
+                                data-attr="visual-review-add-images-to-comment"
+                            />
+                            <LemonButton
+                                type="primary"
+                                onClick={finalizeRun}
+                                loading={isFinalizing}
+                                data-attr="visual-review-finalize-run"
+                            >
+                                {reviewPending > 0 ? `Approve ${reviewPending} and finalize` : 'Finalize run'}
+                            </LemonButton>
+                        </div>
                     ) : undefined
                 }
             />
             <VisualReviewTabs activeKey="runs" repoId={run.repo_id} />
+
+            {isReportingOnly && (
+                <LemonBanner type="info" className="mb-4">
+                    Tracking-only run — this is a push to the default branch, so there's nothing to approve. Visual
+                    changes are recorded for history and reported to GitHub as a non-blocking status.
+                </LemonBanner>
+            )}
 
             {run.is_stale && (
                 <LemonBanner type="warning" className="mb-4">
@@ -368,7 +435,7 @@ export function VisualReviewRunScene(): JSX.Element {
                 </LemonBanner>
             )}
 
-            {allChangesResolved && reviewApproved === 0 && !ciRetriggerUnavailableReason && (
+            {!isReportingOnly && allChangesResolved && reviewApproved === 0 && !ciRetriggerUnavailableReason && (
                 <LemonBanner
                     type="info"
                     className="mb-4"
@@ -452,7 +519,7 @@ export function VisualReviewRunScene(): JSX.Element {
 
                     {navSnapshots.length > 0 && (
                         <div className="flex gap-1.5 overflow-x-auto px-3 pb-3">
-                            {navSnapshots.map((snapshot: SnapshotApi) => {
+                            {visibleNavSnapshots.map((snapshot: SnapshotApi) => {
                                 const hasThumbnail = thumbnailBasePath && !failedThumbnails.has(snapshot.identifier)
                                 return (
                                     <SnapshotThumbnail
@@ -475,33 +542,48 @@ export function VisualReviewRunScene(): JSX.Element {
                     )}
 
                     {/* Pagination — below thumbnails, right-aligned */}
-                    {navSnapshots.length > 1 && (
-                        <div className="flex items-center justify-end gap-2 px-3 pb-2">
-                            <LemonButton
-                                size="xsmall"
-                                icon={<IconChevronLeft />}
-                                sideIcon={<KeyboardShortcut p />}
-                                onClick={goToPrevious}
-                                disabledReason={!hasPrevious ? 'No previous snapshot' : undefined}
-                                data-attr="visual-review-snapshot-previous"
-                            >
-                                Previous
-                            </LemonButton>
-                            {currentIndex >= 0 && (
-                                <span className="text-xs text-muted">
-                                    {currentIndex + 1} of {navSnapshots.length}
-                                </span>
+                    {(showQuarantinedToggle || navSnapshots.length > 1) && (
+                        <div
+                            className={`flex items-center gap-2 px-3 pb-2 ${
+                                showQuarantinedToggle ? 'justify-between' : 'justify-end'
+                            }`}
+                        >
+                            {showQuarantinedToggle && (
+                                <QuarantinedThumbnailsToggle
+                                    hiddenCount={hiddenQuarantinedCount}
+                                    isExpanded={showQuarantinedThumbnails}
+                                    onClick={toggleQuarantinedThumbnails}
+                                />
                             )}
-                            <LemonButton
-                                size="xsmall"
-                                icon={<KeyboardShortcut n />}
-                                sideIcon={<IconChevronRight />}
-                                onClick={goToNext}
-                                disabledReason={!hasNext ? 'No next snapshot' : undefined}
-                                data-attr="visual-review-snapshot-next"
-                            >
-                                Next
-                            </LemonButton>
+                            {visibleNavSnapshots.length > 1 && (
+                                <div className="flex items-center gap-2">
+                                    <LemonButton
+                                        size="xsmall"
+                                        icon={<IconChevronLeft />}
+                                        sideIcon={<KeyboardShortcut p />}
+                                        onClick={goToPrevious}
+                                        disabledReason={!hasPrevious ? 'No previous snapshot' : undefined}
+                                        data-attr="visual-review-snapshot-previous"
+                                    >
+                                        Previous
+                                    </LemonButton>
+                                    {currentIndex >= 0 && (
+                                        <span className="text-xs text-muted">
+                                            {currentIndex + 1} of {visibleNavSnapshots.length}
+                                        </span>
+                                    )}
+                                    <LemonButton
+                                        size="xsmall"
+                                        icon={<KeyboardShortcut n />}
+                                        sideIcon={<IconChevronRight />}
+                                        onClick={goToNext}
+                                        disabledReason={!hasNext ? 'No next snapshot' : undefined}
+                                        data-attr="visual-review-snapshot-next"
+                                    >
+                                        Next
+                                    </LemonButton>
+                                </div>
+                            )}
                         </div>
                     )}
                 </div>
@@ -534,9 +616,12 @@ export function VisualReviewRunScene(): JSX.Element {
                             repoFullName={repoFullName}
                             runType={run.run_type}
                             githubRunId={(run.metadata?.github_run_id as string) || null}
+                            isReportingOnly={isReportingOnly}
                             isRecomputing={isRecomputing}
                             onRecompute={
-                                run.status === 'completed' && !run.approved && !run.is_stale ? recomputeRun : undefined
+                                !isReportingOnly && run.status === 'completed' && !run.approved && !run.is_stale
+                                    ? recomputeRun
+                                    : undefined
                             }
                             recomputeDisabledReason={
                                 ciRetriggerUnavailableReason ??

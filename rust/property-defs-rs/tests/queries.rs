@@ -25,6 +25,7 @@ async fn test_event_property_definitions_queries(test_pool: PgPool) {
     query_type_event_is_numerical_filter(&qmgr, project_id).await;
     query_type_event_is_feature_flag_filter(&qmgr, project_id).await;
     query_type_event_is_not_feature_flag_filter(&qmgr, project_id).await;
+    query_feature_flag_with_event_names_skips_eventproperty_join(&qmgr, project_id).await;
     query_event_with_group_type_index_fails().await;
     query_non_event_type_with_event_names_param().await;
 }
@@ -273,7 +274,88 @@ async fn query_type_event_is_not_feature_flag_filter(qmgr: &Manager, project_id:
     }
 }
 
-// only PropertyParentType::Event query can include an event_names filter parameter
+// Regression test: is_feature_flag=true + event_names must skip the eventproperty INNER JOIN.
+// The seed data has $feature/foo-bar-baz WITH a matching eventproperty row (id 109). This test
+// adds a second flag WITHOUT any eventproperty row and asserts both are returned — proving the
+// join is skipped. Without the join-skip fix, the second flag would be filtered out by the
+// INNER JOIN.
+async fn query_feature_flag_with_event_names_skips_eventproperty_join(
+    qmgr: &Manager,
+    project_id: i32,
+) {
+    // Insert a propertydefinition row for a flag that has NO posthog_eventproperty row
+    let mut args = PgArguments::default();
+    args.add(Uuid::now_v7()).unwrap();
+    args.add("$feature/no-ep-row").unwrap();
+    args.add(1_i32).unwrap(); // project_id
+    args.add(1_i32).unwrap(); // team_id
+    args.add(false).unwrap(); // is_numerical
+    args.add(1_i32).unwrap(); // type = Event
+    args.add("Boolean").unwrap(); // property_type
+    args.add(-1_i32).unwrap(); // group_type_index
+
+    sqlx::query_with(
+        r#"
+        INSERT INTO posthog_propertydefinition
+            (id, name, project_id, team_id, is_numerical, "type", property_type, group_type_index)
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+        "#,
+        args,
+    )
+    .execute(&qmgr.pool)
+    .await
+    .expect("failed to insert $feature/no-ep-row propertydefinition");
+
+    let mut qb = sqlx::QueryBuilder::new("");
+    let params = Params {
+        is_feature_flag: Some(true),
+        event_names: vec!["$pageview".to_string()],
+        ..Default::default()
+    };
+
+    let query = qmgr.property_definitions_query(&mut qb, project_id, &params);
+    let results = qmgr
+        .pool
+        .fetch_all(query)
+        .await
+        .expect("feature flag query with event_names failed");
+
+    let names: Vec<String> = results.iter().map(|r| r.get("name")).collect();
+
+    // Both flags must be returned — the one with an eventproperty row AND the one without
+    assert!(
+        names.contains(&"$feature/foo-bar-baz".to_string()),
+        "expected $feature/foo-bar-baz (has eventproperty row): {names:?}"
+    );
+    assert!(
+        names.contains(&"$feature/no-ep-row".to_string()),
+        "expected $feature/no-ep-row (NO eventproperty row) — join-skip regression: {names:?}"
+    );
+
+    // is_seen_on_filtered_events must be NULL (false) for both since join is skipped
+    for row in &results {
+        let is_seen: Option<bool> = row.get("is_seen_on_filtered_events");
+        assert!(
+            is_seen.is_none() || is_seen == Some(false),
+            "is_seen_on_filtered_events should be NULL when join is skipped"
+        );
+    }
+
+    // count query must also work
+    let mut qb = sqlx::QueryBuilder::new("");
+    let count_query = qmgr.count_query(&mut qb, project_id, &params);
+    let count_result = qmgr
+        .pool
+        .fetch_one(count_query)
+        .await
+        .expect("count query failed");
+    let total_count: i64 = count_result.get(0);
+    assert!(
+        total_count >= 2,
+        "expected at least 2 feature flag rows, got {total_count}"
+    );
+}
+
 async fn query_non_event_type_with_event_names_param() {
     let params_invalid_event_names = Params {
         parent_type: PropertyParentType::Session,

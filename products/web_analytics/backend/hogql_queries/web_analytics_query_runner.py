@@ -26,11 +26,11 @@ from posthog.schema import (
     WebOverviewQuery,
     WebPageURLSearchQuery,
     WebStatsTableQuery,
-    WebTrendsQuery,
     WebVitalsPathBreakdownQuery,
 )
 
 from posthog.hogql import ast
+from posthog.hogql.errors import QueryError
 from posthog.hogql.parser import parse_expr, parse_select
 from posthog.hogql.property import action_to_expr, apply_path_cleaning, property_to_expr
 from posthog.hogql.query import execute_hogql_query
@@ -64,7 +64,6 @@ WebQueryNode = Union[
     WebExternalClicksTableQuery,
     WebVitalsPathBreakdownQuery,
     WebPageURLSearchQuery,
-    WebTrendsQuery,
     WebNotableChangesQuery,
 ]
 
@@ -153,17 +152,17 @@ class WebAnalyticsQueryRunner(AnalyticsQueryRunner[WAR], ABC):
                     query_strategy = query_strategy or "strategy_resolution_failed"
                     clickhouse_query_type = clickhouse_query_type or None
 
-                used_preaggregated_label = "unknown"
+                pre_compute_strategy_label = "unknown"
                 if response is not None:
-                    val = getattr(response, "usedPreAggregatedTables", None)
-                    if val is not None:
-                        used_preaggregated_label = str(val).lower()
+                    strategy = getattr(response, "preComputeStrategy", None)
+                    if strategy is not None:
+                        pre_compute_strategy_label = str(strategy)
 
                 query_strategy_label = query_strategy or "none"
                 metric_labels = {
                     "query_kind": query_kind,
                     "query_strategy": query_strategy_label,
-                    "used_preaggregated": used_preaggregated_label,
+                    "pre_compute_strategy": pre_compute_strategy_label,
                     "breakdown": breakdown_label,
                     "has_conversion_goal": has_conversion_goal,
                 }
@@ -189,7 +188,7 @@ class WebAnalyticsQueryRunner(AnalyticsQueryRunner[WAR], ABC):
                     clickhouse_query_type=clickhouse_query_type,
                     breakdown=breakdown_label,
                     has_conversion_goal=has_conversion_goal,
-                    used_preaggregated=used_preaggregated_label,
+                    pre_compute_strategy=pre_compute_strategy_label,
                     duration_s=round(duration_s, 4),
                     error=bool(error_type),
                     error_type=error_type or None,
@@ -316,7 +315,14 @@ class WebAnalyticsQueryRunner(AnalyticsQueryRunner[WAR], ABC):
     @cached_property
     def conversion_goal_expr(self) -> Optional[ast.Expr]:
         if isinstance(self.query.conversionGoal, ActionConversionGoal):
-            action = Action.objects.get(pk=self.query.conversionGoal.actionId, team__project_id=self.team.project_id)
+            try:
+                action = Action.objects.get(
+                    pk=self.query.conversionGoal.actionId, team__project_id=self.team.project_id
+                )
+            except Action.DoesNotExist:
+                raise QueryError(
+                    f"Conversion goal action with id={self.query.conversionGoal.actionId} not found in this project."
+                )
             return action_to_expr(action)
         elif isinstance(self.query.conversionGoal, CustomEventConversionGoal):
             return ast.CompareOperation(
@@ -597,12 +603,20 @@ WHERE
 
         return apply_path_cleaning(path_expr, self.team)
 
-    def _get_traffic_type_expr(self, user_agent_expr: ast.Expr | None = None) -> ast.Expr:
-        return get_traffic_type_expr(user_agent_expr or ast.Field(chain=["events", "properties", "$raw_user_agent"]))
+    def _get_traffic_type_expr(
+        self, user_agent_expr: ast.Expr | None = None, ip_expr: ast.Expr | None = None
+    ) -> ast.Expr:
+        return get_traffic_type_expr(
+            user_agent_expr or ast.Field(chain=["events", "properties", "$raw_user_agent"]),
+            ip_expr or ast.Field(chain=["events", "properties", "$ip"]),
+        )
 
-    def _get_traffic_category_expr(self, user_agent_expr: ast.Expr | None = None) -> ast.Expr:
+    def _get_traffic_category_expr(
+        self, user_agent_expr: ast.Expr | None = None, ip_expr: ast.Expr | None = None
+    ) -> ast.Expr:
         return get_traffic_category_expr(
-            user_agent_expr or ast.Field(chain=["events", "properties", "$raw_user_agent"])
+            user_agent_expr or ast.Field(chain=["events", "properties", "$raw_user_agent"]),
+            ip_expr or ast.Field(chain=["events", "properties", "$ip"]),
         )
 
     def _unsample(self, n: Optional[int | float], _row: Optional[list[int | float]] = None):

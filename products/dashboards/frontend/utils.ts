@@ -1,7 +1,8 @@
 import type { DashboardTile, QueryBasedInsightModel } from '~/types'
 
 import { dashboardsPartialUpdate } from './generated/api'
-import type { PatchedDashboardApi } from './generated/api.schemas'
+import type { PatchedPatchedDashboardOpenApiApi } from './generated/api.schemas'
+import { parseDashboardWidgetConfigApiError } from './widgets/registry'
 
 export type WidgetFieldErrors = Record<string, string | undefined>
 
@@ -26,6 +27,7 @@ export async function updateDashboardWidgetTile({
     config,
     name,
     description,
+    showDescription,
 }: {
     teamId: number
     dashboardId: number
@@ -33,6 +35,7 @@ export async function updateDashboardWidgetTile({
     config?: Record<string, unknown>
     name?: string | null
     description?: string
+    showDescription?: boolean
 }): Promise<DashboardTile<QueryBasedInsightModel>> {
     if (!tile.widget) {
         throw new Error('Tile has no widget')
@@ -49,20 +52,35 @@ export async function updateDashboardWidgetTile({
         widgetPatch.description = description
     }
 
-    const dashboard = await dashboardsPartialUpdate(String(teamId), dashboardId, {
-        tiles: [
-            {
-                id: tile.id,
-                widget: {
-                    id: tile.widget.id,
-                    ...widgetPatch,
-                },
-            },
-        ],
-    } as PatchedDashboardApi)
-    const updatedTile = dashboard.tiles?.find((existingTile) => existingTile.id === tile.id)
-    if (!updatedTile) {
-        throw new Error('Updated tile not found in dashboard response')
+    const tilePatch: Record<string, unknown> = {
+        id: tile.id,
     }
-    return updatedTile as unknown as DashboardTile<QueryBasedInsightModel>
+    if (showDescription !== undefined) {
+        tilePatch.show_description = showDescription
+    }
+    if (Object.keys(widgetPatch).length > 0) {
+        tilePatch.widget = {
+            id: tile.widget.id,
+            ...widgetPatch,
+        }
+    }
+
+    try {
+        const dashboard = await dashboardsPartialUpdate(String(teamId), dashboardId, {
+            tiles: [tilePatch],
+        } as PatchedPatchedDashboardOpenApiApi)
+        const updatedTile = dashboard.tiles?.find((existingTile) => existingTile.id === tile.id)
+        if (!updatedTile) {
+            throw new Error('Updated tile not found in dashboard response')
+        }
+        return updatedTile as unknown as DashboardTile<QueryBasedInsightModel>
+    } catch (error) {
+        if (config !== undefined) {
+            const fieldErrors = parseDashboardWidgetConfigApiError(tile.widget.widget_type, error, config)
+            if (fieldErrors && Object.keys(fieldErrors).length > 0) {
+                throw new WidgetConfigValidationError(fieldErrors)
+            }
+        }
+        throw error
+    }
 }

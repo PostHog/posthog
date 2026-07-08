@@ -21,6 +21,7 @@ const meta: Meta = {
         viewMode: 'story',
         mockDate: '2023-02-18',
         pageUrl: urls.insights(),
+        testOptions: { viewport: { width: 1300, height: 2000 } },
     },
     decorators: [
         mswDecorator({
@@ -47,6 +48,32 @@ export const EmptyState: Story = {
         mswDecorator({
             get: {
                 '/api/environments/:team_id/insights': EMPTY_PAGINATED_RESPONSE,
+            },
+        }),
+    ],
+}
+
+export const SearchResults: Story = {
+    parameters: {
+        pageUrl: urls.savedInsights() + '?search=revenue',
+    },
+    decorators: [
+        mswDecorator({
+            get: {
+                '/api/environments/:team_id/insights': toPaginatedResponse(
+                    insightsJson.results.slice(0, 5).map((result, i) => {
+                        const exactNames = ['Revenue by region', 'Weekly revenue']
+                        const similarNames = ['Reveneu trends', 'Q4 reveue', 'Revanue dashboard']
+                        const isExact = i < exactNames.length
+                        return {
+                            ...result,
+                            name: isExact ? exactNames[i] : similarNames[i - exactNames.length],
+                            query: insights[i % insights.length].query,
+                            result: insights[i % insights.length].result,
+                            search_match_type: isExact ? 'exact' : 'similar',
+                        }
+                    })
+                ),
             },
         }),
     ],

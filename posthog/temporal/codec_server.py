@@ -81,7 +81,7 @@ def decode_payloads(request):
 
     try:
         payloads = json_format.Parse(request.body, Payloads())
-        codec = EncryptionCodec(settings)
+        codec = EncryptionCodec.from_settings(settings)
 
         decoded_list = async_to_sync(codec.decode)(payloads.payloads)
 

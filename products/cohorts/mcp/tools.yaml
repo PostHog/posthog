@@ -28,8 +28,15 @@ tools:
             destructive: false
             idempotent: false
         title: Add persons to static cohort
-        description: |
+        description: >-
             Add persons to a static cohort by their UUIDs. Only works for static cohorts (is_static: true).
+
+
+            Intended for small, ad-hoc additions — pass at most ~20 person UUIDs per call. To build or grow a static
+            cohort from a larger set, do NOT loop this tool over many UUIDs; instead create the cohort from a query
+            ('cohorts-create' with 'is_static: true' and a 'query'), or add to an existing static cohort by setting a
+            'query' on it via 'cohorts-partial-update'. The server then runs the query and inserts every matching person
+            in a single call, with no row limit.
     cohorts-all-activity-retrieve:
         operation: cohorts_all_activity_retrieve
         enabled: false
@@ -47,10 +54,44 @@ tools:
             idempotent: false
         enrich_url: '{id}'
         title: Create cohort
-        description: >
-            Create a new cohort. For dynamic cohorts, provide 'filters' with AND/OR groups of property conditions
-            (person properties, behavioral filters, or cohort references). For static cohorts, set 'is_static: true'
-            then use the 'cohorts-add-persons-to-static-cohort-partial-update' tool to add person UUIDs.
+        description: >-
+            Create a cohort (a saved group of persons). Two kinds:
+
+
+            - Dynamic cohort (default): provide 'filters' with AND/OR groups of property conditions (person properties,
+            behavioral filters, or cohort references). Membership is recalculated automatically.
+
+            - Static cohort ('is_static: true'): a fixed snapshot of persons. PREFER populating it from a 'query' (see
+            below) — the server runs the query and inserts every matching person in a single call, with no row limit.
+            Only use 'cohorts-add-persons-to-static-cohort-partial-update' for tiny, ad-hoc additions (up to ~20
+            people).
+
+
+            Populate a static cohort from a query by setting BOTH 'is_static: true' and 'query'. 'query' accepts a
+            HogQLQuery (raw SQL) or an ActorsQuery (the actors behind a product-analytics insight such as trends or
+            funnels). The query MUST expose the person identifier under one of these column names, checked in this
+            order: 'person_id', 'actor_id', 'id', or 'distinct_id'. Selecting from the 'events' or 'persons' tables
+            resolves the actor automatically. If none of those columns is present the call fails with "Could not find a
+            person_id, actor_id, id, or distinct_id column in the query".
+
+
+            ALWAYS validate the query before saving it: run a HogQLQuery through the 'execute-sql' tool, and an
+            ActorsQuery through its matching 'query-*-actors' tool (e.g. 'query-trends-actors',
+            'query-lifecycle-actors'). Only pass a 'query' that returned successfully — this catches column-name and
+            syntax errors before they fail cohort population.
+
+
+            Example — from SQL (HogQLQuery), alias the id column as person_id:
+
+            {"name": "Power users", "is_static": true, "query": {"kind": "HogQLQuery", "query": "SELECT person_id FROM
+            events WHERE event = '$pageview' GROUP BY person_id HAVING count() > 100"}}
+
+
+            Example — from a product-analytics trends insight (ActorsQuery):
+
+            {"name": "Viewed pricing last 7d", "is_static": true, "query": {"kind": "ActorsQuery", "source": {"kind":
+            "InsightActorsQuery", "source": {"kind": "TrendsQuery", "series": [{"kind": "EventsNode", "event":
+            "$pageview"}], "dateRange": {"date_from": "-7d"}}}}}
         exclude_params:
             - groups
             - deleted
@@ -83,8 +124,10 @@ tools:
         description: >
 
             List all cohorts in the project. Returns a summary of each cohort including  id, name, description, count
-            (person count), is_static (cohort type), and created_at timestamp. Use 'cohorts-retrieve' with the cohort ID
-            to get full details including filters, calculation status,
+            (person count), is_static (cohort type), and created_at timestamp. To find a cohort by name, pass 'search'
+            rather than listing everything and filtering client-side — it matches the cohort name with fuzzy trigram
+            search (tolerates typos and partial words) and orders exact matches first. Use 'cohorts-retrieve' with the
+            cohort ID to get full details including filters, calculation status,
 
             and query definition.
         param_overrides:
@@ -92,6 +135,10 @@ tools:
                 cast: string-int
             offset:
                 cast: string-int
+            search:
+                description: Find cohorts by name. Fuzzy trigram match (tolerates typos and partial words), exact matches ordered first.
+            hide_behavioral_cohorts:
+                description: Set true to exclude behavioral (event-based) cohorts — not usable in batch workflow audiences.
         ui_app: cohort-list
         response:
             include:
@@ -112,9 +159,19 @@ tools:
             idempotent: true
         enrich_url: '{id}'
         title: Update cohort
-        description: >
+        description: >-
             Update an existing cohort's name, description, or filters. Changing filters on a dynamic cohort triggers
             recalculation. To soft-delete a cohort, set 'deleted: true'.
+
+
+            To add more people to an existing STATIC cohort in bulk, set a 'query' (HogQLQuery or ActorsQuery) on it —
+            the server runs the query and inserts every newly matched person (existing members are skipped), with no row
+            limit. The query must expose the person id under one of these column names, checked in order: 'person_id',
+            'actor_id', 'id', or 'distinct_id' (selecting from the 'events' or 'persons' tables resolves the actor
+            automatically). Validate the query before saving it — run a HogQLQuery through 'execute-sql' and an
+            ActorsQuery through its matching 'query-*-actors' tool (e.g. 'query-trends-actors') — and only save one that
+            returned successfully. Prefer this over 'cohorts-add-persons-to-static-cohort-partial-update' for anything
+            beyond a handful (~20) of people.
         exclude_params:
             - groups
             - version
@@ -152,6 +209,14 @@ tools:
             id:
                 cast: string-int
         ui_app: cohort
+        response:
+            exclude:
+                - filters.properties.values.*.values.*.bytecode
+                - filters.properties.values.*.values.*.bytecode_error
+                - filters.properties.values.*.values.*.conditionHash
+                - filters.properties.values.*.bytecode
+                - filters.properties.values.*.bytecode_error
+                - filters.properties.values.*.conditionHash
     cohorts-rm-person-from-static-cohort-partial-update:
         operation: cohorts_remove_person_from_static_cohort_partial_update
         enabled: true
@@ -169,6 +234,6 @@ tools:
     cohorts-update:
         operation: cohorts_update
         enabled: false
-    persons-cohorts-retrieve:
-        operation: persons_cohorts_retrieve
+    cohorts-used-in-retrieve:
+        operation: cohorts_used_in_retrieve
         enabled: false

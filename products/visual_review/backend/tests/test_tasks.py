@@ -93,7 +93,7 @@ class TestProcessRunDiffs:
         process_diffs(create_result.run_id)
 
         # Snapshot should remain unchanged
-        snapshots = api.get_run_snapshots(create_result.run_id)
+        snapshots = api.get_run_snapshots(create_result.run_id).snapshots
         assert len(snapshots) == 1
         assert snapshots[0].result == SnapshotResult.UNCHANGED
 
@@ -113,7 +113,7 @@ class TestProcessRunDiffs:
         # Process - should skip new snapshot (no baseline to diff against)
         process_diffs(create_result.run_id)
 
-        snapshots = api.get_run_snapshots(create_result.run_id)
+        snapshots = api.get_run_snapshots(create_result.run_id).snapshots
         assert len(snapshots) == 1
         assert snapshots[0].result == SnapshotResult.NEW
 
@@ -186,7 +186,7 @@ class TestPostApprovalCommentTask:
             post_approval_comment(repo.team_id, "00000000-0000-0000-0000-000000000002")
 
     def test_retries_on_rate_limit(self, repo):
-        from posthog.models.integration import GitHubRateLimitError
+        from posthog.egress.github.transport import GitHubRateLimitError
 
         with (
             patch(

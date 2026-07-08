@@ -4,6 +4,13 @@
         "archived": {
             "type": "boolean"
         },
+        "ids": {
+            "description": "Multiple values may be separated by commas.",
+            "items": {
+                "type": "string"
+            },
+            "type": "array"
+        },
         "limit": {
             "description": "Number of results to return per page.",
             "type": "number"
@@ -13,7 +20,12 @@
             "type": "number"
         },
         "search": {
-            "description": "Fuzzy match against survey `name` and `description` using Postgres trigram word similarity. Supports typos and prefix-as-you-type.",
+            "description": "Match against survey `name` and `description`. Returns exact (case-insensitive substring) matches only; if no exact match exists, returns similar (fuzzy trigram — typos, prefix-as-you-type) matches instead. Each result's `search_match_type` is `exact` or `similar`.",
+            "type": "string"
+        },
+        "type": {
+            "description": "* `popover` - popover\n* `widget` - widget\n* `external_survey` - external survey\n* `api` - api",
+            "enum": ["api", "external_survey", "popover", "widget"],
             "type": "string"
         }
     },

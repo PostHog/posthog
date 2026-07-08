@@ -14,7 +14,9 @@ import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonModal } from 'lib/lemon-ui/LemonModal'
 import { Popover } from 'lib/lemon-ui/Popover/Popover'
 import { ProfilePicture } from 'lib/lemon-ui/ProfilePicture'
-import { humanFriendlyDetailedTime, pluralize, shortTimeZone } from 'lib/utils'
+import { humanFriendlyDetailedTime } from 'lib/utils/datetime'
+import { pluralize } from 'lib/utils/strings'
+import { shortTimeZone } from 'lib/utils/timezones'
 import { AnnotationModal } from 'scenes/annotations/AnnotationModal'
 import { annotationModalLogic, annotationScopeToName } from 'scenes/annotations/annotationModalLogic'
 import { insightLogic } from 'scenes/insights/insightLogic'
@@ -38,6 +40,8 @@ const GROUPING_UNIT_TO_HUMAN_DAYJS_FORMAT: Record<IntervalType, string> = {
     day: 'MMMM D, YYYY',
     week: 'MMMM D, YYYY',
     month: 'MMMM D, YYYY',
+    quarter: 'MMMM D, YYYY',
+    year: 'MMMM D, YYYY',
 }
 
 interface AnnotationBadgeCluster {
@@ -286,6 +290,14 @@ const AnnotationsBadge = React.memo(function AnnotationsBadgeRaw({
     const active = activeDate?.valueOf() === date.valueOf() && isPopoverShown
     const shown = active || hovered || annotations.length > 0
 
+    // Surface an emoji in place of the count badge when the annotations in this bucket
+    // share exactly one emoji — regardless of which annotation carries it or how many do.
+    // More than one distinct emoji (multiple options) falls back to the count badge.
+    const distinctEmojis = Array.from(
+        new Set(annotations.map((annotation) => annotation.emoji).filter((emoji): emoji is string => !!emoji))
+    )
+    const singleEmoji = distinctEmojis.length === 1 ? distinctEmojis[0] : null
+
     return (
         <button
             ref={buttonRef}
@@ -313,12 +325,22 @@ const AnnotationsBadge = React.memo(function AnnotationsBadgeRaw({
             onClick={!isDateLocked ? lockDate : active ? unlockDate : () => activateDate(date)}
         >
             {annotations.length ? (
-                <LemonBadge.Number
-                    count={annotations.length}
-                    status="data"
-                    size="small"
-                    active={active && isDateLocked}
-                />
+                singleEmoji ? (
+                    <LemonBadge
+                        content={singleEmoji}
+                        status="data"
+                        size="small"
+                        active={active && isDateLocked}
+                        className="AnnotationsBadge__emoji"
+                    />
+                ) : (
+                    <LemonBadge.Number
+                        count={annotations.length}
+                        status="data"
+                        size="small"
+                        active={active && isDateLocked}
+                    />
+                )
             ) : (
                 <LemonBadge content={<IconPlusSmall />} status="data" size="small" active={active && isDateLocked} />
             )}
@@ -426,6 +448,7 @@ function AnnotationCard({ annotation }: { annotation: AnnotationType }): JSX.Ele
             }`}
         >
             <div className="flex items-center gap-2">
+                {annotation.emoji && <span className="text-lg leading-none shrink-0">{annotation.emoji}</span>}
                 <h5 className="grow m-0 text-secondary">
                     {annotation.date_marker?.format('MMM DD, YYYY h:mm A')} ({shortTimeZone(timezone)}) –{' '}
                     {annotationScopeToName[annotation.scope]}

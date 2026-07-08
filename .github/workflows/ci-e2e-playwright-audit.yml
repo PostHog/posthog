@@ -1,0 +1,36 @@
+# Nightly flake-rate audit for the Playwright suite.
+#
+# The main E2E Playwright workflow retries each test 3 times, which masks per-test
+# flake rate (a test failing 50% of the time still shows green 93.75% of the time
+# across 4 attempts). This workflow re-runs the same suite with PLAYWRIGHT_RETRIES=0
+# on a nightly cron, so we can rank tests by raw failure rate and feed that signal
+# back into prioritization.
+#
+# Failures here do NOT gate any PR. The point is the data, not the verdict.
+
+name: E2E Playwright Flake Audit
+
+on:
+    schedule:
+        # 07:00 UTC daily — off-peak for both US and EU.
+        - cron: '0 7 * * *'
+    workflow_dispatch:
+
+permissions:
+    contents: read
+    actions: write
+
+jobs:
+    trigger_audit:
+        name: Trigger Playwright run with retries=0
+        runs-on: ubuntu-latest
+        timeout-minutes: 5
+        steps:
+            - name: Dispatch main E2E workflow with PLAYWRIGHT_RETRIES=0
+              env:
+                  GH_TOKEN: ${{ github.token }}
+              run: |
+                  gh workflow run ci-e2e-playwright.yml \
+                      --repo ${{ github.repository }} \
+                      --ref master \
+                      --field playwright_retries=0

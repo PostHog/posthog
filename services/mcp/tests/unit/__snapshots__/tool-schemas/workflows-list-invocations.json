@@ -1,0 +1,39 @@
+{
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "properties": {
+        "after": {
+            "default": "-7d",
+            "description": "Start of the time range, matched on scheduled time. Relative ('-7d', '-24h') or ISO 8601. Defaults to -7d — bounds the ClickHouse partition scan, so widen it explicitly for older runs.",
+            "minLength": 1,
+            "type": "string"
+        },
+        "before": {
+            "description": "End of the time range, matched on scheduled time. Same format as 'after'. Defaults to now.",
+            "minLength": 1,
+            "type": "string"
+        },
+        "distinct_id": {
+            "description": "Only return invocations triggered for this distinct_id (the person the run executed for).",
+            "minLength": 1,
+            "type": "string"
+        },
+        "id": {
+            "description": "A UUID string identifying this hog flow.",
+            "type": "string"
+        },
+        "limit": {
+            "default": 50,
+            "description": "Maximum number of invocations to return (1-500, default 50).",
+            "maximum": 500,
+            "minimum": 1,
+            "type": "number"
+        },
+        "status": {
+            "description": "Comma-separated invocation statuses to include, e.g. 'failed' or 'success,failed'.",
+            "minLength": 1,
+            "type": "string"
+        }
+    },
+    "required": ["id"],
+    "type": "object"
+}

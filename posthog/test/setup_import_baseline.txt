@@ -1,0 +1,34 @@
+# Imports known to be on the django.setup() path — see docs/internal/django-startup-time.md.
+#
+# This is NOT an approval list for heavy imports; it is the set of packages that are
+# genuinely needed at setup (settings, models, the celery app) plus everything that was
+# already there when the new-heavy-import guard was introduced. The companion test
+# (test_no_new_heavy_imports_at_setup) fails when a package NOT listed here costs more
+# than the threshold at a bare django.setup() — deliberately with no per-entry time
+# budgets, since absolute timings flake in CI; time is only the materiality gate for
+# NEW arrivals.
+#
+# Before adding an entry: defer the import instead (function-local, TYPE_CHECKING, lazy
+# facade, or a light activity_logging/visibility module for ready() wiring). Add here only
+# when every process truly needs the package during django.setup(), with a comment saying
+# why. Entries are top-level package names for third-party, full module names for
+# first-party.
+#
+# Third-party packages on the setup path today (cheap entries listed too, so a slow CI
+# runner cannot push a known package over the threshold):
+botocore
+celery
+clickhouse_driver
+cryptography
+django
+dns
+google
+grpc
+kombu
+oauth2_provider
+pkg_resources
+psycopg
+redis
+rich
+trio
+# First-party modules with a known, structural import cost:

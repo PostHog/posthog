@@ -41,6 +41,29 @@ tools:
             - active
             - tags
             - evaluation_contexts
+            - is_remote_configuration
+            - ensure_experience_continuity
+            - evaluation_runtime
+            - bucketing_identifier
+        param_overrides:
+            is_remote_configuration:
+                description:
+                    Whether this flag delivers a payload instead of gating a feature (Remote Config mode). When true, set the
+                    delivered payload through the `filters` param under `filters.payloads.true` as a JSON-encoded
+                    string. There is no dedicated payload parameter.
+            ensure_experience_continuity:
+                description:
+                    Whether to persist the flag's value for a user across the anonymous-to-identified transition (the "persist
+                    across authentication steps" option in the UI). Keeps a user's evaluated value stable once they log
+                    in. Incompatible with `device_id` bucketing.
+            evaluation_runtime:
+                description:
+                    Where this flag is allowed to evaluate — `server` (server-side SDKs only), `client` (client-side SDKs
+                    only), or `all` (both). Defaults to `all`.
+            bucketing_identifier:
+                description:
+                    Identifier used to bucket users into rollout percentages and variants — `distinct_id` (user ID, the
+                    default) or `device_id`. Using `device_id` is incompatible with `ensure_experience_continuity=true`.
     delete-feature-flag:
         operation: feature_flags_destroy
         enabled: true
@@ -57,6 +80,12 @@ tools:
             id:
                 cast: string-int
         soft_delete: true
+    environments-evaluation-context-suggestions-create:
+        operation: environments_evaluation_context_suggestions_create
+        enabled: false
+    environments-evaluation-context-suggestions-destroy:
+        operation: environments_evaluation_context_suggestions_destroy
+        enabled: false
     feature-flag-get-all:
         operation: feature_flags_list
         enabled: true
@@ -222,9 +251,6 @@ tools:
             Debug why feature flags evaluate a certain way for a given user. Provide a distinct_id and optionally groups
             to see each flag's evaluated value and the reason for that evaluation (e.g. condition_match,
             no_condition_match, disabled).
-    feature-flags-local-evaluation-retrieve:
-        operation: feature_flags_local_evaluation_retrieve
-        enabled: false
     feature-flags-matching-ids-retrieve:
         operation: feature_flags_matching_ids_retrieve
         enabled: false
@@ -247,6 +273,21 @@ tools:
     feature-flags-remote-config-retrieve:
         operation: feature_flags_remote_config_retrieve
         enabled: false
+    feature-flags-staff-cache-clear-create:
+        operation: feature_flags_staff_cache_clear_create
+        enabled: false
+    feature-flags-staff-cache-entry-retrieve:
+        operation: feature_flags_staff_cache_entry_retrieve
+        enabled: false
+    feature-flags-staff-cache-list:
+        operation: feature_flags_staff_cache_list
+        enabled: false
+    feature-flags-staff-cache-rebuild-create:
+        operation: feature_flags_staff_cache_rebuild_create
+        enabled: false
+    feature-flags-staff-teams-list:
+        operation: feature_flags_staff_teams_list
+        enabled: false
     feature-flags-status-retrieve:
         operation: feature_flags_status_retrieve
         enabled: true
@@ -259,7 +300,10 @@ tools:
         title: Get feature flag status
         description: >
             Check the health and evaluation status of a feature flag by ID. Returns a status (active, stale, deleted, or
-            unknown) and a human-readable reason explaining the status.
+            unknown) and a human-readable reason explaining the status. The status reflects recent evaluation (whether
+            the flag was called), NOT rollout completeness. To determine whether a flag is fully rolled out / GA, use
+            the returned `rollout` object: `effectively_full_rollout` (true when targeted to everyone with no
+            conditions), `has_targeting_conditions`, `max_rollout_percentage`, and `is_multivariate`.
         param_overrides:
             id:
                 cast: string-int
@@ -305,8 +349,17 @@ tools:
     flag-value-values-retrieve:
         operation: flag_value_values_retrieve
         enabled: false
+    org-feature-flags-keys:
+        operation: org_feature_flags_keys
+        enabled: false
     org-feature-flags-retrieve:
         operation: org_feature_flags_retrieve
+        enabled: false
+    organizations-projects-evaluation-context-suggestions-create:
+        operation: organizations_projects_evaluation_context_suggestions_create
+        enabled: false
+    organizations-projects-evaluation-context-suggestions-destroy:
+        operation: organizations_projects_evaluation_context_suggestions_destroy
         enabled: false
     scheduled-changes-create:
         operation: scheduled_changes_create
@@ -407,8 +460,31 @@ tools:
             - name
             - filters
             - active
+            - archived
             - tags
             - evaluation_contexts
+            - is_remote_configuration
+            - ensure_experience_continuity
+            - evaluation_runtime
+            - bucketing_identifier
         param_overrides:
             id:
                 cast: string-int
+            is_remote_configuration:
+                description:
+                    Whether this flag delivers a payload instead of gating a feature (Remote Config mode). When true, set the
+                    delivered payload through the `filters` param under `filters.payloads.true` as a JSON-encoded
+                    string. There is no dedicated payload parameter.
+            ensure_experience_continuity:
+                description:
+                    Whether to persist the flag's value for a user across the anonymous-to-identified transition (the "persist
+                    across authentication steps" option in the UI). Keeps a user's evaluated value stable once they log
+                    in. Incompatible with `device_id` bucketing.
+            evaluation_runtime:
+                description:
+                    Where this flag is allowed to evaluate — `server` (server-side SDKs only), `client` (client-side SDKs
+                    only), or `all` (both). Defaults to `all`.
+            bucketing_identifier:
+                description:
+                    Identifier used to bucket users into rollout percentages and variants — `distinct_id` (user ID, the
+                    default) or `device_id`. Using `device_id` is incompatible with `ensure_experience_continuity=true`.

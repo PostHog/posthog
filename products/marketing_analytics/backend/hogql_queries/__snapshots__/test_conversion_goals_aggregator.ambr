@@ -3,52 +3,161 @@
   '''
   
   SELECT
-      multiIf(and(in(lower(conv.source), ['google', 'adwords', 'youtube', 'display', 'gmail', 'google_maps', 'google_play', 'google_discover', 'admob', 'waze']), in(lower(conv.campaign), ['spring_sale_2024', 'spring-sale-2024'])), 'Spring Sale 2024', and(in(lower(conv.source), ['google', 'adwords', 'youtube', 'display', 'gmail', 'google_maps', 'google_play', 'google_discover', 'admob', 'waze']), in(lower(conv.campaign), ['holiday_campaign', 'holiday_promo'])), 'Holiday Promo', conv.campaign) AS campaign,
-      conv.id AS id,
-      conv.source AS source,
-      multiIf(and(in(lower(conv.source), ['google', 'adwords', 'youtube', 'display', 'gmail', 'google_maps', 'google_play', 'google_discover', 'admob', 'waze']), in(lower(conv.campaign), ['spring_sale_2024', 'spring-sale-2024'])), 'Spring Sale 2024', and(in(lower(conv.source), ['google', 'adwords', 'youtube', 'display', 'gmail', 'google_maps', 'google_play', 'google_discover', 'admob', 'waze']), in(lower(conv.campaign), ['holiday_campaign', 'holiday_promo'])), 'Holiday Promo', conv.campaign) AS match_key,
-      sum(conv.conversion_0) AS conversion_0
-  
+    multiIf(and(in(lower(conv.source), ['google', 'adwords', 'youtube', 'display', 'gmail', 'google_maps', 'google_play', 'google_discover', 'admob', 'waze']), in(lower(conv.campaign), ['spring_sale_2024', 'spring-sale-2024'])), 'Spring Sale 2024', and(in(lower(conv.source), ['google', 'adwords', 'youtube', 'display', 'gmail', 'google_maps', 'google_play', 'google_discover', 'admob', 'waze']), in(lower(conv.campaign), ['holiday_campaign', 'holiday_promo'])), 'Holiday Promo', conv.campaign) AS campaign,
+    conv.id AS id,
+    conv.source AS source,
+    multiIf(and(in(lower(conv.source), ['google', 'adwords', 'youtube', 'display', 'gmail', 'google_maps', 'google_play', 'google_discover', 'admob', 'waze']), in(lower(conv.campaign), ['spring_sale_2024', 'spring-sale-2024'])), 'Spring Sale 2024', and(in(lower(conv.source), ['google', 'adwords', 'youtube', 'display', 'gmail', 'google_maps', 'google_play', 'google_discover', 'admob', 'waze']), in(lower(conv.campaign), ['holiday_campaign', 'holiday_promo'])), 'Holiday Promo', conv.campaign) AS match_key,
+    sum(conv.conversion_0) AS conversion_0
   FROM
+  (
+    SELECT
+      if(notEmpty(campaign_name), campaign_name, 'organic') AS campaign,
+      if(notEmpty(campaign_id), campaign_id, '-') AS id,
+      if(in(lower(if(notEmpty(source_name), source_name, 'organic')), ['microsoft', 'msads', 'bing_video']), 'bing', if(in(lower(if(notEmpty(source_name), source_name, 'organic')), ['facebook', 'instagram', 'messenger', 'fb', 'whatsapp', 'audience_network', 'facebook_marketplace', 'threads']), 'meta', if(in(lower(if(notEmpty(source_name), source_name, 'organic')), ['li']), 'linkedin', if(in(lower(if(notEmpty(source_name), source_name, 'organic')), ['adwords', 'youtube', 'display', 'gmail', 'google_maps', 'google_play', 'google_discover', 'admob', 'waze']), 'google', if(notEmpty(source_name), source_name, 'organic'))))) AS source,
+      count() AS conversion_0
+    FROM
+    (
+      SELECT
+        person_id,
+        if(notEmpty(conversion_campaign), conversion_campaign, if(notEmpty(fallback_campaign), fallback_campaign, '')) AS campaign_name,
+        if(notEmpty(conversion_source), conversion_source, if(notEmpty(fallback_source), fallback_source, '')) AS source_name,
+        if(notEmpty(conversion_medium), conversion_medium, if(notEmpty(fallback_medium), fallback_medium, '')) AS medium_name,
+        if(notEmpty(conversion_content), conversion_content, if(notEmpty(fallback_content), fallback_content, '')) AS content_name,
+        if(notEmpty(conversion_term), conversion_term, if(notEmpty(fallback_term), fallback_term, '')) AS term_name,
+        if(notEmpty(conversion_referring_domain), conversion_referring_domain, if(notEmpty(fallback_referring_domain), fallback_referring_domain, '')) AS referring_domain_name,
+        if(notEmpty(conversion_gclid), conversion_gclid, if(notEmpty(fallback_gclid), fallback_gclid, '')) AS gclid_name,
+        if(notEmpty(conversion_fbclid), conversion_fbclid, if(notEmpty(fallback_fbclid), fallback_fbclid, '')) AS fbclid_name,
+        if(notEmpty(conversion_gad_source), conversion_gad_source, if(notEmpty(fallback_gad_source), fallback_gad_source, '')) AS gad_source_name,
+        '-' AS campaign_id,
+        1 AS conversion_value
+      FROM
       (
-  SELECT
-          if(notEmpty(campaign_name), campaign_name, 'organic') AS campaign,
-          if(notEmpty(campaign_id), campaign_id, '-') AS id,
-          if(in(lower(if(notEmpty(source_name), source_name, 'organic')), ['microsoft']), 'bing', if(in(lower(if(notEmpty(source_name), source_name, 'organic')), ['facebook', 'instagram', 'messenger', 'fb', 'whatsapp', 'audience_network', 'facebook_marketplace', 'threads']), 'meta', if(in(lower(if(notEmpty(source_name), source_name, 'organic')), ['li']), 'linkedin', if(in(lower(if(notEmpty(source_name), source_name, 'organic')), ['adwords', 'youtube', 'display', 'gmail', 'google_maps', 'google_play', 'google_discover', 'admob', 'waze']), 'google', if(notEmpty(source_name), source_name, 'organic'))))) AS source,
-          count() AS conversion_0
-      
-  FROM
+        SELECT
+          person_id,
+          conversion_timestamps[i] AS conversion_time,
+          conversion_math_values[i] AS conversion_math_value,
+          conversion_campaigns[i] AS conversion_campaign,
+          conversion_sources[i] AS conversion_source,
+          conversion_mediums[i] AS conversion_medium,
+          conversion_contents[i] AS conversion_content,
+          conversion_terms[i] AS conversion_term,
+          conversion_referring_domains[i] AS conversion_referring_domain,
+          conversion_gclids[i] AS conversion_gclid,
+          conversion_fbclids[i] AS conversion_fbclid,
+          conversion_gad_sources[i] AS conversion_gad_source,
+          arrayMax(arrayFilter(x -> and(lessOrEquals(x, conversion_timestamps[i]), greaterOrEquals(x, minus(conversion_timestamps[i], 7776000))), utm_timestamps)) AS last_utm_timestamp,
+          if(isNotNull(last_utm_timestamp), utm_campaigns[indexOf(utm_timestamps, last_utm_timestamp)], '') AS fallback_campaign,
+          if(isNotNull(last_utm_timestamp), utm_sources[indexOf(utm_timestamps, last_utm_timestamp)], '') AS fallback_source,
+          if(isNotNull(last_utm_timestamp), utm_mediums[indexOf(utm_timestamps, last_utm_timestamp)], '') AS fallback_medium,
+          if(isNotNull(last_utm_timestamp), utm_contents[indexOf(utm_timestamps, last_utm_timestamp)], '') AS fallback_content,
+          if(isNotNull(last_utm_timestamp), utm_terms[indexOf(utm_timestamps, last_utm_timestamp)], '') AS fallback_term,
+          if(isNotNull(last_utm_timestamp), utm_referring_domains[indexOf(utm_timestamps, last_utm_timestamp)], '') AS fallback_referring_domain,
+          if(isNotNull(last_utm_timestamp), utm_gclids[indexOf(utm_timestamps, last_utm_timestamp)], '') AS fallback_gclid,
+          if(isNotNull(last_utm_timestamp), utm_fbclids[indexOf(utm_timestamps, last_utm_timestamp)], '') AS fallback_fbclid,
+          if(isNotNull(last_utm_timestamp), utm_gad_sources[indexOf(utm_timestamps, last_utm_timestamp)], '') AS fallback_gad_source
+        FROM
+        (
+          SELECT
+            c.person_id AS person_id,
+            c.conversion_timestamps AS conversion_timestamps,
+            c.conversion_math_values AS conversion_math_values,
+            c.conversion_campaigns AS conversion_campaigns,
+            c.conversion_sources AS conversion_sources,
+            c.conversion_mediums AS conversion_mediums,
+            c.conversion_contents AS conversion_contents,
+            c.conversion_terms AS conversion_terms,
+            c.conversion_referring_domains AS conversion_referring_domains,
+            c.conversion_gclids AS conversion_gclids,
+            c.conversion_fbclids AS conversion_fbclids,
+            c.conversion_gad_sources AS conversion_gad_sources,
+            t.utm_timestamps AS utm_timestamps,
+            t.utm_campaigns AS utm_campaigns,
+            t.utm_sources AS utm_sources,
+            t.utm_mediums AS utm_mediums,
+            t.utm_contents AS utm_contents,
+            t.utm_terms AS utm_terms,
+            t.utm_referring_domains AS utm_referring_domains,
+            t.utm_gclids AS utm_gclids,
+            t.utm_fbclids AS utm_fbclids,
+            t.utm_gad_sources AS utm_gad_sources
+          FROM
           (
-  SELECT
+            SELECT
               person_id,
-              campaign_name,
-              source_name,
-              medium_name,
-              content_name,
-              term_name,
-              referring_domain_name,
-              gclid_name,
-              fbclid_name,
-              gad_source_name,
-              '-' AS campaign_id,
-              multiply(conversion_value, touchpoint_weight) AS conversion_value
-          
-  FROM
-              conversion_goal_attributed_preaggregated
-          
-  WHERE
-              and(in(job_id, tuple('00000000-0000-0000-0000-000000000001')), equals(team_id, 420), greaterOrEquals(conversion_timestamp, toDateTime('2023-01-01 00:00:00.000000')), lessOrEquals(conversion_timestamp, toDateTime('2023-01-31 23:59:59.999999')))) AS attributed_conversions
-      
+              arrayFilter(x -> greater(x, 0), groupArray(toUnixTimestamp(conversion_timestamp))) AS conversion_timestamps,
+              arrayFilter(x -> greater(x, 0), groupArray(conversion_math_value)) AS conversion_math_values,
+              arrayFilter(x -> notEmpty(toString(x)), groupArray(campaign_name)) AS conversion_campaigns,
+              arrayFilter(x -> notEmpty(toString(x)), groupArray(source_name)) AS conversion_sources,
+              arrayFilter(x -> notEmpty(toString(x)), groupArray(medium_name)) AS conversion_mediums,
+              arrayFilter(x -> notEmpty(toString(x)), groupArray(content_name)) AS conversion_contents,
+              arrayFilter(x -> notEmpty(toString(x)), groupArray(term_name)) AS conversion_terms,
+              arrayFilter(x -> notEmpty(toString(x)), groupArray(referring_domain_name)) AS conversion_referring_domains,
+              arrayFilter(x -> notEmpty(toString(x)), groupArray(gclid_name)) AS conversion_gclids,
+              arrayFilter(x -> notEmpty(toString(x)), groupArray(fbclid_name)) AS conversion_fbclids,
+              arrayFilter(x -> notEmpty(toString(x)), groupArray(gad_source_name)) AS conversion_gad_sources
+            FROM
+            (
+              SELECT
+                DISTINCT person_id,
+                conversion_timestamp,
+                conversion_math_value,
+                campaign_name,
+                source_name,
+                medium_name,
+                content_name,
+                term_name,
+                referring_domain_name,
+                gclid_name,
+                fbclid_name,
+                gad_source_name
+              FROM
+                marketing_conversions_preaggregated
+              WHERE
+                and(in(job_id, tuple('00000000-0000-0000-0000-000000000001')), greaterOrEquals(conversion_timestamp, toDateTime('2023-01-01 00:00:00.000000')), lessOrEquals(conversion_timestamp, toDateTime('2023-01-31 23:59:59.999999')), equals(team_id, 420)))
+            GROUP BY
+              person_id) AS c
+            LEFT JOIN (
+            SELECT
+              person_id,
+              groupArray(toUnixTimestamp(touchpoint_timestamp)) AS utm_timestamps,
+              arrayFilter(x -> notEmpty(x), groupArray(campaign_name)) AS utm_campaigns,
+              arrayFilter(x -> notEmpty(x), groupArray(source_name)) AS utm_sources,
+              arrayFilter(x -> notEmpty(x), groupArray(medium_name)) AS utm_mediums,
+              arrayFilter(x -> notEmpty(x), groupArray(content_name)) AS utm_contents,
+              arrayFilter(x -> notEmpty(x), groupArray(term_name)) AS utm_terms,
+              arrayFilter(x -> notEmpty(x), groupArray(referring_domain_name)) AS utm_referring_domains,
+              arrayFilter(x -> notEmpty(x), groupArray(gclid_name)) AS utm_gclids,
+              arrayFilter(x -> notEmpty(x), groupArray(fbclid_name)) AS utm_fbclids,
+              arrayFilter(x -> notEmpty(x), groupArray(gad_source_name)) AS utm_gad_sources
+            FROM
+            (
+              SELECT
+                DISTINCT person_id,
+                touchpoint_timestamp,
+                campaign_name,
+                source_name,
+                medium_name,
+                content_name,
+                term_name,
+                referring_domain_name,
+                gclid_name,
+                fbclid_name,
+                gad_source_name
+              FROM
+                marketing_touchpoints_preaggregated
+              WHERE
+                and(in(job_id, tuple('00000000-0000-0000-0000-000000000002')), greaterOrEquals(touchpoint_timestamp, toDateTime('2022-10-03 00:00:00.000000')), lessOrEquals(touchpoint_timestamp, toDateTime('2023-01-31 23:59:59.999999')), equals(team_id, 420)))
+            GROUP BY
+              person_id) AS t ON equals(c.person_id, t.person_id))
+          ARRAY JOIN arrayEnumerate(conversion_timestamps) AS i)) AS attributed_conversions
+    GROUP BY
+      campaign,
+      id,
+      source) AS conv
   GROUP BY
-          campaign,
-          id,
-          source) AS conv
-  
-  GROUP BY
-      multiIf(and(in(lower(conv.source), ['google', 'adwords', 'youtube', 'display', 'gmail', 'google_maps', 'google_play', 'google_discover', 'admob', 'waze']), in(lower(conv.campaign), ['spring_sale_2024', 'spring-sale-2024'])), 'Spring Sale 2024', and(in(lower(conv.source), ['google', 'adwords', 'youtube', 'display', 'gmail', 'google_maps', 'google_play', 'google_discover', 'admob', 'waze']), in(lower(conv.campaign), ['holiday_campaign', 'holiday_promo'])), 'Holiday Promo', conv.campaign),
-      conv.id,
-      conv.source
-  
+    multiIf(and(in(lower(conv.source), ['google', 'adwords', 'youtube', 'display', 'gmail', 'google_maps', 'google_play', 'google_discover', 'admob', 'waze']), in(lower(conv.campaign), ['spring_sale_2024', 'spring-sale-2024'])), 'Spring Sale 2024', and(in(lower(conv.source), ['google', 'adwords', 'youtube', 'display', 'gmail', 'google_maps', 'google_play', 'google_discover', 'admob', 'waze']), in(lower(conv.campaign), ['holiday_campaign', 'holiday_promo'])), 'Holiday Promo', conv.campaign),
+    conv.id,
+    conv.source
   LIMIT 100
   '''
 # ---
@@ -56,52 +165,161 @@
   '''
   
   SELECT
-      conv.campaign AS campaign,
-      conv.id AS id,
-      conv.source AS source,
-      conv.campaign AS match_key,
-      sum(conv.conversion_0) AS conversion_0
-  
+    conv.campaign AS campaign,
+    conv.id AS id,
+    conv.source AS source,
+    conv.campaign AS match_key,
+    sum(conv.conversion_0) AS conversion_0
   FROM
+  (
+    SELECT
+      if(notEmpty(campaign_name), campaign_name, 'organic') AS campaign,
+      if(notEmpty(campaign_id), campaign_id, '-') AS id,
+      if(in(lower(if(notEmpty(source_name), source_name, 'organic')), ['microsoft', 'msads', 'bing_video']), 'bing', if(in(lower(if(notEmpty(source_name), source_name, 'organic')), ['facebook', 'instagram', 'messenger', 'fb', 'whatsapp', 'audience_network', 'facebook_marketplace', 'threads']), 'meta', if(in(lower(if(notEmpty(source_name), source_name, 'organic')), ['li']), 'linkedin', if(in(lower(if(notEmpty(source_name), source_name, 'organic')), ['adwords', 'youtube', 'display', 'gmail', 'google_maps', 'google_play', 'google_discover', 'admob', 'waze']), 'google', if(notEmpty(source_name), source_name, 'organic'))))) AS source,
+      count() AS conversion_0
+    FROM
+    (
+      SELECT
+        person_id,
+        if(notEmpty(conversion_campaign), conversion_campaign, if(notEmpty(fallback_campaign), fallback_campaign, '')) AS campaign_name,
+        if(notEmpty(conversion_source), conversion_source, if(notEmpty(fallback_source), fallback_source, '')) AS source_name,
+        if(notEmpty(conversion_medium), conversion_medium, if(notEmpty(fallback_medium), fallback_medium, '')) AS medium_name,
+        if(notEmpty(conversion_content), conversion_content, if(notEmpty(fallback_content), fallback_content, '')) AS content_name,
+        if(notEmpty(conversion_term), conversion_term, if(notEmpty(fallback_term), fallback_term, '')) AS term_name,
+        if(notEmpty(conversion_referring_domain), conversion_referring_domain, if(notEmpty(fallback_referring_domain), fallback_referring_domain, '')) AS referring_domain_name,
+        if(notEmpty(conversion_gclid), conversion_gclid, if(notEmpty(fallback_gclid), fallback_gclid, '')) AS gclid_name,
+        if(notEmpty(conversion_fbclid), conversion_fbclid, if(notEmpty(fallback_fbclid), fallback_fbclid, '')) AS fbclid_name,
+        if(notEmpty(conversion_gad_source), conversion_gad_source, if(notEmpty(fallback_gad_source), fallback_gad_source, '')) AS gad_source_name,
+        '-' AS campaign_id,
+        1 AS conversion_value
+      FROM
       (
-  SELECT
-          if(notEmpty(campaign_name), campaign_name, 'organic') AS campaign,
-          if(notEmpty(campaign_id), campaign_id, '-') AS id,
-          if(in(lower(if(notEmpty(source_name), source_name, 'organic')), ['microsoft']), 'bing', if(in(lower(if(notEmpty(source_name), source_name, 'organic')), ['facebook', 'instagram', 'messenger', 'fb', 'whatsapp', 'audience_network', 'facebook_marketplace', 'threads']), 'meta', if(in(lower(if(notEmpty(source_name), source_name, 'organic')), ['li']), 'linkedin', if(in(lower(if(notEmpty(source_name), source_name, 'organic')), ['adwords', 'youtube', 'display', 'gmail', 'google_maps', 'google_play', 'google_discover', 'admob', 'waze']), 'google', if(notEmpty(source_name), source_name, 'organic'))))) AS source,
-          count() AS conversion_0
-      
-  FROM
+        SELECT
+          person_id,
+          conversion_timestamps[i] AS conversion_time,
+          conversion_math_values[i] AS conversion_math_value,
+          conversion_campaigns[i] AS conversion_campaign,
+          conversion_sources[i] AS conversion_source,
+          conversion_mediums[i] AS conversion_medium,
+          conversion_contents[i] AS conversion_content,
+          conversion_terms[i] AS conversion_term,
+          conversion_referring_domains[i] AS conversion_referring_domain,
+          conversion_gclids[i] AS conversion_gclid,
+          conversion_fbclids[i] AS conversion_fbclid,
+          conversion_gad_sources[i] AS conversion_gad_source,
+          arrayMax(arrayFilter(x -> and(lessOrEquals(x, conversion_timestamps[i]), greaterOrEquals(x, minus(conversion_timestamps[i], 7776000))), utm_timestamps)) AS last_utm_timestamp,
+          if(isNotNull(last_utm_timestamp), utm_campaigns[indexOf(utm_timestamps, last_utm_timestamp)], '') AS fallback_campaign,
+          if(isNotNull(last_utm_timestamp), utm_sources[indexOf(utm_timestamps, last_utm_timestamp)], '') AS fallback_source,
+          if(isNotNull(last_utm_timestamp), utm_mediums[indexOf(utm_timestamps, last_utm_timestamp)], '') AS fallback_medium,
+          if(isNotNull(last_utm_timestamp), utm_contents[indexOf(utm_timestamps, last_utm_timestamp)], '') AS fallback_content,
+          if(isNotNull(last_utm_timestamp), utm_terms[indexOf(utm_timestamps, last_utm_timestamp)], '') AS fallback_term,
+          if(isNotNull(last_utm_timestamp), utm_referring_domains[indexOf(utm_timestamps, last_utm_timestamp)], '') AS fallback_referring_domain,
+          if(isNotNull(last_utm_timestamp), utm_gclids[indexOf(utm_timestamps, last_utm_timestamp)], '') AS fallback_gclid,
+          if(isNotNull(last_utm_timestamp), utm_fbclids[indexOf(utm_timestamps, last_utm_timestamp)], '') AS fallback_fbclid,
+          if(isNotNull(last_utm_timestamp), utm_gad_sources[indexOf(utm_timestamps, last_utm_timestamp)], '') AS fallback_gad_source
+        FROM
+        (
+          SELECT
+            c.person_id AS person_id,
+            c.conversion_timestamps AS conversion_timestamps,
+            c.conversion_math_values AS conversion_math_values,
+            c.conversion_campaigns AS conversion_campaigns,
+            c.conversion_sources AS conversion_sources,
+            c.conversion_mediums AS conversion_mediums,
+            c.conversion_contents AS conversion_contents,
+            c.conversion_terms AS conversion_terms,
+            c.conversion_referring_domains AS conversion_referring_domains,
+            c.conversion_gclids AS conversion_gclids,
+            c.conversion_fbclids AS conversion_fbclids,
+            c.conversion_gad_sources AS conversion_gad_sources,
+            t.utm_timestamps AS utm_timestamps,
+            t.utm_campaigns AS utm_campaigns,
+            t.utm_sources AS utm_sources,
+            t.utm_mediums AS utm_mediums,
+            t.utm_contents AS utm_contents,
+            t.utm_terms AS utm_terms,
+            t.utm_referring_domains AS utm_referring_domains,
+            t.utm_gclids AS utm_gclids,
+            t.utm_fbclids AS utm_fbclids,
+            t.utm_gad_sources AS utm_gad_sources
+          FROM
           (
-  SELECT
+            SELECT
               person_id,
-              campaign_name,
-              source_name,
-              medium_name,
-              content_name,
-              term_name,
-              referring_domain_name,
-              gclid_name,
-              fbclid_name,
-              gad_source_name,
-              '-' AS campaign_id,
-              multiply(conversion_value, touchpoint_weight) AS conversion_value
-          
-  FROM
-              conversion_goal_attributed_preaggregated
-          
-  WHERE
-              and(in(job_id, tuple('00000000-0000-0000-0000-000000000001')), equals(team_id, 420), greaterOrEquals(conversion_timestamp, toDateTime('2023-01-01 00:00:00.000000')), lessOrEquals(conversion_timestamp, toDateTime('2023-01-31 23:59:59.999999')))) AS attributed_conversions
-      
+              arrayFilter(x -> greater(x, 0), groupArray(toUnixTimestamp(conversion_timestamp))) AS conversion_timestamps,
+              arrayFilter(x -> greater(x, 0), groupArray(conversion_math_value)) AS conversion_math_values,
+              arrayFilter(x -> notEmpty(toString(x)), groupArray(campaign_name)) AS conversion_campaigns,
+              arrayFilter(x -> notEmpty(toString(x)), groupArray(source_name)) AS conversion_sources,
+              arrayFilter(x -> notEmpty(toString(x)), groupArray(medium_name)) AS conversion_mediums,
+              arrayFilter(x -> notEmpty(toString(x)), groupArray(content_name)) AS conversion_contents,
+              arrayFilter(x -> notEmpty(toString(x)), groupArray(term_name)) AS conversion_terms,
+              arrayFilter(x -> notEmpty(toString(x)), groupArray(referring_domain_name)) AS conversion_referring_domains,
+              arrayFilter(x -> notEmpty(toString(x)), groupArray(gclid_name)) AS conversion_gclids,
+              arrayFilter(x -> notEmpty(toString(x)), groupArray(fbclid_name)) AS conversion_fbclids,
+              arrayFilter(x -> notEmpty(toString(x)), groupArray(gad_source_name)) AS conversion_gad_sources
+            FROM
+            (
+              SELECT
+                DISTINCT person_id,
+                conversion_timestamp,
+                conversion_math_value,
+                campaign_name,
+                source_name,
+                medium_name,
+                content_name,
+                term_name,
+                referring_domain_name,
+                gclid_name,
+                fbclid_name,
+                gad_source_name
+              FROM
+                marketing_conversions_preaggregated
+              WHERE
+                and(in(job_id, tuple('00000000-0000-0000-0000-000000000001')), greaterOrEquals(conversion_timestamp, toDateTime('2023-01-01 00:00:00.000000')), lessOrEquals(conversion_timestamp, toDateTime('2023-01-31 23:59:59.999999')), equals(team_id, 420)))
+            GROUP BY
+              person_id) AS c
+            LEFT JOIN (
+            SELECT
+              person_id,
+              groupArray(toUnixTimestamp(touchpoint_timestamp)) AS utm_timestamps,
+              arrayFilter(x -> notEmpty(x), groupArray(campaign_name)) AS utm_campaigns,
+              arrayFilter(x -> notEmpty(x), groupArray(source_name)) AS utm_sources,
+              arrayFilter(x -> notEmpty(x), groupArray(medium_name)) AS utm_mediums,
+              arrayFilter(x -> notEmpty(x), groupArray(content_name)) AS utm_contents,
+              arrayFilter(x -> notEmpty(x), groupArray(term_name)) AS utm_terms,
+              arrayFilter(x -> notEmpty(x), groupArray(referring_domain_name)) AS utm_referring_domains,
+              arrayFilter(x -> notEmpty(x), groupArray(gclid_name)) AS utm_gclids,
+              arrayFilter(x -> notEmpty(x), groupArray(fbclid_name)) AS utm_fbclids,
+              arrayFilter(x -> notEmpty(x), groupArray(gad_source_name)) AS utm_gad_sources
+            FROM
+            (
+              SELECT
+                DISTINCT person_id,
+                touchpoint_timestamp,
+                campaign_name,
+                source_name,
+                medium_name,
+                content_name,
+                term_name,
+                referring_domain_name,
+                gclid_name,
+                fbclid_name,
+                gad_source_name
+              FROM
+                marketing_touchpoints_preaggregated
+              WHERE
+                and(in(job_id, tuple('00000000-0000-0000-0000-000000000002')), greaterOrEquals(touchpoint_timestamp, toDateTime('2022-10-03 00:00:00.000000')), lessOrEquals(touchpoint_timestamp, toDateTime('2023-01-31 23:59:59.999999')), equals(team_id, 420)))
+            GROUP BY
+              person_id) AS t ON equals(c.person_id, t.person_id))
+          ARRAY JOIN arrayEnumerate(conversion_timestamps) AS i)) AS attributed_conversions
+    GROUP BY
+      campaign,
+      id,
+      source) AS conv
   GROUP BY
-          campaign,
-          id,
-          source) AS conv
-  
-  GROUP BY
-      conv.campaign,
-      conv.id,
-      conv.source
-  
+    conv.campaign,
+    conv.id,
+    conv.source
   LIMIT 100
   '''
 # ---
@@ -109,52 +327,161 @@
   '''
   
   SELECT
-      multiIf(and(in(lower(conv.source), ['google', 'adwords', 'youtube', 'display', 'gmail', 'google_maps', 'google_play', 'google_discover', 'admob', 'waze']), in(lower(conv.campaign), ['messy_campaign_1', 'messy_campaign_2', 'messy_campaign_3'])), 'Clean Campaign Name', conv.campaign) AS campaign,
-      conv.id AS id,
-      conv.source AS source,
-      multiIf(and(in(lower(conv.source), ['google', 'adwords', 'youtube', 'display', 'gmail', 'google_maps', 'google_play', 'google_discover', 'admob', 'waze']), in(lower(conv.campaign), ['messy_campaign_1', 'messy_campaign_2', 'messy_campaign_3'])), 'Clean Campaign Name', conv.campaign) AS match_key,
-      sum(conv.conversion_0) AS conversion_0
-  
+    multiIf(and(in(lower(conv.source), ['google', 'adwords', 'youtube', 'display', 'gmail', 'google_maps', 'google_play', 'google_discover', 'admob', 'waze']), in(lower(conv.campaign), ['messy_campaign_1', 'messy_campaign_2', 'messy_campaign_3'])), 'Clean Campaign Name', conv.campaign) AS campaign,
+    conv.id AS id,
+    conv.source AS source,
+    multiIf(and(in(lower(conv.source), ['google', 'adwords', 'youtube', 'display', 'gmail', 'google_maps', 'google_play', 'google_discover', 'admob', 'waze']), in(lower(conv.campaign), ['messy_campaign_1', 'messy_campaign_2', 'messy_campaign_3'])), 'Clean Campaign Name', conv.campaign) AS match_key,
+    sum(conv.conversion_0) AS conversion_0
   FROM
+  (
+    SELECT
+      if(notEmpty(campaign_name), campaign_name, 'organic') AS campaign,
+      if(notEmpty(campaign_id), campaign_id, '-') AS id,
+      if(in(lower(if(notEmpty(source_name), source_name, 'organic')), ['microsoft', 'msads', 'bing_video']), 'bing', if(in(lower(if(notEmpty(source_name), source_name, 'organic')), ['facebook', 'instagram', 'messenger', 'fb', 'whatsapp', 'audience_network', 'facebook_marketplace', 'threads']), 'meta', if(in(lower(if(notEmpty(source_name), source_name, 'organic')), ['li']), 'linkedin', if(in(lower(if(notEmpty(source_name), source_name, 'organic')), ['adwords', 'youtube', 'display', 'gmail', 'google_maps', 'google_play', 'google_discover', 'admob', 'waze']), 'google', if(notEmpty(source_name), source_name, 'organic'))))) AS source,
+      count() AS conversion_0
+    FROM
+    (
+      SELECT
+        person_id,
+        if(notEmpty(conversion_campaign), conversion_campaign, if(notEmpty(fallback_campaign), fallback_campaign, '')) AS campaign_name,
+        if(notEmpty(conversion_source), conversion_source, if(notEmpty(fallback_source), fallback_source, '')) AS source_name,
+        if(notEmpty(conversion_medium), conversion_medium, if(notEmpty(fallback_medium), fallback_medium, '')) AS medium_name,
+        if(notEmpty(conversion_content), conversion_content, if(notEmpty(fallback_content), fallback_content, '')) AS content_name,
+        if(notEmpty(conversion_term), conversion_term, if(notEmpty(fallback_term), fallback_term, '')) AS term_name,
+        if(notEmpty(conversion_referring_domain), conversion_referring_domain, if(notEmpty(fallback_referring_domain), fallback_referring_domain, '')) AS referring_domain_name,
+        if(notEmpty(conversion_gclid), conversion_gclid, if(notEmpty(fallback_gclid), fallback_gclid, '')) AS gclid_name,
+        if(notEmpty(conversion_fbclid), conversion_fbclid, if(notEmpty(fallback_fbclid), fallback_fbclid, '')) AS fbclid_name,
+        if(notEmpty(conversion_gad_source), conversion_gad_source, if(notEmpty(fallback_gad_source), fallback_gad_source, '')) AS gad_source_name,
+        '-' AS campaign_id,
+        1 AS conversion_value
+      FROM
       (
-  SELECT
-          if(notEmpty(campaign_name), campaign_name, 'organic') AS campaign,
-          if(notEmpty(campaign_id), campaign_id, '-') AS id,
-          if(in(lower(if(notEmpty(source_name), source_name, 'organic')), ['microsoft']), 'bing', if(in(lower(if(notEmpty(source_name), source_name, 'organic')), ['facebook', 'instagram', 'messenger', 'fb', 'whatsapp', 'audience_network', 'facebook_marketplace', 'threads']), 'meta', if(in(lower(if(notEmpty(source_name), source_name, 'organic')), ['li']), 'linkedin', if(in(lower(if(notEmpty(source_name), source_name, 'organic')), ['adwords', 'youtube', 'display', 'gmail', 'google_maps', 'google_play', 'google_discover', 'admob', 'waze']), 'google', if(notEmpty(source_name), source_name, 'organic'))))) AS source,
-          count() AS conversion_0
-      
-  FROM
+        SELECT
+          person_id,
+          conversion_timestamps[i] AS conversion_time,
+          conversion_math_values[i] AS conversion_math_value,
+          conversion_campaigns[i] AS conversion_campaign,
+          conversion_sources[i] AS conversion_source,
+          conversion_mediums[i] AS conversion_medium,
+          conversion_contents[i] AS conversion_content,
+          conversion_terms[i] AS conversion_term,
+          conversion_referring_domains[i] AS conversion_referring_domain,
+          conversion_gclids[i] AS conversion_gclid,
+          conversion_fbclids[i] AS conversion_fbclid,
+          conversion_gad_sources[i] AS conversion_gad_source,
+          arrayMax(arrayFilter(x -> and(lessOrEquals(x, conversion_timestamps[i]), greaterOrEquals(x, minus(conversion_timestamps[i], 7776000))), utm_timestamps)) AS last_utm_timestamp,
+          if(isNotNull(last_utm_timestamp), utm_campaigns[indexOf(utm_timestamps, last_utm_timestamp)], '') AS fallback_campaign,
+          if(isNotNull(last_utm_timestamp), utm_sources[indexOf(utm_timestamps, last_utm_timestamp)], '') AS fallback_source,
+          if(isNotNull(last_utm_timestamp), utm_mediums[indexOf(utm_timestamps, last_utm_timestamp)], '') AS fallback_medium,
+          if(isNotNull(last_utm_timestamp), utm_contents[indexOf(utm_timestamps, last_utm_timestamp)], '') AS fallback_content,
+          if(isNotNull(last_utm_timestamp), utm_terms[indexOf(utm_timestamps, last_utm_timestamp)], '') AS fallback_term,
+          if(isNotNull(last_utm_timestamp), utm_referring_domains[indexOf(utm_timestamps, last_utm_timestamp)], '') AS fallback_referring_domain,
+          if(isNotNull(last_utm_timestamp), utm_gclids[indexOf(utm_timestamps, last_utm_timestamp)], '') AS fallback_gclid,
+          if(isNotNull(last_utm_timestamp), utm_fbclids[indexOf(utm_timestamps, last_utm_timestamp)], '') AS fallback_fbclid,
+          if(isNotNull(last_utm_timestamp), utm_gad_sources[indexOf(utm_timestamps, last_utm_timestamp)], '') AS fallback_gad_source
+        FROM
+        (
+          SELECT
+            c.person_id AS person_id,
+            c.conversion_timestamps AS conversion_timestamps,
+            c.conversion_math_values AS conversion_math_values,
+            c.conversion_campaigns AS conversion_campaigns,
+            c.conversion_sources AS conversion_sources,
+            c.conversion_mediums AS conversion_mediums,
+            c.conversion_contents AS conversion_contents,
+            c.conversion_terms AS conversion_terms,
+            c.conversion_referring_domains AS conversion_referring_domains,
+            c.conversion_gclids AS conversion_gclids,
+            c.conversion_fbclids AS conversion_fbclids,
+            c.conversion_gad_sources AS conversion_gad_sources,
+            t.utm_timestamps AS utm_timestamps,
+            t.utm_campaigns AS utm_campaigns,
+            t.utm_sources AS utm_sources,
+            t.utm_mediums AS utm_mediums,
+            t.utm_contents AS utm_contents,
+            t.utm_terms AS utm_terms,
+            t.utm_referring_domains AS utm_referring_domains,
+            t.utm_gclids AS utm_gclids,
+            t.utm_fbclids AS utm_fbclids,
+            t.utm_gad_sources AS utm_gad_sources
+          FROM
           (
-  SELECT
+            SELECT
               person_id,
-              campaign_name,
-              source_name,
-              medium_name,
-              content_name,
-              term_name,
-              referring_domain_name,
-              gclid_name,
-              fbclid_name,
-              gad_source_name,
-              '-' AS campaign_id,
-              multiply(conversion_value, touchpoint_weight) AS conversion_value
-          
-  FROM
-              conversion_goal_attributed_preaggregated
-          
-  WHERE
-              and(in(job_id, tuple('00000000-0000-0000-0000-000000000001')), equals(team_id, 420), greaterOrEquals(conversion_timestamp, toDateTime('2023-01-01 00:00:00.000000')), lessOrEquals(conversion_timestamp, toDateTime('2023-01-31 23:59:59.999999')))) AS attributed_conversions
-      
+              arrayFilter(x -> greater(x, 0), groupArray(toUnixTimestamp(conversion_timestamp))) AS conversion_timestamps,
+              arrayFilter(x -> greater(x, 0), groupArray(conversion_math_value)) AS conversion_math_values,
+              arrayFilter(x -> notEmpty(toString(x)), groupArray(campaign_name)) AS conversion_campaigns,
+              arrayFilter(x -> notEmpty(toString(x)), groupArray(source_name)) AS conversion_sources,
+              arrayFilter(x -> notEmpty(toString(x)), groupArray(medium_name)) AS conversion_mediums,
+              arrayFilter(x -> notEmpty(toString(x)), groupArray(content_name)) AS conversion_contents,
+              arrayFilter(x -> notEmpty(toString(x)), groupArray(term_name)) AS conversion_terms,
+              arrayFilter(x -> notEmpty(toString(x)), groupArray(referring_domain_name)) AS conversion_referring_domains,
+              arrayFilter(x -> notEmpty(toString(x)), groupArray(gclid_name)) AS conversion_gclids,
+              arrayFilter(x -> notEmpty(toString(x)), groupArray(fbclid_name)) AS conversion_fbclids,
+              arrayFilter(x -> notEmpty(toString(x)), groupArray(gad_source_name)) AS conversion_gad_sources
+            FROM
+            (
+              SELECT
+                DISTINCT person_id,
+                conversion_timestamp,
+                conversion_math_value,
+                campaign_name,
+                source_name,
+                medium_name,
+                content_name,
+                term_name,
+                referring_domain_name,
+                gclid_name,
+                fbclid_name,
+                gad_source_name
+              FROM
+                marketing_conversions_preaggregated
+              WHERE
+                and(in(job_id, tuple('00000000-0000-0000-0000-000000000001')), greaterOrEquals(conversion_timestamp, toDateTime('2023-01-01 00:00:00.000000')), lessOrEquals(conversion_timestamp, toDateTime('2023-01-31 23:59:59.999999')), equals(team_id, 420)))
+            GROUP BY
+              person_id) AS c
+            LEFT JOIN (
+            SELECT
+              person_id,
+              groupArray(toUnixTimestamp(touchpoint_timestamp)) AS utm_timestamps,
+              arrayFilter(x -> notEmpty(x), groupArray(campaign_name)) AS utm_campaigns,
+              arrayFilter(x -> notEmpty(x), groupArray(source_name)) AS utm_sources,
+              arrayFilter(x -> notEmpty(x), groupArray(medium_name)) AS utm_mediums,
+              arrayFilter(x -> notEmpty(x), groupArray(content_name)) AS utm_contents,
+              arrayFilter(x -> notEmpty(x), groupArray(term_name)) AS utm_terms,
+              arrayFilter(x -> notEmpty(x), groupArray(referring_domain_name)) AS utm_referring_domains,
+              arrayFilter(x -> notEmpty(x), groupArray(gclid_name)) AS utm_gclids,
+              arrayFilter(x -> notEmpty(x), groupArray(fbclid_name)) AS utm_fbclids,
+              arrayFilter(x -> notEmpty(x), groupArray(gad_source_name)) AS utm_gad_sources
+            FROM
+            (
+              SELECT
+                DISTINCT person_id,
+                touchpoint_timestamp,
+                campaign_name,
+                source_name,
+                medium_name,
+                content_name,
+                term_name,
+                referring_domain_name,
+                gclid_name,
+                fbclid_name,
+                gad_source_name
+              FROM
+                marketing_touchpoints_preaggregated
+              WHERE
+                and(in(job_id, tuple('00000000-0000-0000-0000-000000000002')), greaterOrEquals(touchpoint_timestamp, toDateTime('2022-10-03 00:00:00.000000')), lessOrEquals(touchpoint_timestamp, toDateTime('2023-01-31 23:59:59.999999')), equals(team_id, 420)))
+            GROUP BY
+              person_id) AS t ON equals(c.person_id, t.person_id))
+          ARRAY JOIN arrayEnumerate(conversion_timestamps) AS i)) AS attributed_conversions
+    GROUP BY
+      campaign,
+      id,
+      source) AS conv
   GROUP BY
-          campaign,
-          id,
-          source) AS conv
-  
-  GROUP BY
-      multiIf(and(in(lower(conv.source), ['google', 'adwords', 'youtube', 'display', 'gmail', 'google_maps', 'google_play', 'google_discover', 'admob', 'waze']), in(lower(conv.campaign), ['messy_campaign_1', 'messy_campaign_2', 'messy_campaign_3'])), 'Clean Campaign Name', conv.campaign),
-      conv.id,
-      conv.source
-  
+    multiIf(and(in(lower(conv.source), ['google', 'adwords', 'youtube', 'display', 'gmail', 'google_maps', 'google_play', 'google_discover', 'admob', 'waze']), in(lower(conv.campaign), ['messy_campaign_1', 'messy_campaign_2', 'messy_campaign_3'])), 'Clean Campaign Name', conv.campaign),
+    conv.id,
+    conv.source
   LIMIT 100
   '''
 # ---
@@ -162,52 +489,161 @@
   '''
   
   SELECT
-      multiIf(and(in(lower(conv.source), ['google', 'adwords', 'youtube', 'display', 'gmail', 'google_maps', 'google_play', 'google_discover', 'admob', 'waze']), in(lower(conv.campaign), ['spring_sale_2024', 'spring-sale-2024', 'spring_sale'])), 'Spring Sale 2024', and(in(lower(conv.source), ['google', 'adwords', 'youtube', 'display', 'gmail', 'google_maps', 'google_play', 'google_discover', 'admob', 'waze']), in(lower(conv.campaign), ['bf_2024', 'blackfriday', 'bf-promo'])), 'Black Friday', and(in(lower(conv.source), ['meta', 'facebook', 'instagram', 'messenger', 'fb', 'whatsapp', 'audience_network', 'facebook_marketplace', 'threads']), in(lower(conv.campaign), ['spring_sale_fb', 'springsalefb'])), 'Spring Sale 2024', and(in(lower(conv.source), ['meta', 'facebook', 'instagram', 'messenger', 'fb', 'whatsapp', 'audience_network', 'facebook_marketplace', 'threads']), in(lower(conv.campaign), ['summer_2024', 'summer_promo'])), 'Summer Campaign', conv.campaign) AS campaign,
-      conv.id AS id,
-      conv.source AS source,
-      multiIf(and(in(lower(conv.source), ['google', 'adwords', 'youtube', 'display', 'gmail', 'google_maps', 'google_play', 'google_discover', 'admob', 'waze']), in(lower(conv.campaign), ['spring_sale_2024', 'spring-sale-2024', 'spring_sale'])), 'Spring Sale 2024', and(in(lower(conv.source), ['google', 'adwords', 'youtube', 'display', 'gmail', 'google_maps', 'google_play', 'google_discover', 'admob', 'waze']), in(lower(conv.campaign), ['bf_2024', 'blackfriday', 'bf-promo'])), 'Black Friday', and(in(lower(conv.source), ['meta', 'facebook', 'instagram', 'messenger', 'fb', 'whatsapp', 'audience_network', 'facebook_marketplace', 'threads']), in(lower(conv.campaign), ['spring_sale_fb', 'springsalefb'])), 'Spring Sale 2024', and(in(lower(conv.source), ['meta', 'facebook', 'instagram', 'messenger', 'fb', 'whatsapp', 'audience_network', 'facebook_marketplace', 'threads']), in(lower(conv.campaign), ['summer_2024', 'summer_promo'])), 'Summer Campaign', conv.campaign) AS match_key,
-      sum(conv.conversion_0) AS conversion_0
-  
+    multiIf(and(in(lower(conv.source), ['google', 'adwords', 'youtube', 'display', 'gmail', 'google_maps', 'google_play', 'google_discover', 'admob', 'waze']), in(lower(conv.campaign), ['spring_sale_2024', 'spring-sale-2024', 'spring_sale'])), 'Spring Sale 2024', and(in(lower(conv.source), ['google', 'adwords', 'youtube', 'display', 'gmail', 'google_maps', 'google_play', 'google_discover', 'admob', 'waze']), in(lower(conv.campaign), ['bf_2024', 'blackfriday', 'bf-promo'])), 'Black Friday', and(in(lower(conv.source), ['meta', 'facebook', 'instagram', 'messenger', 'fb', 'whatsapp', 'audience_network', 'facebook_marketplace', 'threads']), in(lower(conv.campaign), ['spring_sale_fb', 'springsalefb'])), 'Spring Sale 2024', and(in(lower(conv.source), ['meta', 'facebook', 'instagram', 'messenger', 'fb', 'whatsapp', 'audience_network', 'facebook_marketplace', 'threads']), in(lower(conv.campaign), ['summer_2024', 'summer_promo'])), 'Summer Campaign', conv.campaign) AS campaign,
+    conv.id AS id,
+    conv.source AS source,
+    multiIf(and(in(lower(conv.source), ['google', 'adwords', 'youtube', 'display', 'gmail', 'google_maps', 'google_play', 'google_discover', 'admob', 'waze']), in(lower(conv.campaign), ['spring_sale_2024', 'spring-sale-2024', 'spring_sale'])), 'Spring Sale 2024', and(in(lower(conv.source), ['google', 'adwords', 'youtube', 'display', 'gmail', 'google_maps', 'google_play', 'google_discover', 'admob', 'waze']), in(lower(conv.campaign), ['bf_2024', 'blackfriday', 'bf-promo'])), 'Black Friday', and(in(lower(conv.source), ['meta', 'facebook', 'instagram', 'messenger', 'fb', 'whatsapp', 'audience_network', 'facebook_marketplace', 'threads']), in(lower(conv.campaign), ['spring_sale_fb', 'springsalefb'])), 'Spring Sale 2024', and(in(lower(conv.source), ['meta', 'facebook', 'instagram', 'messenger', 'fb', 'whatsapp', 'audience_network', 'facebook_marketplace', 'threads']), in(lower(conv.campaign), ['summer_2024', 'summer_promo'])), 'Summer Campaign', conv.campaign) AS match_key,
+    sum(conv.conversion_0) AS conversion_0
   FROM
+  (
+    SELECT
+      if(notEmpty(campaign_name), campaign_name, 'organic') AS campaign,
+      if(notEmpty(campaign_id), campaign_id, '-') AS id,
+      if(in(lower(if(notEmpty(source_name), source_name, 'organic')), ['microsoft', 'msads', 'bing_video']), 'bing', if(in(lower(if(notEmpty(source_name), source_name, 'organic')), ['facebook', 'instagram', 'messenger', 'fb', 'whatsapp', 'audience_network', 'facebook_marketplace', 'threads']), 'meta', if(in(lower(if(notEmpty(source_name), source_name, 'organic')), ['li']), 'linkedin', if(in(lower(if(notEmpty(source_name), source_name, 'organic')), ['adwords', 'youtube', 'display', 'gmail', 'google_maps', 'google_play', 'google_discover', 'admob', 'waze']), 'google', if(notEmpty(source_name), source_name, 'organic'))))) AS source,
+      count() AS conversion_0
+    FROM
+    (
+      SELECT
+        person_id,
+        if(notEmpty(conversion_campaign), conversion_campaign, if(notEmpty(fallback_campaign), fallback_campaign, '')) AS campaign_name,
+        if(notEmpty(conversion_source), conversion_source, if(notEmpty(fallback_source), fallback_source, '')) AS source_name,
+        if(notEmpty(conversion_medium), conversion_medium, if(notEmpty(fallback_medium), fallback_medium, '')) AS medium_name,
+        if(notEmpty(conversion_content), conversion_content, if(notEmpty(fallback_content), fallback_content, '')) AS content_name,
+        if(notEmpty(conversion_term), conversion_term, if(notEmpty(fallback_term), fallback_term, '')) AS term_name,
+        if(notEmpty(conversion_referring_domain), conversion_referring_domain, if(notEmpty(fallback_referring_domain), fallback_referring_domain, '')) AS referring_domain_name,
+        if(notEmpty(conversion_gclid), conversion_gclid, if(notEmpty(fallback_gclid), fallback_gclid, '')) AS gclid_name,
+        if(notEmpty(conversion_fbclid), conversion_fbclid, if(notEmpty(fallback_fbclid), fallback_fbclid, '')) AS fbclid_name,
+        if(notEmpty(conversion_gad_source), conversion_gad_source, if(notEmpty(fallback_gad_source), fallback_gad_source, '')) AS gad_source_name,
+        '-' AS campaign_id,
+        1 AS conversion_value
+      FROM
       (
-  SELECT
-          if(notEmpty(campaign_name), campaign_name, 'organic') AS campaign,
-          if(notEmpty(campaign_id), campaign_id, '-') AS id,
-          if(in(lower(if(notEmpty(source_name), source_name, 'organic')), ['microsoft']), 'bing', if(in(lower(if(notEmpty(source_name), source_name, 'organic')), ['facebook', 'instagram', 'messenger', 'fb', 'whatsapp', 'audience_network', 'facebook_marketplace', 'threads']), 'meta', if(in(lower(if(notEmpty(source_name), source_name, 'organic')), ['li']), 'linkedin', if(in(lower(if(notEmpty(source_name), source_name, 'organic')), ['adwords', 'youtube', 'display', 'gmail', 'google_maps', 'google_play', 'google_discover', 'admob', 'waze']), 'google', if(notEmpty(source_name), source_name, 'organic'))))) AS source,
-          count() AS conversion_0
-      
-  FROM
+        SELECT
+          person_id,
+          conversion_timestamps[i] AS conversion_time,
+          conversion_math_values[i] AS conversion_math_value,
+          conversion_campaigns[i] AS conversion_campaign,
+          conversion_sources[i] AS conversion_source,
+          conversion_mediums[i] AS conversion_medium,
+          conversion_contents[i] AS conversion_content,
+          conversion_terms[i] AS conversion_term,
+          conversion_referring_domains[i] AS conversion_referring_domain,
+          conversion_gclids[i] AS conversion_gclid,
+          conversion_fbclids[i] AS conversion_fbclid,
+          conversion_gad_sources[i] AS conversion_gad_source,
+          arrayMax(arrayFilter(x -> and(lessOrEquals(x, conversion_timestamps[i]), greaterOrEquals(x, minus(conversion_timestamps[i], 7776000))), utm_timestamps)) AS last_utm_timestamp,
+          if(isNotNull(last_utm_timestamp), utm_campaigns[indexOf(utm_timestamps, last_utm_timestamp)], '') AS fallback_campaign,
+          if(isNotNull(last_utm_timestamp), utm_sources[indexOf(utm_timestamps, last_utm_timestamp)], '') AS fallback_source,
+          if(isNotNull(last_utm_timestamp), utm_mediums[indexOf(utm_timestamps, last_utm_timestamp)], '') AS fallback_medium,
+          if(isNotNull(last_utm_timestamp), utm_contents[indexOf(utm_timestamps, last_utm_timestamp)], '') AS fallback_content,
+          if(isNotNull(last_utm_timestamp), utm_terms[indexOf(utm_timestamps, last_utm_timestamp)], '') AS fallback_term,
+          if(isNotNull(last_utm_timestamp), utm_referring_domains[indexOf(utm_timestamps, last_utm_timestamp)], '') AS fallback_referring_domain,
+          if(isNotNull(last_utm_timestamp), utm_gclids[indexOf(utm_timestamps, last_utm_timestamp)], '') AS fallback_gclid,
+          if(isNotNull(last_utm_timestamp), utm_fbclids[indexOf(utm_timestamps, last_utm_timestamp)], '') AS fallback_fbclid,
+          if(isNotNull(last_utm_timestamp), utm_gad_sources[indexOf(utm_timestamps, last_utm_timestamp)], '') AS fallback_gad_source
+        FROM
+        (
+          SELECT
+            c.person_id AS person_id,
+            c.conversion_timestamps AS conversion_timestamps,
+            c.conversion_math_values AS conversion_math_values,
+            c.conversion_campaigns AS conversion_campaigns,
+            c.conversion_sources AS conversion_sources,
+            c.conversion_mediums AS conversion_mediums,
+            c.conversion_contents AS conversion_contents,
+            c.conversion_terms AS conversion_terms,
+            c.conversion_referring_domains AS conversion_referring_domains,
+            c.conversion_gclids AS conversion_gclids,
+            c.conversion_fbclids AS conversion_fbclids,
+            c.conversion_gad_sources AS conversion_gad_sources,
+            t.utm_timestamps AS utm_timestamps,
+            t.utm_campaigns AS utm_campaigns,
+            t.utm_sources AS utm_sources,
+            t.utm_mediums AS utm_mediums,
+            t.utm_contents AS utm_contents,
+            t.utm_terms AS utm_terms,
+            t.utm_referring_domains AS utm_referring_domains,
+            t.utm_gclids AS utm_gclids,
+            t.utm_fbclids AS utm_fbclids,
+            t.utm_gad_sources AS utm_gad_sources
+          FROM
           (
-  SELECT
+            SELECT
               person_id,
-              campaign_name,
-              source_name,
-              medium_name,
-              content_name,
-              term_name,
-              referring_domain_name,
-              gclid_name,
-              fbclid_name,
-              gad_source_name,
-              '-' AS campaign_id,
-              multiply(conversion_value, touchpoint_weight) AS conversion_value
-          
-  FROM
-              conversion_goal_attributed_preaggregated
-          
-  WHERE
-              and(in(job_id, tuple('00000000-0000-0000-0000-000000000001')), equals(team_id, 420), greaterOrEquals(conversion_timestamp, toDateTime('2023-01-01 00:00:00.000000')), lessOrEquals(conversion_timestamp, toDateTime('2023-01-31 23:59:59.999999')))) AS attributed_conversions
-      
+              arrayFilter(x -> greater(x, 0), groupArray(toUnixTimestamp(conversion_timestamp))) AS conversion_timestamps,
+              arrayFilter(x -> greater(x, 0), groupArray(conversion_math_value)) AS conversion_math_values,
+              arrayFilter(x -> notEmpty(toString(x)), groupArray(campaign_name)) AS conversion_campaigns,
+              arrayFilter(x -> notEmpty(toString(x)), groupArray(source_name)) AS conversion_sources,
+              arrayFilter(x -> notEmpty(toString(x)), groupArray(medium_name)) AS conversion_mediums,
+              arrayFilter(x -> notEmpty(toString(x)), groupArray(content_name)) AS conversion_contents,
+              arrayFilter(x -> notEmpty(toString(x)), groupArray(term_name)) AS conversion_terms,
+              arrayFilter(x -> notEmpty(toString(x)), groupArray(referring_domain_name)) AS conversion_referring_domains,
+              arrayFilter(x -> notEmpty(toString(x)), groupArray(gclid_name)) AS conversion_gclids,
+              arrayFilter(x -> notEmpty(toString(x)), groupArray(fbclid_name)) AS conversion_fbclids,
+              arrayFilter(x -> notEmpty(toString(x)), groupArray(gad_source_name)) AS conversion_gad_sources
+            FROM
+            (
+              SELECT
+                DISTINCT person_id,
+                conversion_timestamp,
+                conversion_math_value,
+                campaign_name,
+                source_name,
+                medium_name,
+                content_name,
+                term_name,
+                referring_domain_name,
+                gclid_name,
+                fbclid_name,
+                gad_source_name
+              FROM
+                marketing_conversions_preaggregated
+              WHERE
+                and(in(job_id, tuple('00000000-0000-0000-0000-000000000001')), greaterOrEquals(conversion_timestamp, toDateTime('2023-01-01 00:00:00.000000')), lessOrEquals(conversion_timestamp, toDateTime('2023-01-31 23:59:59.999999')), equals(team_id, 420)))
+            GROUP BY
+              person_id) AS c
+            LEFT JOIN (
+            SELECT
+              person_id,
+              groupArray(toUnixTimestamp(touchpoint_timestamp)) AS utm_timestamps,
+              arrayFilter(x -> notEmpty(x), groupArray(campaign_name)) AS utm_campaigns,
+              arrayFilter(x -> notEmpty(x), groupArray(source_name)) AS utm_sources,
+              arrayFilter(x -> notEmpty(x), groupArray(medium_name)) AS utm_mediums,
+              arrayFilter(x -> notEmpty(x), groupArray(content_name)) AS utm_contents,
+              arrayFilter(x -> notEmpty(x), groupArray(term_name)) AS utm_terms,
+              arrayFilter(x -> notEmpty(x), groupArray(referring_domain_name)) AS utm_referring_domains,
+              arrayFilter(x -> notEmpty(x), groupArray(gclid_name)) AS utm_gclids,
+              arrayFilter(x -> notEmpty(x), groupArray(fbclid_name)) AS utm_fbclids,
+              arrayFilter(x -> notEmpty(x), groupArray(gad_source_name)) AS utm_gad_sources
+            FROM
+            (
+              SELECT
+                DISTINCT person_id,
+                touchpoint_timestamp,
+                campaign_name,
+                source_name,
+                medium_name,
+                content_name,
+                term_name,
+                referring_domain_name,
+                gclid_name,
+                fbclid_name,
+                gad_source_name
+              FROM
+                marketing_touchpoints_preaggregated
+              WHERE
+                and(in(job_id, tuple('00000000-0000-0000-0000-000000000002')), greaterOrEquals(touchpoint_timestamp, toDateTime('2022-10-03 00:00:00.000000')), lessOrEquals(touchpoint_timestamp, toDateTime('2023-01-31 23:59:59.999999')), equals(team_id, 420)))
+            GROUP BY
+              person_id) AS t ON equals(c.person_id, t.person_id))
+          ARRAY JOIN arrayEnumerate(conversion_timestamps) AS i)) AS attributed_conversions
+    GROUP BY
+      campaign,
+      id,
+      source) AS conv
   GROUP BY
-          campaign,
-          id,
-          source) AS conv
-  
-  GROUP BY
-      multiIf(and(in(lower(conv.source), ['google', 'adwords', 'youtube', 'display', 'gmail', 'google_maps', 'google_play', 'google_discover', 'admob', 'waze']), in(lower(conv.campaign), ['spring_sale_2024', 'spring-sale-2024', 'spring_sale'])), 'Spring Sale 2024', and(in(lower(conv.source), ['google', 'adwords', 'youtube', 'display', 'gmail', 'google_maps', 'google_play', 'google_discover', 'admob', 'waze']), in(lower(conv.campaign), ['bf_2024', 'blackfriday', 'bf-promo'])), 'Black Friday', and(in(lower(conv.source), ['meta', 'facebook', 'instagram', 'messenger', 'fb', 'whatsapp', 'audience_network', 'facebook_marketplace', 'threads']), in(lower(conv.campaign), ['spring_sale_fb', 'springsalefb'])), 'Spring Sale 2024', and(in(lower(conv.source), ['meta', 'facebook', 'instagram', 'messenger', 'fb', 'whatsapp', 'audience_network', 'facebook_marketplace', 'threads']), in(lower(conv.campaign), ['summer_2024', 'summer_promo'])), 'Summer Campaign', conv.campaign),
-      conv.id,
-      conv.source
-  
+    multiIf(and(in(lower(conv.source), ['google', 'adwords', 'youtube', 'display', 'gmail', 'google_maps', 'google_play', 'google_discover', 'admob', 'waze']), in(lower(conv.campaign), ['spring_sale_2024', 'spring-sale-2024', 'spring_sale'])), 'Spring Sale 2024', and(in(lower(conv.source), ['google', 'adwords', 'youtube', 'display', 'gmail', 'google_maps', 'google_play', 'google_discover', 'admob', 'waze']), in(lower(conv.campaign), ['bf_2024', 'blackfriday', 'bf-promo'])), 'Black Friday', and(in(lower(conv.source), ['meta', 'facebook', 'instagram', 'messenger', 'fb', 'whatsapp', 'audience_network', 'facebook_marketplace', 'threads']), in(lower(conv.campaign), ['spring_sale_fb', 'springsalefb'])), 'Spring Sale 2024', and(in(lower(conv.source), ['meta', 'facebook', 'instagram', 'messenger', 'fb', 'whatsapp', 'audience_network', 'facebook_marketplace', 'threads']), in(lower(conv.campaign), ['summer_2024', 'summer_promo'])), 'Summer Campaign', conv.campaign),
+    conv.id,
+    conv.source
   LIMIT 100
   '''
 # ---
@@ -215,128 +651,459 @@
   '''
   
   SELECT
-      conv.campaign AS campaign,
-      conv.id AS id,
-      conv.source AS source,
-      conv.campaign AS match_key,
-      sum(conv.conversion_0) AS conversion_0,
-      sum(conv.conversion_1) AS conversion_1,
-      sum(conv.conversion_2) AS conversion_2
-  
+    conv.campaign AS campaign,
+    conv.id AS id,
+    conv.source AS source,
+    conv.campaign AS match_key,
+    sum(conv.conversion_0) AS conversion_0,
+    sum(conv.conversion_1) AS conversion_1,
+    sum(conv.conversion_2) AS conversion_2
   FROM
+  (
+    SELECT
+      if(notEmpty(campaign_name), campaign_name, 'organic') AS campaign,
+      if(notEmpty(campaign_id), campaign_id, '-') AS id,
+      if(in(lower(if(notEmpty(source_name), source_name, 'organic')), ['microsoft', 'msads', 'bing_video']), 'bing', if(in(lower(if(notEmpty(source_name), source_name, 'organic')), ['facebook', 'instagram', 'messenger', 'fb', 'whatsapp', 'audience_network', 'facebook_marketplace', 'threads']), 'meta', if(in(lower(if(notEmpty(source_name), source_name, 'organic')), ['li']), 'linkedin', if(in(lower(if(notEmpty(source_name), source_name, 'organic')), ['adwords', 'youtube', 'display', 'gmail', 'google_maps', 'google_play', 'google_discover', 'admob', 'waze']), 'google', if(notEmpty(source_name), source_name, 'organic'))))) AS source,
+      count() AS conversion_0,
+      0 AS conversion_1,
+      0 AS conversion_2
+    FROM
+    (
+      SELECT
+        person_id,
+        if(notEmpty(conversion_campaign), conversion_campaign, if(notEmpty(fallback_campaign), fallback_campaign, '')) AS campaign_name,
+        if(notEmpty(conversion_source), conversion_source, if(notEmpty(fallback_source), fallback_source, '')) AS source_name,
+        if(notEmpty(conversion_medium), conversion_medium, if(notEmpty(fallback_medium), fallback_medium, '')) AS medium_name,
+        if(notEmpty(conversion_content), conversion_content, if(notEmpty(fallback_content), fallback_content, '')) AS content_name,
+        if(notEmpty(conversion_term), conversion_term, if(notEmpty(fallback_term), fallback_term, '')) AS term_name,
+        if(notEmpty(conversion_referring_domain), conversion_referring_domain, if(notEmpty(fallback_referring_domain), fallback_referring_domain, '')) AS referring_domain_name,
+        if(notEmpty(conversion_gclid), conversion_gclid, if(notEmpty(fallback_gclid), fallback_gclid, '')) AS gclid_name,
+        if(notEmpty(conversion_fbclid), conversion_fbclid, if(notEmpty(fallback_fbclid), fallback_fbclid, '')) AS fbclid_name,
+        if(notEmpty(conversion_gad_source), conversion_gad_source, if(notEmpty(fallback_gad_source), fallback_gad_source, '')) AS gad_source_name,
+        '-' AS campaign_id,
+        1 AS conversion_value
+      FROM
       (
-  SELECT
-          if(notEmpty(campaign_name), campaign_name, 'organic') AS campaign,
-          if(notEmpty(campaign_id), campaign_id, '-') AS id,
-          if(in(lower(if(notEmpty(source_name), source_name, 'organic')), ['microsoft']), 'bing', if(in(lower(if(notEmpty(source_name), source_name, 'organic')), ['facebook', 'instagram', 'messenger', 'fb', 'whatsapp', 'audience_network', 'facebook_marketplace', 'threads']), 'meta', if(in(lower(if(notEmpty(source_name), source_name, 'organic')), ['li']), 'linkedin', if(in(lower(if(notEmpty(source_name), source_name, 'organic')), ['adwords', 'youtube', 'display', 'gmail', 'google_maps', 'google_play', 'google_discover', 'admob', 'waze']), 'google', if(notEmpty(source_name), source_name, 'organic'))))) AS source,
-          count() AS conversion_0,
-          0 AS conversion_1,
-          0 AS conversion_2
-      
-  FROM
+        SELECT
+          person_id,
+          conversion_timestamps[i] AS conversion_time,
+          conversion_math_values[i] AS conversion_math_value,
+          conversion_campaigns[i] AS conversion_campaign,
+          conversion_sources[i] AS conversion_source,
+          conversion_mediums[i] AS conversion_medium,
+          conversion_contents[i] AS conversion_content,
+          conversion_terms[i] AS conversion_term,
+          conversion_referring_domains[i] AS conversion_referring_domain,
+          conversion_gclids[i] AS conversion_gclid,
+          conversion_fbclids[i] AS conversion_fbclid,
+          conversion_gad_sources[i] AS conversion_gad_source,
+          arrayMax(arrayFilter(x -> and(lessOrEquals(x, conversion_timestamps[i]), greaterOrEquals(x, minus(conversion_timestamps[i], 7776000))), utm_timestamps)) AS last_utm_timestamp,
+          if(isNotNull(last_utm_timestamp), utm_campaigns[indexOf(utm_timestamps, last_utm_timestamp)], '') AS fallback_campaign,
+          if(isNotNull(last_utm_timestamp), utm_sources[indexOf(utm_timestamps, last_utm_timestamp)], '') AS fallback_source,
+          if(isNotNull(last_utm_timestamp), utm_mediums[indexOf(utm_timestamps, last_utm_timestamp)], '') AS fallback_medium,
+          if(isNotNull(last_utm_timestamp), utm_contents[indexOf(utm_timestamps, last_utm_timestamp)], '') AS fallback_content,
+          if(isNotNull(last_utm_timestamp), utm_terms[indexOf(utm_timestamps, last_utm_timestamp)], '') AS fallback_term,
+          if(isNotNull(last_utm_timestamp), utm_referring_domains[indexOf(utm_timestamps, last_utm_timestamp)], '') AS fallback_referring_domain,
+          if(isNotNull(last_utm_timestamp), utm_gclids[indexOf(utm_timestamps, last_utm_timestamp)], '') AS fallback_gclid,
+          if(isNotNull(last_utm_timestamp), utm_fbclids[indexOf(utm_timestamps, last_utm_timestamp)], '') AS fallback_fbclid,
+          if(isNotNull(last_utm_timestamp), utm_gad_sources[indexOf(utm_timestamps, last_utm_timestamp)], '') AS fallback_gad_source
+        FROM
+        (
+          SELECT
+            c.person_id AS person_id,
+            c.conversion_timestamps AS conversion_timestamps,
+            c.conversion_math_values AS conversion_math_values,
+            c.conversion_campaigns AS conversion_campaigns,
+            c.conversion_sources AS conversion_sources,
+            c.conversion_mediums AS conversion_mediums,
+            c.conversion_contents AS conversion_contents,
+            c.conversion_terms AS conversion_terms,
+            c.conversion_referring_domains AS conversion_referring_domains,
+            c.conversion_gclids AS conversion_gclids,
+            c.conversion_fbclids AS conversion_fbclids,
+            c.conversion_gad_sources AS conversion_gad_sources,
+            t.utm_timestamps AS utm_timestamps,
+            t.utm_campaigns AS utm_campaigns,
+            t.utm_sources AS utm_sources,
+            t.utm_mediums AS utm_mediums,
+            t.utm_contents AS utm_contents,
+            t.utm_terms AS utm_terms,
+            t.utm_referring_domains AS utm_referring_domains,
+            t.utm_gclids AS utm_gclids,
+            t.utm_fbclids AS utm_fbclids,
+            t.utm_gad_sources AS utm_gad_sources
+          FROM
           (
-  SELECT
+            SELECT
               person_id,
-              campaign_name,
-              source_name,
-              medium_name,
-              content_name,
-              term_name,
-              referring_domain_name,
-              gclid_name,
-              fbclid_name,
-              gad_source_name,
-              '-' AS campaign_id,
-              multiply(conversion_value, touchpoint_weight) AS conversion_value
-          
-  FROM
-              conversion_goal_attributed_preaggregated
-          
-  WHERE
-              and(in(job_id, tuple('00000000-0000-0000-0000-000000000001')), equals(team_id, 420), greaterOrEquals(conversion_timestamp, toDateTime('2023-01-01 00:00:00.000000')), lessOrEquals(conversion_timestamp, toDateTime('2023-01-31 23:59:59.999999')))) AS attributed_conversions
-      
-  GROUP BY
-          campaign,
-          id,
-          source
+              arrayFilter(x -> greater(x, 0), groupArray(toUnixTimestamp(conversion_timestamp))) AS conversion_timestamps,
+              arrayFilter(x -> greater(x, 0), groupArray(conversion_math_value)) AS conversion_math_values,
+              arrayFilter(x -> notEmpty(toString(x)), groupArray(campaign_name)) AS conversion_campaigns,
+              arrayFilter(x -> notEmpty(toString(x)), groupArray(source_name)) AS conversion_sources,
+              arrayFilter(x -> notEmpty(toString(x)), groupArray(medium_name)) AS conversion_mediums,
+              arrayFilter(x -> notEmpty(toString(x)), groupArray(content_name)) AS conversion_contents,
+              arrayFilter(x -> notEmpty(toString(x)), groupArray(term_name)) AS conversion_terms,
+              arrayFilter(x -> notEmpty(toString(x)), groupArray(referring_domain_name)) AS conversion_referring_domains,
+              arrayFilter(x -> notEmpty(toString(x)), groupArray(gclid_name)) AS conversion_gclids,
+              arrayFilter(x -> notEmpty(toString(x)), groupArray(fbclid_name)) AS conversion_fbclids,
+              arrayFilter(x -> notEmpty(toString(x)), groupArray(gad_source_name)) AS conversion_gad_sources
+            FROM
+            (
+              SELECT
+                DISTINCT person_id,
+                conversion_timestamp,
+                conversion_math_value,
+                campaign_name,
+                source_name,
+                medium_name,
+                content_name,
+                term_name,
+                referring_domain_name,
+                gclid_name,
+                fbclid_name,
+                gad_source_name
+              FROM
+                marketing_conversions_preaggregated
+              WHERE
+                and(in(job_id, tuple('00000000-0000-0000-0000-000000000001')), greaterOrEquals(conversion_timestamp, toDateTime('2023-01-01 00:00:00.000000')), lessOrEquals(conversion_timestamp, toDateTime('2023-01-31 23:59:59.999999')), equals(team_id, 420)))
+            GROUP BY
+              person_id) AS c
+            LEFT JOIN (
+            SELECT
+              person_id,
+              groupArray(toUnixTimestamp(touchpoint_timestamp)) AS utm_timestamps,
+              arrayFilter(x -> notEmpty(x), groupArray(campaign_name)) AS utm_campaigns,
+              arrayFilter(x -> notEmpty(x), groupArray(source_name)) AS utm_sources,
+              arrayFilter(x -> notEmpty(x), groupArray(medium_name)) AS utm_mediums,
+              arrayFilter(x -> notEmpty(x), groupArray(content_name)) AS utm_contents,
+              arrayFilter(x -> notEmpty(x), groupArray(term_name)) AS utm_terms,
+              arrayFilter(x -> notEmpty(x), groupArray(referring_domain_name)) AS utm_referring_domains,
+              arrayFilter(x -> notEmpty(x), groupArray(gclid_name)) AS utm_gclids,
+              arrayFilter(x -> notEmpty(x), groupArray(fbclid_name)) AS utm_fbclids,
+              arrayFilter(x -> notEmpty(x), groupArray(gad_source_name)) AS utm_gad_sources
+            FROM
+            (
+              SELECT
+                DISTINCT person_id,
+                touchpoint_timestamp,
+                campaign_name,
+                source_name,
+                medium_name,
+                content_name,
+                term_name,
+                referring_domain_name,
+                gclid_name,
+                fbclid_name,
+                gad_source_name
+              FROM
+                marketing_touchpoints_preaggregated
+              WHERE
+                and(in(job_id, tuple('00000000-0000-0000-0000-000000000002')), greaterOrEquals(touchpoint_timestamp, toDateTime('2022-10-03 00:00:00.000000')), lessOrEquals(touchpoint_timestamp, toDateTime('2023-01-31 23:59:59.999999')), equals(team_id, 420)))
+            GROUP BY
+              person_id) AS t ON equals(c.person_id, t.person_id))
+          ARRAY JOIN arrayEnumerate(conversion_timestamps) AS i)) AS attributed_conversions
+    GROUP BY
+      campaign,
+      id,
+      source
       UNION ALL
-      
-  SELECT
-          if(notEmpty(campaign_name), campaign_name, 'organic') AS campaign,
-          if(notEmpty(campaign_id), campaign_id, '-') AS id,
-          if(in(lower(if(notEmpty(source_name), source_name, 'organic')), ['microsoft']), 'bing', if(in(lower(if(notEmpty(source_name), source_name, 'organic')), ['facebook', 'instagram', 'messenger', 'fb', 'whatsapp', 'audience_network', 'facebook_marketplace', 'threads']), 'meta', if(in(lower(if(notEmpty(source_name), source_name, 'organic')), ['li']), 'linkedin', if(in(lower(if(notEmpty(source_name), source_name, 'organic')), ['adwords', 'youtube', 'display', 'gmail', 'google_maps', 'google_play', 'google_discover', 'admob', 'waze']), 'google', if(notEmpty(source_name), source_name, 'organic'))))) AS source,
-          0 AS conversion_0,
-          count() AS conversion_1,
-          0 AS conversion_2
-      
-  FROM
+    SELECT
+      if(notEmpty(campaign_name), campaign_name, 'organic') AS campaign,
+      if(notEmpty(campaign_id), campaign_id, '-') AS id,
+      if(in(lower(if(notEmpty(source_name), source_name, 'organic')), ['microsoft', 'msads', 'bing_video']), 'bing', if(in(lower(if(notEmpty(source_name), source_name, 'organic')), ['facebook', 'instagram', 'messenger', 'fb', 'whatsapp', 'audience_network', 'facebook_marketplace', 'threads']), 'meta', if(in(lower(if(notEmpty(source_name), source_name, 'organic')), ['li']), 'linkedin', if(in(lower(if(notEmpty(source_name), source_name, 'organic')), ['adwords', 'youtube', 'display', 'gmail', 'google_maps', 'google_play', 'google_discover', 'admob', 'waze']), 'google', if(notEmpty(source_name), source_name, 'organic'))))) AS source,
+      0 AS conversion_0,
+      count() AS conversion_1,
+      0 AS conversion_2
+    FROM
+    (
+      SELECT
+        person_id,
+        if(notEmpty(conversion_campaign), conversion_campaign, if(notEmpty(fallback_campaign), fallback_campaign, '')) AS campaign_name,
+        if(notEmpty(conversion_source), conversion_source, if(notEmpty(fallback_source), fallback_source, '')) AS source_name,
+        if(notEmpty(conversion_medium), conversion_medium, if(notEmpty(fallback_medium), fallback_medium, '')) AS medium_name,
+        if(notEmpty(conversion_content), conversion_content, if(notEmpty(fallback_content), fallback_content, '')) AS content_name,
+        if(notEmpty(conversion_term), conversion_term, if(notEmpty(fallback_term), fallback_term, '')) AS term_name,
+        if(notEmpty(conversion_referring_domain), conversion_referring_domain, if(notEmpty(fallback_referring_domain), fallback_referring_domain, '')) AS referring_domain_name,
+        if(notEmpty(conversion_gclid), conversion_gclid, if(notEmpty(fallback_gclid), fallback_gclid, '')) AS gclid_name,
+        if(notEmpty(conversion_fbclid), conversion_fbclid, if(notEmpty(fallback_fbclid), fallback_fbclid, '')) AS fbclid_name,
+        if(notEmpty(conversion_gad_source), conversion_gad_source, if(notEmpty(fallback_gad_source), fallback_gad_source, '')) AS gad_source_name,
+        '-' AS campaign_id,
+        1 AS conversion_value
+      FROM
+      (
+        SELECT
+          person_id,
+          conversion_timestamps[i] AS conversion_time,
+          conversion_math_values[i] AS conversion_math_value,
+          conversion_campaigns[i] AS conversion_campaign,
+          conversion_sources[i] AS conversion_source,
+          conversion_mediums[i] AS conversion_medium,
+          conversion_contents[i] AS conversion_content,
+          conversion_terms[i] AS conversion_term,
+          conversion_referring_domains[i] AS conversion_referring_domain,
+          conversion_gclids[i] AS conversion_gclid,
+          conversion_fbclids[i] AS conversion_fbclid,
+          conversion_gad_sources[i] AS conversion_gad_source,
+          arrayMax(arrayFilter(x -> and(lessOrEquals(x, conversion_timestamps[i]), greaterOrEquals(x, minus(conversion_timestamps[i], 7776000))), utm_timestamps)) AS last_utm_timestamp,
+          if(isNotNull(last_utm_timestamp), utm_campaigns[indexOf(utm_timestamps, last_utm_timestamp)], '') AS fallback_campaign,
+          if(isNotNull(last_utm_timestamp), utm_sources[indexOf(utm_timestamps, last_utm_timestamp)], '') AS fallback_source,
+          if(isNotNull(last_utm_timestamp), utm_mediums[indexOf(utm_timestamps, last_utm_timestamp)], '') AS fallback_medium,
+          if(isNotNull(last_utm_timestamp), utm_contents[indexOf(utm_timestamps, last_utm_timestamp)], '') AS fallback_content,
+          if(isNotNull(last_utm_timestamp), utm_terms[indexOf(utm_timestamps, last_utm_timestamp)], '') AS fallback_term,
+          if(isNotNull(last_utm_timestamp), utm_referring_domains[indexOf(utm_timestamps, last_utm_timestamp)], '') AS fallback_referring_domain,
+          if(isNotNull(last_utm_timestamp), utm_gclids[indexOf(utm_timestamps, last_utm_timestamp)], '') AS fallback_gclid,
+          if(isNotNull(last_utm_timestamp), utm_fbclids[indexOf(utm_timestamps, last_utm_timestamp)], '') AS fallback_fbclid,
+          if(isNotNull(last_utm_timestamp), utm_gad_sources[indexOf(utm_timestamps, last_utm_timestamp)], '') AS fallback_gad_source
+        FROM
+        (
+          SELECT
+            c.person_id AS person_id,
+            c.conversion_timestamps AS conversion_timestamps,
+            c.conversion_math_values AS conversion_math_values,
+            c.conversion_campaigns AS conversion_campaigns,
+            c.conversion_sources AS conversion_sources,
+            c.conversion_mediums AS conversion_mediums,
+            c.conversion_contents AS conversion_contents,
+            c.conversion_terms AS conversion_terms,
+            c.conversion_referring_domains AS conversion_referring_domains,
+            c.conversion_gclids AS conversion_gclids,
+            c.conversion_fbclids AS conversion_fbclids,
+            c.conversion_gad_sources AS conversion_gad_sources,
+            t.utm_timestamps AS utm_timestamps,
+            t.utm_campaigns AS utm_campaigns,
+            t.utm_sources AS utm_sources,
+            t.utm_mediums AS utm_mediums,
+            t.utm_contents AS utm_contents,
+            t.utm_terms AS utm_terms,
+            t.utm_referring_domains AS utm_referring_domains,
+            t.utm_gclids AS utm_gclids,
+            t.utm_fbclids AS utm_fbclids,
+            t.utm_gad_sources AS utm_gad_sources
+          FROM
           (
-  SELECT
+            SELECT
               person_id,
-              campaign_name,
-              source_name,
-              medium_name,
-              content_name,
-              term_name,
-              referring_domain_name,
-              gclid_name,
-              fbclid_name,
-              gad_source_name,
-              '-' AS campaign_id,
-              multiply(conversion_value, touchpoint_weight) AS conversion_value
-          
-  FROM
-              conversion_goal_attributed_preaggregated
-          
-  WHERE
-              and(in(job_id, tuple('00000000-0000-0000-0000-000000000002')), equals(team_id, 420), greaterOrEquals(conversion_timestamp, toDateTime('2023-01-01 00:00:00.000000')), lessOrEquals(conversion_timestamp, toDateTime('2023-01-31 23:59:59.999999')))) AS attributed_conversions
-      
-  GROUP BY
-          campaign,
-          id,
-          source
+              arrayFilter(x -> greater(x, 0), groupArray(toUnixTimestamp(conversion_timestamp))) AS conversion_timestamps,
+              arrayFilter(x -> greater(x, 0), groupArray(conversion_math_value)) AS conversion_math_values,
+              arrayFilter(x -> notEmpty(toString(x)), groupArray(campaign_name)) AS conversion_campaigns,
+              arrayFilter(x -> notEmpty(toString(x)), groupArray(source_name)) AS conversion_sources,
+              arrayFilter(x -> notEmpty(toString(x)), groupArray(medium_name)) AS conversion_mediums,
+              arrayFilter(x -> notEmpty(toString(x)), groupArray(content_name)) AS conversion_contents,
+              arrayFilter(x -> notEmpty(toString(x)), groupArray(term_name)) AS conversion_terms,
+              arrayFilter(x -> notEmpty(toString(x)), groupArray(referring_domain_name)) AS conversion_referring_domains,
+              arrayFilter(x -> notEmpty(toString(x)), groupArray(gclid_name)) AS conversion_gclids,
+              arrayFilter(x -> notEmpty(toString(x)), groupArray(fbclid_name)) AS conversion_fbclids,
+              arrayFilter(x -> notEmpty(toString(x)), groupArray(gad_source_name)) AS conversion_gad_sources
+            FROM
+            (
+              SELECT
+                DISTINCT person_id,
+                conversion_timestamp,
+                conversion_math_value,
+                campaign_name,
+                source_name,
+                medium_name,
+                content_name,
+                term_name,
+                referring_domain_name,
+                gclid_name,
+                fbclid_name,
+                gad_source_name
+              FROM
+                marketing_conversions_preaggregated
+              WHERE
+                and(in(job_id, tuple('00000000-0000-0000-0000-000000000003')), greaterOrEquals(conversion_timestamp, toDateTime('2023-01-01 00:00:00.000000')), lessOrEquals(conversion_timestamp, toDateTime('2023-01-31 23:59:59.999999')), equals(team_id, 420)))
+            GROUP BY
+              person_id) AS c
+            LEFT JOIN (
+            SELECT
+              person_id,
+              groupArray(toUnixTimestamp(touchpoint_timestamp)) AS utm_timestamps,
+              arrayFilter(x -> notEmpty(x), groupArray(campaign_name)) AS utm_campaigns,
+              arrayFilter(x -> notEmpty(x), groupArray(source_name)) AS utm_sources,
+              arrayFilter(x -> notEmpty(x), groupArray(medium_name)) AS utm_mediums,
+              arrayFilter(x -> notEmpty(x), groupArray(content_name)) AS utm_contents,
+              arrayFilter(x -> notEmpty(x), groupArray(term_name)) AS utm_terms,
+              arrayFilter(x -> notEmpty(x), groupArray(referring_domain_name)) AS utm_referring_domains,
+              arrayFilter(x -> notEmpty(x), groupArray(gclid_name)) AS utm_gclids,
+              arrayFilter(x -> notEmpty(x), groupArray(fbclid_name)) AS utm_fbclids,
+              arrayFilter(x -> notEmpty(x), groupArray(gad_source_name)) AS utm_gad_sources
+            FROM
+            (
+              SELECT
+                DISTINCT person_id,
+                touchpoint_timestamp,
+                campaign_name,
+                source_name,
+                medium_name,
+                content_name,
+                term_name,
+                referring_domain_name,
+                gclid_name,
+                fbclid_name,
+                gad_source_name
+              FROM
+                marketing_touchpoints_preaggregated
+              WHERE
+                and(in(job_id, tuple('00000000-0000-0000-0000-000000000002')), greaterOrEquals(touchpoint_timestamp, toDateTime('2022-10-03 00:00:00.000000')), lessOrEquals(touchpoint_timestamp, toDateTime('2023-01-31 23:59:59.999999')), equals(team_id, 420)))
+            GROUP BY
+              person_id) AS t ON equals(c.person_id, t.person_id))
+          ARRAY JOIN arrayEnumerate(conversion_timestamps) AS i)) AS attributed_conversions
+    GROUP BY
+      campaign,
+      id,
+      source
       UNION ALL
-      
-  SELECT
-          if(notEmpty(campaign_name), campaign_name, 'organic') AS campaign,
-          if(notEmpty(campaign_id), campaign_id, '-') AS id,
-          if(in(lower(if(notEmpty(source_name), source_name, 'organic')), ['microsoft']), 'bing', if(in(lower(if(notEmpty(source_name), source_name, 'organic')), ['facebook', 'instagram', 'messenger', 'fb', 'whatsapp', 'audience_network', 'facebook_marketplace', 'threads']), 'meta', if(in(lower(if(notEmpty(source_name), source_name, 'organic')), ['li']), 'linkedin', if(in(lower(if(notEmpty(source_name), source_name, 'organic')), ['adwords', 'youtube', 'display', 'gmail', 'google_maps', 'google_play', 'google_discover', 'admob', 'waze']), 'google', if(notEmpty(source_name), source_name, 'organic'))))) AS source,
-          0 AS conversion_0,
-          0 AS conversion_1,
-          count() AS conversion_2
-      
-  FROM
+    SELECT
+      if(notEmpty(campaign_name), campaign_name, 'organic') AS campaign,
+      if(notEmpty(campaign_id), campaign_id, '-') AS id,
+      if(in(lower(if(notEmpty(source_name), source_name, 'organic')), ['microsoft', 'msads', 'bing_video']), 'bing', if(in(lower(if(notEmpty(source_name), source_name, 'organic')), ['facebook', 'instagram', 'messenger', 'fb', 'whatsapp', 'audience_network', 'facebook_marketplace', 'threads']), 'meta', if(in(lower(if(notEmpty(source_name), source_name, 'organic')), ['li']), 'linkedin', if(in(lower(if(notEmpty(source_name), source_name, 'organic')), ['adwords', 'youtube', 'display', 'gmail', 'google_maps', 'google_play', 'google_discover', 'admob', 'waze']), 'google', if(notEmpty(source_name), source_name, 'organic'))))) AS source,
+      0 AS conversion_0,
+      0 AS conversion_1,
+      count() AS conversion_2
+    FROM
+    (
+      SELECT
+        person_id,
+        if(notEmpty(conversion_campaign), conversion_campaign, if(notEmpty(fallback_campaign), fallback_campaign, '')) AS campaign_name,
+        if(notEmpty(conversion_source), conversion_source, if(notEmpty(fallback_source), fallback_source, '')) AS source_name,
+        if(notEmpty(conversion_medium), conversion_medium, if(notEmpty(fallback_medium), fallback_medium, '')) AS medium_name,
+        if(notEmpty(conversion_content), conversion_content, if(notEmpty(fallback_content), fallback_content, '')) AS content_name,
+        if(notEmpty(conversion_term), conversion_term, if(notEmpty(fallback_term), fallback_term, '')) AS term_name,
+        if(notEmpty(conversion_referring_domain), conversion_referring_domain, if(notEmpty(fallback_referring_domain), fallback_referring_domain, '')) AS referring_domain_name,
+        if(notEmpty(conversion_gclid), conversion_gclid, if(notEmpty(fallback_gclid), fallback_gclid, '')) AS gclid_name,
+        if(notEmpty(conversion_fbclid), conversion_fbclid, if(notEmpty(fallback_fbclid), fallback_fbclid, '')) AS fbclid_name,
+        if(notEmpty(conversion_gad_source), conversion_gad_source, if(notEmpty(fallback_gad_source), fallback_gad_source, '')) AS gad_source_name,
+        '-' AS campaign_id,
+        1 AS conversion_value
+      FROM
+      (
+        SELECT
+          person_id,
+          conversion_timestamps[i] AS conversion_time,
+          conversion_math_values[i] AS conversion_math_value,
+          conversion_campaigns[i] AS conversion_campaign,
+          conversion_sources[i] AS conversion_source,
+          conversion_mediums[i] AS conversion_medium,
+          conversion_contents[i] AS conversion_content,
+          conversion_terms[i] AS conversion_term,
+          conversion_referring_domains[i] AS conversion_referring_domain,
+          conversion_gclids[i] AS conversion_gclid,
+          conversion_fbclids[i] AS conversion_fbclid,
+          conversion_gad_sources[i] AS conversion_gad_source,
+          arrayMax(arrayFilter(x -> and(lessOrEquals(x, conversion_timestamps[i]), greaterOrEquals(x, minus(conversion_timestamps[i], 7776000))), utm_timestamps)) AS last_utm_timestamp,
+          if(isNotNull(last_utm_timestamp), utm_campaigns[indexOf(utm_timestamps, last_utm_timestamp)], '') AS fallback_campaign,
+          if(isNotNull(last_utm_timestamp), utm_sources[indexOf(utm_timestamps, last_utm_timestamp)], '') AS fallback_source,
+          if(isNotNull(last_utm_timestamp), utm_mediums[indexOf(utm_timestamps, last_utm_timestamp)], '') AS fallback_medium,
+          if(isNotNull(last_utm_timestamp), utm_contents[indexOf(utm_timestamps, last_utm_timestamp)], '') AS fallback_content,
+          if(isNotNull(last_utm_timestamp), utm_terms[indexOf(utm_timestamps, last_utm_timestamp)], '') AS fallback_term,
+          if(isNotNull(last_utm_timestamp), utm_referring_domains[indexOf(utm_timestamps, last_utm_timestamp)], '') AS fallback_referring_domain,
+          if(isNotNull(last_utm_timestamp), utm_gclids[indexOf(utm_timestamps, last_utm_timestamp)], '') AS fallback_gclid,
+          if(isNotNull(last_utm_timestamp), utm_fbclids[indexOf(utm_timestamps, last_utm_timestamp)], '') AS fallback_fbclid,
+          if(isNotNull(last_utm_timestamp), utm_gad_sources[indexOf(utm_timestamps, last_utm_timestamp)], '') AS fallback_gad_source
+        FROM
+        (
+          SELECT
+            c.person_id AS person_id,
+            c.conversion_timestamps AS conversion_timestamps,
+            c.conversion_math_values AS conversion_math_values,
+            c.conversion_campaigns AS conversion_campaigns,
+            c.conversion_sources AS conversion_sources,
+            c.conversion_mediums AS conversion_mediums,
+            c.conversion_contents AS conversion_contents,
+            c.conversion_terms AS conversion_terms,
+            c.conversion_referring_domains AS conversion_referring_domains,
+            c.conversion_gclids AS conversion_gclids,
+            c.conversion_fbclids AS conversion_fbclids,
+            c.conversion_gad_sources AS conversion_gad_sources,
+            t.utm_timestamps AS utm_timestamps,
+            t.utm_campaigns AS utm_campaigns,
+            t.utm_sources AS utm_sources,
+            t.utm_mediums AS utm_mediums,
+            t.utm_contents AS utm_contents,
+            t.utm_terms AS utm_terms,
+            t.utm_referring_domains AS utm_referring_domains,
+            t.utm_gclids AS utm_gclids,
+            t.utm_fbclids AS utm_fbclids,
+            t.utm_gad_sources AS utm_gad_sources
+          FROM
           (
-  SELECT
+            SELECT
               person_id,
-              campaign_name,
-              source_name,
-              medium_name,
-              content_name,
-              term_name,
-              referring_domain_name,
-              gclid_name,
-              fbclid_name,
-              gad_source_name,
-              '-' AS campaign_id,
-              multiply(conversion_value, touchpoint_weight) AS conversion_value
-          
-  FROM
-              conversion_goal_attributed_preaggregated
-          
-  WHERE
-              and(in(job_id, tuple('00000000-0000-0000-0000-000000000003')), equals(team_id, 420), greaterOrEquals(conversion_timestamp, toDateTime('2023-01-01 00:00:00.000000')), lessOrEquals(conversion_timestamp, toDateTime('2023-01-31 23:59:59.999999')))) AS attributed_conversions
-      
+              arrayFilter(x -> greater(x, 0), groupArray(toUnixTimestamp(conversion_timestamp))) AS conversion_timestamps,
+              arrayFilter(x -> greater(x, 0), groupArray(conversion_math_value)) AS conversion_math_values,
+              arrayFilter(x -> notEmpty(toString(x)), groupArray(campaign_name)) AS conversion_campaigns,
+              arrayFilter(x -> notEmpty(toString(x)), groupArray(source_name)) AS conversion_sources,
+              arrayFilter(x -> notEmpty(toString(x)), groupArray(medium_name)) AS conversion_mediums,
+              arrayFilter(x -> notEmpty(toString(x)), groupArray(content_name)) AS conversion_contents,
+              arrayFilter(x -> notEmpty(toString(x)), groupArray(term_name)) AS conversion_terms,
+              arrayFilter(x -> notEmpty(toString(x)), groupArray(referring_domain_name)) AS conversion_referring_domains,
+              arrayFilter(x -> notEmpty(toString(x)), groupArray(gclid_name)) AS conversion_gclids,
+              arrayFilter(x -> notEmpty(toString(x)), groupArray(fbclid_name)) AS conversion_fbclids,
+              arrayFilter(x -> notEmpty(toString(x)), groupArray(gad_source_name)) AS conversion_gad_sources
+            FROM
+            (
+              SELECT
+                DISTINCT person_id,
+                conversion_timestamp,
+                conversion_math_value,
+                campaign_name,
+                source_name,
+                medium_name,
+                content_name,
+                term_name,
+                referring_domain_name,
+                gclid_name,
+                fbclid_name,
+                gad_source_name
+              FROM
+                marketing_conversions_preaggregated
+              WHERE
+                and(in(job_id, tuple('00000000-0000-0000-0000-000000000004')), greaterOrEquals(conversion_timestamp, toDateTime('2023-01-01 00:00:00.000000')), lessOrEquals(conversion_timestamp, toDateTime('2023-01-31 23:59:59.999999')), equals(team_id, 420)))
+            GROUP BY
+              person_id) AS c
+            LEFT JOIN (
+            SELECT
+              person_id,
+              groupArray(toUnixTimestamp(touchpoint_timestamp)) AS utm_timestamps,
+              arrayFilter(x -> notEmpty(x), groupArray(campaign_name)) AS utm_campaigns,
+              arrayFilter(x -> notEmpty(x), groupArray(source_name)) AS utm_sources,
+              arrayFilter(x -> notEmpty(x), groupArray(medium_name)) AS utm_mediums,
+              arrayFilter(x -> notEmpty(x), groupArray(content_name)) AS utm_contents,
+              arrayFilter(x -> notEmpty(x), groupArray(term_name)) AS utm_terms,
+              arrayFilter(x -> notEmpty(x), groupArray(referring_domain_name)) AS utm_referring_domains,
+              arrayFilter(x -> notEmpty(x), groupArray(gclid_name)) AS utm_gclids,
+              arrayFilter(x -> notEmpty(x), groupArray(fbclid_name)) AS utm_fbclids,
+              arrayFilter(x -> notEmpty(x), groupArray(gad_source_name)) AS utm_gad_sources
+            FROM
+            (
+              SELECT
+                DISTINCT person_id,
+                touchpoint_timestamp,
+                campaign_name,
+                source_name,
+                medium_name,
+                content_name,
+                term_name,
+                referring_domain_name,
+                gclid_name,
+                fbclid_name,
+                gad_source_name
+              FROM
+                marketing_touchpoints_preaggregated
+              WHERE
+                and(in(job_id, tuple('00000000-0000-0000-0000-000000000002')), greaterOrEquals(touchpoint_timestamp, toDateTime('2022-10-03 00:00:00.000000')), lessOrEquals(touchpoint_timestamp, toDateTime('2023-01-31 23:59:59.999999')), equals(team_id, 420)))
+            GROUP BY
+              person_id) AS t ON equals(c.person_id, t.person_id))
+          ARRAY JOIN arrayEnumerate(conversion_timestamps) AS i)) AS attributed_conversions
+    GROUP BY
+      campaign,
+      id,
+      source) AS conv
   GROUP BY
-          campaign,
-          id,
-          source) AS conv
-  
-  GROUP BY
-      conv.campaign,
-      conv.id,
-      conv.source
-  
+    conv.campaign,
+    conv.id,
+    conv.source
   LIMIT 100
   '''
 # ---
@@ -344,89 +1111,309 @@
   '''
   
   SELECT
-      conv.campaign AS campaign,
-      conv.id AS id,
-      conv.source AS source,
-      conv.campaign AS match_key,
-      sum(conv.conversion_0) AS conversion_0,
-      sum(conv.conversion_1) AS conversion_1
-  
+    conv.campaign AS campaign,
+    conv.id AS id,
+    conv.source AS source,
+    conv.campaign AS match_key,
+    sum(conv.conversion_0) AS conversion_0,
+    sum(conv.conversion_1) AS conversion_1
   FROM
+  (
+    SELECT
+      if(notEmpty(campaign_name), campaign_name, 'organic') AS campaign,
+      if(notEmpty(campaign_id), campaign_id, '-') AS id,
+      if(in(lower(if(notEmpty(source_name), source_name, 'organic')), ['microsoft', 'msads', 'bing_video']), 'bing', if(in(lower(if(notEmpty(source_name), source_name, 'organic')), ['facebook', 'instagram', 'messenger', 'fb', 'whatsapp', 'audience_network', 'facebook_marketplace', 'threads']), 'meta', if(in(lower(if(notEmpty(source_name), source_name, 'organic')), ['li']), 'linkedin', if(in(lower(if(notEmpty(source_name), source_name, 'organic')), ['adwords', 'youtube', 'display', 'gmail', 'google_maps', 'google_play', 'google_discover', 'admob', 'waze']), 'google', if(notEmpty(source_name), source_name, 'organic'))))) AS source,
+      count() AS conversion_0,
+      0 AS conversion_1
+    FROM
+    (
+      SELECT
+        person_id,
+        if(notEmpty(conversion_campaign), conversion_campaign, if(notEmpty(fallback_campaign), fallback_campaign, '')) AS campaign_name,
+        if(notEmpty(conversion_source), conversion_source, if(notEmpty(fallback_source), fallback_source, '')) AS source_name,
+        if(notEmpty(conversion_medium), conversion_medium, if(notEmpty(fallback_medium), fallback_medium, '')) AS medium_name,
+        if(notEmpty(conversion_content), conversion_content, if(notEmpty(fallback_content), fallback_content, '')) AS content_name,
+        if(notEmpty(conversion_term), conversion_term, if(notEmpty(fallback_term), fallback_term, '')) AS term_name,
+        if(notEmpty(conversion_referring_domain), conversion_referring_domain, if(notEmpty(fallback_referring_domain), fallback_referring_domain, '')) AS referring_domain_name,
+        if(notEmpty(conversion_gclid), conversion_gclid, if(notEmpty(fallback_gclid), fallback_gclid, '')) AS gclid_name,
+        if(notEmpty(conversion_fbclid), conversion_fbclid, if(notEmpty(fallback_fbclid), fallback_fbclid, '')) AS fbclid_name,
+        if(notEmpty(conversion_gad_source), conversion_gad_source, if(notEmpty(fallback_gad_source), fallback_gad_source, '')) AS gad_source_name,
+        '-' AS campaign_id,
+        1 AS conversion_value
+      FROM
       (
-  SELECT
-          if(notEmpty(campaign_name), campaign_name, 'organic') AS campaign,
-          if(notEmpty(campaign_id), campaign_id, '-') AS id,
-          if(in(lower(if(notEmpty(source_name), source_name, 'organic')), ['microsoft']), 'bing', if(in(lower(if(notEmpty(source_name), source_name, 'organic')), ['facebook', 'instagram', 'messenger', 'fb', 'whatsapp', 'audience_network', 'facebook_marketplace', 'threads']), 'meta', if(in(lower(if(notEmpty(source_name), source_name, 'organic')), ['li']), 'linkedin', if(in(lower(if(notEmpty(source_name), source_name, 'organic')), ['adwords', 'youtube', 'display', 'gmail', 'google_maps', 'google_play', 'google_discover', 'admob', 'waze']), 'google', if(notEmpty(source_name), source_name, 'organic'))))) AS source,
-          count() AS conversion_0,
-          0 AS conversion_1
-      
-  FROM
+        SELECT
+          person_id,
+          conversion_timestamps[i] AS conversion_time,
+          conversion_math_values[i] AS conversion_math_value,
+          conversion_campaigns[i] AS conversion_campaign,
+          conversion_sources[i] AS conversion_source,
+          conversion_mediums[i] AS conversion_medium,
+          conversion_contents[i] AS conversion_content,
+          conversion_terms[i] AS conversion_term,
+          conversion_referring_domains[i] AS conversion_referring_domain,
+          conversion_gclids[i] AS conversion_gclid,
+          conversion_fbclids[i] AS conversion_fbclid,
+          conversion_gad_sources[i] AS conversion_gad_source,
+          arrayMax(arrayFilter(x -> and(lessOrEquals(x, conversion_timestamps[i]), greaterOrEquals(x, minus(conversion_timestamps[i], 7776000))), utm_timestamps)) AS last_utm_timestamp,
+          if(isNotNull(last_utm_timestamp), utm_campaigns[indexOf(utm_timestamps, last_utm_timestamp)], '') AS fallback_campaign,
+          if(isNotNull(last_utm_timestamp), utm_sources[indexOf(utm_timestamps, last_utm_timestamp)], '') AS fallback_source,
+          if(isNotNull(last_utm_timestamp), utm_mediums[indexOf(utm_timestamps, last_utm_timestamp)], '') AS fallback_medium,
+          if(isNotNull(last_utm_timestamp), utm_contents[indexOf(utm_timestamps, last_utm_timestamp)], '') AS fallback_content,
+          if(isNotNull(last_utm_timestamp), utm_terms[indexOf(utm_timestamps, last_utm_timestamp)], '') AS fallback_term,
+          if(isNotNull(last_utm_timestamp), utm_referring_domains[indexOf(utm_timestamps, last_utm_timestamp)], '') AS fallback_referring_domain,
+          if(isNotNull(last_utm_timestamp), utm_gclids[indexOf(utm_timestamps, last_utm_timestamp)], '') AS fallback_gclid,
+          if(isNotNull(last_utm_timestamp), utm_fbclids[indexOf(utm_timestamps, last_utm_timestamp)], '') AS fallback_fbclid,
+          if(isNotNull(last_utm_timestamp), utm_gad_sources[indexOf(utm_timestamps, last_utm_timestamp)], '') AS fallback_gad_source
+        FROM
+        (
+          SELECT
+            c.person_id AS person_id,
+            c.conversion_timestamps AS conversion_timestamps,
+            c.conversion_math_values AS conversion_math_values,
+            c.conversion_campaigns AS conversion_campaigns,
+            c.conversion_sources AS conversion_sources,
+            c.conversion_mediums AS conversion_mediums,
+            c.conversion_contents AS conversion_contents,
+            c.conversion_terms AS conversion_terms,
+            c.conversion_referring_domains AS conversion_referring_domains,
+            c.conversion_gclids AS conversion_gclids,
+            c.conversion_fbclids AS conversion_fbclids,
+            c.conversion_gad_sources AS conversion_gad_sources,
+            t.utm_timestamps AS utm_timestamps,
+            t.utm_campaigns AS utm_campaigns,
+            t.utm_sources AS utm_sources,
+            t.utm_mediums AS utm_mediums,
+            t.utm_contents AS utm_contents,
+            t.utm_terms AS utm_terms,
+            t.utm_referring_domains AS utm_referring_domains,
+            t.utm_gclids AS utm_gclids,
+            t.utm_fbclids AS utm_fbclids,
+            t.utm_gad_sources AS utm_gad_sources
+          FROM
           (
-  SELECT
+            SELECT
               person_id,
-              campaign_name,
-              source_name,
-              medium_name,
-              content_name,
-              term_name,
-              referring_domain_name,
-              gclid_name,
-              fbclid_name,
-              gad_source_name,
-              '-' AS campaign_id,
-              multiply(conversion_value, touchpoint_weight) AS conversion_value
-          
-  FROM
-              conversion_goal_attributed_preaggregated
-          
-  WHERE
-              and(in(job_id, tuple('00000000-0000-0000-0000-000000000001')), equals(team_id, 420), greaterOrEquals(conversion_timestamp, toDateTime('2023-01-01 00:00:00.000000')), lessOrEquals(conversion_timestamp, toDateTime('2023-01-31 23:59:59.999999')))) AS attributed_conversions
-      
-  GROUP BY
-          campaign,
-          id,
-          source
+              arrayFilter(x -> greater(x, 0), groupArray(toUnixTimestamp(conversion_timestamp))) AS conversion_timestamps,
+              arrayFilter(x -> greater(x, 0), groupArray(conversion_math_value)) AS conversion_math_values,
+              arrayFilter(x -> notEmpty(toString(x)), groupArray(campaign_name)) AS conversion_campaigns,
+              arrayFilter(x -> notEmpty(toString(x)), groupArray(source_name)) AS conversion_sources,
+              arrayFilter(x -> notEmpty(toString(x)), groupArray(medium_name)) AS conversion_mediums,
+              arrayFilter(x -> notEmpty(toString(x)), groupArray(content_name)) AS conversion_contents,
+              arrayFilter(x -> notEmpty(toString(x)), groupArray(term_name)) AS conversion_terms,
+              arrayFilter(x -> notEmpty(toString(x)), groupArray(referring_domain_name)) AS conversion_referring_domains,
+              arrayFilter(x -> notEmpty(toString(x)), groupArray(gclid_name)) AS conversion_gclids,
+              arrayFilter(x -> notEmpty(toString(x)), groupArray(fbclid_name)) AS conversion_fbclids,
+              arrayFilter(x -> notEmpty(toString(x)), groupArray(gad_source_name)) AS conversion_gad_sources
+            FROM
+            (
+              SELECT
+                DISTINCT person_id,
+                conversion_timestamp,
+                conversion_math_value,
+                campaign_name,
+                source_name,
+                medium_name,
+                content_name,
+                term_name,
+                referring_domain_name,
+                gclid_name,
+                fbclid_name,
+                gad_source_name
+              FROM
+                marketing_conversions_preaggregated
+              WHERE
+                and(in(job_id, tuple('00000000-0000-0000-0000-000000000001')), greaterOrEquals(conversion_timestamp, toDateTime('2023-01-01 00:00:00.000000')), lessOrEquals(conversion_timestamp, toDateTime('2023-01-31 23:59:59.999999')), equals(team_id, 420)))
+            GROUP BY
+              person_id) AS c
+            LEFT JOIN (
+            SELECT
+              person_id,
+              groupArray(toUnixTimestamp(touchpoint_timestamp)) AS utm_timestamps,
+              arrayFilter(x -> notEmpty(x), groupArray(campaign_name)) AS utm_campaigns,
+              arrayFilter(x -> notEmpty(x), groupArray(source_name)) AS utm_sources,
+              arrayFilter(x -> notEmpty(x), groupArray(medium_name)) AS utm_mediums,
+              arrayFilter(x -> notEmpty(x), groupArray(content_name)) AS utm_contents,
+              arrayFilter(x -> notEmpty(x), groupArray(term_name)) AS utm_terms,
+              arrayFilter(x -> notEmpty(x), groupArray(referring_domain_name)) AS utm_referring_domains,
+              arrayFilter(x -> notEmpty(x), groupArray(gclid_name)) AS utm_gclids,
+              arrayFilter(x -> notEmpty(x), groupArray(fbclid_name)) AS utm_fbclids,
+              arrayFilter(x -> notEmpty(x), groupArray(gad_source_name)) AS utm_gad_sources
+            FROM
+            (
+              SELECT
+                DISTINCT person_id,
+                touchpoint_timestamp,
+                campaign_name,
+                source_name,
+                medium_name,
+                content_name,
+                term_name,
+                referring_domain_name,
+                gclid_name,
+                fbclid_name,
+                gad_source_name
+              FROM
+                marketing_touchpoints_preaggregated
+              WHERE
+                and(in(job_id, tuple('00000000-0000-0000-0000-000000000002')), greaterOrEquals(touchpoint_timestamp, toDateTime('2022-10-03 00:00:00.000000')), lessOrEquals(touchpoint_timestamp, toDateTime('2023-01-31 23:59:59.999999')), equals(team_id, 420)))
+            GROUP BY
+              person_id) AS t ON equals(c.person_id, t.person_id))
+          ARRAY JOIN arrayEnumerate(conversion_timestamps) AS i)) AS attributed_conversions
+    GROUP BY
+      campaign,
+      id,
+      source
       UNION ALL
-      
-  SELECT
-          if(notEmpty(campaign_name), campaign_name, 'organic') AS campaign,
-          if(notEmpty(campaign_id), campaign_id, '-') AS id,
-          if(in(lower(if(notEmpty(source_name), source_name, 'organic')), ['microsoft']), 'bing', if(in(lower(if(notEmpty(source_name), source_name, 'organic')), ['facebook', 'instagram', 'messenger', 'fb', 'whatsapp', 'audience_network', 'facebook_marketplace', 'threads']), 'meta', if(in(lower(if(notEmpty(source_name), source_name, 'organic')), ['li']), 'linkedin', if(in(lower(if(notEmpty(source_name), source_name, 'organic')), ['adwords', 'youtube', 'display', 'gmail', 'google_maps', 'google_play', 'google_discover', 'admob', 'waze']), 'google', if(notEmpty(source_name), source_name, 'organic'))))) AS source,
-          0 AS conversion_0,
-          count() AS conversion_1
-      
-  FROM
+    SELECT
+      if(notEmpty(campaign_name), campaign_name, 'organic') AS campaign,
+      if(notEmpty(campaign_id), campaign_id, '-') AS id,
+      if(in(lower(if(notEmpty(source_name), source_name, 'organic')), ['microsoft', 'msads', 'bing_video']), 'bing', if(in(lower(if(notEmpty(source_name), source_name, 'organic')), ['facebook', 'instagram', 'messenger', 'fb', 'whatsapp', 'audience_network', 'facebook_marketplace', 'threads']), 'meta', if(in(lower(if(notEmpty(source_name), source_name, 'organic')), ['li']), 'linkedin', if(in(lower(if(notEmpty(source_name), source_name, 'organic')), ['adwords', 'youtube', 'display', 'gmail', 'google_maps', 'google_play', 'google_discover', 'admob', 'waze']), 'google', if(notEmpty(source_name), source_name, 'organic'))))) AS source,
+      0 AS conversion_0,
+      count() AS conversion_1
+    FROM
+    (
+      SELECT
+        person_id,
+        if(notEmpty(conversion_campaign), conversion_campaign, if(notEmpty(fallback_campaign), fallback_campaign, '')) AS campaign_name,
+        if(notEmpty(conversion_source), conversion_source, if(notEmpty(fallback_source), fallback_source, '')) AS source_name,
+        if(notEmpty(conversion_medium), conversion_medium, if(notEmpty(fallback_medium), fallback_medium, '')) AS medium_name,
+        if(notEmpty(conversion_content), conversion_content, if(notEmpty(fallback_content), fallback_content, '')) AS content_name,
+        if(notEmpty(conversion_term), conversion_term, if(notEmpty(fallback_term), fallback_term, '')) AS term_name,
+        if(notEmpty(conversion_referring_domain), conversion_referring_domain, if(notEmpty(fallback_referring_domain), fallback_referring_domain, '')) AS referring_domain_name,
+        if(notEmpty(conversion_gclid), conversion_gclid, if(notEmpty(fallback_gclid), fallback_gclid, '')) AS gclid_name,
+        if(notEmpty(conversion_fbclid), conversion_fbclid, if(notEmpty(fallback_fbclid), fallback_fbclid, '')) AS fbclid_name,
+        if(notEmpty(conversion_gad_source), conversion_gad_source, if(notEmpty(fallback_gad_source), fallback_gad_source, '')) AS gad_source_name,
+        '-' AS campaign_id,
+        1 AS conversion_value
+      FROM
+      (
+        SELECT
+          person_id,
+          conversion_timestamps[i] AS conversion_time,
+          conversion_math_values[i] AS conversion_math_value,
+          conversion_campaigns[i] AS conversion_campaign,
+          conversion_sources[i] AS conversion_source,
+          conversion_mediums[i] AS conversion_medium,
+          conversion_contents[i] AS conversion_content,
+          conversion_terms[i] AS conversion_term,
+          conversion_referring_domains[i] AS conversion_referring_domain,
+          conversion_gclids[i] AS conversion_gclid,
+          conversion_fbclids[i] AS conversion_fbclid,
+          conversion_gad_sources[i] AS conversion_gad_source,
+          arrayMax(arrayFilter(x -> and(lessOrEquals(x, conversion_timestamps[i]), greaterOrEquals(x, minus(conversion_timestamps[i], 7776000))), utm_timestamps)) AS last_utm_timestamp,
+          if(isNotNull(last_utm_timestamp), utm_campaigns[indexOf(utm_timestamps, last_utm_timestamp)], '') AS fallback_campaign,
+          if(isNotNull(last_utm_timestamp), utm_sources[indexOf(utm_timestamps, last_utm_timestamp)], '') AS fallback_source,
+          if(isNotNull(last_utm_timestamp), utm_mediums[indexOf(utm_timestamps, last_utm_timestamp)], '') AS fallback_medium,
+          if(isNotNull(last_utm_timestamp), utm_contents[indexOf(utm_timestamps, last_utm_timestamp)], '') AS fallback_content,
+          if(isNotNull(last_utm_timestamp), utm_terms[indexOf(utm_timestamps, last_utm_timestamp)], '') AS fallback_term,
+          if(isNotNull(last_utm_timestamp), utm_referring_domains[indexOf(utm_timestamps, last_utm_timestamp)], '') AS fallback_referring_domain,
+          if(isNotNull(last_utm_timestamp), utm_gclids[indexOf(utm_timestamps, last_utm_timestamp)], '') AS fallback_gclid,
+          if(isNotNull(last_utm_timestamp), utm_fbclids[indexOf(utm_timestamps, last_utm_timestamp)], '') AS fallback_fbclid,
+          if(isNotNull(last_utm_timestamp), utm_gad_sources[indexOf(utm_timestamps, last_utm_timestamp)], '') AS fallback_gad_source
+        FROM
+        (
+          SELECT
+            c.person_id AS person_id,
+            c.conversion_timestamps AS conversion_timestamps,
+            c.conversion_math_values AS conversion_math_values,
+            c.conversion_campaigns AS conversion_campaigns,
+            c.conversion_sources AS conversion_sources,
+            c.conversion_mediums AS conversion_mediums,
+            c.conversion_contents AS conversion_contents,
+            c.conversion_terms AS conversion_terms,
+            c.conversion_referring_domains AS conversion_referring_domains,
+            c.conversion_gclids AS conversion_gclids,
+            c.conversion_fbclids AS conversion_fbclids,
+            c.conversion_gad_sources AS conversion_gad_sources,
+            t.utm_timestamps AS utm_timestamps,
+            t.utm_campaigns AS utm_campaigns,
+            t.utm_sources AS utm_sources,
+            t.utm_mediums AS utm_mediums,
+            t.utm_contents AS utm_contents,
+            t.utm_terms AS utm_terms,
+            t.utm_referring_domains AS utm_referring_domains,
+            t.utm_gclids AS utm_gclids,
+            t.utm_fbclids AS utm_fbclids,
+            t.utm_gad_sources AS utm_gad_sources
+          FROM
           (
-  SELECT
+            SELECT
               person_id,
-              campaign_name,
-              source_name,
-              medium_name,
-              content_name,
-              term_name,
-              referring_domain_name,
-              gclid_name,
-              fbclid_name,
-              gad_source_name,
-              '-' AS campaign_id,
-              multiply(conversion_value, touchpoint_weight) AS conversion_value
-          
-  FROM
-              conversion_goal_attributed_preaggregated
-          
-  WHERE
-              and(in(job_id, tuple('00000000-0000-0000-0000-000000000002')), equals(team_id, 420), greaterOrEquals(conversion_timestamp, toDateTime('2023-01-01 00:00:00.000000')), lessOrEquals(conversion_timestamp, toDateTime('2023-01-31 23:59:59.999999')))) AS attributed_conversions
-      
+              arrayFilter(x -> greater(x, 0), groupArray(toUnixTimestamp(conversion_timestamp))) AS conversion_timestamps,
+              arrayFilter(x -> greater(x, 0), groupArray(conversion_math_value)) AS conversion_math_values,
+              arrayFilter(x -> notEmpty(toString(x)), groupArray(campaign_name)) AS conversion_campaigns,
+              arrayFilter(x -> notEmpty(toString(x)), groupArray(source_name)) AS conversion_sources,
+              arrayFilter(x -> notEmpty(toString(x)), groupArray(medium_name)) AS conversion_mediums,
+              arrayFilter(x -> notEmpty(toString(x)), groupArray(content_name)) AS conversion_contents,
+              arrayFilter(x -> notEmpty(toString(x)), groupArray(term_name)) AS conversion_terms,
+              arrayFilter(x -> notEmpty(toString(x)), groupArray(referring_domain_name)) AS conversion_referring_domains,
+              arrayFilter(x -> notEmpty(toString(x)), groupArray(gclid_name)) AS conversion_gclids,
+              arrayFilter(x -> notEmpty(toString(x)), groupArray(fbclid_name)) AS conversion_fbclids,
+              arrayFilter(x -> notEmpty(toString(x)), groupArray(gad_source_name)) AS conversion_gad_sources
+            FROM
+            (
+              SELECT
+                DISTINCT person_id,
+                conversion_timestamp,
+                conversion_math_value,
+                campaign_name,
+                source_name,
+                medium_name,
+                content_name,
+                term_name,
+                referring_domain_name,
+                gclid_name,
+                fbclid_name,
+                gad_source_name
+              FROM
+                marketing_conversions_preaggregated
+              WHERE
+                and(in(job_id, tuple('00000000-0000-0000-0000-000000000003')), greaterOrEquals(conversion_timestamp, toDateTime('2023-01-01 00:00:00.000000')), lessOrEquals(conversion_timestamp, toDateTime('2023-01-31 23:59:59.999999')), equals(team_id, 420)))
+            GROUP BY
+              person_id) AS c
+            LEFT JOIN (
+            SELECT
+              person_id,
+              groupArray(toUnixTimestamp(touchpoint_timestamp)) AS utm_timestamps,
+              arrayFilter(x -> notEmpty(x), groupArray(campaign_name)) AS utm_campaigns,
+              arrayFilter(x -> notEmpty(x), groupArray(source_name)) AS utm_sources,
+              arrayFilter(x -> notEmpty(x), groupArray(medium_name)) AS utm_mediums,
+              arrayFilter(x -> notEmpty(x), groupArray(content_name)) AS utm_contents,
+              arrayFilter(x -> notEmpty(x), groupArray(term_name)) AS utm_terms,
+              arrayFilter(x -> notEmpty(x), groupArray(referring_domain_name)) AS utm_referring_domains,
+              arrayFilter(x -> notEmpty(x), groupArray(gclid_name)) AS utm_gclids,
+              arrayFilter(x -> notEmpty(x), groupArray(fbclid_name)) AS utm_fbclids,
+              arrayFilter(x -> notEmpty(x), groupArray(gad_source_name)) AS utm_gad_sources
+            FROM
+            (
+              SELECT
+                DISTINCT person_id,
+                touchpoint_timestamp,
+                campaign_name,
+                source_name,
+                medium_name,
+                content_name,
+                term_name,
+                referring_domain_name,
+                gclid_name,
+                fbclid_name,
+                gad_source_name
+              FROM
+                marketing_touchpoints_preaggregated
+              WHERE
+                and(in(job_id, tuple('00000000-0000-0000-0000-000000000002')), greaterOrEquals(touchpoint_timestamp, toDateTime('2022-10-03 00:00:00.000000')), lessOrEquals(touchpoint_timestamp, toDateTime('2023-01-31 23:59:59.999999')), equals(team_id, 420)))
+            GROUP BY
+              person_id) AS t ON equals(c.person_id, t.person_id))
+          ARRAY JOIN arrayEnumerate(conversion_timestamps) AS i)) AS attributed_conversions
+    GROUP BY
+      campaign,
+      id,
+      source) AS conv
   GROUP BY
-          campaign,
-          id,
-          source) AS conv
-  
-  GROUP BY
-      conv.campaign,
-      conv.id,
-      conv.source
-  
+    conv.campaign,
+    conv.id,
+    conv.source
   LIMIT 100
   '''
 # ---

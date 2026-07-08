@@ -102,7 +102,9 @@ class TestProjectEnterpriseAPI(team_enterprise_api_test_factory()):  # type: ign
         assert other_org.id != self.user.current_organization_id
         response = self.client.post(f"/api/organizations/{other_org.id}/projects/", {"name": "Via path org"})
         self.assertEqual(response.status_code, 403, msg=response.json())
-        assert response.json() == self.permission_denied_response("Your organization access level is insufficient.")
+        assert response.json() == self.permission_denied_response(
+            "You need to be an organization admin or above to create new projects."
+        )
 
     def test_user_that_does_not_belong_to_an_org_cannot_create_a_projec(self):
         user = User.objects.create(email="no_org@posthog.com")
@@ -161,6 +163,7 @@ class TestProjectEnterpriseAPI(team_enterprise_api_test_factory()):  # type: ign
                     "id": self.team.id,
                     "uuid": str(self.team.uuid),
                     "organization": str(self.organization.id),
+                    "project_id": self.team.project.id,
                     "api_token": self.team.api_token,
                     "name": self.team.name,
                     "completed_snippet_onboarding": False,

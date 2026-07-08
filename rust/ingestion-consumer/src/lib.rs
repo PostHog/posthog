@@ -1,6 +1,10 @@
 pub mod config;
 pub mod consumer;
+pub mod discovery;
+pub mod dispatcher;
 pub mod kafka_config;
-pub mod router;
+pub mod routing;
+pub mod stash;
 pub mod transport;
 pub mod types;
+pub mod worker_registry;

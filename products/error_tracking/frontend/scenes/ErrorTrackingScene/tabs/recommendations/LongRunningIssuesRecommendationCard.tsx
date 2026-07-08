@@ -3,7 +3,7 @@ import { useActions } from 'kea'
 import { LemonButton, LemonTag, Link } from '@posthog/lemon-ui'
 
 import { dayjs } from 'lib/dayjs'
-import { humanFriendlyLargeNumber } from 'lib/utils'
+import { humanFriendlyLargeNumber } from 'lib/utils/numbers'
 import { urls } from 'scenes/urls'
 
 import { RecommendationCard } from './RecommendationCard'
@@ -52,57 +52,63 @@ export function LongRunningIssuesRecommendationCard({
                 {issues.map((issue) => {
                     const isActive = issue.status === 'active'
                     return (
-                        <Link
-                            key={issue.id}
-                            subtle
-                            to={urls.errorTrackingIssue(issue.id)}
-                            className={`group flex items-center gap-3 py-2 border-b last:border-b-0 no-underline ${
-                                isActive ? '' : 'opacity-60'
-                            }`}
-                        >
-                            <div className="flex-1 min-w-0">
-                                <div className="text-sm font-medium truncate flex items-center gap-2">
-                                    <span className="truncate">{issue.name}</span>
-                                    {!isActive && (
-                                        <LemonTag size="small" type="muted">
-                                            {issue.status}
-                                        </LemonTag>
+                        <div key={issue.id} className="border-b last:border-b-0">
+                            <Link
+                                subtle
+                                to={urls.errorTrackingIssue(issue.id)}
+                                className={`group flex items-center gap-3 py-2 no-underline ${
+                                    isActive ? '' : 'opacity-60'
+                                }`}
+                            >
+                                <div
+                                    className={`w-1.5 h-1.5 rounded-full shrink-0 ${
+                                        isActive ? 'bg-warning' : 'bg-muted'
+                                    }`}
+                                />
+                                <div className="flex-1 min-w-0">
+                                    <div className="text-sm font-medium truncate flex items-center gap-2">
+                                        <span className="truncate">{issue.name}</span>
+                                        {!isActive && (
+                                            <LemonTag size="small" type="muted">
+                                                {issue.status}
+                                            </LemonTag>
+                                        )}
+                                    </div>
+                                    <div className="text-xs text-secondary">
+                                        {dayjs(issue.created_at).fromNow(true)} old ·{' '}
+                                        {humanFriendlyLargeNumber(issue.occurrences)} occurrences in last 7 days
+                                    </div>
+                                </div>
+                                <div className="opacity-0 group-hover:opacity-100 transition-opacity">
+                                    {isActive ? (
+                                        <LemonButton
+                                            size="xsmall"
+                                            type="secondary"
+                                            status="danger"
+                                            onClick={(e) => {
+                                                e.preventDefault()
+                                                e.stopPropagation()
+                                                suppressIssue(issue.id)
+                                            }}
+                                        >
+                                            Suppress
+                                        </LemonButton>
+                                    ) : (
+                                        <LemonButton
+                                            size="xsmall"
+                                            type="secondary"
+                                            onClick={(e) => {
+                                                e.preventDefault()
+                                                e.stopPropagation()
+                                                activateIssue(issue.id)
+                                            }}
+                                        >
+                                            Undo
+                                        </LemonButton>
                                     )}
                                 </div>
-                                <div className="text-xs text-secondary">
-                                    {dayjs(issue.created_at).fromNow(true)} old ·{' '}
-                                    {humanFriendlyLargeNumber(issue.occurrences)} occurrences in last 7 days
-                                </div>
-                            </div>
-                            <div className="opacity-0 group-hover:opacity-100 transition-opacity">
-                                {isActive ? (
-                                    <LemonButton
-                                        size="xsmall"
-                                        type="secondary"
-                                        status="danger"
-                                        onClick={(e) => {
-                                            e.preventDefault()
-                                            e.stopPropagation()
-                                            suppressIssue(issue.id)
-                                        }}
-                                    >
-                                        Suppress
-                                    </LemonButton>
-                                ) : (
-                                    <LemonButton
-                                        size="xsmall"
-                                        type="secondary"
-                                        onClick={(e) => {
-                                            e.preventDefault()
-                                            e.stopPropagation()
-                                            activateIssue(issue.id)
-                                        }}
-                                    >
-                                        Undo
-                                    </LemonButton>
-                                )}
-                            </div>
-                        </Link>
+                            </Link>
+                        </div>
                     )
                 })}
             </div>

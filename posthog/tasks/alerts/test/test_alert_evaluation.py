@@ -41,7 +41,7 @@ class TestAlertEvaluation(APIBaseTest, ClickhouseDestroyTablesMixin):
                 "calculation_interval": "daily",
                 "config": {"type": "TrendsAlertConfig", "series_index": 0},
                 "condition": {"type": "absolute_value"},
-                "threshold": {"configuration": {"type": "absolute", "bounds": {}}},
+                "threshold": {"configuration": {"type": "absolute", "bounds": {"lower": 0}}},
             },
         ).json()
 
@@ -100,7 +100,7 @@ class TestAlertEvaluation(APIBaseTest, ClickhouseDestroyTablesMixin):
 
         assert mock_send_notifications_for_breaches.call_count == 1
         anomalies = self.get_breach_description(mock_send_notifications_for_breaches, call_index=0)
-        assert "The insight value ($pageview) for current interval (0) is less than lower threshold (1.0)" in anomalies
+        assert "The insight value ($pageview) for current interval (0) is less than lower threshold (1)" in anomalies
 
     def test_alert_triggered_for_single_formula(
         self, mock_send_notifications_for_breaches: MagicMock, mock_send_errors: MagicMock
@@ -125,7 +125,7 @@ class TestAlertEvaluation(APIBaseTest, ClickhouseDestroyTablesMixin):
         anomalies = self.get_breach_description(mock_send_notifications_for_breaches, call_index=0)
         assert len(anomalies) == 1
         assert (
-            "The insight value (Double Pageviews) for current interval (2.0) is more than upper threshold (1.0)"
+            "The insight value (Double Pageviews) for current interval (2) is more than upper threshold (1)"
             in anomalies[0]
         )
 
@@ -148,7 +148,7 @@ class TestAlertEvaluation(APIBaseTest, ClickhouseDestroyTablesMixin):
         anomalies = self.get_breach_description(mock_send_notifications_for_breaches, call_index=0)
         assert len(anomalies) == 1
         assert (
-            "The insight value (Formula (A*2)) for current interval (2.0) is more than upper threshold (1.0)"
+            "The insight value (Formula (A*2)) for current interval (2) is more than upper threshold (1)"
             in anomalies[0]
         )
 
@@ -171,7 +171,7 @@ class TestAlertEvaluation(APIBaseTest, ClickhouseDestroyTablesMixin):
         anomalies = self.get_breach_description(mock_send_notifications_for_breaches, call_index=0)
         assert len(anomalies) == 1
         assert (
-            "The insight value (Formula (A*2)) for current interval (2.0) is more than upper threshold (1.0)"
+            "The insight value (Formula (A*2)) for current interval (2) is more than upper threshold (1)"
             in anomalies[0]
         )
 
@@ -200,6 +200,6 @@ class TestAlertEvaluation(APIBaseTest, ClickhouseDestroyTablesMixin):
         anomalies = self.get_breach_description(mock_send_notifications_for_breaches, call_index=0)
         assert len(anomalies) == 1
         assert (
-            "The insight value (Double Pageviews) for current interval (2.0) is more than upper threshold (1.0)"
+            "The insight value (Double Pageviews) for current interval (2) is more than upper threshold (1)"
             in anomalies[0]
         )

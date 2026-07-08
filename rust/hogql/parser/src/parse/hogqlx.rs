@@ -24,10 +24,11 @@
 //! Parser API is identical across the two backends so no rewrites are
 //! needed here.
 
+use super::template::parse_template_body;
 use super::{identifier_text, kw_valid_as_identifier, unquote_single_string, Parser};
 use crate::emit::Emitter;
 use crate::error::ParseError;
-use crate::lex::{Lexer, TokenKind};
+use crate::lex::{Lexer, Token, TokenKind};
 
 impl<'a, E: Emitter + Clone> Parser<'a, E> {
     /// True when peek/peek_next look like the start of a HogQLX tag —
@@ -60,6 +61,68 @@ impl<'a, E: Emitter + Clone> Parser<'a, E> {
         )
     }
 
+    /// cpp's `isOpeningTag()` lexer predicate (`HogQLLexer.cpp.g4`). It decides
+    /// whether a `<` enters cpp's dedicated HogQLX tag lexer mode ("tight": tag
+    /// tokens, whitespace hidden, `>` opens a TEXT mode that captures child
+    /// text) or stays a plain `LT` that the grammar still matches as a tag in
+    /// the default lexer mode ("loose": default-mode tokens, whitespace skipped,
+    /// child *text* is not lexable so only nested tags / `{expr}` are valid
+    /// children, but attribute values may be `f'…'` templates).
+    ///
+    /// `lt_end` is the byte offset just past the `<`. Tight requires `<`
+    /// immediately followed by an identifier-start char, then — after the
+    /// `[A-Za-z0-9_-]*` tag name — either an immediate `>` / `/`, or whitespace
+    /// then `[A-Za-z0-9_]` / `>` / `/`.
+    fn hogqlx_tag_is_tight(&self, lt_end: usize) -> bool {
+        let bytes = self.src.as_bytes();
+        let is_name_start = |c: u8| c.is_ascii_alphabetic() || c == b'_';
+        let is_name_part = |c: u8| c.is_ascii_alphanumeric() || c == b'_' || c == b'-';
+        match bytes.get(lt_end) {
+            Some(&c) if is_name_start(c) => {}
+            _ => return false,
+        }
+        let mut i = lt_end + 1;
+        while bytes.get(i).is_some_and(|&c| is_name_part(c)) {
+            i += 1;
+        }
+        match bytes.get(i) {
+            Some(b'>') | Some(b'/') => true,
+            Some(&c) if c.is_ascii_whitespace() => {
+                let j = self.hogqlx_skip_ws_and_comments(i);
+                matches!(bytes.get(j), Some(&c) if c.is_ascii_alphanumeric() || c == b'_' || c == b'>' || c == b'/')
+            }
+            _ => false,
+        }
+    }
+
+    /// Byte-level skip of whitespace and `/* … */` / `--` / `//` comments,
+    /// mirroring cpp's `skipWsAndComments` used inside `isOpeningTag`.
+    fn hogqlx_skip_ws_and_comments(&self, mut i: usize) -> usize {
+        let bytes = self.src.as_bytes();
+        loop {
+            while bytes.get(i).is_some_and(|&c| c.is_ascii_whitespace()) {
+                i += 1;
+            }
+            if bytes.get(i) == Some(&b'/') && bytes.get(i + 1) == Some(&b'*') {
+                i += 2;
+                while i + 1 < bytes.len() && !(bytes[i] == b'*' && bytes[i + 1] == b'/') {
+                    i += 1;
+                }
+                i += 2;
+                continue;
+            }
+            if (bytes.get(i) == Some(&b'-') && bytes.get(i + 1) == Some(&b'-'))
+                || (bytes.get(i) == Some(&b'/') && bytes.get(i + 1) == Some(&b'/'))
+            {
+                while bytes.get(i).is_some_and(|&c| c != b'\n' && c != b'\r') {
+                    i += 1;
+                }
+                continue;
+            }
+            return i;
+        }
+    }
+
     /// Parse a HogQLX tag element starting at `<`.
     ///
     /// Handles both `<Tag attr* />` (self-closing) and
@@ -79,15 +142,60 @@ impl<'a, E: Emitter + Clone> Parser<'a, E> {
     /// recoverable.
     pub(crate) fn parse_hogqlx_tag_element(&mut self) -> Result<E::Value, ParseError> {
         self.hogqlx_text_lookahead_depth += 1;
+        // cpp pushes HOGQLX_TAG_OPEN at `<`; those tag modes have no
+        // HASH_COMMENT rule, so a `#` between attributes must reject
+        // (TAG_UNEXPECTED) instead of being skipped as a comment. The
+        // flag covers the whole element — attributes, children, closing
+        // tag — and the `{ … }` arms flip it back off, matching
+        // TAG_LBRACE's pushMode(DEFAULT_MODE).
+        let was_in_tag = self.lexer.in_hogqlx_tag();
+        self.lexer.set_in_hogqlx_tag(true);
         let result = self.parse_hogqlx_tag_element_inner();
+        self.lexer.set_in_hogqlx_tag(was_in_tag);
+        if result.is_ok() && !was_in_tag {
+            // The peek window past the element was pre-loaded under tag
+            // mode; re-lex it so a `#` comment after the tag is skipped
+            // again.
+            self.reseek_peek_window(self.last_consumed_end);
+        }
         self.hogqlx_text_lookahead_depth -= 1;
         result
+    }
+
+    /// Re-lex `peek0` / `peek1` from `pos` after a tag-mode flip changed
+    /// how the upcoming bytes tokenise. A lex failure parks a synthetic
+    /// `Eof` in the failing slot — the same recovery `bump()` applies
+    /// inside tag bodies — so raw text bytes (`&`, `!`, …) right after
+    /// the boundary stay recoverable for the byte-walking text consumer.
+    fn reseek_peek_window(&mut self, pos: usize) {
+        let in_tag = self.lexer.in_hogqlx_tag();
+        self.lexer = Lexer::with_pos(self.src, pos);
+        self.lexer.set_in_hogqlx_tag(in_tag);
+        self.peek0 = self.next_token_or_synthetic_eof();
+        self.peek1 = self.next_token_or_synthetic_eof();
+    }
+
+    fn next_token_or_synthetic_eof(&mut self) -> Token {
+        match self.lexer.next_token() {
+            Ok(t) => t,
+            Err(_) => Token::eof(self.lexer.pos()),
+        }
     }
 
     fn parse_hogqlx_tag_element_inner(&mut self) -> Result<E::Value, ParseError> {
         let tag_start = self.peek0.start;
         self.expect(TokenKind::Lt, "<")?;
-        let kind = self.parse_hogqlx_identifier("tag name")?;
+        // cpp lexes `<ident…` tags ("tight") through dedicated tag/text modes,
+        // and `< ident…` ("loose") through the default mode — they differ on
+        // child text (tight captures it, loose admits only nested tags / `{…}`)
+        // and on attribute values (loose also admits an `f'…'` template).
+        let tight = self.hogqlx_tag_is_tight(self.last_consumed_end);
+        // A loose opening name lexes in the default mode and may be a
+        // QUOTED_IDENTIFIER (`< "x" />` accepts); a tight name is a bare
+        // TAG_IDENT. The CLOSING name, by contrast, always lexes in
+        // HOGQLX_TAG_CLOSE mode (bare only — see the `false` below), so a quoted
+        // opening can only ever pair with a self-closing `/>`, never `</"x">`.
+        let kind = self.parse_hogqlx_identifier("tag name", !tight)?;
         let mut attributes: Vec<E::Value> = Vec::new();
         loop {
             match self.peek() {
@@ -97,9 +205,9 @@ impl<'a, E: Emitter + Clone> Parser<'a, E> {
                 }
                 TokenKind::Gt => {
                     self.bump()?;
-                    let children = self.parse_hogqlx_children()?;
+                    let children = self.parse_hogqlx_children(tight)?;
                     self.expect(TokenKind::LtSlash, "</")?;
-                    let close = self.parse_hogqlx_identifier("closing tag name")?;
+                    let close = self.parse_hogqlx_identifier("closing tag name", false)?;
                     if close != kind {
                         return Err(self.err(format!(
                             "Opening and closing HogQLX tags must match. Got {} and {}",
@@ -125,7 +233,7 @@ impl<'a, E: Emitter + Clone> Parser<'a, E> {
                     return Ok(self.wrap_pos(self.emit.hogqlx_tag(&kind, attributes), tag_start));
                 }
                 TokenKind::Ident | TokenKind::QuotedIdent | TokenKind::Keyword(_) => {
-                    attributes.push(self.parse_hogqlx_attribute()?);
+                    attributes.push(self.parse_hogqlx_attribute(tight)?);
                 }
                 TokenKind::Eof => {
                     return Err(self.err("unexpected end of input inside HogQLX tag"));
@@ -144,13 +252,13 @@ impl<'a, E: Emitter + Clone> Parser<'a, E> {
     ///   - `name = 'string'` → HogQLXAttribute(name, Constant(string))
     ///   - `name = { expr }` → HogQLXAttribute(name, expr)
     ///   - `name`            → HogQLXAttribute(name, Constant(true))
-    fn parse_hogqlx_attribute(&mut self) -> Result<E::Value, ParseError> {
+    fn parse_hogqlx_attribute(&mut self, tight: bool) -> Result<E::Value, ParseError> {
         // cpp positions the HogQLXAttribute from the name start to the value end
         // (or the name end for a bare attribute), and the string value Constant
         // over the string token. The bare-attribute `Constant(true)` stays
         // position-less (cpp leaves it null too).
         let name_start = self.peek0.start;
-        let name = self.parse_hogqlx_identifier("attribute name")?;
+        let name = self.parse_hogqlx_identifier("attribute name", true)?;
         let name_end = self.last_consumed_end;
         // No `=` → bare attribute, value is Constant(true).
         if self.peek() != TokenKind::EqDouble {
@@ -170,13 +278,34 @@ impl<'a, E: Emitter + Clone> Parser<'a, E> {
             }
             TokenKind::LBrace => {
                 self.bump()?;
+                // cpp's TAG_LBRACE pushes DEFAULT_MODE — `#` comments
+                // apply again inside the braced value. Re-lex the peek
+                // window on both edges; it was pre-loaded under the
+                // other mode.
+                self.lexer.set_in_hogqlx_tag(false);
+                self.reseek_peek_window(self.last_consumed_end);
                 let expr = self.parse_expr_bp(0)?;
                 self.expect(TokenKind::RBrace, "}")?;
+                self.lexer.set_in_hogqlx_tag(true);
+                self.reseek_peek_window(self.last_consumed_end);
                 expr
+            }
+            // A loose tag lexes attribute values in the default mode, where the
+            // grammar's `string` is STRING_LITERAL | templateString — so
+            // `< a b=f'x' />` admits an `f'…'` template. A tight tag lexes in
+            // TAG mode (TAG_STRING is STRING_LITERAL only), so `<a b=f'x'/>` has
+            // no template token and cpp rejects it: fall through to the error.
+            TokenKind::TemplateString if !tight => {
+                let t = self.bump()?;
+                if self.text(t).starts_with("F'") {
+                    return Err(self.err("mismatched input 'F''"));
+                }
+                parse_template_body(&self.emit, self.src, t.start + 2, t.end - 1)?
             }
             _ => {
                 return Err(self.err(format!(
-                    "expected string literal or `{{expr}}` for attribute value, got {:?}",
+                    "expected string literal{} or `{{expr}}` for attribute value, got {:?}",
+                    if tight { "" } else { ", `f'…'` template," },
                     self.peek()
                 )));
             }
@@ -195,26 +324,34 @@ impl<'a, E: Emitter + Clone> Parser<'a, E> {
     /// Text scanning uses the source's byte stream directly because the
     /// lexer's whitespace skip would otherwise destroy significant
     /// inter-token spacing (e.g. `Hello World`).
-    fn parse_hogqlx_children(&mut self) -> Result<Vec<E::Value>, ParseError> {
+    fn parse_hogqlx_children(&mut self, tight: bool) -> Result<Vec<E::Value>, ParseError> {
         let mut children: Vec<E::Value> = Vec::new();
         loop {
-            // `consume_hogqlx_text` scans from `last_consumed_end`, so that is
-            // the text run's start; its byte length gives the end. cpp positions
-            // each kept text Constant over its raw byte span.
-            let text_start = self.last_consumed_end;
-            let text = self.consume_hogqlx_text()?;
-            // cpp's `VISIT(HogqlxTagElementNested)` drops child text
-            // runs that contain a newline AND are entirely whitespace —
-            // any pretty-printed multi-line HOGQLX literal lands here.
-            // Pure-space / pure-tab runs (no newline) are kept. Mixed
-            // whitespace-with-content runs are also kept verbatim.
-            let drop_for_newline_ws = !text.is_empty()
-                && text.bytes().all(|b| b.is_ascii_whitespace())
-                && text.bytes().any(|b| b == b'\n' || b == b'\r');
-            if !text.is_empty() && !drop_for_newline_ws {
-                let text_end = text_start + text.len();
-                let c = self.emit.constant(self.emit.string(&text));
-                children.push(self.wrap_pos_to(c, text_start, text_end));
+            // A tight tag's `>` opens cpp's HOGQLX_TEXT lexer mode, which captures
+            // child text (incl. whitespace). A loose tag's `>` is a plain GT in the
+            // default mode — there is no HOGQLX_TEXT token, so child text isn't
+            // lexable and only nested tags / `{…}` are valid children (the `_` arm
+            // below rejects stray text, matching cpp's `< a >x</a>` reject), and
+            // whitespace between children is skipped by the lexer, not kept.
+            if tight {
+                // `consume_hogqlx_text` scans from `last_consumed_end`, so that is
+                // the text run's start; its byte length gives the end. cpp positions
+                // each kept text Constant over its raw byte span.
+                let text_start = self.last_consumed_end;
+                let text = self.consume_hogqlx_text()?;
+                // cpp's `VISIT(HogqlxTagElementNested)` drops child text
+                // runs that contain a newline AND are entirely whitespace —
+                // any pretty-printed multi-line HOGQLX literal lands here.
+                // Pure-space / pure-tab runs (no newline) are kept. Mixed
+                // whitespace-with-content runs are also kept verbatim.
+                let drop_for_newline_ws = !text.is_empty()
+                    && text.bytes().all(|b| b.is_ascii_whitespace())
+                    && text.bytes().any(|b| b == b'\n' || b == b'\r');
+                if !text.is_empty() && !drop_for_newline_ws {
+                    let text_end = text_start + text.len();
+                    let c = self.emit.constant(self.emit.string(&text));
+                    children.push(self.wrap_pos_to(c, text_start, text_end));
+                }
             }
             match self.peek() {
                 TokenKind::LtSlash => return Ok(children),
@@ -233,16 +370,26 @@ impl<'a, E: Emitter + Clone> Parser<'a, E> {
                 }
                 TokenKind::LBrace => {
                     self.bump()?;
+                    // TAG_LBRACE → DEFAULT_MODE, same as the
+                    // attribute-value arm. No re-lex after the `}` —
+                    // the loop's `consume_hogqlx_text` byte-walks from
+                    // `last_consumed_end` and re-seeks the window
+                    // itself.
+                    self.lexer.set_in_hogqlx_tag(false);
+                    self.reseek_peek_window(self.last_consumed_end);
                     let expr = self.parse_expr_bp(0)?;
                     self.expect(TokenKind::RBrace, "}")?;
+                    self.lexer.set_in_hogqlx_tag(true);
                     children.push(expr);
                 }
                 TokenKind::Eof => {
                     return Err(self.err("unexpected end of input inside HogQLX tag children"));
                 }
                 _ => {
-                    // Should be unreachable — text consumption advances
-                    // past anything except `<` / `{` / Eof.
+                    // Tight: unreachable — `consume_hogqlx_text` advances past
+                    // anything except `<` / `{` / Eof. Loose: a stray default-mode
+                    // token (bare text like `x`) — not a valid loose child, so
+                    // reject, matching cpp's `< a >x</a>`.
                     return Err(self.err(format!(
                         "unexpected token in HogQLX tag children: {:?}",
                         self.peek()
@@ -294,7 +441,11 @@ impl<'a, E: Emitter + Clone> Parser<'a, E> {
     /// modes, so `a-b` lexes as `Ident a`, `Dash`, `Ident b`; stitch
     /// them back together here when the dash is followed immediately
     /// by an ident-like token with no intervening whitespace.
-    fn parse_hogqlx_identifier(&mut self, what: &str) -> Result<String, ParseError> {
+    fn parse_hogqlx_identifier(
+        &mut self,
+        what: &str,
+        allow_quoted: bool,
+    ) -> Result<String, ParseError> {
         let head = self.bump()?;
         // A tag/attr name is an `identifier` (grammar `hogqlxTagElement` /
         // `hogqlxTagAttribute`), so a keyword head is only valid when it is a
@@ -302,10 +453,14 @@ impl<'a, E: Emitter + Clone> Parser<'a, E> {
         // set-op keywords (intersect/except) and literal keywords (null/inf/nan)
         // are omitted from that rule, so cpp rejects `<fn/>` / `<a let/>` with
         // "no viable alternative"; gate them out here to match.
+        //
+        // A quoted head (`` `x` `` / `"x"`) is rejected for TAG names — cpp's tag
+        // lexer modes never yield QUOTED_IDENTIFIER there, and the loose default
+        // mode rejects `< "x" >` / `` < `x` > `` too. Attribute names DO admit a
+        // quoted form (`< c "h" >`), so `allow_quoted` gates only the name kind.
         let mut name = match head.kind {
-            TokenKind::Ident | TokenKind::QuotedIdent => {
-                identifier_text(self.text(head), head.kind)
-            }
+            TokenKind::Ident => identifier_text(self.text(head), head.kind),
+            TokenKind::QuotedIdent if allow_quoted => identifier_text(self.text(head), head.kind),
             TokenKind::Keyword(kw) if kw_valid_as_identifier(kw) => {
                 identifier_text(self.text(head), head.kind)
             }

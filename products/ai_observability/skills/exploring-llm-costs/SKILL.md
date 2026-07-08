@@ -147,6 +147,7 @@ versions for the same provider. To avoid rot:
 ## Tips
 
 - Always set a time range — cost queries without one scan the full events table
+- Token, cost, model, and `$ai_trace_id` properties are on `events` — but message _content_ (`$ai_input` / `$ai_output_choices`) lives only on the `posthog.ai_events` table; see the traces skill's [event reference](../exploring-llm-traces/references/events-and-properties.md) if you need content alongside cost
 - Always include `$ai_embedding` alongside `$ai_generation` when summing cost; embeddings are cheap per-call but add up at scale
 - Costs are written at ingestion (see [Calculating LLM costs](https://posthog.com/docs/ai-observability/calculating-costs)) — if `$ai_total_cost_usd` is missing or zero, read `$ai_cost_model_source` first: `passthrough` means the SDK supplied costs; `custom` means custom token prices; `openrouter` / `manual` mean automatic lookup; missing means the model wasn't matched (unusual custom model, fine-tune). Grep: `countIf(properties.$ai_total_cost_usd IS NULL)` per `(model, source)`
 - Custom pricing uses **per-token** prices, not per-million — if a custom-priced model looks ~1M× too expensive or too cheap, that's almost always the bug

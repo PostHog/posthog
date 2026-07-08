@@ -1,6 +1,6 @@
 ---
 name: managing-experiment-lifecycle
-description: "Guides experiment state transitions: launching, pausing, resuming, ending, shipping variants, archiving, resetting, and duplicating. Covers preconditions, implications for variant assignment and analysis, and the decision framework for when to use each action.\nTRIGGER when: user asks to launch, pause, resume, end, ship, archive, reset, or duplicate an experiment.\nDO NOT TRIGGER when: user is creating an experiment (use creating-experiments), configuring rollout (use configuring-experiment-rollout), or setting up metrics (use configuring-experiment-analytics)."
+description: "Guides experiment state transitions: launching, pausing, resuming, ending, shipping variants, archiving, resetting, duplicating, and copying to another project. Covers preconditions, implications for variant assignment and analysis, and the decision framework for when to use each action.\nTRIGGER when: user asks to launch, pause, resume, end, ship, archive, reset, duplicate, or copy an experiment to another project.\nDO NOT TRIGGER when: user is creating an experiment (use creating-experiments), configuring rollout (use configuring-experiment-rollout), or setting up metrics (use configuring-experiment-analytics)."
 ---
 
 # Managing experiment lifecycle
@@ -112,18 +112,43 @@ Creates a copy as a new draft with fresh dates and no results.
 
 Optional: custom `name` (defaults to "Original Name (Copy)").
 
+### Copy to project (`experiment-copy-to-project`)
+
+Copies an experiment into a **different project in the same organization** as a new draft. Use this instead of
+`experiment-duplicate` when the copy should land in another project; use duplicate when it stays in the same project.
+
+- **Preconditions**: source must not use legacy metrics; target project must be in the same organization and you must
+  have write access to it. Cannot copy across organizations or regions.
+- **What's copied**: name, description, type, parameters, filters, primary/secondary metrics (fresh uuids), stats and
+  scheduling config, exposure criteria. **Not copied**: saved-metric references (project-scoped), holdout, exposure
+  cohort, dates, results, conclusion.
+- **Feature flag**: `target_team_id` is required; `feature_flag_key` is optional. The resolved key is then looked up
+  **in the target project**, and the lookup result — not whether you passed the key — decides what happens:
+  - **If `feature_flag_key` is omitted**: it defaults to the _source_ experiment's flag key. That key normally
+    doesn't exist in the target project, so a new flag with it is created there. (The default can still collide — see
+    the next point — so to be safe, pass an explicit key.)
+  - **If the resolved key already exists as a flag in the target project**: the copy **shares** that existing flag
+    instead of creating one. Both experiments then point at the same flag, so lifecycle ops (ship, pause) on either
+    affect both. The existing flag must have ≥2 variants including one keyed `control`, otherwise the call returns 400.
+  - **If the resolved key does not exist in the target project**: a new, independent flag is created with that key.
+    To guarantee independence, pass a `feature_flag_key` that doesn't already exist in the target.
+
+**Confirm the source experiment and target project by name before calling** — this writes into a project the user
+isn't looking at. The returned experiment (and its id) belongs to the target project.
+
 ## Decision framework
 
-| Situation                                          | Action                   | Tool                      |
-| -------------------------------------------------- | ------------------------ | ------------------------- |
-| Draft ready, flag implemented, metrics set         | Launch                   | `experiment-launch`       |
-| Clear winner, significant results                  | Ship the winning variant | `experiment-ship-variant` |
-| No significant difference after sufficient time    | End as inconclusive      | `experiment-end`          |
-| Something wrong, need to stop exposure temporarily | Pause                    | `experiment-pause`        |
-| Resume after pause                                 | Resume                   | `experiment-resume`       |
-| Experiment ended, ready to clean up                | Archive                  | `experiment-archive`      |
-| Need to start over with same config                | Reset to draft           | `experiment-reset`        |
-| Want a similar experiment with a fresh start       | Duplicate                | `experiment-duplicate`    |
+| Situation                                          | Action                   | Tool                         |
+| -------------------------------------------------- | ------------------------ | ---------------------------- |
+| Draft ready, flag implemented, metrics set         | Launch                   | `experiment-launch`          |
+| Clear winner, significant results                  | Ship the winning variant | `experiment-ship-variant`    |
+| No significant difference after sufficient time    | End as inconclusive      | `experiment-end`             |
+| Something wrong, need to stop exposure temporarily | Pause                    | `experiment-pause`           |
+| Resume after pause                                 | Resume                   | `experiment-resume`          |
+| Experiment ended, ready to clean up                | Archive                  | `experiment-archive`         |
+| Need to start over with same config                | Reset to draft           | `experiment-reset`           |
+| Want a similar experiment with a fresh start       | Duplicate                | `experiment-duplicate`       |
+| Want the same experiment in a different project    | Copy to another project  | `experiment-copy-to-project` |
 
 ## Resolving experiments
 

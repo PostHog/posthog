@@ -134,14 +134,12 @@ export const HOG_FUNCTION_SUB_TEMPLATE_COMMON_PROPERTIES: Record<
         type: 'internal_destination',
         context_id: 'health-alerts',
         filters: { events: [{ id: '$health_check_issue_firing', type: 'events' }] },
-        flag: FEATURE_FLAGS.HEALTH_ALERTS,
     },
     'health-check-resolved': {
         sub_template_id: 'health-check-resolved',
         type: 'internal_destination',
         context_id: 'health-alerts',
         filters: { events: [{ id: '$health_check_issue_resolved', type: 'events' }] },
-        flag: FEATURE_FLAGS.HEALTH_ALERTS,
     },
 }
 
@@ -180,9 +178,6 @@ interface HealthAlertTemplateCopy {
     slackHeader: string
     slackBody: string
     webhookSummary: string
-    emailSubject: string
-    emailHtml: string
-    emailText: string
     discordContent: string
     teamsText: string
     actionButtonText: string
@@ -190,7 +185,7 @@ interface HealthAlertTemplateCopy {
     descriptionVerb: string
 }
 
-// Builds the 5 destination variants for a health-alert sub-template. The body
+// Builds the destination variants for a health-alert sub-template. The body
 // strings reference only the event envelope (title/summary/link/severity/kind),
 // so adding a new health-check kind requires no changes here.
 function buildHealthAlertSubTemplates(
@@ -266,27 +261,6 @@ function buildHealthAlertSubTemplates(
             name: `Post to Microsoft Teams when a ${copy.namePrefix}`,
             description: `Post to a Microsoft Teams channel when a health check ${copy.descriptionVerb}`,
             inputs: { text: { value: copy.teamsText } },
-        },
-        {
-            ...common,
-            template_id: 'template-email',
-            name: `Email when a ${copy.namePrefix}`,
-            description: `Send an email when a health check ${copy.descriptionVerb}`,
-            inputs: {
-                email: {
-                    value: {
-                        to: { email: '', name: '' },
-                        from: { email: '', name: 'PostHog' },
-                        replyTo: '',
-                        cc: '',
-                        bcc: '',
-                        subject: copy.emailSubject,
-                        preheader: '{event.properties.summary}',
-                        text: copy.emailText,
-                        html: copy.emailHtml,
-                    },
-                },
-            },
         },
     ]
 }
@@ -636,7 +610,7 @@ export const HOG_FUNCTION_SUB_TEMPLATES: Record<HogFunctionSubTemplateIdType, Ho
             description: 'Posts a message to Microsoft Teams when an issue is created',
             inputs: {
                 text: {
-                    value: '**🔴 {event.properties.name} created:** {event.properties.description} (View in [PostHog]({project.url}/error_tracking/{event.distinct_id}?fingerprint={event.properties.fingerprint}&timestamp={event.properties.exception_timestamp}&utm_source=alert))',
+                    value: '**🔴 {event.properties.name} created:** {event.properties.description} (View in [PostHog]({project.url}/error_tracking/{event.distinct_id}?fingerprint={event.properties.fingerprint}&timestamp={event.properties.exception_timestamp}&utm_source=alert&utm_campaign=error_tracking_alert&utm_medium=microsoft_teams))',
                 },
             },
         },
@@ -667,7 +641,7 @@ export const HOG_FUNCTION_SUB_TEMPLATES: Record<HogFunctionSubTemplateIdType, Ho
                             type: 'actions',
                             elements: [
                                 {
-                                    url: '{project.url}/error_tracking/{event.distinct_id}?fingerprint={event.properties.fingerprint}&timestamp={event.properties.exception_timestamp}&utm_source=alert',
+                                    url: '{project.url}/error_tracking/{event.distinct_id}?fingerprint={event.properties.fingerprint}&timestamp={event.properties.exception_timestamp}&utm_source=alert&utm_campaign=error_tracking_alert&utm_medium=slack',
                                     text: { text: 'View Issue', type: 'plain_text' },
                                     type: 'button',
                                 },
@@ -757,7 +731,7 @@ export const HOG_FUNCTION_SUB_TEMPLATES: Record<HogFunctionSubTemplateIdType, Ho
             description: 'Posts a message to Microsoft Teams when an issue is reopened',
             inputs: {
                 text: {
-                    value: '**🔄 {event.properties.name} reopened:** {event.properties.description} (View in [PostHog]({project.url}/error_tracking/{event.distinct_id}?fingerprint={event.properties.fingerprint}&timestamp={event.properties.exception_timestamp}&utm_source=alert))',
+                    value: '**🔄 {event.properties.name} reopened:** {event.properties.description} (View in [PostHog]({project.url}/error_tracking/{event.distinct_id}?fingerprint={event.properties.fingerprint}&timestamp={event.properties.exception_timestamp}&utm_source=alert&utm_campaign=error_tracking_alert&utm_medium=microsoft_teams))',
                 },
             },
         },
@@ -788,7 +762,7 @@ export const HOG_FUNCTION_SUB_TEMPLATES: Record<HogFunctionSubTemplateIdType, Ho
                             type: 'actions',
                             elements: [
                                 {
-                                    url: '{project.url}/error_tracking/{event.distinct_id}?fingerprint={event.properties.fingerprint}&timestamp={event.properties.exception_timestamp}&utm_source=alert',
+                                    url: '{project.url}/error_tracking/{event.distinct_id}?fingerprint={event.properties.fingerprint}&timestamp={event.properties.exception_timestamp}&utm_source=alert&utm_campaign=error_tracking_alert&utm_medium=slack',
                                     text: { text: 'View Issue', type: 'plain_text' },
                                     type: 'button',
                                 },
@@ -825,7 +799,7 @@ export const HOG_FUNCTION_SUB_TEMPLATES: Record<HogFunctionSubTemplateIdType, Ho
 **Project:** [{project.name}]({project.url})
 **Alert:** [{source.name}]({source.url})
 
-[View issue]({project.url}/error_tracking/{event.distinct_id}?utm_source=alert)`,
+[View issue]({project.url}/error_tracking/{event.distinct_id}?utm_source=alert&utm_campaign=error_tracking_alert&utm_medium=discord)`,
                 },
             },
         },
@@ -836,7 +810,7 @@ export const HOG_FUNCTION_SUB_TEMPLATES: Record<HogFunctionSubTemplateIdType, Ho
             description: 'Posts a message to Microsoft Teams when an issue is spiking',
             inputs: {
                 text: {
-                    value: "**📈 Issue spiking: {event.properties.name}:** {event.properties.description}\n**Exceptions in last 5 minutes:** {event.properties.current_bucket_value} ({event.properties.computed_baseline > 0 ? concat(round(event.properties.current_bucket_value / event.properties.computed_baseline), 'x over baseline') : 'no baseline yet'}) (View in [PostHog]({project.url}/error_tracking/{event.distinct_id}?utm_source=alert))",
+                    value: "**📈 Issue spiking: {event.properties.name}:** {event.properties.description}\n**Exceptions in last 5 minutes:** {event.properties.current_bucket_value} ({event.properties.computed_baseline > 0 ? concat(round(event.properties.current_bucket_value / event.properties.computed_baseline), 'x over baseline') : 'no baseline yet'}) (View in [PostHog]({project.url}/error_tracking/{event.distinct_id}?utm_source=alert&utm_campaign=error_tracking_alert&utm_medium=microsoft_teams))",
                 },
             },
         },
@@ -872,7 +846,7 @@ export const HOG_FUNCTION_SUB_TEMPLATES: Record<HogFunctionSubTemplateIdType, Ho
                             type: 'actions',
                             elements: [
                                 {
-                                    url: '{project.url}/error_tracking/{event.distinct_id}?utm_source=alert',
+                                    url: '{project.url}/error_tracking/{event.distinct_id}?utm_source=alert&utm_campaign=error_tracking_alert&utm_medium=slack',
                                     text: { text: 'View Issue', type: 'plain_text' },
                                     type: 'button',
                                 },
@@ -975,12 +949,12 @@ export const HOG_FUNCTION_SUB_TEMPLATES: Record<HogFunctionSubTemplateIdType, Ho
                             type: 'actions',
                             elements: [
                                 {
-                                    url: '{project.url}/insights/{event.properties.insight_id}',
+                                    url: '{project.url}/insights/{event.properties.insight_id}?utm_source=alert&utm_campaign=alert_check_firing&utm_medium=slack',
                                     text: { text: 'View Insight', type: 'plain_text' },
                                     type: 'button',
                                 },
                                 {
-                                    url: '{project.url}/insights/{event.properties.insight_id}/alerts?alert_id={event.properties.alert_id}',
+                                    url: '{project.url}/insights/{event.properties.insight_id}/alerts?alert_id={event.properties.alert_id}&utm_source=alert&utm_campaign=alert_check_firing&utm_medium=slack',
                                     text: { text: 'View Alert', type: 'plain_text' },
                                     type: 'button',
                                 },
@@ -990,6 +964,28 @@ export const HOG_FUNCTION_SUB_TEMPLATES: Record<HogFunctionSubTemplateIdType, Ho
                 },
                 text: {
                     value: 'Alert triggered: {event.properties.insight_name}',
+                },
+            },
+        },
+        {
+            ...HOG_FUNCTION_SUB_TEMPLATE_COMMON_PROPERTIES[INSIGHT_ALERT_FIRING_SUB_TEMPLATE_ID],
+            template_id: 'template-discord',
+            name: 'Post to Discord on insight alert firing',
+            description: 'Post to a Discord channel when this insight alert fires',
+            inputs: {
+                content: {
+                    value: "**Alert '{event.properties.alert_name}' firing** for insight '{event.properties.insight_name}'\n{event.properties.breaches}\n{project.url}/insights/{event.properties.insight_id}/alerts?alert_id={event.properties.alert_id}",
+                },
+            },
+        },
+        {
+            ...HOG_FUNCTION_SUB_TEMPLATE_COMMON_PROPERTIES[INSIGHT_ALERT_FIRING_SUB_TEMPLATE_ID],
+            template_id: 'template-microsoft-teams',
+            name: 'Post to Microsoft Teams on insight alert firing',
+            description: 'Post to a Microsoft Teams channel when this insight alert fires',
+            inputs: {
+                text: {
+                    value: "**Alert '{event.properties.alert_name}' firing** for insight '{event.properties.insight_name}'\n\n{event.properties.breaches}\n\n[View alert]({project.url}/insights/{event.properties.insight_id}/alerts?alert_id={event.properties.alert_id})",
                 },
             },
         },
@@ -1032,7 +1028,7 @@ export const HOG_FUNCTION_SUB_TEMPLATES: Record<HogFunctionSubTemplateIdType, Ho
                             type: 'actions',
                             elements: [
                                 {
-                                    url: '{project.url}/logs?{event.properties.logs_url_params}',
+                                    url: '{project.url}/logs?{event.properties.logs_url_params}&utm_source=alert&utm_campaign=logs_alert&utm_medium=slack',
                                     text: { text: 'View logs', type: 'plain_text' },
                                     type: 'button',
                                 },
@@ -1084,7 +1080,7 @@ export const HOG_FUNCTION_SUB_TEMPLATES: Record<HogFunctionSubTemplateIdType, Ho
                             type: 'actions',
                             elements: [
                                 {
-                                    url: '{project.url}/logs?{event.properties.logs_url_params}',
+                                    url: '{project.url}/logs?{event.properties.logs_url_params}&utm_source=alert&utm_campaign=logs_alert&utm_medium=slack',
                                     text: { text: 'View logs', type: 'plain_text' },
                                     type: 'button',
                                 },
@@ -1136,7 +1132,7 @@ export const HOG_FUNCTION_SUB_TEMPLATES: Record<HogFunctionSubTemplateIdType, Ho
                             type: 'actions',
                             elements: [
                                 {
-                                    url: '{project.url}/logs?alertId={event.properties.alert_id}',
+                                    url: '{project.url}/logs?alertId={event.properties.alert_id}&utm_source=alert&utm_campaign=logs_alert&utm_medium=slack',
                                     text: { text: 'View alert', type: 'plain_text' },
                                     type: 'button',
                                 },
@@ -1155,11 +1151,6 @@ export const HOG_FUNCTION_SUB_TEMPLATES: Record<HogFunctionSubTemplateIdType, Ho
         slackHeader: '{event.properties.title}',
         slackBody: '{event.properties.summary}',
         webhookSummary: '{event.properties.title}: {event.properties.summary}',
-        emailSubject: 'PostHog health check: {event.properties.title}',
-        emailHtml:
-            '<p><strong>{event.properties.title}</strong></p><p>{event.properties.summary}</p><p>Severity: {event.properties.severity}</p><p><a href="{project.url}{event.properties.link}">View in PostHog</a></p>',
-        emailText:
-            '{event.properties.title}\n\n{event.properties.summary}\n\nSeverity: {event.properties.severity}\n\n{project.url}{event.properties.link}',
         discordContent:
             '**🩺 PostHog health check**\n\n*{event.properties.title}*\n{event.properties.summary}\n\n[View in PostHog]({project.url}{event.properties.link})',
         teamsText:
@@ -1172,11 +1163,6 @@ export const HOG_FUNCTION_SUB_TEMPLATES: Record<HogFunctionSubTemplateIdType, Ho
         slackHeader: 'Resolved: {event.properties.title}',
         slackBody: '{event.properties.summary}',
         webhookSummary: 'Resolved: {event.properties.title} — {event.properties.summary}',
-        emailSubject: 'PostHog health check resolved: {event.properties.title}',
-        emailHtml:
-            '<p><strong>Resolved: {event.properties.title}</strong></p><p>{event.properties.summary}</p><p><a href="{project.url}{event.properties.link}">View in PostHog</a></p>',
-        emailText:
-            'Resolved: {event.properties.title}\n\n{event.properties.summary}\n\n{project.url}{event.properties.link}',
         discordContent:
             '**✅ PostHog health check resolved**\n\n*{event.properties.title}*\n{event.properties.summary}\n\n[View in PostHog]({project.url}{event.properties.link})',
         teamsText:
@@ -1223,7 +1209,7 @@ export const HOG_FUNCTION_SUB_TEMPLATES: Record<HogFunctionSubTemplateIdType, Ho
                             type: 'actions',
                             elements: [
                                 {
-                                    url: '{project.url}/logs?alertId={event.properties.alert_id}',
+                                    url: '{project.url}/logs?alertId={event.properties.alert_id}&utm_source=alert&utm_campaign=logs_alert&utm_medium=slack',
                                     text: { text: 'View alert', type: 'plain_text' },
                                     type: 'button',
                                 },

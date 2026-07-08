@@ -1,3 +1,4 @@
+pub mod cohort;
 pub mod collections;
 mod embeddings;
 mod event;

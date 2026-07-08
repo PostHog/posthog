@@ -5,9 +5,10 @@ from posthog.schema import AssistantEventType, AssistantGenerationStatusEvent, A
 
 from posthog.sync import database_sync_to_async
 
+from products.posthog_ai.backend.models.assistant import Conversation
+
 from ee.hogai.api.serializers import ConversationMinimalSerializer
 from ee.hogai.utils.types import AssistantMessageUnion, AssistantOutput
-from ee.models.assistant import Conversation
 
 
 class AssistantSSESerializer:

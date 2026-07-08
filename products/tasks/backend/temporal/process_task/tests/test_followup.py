@@ -115,11 +115,11 @@ pytestmark = [pytest.mark.asyncio, pytest.mark.django_db]
 
 
 class TestFollowupDeliveryFailure:
-    @pytest.mark.timeout(30)
+    @pytest.mark.timeout(30, func_only=True)
     async def test_failed_followup_marks_run_as_failed_promptly(self):
         """The workflow must exit its main loop and mark the run as failed
         within seconds when a followup delivery fails — not after the
-        2-hour inactivity timeout."""
+        full inactivity timeout."""
         _status_updates.clear()
 
         async with await WorkflowEnvironment.start_time_skipping() as env:
@@ -164,7 +164,7 @@ class TestFollowupDeliveryFailure:
 
         failed_updates = [(s, e) for s, e in _status_updates if s == "failed"]
         assert len(failed_updates) == 1
-        assert "Follow-up delivery failed" in (failed_updates[0][1] or "")
+        assert failed_updates[0][1] == "Follow-up delivery failed: RuntimeError: Sandbox session is dead"
 
 
 _ci_context_overrides: dict = {}
@@ -272,7 +272,7 @@ class TestCIFollowUpLoop:
         _status_updates.clear()
         _pr_context_overrides.clear()
 
-    @pytest.mark.timeout(60)
+    @pytest.mark.timeout(60, func_only=True)
     async def test_runs_to_inactivity_timeout_after_max_ci_repetitions(self):
         async with await WorkflowEnvironment.start_time_skipping() as env:
             task_queue = f"test-{uuid.uuid4()}"
@@ -293,7 +293,7 @@ class TestCIFollowUpLoop:
         timeout_updates = [(s, e) for s, e in _status_updates if "timed out" in (e or "")]
         assert timeout_updates, f"expected an inactivity-timeout completion, got {_status_updates}"
 
-    @pytest.mark.timeout(60)
+    @pytest.mark.timeout(60, func_only=True)
     async def test_uses_ci_prompt_override_when_set(self):
         custom_prompt = "Custom CI prompt: please re-run the failed unit tests."
         _ci_context_overrides["ci_prompt"] = custom_prompt
@@ -324,7 +324,7 @@ class TestCIFollowUpLoop:
             (False, False),
         ],
     )
-    @pytest.mark.timeout(60)
+    @pytest.mark.timeout(60, func_only=True)
     async def test_no_ci_follow_up_when_gated_off(self, create_pr: bool, pr_loop_enabled: bool):
         _ci_context_overrides["create_pr"] = create_pr
         _ci_context_overrides["pr_loop_enabled"] = pr_loop_enabled
@@ -350,7 +350,7 @@ class TestCIFollowUpLoop:
         timeout_updates = [(s, e) for s, e in _status_updates if "timed out" in (e or "")]
         assert timeout_updates, f"expected an inactivity-timeout completion, got {_status_updates}"
 
-    @pytest.mark.timeout(60)
+    @pytest.mark.timeout(60, func_only=True)
     async def test_completion_signal_wins_over_ready_ci_follow_up(self):
         # Advance virtual time to just before the 15m CI deadline, then fire
         # the completion signal. The armed CI timer must be cancelled and no
@@ -375,7 +375,7 @@ class TestCIFollowUpLoop:
         completed_updates = [(s, e) for s, e in _status_updates if s == "completed" and e is None]
         assert len(completed_updates) >= 1
 
-    @pytest.mark.timeout(90)
+    @pytest.mark.timeout(90, func_only=True)
     async def test_heartbeat_with_agent_active_extends_ci_follow_up_clock(self):
         async with await WorkflowEnvironment.start_time_skipping() as env:
             task_queue = f"test-{uuid.uuid4()}"
@@ -403,7 +403,7 @@ class TestCIFollowUpLoop:
         )
         assert _ci_followup_calls, "follow-up should still fire after the rescheduled deadline"
 
-    @pytest.mark.timeout(90)
+    @pytest.mark.timeout(90, func_only=True)
     async def test_idle_heartbeat_does_not_extend_ci_follow_up_clock(self):
         async with await WorkflowEnvironment.start_time_skipping() as env:
             task_queue = f"test-{uuid.uuid4()}"
@@ -454,7 +454,7 @@ class TestFollowupGuards:
     def test_should_skip_followup(self, message: str | None, artifact_ids: list[str], expected: bool):
         assert ProcessTaskWorkflow._should_skip_followup(message, artifact_ids) is expected
 
-    @pytest.mark.timeout(60)
+    @pytest.mark.timeout(60, func_only=True)
     async def test_skips_ci_follow_up_when_pr_context_missing(self):
         _pr_context_overrides["behavior"] = "missing"
 
@@ -475,7 +475,7 @@ class TestFollowupGuards:
 
         assert _ci_followup_calls == []
 
-    @pytest.mark.timeout(60)
+    @pytest.mark.timeout(60, func_only=True)
     async def test_skips_ci_follow_up_when_pr_is_closed(self):
         _pr_context_overrides["behavior"] = "closed"
 
@@ -537,7 +537,7 @@ class TestFollowupGuards:
             "skip path is tight-looping and burning the GitHub rate limit"
         )
 
-    @pytest.mark.timeout(60)
+    @pytest.mark.timeout(60, func_only=True)
     async def test_ci_follow_up_fires_on_changed_fingerprint_and_persists(self):
         # Once a follow-up fires for a new fingerprint, that fingerprint must
         # persist on the workflow so the *next* tick observing the same
@@ -575,7 +575,7 @@ class TestFollowupGuards:
             f"would yield 3. Got {_pr_context_overrides.get('_call_count')}"
         )
 
-    @pytest.mark.timeout(60)
+    @pytest.mark.timeout(60, func_only=True)
     async def test_stops_ci_loop_when_no_pr_and_agent_idle(self):
         """When get_pr_context returns None and the agent is idle, the CI loop
         should stop after a single check instead of polling all 3 repetitions."""

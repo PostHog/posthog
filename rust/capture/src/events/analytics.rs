@@ -23,7 +23,7 @@ use crate::{
     global_rate_limiter::{GlobalRateLimitKey, GlobalRateLimiter},
     prometheus::{report_clock_skew, report_dropped_events},
     router, sinks,
-    utils::uuid_v7,
+    utils::uuid_v7_from_datetime,
     v0_request::{
         DataType, OverflowReason, ProcessedEvent, ProcessedEventMetadata, ProcessingContext,
     },
@@ -32,6 +32,14 @@ use crate::{
 /// Property keys the heatmap pipeline reads from a redirected event. The
 /// redirect carries only these (plus `distinct_id` and `$cookieless_mode`,
 /// which are needed for the routing key).
+///
+/// The `$raw_user_agent`, `$ip`, `$host`, `$timezone`, and `$cookieless_extra`
+/// keys are not consumed by the heatmap extractor itself, but the ingestion
+/// pipeline runs cookieless identity resolution against every event before
+/// any extractor sees it. Cookieless-mode events with these properties
+/// stripped get dropped with a `cookieless_missing_user_agent` warning
+/// before the heatmap pipeline can run, so the redirect must preserve them
+/// for cookieless customers' heatmap and scroll-depth data to survive.
 const HEATMAP_PROPERTY_KEYS: &[&str] = &[
     "$heatmap_data",
     "$viewport_height",
@@ -40,6 +48,11 @@ const HEATMAP_PROPERTY_KEYS: &[&str] = &[
     "$prev_pageview_pathname",
     "$prev_pageview_max_scroll",
     "$current_url",
+    "$raw_user_agent",
+    "$ip",
+    "$host",
+    "$timezone",
+    "$cookieless_extra",
 ];
 
 /// True when this event carries data that the heatmap extraction pipeline
@@ -80,7 +93,8 @@ fn create_heatmap_redirect(
     let heatmap_event = RawEvent {
         token: event.token.clone(),
         distinct_id: Some(serde_json::Value::String(distinct_id)),
-        uuid: Some(uuid_v7()),
+        // Leave unset so process_single_event seeds the UUID from the event timestamp.
+        uuid: None,
         event: "$$heatmap".to_string(),
         properties,
         timestamp: event.timestamp.clone(),
@@ -167,7 +181,10 @@ pub fn process_single_event(
     }
 
     let event = CapturedEvent {
-        uuid: event.uuid.unwrap_or_else(uuid_v7),
+        // Seed the UUIDv7 from the event timestamp, not ingestion time, so its embedded time tracks events.timestamp.
+        uuid: event
+            .uuid
+            .unwrap_or_else(|| uuid_v7_from_datetime(parsed_timestamp.timestamp)),
         distinct_id: event
             .extract_distinct_id()
             .ok_or(CaptureError::MissingDistinctId)?,
@@ -388,6 +405,7 @@ pub async fn process_events(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::utils::uuid_v7_from_datetime;
     use crate::v0_request::{OverflowReason, ProcessingContext};
     use chrono::{DateTime, TimeZone, Utc};
     use common_types::RawEvent;
@@ -401,7 +419,6 @@ mod tests {
         sent_at: Option<OffsetDateTime>,
     ) -> ProcessingContext {
         ProcessingContext {
-            lib_version: None,
             user_agent: None,
             sent_at,
             token: "test_token".to_string(),
@@ -436,7 +453,7 @@ mod tests {
         properties.insert("distinct_id".to_string(), json!("test_user"));
 
         RawEvent {
-            uuid: Some(uuid_v7()),
+            uuid: None,
             distinct_id: None,
             event: event_name.to_string(),
             properties,
@@ -446,6 +463,79 @@ mod tests {
             set_once: Some(HashMap::new()),
             token: Some("test_token".to_string()),
         }
+    }
+
+    #[test]
+    fn test_server_assigned_uuid_encodes_event_timestamp() {
+        // Ingestion clock is in 2023, but the event's own timestamp is back in 2020.
+        let now = DateTime::parse_from_rfc3339("2023-01-01T12:00:00Z")
+            .unwrap()
+            .with_timezone(&Utc);
+        let context = create_test_context(now, None);
+
+        let mut properties = HashMap::new();
+        properties.insert("distinct_id".to_string(), json!("test_user"));
+        let event = RawEvent {
+            uuid: None,
+            distinct_id: None,
+            event: "$pageview".to_string(),
+            properties,
+            timestamp: Some("2020-06-15T00:00:00Z".to_string()),
+            offset: None,
+            set: None,
+            set_once: None,
+            token: Some("test_token".to_string()),
+        };
+
+        let historical_cfg = router::HistoricalConfig::new(false, 1);
+        let processed = process_single_event(&event, historical_cfg, &context).unwrap();
+
+        let expected_millis = processed
+            .metadata
+            .computed_timestamp
+            .unwrap()
+            .timestamp_millis() as u128;
+        // The high 48 bits of a UUIDv7 hold the Unix-millisecond timestamp.
+        let uuid_millis = processed.event.uuid.as_u128() >> 80;
+        assert_eq!(uuid_millis, expected_millis);
+        assert!(now.timestamp_millis() as u128 - uuid_millis > 60_000_000_000);
+    }
+
+    #[test]
+    fn test_server_assigned_uuid_floors_pre_epoch_event() {
+        let now = DateTime::parse_from_rfc3339("2023-01-01T12:00:00Z")
+            .unwrap()
+            .with_timezone(&Utc);
+        let context = create_test_context(now, None);
+
+        let mut properties = HashMap::new();
+        properties.insert("distinct_id".to_string(), json!("test_user"));
+        // A pre-1970 timestamp has negative Unix millis, which can't fit the unsigned UUIDv7 time field.
+        let event = RawEvent {
+            uuid: None,
+            distinct_id: None,
+            event: "$pageview".to_string(),
+            properties,
+            timestamp: Some("1969-06-15T00:00:00Z".to_string()),
+            offset: None,
+            set: None,
+            set_once: None,
+            token: Some("test_token".to_string()),
+        };
+
+        let historical_cfg = router::HistoricalConfig::new(false, 1);
+        let processed = process_single_event(&event, historical_cfg, &context).unwrap();
+
+        // The event keeps its pre-epoch timestamp, but the uuid floors to the epoch rather than wrapping to garbage.
+        assert!(
+            processed
+                .metadata
+                .computed_timestamp
+                .unwrap()
+                .timestamp_millis()
+                < 0
+        );
+        assert_eq!(processed.event.uuid.as_u128() >> 80, 0);
     }
 
     #[test]
@@ -1893,6 +1983,18 @@ mod tests {
         properties.insert("$viewport_width".to_string(), json!(1440));
         properties.insert("$session_id".to_string(), json!("session-abc"));
         properties.insert("$current_url".to_string(), json!("https://example.com"));
+        // Cookieless identity inputs. Carrier events emitted by the JS SDK in
+        // cookieless mode set these, and the ingestion pipeline drops events
+        // with `cookieless_missing_user_agent` if `$raw_user_agent` is absent
+        // on a `$cookieless_mode` event — so the redirect must carry them.
+        properties.insert(
+            "$raw_user_agent".to_string(),
+            json!("Mozilla/5.0 (test agent)"),
+        );
+        properties.insert("$ip".to_string(), json!("203.0.113.7"));
+        properties.insert("$host".to_string(), json!("example.com"));
+        properties.insert("$timezone".to_string(), json!("Europe/London"));
+        properties.insert("$cookieless_extra".to_string(), json!("extra-hash-input"));
         properties.insert(
             "other_prop".to_string(),
             json!("should_not_appear_in_redirect"),
@@ -1911,12 +2013,15 @@ mod tests {
             }
         }
 
+        let timestamp = "2023-01-01T11:00:00Z";
         RawEvent {
-            uuid: Some(uuid_v7()),
+            uuid: Some(uuid_v7_from_datetime(
+                DateTime::parse_from_rfc3339(timestamp).unwrap(),
+            )),
             distinct_id: None,
             event: "$pageview".to_string(),
             properties,
-            timestamp: Some("2023-01-01T11:00:00Z".to_string()),
+            timestamp: Some(timestamp.to_string()),
             offset: None,
             set: None,
             set_once: None,
@@ -1942,7 +2047,7 @@ mod tests {
         }
 
         let event = RawEvent {
-            uuid: Some(uuid_v7()),
+            uuid: None,
             distinct_id: None,
             event: "$pageview".to_string(),
             properties,
@@ -1979,6 +2084,13 @@ mod tests {
         assert!(data.properties.contains_key("$viewport_width"));
         assert!(data.properties.contains_key("$session_id"));
         assert!(data.properties.contains_key("$current_url"));
+        // Cookieless identity inputs must survive the redirect; without them
+        // the ingestion pipeline drops cookieless-mode heatmap events.
+        assert!(data.properties.contains_key("$raw_user_agent"));
+        assert!(data.properties.contains_key("$ip"));
+        assert!(data.properties.contains_key("$host"));
+        assert!(data.properties.contains_key("$timezone"));
+        assert!(data.properties.contains_key("$cookieless_extra"));
         assert_eq!(data.distinct_id, Some(json!("test_user")));
         assert!(
             !data.properties.contains_key("distinct_id"),
@@ -1986,8 +2098,49 @@ mod tests {
         );
         assert!(
             !data.properties.contains_key("other_prop"),
-            "redirect should only contain heatmap properties"
+            "redirect should only contain heatmap and cookieless-identity properties"
         );
+    }
+
+    /// A `$cookieless_mode` event with heatmap data must produce a redirect
+    /// that carries every property the cookieless identity hash reads in
+    /// `nodejs/src/ingestion/cookieless/cookieless-manager.ts`. Without
+    /// these, the ingestion pipeline emits `cookieless_missing_user_agent`
+    /// against the redirect and silently drops every heatmap/scroll-depth
+    /// data point from cookieless-mode customers.
+    #[test]
+    fn test_create_heatmap_redirect_preserves_cookieless_identity_inputs() {
+        let now = Utc::now();
+        let context = create_test_context(now, None);
+        let mut event = build_heatmap_carrier_event(HeatmapShape::HeatmapData);
+        event
+            .properties
+            .insert("$cookieless_mode".to_string(), json!(true));
+        let historical_cfg = router::HistoricalConfig::new(false, 1);
+
+        let redirect = create_heatmap_redirect(&event, historical_cfg, &context)
+            .unwrap()
+            .expect("redirect should be created");
+
+        let data: RawEvent = serde_json::from_str(&redirect.event.data).unwrap();
+        for key in [
+            "$raw_user_agent",
+            "$ip",
+            "$host",
+            "$timezone",
+            "$cookieless_extra",
+            "$cookieless_mode",
+        ] {
+            assert!(
+                data.properties.contains_key(key),
+                "cookieless redirect must carry {key}"
+            );
+            assert_eq!(
+                data.properties.get(key),
+                event.properties.get(key),
+                "cookieless redirect must preserve {key} value verbatim"
+            );
+        }
     }
 
     #[test]
@@ -2210,7 +2363,7 @@ mod tests {
         );
 
         let original_captured: CapturedEvent =
-            serde_json::from_str(&original.payload).expect("payload should be a CapturedEvent");
+            serde_json::from_slice(&original.payload).expect("payload should be a CapturedEvent");
         let original_raw: RawEvent = serde_json::from_str(&original_captured.data)
             .expect("data field should be a serialized RawEvent");
         assert!(
@@ -2245,7 +2398,7 @@ mod tests {
         );
 
         let redirect_captured: CapturedEvent =
-            serde_json::from_str(&redirect.payload).expect("payload should be a CapturedEvent");
+            serde_json::from_slice(&redirect.payload).expect("payload should be a CapturedEvent");
         assert_eq!(redirect_captured.event, "$$heatmap");
         let redirect_raw: RawEvent = serde_json::from_str(&redirect_captured.data)
             .expect("data field should be a serialized RawEvent");
@@ -2268,6 +2421,29 @@ mod tests {
             redirect_raw.properties.get("$current_url"),
             Some(&json!("https://example.com")),
         );
+        // Cookieless identity inputs must survive the redirect end-to-end.
+        // Without them the ingestion pipeline drops the redirect with
+        // `cookieless_missing_user_agent` before the heatmap extractor runs.
+        assert_eq!(
+            redirect_raw.properties.get("$raw_user_agent"),
+            Some(&json!("Mozilla/5.0 (test agent)")),
+        );
+        assert_eq!(
+            redirect_raw.properties.get("$ip"),
+            Some(&json!("203.0.113.7")),
+        );
+        assert_eq!(
+            redirect_raw.properties.get("$host"),
+            Some(&json!("example.com")),
+        );
+        assert_eq!(
+            redirect_raw.properties.get("$timezone"),
+            Some(&json!("Europe/London")),
+        );
+        assert_eq!(
+            redirect_raw.properties.get("$cookieless_extra"),
+            Some(&json!("extra-hash-input")),
+        );
         // distinct_id is required for routing-key generation; it's pre-resolved
         // onto the top-level field rather than left in properties.
         assert_eq!(redirect_raw.distinct_id, Some(json!("test_user")));
@@ -2275,10 +2451,11 @@ mod tests {
             !redirect_raw.properties.contains_key("distinct_id"),
             "distinct_id is on the top-level field, not in properties"
         );
-        // The redirect must NOT carry unrelated user properties — only what the heatmap pipeline reads.
+        // The redirect must NOT carry unrelated user properties — only what
+        // the heatmap pipeline reads plus the cookieless identity inputs.
         assert!(
             !redirect_raw.properties.contains_key("other_prop"),
-            "redirect must only carry heatmap properties"
+            "redirect must only carry heatmap and cookieless-identity properties"
         );
 
         // Shape-specific payload properties.

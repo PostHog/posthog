@@ -6,9 +6,9 @@ import pytest
 import pyarrow as pa
 import pytest_asyncio
 
-from posthog.batch_exports.models import BatchExportRun
 from posthog.temporal.tests.utils.models import acreate_batch_export, adelete_batch_export
 
+from products.batch_exports.backend.models.batch_export import BatchExportRun
 from products.batch_exports.backend.temporal.utils import (
     JsonType,
     make_retryable_with_exponential_backoff,

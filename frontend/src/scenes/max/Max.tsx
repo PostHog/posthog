@@ -17,7 +17,6 @@ import { ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
 import { cn } from 'lib/utils/css-classes'
 import { maxGlobalLogic } from 'scenes/max/maxGlobalLogic'
-import { sceneLogic } from 'scenes/sceneLogic'
 import { SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
@@ -28,17 +27,22 @@ import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 import { SidePanelTab } from '~/types'
 
+import { runnerPanelLogic } from 'products/posthog_ai/frontend/api/logics'
+
 import { AiFirstMaxInstance } from './components/AiFirstMaxInstance'
 import { AnimatedBackButton } from './components/AnimatedBackButton'
+import { MaxNotConfigured } from './components/MaxNotConfigured'
+import { MAX_SIDE_PANEL_ID, PhaiSidePanelChat } from './components/PhaiSidePanelChat'
+import { PhaiViewToggle } from './components/PhaiViewToggle'
 import { SidebarQuestionInput } from './components/SidebarQuestionInput'
 import { SidebarQuestionInputWithSuggestions } from './components/SidebarQuestionInputWithSuggestions'
 import { ThreadAutoScroller } from './components/ThreadAutoScroller'
 import { ConversationHistory } from './ConversationHistory'
 import { HistoryPreview } from './HistoryPreview'
 import { Intro } from './Intro'
-import { maxLogic } from './maxLogic'
+import { MaxLogicProps, SIDE_PANEL_PANEL_ID, maxLogic } from './maxLogic'
 import { MaxThreadLogicProps, maxThreadLogic } from './maxThreadLogic'
-import { Thread } from './Thread'
+import { SandboxComposerSurfaces, Thread } from './Thread'
 
 export const scene: SceneExport = {
     component: Max,
@@ -48,8 +52,8 @@ export const scene: SceneExport = {
 export function Max({ tabId }: { tabId?: string }): JSX.Element {
     const { sidePanelOpen, selectedTab } = useValues(sidePanelLogic)
     const { closeSidePanel } = useActions(sidePanelLogic)
-    const { conversationId: tabConversationId } = useValues(maxLogic({ tabId: tabId || '' }))
-    const { conversationId: sidepanelConversationId } = useValues(maxLogic({ tabId: 'sidepanel' }))
+    const { conversationId: tabConversationId } = useValues(maxLogic({ panelId: tabId }))
+    const { conversationId: sidepanelConversationId } = useValues(maxLogic({ panelId: SIDE_PANEL_PANEL_ID }))
     if (sidePanelOpen && selectedTab === SidePanelTab.Max && sidepanelConversationId === tabConversationId) {
         return (
             <SceneContent className="px-4 py-4 min-h-[calc(100vh-var(--scene-layout-header-height)-120px)]">
@@ -76,10 +80,15 @@ export function Max({ tabId }: { tabId?: string }): JSX.Element {
 
 export interface MaxInstanceProps {
     sidePanel?: boolean
-    tabId: string
+    tabId?: string
 }
 
 export const MaxInstance = React.memo(function MaxInstance({ sidePanel, tabId }: MaxInstanceProps): JSX.Element {
+    // `sidePanel` here is presentational (side panel chrome/layout) and is independent of the logic
+    // identity we bind: a tabId identifies a scene tab (or a Storybook instance rendered with side
+    // panel chrome), while the real side panel — which has no tabId — binds the side panel panelId.
+    // Folding the presentational flag into the key would hijack tabbed instances.
+    const logicProps: MaxLogicProps = { panelId: tabId ?? SIDE_PANEL_PANEL_ID }
     const {
         threadVisible,
         conversationHistoryVisible,
@@ -88,23 +97,36 @@ export const MaxInstance = React.memo(function MaxInstance({ sidePanel, tabId }:
         threadLogicKey,
         conversation,
         conversationId,
-    } = useValues(maxLogic({ tabId }))
-    const { startNewConversation, goBack } = useActions(maxLogic({ tabId }))
+    } = useValues(maxLogic(logicProps))
+    const { startNewConversation, goBack } = useActions(maxLogic(logicProps))
     const { openSidePanelMax } = useActions(maxGlobalLogic)
-    const { closeTabId } = useActions(sceneLogic)
+    const { isMaxAvailable, effectivePhaiView } = useValues(maxGlobalLogic)
+    // The new posthog_ai view's back button walks its own panel view state (run -> history -> composer)
+    // rather than legacy Max's conversation stack — mounting this tiny headless logic in legacy view is
+    // harmless (unconditional hooks).
+    const { canGoBack: panelCanGoBack } = useValues(runnerPanelLogic({ panelId: MAX_SIDE_PANEL_ID }))
+    const { goBack: panelGoBack } = useActions(runnerPanelLogic({ panelId: MAX_SIDE_PANEL_ID }))
 
     const threadProps: MaxThreadLogicProps = {
-        tabId,
+        ...logicProps,
         conversationId: threadLogicKey,
         conversation,
     }
 
     const { closeSidePanel } = useActions(sidePanelLogic)
 
-    const content = (
-        <BindLogic logic={maxLogic} props={{ tabId }}>
+    const isNewView = effectivePhaiView === 'new'
+    const headerBackDisabled = isNewView ? !panelCanGoBack : backButtonDisabled
+
+    const content = !isMaxAvailable ? (
+        <MaxNotConfigured />
+    ) : (
+        <BindLogic logic={maxLogic} props={logicProps}>
             <BindLogic logic={maxThreadLogic} props={threadProps}>
-                {conversationHistoryVisible ? (
+                {effectivePhaiView === 'new' ? (
+                    // Side panel only shows the new composer + thread viewer — the tasks list lives on /ai.
+                    <PhaiSidePanelChat />
+                ) : conversationHistoryVisible ? (
                     <ConversationHistory sidePanel={sidePanel} />
                 ) : !threadVisible ? (
                     // pb-7 below is intentionally specific - it's chosen so that the bottom-most chat's title
@@ -140,6 +162,7 @@ export const MaxInstance = React.memo(function MaxInstance({ sidePanel, tabId }:
                             </div>
                         )}
                         <Thread className={cn('p-3', sidePanel && 'p-1')} />
+                        <SandboxComposerSurfaces />
                         {!conversation?.has_unsupported_content && (
                             <SidebarQuestionInput isSticky sidePanel={sidePanel} />
                         )}
@@ -152,13 +175,13 @@ export const MaxInstance = React.memo(function MaxInstance({ sidePanel, tabId }:
         <SidePanelPaneHeader className="transition-all duration-200" showCloseButton={false}>
             <div className="flex flex-1 min-w-0 overflow-hidden">
                 <div className="flex items-center flex-1 min-w-0">
-                    <AnimatedBackButton in={!backButtonDisabled}>
+                    <AnimatedBackButton in={isNewView ? panelCanGoBack : !backButtonDisabled}>
                         <ButtonPrimitive
                             iconOnly
-                            onClick={() => goBack()}
+                            onClick={() => (isNewView ? panelGoBack() : goBack())}
                             tooltip="Go back"
                             tooltipPlacement="bottom-end"
-                            disabledReasons={backButtonDisabled ? { 'You are already at home': true } : undefined}
+                            disabledReasons={headerBackDisabled ? { 'You are already at home': true } : undefined}
                         >
                             <IconChevronLeft className="text-tertiary size-3 group-hover:text-primary z-10" />
                         </ButtonPrimitive>
@@ -193,6 +216,7 @@ export const MaxInstance = React.memo(function MaxInstance({ sidePanel, tabId }:
                         <IconShare className="text-tertiary size-3 group-hover:text-primary z-10" />
                     </ButtonPrimitive>
                 )}
+                <PhaiViewToggle variant="primitive" />
                 <Link
                     buttonProps={{
                         iconOnly: true,
@@ -213,7 +237,11 @@ export const MaxInstance = React.memo(function MaxInstance({ sidePanel, tabId }:
 
     return sidePanel ? (
         <>
-            <SidePanelContentContainer contentClassName="flex flex-col flex-1">
+            {/* The new view scrolls internally (virtualized thread, history list), so the ScrollArea
+            content must stay clamped to the panel height — without `min-h-0` its `min-height: auto`
+            grows it to fit the whole thread and no scroller ever engages. The legacy view is the
+            opposite: it relies on this container growing so the outer viewport scrolls it. */}
+            <SidePanelContentContainer contentClassName={cn('flex flex-col flex-1', isNewView && 'min-h-0')}>
                 {header}
                 {content}
             </SidePanelContentContainer>
@@ -247,7 +275,6 @@ export const MaxInstance = React.memo(function MaxInstance({ sidePanel, tabId }:
                                 sideIcon={<IconOpenSidebar />}
                                 onClick={() => {
                                     openSidePanelMax(conversationId ?? undefined)
-                                    closeTabId(tabId, { source: 'open_in_side_panel' })
                                 }}
                             >
                                 Open in context panel

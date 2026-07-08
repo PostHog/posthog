@@ -57,7 +57,13 @@ pub struct SourceFiles {
 /// first-party dependency source files that live in a different directory tree.
 pub fn extract_source_paths_from_dwarf(dwarf_path: &Path) -> Result<Vec<String>> {
     let dwarf_data = fs::read(dwarf_path)?;
-    let archive = Archive::parse(&dwarf_data)?;
+    extract_source_paths_from_dwarf_bytes(&dwarf_data)
+}
+
+/// Like [`extract_source_paths_from_dwarf`], but for callers that already
+/// hold the binary in memory, avoiding a second read from disk.
+pub fn extract_source_paths_from_dwarf_bytes(dwarf_data: &[u8]) -> Result<Vec<String>> {
+    let archive = Archive::parse(dwarf_data)?;
 
     let mut paths: HashSet<String> = HashSet::new();
 

@@ -1,4 +1,4 @@
-from datetime import datetime
+from datetime import datetime, timedelta
 from itertools import groupby
 from typing import Any, Optional, cast
 
@@ -13,12 +13,13 @@ from posthog.hogql.parser import parse_expr, parse_select
 from posthog.hogql_queries.insights.funnels.base import JOIN_ALGOS, FunnelBase
 from posthog.hogql_queries.insights.funnels.funnel import FunnelUDF, FunnelUDFMixin
 from posthog.hogql_queries.insights.funnels.funnel_query_context import FunnelQueryContext
+from posthog.hogql_queries.insights.funnels.utils import get_breakdown_cohort_name
 from posthog.hogql_queries.insights.utils.breakdowns import NOT_IN_COHORT_ID
 from posthog.hogql_queries.insights.utils.utils import get_start_of_interval_hogql, get_start_of_interval_hogql_str
 from posthog.hogql_queries.utils.query_date_range import QueryDateRange
-from posthog.hogql_queries.utils.timestamp_utils import format_label_date
-from posthog.queries.breakdown_props import get_breakdown_cohort_name
-from posthog.queries.util import correct_result_for_sampling, get_earliest_timestamp, get_interval_func_ch
+from posthog.hogql_queries.utils.timestamp_utils import format_label_date, get_earliest_timestamp_unfiltered
+from posthog.interval_specs import get_interval_func
+from posthog.queries.util import correct_result_for_sampling
 from posthog.utils import DATERANGE_MAP, relative_date_parse
 
 
@@ -456,7 +457,7 @@ class FunnelTrendsUDF(FunnelUDFMixin, FunnelBase):
         date_range = self._date_range()
 
         if date_range.date_from() is None:
-            _date_from = get_earliest_timestamp(team.pk)
+            _date_from = get_earliest_timestamp_unfiltered(team)
         else:
             _date_from = date_range.date_from()
 
@@ -470,7 +471,7 @@ class FunnelTrendsUDF(FunnelUDFMixin, FunnelBase):
             name="assumeNotNull",
             args=[ast.Call(name="toDateTime", args=[(ast.Constant(value=formatted_date_to))])],
         )
-        interval_func = get_interval_func_ch(interval.value)
+        interval_func = get_interval_func(interval.value)
 
         fill_select: list[ast.Expr] = [
             ast.Alias(
@@ -504,6 +505,32 @@ class FunnelTrendsUDF(FunnelUDFMixin, FunnelBase):
             select=fill_select,
             select_from=fill_select_from,
         )
+
+        if self.context.funnelsFilter.hideIncompleteConversionWindowPeriods:
+            # Drop periods whose conversion window hasn't fully elapsed yet (relative to now), so the
+            # recent tail of the trend isn't dragged down by entrants who still have time to convert.
+            # A period is kept only once its whole interval has cleared the window, i.e. even its last
+            # possible entrant has had the full window: entrance_period_start + interval <= now - window.
+            cutoff = date_range.now_with_timezone - timedelta(seconds=self.conversion_window_limit())
+            cutoff_as_hogql = ast.Call(
+                name="assumeNotNull",
+                args=[ast.Call(name="toDateTime", args=[ast.Constant(value=cutoff.strftime("%Y-%m-%d %H:%M:%S"))])],
+            )
+            period_end = ast.ArithmeticOperation(
+                left=ast.ArithmeticOperation(
+                    left=get_start_of_interval_hogql(interval.value, team=team, source=date_from_as_hogql),
+                    right=ast.Call(name=interval_func, args=[ast.Field(chain=["number"])]),
+                    op=ast.ArithmeticOperationOp.Add,
+                ),
+                right=ast.Call(name=interval_func, args=[ast.Constant(value=1)]),
+                op=ast.ArithmeticOperationOp.Add,
+            )
+            fill_query.where = ast.CompareOperation(
+                op=ast.CompareOperationOp.LtEq,
+                left=period_end,
+                right=cutoff_as_hogql,
+            )
+
         return fill_query
 
     def get_step_counts_without_aggregation_query(

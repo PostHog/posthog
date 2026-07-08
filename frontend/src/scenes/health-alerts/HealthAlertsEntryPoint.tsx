@@ -14,6 +14,7 @@ import {
 import { HogFunctionList } from 'scenes/hog-functions/list/HogFunctionsList'
 import { HogFunctionTemplateList } from 'scenes/hog-functions/list/HogFunctionTemplateList'
 import { getFiltersFromSubTemplateId } from 'scenes/hog-functions/list/LinkedHogFunctions'
+import { urls } from 'scenes/urls'
 
 import { CyclotronJobFiltersType, HogFunctionSubTemplateType } from '~/types'
 
@@ -31,7 +32,7 @@ export interface HealthAlertsEntryPointProps {
     logicKey?: string
     // Restricts the resulting HogFunction's filter to a `kind IN (...)` set.
     // The central scene reads this from the `preset_kinds` URL search param so
-    // per-page entry points (SDK Doctor, Pipeline Status) can deep-link in with
+    // per-page entry points (SDK Health, Pipeline Status) can deep-link in with
     // a scoped wizard. Omit (or pass an empty array) to leave filters
     // unrestricted (every kind).
     presetKinds?: string[]
@@ -117,6 +118,7 @@ function HealthAlertsEntryPointInner(): JSX.Element {
         <HogFunctionList
             forceFilterGroups={HOG_FUNCTION_FILTER_LIST}
             type="internal_destination"
+            returnTo={urls.healthAlerts(selectedKinds ?? undefined)}
             onDeleteHogFunction={(hogFunction) => {
                 posthog.capture('health_alerts_deleted', { hog_function_id: hogFunction.id })
             }}

@@ -12,6 +12,7 @@ from posthog.models.utils import generate_random_token_personal, hash_key_value
 from posthog.rbac.user_access_control import AccessSource
 from posthog.utils import render_template
 
+from products.cohorts.backend.models.cohort import Cohort
 from products.dashboards.backend.models.dashboard import Dashboard
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
 from products.notebooks.backend.models import Notebook
@@ -267,6 +268,95 @@ class TestAccessControlResourceLevelAPI(BaseAccessControlTest):
     def test_change_accepted_if_creator_of_the_resource(self):
         self._org_membership(OrganizationMembership.Level.MEMBER)
         res = self._put_access_control(notebook_id=self.notebook.short_id)
+        assert res.status_code == status.HTTP_200_OK, res.json()
+
+
+class TestAccessControlObjectCap(BaseAccessControlTest):
+    """
+    Caps distinct objects with per-object access control overrides per (team, resource).
+    See ACCESS_CONTROL_MAX_OBJECTS_PER_RESOURCE in posthog/rbac/user_access_control.py.
+    """
+
+    def setUp(self):
+        super().setUp()
+        self._org_membership(OrganizationMembership.Level.ADMIN)
+        # Patch the cap to a small value so tests don't have to create 1000 rows.
+        self.cap_patcher = patch("ee.api.rbac.access_control.ACCESS_CONTROL_MAX_OBJECTS_PER_RESOURCE", 3)
+        self.cap_patcher.start()
+        self.addCleanup(self.cap_patcher.stop)
+
+    def _make_dashboard(self, name: str) -> Dashboard:
+        return Dashboard.objects.create(team=self.team, created_by=self.user, name=name)
+
+    def _put_dashboard_ac(self, dashboard: Dashboard, payload: dict):
+        return self.client.put(
+            f"/api/projects/@current/dashboards/{dashboard.id}/access_controls",
+            payload,
+        )
+
+    def _fill_to_cap(self, count: int) -> list[Dashboard]:
+        """Create `count` dashboards each with one AC row (consuming `count` slots)."""
+        dashboards = [self._make_dashboard(f"d{i}") for i in range(count)]
+        for d in dashboards:
+            res = self._put_dashboard_ac(d, {"access_level": "viewer"})
+            assert res.status_code == status.HTTP_200_OK, res.json()
+        return dashboards
+
+    def test_new_object_rejected_at_cap(self):
+        self._fill_to_cap(3)  # cap is 3
+        new_dashboard = self._make_dashboard("d4")
+
+        res = self._put_dashboard_ac(new_dashboard, {"access_level": "viewer"})
+
+        assert res.status_code == status.HTTP_400_BAD_REQUEST, res.json()
+        assert "Reached the limit of 3 dashboards with access control overrides" in json.dumps(res.json())
+
+    def test_additional_rule_on_existing_object_allowed_at_cap(self):
+        dashboards = self._fill_to_cap(3)
+        # Add a second AC row on an already-restricted dashboard (different role override).
+        role = Role.objects.create(organization=self.organization, name="viewers")
+        res = self._put_dashboard_ac(
+            dashboards[0],
+            {"role": str(role.id), "access_level": "editor"},
+        )
+        assert res.status_code == status.HTTP_200_OK, res.json()
+
+    def test_update_existing_rule_allowed_at_cap(self):
+        dashboards = self._fill_to_cap(3)
+        # Bump an existing default rule from viewer to editor.
+        res = self._put_dashboard_ac(dashboards[0], {"access_level": "editor"})
+        assert res.status_code == status.HTTP_200_OK, res.json()
+
+    def test_delete_allowed_at_cap(self):
+        dashboards = self._fill_to_cap(3)
+        res = self._put_dashboard_ac(dashboards[0], {"access_level": None})
+        assert res.status_code == status.HTTP_204_NO_CONTENT, res.content
+
+    def test_resource_level_default_not_capped(self):
+        # The 3-object cap is on resource_id IS NOT NULL rows; resource-level
+        # (project-wide) defaults are unrelated and must not be blocked.
+        self._fill_to_cap(3)
+        res = self.client.put(
+            "/api/projects/@current/resource_access_controls",
+            {"resource": "dashboard", "access_level": "viewer"},
+        )
+        assert res.status_code == status.HTTP_200_OK, res.json()
+
+    def test_cap_is_per_resource_not_per_team(self):
+        # Filling the dashboard slots must not block creating object-level rules for
+        # other resources (notebooks here).
+        self._fill_to_cap(3)
+        notebook = Notebook.objects.create(team=self.team, created_by=self.user, short_id="nb1", title="nb1")
+        res = self.client.put(
+            f"/api/projects/@current/notebooks/{notebook.short_id}/access_controls",
+            {"access_level": "viewer"},
+        )
+        assert res.status_code == status.HTTP_200_OK, res.json()
+
+    def test_below_cap_create_works(self):
+        self._fill_to_cap(2)
+        new_dashboard = self._make_dashboard("d3")
+        res = self._put_dashboard_ac(new_dashboard, {"access_level": "viewer"})
         assert res.status_code == status.HTTP_200_OK, res.json()
 
 
@@ -1012,22 +1102,22 @@ class TestAccessControlQueryCounts(BaseAccessControlTest):
         baseline = 18
 
         # Access controls total 2 extra queries - 1 for org membership, 1 for the user roles, 1 for the preloaded access controls
-        with self.assertNumQueries(baseline + 5):
+        with self.assertNumQueries(baseline + 4):
             self.client.get(f"/api/projects/@current/dashboards/{my_dashboard.id}?no_items_field=true")
 
         # Accessing a different users dashboard doesn't +1 as the preload works using the pk
-        with self.assertNumQueries(baseline + 5):
+        with self.assertNumQueries(baseline + 4):
             self.client.get(f"/api/projects/@current/dashboards/{other_user_dashboard.id}?no_items_field=true")
 
         baseline = 8
         # Getting my own notebook is the same as a dashboard - 3 extra queries
         # +1 for the parent_resource lookup on NotebookSerializer
-        with self.assertNumQueries(baseline + 7):
+        with self.assertNumQueries(baseline + 6):
             self.client.get(f"/api/projects/@current/notebooks/{self.notebook.short_id}")
 
         # Except when accessing a different notebook where we _also_ need to check as we are not the creator and the pk is not the same (short_id)
         # +1 for the parent_resource lookup on NotebookSerializer
-        with self.assertNumQueries(baseline + 8):
+        with self.assertNumQueries(baseline + 6):
             self.client.get(f"/api/projects/@current/notebooks/{self.other_user_notebook.short_id}")
 
         baseline = 8
@@ -1038,7 +1128,7 @@ class TestAccessControlQueryCounts(BaseAccessControlTest):
 
         # When accessing the list of notebooks we have extra queries due to checking for role based access and filtering out items
         baseline = 9
-        with self.assertNumQueries(baseline + 7):  # org, roles, preloaded access controls
+        with self.assertNumQueries(baseline + 5):  # org, roles, preloaded access controls
             self.client.get("/api/projects/@current/notebooks/")
 
     def test_query_counts_with_preload_optimization(self):
@@ -1053,11 +1143,11 @@ class TestAccessControlQueryCounts(BaseAccessControlTest):
         baseline = 17
 
         # Access controls total 2 extra queries - 1 for org membership, 1 for the user roles, 1 for the preloaded access controls
-        with self.assertNumQueries(baseline + 6):
+        with self.assertNumQueries(baseline + 5):
             self.client.get(f"/api/projects/@current/dashboards/{my_dashboard.id}?no_items_field=true")
 
         # Accessing a different users dashboard doesn't +1 as the preload works using the pk
-        with self.assertNumQueries(baseline + 6):
+        with self.assertNumQueries(baseline + 5):
             self.client.get(f"/api/projects/@current/dashboards/{other_user_dashboard.id}?no_items_field=true")
 
     def test_query_counts_only_adds_1_for_non_pk_resources(self):
@@ -1068,12 +1158,12 @@ class TestAccessControlQueryCounts(BaseAccessControlTest):
 
         # Getting my own notebook is the same as a dashboard - 3 extra queries
         # +1 for the parent_resource lookup on NotebookSerializer
-        with self.assertNumQueries(baseline + 7):
+        with self.assertNumQueries(baseline + 6):
             self.client.get(f"/api/projects/@current/notebooks/{self.notebook.short_id}")
 
         # Except when accessing a different notebook where we _also_ need to check as we are not the creator and the pk is not the same (short_id)
         # +1 for the parent_resource lookup on NotebookSerializer
-        with self.assertNumQueries(baseline + 8):
+        with self.assertNumQueries(baseline + 6):
             self.client.get(f"/api/projects/@current/notebooks/{self.other_user_notebook.short_id}")
 
     def test_query_counts_stable_for_project_access(self):
@@ -1087,14 +1177,14 @@ class TestAccessControlQueryCounts(BaseAccessControlTest):
 
         # When accessing the list of notebooks we have extra queries due to checking for role based access and filtering out items
         baseline = 9
-        with self.assertNumQueries(baseline + 7):  # org, roles, preloaded access controls
+        with self.assertNumQueries(baseline + 5):  # org, roles, preloaded access controls
             self.client.get("/api/projects/@current/notebooks/")
 
     def test_query_counts_stable_when_listing_resources(self):
         # When accessing the list of notebooks we have extra queries due to checking for role based access and filtering out items
         baseline = 9
 
-        with self.assertNumQueries(baseline + 7):  # org, roles, preloaded access controls
+        with self.assertNumQueries(baseline + 5):  # org, roles, preloaded access controls
             self.client.get("/api/projects/@current/notebooks/")
 
     def test_query_counts_stable_when_listing_resources_including_access_control_info(self):
@@ -1104,14 +1194,14 @@ class TestAccessControlQueryCounts(BaseAccessControlTest):
         baseline = 16  # This is a lot! There is currently an n+1 issue with the legacy access control system
 
         # +8: org, roles, preloaded permissions acs, preloaded acs for the list, survey internal flag IDs
-        with self.assertNumQueries(baseline + 9):
+        with self.assertNumQueries(baseline + 7):
             self.client.get("/api/projects/@current/feature_flags/")
 
         for i in range(10):
             FeatureFlag.objects.create(team=self.team, created_by=self.other_user, key=f"flag-{10 + i}")
 
         # +8: org, roles, preloaded permissions acs, preloaded acs for the list, survey internal flag IDs
-        with self.assertNumQueries(baseline + 9):
+        with self.assertNumQueries(baseline + 7):
             self.client.get("/api/projects/@current/feature_flags/")
 
 
@@ -1926,3 +2016,60 @@ class TestAccessControlMembersEndpoint(BaseAccessControlTest):
         res = self.client.get("/api/projects/@current/access_control_members")
         member_data = self._find_member(res.json()["results"], self.user2_membership.id)
         assert member_data["project"]["access_level"] == "member"
+
+
+class TestCohortUsedInAccessControl(BaseAccessControlTest):
+    def setUp(self):
+        super().setUp()
+        self.other_user = self._create_user("other_user")
+
+    def _cohort_flag_filters(self, cohort_id: int) -> dict:
+        return {"groups": [{"properties": [{"key": "id", "value": cohort_id, "type": "cohort"}]}]}
+
+    def _create_cohort_with_restricted_flag(self) -> Cohort:
+        # Two flags reference the cohort; "hidden-flag" gets object-level "none" access.
+        # Leaves the current user as an org ADMIN.
+        cohort = Cohort.objects.create(team=self.team, name="Target Cohort")
+        FeatureFlag.objects.create(
+            team=self.team,
+            created_by=self.user,
+            key="visible-flag",
+            name="Visible Flag",
+            filters=self._cohort_flag_filters(cohort.id),
+        )
+        hidden_flag = FeatureFlag.objects.create(
+            team=self.team,
+            created_by=self.other_user,
+            key="hidden-flag",
+            name="Hidden Flag",
+            filters=self._cohort_flag_filters(cohort.id),
+        )
+
+        self._org_membership(OrganizationMembership.Level.ADMIN)
+        res = self.client.put(
+            f"/api/projects/@current/feature_flags/{hidden_flag.id}/access_controls",
+            {"access_level": "none"},
+        )
+        assert res.status_code == status.HTTP_200_OK, res.json()
+        return cohort
+
+    def test_used_in_excludes_flags_without_access(self):
+        cohort = self._create_cohort_with_restricted_flag()
+        self._org_membership(OrganizationMembership.Level.MEMBER)
+
+        res = self.client.get(f"/api/projects/@current/cohorts/{cohort.id}/used_in")
+        assert res.status_code == status.HTTP_200_OK, res.json()
+        block = res.json()["feature_flags"]
+        assert [flag["key"] for flag in block["results"]] == ["visible-flag"]
+        assert block["total"] == 1
+        assert block["has_more"] is False
+
+    def test_used_in_includes_restricted_flags_for_org_admins(self):
+        cohort = self._create_cohort_with_restricted_flag()
+
+        res = self.client.get(f"/api/projects/@current/cohorts/{cohort.id}/used_in")
+        assert res.status_code == status.HTTP_200_OK, res.json()
+        block = res.json()["feature_flags"]
+        assert [flag["key"] for flag in block["results"]] == ["visible-flag", "hidden-flag"]
+        assert block["total"] == 2
+        assert block["has_more"] is False

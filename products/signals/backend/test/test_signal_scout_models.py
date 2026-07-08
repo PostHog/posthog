@@ -1,14 +1,21 @@
 from contextlib import AbstractContextManager
+from typing import TYPE_CHECKING
 
 import pytest
 from posthog.test.base import BaseTest
 
+from django.apps import apps
 from django.db import IntegrityError
+from django.utils import timezone
 
+from posthog.models import Organization, Team
+from posthog.models.activity_logging.activity_log import ActivityLog
 from posthog.models.scoping import team_scope
 
 from products.signals.backend.models import SignalScoutConfig, SignalScoutRun, SignalScratchpad
-from products.tasks.backend.models import Task, TaskRun
+
+if TYPE_CHECKING:
+    from products.tasks.backend.models import TaskRun
 
 
 class _ScoutTeamScopedTestMixin:
@@ -36,31 +43,62 @@ class TestSignalScoutModels(_ScoutTeamScopedTestMixin, BaseTest):
     def test_signal_scout_config_round_trip(self) -> None:
         config = SignalScoutConfig.objects.create(
             team=self.team,
+            skill_name="signals-scout-errors",
             enabled=True,
-            enabled_skill_names=["signals-scout-errors", "signals-scout-llm"],
+            emit=True,
+            run_interval_minutes=60,
             created_by=self.user,
+            enabled_by=self.user,
         )
 
         loaded = SignalScoutConfig.objects.get(pk=config.pk)
         assert loaded.team_id == self.team.id
+        assert loaded.skill_name == "signals-scout-errors"
         assert loaded.enabled is True
-        assert loaded.enabled_skill_names == ["signals-scout-errors", "signals-scout-llm"]
+        assert loaded.emit is True
+        assert loaded.run_interval_minutes == 60
         assert loaded.created_by_id == self.user.id
+        assert loaded.enabled_by_id == self.user.id
 
     def test_signal_scout_config_defaults(self) -> None:
-        config = SignalScoutConfig.objects.create(team=self.team)
+        config = SignalScoutConfig.objects.create(team=self.team, skill_name="signals-scout-foo")
         loaded = SignalScoutConfig.objects.get(pk=config.pk)
-        # Defaults: disabled, no skill narrowing.
-        assert loaded.enabled is False
-        assert loaded.enabled_skill_names is None
+        # Auto-created scouts run every 24 hours and emit on by default (live from the first tick).
+        assert loaded.enabled is True
+        assert loaded.emit is True
+        assert loaded.run_interval_minutes == 1440
+        assert loaded.last_run_at is None
 
-    def test_signal_scout_config_one_per_team(self) -> None:
-        SignalScoutConfig.objects.create(team=self.team)
+    def test_signal_scout_config_one_per_team_skill(self) -> None:
+        SignalScoutConfig.objects.create(team=self.team, skill_name="signals-scout-foo")
         with pytest.raises(IntegrityError):
-            SignalScoutConfig.objects.create(team=self.team)
+            SignalScoutConfig.objects.create(team=self.team, skill_name="signals-scout-foo")
 
-    def _make_task_run(self) -> TaskRun:
+    def test_signal_scout_config_multiple_skills_per_team(self) -> None:
+        SignalScoutConfig.objects.create(team=self.team, skill_name="signals-scout-foo")
+        SignalScoutConfig.objects.create(team=self.team, skill_name="signals-scout-bar")
+        assert SignalScoutConfig.objects.filter(team=self.team).count() == 2
+
+    def test_enabling_scout_logs_activity(self) -> None:
+        config = SignalScoutConfig.objects.create(team=self.team, skill_name="signals-scout-foo", enabled=False)
+        config.enabled = True
+        config.save()
+        assert ActivityLog.objects.filter(
+            scope="SignalScoutConfig", item_id=str(config.id), activity="updated"
+        ).exists()
+
+    def test_last_run_at_update_skips_activity_log(self) -> None:
+        # The coordinator stamps last_run_at via .update() every tick; that hot write must
+        # not flood the audit log.
+        config = SignalScoutConfig.objects.create(team=self.team, skill_name="signals-scout-foo")
+        ActivityLog.objects.filter(scope="SignalScoutConfig").delete()
+        SignalScoutConfig.all_teams.filter(pk=config.pk).update(last_run_at=timezone.now())
+        assert not ActivityLog.objects.filter(scope="SignalScoutConfig", item_id=str(config.id)).exists()
+
+    def _make_task_run(self) -> "TaskRun":
         """Minimal Task + TaskRun pair scoped to this test's team."""
+        Task = apps.get_model("tasks", "Task")
+        TaskRun = apps.get_model("tasks", "TaskRun")
         task = Task.objects.create(
             team=self.team,
             title="scout run",
@@ -70,7 +108,7 @@ class TestSignalScoutModels(_ScoutTeamScopedTestMixin, BaseTest):
         return TaskRun.objects.create(task=task, team=self.team)
 
     def test_signal_scout_run_round_trip(self) -> None:
-        config = SignalScoutConfig.objects.create(team=self.team, enabled=True)
+        config = SignalScoutConfig.objects.create(team=self.team, skill_name="signals-scout-errors", enabled=True)
         task_run = self._make_task_run()
         run = SignalScoutRun.objects.create(
             task_run=task_run,
@@ -101,7 +139,7 @@ class TestSignalScoutModels(_ScoutTeamScopedTestMixin, BaseTest):
 
     def test_signal_scout_run_survives_config_deletion(self) -> None:
         # SET_NULL on scout_config: deleting the config row keeps run history intact for audit.
-        config = SignalScoutConfig.objects.create(team=self.team)
+        config = SignalScoutConfig.objects.create(team=self.team, skill_name="signals-scout-errors")
         task_run = self._make_task_run()
         run = SignalScoutRun.objects.create(
             task_run=task_run,
@@ -138,3 +176,21 @@ class TestSignalScoutModels(_ScoutTeamScopedTestMixin, BaseTest):
         SignalScratchpad.objects.create(team=self.team, key="dup", content="first")
         with pytest.raises(IntegrityError):
             SignalScratchpad.objects.create(team=self.team, key="dup", content="second")
+
+
+@pytest.mark.django_db
+def test_scout_config_update_without_team_scope_logs_activity() -> None:
+    # Django admin / coordinator / shell edits run with no team context. The activity-logging
+    # prior-state lookup must use the unscoped manager, not the fail-closed `objects`, or the
+    # save raises TeamScopeError before the change is persisted. Function-style (not BaseTest)
+    # so the conftest's auto team_scope does not apply.
+    org = Organization.objects.create(name="ScoutScopeTestOrg")
+    team = Team.objects.create(organization=org, name="ScoutScopeTestTeam")
+    config = SignalScoutConfig.all_teams.create(team=team, skill_name="signals-scout-x", emit=False)
+
+    config.emit = True
+    config.save()
+
+    config.refresh_from_db()
+    assert config.emit is True
+    assert ActivityLog.objects.filter(scope="SignalScoutConfig", item_id=str(config.id), activity="updated").exists()

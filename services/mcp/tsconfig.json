@@ -16,9 +16,8 @@
         "noImplicitReturns": true,
         "noFallthroughCasesInSwitch": true,
         "noUncheckedIndexedAccess": true,
-        "exactOptionalPropertyTypes": true,
         "skipLibCheck": true,
-        "types": ["node", "./worker-configuration.d.ts", "./types.d.ts", "@cloudflare/vitest-pool-workers"],
+        "types": ["node", "./worker-configuration.d.ts", "./types.d.ts", "@cloudflare/vitest-pool-workers/types"],
         "paths": {
             "products/*": ["../../products/*"],
             "@/*": ["./src/*", "./tests/*"],
@@ -26,10 +25,11 @@
             "@posthog/mcp-ui": ["./src/ui-apps/lib/index.ts"],
             "@posthog/mcp-ui/*": ["./src/ui-apps/lib/*"],
             "@posthog/quill": ["../../packages/quill/packages/quill/dist/index.d.ts"],
+            "@posthog/quill-charts": ["../../packages/quill/packages/charts/dist/index.d.ts"],
             "lucide-react": ["./node_modules/lucide-react"],
             "@common/*": ["../../common/*"]
         }
     },
     "include": ["src/**/*.ts", "src/**/*.tsx", "scripts/**/*.ts", "tests/**/*.ts", "worker-configuration.d.ts"],
-    "exclude": ["node_modules", "dist", "src/ui-apps/lib/storybook/**"]
+    "exclude": ["node_modules", "dist", "src/ui-apps/lib/storybook/**", "src/**/*.stories.tsx"]
 }

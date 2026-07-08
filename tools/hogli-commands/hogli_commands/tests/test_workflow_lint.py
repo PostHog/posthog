@@ -15,6 +15,14 @@ import pytest
 
 from hogli_commands.workflow_lint.check import CheckResult, WorkflowCheck
 from hogli_commands.workflow_lint.checks import CHECKS, _build_lookup, get_check
+from hogli_commands.workflow_lint.checks.cache_writes import (
+    _can_run_on_branch_ref,
+    _is_gated,
+    _push_trigger_is_default_only,
+    _violation_kind,
+    _write_kind,
+)
+from hogli_commands.workflow_lint.checks.checkout_full_depth import CheckoutFullDepthCheck
 from hogli_commands.workflow_lint.checks.dorny_negation import DornyNegationCheck
 from hogli_commands.workflow_lint.checks.job_timeouts import JobTimeoutsCheck
 from hogli_commands.workflow_lint.checks.pr_concurrency import PrConcurrencyCheck
@@ -518,6 +526,292 @@ class TestSemgrepServicesCoverageCheck:
         [issue] = SemgrepServicesCoverageCheck(repo_root=repo_root).run(_read_all(workflows_dir)).issues
         assert issue.workflow == "ci-security.yaml"
         assert "services/worker/" in issue.message
+
+
+# ---------------------------------------------------------------------------
+# CheckoutFullDepthCheck
+# ---------------------------------------------------------------------------
+
+
+class TestCheckoutFullDepthCheck:
+    def test_passes_default_checkout(self, tmp_path: Path) -> None:
+        _write(
+            tmp_path,
+            "wf.yml",
+            """
+            name: x
+            on: [pull_request]
+            jobs:
+              build:
+                runs-on: ubuntu-latest
+                timeout-minutes: 5
+                steps:
+                  - uses: actions/checkout@v6
+            """,
+        )
+        assert CheckoutFullDepthCheck().run(_read_all(tmp_path)).issues == []
+
+    def test_passes_blobless_full_depth_checkout(self, tmp_path: Path) -> None:
+        _write(
+            tmp_path,
+            "wf.yml",
+            """
+            name: x
+            on: [pull_request]
+            jobs:
+              build:
+                runs-on: ubuntu-latest
+                timeout-minutes: 5
+                steps:
+                  - uses: actions/checkout@v6
+                    with:
+                      fetch-depth: 0
+                      filter: blob:none
+            """,
+        )
+        assert CheckoutFullDepthCheck().run(_read_all(tmp_path)).issues == []
+
+    def test_passes_sparse_full_depth_checkout(self, tmp_path: Path) -> None:
+        _write(
+            tmp_path,
+            "wf.yml",
+            """
+            name: x
+            on: [pull_request]
+            jobs:
+              build:
+                runs-on: ubuntu-latest
+                timeout-minutes: 5
+                steps:
+                  - uses: actions/checkout@v6
+                    with:
+                      fetch-depth: 0
+                      sparse-checkout: |
+                        rust/
+                        proto/
+            """,
+        )
+        assert CheckoutFullDepthCheck().run(_read_all(tmp_path)).issues == []
+
+    def test_passes_explicit_allow_marker_with_reason(self, tmp_path: Path) -> None:
+        _write(
+            tmp_path,
+            "wf.yml",
+            """
+            name: x
+            on: [push]
+            jobs:
+              mirror:
+                runs-on: ubuntu-latest
+                timeout-minutes: 5
+                steps:
+                  # hogli-lint: allow-full-depth-checkout -- mirror needs full blobs
+                  - name: Checkout mirror
+                    uses: "actions/checkout@v6"
+                    with:
+                      fetch-depth: 0
+            """,
+        )
+        assert CheckoutFullDepthCheck().run(_read_all(tmp_path)).issues == []
+
+    def test_fails_full_depth_without_optimization(self, tmp_path: Path) -> None:
+        _write(
+            tmp_path,
+            "wf.yml",
+            """
+            name: x
+            on: [pull_request]
+            jobs:
+              build:
+                runs-on: ubuntu-latest
+                timeout-minutes: 5
+                steps:
+                  - uses: actions/checkout@v6
+                    with:
+                      fetch-depth: "0"
+            """,
+        )
+        [issue] = CheckoutFullDepthCheck().run(_read_all(tmp_path)).issues
+        assert issue.workflow == "wf.yml"
+        assert issue.job == "build"
+        assert "fetch-depth: 0" in issue.message
+
+    def test_allow_marker_requires_reason(self, tmp_path: Path) -> None:
+        _write(
+            tmp_path,
+            "wf.yml",
+            """
+            name: x
+            on: [push]
+            jobs:
+              mirror:
+                runs-on: ubuntu-latest
+                timeout-minutes: 5
+                steps:
+                  # hogli-lint: allow-full-depth-checkout
+                  - uses: actions/checkout@v6
+                    with:
+                      fetch-depth: 0
+            """,
+        )
+        [issue] = CheckoutFullDepthCheck().run(_read_all(tmp_path)).issues
+        assert "allow-full-depth-checkout" in issue.message
+
+    def test_allow_marker_does_not_apply_to_previous_checkout(self, tmp_path: Path) -> None:
+        _write(
+            tmp_path,
+            "wf.yml",
+            """
+            name: x
+            on: [push]
+            jobs:
+              mirror:
+                runs-on: ubuntu-latest
+                timeout-minutes: 5
+                steps:
+                  - uses: "actions/checkout@v6"
+                    with:
+                      fetch-depth: 0
+
+                  # hogli-lint: allow-full-depth-checkout -- mirror needs full blobs
+                  - uses: actions/checkout@v6
+                    with:
+                      fetch-depth: 0
+            """,
+        )
+        [issue] = CheckoutFullDepthCheck().run(_read_all(tmp_path)).issues
+        assert issue.step == "step[0]"
+        assert "fetch-depth: 0" in issue.message
+
+    def test_passes_filter_combined_with_sparse_checkout(self, tmp_path: Path) -> None:
+        _write(
+            tmp_path,
+            "wf.yml",
+            """
+            name: x
+            on: [pull_request]
+            jobs:
+              build:
+                runs-on: ubuntu-latest
+                timeout-minutes: 5
+                steps:
+                  - uses: actions/checkout@v6
+                    with:
+                      fetch-depth: 0
+                      filter: blob:none
+                      sparse-checkout: |
+                        rust/
+            """,
+        )
+        assert CheckoutFullDepthCheck().run(_read_all(tmp_path)).issues == []
+
+
+# ---------------------------------------------------------------------------
+# CacheWriteGateCheck
+# ---------------------------------------------------------------------------
+
+
+def _cache_step(if_cond: str | None = None, key: str | None = None) -> dict:
+    step: dict = {"uses": "actions/cache@v4"}
+    if if_cond is not None:
+        step["if"] = if_cond
+    if key is not None:
+        step["with"] = {"key": key}
+    return step
+
+
+class TestCacheWriteGateCheck:
+    @pytest.mark.parametrize(
+        "uses, with_, expected",
+        [
+            ("actions/cache@v4", None, "cache (combined)"),
+            ("actions/cache/save@v4", None, "cache/save"),
+            ("actions/cache/restore@v4", None, None),
+            ("actions/setup-node@v4", {"cache": "pnpm"}, "setup auto-cache"),
+            ("actions/setup-node@v4", {}, None),
+            ("actions/checkout@v4", None, None),
+        ],
+    )
+    def test_write_kind(self, uses: str, with_: dict | None, expected: str | None) -> None:
+        step: dict = {"uses": uses}
+        if with_ is not None:
+            step["with"] = with_
+        assert _write_kind(step) == expected
+
+    @pytest.mark.parametrize(
+        "if_cond, gated",
+        [
+            ("github.ref == 'refs/heads/master'", True),
+            ("github.ref == 'refs/heads/main'", True),
+            ("github.ref_name == 'master'", True),
+            # AND only narrows — still pinned to master
+            ("github.ref == 'refs/heads/master' && github.event_name == 'push'", True),
+            # both OR alternatives pin to a default branch
+            ("github.ref == 'refs/heads/master' || github.ref == 'refs/heads/main'", True),
+            # the nit: negation runs on branches, not master
+            ("github.ref != 'refs/heads/master'", False),
+            # the nit: OR re-opens the write to PRs
+            ("github.ref == 'refs/heads/master' || github.event_name == 'pull_request'", False),
+            ("", False),
+        ],
+    )
+    def test_is_gated(self, if_cond: str, gated: bool) -> None:
+        assert _is_gated({"if": if_cond}, push_is_default_only=True) is gated
+
+    @pytest.mark.parametrize("push_is_default_only, gated", [(True, True), (False, False)])
+    def test_event_name_push_gate_depends_on_push_scope(self, push_is_default_only: bool, gated: bool) -> None:
+        # `event_name == 'push'` only pins to master when push can't fire on a branch
+        assert _is_gated({"if": "github.event_name == 'push'"}, push_is_default_only) is gated
+
+    @pytest.mark.parametrize(
+        "step, expected",
+        [
+            (_cache_step(), "cache (combined)"),
+            (_cache_step(if_cond="github.ref == 'refs/heads/master'"), None),
+            (_cache_step(key="pnpm-${{ github.event.pull_request.number }}"), None),
+            # the nit: previously these slipped through as gated
+            (_cache_step(if_cond="github.ref != 'refs/heads/master'"), "cache (combined)"),
+            (
+                _cache_step(if_cond="github.ref == 'refs/heads/master' || github.event_name == 'pull_request'"),
+                "cache (combined)",
+            ),
+        ],
+    )
+    def test_violation_kind(self, step: dict, expected: str | None) -> None:
+        assert _violation_kind(step, push_is_default_only=True) == expected
+
+    def test_setup_autocache_cannot_be_gated(self) -> None:
+        # gating the whole setup step would skip the toolchain on PRs, so the
+        # auto-save is always a violation regardless of `if:`
+        step = {"uses": "actions/setup-node@v4", "if": "github.ref == 'refs/heads/master'", "with": {"cache": "pnpm"}}
+        assert _violation_kind(step, push_is_default_only=True) == "setup auto-cache"
+
+    @pytest.mark.parametrize(
+        "on, can_run_on_branch",
+        [
+            ("pull_request", True),
+            (["pull_request", "push"], True),
+            ({"push": None}, True),  # bare push fires on every branch
+            ({"push": {"branches": ["master"]}}, False),
+            ({"push": {"tags": ["*"]}}, False),  # release pushes
+            ("workflow_dispatch", False),
+            ("schedule", False),
+        ],
+    )
+    def test_can_run_on_branch_ref(self, on: object, can_run_on_branch: bool) -> None:
+        assert _can_run_on_branch_ref(on) is can_run_on_branch
+
+    @pytest.mark.parametrize(
+        "on, default_only",
+        [
+            ("pull_request", True),  # no push trigger
+            ({"push": {"branches": ["master"]}}, True),
+            ({"push": None}, False),  # bare push leaks to branches
+            ({"push": {"branches": ["master", "feature"]}}, False),
+        ],
+    )
+    def test_push_trigger_is_default_only(self, on: object, default_only: bool) -> None:
+        assert _push_trigger_is_default_only(on) is default_only
 
 
 # ---------------------------------------------------------------------------

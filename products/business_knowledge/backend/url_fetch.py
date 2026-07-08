@@ -87,6 +87,19 @@ def sha256_of(text: str) -> str:
     return hashlib.sha256(text.encode("utf-8")).hexdigest()
 
 
+def prefetch_key(url: str) -> str:
+    """
+    Stable cache key for a URL, shared by the crawl prefetch path. Discovery
+    caches fetched bodies under this key and the fetch phase looks them up by
+    it — they MUST agree, so both go through this one function.
+    """
+
+    try:
+        return normalize_url(url)
+    except UrlFetchError:
+        return url
+
+
 # --- DNS-pinning adapter — eliminates TOCTOU rebinding window ----------------
 
 

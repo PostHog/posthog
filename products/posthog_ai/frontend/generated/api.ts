@@ -16,11 +16,11 @@ export const getMcpToolsCreateUrl = (projectId: string, toolName: string) => {
 
 /**
  * Invoke an MCP tool by name.
-
-This endpoint allows MCP callers to invoke Max AI tools directly
-without going through the full LangChain conversation flow.
-
-Scopes are resolved dynamically per tool via dangerously_get_required_scopes.
+ *
+ * This endpoint allows MCP callers to invoke Max AI tools directly
+ * without going through the full LangChain conversation flow.
+ *
+ * Scopes are resolved dynamically per tool via dangerously_get_required_scopes.
  */
 export const mcpToolsCreate = async (
     projectId: string,

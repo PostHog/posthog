@@ -1,0 +1,127 @@
+{
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "description": "Inputs for estimating the recommended sample size and running time of an experiment.",
+    "properties": {
+        "baseline_stats": {
+            "anyOf": [
+                {
+                    "description": "Raw control-group statistics the calculator uses to derive a baseline value and variance.\n\nSupply this when you want the server to compute the baseline value and (for ratio/retention)\nthe delta-method variance, instead of passing `baseline_value`/`variance` directly.",
+                    "properties": {
+                        "denominator_sum": {
+                            "anyOf": [
+                                {
+                                    "type": "number"
+                                },
+                                {
+                                    "type": "null"
+                                }
+                            ],
+                            "description": "Sum of the denominator values. Required for ratio/retention metrics."
+                        },
+                        "denominator_sum_squares": {
+                            "anyOf": [
+                                {
+                                    "type": "number"
+                                },
+                                {
+                                    "type": "null"
+                                }
+                            ],
+                            "description": "Sum of squared denominator values (ratio/retention variance)."
+                        },
+                        "number_of_samples": {
+                            "description": "Number of control-group samples (users/units) observed.",
+                            "minimum": 0,
+                            "type": "number"
+                        },
+                        "numerator_denominator_sum_product": {
+                            "anyOf": [
+                                {
+                                    "type": "number"
+                                },
+                                {
+                                    "type": "null"
+                                }
+                            ],
+                            "description": "Sum of numerator×denominator products, used for the delta-method covariance term."
+                        },
+                        "step_counts": {
+                            "description": "Per-step counts for funnel metrics; the last entry is the final-step count.",
+                            "items": {
+                                "type": "number"
+                            },
+                            "type": "array"
+                        },
+                        "sum": {
+                            "description": "Sum of the metric values across the control group (for funnels, the numerator/conversions).",
+                            "type": "number"
+                        },
+                        "sum_squares": {
+                            "default": 0,
+                            "description": "Sum of squared metric values. Required for ratio/retention variance.",
+                            "type": "number"
+                        }
+                    },
+                    "required": ["number_of_samples", "sum"],
+                    "type": "object"
+                },
+                {
+                    "type": "null"
+                }
+            ],
+            "description": "Raw control-group statistics. When provided, the server derives baseline_value and variance."
+        },
+        "baseline_value": {
+            "anyOf": [
+                {
+                    "type": "number"
+                },
+                {
+                    "type": "null"
+                }
+            ],
+            "description": "Baseline metric value: conversion rate as a fraction 0-1 (funnel), average per user (mean), or the ratio (ratio/retention). Provide this or baseline_stats."
+        },
+        "exposure_rate_per_day": {
+            "anyOf": [
+                {
+                    "minimum": 0,
+                    "type": "number"
+                },
+                {
+                    "type": "null"
+                }
+            ],
+            "description": "Expected exposures per day. When provided, the response includes the recommended running time."
+        },
+        "metric_type": {
+            "description": "Metric type to size for. 'funnel' for conversion rates, 'mean_count' for event counts per user, 'mean_sum_or_avg' for summed property values per user, 'ratio' and 'retention' for ratio-style metrics (both require baseline_stats or an explicit variance).\n\n* `funnel` - funnel\n* `mean_count` - mean_count\n* `mean_sum_or_avg` - mean_sum_or_avg\n* `ratio` - ratio\n* `retention` - retention",
+            "enum": ["funnel", "mean_count", "mean_sum_or_avg", "ratio", "retention"],
+            "type": "string"
+        },
+        "minimum_detectable_effect": {
+            "description": "Smallest relative change to detect, as a percentage (e.g. 5 means a 5% lift). Must be > 0.",
+            "minimum": 0,
+            "type": "number"
+        },
+        "number_of_variants": {
+            "default": 2,
+            "description": "Total number of variants including control (default 2).",
+            "minimum": 2,
+            "type": "number"
+        },
+        "variance": {
+            "anyOf": [
+                {
+                    "type": "number"
+                },
+                {
+                    "type": "null"
+                }
+            ],
+            "description": "Pre-computed variance for ratio/retention metrics. Provide this or baseline_stats when metric_type is ratio/retention and baseline_value is given directly."
+        }
+    },
+    "required": ["metric_type", "minimum_detectable_effect"],
+    "type": "object"
+}

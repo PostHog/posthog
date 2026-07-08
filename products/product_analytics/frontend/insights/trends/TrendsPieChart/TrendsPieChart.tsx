@@ -2,9 +2,12 @@ import { useValues } from 'kea'
 import posthog from 'posthog-js'
 import { useCallback, useMemo, type ErrorInfo } from 'react'
 
-import { buildTheme } from 'lib/charts/utils/theme'
-import { PieChart } from 'lib/hog-charts'
-import type { PieChartConfig, RadialSlicePayload, Series, TooltipContext } from 'lib/hog-charts'
+import { PieChart } from '@posthog/quill-charts'
+import type { PieChartConfig, RadialSlicePayload, Series, TooltipContext } from '@posthog/quill-charts'
+
+import { useChartTheme } from 'lib/charts/hooks'
+import { FEATURE_FLAGS } from 'lib/constants'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import {
     formatAggregationAxisValue,
     formatAggregationAxisValueWithShareOfTotal,
@@ -19,13 +22,13 @@ import { trendsDataLogic } from 'scenes/trends/trendsDataLogic'
 import type { IndexedTrendResult } from 'scenes/trends/types'
 import { datasetToActorsQuery } from 'scenes/trends/viz/datasetToActorsQuery'
 
-import { themeLogic } from '~/layout/navigation-3000/themeLogic'
 import { cohortsModel } from '~/models/cohortsModel'
 import { groupsModel } from '~/models/groupsModel'
 import { propertyDefinitionsModel } from '~/models/propertyDefinitionsModel'
 import { InsightVizNode } from '~/queries/schema/schema-general'
 import { QueryContext } from '~/queries/types'
 
+import { InsightSeriesTooltip } from '../../shared/InsightSeriesTooltip'
 import type { TrendsSeriesMeta } from '../shared/trendsSeriesMeta'
 import { TrendsTooltip } from '../shared/TrendsTooltip'
 import { buildTrendsPieSeries } from './trendsPieTransforms'
@@ -43,14 +46,10 @@ const handleChartError = (error: Error, info: ErrorInfo): void => {
     })
 }
 
-export function TrendsPieChart({
-    context,
-    inSharedMode = false,
-    showPersonsModal = true,
-}: TrendsPieChartProps): JSX.Element | null {
-    const { isDarkModeOn } = useValues(themeLogic)
-    // isDarkModeOn invalidates the memo so buildTheme() re-reads CSS vars on dark-mode toggle.
-    const theme = useMemo(() => buildTheme(), [isDarkModeOn])
+export function TrendsPieChart({ context, showPersonsModal = true }: TrendsPieChartProps): JSX.Element | null {
+    const { featureFlags } = useValues(featureFlagLogic)
+    const quillTooltipEnabled = !!featureFlags[FEATURE_FLAGS.PRODUCT_ANALYTICS_INSIGHTS_TOOLTIPS]
+    const theme = useChartTheme()
 
     const { insightProps } = useValues(insightLogic)
     const { baseCurrency } = useValues(teamLogic)
@@ -64,6 +63,8 @@ export function TrendsPieChart({
         formula,
         showValuesOnSeries,
         showLabelOnSeries,
+        showPercentStackView,
+        supportsPercentStackView,
         pieChartVizOptions,
         hasDataWarehouseSeries,
         querySource,
@@ -72,6 +73,8 @@ export function TrendsPieChart({
         getTrendsColor,
         getTrendsHidden,
     } = useValues(trendsDataLogic(insightProps))
+
+    const isPercentStackView = !!showPercentStackView && !!supportsPercentStackView
 
     const resolvedGroupTypeLabel =
         context?.groupTypeLabel ??
@@ -126,9 +129,10 @@ export function TrendsPieChart({
         () => ({
             showValueOnSlice: !!showValuesOnSeries,
             showLabelOnSlice: !!showLabelOnSeries,
+            isPercent: isPercentStackView,
             disableHoverOffset: !!pieChartVizOptions?.disableHoverOffset,
         }),
-        [showValuesOnSeries, showLabelOnSeries, pieChartVizOptions?.disableHoverOffset]
+        [showValuesOnSeries, showLabelOnSeries, isPercentStackView, pieChartVizOptions?.disableHoverOffset]
     )
 
     // ActionsPie disables clicks entirely when the insight has data-warehouse series (see
@@ -202,20 +206,24 @@ export function TrendsPieChart({
     )
 
     const renderTooltip = useCallback(
-        (ctx: TooltipContext<TrendsSeriesMeta>) => (
-            <TrendsTooltip
-                context={ctx}
-                breakdownFilter={breakdownFilter ?? undefined}
-                trendsFilter={trendsFilter}
-                formula={formula}
-                baseCurrency={baseCurrency}
-                groupTypeLabel={resolvedGroupTypeLabel}
-                formatCompareLabel={context?.formatCompareLabel}
-                onRowClick={onRowClick}
-                showHeader={false}
-                renderCount={renderCount}
-            />
-        ),
+        (ctx: TooltipContext<TrendsSeriesMeta>) => {
+            const sharedProps = {
+                context: ctx,
+                breakdownFilter: breakdownFilter ?? undefined,
+                trendsFilter,
+                baseCurrency,
+                groupTypeLabel: resolvedGroupTypeLabel,
+                formatCompareLabel: context?.formatCompareLabel,
+                onRowClick,
+                showHeader: false as const,
+                renderCount,
+            }
+            return quillTooltipEnabled ? (
+                <InsightSeriesTooltip {...sharedProps} />
+            ) : (
+                <TrendsTooltip {...sharedProps} formula={formula} />
+            )
+        },
         [
             breakdownFilter,
             trendsFilter,
@@ -225,15 +233,25 @@ export function TrendsPieChart({
             context?.formatCompareLabel,
             onRowClick,
             renderCount,
+            quillTooltipEnabled,
         ]
     )
 
     if (!visibleResults.length) {
-        return <InsightEmptyState heading={context?.emptyStateHeading} detail={context?.emptyStateDetail} />
+        return (
+            <InsightEmptyState
+                heading={context?.emptyStateHeading}
+                detail={context?.emptyStateDetail}
+                sampleDataVariant="pie"
+            />
+        )
     }
 
     return (
-        <div className={`flex flex-col w-full h-full ${inSharedMode ? 'ActionsPie--shared' : 'ActionsPie'}`}>
+        // `flex-1 min-h-0` (not `h-full`) so the chart fills the flex column even when the
+        // parent only sets `min-height`/`flex` — a percentage height would collapse to 0,
+        // leaving `PieChart` with `outerRadius <= 0` and no slices. Mirrors the bar/line charts.
+        <div className="flex flex-col w-full flex-1 min-h-0">
             <PieChart<TrendsSeriesMeta>
                 series={series}
                 theme={theme}

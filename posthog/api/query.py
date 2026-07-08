@@ -1,5 +1,6 @@
 import re
 from time import perf_counter
+from typing import NoReturn
 
 from django.core.cache import cache
 from django.http import JsonResponse, StreamingHttpResponse
@@ -42,13 +43,14 @@ from posthog.api.monitoring import (
 from posthog.api.query_coalescer import QueryCoalescingMixin
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.services.query import process_query_model
+from posthog.api.streaming import sse_streaming_response
 from posthog.api.utils import action, is_async_query, is_insight_actors_options_query, is_insight_actors_query
 from posthog.clickhouse.client.execute_async import cancel_query, get_query_status
 from posthog.clickhouse.client.limit import ConcurrencyLimitExceeded
 from posthog.clickhouse.query_tagging import get_query_tag_value, get_query_tags, tag_queries
 from posthog.constants import AvailableFeature
 from posthog.errors import ExposedCHQueryError, InternalCHQueryError
-from posthog.event_usage import get_request_analytics_properties, report_user_or_team_action
+from posthog.event_usage import EventSource, get_request_analytics_properties, report_user_or_team_action
 from posthog.exceptions_capture import capture_exception
 from posthog.hogql_queries.apply_dashboard_filters import apply_dashboard_filters, apply_dashboard_variables
 from posthog.hogql_queries.hogql_query_runner import HogQLQueryRunner
@@ -72,6 +74,11 @@ from common.hogvm.python.utils import HogVMException
 logger = structlog.get_logger(__name__)
 
 tracer = trace.get_tracer(__name__)
+
+# Shown to the user when the org's concurrent-query limiter rejects a request. The raw limiter
+# exception embeds an internal Redis key + task id, so we log that for debugging and surface this
+# friendly message instead of leaking implementation details into the UI.
+CONCURRENCY_LIMIT_USER_MESSAGE = "Too many queries are running right now — please try again in a moment."
 
 QUERY_VALIDATION_ERROR_TOTAL = Counter(
     "posthog_query_validation_error_total",
@@ -161,6 +168,11 @@ class QueryViewSet(QueryCoalescingMixin, TeamAndOrgViewSetMixin, PydanticModelMi
             return new_val
         return False
 
+    def _raise_concurrency_throttled(self, exc: ConcurrencyLimitExceeded) -> NoReturn:
+        # Log the raw detail (Redis key + task id) for Loki, but surface a clean message to the user.
+        logger.warning("query_concurrency_limit_exceeded", detail=str(exc))
+        raise Throttled(detail=CONCURRENCY_LIMIT_USER_MESSAGE)
+
     @extend_schema(
         request=QueryRequest,
         responses={
@@ -187,6 +199,10 @@ class QueryViewSet(QueryCoalescingMixin, TeamAndOrgViewSetMixin, PydanticModelMi
 
             if data.limit_context == SchemaLimitContext.POSTHOG_AI:
                 limit_context: LimitContext | None = LimitContext.POSTHOG_AI
+                # Max's insight tiles run in the browser, so the request looks like a session
+                # web request and get_event_source classifies it as "web". Attribute it to
+                # posthog_ai instead, matching the server-side executor's tagging.
+                analytics_props["source"] = EventSource.POSTHOG_AI
             elif (
                 is_async_query(query_dict)
                 or is_insight_actors_query(query_dict)
@@ -198,6 +214,7 @@ class QueryViewSet(QueryCoalescingMixin, TeamAndOrgViewSetMixin, PydanticModelMi
                 limit_context = None
 
             with tracer.start_as_current_span("posthog.query.process_query_model") as process_span:
+                process_span.set_attribute("team_id", self.team.pk)
                 process_span.set_attribute("query.kind", getattr(query, "kind", "Other"))
                 process_span.set_attribute(
                     "query.is_query_service", get_query_tag_value("access_method") == "personal_api_key"
@@ -280,7 +297,7 @@ class QueryViewSet(QueryCoalescingMixin, TeamAndOrgViewSetMixin, PydanticModelMi
             ).inc()
             raise
         except ConcurrencyLimitExceeded as c:
-            raise Throttled(detail=str(c))
+            self._raise_concurrency_throttled(c)
         except Exception as e:
             capture_exception(e)
             raise
@@ -382,7 +399,7 @@ class QueryViewSet(QueryCoalescingMixin, TeamAndOrgViewSetMixin, PydanticModelMi
             result = hogql_runner.calculate()
             return Response(result.model_dump(), status=200)
         except ConcurrencyLimitExceeded as c:
-            raise Throttled(detail=str(c))
+            self._raise_concurrency_throttled(c)
         except Exception as e:
             capture_exception(e)
             raise
@@ -441,13 +458,6 @@ MAX_QUERY_TIMEOUT = 600
 async def progress(request: Request, *args, **kwargs) -> StreamingHttpResponse:
     # TEMPORARY endpoint to avoid breaking changes
 
-    return StreamingHttpResponse(
-        [],
-        status=status.HTTP_200_OK,
-        content_type="text/event-stream",
-        headers={
-            "Cache-Control": "no-cache",
-            "X-Accel-Buffering": "no",
-            "Connection": "keep-alive",
-        },
+    return sse_streaming_response(
+        [], endpoint="query_progress_stub", status=status.HTTP_200_OK, headers={"Connection": "keep-alive"}
     )

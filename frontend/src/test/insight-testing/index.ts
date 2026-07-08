@@ -1,7 +1,7 @@
 export { getChart } from './chart-accessor'
 export type { Chart } from './chart-accessor'
-export { getHogChart } from 'lib/hog-charts/testing'
-export type { HogChart } from 'lib/hog-charts/testing'
+export { getHogChart } from '@posthog/quill-charts/testing'
+export type { HogChart } from '@posthog/quill-charts/testing'
 export { createInsightTooltipAccessor } from './tooltip-helpers'
 export type { InsightTooltipAccessor } from './tooltip-helpers'
 export {
@@ -9,10 +9,12 @@ export {
     buildStickinessQuery,
     buildTrendsQuery,
     renderInsight,
-    renderInsight as renderInsightPage,
+    renderInsightPage,
     renderWithInsights,
 } from './render-insight'
 export type { InsightQuery, RenderInsightProps, RenderWithInsightsProps } from './render-insight'
+export { buildDataVisualizationQuery, HOVER, MONTHS, renderDataVisualization } from './render-data-visualization'
+export type { DataVizFixture } from './render-data-visualization'
 export {
     breakdown,
     chart,
@@ -23,6 +25,7 @@ export {
     legend,
     searchAndSelect,
     series,
+    sqlChart,
 } from './interactions'
 export { personsModal } from './elements'
 export { buildActorsResponse, setupInsightMocks } from './mocks'

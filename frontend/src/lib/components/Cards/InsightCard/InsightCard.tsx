@@ -2,8 +2,8 @@ import './InsightCard.scss'
 
 import { useMergeRefs } from '@floating-ui/react'
 import clsx from 'clsx'
-import { BindLogic, useValues } from 'kea'
-import React, { useState } from 'react'
+import { BindLogic, useActions, useValues } from 'kea'
+import React, { useMemo, useState } from 'react'
 import { LayoutItem } from 'react-grid-layout'
 import { useInView } from 'react-intersection-observer'
 
@@ -12,8 +12,8 @@ import { Resizeable } from 'lib/components/Cards/CardMeta'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { usePageVisibility } from 'lib/hooks/usePageVisibility'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { inStorybook, inStorybookTestRunner } from 'lib/utils'
 import { accessLevelSatisfied, getAccessControlDisabledReason } from 'lib/utils/accessControlUtils'
+import { inStorybook, inStorybookTestRunner } from 'lib/utils/dom'
 import { BreakdownColorConfig } from 'scenes/dashboard/DashboardInsightColorsModal'
 import {
     InsightErrorState,
@@ -42,7 +42,7 @@ import {
 } from '~/types'
 
 import { DashboardResizeHandles } from '../handles'
-import { EditModeEdgeOverlay } from './EditModeEdgeOverlay'
+import { EditModeEdge, EditModeEdgeOverlay } from './EditModeEdgeOverlay'
 import { InsightMeta } from './InsightMeta'
 
 const IS_STORYBOOK = inStorybook() || inStorybookTestRunner()
@@ -66,6 +66,8 @@ export interface InsightCardProps extends Resizeable {
     timedOut?: boolean
     /** Whether the editing controls should be enabled or not. */
     showEditingControls?: boolean
+    /** While this tile is being resized: unmount the viz so the chart doesn't redraw on every frame. */
+    isResizing?: boolean
     /** Whether the  controls for showing details should be enabled or not. */
     showDetailsControls?: boolean
     /** Layout of the card on a grid. */
@@ -76,7 +78,6 @@ export interface InsightCardProps extends Resizeable {
     removeFromDashboard?: () => void
     deleteWithUndo?: () => Promise<void>
     refresh?: () => void
-    refreshEnabled?: boolean
     rename?: () => void
     duplicate?: () => void
     setOverride?: () => void
@@ -106,7 +107,7 @@ export interface InsightCardProps extends Resizeable {
     /** Whether hovering near the card edge should hint that edit mode is available. */
     canEnterEditModeFromEdge?: boolean
     /** Called when the user clicks an edge hint to enter edit mode. */
-    onEnterEditModeFromEdge?: () => void
+    onEnterEditModeFromEdge?: (event: React.MouseEvent<HTMLDivElement>, edge: EditModeEdge) => void
     /** Called when the user mousedowns on the card (drag handle) in view mode to enter edit mode. */
     onDragHandleMouseDown?: React.MouseEventHandler<HTMLDivElement>
 }
@@ -124,6 +125,7 @@ function InsightCardInternal(
         timedOut,
         highlighted,
         showResizeHandles,
+        isResizing,
         showEditingControls,
         showDetailsControls,
         updateColor,
@@ -131,7 +133,6 @@ function InsightCardInternal(
         removeFromDashboard,
         deleteWithUndo,
         refresh,
-        refreshEnabled,
         rename,
         duplicate,
         setOverride,
@@ -172,13 +173,35 @@ function InsightCardInternal(
     const mergedRefs = useMergeRefs([ref, inViewRef])
 
     const { theme } = useValues(themeLogic)
-    const insightLogicProps: InsightLogicProps = {
-        dashboardItemId: insight.short_id,
-        dashboardId: dashboardId,
-        cachedInsight: insight,
-        loadPriority,
-        doNotLoad,
-    }
+
+    const canEditInsight = insight.user_access_level
+        ? accessLevelSatisfied(AccessControlResourceType.Insight, insight.user_access_level, AccessControlLevel.Editor)
+        : true
+    const canPersistDisplayOptions = !!dashboardId && canEditInsight
+
+    // Base props without setQuery — used to mount insightDataLogic and retrieve the
+    // persistDisplayOptions action before wiring it back in as setQuery below.
+    const insightLogicPropsBase: InsightLogicProps = useMemo(
+        () => ({
+            dashboardItemId: insight.short_id,
+            dashboardId: dashboardId,
+            cachedInsight: insight,
+            loadPriority,
+            doNotLoad,
+        }),
+        [insight, dashboardId, loadPriority, doNotLoad]
+    )
+
+    const { persistDisplayOptions } = useActions(insightDataLogic(insightLogicPropsBase))
+
+    // Stable reference so the memoized viz below isn't invalidated on every grid re-render.
+    const insightLogicProps: InsightLogicProps = useMemo(
+        () => ({
+            ...insightLogicPropsBase,
+            setQuery: canPersistDisplayOptions ? persistDisplayOptions : undefined,
+        }),
+        [insightLogicPropsBase, canPersistDisplayOptions, persistDisplayOptions]
+    )
 
     const { insightLoading } = useValues(insightLogic(insightLogicProps))
     const { insightDataLoading } = useValues(insightDataLogic(insightLogicProps))
@@ -239,6 +262,40 @@ function InsightCardInternal(
         return null
     })()
 
+    // Memoize the viz so the (expensive) chart subtree isn't reconciled when the card re-renders only because
+    // react-grid-layout reflowed it — e.g. while a sibling tile is dragged or resized. React reuses the cached
+    // element when these inputs are unchanged, so only the tiles whose data actually changed redraw.
+    const vizContent = useMemo(() => {
+        if (isResizing) {
+            // Skip the chart while resizing — keeping it mounted would redraw the canvas on every frame as the
+            // tile's dimensions change. Remounts from cached results once resizing stops.
+            return <div className="InsightCard__viz" />
+        }
+        if (!isVisible) {
+            return null
+        }
+        return (
+            <div className="InsightCard__viz">
+                {BlockingEmptyState ? (
+                    BlockingEmptyState
+                ) : (
+                    <Query
+                        query={insight.query}
+                        cachedResults={insight}
+                        context={{
+                            insightProps: insightLogicProps,
+                        }}
+                        readOnly
+                        embedded
+                        inSharedMode={placement === DashboardPlacement.Public}
+                        variablesOverride={variablesOverride}
+                        editMode={false}
+                    />
+                )}
+            </div>
+        )
+    }, [isResizing, isVisible, BlockingEmptyState, insight, insightLogicProps, variablesOverride, placement])
+
     return (
         <div
             className={clsx(
@@ -260,12 +317,12 @@ function InsightCardInternal(
                         insight={insight}
                         ribbonColor={ribbonColor}
                         dashboardId={dashboardId}
+                        persistDisplayOptions={canPersistDisplayOptions ? persistDisplayOptions : undefined}
                         updateColor={updateColor}
                         toggleShowDescription={toggleShowDescription}
                         removeFromDashboard={removeFromDashboard}
                         deleteWithUndo={deleteWithUndo}
                         refresh={refresh}
-                        refreshEnabled={refreshEnabled}
                         loadingQueued={loadingQueued}
                         loading={loading}
                         rename={rename}
@@ -284,26 +341,7 @@ function InsightCardInternal(
                         surveyOpportunity={surveyOpportunity}
                         onDragHandleMouseDown={onDragHandleMouseDown}
                     />
-                    {isVisible ? (
-                        <div className="InsightCard__viz">
-                            {BlockingEmptyState ? (
-                                BlockingEmptyState
-                            ) : (
-                                <Query
-                                    query={insight.query}
-                                    cachedResults={insight}
-                                    context={{
-                                        insightProps: insightLogicProps,
-                                    }}
-                                    readOnly
-                                    embedded
-                                    inSharedMode={placement === DashboardPlacement.Public}
-                                    variablesOverride={variablesOverride}
-                                    editMode={false}
-                                />
-                            )}
-                        </div>
-                    ) : null}
+                    {vizContent}
                 </BindLogic>
             </ErrorBoundary>
             {showResizeHandles && <DashboardResizeHandles />}

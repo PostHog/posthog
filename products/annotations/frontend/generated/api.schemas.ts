@@ -9,7 +9,7 @@
  */
 /**
  * * `USR` - user
- * `GIT` - GitHub
+ * * `GIT` - GitHub
  */
 export type CreationTypeEnumApi = (typeof CreationTypeEnumApi)[keyof typeof CreationTypeEnumApi]
 
@@ -20,13 +20,13 @@ export const CreationTypeEnumApi = {
 
 /**
  * * `engineering` - Engineering
- * `data` - Data
- * `product` - Product Management
- * `founder` - Founder
- * `leadership` - Leadership
- * `marketing` - Marketing
- * `sales` - Sales / Success
- * `other` - Other
+ * * `data` - Data
+ * * `product` - Product Management
+ * * `founder` - Founder
+ * * `leadership` - Leadership
+ * * `marketing` - Marketing
+ * * `sales` - Sales / Success
+ * * `other` - Other
  */
 export type RoleAtOrganizationEnumApi = (typeof RoleAtOrganizationEnumApi)[keyof typeof RoleAtOrganizationEnumApi]
 
@@ -75,10 +75,10 @@ export interface UserBasicApi {
 
 /**
  * * `dashboard_item` - insight
- * `dashboard` - dashboard
- * `project` - project
- * `organization` - organization
- * `recording` - recording
+ * * `dashboard` - dashboard
+ * * `project` - project
+ * * `organization` - organization
+ * * `recording` - recording
  */
 export type AnnotationScopeEnumApi = (typeof AnnotationScopeEnumApi)[keyof typeof AnnotationScopeEnumApi]
 
@@ -104,9 +104,9 @@ export interface AnnotationApi {
      */
     date_marker?: string | null
     /** Who created this annotation. Use `USR` for user-created notes and `GIT` for bot/deployment notes.
-
-  * `USR` - user
-  * `GIT` - GitHub */
+     *
+     * * `USR` - user
+     * * `GIT` - GitHub */
     creation_type?: CreationTypeEnumApi
     /** @nullable */
     dashboard_item?: number | null
@@ -127,13 +127,24 @@ export interface AnnotationApi {
     /** Soft-delete flag. Set to true to hide the annotation, or false to restore it. */
     deleted?: boolean
     /** Annotation visibility scope: `project`, `organization`, `dashboard`, or `dashboard_item`. `recording` is deprecated and rejected.
-
-  * `dashboard_item` - insight
-  * `dashboard` - dashboard
-  * `project` - project
-  * `organization` - organization
-  * `recording` - recording */
+     *
+     * * `dashboard_item` - insight
+     * * `dashboard` - dashboard
+     * * `project` - project
+     * * `organization` - organization
+     * * `recording` - recording */
     scope?: AnnotationScopeEnumApi
+    /**
+     * Optional emoji shown in place of the default badge when this annotation is surfaced on a chart.
+     * @maxLength 16
+     * @nullable
+     */
+    emoji?: string | null
+    /**
+     * When true, the annotation is hidden from the PostHog UI (charts and the annotations list) but still readable over the API and MCP. Use for high-frequency markers like deployments that would otherwise crowd the UI. Null (the default) means the annotation is shown.
+     * @nullable
+     */
+    hidden_in_user_interface?: boolean | null
 }
 
 export interface PaginatedAnnotationListApi {
@@ -159,9 +170,9 @@ export interface PatchedAnnotationApi {
      */
     date_marker?: string | null
     /** Who created this annotation. Use `USR` for user-created notes and `GIT` for bot/deployment notes.
-
-  * `USR` - user
-  * `GIT` - GitHub */
+     *
+     * * `USR` - user
+     * * `GIT` - GitHub */
     creation_type?: CreationTypeEnumApi
     /** @nullable */
     dashboard_item?: number | null
@@ -182,13 +193,24 @@ export interface PatchedAnnotationApi {
     /** Soft-delete flag. Set to true to hide the annotation, or false to restore it. */
     deleted?: boolean
     /** Annotation visibility scope: `project`, `organization`, `dashboard`, or `dashboard_item`. `recording` is deprecated and rejected.
-
-  * `dashboard_item` - insight
-  * `dashboard` - dashboard
-  * `project` - project
-  * `organization` - organization
-  * `recording` - recording */
+     *
+     * * `dashboard_item` - insight
+     * * `dashboard` - dashboard
+     * * `project` - project
+     * * `organization` - organization
+     * * `recording` - recording */
     scope?: AnnotationScopeEnumApi
+    /**
+     * Optional emoji shown in place of the default badge when this annotation is surfaced on a chart.
+     * @maxLength 16
+     * @nullable
+     */
+    emoji?: string | null
+    /**
+     * When true, the annotation is hidden from the PostHog UI (charts and the annotations list) but still readable over the API and MCP. Use for high-frequency markers like deployments that would otherwise crowd the UI. Null (the default) means the annotation is shown.
+     * @nullable
+     */
+    hidden_in_user_interface?: boolean | null
 }
 
 export type AnnotationsListParams = {

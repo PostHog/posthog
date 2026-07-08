@@ -13,19 +13,24 @@ const STATIC_GROUP_TYPES: GroupType[] = [
     { group_type: 'organization', group_type_index: 0, name_singular: null, name_plural: null },
     { group_type: 'project', group_type_index: 1, name_singular: null, name_plural: null },
 ]
+// Includes query-* (collapsed into the single `query` domain) so the snapshots
+// mirror production, where `tools` is the full set and `queryTools` is the
+// parallel catalog projection.
 const STATIC_TOOLS = [
     { name: 'dashboard-create', category: 'Dashboards' },
     { name: 'dashboard-get', category: 'Dashboards' },
     { name: 'feature-flag-create', category: 'Feature flags' },
     { name: 'feature-flag-get-all', category: 'Feature flags' },
     { name: 'execute-sql', category: 'SQL' },
+    { name: 'query-funnel', category: 'Query wrappers' },
+    { name: 'query-trends', category: 'Query wrappers' },
 ]
 const STATIC_QUERY_TOOLS: QueryToolInfo[] = [
     { name: 'query-funnel', title: 'Funnel', systemPromptHint: 'conversion rate' },
     { name: 'query-trends', title: 'Trends', systemPromptHint: 'time series' },
 ]
 const STATIC_METADATA = [
-    'You are currently in project "My App" (id: 1) within organization "Acme" (id: org_1).',
+    'You are currently in project "My App" (id: 1, token: token_1) within organization "Acme" (id: org_1).',
     'Project timezone: America/New_York.',
     "The user's name is Jane Doe (jane@acme.com).",
 ].join('\n')
@@ -36,7 +41,8 @@ const STATIC_CTX: InstructionsContext = {
     metadata: STATIC_METADATA,
     tools: STATIC_TOOLS,
     queryTools: STATIC_QUERY_TOOLS,
-    featureFlags: { 'mcp-feedback-tool': true },
+    featureFlags: { 'mcp-feedback-tool': true, 'mcp-render-ui': true },
+    renderUiEnabled: true,
 }
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))

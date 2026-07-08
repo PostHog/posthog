@@ -1,0 +1,48 @@
+{
+    "name": "@posthog/agent-janitor",
+    "version": "0.1.0",
+    "private": true,
+    "description": "Tiny operational service: periodic queue sweep + internal HTTP for Django to query/cancel sessions.",
+    "license": "MIT",
+    "author": "PostHog <hey@posthog.com>",
+    "type": "module",
+    "main": "./src/lib.ts",
+    "types": "./src/lib.ts",
+    "exports": {
+        ".": "./src/lib.ts",
+        "./bin": "./src/index.ts"
+    },
+    "scripts": {
+        "lint": "oxlint --quiet .",
+        "format": "oxfmt .",
+        "format:check": "oxfmt --check .",
+        "typescript:check": "tsc --noEmit -p .",
+        "test": "vitest run",
+        "start": "tsx src/index.ts",
+        "start:dev": "tsx watch src/index.ts"
+    },
+    "dependencies": {
+        "@aws-sdk/client-s3": "^3.723.0",
+        "@posthog/agent-ingress": "workspace:*",
+        "@posthog/agent-shared": "workspace:*",
+        "@posthog/agent-tools": "workspace:*",
+        "cron-parser": "^4.9.0",
+        "esbuild": "^0.28.0",
+        "express": "^4.21.1",
+        "pg": "^8.6.0",
+        "tsx": "^4.7.0",
+        "zod": "^4.3.6"
+    },
+    "devDependencies": {
+        "@types/express": "^4.17.21",
+        "@types/node": "catalog:",
+        "@types/pg": "^8.6.0",
+        "@types/supertest": "^6.0.2",
+        "supertest": "^7.0.0",
+        "typescript": "catalog:",
+        "vitest": "^4.1.0"
+    },
+    "engines": {
+        "node": ">=24 <25"
+    }
+}

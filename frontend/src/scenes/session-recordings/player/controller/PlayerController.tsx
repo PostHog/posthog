@@ -220,7 +220,9 @@ export function PlayerController(): JSX.Element {
                 hoverModeIsEnabled && showPlayerChrome
                     ? 'opacity-100 bg-surface-primary pointer-events-auto'
                     : hoverModeIsEnabled
-                      ? 'opacity-0 pointer-events-none'
+                      ? // invisible releases the hidden overlay's raster backing; transition-all
+                        // already covers visibility so the fade still plays (see PanelLayout scrims)
+                        'opacity-0 pointer-events-none invisible'
                       : 'bg-surface-primary'
             )}
         >

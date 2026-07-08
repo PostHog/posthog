@@ -6,14 +6,15 @@ import { lemonToast } from '@posthog/lemon-ui'
 
 import api from 'lib/api'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { objectsEqual } from 'lib/utils'
 import { deleteWithUndo } from 'lib/utils/deleteWithUndo'
+import { objectsEqual } from 'lib/utils/objects'
 import { projectLogic } from 'scenes/projectLogic'
 import { userLogic } from 'scenes/userLogic'
 
 import { deleteFromTree, refreshTreeItem } from '~/layout/panel-layout/ProjectTree/projectTreeLogic'
 import { CyclotronJobFiltersType, HogFunctionType, HogFunctionTypeType, UserType } from '~/types'
 
+import { HogFunctionDeliveryType, getHogFunctionDeliveryType } from '../hog-function-utils'
 import type { hogFunctionsListLogicType } from './hogFunctionsListLogicType'
 
 export const CDP_TEST_HIDDEN_FLAG = '[CDP-TEST-HIDDEN]'
@@ -23,6 +24,7 @@ export type HogFunctionListFilters = {
     search?: string
     showPaused?: boolean
     createdBy?: string | null
+    deliveryType?: HogFunctionDeliveryType
 }
 
 export type HogFunctionListLogicProps = {
@@ -178,7 +180,7 @@ export const hogFunctionsListLogic = kea<hogFunctionsListLogicType>([
         filteredHogFunctions: [
             (s) => [s.filters, s.sortedHogFunctions, s.user],
             (filters, hogFunctions, user): HogFunctionType[] => {
-                const { showPaused, createdBy } = filters
+                const { showPaused, createdBy, deliveryType } = filters
 
                 return hogFunctions.filter((x) => {
                     if (!shouldShowHogFunction(x, user)) {
@@ -190,6 +192,10 @@ export const hogFunctionsListLogic = kea<hogFunctionsListLogicType>([
                     }
 
                     if (createdBy && x.created_by?.uuid !== createdBy) {
+                        return false
+                    }
+
+                    if (deliveryType && getHogFunctionDeliveryType(x) !== deliveryType) {
                         return false
                     }
 

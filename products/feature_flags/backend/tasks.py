@@ -1,6 +1,7 @@
 import time
 
 from django.conf import settings
+from django.core.cache import cache as django_cache
 from django.db.models import Count, F, Func, IntegerField, Max, Sum, TextField
 from django.db.models.functions import Cast
 
@@ -13,8 +14,10 @@ from posthog.scoping_audit import skip_team_scope_audit
 from posthog.storage.hypercache_manager import HYPERCACHE_SIGNAL_UPDATE_COUNTER
 from posthog.tasks.utils import CeleryQueue, PushGatewayTask
 
+from products.feature_flags.backend.canary import run_local_eval_canary
 from products.feature_flags.backend.flags_cache import (
     cleanup_stale_expiry_tracking,
+    clear_flags_cache,
     get_cache_stats,
     refresh_expiring_flags_caches,
     update_flags_cache,
@@ -22,11 +25,17 @@ from products.feature_flags.backend.flags_cache import (
 from products.feature_flags.backend.local_evaluation import (
     FLAG_DEFINITIONS_HYPERCACHE_MANAGEMENT_CONFIG,
     FLAG_DEFINITIONS_NO_COHORTS_HYPERCACHE_MANAGEMENT_CONFIG,
+    clear_flag_definition_caches,
     update_flag_caches,
 )
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
+from products.feature_flags.backend.rebuild_queue import drain_rebuild_requests
 
 logger = structlog.get_logger(__name__)
+
+# Matches the task's hard time_limit so a crashed run's lock expires before the next
+# 5-minute schedule.
+LOCAL_EVAL_CANARY_LOCK_TIMEOUT_SECONDS = 90
 
 
 @shared_task(ignore_result=True, queue=CeleryQueue.FEATURE_FLAGS.value)
@@ -39,6 +48,21 @@ def update_team_flags_cache(team_id: int) -> None:
         return
 
     update_flag_caches(team)
+
+
+# Bounded below the 1-minute schedule so a slow drain (e.g. a large post-eviction
+# backlog rebuilt inline) can't run past the next tick and pin a worker. Teams not
+# reached before the limit stay missing and are re-enqueued by their next miss.
+@shared_task(
+    ignore_result=True,
+    queue=CeleryQueue.FEATURE_FLAGS.value,
+    soft_time_limit=50,
+    time_limit=55,
+)
+def drain_flag_definitions_rebuild_requests() -> None:
+    """Drain the flag-definitions self-heal queue, rebuilding caches the Rust
+    /flags/definitions endpoint reported missing. Scheduled every minute."""
+    drain_rebuild_requests()
 
 
 @shared_task(ignore_result=True, queue=CeleryQueue.FEATURE_FLAGS.value)
@@ -54,13 +78,29 @@ def update_team_service_flags_cache(team_id: int) -> None:
         team = Team.objects.get(id=team_id)
     except Team.DoesNotExist:
         logger.debug("Team does not exist for service flags cache update", team_id=team_id)
-        HYPERCACHE_SIGNAL_UPDATE_COUNTER.labels(namespace="feature_flags", operation="update", result="failure").inc()
+        HYPERCACHE_SIGNAL_UPDATE_COUNTER.labels(
+            namespace="feature_flags", cache_name="flags", operation="update", result="failure"
+        ).inc()
         return
 
     success = update_flags_cache(team)
     HYPERCACHE_SIGNAL_UPDATE_COUNTER.labels(
-        namespace="feature_flags", operation="update", result="success" if success else "failure"
+        namespace="feature_flags", cache_name="flags", operation="update", result="success" if success else "failure"
     ).inc()
+
+
+@shared_task(ignore_result=True, queue=CeleryQueue.FEATURE_FLAGS.value)
+@skip_team_scope_audit
+def clear_team_evaluation_cache(team_id: int) -> None:
+    """Clear the /flags evaluation cache for a specific team, enqueued by staff tooling."""
+    clear_flags_cache(team_id)
+
+
+@shared_task(ignore_result=True, queue=CeleryQueue.FEATURE_FLAGS.value)
+@skip_team_scope_audit
+def clear_team_definitions_cache(team_id: int) -> None:
+    """Clear the /flags/definitions local-eval cache for a specific team, enqueued by staff tooling."""
+    clear_flag_definition_caches(team_id)
 
 
 @shared_task(bind=True, base=PushGatewayTask, ignore_result=True, queue=CeleryQueue.FEATURE_FLAGS_LONG_RUNNING.value)
@@ -401,3 +441,36 @@ def cleanup_stale_flag_definitions_expiry_tracking_task(self: PushGatewayTask) -
 
     entries_cleaned_gauge.set(total_removed)
     logger.info("Completed flag definitions expiry tracking cleanup", total_removed_count=total_removed)
+
+
+@shared_task(
+    bind=True,
+    base=PushGatewayTask,
+    ignore_result=True,
+    queue=CeleryQueue.FEATURE_FLAGS_LONG_RUNNING.value,
+    soft_time_limit=60,
+    time_limit=LOCAL_EVAL_CANARY_LOCK_TIMEOUT_SECONDS,
+)
+def feature_flags_local_eval_canary_task(self: PushGatewayTask) -> None:
+    """Periodic canary for feature-flags local evaluation.
+
+    Builds the configured team's local-eval payload and checks its group_type_mapping
+    is non-empty. Does nothing unless FEATURE_FLAGS_CANARY_TEAM_ID is set. A
+    distributed lock skips overlapping runs.
+
+    Metrics:
+    - posthog_feature_flags_local_eval_canary_group_mapping_present (gauge, 1/0)
+    - posthog_feature_flags_local_eval_canary_failure_total (counter)
+    """
+    if settings.FEATURE_FLAGS_CANARY_TEAM_ID is None:
+        return
+
+    lock_key = "posthog:feature_flags_local_eval_canary:lock"
+    if not django_cache.add(lock_key, "locked", timeout=LOCAL_EVAL_CANARY_LOCK_TIMEOUT_SECONDS):
+        logger.info("Skipping feature flags local-eval canary - already running")
+        return
+
+    try:
+        run_local_eval_canary(self.metrics_registry)
+    finally:
+        django_cache.delete(lock_key)

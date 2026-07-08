@@ -3,8 +3,9 @@ from unittest.mock import MagicMock, patch
 
 from posthog.schema import AgentMode, HumanMessage
 
+from products.posthog_ai.backend.models.assistant import Conversation
+
 from ee.hogai.chat_agent.runner import ChatAgentRunner
-from ee.models.assistant import Conversation
 
 
 class TestChatAgentRunner(BaseTest):

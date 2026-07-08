@@ -1,7 +1,7 @@
 import { actions, connect, kea, key, listeners, path, props, propsChanged, reducers, selectors } from 'kea'
 
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
-import { objectsEqual } from 'lib/utils'
+import { objectsEqual } from 'lib/utils/objects'
 import { FIELD_VALUES, SCALE_FIELD_VALUES } from 'scenes/cohorts/CohortFilters/constants'
 import { BehavioralFilterKey, FieldOptionsType, FieldValues } from 'scenes/cohorts/CohortFilters/types'
 import { cleanBehavioralTypeCriteria, resolveCohortFieldValue } from 'scenes/cohorts/cohortUtils'
@@ -154,7 +154,11 @@ export const cohortFieldLogic = kea<cohortFieldLogicType>([
     }),
     listeners(({ props }) => ({
         onChange: ({ newField }) => {
-            props.onChange?.(cleanBehavioralTypeCriteria(newField))
+            // Merge the partial field payload onto the existing criteria so
+            // cleanBehavioralTypeCriteria sees `event_type` and `value` together — otherwise
+            // a freshly-picked PersonMetadata property (whose `event_type` lives on the
+            // criteria, not the payload) is derived as a plain Person type and matches nobody.
+            props.onChange?.(cleanBehavioralTypeCriteria({ ...props.criteria, ...newField }))
         },
     })),
 ])

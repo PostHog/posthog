@@ -1,30 +1,28 @@
-import { actions, afterMount, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
-import { combineUrl, router } from 'kea-router'
+import { actions, afterMount, connect, kea, listeners, path, props, reducers, selectors } from 'kea'
+import { combineUrl, router, urlToAction } from 'kea-router'
 
 import api from 'lib/api'
 import { SetupTaskId, globalSetupLogic } from 'lib/components/ProductSetup'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { lemonToast } from 'lib/lemon-ui/LemonToast'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { tabAwareActionToUrl } from 'lib/logic/scenes/tabAwareActionToUrl'
-import { tabAwareUrlToAction } from 'lib/logic/scenes/tabAwareUrlToAction'
+import { trackedActionToUrl } from 'lib/logic/scenes/trackedActionToUrl'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
 import { ProductIntentContext, ProductKey } from '~/queries/schema/schema-general'
 
 import { LLMProviderKey, llmProviderKeysLogic } from '../settings/llmProviderKeysLogic'
-import { isUnhealthyProviderKeyState } from '../settings/providerKeyStateUtils'
+import { getUnhealthyProviderKey } from '../settings/providerKeyStateUtils'
 import { evaluationErrorMessage } from './apiErrors'
+import { evaluationCanResolveModel, evaluationTypeCanBeCreated } from './evaluationCapabilities'
 import type { llmEvaluationsLogicType } from './llmEvaluationsLogicType'
 import { EvaluationConfig } from './types'
 
 const INITIAL_DATE_FROM = '-24h' as string | null
 const INITIAL_DATE_TO = null as string | null
 
-export interface LLMEvaluationsLogicProps {
-    tabId?: string
-}
+export type LLMEvaluationsLogicProps = Record<string, never>
 
 function redirectToOnlineEvaluations(searchParams: Record<string, unknown>): void {
     router.actions.replace(
@@ -41,9 +39,13 @@ function redirectToOnlineEvaluations(searchParams: Record<string, unknown>): voi
 export const llmEvaluationsLogic = kea<llmEvaluationsLogicType>([
     path(['products', 'ai_observability', 'evaluations', 'llmEvaluationsLogic']),
     props({} as LLMEvaluationsLogicProps),
-    key((props) => props.tabId ?? 'default'),
     connect(() => ({
-        values: [featureFlagLogic, ['featureFlags'], llmProviderKeysLogic, ['providerKeys', 'isTrialLimitReached']],
+        values: [
+            featureFlagLogic,
+            ['featureFlags'],
+            llmProviderKeysLogic,
+            ['providerKeys', 'requiresProviderKey', 'isTrialGrandfathered'],
+        ],
         actions: [teamLogic, ['addProductIntent'], llmProviderKeysLogic, ['loadProviderKeys']],
     })),
 
@@ -96,6 +98,7 @@ export const llmEvaluationsLogic = kea<llmEvaluationsLogicType>([
                                   // Keep status in sync so the list-column pill updates optimistically.
                                   status: !e.enabled ? 'active' : 'paused',
                                   status_reason: null,
+                                  status_reason_detail: null,
                               }
                             : e
                     ),
@@ -190,6 +193,10 @@ export const llmEvaluationsLogic = kea<llmEvaluationsLogicType>([
                 if (!original) {
                     return
                 }
+                if (!evaluationTypeCanBeCreated(original.evaluation_type, values.featureFlags)) {
+                    lemonToast.error('Sentiment evaluations are not available for this project.')
+                    return
+                }
 
                 const duplicate = {
                     name: `${original.name} (Copy)`,
@@ -260,25 +267,16 @@ export const llmEvaluationsLogic = kea<llmEvaluationsLogicType>([
             },
         ],
         canEnableEvaluation: [
-            (s) => [s.isTrialLimitReached],
-            (isTrialLimitReached: boolean) => {
-                return (evaluation: EvaluationConfig): boolean => {
-                    if (!isTrialLimitReached) {
-                        return true
-                    }
-                    // Hog evals don't call an LLM and never consume trial quota
-                    if (evaluation.evaluation_type === 'hog') {
-                        return true
-                    }
-                    return !!evaluation.model_configuration?.provider_key_id
-                }
+            (s) => [s.requiresProviderKey, s.isTrialGrandfathered],
+            (requiresProviderKey: boolean, isTrialGrandfathered: boolean) => {
+                return (evaluation: EvaluationConfig): boolean =>
+                    evaluationCanResolveModel(evaluation, requiresProviderKey, isTrialGrandfathered)
             },
         ],
 
         unhealthyProviderKeysUsedByEvaluations: [
             (s) => [s.evaluations, s.providerKeys],
             (evaluations: EvaluationConfig[], providerKeys: LLMProviderKey[]): LLMProviderKey[] => {
-                const providerKeysById = new Map(providerKeys.map((key) => [key.id, key]))
                 const seenKeyIds = new Set<string>()
                 const unhealthyProviderKeys: LLMProviderKey[] = []
 
@@ -288,8 +286,8 @@ export const llmEvaluationsLogic = kea<llmEvaluationsLogicType>([
                         continue
                     }
 
-                    const providerKey = providerKeysById.get(providerKeyId)
-                    if (!providerKey || !isUnhealthyProviderKeyState(providerKey.state)) {
+                    const providerKey = getUnhealthyProviderKey(providerKeys, providerKeyId)
+                    if (!providerKey) {
                         continue
                     }
 
@@ -302,7 +300,7 @@ export const llmEvaluationsLogic = kea<llmEvaluationsLogicType>([
         ],
     }),
 
-    tabAwareUrlToAction(({ actions, values }) => ({
+    urlToAction(({ actions, values }) => ({
         [urls.aiObservabilityEvaluations()]: (_, searchParams, __, { method }) => {
             const showOfflineEvals = !!values.featureFlags[FEATURE_FLAGS.LLM_ANALYTICS_OFFLINE_EVALS]
 
@@ -345,7 +343,7 @@ export const llmEvaluationsLogic = kea<llmEvaluationsLogicType>([
         },
     })),
 
-    tabAwareActionToUrl(() => ({
+    trackedActionToUrl(() => ({
         setDates: ({ dateFrom, dateTo }) => [
             urls.aiObservabilityEvaluations(),
             {

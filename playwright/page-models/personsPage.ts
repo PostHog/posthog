@@ -37,26 +37,29 @@ export class PersonsPage {
 
     async goToList(): Promise<void> {
         await this.page.goto('/persons')
-        await expect(this.table).toBeVisible()
+        // Wait for the initial data load to complete (at least one person link visible)
+        await expect(this.table.getByRole('link').first()).toBeVisible()
     }
 
     async searchFor(query: string, expectedCount: number = 1): Promise<void> {
         await this.searchInput.fill(query)
-        await expect(this.table.getByRole('link')).toHaveCount(expectedCount)
+        // Wait for the filtered results with an explicit timeout — the search involves
+        // a debounce + API round-trip that can be slow under CI load.
+        await expect(this.table.getByRole('link')).toHaveCount(expectedCount, { timeout: 30_000 })
     }
 
     async clickFirstPerson(): Promise<void> {
         const link = this.table.getByRole('link').first()
         const href = await link.getAttribute('href')
-        await this.page.goto(href!, { waitUntil: 'domcontentloaded' })
-        await expect(this.tabs).toBeVisible({ timeout: 15_000 })
+        await this.page.goto(href!, { waitUntil: 'load' })
+        await expect(this.tabs).toBeVisible()
     }
 
     async clickNthPerson(n: number = 0): Promise<void> {
         const link = this.table.getByRole('link').nth(n)
         const href = await link.getAttribute('href')
-        await this.page.goto(href!, { waitUntil: 'domcontentloaded' })
-        await expect(this.tabs).toBeVisible({ timeout: 15_000 })
+        await this.page.goto(href!, { waitUntil: 'load' })
+        await expect(this.tabs).toBeVisible()
     }
 
     async goToPropertiesTab(): Promise<void> {

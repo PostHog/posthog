@@ -147,8 +147,11 @@ def classify_consolidated_segment_problem(segment: ConsolidatedVideoSegment) -> 
         return "blocking_exception"
     if segment.abandonment_detected:
         return "abandonment"
-    if segment.exception == "non-blocking":
-        return "non_blocking_exception"
+    # A non-blocking exception on its own is deliberately not a problem: the user wasn't blocked,
+    # it's the largest and weakest slice of replay session problems, and the main source of false
+    # positives (e.g. console errors merely viewed on screen). It still shows in the session
+    # summary via the segment's `exception` field; we just don't research it as a signal. A segment
+    # that ALSO has confusion or a failure still classifies as that real problem below.
     if segment.confusion_detected:
         return "confusion"
     if not segment.success:

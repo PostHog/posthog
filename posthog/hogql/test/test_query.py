@@ -24,8 +24,9 @@ from posthog.schema import (
 )
 
 from posthog.hogql import ast
-from posthog.hogql.direct_connection import INVALID_CONNECTION_ID_ERROR
+from posthog.hogql.direct_connection import INVALID_CONNECTION_ID_ERROR, get_direct_connection_source
 from posthog.hogql.errors import ExposedHogQLError, QueryError
+from posthog.hogql.printer import prepare_ast_for_printing as unmocked_prepare_ast_for_printing
 from posthog.hogql.property import property_to_expr
 from posthog.hogql.query import execute_hogql_query
 from posthog.hogql.test.utils import (
@@ -35,16 +36,16 @@ from posthog.hogql.test.utils import (
 )
 
 from posthog.errors import InternalCHQueryError
-from posthog.models import Cohort
-from posthog.models.cohort.util import recalculate_cohortpeople
 from posthog.models.exchange_rate.currencies import SUPPORTED_CURRENCY_CODES
 from posthog.models.utils import UUIDT, uuid7
 from posthog.session_recordings.queries.test.session_replay_sql import produce_replay_summary
 from posthog.settings import HOGQL_INCREASED_MAX_EXECUTION_TIME
 
-from products.data_warehouse.backend.types import ExternalDataSourceType
+from products.cohorts.backend.models.cohort import Cohort
+from products.cohorts.backend.models.util import recalculate_cohortpeople
 from products.product_analytics.backend.models.insight_variable import InsightVariable
-from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
+from products.warehouse_sources.backend.facade.models import ExternalDataSource
+from products.warehouse_sources.backend.facade.types import ExternalDataSourceType
 
 
 class TestQuery(ClickhouseTestMixin, APIBaseTest):
@@ -315,6 +316,30 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
             )
 
         self.assertEqual(str(error.exception), INVALID_CONNECTION_ID_ERROR)
+
+    @patch("posthog.hogql.direct_connection.UserAccessControl")
+    def test_get_direct_connection_source_checks_source_access(self, mock_user_access_control):
+        selected_source = ExternalDataSource.objects.create(
+            source_id="selected-upstream-source",
+            connection_id="selected-connection",
+            destination_id="destination-1",
+            team=self.team,
+            status=ExternalDataSource.Status.COMPLETED,
+            source_type=ExternalDataSourceType.POSTGRES,
+            access_method=ExternalDataSource.AccessMethod.DIRECT,
+            prefix="postgres",
+        )
+        mock_user_access_control.return_value.check_access_level_for_object.return_value = False
+
+        source = get_direct_connection_source(self.team, str(selected_source.id), user=self.user)
+
+        self.assertIsNone(source)
+        checked_source = mock_user_access_control.return_value.check_access_level_for_object.call_args.args[0]
+        self.assertEqual(checked_source.pk, selected_source.pk)
+        mock_user_access_control.return_value.check_access_level_for_object.assert_called_once_with(
+            checked_source,
+            required_level="viewer",
+        )
 
     @patch("posthog.hogql.query.sync_execute")
     def test_execute_hogql_query_rejects_non_direct_connection_before_clickhouse(self, mock_sync_execute):
@@ -1294,7 +1319,7 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
                 f"FROM events "
                 f"WHERE and(equals(events.team_id, {self.team.pk}), ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, %(hogql_val_46)s), ''), 'null'), '^\"|\"$', ''), %(hogql_val_47)s), 0)) "
                 f"LIMIT 100 "
-                f"SETTINGS readonly=2, max_execution_time=60, allow_experimental_object_type=1, max_ast_elements=4000000, max_expanded_ast_elements=4000000, max_bytes_before_external_group_by=0, transform_null_in=1, optimize_min_equality_disjunction_chain_length=4294967295, allow_experimental_join_condition=1, use_hive_partitioning=0",
+                f"SETTINGS readonly=2, max_execution_time=60, allow_experimental_object_type=1, max_ast_elements=4000000, max_expanded_ast_elements=4000000, max_bytes_before_external_group_by=0, transform_null_in=1, optimize_min_equality_disjunction_chain_length=4294967295, optimize_rewrite_aggregate_function_with_if=0, optimize_min_inequality_conjunction_chain_length=4294967295, allow_experimental_join_condition=1, use_hive_partitioning=0",
                 response.clickhouse,
             )
             self.assertEqual(response.results[0], tuple(random_uuid for x in alternatives))
@@ -2039,3 +2064,17 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
         response = execute_hogql_query(query, team=self.team, modifiers=HogQLQueryModifiers(debug=True))
         assert response and response.metadata and response.metadata.ch_table_names
         assert any("sessions" in name for name in response.metadata.ch_table_names)
+
+    @patch("posthog.hogql.query.sync_execute")
+    def test_debug_mode_preserves_prepare_error_without_executing_clickhouse(self, mock_sync_execute):
+        def prepare_ast_for_printing_side_effect(*args, **kwargs):
+            if kwargs.get("dialect") == "clickhouse":
+                raise ExposedHogQLError("debug failure")
+            return unmocked_prepare_ast_for_printing(*args, **kwargs)
+
+        with patch("posthog.hogql.query.prepare_ast_for_printing", side_effect=prepare_ast_for_printing_side_effect):
+            response = execute_hogql_query("SELECT 1", team=self.team, modifiers=HogQLQueryModifiers(debug=True))
+
+        self.assertEqual(response.error, "debug failure")
+        self.assertEqual(response.clickhouse, "")
+        mock_sync_execute.assert_not_called()

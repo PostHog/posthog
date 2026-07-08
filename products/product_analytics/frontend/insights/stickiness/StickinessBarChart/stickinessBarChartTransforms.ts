@@ -1,4 +1,4 @@
-import type { TimeSeriesBarChartConfig, TooltipConfig } from 'lib/hog-charts'
+import type { TimeSeriesBarChartConfig, TooltipConfig, YAxisConfig } from '@posthog/quill-charts'
 
 import {
     buildStickinessSeries,
@@ -19,7 +19,7 @@ export interface BuildStickinessBarTimeSeriesConfigOpts {
 
 export function buildStickinessBarTimeSeriesConfig(
     opts: BuildStickinessBarTimeSeriesConfigOpts
-): TimeSeriesBarChartConfig {
+): TimeSeriesBarChartConfig & { yAxis?: YAxisConfig } {
     // No xAxis date config — labels are pre-formatted interval counts (Day 0, Day 1, …).
     return {
         yAxis: buildStickinessYAxisConfig({ yAxisScaleType: opts.yAxisScaleType, showGrid: opts.showGrid }),

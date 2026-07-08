@@ -42,8 +42,8 @@ const meta: Meta = {
                 '/api/projects/:team_id/event_definitions': () => [200, { count: 5 }],
             },
             post: {
-                '/api/environments/:team_id/query/:kind': (req) => {
-                    const query = (req.body as any).query
+                '/api/environments/:team_id/query/:kind': async ({ request }) => {
+                    const query = ((await request.json()) as any).query
                     const queryKind = query.kind
 
                     if (queryKind === 'DatabaseSchemaQuery') {
@@ -78,6 +78,21 @@ export function WebAnalyticsDashboard(): JSX.Element {
         setSourceTab(SourceTab.REFERRING_DOMAIN)
 
         // Set the device tab to browsers
+        setDeviceTab(DeviceTab.BROWSER)
+    }, [setDeviceTab, setSourceTab])
+
+    return <App />
+}
+
+WebAnalyticsDashboardMetricCards.parameters = {
+    ...meta.parameters,
+    featureFlags: [...((meta.parameters?.featureFlags as string[]) ?? []), FEATURE_FLAGS.WEB_ANALYTICS_METRIC_CARDS],
+}
+export function WebAnalyticsDashboardMetricCards(): JSX.Element {
+    const { setSourceTab, setDeviceTab } = useActions(webAnalyticsLogic)
+
+    useEffect(() => {
+        setSourceTab(SourceTab.REFERRING_DOMAIN)
         setDeviceTab(DeviceTab.BROWSER)
     }, [setDeviceTab, setSourceTab])
 

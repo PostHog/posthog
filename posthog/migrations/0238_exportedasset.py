@@ -3,7 +3,7 @@
 import django.db.models.deletion
 from django.db import migrations, models
 
-import posthog.models.exported_asset
+import products.exports.backend.models.exported_asset
 
 
 class Migration(migrations.Migration):
@@ -41,7 +41,7 @@ class Migration(migrations.Migration):
                     "access_token",
                     models.CharField(
                         blank=True,
-                        default=posthog.models.exported_asset.get_default_access_token,
+                        default=products.exports.backend.models.exported_asset.get_default_access_token,
                         max_length=400,
                         null=True,
                     ),

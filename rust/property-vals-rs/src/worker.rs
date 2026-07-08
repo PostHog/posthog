@@ -66,7 +66,7 @@ pub async fn worker_loop<E, P, F>(
                 handle.report_healthy();
                 flush(&mut aggregator, &mut pending_offsets, &producer, FLUSH_REASON_TIMER, worker, reduction.max_values_per_key, seen_cache.as_ref()).await;
             }
-            recv = consumer.json_recv::<E>() => {
+            recv = consumer.recv_with(E::decode) => {
                 handle.report_healthy();
                 match recv {
                     Ok((event, offset)) => {
@@ -173,10 +173,10 @@ pub(crate) async fn flush<P: Producer>(
     }
 }
 
-/// Cap each (team, type, key, event) to its `k` highest-count values, dropping
+/// Cap each (team, type, key) to its `k` highest-count values, dropping
 /// the rest. Keys with `<= k` distinct values are untouched, so low-cardinality
 /// keys keep everything; only high-cardinality keys lose their long tail.
-type CapGroup = (i64, PropertyType, String, String);
+type CapGroup = (i64, PropertyType, String);
 
 fn cap_top_k(
     snapshot: Vec<(TupleKey, u64)>,
@@ -189,7 +189,6 @@ fn cap_top_k(
             entry.0.team_id,
             entry.0.property_type,
             entry.0.property_key.clone(),
-            entry.0.event_name.clone(),
         );
         by_key.entry(group).or_default().push(entry);
     }
@@ -282,7 +281,6 @@ mod tests {
             property_type: PropertyType::Event,
             property_key: key.to_string(),
             property_value: value.to_string(),
-            event_name: String::new(),
         }
     }
 
@@ -646,9 +644,8 @@ mod tests {
             property_type in arb_property_type(),
             property_key in "[a-c]{1,2}",
             property_value in "[x-z]{1,2}",
-            event_name in "[a-b]{0,2}",
         ) -> TupleKey {
-            TupleKey { team_id, property_type, property_key, property_value, event_name }
+            TupleKey { team_id, property_type, property_key, property_value }
         }
     }
 

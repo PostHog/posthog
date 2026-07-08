@@ -1,11 +1,13 @@
-import { actions, afterMount, kea, key, path, props, reducers, selectors } from 'kea'
+import { actions, afterMount, connect, kea, path, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
+import { urlToAction } from 'kea-router'
 
 import api from 'lib/api'
-import { tabAwareUrlToAction } from 'lib/logic/scenes/tabAwareUrlToAction'
 import { createFuse } from 'lib/utils/fuseSearch'
+import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
+import { ProductIntentContext, ProductKey } from '~/queries/schema/schema-general'
 import { EndpointType } from '~/types'
 
 import type { endpointsLogicType } from './endpointsLogicType'
@@ -22,14 +24,11 @@ export const DEFAULT_FILTERS: EndpointsFilters = {
     tags: [],
 }
 
-export interface EndpointsLogicProps {
-    tabId: string
-}
-
 export const endpointsLogic = kea<endpointsLogicType>([
     path(['products', 'endpoints', 'frontend', 'endpointsLogic']),
-    props({} as EndpointsLogicProps),
-    key((props) => props.tabId),
+    connect(() => ({
+        actions: [teamLogic, ['addProductIntent']],
+    })),
     actions({
         setFilters: (filters: Partial<EndpointsFilters>) => ({ filters }),
         setActiveTab: (activeTab: EndpointsTab) => ({ activeTab }),
@@ -72,7 +71,7 @@ export const endpointsLogic = kea<endpointsLogicType>([
 
                 if (filters.search) {
                     const fuse = createFuse<EndpointType>(results, {
-                        keys: ['name', 'description', 'query.query'],
+                        keys: ['name', 'description'],
                         threshold: 0.3,
                     })
                     results = fuse.search(filters.search).map((result) => result.item)
@@ -84,9 +83,13 @@ export const endpointsLogic = kea<endpointsLogicType>([
     }),
     afterMount(({ actions }) => {
         actions.loadEndpoints()
+        actions.addProductIntent({
+            product_type: ProductKey.ENDPOINTS,
+            intent_context: ProductIntentContext.ENDPOINTS_VIEWED,
+        })
     }),
 
-    tabAwareUrlToAction(({ actions }) => ({
+    urlToAction(({ actions }) => ({
         [urls.endpoints()]: (_, searchParams) => {
             if (searchParams.tab === 'usage') {
                 actions.setActiveTab('usage')

@@ -1,9 +1,9 @@
 import { Link } from '@posthog/lemon-ui'
+import type { SubscriptionApi } from '@posthog/products-subscriptions/frontend/generated/api.schemas'
 
 import { TZLabel } from 'lib/components/TZLabel'
 import { ProfilePicture } from 'lib/lemon-ui/ProfilePicture'
 
-import type { SubscriptionApi } from '~/generated/core/api.schemas'
 import type { HedgehogConfig, MinimalHedgehogConfig } from '~/types'
 
 import { SubscriptionDestinationCell } from './SubscriptionDestinationCell'

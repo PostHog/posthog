@@ -6,7 +6,7 @@ build-backend = "hatchling.build"
 name = "stripe-mock"
 version = "0.1.0"
 description = "Local Stripe mock API for PostHog data warehouse import testing"
-requires-python = ">=3.12"
+requires-python = ">=3.13"
 dependencies = [
     "fastapi==0.135.2",
     "uvicorn[standard]==0.42.0",

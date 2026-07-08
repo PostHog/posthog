@@ -14,13 +14,14 @@ from posthog.schema import (
 
 from posthog.models import Team, User
 
+from products.posthog_ai.backend.models.assistant import Conversation
+
 from ee.hogai.artifacts.utils import unwrap_visualization_artifact_content
 from ee.hogai.chat_agent.insights_graph.graph import InsightsGraph
 from ee.hogai.chat_agent.stream_processor import ChatAgentStreamProcessor
 from ee.hogai.core.runner import BaseAgentRunner
 from ee.hogai.utils.types import AssistantOutput, AssistantState, PartialAssistantState
 from ee.hogai.utils.types.base import AssistantNodeName
-from ee.models import Conversation
 
 if TYPE_CHECKING:
     from ee.hogai.utils.types.composed import MaxNodeName
@@ -96,7 +97,7 @@ class InsightsAssistant(BaseAgentRunner):
         stream_subgraphs: bool = True,
         stream_first_message: bool = False,
         stream_only_assistant_messages: bool = False,
-    ) -> AsyncGenerator[AssistantOutput, None]:
+    ) -> AsyncGenerator[AssistantOutput]:
         last_ai_message: AssistantMessage | None = None
         last_artifact_content: VisualizationArtifactContent | None = None
 

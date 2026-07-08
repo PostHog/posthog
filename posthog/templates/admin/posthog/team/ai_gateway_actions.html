@@ -1,0 +1,19 @@
+<div style="margin: 10px 0;">
+    <button type="submit" name="_enable_ai_gateway" class="button"
+        formmethod="post" formaction="{{ enable_url }}" formnovalidate
+        {% if is_enabled %}disabled title="Already enabled"{% else %}onclick="return confirm('Enable AI gateway access for {{ team_name_escaped }}?');"{% endif %}
+        style="margin-right: 8px;">
+        Enable access</button>
+    <button type="submit" name="_revoke_ai_gateway" class="button"
+        formmethod="post" formaction="{{ revoke_url }}" formnovalidate
+        {% if is_revoked %}disabled title="Already revoked"{% else %}onclick="return confirm('Revoke AI gateway access for {{ team_name_escaped }}?');"{% endif %}
+        style="margin-right: 8px;">
+        Revoke access</button>
+    <button type="submit" name="_clear_ai_gateway_revoke" class="button"
+        formmethod="post" formaction="{{ clear_revoke_url }}" formnovalidate
+        {% if not is_revoked %}disabled title="Not revoked"{% else %}onclick="return confirm('Clear AI gateway revoke for {{ team_name_escaped }}?');"{% endif %}>
+        Clear revoke</button>
+    <p style="margin-top: 8px; color: #666; font-size: 12px;">
+        Sets <code>llm_gateway_enabled_at</code> / <code>llm_gateway_revoked_at</code> to now (or null). Per-region.
+    </p>
+</div>

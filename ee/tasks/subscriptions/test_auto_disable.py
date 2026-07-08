@@ -5,9 +5,10 @@ from django.utils import timezone
 
 from parameterized import parameterized
 
-from posthog.models.subscription import Subscription
+from products.exports.backend.models.subscription import Subscription
 
 from ee.tasks.subscriptions.auto_disable import (
+    AI_PROMPT_INVALID_DISABLE_REASON,
     SLACK_DISCONNECTED_DISABLE_REASON,
     disable_invalid_subscription,
     send_notifications_for_disabled_subscription,
@@ -67,7 +68,7 @@ class TestDisableInvalidSubscription(APIBaseTest):
 
         sub.refresh_from_db()
         assert sub.enabled is False
-        send_mock.assert_called_once_with(sub, SLACK_DISCONNECTED_DISABLE_REASON.description, [self.user.email])
+        send_mock.assert_called_once_with(sub, SLACK_DISCONNECTED_DISABLE_REASON, [self.user.email])
 
     def test_compare_and_swap_no_op_when_already_disabled(self):
         # Simulates a cross-workflow race: by the time this caller reaches the UPDATE,
@@ -107,12 +108,8 @@ class TestDisableInvalidSubscription(APIBaseTest):
         sub = self._make_subscription()
 
         with patch("ee.tasks.subscriptions.auto_disable.EmailMessage") as email_cls:
-            send_notifications_for_disabled_subscription(
-                sub, SLACK_DISCONNECTED_DISABLE_REASON.description, [self.user.email]
-            )
-            send_notifications_for_disabled_subscription(
-                sub, SLACK_DISCONNECTED_DISABLE_REASON.description, [self.user.email]
-            )
+            send_notifications_for_disabled_subscription(sub, SLACK_DISCONNECTED_DISABLE_REASON, [self.user.email])
+            send_notifications_for_disabled_subscription(sub, SLACK_DISCONNECTED_DISABLE_REASON, [self.user.email])
 
         first_key = email_cls.call_args_list[0].kwargs["campaign_key"]
         second_key = email_cls.call_args_list[1].kwargs["campaign_key"]
@@ -122,6 +119,18 @@ class TestDisableInvalidSubscription(APIBaseTest):
         prefix = f"subscription-disabled-notification-{sub.id}-"
         assert first_key.startswith(prefix)
         assert second_key.startswith(prefix)
+
+    def test_disabled_email_includes_actionable_remediation(self):
+        sub = self._make_subscription()
+
+        with patch("ee.tasks.subscriptions.auto_disable.EmailMessage") as email_cls:
+            send_notifications_for_disabled_subscription(sub, AI_PROMPT_INVALID_DISABLE_REASON, [self.user.email])
+
+        ctx = email_cls.call_args.kwargs["template_context"]
+        assert ctx["reason"] == AI_PROMPT_INVALID_DISABLE_REASON.description
+        assert ctx["action_message"] == AI_PROMPT_INVALID_DISABLE_REASON.user_message.format(
+            target_type=sub.target_type
+        )
 
     def test_disable_persists_when_email_send_fails(self):
         """Disabling is the durable side effect; email is best-effort.

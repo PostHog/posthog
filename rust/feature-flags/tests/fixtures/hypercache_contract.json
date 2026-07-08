@@ -5,6 +5,7 @@
             "team_id": 99,
             "name": "Full feature flag with all optional fields",
             "key": "full-flag",
+            "has_experiment": false,
             "filters": {
                 "groups": [
                     {
@@ -61,6 +62,7 @@
             "team_id": 99,
             "name": "",
             "key": "minimal-flag",
+            "has_experiment": false,
             "filters": {
                 "groups": [
                     {
@@ -85,6 +87,7 @@
             "team_id": 99,
             "name": "Cohort flag",
             "key": "cohort-flag",
+            "has_experiment": false,
             "filters": {
                 "groups": [
                     {
@@ -116,6 +119,7 @@
             "team_id": 99,
             "name": "Flag with dependency",
             "key": "dependent-flag",
+            "has_experiment": false,
             "filters": {
                 "groups": [
                     {
@@ -148,6 +152,7 @@
             "team_id": 99,
             "name": "Flag with missing dependency",
             "key": "missing-dep-flag",
+            "has_experiment": false,
             "filters": {
                 "groups": [
                     {
@@ -208,7 +213,8 @@
             "groups": [],
             "created_by_id": 1,
             "cohort_type": null,
-            "last_backfill_person_properties_at": "2024-01-15T12:00:00+00:00"
+            "last_backfill_person_properties_at": "2024-01-15T12:00:00+00:00",
+            "last_backfill_events_at": "2024-01-15T12:00:00+00:00"
         }
     ]
 }

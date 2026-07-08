@@ -123,6 +123,7 @@ pub struct CapturedEventHeaders {
     pub dlq_reason: Option<String>,
     pub dlq_step: Option<String>,
     pub dlq_timestamp: Option<String>,
+    pub content_encoding: Option<String>,
 }
 
 impl CapturedEventHeaders {
@@ -144,6 +145,10 @@ impl CapturedEventHeaders {
 
     pub fn set_dlq_timestamp(&mut self, value: String) {
         self.dlq_timestamp = Some(value);
+    }
+
+    pub fn set_content_encoding(&mut self, value: String) {
+        self.content_encoding = Some(value);
     }
 }
 
@@ -217,6 +222,12 @@ impl From<CapturedEventHeaders> for OwnedHeaders {
                 value: Some(timestamp.as_str()),
             });
         }
+        if let Some(ref encoding) = headers.content_encoding {
+            owned = owned.insert(Header {
+                key: "content-encoding",
+                value: Some(encoding.as_str()),
+            });
+        }
 
         owned
     }
@@ -253,6 +264,7 @@ impl From<OwnedHeaders> for CapturedEventHeaders {
             dlq_reason: headers_map.get("dlq_reason").cloned(),
             dlq_step: headers_map.get("dlq_step").cloned(),
             dlq_timestamp: headers_map.get("dlq_timestamp").cloned(),
+            content_encoding: headers_map.get("content-encoding").cloned(),
         }
     }
 }
@@ -313,6 +325,7 @@ impl CapturedEvent {
             dlq_reason: None,
             dlq_step: None,
             dlq_timestamp: None,
+            content_encoding: None,
         }
     }
 

@@ -2,7 +2,6 @@
 # delegate `.message` so its own provider recipe handles it.
 
 id: litellm
-priority: 10
 
 rules:
     - on:

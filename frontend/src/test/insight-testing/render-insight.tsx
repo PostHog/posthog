@@ -86,6 +86,8 @@ export interface RenderInsightProps {
     featureFlags?: Record<string, string | boolean>
     context?: QueryContext<InsightVizNode>
     inSharedMode?: boolean
+    /** Render as a fixed-height dashboard/card tile rather than the full insight page. */
+    embedded?: boolean
 }
 
 function InsightWrapper({
@@ -93,11 +95,13 @@ function InsightWrapper({
     showFilters = false,
     context,
     inSharedMode,
+    embedded,
 }: {
     query: InsightQuery
     showFilters: boolean
     context?: QueryContext<InsightVizNode>
     inSharedMode?: boolean
+    embedded?: boolean
 }): JSX.Element {
     const [vizQuery, setVizQuery] = useState<InsightVizNode>({
         kind: NodeKind.InsightVizNode,
@@ -119,6 +123,7 @@ function InsightWrapper({
             setQuery={setVizQuery}
             context={context}
             inSharedMode={inSharedMode}
+            embedded={embedded}
         />
     )
 }
@@ -129,9 +134,18 @@ export function renderInsight(props: RenderInsightProps = {}): ReturnType<typeof
     return render(
         <InsightWrapper
             query={props.query ?? buildTrendsQuery()}
-            showFilters={props.showFilters ?? true}
+            showFilters={props.showFilters ?? false}
             context={props.context}
             inSharedMode={props.inSharedMode}
+            embedded={props.embedded}
         />
     )
+}
+
+/** Render the full insight page including the filter editor UI (header, series
+ *  editor, breakdown, display config). Mounting all of that roughly doubles a
+ *  test's runtime versus the chart-only `renderInsight`, so reach for this only
+ *  when the test interacts with the filter controls themselves. */
+export function renderInsightPage(props: RenderInsightProps = {}): ReturnType<typeof render> {
+    return renderInsight({ ...props, showFilters: props.showFilters ?? true })
 }

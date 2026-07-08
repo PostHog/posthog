@@ -1,19 +1,16 @@
 import { actions, afterMount, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
-import { router } from 'kea-router'
-import { subscriptions } from 'kea-subscriptions'
+import { router, urlToAction } from 'kea-router'
 
 import { IconBook } from '@posthog/icons'
 
 import api from 'lib/api'
 import { dayjs } from 'lib/dayjs'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
-import { tabAwareActionToUrl } from 'lib/logic/scenes/tabAwareActionToUrl'
-import { tabAwareUrlToAction } from 'lib/logic/scenes/tabAwareUrlToAction'
+import { trackedActionToUrl } from 'lib/logic/scenes/trackedActionToUrl'
 import { tabUiStateLogic } from 'lib/logic/tabUiStateLogic'
-import { objectsEqual, uuid } from 'lib/utils'
-import { sceneLogic } from 'scenes/sceneLogic'
-import { Scene, SceneTab } from 'scenes/sceneTypes'
-import { maxSettingsLogic } from 'scenes/settings/environment/maxSettingsLogic'
+import { inStorybook, inStorybookTestRunner, uuid } from 'lib/utils/dom'
+import { objectsEqual } from 'lib/utils/objects'
+import { Scene } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
 import { sidePanelStateLogic } from '~/layout/navigation-3000/sidepanel/sidePanelStateLogic'
@@ -30,10 +27,10 @@ import {
     SidePanelTab,
 } from '~/types'
 
+import { PENDING_AI_PROMPT_KEY } from './max-storage-keys'
 import { maxContextLogic } from './maxContextLogic'
 import { maxGlobalLogic } from './maxGlobalLogic'
 import type { maxLogicType } from './maxLogicType'
-import { PENDING_AI_PROMPT_KEY } from './maxThreadLogic'
 import { MaxUIContext } from './maxTypes'
 
 /** Maximum age for restored prompts (5 minutes) */
@@ -50,6 +47,14 @@ interface StoredMaxContext {
     context: Partial<MaxUIContext>
     timestamp: number
 }
+
+/**
+ * `/ai` query param carrying a sandbox Task to bind a fresh chat to (set by inbox "Open task").
+ * A URL param (rather than sessionStorage) so the binding survives opening the chat in a new tab or
+ * window. The side panel — which doesn't sync the URL — receives the same binding via a direct
+ * `setPendingBindTaskId` (see `maxGlobalLogic.openSidePanelMaxWithTaskBind`).
+ */
+export const SANDBOX_BIND_TASK_PARAM = 'bind_task'
 
 export type MessageStatus = 'loading' | 'completed' | 'error'
 
@@ -122,23 +127,31 @@ function handleCommandString(options: string, actions: maxLogicType['actions']):
 const CHAT_TITLE_NEW = 'New chat'
 const CHAT_TITLE_HISTORY = 'Chat history'
 
-function updateInactiveTab(tabId: string, props: Partial<SceneTab>): void {
-    const scene = sceneLogic.findMounted()
-    if (!scene) {
-        return
-    }
-    const { tabs } = scene.values
-    const tab = tabs.find((t) => t.id === tabId)
-    if (tab && !tab.active) {
-        scene.actions.setTabs(tabs.map((t) => (t.id === tabId ? { ...t, ...props } : t)))
-    }
+// Fixed panelId for the floating side panel chat, which is not a scene tab.
+export const SIDE_PANEL_PANEL_ID = 'sidepanel'
+
+// Fallback panelId for the bare /ai scene, which has no tab id and no side panel chrome.
+export const SCENE_PANEL_ID = 'scene'
+
+export interface MaxLogicProps {
+    panelId?: string
+    initialFrontendConversationId?: string
+    syncUrl?: boolean
+    onAcceptSessionFilters?: (filters: RecordingUniversalFilters) => void
+}
+
+function shouldSyncMaxUrl(props: MaxLogicProps): boolean {
+    return props.syncUrl !== false && props.panelId !== SIDE_PANEL_PANEL_ID
+}
+
+// Only real scene tabs carry per-tab drafts and tab badges. Embedded panels, the side panel, and bare scene don't.
+function sceneTabId(panelId?: string, syncUrl?: boolean): string | null {
+    return syncUrl !== false && panelId && panelId !== SIDE_PANEL_PANEL_ID ? panelId : null
 }
 
 export const maxLogic = kea<maxLogicType>([
-    props(
-        {} as { tabId?: string | 'sidepanel'; onAcceptSessionFilters?: (filters: RecordingUniversalFilters) => void }
-    ),
-    key((props) => props.tabId || 'scene'),
+    props({} as MaxLogicProps),
+    key((props) => props.panelId || SCENE_PANEL_ID),
     path((key) => ['scenes', 'max', 'maxLogic', key]),
 
     connect(() => ({
@@ -154,8 +167,6 @@ export const maxLogic = kea<maxLogicType>([
                 'conversationHistory',
                 'conversationHistoryLoading',
             ],
-            maxSettingsLogic,
-            ['coreMemory'],
             // Actions are lazy-loaded. In order to display their names in the UI, we're loading them here.
             actionsModel({ params: 'include_count=1' }),
             ['actions'],
@@ -203,12 +214,15 @@ export const maxLogic = kea<maxLogicType>([
         setBackScreen: (screen: 'history') => ({ screen }),
         focusInput: true,
         setActiveGroup: (group: SuggestionGroup | null) => ({ group }),
+        // Postfix hint shown after a fill-in capability suggestion's typed-in prefix.
+        setFillInHint: (hint: string | null) => ({ hint }),
         incrActiveStreamingThreads: true,
         decrActiveStreamingThreads: true,
         setAutoRun: (autoRun: boolean) => ({ autoRun }),
+        setPendingBindTaskId: (taskId: string | null) => ({ taskId }),
     }),
 
-    reducers({
+    reducers(({ props }) => ({
         activeStreamingThreads: [
             0,
             {
@@ -234,9 +248,20 @@ export const maxLogic = kea<maxLogicType>([
             },
         ],
 
+        // A pending Task to bind a new sandbox conversation to (set by inbox "Open task"). Consumed by
+        // maxThreadLogic on the first message, which sends it as `task_id` so the open resumes that
+        // Task's run. Cleared once consumed, or when an explicit new chat starts without a bind.
+        pendingBindTaskId: [
+            null as string | null,
+            {
+                setPendingBindTaskId: (_, { taskId }) => taskId,
+                startNewConversation: () => null,
+            },
+        ],
+
         // The frontend-generated UUID for new conversations
         frontendConversationId: [
-            (() => uuid()) as any as string,
+            (props.initialFrontendConversationId ?? uuid()) as string,
             {
                 startNewConversation: () => uuid(),
             },
@@ -272,11 +297,19 @@ export const maxLogic = kea<maxLogicType>([
             },
         ],
 
+        fillInHint: [
+            null as string | null,
+            {
+                setFillInHint: (_, { hint }) => hint,
+                startNewConversation: () => null,
+            },
+        ],
+
         autoRun: [false as boolean, { setAutoRun: (_, { autoRun }) => autoRun, startNewConversation: () => false }],
-    }),
+    })),
 
     selectors({
-        tabId: [() => [(_, props) => props?.tabId || ''], (tabId) => tabId],
+        panelId: [() => [(_, props) => props?.panelId || ''], (panelId) => panelId],
         onAcceptSessionFilters: [
             () => [
                 (_, props) =>
@@ -304,7 +337,7 @@ export const maxLogic = kea<maxLogicType>([
         headline: [
             (s) => [s.conversation, s.toolHeadlines, s.frontendConversationId],
             (conversation, toolHeadlines, frontendConversationId) => {
-                if (process.env.STORYBOOK) {
+                if (inStorybook() || inStorybookTestRunner()) {
                     return HEADLINES[0] // Preventing UI snapshots from being different every time
                 }
 
@@ -369,9 +402,9 @@ export const maxLogic = kea<maxLogicType>([
         ],
 
         threadLogicProps: [
-            (s) => [s.tabId, s.conversation, s.threadLogicKey],
-            (tabId, conversation, threadLogicKey) => ({
-                tabId,
+            (s) => [s.panelId, s.conversation, s.threadLogicKey],
+            (panelId, conversation, threadLogicKey) => ({
+                panelId,
                 conversationId: threadLogicKey,
                 conversation,
             }),
@@ -431,23 +464,9 @@ export const maxLogic = kea<maxLogicType>([
             // Side panel Max stays mounted across the whole app, so its question reducer
             // already survives navigation — and there's no removeTab cleanup for it,
             // which would turn the persisted draft into a memory leak.
-            if (props.tabId && props.tabId !== 'sidepanel') {
-                actions.setChatDraftForTab(props.tabId, question)
-            }
-        },
-        incrActiveStreamingThreads: () => {
-            if (props.tabId) {
-                updateInactiveTab(props.tabId, { iconType: 'loading', badge: false })
-            }
-        },
-        decrActiveStreamingThreads: () => {
-            // Reducer runs before listener, so activeStreamingThreads is already decremented.
-            // If still > 0, other streams are active — don't show badge yet.
-            if (values.activeStreamingThreads > 0) {
-                return
-            }
-            if (props.tabId) {
-                updateInactiveTab(props.tabId, { iconType: 'chat', badge: true })
+            const tabId = sceneTabId(props.panelId, props.syncUrl)
+            if (tabId) {
+                actions.setChatDraftForTab(tabId, question)
             }
         },
         // Listen for when the side panel state changes and check for initial prompt
@@ -570,18 +589,9 @@ export const maxLogic = kea<maxLogicType>([
         startNewConversation: () => {
             actions.resetContext()
             actions.focusInput()
-            if (props.tabId && props.tabId !== 'sidepanel') {
-                actions.setChatDraftForTab(props.tabId, '')
-            }
-        },
-    })),
-
-    // Active tab titles are updated by sceneLogic's titleAndIcon subscription (reads breadcrumbs).
-    // This subscription covers inactive tabs, which titleAndIcon doesn't reach.
-    subscriptions(({ props }) => ({
-        chatTitle: (title: string | null) => {
-            if (title && title !== CHAT_TITLE_NEW && title !== CHAT_TITLE_HISTORY && props.tabId) {
-                updateInactiveTab(props.tabId, { title })
+            const tabId = sceneTabId(props.panelId, props.syncUrl)
+            if (tabId) {
+                actions.setChatDraftForTab(tabId, '')
             }
         },
     })),
@@ -589,8 +599,9 @@ export const maxLogic = kea<maxLogicType>([
     afterMount(({ actions, values, props }) => {
         // Restore per-tab chat draft (typed but unsent input that should survive scene unmount).
         // Side panel Max is excluded — it stays mounted globally, doesn't go through removeTab cleanup.
-        if (!values.question && props.tabId && props.tabId !== 'sidepanel') {
-            const draft = values.chatDraftFor(props.tabId)
+        const tabId = sceneTabId(props.panelId, props.syncUrl)
+        if (!values.question && tabId) {
+            const draft = values.chatDraftFor(tabId)
             if (draft) {
                 actions.setQuestion(draft)
             }
@@ -628,7 +639,7 @@ export const maxLogic = kea<maxLogicType>([
         actions.loadConversationHistory()
     }),
 
-    tabAwareUrlToAction(({ actions, values }) => ({
+    urlToAction(({ actions, values }) => ({
         [urls.aiHistory()]: () => {
             if (!values.conversationHistoryVisible) {
                 actions.toggleConversationHistory()
@@ -672,33 +683,49 @@ export const maxLogic = kea<maxLogicType>([
             } else if (values.conversationHistoryVisible) {
                 actions.toggleConversationHistory()
             }
+
+            // A fresh chat (no `chat` param) may carry a task to bind via the URL (inbox "Open task").
+            // Read it after the `startNewConversation` above (which clears it) so it survives, and the
+            // first message resumes that task's run. The param naturally drops once `setConversationId`
+            // rewrites the URL to `?chat=<id>` after the first message.
+            const bindTaskId = search[SANDBOX_BIND_TASK_PARAM]
+            if (!search.chat && bindTaskId) {
+                actions.setPendingBindTaskId(String(bindTaskId))
+            }
         },
     })),
 
-    tabAwareActionToUrl(({ values }) => ({
-        toggleConversationHistory: () => {
-            if (values.conversationHistoryVisible) {
-                return [urls.aiHistory(), {}, router.values.location.hash]
-            } else if (values.conversationId) {
-                return [urls.ai(values.conversationId), {}, router.values.location.hash]
-            }
-            return [urls.ai(), {}, router.values.location.hash]
-        },
-        startNewConversation: () => {
-            return [urls.ai(), {}, router.values.location.hash]
-        },
-        openConversation: ({ conversationId }) => {
-            return [urls.ai(conversationId), {}, router.values.location.hash]
-        },
-        setConversationId: ({ conversationId }) => {
-            // Only set the URL parameter if this is a new conversation (using frontendConversationId)
-            if (conversationId && conversationId === values.frontendConversationId) {
-                return [urls.ai(conversationId), {}, router.values.location.hash, { replace: true }]
-            }
-            // Return undefined to not update URL for existing conversations
-            return undefined
-        },
-    })),
+    trackedActionToUrl(({ values, props }) => {
+        // Embedded chats and the side panel float over another scene, so they must never rewrite the
+        // route. Only the scene instance, which owns /ai, syncs Max state into the URL.
+        if (!shouldSyncMaxUrl(props)) {
+            return {}
+        }
+        return {
+            toggleConversationHistory: () => {
+                if (values.conversationHistoryVisible) {
+                    return [urls.aiHistory(), {}, router.values.location.hash]
+                } else if (values.conversationId) {
+                    return [urls.ai(values.conversationId), {}, router.values.location.hash]
+                }
+                return [urls.ai(), {}, router.values.location.hash]
+            },
+            startNewConversation: () => {
+                return [urls.ai(), {}, router.values.location.hash]
+            },
+            openConversation: ({ conversationId }) => {
+                return [urls.ai(conversationId), {}, router.values.location.hash]
+            },
+            setConversationId: ({ conversationId }) => {
+                // Only set the URL parameter if this is a new conversation (using frontendConversationId)
+                if (conversationId && conversationId === values.frontendConversationId) {
+                    return [urls.ai(conversationId), {}, router.values.location.hash, { replace: true }]
+                }
+                // Return undefined to not update URL for existing conversations
+                return undefined
+            },
+        }
+    }),
 ])
 
 export function getScrollableContainer(element?: Element | null): HTMLElement | null {
@@ -857,7 +884,7 @@ export const QUESTION_SUGGESTIONS_DATA: readonly SuggestionGroup[] = [
                 content: 'Create a survey to collect NPS responses from users',
             },
             {
-                content: 'Create a survey to CSAT responses from users',
+                content: 'Create a survey to collect CSAT responses from users',
             },
             {
                 content: 'Create a survey to measure product market fit',

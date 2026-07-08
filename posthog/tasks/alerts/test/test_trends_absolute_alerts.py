@@ -9,6 +9,7 @@ import pytz
 import dateutil
 
 from posthog.schema import (
+    AggregationAxisFormat,
     AlertCalculationInterval,
     AlertState,
     BaseMathType,
@@ -77,6 +78,7 @@ class TestTimeSeriesTrendsAbsoluteAlerts(APIBaseTest, ClickhouseDestroyTablesMix
         self,
         breakdown: Optional[BreakdownFilter] = None,
         interval: IntervalType = IntervalType.WEEK,
+        trends_filter: Optional[TrendsFilter] = None,
     ) -> dict[str, Any]:
         query_dict = TrendsQuery(
             series=[
@@ -91,7 +93,7 @@ class TestTimeSeriesTrendsAbsoluteAlerts(APIBaseTest, ClickhouseDestroyTablesMix
                 ),
             ],
             breakdownFilter=breakdown,
-            trendsFilter=TrendsFilter(display=ChartDisplayType.ACTIONS_LINE_GRAPH),
+            trendsFilter=trends_filter or TrendsFilter(display=ChartDisplayType.ACTIONS_LINE_GRAPH),
             interval=interval,
             dateRange=DateRange(date_from="-8w"),
         ).model_dump()
@@ -161,7 +163,7 @@ class TestTimeSeriesTrendsAbsoluteAlerts(APIBaseTest, ClickhouseDestroyTablesMix
 
         mock_send_breaches.assert_called_once_with(
             ANY,
-            ["The insight value (signed_up) for previous week (0) is less than lower threshold (1.0)"],
+            ["The insight value (signed_up) for previous week (0) is less than lower threshold (1)"],
             idempotency_key=ANY,
         )
 
@@ -201,7 +203,33 @@ class TestTimeSeriesTrendsAbsoluteAlerts(APIBaseTest, ClickhouseDestroyTablesMix
 
         mock_send_breaches.assert_called_once_with(
             ANY,
-            ["The insight value (signed_up) for previous week (2) is more than upper threshold (1.0)"],
+            ["The insight value (signed_up) for previous week (2) is more than upper threshold (1)"],
+            idempotency_key=ANY,
+        )
+
+    def test_trend_currency_value_formatted_in_breach(
+        self, mock_send_breaches: MagicMock, mock_send_errors: MagicMock
+    ) -> None:
+        # A currency-formatted insight renders the breach value and threshold with the team's currency
+        # symbol (USD by default), mirroring the chart — not as a raw float.
+        insight = self.create_time_series_trend_insight(
+            trends_filter=TrendsFilter(
+                display=ChartDisplayType.ACTIONS_LINE_GRAPH,
+                aggregationAxisFormat=AggregationAxisFormat.CURRENCY,
+            )
+        )
+        alert = self.create_alert(insight, series_index=0, upper=1)
+
+        with freeze_time(FROZEN_TIME - dateutil.relativedelta.relativedelta(days=1)):
+            _create_event(team=self.team, event="signed_up", distinct_id="1")
+            _create_event(team=self.team, event="signed_up", distinct_id="2")
+            flush_persons_and_events()
+
+        run_alert_check(alert["id"])
+
+        mock_send_breaches.assert_called_once_with(
+            ANY,
+            ["The insight value (signed_up) for previous week ($2.00) is more than upper threshold ($1.00)"],
             idempotency_key=ANY,
         )
 
@@ -314,7 +342,7 @@ class TestTimeSeriesTrendsAbsoluteAlerts(APIBaseTest, ClickhouseDestroyTablesMix
 
         mock_send_breaches.assert_called_once_with(
             ANY,
-            ["The insight value (signed_up - Chrome) for previous week (2.0) is more than upper threshold (1.0)"],
+            ["The insight value (signed_up - Chrome) for previous week (2) is more than upper threshold (1)"],
             idempotency_key=ANY,
         )
 
@@ -362,7 +390,7 @@ class TestTimeSeriesTrendsAbsoluteAlerts(APIBaseTest, ClickhouseDestroyTablesMix
 
         mock_send_breaches.assert_called_once_with(
             ANY,
-            ["The insight value (signed_up - Firefox) for previous week (1.0) is less than lower threshold (2.0)"],
+            ["The insight value (signed_up - Firefox) for previous week (1) is less than lower threshold (2)"],
             idempotency_key=ANY,
         )
 
@@ -454,7 +482,7 @@ class TestTimeSeriesTrendsAbsoluteAlerts(APIBaseTest, ClickhouseDestroyTablesMix
 
         mock_send_breaches.assert_called_once_with(
             ANY,
-            ["The insight value (signed_up) for current interval (3) is more than upper threshold (1.0)"],
+            ["The insight value (signed_up) for current interval (3) is more than upper threshold (1)"],
             idempotency_key=ANY,
         )
 
@@ -502,7 +530,7 @@ class TestTimeSeriesTrendsAbsoluteAlerts(APIBaseTest, ClickhouseDestroyTablesMix
 
         mock_send_breaches.assert_called_once_with(
             ANY,
-            ["The insight value (signed_up - Chrome) for current interval (2) is more than upper threshold (1.0)"],
+            ["The insight value (signed_up - Chrome) for current interval (2) is more than upper threshold (1)"],
             idempotency_key=ANY,
         )
 
@@ -545,7 +573,7 @@ class TestTimeSeriesTrendsAbsoluteAlerts(APIBaseTest, ClickhouseDestroyTablesMix
 
         mock_send_breaches.assert_called_once_with(
             ANY,
-            ["The insight value (signed_up) for current week (2) is more than upper threshold (1.0)"],
+            ["The insight value (signed_up) for current week (2) is more than upper threshold (1)"],
             idempotency_key=ANY,
         )
 
@@ -672,11 +700,14 @@ class TestTimeSeriesTrendsAbsoluteAlerts(APIBaseTest, ClickhouseDestroyTablesMix
 
         mock_send_breaches.assert_called_once_with(
             ANY,
-            ["The insight value (signed_up) for previous week (0) is less than lower threshold (2.0)"],
+            ["The insight value (signed_up) for previous week (0) is less than lower threshold (2)"],
             idempotency_key=ANY,
         )
 
-    @patch("posthog.tasks.alerts.trends.calculate_for_query_based_insight", wraps=calculate_for_query_based_insight)
+    @patch(
+        "products.alerts.backend.evaluation.trends.calculate_for_query_based_insight",
+        wraps=calculate_for_query_based_insight,
+    )
     def test_hourly_alert_respects_latest_data(
         self, mock_calculate: MagicMock, mock_send_breaches: MagicMock, mock_send_errors: MagicMock
     ) -> None:

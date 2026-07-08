@@ -1,47 +1,12 @@
 import { Message } from 'node-rdkafka'
 import { Gauge, Histogram } from 'prom-client'
 
-import { instrumentFn } from '~/common/tracing/tracing-utils'
-
-import { HogTransformerService } from '../cdp/hog-transformations/hog-transformer.service'
-import { CommonConfig } from '../common/config'
-import { KafkaConsumerInterface, createKafkaConsumer } from '../kafka/consumer'
-import {
-    HealthCheckResult,
-    HealthCheckResultError,
-    HealthCheckResultOk,
-    PluginServerService,
-    RedisPool,
-} from '../types'
-import { PostgresRouter } from '../utils/db/postgres'
-import { EventIngestionRestrictionManager } from '../utils/event-ingestion-restrictions'
-import { EventSchemaEnforcementManager } from '../utils/event-schema-enforcement-manager'
-import { logger } from '../utils/logger'
-import { PromiseScheduler } from '../utils/promise-scheduler'
-import { TeamManager } from '../utils/team-manager'
-import { GroupTypeManager } from '../worker/ingestion/group-type-manager'
-import { BatchWritingGroupStore } from '../worker/ingestion/groups/batch-writing-group-store'
-import { ClickhouseGroupRepository } from '../worker/ingestion/groups/repositories/clickhouse-group-repository'
-import { GroupRepository } from '../worker/ingestion/groups/repositories/group-repository.interface'
-import { BatchWritingPersonsStore } from '../worker/ingestion/persons/batch-writing-person-store'
-import { PersonsStore } from '../worker/ingestion/persons/persons-store'
-import { PersonRepository } from '../worker/ingestion/persons/repositories/person-repository'
-import {
-    JoinedIngestionPipelineConfig,
-    JoinedIngestionPipelineContext,
-    JoinedIngestionPipelineDeps,
-    JoinedIngestionPipelineInput,
-    createJoinedIngestionPipeline,
-} from './analytics'
-import {
-    AiEventOutput,
-    AsyncOutput,
-    EventOutput,
-    HeatmapsOutput,
-    PersonDistinctIdsOutput,
-    PersonsOutput,
-} from './analytics/outputs'
-import { EventFilterManager } from './common/event-filters'
+import { CommonConfig } from '~/common/config'
+import { GroupTypeManager } from '~/common/groups/group-type-manager'
+import { ClickhouseGroupRepository } from '~/common/groups/repositories/clickhouse-group-repository'
+import { GroupRepository } from '~/common/groups/repositories/group-repository.interface'
+import { HogTransformer } from '~/common/hog-transformations/hog-transformer.interface'
+import { KafkaConsumerInterface, createKafkaConsumer } from '~/common/kafka/consumer'
 import {
     AppMetricsOutput,
     DlqOutput,
@@ -49,17 +14,53 @@ import {
     IngestionWarningsOutput,
     OverflowOutput,
     TophogOutput,
-} from './common/outputs'
+} from '~/common/outputs'
+import {
+    AiEventOutput,
+    AsyncOutput,
+    EventOutput,
+    PersonDistinctIdsOutput,
+    PersonMergeEventsOutput,
+    PersonsOutput,
+} from '~/common/outputs'
+import { IngestionOutputs } from '~/common/outputs/ingestion-outputs'
+import { PersonRepository } from '~/common/persons/repositories/person-repository'
+import { instrumentFn } from '~/common/tracing/tracing-utils'
+import { PostgresRouter } from '~/common/utils/db/postgres'
+import {
+    EventIngestionRestrictionManager,
+    EventIngestionRestrictionManagerComponent,
+} from '~/common/utils/event-ingestion-restrictions'
+import { EventSchemaEnforcementManager } from '~/common/utils/event-schema-enforcement-manager'
+import { logger } from '~/common/utils/logger'
+import { PromiseScheduler } from '~/common/utils/promise-scheduler'
+import { TeamManager } from '~/common/utils/team-manager'
+import { CookielessManager } from '~/ingestion/common/cookieless/cookieless-manager'
+import { BatchWritingGroupStore } from '~/ingestion/common/groups/batch-writing-group-store'
+import { BatchWritingPersonsStore } from '~/ingestion/common/persons/batch-writing-person-store'
+import { PersonsStore } from '~/ingestion/common/persons/persons-store'
+import { createOkContext } from '~/ingestion/framework/helpers'
+import { TopHog } from '~/ingestion/framework/tophog'
+import {
+    JoinedIngestionPipelineConfig,
+    JoinedIngestionPipelineContext,
+    JoinedIngestionPipelineDeps,
+    JoinedIngestionPipelineInput,
+    createJoinedIngestionPipeline,
+} from '~/ingestion/pipelines/analytics'
+import { HealthCheckResult, HealthCheckResultError, HealthCheckResultOk, PluginServerService, RedisPool } from '~/types'
+
+import { EventFilterManager, EventFilterManagerComponent } from './common/event-filters'
+import {
+    FeatureFlagCalledDedupService,
+    createFeatureFlagCalledDedupService,
+} from './common/feature-flag-called-dedup/feature-flag-called-dedup-service'
+import { MainLaneOverflowRedirect } from './common/overflow-redirect/main-lane-overflow-redirect'
+import { OverflowLaneOverflowRedirect } from './common/overflow-redirect/overflow-lane-overflow-redirect'
+import { OverflowRedirectService } from './common/overflow-redirect/overflow-redirect-service'
+import { RedisOverflowRepository } from './common/overflow-redirect/overflow-redis-repository'
+import { AiEventSubpipelineFactory } from './common/subpipelines/ai-subpipeline.contract'
 import { IngestionConsumerConfig } from './config'
-import { CookielessManager } from './cookieless/cookieless-manager'
-import { parseSplitAiEventsConfig } from './event-processing/split-ai-events-step'
-import { IngestionOutputs } from './outputs/ingestion-outputs'
-import { createOkContext } from './pipelines/helpers'
-import { TopHog } from './tophog'
-import { MainLaneOverflowRedirect } from './utils/overflow-redirect/main-lane-overflow-redirect'
-import { OverflowLaneOverflowRedirect } from './utils/overflow-redirect/overflow-lane-overflow-redirect'
-import { OverflowRedirectService } from './utils/overflow-redirect/overflow-redirect-service'
-import { RedisOverflowRepository } from './utils/overflow-redirect/overflow-redis-repository'
 
 export type IngestionConsumerFullConfig = IngestionConsumerConfig &
     Pick<CommonConfig, 'KAFKA_CLIENT_RACK' | 'CDP_HOG_WATCHER_SAMPLE_RATE'>
@@ -67,10 +68,11 @@ export type IngestionConsumerFullConfig = IngestionConsumerConfig &
 export interface IngestionConsumerDeps {
     postgres: PostgresRouter
     redisPool: RedisPool
+    /** Dedicated pool for $feature_flag_called dedup claims; reuses redisPool when unset */
+    featureFlagCalledDedupRedisPool?: RedisPool
     outputs: IngestionOutputs<
         | EventOutput
         | AiEventOutput
-        | HeatmapsOutput
         | IngestionWarningsOutput
         | DlqOutput
         | OverflowOutput
@@ -78,6 +80,7 @@ export interface IngestionConsumerDeps {
         | GroupsOutput
         | PersonsOutput
         | PersonDistinctIdsOutput
+        | PersonMergeEventsOutput
         | AppMetricsOutput
         | TophogOutput
     >
@@ -87,7 +90,8 @@ export interface IngestionConsumerDeps {
     clickhouseGroupRepository: ClickhouseGroupRepository
     personRepository: PersonRepository
     cookielessManager: CookielessManager
-    hogTransformer: HogTransformerService
+    hogTransformer: HogTransformer
+    aiSubpipelineFactory: AiEventSubpipelineFactory
 }
 
 export const latestOffsetTimestampGauge = new Gauge({
@@ -104,29 +108,27 @@ const backgroundTaskProducesDuration = new Histogram({
     buckets: [0.01, 0.05, 0.1, 0.25, 0.5, 1, 2.5, 5, 10],
 })
 
-const backgroundTaskHogTransformerDuration = new Histogram({
-    name: 'ingestion_background_task_hog_transformer_duration_seconds',
-    help: 'Time waiting for hog transformer invocation results in the background task',
-    labelNames: ['groupId'],
-    buckets: [0.01, 0.05, 0.1, 0.25, 0.5, 1, 2.5, 5, 10],
-})
-
 export class IngestionConsumer {
     protected name = 'ingestion-consumer'
     protected groupId: string
     protected topic: string
     protected kafkaConsumer: KafkaConsumerInterface
     isStopping = false
-    public hogTransformer: HogTransformerService
+    public hogTransformer: HogTransformer
     private overflowRedirectService?: OverflowRedirectService
     private overflowLaneTTLRefreshService?: OverflowRedirectService
+    private featureFlagCalledDedupService?: FeatureFlagCalledDedupService
     private tokenDistinctIdsToDrop: string[] = []
     private tokenDistinctIdsToSkipPersons: string[] = []
     private tokenDistinctIdsToForceOverflow: string[] = []
     private personsStore: PersonsStore
     public groupStore: BatchWritingGroupStore
-    private eventFilterManager: EventFilterManager
-    private eventIngestionRestrictionManager: EventIngestionRestrictionManager
+    private eventFilterManagerComponent: EventFilterManagerComponent
+    private eventFilterManager!: EventFilterManager
+    private stopEventFilterManager?: () => Promise<void>
+    private eventIngestionRestrictionManagerComponent: EventIngestionRestrictionManagerComponent
+    private eventIngestionRestrictionManager!: EventIngestionRestrictionManager
+    private stopEventIngestionRestrictionManager?: () => Promise<void>
     private eventSchemaEnforcementManager: EventSchemaEnforcementManager
     public readonly promiseScheduler = new PromiseScheduler()
     private topHog!: TopHog
@@ -158,13 +160,13 @@ export class IngestionConsumer {
         this.tokenDistinctIdsToForceOverflow = config.INGESTION_FORCE_OVERFLOW_BY_TOKEN_DISTINCT_ID.split(',').filter(
             (x) => !!x
         )
-        this.eventIngestionRestrictionManager = new EventIngestionRestrictionManager(deps.redisPool, {
+        this.eventIngestionRestrictionManagerComponent = new EventIngestionRestrictionManagerComponent(deps.redisPool, {
             pipeline: 'analytics',
             staticDropEventTokens: this.tokenDistinctIdsToDrop,
             staticSkipPersonTokens: this.tokenDistinctIdsToSkipPersons,
             staticForceOverflowTokens: this.tokenDistinctIdsToForceOverflow,
         })
-        this.eventFilterManager = new EventFilterManager(deps.postgres)
+        this.eventFilterManagerComponent = new EventFilterManagerComponent(deps.postgres)
         this.eventSchemaEnforcementManager = new EventSchemaEnforcementManager(deps.postgres)
 
         this.name = `ingestion-consumer-${this.topic}`
@@ -175,23 +177,32 @@ export class IngestionConsumer {
             redisTTLSeconds: this.config.INGESTION_STATEFUL_OVERFLOW_REDIS_TTL_SECONDS,
         })
 
-        // Create overflow redirect service only when overflow is enabled (main lane)
-        if (this.overflowEnabled()) {
+        // Overflow role for this consumer (redirect / consume / disabled).
+        const overflowMode = this.config.INGESTION_OVERFLOW_MODE
+
+        // Redirect hot partitions to the overflow topic (main lane).
+        if (overflowMode === 'redirect') {
             this.overflowRedirectService = new MainLaneOverflowRedirect({
                 redisRepository: overflowRedisRepository,
                 localCacheTTLSeconds: this.config.INGESTION_STATEFUL_OVERFLOW_LOCAL_CACHE_TTL_SECONDS,
                 bucketCapacity: this.config.EVENT_OVERFLOW_BUCKET_CAPACITY,
                 replenishRate: this.config.EVENT_OVERFLOW_BUCKET_REPLENISH_RATE,
-                statefulEnabled: this.config.INGESTION_STATEFUL_OVERFLOW_ENABLED,
+                overflowType: 'events',
             })
         }
 
-        // Create TTL refresh service when consuming from overflow topic (overflow lane)
-        if (this.config.INGESTION_LANE === 'overflow' && this.config.INGESTION_STATEFUL_OVERFLOW_ENABLED) {
+        // Drain the overflow topic and refresh stateful TTLs (overflow lane).
+        if (overflowMode === 'consume') {
             this.overflowLaneTTLRefreshService = new OverflowLaneOverflowRedirect({
                 redisRepository: overflowRedisRepository,
+                overflowType: 'events',
             })
         }
+
+        this.featureFlagCalledDedupService = createFeatureFlagCalledDedupService(
+            this.deps.featureFlagCalledDedupRedisPool ?? this.deps.redisPool,
+            this.config
+        )
 
         this.hogTransformer = deps.hogTransformer
 
@@ -236,6 +247,12 @@ export class IngestionConsumer {
     }
 
     public async start(): Promise<void> {
+        const startedRestrictions = await this.eventIngestionRestrictionManagerComponent.start()
+        this.eventIngestionRestrictionManager = startedRestrictions.value
+        this.stopEventIngestionRestrictionManager = startedRestrictions.stop
+        const startedFilters = await this.eventFilterManagerComponent.start()
+        this.eventFilterManager = startedFilters.value
+        this.stopEventFilterManager = startedFilters.stop
         await this.hogTransformer.start()
 
         this.topHog.start()
@@ -252,25 +269,21 @@ export class IngestionConsumer {
 
         const joinedPipelineConfig: JoinedIngestionPipelineConfig = {
             eventSchemaEnforcementEnabled: this.config.EVENT_SCHEMA_ENFORCEMENT_ENABLED,
-            overflowEnabled: this.overflowEnabled(),
+            overflowMode: this.config.INGESTION_OVERFLOW_MODE,
             preservePartitionLocality: this.config.INGESTION_OVERFLOW_PRESERVE_PARTITION_LOCALITY,
             personsPrefetchEnabled: this.config.PERSONS_PREFETCH_ENABLED,
             cdpHogWatcherSampleRate: this.config.CDP_HOG_WATCHER_SAMPLE_RATE,
-            groupId: this.groupId,
             outputs,
-            splitAiEventsConfig: parseSplitAiEventsConfig(
-                this.config.INGESTION_AI_EVENT_SPLITTING_ENABLED,
-                this.config.INGESTION_AI_EVENT_SPLITTING_TEAMS,
-                this.config.INGESTION_AI_EVENT_SPLITTING_STRIP_HEAVY_TEAMS,
-                this.config.INGESTION_AI_EVENT_SPLITTING_PERCENTAGE
-            ),
             perDistinctIdOptions: {
                 SKIP_UPDATE_EVENT_AND_PROPERTIES_STEP: this.config.SKIP_UPDATE_EVENT_AND_PROPERTIES_STEP,
                 PERSON_MERGE_MOVE_DISTINCT_ID_LIMIT: this.config.PERSON_MERGE_MOVE_DISTINCT_ID_LIMIT,
                 PERSON_MERGE_ASYNC_ENABLED: this.config.PERSON_MERGE_ASYNC_ENABLED,
                 PERSON_MERGE_SYNC_BATCH_SIZE: this.config.PERSON_MERGE_SYNC_BATCH_SIZE,
+                PERSON_MERGE_EVENTS_ENABLED: this.config.PERSON_MERGE_EVENTS_ENABLED,
+                PERSON_MERGE_EVENTS_PARTITION_COUNT: this.config.PERSON_MERGE_EVENTS_PARTITION_COUNT,
                 PERSON_JSONB_SIZE_ESTIMATE_ENABLE: this.config.PERSON_JSONB_SIZE_ESTIMATE_ENABLE,
                 PERSON_PROPERTIES_UPDATE_ALL: this.config.PERSON_PROPERTIES_UPDATE_ALL,
+                FLAG_CALLED_PERSONLESS_DEFAULT_TEAMS: this.config.FLAG_CALLED_PERSONLESS_DEFAULT_TEAMS,
             },
             concurrentBatches: this.config.INGESTION_WORKER_CONCURRENT_BATCHES,
         }
@@ -278,12 +291,14 @@ export class IngestionConsumer {
             personsStore: this.personsStore,
             groupStore: this.groupStore,
             hogTransformer: this.hogTransformer,
+            aiSubpipelineFactory: this.deps.aiSubpipelineFactory,
             eventFilterManager: this.eventFilterManager,
             eventIngestionRestrictionManager: this.eventIngestionRestrictionManager,
             eventSchemaEnforcementManager: this.eventSchemaEnforcementManager,
             promiseScheduler: this.promiseScheduler,
             overflowRedirectService: this.overflowRedirectService,
             overflowLaneTTLRefreshService: this.overflowLaneTTLRefreshService,
+            featureFlagCalledDedupService: this.featureFlagCalledDedupService,
             teamManager: this.deps.teamManager,
             cookielessManager: this.deps.cookielessManager,
             groupTypeManager: this.deps.groupTypeManager,
@@ -303,6 +318,9 @@ export class IngestionConsumer {
     }
 
     public async stop(): Promise<void> {
+        if (this.isStopping) {
+            return
+        }
         logger.info('🔁', `${this.name} - stopping`)
         this.isStopping = true
 
@@ -313,6 +331,23 @@ export class IngestionConsumer {
         await this.topHog.stop()
         logger.info('🔁', `${this.name} - stopping hog transformer`)
         await this.hogTransformer.stop()
+        await this.stopEventFilterManager?.()
+        await this.stopEventIngestionRestrictionManager?.()
+        // Stores must be clean by now — flushBatchStoresStep runs after every
+        // batch as part of the pipeline. After disconnect, we cannot commit
+        // offsets, so writing dirty data here would produce duplicates on
+        // partition rebalance. shutdown() will throw if anything is dirty,
+        // which surfaces the drain-ordering bug without masking it.
+        try {
+            await this.personsStore.shutdown()
+        } catch (error) {
+            logger.error('🚨', `${this.name} - personsStore.shutdown() failed`, { error })
+        }
+        try {
+            await this.groupStore.shutdown()
+        } catch (error) {
+            logger.error('🚨', `${this.name} - groupStore.shutdown() failed`, { error })
+        }
         logger.info('👍', `${this.name} - stopped!`)
     }
 
@@ -386,12 +421,9 @@ export class IngestionConsumer {
         return {
             backgroundTask: this.runInstrumented('awaitScheduledWork', async () => {
                 const labels = { groupId: this.groupId }
-                await Promise.all([
-                    timedHistogram(backgroundTaskProducesDuration, labels, () => this.promiseScheduler.waitForAll()),
-                    timedHistogram(backgroundTaskHogTransformerDuration, labels, () =>
-                        this.hogTransformer.processInvocationResults()
-                    ),
-                ])
+                // Drains scheduled produces and the hog transformer invocation results, which
+                // the pipeline's afterBatch flush step schedules as a side effect.
+                await timedHistogram(backgroundTaskProducesDuration, labels, () => this.promiseScheduler.waitForAll())
             }),
         }
     }
@@ -412,13 +444,6 @@ export class IngestionConsumer {
             }
             result = await this.joinedPipeline.next()
         }
-    }
-
-    private overflowEnabled(): boolean {
-        return (
-            !!this.config.INGESTION_CONSUMER_OVERFLOW_TOPIC &&
-            this.config.INGESTION_CONSUMER_OVERFLOW_TOPIC !== this.topic
-        )
     }
 }
 

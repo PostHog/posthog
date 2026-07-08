@@ -1,27 +1,61 @@
-import { IconRewindPlay, IconSparkles, IconWarning } from '@posthog/icons'
-import { LemonTag, Link, Spinner, Tooltip } from '@posthog/lemon-ui'
+import { IconRefresh, IconRewindPlay, IconSparkles } from '@posthog/icons'
+import { LemonButton, LemonTag, Link, Spinner, Tooltip } from '@posthog/lemon-ui'
 
-import { colonDelimitedDuration } from 'lib/utils'
+import { AccessControlAction } from 'lib/components/AccessControlAction'
+import { colonDelimitedDuration } from 'lib/utils/durations'
 import { urls } from 'scenes/urls'
 
-import type { ReplayObservationApi, ScannerSnapshotApi } from '../generated/api.schemas'
+import { AccessControlLevel, AccessControlResourceType } from '~/types'
+
+import type { ReplayObservationApi } from '../generated/api.schemas'
 import {
+    type ClassifierScannerConfig,
+    type ScorerScannerConfig,
+    configFromSnapshot,
     failureKindDescription,
+    ineligibleKindDescription,
     parseFailureReason,
     parseIneligibleReason,
     scannerTypeLabel,
 } from '../replay_scanners/types'
+import { ObservationProgressBar } from './ObservationProgressBar'
 
-export function ObservationStatusTag({ status }: { status: ReplayObservationApi['status'] }): JSX.Element {
+export function ObservationStatusTag({
+    status,
+    errorReason,
+}: {
+    status: ReplayObservationApi['status']
+    errorReason?: string | null
+}): JSX.Element {
     if (status === 'succeeded') {
         return <LemonTag type="success">Succeeded</LemonTag>
     }
     if (status === 'failed') {
-        return <LemonTag type="danger">Failed</LemonTag>
+        // Raw exception text lives in `FailureDetail`; tooltip is the description only.
+        const parsed = errorReason ? parseFailureReason(errorReason) : null
+        const tooltip = parsed ? failureKindDescription(parsed.kind) : errorReason || null
+        return (
+            <Tooltip title={tooltip}>
+                <LemonTag type="danger">Failed</LemonTag>
+            </Tooltip>
+        )
     }
     if (status === 'ineligible') {
         // Muted, not danger — the session was skipped at the gate, not a scanner failure.
-        return <LemonTag type="muted">Ineligible</LemonTag>
+        const parsed = errorReason ? parseIneligibleReason(errorReason) : null
+        const tooltip = parsed ? (
+            <div className="flex flex-col gap-1">
+                <div>{ineligibleKindDescription(parsed.kind)}</div>
+                {parsed.message && <div className="text-xs opacity-80">{parsed.message}</div>}
+            </div>
+        ) : errorReason ? (
+            <div>{errorReason}</div>
+        ) : null
+        return (
+            <Tooltip title={tooltip}>
+                <LemonTag type="muted">Ineligible</LemonTag>
+            </Tooltip>
+        )
     }
     if (status === 'running') {
         return (
@@ -38,7 +72,8 @@ export function readResult(observation: ReplayObservationApi): Record<string, un
     return output && typeof output === 'object' ? (output as Record<string, unknown>) : null
 }
 
-type Segment = { kind: 'text'; value: string } | { kind: 'chip'; uuid: string; timestamp_ms: number }
+// `uuid` is legacy — only old event-uuid citations carry it; timestamp citations use `timestamp_ms` alone.
+type Segment = { kind: 'text'; value: string } | { kind: 'chip'; timestamp_ms: number; uuid?: string }
 
 function isSegment(value: unknown): value is Segment {
     if (!value || typeof value !== 'object') {
@@ -50,7 +85,7 @@ function isSegment(value: unknown): value is Segment {
     }
     if (candidate.kind === 'chip') {
         const chip = candidate as Partial<Extract<Segment, { kind: 'chip' }>>
-        return typeof chip.uuid === 'string' && typeof chip.timestamp_ms === 'number'
+        return typeof chip.timestamp_ms === 'number'
     }
     return false
 }
@@ -95,11 +130,6 @@ export function CitedText({
     )
 }
 
-export function readConfig(snapshot: ScannerSnapshotApi | null): Record<string, unknown> {
-    const config = snapshot?.scanner_config
-    return config && typeof config === 'object' ? (config as Record<string, unknown>) : {}
-}
-
 export function ObservationPrimaryOutput({
     observation,
     compact = false,
@@ -121,17 +151,18 @@ export function ObservationPrimaryOutput({
         return null
     }
     const scannerType = snapshot.scanner_type
-    const config = readConfig(snapshot)
-    const prompt = showPrompt && typeof config.prompt === 'string' ? config.prompt : null
+    const config = configFromSnapshot(snapshot)
+    const prompt = showPrompt ? (config?.prompt ?? null) : null
     const summaryClass = expandSummary ? 'text-sm whitespace-pre-wrap' : compact ? 'text-sm truncate' : 'text-sm'
     const bodyClass = compact ? 'text-sm truncate' : 'text-sm'
     const promptClass = 'text-xs text-muted'
 
     if (scannerType === 'monitor') {
         const verdict = result.verdict
+        // Neutral accent, not success-green: a "yes" verdict isn't inherently good.
         const tagType =
             verdict === 'yes'
-                ? 'success'
+                ? 'highlight'
                 : verdict === 'no'
                   ? 'default'
                   : verdict === 'inconclusive'
@@ -167,15 +198,16 @@ export function ObservationPrimaryOutput({
     if (scannerType === 'classifier') {
         const fixedTags = Array.isArray(result.tags) ? (result.tags as string[]) : []
         const freeformTags = Array.isArray(result.tags_freeform) ? (result.tags_freeform as string[]) : []
-        const configuredTags = Array.isArray(config.tags) ? (config.tags as string[]) : []
+        const classifierConfig = config as ClassifierScannerConfig | null
+        const configuredTags = Array.isArray(classifierConfig?.tags) ? classifierConfig.tags : []
         const chosen = new Set(fixedTags)
         const empty = fixedTags.length === 0 && freeformTags.length === 0
         const renderVocab = (): JSX.Element[] =>
-            configuredTags.map((tag) => {
+            configuredTags.map((tag, index) => {
                 const isChosen = chosen.has(tag)
                 return (
                     <LemonTag
-                        key={`fixed-${tag}`}
+                        key={`fixed-${index}-${tag}`}
                         size="medium"
                         type={isChosen ? 'option' : 'default'}
                         className={isChosen ? undefined : 'opacity-50 line-through'}
@@ -185,8 +217,8 @@ export function ObservationPrimaryOutput({
                 )
             })
         const renderFreeform = (): JSX.Element[] =>
-            freeformTags.map((tag) => (
-                <LemonTag key={`freeform-${tag}`} size="medium" type="default" icon={<IconSparkles />}>
+            freeformTags.map((tag, index) => (
+                <LemonTag key={`freeform-${index}-${tag}`} size="medium" type="default" icon={<IconSparkles />}>
                     {tag}
                 </LemonTag>
             ))
@@ -198,8 +230,8 @@ export function ObservationPrimaryOutput({
                             <span className="text-muted text-sm">No tags</span>
                         ) : (
                             <>
-                                {fixedTags.map((tag) => (
-                                    <LemonTag key={`fixed-${tag}`} size="medium" type="option">
+                                {fixedTags.map((tag, index) => (
+                                    <LemonTag key={`fixed-${index}-${tag}`} size="medium" type="option">
                                         {tag}
                                     </LemonTag>
                                 ))}
@@ -233,10 +265,9 @@ export function ObservationPrimaryOutput({
     if (scannerType === 'scorer') {
         const score = typeof result.score === 'number' ? result.score : null
         const resultLabel = typeof result.label === 'string' ? result.label : null
-        const scale =
-            config.scale && typeof config.scale === 'object' ? (config.scale as Record<string, unknown>) : null
-        const scaleMax = scale && typeof scale.max === 'number' ? scale.max : null
-        const scaleLabel = scale && typeof scale.label === 'string' ? scale.label : null
+        const scale = (config as ScorerScannerConfig | null)?.scale ?? null
+        const scaleMax = typeof scale?.max === 'number' ? scale.max : null
+        const scaleLabel = typeof scale?.label === 'string' ? scale.label : null
         // Prefer the per-observation label (specific); fall back to the configured scale label (axis name).
         const displayLabel = resultLabel ?? scaleLabel
         return (
@@ -305,29 +336,8 @@ export function ObservationConfidence({ result }: { result: Record<string, unkno
 }
 
 export function ObservationResultSummary({ observation }: { observation: ReplayObservationApi }): JSX.Element {
-    if (observation.status === 'ineligible') {
-        const parsed = parseIneligibleReason(observation.error_reason)
-        const label = parsed?.label ?? 'Ineligible'
-        const detail = parsed?.message ?? observation.error_reason
-        return (
-            <Tooltip title={detail || label}>
-                <span className="text-muted text-sm">{label}</span>
-            </Tooltip>
-        )
-    }
-    if (observation.status === 'failed') {
-        const parsed = parseFailureReason(observation.error_reason)
-        const label = parsed?.label ?? 'Failed'
-        const description = parsed ? failureKindDescription(parsed.kind) : null
-        const detail = parsed?.message ?? observation.error_reason
-        const tooltip = [description, detail].filter(Boolean).join('\n\n') || 'Unknown error'
-        return (
-            <Tooltip title={tooltip}>
-                <span className="inline-flex items-center gap-1 text-danger text-sm">
-                    <IconWarning /> {label}
-                </span>
-            </Tooltip>
-        )
+    if (observation.status === 'ineligible' || observation.status === 'failed') {
+        return <span className="text-muted text-sm">—</span>
     }
     const snapshot = observation.scanner_snapshot
     const result = readResult(observation)
@@ -364,21 +374,16 @@ export function IneligibleDetail({ errorReason }: { errorReason: string }): JSX.
     )
 }
 
-function ObservationProgress({ observation }: { observation: ReplayObservationApi }): JSX.Element {
-    return (
-        <div className="flex items-center gap-2 text-muted text-sm">
-            <Spinner textColored />
-            <span>{observation.status === 'pending' ? 'Queued…' : 'Analyzing recording…'}</span>
-        </div>
-    )
-}
-
 export function ObservationDockCard({
     observation,
     onSeek,
+    onRetry,
+    retrying = false,
 }: {
     observation: ReplayObservationApi
     onSeek?: (timestampMs: number) => void
+    onRetry?: () => void
+    retrying?: boolean
 }): JSX.Element {
     const snapshot = observation.scanner_snapshot
     const scannerType = snapshot?.scanner_type
@@ -388,7 +393,7 @@ export function ObservationDockCard({
         <div className="border rounded p-3 bg-surface-primary space-y-2">
             <div className="flex items-center justify-between gap-2">
                 <div className="flex items-center gap-2 min-w-0">
-                    <ObservationStatusTag status={observation.status} />
+                    <ObservationStatusTag status={observation.status} errorReason={observation.error_reason} />
                     <span className="font-semibold text-sm truncate">{snapshot?.name || 'Scanner'}</span>
                     {scannerType && <span className="text-muted text-xs">{scannerTypeLabel(scannerType)}</span>}
                 </div>
@@ -398,7 +403,26 @@ export function ObservationDockCard({
             </div>
 
             {observation.status === 'failed' && observation.error_reason && (
-                <FailureDetail errorReason={observation.error_reason} />
+                <div className="space-y-2">
+                    <FailureDetail errorReason={observation.error_reason} />
+                    {onRetry && (
+                        <AccessControlAction
+                            resourceType={AccessControlResourceType.SessionRecording}
+                            minAccessLevel={AccessControlLevel.Editor}
+                        >
+                            <LemonButton
+                                size="xsmall"
+                                type="secondary"
+                                icon={<IconRefresh />}
+                                onClick={onRetry}
+                                loading={retrying}
+                                data-attr="vision-dock-retry-observation"
+                            >
+                                Retry scan
+                            </LemonButton>
+                        </AccessControlAction>
+                    )}
+                </div>
             )}
 
             {observation.status === 'ineligible' && observation.error_reason && (
@@ -410,7 +434,7 @@ export function ObservationDockCard({
             )}
 
             {(observation.status === 'pending' || observation.status === 'running') && (
-                <ObservationProgress observation={observation} />
+                <ObservationProgressBar observationId={observation.id} sessionId={observation.session_id} compact />
             )}
         </div>
     )

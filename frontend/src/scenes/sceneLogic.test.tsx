@@ -1,17 +1,19 @@
-import { afterMount, beforeUnmount, kea, key, path, props } from 'kea'
+import { kea, path } from 'kea'
 import { router } from 'kea-router'
 import { expectLogic, partial, truth } from 'kea-test-utils'
 
 import api from 'lib/api'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { removeProjectIdIfPresent } from 'lib/utils/kea-router'
 import { Scene } from 'scenes/sceneTypes'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
 import { initKeaTests } from '~/test/init'
+import type { AppContext } from '~/types'
 
-import { mergePinnedTabs, sceneLogic } from './sceneLogic'
-import type { testLogicType, tabAwareTestLogicType } from './sceneLogic.testType'
+import { sceneLogic } from './sceneLogic'
+import type { testLogicType } from './sceneLogic.testType'
 
 jest.mock('lib/api', () => ({
     __esModule: true,
@@ -24,19 +26,6 @@ jest.mock('lib/api', () => ({
 const Component = (): JSX.Element => <div />
 const testLogic = kea<testLogicType>([path(['scenes', 'sceneLogic', 'test'])])
 const sceneImport = (): any => ({ scene: { component: Component, logic: testLogic } })
-let mountedTabIds: (string | undefined)[] = []
-let unmountedTabIds: (string | undefined)[] = []
-const tabAwareTestLogic = kea<tabAwareTestLogicType>([
-    path(['scenes', 'sceneLogic', 'tabAwareTestLogic']),
-    props({} as { tabId?: string }),
-    key(({ tabId }) => tabId ?? 'missing'),
-    afterMount(({ props }) => {
-        mountedTabIds.push(props.tabId)
-    }),
-    beforeUnmount(({ props }) => {
-        unmountedTabIds.push(props.tabId)
-    }),
-])
 
 const testScenes: Record<string, () => any> = {
     [Scene.DataManagement]: sceneImport,
@@ -56,11 +45,7 @@ describe('sceneLogic', () => {
         await expectLogic(teamLogic).toDispatchActions(['loadCurrentTeamSuccess'])
         featureFlagLogic.mount()
         router.actions.push(urls.eventDefinitions())
-        mountedTabIds = []
-        unmountedTabIds = []
         logic = sceneLogic.build({ scenes: testScenes })
-        // Simulate a fresh mount so that stored tabs are read from localStorage.
-        logic.cache.tabsLoaded = false
         logic.mount()
         await expectLogic(logic).delay(1)
     })
@@ -110,149 +95,83 @@ describe('sceneLogic', () => {
         })
     })
 
-    it('keeps tab scene logic mounted when switching away and back to the same tab', async () => {
-        const sceneParams = { params: {}, searchParams: {}, hashParams: {} }
-        const dataManagementScene = { component: Component, logic: tabAwareTestLogic }
-        const settingsScene = { component: Component, logic: testLogic }
+    describe('/home honors the configured homepage', () => {
+        const dashboardHomepage = {
+            id: 'homepage-dashboard-42',
+            pathname: urls.dashboard(42),
+            search: '',
+            hash: '',
+            title: 'Default dashboard',
+            iconType: 'dashboard' as const,
+            sceneId: Scene.Dashboard,
+            sceneKey: 'dashboard-42',
+            sceneParams: { params: {}, searchParams: {}, hashParams: {} },
+        }
 
-        logic.actions.setTabs([
-            {
-                id: 'tab-1',
-                active: true,
-                pathname: '/data-management/events',
-                search: '',
-                hash: '',
-                title: 'Data management',
-                iconType: 'blank',
-                sceneId: Scene.DataManagement,
-            },
-            {
-                id: 'tab-2',
-                active: false,
-                pathname: '/settings/user',
-                search: '',
-                hash: '',
-                title: 'Settings',
-                iconType: 'blank',
-                sceneId: Scene.Settings,
-            },
-        ])
-
-        logic.actions.setScene(Scene.DataManagement, undefined, 'tab-1', sceneParams, false, dataManagementScene)
-        expect(mountedTabIds.filter((tabId) => tabId === 'tab-1')).toHaveLength(1)
-
-        logic.actions.activateTab(logic.values.tabs[1])
-        logic.actions.setScene(Scene.Settings, undefined, 'tab-2', sceneParams, false, settingsScene)
-        expect(unmountedTabIds).not.toContain('tab-1')
-
-        logic.actions.activateTab(logic.values.tabs[0])
-        logic.actions.setScene(Scene.DataManagement, undefined, 'tab-1', sceneParams, false, dataManagementScene)
-
-        expect(mountedTabIds.filter((tabId) => tabId === 'tab-1')).toHaveLength(1)
-        expect(unmountedTabIds).not.toContain('tab-1')
-    })
-
-    it('does not duplicate pinned tab when unpinning after reordering', async () => {
-        logic.actions.setTabs([
-            {
-                id: 'tab-1',
-                active: true,
-                pathname: '/a',
-                search: '',
-                hash: '',
-                title: 'Tab A',
-                iconType: 'blank',
-            },
-            {
-                id: 'tab-2',
-                active: false,
-                pathname: '/b',
-                search: '',
-                hash: '',
-                title: 'Tab B',
-                iconType: 'blank',
-            },
-            {
-                id: 'tab-3',
-                active: false,
-                pathname: '/c',
-                search: '',
-                hash: '',
-                title: 'Tab C',
-                iconType: 'blank',
-            },
-        ])
-
-        logic.actions.pinTab('tab-2')
-        logic.actions.pinTab('tab-3')
-
-        await expectLogic(logic).toMatchValues({
-            tabs: expect.arrayContaining([
-                expect.objectContaining({ id: 'tab-2', pinned: true }),
-                expect.objectContaining({ id: 'tab-3', pinned: true }),
-                expect.objectContaining({ id: 'tab-1', pinned: false }),
-            ]),
+        it('redirects /home to the configured dashboard homepage', async () => {
+            logic.actions.setHomepage(dashboardHomepage)
+            router.actions.push(urls.projectHomepage())
+            await expectLogic(logic).delay(1)
+            expect(removeProjectIdIfPresent(router.values.location.pathname)).toEqual(urls.dashboard(42))
         })
 
-        logic.actions.reorderTabs('tab-3', 'tab-2')
-
-        await expectLogic(logic).toMatchValues({
-            tabs: expect.arrayContaining([
-                expect.objectContaining({ id: 'tab-3', pinned: true }),
-                expect.objectContaining({ id: 'tab-2', pinned: true }),
-                expect.objectContaining({ id: 'tab-1', pinned: false }),
-            ]),
+        it('stays on the launchpad at /home when no homepage is configured', async () => {
+            logic.actions.setHomepage(null)
+            router.actions.push(urls.projectHomepage())
+            await expectLogic(logic).delay(1)
+            expect(removeProjectIdIfPresent(router.values.location.pathname)).toEqual(urls.projectHomepage())
         })
 
-        logic.actions.unpinTab('tab-3')
-
-        await expectLogic(logic).toMatchValues({
-            tabs: expect.arrayContaining([
-                expect.objectContaining({ id: 'tab-2', pinned: true }),
-                expect.objectContaining({ id: 'tab-1', pinned: false }),
-                expect.objectContaining({ id: 'tab-3', pinned: false }),
-            ]),
-        })
-
-        const tab3Instances = logic.values.tabs.filter((tab) => tab.id === 'tab-3')
-        const pinnedTabs = logic.values.tabs.filter((tab) => tab.pinned)
-
-        expect(tab3Instances).toHaveLength(1)
-        expect(tab3Instances[0].pinned).toBe(false)
-        expect(pinnedTabs.map((tab) => tab.id)).not.toContain('tab-3')
-    })
-    describe('mergePinnedTabs', () => {
-        const tabBase = { search: '', hash: '', title: '', iconType: 'blank' as const }
-
-        it('restores in-memory sceneParams when stored tab is stripped', () => {
-            const inMemory = [
-                {
-                    ...tabBase,
-                    id: 'tab-dashboard',
-                    pathname: '/dashboard/42',
-                    active: true,
-                    sceneParams: { params: { id: '42' }, searchParams: {}, hashParams: {} },
-                },
-            ]
-            const stored = {
-                tabs: [{ ...tabBase, id: 'tab-dashboard', pathname: '/dashboard/42', pinned: true, active: false }],
-                homepage: null,
+        it('bootstraps the homepage from APP_CONTEXT so a direct /home visit redirects on first paint', async () => {
+            logic.unmount()
+            const priorAppContext = window.POSTHOG_APP_CONTEXT
+            let bootstrappedHomepagePathname = ''
+            let redirectedPathname = ''
+            try {
+                initKeaTests()
+                window.POSTHOG_APP_CONTEXT = {
+                    ...window.POSTHOG_APP_CONTEXT,
+                    homepage: dashboardHomepage,
+                } as unknown as AppContext
+                ;(api.get as jest.Mock).mockResolvedValue({ tabs: [], homepage: null })
+                ;(api.update as jest.Mock).mockResolvedValue({ tabs: [], homepage: null })
+                await expectLogic(teamLogic).toDispatchActions(['loadCurrentTeamSuccess'])
+                featureFlagLogic.mount()
+                router.actions.push(urls.eventDefinitions())
+                const bootstrappedLogic = sceneLogic.build({ scenes: testScenes })
+                bootstrappedLogic.mount()
+                // homepage is populated synchronously from APP_CONTEXT — no setHomepage / API round-trip needed.
+                bootstrappedHomepagePathname = removeProjectIdIfPresent(
+                    bootstrappedLogic.values.homepage?.pathname ?? ''
+                )
+                router.actions.push(urls.projectHomepage())
+                await expectLogic(bootstrappedLogic).delay(1)
+                redirectedPathname = removeProjectIdIfPresent(router.values.location.pathname)
+            } finally {
+                window.POSTHOG_APP_CONTEXT = priorAppContext
             }
-
-            const merged = mergePinnedTabs(stored, inMemory)
-
-            expect(merged).toHaveLength(1)
-            expect(merged[0]).toMatchObject({
-                id: 'tab-dashboard',
-                pinned: true,
-                active: true,
-                sceneParams: { params: { id: '42' } },
-            })
+            expect(bootstrappedHomepagePathname).toEqual(urls.dashboard(42))
+            expect(redirectedPathname).toEqual(urls.dashboard(42))
         })
 
-        it('returns fallback when storedPinned is null', () => {
-            const fallback = [{ ...tabBase, id: 'a', pathname: '/x', active: false }]
-            expect(mergePinnedTabs(null, fallback)).toMatchObject([{ id: 'a', pinned: true }])
+        it('forwards allow-listed query params onto the homepage redirect and drops the rest', async () => {
+            logic.actions.setHomepage(dashboardHomepage)
+            router.actions.push(urls.projectHomepage(), { modal: 'feature', other: 'dropped' })
+            await expectLogic(logic).delay(1)
+            expect(removeProjectIdIfPresent(router.values.location.pathname)).toEqual(urls.dashboard(42))
+            expect(router.values.searchParams).toEqual({ modal: 'feature' })
+        })
+
+        it('does not loop when the launchpad is the homepage and a forwarded param is present', async () => {
+            logic.actions.setHomepage({
+                ...dashboardHomepage,
+                id: 'homepage-launchpad',
+                pathname: urls.projectHomepage(),
+            })
+            router.actions.push(urls.projectHomepage(), { modal: 'feature' })
+            await expectLogic(logic).delay(1)
+            expect(removeProjectIdIfPresent(router.values.location.pathname)).toEqual(urls.projectHomepage())
+            expect(router.values.searchParams).toEqual({ modal: 'feature' })
         })
     })
 })

@@ -7,19 +7,24 @@ import { InstructionsFormatter, type InstructionsContext } from '@/lib/instructi
 const realisticGroupTypes: GroupType[] = [
     { group_type: 'organization', group_type_index: 0, name_singular: null, name_plural: null },
 ]
+// `tools` mirrors production: the full tool set, query-* included (the domain
+// extractor collapses them into the single `query` domain). `queryTools` below
+// is the parallel catalog projection with hints.
 const realisticTools = [
     { name: 'dashboard-create', category: 'Dashboards' },
     { name: 'dashboard-get', category: 'Dashboards' },
     { name: 'feature-flag-create', category: 'Feature flags' },
     { name: 'feature-flag-get-all', category: 'Feature flags' },
     { name: 'execute-sql', category: 'SQL' },
+    { name: 'query-trends', category: 'Query wrappers' },
+    { name: 'query-funnel', category: 'Query wrappers' },
 ]
 const realisticQueryTools: QueryToolInfo[] = [
     { name: 'query-trends', title: 'Trends', systemPromptHint: 'time series' },
     { name: 'query-funnel', title: 'Funnel', systemPromptHint: 'conversion rate' },
 ]
 const realisticMetadata =
-    'You are currently in project "My App" (id: 1) within organization "Acme" (id: org_1).\n' +
+    'You are currently in project "My App" (id: 1, token: token_1) within organization "Acme" (id: org_1).\n' +
     'Project timezone: America/New_York.\n' +
     "The user's name is Jane Doe (jane@acme.com)."
 
@@ -29,7 +34,8 @@ const fullCtx: InstructionsContext = {
     metadata: realisticMetadata,
     tools: realisticTools,
     queryTools: realisticQueryTools,
-    featureFlags: { 'mcp-feedback-tool': true },
+    featureFlags: { 'mcp-feedback-tool': true, 'mcp-render-ui': true },
+    renderUiEnabled: true,
 }
 
 describe('InstructionsFormatter', () => {
@@ -79,11 +85,11 @@ describe('InstructionsFormatter', () => {
         it('includes the agent-feedback section only when the mcp-feedback-tool flag is on', () => {
             const formatter = new InstructionsFormatter()
             const withFeedback = formatter.buildToolsInstructions(fullCtx)
-            expect(withFeedback).toContain('### Sharing feedback on this MCP server')
+            expect(withFeedback).toContain('### Sharing feedback on PostHog')
 
             for (const featureFlags of [undefined, { 'mcp-feedback-tool': false }, {}]) {
                 const result = formatter.buildToolsInstructions({ ...fullCtx, featureFlags })
-                expect(result).not.toContain('### Sharing feedback on this MCP server')
+                expect(result).not.toContain('### Sharing feedback on PostHog')
             }
         })
     })
@@ -92,8 +98,9 @@ describe('InstructionsFormatter', () => {
         it('renders the compact instructions section with placeholders resolved', () => {
             const formatter = new InstructionsFormatter()
             const result = formatter.buildExecInstructions(fullCtx)
-            expect(result).toContain('dashboard|execute-sql|feature-flag')
-            expect(result).toContain('funnel|trends')
+            // query-* tools surface as the single `query` domain, not a separate catalog line
+            expect(result).toContain('dashboard|execute-sql|feature-flag|query')
+            expect(result).not.toContain('query-*:')
             expect(result).toContain('Defined group types: organization')
             expect(result).toContain("The user's name is Jane Doe")
             expect(result).not.toMatch(
@@ -171,37 +178,69 @@ describe('InstructionsFormatter', () => {
             expect(result).toContain('- `query-trends` — time series')
         })
 
-        it('strips env-context, tool-domain list, and query-tool catalog when stripEnvContext is true', () => {
+        it('strips env-context and tool-domain list but keeps the query-tool catalog when stripEnvContext is true', () => {
             const formatter = new InstructionsFormatter()
             const result = formatter.buildExecCommandReference(fullCtx, { stripEnvContext: true })
             expect(result).not.toContain("The user's name is Jane Doe")
             expect(result).not.toContain('Defined group types: organization')
-            expect(result).not.toContain('- `query-trends` — time series')
+            // The query catalog stays on the exec command reference even when env is stripped.
+            expect(result).toContain('- `query-trends` — time series')
             // The bullet for the `dashboard` domain would clash with in-prose mentions,
             // so anchor on the list-prefix newline pattern to avoid false positives.
             expect(result).not.toContain('\n- dashboard\n')
+        })
+
+        it('keeps the full env-context even when stripEnvContext is set, when keepEnvContext is set', () => {
+            const formatter = new InstructionsFormatter()
+            const result = formatter.buildExecCommandReference(fullCtx, {
+                stripEnvContext: true,
+                keepEnvContext: true,
+            })
+            // The whole env-context (tool domains, project metadata, group types)
+            // survives for clients (Claude web/desktop) that ignore the `instructions`
+            // payload, so it still reaches the model via the command reference.
+            expect(result).toContain('- dashboard')
+            expect(result).toContain("The user's name is Jane Doe")
+            expect(result).toContain('Defined group types: organization')
         })
 
         it('includes the agent-feedback section only when the mcp-feedback-tool flag is on', () => {
             const formatter = new InstructionsFormatter()
             for (const stripEnvContext of [true, false]) {
                 const withFeedback = formatter.buildExecCommandReference(fullCtx, { stripEnvContext })
-                expect(withFeedback).toContain('### Sharing feedback on this MCP server')
+                expect(withFeedback).toContain('### Sharing feedback on PostHog')
 
                 const withoutFeedback = formatter.buildExecCommandReference(
                     { ...fullCtx, featureFlags: { 'mcp-feedback-tool': false } },
                     { stripEnvContext }
                 )
-                expect(withoutFeedback).not.toContain('### Sharing feedback on this MCP server')
+                expect(withoutFeedback).not.toContain('### Sharing feedback on PostHog')
+            }
+        })
+
+        it('includes the rendering section only when render-ui is available for the client', () => {
+            const formatter = new InstructionsFormatter()
+            for (const stripEnvContext of [true, false]) {
+                const withRendering = formatter.buildExecCommandReference(fullCtx, { stripEnvContext })
+                expect(withRendering).toContain('### Rendering visualizations')
+
+                // The raw flag being on isn't enough — a non-UI-host client (e.g. Claude Code)
+                // resolves `renderUiEnabled` to false and must not see the rendering section.
+                const withoutRendering = formatter.buildExecCommandReference(
+                    { ...fullCtx, renderUiEnabled: false },
+                    { stripEnvContext }
+                )
+                expect(withoutRendering).not.toContain('### Rendering visualizations')
             }
         })
     })
 
     // Mirrors the single-exec wiring in `src/mcp.ts`. When the client honors the MCP
-    // `instructions` field, four pieces move out of the `command` description and into
-    // `instructions`: tool domains, available query tools, user preferences (timezone/name
-    // via `{metadata}`), and defined group types. Codex (no `instructions` support) keeps
-    // today's behavior: empty `instructions`, everything inlined in the `command` description.
+    // `instructions` field, env-context moves out of the `command` description and into
+    // `instructions`: tool domains (including the `query` domain), user preferences
+    // (timezone/name via `{metadata}`), and defined group types. The query-tool catalog
+    // stays on the `command` description. Codex (no `instructions` support) keeps today's
+    // behavior: empty `instructions`, everything inlined in the `command` description.
     describe('exec mode wiring', () => {
         it.each([
             { name: 'supportsInstructions=true (Claude Code etc.)', supportsInstructions: true },
@@ -215,15 +254,17 @@ describe('InstructionsFormatter', () => {
 
             expect(commandReference).toContain('SCHEMA DRILL-DOWN RULE')
             expect(commandReference).toContain('### Basic functionality')
+            // the query catalog always lives on the command reference, both modes
+            expect(commandReference).toContain('- `query-trends` — time series')
 
             if (supportsInstructions) {
-                expect(instructions).toContain('funnel|trends')
+                // queries surface in instructions only as the `query` tool domain
+                expect(instructions).toContain('dashboard|execute-sql|feature-flag|query')
+                expect(instructions).not.toContain('- `query-trends` — time series')
                 expect(instructions).toContain("The user's name is Jane Doe")
-                expect(instructions).toContain('dashboard|execute-sql|feature-flag')
                 expect(instructions).toContain('Defined group types: organization')
                 expect(commandReference).not.toContain("The user's name is Jane Doe")
                 expect(commandReference).not.toContain('Defined group types: organization')
-                expect(commandReference).not.toContain('- `query-trends` — time series')
                 expect(commandReference).not.toContain('\n- dashboard\n')
             } else {
                 expect(instructions).toBe('')

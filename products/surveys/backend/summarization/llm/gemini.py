@@ -84,10 +84,12 @@ def summarize_with_gemini(
             "survey_id": survey_id,
             "question_id": question_id,
             "response_count": len(responses),
-            "ai_product": "survey_summary",
+            "ai_product": "surveys",
+            "ai_feature": "survey_summary",
         },
         team_id=team_id,
         distinct_id=distinct_id,
+        billable=True,
     )
 
     return SummarizationResult(summary=summary, trace_id=trace_id)

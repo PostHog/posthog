@@ -3,7 +3,7 @@ import { createPortal } from 'react-dom'
 
 import { IconX } from '@posthog/icons'
 
-import { Logomark } from 'lib/brand/Logomark'
+import { Logomark } from 'lib/brand'
 import { useFloatingContainer } from 'lib/hooks/useFloatingContainerContext'
 
 import { toolbarConfigLogic } from '~/toolbar/toolbarConfigLogic'
@@ -33,7 +33,7 @@ export function UiHostConfigModal({ visible, onClose }: UiHostConfigModalProps):
                     <IconX />
                 </button>
                 <div className="UiHostConfigModal__branding">
-                    <Logomark />
+                    <Logomark variant="mono" />
                 </div>
                 <div className="UiHostConfigModal__header">
                     <strong>PostHog could not be reached</strong>

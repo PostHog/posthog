@@ -82,7 +82,7 @@ The billable flag key check is implemented as a shared predicate (`is_billable_f
 
 ### Quota enforcement
 
-Both Django's `/api/feature_flag/local_evaluation` and Rust's `/flags/definitions` endpoints enforce billing quotas. When a team exceeds their feature flag request quota, either endpoint returns **HTTP 402** with a JSON body:
+Rust's `/flags/definitions` endpoint enforces billing quotas. When a team exceeds their feature flag request quota, the endpoint returns **HTTP 402** with a JSON body:
 
 ```json
 {

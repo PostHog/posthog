@@ -7,7 +7,10 @@ import api from 'lib/api'
 import { Sorting } from 'lib/lemon-ui/LemonTable/sorting'
 import { teamLogic } from 'scenes/teamLogic'
 
+import { TeamType } from '~/types'
+
 import type {
+    AITriageFilterValue,
     AssigneeFilterValue,
     SavedTicketView,
     Ticket,
@@ -15,6 +18,7 @@ import type {
     TicketPriority,
     TicketSlaState,
     TicketStatus,
+    TicketTagsMatch,
     TicketViewFilters,
 } from '../../types'
 import type { supportTicketsSceneLogicType } from './supportTicketsSceneLogicType'
@@ -35,8 +39,11 @@ export const supportTicketsSceneLogic = kea<supportTicketsSceneLogicType>([
         setChannelFilter: (channel: TicketChannel | 'all') => ({ channel }),
         setSlaFilter: (sla: TicketSlaState | 'all') => ({ sla }),
         setPriorityFilter: (priorities: TicketPriority[]) => ({ priorities }),
+        setAiTriageResultFilter: (results: AITriageFilterValue[]) => ({ results }),
         setAssigneeFilter: (assignee: AssigneeFilterValue) => ({ assignee }),
         setTagsFilter: (tags: string[]) => ({ tags }),
+        setTagsMatch: (match: TicketTagsMatch) => ({ match }),
+        setTagsExcludeFilter: (tags: string[]) => ({ tags }),
         setDateRange: (dateFrom: string | null, dateTo: string | null) => ({ dateFrom, dateTo }),
         setSorting: (sorting: Sorting | null) => ({ sorting }),
         setSearchQuery: (query: string) => ({ query }),
@@ -48,6 +55,10 @@ export const supportTicketsSceneLogic = kea<supportTicketsSceneLogicType>([
         applyViewFilters: (filters: TicketViewFilters) => ({ filters }),
         setActiveView: (view: SavedTicketView | null) => ({ view }),
         clearActiveView: true,
+        bulkUpdateStatus: (ids: string[], status: TicketStatus) => ({ ids, status }),
+        setBulkUpdating: (updating: boolean) => ({ updating }),
+        setSelectedTicketIds: (ids: string[]) => ({ ids }),
+        clearSelectedTickets: true,
     }),
     reducers({
         tickets: [
@@ -86,6 +97,7 @@ export const supportTicketsSceneLogic = kea<supportTicketsSceneLogicType>([
         ],
         channelFilter: [
             'all' as TicketChannel | 'all',
+            { persist: true },
             {
                 setChannelFilter: (_, { channel }) => channel,
                 applyViewFilters: (state, { filters }) => filters.channel ?? state,
@@ -93,6 +105,7 @@ export const supportTicketsSceneLogic = kea<supportTicketsSceneLogicType>([
         ],
         slaFilter: [
             'all' as TicketSlaState | 'all',
+            { persist: true },
             {
                 setSlaFilter: (_, { sla }) => sla,
                 applyViewFilters: (state, { filters }) => filters.sla ?? state,
@@ -104,6 +117,14 @@ export const supportTicketsSceneLogic = kea<supportTicketsSceneLogicType>([
             {
                 setPriorityFilter: (_, { priorities }) => priorities,
                 applyViewFilters: (state, { filters }) => filters.priority ?? state,
+            },
+        ],
+        aiTriageResultFilter: [
+            [] as AITriageFilterValue[],
+            { persist: true },
+            {
+                setAiTriageResultFilter: (_, { results }) => results,
+                applyViewFilters: (state, { filters }) => filters.aiTriageResult ?? state,
             },
         ],
         assigneeFilter: [
@@ -122,8 +143,25 @@ export const supportTicketsSceneLogic = kea<supportTicketsSceneLogicType>([
                 applyViewFilters: (state, { filters }) => filters.tags ?? state,
             },
         ],
+        tagsMatch: [
+            'any' as TicketTagsMatch,
+            { persist: true },
+            {
+                setTagsMatch: (_, { match }) => match,
+                applyViewFilters: (state, { filters }) => filters.tagsMatch ?? state,
+            },
+        ],
+        tagsExcludeFilter: [
+            [] as string[],
+            { persist: true },
+            {
+                setTagsExcludeFilter: (_, { tags }) => tags,
+                applyViewFilters: (state, { filters }) => filters.tagsExclude ?? state,
+            },
+        ],
         searchQuery: [
             '' as string,
+            { persist: true },
             {
                 setSearchQuery: (_, { query }) => query,
                 applyViewFilters: (state, { filters }) => filters.search ?? state,
@@ -159,8 +197,26 @@ export const supportTicketsSceneLogic = kea<supportTicketsSceneLogicType>([
                 clearActiveView: () => null,
             },
         ],
+        bulkUpdating: [
+            false,
+            {
+                setBulkUpdating: (_, { updating }) => updating,
+            },
+        ],
+        selectedTicketIds: [
+            [] as string[],
+            {
+                setSelectedTicketIds: (_, { ids }) => ids,
+                clearSelectedTickets: () => [],
+                loadTickets: () => [],
+            },
+        ],
     }),
     selectors({
+        aiEnabled: [
+            () => [teamLogic.selectors.currentTeam],
+            (currentTeam: TeamType | null): boolean => !!currentTeam?.conversations_settings?.ai_suggestions_enabled,
+        ],
         orderBy: [
             (s) => [s.sorting],
             (sorting: Sorting | null): string => {
@@ -171,14 +227,24 @@ export const supportTicketsSceneLogic = kea<supportTicketsSceneLogicType>([
                 return `${prefix}${sorting.columnKey}`
             },
         ],
+        selectedTickets: [
+            (s) => [s.tickets, s.selectedTicketIds],
+            (tickets: Ticket[], selectedIds: string[]): Ticket[] => {
+                const idSet = new Set(selectedIds)
+                return tickets.filter((t) => idSet.has(t.id))
+            },
+        ],
         currentFilters: [
             (s) => [
                 s.statusFilter,
                 s.priorityFilter,
                 s.channelFilter,
                 s.slaFilter,
+                s.aiTriageResultFilter,
                 s.assigneeFilter,
                 s.tagsFilter,
+                s.tagsMatch,
+                s.tagsExcludeFilter,
                 s.dateFrom,
                 s.dateTo,
                 s.sorting,
@@ -189,8 +255,11 @@ export const supportTicketsSceneLogic = kea<supportTicketsSceneLogicType>([
                 priority: TicketPriority[],
                 channel: TicketChannel | 'all',
                 sla: TicketSlaState | 'all',
+                aiTriageResult: AITriageFilterValue[],
                 assignee: AssigneeFilterValue,
                 tags: string[],
+                tagsMatch: TicketTagsMatch,
+                tagsExclude: string[],
                 dateFrom: string | null,
                 dateTo: string | null,
                 sorting: Sorting | null,
@@ -200,8 +269,11 @@ export const supportTicketsSceneLogic = kea<supportTicketsSceneLogicType>([
                 priority,
                 channel,
                 sla,
+                aiTriageResult,
                 assignee,
                 tags,
+                tagsMatch,
+                tagsExclude,
                 dateFrom,
                 dateTo,
                 sorting,
@@ -224,6 +296,9 @@ export const supportTicketsSceneLogic = kea<supportTicketsSceneLogicType>([
             if (values.priorityFilter.length > 0) {
                 params.priority = values.priorityFilter.join(',')
             }
+            if (values.aiEnabled && values.aiTriageResultFilter.length > 0) {
+                params.ai_triage_result = values.aiTriageResultFilter.join(',')
+            }
             if (values.channelFilter !== 'all') {
                 params.channel_source = values.channelFilter
             }
@@ -238,7 +313,10 @@ export const supportTicketsSceneLogic = kea<supportTicketsSceneLogicType>([
                 }
             }
             if (values.tagsFilter.length > 0) {
-                params.tags = JSON.stringify(values.tagsFilter)
+                params[values.tagsMatch === 'all' ? 'tags_all' : 'tags'] = JSON.stringify(values.tagsFilter)
+            }
+            if (values.tagsExcludeFilter.length > 0) {
+                params.tags_exclude = JSON.stringify(values.tagsExcludeFilter)
             }
             if (values.searchQuery) {
                 params.search = values.searchQuery
@@ -288,11 +366,23 @@ export const supportTicketsSceneLogic = kea<supportTicketsSceneLogicType>([
             actions.clearActiveView()
             actions.setCurrentPage(1)
         },
+        setAiTriageResultFilter: () => {
+            actions.clearActiveView()
+            actions.setCurrentPage(1)
+        },
         setAssigneeFilter: () => {
             actions.clearActiveView()
             actions.setCurrentPage(1)
         },
         setTagsFilter: () => {
+            actions.clearActiveView()
+            actions.setCurrentPage(1)
+        },
+        setTagsMatch: () => {
+            actions.clearActiveView()
+            actions.setCurrentPage(1)
+        },
+        setTagsExcludeFilter: () => {
             actions.clearActiveView()
             actions.setCurrentPage(1)
         },
@@ -315,6 +405,19 @@ export const supportTicketsSceneLogic = kea<supportTicketsSceneLogicType>([
             if (searchParams.view) {
                 const { view: _, ...rest } = searchParams
                 router.actions.replace(router.values.location.pathname, rest)
+            }
+        },
+        bulkUpdateStatus: async ({ ids, status }) => {
+            actions.setBulkUpdating(true)
+            try {
+                const result = await api.conversationsTickets.bulkUpdateStatus(ids, status)
+                lemonToast.success(`Updated ${result.updated} ticket${result.updated === 1 ? '' : 's'}`)
+                actions.clearSelectedTickets()
+                actions.loadTickets()
+            } catch {
+                lemonToast.error('Failed to update tickets')
+            } finally {
+                actions.setBulkUpdating(false)
             }
         },
     })),

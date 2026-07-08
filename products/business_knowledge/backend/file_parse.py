@@ -25,6 +25,7 @@ from dataclasses import dataclass, field
 import structlog
 from docx import Document
 from docx.opc.exceptions import PackageNotFoundError
+from docx.table import Table as DocxTable
 from pypdf import PdfReader
 from pypdf.errors import PdfReadError
 
@@ -87,16 +88,24 @@ def detect_content_type(data: bytes, filename: str) -> str:
         return "application/pdf"
 
     if data[:2] == b"PK":
-        _check_zip_bomb(data)
         try:
-            with zipfile.ZipFile(io.BytesIO(data)) as zf:
-                if "[Content_Types].xml" in zf.namelist():
-                    with zf.open("[Content_Types].xml") as ct_file:
-                        ct = ct_file.read(4096).decode("utf-8", errors="replace")
-                    if "wordprocessingml" in ct:
-                        return "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
-        except (zipfile.BadZipFile, KeyError, OSError):
-            pass
+            zf = zipfile.ZipFile(io.BytesIO(data))
+        except zipfile.BadZipFile:
+            pass  # Not actually a zip — fall through to extension check
+        else:
+            with zf:
+                _check_zip_bomb(zf)
+                try:
+                    if "[Content_Types].xml" in zf.namelist():
+                        with zf.open("[Content_Types].xml") as ct_file:
+                            ct = ct_file.read(4096).decode("utf-8", errors="replace")
+                        if "wordprocessingml" in ct:
+                            return "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+                except (KeyError, OSError):
+                    pass
+                raise UnsupportedFileTypeError(
+                    "Unsupported file type. Allowed: PDF, DOCX, Markdown (.md), CSV, plain text (.txt)."
+                )
 
     lower = os.path.basename(filename).lower()
     if lower.endswith((".md", ".markdown")):
@@ -107,11 +116,16 @@ def detect_content_type(data: bytes, filename: str) -> str:
         return "text/plain"
 
     # Last resort: if it decodes as UTF-8, treat as plain text.
+    sample = data[:8192]
     try:
-        data[:8192].decode("utf-8")
+        sample.decode("utf-8")
         return "text/plain"
-    except UnicodeDecodeError:
-        pass
+    except UnicodeDecodeError as exc:
+        # Slicing may split a multibyte char at the boundary; if the only
+        # error is "unexpected end of data" at the tail AND more data exists,
+        # the full file is valid UTF-8.
+        if exc.reason == "unexpected end of data" and len(data) > len(sample):
+            return "text/plain"
 
     raise UnsupportedFileTypeError("Unsupported file type. Allowed: PDF, DOCX, Markdown (.md), CSV, plain text (.txt).")
 
@@ -121,20 +135,25 @@ def detect_content_type(data: bytes, filename: str) -> str:
 # ---------------------------------------------------------------------------
 
 
-def _check_zip_bomb(data: bytes) -> None:
+def _check_zip_bomb(zf: zipfile.ZipFile) -> None:
+    """Stream-check that decompressed size stays within cap.
+
+    Accepts an already-opened ZipFile so the caller controls the
+    BadZipFile boundary (non-zips that start with ``PK`` fall through
+    to the extension check rather than hard-failing).
+    """
     try:
-        with zipfile.ZipFile(io.BytesIO(data)) as zf:
-            total = 0
-            for info in zf.infolist():
-                with zf.open(info) as f:
-                    while chunk := f.read(65536):
-                        total += len(chunk)
-                        if total > MAX_FILE_DECOMPRESSED_BYTES:
-                            raise ZipBombError(
-                                f"Decompressed size exceeds the {MAX_FILE_DECOMPRESSED_BYTES // (1024 * 1024)} MB cap."
-                            )
+        total = 0
+        for info in zf.infolist():
+            with zf.open(info) as f:
+                while chunk := f.read(65536):
+                    total += len(chunk)
+                    if total > MAX_FILE_DECOMPRESSED_BYTES:
+                        raise ZipBombError(
+                            f"Decompressed size exceeds the {MAX_FILE_DECOMPRESSED_BYTES // (1024 * 1024)} MB cap."
+                        )
     except zipfile.BadZipFile:
-        raise FileParseError("File appears corrupt — cannot read as ZIP.")
+        raise FileParseError("File appears corrupt — cannot read ZIP contents.")
     except (RuntimeError, NotImplementedError):
         raise FileParseError("File is encrypted or uses an unsupported compression method.")
 
@@ -161,18 +180,31 @@ def _parse_pdf(data: bytes, filename: str) -> ParsedFile:
         reader = PdfReader(io.BytesIO(data))
     except PdfReadError as exc:
         raise FileParseError(f"Could not read PDF: {exc}")
+    except Exception as exc:
+        logger.warning("pdf_reader_unexpected_error", error=str(exc), exc_info=True)
+        raise FileParseError(f"Could not read PDF: {exc}")
 
     if reader.is_encrypted:
         raise EncryptedPDFError("Encrypted PDFs are not supported. Remove the password and re-upload.")
 
-    if len(reader.pages) > MAX_PDF_PAGES:
+    try:
+        page_count = len(reader.pages)
+    except Exception as exc:
+        logger.warning("pdf_page_count_error", error=str(exc), exc_info=True)
+        raise FileParseError(f"Could not read PDF: {exc}")
+
+    if page_count > MAX_PDF_PAGES:
         raise FileTooLargeError(
-            f"PDF has {len(reader.pages):,} pages (cap is {MAX_PDF_PAGES:,}). Split it into smaller files."
+            f"PDF has {page_count:,} pages (cap is {MAX_PDF_PAGES:,}). Split it into smaller files."
         )
 
     pages: list[str] = []
     for i, page in enumerate(reader.pages):
-        text = page.extract_text() or ""
+        try:
+            text = page.extract_text() or ""
+        except Exception:
+            logger.warning("pdf_page_extract_error", page=i, exc_info=True)
+            continue
         if text.strip():
             pages.append(f"[Page {i + 1}]\n{text.strip()}")
 
@@ -184,7 +216,7 @@ def _parse_pdf(data: bytes, filename: str) -> ParsedFile:
         title=_title_from_filename(filename),
         content=content,
         content_type="application/pdf",
-        metadata={"source_type": "file", "file_type": "pdf", "page_count": len(reader.pages)},
+        metadata={"source_type": "file", "file_type": "pdf", "page_count": page_count},
     )
 
 
@@ -197,20 +229,26 @@ def _parse_docx(data: bytes, filename: str) -> ParsedFile:
         raise FileParseError(f"Could not read DOCX: {exc}")
 
     parts: list[str] = []
-    for para in doc.paragraphs:
-        text = para.text.strip()
-        if not text:
-            continue
-        style_name = (para.style.name or "").lower() if para.style else ""
-        if "heading" in style_name:
-            level = 1
-            for ch in style_name:
-                if ch.isdigit():
-                    level = int(ch)
-                    break
-            parts.append(f"{'#' * level} {text}")
+    for block in doc.iter_inner_content():
+        if isinstance(block, DocxTable):
+            for row in block.rows:
+                cells = [cell.text.strip() for cell in row.cells]
+                if any(cells):
+                    parts.append(" | ".join(cells))
         else:
-            parts.append(text)
+            text = block.text.strip()
+            if not text:
+                continue
+            style_name = (block.style.name or "").lower() if block.style else ""
+            if "heading" in style_name:
+                level = 1
+                for ch in style_name:
+                    if ch.isdigit():
+                        level = int(ch)
+                        break
+                parts.append(f"{'#' * level} {text}")
+            else:
+                parts.append(text)
 
     content = "\n\n".join(parts)
     if not content.strip():
@@ -261,6 +299,7 @@ def _parse_csv(data: bytes, filename: str) -> ParsedFile:
             raise FileParseError("CSV has no header row.")
 
         rows: list[str] = []
+        data_row_count = 0
         for i, row in enumerate(reader):
             if i >= MAX_CSV_ROWS:
                 rows.append(f"[Truncated at {MAX_CSV_ROWS:,} rows]")
@@ -268,6 +307,7 @@ def _parse_csv(data: bytes, filename: str) -> ParsedFile:
             line_parts = [f"{k}: {v}" for k, v in row.items() if v]
             if line_parts:
                 rows.append("\n".join(line_parts))
+                data_row_count += 1
     except csv.Error as exc:
         raise FileParseError(f"Could not parse CSV: {exc}")
 
@@ -279,7 +319,7 @@ def _parse_csv(data: bytes, filename: str) -> ParsedFile:
         title=_title_from_filename(filename),
         content=content,
         content_type="text/csv",
-        metadata={"source_type": "file", "file_type": "csv", "row_count": len(rows)},
+        metadata={"source_type": "file", "file_type": "csv", "row_count": data_row_count},
     )
 
 
@@ -311,6 +351,7 @@ def parse_file(data: bytes, filename: str) -> ParsedFile:
     if len(data) > MAX_FILE_SIZE_BYTES:
         raise FileTooLargeError(f"File exceeds the {MAX_FILE_SIZE_BYTES // (1024 * 1024)} MB cap.")
 
+    filename = sanitize_filename(filename)
     content_type = detect_content_type(data, filename)
     if content_type not in ALLOWED_TYPES:
         raise UnsupportedFileTypeError(f"Unsupported file type. Allowed: {', '.join(ALLOWED_TYPES.values())}.")

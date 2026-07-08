@@ -22,6 +22,7 @@ from posthog.clickhouse.cluster import (
     RetryPolicy,
     T,
     get_cluster,
+    redact_sql_secrets,
 )
 from posthog.models.event.sql import EVENTS_DATA_TABLE
 
@@ -136,6 +137,14 @@ def wait_and_check_mutations_on_shards(
 def test_alter_mutation_single_command(cluster: ClickhouseCluster) -> None:
     table = EVENTS_DATA_TABLE()
     count = 100
+
+    # Start from a clean table. This table is shared and ClickHouse writes are not
+    # rolled back per test, so sibling tests on the same shard leave rows behind.
+    # The mutation below updates every row (WHERE 1 = 1), so leftover rows would
+    # inflate the post-mutation count and break the exact-count assertion. Normally
+    # masked because these tests scatter across shards; file-level sharding runs the
+    # whole file together.
+    cluster.map_all_hosts(Query(f"TRUNCATE TABLE {table}")).result()
 
     # make sure there is some data to play with first
     cluster.map_one_host_per_shard(Query(f"INSERT INTO {table} SELECT * FROM generateRandom() LIMIT {count}")).result()
@@ -714,3 +723,60 @@ def test_alter_mutation_force_parameter(cluster: ClickhouseCluster) -> None:
     # Should have more mutations after using force=True
     for host in mutations_count_before:
         assert mutations_count_after[host][0][0] > mutations_count_before[host][0][0]
+
+
+@pytest.mark.parametrize(
+    "sql,expected",
+    [
+        (
+            "SOURCE(CLICKHOUSE(TABLE 'web_bot_definition' USER 'default' PASSWORD 'sup3r-s3cret'))",
+            "SOURCE(CLICKHOUSE(TABLE 'web_bot_definition' USER 'default' PASSWORD '[REDACTED]'))",
+        ),
+        # case-insensitive keyword
+        ("source(clickhouse(password 'pw'))", "source(clickhouse(password '[REDACTED]'))"),
+        # CREATE USER
+        ("CREATE USER bob IDENTIFIED BY 'hunter2'", "CREATE USER bob IDENTIFIED BY '[REDACTED]'"),
+        (
+            "CREATE USER bob IDENTIFIED WITH sha256_password BY 'hunter2'",
+            "CREATE USER bob IDENTIFIED WITH sha256_password BY '[REDACTED]'",
+        ),
+        # no secret -> unchanged
+        ("SELECT * FROM events WHERE name = 'password'", "SELECT * FROM events WHERE name = 'password'"),
+    ],
+)
+def test_redact_sql_secrets(sql, expected):
+    assert redact_sql_secrets(sql) == expected
+
+
+def test_query_repr_redacts_inline_password():
+    rendered = repr(Query("SOURCE(CLICKHOUSE(TABLE 't' PASSWORD 'sup3r-s3cret'))"))
+    assert "sup3r-s3cret" not in rendered
+    assert "[REDACTED]" in rendered
+
+
+def test_query_repr_redacts_password_parameter():
+    rendered = repr(Query("SOURCE(CLICKHOUSE(DB %(db)s PASSWORD %(password)s))", {"db": "posthog", "password": "pw"}))
+    assert "pw" not in rendered
+    assert "'db': 'posthog'" in rendered
+    assert "'password': '[REDACTED]'" in rendered
+
+
+def test_query_repr_redacts_password_in_list_parameters():
+    rendered = repr(Query("INSERT INTO t VALUES", [{"db": "posthog", "password": "pw"}]))
+    assert "pw" not in rendered
+    assert "'password': '[REDACTED]'" in rendered
+
+
+def test_query_repr_truncates_long_query():
+    # Guards against multi-megabyte statements (e.g. large seed INSERTs) flooding logs and traces.
+    query = "INSERT INTO t VALUES " + ",".join("(1)" for _ in range(100_000))
+    rendered = repr(Query(query))
+    assert len(rendered) < 2000
+    assert rendered.startswith("Query(query='INSERT INTO t VALUES (1)")
+    assert "more chars truncated" in rendered
+
+
+def test_query_repr_keeps_short_query_intact():
+    rendered = repr(Query("SELECT 1"))
+    assert "truncated" not in rendered
+    assert "SELECT 1" in rendered

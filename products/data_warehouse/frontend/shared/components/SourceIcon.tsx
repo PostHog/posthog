@@ -1,13 +1,13 @@
 import { useValues } from 'kea'
 import { useMemo } from 'react'
 
+import BlushingHog from '@posthog/brand/hoggies/png/ipad'
 import { IconWrench } from '@posthog/icons'
 import { LemonSkeleton } from '@posthog/lemon-ui'
 
 import { Link } from 'lib/lemon-ui/Link'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 
-import BlushingHog from 'public/hedgehog/blushing-hog.png'
 import IconPostHog from 'public/posthog-icon.svg'
 import IconAwsS3 from 'public/services/aws-s3.png'
 import Iconazure from 'public/services/azure.png'
@@ -16,6 +16,7 @@ import IconDuckDB from 'public/services/duckdb.svg'
 import IconGoogleCloudStorage from 'public/services/google-cloud-storage.png'
 
 import { availableSourcesLogic } from '../../scenes/NewSourceScene/availableSourcesLogic'
+import { supportsDirectQuery } from './forms/schemaGroupingUtils'
 // eslint-disable-next-line import/no-cycle
 import { getDataWarehouseSourceUrl } from './ManagedSourcesTable'
 
@@ -77,7 +78,7 @@ export function SourceIcon({
     disableTooltip = false,
 }: {
     type: string
-    engine?: 'duckdb' | 'postgres' | null
+    engine?: 'duckdb' | 'postgres' | 'mysql' | 'snowflake' | null
     size?: 'xsmall' | 'small' | 'medium'
     sizePx?: number
     disableTooltip?: boolean
@@ -89,7 +90,7 @@ export function SourceIcon({
             return null
         }
 
-        if (type === 'Postgres' && engine === 'duckdb') {
+        if (supportsDirectQuery(type) && engine === 'duckdb') {
             return IconDuckDB
         }
 

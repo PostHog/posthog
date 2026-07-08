@@ -4,6 +4,8 @@ import { actionToUrl, router, urlToAction } from 'kea-router'
 import { subscriptions } from 'kea-subscriptions'
 
 import { UrlTriggerConfig } from 'lib/components/IngestionControls/types'
+import { compareVersion } from 'lib/utils/semver'
+import { sdkHealthLogic } from 'scenes/onboarding/shared/sdkHealth/sdkHealthLogic'
 import { teamLogic } from 'scenes/teamLogic'
 
 import { TeamPublicType, TeamType } from '~/types'
@@ -12,10 +14,73 @@ import type { replayTriggersLogicType } from './replayTriggersLogicType'
 
 export type ReplayPlatform = 'web' | 'mobile'
 
+/** Minimum posthog-js version that understands V2 trigger groups. Older web SDKs fall back to legacy conditions. */
+export const TRIGGER_GROUPS_MIN_SDK_VERSION = '1.369.0'
+
+/**
+ * Share of recent web traffic that must be on outdated SDKs before we warn / keep the legacy UI prominent.
+ * Below this we treat traffic as effectively all-new, so a long tail of stray old-version events doesn't
+ * raise an alarm. Lower than the backend's 20% outdated-traffic alert because trigger coverage gaps matter
+ * more in this context.
+ */
+export const OUTDATED_TRAFFIC_SHARE_THRESHOLD = 0.05
+
+export interface WebRelease {
+    version: string
+    count: number
+}
+
 const NEW_URL_TRIGGER = { url: '', matching: 'regex' }
 
 export function isStringWithLength(x: unknown): x is string {
     return typeof x === 'string' && x.trim() !== ''
+}
+
+// Unparseable versions count as "predates" so we stay conservative (prompt upgrade / keep legacy visible).
+function webSdkPredatesTriggerGroups(version: string): boolean {
+    try {
+        return compareVersion(version, TRIGGER_GROUPS_MIN_SDK_VERSION) < 0
+    } catch {
+        return true
+    }
+}
+
+/**
+ * Weighs recent web traffic by event volume rather than treating every distinct version equally. The SDK Doctor
+ * data is a rolling ~7-day window, so this answers "how much recent traffic is on SDKs that predate trigger
+ * groups". Returns zeros when there's no web data (e.g. a brand-new or self-hosted team).
+ */
+export function outdatedWebTrafficShare(releases: WebRelease[]): {
+    outdatedCount: number
+    totalCount: number
+    share: number
+} {
+    const totalCount = releases.reduce((sum, r) => sum + r.count, 0)
+    if (totalCount === 0) {
+        return { outdatedCount: 0, totalCount: 0, share: 0 }
+    }
+    const outdatedCount = releases
+        .filter((r) => webSdkPredatesTriggerGroups(r.version))
+        .reduce((sum, r) => sum + r.count, 0)
+    return { outdatedCount, totalCount, share: outdatedCount / totalCount }
+}
+
+/**
+ * True when the team's recent web SDK traffic is effectively all on versions that understand trigger groups, so
+ * the legacy recording conditions only serve a negligible tail of older SDKs. Returns false when there's no web
+ * data — we never minimize the legacy UI without positive evidence.
+ */
+export function legacyConditionsAreInactive(releases: WebRelease[]): boolean {
+    const { totalCount, share } = outdatedWebTrafficShare(releases)
+    if (totalCount === 0) {
+        return false
+    }
+    return share < OUTDATED_TRAFFIC_SHARE_THRESHOLD
+}
+
+/** True when a meaningful share of recent web traffic is on SDKs that predate trigger-group support. */
+export function hasOutdatedWebSdk(releases: WebRelease[]): boolean {
+    return outdatedWebTrafficShare(releases).share >= OUTDATED_TRAFFIC_SHARE_THRESHOLD
 }
 
 function ensureAnchored(url: string): string {
@@ -55,7 +120,10 @@ export const replayTriggersLogic = kea<replayTriggersLogicType>([
         setCheckUrlBlocklist: (url: string) => ({ url }),
         validateUrlInput: (url: string, type: 'trigger' | 'blocklist') => ({ url, type }),
     }),
-    connect(() => ({ values: [teamLogic, ['currentTeam']], actions: [teamLogic, ['updateCurrentTeam']] })),
+    connect(() => ({
+        values: [teamLogic, ['currentTeam'], sdkHealthLogic, ['augmentedData']],
+        actions: [teamLogic, ['updateCurrentTeam']],
+    })),
     reducers({
         urlTriggerConfig: [
             null as UrlTriggerConfig[] | null,
@@ -178,6 +246,19 @@ export const replayTriggersLogic = kea<replayTriggersLogicType>([
         ],
     }),
     selectors({
+        shouldMinimizeLegacyConditions: [
+            (s) => [s.augmentedData],
+            (augmentedData): boolean => legacyConditionsAreInactive(augmentedData?.web?.allReleases ?? []),
+        ],
+        hasOutdatedWebSdk: [
+            (s) => [s.augmentedData],
+            (augmentedData): boolean => hasOutdatedWebSdk(augmentedData?.web?.allReleases ?? []),
+        ],
+        outdatedWebTraffic: [
+            (s) => [s.augmentedData],
+            (augmentedData): { outdatedCount: number; totalCount: number; share: number } =>
+                outdatedWebTrafficShare(augmentedData?.web?.allReleases ?? []),
+        ],
         isAddUrlTriggerConfigFormVisible: [
             (s) => [s.editUrlTriggerIndex],
             (editUrlTriggerIndex) => editUrlTriggerIndex === -1,

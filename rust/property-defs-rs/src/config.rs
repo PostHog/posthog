@@ -114,6 +114,15 @@ pub struct Config {
 
     #[envconfig(default = "5000")]
     pub personhog_connect_timeout_ms: u64,
+
+    #[envconfig(default = "2")]
+    pub personhog_max_retries: u32,
+
+    #[envconfig(default = "50")]
+    pub personhog_initial_backoff_ms: u64,
+
+    #[envconfig(default = "1000")]
+    pub personhog_max_backoff_ms: u64,
 }
 
 #[derive(Clone)]

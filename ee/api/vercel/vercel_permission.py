@@ -17,6 +17,10 @@ class VercelPermission(BasePermission):
     ADMIN_ONLY_ACTIONS = {"update", "partial_update", "create", "destroy"}
     # Actions that allow USER role (read-only operations)
     READ_ONLY_ACTIONS = {"list", "retrieve", "plans"}
+    # Actions that serve static, non-tenant data. Vercel calls plans before an
+    # installation exists, with the literal path segment "new" in place of an
+    # installation ID, so the token-to-installation binding cannot apply.
+    INSTALLATION_MATCH_EXEMPT_ACTIONS = {"plans"}
 
     def has_permission(self, request: Request, view) -> bool:
         self._validate_auth_type_allowed(request, view)
@@ -25,6 +29,13 @@ class VercelPermission(BasePermission):
         auth_type = request.headers.get("X-Vercel-Auth", "").lower()
         if auth_type == "user":
             self._validate_user_role(request, view)
+        # Bind the token to its own installation. These viewsets resolve their target by
+        # the URL installation_id without calling check_object_permissions, so the match
+        # must be enforced here for every installation-scoped endpoint.
+        if (
+            "installation_id" in view.kwargs or "parent_lookup_installation_id" in view.kwargs
+        ) and view.action not in self.INSTALLATION_MATCH_EXEMPT_ACTIONS:
+            self._validate_installation_id_match(request, view)
         return True
 
     def has_object_permission(self, request: Request, view, obj) -> bool:

@@ -2,6 +2,8 @@ import type { Meta, StoryObj } from '@storybook/react'
 
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from './card'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from './tabs'
+import { Info } from 'lucide-react'
+
 const meta = {
     title: 'Primitives/Tabs',
     component: Tabs,
@@ -102,7 +104,7 @@ export const Line: Story = {
         return (
             <Tabs defaultValue="overview" className="w-[400px]">
                 <TabsList variant="line">
-                    <TabsTrigger value="overview">Overview</TabsTrigger>
+                    <TabsTrigger value="overview">Overview<Info /></TabsTrigger>
                     <TabsTrigger value="analytics">Analytics</TabsTrigger>
                     <TabsTrigger value="reports">Reports</TabsTrigger>
                     <TabsTrigger value="settings">Settings</TabsTrigger>

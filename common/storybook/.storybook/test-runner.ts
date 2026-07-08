@@ -2,9 +2,14 @@ import type { Locator, LocatorScreenshotOptions, Page } from '@playwright/test'
 import { StoryContext } from '@storybook/csf'
 import { TestContext, TestRunnerConfig, getStoryContext } from '@storybook/test-runner'
 import { toMatchImageSnapshot } from 'jest-image-snapshot'
+import { fileURLToPath } from 'node:url'
 import path from 'path'
 
 import type { Mocks } from '~/mocks/utils'
+
+// Storybook 10 loads this config as a native ES module, where `__dirname` is
+// not defined — derive it from the module URL instead.
+const __dirname = path.dirname(fileURLToPath(import.meta.url))
 
 const DEFAULT_VIEWPORT = { width: 1280, height: 720 }
 
@@ -21,7 +26,7 @@ type SupportedBrowserName = 'chromium' | 'webkit'
 type SnapshotTheme = 'light' | 'dark'
 
 // Extend Storybook interface `Parameters` with Chromatic parameters
-declare module '@storybook/types' {
+declare module 'storybook/internal/types' {
     interface Parameters {
         options?: any
         /** @default 'padded' */
@@ -68,6 +73,12 @@ declare module '@storybook/types' {
              * Skip taking a dark mode snapshot. Useful for stories that don't support dark mode or have known issues in dark mode that would cause snapshot failures.
              */
             skipDarkMode?: boolean
+            /**
+             * Suppress quill-charts canvas painting for this story's snapshot, avoiding flake from
+             * the charts' async paint. Handled by the `withChartCanvasSnapshot` decorator.
+             * @default false
+             */
+            skipCanvasDraw?: boolean
         }
         msw?: {
             mocks?: Mocks
@@ -83,6 +94,7 @@ declare module '@storybook/types' {
 const RETRY_TIMES = 2
 const LOADER_SELECTORS = [
     '.Spinner',
+    '.quill-spinner', // Quill's <Spinner /> — rotates while present, so it must settle before we snapshot
     '.LemonSkeleton',
     '.LemonTableLoader',
     '.Toastify__toast',
@@ -110,7 +122,7 @@ const ATTEMPT_COUNT_PER_ID: Record<string, number> = {}
 const EMBED_STUB_HTML =
     '<!doctype html><meta charset="utf-8"><title>mock iframe</title><body style="color-scheme:light;background:#ffeb3b;margin:0">mock iframe</body>'
 
-module.exports = {
+export default {
     setup() {
         expect.extend({ toMatchImageSnapshot })
         jest.retryTimes(RETRY_TIMES, { logErrorsBeforeRetry: true })
@@ -530,7 +542,21 @@ async function waitForPageReady(page: Page, skipNetworkIdle = false): Promise<vo
         await page.waitForLoadState('networkidle').catch(() => undefined)
     }
 
-    await page.evaluate(() => document.fonts.ready)
+    // `document.fonts.ready` only covers fonts that have already been *requested* — a story that
+    // renders no text until async data arrives (loaders, mocked API calls) requests RoundHog/Inter
+    // only close to capture time, and the screenshot races the font-display:swap repaint. Kicking
+    // the loads off explicitly here means late-mounted text renders in the real fonts directly, so
+    // there is no swap left to race. No-op once the fonts are cached.
+    await page
+        .evaluate(() =>
+            Promise.all(
+                ['400', '500', '700', '800'].flatMap((weight) => [
+                    document.fonts.load(`${weight} 16px RoundHog`),
+                    document.fonts.load(`${weight} 16px Inter`),
+                ])
+            ).then(() => document.fonts.ready)
+        )
+        .catch(() => undefined)
 }
 
 function applyStoryTimeouts(page: Page, viewportWidths?: ViewportWidthName[]): void {

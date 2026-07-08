@@ -8,13 +8,42 @@ import {
     SessionRecordingPlaylistsPartialUpdateBody,
     SessionRecordingPlaylistsPartialUpdateParams,
     SessionRecordingPlaylistsRetrieveParams,
+    SessionRecordingsBulkDeleteCreateBody,
     SessionRecordingsDestroyParams,
     SessionRecordingsRetrieveParams,
+    SingleSessionSummariesListQueryParams,
+    SingleSessionSummariesRetrieveParams,
 } from '@/generated/replay/api'
 import { withUiApp } from '@/resources/ui-apps'
 import { createQueryWrapper } from '@/tools/query-wrapper-factory'
 import { withPostHogUrl, type WithPostHogUrl } from '@/tools/tool-utils'
 import type { Context, ToolBase, ZodObjectAny } from '@/tools/types'
+
+const SessionRecordingBulkDeleteSchema = SessionRecordingsBulkDeleteCreateBody
+
+const sessionRecordingBulkDelete = (): ToolBase<
+    typeof SessionRecordingBulkDeleteSchema,
+    Schemas.SessionRecordingBulkDeleteResponse
+> => ({
+    name: 'session-recording-bulk-delete',
+    schema: SessionRecordingBulkDeleteSchema,
+    handler: async (context: Context, params: z.infer<typeof SessionRecordingBulkDeleteSchema>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const body: Record<string, unknown> = {}
+        if (params.session_recording_ids !== undefined) {
+            body['session_recording_ids'] = params.session_recording_ids
+        }
+        if (params.date_from !== undefined) {
+            body['date_from'] = params.date_from
+        }
+        const result = await context.api.request<Schemas.SessionRecordingBulkDeleteResponse>({
+            method: 'POST',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/session_recordings/bulk_delete/`,
+            body,
+        })
+        return result
+    },
+})
 
 const SessionRecordingDeleteSchema = SessionRecordingsDestroyParams.omit({ project_id: true })
 
@@ -170,6 +199,55 @@ const sessionRecordingPlaylistsList = (): ToolBase<
     },
 })
 
+const SessionRecordingSummariesListSchema = SingleSessionSummariesListQueryParams
+
+const sessionRecordingSummariesList = (): ToolBase<
+    typeof SessionRecordingSummariesListSchema,
+    WithPostHogUrl<Schemas.PaginatedSingleSessionSummaryMinimalList>
+> => ({
+    name: 'session-recording-summaries-list',
+    schema: SessionRecordingSummariesListSchema,
+    handler: async (context: Context, params: z.infer<typeof SessionRecordingSummariesListSchema>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const result = await context.api.request<Schemas.PaginatedSingleSessionSummaryMinimalList>({
+            method: 'GET',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/single_session_summaries/`,
+            query: {
+                created_by: params.created_by,
+                date_from: params.date_from,
+                date_to: params.date_to,
+                distinct_id: params.distinct_id,
+                has_exceptions: params.has_exceptions,
+                has_visual_confirmation: params.has_visual_confirmation,
+                limit: params.limit,
+                offset: params.offset,
+                order: params.order,
+                outcome: params.outcome,
+                session_ids: params.session_ids,
+            },
+        })
+        return await withPostHogUrl(context, result, '/replay')
+    },
+})
+
+const SessionRecordingSummaryGetSchema = SingleSessionSummariesRetrieveParams.omit({ project_id: true })
+
+const sessionRecordingSummaryGet = (): ToolBase<
+    typeof SessionRecordingSummaryGetSchema,
+    WithPostHogUrl<Schemas.SingleSessionSummary>
+> => ({
+    name: 'session-recording-summary-get',
+    schema: SessionRecordingSummaryGetSchema,
+    handler: async (context: Context, params: z.infer<typeof SessionRecordingSummaryGetSchema>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const result = await context.api.request<Schemas.SingleSessionSummary>({
+            method: 'GET',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/single_session_summaries/${encodeURIComponent(String(params.session_id))}/`,
+        })
+        return await withPostHogUrl(context, result, `/replay/${result.session_id}`)
+    },
+})
+
 // --- Query wrapper schemas from schema.json ---
 
 const integer = z.coerce.number().int()
@@ -186,6 +264,7 @@ const RecordingOrder = z.enum([
     'mouse_activity_count',
     'activity_score',
     'recording_ttl',
+    'surfacing_score',
 ])
 
 const RecordingOrderDirection = z.enum(['ASC', 'DESC'])
@@ -611,12 +690,15 @@ const AssistantRecordingsQuery = z.object({
 })
 
 export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
+    'session-recording-bulk-delete': sessionRecordingBulkDelete,
     'session-recording-delete': sessionRecordingDelete,
     'session-recording-get': sessionRecordingGet,
     'session-recording-playlist-create': sessionRecordingPlaylistCreate,
     'session-recording-playlist-get': sessionRecordingPlaylistGet,
     'session-recording-playlist-update': sessionRecordingPlaylistUpdate,
     'session-recording-playlists-list': sessionRecordingPlaylistsList,
+    'session-recording-summaries-list': sessionRecordingSummariesList,
+    'session-recording-summary-get': sessionRecordingSummaryGet,
     'query-session-recordings-list': createQueryWrapper({
         name: 'query-session-recordings-list',
         schema: AssistantRecordingsQuery,

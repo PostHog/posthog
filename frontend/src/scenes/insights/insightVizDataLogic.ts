@@ -9,9 +9,10 @@ import {
 } from 'lib/components/InsightLegend/utils'
 import { Intervals, intervals } from 'lib/components/IntervalFilter/intervals'
 import { parseProperties } from 'lib/components/PropertyFilters/utils'
-import { NON_TIME_SERIES_DISPLAY_TYPES, NON_VALUES_ON_SERIES_DISPLAY_TYPES } from 'lib/constants'
+import { FEATURE_FLAGS, NON_TIME_SERIES_DISPLAY_TYPES, NON_VALUES_ON_SERIES_DISPLAY_TYPES } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
-import { dateMapping, is12HoursOrLess, isLessThan2Days } from 'lib/utils'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { dateMapping, is12HoursOrLess, isLessThan2Days } from 'lib/utils/dateFilters'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { databaseTableListLogic } from 'scenes/data-management/database/databaseTableListLogic'
 import { dataThemeLogic } from 'scenes/dataThemeLogic'
@@ -67,12 +68,15 @@ import {
     getFormulas,
     getGoalLines,
     getInterval,
+    getLegendPosition,
     getResultCustomizationBy,
     getSeries,
     getShowAlertThresholdLines,
+    getShowAnnotations,
     getShowLabelsOnSeries,
     getShowLegend,
     getShowMultipleYAxes,
+    getShowPercentagesOnSeries,
     getShowPercentStackView,
     getShowValuesOnSeries,
     getYAxisScaleType,
@@ -97,11 +101,28 @@ import {
     supportsBarValueStacking,
     supportsPercentStackView,
 } from '~/queries/utils'
-import { BaseMathType, ChartDisplayType, InsightLogicProps, LabelGroupType, SlowQueryPossibilities } from '~/types'
+import {
+    BaseMathType,
+    ChartDisplayType,
+    FunnelVizType,
+    InsightLogicProps,
+    LabelGroupType,
+    SlowQueryPossibilities,
+} from '~/types'
 
 import type { insightVizDataLogicType } from './insightVizDataLogicType'
 
 const SHOW_TIMEOUT_MESSAGE_AFTER = 5000
+
+// Trends/stickiness displays whose chart renders the in-chart quill legend (line/area/cumulative
+// and bar layouts). Lifecycle always renders it regardless of display.
+const DISPLAYS_WITH_IN_CHART_LEGEND = [
+    ChartDisplayType.ActionsLineGraph,
+    ChartDisplayType.ActionsLineGraphCumulative,
+    ChartDisplayType.ActionsAreaGraph,
+    ChartDisplayType.ActionsBar,
+    ChartDisplayType.ActionsUnstackedBar,
+]
 
 export type QuerySourceUpdate = Omit<Partial<InsightQueryNode>, 'kind'>
 
@@ -120,8 +141,13 @@ export const insightVizDataLogic = kea<insightVizDataLogicType>([
             ['dataWarehouseTablesMap'],
             dataThemeLogic,
             ['getTheme'],
+            featureFlagLogic,
+            ['featureFlags'],
         ],
-        actions: [insightDataLogic, ['setQuery', 'setInsightData', 'loadData', 'loadDataSuccess', 'loadDataFailure']],
+        actions: [
+            insightDataLogic,
+            ['setQuery', 'setInsightData', 'loadData', 'loadDataSuccess', 'loadDataFailure', 'cancelChanges'],
+        ],
     })),
 
     actions({
@@ -207,12 +233,21 @@ export const insightVizDataLogic = kea<insightVizDataLogicType>([
         isTrendsLike: [(s) => [s.querySource], (q) => isTrendsQuery(q) || isLifecycleQuery(q) || isStickinessQuery(q)], // this is for filtering out world map
         supportsDisplay: [(s) => [s.querySource], (q) => isTrendsQuery(q) || isStickinessQuery(q)],
         supportsCompare: [
-            (s) => [s.querySource, s.display, s.dateRange],
-            (q, display, dateRange) =>
-                (isTrendsQuery(q) || isStickinessQuery(q) || isWebAnalyticsInsightQuery(q)) &&
-                display !== ChartDisplayType.WorldMap &&
-                display !== ChartDisplayType.CalendarHeatmap &&
-                dateRange?.date_from !== 'all',
+            (s) => [s.querySource, s.display, s.dateRange, s.featureFlags],
+            (q, display, dateRange, featureFlags) => {
+                if (dateRange?.date_from === 'all') {
+                    return false
+                }
+                if (isTrendsQuery(q) || isStickinessQuery(q) || isWebAnalyticsInsightQuery(q)) {
+                    return display !== ChartDisplayType.WorldMap && display !== ChartDisplayType.CalendarHeatmap
+                }
+                // Funnel compare ships behind a flag, for the STEPS, TRENDS and TIME_TO_CONVERT viz
+                // modes. FLOW is excluded — the backend ignores compare for it (mirrors `_is_compare_active`).
+                if (isFunnelsQuery(q) && !!featureFlags[FEATURE_FLAGS.PRODUCT_ANALYTICS_FUNNELS_COMPARE]) {
+                    return (q.funnelsFilter?.funnelVizType ?? FunnelVizType.Steps) !== FunnelVizType.Flow
+                }
+                return false
+            },
         ],
         supportsPercentStackView: [(s) => [s.querySource], (q) => supportsPercentStackView(q)],
         supportsBarValueStacking: [(s) => [s.querySource], (q) => supportsBarValueStacking(q)],
@@ -262,8 +297,11 @@ export const insightVizDataLogic = kea<insightVizDataLogicType>([
         properties: [(s) => [s.querySource], (q) => (q ? q.properties : null)],
         samplingFactor: [(s) => [s.querySource], (q) => (q && 'samplingFactor' in q ? q.samplingFactor : null)],
         showAlertThresholdLines: [(s) => [s.querySource], (q) => (q ? getShowAlertThresholdLines(q) : null)],
+        showAnnotations: [(s) => [s.querySource], (q) => (q ? getShowAnnotations(q) : null)],
         showLegend: [(s) => [s.querySource], (q) => (q ? getShowLegend(q) : null)],
+        legendPosition: [(s) => [s.querySource], (q) => (q ? getLegendPosition(q) : null)],
         showValuesOnSeries: [(s) => [s.querySource], (q) => (q ? getShowValuesOnSeries(q) : null)],
+        showPercentagesOnSeries: [(s) => [s.querySource], (q) => (q ? getShowPercentagesOnSeries(q) : null)],
         showLabelOnSeries: [(s) => [s.querySource], (q) => (q ? getShowLabelsOnSeries(q) : null)],
         showPercentStackView: [(s) => [s.querySource], (q) => (q ? getShowPercentStackView(q) : null)],
         yAxisScaleType: [(s) => [s.querySource], (q) => (q ? getYAxisScaleType(q) : null)],
@@ -441,6 +479,23 @@ export const insightVizDataLogic = kea<insightVizDataLogicType>([
                 !(display && DISPLAY_TYPES_WITHOUT_LEGEND.includes(display)),
         ],
 
+        // Whether the active chart renders the unified in-chart quill legend (replacing the legacy
+        // side legend) instead of the legacy show/hide checkbox. Single source of truth shared by
+        // InsightDisplayConfig (which control to show) and InsightVizDisplay (suppress side legend).
+        usesInChartLegend: [
+            (s) => [s.featureFlags, s.isTrends, s.isStickiness, s.isLifecycle, s.display],
+            (featureFlags, isTrends, isStickiness, isLifecycle, display): boolean => {
+                // Lifecycle always uses config.legend inside TimeSeriesBarChart — no flag gate needed.
+                if (isLifecycle) {
+                    return true
+                }
+                if (!featureFlags[FEATURE_FLAGS.PRODUCT_ANALYTICS_QUILL_LEGEND]) {
+                    return false
+                }
+                return (isTrends || isStickiness) && (!display || DISPLAYS_WITH_IN_CHART_LEGEND.includes(display))
+            },
+        ],
+
         hasDetailedResultsTable: [
             (s) => [s.isTrends, s.isStickiness, s.display],
             (isTrends: boolean, isStickiness: boolean, display: ChartDisplayType | undefined) =>
@@ -463,9 +518,14 @@ export const insightVizDataLogic = kea<insightVizDataLogicType>([
                 getActiveUsersMath(series),
         ],
         enabledIntervals: [
-            (s) => [s.activeUsersMath, s.isTrends],
-            (activeUsersMath, isTrends): Intervals => {
+            (s) => [s.activeUsersMath, s.isTrends, s.featureFlags],
+            (activeUsersMath, isTrends, featureFlags): Intervals => {
                 const enabledIntervals: Intervals = { ...intervals }
+
+                if (featureFlags[FEATURE_FLAGS.PRODUCT_ANALYTICS_QUARTER_YEAR_INTERVALS]) {
+                    enabledIntervals.quarter = { ...enabledIntervals.quarter, hidden: false }
+                    enabledIntervals.year = { ...enabledIntervals.year, hidden: false }
+                }
 
                 if (activeUsersMath) {
                     enabledIntervals.hour = {
@@ -479,6 +539,16 @@ export const insightVizDataLogic = kea<insightVizDataLogicType>([
                             ...enabledIntervals.month,
                             disabledReason:
                                 'Grouping by month is not supported on insights with weekly active users series.',
+                        }
+                        enabledIntervals.quarter = {
+                            ...enabledIntervals.quarter,
+                            disabledReason:
+                                'Grouping by quarter is not supported on insights with weekly active users series.',
+                        }
+                        enabledIntervals.year = {
+                            ...enabledIntervals.year,
+                            disabledReason:
+                                'Grouping by year is not supported on insights with weekly active users series.',
                         }
                     }
                 }
@@ -570,7 +640,7 @@ export const insightVizDataLogic = kea<insightVizDataLogicType>([
         ],
     }),
 
-    listeners(({ actions, values, props }) => ({
+    listeners(({ actions, values, props, cache }) => ({
         // query
         setQuery: ({ query }) => {
             if (isInsightVizNode(query)) {
@@ -578,6 +648,14 @@ export const insightVizDataLogic = kea<insightVizDataLogicType>([
                     props.setQuery(query)
                 }
             }
+        },
+
+        // Discarding edits reverts the query to the saved version. A debounced filter
+        // update (e.g. updateDateRange) that was dispatched just before the discard would
+        // otherwise resolve afterwards and re-apply the discarded value on top of the
+        // reverted query. Flag it so the in-flight debounce bails out instead.
+        cancelChanges: () => {
+            cache.pendingFilterUpdateCancelled = true
         },
 
         // query source
@@ -597,8 +675,15 @@ export const insightVizDataLogic = kea<insightVizDataLogicType>([
 
         // query source properties
         updateDateRange: async ({ dateRange, ignoreDebounce }, breakpoint) => {
+            cache.pendingFilterUpdateCancelled = false
             if (!ignoreDebounce) {
                 await breakpoint(300)
+            }
+            // Changes were discarded while this debounce was pending — don't re-apply the
+            // edited date range over the query that cancelChanges just reverted.
+            if (cache.pendingFilterUpdateCancelled) {
+                cache.pendingFilterUpdateCancelled = false
+                return
             }
             eventUsageLogic.actions.reportInsightDateRangeChanged(values.querySource?.kind)
             const updates = {
@@ -643,7 +728,11 @@ export const insightVizDataLogic = kea<insightVizDataLogicType>([
 
         // insight filter
         updateInsightFilter: async ({ insightFilter }, breakpoint) => {
-            await breakpoint(300)
+            // When an external save handler is wired (dashboard card), skip the debounce so
+            // rapid successive toggle clicks don't cancel each other and lose earlier changes.
+            if (!props.setQuery) {
+                await breakpoint(300)
+            }
 
             if (isWebAnalyticsInsightQuery(values.localQuerySource)) {
                 return
@@ -767,14 +856,18 @@ const handleQuerySourceUpdateSideEffects = (
     // to an appropriate allowed interval and inform them of the change via a toast
     if (
         maybeChangedActiveUsersMath !== null &&
-        (interval === 'hour' || interval === 'month' || interval === 'minute')
+        (interval === 'hour' ||
+            interval === 'month' ||
+            interval === 'minute' ||
+            interval === 'quarter' ||
+            interval === 'year')
     ) {
         if (interval === 'hour' || interval === 'minute') {
             lemonToast.info(
                 `Switched to grouping by day, because "${BASE_MATH_DEFINITIONS[maybeChangedActiveUsersMath].name}" does not support grouping by ${interval}.`
             )
             ;(mergedUpdate as TrendsQuery).interval = 'day'
-        } else if (interval === 'month' && maybeChangedActiveUsersMath === BaseMathType.WeeklyActiveUsers) {
+        } else if (maybeChangedActiveUsersMath === BaseMathType.WeeklyActiveUsers) {
             lemonToast.info(
                 `Switched to grouping by week, because "${BASE_MATH_DEFINITIONS[maybeChangedActiveUsersMath].name}" does not support grouping by ${interval}.`
             )
@@ -849,10 +942,21 @@ const handleQuerySourceUpdateSideEffects = (
         const { date_from, date_to } = { ...currentState.dateRange, ...update.dateRange }
 
         if (date_from && date_to && dayjs(date_from).isValid() && dayjs(date_to).isValid()) {
-            if (dayjs(date_to).diff(dayjs(date_from), 'day') <= 3) {
+            const quarterYearEnabled =
+                !!featureFlagLogic.findMounted()?.values.featureFlags[
+                    FEATURE_FLAGS.PRODUCT_ANALYTICS_QUARTER_YEAR_INTERVALS
+                ]
+            const parsedFrom = dayjs(date_from)
+            const parsedTo = dayjs(date_to)
+            const monthDiff = parsedTo.diff(parsedFrom, 'month')
+            // 3 years in months; quarter auto-interval kicks in beyond this threshold
+            const QUARTER_AUTO_INTERVAL_THRESHOLD_MONTHS = 36
+            if (parsedTo.diff(parsedFrom, 'day') <= 3) {
                 ;(mergedUpdate as TrendsQuery).interval = 'hour'
-            } else if (dayjs(date_to).diff(dayjs(date_from), 'month') <= 3) {
+            } else if (monthDiff <= 3) {
                 ;(mergedUpdate as TrendsQuery).interval = 'day'
+            } else if (quarterYearEnabled && monthDiff > QUARTER_AUTO_INTERVAL_THRESHOLD_MONTHS) {
+                ;(mergedUpdate as TrendsQuery).interval = 'quarter'
             } else {
                 ;(mergedUpdate as TrendsQuery).interval = 'month'
             }
@@ -910,6 +1014,11 @@ const handleQuerySourceUpdateSideEffects = (
 
     // Remove breakdown filter if display type is BoldNumber because it is not supported
     if (kind === NodeKind.TrendsQuery && maybeChangedDisplay === ChartDisplayType.BoldNumber) {
+        ;(mergedUpdate as TrendsQuery).breakdownFilter = undefined
+    }
+
+    // Remove breakdown filter if display type is Metric because it is single-series
+    if (kind === NodeKind.TrendsQuery && maybeChangedDisplay === ChartDisplayType.Metric) {
         ;(mergedUpdate as TrendsQuery).breakdownFilter = undefined
     }
 

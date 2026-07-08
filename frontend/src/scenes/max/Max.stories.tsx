@@ -13,6 +13,7 @@ import { MOCK_DEFAULT_BASIC_USER, MOCK_DEFAULT_ORGANIZATION } from 'lib/api.mock
 
 import { Meta, StoryObj } from '@storybook/react'
 import { useActions, useValues } from 'kea'
+import { HttpResponse, delay } from 'msw'
 import { useEffect } from 'react'
 import { twMerge } from 'tailwind-merge'
 
@@ -35,18 +36,39 @@ import { FilterLogicalOperator, InsightShortId, PendingApproval, PropertyFilterT
 
 import conversationList from './__mocks__/conversationList.json'
 import { MaxInstance, MaxInstanceProps } from './Max'
-import { AlertEntry, ChangelogEntry, maxChangelogLogic } from './maxChangelogLogic'
+import { ChangelogEntry, maxChangelogLogic } from './maxChangelogLogic'
 import { maxContextLogic } from './maxContextLogic'
 import { maxGlobalLogic } from './maxGlobalLogic'
 import { QUESTION_SUGGESTIONS_DATA, maxLogic } from './maxLogic'
 import { maxThreadLogic } from './maxThreadLogic'
+
+// Storybook can mount a story with two concurrent component instances that share the same
+// (conversation-keyed) maxThreadLogic. A plain per-instance effect would then auto-send the
+// first message twice, duplicating the human bubble in the thread. This guard is shared across
+// instances so each conversation auto-sends exactly once; it's released on unmount so navigating
+// back to the story re-triggers the send.
+const autoSentConversationIds = new Set<string>()
+function useAutoSendOnce(conversationId: string, ready: boolean, send: () => void): void {
+    useEffect(() => {
+        if (!ready || autoSentConversationIds.has(conversationId)) {
+            return
+        }
+        autoSentConversationIds.add(conversationId)
+        const timer = setTimeout(send, 0)
+        return () => {
+            clearTimeout(timer)
+            autoSentConversationIds.delete(conversationId)
+        }
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [ready])
+}
 
 const meta: Meta = {
     title: 'Scenes-App/PostHog AI',
     decorators: [
         mswDecorator({
             post: {
-                '/api/environments/:team_id/conversations/': (_, res, ctx) => res(ctx.text(chatResponseChunk)),
+                '/api/environments/:team_id/conversations/': () => new HttpResponse(chatResponseChunk),
             },
             get: {
                 '/api/organizations/@current/': () => [
@@ -128,20 +150,16 @@ export const WelcomeFeaturePreviewAutoEnrolled: Story = {
 
 export const Thread: Story = {
     render: () => {
-        const { setConversationId } = useActions(maxLogic({ tabId: 'storybook' }))
+        const { setConversationId } = useActions(maxLogic({ panelId: 'storybook' }))
         const { askMax } = useActions(
-            maxThreadLogic({ conversationId: CONVERSATION_ID, conversation: null, tabId: 'storybook' })
+            maxThreadLogic({ conversationId: CONVERSATION_ID, conversation: null, panelId: 'storybook' })
         )
         const { dataProcessingAccepted } = useValues(maxGlobalLogic)
 
-        useEffect(() => {
-            if (dataProcessingAccepted) {
-                setTimeout(() => {
-                    setConversationId(CONVERSATION_ID)
-                    askMax(humanMessage.content)
-                }, 0)
-            }
-        }, [dataProcessingAccepted, setConversationId, askMax])
+        useAutoSendOnce(CONVERSATION_ID, dataProcessingAccepted, () => {
+            setConversationId(CONVERSATION_ID)
+            askMax(humanMessage.content)
+        })
 
         if (!dataProcessingAccepted) {
             return <></>
@@ -155,23 +173,26 @@ export const EmptyThreadLoading: Story = {
     render: () => {
         useStorybookMocks({
             post: {
-                '/api/environments/:team_id/conversations/': (_req, _res, ctx) => [ctx.delay('infinite')],
+                '/api/environments/:team_id/conversations/': async () => {
+                    await delay('infinite')
+                    return new HttpResponse()
+                },
             },
         })
 
-        const { setConversationId } = useActions(maxLogic({ tabId: 'storybook' }))
-        const threadLogic = maxThreadLogic({ conversationId: CONVERSATION_ID, conversation: null, tabId: 'storybook' })
+        const { setConversationId } = useActions(maxLogic({ panelId: 'storybook' }))
+        const threadLogic = maxThreadLogic({
+            conversationId: CONVERSATION_ID,
+            conversation: null,
+            panelId: 'storybook',
+        })
         const { askMax } = useActions(threadLogic)
         const { dataProcessingAccepted } = useValues(maxGlobalLogic)
 
-        useEffect(() => {
-            if (dataProcessingAccepted) {
-                setTimeout(() => {
-                    setConversationId(CONVERSATION_ID)
-                    askMax(humanMessage.content)
-                }, 0)
-            }
-        }, [dataProcessingAccepted, setConversationId, askMax])
+        useAutoSendOnce(CONVERSATION_ID, dataProcessingAccepted, () => {
+            setConversationId(CONVERSATION_ID)
+            askMax(humanMessage.content)
+        })
 
         if (!dataProcessingAccepted) {
             return <></>
@@ -190,24 +211,24 @@ export const GenerationFailureThread: Story = {
     render: () => {
         useStorybookMocks({
             post: {
-                '/api/environments/:team_id/conversations/': (_, res, ctx) => res(ctx.text(generationFailureChunk)),
+                '/api/environments/:team_id/conversations/': () => new HttpResponse(generationFailureChunk),
             },
         })
 
-        const { setConversationId } = useActions(maxLogic({ tabId: 'storybook' }))
-        const threadLogic = maxThreadLogic({ conversationId: CONVERSATION_ID, conversation: null, tabId: 'storybook' })
+        const { setConversationId } = useActions(maxLogic({ panelId: 'storybook' }))
+        const threadLogic = maxThreadLogic({
+            conversationId: CONVERSATION_ID,
+            conversation: null,
+            panelId: 'storybook',
+        })
         const { askMax, setMessageStatus } = useActions(threadLogic)
         const { threadRaw, threadLoading } = useValues(threadLogic)
         const { dataProcessingAccepted } = useValues(maxGlobalLogic)
 
-        useEffect(() => {
-            if (dataProcessingAccepted) {
-                setTimeout(() => {
-                    setConversationId(CONVERSATION_ID)
-                    askMax(humanMessage.content)
-                }, 0)
-            }
-        }, [dataProcessingAccepted, setConversationId, askMax])
+        useAutoSendOnce(CONVERSATION_ID, dataProcessingAccepted, () => {
+            setConversationId(CONVERSATION_ID)
+            askMax(humanMessage.content)
+        })
 
         useEffect(() => {
             if (threadRaw.length === 2 && !threadLoading) {
@@ -226,23 +247,23 @@ export const ThreadWithFailedGeneration: Story = {
     render: () => {
         useStorybookMocks({
             post: {
-                '/api/environments/:team_id/conversations/': (_, res, ctx) => res(ctx.text(failureChunk)),
+                '/api/environments/:team_id/conversations/': () => new HttpResponse(failureChunk),
             },
         })
 
-        const { setConversationId } = useActions(maxLogic({ tabId: 'storybook' }))
-        const threadLogic = maxThreadLogic({ conversationId: CONVERSATION_ID, conversation: null, tabId: 'storybook' })
+        const { setConversationId } = useActions(maxLogic({ panelId: 'storybook' }))
+        const threadLogic = maxThreadLogic({
+            conversationId: CONVERSATION_ID,
+            conversation: null,
+            panelId: 'storybook',
+        })
         const { askMax } = useActions(threadLogic)
         const { dataProcessingAccepted } = useValues(maxGlobalLogic)
 
-        useEffect(() => {
-            if (dataProcessingAccepted) {
-                setTimeout(() => {
-                    setConversationId(CONVERSATION_ID)
-                    askMax(humanMessage.content)
-                }, 0)
-            }
-        }, [dataProcessingAccepted, setConversationId, askMax])
+        useAutoSendOnce(CONVERSATION_ID, dataProcessingAccepted, () => {
+            setConversationId(CONVERSATION_ID)
+            askMax(humanMessage.content)
+        })
 
         if (!dataProcessingAccepted) {
             return <></>
@@ -256,25 +277,25 @@ export const ThreadWithRateLimit: Story = {
     render: () => {
         useStorybookMocks({
             post: {
-                '/api/environments/:team_id/conversations/': (_, res, ctx) =>
-                    // Retry-After header is present so we should be showing its value in the UI
-                    res(ctx.text(chatResponseChunk), ctx.set({ 'Retry-After': '3899' }), ctx.status(429)),
+                // Retry-After header is present so we should be showing its value in the UI
+                '/api/environments/:team_id/conversations/': () =>
+                    new HttpResponse(chatResponseChunk, { status: 429, headers: { 'Retry-After': '3899' } }),
             },
         })
 
-        const { setConversationId } = useActions(maxLogic({ tabId: 'storybook' }))
-        const threadLogic = maxThreadLogic({ conversationId: CONVERSATION_ID, conversation: null, tabId: 'storybook' })
+        const { setConversationId } = useActions(maxLogic({ panelId: 'storybook' }))
+        const threadLogic = maxThreadLogic({
+            conversationId: CONVERSATION_ID,
+            conversation: null,
+            panelId: 'storybook',
+        })
         const { askMax } = useActions(threadLogic)
         const { dataProcessingAccepted } = useValues(maxGlobalLogic)
 
-        useEffect(() => {
-            if (dataProcessingAccepted) {
-                setTimeout(() => {
-                    setConversationId(CONVERSATION_ID)
-                    askMax(humanMessage.content)
-                }, 0)
-            }
-        }, [dataProcessingAccepted, setConversationId, askMax])
+        useAutoSendOnce(CONVERSATION_ID, dataProcessingAccepted, () => {
+            setConversationId(CONVERSATION_ID)
+            askMax(humanMessage.content)
+        })
 
         if (!dataProcessingAccepted) {
             return <></>
@@ -288,25 +309,24 @@ export const ThreadWithRateLimitNoRetryAfter: Story = {
     render: () => {
         useStorybookMocks({
             post: {
-                '/api/environments/:team_id/conversations/': (_, res, ctx) =>
-                    // Testing rate limit error when the Retry-After header is MISSING
-                    res(ctx.text(chatResponseChunk), ctx.status(429)),
+                // Testing rate limit error when the Retry-After header is MISSING
+                '/api/environments/:team_id/conversations/': () => new HttpResponse(chatResponseChunk, { status: 429 }),
             },
         })
 
-        const { setConversationId } = useActions(maxLogic({ tabId: 'storybook' }))
-        const threadLogic = maxThreadLogic({ conversationId: CONVERSATION_ID, conversation: null, tabId: 'storybook' })
+        const { setConversationId } = useActions(maxLogic({ panelId: 'storybook' }))
+        const threadLogic = maxThreadLogic({
+            conversationId: CONVERSATION_ID,
+            conversation: null,
+            panelId: 'storybook',
+        })
         const { askMax } = useActions(threadLogic)
         const { dataProcessingAccepted } = useValues(maxGlobalLogic)
 
-        useEffect(() => {
-            if (dataProcessingAccepted) {
-                setTimeout(() => {
-                    setConversationId(CONVERSATION_ID)
-                    askMax(humanMessage.content)
-                }, 0)
-            }
-        }, [dataProcessingAccepted, setConversationId, askMax])
+        useAutoSendOnce(CONVERSATION_ID, dataProcessingAccepted, () => {
+            setConversationId(CONVERSATION_ID)
+            askMax(humanMessage.content)
+        })
 
         if (!dataProcessingAccepted) {
             return <></>
@@ -320,30 +340,29 @@ export const ThreadWithBillingLimitExceeded: Story = {
     render: () => {
         useStorybookMocks({
             post: {
-                '/api/environments/:team_id/conversations/': (_, res, ctx) =>
-                    // Testing billing limit exceeded error (402 Payment Required)
-                    res(
-                        ctx.status(402),
-                        ctx.json({
-                            detail: 'Your organization reached its AI credit usage limit. Increase the limits in [Billing](/organization/billing), or ask an org admin to do so.',
-                        })
-                    ),
+                // Testing billing limit exceeded error (402 Payment Required)
+                '/api/environments/:team_id/conversations/': () => [
+                    402,
+                    {
+                        detail: 'Your organization reached its AI credit usage limit. Increase the limits in [Billing](/organization/billing), or ask an org admin to do so.',
+                    },
+                ],
             },
         })
 
-        const { setConversationId } = useActions(maxLogic({ tabId: 'storybook' }))
-        const threadLogic = maxThreadLogic({ conversationId: CONVERSATION_ID, conversation: null, tabId: 'storybook' })
+        const { setConversationId } = useActions(maxLogic({ panelId: 'storybook' }))
+        const threadLogic = maxThreadLogic({
+            conversationId: CONVERSATION_ID,
+            conversation: null,
+            panelId: 'storybook',
+        })
         const { askMax } = useActions(threadLogic)
         const { dataProcessingAccepted } = useValues(maxGlobalLogic)
 
-        useEffect(() => {
-            if (dataProcessingAccepted) {
-                setTimeout(() => {
-                    setConversationId(CONVERSATION_ID)
-                    askMax(humanMessage.content)
-                }, 0)
-            }
-        }, [dataProcessingAccepted, setConversationId, askMax])
+        useAutoSendOnce(CONVERSATION_ID, dataProcessingAccepted, () => {
+            setConversationId(CONVERSATION_ID)
+            askMax(humanMessage.content)
+        })
 
         if (!dataProcessingAccepted) {
             return <></>
@@ -357,23 +376,23 @@ export const ThreadWithQuickReplies: Story = {
     render: () => {
         useStorybookMocks({
             post: {
-                '/api/environments/:team_id/conversations/': (_, res, ctx) => res(ctx.text(formChunk)),
+                '/api/environments/:team_id/conversations/': () => new HttpResponse(formChunk),
             },
         })
 
-        const { setConversationId } = useActions(maxLogic({ tabId: 'storybook' }))
-        const threadLogic = maxThreadLogic({ conversationId: CONVERSATION_ID, conversation: null, tabId: 'storybook' })
+        const { setConversationId } = useActions(maxLogic({ panelId: 'storybook' }))
+        const threadLogic = maxThreadLogic({
+            conversationId: CONVERSATION_ID,
+            conversation: null,
+            panelId: 'storybook',
+        })
         const { askMax } = useActions(threadLogic)
         const { dataProcessingAccepted } = useValues(maxGlobalLogic)
 
-        useEffect(() => {
-            if (dataProcessingAccepted) {
-                setTimeout(() => {
-                    setConversationId(CONVERSATION_ID)
-                    askMax(humanMessage.content)
-                }, 0)
-            }
-        }, [dataProcessingAccepted, setConversationId, askMax])
+        useAutoSendOnce(CONVERSATION_ID, dataProcessingAccepted, () => {
+            setConversationId(CONVERSATION_ID)
+            askMax(humanMessage.content)
+        })
 
         if (!dataProcessingAccepted) {
             return <></>
@@ -387,11 +406,14 @@ export const ThreadWithConversationLoading: Story = {
     render: () => {
         useStorybookMocks({
             get: {
-                '/api/environments/:team_id/conversations/': (_req, _res, ctx) => [ctx.delay('infinite')],
+                '/api/environments/:team_id/conversations/': async () => {
+                    await delay('infinite')
+                    return new HttpResponse()
+                },
             },
         })
 
-        const { setConversationId } = useActions(maxLogic({ tabId: 'storybook' }))
+        const { setConversationId } = useActions(maxLogic({ panelId: 'storybook' }))
 
         useEffect(() => {
             setConversationId(CONVERSATION_ID)
@@ -414,7 +436,7 @@ export const ThreadWithEmptyConversation: Story = {
             },
         })
 
-        const { setConversationId } = useActions(maxLogic({ tabId: 'storybook' }))
+        const { setConversationId } = useActions(maxLogic({ panelId: 'storybook' }))
 
         useEffect(() => {
             setConversationId('empty')
@@ -466,7 +488,7 @@ export const SharedThread: Story = {
             },
         })
 
-        const { setConversationId } = useActions(maxLogic({ tabId: 'storybook' }))
+        const { setConversationId } = useActions(maxLogic({ panelId: 'storybook' }))
 
         useEffect(() => {
             // Simulate loading a shared conversation via URL parameter
@@ -487,11 +509,14 @@ export const ThreadWithInProgressConversation: Story = {
         useStorybookMocks({
             get: {
                 '/api/environments/:team_id/conversations/': () => [200, conversationList],
-                '/api/environments/:team_id/conversations/in_progress/': (_req, _res, ctx) => [ctx.delay('infinite')],
+                '/api/environments/:team_id/conversations/in_progress/': async () => {
+                    await delay('infinite')
+                    return new HttpResponse()
+                },
             },
         })
 
-        const { setConversationId } = useActions(maxLogic({ tabId: 'storybook' }))
+        const { setConversationId } = useActions(maxLogic({ panelId: 'storybook' }))
 
         useEffect(() => {
             setConversationId('in_progress')
@@ -531,7 +556,7 @@ export const ChatHistory: Story = {
             },
         })
 
-        const { toggleConversationHistory } = useActions(maxLogic({ tabId: 'storybook' }))
+        const { toggleConversationHistory } = useActions(maxLogic({ panelId: 'storybook' }))
 
         useEffect(() => {
             toggleConversationHistory(true)
@@ -554,7 +579,7 @@ export const ChatHistoryEmpty: Story = {
             },
         })
 
-        const { toggleConversationHistory } = useActions(maxLogic({ tabId: 'storybook' }))
+        const { toggleConversationHistory } = useActions(maxLogic({ panelId: 'storybook' }))
 
         useEffect(() => {
             toggleConversationHistory(true)
@@ -573,11 +598,14 @@ export const ChatHistoryLoading: Story = {
     render: () => {
         useStorybookMocks({
             get: {
-                '/api/environments/:team_id/conversations/': (_req, _res, ctx) => [ctx.delay('infinite')],
+                '/api/environments/:team_id/conversations/': async () => {
+                    await delay('infinite')
+                    return new HttpResponse()
+                },
             },
         })
 
-        const { toggleConversationHistory } = useActions(maxLogic({ tabId: 'storybook' }))
+        const { toggleConversationHistory } = useActions(maxLogic({ panelId: 'storybook' }))
 
         useEffect(() => {
             toggleConversationHistory(true)
@@ -594,7 +622,7 @@ export const ChatHistoryLoading: Story = {
 
 export const ThreadWithOpenedSuggestionsMobile: Story = {
     render: () => {
-        const { setActiveGroup } = useActions(maxLogic({ tabId: 'storybook' }))
+        const { setActiveGroup } = useActions(maxLogic({ panelId: 'storybook' }))
 
         useEffect(() => {
             // The largest group is the set up group
@@ -617,7 +645,7 @@ export const ThreadWithOpenedSuggestionsMobile: Story = {
 
 export const ThreadWithOpenedSuggestions: Story = {
     render: () => {
-        const { setActiveGroup } = useActions(maxLogic({ tabId: 'storybook' }))
+        const { setActiveGroup } = useActions(maxLogic({ panelId: 'storybook' }))
 
         useEffect(() => {
             // The largest group is the set up group
@@ -684,14 +712,16 @@ export const ThreadScrollsToBottomOnNewMessages: Story = {
                 '/api/environments/:team_id/conversations/': () => [200, conversationList],
             },
             post: {
-                '/api/environments/:team_id/conversations/': (_, res, ctx) =>
-                    res(ctx.delay(100), ctx.text(longResponseChunk)),
+                '/api/environments/:team_id/conversations/': async () => {
+                    await delay(100)
+                    return new HttpResponse(longResponseChunk)
+                },
             },
         })
 
-        const { conversation } = useValues(maxLogic({ tabId: 'storybook' }))
-        const { setConversationId } = useActions(maxLogic({ tabId: 'storybook' }))
-        const logic = maxThreadLogic({ conversationId: 'poem', conversation, tabId: 'storybook' })
+        const { conversation } = useValues(maxLogic({ panelId: 'storybook' }))
+        const { setConversationId } = useActions(maxLogic({ panelId: 'storybook' }))
+        const logic = maxThreadLogic({ conversationId: 'poem', conversation, panelId: 'storybook' })
         const { threadRaw } = useValues(logic)
         const { askMax } = useActions(logic)
 
@@ -723,8 +753,7 @@ export const ChatWithUIContext: Story = {
     render: () => {
         useStorybookMocks({
             post: {
-                '/api/environments/:team_id/conversations/': (_, res, ctx) =>
-                    res(ctx.text(chatResponseWithEventContext)),
+                '/api/environments/:team_id/conversations/': () => new HttpResponse(chatResponseWithEventContext),
             },
             get: {
                 '/api/environments/:team_id/conversations/': () => [200, conversationList],
@@ -745,8 +774,12 @@ export const ChatWithUIContext: Story = {
 
         const { contextEvents } = useValues(maxContextLogic)
         const { addOrUpdateContextEvent } = useActions(maxContextLogic)
-        const { setConversationId } = useActions(maxLogic({ tabId: 'storybook' }))
-        const threadLogic = maxThreadLogic({ conversationId: CONVERSATION_ID, conversation: null, tabId: 'storybook' })
+        const { setConversationId } = useActions(maxLogic({ panelId: 'storybook' }))
+        const threadLogic = maxThreadLogic({
+            conversationId: CONVERSATION_ID,
+            conversation: null,
+            panelId: 'storybook',
+        })
         const { askMax } = useActions(threadLogic)
         const { dataProcessingAccepted } = useValues(maxGlobalLogic)
 
@@ -762,16 +795,11 @@ export const ChatWithUIContext: Story = {
             }
         }, [addOrUpdateContextEvent, dataProcessingAccepted])
 
-        useEffect(() => {
-            // After event is added, start a new conversation
-            if (dataProcessingAccepted && contextEvents.length > 0) {
-                setTimeout(() => {
-                    // This simulates starting a new chat which changes the URL
-                    setConversationId(CONVERSATION_ID)
-                    askMax('Tell me about the $pageview event')
-                }, 100)
-            }
-        }, [contextEvents.length, setConversationId, askMax, dataProcessingAccepted])
+        // After the event is added, start a new conversation (changing the URL) exactly once.
+        useAutoSendOnce(CONVERSATION_ID, dataProcessingAccepted && contextEvents.length > 0, () => {
+            setConversationId(CONVERSATION_ID)
+            askMax('Tell me about the $pageview event')
+        })
 
         useEffect(() => {
             // Verify context is still present after conversation starts
@@ -840,38 +868,36 @@ export const PlanningComponent: Story = {
 
         useStorybookMocks({
             post: {
-                '/api/environments/:team_id/conversations/': (_, res, ctx) =>
-                    res(
-                        ctx.text(
-                            generateChunk([
-                                'event: conversation',
-                                `data: ${JSON.stringify({ id: CONVERSATION_ID })}`,
-                                'event: message',
-                                `data: ${JSON.stringify({
-                                    ...humanMessage,
-                                    content: 'Create a comprehensive analysis plan',
-                                })}`,
-                                'event: message',
-                                `data: ${JSON.stringify(planningMessage)}`,
-                            ])
-                        )
+                '/api/environments/:team_id/conversations/': () =>
+                    new HttpResponse(
+                        generateChunk([
+                            'event: conversation',
+                            `data: ${JSON.stringify({ id: CONVERSATION_ID })}`,
+                            'event: message',
+                            `data: ${JSON.stringify({
+                                ...humanMessage,
+                                content: 'Create a comprehensive analysis plan',
+                            })}`,
+                            'event: message',
+                            `data: ${JSON.stringify(planningMessage)}`,
+                        ])
                     ),
             },
         })
 
-        const { setConversationId } = useActions(maxLogic({ tabId: 'storybook' }))
-        const threadLogic = maxThreadLogic({ conversationId: CONVERSATION_ID, conversation: null, tabId: 'storybook' })
+        const { setConversationId } = useActions(maxLogic({ panelId: 'storybook' }))
+        const threadLogic = maxThreadLogic({
+            conversationId: CONVERSATION_ID,
+            conversation: null,
+            panelId: 'storybook',
+        })
         const { askMax } = useActions(threadLogic)
         const { dataProcessingAccepted } = useValues(maxGlobalLogic)
 
-        useEffect(() => {
-            if (dataProcessingAccepted) {
-                setTimeout(() => {
-                    setConversationId(CONVERSATION_ID)
-                    askMax('Create a comprehensive analysis plan')
-                }, 0)
-            }
-        }, [dataProcessingAccepted, setConversationId, askMax])
+        useAutoSendOnce(CONVERSATION_ID, dataProcessingAccepted, () => {
+            setConversationId(CONVERSATION_ID)
+            askMax('Create a comprehensive analysis plan')
+        })
 
         if (!dataProcessingAccepted) {
             return <></>
@@ -900,35 +926,33 @@ export const ReasoningComponent: Story = {
 
         useStorybookMocks({
             post: {
-                '/api/environments/:team_id/conversations/': (_, res, ctx) =>
-                    res(
-                        ctx.text(
-                            generateChunk([
-                                'event: conversation',
-                                `data: ${JSON.stringify({ id: CONVERSATION_ID })}`,
-                                'event: message',
-                                `data: ${JSON.stringify({ ...humanMessage, content: 'Analyze user engagement' })}`,
-                                'event: message',
-                                `data: ${JSON.stringify(reasoningMessage)}`,
-                            ])
-                        )
+                '/api/environments/:team_id/conversations/': () =>
+                    new HttpResponse(
+                        generateChunk([
+                            'event: conversation',
+                            `data: ${JSON.stringify({ id: CONVERSATION_ID })}`,
+                            'event: message',
+                            `data: ${JSON.stringify({ ...humanMessage, content: 'Analyze user engagement' })}`,
+                            'event: message',
+                            `data: ${JSON.stringify(reasoningMessage)}`,
+                        ])
                     ),
             },
         })
 
-        const { setConversationId } = useActions(maxLogic({ tabId: 'storybook' }))
-        const threadLogic = maxThreadLogic({ conversationId: CONVERSATION_ID, conversation: null, tabId: 'storybook' })
+        const { setConversationId } = useActions(maxLogic({ panelId: 'storybook' }))
+        const threadLogic = maxThreadLogic({
+            conversationId: CONVERSATION_ID,
+            conversation: null,
+            panelId: 'storybook',
+        })
         const { askMax } = useActions(threadLogic)
         const { dataProcessingAccepted } = useValues(maxGlobalLogic)
 
-        useEffect(() => {
-            if (dataProcessingAccepted) {
-                setTimeout(() => {
-                    setConversationId(CONVERSATION_ID)
-                    askMax('Analyze user engagement')
-                }, 0)
-            }
-        }, [dataProcessingAccepted, setConversationId, askMax])
+        useAutoSendOnce(CONVERSATION_ID, dataProcessingAccepted, () => {
+            setConversationId(CONVERSATION_ID)
+            askMax('Analyze user engagement')
+        })
 
         if (!dataProcessingAccepted) {
             return <></>
@@ -1032,54 +1056,51 @@ export const TaskExecutionComponent: Story = {
 
         useStorybookMocks({
             post: {
-                '/api/environments/:team_id/conversations/': (_, res, ctx) =>
-                    res(
-                        ctx.text(
-                            generateChunk([
-                                'event: conversation',
-                                `data: ${JSON.stringify({ id: 'in_progress' })}`,
-                                'event: message',
-                                `data: ${JSON.stringify({ ...humanMessage, content: 'Execute analysis tasks' })}`,
-                                'event: message',
-                                `data: ${JSON.stringify(taskExecutionMessage)}`,
-                                'event: message',
-                                `data: ${JSON.stringify(toolCallCompletion1)}`,
-                                'event: message',
-                                `data: ${JSON.stringify(toolCallCompletion2)}`,
-                                'event: update',
-                                `data: ${JSON.stringify(updateMessages[0])}`,
-                                'event: update',
-                                `data: ${JSON.stringify(updateMessages[1])}`,
-                                'event: update',
-                                `data: ${JSON.stringify(updateMessages[2])}`,
-                                'event: update',
-                                `data: ${JSON.stringify(updateMessages[3])}`,
-                            ])
-                        )
+                '/api/environments/:team_id/conversations/': () =>
+                    new HttpResponse(
+                        generateChunk([
+                            'event: conversation',
+                            `data: ${JSON.stringify({ id: 'in_progress' })}`,
+                            'event: message',
+                            `data: ${JSON.stringify({ ...humanMessage, content: 'Execute analysis tasks' })}`,
+                            'event: message',
+                            `data: ${JSON.stringify(taskExecutionMessage)}`,
+                            'event: message',
+                            `data: ${JSON.stringify(toolCallCompletion1)}`,
+                            'event: message',
+                            `data: ${JSON.stringify(toolCallCompletion2)}`,
+                            'event: update',
+                            `data: ${JSON.stringify(updateMessages[0])}`,
+                            'event: update',
+                            `data: ${JSON.stringify(updateMessages[1])}`,
+                            'event: update',
+                            `data: ${JSON.stringify(updateMessages[2])}`,
+                            'event: update',
+                            `data: ${JSON.stringify(updateMessages[3])}`,
+                        ])
                     ),
             },
             get: {
-                '/api/environments/:team_id/conversations/in_progress/': (_req, _res, ctx) => [ctx.delay('infinite')],
+                '/api/environments/:team_id/conversations/in_progress/': async () => {
+                    await delay('infinite')
+                    return new HttpResponse()
+                },
             },
         })
 
-        const { setConversationId } = useActions(maxLogic({ tabId: 'storybook' }))
+        const { setConversationId } = useActions(maxLogic({ panelId: 'storybook' }))
         const threadLogic: ReturnType<typeof maxThreadLogic> = maxThreadLogic({
             conversationId: 'in_progress',
             conversation: null,
-            tabId: 'storybook',
+            panelId: 'storybook',
         })
         const { askMax } = useActions(threadLogic)
         const { dataProcessingAccepted } = useValues(maxGlobalLogic)
 
-        useEffect(() => {
-            if (dataProcessingAccepted) {
-                setTimeout(() => {
-                    askMax('Execute analysis tasks')
-                    setConversationId('in_progress')
-                }, 0)
-            }
-        }, [dataProcessingAccepted, setConversationId, askMax])
+        useAutoSendOnce(CONVERSATION_ID, dataProcessingAccepted, () => {
+            askMax('Execute analysis tasks')
+            setConversationId('in_progress')
+        })
 
         if (!dataProcessingAccepted) {
             return <></>
@@ -1163,44 +1184,42 @@ export const TaskExecutionWithFailure: Story = {
 
         useStorybookMocks({
             post: {
-                '/api/environments/:team_id/conversations/': (_, res, ctx) =>
-                    res(
-                        ctx.text(
-                            generateChunk([
-                                'event: conversation',
-                                `data: ${JSON.stringify({ id: CONVERSATION_ID })}`,
-                                'event: message',
-                                `data: ${JSON.stringify({
-                                    ...humanMessage,
-                                    content: 'Execute analysis with some failures',
-                                })}`,
-                                'event: message',
-                                `data: ${JSON.stringify(taskExecutionMessage)}`,
-                                'event: message',
-                                `data: ${JSON.stringify(toolCallCompletion1)}`,
-                                'event: message',
-                                `data: ${JSON.stringify(toolCallCompletion2)}`,
-                                'event: message',
-                                `data: ${JSON.stringify(toolCallCompletion3)}`,
-                            ])
-                        )
+                '/api/environments/:team_id/conversations/': () =>
+                    new HttpResponse(
+                        generateChunk([
+                            'event: conversation',
+                            `data: ${JSON.stringify({ id: CONVERSATION_ID })}`,
+                            'event: message',
+                            `data: ${JSON.stringify({
+                                ...humanMessage,
+                                content: 'Execute analysis with some failures',
+                            })}`,
+                            'event: message',
+                            `data: ${JSON.stringify(taskExecutionMessage)}`,
+                            'event: message',
+                            `data: ${JSON.stringify(toolCallCompletion1)}`,
+                            'event: message',
+                            `data: ${JSON.stringify(toolCallCompletion2)}`,
+                            'event: message',
+                            `data: ${JSON.stringify(toolCallCompletion3)}`,
+                        ])
                     ),
             },
         })
 
-        const { setConversationId } = useActions(maxLogic({ tabId: 'storybook' }))
-        const threadLogic = maxThreadLogic({ conversationId: CONVERSATION_ID, conversation: null, tabId: 'storybook' })
+        const { setConversationId } = useActions(maxLogic({ panelId: 'storybook' }))
+        const threadLogic = maxThreadLogic({
+            conversationId: CONVERSATION_ID,
+            conversation: null,
+            panelId: 'storybook',
+        })
         const { askMax } = useActions(threadLogic)
         const { dataProcessingAccepted } = useValues(maxGlobalLogic)
 
-        useEffect(() => {
-            if (dataProcessingAccepted) {
-                setTimeout(() => {
-                    setConversationId(CONVERSATION_ID)
-                    askMax('Execute analysis with some failures')
-                }, 0)
-            }
-        }, [dataProcessingAccepted, setConversationId, askMax])
+        useAutoSendOnce(CONVERSATION_ID, dataProcessingAccepted, () => {
+            setConversationId(CONVERSATION_ID)
+            askMax('Execute analysis with some failures')
+        })
 
         if (!dataProcessingAccepted) {
             return <></>
@@ -1224,7 +1243,7 @@ export const MultiVisualizationInThread: Story = {
                         hogql: 'SELECT count() FROM events',
                     },
                 ],
-                '/api/environments/:team_id/conversations/': (_, res, ctx) => {
+                '/api/environments/:team_id/conversations/': () => {
                     const humanMsg = {
                         type: AssistantMessageType.Human,
                         content: 'Analyze our product metrics comprehensively',
@@ -1278,38 +1297,36 @@ export const MultiVisualizationInThread: Story = {
 - Apply dashboard rollout strategy to future features`,
                     }
 
-                    return res(
-                        ctx.text(
-                            generateChunk([
-                                'event: conversation',
-                                `data: ${JSON.stringify({ id: CONVERSATION_ID })}`,
-                                'event: message',
-                                `data: ${JSON.stringify({
-                                    ...humanMsg,
-                                    content: 'Analyze our product metrics comprehensively',
-                                })}`,
-                                'event: message',
-                                `data: ${JSON.stringify(multiVizMessage)}`,
-                            ])
-                        )
+                    return new HttpResponse(
+                        generateChunk([
+                            'event: conversation',
+                            `data: ${JSON.stringify({ id: CONVERSATION_ID })}`,
+                            'event: message',
+                            `data: ${JSON.stringify({
+                                ...humanMsg,
+                                content: 'Analyze our product metrics comprehensively',
+                            })}`,
+                            'event: message',
+                            `data: ${JSON.stringify(multiVizMessage)}`,
+                        ])
                     )
                 },
             },
         })
 
-        const { setConversationId } = useActions(maxLogic({ tabId: 'storybook' }))
-        const threadLogic = maxThreadLogic({ conversationId: CONVERSATION_ID, conversation: null, tabId: 'storybook' })
+        const { setConversationId } = useActions(maxLogic({ panelId: 'storybook' }))
+        const threadLogic = maxThreadLogic({
+            conversationId: CONVERSATION_ID,
+            conversation: null,
+            panelId: 'storybook',
+        })
         const { askMax } = useActions(threadLogic)
         const { dataProcessingAccepted } = useValues(maxGlobalLogic)
 
-        useEffect(() => {
-            if (dataProcessingAccepted) {
-                setTimeout(() => {
-                    setConversationId(CONVERSATION_ID)
-                    askMax('Analyze our product metrics comprehensively')
-                }, 0)
-            }
-        }, [dataProcessingAccepted, setConversationId, askMax])
+        useAutoSendOnce(CONVERSATION_ID, dataProcessingAccepted, () => {
+            setConversationId(CONVERSATION_ID)
+            askMax('Analyze our product metrics comprehensively')
+        })
 
         if (!dataProcessingAccepted) {
             return <></>
@@ -1323,23 +1340,23 @@ export const ThreadWithSQLQueryOverflow: Story = {
     render: () => {
         useStorybookMocks({
             post: {
-                '/api/environments/:team_id/conversations/': (_, res, ctx) => res(ctx.text(sqlQueryResponseChunk)),
+                '/api/environments/:team_id/conversations/': () => new HttpResponse(sqlQueryResponseChunk),
             },
         })
 
-        const { setConversationId } = useActions(maxLogic({ tabId: 'storybook' }))
-        const threadLogic = maxThreadLogic({ conversationId: CONVERSATION_ID, conversation: null, tabId: 'storybook' })
+        const { setConversationId } = useActions(maxLogic({ panelId: 'storybook' }))
+        const threadLogic = maxThreadLogic({
+            conversationId: CONVERSATION_ID,
+            conversation: null,
+            panelId: 'storybook',
+        })
         const { askMax } = useActions(threadLogic)
         const { dataProcessingAccepted } = useValues(maxGlobalLogic)
 
-        useEffect(() => {
-            if (dataProcessingAccepted) {
-                setTimeout(() => {
-                    setConversationId(CONVERSATION_ID)
-                    askMax('Show me a complex SQL query')
-                }, 0)
-            }
-        }, [dataProcessingAccepted, setConversationId, askMax])
+        useAutoSendOnce(CONVERSATION_ID, dataProcessingAccepted, () => {
+            setConversationId(CONVERSATION_ID)
+            askMax('Show me a complex SQL query')
+        })
 
         if (!dataProcessingAccepted) {
             return <></>
@@ -1423,41 +1440,39 @@ export const SearchSessionRecordingsEmpty: Story = {
 
         useStorybookMocks({
             post: {
-                '/api/environments/:team_id/conversations/': (_, res, ctx) =>
-                    res(
-                        ctx.text(
-                            generateChunk([
-                                'event: conversation',
-                                `data: ${JSON.stringify({ id: CONVERSATION_ID })}`,
-                                'event: message',
-                                `data: ${JSON.stringify({
-                                    ...humanMessage,
-                                    content:
-                                        'Show me recordings where users are on Chrome with Mac OR Firefox with Windows',
-                                })}`,
-                                'event: message',
-                                `data: ${JSON.stringify(toolCallMessage)}`,
-                                'event: message',
-                                `data: ${JSON.stringify(toolCallResult)}`,
-                            ])
-                        )
+                '/api/environments/:team_id/conversations/': () =>
+                    new HttpResponse(
+                        generateChunk([
+                            'event: conversation',
+                            `data: ${JSON.stringify({ id: CONVERSATION_ID })}`,
+                            'event: message',
+                            `data: ${JSON.stringify({
+                                ...humanMessage,
+                                content:
+                                    'Show me recordings where users are on Chrome with Mac OR Firefox with Windows',
+                            })}`,
+                            'event: message',
+                            `data: ${JSON.stringify(toolCallMessage)}`,
+                            'event: message',
+                            `data: ${JSON.stringify(toolCallResult)}`,
+                        ])
                     ),
             },
         })
 
-        const { setConversationId } = useActions(maxLogic({ tabId: 'storybook' }))
-        const threadLogic = maxThreadLogic({ conversationId: CONVERSATION_ID, conversation: null, tabId: 'storybook' })
+        const { setConversationId } = useActions(maxLogic({ panelId: 'storybook' }))
+        const threadLogic = maxThreadLogic({
+            conversationId: CONVERSATION_ID,
+            conversation: null,
+            panelId: 'storybook',
+        })
         const { askMax } = useActions(threadLogic)
         const { dataProcessingAccepted } = useValues(maxGlobalLogic)
 
-        useEffect(() => {
-            if (dataProcessingAccepted) {
-                setTimeout(() => {
-                    setConversationId(CONVERSATION_ID)
-                    askMax('Show me recordings where users are on Chrome with Mac OR Firefox with Windows')
-                }, 0)
-            }
-        }, [dataProcessingAccepted, setConversationId, askMax])
+        useAutoSendOnce(CONVERSATION_ID, dataProcessingAccepted, () => {
+            setConversationId(CONVERSATION_ID)
+            askMax('Show me recordings where users are on Chrome with Mac OR Firefox with Windows')
+        })
 
         if (!dataProcessingAccepted) {
             return <></>
@@ -1527,40 +1542,38 @@ export const SearchSessionRecordingsWithResults: Story = {
 
         useStorybookMocks({
             post: {
-                '/api/environments/:team_id/conversations/': (_, res, ctx) =>
-                    res(
-                        ctx.text(
-                            generateChunk([
-                                'event: conversation',
-                                `data: ${JSON.stringify({ id: CONVERSATION_ID })}`,
-                                'event: message',
-                                `data: ${JSON.stringify({
-                                    ...humanMessage,
-                                    content: 'Show me recordings where users are on Microsoft Edge with Linux',
-                                })}`,
-                                'event: message',
-                                `data: ${JSON.stringify(toolCallMessage)}`,
-                                'event: message',
-                                `data: ${JSON.stringify(toolCallResult)}`,
-                            ])
-                        )
+                '/api/environments/:team_id/conversations/': () =>
+                    new HttpResponse(
+                        generateChunk([
+                            'event: conversation',
+                            `data: ${JSON.stringify({ id: CONVERSATION_ID })}`,
+                            'event: message',
+                            `data: ${JSON.stringify({
+                                ...humanMessage,
+                                content: 'Show me recordings where users are on Microsoft Edge with Linux',
+                            })}`,
+                            'event: message',
+                            `data: ${JSON.stringify(toolCallMessage)}`,
+                            'event: message',
+                            `data: ${JSON.stringify(toolCallResult)}`,
+                        ])
                     ),
             },
         })
 
-        const { setConversationId } = useActions(maxLogic({ tabId: 'storybook' }))
-        const threadLogic = maxThreadLogic({ conversationId: CONVERSATION_ID, conversation: null, tabId: 'storybook' })
+        const { setConversationId } = useActions(maxLogic({ panelId: 'storybook' }))
+        const threadLogic = maxThreadLogic({
+            conversationId: CONVERSATION_ID,
+            conversation: null,
+            panelId: 'storybook',
+        })
         const { askMax } = useActions(threadLogic)
         const { dataProcessingAccepted } = useValues(maxGlobalLogic)
 
-        useEffect(() => {
-            if (dataProcessingAccepted) {
-                setTimeout(() => {
-                    setConversationId(CONVERSATION_ID)
-                    askMax('Show me recordings where users are on Microsoft Edge with Linux')
-                }, 0)
-            }
-        }, [dataProcessingAccepted, setConversationId, askMax])
+        useAutoSendOnce(CONVERSATION_ID, dataProcessingAccepted, () => {
+            setConversationId(CONVERSATION_ID)
+            askMax('Show me recordings where users are on Microsoft Edge with Linux')
+        })
 
         if (!dataProcessingAccepted) {
             return <></>
@@ -1571,8 +1584,8 @@ export const SearchSessionRecordingsWithResults: Story = {
     decorators: [
         mswDecorator({
             get: {
-                '/api/environments/:team_id/session_recordings': (req) => {
-                    const version = req.url.searchParams.get('version')
+                '/api/environments/:team_id/session_recordings': ({ request }) => {
+                    const version = new URL(request.url).searchParams.get('version')
                     return [
                         200,
                         {
@@ -1629,40 +1642,38 @@ export const SearchErrorTrackingIssuesEmpty: Story = {
 
         useStorybookMocks({
             post: {
-                '/api/environments/:team_id/conversations/': (_, res, ctx) =>
-                    res(
-                        ctx.text(
-                            generateChunk([
-                                'event: conversation',
-                                `data: ${JSON.stringify({ id: CONVERSATION_ID })}`,
-                                'event: message',
-                                `data: ${JSON.stringify({
-                                    ...humanMessage,
-                                    content: 'Show me active payment errors from the last week',
-                                })}`,
-                                'event: message',
-                                `data: ${JSON.stringify(toolCallMessage)}`,
-                                'event: message',
-                                `data: ${JSON.stringify(toolCallResult)}`,
-                            ])
-                        )
+                '/api/environments/:team_id/conversations/': () =>
+                    new HttpResponse(
+                        generateChunk([
+                            'event: conversation',
+                            `data: ${JSON.stringify({ id: CONVERSATION_ID })}`,
+                            'event: message',
+                            `data: ${JSON.stringify({
+                                ...humanMessage,
+                                content: 'Show me active payment errors from the last week',
+                            })}`,
+                            'event: message',
+                            `data: ${JSON.stringify(toolCallMessage)}`,
+                            'event: message',
+                            `data: ${JSON.stringify(toolCallResult)}`,
+                        ])
                     ),
             },
         })
 
-        const { setConversationId } = useActions(maxLogic({ tabId: 'storybook' }))
-        const threadLogic = maxThreadLogic({ conversationId: CONVERSATION_ID, conversation: null, tabId: 'storybook' })
+        const { setConversationId } = useActions(maxLogic({ panelId: 'storybook' }))
+        const threadLogic = maxThreadLogic({
+            conversationId: CONVERSATION_ID,
+            conversation: null,
+            panelId: 'storybook',
+        })
         const { askMax } = useActions(threadLogic)
         const { dataProcessingAccepted } = useValues(maxGlobalLogic)
 
-        useEffect(() => {
-            if (dataProcessingAccepted) {
-                setTimeout(() => {
-                    setConversationId(CONVERSATION_ID)
-                    askMax('Show me active payment errors from the last week')
-                }, 0)
-            }
-        }, [dataProcessingAccepted, setConversationId, askMax])
+        useAutoSendOnce(CONVERSATION_ID, dataProcessingAccepted, () => {
+            setConversationId(CONVERSATION_ID)
+            askMax('Show me active payment errors from the last week')
+        })
 
         if (!dataProcessingAccepted) {
             return <></>
@@ -1754,41 +1765,39 @@ export const SearchErrorTrackingIssuesWithResults: Story = {
 
         useStorybookMocks({
             post: {
-                '/api/environments/:team_id/conversations/': (_, res, ctx) =>
-                    res(
-                        ctx.text(
-                            generateChunk([
-                                'event: conversation',
-                                `data: ${JSON.stringify({ id: CONVERSATION_ID })}`,
-                                'event: message',
-                                `data: ${JSON.stringify({
-                                    ...humanMessage,
-                                    content:
-                                        'Show me all payment-related errors from the last month, sorted by occurrences',
-                                })}`,
-                                'event: message',
-                                `data: ${JSON.stringify(toolCallMessage)}`,
-                                'event: message',
-                                `data: ${JSON.stringify(toolCallResult)}`,
-                            ])
-                        )
+                '/api/environments/:team_id/conversations/': () =>
+                    new HttpResponse(
+                        generateChunk([
+                            'event: conversation',
+                            `data: ${JSON.stringify({ id: CONVERSATION_ID })}`,
+                            'event: message',
+                            `data: ${JSON.stringify({
+                                ...humanMessage,
+                                content:
+                                    'Show me all payment-related errors from the last month, sorted by occurrences',
+                            })}`,
+                            'event: message',
+                            `data: ${JSON.stringify(toolCallMessage)}`,
+                            'event: message',
+                            `data: ${JSON.stringify(toolCallResult)}`,
+                        ])
                     ),
             },
         })
 
-        const { setConversationId } = useActions(maxLogic({ tabId: 'storybook' }))
-        const threadLogic = maxThreadLogic({ conversationId: CONVERSATION_ID, conversation: null, tabId: 'storybook' })
+        const { setConversationId } = useActions(maxLogic({ panelId: 'storybook' }))
+        const threadLogic = maxThreadLogic({
+            conversationId: CONVERSATION_ID,
+            conversation: null,
+            panelId: 'storybook',
+        })
         const { askMax } = useActions(threadLogic)
         const { dataProcessingAccepted } = useValues(maxGlobalLogic)
 
-        useEffect(() => {
-            if (dataProcessingAccepted) {
-                setTimeout(() => {
-                    setConversationId(CONVERSATION_ID)
-                    askMax('Show me all payment-related errors from the last month, sorted by occurrences')
-                }, 0)
-            }
-        }, [dataProcessingAccepted, setConversationId, askMax])
+        useAutoSendOnce(CONVERSATION_ID, dataProcessingAccepted, () => {
+            setConversationId(CONVERSATION_ID)
+            askMax('Show me all payment-related errors from the last month, sorted by occurrences')
+        })
 
         if (!dataProcessingAccepted) {
             return <></>
@@ -1855,23 +1864,21 @@ export const DangerousOperationPendingApproval: Story = {
 
         useStorybookMocks({
             post: {
-                '/api/environments/:team_id/conversations/': (_, res, ctx) =>
-                    res(
-                        ctx.text(
-                            generateChunk([
-                                'event: conversation',
-                                `data: ${JSON.stringify({ id: CONVERSATION_ID })}`,
-                                'event: message',
-                                `data: ${JSON.stringify({
-                                    ...humanMessage,
-                                    content: 'Update my Sales Analytics dashboard with new metrics',
-                                })}`,
-                                'event: message',
-                                `data: ${JSON.stringify(toolCallMessage)}`,
-                                'event: approval',
-                                `data: ${JSON.stringify(pendingApproval)}`,
-                            ])
-                        )
+                '/api/environments/:team_id/conversations/': () =>
+                    new HttpResponse(
+                        generateChunk([
+                            'event: conversation',
+                            `data: ${JSON.stringify({ id: CONVERSATION_ID })}`,
+                            'event: message',
+                            `data: ${JSON.stringify({
+                                ...humanMessage,
+                                content: 'Update my Sales Analytics dashboard with new metrics',
+                            })}`,
+                            'event: message',
+                            `data: ${JSON.stringify(toolCallMessage)}`,
+                            'event: approval',
+                            `data: ${JSON.stringify(pendingApproval)}`,
+                        ])
                     ),
             },
             get: {
@@ -1891,19 +1898,19 @@ export const DangerousOperationPendingApproval: Story = {
             },
         })
 
-        const { setConversationId } = useActions(maxLogic({ tabId: 'storybook' }))
-        const threadLogic = maxThreadLogic({ conversationId: CONVERSATION_ID, conversation: null, tabId: 'storybook' })
+        const { setConversationId } = useActions(maxLogic({ panelId: 'storybook' }))
+        const threadLogic = maxThreadLogic({
+            conversationId: CONVERSATION_ID,
+            conversation: null,
+            panelId: 'storybook',
+        })
         const { askMax } = useActions(threadLogic)
         const { dataProcessingAccepted } = useValues(maxGlobalLogic)
 
-        useEffect(() => {
-            if (dataProcessingAccepted) {
-                setTimeout(() => {
-                    setConversationId(CONVERSATION_ID)
-                    askMax('Update my Sales Analytics dashboard with new metrics')
-                }, 0)
-            }
-        }, [dataProcessingAccepted, setConversationId, askMax])
+        useAutoSendOnce(CONVERSATION_ID, dataProcessingAccepted, () => {
+            setConversationId(CONVERSATION_ID)
+            askMax('Update my Sales Analytics dashboard with new metrics')
+        })
 
         if (!dataProcessingAccepted) {
             return <></>
@@ -2045,23 +2052,21 @@ The following services will need to be notified:
 
         useStorybookMocks({
             post: {
-                '/api/environments/:team_id/conversations/': (_, res, ctx) =>
-                    res(
-                        ctx.text(
-                            generateChunk([
-                                'event: conversation',
-                                `data: ${JSON.stringify({ id: CONVERSATION_ID })}`,
-                                'event: message',
-                                `data: ${JSON.stringify({
-                                    ...humanMessage,
-                                    content: 'Run the database migration',
-                                })}`,
-                                'event: message',
-                                `data: ${JSON.stringify(toolCallMessage)}`,
-                                'event: approval',
-                                `data: ${JSON.stringify(pendingApproval)}`,
-                            ])
-                        )
+                '/api/environments/:team_id/conversations/': () =>
+                    new HttpResponse(
+                        generateChunk([
+                            'event: conversation',
+                            `data: ${JSON.stringify({ id: CONVERSATION_ID })}`,
+                            'event: message',
+                            `data: ${JSON.stringify({
+                                ...humanMessage,
+                                content: 'Run the database migration',
+                            })}`,
+                            'event: message',
+                            `data: ${JSON.stringify(toolCallMessage)}`,
+                            'event: approval',
+                            `data: ${JSON.stringify(pendingApproval)}`,
+                        ])
                     ),
             },
             get: {
@@ -2081,19 +2086,19 @@ The following services will need to be notified:
             },
         })
 
-        const { setConversationId } = useActions(maxLogic({ tabId: 'storybook' }))
-        const threadLogic = maxThreadLogic({ conversationId: CONVERSATION_ID, conversation: null, tabId: 'storybook' })
+        const { setConversationId } = useActions(maxLogic({ panelId: 'storybook' }))
+        const threadLogic = maxThreadLogic({
+            conversationId: CONVERSATION_ID,
+            conversation: null,
+            panelId: 'storybook',
+        })
         const { askMax } = useActions(threadLogic)
         const { dataProcessingAccepted } = useValues(maxGlobalLogic)
 
-        useEffect(() => {
-            if (dataProcessingAccepted) {
-                setTimeout(() => {
-                    setConversationId(CONVERSATION_ID)
-                    askMax('Run the database migration')
-                }, 0)
-            }
-        }, [dataProcessingAccepted, setConversationId, askMax])
+        useAutoSendOnce(CONVERSATION_ID, dataProcessingAccepted, () => {
+            setConversationId(CONVERSATION_ID)
+            askMax('Run the database migration')
+        })
 
         if (!dataProcessingAccepted) {
             return <></>
@@ -2171,38 +2176,36 @@ export const ThreadWithMultiQuestionForm: Story = {
 
         useStorybookMocks({
             post: {
-                '/api/environments/:team_id/conversations/': (_, res, ctx) =>
-                    res(
-                        ctx.text(
-                            generateChunk([
-                                'event: conversation',
-                                `data: ${JSON.stringify({ id: CONVERSATION_ID })}`,
-                                'event: message',
-                                `data: ${JSON.stringify({
-                                    ...humanMessage,
-                                    content: 'Help me get started with PostHog',
-                                })}`,
-                                'event: message',
-                                `data: ${JSON.stringify(multiQuestionFormMessage)}`,
-                            ])
-                        )
+                '/api/environments/:team_id/conversations/': () =>
+                    new HttpResponse(
+                        generateChunk([
+                            'event: conversation',
+                            `data: ${JSON.stringify({ id: CONVERSATION_ID })}`,
+                            'event: message',
+                            `data: ${JSON.stringify({
+                                ...humanMessage,
+                                content: 'Help me get started with PostHog',
+                            })}`,
+                            'event: message',
+                            `data: ${JSON.stringify(multiQuestionFormMessage)}`,
+                        ])
                     ),
             },
         })
 
-        const { setConversationId } = useActions(maxLogic({ tabId: 'storybook' }))
-        const threadLogic = maxThreadLogic({ conversationId: CONVERSATION_ID, conversation: null, tabId: 'storybook' })
+        const { setConversationId } = useActions(maxLogic({ panelId: 'storybook' }))
+        const threadLogic = maxThreadLogic({
+            conversationId: CONVERSATION_ID,
+            conversation: null,
+            panelId: 'storybook',
+        })
         const { askMax } = useActions(threadLogic)
         const { dataProcessingAccepted } = useValues(maxGlobalLogic)
 
-        useEffect(() => {
-            if (dataProcessingAccepted) {
-                setTimeout(() => {
-                    setConversationId(CONVERSATION_ID)
-                    askMax('Help me get started with PostHog')
-                }, 0)
-            }
-        }, [dataProcessingAccepted, setConversationId, askMax])
+        useAutoSendOnce(CONVERSATION_ID, dataProcessingAccepted, () => {
+            setConversationId(CONVERSATION_ID)
+            askMax('Help me get started with PostHog')
+        })
 
         if (!dataProcessingAccepted) {
             return <></>
@@ -2265,38 +2268,36 @@ export const ThreadWithMultiFieldQuestion: Story = {
 
         useStorybookMocks({
             post: {
-                '/api/environments/:team_id/conversations/': (_, res, ctx) =>
-                    res(
-                        ctx.text(
-                            generateChunk([
-                                'event: conversation',
-                                `data: ${JSON.stringify({ id: CONVERSATION_ID })}`,
-                                'event: message',
-                                `data: ${JSON.stringify({
-                                    ...humanMessage,
-                                    content: 'Help me set up an A/B test',
-                                })}`,
-                                'event: message',
-                                `data: ${JSON.stringify(multiQuestionFormMessage)}`,
-                            ])
-                        )
+                '/api/environments/:team_id/conversations/': () =>
+                    new HttpResponse(
+                        generateChunk([
+                            'event: conversation',
+                            `data: ${JSON.stringify({ id: CONVERSATION_ID })}`,
+                            'event: message',
+                            `data: ${JSON.stringify({
+                                ...humanMessage,
+                                content: 'Help me set up an A/B test',
+                            })}`,
+                            'event: message',
+                            `data: ${JSON.stringify(multiQuestionFormMessage)}`,
+                        ])
                     ),
             },
         })
 
-        const { setConversationId } = useActions(maxLogic({ tabId: 'storybook' }))
-        const threadLogic = maxThreadLogic({ conversationId: CONVERSATION_ID, conversation: null, tabId: 'storybook' })
+        const { setConversationId } = useActions(maxLogic({ panelId: 'storybook' }))
+        const threadLogic = maxThreadLogic({
+            conversationId: CONVERSATION_ID,
+            conversation: null,
+            panelId: 'storybook',
+        })
         const { askMax } = useActions(threadLogic)
         const { dataProcessingAccepted } = useValues(maxGlobalLogic)
 
-        useEffect(() => {
-            if (dataProcessingAccepted) {
-                setTimeout(() => {
-                    setConversationId(CONVERSATION_ID)
-                    askMax('Help me set up an A/B test')
-                }, 0)
-            }
-        }, [dataProcessingAccepted, setConversationId, askMax])
+        useAutoSendOnce(CONVERSATION_ID, dataProcessingAccepted, () => {
+            setConversationId(CONVERSATION_ID)
+            askMax('Help me set up an A/B test')
+        })
 
         if (!dataProcessingAccepted) {
             return <></>
@@ -2345,38 +2346,36 @@ export const ThreadWithSingleQuestionForm: Story = {
 
         useStorybookMocks({
             post: {
-                '/api/environments/:team_id/conversations/': (_, res, ctx) =>
-                    res(
-                        ctx.text(
-                            generateChunk([
-                                'event: conversation',
-                                `data: ${JSON.stringify({ id: CONVERSATION_ID })}`,
-                                'event: message',
-                                `data: ${JSON.stringify({
-                                    ...humanMessage,
-                                    content: 'What pricing plan should I choose?',
-                                })}`,
-                                'event: message',
-                                `data: ${JSON.stringify(singleQuestionFormMessage)}`,
-                            ])
-                        )
+                '/api/environments/:team_id/conversations/': () =>
+                    new HttpResponse(
+                        generateChunk([
+                            'event: conversation',
+                            `data: ${JSON.stringify({ id: CONVERSATION_ID })}`,
+                            'event: message',
+                            `data: ${JSON.stringify({
+                                ...humanMessage,
+                                content: 'What pricing plan should I choose?',
+                            })}`,
+                            'event: message',
+                            `data: ${JSON.stringify(singleQuestionFormMessage)}`,
+                        ])
                     ),
             },
         })
 
-        const { setConversationId } = useActions(maxLogic({ tabId: 'storybook' }))
-        const threadLogic = maxThreadLogic({ conversationId: CONVERSATION_ID, conversation: null, tabId: 'storybook' })
+        const { setConversationId } = useActions(maxLogic({ panelId: 'storybook' }))
+        const threadLogic = maxThreadLogic({
+            conversationId: CONVERSATION_ID,
+            conversation: null,
+            panelId: 'storybook',
+        })
         const { askMax } = useActions(threadLogic)
         const { dataProcessingAccepted } = useValues(maxGlobalLogic)
 
-        useEffect(() => {
-            if (dataProcessingAccepted) {
-                setTimeout(() => {
-                    setConversationId(CONVERSATION_ID)
-                    askMax('What pricing plan should I choose?')
-                }, 0)
-            }
-        }, [dataProcessingAccepted, setConversationId, askMax])
+        useAutoSendOnce(CONVERSATION_ID, dataProcessingAccepted, () => {
+            setConversationId(CONVERSATION_ID)
+            askMax('What pricing plan should I choose?')
+        })
 
         if (!dataProcessingAccepted) {
             return <></>
@@ -2495,41 +2494,39 @@ export const ThreadWithMultiQuestionFormLongContent: Story = {
 
         useStorybookMocks({
             post: {
-                '/api/environments/:team_id/conversations/': (_, res, ctx) =>
-                    res(
-                        ctx.text(
-                            generateChunk([
-                                'event: conversation',
-                                `data: ${JSON.stringify({ id: CONVERSATION_ID })}`,
-                                'event: message',
-                                `data: ${JSON.stringify({
-                                    ...humanMessage,
-                                    content:
-                                        'Can you help me understand why our user retention has been declining? I need a comprehensive analysis.',
-                                })}`,
-                                'event: message',
-                                `data: ${JSON.stringify(longContentFormMessage)}`,
-                            ])
-                        )
+                '/api/environments/:team_id/conversations/': () =>
+                    new HttpResponse(
+                        generateChunk([
+                            'event: conversation',
+                            `data: ${JSON.stringify({ id: CONVERSATION_ID })}`,
+                            'event: message',
+                            `data: ${JSON.stringify({
+                                ...humanMessage,
+                                content:
+                                    'Can you help me understand why our user retention has been declining? I need a comprehensive analysis.',
+                            })}`,
+                            'event: message',
+                            `data: ${JSON.stringify(longContentFormMessage)}`,
+                        ])
                     ),
             },
         })
 
-        const { setConversationId } = useActions(maxLogic({ tabId: 'storybook' }))
-        const threadLogic = maxThreadLogic({ conversationId: CONVERSATION_ID, conversation: null, tabId: 'storybook' })
+        const { setConversationId } = useActions(maxLogic({ panelId: 'storybook' }))
+        const threadLogic = maxThreadLogic({
+            conversationId: CONVERSATION_ID,
+            conversation: null,
+            panelId: 'storybook',
+        })
         const { askMax } = useActions(threadLogic)
         const { dataProcessingAccepted } = useValues(maxGlobalLogic)
 
-        useEffect(() => {
-            if (dataProcessingAccepted) {
-                setTimeout(() => {
-                    setConversationId(CONVERSATION_ID)
-                    askMax(
-                        'Can you help me understand why our user retention has been declining? I need a comprehensive analysis.'
-                    )
-                }, 0)
-            }
-        }, [dataProcessingAccepted, setConversationId, askMax])
+        useAutoSendOnce(CONVERSATION_ID, dataProcessingAccepted, () => {
+            setConversationId(CONVERSATION_ID)
+            askMax(
+                'Can you help me understand why our user retention has been declining? I need a comprehensive analysis.'
+            )
+        })
 
         if (!dataProcessingAccepted) {
             return <></>
@@ -2593,38 +2590,36 @@ export const ThreadWithMultiQuestionFormNoCustomAnswer: Story = {
 
         useStorybookMocks({
             post: {
-                '/api/environments/:team_id/conversations/': (_, res, ctx) =>
-                    res(
-                        ctx.text(
-                            generateChunk([
-                                'event: conversation',
-                                `data: ${JSON.stringify({ id: CONVERSATION_ID })}`,
-                                'event: message',
-                                `data: ${JSON.stringify({
-                                    ...humanMessage,
-                                    content: 'Help me prioritize my analytics work',
-                                })}`,
-                                'event: message',
-                                `data: ${JSON.stringify(formMessage)}`,
-                            ])
-                        )
+                '/api/environments/:team_id/conversations/': () =>
+                    new HttpResponse(
+                        generateChunk([
+                            'event: conversation',
+                            `data: ${JSON.stringify({ id: CONVERSATION_ID })}`,
+                            'event: message',
+                            `data: ${JSON.stringify({
+                                ...humanMessage,
+                                content: 'Help me prioritize my analytics work',
+                            })}`,
+                            'event: message',
+                            `data: ${JSON.stringify(formMessage)}`,
+                        ])
                     ),
             },
         })
 
-        const { setConversationId } = useActions(maxLogic({ tabId: 'storybook' }))
-        const threadLogic = maxThreadLogic({ conversationId: CONVERSATION_ID, conversation: null, tabId: 'storybook' })
+        const { setConversationId } = useActions(maxLogic({ panelId: 'storybook' }))
+        const threadLogic = maxThreadLogic({
+            conversationId: CONVERSATION_ID,
+            conversation: null,
+            panelId: 'storybook',
+        })
         const { askMax } = useActions(threadLogic)
         const { dataProcessingAccepted } = useValues(maxGlobalLogic)
 
-        useEffect(() => {
-            if (dataProcessingAccepted) {
-                setTimeout(() => {
-                    setConversationId(CONVERSATION_ID)
-                    askMax('Help me prioritize my analytics work')
-                }, 0)
-            }
-        }, [dataProcessingAccepted, setConversationId, askMax])
+        useAutoSendOnce(CONVERSATION_ID, dataProcessingAccepted, () => {
+            setConversationId(CONVERSATION_ID)
+            askMax('Help me prioritize my analytics work')
+        })
 
         if (!dataProcessingAccepted) {
             return <></>
@@ -2679,38 +2674,36 @@ export const NotebookArtifactMarkdownOnly: Story = {
 
         useStorybookMocks({
             post: {
-                '/api/environments/:team_id/conversations/': (_, res, ctx) =>
-                    res(
-                        ctx.text(
-                            generateChunk([
-                                'event: conversation',
-                                `data: ${JSON.stringify({ id: CONVERSATION_ID })}`,
-                                'event: message',
-                                `data: ${JSON.stringify({
-                                    ...humanMessage,
-                                    content: 'Create a retention analysis notebook',
-                                })}`,
-                                'event: message',
-                                `data: ${JSON.stringify(notebookArtifactMessage)}`,
-                            ])
-                        )
+                '/api/environments/:team_id/conversations/': () =>
+                    new HttpResponse(
+                        generateChunk([
+                            'event: conversation',
+                            `data: ${JSON.stringify({ id: CONVERSATION_ID })}`,
+                            'event: message',
+                            `data: ${JSON.stringify({
+                                ...humanMessage,
+                                content: 'Create a retention analysis notebook',
+                            })}`,
+                            'event: message',
+                            `data: ${JSON.stringify(notebookArtifactMessage)}`,
+                        ])
                     ),
             },
         })
 
-        const { setConversationId } = useActions(maxLogic({ tabId: 'storybook' }))
-        const threadLogic = maxThreadLogic({ conversationId: CONVERSATION_ID, conversation: null, tabId: 'storybook' })
+        const { setConversationId } = useActions(maxLogic({ panelId: 'storybook' }))
+        const threadLogic = maxThreadLogic({
+            conversationId: CONVERSATION_ID,
+            conversation: null,
+            panelId: 'storybook',
+        })
         const { askMax } = useActions(threadLogic)
         const { dataProcessingAccepted } = useValues(maxGlobalLogic)
 
-        useEffect(() => {
-            if (dataProcessingAccepted) {
-                setTimeout(() => {
-                    setConversationId(CONVERSATION_ID)
-                    askMax('Create a retention analysis notebook')
-                }, 0)
-            }
-        }, [dataProcessingAccepted, setConversationId, askMax])
+        useAutoSendOnce(CONVERSATION_ID, dataProcessingAccepted, () => {
+            setConversationId(CONVERSATION_ID)
+            askMax('Create a retention analysis notebook')
+        })
 
         if (!dataProcessingAccepted) {
             return <></>
@@ -2768,38 +2761,36 @@ export const NotebookArtifactWithVisualizations: Story = {
 
         useStorybookMocks({
             post: {
-                '/api/environments/:team_id/conversations/': (_, res, ctx) =>
-                    res(
-                        ctx.text(
-                            generateChunk([
-                                'event: conversation',
-                                `data: ${JSON.stringify({ id: CONVERSATION_ID })}`,
-                                'event: message',
-                                `data: ${JSON.stringify({
-                                    ...humanMessage,
-                                    content: 'Create a dashboard analysis notebook with charts',
-                                })}`,
-                                'event: message',
-                                `data: ${JSON.stringify(notebookArtifactMessage)}`,
-                            ])
-                        )
+                '/api/environments/:team_id/conversations/': () =>
+                    new HttpResponse(
+                        generateChunk([
+                            'event: conversation',
+                            `data: ${JSON.stringify({ id: CONVERSATION_ID })}`,
+                            'event: message',
+                            `data: ${JSON.stringify({
+                                ...humanMessage,
+                                content: 'Create a dashboard analysis notebook with charts',
+                            })}`,
+                            'event: message',
+                            `data: ${JSON.stringify(notebookArtifactMessage)}`,
+                        ])
                     ),
             },
         })
 
-        const { setConversationId } = useActions(maxLogic({ tabId: 'storybook' }))
-        const threadLogic = maxThreadLogic({ conversationId: CONVERSATION_ID, conversation: null, tabId: 'storybook' })
+        const { setConversationId } = useActions(maxLogic({ panelId: 'storybook' }))
+        const threadLogic = maxThreadLogic({
+            conversationId: CONVERSATION_ID,
+            conversation: null,
+            panelId: 'storybook',
+        })
         const { askMax } = useActions(threadLogic)
         const { dataProcessingAccepted } = useValues(maxGlobalLogic)
 
-        useEffect(() => {
-            if (dataProcessingAccepted) {
-                setTimeout(() => {
-                    setConversationId(CONVERSATION_ID)
-                    askMax('Create a dashboard analysis notebook with charts')
-                }, 0)
-            }
-        }, [dataProcessingAccepted, setConversationId, askMax])
+        useAutoSendOnce(CONVERSATION_ID, dataProcessingAccepted, () => {
+            setConversationId(CONVERSATION_ID)
+            askMax('Create a dashboard analysis notebook with charts')
+        })
 
         if (!dataProcessingAccepted) {
             return <></>
@@ -2878,38 +2869,36 @@ export const NotebookArtifactMixedContent: Story = {
 
         useStorybookMocks({
             post: {
-                '/api/environments/:team_id/conversations/': (_, res, ctx) =>
-                    res(
-                        ctx.text(
-                            generateChunk([
-                                'event: conversation',
-                                `data: ${JSON.stringify({ id: CONVERSATION_ID })}`,
-                                'event: message',
-                                `data: ${JSON.stringify({
-                                    ...humanMessage,
-                                    content: 'Create a comprehensive product analysis notebook',
-                                })}`,
-                                'event: message',
-                                `data: ${JSON.stringify(notebookArtifactMessage)}`,
-                            ])
-                        )
+                '/api/environments/:team_id/conversations/': () =>
+                    new HttpResponse(
+                        generateChunk([
+                            'event: conversation',
+                            `data: ${JSON.stringify({ id: CONVERSATION_ID })}`,
+                            'event: message',
+                            `data: ${JSON.stringify({
+                                ...humanMessage,
+                                content: 'Create a comprehensive product analysis notebook',
+                            })}`,
+                            'event: message',
+                            `data: ${JSON.stringify(notebookArtifactMessage)}`,
+                        ])
                     ),
             },
         })
 
-        const { setConversationId } = useActions(maxLogic({ tabId: 'storybook' }))
-        const threadLogic = maxThreadLogic({ conversationId: CONVERSATION_ID, conversation: null, tabId: 'storybook' })
+        const { setConversationId } = useActions(maxLogic({ panelId: 'storybook' }))
+        const threadLogic = maxThreadLogic({
+            conversationId: CONVERSATION_ID,
+            conversation: null,
+            panelId: 'storybook',
+        })
         const { askMax } = useActions(threadLogic)
         const { dataProcessingAccepted } = useValues(maxGlobalLogic)
 
-        useEffect(() => {
-            if (dataProcessingAccepted) {
-                setTimeout(() => {
-                    setConversationId(CONVERSATION_ID)
-                    askMax('Create a comprehensive product analysis notebook')
-                }, 0)
-            }
-        }, [dataProcessingAccepted, setConversationId, askMax])
+        useAutoSendOnce(CONVERSATION_ID, dataProcessingAccepted, () => {
+            setConversationId(CONVERSATION_ID)
+            askMax('Create a comprehensive product analysis notebook')
+        })
 
         if (!dataProcessingAccepted) {
             return <></>
@@ -2972,38 +2961,36 @@ export const NotebookArtifactWithLoadingAndErrors: Story = {
 
         useStorybookMocks({
             post: {
-                '/api/environments/:team_id/conversations/': (_, res, ctx) =>
-                    res(
-                        ctx.text(
-                            generateChunk([
-                                'event: conversation',
-                                `data: ${JSON.stringify({ id: CONVERSATION_ID })}`,
-                                'event: message',
-                                `data: ${JSON.stringify({
-                                    ...humanMessage,
-                                    content: 'Show me an analysis with loading and error states',
-                                })}`,
-                                'event: message',
-                                `data: ${JSON.stringify(notebookArtifactMessage)}`,
-                            ])
-                        )
+                '/api/environments/:team_id/conversations/': () =>
+                    new HttpResponse(
+                        generateChunk([
+                            'event: conversation',
+                            `data: ${JSON.stringify({ id: CONVERSATION_ID })}`,
+                            'event: message',
+                            `data: ${JSON.stringify({
+                                ...humanMessage,
+                                content: 'Show me an analysis with loading and error states',
+                            })}`,
+                            'event: message',
+                            `data: ${JSON.stringify(notebookArtifactMessage)}`,
+                        ])
                     ),
             },
         })
 
-        const { setConversationId } = useActions(maxLogic({ tabId: 'storybook' }))
-        const threadLogic = maxThreadLogic({ conversationId: CONVERSATION_ID, conversation: null, tabId: 'storybook' })
+        const { setConversationId } = useActions(maxLogic({ panelId: 'storybook' }))
+        const threadLogic = maxThreadLogic({
+            conversationId: CONVERSATION_ID,
+            conversation: null,
+            panelId: 'storybook',
+        })
         const { askMax } = useActions(threadLogic)
         const { dataProcessingAccepted } = useValues(maxGlobalLogic)
 
-        useEffect(() => {
-            if (dataProcessingAccepted) {
-                setTimeout(() => {
-                    setConversationId(CONVERSATION_ID)
-                    askMax('Show me an analysis with loading and error states')
-                }, 0)
-            }
-        }, [dataProcessingAccepted, setConversationId, askMax])
+        useAutoSendOnce(CONVERSATION_ID, dataProcessingAccepted, () => {
+            setConversationId(CONVERSATION_ID)
+            askMax('Show me an analysis with loading and error states')
+        })
 
         if (!dataProcessingAccepted) {
             return <></>
@@ -3038,18 +3025,6 @@ const SAMPLE_CHANGELOG_ENTRIES: ChangelogEntry[] = [
     },
 ]
 
-const SAMPLE_WARNING_ALERT: AlertEntry = {
-    title: 'Service degraded',
-    description: 'Some AI features may be slower than usual',
-    severity: 'warning',
-}
-
-const SAMPLE_OUTAGE_ALERT: AlertEntry = {
-    title: 'Service outage',
-    description: 'AI features are temporarily unavailable. We are working on a fix.',
-    severity: 'error',
-}
-
 export const ChangelogOnly: Story = {
     render: () => {
         const { setEntries, openChangelog } = useActions(maxChangelogLogic)
@@ -3063,104 +3038,6 @@ export const ChangelogOnly: Story = {
     },
     parameters: {
         featureFlags: ['posthog-ai-changelog'],
-        testOptions: {
-            waitForLoadersToDisappear: false,
-        },
-    },
-}
-
-export const AlertsOnly: Story = {
-    render: () => {
-        const { setAlerts, openChangelog } = useActions(maxChangelogLogic)
-
-        useEffect(() => {
-            setAlerts([SAMPLE_WARNING_ALERT])
-            setTimeout(() => openChangelog(), 100)
-        }, [setAlerts, openChangelog])
-
-        return <Template />
-    },
-    parameters: {
-        featureFlags: ['posthog-ai-alerts'],
-        testOptions: {
-            waitForLoadersToDisappear: false,
-        },
-    },
-}
-
-export const OutageAlert: Story = {
-    render: () => {
-        const { setAlerts, openChangelog } = useActions(maxChangelogLogic)
-
-        useEffect(() => {
-            setAlerts([SAMPLE_OUTAGE_ALERT])
-            setTimeout(() => openChangelog(), 100)
-        }, [setAlerts, openChangelog])
-
-        return <Template />
-    },
-    parameters: {
-        featureFlags: ['posthog-ai-alerts'],
-        testOptions: {
-            waitForLoadersToDisappear: false,
-        },
-    },
-}
-
-export const AlertsWithChangelog: Story = {
-    render: () => {
-        const { setEntries, setAlerts, openChangelog } = useActions(maxChangelogLogic)
-
-        useEffect(() => {
-            setEntries(SAMPLE_CHANGELOG_ENTRIES)
-            setAlerts([SAMPLE_WARNING_ALERT])
-            setTimeout(() => openChangelog(), 100)
-        }, [setEntries, setAlerts, openChangelog])
-
-        return <Template />
-    },
-    parameters: {
-        featureFlags: ['posthog-ai-changelog', 'posthog-ai-alerts'],
-        testOptions: {
-            waitForLoadersToDisappear: false,
-        },
-    },
-}
-
-export const OutageWithChangelog: Story = {
-    render: () => {
-        const { setEntries, setAlerts, openChangelog } = useActions(maxChangelogLogic)
-
-        useEffect(() => {
-            setEntries(SAMPLE_CHANGELOG_ENTRIES)
-            setAlerts([SAMPLE_OUTAGE_ALERT])
-            setTimeout(() => openChangelog(), 100)
-        }, [setEntries, setAlerts, openChangelog])
-
-        return <Template />
-    },
-    parameters: {
-        featureFlags: ['posthog-ai-changelog', 'posthog-ai-alerts'],
-        testOptions: {
-            waitForLoadersToDisappear: false,
-        },
-    },
-}
-
-export const MultipleAlerts: Story = {
-    render: () => {
-        const { setEntries, setAlerts, openChangelog } = useActions(maxChangelogLogic)
-
-        useEffect(() => {
-            setEntries(SAMPLE_CHANGELOG_ENTRIES)
-            setAlerts([SAMPLE_WARNING_ALERT, SAMPLE_OUTAGE_ALERT])
-            setTimeout(() => openChangelog(), 100)
-        }, [setEntries, setAlerts, openChangelog])
-
-        return <Template />
-    },
-    parameters: {
-        featureFlags: ['posthog-ai-changelog', 'posthog-ai-alerts'],
         testOptions: {
             waitForLoadersToDisappear: false,
         },
@@ -3230,38 +3107,36 @@ export const ThreadWithMixedFieldTypeForm: Story = {
 
         useStorybookMocks({
             post: {
-                '/api/environments/:team_id/conversations/': (_, res, ctx) =>
-                    res(
-                        ctx.text(
-                            generateChunk([
-                                'event: conversation',
-                                `data: ${JSON.stringify({ id: CONVERSATION_ID })}`,
-                                'event: message',
-                                `data: ${JSON.stringify({
-                                    ...humanMessage,
-                                    content: 'Help me set up analytics for my team',
-                                })}`,
-                                'event: message',
-                                `data: ${JSON.stringify(multiQuestionFormMessage)}`,
-                            ])
-                        )
+                '/api/environments/:team_id/conversations/': () =>
+                    new HttpResponse(
+                        generateChunk([
+                            'event: conversation',
+                            `data: ${JSON.stringify({ id: CONVERSATION_ID })}`,
+                            'event: message',
+                            `data: ${JSON.stringify({
+                                ...humanMessage,
+                                content: 'Help me set up analytics for my team',
+                            })}`,
+                            'event: message',
+                            `data: ${JSON.stringify(multiQuestionFormMessage)}`,
+                        ])
                     ),
             },
         })
 
-        const { setConversationId } = useActions(maxLogic({ tabId: 'storybook' }))
-        const threadLogic = maxThreadLogic({ conversationId: CONVERSATION_ID, conversation: null, tabId: 'storybook' })
+        const { setConversationId } = useActions(maxLogic({ panelId: 'storybook' }))
+        const threadLogic = maxThreadLogic({
+            conversationId: CONVERSATION_ID,
+            conversation: null,
+            panelId: 'storybook',
+        })
         const { askMax } = useActions(threadLogic)
         const { dataProcessingAccepted } = useValues(maxGlobalLogic)
 
-        useEffect(() => {
-            if (dataProcessingAccepted) {
-                setTimeout(() => {
-                    setConversationId(CONVERSATION_ID)
-                    askMax('Help me set up analytics for my team')
-                }, 0)
-            }
-        }, [dataProcessingAccepted, setConversationId, askMax])
+        useAutoSendOnce(CONVERSATION_ID, dataProcessingAccepted, () => {
+            setConversationId(CONVERSATION_ID)
+            askMax('Help me set up analytics for my team')
+        })
 
         if (!dataProcessingAccepted) {
             return <></>
@@ -3326,38 +3201,36 @@ export const ThreadWithTextAndNumberForm: Story = {
 
         useStorybookMocks({
             post: {
-                '/api/environments/:team_id/conversations/': (_, res, ctx) =>
-                    res(
-                        ctx.text(
-                            generateChunk([
-                                'event: conversation',
-                                `data: ${JSON.stringify({ id: CONVERSATION_ID })}`,
-                                'event: message',
-                                `data: ${JSON.stringify({
-                                    ...humanMessage,
-                                    content: 'I want to set up event tracking for my project',
-                                })}`,
-                                'event: message',
-                                `data: ${JSON.stringify(multiQuestionFormMessage)}`,
-                            ])
-                        )
+                '/api/environments/:team_id/conversations/': () =>
+                    new HttpResponse(
+                        generateChunk([
+                            'event: conversation',
+                            `data: ${JSON.stringify({ id: CONVERSATION_ID })}`,
+                            'event: message',
+                            `data: ${JSON.stringify({
+                                ...humanMessage,
+                                content: 'I want to set up event tracking for my project',
+                            })}`,
+                            'event: message',
+                            `data: ${JSON.stringify(multiQuestionFormMessage)}`,
+                        ])
                     ),
             },
         })
 
-        const { setConversationId } = useActions(maxLogic({ tabId: 'storybook' }))
-        const threadLogic = maxThreadLogic({ conversationId: CONVERSATION_ID, conversation: null, tabId: 'storybook' })
+        const { setConversationId } = useActions(maxLogic({ panelId: 'storybook' }))
+        const threadLogic = maxThreadLogic({
+            conversationId: CONVERSATION_ID,
+            conversation: null,
+            panelId: 'storybook',
+        })
         const { askMax } = useActions(threadLogic)
         const { dataProcessingAccepted } = useValues(maxGlobalLogic)
 
-        useEffect(() => {
-            if (dataProcessingAccepted) {
-                setTimeout(() => {
-                    setConversationId(CONVERSATION_ID)
-                    askMax('I want to set up event tracking for my project')
-                }, 0)
-            }
-        }, [dataProcessingAccepted, setConversationId, askMax])
+        useAutoSendOnce(CONVERSATION_ID, dataProcessingAccepted, () => {
+            setConversationId(CONVERSATION_ID)
+            askMax('I want to set up event tracking for my project')
+        })
 
         if (!dataProcessingAccepted) {
             return <></>
@@ -3404,38 +3277,36 @@ export const ThreadWithSliderForm: Story = {
 
         useStorybookMocks({
             post: {
-                '/api/environments/:team_id/conversations/': (_, res, ctx) =>
-                    res(
-                        ctx.text(
-                            generateChunk([
-                                'event: conversation',
-                                `data: ${JSON.stringify({ id: CONVERSATION_ID })}`,
-                                'event: message',
-                                `data: ${JSON.stringify({
-                                    ...humanMessage,
-                                    content: 'Help me set up an A/B test experiment',
-                                })}`,
-                                'event: message',
-                                `data: ${JSON.stringify(multiQuestionFormMessage)}`,
-                            ])
-                        )
+                '/api/environments/:team_id/conversations/': () =>
+                    new HttpResponse(
+                        generateChunk([
+                            'event: conversation',
+                            `data: ${JSON.stringify({ id: CONVERSATION_ID })}`,
+                            'event: message',
+                            `data: ${JSON.stringify({
+                                ...humanMessage,
+                                content: 'Help me set up an A/B test experiment',
+                            })}`,
+                            'event: message',
+                            `data: ${JSON.stringify(multiQuestionFormMessage)}`,
+                        ])
                     ),
             },
         })
 
-        const { setConversationId } = useActions(maxLogic({ tabId: 'storybook' }))
-        const threadLogic = maxThreadLogic({ conversationId: CONVERSATION_ID, conversation: null, tabId: 'storybook' })
+        const { setConversationId } = useActions(maxLogic({ panelId: 'storybook' }))
+        const threadLogic = maxThreadLogic({
+            conversationId: CONVERSATION_ID,
+            conversation: null,
+            panelId: 'storybook',
+        })
         const { askMax } = useActions(threadLogic)
         const { dataProcessingAccepted } = useValues(maxGlobalLogic)
 
-        useEffect(() => {
-            if (dataProcessingAccepted) {
-                setTimeout(() => {
-                    setConversationId(CONVERSATION_ID)
-                    askMax('Help me set up an A/B test experiment')
-                }, 0)
-            }
-        }, [dataProcessingAccepted, setConversationId, askMax])
+        useAutoSendOnce(CONVERSATION_ID, dataProcessingAccepted, () => {
+            setConversationId(CONVERSATION_ID)
+            askMax('Help me set up an A/B test experiment')
+        })
 
         if (!dataProcessingAccepted) {
             return <></>

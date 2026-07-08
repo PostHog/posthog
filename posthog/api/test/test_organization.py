@@ -5,17 +5,15 @@ from uuid import uuid4
 from posthog.test.base import APIBaseTest
 from unittest.mock import ANY, patch
 
-from django.conf import settings
 from django.core.cache import cache
-from django.test import override_settings
 from django.utils import timezone
 
 from parameterized import parameterized
 from rest_framework import status
 from rest_framework.test import APIRequestFactory
 
-from posthog.api.oauth.test_dcr import generate_rsa_key
 from posthog.api.organization import OrganizationSerializer, _fetch_member_count, _org_serializer_cache_version
+from posthog.constants import AvailableFeature
 from posthog.models import Organization, OrganizationMembership, Team
 from posthog.models.oauth import OAuthAccessToken, OAuthApplication
 from posthog.models.personal_api_key import PersonalAPIKey
@@ -236,6 +234,41 @@ class TestOrganizationAPI(APIBaseTest):
         self.organization.refresh_from_db()
         self.assertEqual(self.organization.members_can_invite, current_value)
 
+    def test_cannot_update_members_can_create_projects_without_feature(self):
+        """members_can_create_projects is gated behind the ORGANIZATION_INVITE_SETTINGS entitlement for now."""
+        self.organization_membership.level = OrganizationMembership.Level.ADMIN
+        self.organization_membership.save()
+        self.organization.available_product_features = []
+        self.organization.save()
+
+        current_value = self.organization.members_can_create_projects
+        response = self.client.patch(
+            f"/api/organizations/{self.organization.id}/", {"members_can_create_projects": not current_value}
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        error_data = response.json()
+        self.assertIn("payment_required", error_data.get("code", ""))
+
+        self.organization.refresh_from_db()
+        self.assertEqual(self.organization.members_can_create_projects, current_value)
+
+    def test_can_update_members_can_create_projects_with_feature(self):
+        self.organization_membership.level = OrganizationMembership.Level.ADMIN
+        self.organization_membership.save()
+        self.organization.available_product_features = [
+            {"key": AvailableFeature.ORGANIZATION_INVITE_SETTINGS, "name": "Org invite settings"}
+        ]
+        self.organization.save()
+
+        response = self.client.patch(
+            f"/api/organizations/{self.organization.id}/", {"members_can_create_projects": True}
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.organization.refresh_from_db()
+        self.assertTrue(self.organization.members_can_create_projects)
+
     def test_cannot_update_enforce_2fa_without_feature(self):
         """Test that enforce_2fa cannot be updated without TWO_FACTOR_ENFORCEMENT feature."""
         # Ensure user is admin
@@ -323,12 +356,6 @@ class TestOrganizationAPI(APIBaseTest):
             "Only the scoped organization should be listed, the other one should be excluded",
         )
 
-    @override_settings(
-        OAUTH2_PROVIDER={
-            **settings.OAUTH2_PROVIDER,
-            "OIDC_RSA_PRIVATE_KEY": generate_rsa_key(),
-        }
-    )
     def test_projects_outside_oauth_scoped_organizations_causes_401(self):
         # TODO: This should filter out the organizations to the scoped organizations, but it causes a 401 due to a bug in APIScopePermission for list endpoints.
         other_org, _, _ = Organization.objects.bootstrap(self.user)
@@ -361,12 +388,6 @@ class TestOrganizationAPI(APIBaseTest):
             ("is_ai_data_processing_approved",),
             ("is_ai_training_opted_in",),
         ]
-    )
-    @override_settings(
-        OAUTH2_PROVIDER={
-            **settings.OAUTH2_PROVIDER,
-            "OIDC_RSA_PRIVATE_KEY": generate_rsa_key(),
-        }
     )
     def test_org_scoped_oauth_token_can_patch_current_organization(self, field: str):
         self.organization_membership.level = OrganizationMembership.Level.ADMIN
@@ -409,7 +430,7 @@ class TestOrganizationAPI(APIBaseTest):
         self.organization.refresh_from_db()
         self.assertTrue(getattr(self.organization, field))
 
-    @patch("posthog.api.organization.delete_organization_data_and_notify_task")
+    @patch("posthog.temporal.delete_teams.dispatch.start_delete_organization_workflow")
     def test_delete_organizations_and_verify_list(self, mock_delete_task):
         self.organization_membership.level = OrganizationMembership.Level.OWNER
         self.organization_membership.save()
@@ -465,9 +486,12 @@ class TestOrganizationAPI(APIBaseTest):
         self.assertIn("active subscription", response.json()["detail"])
         self.assertTrue(Organization.objects.filter(id=self.organization.id).exists())
 
+    @patch("posthog.temporal.delete_teams.dispatch.start_delete_organization_workflow")
     @patch("ee.billing.billing_manager.BillingManager.get_billing")
     @patch("posthog.api.organization.get_cached_instance_license")
-    def test_can_delete_organization_without_active_subscription(self, mock_get_license, mock_get_billing):
+    def test_can_delete_organization_without_active_subscription(
+        self, mock_get_license, mock_get_billing, mock_start_deletion
+    ):
         mock_get_license.return_value = True
         mock_get_billing.return_value = {"has_active_subscription": False}
 
@@ -479,9 +503,11 @@ class TestOrganizationAPI(APIBaseTest):
             response = self.client.delete(f"/api/organizations/{org_id}")
 
         self.assertEqual(response.status_code, status.HTTP_204_NO_CONTENT)
-        self.assertFalse(Organization.objects.filter(id=org_id).exists())
+        # Deletion runs asynchronously on Temporal, so the org is marked pending, not removed synchronously
+        self.assertTrue(Organization.objects.get(id=org_id).is_pending_deletion)
+        mock_start_deletion.assert_called_once()
 
-    @patch("posthog.api.organization.delete_organization_data_and_notify_task")
+    @patch("posthog.temporal.delete_teams.dispatch.start_delete_organization_workflow")
     def test_delete_organization_sets_pending_deletion_flag(self, mock_delete_task):
         self.organization_membership.level = OrganizationMembership.Level.OWNER
         self.organization_membership.save()
@@ -491,9 +517,9 @@ class TestOrganizationAPI(APIBaseTest):
 
         self.organization.refresh_from_db()
         self.assertTrue(self.organization.is_pending_deletion)
-        mock_delete_task.delay.assert_called_once()
+        mock_delete_task.assert_called_once()
 
-    @patch("posthog.api.organization.delete_organization_data_and_notify_task")
+    @patch("posthog.temporal.delete_teams.dispatch.start_delete_organization_workflow")
     def test_delete_organization_preserves_memberships(self, mock_delete_task):
         self.organization_membership.level = OrganizationMembership.Level.OWNER
         self.organization_membership.save()
@@ -503,7 +529,7 @@ class TestOrganizationAPI(APIBaseTest):
 
         self.assertTrue(OrganizationMembership.objects.filter(organization=self.organization, user=self.user).exists())
 
-    @patch("posthog.api.organization.delete_organization_data_and_notify_task")
+    @patch("posthog.temporal.delete_teams.dispatch.start_delete_organization_workflow")
     def test_delete_organization_returns_pending_deletion_in_api(self, mock_delete_task):
         self.organization_membership.level = OrganizationMembership.Level.OWNER
         self.organization_membership.save()
@@ -514,7 +540,7 @@ class TestOrganizationAPI(APIBaseTest):
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertTrue(response.json()["is_pending_deletion"])
 
-    @patch("posthog.api.organization.delete_organization_data_and_notify_task")
+    @patch("posthog.temporal.delete_teams.dispatch.start_delete_organization_workflow")
     def test_delete_organization_already_pending_deletion_returns_400(self, mock_delete_task):
         self.organization_membership.level = OrganizationMembership.Level.OWNER
         self.organization_membership.save()
@@ -525,9 +551,9 @@ class TestOrganizationAPI(APIBaseTest):
         response = self.client.delete(f"/api/organizations/{self.organization.id}")
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
         self.assertIn("already being deleted", response.json()["detail"])
-        mock_delete_task.delay.assert_not_called()
+        mock_delete_task.assert_not_called()
 
-    @patch("posthog.api.organization.delete_organization_data_and_notify_task")
+    @patch("posthog.temporal.delete_teams.dispatch.start_delete_organization_workflow")
     @patch("posthog.event_usage.posthoganalytics.capture")
     def test_delete_organization_fires_initiated_event(self, mock_capture, mock_delete_task):
         self.organization_membership.level = OrganizationMembership.Level.OWNER
@@ -1209,3 +1235,66 @@ class TestOrganizationRbacMigrations(APIBaseTest):
                 "rbac_team_migration_failed",
                 {"user": self.admin_user.distinct_id, "error": "Test error"},
             )
+
+
+class TestOrganizationRequestAIAccessAPI(APIBaseTest):
+    def setUp(self):
+        super().setUp()
+        # The endpoint is members-only, so default the requester to a plain member.
+        self.organization_membership.level = OrganizationMembership.Level.MEMBER
+        self.organization_membership.save()
+        # AI is requestable only while it's disabled.
+        self.organization.is_ai_data_processing_approved = False
+        self.organization.save()
+        # Throttles key off the django cache, which persists across tests.
+        cache.clear()
+
+    def _url(self) -> str:
+        return f"/api/organizations/{self.organization.id}/request_ai_access/"
+
+    @patch("posthog.api.organization.send_posthog_ai_access_request")
+    def test_member_can_request_ai_access(self, mock_task):
+        response = self.client.post(self._url())
+
+        assert response.status_code == status.HTTP_200_OK, response.content
+        assert response.json() == {"success": True}
+        mock_task.delay.assert_called_once_with(
+            organization_id=str(self.organization.id),
+            requesting_user_id=self.user.id,
+        )
+
+    @parameterized.expand(
+        [
+            ("admin", OrganizationMembership.Level.ADMIN),
+            ("owner", OrganizationMembership.Level.OWNER),
+        ]
+    )
+    @patch("posthog.api.organization.send_posthog_ai_access_request")
+    def test_admins_cannot_request_ai_access(self, _name, level, mock_task):
+        self.organization_membership.level = level
+        self.organization_membership.save()
+
+        response = self.client.post(self._url())
+
+        assert response.status_code == status.HTTP_403_FORBIDDEN, response.content
+        mock_task.delay.assert_not_called()
+
+    @patch("posthog.api.organization.send_posthog_ai_access_request")
+    def test_cannot_request_ai_access_when_already_enabled(self, mock_task):
+        self.organization.is_ai_data_processing_approved = True
+        self.organization.save()
+
+        response = self.client.post(self._url())
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST, response.content
+        mock_task.delay.assert_not_called()
+
+    @patch("posthog.api.organization.send_posthog_ai_access_request")
+    def test_request_ai_access_is_rate_limited(self, mock_task):
+        first = self.client.post(self._url())
+        assert first.status_code == status.HTTP_200_OK, first.content
+
+        second = self.client.post(self._url())
+        assert second.status_code == status.HTTP_429_TOO_MANY_REQUESTS, second.content
+        # Only the first request reached the task.
+        mock_task.delay.assert_called_once()

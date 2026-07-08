@@ -8,8 +8,8 @@ import { LemonDialog } from 'lib/lemon-ui/LemonDialog'
 import { AddPersonToCohortModalBody } from './AddPersonToCohortModalBody'
 import { AddPersonToCohortModalProps, addPersonToCohortModalLogic } from './addPersonToCohortModalLogic'
 
-export function AddPersonToCohortModal({ id, tabId }: AddPersonToCohortModalProps): JSX.Element {
-    const logicProps = { id, tabId }
+export function AddPersonToCohortModal({ id }: AddPersonToCohortModalProps): JSX.Element {
+    const logicProps = { id }
     const logic = addPersonToCohortModalLogic(logicProps)
     const { hideAddPersonToCohortModal, addPersonsToCohort } = useActions(logic)
     const { addPersonToCohortModalVisible, personsToAddToCohort, isCohortUpdating } = useValues(logic)

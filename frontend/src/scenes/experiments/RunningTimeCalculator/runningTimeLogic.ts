@@ -1,28 +1,39 @@
 import { actions, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
+import { loaders } from 'kea-loaders'
 import { subscriptions } from 'kea-subscriptions'
 
 import api from 'lib/api'
+import { FEATURE_FLAGS } from 'lib/constants'
+import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { objectsEqual } from 'lib/utils/objects'
 
 import { experimentsConfigLogic } from '~/scenes/settings/environment/experimentsConfigLogic'
 import { ConversionRateInputType, Experiment } from '~/types'
 
+import { experimentsCalculateRunningTimeCreate } from 'products/experiments/frontend/generated/api'
+import type {
+    RunningTimeCalculationInputApi,
+    RunningTimeCalculationResultApi,
+} from 'products/experiments/frontend/generated/api.schemas'
+
 import { experimentLogic } from '../experimentLogic'
+import { experimentMetricsLogic } from '../experimentMetricsLogic'
 import { isLaunched } from '../experimentsLogic'
 import { modalsLogic } from '../modalsLogic'
+import { getOrderedMetricsWithResults } from '../utils'
 import {
     ManualCalculatorMetricType,
-    calculateBaselineValue,
+    baselineStatsFromResults,
     calculateCurrentExposures,
     calculateDaysElapsed,
     calculateExposureRate,
-    calculateRecommendedSampleSize,
-    calculateSampleSize,
+    getCalculatorMetricType,
 } from './calculations'
 import type { runningTimeLogicType } from './runningTimeLogicType'
 
 export interface RunningTimeLogicProps {
-    experimentId: Experiment['id']
-    tabId: string
+    experiment: Experiment
 }
 
 export interface RunningTimeConfig {
@@ -33,27 +44,43 @@ export interface RunningTimeConfig {
     exposureRate: number
 }
 
+export interface ManualPreview {
+    sampleSize: number | null
+    runningTime: number | null
+}
+
 export const runningTimeLogic = kea<runningTimeLogicType>([
     path(['scenes', 'experiments', 'RunningTimeCalculator', 'runningTimeLogic']),
     props({} as RunningTimeLogicProps),
-    key((props) => `${props.experimentId}-${props.tabId}`),
+    key((props) => `${props.experiment.id}`),
 
-    connect((props: RunningTimeLogicProps) => ({
-        values: [
-            experimentLogic({ experimentId: props.experimentId, tabId: props.tabId }),
-            ['experiment', 'orderedPrimaryMetricsWithResults', 'primaryMetricsResultsLoading', 'currentProjectId'],
-            modalsLogic,
-            ['isRunningTimeConfigModalOpen'],
-            experimentsConfigLogic,
-            ['defaultMinimumDetectableEffect'],
-        ],
-        actions: [
-            experimentLogic({ experimentId: props.experimentId, tabId: props.tabId }),
-            ['updateExperiment', 'setExperiment'],
-            modalsLogic,
-            ['closeRunningTimeConfigModal'],
-        ],
-    })),
+    connect((props: RunningTimeLogicProps) => {
+        const experimentId = props.experiment.id
+        return {
+            values: [
+                experimentLogic({ experimentId }),
+                ['experiment', 'orderedPrimaryMetricsWithResults', 'primaryMetricsResultsLoading', 'currentProjectId'],
+                // On the recalculation flow, metric results live in experimentMetricsLogic, not experimentLogic.
+                experimentMetricsLogic({ experiment: props.experiment }),
+                [
+                    'primaryMetricsResults as recalcPrimaryMetricsResults',
+                    'primaryMetricsResultsErrors as recalcPrimaryMetricsResultsErrors',
+                ],
+                modalsLogic,
+                ['isRunningTimeConfigModalOpen'],
+                experimentsConfigLogic,
+                ['defaultMinimumDetectableEffect'],
+                featureFlagLogic,
+                ['featureFlags'],
+            ],
+            actions: [
+                experimentLogic({ experimentId }),
+                ['setExperiment'],
+                modalsLogic,
+                ['closeRunningTimeConfigModal'],
+            ],
+        }
+    }),
 
     actions({
         setConfig: (config: Partial<RunningTimeConfig>) => ({ config }),
@@ -61,6 +88,7 @@ export const runningTimeLogic = kea<runningTimeLogicType>([
         save: true,
         cancel: true,
         persistRunningTimeEstimate: true,
+        setSaving: (saving: boolean) => ({ saving }),
     }),
 
     reducers({
@@ -71,7 +99,43 @@ export const runningTimeLogic = kea<runningTimeLogicType>([
                 resetConfig: () => null,
             },
         ],
+        isSaving: [
+            false,
+            {
+                setSaving: (_, { saving }) => saving,
+            },
+        ],
     }),
+
+    loaders(({ values }) => ({
+        // Automatic mode: recommended sample size derived by the backend from live results baseline.
+        automaticCalculation: [
+            null as RunningTimeCalculationResultApi | null,
+            {
+                loadAutomaticCalculation: async (input: RunningTimeCalculationInputApi, breakpoint) => {
+                    const result = await experimentsCalculateRunningTimeCreate(String(values.currentProjectId), input)
+                    breakpoint()
+                    return result
+                },
+            },
+        ],
+        // Manual mode: live preview of sample size / running time for the values being edited in the form.
+        manualPreview: [
+            { sampleSize: null, runningTime: null } as ManualPreview,
+            {
+                loadManualPreview: async (input: RunningTimeCalculationInputApi, breakpoint) => {
+                    // Debounce burst typing in the form so we don't fire a request per keypress.
+                    await breakpoint(300)
+                    const result = await experimentsCalculateRunningTimeCreate(String(values.currentProjectId), input)
+                    breakpoint()
+                    return {
+                        sampleSize: result.recommended_sample_size,
+                        runningTime: result.recommended_running_time_days,
+                    }
+                },
+            },
+        ],
+    })),
 
     selectors({
         numberOfVariants: [
@@ -82,7 +146,7 @@ export const runningTimeLogic = kea<runningTimeLogicType>([
         isManualMode: [
             (s) => [s.experiment],
             (experiment): boolean =>
-                experiment?.parameters?.exposure_estimate_config?.conversionRateInputType ===
+                experiment?.running_time_calculation?.exposure_estimate_config?.conversionRateInputType ===
                 ConversionRateInputType.MANUAL,
         ],
 
@@ -91,14 +155,15 @@ export const runningTimeLogic = kea<runningTimeLogicType>([
             (experiment, isManualMode, defaultMinimumDetectableEffect): RunningTimeConfig => {
                 // Pre-launch experiments must use manual mode (no data available for automatic)
                 const isPreLaunch = !isLaunched(experiment)
+                const exposureEstimateConfig = experiment?.running_time_calculation?.exposure_estimate_config
                 return {
                     mode: isPreLaunch || isManualMode ? 'manual' : 'automatic',
-                    mde: experiment?.parameters?.minimum_detectable_effect ?? defaultMinimumDetectableEffect,
-                    metricType:
-                        (experiment?.parameters?.exposure_estimate_config
-                            ?.manualMetricType as ManualCalculatorMetricType) ?? 'funnel',
-                    baselineValue: experiment?.parameters?.exposure_estimate_config?.manualBaselineValue ?? 5,
-                    exposureRate: experiment?.parameters?.exposure_estimate_config?.manualExposureRate ?? 100,
+                    mde:
+                        experiment?.running_time_calculation?.minimum_detectable_effect ??
+                        defaultMinimumDetectableEffect,
+                    metricType: (exposureEstimateConfig?.manualMetricType as ManualCalculatorMetricType) ?? 'funnel',
+                    baselineValue: exposureEstimateConfig?.manualBaselineValue ?? 5,
+                    exposureRate: exposureEstimateConfig?.manualExposureRate ?? 100,
                 }
             },
         ],
@@ -109,55 +174,87 @@ export const runningTimeLogic = kea<runningTimeLogicType>([
                 configOverrides ? { ...initialConfig, ...configOverrides } : initialConfig,
         ],
 
+        // Pulled out as primitives so automaticCalculationInput stays stable when the experiment object
+        // is replaced (e.g. after persisting an estimate) but the underlying values are unchanged.
+        mde: [(s) => [s.config], (config): number => config.mde],
+        mode: [(s) => [s.config], (config): RunningTimeConfig['mode'] => config.mode],
+
+        // Legacy flow exposes metric results via experimentLogic; the recalculation flow exposes them
+        // via experimentMetricsLogic. Pick whichever is active so automatic mode always has a baseline.
+        metricsWithResults: [
+            (s) => [
+                s.experiment,
+                s.featureFlags,
+                s.orderedPrimaryMetricsWithResults,
+                s.recalcPrimaryMetricsResults,
+                s.recalcPrimaryMetricsResultsErrors,
+            ],
+            (experiment, featureFlags, legacyMetricsWithResults, recalcResults, recalcErrors) => {
+                if (experiment && featureFlags[FEATURE_FLAGS.EXPERIMENTS_METRICS_RECALCULATION]) {
+                    return getOrderedMetricsWithResults(experiment, recalcResults, recalcErrors, [], [], false)
+                }
+                return legacyMetricsWithResults
+            },
+        ],
+
         currentExposures: [
-            (s) => [s.orderedPrimaryMetricsWithResults],
+            (s) => [s.metricsWithResults],
             (results): number | null => calculateCurrentExposures(results?.[0]?.result ?? null),
         ],
-        targetSampleSize: [
-            (s) => [
-                s.isManualMode,
-                s.experiment,
-                s.orderedPrimaryMetricsWithResults,
-                s.numberOfVariants,
-                s.config,
-                s.defaultMinimumDetectableEffect,
-            ],
-            (
-                isManualMode,
-                experiment,
-                results,
-                numberOfVariants,
-                config,
-                defaultMinimumDetectableEffect
-            ): number | null => {
-                if (isManualMode) {
-                    const saved = experiment?.parameters?.exposure_estimate_config
-                    const baseline = saved?.manualBaselineValue ?? 0
-                    if (baseline <= 0) {
-                        return null
-                    }
-                    const metricType = (saved?.manualMetricType as ManualCalculatorMetricType) ?? 'funnel'
-                    const adjustedBaseline = metricType === 'funnel' ? baseline / 100 : baseline
-                    const mde = experiment?.parameters?.minimum_detectable_effect ?? defaultMinimumDetectableEffect
-                    return calculateSampleSize(metricType, adjustedBaseline, mde, numberOfVariants)
-                }
 
-                // Automatic mode: calculate from live experiment data
+        // Request body for the automatic-mode calculation, or null when not applicable (manual mode / no results yet).
+        automaticCalculationInput: [
+            (s) => [s.mode, s.metricsWithResults, s.numberOfVariants, s.mde],
+            (mode, results, numberOfVariants, mde): RunningTimeCalculationInputApi | null => {
+                // Gate on the in-form mode rather than the persisted mode. While the form is in manual mode
+                // (even if the experiment is still saved as automatic), the automatic estimate is neither
+                // shown nor persisted, so editing the MDE shouldn't fire a wasted automatic calculation.
+                if (mode !== 'automatic') {
+                    return null
+                }
                 const firstMetric = results?.[0]
                 if (!firstMetric?.metric || !firstMetric?.result?.baseline) {
                     return null
                 }
-                const baselineValue = calculateBaselineValue(firstMetric.result.baseline, firstMetric.metric)
-                if (baselineValue === null) {
+                return {
+                    metric_type: getCalculatorMetricType(firstMetric.metric),
+                    minimum_detectable_effect: mde,
+                    number_of_variants: numberOfVariants,
+                    baseline_stats: baselineStatsFromResults(firstMetric.result.baseline),
+                }
+            },
+        ],
+
+        // Request body for the live manual-mode preview, or null when the form inputs aren't usable yet.
+        manualPreviewInput: [
+            (s) => [s.config, s.numberOfVariants],
+            (config, numberOfVariants): RunningTimeCalculationInputApi | null => {
+                // Use !(x > 0) to catch NaN, 0, negative, and undefined
+                if (config.mode !== 'manual' || !(config.baselineValue > 0) || !(config.mde > 0)) {
                     return null
                 }
-                return calculateRecommendedSampleSize(
-                    firstMetric.metric,
-                    config.mde,
-                    baselineValue,
-                    numberOfVariants,
-                    firstMetric.result.baseline
-                )
+                const baselineValue = config.metricType === 'funnel' ? config.baselineValue / 100 : config.baselineValue
+                return {
+                    metric_type: config.metricType,
+                    minimum_detectable_effect: config.mde,
+                    number_of_variants: numberOfVariants,
+                    baseline_value: baselineValue,
+                    exposure_rate_per_day: config.exposureRate > 0 ? config.exposureRate : undefined,
+                }
+            },
+        ],
+
+        targetSampleSize: [
+            (s) => [s.isManualMode, s.experiment, s.automaticCalculationInput, s.automaticCalculation],
+            (isManualMode, experiment, automaticInput, automaticCalculation): number | null => {
+                if (isManualMode) {
+                    // Persisted by the save listener from the same backend calculation.
+                    return experiment?.running_time_calculation?.recommended_sample_size ?? null
+                }
+                if (!automaticInput) {
+                    return null
+                }
+                return automaticCalculation?.recommended_sample_size ?? null
             },
         ],
 
@@ -165,7 +262,7 @@ export const runningTimeLogic = kea<runningTimeLogicType>([
             (s) => [s.isManualMode, s.experiment, s.currentExposures],
             (isManualMode, experiment, currentExposures): number | null => {
                 if (isManualMode) {
-                    return experiment?.parameters?.exposure_estimate_config?.manualExposureRate ?? null
+                    return experiment?.running_time_calculation?.exposure_estimate_config?.manualExposureRate ?? null
                 }
 
                 // Automatic mode: calculate from actual rate
@@ -205,100 +302,140 @@ export const runningTimeLogic = kea<runningTimeLogicType>([
             (current, target): boolean => current !== null && target !== null && current >= target,
         ],
         manualFormPreview: [
-            (s) => [s.config, s.numberOfVariants],
-            (config, numberOfVariants): { sampleSize: number | null; runningTime: number | null } => {
-                // Use !(x > 0) to catch NaN, 0, negative, and undefined
-                if (config.mode !== 'manual' || !(config.baselineValue > 0)) {
-                    return { sampleSize: null, runningTime: null }
-                }
-
-                const baselineValue = config.metricType === 'funnel' ? config.baselineValue / 100 : config.baselineValue
-                const sampleSize = calculateSampleSize(config.metricType, baselineValue, config.mde, numberOfVariants)
-
-                if (!sampleSize || !(config.exposureRate > 0)) {
-                    return { sampleSize, runningTime: null }
-                }
-
-                const runningTime = Math.ceil(sampleSize / config.exposureRate)
-                return { sampleSize, runningTime }
-            },
+            (s) => [s.manualPreviewInput, s.manualPreview],
+            (input, preview): ManualPreview => (input ? preview : { sampleSize: null, runningTime: null }),
         ],
     }),
 
     subscriptions(({ actions }) => ({
-        primaryMetricsResultsLoading: (loading: boolean) => {
-            if (!loading) {
-                actions.persistRunningTimeEstimate()
+        // kea-subscriptions fires on reference change. The recalc poll replaces the metric-results array every
+        // tick, so these inputs get a fresh object reference even when their values are identical, which would
+        // re-fire the calculation POST on every poll. Skip the dispatch unless the value actually changed.
+        automaticCalculationInput: (
+            input: RunningTimeCalculationInputApi | null,
+            oldInput: RunningTimeCalculationInputApi | null
+        ) => {
+            if (input && !objectsEqual(input, oldInput)) {
+                actions.loadAutomaticCalculation(input)
+            }
+        },
+        manualPreviewInput: (
+            input: RunningTimeCalculationInputApi | null,
+            oldInput: RunningTimeCalculationInputApi | null
+        ) => {
+            if (input && !objectsEqual(input, oldInput)) {
+                actions.loadManualPreview(input)
             }
         },
     })),
 
     listeners(({ actions, values, props }) => ({
-        persistRunningTimeEstimate: async () => {
-            const { isManualMode, remainingDays, targetSampleSize, experiment, currentProjectId } = values
+        // Persist the automatic estimate once the backend calculation lands and the selectors are fresh.
+        loadAutomaticCalculationSuccess: () => {
+            actions.persistRunningTimeEstimate()
+        },
 
-            if (isManualMode || !isLaunched(experiment) || remainingDays === null || targetSampleSize === null) {
+        persistRunningTimeEstimate: async () => {
+            const { isManualMode, remainingDays, targetSampleSize, experiment, currentProjectId, configOverrides } =
+                values
+
+            // Skip while the user has unsaved edits — `save` owns persistence then. Auto-persisting a
+            // transient value here (e.g. right after `resetConfig`) would race with the save and revert it.
+            if (
+                configOverrides ||
+                isManualMode ||
+                !isLaunched(experiment) ||
+                remainingDays === null ||
+                targetSampleSize === null
+            ) {
                 return
             }
 
-            const savedRunningTime = experiment?.parameters?.recommended_running_time
-            const savedSampleSize = experiment?.parameters?.recommended_sample_size
+            const savedRunningTime = experiment?.running_time_calculation?.recommended_running_time
+            const savedSampleSize = experiment?.running_time_calculation?.recommended_sample_size
             if (savedRunningTime === remainingDays && savedSampleSize === targetSampleSize) {
                 return
             }
 
-            const updatedParameters = {
-                ...experiment?.parameters,
+            const updatedRunningTimeCalculation = {
+                ...experiment?.running_time_calculation,
                 recommended_running_time: remainingDays,
                 recommended_sample_size: targetSampleSize,
             }
 
-            await api.update(`api/projects/${currentProjectId}/experiments/${props.experimentId}`, {
-                parameters: updatedParameters,
+            await api.update(`api/projects/${currentProjectId}/experiments/${props.experiment.id}`, {
+                running_time_calculation: updatedRunningTimeCalculation,
             })
 
-            actions.setExperiment({ parameters: updatedParameters })
+            actions.setExperiment({ running_time_calculation: updatedRunningTimeCalculation })
         },
 
-        save: () => {
-            const { config, numberOfVariants, experiment } = values
+        save: async () => {
+            const { config, numberOfVariants, experiment, currentProjectId } = values
 
-            if (config.mode === 'manual') {
-                // Convert NaN (from empty input) to 0
-                const manualBaselineValue = Number.isNaN(config.baselineValue) ? 0 : config.baselineValue
-                const manualExposureRate = Number.isNaN(config.exposureRate) ? 0 : config.exposureRate
+            actions.setSaving(true)
+            try {
+                let update: Partial<Experiment> & { update_feature_flag_params?: boolean }
+                if (config.mode === 'manual') {
+                    // Convert NaN (from empty input) to 0
+                    const manualBaselineValue = Number.isNaN(config.baselineValue) ? 0 : config.baselineValue
+                    const manualExposureRate = Number.isNaN(config.exposureRate) ? 0 : config.exposureRate
 
-                const baselineValue = config.metricType === 'funnel' ? manualBaselineValue / 100 : manualBaselineValue
-                const sampleSize = calculateSampleSize(config.metricType, baselineValue, config.mde, numberOfVariants)
-                const runningTime =
-                    sampleSize && manualExposureRate > 0 ? Math.ceil(sampleSize / manualExposureRate) : null
+                    const baselineValue =
+                        config.metricType === 'funnel' ? manualBaselineValue / 100 : manualBaselineValue
 
-                actions.updateExperiment({
-                    parameters: {
-                        ...experiment?.parameters,
-                        minimum_detectable_effect: config.mde,
-                        recommended_sample_size: sampleSize ?? undefined,
-                        recommended_running_time: runningTime ?? undefined,
-                        exposure_estimate_config: {
-                            conversionRateInputType: ConversionRateInputType.MANUAL,
-                            manualMetricType: config.metricType,
-                            manualBaselineValue,
-                            manualExposureRate,
+                    let sampleSize: number | null = null
+                    let runningTime: number | null = null
+                    if (baselineValue > 0) {
+                        const result = await experimentsCalculateRunningTimeCreate(String(currentProjectId), {
+                            metric_type: config.metricType,
+                            minimum_detectable_effect: config.mde,
+                            number_of_variants: numberOfVariants,
+                            baseline_value: baselineValue,
+                            exposure_rate_per_day: manualExposureRate > 0 ? manualExposureRate : undefined,
+                        })
+                        sampleSize = result.recommended_sample_size
+                        runningTime = result.recommended_running_time_days
+                    }
+
+                    update = {
+                        running_time_calculation: {
+                            ...experiment?.running_time_calculation,
+                            minimum_detectable_effect: config.mde,
+                            recommended_sample_size: sampleSize ?? undefined,
+                            recommended_running_time: runningTime ?? undefined,
+                            exposure_estimate_config: {
+                                conversionRateInputType: ConversionRateInputType.MANUAL,
+                                manualMetricType: config.metricType,
+                                manualBaselineValue,
+                                manualExposureRate,
+                            },
                         },
-                    },
-                    update_feature_flag_params: false,
-                })
-            } else {
-                actions.updateExperiment({
-                    parameters: {
-                        ...experiment?.parameters,
-                        minimum_detectable_effect: config.mde,
-                        exposure_estimate_config: {
-                            conversionRateInputType: ConversionRateInputType.AUTOMATIC,
+                        update_feature_flag_params: false,
+                    }
+                } else {
+                    update = {
+                        running_time_calculation: {
+                            ...experiment?.running_time_calculation,
+                            minimum_detectable_effect: config.mde,
+                            exposure_estimate_config: {
+                                conversionRateInputType: ConversionRateInputType.AUTOMATIC,
+                            },
                         },
-                    },
-                    update_feature_flag_params: false,
-                })
+                        update_feature_flag_params: false,
+                    }
+                }
+
+                // Await so the experiment reflects the saved config before resetConfig below. Otherwise the
+                // transient (overrides cleared, experiment not yet updated) would re-trigger the automatic
+                // auto-persist with stale values and revert the save.
+                await experimentLogic({ experimentId: props.experiment.id }).asyncActions.updateExperiment(update)
+            } catch {
+                // Keep the modal open (don't close/reset below) so the user can retry.
+                lemonToast.error('Failed to save running time settings. Please try again.')
+                return
+            } finally {
+                actions.setSaving(false)
             }
             actions.closeRunningTimeConfigModal()
             actions.resetConfig()

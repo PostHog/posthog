@@ -21,6 +21,7 @@ import { isTracesQuery } from '~/queries/utils'
 import { aiObservabilityColumnRenderers } from './aiObservabilityColumnRenderers'
 import { buildApplyUrlStatePayload, aiObservabilitySharedLogic } from './aiObservabilitySharedLogic'
 import { LLMMessageDisplay } from './ConversationDisplay/ConversationMessagesDisplay'
+import { normalizeMessages } from './messageNormalization'
 import { aiObservabilityTracesTabLogic } from './tabs/aiObservabilityTracesTabLogic'
 import { TraceMessages, traceMessagesLazyLoaderLogic } from './traceMessagesLazyLoaderLogic'
 import { traceReviewsLazyLoaderLogic } from './traceReviews/traceReviewsLazyLoaderLogic'
@@ -30,8 +31,11 @@ import {
     formatLLMLatency,
     formatLLMUsage,
     getTraceTimestamp,
+    INTERNAL_TOOL_RESULT_ROLE,
+    isInternalToolResultUserMessage,
+    isToolResult,
+    isToolStepItem,
     LLM_TRACES_PAGE_SIZE,
-    normalizeMessages,
     sanitizeTraceUrlSearchParams,
 } from './utils'
 
@@ -42,10 +46,17 @@ export function AIObservabilityTraces(): JSX.Element {
     const { applyUrlState, setShouldFilterSupportTraces } = useActions(aiObservabilitySharedLogic)
     const { dateFilter, propertyFilters: currentPropertyFilters } = useValues(aiObservabilitySharedLogic)
     const { tracesQuery } = useValues(aiObservabilityTracesTabLogic)
+    const appliedSearchTerm = isTracesQuery(tracesQuery.source) ? tracesQuery.source.searchTerm : undefined
 
     const baseContext = useTracesQueryContext()
     const context: QueryContext<DataTableNode> = {
         ...baseContext,
+        ...(appliedSearchTerm
+            ? {
+                  emptyStateHeading: 'No traces matched your search',
+                  emptyStateDetail: 'Try a different search term, date range, or filters.',
+              }
+            : {}),
         customActions: <TracesOptionsMenu key="traces-options-menu" />,
     }
 
@@ -65,15 +76,13 @@ export function AIObservabilityTraces(): JSX.Element {
                     // separate — it cannot contribute to the URL-change counter.
                     setShouldFilterSupportTraces(query.source.filterSupportTraces ?? true)
 
-                    // Batch the remaining three URL-synced fields into a single
-                    // applyUrlState dispatch so the DataTable's setQuery emits
-                    // one URL change instead of three.
                     applyUrlState(
                         buildApplyUrlStatePayload({
                             dateFrom: query.source.dateRange?.date_from || null,
                             dateTo: query.source.dateRange?.date_to || null,
                             shouldFilterTestAccounts: query.source.filterTestAccounts || false,
                             propertyFilters: query.source.properties || [],
+                            searchQuery: query.source.searchTerm || '',
                             currentDateFilter: dateFilter,
                             currentPropertyFilters,
                         })
@@ -92,11 +101,6 @@ function TracesOptionsMenu(): JSX.Element | null {
     const { setShowInputOutputColumns, setShowSentimentColumn } = useActions(aiObservabilityTracesTabLogic)
 
     const showInputOutputToggleEnabled = !!featureFlags[FEATURE_FLAGS.LLM_OBSERVABILITY_SHOW_INPUT_OUTPUT]
-    const showSentimentToggleEnabled = !!featureFlags[FEATURE_FLAGS.LLM_ANALYTICS_SENTIMENT]
-
-    if (!showInputOutputToggleEnabled && !showSentimentToggleEnabled) {
-        return null
-    }
 
     return (
         <LemonDropdown
@@ -114,16 +118,14 @@ function TracesOptionsMenu(): JSX.Element | null {
                             data-attr="llm-traces-show-input-output-toggle"
                         />
                     )}
-                    {showSentimentToggleEnabled && (
-                        <LemonSwitch
-                            checked={showSentimentColumn}
-                            onChange={setShowSentimentColumn}
-                            label="Show sentiment"
-                            fullWidth
-                            tooltip="Show the sentiment column. Turn off to skip computing sentiment for traces in the table."
-                            data-attr="llm-traces-show-sentiment-toggle"
-                        />
-                    )}
+                    <LemonSwitch
+                        checked={showSentimentColumn}
+                        onChange={setShowSentimentColumn}
+                        label="Show sentiment"
+                        fullWidth
+                        tooltip="Show the sentiment column from stored sentiment evaluation results."
+                        data-attr="llm-traces-show-sentiment-toggle"
+                    />
                 </div>
             }
         >
@@ -362,14 +364,14 @@ const InputMessageColumn: QueryContextColumnComponent = ({ record }) => {
         return <LemonSkeleton className="h-4 w-40" />
     }
     // Three-tier fallback: clean state unwrap → generation fallback → raw state dump.
-    const firstInput =
-        pickFirstInputMessage(messages?.firstInput, { strict: true }) ??
-        pickFirstInputMessage(messages?.firstInputFallback) ??
-        pickFirstInputMessage(messages?.firstInput)
-    if (!firstInput) {
+    const inputMessage =
+        pickLastInputMessage(messages?.lastInput, { strict: true }) ??
+        pickLastInputMessage(messages?.lastInputFallback) ??
+        pickLastInputMessage(messages?.lastInput)
+    if (!inputMessage) {
         return <>–</>
     }
-    return <LLMMessageDisplay message={firstInput} isOutput={false} minimal />
+    return <LLMMessageDisplay message={inputMessage} isOutput={false} minimal />
 }
 InputMessageColumn.displayName = 'InputMessageColumn'
 
@@ -403,7 +405,7 @@ const OutputMessageColumn: QueryContextColumnComponent = ({ record }) => {
 }
 OutputMessageColumn.displayName = 'OutputMessageColumn'
 
-type NormalizedMessage = ReturnType<typeof normalizeMessages>[number]
+type NormalizedMessage = ReturnType<typeof normalizeMessages>['messages'][number]
 
 function hasDisplayableContent(message: NormalizedMessage): boolean {
     const { content, tool_calls } = message as NormalizedMessage & { tool_calls?: unknown }
@@ -420,13 +422,14 @@ function hasDisplayableContent(message: NormalizedMessage): boolean {
 }
 
 /**
- * Preferred → fallback cascade for the trace input column. We prefer the first
- * actual user turn, but tolerate traces that open with a system prompt or a
- * tool-result by falling back down the list. When `strict` is true we reject
+ * Preferred → fallback cascade for the trace input column. We prefer the last
+ * actual user turn (the message that drove this trace, not the start of the
+ * conversation history), but tolerate traces that only carry a system prompt or
+ * a tool-result by falling back down the list. When `strict` is true we reject
  * unknown state-wrapper shapes (the caller will then try the generation-level
  * fallback payload).
  */
-function pickFirstInputMessage(
+export function pickLastInputMessage(
     raw: unknown,
     { strict }: { strict: boolean } = { strict: false }
 ): NormalizedMessage | null {
@@ -434,28 +437,55 @@ function pickFirstInputMessage(
     if (normalized.length === 0) {
         return null
     }
-    const firstUser = normalized.find((m) => m.role === 'user' && hasDisplayableContent(m))
-    if (firstUser) {
-        return firstUser
+    const lastUser = normalized.findLast((m) => m.role === 'user' && hasDisplayableContent(m))
+    if (lastUser) {
+        return lastUser
     }
-    const firstNonSystem = normalized.find((m) => m.role !== 'system' && hasDisplayableContent(m))
-    if (firstNonSystem) {
-        return firstNonSystem
+    const lastNonSystem = normalized.findLast((m) => m.role !== 'system' && hasDisplayableContent(m))
+    if (lastNonSystem) {
+        return lastNonSystem
     }
-    const firstDisplayable = normalized.find(hasDisplayableContent)
-    if (firstDisplayable) {
-        return firstDisplayable
+    const lastDisplayable = normalized.findLast(hasDisplayableContent)
+    if (lastDisplayable) {
+        return lastDisplayable
     }
-    return normalized[0]
+    return normalized[normalized.length - 1]
 }
 
 /**
- * Preferred → fallback cascade for the trace output column. We prefer the
- * last assistant message with real content, but fall back to the last
- * displayable message (e.g. tool_calls) so tool-calling traces still show
- * something useful instead of a dash.
+ * A message is "tool traffic" (a tool call or a tool result) rather than a
+ * user-facing turn. Tool calls frequently end an agent chain, but the traces
+ * list should surface the last human-readable answer, not the machinery that
+ * produced it. Covers the explicit `tool_calls` field, tool-result roles, and
+ * content arrays made up entirely of tool-call / tool-result parts — while
+ * still treating a message that mixes real text with a tool call as
+ * user-facing.
  */
-function pickLastOutputMessage(
+function isToolMessage(message: NormalizedMessage): boolean {
+    const { role, content, tool_calls } = message as NormalizedMessage & { tool_calls?: unknown }
+    const hasText =
+        (typeof content === 'string' && content.trim().length > 0) ||
+        (Array.isArray(content) && content.some((item) => !isToolStepItem(item) && !isToolResult(item)))
+    if (Array.isArray(tool_calls) && tool_calls.length > 0) {
+        return !hasText
+    }
+    if (role === 'tool' || role === INTERNAL_TOOL_RESULT_ROLE || isInternalToolResultUserMessage(message)) {
+        return true
+    }
+    if (Array.isArray(content) && content.length > 0 && !hasText) {
+        return true
+    }
+    return false
+}
+
+/**
+ * Preferred → fallback cascade for the trace output column. We prefer the last
+ * assistant message that carries user-facing content, skipping pure tool calls
+ * and tool results so a tool-calling agent chain still shows its last readable
+ * answer. Only when a trace has nothing but tool traffic do we fall back to the
+ * last displayable message, so those traces still show something instead of a dash.
+ */
+export function pickLastOutputMessage(
     raw: unknown,
     { strict }: { strict: boolean } = { strict: false }
 ): NormalizedMessage | null {
@@ -463,15 +493,15 @@ function pickLastOutputMessage(
     if (normalized.length === 0) {
         return null
     }
-    for (let i = normalized.length - 1; i >= 0; i--) {
-        if (normalized[i].role === 'assistant' && hasDisplayableContent(normalized[i])) {
-            return normalized[i]
-        }
+    const lastAssistant = normalized.findLast(
+        (m) => m.role === 'assistant' && hasDisplayableContent(m) && !isToolMessage(m)
+    )
+    if (lastAssistant) {
+        return lastAssistant
     }
-    for (let i = normalized.length - 1; i >= 0; i--) {
-        if (hasDisplayableContent(normalized[i])) {
-            return normalized[i]
-        }
+    const lastDisplayable = normalized.findLast(hasDisplayableContent)
+    if (lastDisplayable) {
+        return lastDisplayable
     }
     return normalized[normalized.length - 1]
 }
@@ -500,13 +530,13 @@ function safeNormalize(
     raw: unknown,
     defaultRole: string,
     { strict }: { strict: boolean } = { strict: false }
-): ReturnType<typeof normalizeMessages> {
+): NormalizedMessage[] {
     const unwrapped = unwrapMessageContainer(raw, strict)
     if (unwrapped == null) {
         return []
     }
     try {
-        return normalizeMessages(unwrapped, defaultRole)
+        return normalizeMessages(unwrapped, defaultRole).messages
     } catch (e) {
         console.warn('Error normalizing trace messages', e)
         return []

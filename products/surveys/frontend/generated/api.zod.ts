@@ -393,6 +393,12 @@ export const SurveysCreateBody = /* @__PURE__ */ zod.object({
         .array(
             zod.union([
                 zod.object({
+                    id: zod
+                        .string()
+                        .optional()
+                        .describe(
+                            'Stable question identifier (UUID). When editing an existing question, send back its current id so its responses (keyed by $survey_response_<id>) stay attached; omit it for new questions and the server generates one.'
+                        ),
                     type: zod.enum(['open']).describe('\* `open` - open'),
                     question: zod.string().describe('Question text shown to respondents.'),
                     description: zod.string().optional().describe('Optional helper text.'),
@@ -405,6 +411,12 @@ export const SurveysCreateBody = /* @__PURE__ */ zod.object({
                     buttonText: zod.string().optional().describe('Custom button label.'),
                 }),
                 zod.object({
+                    id: zod
+                        .string()
+                        .optional()
+                        .describe(
+                            'Stable question identifier (UUID). When editing an existing question, send back its current id so its responses (keyed by $survey_response_<id>) stay attached; omit it for new questions and the server generates one.'
+                        ),
                     type: zod.enum(['link']).describe('\* `link` - link'),
                     question: zod.string().describe('Question text shown to respondents.'),
                     description: zod.string().optional().describe('Optional helper text.'),
@@ -418,6 +430,12 @@ export const SurveysCreateBody = /* @__PURE__ */ zod.object({
                     link: zod.string().describe('HTTPS or mailto URL for link questions.'),
                 }),
                 zod.object({
+                    id: zod
+                        .string()
+                        .optional()
+                        .describe(
+                            'Stable question identifier (UUID). When editing an existing question, send back its current id so its responses (keyed by $survey_response_<id>) stay attached; omit it for new questions and the server generates one.'
+                        ),
                     type: zod.enum(['rating']).describe('\* `rating` - rating'),
                     question: zod.string().describe('Question text shown to respondents.'),
                     description: zod.string().optional().describe('Optional helper text.'),
@@ -502,6 +520,12 @@ export const SurveysCreateBody = /* @__PURE__ */ zod.object({
                         .optional(),
                 }),
                 zod.object({
+                    id: zod
+                        .string()
+                        .optional()
+                        .describe(
+                            'Stable question identifier (UUID). When editing an existing question, send back its current id so its responses (keyed by $survey_response_<id>) stay attached; omit it for new questions and the server generates one.'
+                        ),
                     type: zod.enum(['single_choice']).describe('\* `single_choice` - single_choice'),
                     question: zod.string().describe('Question text shown to respondents.'),
                     description: zod.string().optional().describe('Optional helper text.'),
@@ -585,6 +609,12 @@ export const SurveysCreateBody = /* @__PURE__ */ zod.object({
                         .optional(),
                 }),
                 zod.object({
+                    id: zod
+                        .string()
+                        .optional()
+                        .describe(
+                            'Stable question identifier (UUID). When editing an existing question, send back its current id so its responses (keyed by $survey_response_<id>) stay attached; omit it for new questions and the server generates one.'
+                        ),
                     type: zod.enum(['multiple_choice']).describe('\* `multiple_choice` - multiple_choice'),
                     question: zod.string().describe('Question text shown to respondents.'),
                     description: zod.string().optional().describe('Optional helper text.'),
@@ -706,6 +736,16 @@ export const SurveysCreateBody = /* @__PURE__ */ zod.object({
                 placeholder: zod.string().optional(),
                 shuffleQuestions: zod.boolean().optional(),
                 surveyPopupDelaySeconds: zod.number().optional(),
+                allowGoBack: zod
+                    .boolean()
+                    .optional()
+                    .describe(
+                        "Whether to show a 'Back' button on web surveys after the first question, letting respondents return to a previously visited question. Defaults to false."
+                    ),
+                backButtonText: zod
+                    .string()
+                    .optional()
+                    .describe("Optional override for the back button label. Defaults to 'Back'."),
                 widgetType: zod
                     .enum(['button', 'tab', 'selector'])
                     .optional()
@@ -1283,6 +1323,12 @@ export const SurveysPartialUpdateBody = /* @__PURE__ */ zod.object({
         .array(
             zod.union([
                 zod.object({
+                    id: zod
+                        .string()
+                        .optional()
+                        .describe(
+                            'Stable question identifier (UUID). When editing an existing question, send back its current id so its responses (keyed by $survey_response_<id>) stay attached; omit it for new questions and the server generates one.'
+                        ),
                     type: zod.enum(['open']).describe('\* `open` - open'),
                     question: zod.string().describe('Question text shown to respondents.'),
                     description: zod.string().optional().describe('Optional helper text.'),
@@ -1295,6 +1341,12 @@ export const SurveysPartialUpdateBody = /* @__PURE__ */ zod.object({
                     buttonText: zod.string().optional().describe('Custom button label.'),
                 }),
                 zod.object({
+                    id: zod
+                        .string()
+                        .optional()
+                        .describe(
+                            'Stable question identifier (UUID). When editing an existing question, send back its current id so its responses (keyed by $survey_response_<id>) stay attached; omit it for new questions and the server generates one.'
+                        ),
                     type: zod.enum(['link']).describe('\* `link` - link'),
                     question: zod.string().describe('Question text shown to respondents.'),
                     description: zod.string().optional().describe('Optional helper text.'),
@@ -1308,6 +1360,12 @@ export const SurveysPartialUpdateBody = /* @__PURE__ */ zod.object({
                     link: zod.string().describe('HTTPS or mailto URL for link questions.'),
                 }),
                 zod.object({
+                    id: zod
+                        .string()
+                        .optional()
+                        .describe(
+                            'Stable question identifier (UUID). When editing an existing question, send back its current id so its responses (keyed by $survey_response_<id>) stay attached; omit it for new questions and the server generates one.'
+                        ),
                     type: zod.enum(['rating']).describe('\* `rating` - rating'),
                     question: zod.string().describe('Question text shown to respondents.'),
                     description: zod.string().optional().describe('Optional helper text.'),
@@ -1392,6 +1450,12 @@ export const SurveysPartialUpdateBody = /* @__PURE__ */ zod.object({
                         .optional(),
                 }),
                 zod.object({
+                    id: zod
+                        .string()
+                        .optional()
+                        .describe(
+                            'Stable question identifier (UUID). When editing an existing question, send back its current id so its responses (keyed by $survey_response_<id>) stay attached; omit it for new questions and the server generates one.'
+                        ),
                     type: zod.enum(['single_choice']).describe('\* `single_choice` - single_choice'),
                     question: zod.string().describe('Question text shown to respondents.'),
                     description: zod.string().optional().describe('Optional helper text.'),
@@ -1475,6 +1539,12 @@ export const SurveysPartialUpdateBody = /* @__PURE__ */ zod.object({
                         .optional(),
                 }),
                 zod.object({
+                    id: zod
+                        .string()
+                        .optional()
+                        .describe(
+                            'Stable question identifier (UUID). When editing an existing question, send back its current id so its responses (keyed by $survey_response_<id>) stay attached; omit it for new questions and the server generates one.'
+                        ),
                     type: zod.enum(['multiple_choice']).describe('\* `multiple_choice` - multiple_choice'),
                     question: zod.string().describe('Question text shown to respondents.'),
                     description: zod.string().optional().describe('Optional helper text.'),
@@ -1596,6 +1666,16 @@ export const SurveysPartialUpdateBody = /* @__PURE__ */ zod.object({
                 placeholder: zod.string().optional(),
                 shuffleQuestions: zod.boolean().optional(),
                 surveyPopupDelaySeconds: zod.number().optional(),
+                allowGoBack: zod
+                    .boolean()
+                    .optional()
+                    .describe(
+                        "Whether to show a 'Back' button on web surveys after the first question, letting respondents return to a previously visited question. Defaults to false."
+                    ),
+                backButtonText: zod
+                    .string()
+                    .optional()
+                    .describe("Optional override for the back button label. Defaults to 'Back'."),
                 widgetType: zod
                     .enum(['button', 'tab', 'selector'])
                     .optional()
@@ -1691,9 +1771,9 @@ export const SurveysPartialUpdateBody = /* @__PURE__ */ zod.object({
 
 /**
  * Duplicate a survey to multiple projects in a single transaction.
-
-Accepts a list of target team IDs and creates a copy of the survey in each project.
-Uses an all-or-nothing approach - if any duplication fails, all changes are rolled back.
+ *
+ * Accepts a list of target team IDs and creates a copy of the survey in each project.
+ * Uses an all-or-nothing approach - if any duplication fails, all changes are rolled back.
  */
 export const surveysDuplicateToProjectsCreateBodyNameMax = 400
 
@@ -2027,106 +2107,16 @@ export const SurveysResponsesUnarchiveCreateBody = /* @__PURE__ */ zod.object({
     form_content: zod.unknown().optional(),
 })
 
-export const surveysSummarizeResponsesCreateBodyNameMax = 400
-
-export const surveysSummarizeResponsesCreateBodyResponsesLimitMin = 0
-export const surveysSummarizeResponsesCreateBodyResponsesLimitMax = 2147483647
-
-export const surveysSummarizeResponsesCreateBodyIterationCountMin = 0
-export const surveysSummarizeResponsesCreateBodyIterationCountMax = 500
-
-export const surveysSummarizeResponsesCreateBodyIterationFrequencyDaysMin = 0
-export const surveysSummarizeResponsesCreateBodyIterationFrequencyDaysMax = 2147483647
-
-export const surveysSummarizeResponsesCreateBodyCurrentIterationMin = 0
-export const surveysSummarizeResponsesCreateBodyCurrentIterationMax = 2147483647
-
-export const surveysSummarizeResponsesCreateBodyResponseSamplingIntervalMin = 0
-export const surveysSummarizeResponsesCreateBodyResponseSamplingIntervalMax = 2147483647
-
-export const surveysSummarizeResponsesCreateBodyResponseSamplingLimitMin = 0
-export const surveysSummarizeResponsesCreateBodyResponseSamplingLimitMax = 2147483647
-
-export const surveysSummarizeResponsesCreateBodyBaseLanguageMax = 20
+/**
+ * Summarize survey responses. When `question_index` or `question_id` is provided, returns a per-question theme summary using cached `survey.question_summaries` when fresh. When neither is provided, returns the survey-wide headline summary (delegates to summary_headline). Pass `force_refresh=true` in the body to bypass caches.
+ */
+export const surveysSummarizeResponsesCreateBodyForceRefreshDefault = false
 
 export const SurveysSummarizeResponsesCreateBody = /* @__PURE__ */ zod.object({
-    name: zod.string().max(surveysSummarizeResponsesCreateBodyNameMax),
-    description: zod.string().optional(),
-    type: zod
-        .enum(['popover', 'widget', 'external_survey', 'api'])
-        .describe(
-            '\* `popover` - popover\n\* `widget` - widget\n\* `external_survey` - external survey\n\* `api` - api'
-        ),
-    schedule: zod.string().nullish(),
-    linked_flag_id: zod.number().nullish(),
-    linked_insight_id: zod.number().nullish(),
-    targeting_flag_id: zod.number().optional(),
-    targeting_flag_filters: zod.unknown().optional(),
-    remove_targeting_flag: zod.boolean().nullish(),
-    questions: zod
-        .unknown()
-        .optional()
-        .describe(
-            '\n        The `array` of questions included in the survey. Each question must conform to one of the defined question types: Basic, Link, Rating, or Multiple Choice.\n\n        Basic (open-ended question)\n        - `id`: The question ID\n        - `type`: `open`\n        - `question`: The text of the question.\n        - `description`: Optional description of the question.\n        - `descriptionContentType`: Content type of the description (`html` or `text`).\n        - `optional`: Whether the question is optional (`boolean`).\n        - `buttonText`: Text displayed on the submit button.\n        - `branching`: Branching logic for the question. See branching types below for details.\n\n        Link (a question with a link)\n        - `id`: The question ID\n        - `type`: `link`\n        - `question`: The text of the question.\n        - `description`: Optional description of the question.\n        - `descriptionContentType`: Content type of the description (`html` or `text`).\n        - `optional`: Whether the question is optional (`boolean`).\n        - `buttonText`: Text displayed on the submit button.\n        - `link`: The URL associated with the question.\n        - `branching`: Branching logic for the question. See branching types below for details.\n\n        Rating (a question with a rating scale)\n        - `id`: The question ID\n        - `type`: `rating`\n        - `question`: The text of the question.\n        - `description`: Optional description of the question.\n        - `descriptionContentType`: Content type of the description (`html` or `text`).\n        - `optional`: Whether the question is optional (`boolean`).\n        - `buttonText`: Text displayed on the submit button.\n        - `display`: Display style of the rating (`number` or `emoji`).\n        - `scale`: The scale of the rating (`number`).\n        - `lowerBoundLabel`: Label for the lower bound of the scale.\n        - `upperBoundLabel`: Label for the upper bound of the scale.\n        - `isNpsQuestion`: Whether the question is an NPS rating.\n        - `branching`: Branching logic for the question. See branching types below for details.\n\n        Multiple choice\n        - `id`: The question ID\n        - `type`: `single_choice` or `multiple_choice`\n        - `question`: The text of the question.\n        - `description`: Optional description of the question.\n        - `descriptionContentType`: Content type of the description (`html` or `text`).\n        - `optional`: Whether the question is optional (`boolean`).\n        - `buttonText`: Text displayed on the submit button.\n        - `choices`: An array of choices for the question.\n        - `shuffleOptions`: Whether to shuffle the order of the choices (`boolean`).\n        - `hasOpenChoice`: Whether the question allows an open-ended response (`boolean`).\n        - `branching`: Branching logic for the question. See branching types below for details.\n\n        Branching logic can be one of the following types:\n\n        Next question: Proceeds to the next question\n        ```json\n        {\n            \"type\": \"next_question\"\n        }\n        ```\n\n        End: Ends the survey, optionally displaying a confirmation message.\n        ```json\n        {\n            \"type\": \"end\"\n        }\n        ```\n\n        Response-based: Branches based on the response values. Available for the `rating` and `single_choice` question types.\n        ```json\n        {\n            \"type\": \"response_based\",\n            \"responseValues\": {\n                \"responseKey\": \"value\"\n            }\n        }\n        ```\n\n        Specific question: Proceeds to a specific question by index.\n        ```json\n        {\n            \"type\": \"specific_question\",\n            \"index\": 2\n        }\n        ```\n\n        Translations: Each question can include inline translations.\n        - `translations`: Object mapping language codes to translated fields.\n        - Language codes: Canonical BCP-47-ish strings (e.g., \"es\", \"es-MX\", \"zh-CN\"). Aliases like \"english\" or \"default\" are rejected. The survey\'s `base_language` (default \"en\") declares the language of the untranslated text and cannot also appear as a translation key.\n        - Translatable fields: `question`, `description`, `buttonText`, `choices`, `lowerBoundLabel`, `upperBoundLabel`, `link`\n\n        Example with translations:\n        ```json\n        {\n            \"id\": \"uuid\",\n            \"type\": \"rating\",\n            \"question\": \"How satisfied are you?\",\n            \"lowerBoundLabel\": \"Not satisfied\",\n            \"upperBoundLabel\": \"Very satisfied\",\n            \"translations\": {\n                \"es\": {\n                    \"question\": \"¿Qué tan satisfecho estás?\",\n                    \"lowerBoundLabel\": \"No satisfecho\",\n                    \"upperBoundLabel\": \"Muy satisfecho\"\n                },\n                \"fr\": {\n                    \"question\": \"Dans quelle mesure êtes-vous satisfait?\"\n                }\n            }\n        }\n        ```\n        '
-        ),
-    conditions: zod.unknown().optional(),
-    appearance: zod.unknown().optional(),
-    start_date: zod.iso.datetime({ offset: true }).nullish(),
-    end_date: zod.iso.datetime({ offset: true }).nullish(),
-    archived: zod.boolean().optional(),
-    responses_limit: zod
-        .number()
-        .min(surveysSummarizeResponsesCreateBodyResponsesLimitMin)
-        .max(surveysSummarizeResponsesCreateBodyResponsesLimitMax)
-        .nullish(),
-    iteration_count: zod
-        .number()
-        .min(surveysSummarizeResponsesCreateBodyIterationCountMin)
-        .max(surveysSummarizeResponsesCreateBodyIterationCountMax)
-        .nullish(),
-    iteration_frequency_days: zod
-        .number()
-        .min(surveysSummarizeResponsesCreateBodyIterationFrequencyDaysMin)
-        .max(surveysSummarizeResponsesCreateBodyIterationFrequencyDaysMax)
-        .nullish(),
-    iteration_start_dates: zod.array(zod.iso.datetime({ offset: true }).nullable()).nullish(),
-    current_iteration: zod
-        .number()
-        .min(surveysSummarizeResponsesCreateBodyCurrentIterationMin)
-        .max(surveysSummarizeResponsesCreateBodyCurrentIterationMax)
-        .nullish(),
-    current_iteration_start_date: zod.iso.datetime({ offset: true }).nullish(),
-    response_sampling_start_date: zod.iso.datetime({ offset: true }).nullish(),
-    response_sampling_interval_type: zod
-        .union([
-            zod.enum(['day', 'week', 'month']).describe('\* `day` - day\n\* `week` - week\n\* `month` - month'),
-            zod.enum(['']),
-            zod.null(),
-        ])
-        .optional(),
-    response_sampling_interval: zod
-        .number()
-        .min(surveysSummarizeResponsesCreateBodyResponseSamplingIntervalMin)
-        .max(surveysSummarizeResponsesCreateBodyResponseSamplingIntervalMax)
-        .nullish(),
-    response_sampling_limit: zod
-        .number()
-        .min(surveysSummarizeResponsesCreateBodyResponseSamplingLimitMin)
-        .max(surveysSummarizeResponsesCreateBodyResponseSamplingLimitMax)
-        .nullish(),
-    response_sampling_daily_limits: zod.unknown().optional(),
-    enable_partial_responses: zod.boolean().nullish(),
-    enable_iframe_embedding: zod.boolean().nullish(),
-    base_language: zod
-        .string()
-        .max(surveysSummarizeResponsesCreateBodyBaseLanguageMax)
-        .optional()
-        .describe(
-            "BCP-47 language code (e.g. 'en', 'es', 'es-MX') describing the language of the survey's untranslated text. Defaults to 'en'. Cannot also appear as a key in `translations`."
-        ),
-    translations: zod.unknown().optional(),
-    _create_in_folder: zod.string().optional(),
-    form_content: zod.unknown().optional(),
+    force_refresh: zod
+        .boolean()
+        .default(surveysSummarizeResponsesCreateBodyForceRefreshDefault)
+        .describe('When true, bypass cached summaries and regenerate. Defaults to false.'),
 })
 
 export const surveysSummaryHeadlineCreateBodyNameMax = 400

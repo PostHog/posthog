@@ -1,0 +1,12 @@
+# Sampo configuration for posthog-cli releases.
+version = 1
+
+[git]
+default_branch = "master"
+
+[github]
+repository = "PostHog/posthog"
+
+[packages]
+ignore_unpublished = false
+ignore = []

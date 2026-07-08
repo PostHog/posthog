@@ -20,6 +20,9 @@ export const HEALTH_ALERT_TRIGGERS: WizardTrigger[] = [
     },
 ]
 
+// Note: `template-email` is intentionally not offered here. It's a hidden template
+// meant only for use inside workflows, not as a standalone destination — the backend
+// rejects it on create, so selecting it in the wizard would 400 on save.
 export const HEALTH_ALERT_DESTINATIONS: WizardDestination[] = [
     {
         key: 'slack',
@@ -41,13 +44,6 @@ export const HEALTH_ALERT_DESTINATIONS: WizardDestination[] = [
         description: 'Send a message to a channel',
         icon: '/static/services/microsoft-teams.png',
         templateId: 'template-microsoft-teams',
-    },
-    {
-        key: 'email',
-        name: 'Email',
-        description: 'Send an email notification',
-        icon: '/static/posthog-icon.svg',
-        templateId: 'template-email',
     },
     {
         key: 'webhook',

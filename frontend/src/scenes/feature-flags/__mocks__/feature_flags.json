@@ -216,6 +216,45 @@
             },
             "created_at": "2022-02-08T16:51:27.696618Z",
             "updated_at": "2022-02-08T16:51:27.696618Z"
+        },
+        {
+            "id": 1801,
+            "name": "",
+            "key": "signup-cta-experiment",
+            "filters": {
+                "groups": [
+                    {
+                        "properties": [],
+                        "rollout_percentage": 100
+                    }
+                ],
+                "multivariate": {
+                    "variants": [
+                        {
+                            "key": "control",
+                            "name": "",
+                            "rollout_percentage": 50
+                        },
+                        {
+                            "key": "test",
+                            "name": "",
+                            "rollout_percentage": 50
+                        }
+                    ]
+                }
+            },
+            "deleted": false,
+            "active": true,
+            "experiment_set": [42],
+            "created_by": {
+                "id": 6352,
+                "uuid": "cf25089d-71f1-4f70-9d0b-7577e47d78c1",
+                "distinct_id": "8ed346b4-01e9-44e2-b5a1-286cb131a400",
+                "first_name": "Cameron",
+                "email": "cameron@posthog.com"
+            },
+            "created_at": "2022-02-08T20:54:04.344072Z",
+            "updated_at": "2022-02-08T20:54:04.344072Z"
         }
     ]
 }

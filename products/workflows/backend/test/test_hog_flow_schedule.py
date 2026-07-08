@@ -146,6 +146,25 @@ class TestHogFlowScheduleAPI(APIBaseTest):
         assert schedule.status == "paused"
         assert schedule.next_run_at is None
 
+    def test_workflow_get_includes_nested_schedules(self):
+        workflow = self._create_batch_workflow()
+        self.client.post(self._schedules_url(workflow["id"]), SCHEDULE_DATA)
+
+        response = self.client.get(f"/api/projects/{self.team.id}/hog_flows/{workflow['id']}/")
+        assert response.status_code == status.HTTP_200_OK
+        data = response.json()
+        assert "schedules" in data
+        assert len(data["schedules"]) == 1
+        assert data["schedules"][0]["rrule"] == SCHEDULE_DATA["rrule"]
+        assert data["schedules"][0]["status"] == "active"
+
+    def test_workflow_get_includes_empty_schedules_when_none(self):
+        workflow = self._create_batch_workflow()
+
+        response = self.client.get(f"/api/projects/{self.team.id}/hog_flows/{workflow['id']}/")
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json()["schedules"] == []
+
     def test_delete_schedule(self):
         workflow = self._create_batch_workflow()
         create_response = self.client.post(self._schedules_url(workflow["id"]), SCHEDULE_DATA)

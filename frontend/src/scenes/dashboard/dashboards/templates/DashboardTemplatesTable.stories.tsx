@@ -26,6 +26,7 @@ import {
     type UserType,
 } from '~/types'
 
+import __dashboard_template_schema from '../../__mocks__/dashboard_template_schema.json'
 import { DashboardTemplateModal } from './DashboardTemplateModal'
 import { dashboardTemplatesLogic } from './dashboardTemplatesLogic'
 import { DashboardTemplatesTable } from './DashboardTemplatesTable'
@@ -39,7 +40,7 @@ const meta: Meta<typeof DashboardTemplatesTable> = {
     decorators: [
         mswDecorator({
             get: {
-                '/api/projects/:team_id/dashboard_templates/json_schema/': require('../../__mocks__/dashboard_template_schema.json'),
+                '/api/projects/:team_id/dashboard_templates/json_schema/': __dashboard_template_schema as any,
             },
         }),
         (Story) => (
@@ -193,6 +194,7 @@ const storySecondProject: ProjectType = {
     name: storySecondTeam.name,
     organization_id: MOCK_ORGANIZATION_ID,
     created_at: MOCK_DEFAULT_PROJECT.created_at,
+    is_pending_deletion: false,
 }
 
 const organizationWithMultipleProjects: OrganizationType = {

@@ -1,13 +1,13 @@
 import equal from 'fast-deep-equal'
-import { actions, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
+import { actions, connect, kea, key, listeners, path, reducers, selectors } from 'kea'
+import { urlToAction } from 'kea-router'
 import { UrlToActionPayload } from 'kea-router/lib/types'
 
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { tabAwareActionToUrl } from 'lib/logic/scenes/tabAwareActionToUrl'
-import { tabAwareUrlToAction } from 'lib/logic/scenes/tabAwareUrlToAction'
+import { trackedActionToUrl } from 'lib/logic/scenes/trackedActionToUrl'
 import { tabUiStateLogic } from 'lib/logic/tabUiStateLogic'
-import { objectsEqual } from 'lib/utils'
+import { objectsEqual } from 'lib/utils/objects'
 import { applyTestAccountFilter, getDefaultEventsSceneQuery } from 'scenes/activity/explore/defaults'
 import { sceneConfigurations } from 'scenes/scenes'
 import { Scene } from 'scenes/sceneTypes'
@@ -21,13 +21,8 @@ import { ActivityTab, Breadcrumb } from '~/types'
 
 import type { eventsSceneLogicType } from './eventsSceneLogicType'
 
-export interface EventsSceneLogicProps {
-    tabId?: string
-}
-
 export const eventsSceneLogic = kea<eventsSceneLogicType>([
-    props({} as EventsSceneLogicProps),
-    key((props) => props.tabId || 'scene'),
+    key(() => 'scene'),
     path((key) => ['scenes', 'events', 'eventsSceneLogic', key]),
     connect(() => ({
         values: [
@@ -45,17 +40,10 @@ export const eventsSceneLogic = kea<eventsSceneLogicType>([
 
     actions({ setQuery: (query: Node) => ({ query }) }),
     reducers({ savedQuery: [null as Node | null, { setQuery: (_, { query }) => query }] }),
-    listeners(({ props, actions, values }) => ({
+    listeners(({ actions, values }) => ({
         setQuery: ({ query }) => {
-            // No owning tab → no removeTab cleanup will ever clear this slot.
-            // sceneKey is constant ('events') so it'd be a single overwriting slot under
-            // '__no_tab__', but we still skip it for consistency with dataTableLogic and
-            // because persistence semantically requires a tab.
-            if (props.tabId === undefined) {
-                return
-            }
             const isDefault = objectsEqual(query, values.defaultQuery)
-            actions.setSavedQueryForTab(props.tabId, 'events', isDefault ? null : query)
+            actions.setSavedQueryForTab(undefined, 'events', isDefault ? null : query)
         },
     })),
     selectors({
@@ -85,7 +73,7 @@ export const eventsSceneLogic = kea<eventsSceneLogicType>([
             ],
         ],
     }),
-    tabAwareActionToUrl(({ values }) => ({
+    trackedActionToUrl(({ values }) => ({
         setQuery: () => [
             urls.activity(ActivityTab.ExploreEvents),
             {},
@@ -94,13 +82,13 @@ export const eventsSceneLogic = kea<eventsSceneLogicType>([
         ],
     })),
 
-    tabAwareUrlToAction(({ actions, values, props }) => {
+    urlToAction(({ actions, values }) => {
         const eventsQueryHandler: UrlToActionPayload[keyof UrlToActionPayload] = (_, __, { q: queryParam }): void => {
             if (!equal(queryParam, values.query)) {
                 // nothing in the URL
                 if (!queryParam) {
-                    // restore from per-tab persisted query if present, else fall back to default
-                    const persisted = values.savedQueryFor(props.tabId, 'events')
+                    // restore from the persisted query if present, else fall back to default
+                    const persisted = values.savedQueryFor(undefined, 'events')
                     const target = persisted ?? values.defaultQuery
                     if (!objectsEqual(values.query, target)) {
                         actions.setQuery(target)

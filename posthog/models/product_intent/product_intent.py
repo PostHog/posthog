@@ -1,3 +1,4 @@
+from collections.abc import Callable
 from datetime import UTC, datetime
 from typing import Any, Optional
 
@@ -10,18 +11,16 @@ import structlog
 from celery import shared_task
 from rest_framework import serializers
 
-from posthog.schema import ProductIntentContext, ProductKey
-
 from posthog.exceptions_capture import capture_exception
 from posthog.models.team.team import Team
 from posthog.models.user import User
 from posthog.models.utils import RootTeamMixin, UUIDTModel
+from posthog.schema_enums import ProductIntentContext, ProductKey
 from posthog.scoping_audit import skip_team_scope_audit
 from posthog.session_recordings.models.session_recording_event import SessionRecordingViewed
 from posthog.utils import get_instance_realm, get_safe_cache, safe_cache_delete, safe_cache_set
 
 from products.dashboards.backend.models.dashboard import Dashboard
-from products.error_tracking.backend.models import ErrorTrackingIssue
 from products.event_definitions.backend.models.event_definition import EventDefinition
 from products.experiments.backend.models.experiment import Experiment
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
@@ -121,7 +120,11 @@ class ProductIntent(UUIDTModel, RootTeamMixin):
 
     def has_activated_error_tracking(self) -> bool:
         # the team has resolved any issues
-        return ErrorTrackingIssue.objects.filter(team=self.team, status=ErrorTrackingIssue.Status.RESOLVED).exists()
+        # Local import: this module loads during django.setup() (via posthog.models), and the
+        # error_tracking facade pulls in posthog.event_usage -> posthog.models (circular).
+        from products.error_tracking.backend import facade as error_tracking  # noqa: PLC0415
+
+        return error_tracking.has_resolved_issues(self.team_id)
 
     def has_activated_surveys(self) -> bool:
         return Survey.objects.filter(team__project_id=self.team.project_id, start_date__isnull=False).exists()
@@ -207,6 +210,24 @@ class ProductIntent(UUIDTModel, RootTeamMixin):
         # Activated when the user has engaged with the dashboard (15s dwell) or viewed a trace
         return contexts.get("llm_analytics_viewed", 0) >= 1 or contexts.get("llm_analytics_trace_viewed", 0) >= 1
 
+    def has_activated_mcp_analytics(self) -> bool:
+        # The instrumented MCP server is sending tool calls (registers the $mcp_tool_call
+        # definition in this team) and the user has opened the dashboard at least once.
+        has_tool_call = EventDefinition.objects.filter(team=self.team, name="$mcp_tool_call").exists()
+        if not has_tool_call:
+            return False
+
+        intent = ProductIntent.objects.filter(
+            team=self.team,
+            product_type="mcp_analytics",
+        ).first()
+
+        if not intent:
+            return False
+
+        contexts = intent.contexts or {}
+        return contexts.get("mcp_analytics_viewed", 0) >= 1
+
     def has_activated_workflows(self) -> bool:
         # At least one workflow needs to be active (not just drafted)
         return HogFlow.objects.filter(team=self.team, status=HogFlow.State.ACTIVE).exists()
@@ -220,19 +241,8 @@ class ProductIntent(UUIDTModel, RootTeamMixin):
         self.activation_last_checked_at = datetime.now(tz=UTC)
         self.save()
 
-        activation_checks = {
-            "data_warehouse": self.has_activated_data_warehouse,
-            "experiments": self.has_activated_experiments,
-            "feature_flags": self.has_activated_feature_flags,
-            "session_replay": self.has_activated_session_replay,
-            "error_tracking": self.has_activated_error_tracking,
-            "product_analytics": self.has_activated_product_analytics,
-            "surveys": self.has_activated_surveys,
-            "llm_analytics": self.has_activated_llm_analytics,
-            "workflows": self.has_activated_workflows,
-        }
-
-        if self.product_type in activation_checks and activation_checks[self.product_type]():
+        activation_check = ACTIVATION_CHECKS.get(self.product_type)
+        if activation_check is not None and activation_check(self):
             self.activated_at = datetime.now(tz=UTC)
             self.save()
             if not skip_reporting:
@@ -317,6 +327,25 @@ class ProductIntent(UUIDTModel, RootTeamMixin):
         return product_intent
 
 
+# Dispatch for `check_and_update_activation`. Module-level so other systems can tell
+# which product keys have a concrete activation criterion (vs. intent-existence only)
+# without duplicating this list.
+ACTIVATION_CHECKS: dict[str, Callable[[ProductIntent], bool]] = {
+    "data_warehouse": ProductIntent.has_activated_data_warehouse,
+    "experiments": ProductIntent.has_activated_experiments,
+    "feature_flags": ProductIntent.has_activated_feature_flags,
+    "session_replay": ProductIntent.has_activated_session_replay,
+    "error_tracking": ProductIntent.has_activated_error_tracking,
+    "product_analytics": ProductIntent.has_activated_product_analytics,
+    "surveys": ProductIntent.has_activated_surveys,
+    "llm_analytics": ProductIntent.has_activated_llm_analytics,
+    "mcp_analytics": ProductIntent.has_activated_mcp_analytics,
+    "workflows": ProductIntent.has_activated_workflows,
+}
+
+ACTIVATION_CHECK_PRODUCT_KEYS: frozenset[str] = frozenset(ACTIVATION_CHECKS)
+
+
 @shared_task(ignore_result=True)
 @skip_team_scope_audit
 def calculate_product_activation(team_id: int, only_calc_if_days_since_last_checked: int = 1) -> None:
@@ -376,7 +405,16 @@ def enqueue_product_activation_calc_debounced(team_id: int) -> bool:
         capture_exception(e)
         was_added = True
     if was_added:
-        calculate_product_activation.delay(team_id, only_calc_if_days_since_last_checked=1)
+        try:
+            calculate_product_activation.delay(team_id, only_calc_if_days_since_last_checked=1)
+        except Exception as e:
+            # Broker errors (e.g. kombu.OperationalError when the broker is unavailable)
+            # must not 500 the callers — this runs on every team/project retrieve. The
+            # debounce key is already set, so the team stays debounced for the window;
+            # capture so a chronic broker problem still surfaces in monitoring.
+            logger.warning("product_activation_enqueue_failure", team_id=team_id, exc_info=True)
+            capture_exception(e)
+            return False
         return True
     return False
 

@@ -26,7 +26,9 @@ import { LemonRadio } from 'lib/lemon-ui/LemonRadio'
 import { LemonSlider } from 'lib/lemon-ui/LemonSlider'
 import { LemonTag } from 'lib/lemon-ui/LemonTag/LemonTag'
 import { Spinner } from 'lib/lemon-ui/Spinner/Spinner'
-import { capitalizeFirstLetter, clamp, dateFilterToText, dateStringToComponents, humanFriendlyNumber } from 'lib/utils'
+import { dateFilterToText, dateStringToComponents } from 'lib/utils/dateFilters'
+import { clamp } from 'lib/utils/numbers'
+import { capitalizeFirstLetter, pluralize } from 'lib/utils/strings'
 import { FeatureFlagConditionWarning } from 'scenes/feature-flags/FeatureFlagConditionWarning'
 import { PercentageInput } from 'scenes/feature-flags/PercentageInput'
 import { urls } from 'scenes/urls'
@@ -42,14 +44,22 @@ import {
     PropertyOperator,
 } from '~/types'
 
-import { COHORTS_ONLY_SUPPORT_IN_PICKER_PROPS } from './cohortPickerProps'
+import { resolveAggregationGroupTypeIndex } from './aggregation'
+import { MATCHING_ESTIMATE_TOOLTIP } from './constants'
 import { featureFlagLogic } from './featureFlagLogic'
 import {
     FeatureFlagReleaseConditionsLogicProps,
     featureFlagReleaseConditionsLogic,
+    isDistinctIdFilter,
 } from './featureFlagReleaseConditionsLogic'
 
-function PropertyValueComponent({ property }: { property: AnyPropertyFilter }): JSX.Element {
+function PropertyValueComponent({
+    property,
+    getDistinctIdName,
+}: {
+    property: AnyPropertyFilter
+    getDistinctIdName: (distinctId: string) => string
+}): JSX.Element {
     if (property.type === PropertyFilterType.Cohort) {
         return (
             <LemonButton type="secondary" size="xsmall" to={urls.cohort(property.value)} sideIcon={<IconOpenInNew />}>
@@ -62,12 +72,13 @@ function PropertyValueComponent({ property }: { property: AnyPropertyFilter }): 
         return <></>
     }
     const propertyValues = Array.isArray(property.value) ? property.value : [property.value]
+    const isDistinctId = isDistinctIdFilter(property)
 
     return (
         <>
             {propertyValues.map((val, idx) => (
                 <LemonSnack key={idx}>
-                    {String(val)}
+                    {isDistinctId ? getDistinctIdName(String(val)) : String(val)}
                     <span>
                         {isPropertyFilterWithOperator(property) &&
                         ['is_date_before', 'is_date_after'].includes(property.operator) &&
@@ -118,13 +129,13 @@ export function FeatureFlagReleaseConditions({
     const {
         taxonomicGroupTypes,
         propertySelectErrors,
-        computeBlastRadiusPercentage,
         affectedCounts,
         totalCounts,
         filtersTaxonomicOptions,
         aggregationTargetName,
         properties,
         filterGroups,
+        getDistinctIdName,
     } = useValues(releaseConditionsLogic)
 
     const {
@@ -343,7 +354,7 @@ export function FeatureFlagReleaseConditions({
                                         <span>{allOperatorsToHumanName(property.operator)} </span>
                                     ) : null}
 
-                                    <PropertyValueComponent property={property} />
+                                    <PropertyValueComponent property={property} getDistinctIdName={getDistinctIdName} />
                                 </div>
                             ))}
                         </>
@@ -386,7 +397,6 @@ export function FeatureFlagReleaseConditions({
                                           })
                                         : null
                                 }
-                                {...COHORTS_ONLY_SUPPORT_IN_PICKER_PROPS}
                                 hideBehavioralCohorts={!realtimeCohortFlagTargeting}
                             />
                         </div>
@@ -446,63 +456,48 @@ export function FeatureFlagReleaseConditions({
                                         propertySelectErrors?.[index]?.rollout_percentage ? 'basis-full h-0' : ''
                                     )}
                                 />
-                                of <b>{aggregationTargetName(group.aggregation_group_type_index)}</b> in this set. Will
-                                match approximately{' '}
-                                {group.sort_key && affectedCounts[group.sort_key] !== undefined ? (
-                                    <b className="tabular-nums">
-                                        {`${
-                                            Math.max(
-                                                computeBlastRadiusPercentage(
-                                                    Number.isNaN(group.rollout_percentage)
-                                                        ? 0
-                                                        : group.rollout_percentage,
-                                                    group.sort_key
-                                                ).toPrecision(2) * 1,
-                                                0
-                                            )
-                                            // Multiplying by 1 removes trailing zeros after the decimal
-                                            // point added by toPrecision
-                                        }% `}
-                                    </b>
-                                ) : (
-                                    <Spinner className="mr-1" />
-                                )}{' '}
+                                of <b>{aggregationTargetName(group.aggregation_group_type_index)}</b> in this set.
                                 {(() => {
+                                    const targetIndex = group.aggregation_group_type_index
+                                    const pluralName = aggregationTargetName(targetIndex)
+                                    const singularName = aggregationLabel(
+                                        resolveAggregationGroupTypeIndex(
+                                            targetIndex,
+                                            filters.aggregation_group_type_index
+                                        ),
+                                        true
+                                    ).singular
                                     const affected = group.sort_key ? affectedCounts[group.sort_key] : undefined
                                     const total = group.sort_key ? totalCounts[group.sort_key] : undefined
-                                    if (affected !== undefined && affected >= 0 && total !== undefined) {
-                                        const rolloutPct = Number.isNaN(group.rollout_percentage)
-                                            ? 0
-                                            : (group.rollout_percentage ?? 100)
+                                    if (affected === undefined || affected < 0 || total === undefined) {
                                         return (
-                                            <span className="tabular-nums">
-                                                {`(${humanFriendlyNumber(
-                                                    Math.floor((affected * clamp(rolloutPct, 0, 100)) / 100)
-                                                )} / ${humanFriendlyNumber(total)})`}
-                                            </span>
+                                            <div className="basis-full flex items-center mt-1">
+                                                <Spinner />
+                                            </div>
                                         )
                                     }
-                                    return ''
-                                })()}{' '}
-                                <span>of total {aggregationTargetName(group.aggregation_group_type_index)}.</span>
-                                {filters.aggregation_group_type_index == null && (
-                                    <Tooltip
-                                        title={
-                                            <>
-                                                A user may have{' '}
-                                                <Link
-                                                    to="https://posthog.com/docs/data/persons#duplicate-person-profiles"
-                                                    target="_blank"
-                                                >
-                                                    multiple profiles
-                                                </Link>
-                                            </>
-                                        }
-                                        interactive
-                                    >
-                                        <IconInfo className="text-muted text-xs ml-0.5" />
-                                    </Tooltip>
-                                )}
+                                    const rolloutPct = Number.isNaN(group.rollout_percentage)
+                                        ? 0
+                                        : (group.rollout_percentage ?? 100)
+                                    const receivingFlag = Math.floor((affected * clamp(rolloutPct, 0, 100)) / 100)
+                                    return (
+                                        <div className="basis-full flex flex-col mt-1 text-secondary tabular-nums">
+                                            <span>
+                                                Filters match: <b>~{pluralize(affected, singularName, pluralName)}</b>
+                                                {filters.aggregation_group_type_index == null && (
+                                                    <Tooltip title={MATCHING_ESTIMATE_TOOLTIP} interactive>
+                                                        <IconInfo className="text-muted text-xs ml-0.5" />
+                                                    </Tooltip>
+                                                )}
+                                            </span>
+                                            <span>
+                                                Rollout will be to{' '}
+                                                <b>~{pluralize(receivingFlag, singularName, pluralName)}</b> -{' '}
+                                                <b>{rolloutPct}%</b>
+                                            </span>
+                                        </div>
+                                    )
+                                })()}
                             </div>
                         </div>
                     )}
@@ -556,13 +551,12 @@ export function FeatureFlagReleaseConditions({
             description={
                 !readOnly &&
                 !excludeTitle && (
-                    <>
-                        <div className="text-secondary mb-2">
-                            Specify users for flag release. Condition sets are evaluated top to bottom - the first
-                            matching set is used. A condition matches when all property filters pass AND the target
-                            falls within the rollout percentage.
-                        </div>
-                    </>
+                    // span, not div: SceneSection renders the description inside a <p>
+                    <span className="block text-secondary mb-2">
+                        Specify users for flag release. Condition sets are evaluated top to bottom - the first matching
+                        set is used. A condition matches when all property filters pass AND the target falls within the
+                        rollout percentage.
+                    </span>
                 )
             }
         >

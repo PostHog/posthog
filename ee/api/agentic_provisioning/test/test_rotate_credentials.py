@@ -4,11 +4,11 @@ from django.test import override_settings
 
 from parameterized import parameterized
 
-from posthog.models.oauth import OAuthAccessToken
+from posthog.models.oauth import OAuthAccessToken, OAuthApplication
 from posthog.models.personal_api_key import PersonalAPIKey
 from posthog.models.team.team import Team
 
-from ee.api.agentic_provisioning.test.base import HMAC_SECRET, ProvisioningTestBase
+from ee.api.agentic_provisioning.test.base import HMAC_SECRET, TEST_STRIPE_OAUTH_CLIENT_ID, ProvisioningTestBase
 
 
 @override_settings(STRIPE_SIGNING_SECRET=HMAC_SECRET)
@@ -96,6 +96,18 @@ class TestProvisioningRotateCredentials(ProvisioningTestBase):
         assert res.status_code == 200
         personal_api_key = res.json()["complete"]["access_configuration"]["personal_api_key"]
         assert personal_api_key.startswith("phx_")
+
+    def test_rotate_omits_pat_when_app_gate_off(self):
+        token = self._get_bearer_token()
+        app = OAuthApplication.objects.get(client_id=TEST_STRIPE_OAUTH_CLIENT_ID)
+        app.provisioning_issues_personal_api_key = False
+        app.save(update_fields=["provisioning_issues_personal_api_key"])
+        res = self._post_signed_with_bearer(
+            f"/api/agentic/provisioning/resources/{self.team.id}/rotate_credentials",
+            token=token,
+        )
+        assert res.status_code == 200
+        assert "personal_api_key" not in res.json()["complete"]["access_configuration"]
 
     def test_rotate_pat_is_scoped_to_authorized_team(self):
         token = self._get_bearer_token()

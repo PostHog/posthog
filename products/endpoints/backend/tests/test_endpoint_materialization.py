@@ -17,21 +17,25 @@ from rest_framework.response import Response
 
 from posthog.schema import RetentionQuery
 
+from posthog.hogql.errors import QueryError
+
 from posthog.constants import RETENTION_FIRST_EVER_OCCURRENCE, TREND_FILTER_TYPE_EVENTS
 from posthog.settings.temporal import DATA_MODELING_TASK_QUEUE
 from posthog.sync import database_sync_to_async
 
-from products.data_modeling.backend.models.datawarehouse_saved_query import DataWarehouseSavedQuery
-from products.data_modeling.backend.models.modeling import DataWarehouseModelPath
-from products.data_warehouse.backend.data_load.saved_query_service import get_saved_query_schedule
-from products.endpoints.backend.api import EndpointViewSet
-from products.endpoints.backend.materialization import build_endpoint_hogql
-from products.endpoints.backend.services.endpoint_materialization_service import (
+from products.data_modeling.backend.facade.modeling import DataWarehouseModelPath
+from products.data_modeling.backend.facade.models import DataModelingJob, DataWarehouseSavedQuery
+from products.data_warehouse.backend.facade.api import get_saved_query_schedule
+from products.endpoints.backend.logic.execution import EndpointExecutionService
+from products.endpoints.backend.logic.materialization import (
+    EndpointMaterializationService,
     OrphanedEndpointSavedQueryError,
     prepare_executable_query,
 )
+from products.endpoints.backend.materialization_transforms import build_endpoint_hogql
+from products.endpoints.backend.models import EndpointVersion
 from products.endpoints.backend.tests.conftest import create_endpoint_with_version
-from products.warehouse_sources.backend.models.table import DataWarehouseTable
+from products.warehouse_sources.backend.facade.models import DataWarehouseTable
 
 pytestmark = [pytest.mark.django_db]
 
@@ -49,14 +53,14 @@ class TestEndpointMaterialization(ClickhouseTestMixin, APIBaseTest):
         }
         # Mock Temporal-related functions to avoid connection errors
         self.sync_workflow_patcher = mock.patch(
-            "products.data_warehouse.backend.data_load.saved_query_service.sync_saved_query_workflow"
+            "products.data_warehouse.backend.logic.data_load.saved_query_service.sync_saved_query_workflow"
         )
         self.workflow_exists_patcher = mock.patch(
-            "products.data_warehouse.backend.data_load.saved_query_service.saved_query_workflow_exists",
+            "products.data_warehouse.backend.logic.data_load.saved_query_service.saved_query_workflow_exists",
             return_value=False,
         )
         self.delete_schedule_patcher = mock.patch(
-            "products.data_warehouse.backend.data_load.saved_query_service.delete_saved_query_schedule"
+            "products.data_warehouse.backend.logic.data_load.saved_query_service.delete_saved_query_schedule"
         )
         self.mock_sync_workflow = self.sync_workflow_patcher.start()
         self.mock_workflow_exists = self.workflow_exists_patcher.start()
@@ -322,6 +326,30 @@ class TestEndpointMaterialization(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
         # Should indicate variable metadata issue
         self.assertIn("Cannot materialize endpoint", response.json()["detail"])
+
+    def test_enable_materialization_user_query_error_returns_400(self):
+        endpoint = create_endpoint_with_version(
+            name="test_hogql_error",
+            team=self.team,
+            query=self.sample_hogql_query,
+            created_by=self.user,
+            is_active=True,
+        )
+
+        with mock.patch.object(
+            EndpointMaterializationService,
+            "_enable_materialization_inner",
+            autospec=True,
+            side_effect=QueryError("Unresolved placeholder: {variables.event_id}"),
+        ):
+            response = self.client.patch(
+                f"/api/environments/{self.team.id}/endpoints/{endpoint.name}/",
+                {"is_materialized": True, "data_freshness_seconds": 86400},
+                format="json",
+            )
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST, response.json())
+        self.assertIn("Unresolved placeholder", str(response.json()))
 
     @parameterized.expand(
         [
@@ -626,7 +654,9 @@ class TestEndpointMaterialization(ClickhouseTestMixin, APIBaseTest):
         )
         saved_query.save()
 
-        with mock.patch("products.endpoints.backend.api.EndpointViewSet._execute_query_and_respond") as mock_execute:
+        with mock.patch(
+            "products.endpoints.backend.logic.execution.EndpointExecutionService._execute_query_and_respond"
+        ) as mock_execute:
             old_cache_time = timezone.now() - timedelta(minutes=30)
             old_cached_response = Response(
                 {
@@ -669,7 +699,9 @@ class TestEndpointMaterialization(ClickhouseTestMixin, APIBaseTest):
         )
         new_saved_query.save()
 
-        with mock.patch("products.endpoints.backend.api.EndpointViewSet._execute_query_and_respond") as mock_execute:
+        with mock.patch(
+            "products.endpoints.backend.logic.execution.EndpointExecutionService._execute_query_and_respond"
+        ) as mock_execute:
             new_cache_time = timezone.now() - timedelta(minutes=5)
             new_cached_response = Response(
                 {
@@ -751,7 +783,7 @@ class TestEndpointMaterialization(ClickhouseTestMixin, APIBaseTest):
             is_materialized=True,
             status=DataWarehouseSavedQuery.Status.COMPLETED,
             sync_frequency_interval=timedelta(hours=1),
-            last_run_at=now - timedelta(hours=2),  # Last run 2 hours ago, sync every 1 hour = stale
+            last_run_at=now - timedelta(hours=2),  # Last run 2 hours ago, freshness target 1 hour = stale
         )
         saved_query.table = DataWarehouseTable.objects.create(
             team=self.team,
@@ -767,6 +799,7 @@ class TestEndpointMaterialization(ClickhouseTestMixin, APIBaseTest):
             query=self.sample_hogql_query,
             created_by=self.user,
             is_active=True,
+            data_freshness_seconds=3600,
         )
         # Link saved_query to version
         version = endpoint.versions.first()
@@ -776,9 +809,11 @@ class TestEndpointMaterialization(ClickhouseTestMixin, APIBaseTest):
         # Mock the execution methods to track which path is taken
         with (
             mock.patch.object(
-                EndpointViewSet, "_execute_materialized_endpoint", return_value=Response({})
+                EndpointExecutionService, "_execute_materialized_endpoint", return_value=Response({})
             ) as mock_materialized,
-            mock.patch.object(EndpointViewSet, "_execute_inline_endpoint", return_value=Response({})) as mock_inline,
+            mock.patch.object(
+                EndpointExecutionService, "_execute_inline_endpoint", return_value=Response({})
+            ) as mock_inline,
         ):
             response = self.client.post(
                 f"/api/environments/{self.team.id}/endpoints/{endpoint.name}/run",
@@ -827,9 +862,11 @@ class TestEndpointMaterialization(ClickhouseTestMixin, APIBaseTest):
         # Mock the execution methods to track which path is taken
         with (
             mock.patch.object(
-                EndpointViewSet, "_execute_materialized_endpoint", return_value=Response({})
+                EndpointExecutionService, "_execute_materialized_endpoint", return_value=Response({})
             ) as mock_materialized,
-            mock.patch.object(EndpointViewSet, "_execute_inline_endpoint", return_value=Response({})) as mock_inline,
+            mock.patch.object(
+                EndpointExecutionService, "_execute_inline_endpoint", return_value=Response({})
+            ) as mock_inline,
         ):
             response = self.client.post(
                 f"/api/environments/{self.team.id}/endpoints/{endpoint.name}/run",
@@ -841,6 +878,104 @@ class TestEndpointMaterialization(ClickhouseTestMixin, APIBaseTest):
             # Should use materialized table because data is fresh
             mock_materialized.assert_called_once()
             mock_inline.assert_not_called()
+
+    @parameterized.expand(
+        [
+            ("stale_serves_inline", timedelta(hours=2), "inline"),
+            ("fresh_serves_materialized", timedelta(minutes=10), "materialized"),
+        ]
+    )
+    def test_v2_migrated_staleness_keys_on_data_freshness(self, _name, materialized_age, expected_path):
+        """Migration to v2 DAG schedules nulls sync_frequency_interval; the serve-time staleness
+        guard must key on the version's data_freshness_seconds or stale data is served forever."""
+        now = timezone.now()
+        saved_query = DataWarehouseSavedQuery.objects.create(
+            team=self.team,
+            name="v2_staleness_endpoint",
+            query=self.sample_hogql_query,
+            is_materialized=True,
+            status=DataWarehouseSavedQuery.Status.COMPLETED,
+            sync_frequency_interval=None,
+            last_run_at=now - materialized_age,
+        )
+        saved_query.table = DataWarehouseTable.objects.create(
+            team=self.team,
+            name="v2_staleness_endpoint",
+            format=DataWarehouseTable.TableFormat.Parquet,
+            url_pattern="s3://test-bucket/path",
+        )
+        saved_query.save()
+
+        endpoint = create_endpoint_with_version(
+            name="v2_staleness_endpoint",
+            team=self.team,
+            query=self.sample_hogql_query,
+            created_by=self.user,
+            is_active=True,
+            data_freshness_seconds=3600,
+        )
+        version = endpoint.versions.first()
+        version.saved_query = saved_query
+        version.save()
+
+        with (
+            mock.patch.object(
+                EndpointExecutionService, "_execute_materialized_endpoint", return_value=Response({})
+            ) as mock_materialized,
+            mock.patch.object(
+                EndpointExecutionService, "_execute_inline_endpoint", return_value=Response({})
+            ) as mock_inline,
+        ):
+            response = self.client.post(
+                f"/api/environments/{self.team.id}/endpoints/{endpoint.name}/run",
+                {},
+                format="json",
+            )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        if expected_path == "inline":
+            mock_inline.assert_called_once()
+            mock_materialized.assert_not_called()
+        else:
+            mock_materialized.assert_called_once()
+            mock_inline.assert_not_called()
+
+    def test_materialization_status_derives_last_materialized_at_from_jobs(self):
+        """v2 DAG runs record success on DataModelingJob without touching saved_query.last_run_at;
+        the status payload must report the real materialization time, not the frozen v1 field."""
+        job_time = timezone.now() - timedelta(minutes=5)
+        saved_query = DataWarehouseSavedQuery.objects.create(
+            team=self.team,
+            name="status_freshness_endpoint",
+            query=self.sample_hogql_query,
+            is_materialized=True,
+            status=DataWarehouseSavedQuery.Status.COMPLETED,
+            last_run_at=timezone.now() - timedelta(days=3),
+        )
+        endpoint = create_endpoint_with_version(
+            name="status_freshness_endpoint",
+            team=self.team,
+            query=self.sample_hogql_query,
+            created_by=self.user,
+            is_active=True,
+        )
+        version = endpoint.versions.first()
+        version.saved_query = saved_query
+        version.save()
+        DataModelingJob.objects.create(
+            team=self.team,
+            saved_query=saved_query,
+            status=DataModelingJob.Status.COMPLETED,
+            engine=DataModelingJob.Engine.CLICKHOUSE,
+            last_run_at=job_time,
+        )
+
+        response = self.client.get(
+            f"/api/environments/{self.team.id}/endpoints/{endpoint.name}/materialization_status/"
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.json()["last_materialized_at"], job_time.isoformat())
 
     def test_force_mode_uses_materialized_table(self):
         """Test that 'force' mode on a materialized endpoint still uses the materialized table (not inline)."""
@@ -876,9 +1011,11 @@ class TestEndpointMaterialization(ClickhouseTestMixin, APIBaseTest):
 
         with (
             mock.patch.object(
-                EndpointViewSet, "_execute_materialized_endpoint", return_value=Response({})
+                EndpointExecutionService, "_execute_materialized_endpoint", return_value=Response({})
             ) as mock_materialized,
-            mock.patch.object(EndpointViewSet, "_execute_inline_endpoint", return_value=Response({})) as mock_inline,
+            mock.patch.object(
+                EndpointExecutionService, "_execute_inline_endpoint", return_value=Response({})
+            ) as mock_inline,
         ):
             response = self.client.post(
                 f"/api/environments/{self.team.id}/endpoints/{endpoint.name}/run",
@@ -925,9 +1062,11 @@ class TestEndpointMaterialization(ClickhouseTestMixin, APIBaseTest):
 
         with (
             mock.patch.object(
-                EndpointViewSet, "_execute_materialized_endpoint", return_value=Response({})
+                EndpointExecutionService, "_execute_materialized_endpoint", return_value=Response({})
             ) as mock_materialized,
-            mock.patch.object(EndpointViewSet, "_execute_inline_endpoint", return_value=Response({})) as mock_inline,
+            mock.patch.object(
+                EndpointExecutionService, "_execute_inline_endpoint", return_value=Response({})
+            ) as mock_inline,
         ):
             response = self.client.post(
                 f"/api/environments/{self.team.id}/endpoints/{endpoint.name}/run",
@@ -1034,7 +1173,9 @@ class TestEndpointMaterialization(ClickhouseTestMixin, APIBaseTest):
 
         # Execute the endpoint and verify it uses the materialized path correctly
         # Must provide the breakdown variable (required for security - prevents data leakage)
-        with mock.patch.object(EndpointViewSet, "_execute_query_and_respond", return_value=Response({})) as mock_exec:
+        with mock.patch.object(
+            EndpointExecutionService, "_execute_query_and_respond", return_value=Response({})
+        ) as mock_exec:
             response = self.client.post(
                 f"/api/environments/{self.team.id}/endpoints/{endpoint.name}/run",
                 {"variables": {"$browser": "Chrome"}},
@@ -1054,6 +1195,147 @@ class TestEndpointMaterialization(ClickhouseTestMixin, APIBaseTest):
             # Should filter by the breakdown value using has() for array column
             self.assertIn("has(breakdown_value", query_sql)
             self.assertIn("chrome", query_sql)
+
+    def test_materialized_insight_filters_override_without_value_does_not_bypass_required_breakdown(self):
+        # SECURITY: a filters_override whose property carries no usable value adds no WHERE clause
+        # in apply_materialized_filters, so it must not be allowed to skip the required-breakdown
+        # check — otherwise the caller gets every materialized breakdown row.
+        trends_query_with_breakdown = {
+            "kind": "TrendsQuery",
+            "series": [{"kind": "EventsNode", "event": "$pageview", "math": "total"}],
+            "dateRange": {"date_from": "-7d"},
+            "interval": "day",
+            "breakdownFilter": {"breakdown": "$browser", "breakdown_type": "event", "breakdown_limit": 5},
+        }
+        _create_event(team=self.team, event="$pageview", distinct_id="user1")
+        flush_persons_and_events()
+
+        endpoint = create_endpoint_with_version(
+            name="trends_breakdown_secure",
+            team=self.team,
+            query=trends_query_with_breakdown,
+            created_by=self.user,
+            is_active=True,
+        )
+        response = self.client.patch(
+            f"/api/environments/{self.team.id}/endpoints/{endpoint.name}/",
+            {"is_materialized": True, "data_freshness_seconds": 43200},
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response.json())
+
+        version = endpoint.versions.first()
+        version.refresh_from_db()
+        saved_query = version.saved_query
+        assert saved_query is not None
+        saved_query.status = DataWarehouseSavedQuery.Status.COMPLETED
+        saved_query.last_run_at = timezone.now()
+        saved_query.table = DataWarehouseTable.objects.create(
+            team=self.team,
+            name="trends_breakdown_secure",
+            format=DataWarehouseTable.TableFormat.Parquet,
+            url_pattern="s3://test-bucket/trends-breakdown-secure",
+        )
+        saved_query.save()
+
+        # Property with a key but no value: passes the deprecated-override gate yet yields no filter.
+        with mock.patch.object(EndpointExecutionService, "_execute_query_and_respond", return_value=Response({})):
+            response = self.client.post(
+                f"/api/environments/{self.team.id}/endpoints/{endpoint.name}/run",
+                {"filters_override": {"properties": [{"key": "$browser", "type": "event"}]}},
+                format="json",
+            )
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST, response.json())
+        self.assertIn("Required variable", str(response.json()))
+
+        # A filters_override that DOES carry a usable value still satisfies the requirement.
+        with mock.patch.object(EndpointExecutionService, "_execute_query_and_respond", return_value=Response({})):
+            response = self.client.post(
+                f"/api/environments/{self.team.id}/endpoints/{endpoint.name}/run",
+                {"filters_override": {"properties": [{"key": "$browser", "type": "event", "value": "Chrome"}]}},
+                format="json",
+            )
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response.json())
+
+    def test_materialized_multi_breakdown_filters_override_does_not_bypass_required_breakdowns(self):
+        # SECURITY: filters_override applies only its first property as a single breakdown filter, so
+        # it can never satisfy a multi-breakdown endpoint — supplying one value must not let the caller
+        # omit the other required breakdown variables (which would leak rows across them).
+        trends_multi_breakdown = {
+            "kind": "TrendsQuery",
+            "series": [{"kind": "EventsNode", "event": "$pageview", "math": "total"}],
+            "dateRange": {"date_from": "-7d"},
+            "interval": "day",
+            "breakdownFilter": {
+                "breakdowns": [
+                    {"property": "$browser", "type": "event"},
+                    {"property": "$os", "type": "event"},
+                ],
+                "breakdown_limit": 5,
+            },
+        }
+        _create_event(team=self.team, event="$pageview", distinct_id="user1")
+        flush_persons_and_events()
+
+        endpoint = create_endpoint_with_version(
+            name="trends_multi_breakdown_secure",
+            team=self.team,
+            query=trends_multi_breakdown,
+            created_by=self.user,
+            is_active=True,
+        )
+        response = self.client.patch(
+            f"/api/environments/{self.team.id}/endpoints/{endpoint.name}/",
+            {"is_materialized": True, "data_freshness_seconds": 43200},
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response.json())
+
+        version = endpoint.versions.first()
+        version.refresh_from_db()
+        saved_query = version.saved_query
+        assert saved_query is not None
+        saved_query.status = DataWarehouseSavedQuery.Status.COMPLETED
+        saved_query.last_run_at = timezone.now()
+        saved_query.table = DataWarehouseTable.objects.create(
+            team=self.team,
+            name="trends_multi_breakdown_secure",
+            format=DataWarehouseTable.TableFormat.Parquet,
+            url_pattern="s3://test-bucket/trends-multi-breakdown-secure",
+        )
+        saved_query.save()
+
+        # Supplying only one breakdown value via filters_override leaves $os unfiltered.
+        with mock.patch.object(EndpointExecutionService, "_execute_query_and_respond", return_value=Response({})):
+            response = self.client.post(
+                f"/api/environments/{self.team.id}/endpoints/{endpoint.name}/run",
+                {"filters_override": {"properties": [{"key": "$browser", "type": "event", "value": "Chrome"}]}},
+                format="json",
+            )
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST, response.json())
+        self.assertIn("Required variable", str(response.json()))
+
+    def test_materialized_multi_breakdown_one_optional_filters_override_does_not_bypass_required(self):
+        # SECURITY: with one of two breakdowns optional, exactly one REQUIRED variable remains — but
+        # filters_override still applies a single positionless filter, so it must not satisfy the
+        # required check on a multi-breakdown endpoint (the required dimension would go unconstrained).
+        endpoint = self._create_materialized_trends_endpoint(
+            name="trends_multi_optional_fo",
+            breakdowns=[
+                {"property": "$os", "type": "event"},
+                {"property": "$browser", "type": "event"},
+            ],
+            optional=["$browser"],
+        )
+
+        with mock.patch.object(EndpointExecutionService, "_execute_query_and_respond", return_value=Response({})):
+            response = self.client.post(
+                f"/api/environments/{self.team.id}/endpoints/{endpoint.name}/run",
+                {"filters_override": {"properties": [{"key": "$os", "type": "event", "value": "Mac OS X"}]}},
+                format="json",
+            )
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST, response.json())
+        self.assertIn("Required variable", str(response.json()))
 
     def test_materialized_hogql_endpoint_with_variable_executes_correctly(self):
         """Test that HogQL endpoints with variables work when materialized.
@@ -1129,7 +1411,9 @@ class TestEndpointMaterialization(ClickhouseTestMixin, APIBaseTest):
         saved_query.save()
 
         # Execute with variable filter
-        with mock.patch.object(EndpointViewSet, "_execute_query_and_respond", return_value=Response({})) as mock_exec:
+        with mock.patch.object(
+            EndpointExecutionService, "_execute_query_and_respond", return_value=Response({})
+        ) as mock_exec:
             response = self.client.post(
                 f"/api/environments/{self.team.id}/endpoints/{endpoint.name}/run",
                 {"variables": {"event_name": "$pageview"}},
@@ -1200,7 +1484,7 @@ class TestEndpointMaterialization(ClickhouseTestMixin, APIBaseTest):
 
         self.assertEqual(response.status_code, status.HTTP_200_OK, response.json())
 
-        from products.data_modeling.backend.models import Node
+        from products.data_modeling.backend.facade.models import Node
 
         version = endpoint.versions.first()
         version.refresh_from_db()
@@ -1229,7 +1513,7 @@ class TestEndpointMaterialization(ClickhouseTestMixin, APIBaseTest):
         assert version.saved_query is not None
         saved_query_id = version.saved_query.id
 
-        from products.data_modeling.backend.models import Node
+        from products.data_modeling.backend.facade.models import Node
 
         self.assertTrue(Node.objects.filter(team=self.team, saved_query_id=saved_query_id).exists())
 
@@ -1262,7 +1546,7 @@ class TestEndpointMaterialization(ClickhouseTestMixin, APIBaseTest):
         assert version.saved_query is not None
         saved_query_id = version.saved_query.id
 
-        from products.data_modeling.backend.models import Node
+        from products.data_modeling.backend.facade.models import Node
 
         self.assertTrue(Node.objects.filter(team=self.team, saved_query_id=saved_query_id).exists())
 
@@ -1316,7 +1600,7 @@ class TestEndpointMaterialization(ClickhouseTestMixin, APIBaseTest):
         self.assertNotIn(BREAKDOWN_OTHER_STRING_LABEL, hogql_text)
 
     def test_materialization_failure_after_query_change_returns_success_with_error(self):
-        from products.warehouse_sources.backend.models.table import DataWarehouseTable
+        from products.warehouse_sources.backend.facade.models import DataWarehouseTable
 
         initial_query = {"kind": "HogQLQuery", "query": "SELECT * FROM events LIMIT 10"}
         endpoint = create_endpoint_with_version(
@@ -1351,7 +1635,9 @@ class TestEndpointMaterialization(ClickhouseTestMixin, APIBaseTest):
         # Update with a new query — version creation succeeds, but materialization fails
         new_query = {"kind": "HogQLQuery", "query": "SELECT * FROM events WHERE timestamp > now() - INTERVAL 1 DAY"}
         with mock.patch.object(
-            EndpointViewSet, "_enable_materialization_inner", side_effect=Exception("Temporal unavailable")
+            EndpointMaterializationService,
+            "_enable_materialization_inner",
+            side_effect=Exception("Temporal unavailable"),
         ):
             response = self.client.put(
                 f"/api/environments/{self.team.id}/endpoints/{endpoint.name}/",
@@ -1379,7 +1665,9 @@ class TestEndpointMaterialization(ClickhouseTestMixin, APIBaseTest):
         )
 
         with mock.patch.object(
-            EndpointViewSet, "_enable_materialization_inner", side_effect=Exception("Temporal unavailable")
+            EndpointMaterializationService,
+            "_enable_materialization_inner",
+            side_effect=Exception("Temporal unavailable"),
         ):
             response = self.client.patch(
                 f"/api/environments/{self.team.id}/endpoints/{endpoint.name}/",
@@ -1387,7 +1675,8 @@ class TestEndpointMaterialization(ClickhouseTestMixin, APIBaseTest):
                 format="json",
             )
 
-        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        # Unexpected internal failures surface as a server error, not a request error
+        self.assertEqual(response.status_code, status.HTTP_500_INTERNAL_SERVER_ERROR)
 
     def test_materialized_relative_date_range_advances_on_refresh(self):
         _create_event(team=self.team, event="$pageview", distinct_id="u1")
@@ -1441,6 +1730,204 @@ class TestEndpointMaterialization(ClickhouseTestMixin, APIBaseTest):
         with self.assertRaises(OrphanedEndpointSavedQueryError):
             prepare_executable_query(saved_query)
 
+    def test_enable_materialization_links_version_before_immediate_run(self):
+        endpoint = create_endpoint_with_version(
+            name="hundred",
+            team=self.team,
+            query=self.sample_hogql_query,
+            created_by=self.user,
+            is_active=True,
+        )
+
+        observed: dict = {}
+
+        def simulate_immediate_temporal_run(self_saved_query):
+            # schedule_materialization() triggers an immediate run on a separate worker
+            # process, which sees only committed DB state. Capture whether the version is
+            # already linked, then run the real activity code that throws when it isn't.
+            observed["link_committed"] = EndpointVersion.objects.filter(saved_query_id=self_saved_query.id).exists()
+            prepare_executable_query(self_saved_query)
+
+        with mock.patch.object(
+            DataWarehouseSavedQuery,
+            "schedule_materialization",
+            autospec=True,
+            side_effect=simulate_immediate_temporal_run,
+        ):
+            response = self.client.patch(
+                f"/api/environments/{self.team.id}/endpoints/{endpoint.name}/",
+                {"is_materialized": True, "data_freshness_seconds": 86400},
+                format="json",
+            )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response.json())
+        self.assertTrue(
+            observed.get("link_committed"),
+            "EndpointVersion must be linked to the saved query before materialization is scheduled",
+        )
+
+    def _create_materialized_trends_endpoint(self, name: str, breakdowns: list[dict], optional: list[str]):
+        """Shared helper for the optional-breakdown tests. Stands up a materialized TrendsQuery
+        endpoint whose saved_query is in COMPLETED status with a backing DataWarehouseTable —
+        the same minimal setup `test_materialized_insight_endpoint_with_breakdown_executes_correctly`
+        uses to drive the materialized read path."""
+        trends_query = {
+            "kind": "TrendsQuery",
+            "series": [{"kind": "EventsNode", "event": "$pageview", "math": "total"}],
+            "dateRange": {"date_from": "-7d"},
+            "interval": "day",
+            "breakdownFilter": {"breakdowns": breakdowns, "breakdown_limit": 5},
+        }
+
+        _create_event(team=self.team, event="$pageview", distinct_id="user1")
+        flush_persons_and_events()
+
+        endpoint = create_endpoint_with_version(
+            name=name,
+            team=self.team,
+            query=trends_query,
+            created_by=self.user,
+            is_active=True,
+        )
+        # Persist the optional list on the live version.
+        version = endpoint.versions.first()
+        version.optional_breakdown_properties = optional
+        version.save(update_fields=["optional_breakdown_properties"])
+
+        response = self.client.patch(
+            f"/api/environments/{self.team.id}/endpoints/{endpoint.name}/",
+            {"is_materialized": True, "data_freshness_seconds": 43200},
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response.json())
+
+        version.refresh_from_db()
+        saved_query = version.saved_query
+        assert saved_query is not None
+        saved_query.status = DataWarehouseSavedQuery.Status.COMPLETED
+        saved_query.last_run_at = timezone.now()
+        saved_query.table = DataWarehouseTable.objects.create(
+            team=self.team,
+            name=name,
+            format=DataWarehouseTable.TableFormat.Parquet,
+            url_pattern=f"s3://test-bucket/{name}",
+        )
+        saved_query.save()
+        return endpoint
+
+    def test_optional_breakdown_materialized_allows_missing_variable(self):
+        """Materialized endpoint with $browser marked optional should accept /run with no variables — and
+        the resulting HogQL should NOT include a $browser WHERE filter (aggregate across all values)."""
+        endpoint = self._create_materialized_trends_endpoint(
+            name="trends_browser_optional",
+            breakdowns=[{"property": "$browser", "type": "event"}],
+            optional=["$browser"],
+        )
+
+        with mock.patch.object(
+            EndpointExecutionService, "_execute_query_and_respond", return_value=Response({})
+        ) as mock_exec:
+            response = self.client.post(
+                f"/api/environments/{self.team.id}/endpoints/{endpoint.name}/run",
+                {},
+                format="json",
+            )
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response.json())
+        mock_exec.assert_called()
+        query_payload = mock_exec.call_args[0][0]["query"]
+        self.assertEqual(query_payload["kind"], "HogQLQuery")
+        # No breakdown_value WHERE filter when the dimension is optional and absent.
+        self.assertNotIn("has(breakdown_value", query_payload["query"].lower())
+
+    def test_optional_breakdown_materialized_still_allows_explicit_value(self):
+        """Even though $browser is optional, callers can still pass it and get a filtered result."""
+        endpoint = self._create_materialized_trends_endpoint(
+            name="trends_browser_opt_explicit",
+            breakdowns=[{"property": "$browser", "type": "event"}],
+            optional=["$browser"],
+        )
+
+        with mock.patch.object(
+            EndpointExecutionService, "_execute_query_and_respond", return_value=Response({})
+        ) as mock_exec:
+            response = self.client.post(
+                f"/api/environments/{self.team.id}/endpoints/{endpoint.name}/run",
+                {"variables": {"$browser": "Chrome"}},
+                format="json",
+            )
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response.json())
+        mock_exec.assert_called()
+        query_sql = mock_exec.call_args[0][0]["query"]["query"].lower()
+        self.assertIn("has(breakdown_value", query_sql)
+        self.assertIn("chrome", query_sql)
+
+    def test_required_breakdown_still_400s_when_missing(self):
+        """Without the flag, behavior is unchanged — missing breakdown var on a materialized endpoint
+        is still rejected. This is the regression check on the security wall."""
+        endpoint = self._create_materialized_trends_endpoint(
+            name="trends_browser_required",
+            breakdowns=[{"property": "$browser", "type": "event"}],
+            optional=[],
+        )
+
+        response = self.client.post(
+            f"/api/environments/{self.team.id}/endpoints/{endpoint.name}/run",
+            {},
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST, response.json())
+        self.assertIn("$browser", response.json().get("detail", ""))
+
+    def test_multi_breakdown_one_required_one_optional_only_required_provided(self):
+        """The headline path: 2 breakdowns, $os required and $browser optional. Caller passes only
+        $os. Expect 200, $os filter applied, no $browser filter — aggregate across all browsers."""
+        endpoint = self._create_materialized_trends_endpoint(
+            name="trends_multi_one_optional",
+            breakdowns=[
+                {"property": "$os", "type": "event"},
+                {"property": "$browser", "type": "event"},
+            ],
+            optional=["$browser"],
+        )
+
+        with mock.patch.object(
+            EndpointExecutionService, "_execute_query_and_respond", return_value=Response({})
+        ) as mock_exec:
+            response = self.client.post(
+                f"/api/environments/{self.team.id}/endpoints/{endpoint.name}/run",
+                {"variables": {"$os": "Mac OS X"}},
+                format="json",
+            )
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response.json())
+        mock_exec.assert_called()
+        query_sql = mock_exec.call_args[0][0]["query"]["query"].lower()
+        # The $os filter lands on breakdown_value[N]; the $browser filter does NOT appear at all
+        # — there's only one positional breakdown_value index referenced.
+        self.assertEqual(query_sql.count("breakdown_value["), 1)
+        self.assertIn("mac os x", query_sql)
+
+    def test_multi_breakdown_one_required_one_optional_missing_required_rejected(self):
+        """Inverse of the above: optional $browser is fine, but missing required $os 400s."""
+        endpoint = self._create_materialized_trends_endpoint(
+            name="trends_multi_missing_required",
+            breakdowns=[
+                {"property": "$os", "type": "event"},
+                {"property": "$browser", "type": "event"},
+            ],
+            optional=["$browser"],
+        )
+
+        response = self.client.post(
+            f"/api/environments/{self.team.id}/endpoints/{endpoint.name}/run",
+            {},
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST, response.json())
+        # Required missing list should mention $os, not $browser.
+        detail = response.json().get("detail", "")
+        self.assertIn("$os", detail)
+        self.assertNotIn("$browser", detail)
+
     def test_build_endpoint_hogql_performs_no_db_writes(self):
         _create_event(team=self.team, event="$pageview", distinct_id="u1")
         flush_persons_and_events()
@@ -1457,6 +1944,162 @@ class TestEndpointMaterialization(ClickhouseTestMixin, APIBaseTest):
         write_prefixes = ("insert", "update", "delete")
         writes = [q["sql"] for q in ctx.captured_queries if q["sql"].lstrip().lower().startswith(write_prefixes)]
         self.assertEqual(writes, [], f"build_endpoint_hogql wrote to Postgres: {writes}")
+
+    def test_deactivating_one_version_keeps_current_version_materialization(self):
+        """PATCH ?version=N {is_active: false} must not touch the current version's materialization."""
+        endpoint = create_endpoint_with_version(
+            name="version-deactivate-endpoint",
+            team=self.team,
+            query=self.sample_hogql_query,
+            created_by=self.user,
+            is_active=True,
+        )
+
+        # Create v2 by changing the query
+        response = self.client.patch(
+            f"/api/environments/{self.team.id}/endpoints/{endpoint.name}/",
+            {"query": {"kind": "HogQLQuery", "query": "SELECT event FROM events LIMIT 5"}},
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response.json())
+
+        # Materialize v2 (the current version)
+        response = self.client.patch(
+            f"/api/environments/{self.team.id}/endpoints/{endpoint.name}/",
+            {"is_materialized": True},
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response.json())
+        v2 = endpoint.get_version(2)
+        self.assertIsNotNone(v2.saved_query)
+
+        # Deactivate v1 only
+        response = self.client.patch(
+            f"/api/environments/{self.team.id}/endpoints/{endpoint.name}/",
+            {"is_active": False, "version": 1},
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response.json())
+
+        v1 = endpoint.get_version(1)
+        self.assertFalse(v1.is_active)
+        endpoint.refresh_from_db()
+        self.assertTrue(endpoint.is_active)
+
+        # v2's materialization must be untouched
+        v2.refresh_from_db()
+        self.assertIsNotNone(v2.saved_query_id, "current version's materialization was disabled by mistake")
+        assert v2.saved_query is not None
+        self.assertFalse(v2.saved_query.deleted)
+
+    def test_deactivating_materialized_version_disables_its_materialization(self):
+        """PATCH ?version=N {is_active: false} on a materialized version tears down its own schedule."""
+        endpoint = create_endpoint_with_version(
+            name="version-deactivate-materialized",
+            team=self.team,
+            query=self.sample_hogql_query,
+            created_by=self.user,
+            is_active=True,
+        )
+
+        response = self.client.patch(
+            f"/api/environments/{self.team.id}/endpoints/{endpoint.name}/",
+            {"is_materialized": True},
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response.json())
+        v1 = endpoint.get_version(1)
+        self.assertIsNotNone(v1.saved_query_id)
+        saved_query_id = v1.saved_query_id
+
+        response = self.client.patch(
+            f"/api/environments/{self.team.id}/endpoints/{endpoint.name}/",
+            {"is_active": False, "version": 1},
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response.json())
+
+        v1.refresh_from_db()
+        self.assertFalse(v1.is_active)
+        self.assertIsNone(v1.saved_query_id, "deactivated version kept its materialization")
+        self.assertTrue(DataWarehouseSavedQuery.objects.get(id=saved_query_id).deleted)
+
+    def test_deactivating_endpoint_disables_all_versions_materialization(self):
+        """Deactivating the endpoint must tear down every materialized version, not just the current one."""
+        endpoint = create_endpoint_with_version(
+            name="endpoint-deactivate-all",
+            team=self.team,
+            query=self.sample_hogql_query,
+            created_by=self.user,
+            is_active=True,
+        )
+
+        # Materialize v1 (current), then bump to v2 via a query change and materialize it too —
+        # leaving both versions materialized at once.
+        self.client.patch(
+            f"/api/environments/{self.team.id}/endpoints/{endpoint.name}/",
+            {"is_materialized": True},
+            format="json",
+        )
+        self.client.patch(
+            f"/api/environments/{self.team.id}/endpoints/{endpoint.name}/",
+            {"query": {"kind": "HogQLQuery", "query": "SELECT event FROM events LIMIT 5"}},
+            format="json",
+        )
+        v1 = endpoint.get_version(1)
+        v2 = endpoint.get_version(2)
+        self.assertIsNotNone(v1.saved_query_id)
+        self.assertIsNotNone(v2.saved_query_id)
+        v1_saved_query_id = v1.saved_query_id
+        v2_saved_query_id = v2.saved_query_id
+
+        response = self.client.patch(
+            f"/api/environments/{self.team.id}/endpoints/{endpoint.name}/",
+            {"is_active": False},
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response.json())
+
+        v1.refresh_from_db()
+        v2.refresh_from_db()
+        self.assertIsNone(v1.saved_query_id, "non-current version kept its materialization")
+        self.assertIsNone(v2.saved_query_id, "current version kept its materialization")
+        self.assertTrue(DataWarehouseSavedQuery.objects.get(id=v1_saved_query_id).deleted)
+        self.assertTrue(DataWarehouseSavedQuery.objects.get(id=v2_saved_query_id).deleted)
+        self.assertIsNone(v1.saved_query_id, "non-current version kept its materialization")
+        self.assertIsNone(v2.saved_query_id, "current version kept its materialization")
+        self.assertTrue(DataWarehouseSavedQuery.objects.get(id=v1_saved_query_id).deleted)
+        self.assertTrue(DataWarehouseSavedQuery.objects.get(id=v2_saved_query_id).deleted)
+
+    def test_enable_materialization_does_not_hijack_user_saved_query(self):
+        """A user-created saved query whose name collides with {endpoint}_v{n} must not be taken over."""
+        endpoint = create_endpoint_with_version(
+            name="hijack-target",
+            team=self.team,
+            query=self.sample_hogql_query,
+            created_by=self.user,
+            is_active=True,
+        )
+        user_query = {"kind": "HogQLQuery", "query": "SELECT 42 AS answer"}
+        user_saved_query = DataWarehouseSavedQuery.objects.create(
+            team=self.team,
+            name="hijack-target_v1",
+            query=user_query,
+        )
+
+        response = self.client.patch(
+            f"/api/environments/{self.team.id}/endpoints/{endpoint.name}/",
+            {"is_materialized": True},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST, response.json())
+
+        user_saved_query.refresh_from_db()
+        self.assertEqual(user_saved_query.query, user_query, "user's saved query was overwritten")
+        self.assertFalse(user_saved_query.is_materialized)
+        version = endpoint.get_version()
+        self.assertIsNone(version.saved_query_id)
 
 
 @pytest.mark.asyncio

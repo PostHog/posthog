@@ -2,12 +2,17 @@ import { Meta, StoryObj } from '@storybook/react'
 import { useMountedLogic } from 'kea'
 import { useState } from 'react'
 
+import { formatPropertyLabel } from 'lib/components/PropertyFilters/utils'
 import { taxonomicFilterMocksDecorator } from 'lib/components/TaxonomicFilter/__mocks__/taxonomicFilterMocksDecorator'
+import { FEATURE_FLAGS } from 'lib/constants'
 
 import { actionsModel } from '~/models/actionsModel'
+import { getCoreFilterDefinition } from '~/taxonomy/helpers'
+import { AnyPropertyFilter, PropertyFilterType, PropertyOperator } from '~/types'
 
 import { TaxonomicFilterHeadless } from '../headless'
 import { DataWarehousePopoverField, TaxonomicFilterGroup, TaxonomicFilterGroupType } from '../types'
+import { MenuFilterCombobox } from './Combobox'
 import { MenuFilterDwhConfig } from './DwhFlow'
 import { TaxonomicFilterMenu } from './TaxonomicFilterMenu'
 import { MenuFilterEntry } from './types'
@@ -292,9 +297,137 @@ function DwhConfigContainer(): JSX.Element {
 export const DataWarehouseConfig: Story = {
     render: () => <DwhConfigContainer />,
     parameters: {
+        featureFlags: { [FEATURE_FLAGS.TAXONOMIC_FILTER_MENU_REBUILD]: true },
+        testOptions: {
+            waitForSelector: '[data-attr="dwh-config-back"]',
+            snapshotTargetSelector: '[data-slot="dialog-content"]',
+        },
         docs: {
             description: {
                 story: 'DataWarehouse config form rendered standalone so it lands on the DWH interface immediately. Wide table with mixed types (string / integer / decimal / datetime / boolean / lazy_table / view) exercises every column-type filter in the dropdowns plus the linked-tables hint in the HogQL fallback. Tabs are configured to mirror the funnel popover (Aggregation target / Timestamp / Unique ID).',
+            },
+        },
+    },
+}
+
+// ---- Default "All" surface with recents/pinned --------------------------
+// Renders the combobox directly on the `all` scope so the recents-first
+// default surface is the initial snapshot (no click-through the dropdown
+// menu first). Recents/pinned are synthesized so the order is deterministic.
+
+function recentPinnedEntry(groupType: TaxonomicFilterGroupType, name: string, groupName: string): MenuFilterEntry {
+    return {
+        item: { name } as never,
+        group: {
+            type: groupType,
+            name: groupName,
+            getName: (t: any) => t?.name,
+            getValue: (t: any) => t?.name,
+        } as unknown as TaxonomicFilterGroup,
+        name,
+    }
+}
+
+function DefaultSurfaceContainer(): JSX.Element {
+    useMountedLogic(actionsModel)
+    const recentEntries = [
+        recentPinnedEntry(TaxonomicFilterGroupType.Events, 'signed up', 'Events'),
+        recentPinnedEntry(TaxonomicFilterGroupType.EventProperties, 'plan', 'Event properties'),
+    ]
+    const pinnedEntries = [recentPinnedEntry(TaxonomicFilterGroupType.EventProperties, 'industry', 'Event properties')]
+    return (
+        <div className="flex flex-col gap-3 max-w-2xl">
+            <TaxonomicFilterHeadless.Root
+                bindRootProps={false}
+                taxonomicGroupTypes={[
+                    TaxonomicFilterGroupType.Events,
+                    TaxonomicFilterGroupType.Actions,
+                    TaxonomicFilterGroupType.EventProperties,
+                ]}
+            >
+                <div className="border rounded overflow-hidden flex flex-col w-[720px] h-[480px] bg-surface-primary">
+                    <MenuFilterCombobox
+                        drillTo="all"
+                        recentEntries={recentEntries}
+                        pinnedEntries={pinnedEntries}
+                        onCommit={() => {}}
+                        onBack={() => {}}
+                    />
+                </div>
+            </TaxonomicFilterHeadless.Root>
+        </div>
+    )
+}
+
+export const DefaultSurfaceWithRecents: Story = {
+    // Excluded from the snapshot/flake gate: the combobox autofocuses, fetches
+    // content lists, and the preview pane loads definition metadata async, so
+    // the render isn't pixel-stable across runs. Kept for the Storybook demo;
+    // the recents-first behaviour is covered by RTL in Combobox.test.tsx.
+    tags: ['test-skip'],
+    render: () => <DefaultSurfaceContainer />,
+    parameters: {
+        docs: {
+            description: {
+                story: 'The default "All" surface staff land on, brought in line with the pill variant: recents lead, then pinned, then the cross-tab content in fixed (learnable) order. Recent/pinned rows are tagged with their source (e.g. "Events - recent"), and the category dropdown exposes Recent and Pinned alongside the content categories so they stay navigable.',
+            },
+        },
+    },
+}
+
+function bareKeyRecentEntries(): MenuFilterEntry[] {
+    const group = {
+        type: TaxonomicFilterGroupType.EventProperties,
+        name: 'Event properties',
+        getName: (item: { name?: string }) => item?.name,
+        getValue: (item: { name?: string }) => item?.name,
+    } as unknown as TaxonomicFilterGroup
+    const friendlyLabel = getCoreFilterDefinition('$browser', TaxonomicFilterGroupType.EventProperties)?.label
+    const propertyFilter: AnyPropertyFilter = {
+        type: PropertyFilterType.Event,
+        key: '$browser',
+        operator: PropertyOperator.Exact,
+        value: 'Chrome',
+    }
+    const bareKey = { item: { name: '$browser' }, group, name: '$browser', friendlyLabel } as MenuFilterEntry
+    const full = {
+        item: { name: '$browser' },
+        group,
+        name: '$browser',
+        friendlyLabel,
+        recentPropertyFilter: propertyFilter,
+        recentLabel: formatPropertyLabel(propertyFilter, {}),
+    } as MenuFilterEntry
+    return [bareKey, full]
+}
+
+function BareKeyRecentsContainer(): JSX.Element {
+    useMountedLogic(actionsModel)
+    return (
+        <TaxonomicFilterHeadless.Root
+            bindRootProps={false}
+            taxonomicGroupTypes={[TaxonomicFilterGroupType.EventProperties]}
+        >
+            <div className="border rounded overflow-hidden flex flex-col w-[720px] h-[420px] bg-surface-primary">
+                <MenuFilterCombobox
+                    drillTo="recent"
+                    drillItems={bareKeyRecentEntries()}
+                    title="Recent"
+                    onCommit={() => {}}
+                    onBack={() => {}}
+                />
+            </div>
+        </TaxonomicFilterHeadless.Root>
+    )
+}
+
+export const RecentsBareKeyExpansion: Story = {
+    render: () => <BareKeyRecentsContainer />,
+    parameters: {
+        testOptions: { waitForSelector: '[data-slot="menu-filter-preview"]' },
+        docs: {
+            description: {
+                story: "The menu combobox's Recent drill after a complete recent (`Browser = Chrome`) was used. The bare key (`Browser`) leads so a user can jump to the key and pick a fresh value, and the full recent (`Browser = Chrome`) follows.",
             },
         },
     },

@@ -1,22 +1,30 @@
+from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
-from typing import Optional
+from typing import TYPE_CHECKING, Optional
 from uuid import UUID
 
+import dateutil.parser
 import posthoganalytics
+from pydantic import ValidationError
+
+from posthog.schema import MaxBillingContext
 
 from posthog.clickhouse.client import sync_execute
 from posthog.clickhouse.client.connection import Workload
 from posthog.clickhouse.query_tagging import Feature, Product, tags_context
-from posthog.models.group_type_mapping import get_group_types_for_team
 from posthog.tasks.usage_report import (
     AI_BILLING_EXCLUDED_TOOLS,
     AI_COST_MARKUP_PERCENT,
     CLOUD_REGION_TO_TEAM_ID,
     CLOUD_REGION_TO_URL,
+    build_ai_billing_region_filter,
 )
 from posthog.utils import get_instance_region
 
-from ee.models.assistant import Conversation
+from products.posthog_ai.backend.models.assistant import Conversation
+
+if TYPE_CHECKING:
+    from posthog.models import Team
 
 # Default free tier limit in credits
 DEFAULT_FREE_TIER_CREDITS = 2000
@@ -30,23 +38,13 @@ CH_BILLING_SETTINGS = {
     "max_execution_time": 60,  # 1 minute
 }
 
-# Name of the group type whose value is the customer cloud URL (e.g. https://eu.posthog.com).
-# Sent via `event_usage.groups(...)` when capturing $ai_trace / $ai_generation events.
-INSTANCE_GROUP_TYPE = "instance"
 
-
-def _get_instance_group_type_index(team_id: int) -> int | None:
-    """Resolve the $group_N index that holds the cloud URL for the given internal AI events team.
-
-    group_type_index is assigned in the order group types were registered per project,
-    so the same `instance` group lives at different indexes between the EU (team 1)
-    and US (team 2) internal projects.
-    """
-    for mapping in get_group_types_for_team(team_id):
-        if mapping.get("group_type") == INSTANCE_GROUP_TYPE:
-            index = mapping.get("group_type_index")
-            return int(index) if index is not None else None
-    return None
+@dataclass(frozen=True)
+class AiUsagePeriod:
+    label: str
+    start: datetime
+    end: datetime
+    query_start: datetime
 
 
 def _get_billing_config_payload() -> dict | None:
@@ -154,13 +152,14 @@ def get_ai_credits(
     # Only filter by region in production (EU/US) - local dev events don't have region set.
     # The $group_N index for the `instance` group differs across internal projects,
     # so resolve it from the destination team rather than hard-coding $group_1.
-    is_production = region in ["EU", "US"]
-    instance_group_index = _get_instance_group_type_index(team_to_query) if is_production else None
-    region_filter = (
-        f"AND JSONExtractString(properties, '$group_{instance_group_index}') = %(region_url)s"
-        if instance_group_index is not None
-        else ""
-    )
+    region_filter_clause = ""
+    region_filter_params: dict[str, str] = {}
+    if region in CLOUD_REGION_TO_TEAM_ID:
+        region_filter = build_ai_billing_region_filter(team_to_query, CLOUD_REGION_TO_URL[region_value])
+        if region_filter is None:
+            return 0
+        region_filter_params = region_filter
+        region_filter_clause = "AND JSONExtractString(properties, %(region_group_property)s) = %(region_url)s"
 
     # Session filter expression for PREWHERE (must NOT use alias)
     session_filter_prewhere = (
@@ -227,7 +226,7 @@ def get_ai_credits(
                 FROM events
                 PREWHERE
                     team_id = %(team_to_query)s
-                    {region_filter}
+                    {region_filter_clause}
                     AND timestamp >= %(begin)s
                     AND timestamp < %(end)s
                     AND event = '$ai_trace'
@@ -250,7 +249,7 @@ def get_ai_credits(
                 FROM events
                 PREWHERE
                     team_id = %(team_to_query)s
-                    {region_filter}
+                    {region_filter_clause}
                     AND timestamp >= %(begin)s
                     AND timestamp < %(end)s
                     AND event = '$ai_generation'
@@ -277,10 +276,8 @@ def get_ai_credits(
             "end": end,
             "markup_multiplier": 1 + AI_COST_MARKUP_PERCENT,
             "excluded_tools": AI_BILLING_EXCLUDED_TOOLS,
+            **region_filter_params,
         }
-
-        if instance_group_index is not None:
-            params["region_url"] = CLOUD_REGION_TO_URL[region_value]
 
         if conversation_id:
             params["session_id"] = str(conversation_id)
@@ -312,19 +309,99 @@ def get_past_month_start() -> datetime:
     return max(thirty_days_ago, ga_launch_date)
 
 
+def _parse_period_datetime(value: object) -> datetime | None:
+    if not isinstance(value, str):
+        return None
+
+    try:
+        parsed = dateutil.parser.isoparse(value)
+    except (ValueError, TypeError):
+        return None
+
+    if parsed.tzinfo is None:
+        parsed = parsed.replace(tzinfo=UTC)
+    return parsed.astimezone(UTC)
+
+
+def _build_billing_period(start_value: object, end_value: object) -> tuple[datetime, datetime] | None:
+    start = _parse_period_datetime(start_value)
+    end = _parse_period_datetime(end_value)
+
+    if start is None or end is None or start >= end:
+        return None
+
+    return start, end
+
+
+def _get_billing_period_from_context(
+    billing_context: MaxBillingContext | dict[str, object] | None,
+) -> tuple[datetime, datetime] | None:
+    if not billing_context:
+        return None
+
+    try:
+        context = (
+            billing_context
+            if isinstance(billing_context, MaxBillingContext)
+            else MaxBillingContext.model_validate(billing_context)
+        )
+    except ValidationError:
+        return None
+
+    if not context.billing_period:
+        return None
+
+    return _build_billing_period(
+        context.billing_period.current_period_start,
+        context.billing_period.current_period_end,
+    )
+
+
+def _get_billing_period_from_organization(team: "Team") -> tuple[datetime, datetime] | None:
+    usage = team.organization.usage
+    if not isinstance(usage, dict):
+        return None
+
+    period = usage.get("period")
+    if not isinstance(period, list) or len(period) < 2:
+        return None
+
+    return _build_billing_period(period[0], period[1])
+
+
+def get_ai_usage_period(team: "Team", billing_context: MaxBillingContext | dict[str, object] | None) -> AiUsagePeriod:
+    billing_period = _get_billing_period_from_context(billing_context) or _get_billing_period_from_organization(team)
+    if billing_period:
+        period_start, period_end = billing_period
+        return AiUsagePeriod(
+            label="Billing period",
+            start=period_start,
+            end=period_end,
+            query_start=max(period_start, get_ga_launch_date()),
+        )
+
+    start = get_past_month_start()
+    return AiUsagePeriod(
+        label="Past 30 days",
+        start=start,
+        end=datetime.now(UTC),
+        query_start=start,
+    )
+
+
 def format_usage_message(
     conversation_credits: int,
-    past_month_credits: int,
+    period_credits: int,
     free_tier_credits: int,
     conversation_start: Optional[datetime] = None,
-    past_month_start: Optional[datetime] = None,
+    usage_period: Optional[AiUsagePeriod] = None,
 ) -> str:
     """
     Format the usage information into a user-friendly message with a compact layout
     and a simple progress bar against the free tier for the current team_id.
     """
-    remaining = free_tier_credits - past_month_credits
-    used = past_month_credits
+    remaining = free_tier_credits - period_credits
+    used = period_credits
 
     # Unicode progress bar (20 segments)
     bar_segments = 20
@@ -337,19 +414,30 @@ def format_usage_message(
 
     lines: list[str] = [f"## {POSTHOG_AI_USAGE_REPORT_ASSISTANT_MESSAGE_TITLE}", ""]
 
-    # Determine if GA cap is active
+    if usage_period is None:
+        fallback_start = get_past_month_start()
+        usage_period = AiUsagePeriod(
+            label="Past 30 days",
+            start=fallback_start,
+            end=datetime.now(UTC),
+            query_start=fallback_start,
+        )
     ga_launch_date = get_ga_launch_date()
-    ga_cap_active = past_month_start is not None and past_month_start.date() == ga_launch_date.date()
-    past_30_label = "**Past 30 days**" + (f" (since {ga_launch_date.strftime('%Y-%m-%d')})" if ga_cap_active else "")
+    ga_cap_active = usage_period.start < ga_launch_date and usage_period.query_start.date() == ga_launch_date.date()
+    period_label = f"**{usage_period.label}**"
+    if usage_period.label == "Billing period":
+        period_label += f" ({usage_period.start.strftime('%Y-%m-%d')} to {usage_period.end.strftime('%Y-%m-%d')})"
+    if ga_cap_active:
+        period_label += f" (since {ga_launch_date.strftime('%Y-%m-%d')})"
 
     lines.append(f"**Current conversation**: {conversation_credits:,} credits\n")
-    lines.append(f"{past_30_label}: {past_month_credits:,} credits\n")
+    lines.append(f"{period_label}: {period_credits:,} credits\n")
     lines.append(f"**Free tier limit**: {free_tier_credits:,} credits\n")
 
     # Progress bar + percent
     if free_tier_credits > 0:
         pct_label = f"{percent:.0f}% of free tier" if percent <= 999 else "999%+ of free tier"
-        lines.append(f"**Usage this period**: {bar} {pct_label}\n")
+        lines.append(f"**{usage_period.label} usage**: {bar} {pct_label}\n")
 
     # Remaining or overage
     if remaining >= 0:
@@ -362,13 +450,24 @@ def format_usage_message(
     if conversation_start:
         lines.append(f"_Conversation since_: {conversation_start.astimezone(UTC).strftime('%Y-%m-%d %H:%M UTC')}\n")
 
+    if usage_period.label == "Billing period":
+        lines.append(f"_Billing period resets on_: {usage_period.end.strftime('%Y-%m-%d %H:%M UTC')}\n")
+
     lines.append("")
+    if usage_period.label == "Billing period":
+        lines.append(
+            "_Current conversation resets when you start a new chat; billing period usage resets at the end of this billing period._"
+        )
+    else:
+        lines.append(
+            "_Current conversation resets when you start a new chat; past 30 days is rolling usage for this project because billing period information is unavailable._"
+        )
     lines.append("_Note: Usage data depends on AI trace ingestion and may lag slightly behind real-time activity._")
 
     # Add GA cap explanation if active
     if ga_cap_active:
         lines.append(
-            f"\n_Past 30 days usage is calculated from PostHog AI general availability date ({ga_launch_date.strftime('%b %d, %Y')}) "
+            f"\n_{usage_period.label} usage is calculated from PostHog AI general availability date ({ga_launch_date.strftime('%b %d, %Y')}) "
             "as usage before this date is not counted._"
         )
 

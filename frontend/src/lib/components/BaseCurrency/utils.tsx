@@ -6,7 +6,7 @@ import {
     DISABLED_CURRENCIES,
     IMPORTANT_CURRENCIES,
     OTHER_CURRENCIES,
-} from 'lib/utils/geography/currency'
+} from 'lib/utils/currency'
 
 import { CurrencyCode } from '~/queries/schema/schema-general'
 

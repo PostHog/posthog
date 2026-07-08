@@ -1,4 +1,3 @@
-import pytest
 from posthog.test.base import APIBaseTest
 
 from parameterized import parameterized
@@ -9,7 +8,6 @@ from posthog.models.oauth import OAuthApplication
 from posthog.models.organization import Organization
 
 
-@pytest.mark.requires_secrets
 class TestOrganizationOAuthApplicationViewSet(APIBaseTest):
     expected_fields = {"id", "name", "client_id", "redirect_uris_list", "is_verified", "created", "updated"}
 

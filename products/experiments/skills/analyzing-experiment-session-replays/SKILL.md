@@ -36,19 +36,19 @@ First, retrieve the experiment information and the feature flag variants (source
 
 You can either:
 
-- **Option A**: Use the `experiment_results_summary` tool if you already have the experiment ID from context
+- **Option A**: Use the `experiment-get` tool if you already have the experiment ID from context
 - **Option B**: Query the experiments table via HogQL:
 
 ```sql
 SELECT
-    id,
-    name,
-    feature_flag_key,
-    start_date,
-    end_date
-FROM system.experiments
-WHERE id = <experiment_id>
-  AND team_id = <team_id>
+    e.id,
+    e.name,
+    f.key AS feature_flag_key,
+    e.start_date,
+    e.end_date
+FROM system.experiments e
+JOIN system.feature_flags f ON f.id = e.feature_flag_id
+WHERE e.id = <experiment_id>
 ```
 
 From the experiment data, extract:
@@ -64,15 +64,12 @@ The parameters can be out of sync or deprecated. The feature flag is the source 
 Query the feature flag to get the current variants:
 
 ```sql
-SELECT
-    key,
-    filters
+SELECT filters.multivariate.variants AS variants
 FROM system.feature_flags
 WHERE key = '<feature_flag_key>'
-  AND team_id = <team_id>
 ```
 
-Extract the variant keys from `filters.multivariate.variants` array.
+Select the variants path directly — selecting the whole `filters` object gets truncated in results for flags with large targeting configs.
 Example structure: `[{"key": "control", "name": "Control", "rollout_percentage": 50}, {"key": "test", ...}]`
 
 The variant `key` values (e.g., "control", "test", "variant_a") are what you'll use to filter session recordings.
@@ -81,31 +78,19 @@ The variant `key` values (e.g., "control", "test", "variant_a") are what you'll 
 
 For each variant in the experiment, construct recording filters that match users exposed to that variant.
 
-**Filter structure for a variant:**
+**Filter structure for a variant** (input to `query-session-recordings-list`):
 
 ```json
 {
   "date_from": "<experiment.start_date>",
   "date_to": "<experiment.end_date or current time>",
   "filter_test_accounts": true,
-  "events": [
+  "properties": [
     {
-      "id": "$feature_flag_called",
-      "type": "events",
-      "properties": [
-        {
-          "key": "$feature_flag",
-          "value": ["<feature_flag_key>"],
-          "operator": "exact",
-          "type": "event"
-        },
-        {
-          "key": "$feature/<feature_flag_key>",
-          "value": ["<variant_key>"],
-          "operator": "exact",
-          "type": "event"
-        }
-      ]
+      "type": "event",
+      "key": "$feature/<feature_flag_key>",
+      "operator": "exact",
+      "value": ["<variant_key>"]
     }
   ]
 }
@@ -113,14 +98,15 @@ For each variant in the experiment, construct recording filters that match users
 
 **Key points:**
 
-- Filter by `$feature_flag_called` events where the flag matches the experiment's feature flag
-- Use `$feature/<flag_key>` property to filter for the specific variant value
+- The `$feature/<flag_key>` event property records which variant the user saw — filtering on it matches recordings containing at least one event from that variant
+- `value` is an array of variant key strings (e.g. `["control"]`); for boolean flags use `["true"]` or `["false"]`
+- Avoid the `type: "flag"` / `flag_evaluates_to` property filter for variant scoping — the recordings query accepts it but silently ignores it, returning unfiltered results (last verified 2026-06-10). If you want to try it anyway, verify it actually filters first: a query with a nonexistent flag key should return zero recordings
 - Set the date range to the experiment's start and end dates
 - Enable `filter_test_accounts: true` to exclude test users
 
 ### 3. Retrieve recordings for each variant
 
-Use the `filter_session_recordings` tool with the filters constructed in step 2.
+Use the `query-session-recordings-list` tool with the filters constructed in step 2.
 
 Call the tool once per variant to get recordings for each group:
 
@@ -130,12 +116,12 @@ Call the tool once per variant to get recordings for each group:
 
 The tool returns a list of recordings with metadata including:
 
-- User/distinct_id
-- Session duration
-- Activity metrics (clicks, keypresses)
-- Console errors
-- First URL visited
-- Start time
+- `distinct_id` — the person's distinct ID
+- `recording_duration`, `active_seconds`, `inactive_seconds`
+- `click_count`, `keypress_count`, `mouse_activity_count`
+- `console_log_count`, `console_warn_count`, `console_error_count`
+- `start_url` — first page URL visited
+- `start_time` / `end_time`, `activity_score`
 
 ### 4. Compare and analyze
 
@@ -173,10 +159,10 @@ Agent steps:
 2. Query feature flag "checkout-flow-test" to get variants from filters.multivariate.variants
 3. Extract variant keys: "control" and "new-checkout"
 4. Build filters for control variant:
-   - Events: $feature_flag_called with $feature_flag="checkout-flow-test" and $feature/checkout-flow-test="control"
+   - Property filter: { type: "event", key: "$feature/checkout-flow-test", operator: "exact", value: ["control"] }
    - Date range: 2025-01-01 to 2025-01-31
-5. Call filter_session_recordings with control filters → 147 recordings found
-6. Build filters for new-checkout variant and call filter_session_recordings → 152 recordings found
+5. Call query-session-recordings-list with control filters → 147 recordings found
+6. Build filters for new-checkout variant and call query-session-recordings-list → 152 recordings found
 7. Compare patterns:
    - Control: Average 3m 45s session duration, 12% console errors
    - New-checkout: Average 2m 30s session duration, 5% console errors
@@ -198,9 +184,9 @@ Agent steps:
 
 **Filter construction:**
 
-- The `$feature/<flag_key>` property is how PostHog tracks which variant a user saw
-- Always use `$feature_flag_called` as the event type
-- Both `$feature_flag` and `$feature/<flag_key>` properties are required
+- The `$feature/<flag_key>` event property is how you scope recordings to a variant
+- One filter per variant — call the tool once per variant with its own filter
+- For boolean flags, use `["true"]`/`["false"]` as the value instead of a variant key
 
 **Error handling:**
 
@@ -210,6 +196,6 @@ Agent steps:
 
 ## Related tools
 
-- `filter_session_recordings`: Core tool for retrieving session recordings with filters
-- `experiment_results_summary`: Get experiment metadata and statistical results
-- `execute_sql`: Query experiments table for details via HogQL
+- `query-session-recordings-list`: Core tool for retrieving session recordings with filters
+- `experiment-get`: Get experiment metadata; `experiment-results-get` for statistical results
+- `execute-sql`: Query experiments table for details via HogQL

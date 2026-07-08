@@ -61,7 +61,11 @@ const openMenu = async (container: HTMLElement): Promise<void> => {
 }
 
 const clickMenuItem = (label: string): void => {
-    fireEvent.click(screen.getByRole('menuitem', { name: label }))
+    const item = screen.getAllByRole('menuitem').find((el) => el.textContent === label)
+    if (!item) {
+        throw new Error(`menu item "${label}" not found`)
+    }
+    fireEvent.click(item)
 }
 
 const typeAndSave = (input: HTMLInputElement, newText: string): void => {
@@ -172,6 +176,65 @@ describe('PropertiesTable inline editor', () => {
             fireEvent.click(trigger(container))
             expect(screen.queryByText('Type as text…')).not.toBeInTheDocument()
             expect(screen.getByRole('textbox')).toBeInTheDocument()
+        })
+    })
+
+    describe('search by humanized label', () => {
+        const renderSearchable = (type: PropertyDefinitionType): void => {
+            render(
+                <Provider>
+                    <PropertiesTable type={type} properties={{ $geoip_city_name: 'London' }} searchable />
+                </Provider>
+            )
+        }
+
+        const search = (term: string): void => {
+            fireEvent.change(screen.getByPlaceholderText('Search property keys and values'), {
+                target: { value: term },
+            })
+        }
+
+        it.each<[PropertyDefinitionType, string, string]>([
+            [PropertyDefinitionType.Person, 'latest', 'Latest city name'],
+            [PropertyDefinitionType.Event, 'city', 'City name'],
+        ])('matches %s properties by their group label (%s → %s)', (type, term) => {
+            renderSearchable(type)
+            search(term)
+            expect(screen.getByText('London')).toBeInTheDocument()
+        })
+    })
+
+    describe('collapsible complex values', () => {
+        const renderWith = (collapsible: boolean): ReturnType<typeof render> => {
+            return render(
+                <Provider>
+                    <PropertiesTable
+                        type={PropertyDefinitionType.Person}
+                        properties={{ tags: ['a', 'b', 'c'] }}
+                        collapsible={collapsible}
+                    />
+                </Provider>
+            )
+        }
+
+        // The expanded array table renders an "array" type tag in its header; the collapsed
+        // JSON viewer does not — so its absence is a reliable proxy for "not expanded".
+        it.each([
+            { collapsible: false, expectArrayTag: true },
+            { collapsible: true, expectArrayTag: false },
+        ])(
+            'collapsible=$collapsible renders expanded array table: $expectArrayTag',
+            ({ collapsible, expectArrayTag }) => {
+                renderWith(collapsible)
+                expect(!!screen.queryByText('array')).toBe(expectArrayTag)
+            }
+        )
+
+        // Complex values render through JSONViewer, which unlike ValueDisplay applies no masking —
+        // so the collapsed path must be wrapped in ph-no-capture to keep PII out of session replay.
+        it('masks collapsed complex values from capture', () => {
+            const { container } = renderWith(true)
+            expect(container.querySelector('.ph-no-capture')).not.toBeNull()
         })
     })
 })

@@ -1,0 +1,1431 @@
+from __future__ import annotations
+
+import copy
+import uuid
+from collections.abc import Sequence
+from datetime import datetime, timedelta
+from enum import StrEnum
+from typing import TYPE_CHECKING, Any, Optional, Union, cast
+
+from django.conf import settings
+from django.utils import timezone
+
+import structlog
+from clickhouse_driver.errors import SocketTimeoutError
+from dateutil import parser
+from pydantic import ValidationError as PydanticValidationError
+from rest_framework.exceptions import ValidationError
+
+from posthog.hogql import ast
+from posthog.hogql.constants import HogQLGlobalSettings, LimitContext
+from posthog.hogql.hogql import HogQLContext
+from posthog.hogql.modifiers import create_default_modifiers_for_team
+from posthog.hogql.parser import parse_select
+from posthog.hogql.printer import prepare_and_print_ast
+from posthog.hogql.resolver_utils import extract_select_queries
+
+from posthog.clickhouse.client import sync_execute
+from posthog.clickhouse.client.connection import ClickHouseUser, Workload
+from posthog.clickhouse.query_tagging import Feature, tag_queries, tags_context
+from posthog.constants import PropertyOperatorType
+from posthog.exceptions import (
+    ClickHouseAtCapacity,
+    ClickHouseEstimatedQueryExecutionTimeTooLong,
+    ClickHouseQueryMemoryLimitExceeded,
+    ClickHouseQuerySizeExceeded,
+    ClickHouseQueryTimeOut,
+)
+from posthog.models import Filter, Team
+from posthog.models.person.sql import (
+    DELETE_PERSON_FROM_STATIC_COHORT,
+    INSERT_COHORT_ALL_PEOPLE_THROUGH_PERSON_ID,
+    INSERT_PERSON_STATIC_COHORT,
+    PERSON_STATIC_COHORT_TABLE,
+)
+from posthog.models.property import Property, PropertyGroup
+from posthog.schema_enums import PersonsOnEventsMode, ProductKey
+
+from products.actions.backend.models.action import Action
+from products.actions.backend.models.util import format_action_filter
+from products.cohorts.backend.models.calculation_history import CohortCalculationHistory
+from products.cohorts.backend.models.cohort import Cohort, CohortOrEmpty
+from products.cohorts.backend.models.dependencies import get_cohort_dependents
+from products.cohorts.backend.models.sql import (
+    GET_COHORT_SIZE_SQL,
+    GET_COHORTS_BY_PERSON_UUID,
+    GET_PERSON_ID_BY_PRECALCULATED_COHORT_ID,
+    GET_STATIC_COHORTPEOPLE_BY_PERSON_UUID,
+    RECALCULATE_COHORT_BY_ID,
+)
+
+if TYPE_CHECKING:
+    from posthog.schema import HogQLQueryModifiers
+
+    from posthog.personhog_client import ReadConsistency
+from posthog.queries.util import PersonPropertiesMode
+
+# temporary marker to denote when cohortpeople table started being populated
+TEMP_PRECALCULATED_MARKER = parser.parse("2021-06-07T15:00:00+00:00")
+
+# Cohort query timeout settings
+COHORT_QUERY_TIMEOUT_SECONDS = 1200  # Max execution time for ClickHouse cohort calculation queries
+
+
+class CohortErrorCode(StrEnum):
+    CAPACITY = "capacity"
+    INTERRUPTED = "interrupted"
+    TIMEOUT = "timeout"
+    MEMORY_LIMIT = "memory_limit"
+    QUERY_SIZE = "query_size"
+    VALIDATION_ERROR = "validation_error"
+    INVALID_REGEX = "invalid_regex"
+    INCOMPATIBLE_TYPES = "incompatible_types"
+    NO_PROPERTIES = "no_properties"
+    FLAG_CHANGED = "flag_changed"
+    UNKNOWN = "unknown"
+
+
+UNEXPECTED_ERROR_MESSAGE = (
+    "An error occurred while calculating this cohort. Please review your matching criteria or contact support."
+)
+
+ERROR_CODE_MESSAGES: dict[str, str] = {
+    CohortErrorCode.CAPACITY: "The system was busy when this cohort was scheduled to calculate. It will automatically retry.",
+    CohortErrorCode.INTERRUPTED: "Calculation was interrupted. It will automatically retry.",
+    CohortErrorCode.TIMEOUT: "Cohort calculation was terminated for taking too long.",
+    CohortErrorCode.MEMORY_LIMIT: "Cohort calculation was terminated for using too much memory.",
+    CohortErrorCode.QUERY_SIZE: "The matching criteria produced a query that was too large.",
+    CohortErrorCode.INVALID_REGEX: "This cohort contains an invalid regular expression. Please check your regex syntax in the matching criteria.",
+    CohortErrorCode.NO_PROPERTIES: "This cohort has no matching criteria defined. Please add at least one.",
+    CohortErrorCode.VALIDATION_ERROR: UNEXPECTED_ERROR_MESSAGE,
+    CohortErrorCode.INCOMPATIBLE_TYPES: UNEXPECTED_ERROR_MESSAGE,
+    CohortErrorCode.FLAG_CHANGED: "The feature flag changed while this cohort was being calculated. Please run the calculation again.",
+    CohortErrorCode.UNKNOWN: UNEXPECTED_ERROR_MESSAGE,
+}
+
+
+def get_friendly_error_message(error_code: str | None) -> str | None:
+    if error_code is None:
+        return None
+    return ERROR_CODE_MESSAGES.get(error_code, ERROR_CODE_MESSAGES[CohortErrorCode.UNKNOWN])
+
+
+# ClickHouse ServerException.code_name -> CohortErrorCode
+# Keys are lowercase; code_name is normalized via .lower() before lookup
+_CLICKHOUSE_ERROR_MAPPING: dict[str, CohortErrorCode] = {
+    "cannot_compile_regexp": CohortErrorCode.INVALID_REGEX,
+    "memory_limit_exceeded": CohortErrorCode.MEMORY_LIMIT,
+    "timeout_exceeded": CohortErrorCode.TIMEOUT,
+    "no_common_type": CohortErrorCode.INCOMPATIBLE_TYPES,
+}
+
+
+def parse_error_code(e: Exception) -> CohortErrorCode:
+    """Translate exceptions into CohortErrorCode for CohortCalculationHistory.error_code field."""
+    match e:
+        case ClickHouseAtCapacity():
+            return CohortErrorCode.CAPACITY
+        case SocketTimeoutError():
+            return CohortErrorCode.INTERRUPTED
+        case ClickHouseQueryTimeOut() | ClickHouseEstimatedQueryExecutionTimeTooLong():
+            return CohortErrorCode.TIMEOUT
+        case ClickHouseQueryMemoryLimitExceeded():
+            return CohortErrorCode.MEMORY_LIMIT
+        case ClickHouseQuerySizeExceeded():
+            return CohortErrorCode.QUERY_SIZE
+        case PydanticValidationError() | ValidationError():
+            return CohortErrorCode.VALIDATION_ERROR
+
+    code_name = getattr(e, "code_name", "").lower()
+    if code_name in _CLICKHOUSE_ERROR_MAPPING:
+        return _CLICKHOUSE_ERROR_MAPPING[code_name]
+
+    return CohortErrorCode.UNKNOWN
+
+
+COHORT_STATS_COLLECTION_DELAY_SECONDS = 60  # Short delay to allow query_log to flush before collecting stats
+
+logger = structlog.get_logger(__name__)
+
+
+def run_cohort_query(
+    fn, *args, cohort_id: int, history: CohortCalculationHistory | None = None, query: str | None = None, **kwargs
+):
+    """
+    Run a cohort calculation function with delayed query performance tracking.
+
+    Args:
+        fn: Function to execute
+        cohort_id: ID of the cohort being calculated
+        history_id: Optional UUID string of CohortCalculationHistory to update with delayed stats
+        query: Optional SQL query string to be logged with stats
+        *args, **kwargs: Arguments passed to fn
+
+    Returns:
+        tuple: (result, end_time) where end_time is when the query finished
+    """
+    tracking_uuid = uuid.uuid4().hex[:8]
+    cohort_tag = f"cohort_calc:{tracking_uuid}"
+
+    # Store the start time before running the query
+    start_time = timezone.now()
+
+    # Tag the query for tracking
+    tag_queries(product=ProductKey.COHORTS, feature=Feature.COHORT, kind="cohort_calculation", id=cohort_tag)
+
+    delayed_task = None
+    # Use tags_context to protect tags during import (circular import resolution can corrupt context)
+    with tags_context():
+        from posthog.tasks.calculate_cohort import COHORT_CALCULATION_STARTED_COUNTER, collect_cohort_query_stats
+
+        # Track that a calculation is starting (before it runs, so we catch OOMs)
+        COHORT_CALCULATION_STARTED_COUNTER.inc()
+
+        # Schedule delayed task to collect stats after query_log_archive is synced
+        # Only if we have a history record to update and not in test mode
+        if history and query and not (settings.TEST or settings.IN_EVAL_TESTING):
+            delayed_task = collect_cohort_query_stats.apply_async(
+                args=[cohort_tag, cohort_id, start_time.isoformat(), history.id, query],
+                countdown=COHORT_QUERY_TIMEOUT_SECONDS + COHORT_STATS_COLLECTION_DELAY_SECONDS,
+            )
+
+    try:
+        result = fn(*args, **kwargs)
+        end_time = timezone.now()  # Capture when query actually finished
+
+        # If calculation succeeded and we scheduled a delayed task, cancel it and run immediately
+        # This avoids waiting the full timeout when the query completed quickly
+        if delayed_task and history and query and not settings.TEST:
+            if delayed_task.state in ["PENDING", "RECEIVED"]:
+                delayed_task.revoke()  # Cancel the delayed task
+
+            # Run immediately since the query already completed
+            collect_cohort_query_stats.apply_async(
+                args=[cohort_tag, cohort_id, start_time.isoformat(), history.id, query],
+                countdown=COHORT_STATS_COLLECTION_DELAY_SECONDS,
+            )
+
+        return result, end_time
+
+    finally:
+        # Reset query tags to avoid affecting other queries
+        from posthog.clickhouse.query_tagging import reset_query_tags
+
+        reset_query_tags()
+
+
+def get_clickhouse_query_stats(tag_matcher: str, cohort_id: int, start_time: datetime, team_id: int) -> Optional[dict]:
+    """
+    Retrieve query statistics from ClickHouse query_log_archive using query tags.
+    Similar to approach in ee/benchmarks/helpers.py but adapted for cohort calculations.
+    """
+    if not tag_matcher:
+        return None
+
+    try:
+        tag_queries(product=ProductKey.COHORTS, feature=Feature.COHORT)
+        result = sync_execute(
+            """
+            SELECT
+                query_id,
+                query_duration_ms,
+                read_rows,
+                read_bytes,
+                written_rows,
+                memory_usage,
+                exception
+            FROM query_log_archive
+            WHERE
+                lc_cohort_id = %(cohort_id)s
+                AND team_id = %(team_id)s
+                AND query LIKE %(matcher)s
+                AND event_date >= %(start_date)s
+                AND event_time >= %(start_time)s
+            ORDER BY event_time DESC
+            """,
+            {
+                "cohort_id": cohort_id,
+                "team_id": team_id,
+                "matcher": f"%{tag_matcher}%",
+                "start_date": start_time.date(),
+                "start_time": start_time,
+            },
+            settings={"max_execution_time": 10},
+            workload=Workload.OFFLINE,
+            ch_user=ClickHouseUser.COHORTS,
+        )
+
+        if result and len(result) > 0:
+            # Helper function to safely get column values
+            def get_column(rows, col_index):
+                return [row[col_index] for row in rows if len(row) > col_index and row[col_index] is not None]
+
+            # Get the most recent query (first row after ORDER BY event_time DESC)
+            first_row = result[0]
+
+            return {
+                "query_id": first_row[0] if len(first_row) > 0 else None,
+                "query_count": len(result),
+                "query_duration_ms": int(sum(get_column(result, 1))),
+                "read_rows": sum(get_column(result, 2)),
+                "read_bytes": sum(get_column(result, 3)),
+                "written_rows": sum(get_column(result, 4)),
+                "memory_mb": int(sum(get_column(result, 5)) / 1024 / 1024) if get_column(result, 5) else 0,
+                "exception": first_row[6] if len(first_row) > 6 else None,
+            }
+
+    except Exception as e:
+        logger.exception("Failed to retrieve ClickHouse query stats", tag_matcher=tag_matcher, error=str(e))
+
+    return None
+
+
+def format_person_query(cohort: Cohort, index: int) -> tuple[str, dict[str, Any]]:
+    if cohort.is_static:
+        return format_static_cohort_query(cohort, index, prepend="")
+
+    if not cohort.properties.values:
+        # No person can match an empty cohort
+        return "SELECT generateUUIDv4() as id WHERE 0 = 19", {}
+
+    # Compile the cohort criteria via HogQLCohortQuery and embed the result as a person-id subquery.
+    cohort_query, cohort_context = hogql_cohort_subquery_sql(cohort, team=cohort.team)
+    return _prefix_cohort_hogql_params(cohort_query, cohort_context.values, cohort=cohort, index=index)
+
+
+def _sanitize_query_for_cohort(query_dict: dict) -> dict:
+    """Strip fields unnecessary for cohort population.
+
+    Cohort population only needs person IDs, so we remove recordings data
+    (which can use complex UDFs like aggregate_funnel_array that may not
+    be available or are needlessly expensive).
+
+    Insight-derived actor queries may include ad-hoc modal search terms that
+    should not narrow the saved cohort; direct Persons list queries use
+    search as the primary filter and must keep it.
+    """
+    query_dict = copy.deepcopy(query_dict)
+
+    if query_dict.get("kind") == "ActorsQuery":
+        select = query_dict.get("select", [])
+        query_dict["select"] = [s for s in select if s != "matched_recordings"]
+        if not query_dict["select"]:
+            query_dict["select"] = ["actor"]
+
+        source = query_dict.get("source")
+        if isinstance(source, dict):
+            # Modal search while inspecting insight actors is UI-only.
+            query_dict.pop("search", None)
+            if source.get("includeRecordings"):
+                source["includeRecordings"] = False
+
+    return query_dict
+
+
+def print_cohort_hogql_query(cohort: Cohort, hogql_context: HogQLContext, *, team: Team) -> str:
+    from posthog.hogql_queries.query_runner import get_query_runner
+
+    if not cohort.query:
+        raise ValueError("Cohort has no query")
+
+    query_dict = _sanitize_query_for_cohort(cast(dict, cohort.query))
+
+    query = get_query_runner(query_dict, team=team, limit_context=LimitContext.COHORT_CALCULATION).to_query()
+
+    uses_distinct_id = False
+    uses_actor_id = False
+
+    for select_query in extract_select_queries(query):
+        columns: dict[str, ast.Expr] = {}
+
+        for expr in select_query.select:
+            if isinstance(expr, ast.Alias):
+                columns[expr.alias] = expr.expr
+            elif isinstance(expr, ast.Field):
+                columns[str(expr.chain[-1])] = expr
+
+        column: ast.Expr | None = columns.get("person_id") or columns.get("actor_id") or columns.get("id")
+        if isinstance(column, ast.Alias):
+            select_query.select = [ast.Alias(expr=column.expr, alias="actor_id")]
+            uses_actor_id = True
+        elif isinstance(column, ast.Field):
+            select_query.select = [ast.Alias(expr=column, alias="actor_id")]
+            uses_actor_id = True
+        else:
+            # Support the most common use cases
+            table = select_query.select_from.table if select_query.select_from else None
+            if isinstance(table, ast.Field) and table.chain[-1] == "events":
+                select_query.select = [ast.Alias(expr=ast.Field(chain=["person", "id"]), alias="actor_id")]
+                uses_actor_id = True
+            elif isinstance(table, ast.Field) and table.chain[-1] == "persons":
+                select_query.select = [ast.Alias(expr=ast.Field(chain=["id"]), alias="actor_id")]
+                uses_actor_id = True
+            else:
+                # Check if we have a distinct_id column
+                distinct_id_column = columns.get("distinct_id")
+                if distinct_id_column is not None:
+                    # Use distinct_id and mark that we need to resolve it to person_id
+                    select_query.select = [ast.Alias(expr=distinct_id_column, alias="distinct_id")]
+                    uses_distinct_id = True
+                else:
+                    raise ValueError("Could not find a person_id, actor_id, id, or distinct_id column in the query")
+
+    # Check for mixed ID types in UNION queries
+    if uses_distinct_id and uses_actor_id:
+        raise ValueError(
+            "UNION queries with mixed ID types are not currently supported. "
+            "All SELECT queries in the UNION must use the same ID type (either person_id/actor_id or distinct_id)."
+        )
+
+    hogql_context.enable_select_queries = True
+    hogql_context.limit_top_select = False
+    create_default_modifiers_for_team(team, hogql_context.modifiers)
+
+    # Apply HogQL global settings to ensure consistency with regular queries
+    settings = HogQLGlobalSettings()
+
+    # If we're using distinct_id, wrap the query to resolve to person_id
+    if uses_distinct_id:
+        # Print the inner query without settings - we'll add them to the wrapper
+        base_query = prepare_and_print_ast(query, context=hogql_context, dialect="clickhouse")[0]
+
+        # Format settings as key=value pairs
+        settings_pairs = {k: str(v) for k, v in settings.model_dump().items() if v is not None}
+        settings_clause = ""
+        if settings_pairs:
+            settings_str = ", ".join([f"{key}={value}" for key, value in settings_pairs.items()])
+            settings_clause = f" SETTINGS {settings_str}"
+
+        # Wrap with person_distinct_id2 lookup using raw SQL since it's not a HogQL table
+        wrapped_query = f"""
+        SELECT DISTINCT argMax(person_id, version) as actor_id
+        FROM person_distinct_id2
+        WHERE distinct_id IN (
+            SELECT DISTINCT distinct_id FROM ({base_query})
+        ) AND team_id = %(team_id)s
+        GROUP BY distinct_id
+        HAVING argMax(is_deleted, version) = 0
+        """.strip()
+
+        return f"{wrapped_query}{settings_clause}"
+
+    return prepare_and_print_ast(query, context=hogql_context, dialect="clickhouse", settings=settings)[0]
+
+
+def format_static_cohort_query(cohort: Cohort, index: int, prepend: str) -> tuple[str, dict[str, Any]]:
+    cohort_id = cohort.pk
+    return (
+        f"SELECT person_id as id FROM {PERSON_STATIC_COHORT_TABLE} WHERE cohort_id = %({prepend}_cohort_id_{index})s AND team_id = %(team_id)s",
+        {f"{prepend}_cohort_id_{index}": cohort_id},
+    )
+
+
+def format_precalculated_cohort_query(cohort: Cohort, index: int, prepend: str = "") -> tuple[str, dict[str, Any]]:
+    filter_query = GET_PERSON_ID_BY_PRECALCULATED_COHORT_ID.format(index=index, prepend=prepend)
+    return (
+        filter_query,
+        {
+            f"{prepend}_cohort_id_{index}": cohort.pk,
+            f"{prepend}_version_{index}": cohort.version,
+        },
+    )
+
+
+def get_count_operator(count_operator: Optional[str]) -> str:
+    if count_operator == "gte":
+        return ">="
+    elif count_operator == "lte":
+        return "<="
+    elif count_operator == "gt":
+        return ">"
+    elif count_operator == "lt":
+        return "<"
+    elif count_operator == "eq" or count_operator == "exact" or count_operator is None:
+        return "="
+    else:
+        raise ValidationError("count_operator must be gte, lte, eq, or None")
+
+
+def get_count_operator_ast(count_operator: Optional[str]) -> ast.CompareOperationOp:
+    if count_operator == "gte":
+        return ast.CompareOperationOp.GtEq
+    elif count_operator == "lte":
+        return ast.CompareOperationOp.LtEq
+    elif count_operator == "gt":
+        return ast.CompareOperationOp.Gt
+    elif count_operator == "lt":
+        return ast.CompareOperationOp.Lt
+    elif count_operator == "eq" or count_operator == "exact" or count_operator is None:
+        return ast.CompareOperationOp.Eq
+    else:
+        raise ValidationError("count_operator must be gte, lte, eq, or None")
+
+
+def get_entity_query(
+    event_id: Optional[str],
+    action_id: Optional[int],
+    team_id: int,
+    group_idx: Union[int, str],
+    hogql_context: HogQLContext,
+    person_properties_mode: Optional[PersonPropertiesMode] = None,
+) -> tuple[str, dict[str, str]]:
+    if event_id:
+        return f"event = %({f'event_{group_idx}'})s", {f"event_{group_idx}": event_id}
+    elif action_id:
+        action = Action.objects.get(pk=action_id)
+        action_filter_query, action_params = format_action_filter(
+            team_id=team_id,
+            action=action,
+            prepend="_{}_action".format(group_idx),
+            hogql_context=hogql_context,
+            person_properties_mode=(
+                person_properties_mode if person_properties_mode else PersonPropertiesMode.USING_SUBQUERY
+            ),
+        )
+        return action_filter_query, action_params
+    else:
+        raise ValidationError("Cohort query requires action_id or event_id")
+
+
+def get_date_query(
+    days: Optional[str], start_time: Optional[str], end_time: Optional[str]
+) -> tuple[str, dict[str, str]]:
+    date_query: str = ""
+    date_params: dict[str, str] = {}
+    if days:
+        date_query, date_params = parse_entity_timestamps_in_days(int(days))
+    elif start_time or end_time:
+        date_query, date_params = parse_cohort_timestamps(start_time, end_time)
+
+    return date_query, date_params
+
+
+def parse_entity_timestamps_in_days(days: int) -> tuple[str, dict[str, str]]:
+    curr_time = timezone.now()
+    start_time = curr_time - timedelta(days=days)
+
+    return (
+        "AND timestamp >= %(date_from)s AND timestamp <= %(date_to)s",
+        {
+            "date_from": start_time.strftime("%Y-%m-%d %H:%M:%S"),
+            "date_to": curr_time.strftime("%Y-%m-%d %H:%M:%S"),
+        },
+    )
+
+
+def parse_cohort_timestamps(start_time: Optional[str], end_time: Optional[str]) -> tuple[str, dict[str, str]]:
+    clause = "AND "
+    params: dict[str, str] = {}
+
+    if start_time:
+        clause += "timestamp >= %(date_from)s"
+
+        params = {"date_from": datetime.strptime(start_time, "%Y-%m-%dT%H:%M:%S").strftime("%Y-%m-%d %H:%M:%S")}
+    if end_time:
+        clause += "timestamp <= %(date_to)s"
+        params = {
+            **params,
+            "date_to": datetime.strptime(end_time, "%Y-%m-%dT%H:%M:%S").strftime("%Y-%m-%d %H:%M:%S"),
+        }
+
+    return clause, params
+
+
+def is_precalculated_query(cohort: Cohort) -> bool:
+    if (
+        cohort.last_calculation
+        and cohort.last_calculation > TEMP_PRECALCULATED_MARKER
+        and settings.USE_PRECALCULATED_CH_COHORT_PEOPLE
+        and not cohort.is_static  # static cohorts are handled within the regular cohort filter query path
+    ):
+        return True
+    else:
+        return False
+
+
+def _trim_trailing_settings(sql: str) -> str:
+    # ClickHouse rejects a top-level SETTINGS clause when the SELECT is embedded as a subquery, so trim it.
+    return sql[: sql.rfind("SETTINGS")]
+
+
+def _prefix_cohort_hogql_params(
+    sql: str, values: dict[str, Any], *, cohort: Cohort, index: int
+) -> tuple[str, dict[str, Any]]:
+    # HogQLCohortQuery builds its own HogQLContext, so its %(hogql_val_N)s placeholders would collide with
+    # the parent query's context and with sibling cohort subqueries in the same query. Prefix them per
+    # cohort+index so they stay unique once embedded in the legacy parent query. The `)s` terminator in the
+    # search string keeps hogql_val_1 from also matching hogql_val_10.
+    prefix = f"cohort_{cohort.pk}_{index}_"
+    params: dict[str, Any] = {}
+    for key, value in values.items():
+        prefixed_key = f"{prefix}{key}"
+        sql = sql.replace(f"%({key})s", f"%({prefixed_key})s")
+        params[prefixed_key] = value
+    return sql, params
+
+
+def _cohort_distinct_ids_sql(cohort: Cohort, index: int, *, team: Team) -> tuple[str, dict[str, Any]]:
+    # Distinct_ids of the cohort's members, via HogQL's person_distinct_ids table — it owns the
+    # argMax(person_id, version)/is_deleted dedup and the team scoping, so this path no longer
+    # hand-rolls them. Members come from the cohortpeople tables for static/precalculated cohorts
+    # and from evaluating the criteria (HogQLCohortQuery) otherwise.
+    from posthog.hogql.query import HogQLQueryExecutor
+
+    from posthog.hogql_queries.hogql_cohort_query import HogQLCohortQuery
+
+    if cohort.is_static:
+        members: ast.SelectQuery | ast.SelectSetQuery = parse_select(
+            "SELECT person_id FROM static_cohort_people WHERE cohort_id = {id}",
+            {"id": ast.Constant(value=cohort.pk)},
+        )
+    elif is_precalculated_query(cohort):
+        members = parse_select(
+            "SELECT person_id FROM raw_cohort_people WHERE cohort_id = {id} AND version = {version}",
+            {"id": ast.Constant(value=cohort.pk), "version": ast.Constant(value=cohort.version)},
+        )
+    else:
+        members = HogQLCohortQuery(cohort=cohort, team=team).get_query()
+
+    query = parse_select(
+        "SELECT distinct_id FROM person_distinct_ids WHERE person_id IN {members}",
+        {"members": members},
+    )
+    sql, context = HogQLQueryExecutor(
+        query_type="CohortFilterDistinctIds",
+        query=query,
+        modifiers=_cohort_calculation_modifiers(),
+        team=team,
+        limit_context=LimitContext.COHORT_CALCULATION,
+        settings=HogQLGlobalSettings(),
+    ).generate_clickhouse_sql()
+    sql = _trim_trailing_settings(sql)
+    return _prefix_cohort_hogql_params(sql, context.values, cohort=cohort, index=index)
+
+
+def _cohort_calculation_modifiers() -> HogQLQueryModifiers:
+    # Deferred: posthog.schema (the pydantic models) stays off django.setup(), where this
+    # module loads in every process via the cohort model.
+    from posthog.schema import HogQLQueryModifiers  # noqa: PLC0415
+
+    return HogQLQueryModifiers(personsOnEventsMode=PersonsOnEventsMode.PERSON_ID_OVERRIDE_PROPERTIES_JOINED)
+
+
+def format_filter_query(cohort: Cohort, index: int) -> tuple[str, dict[str, Any]]:
+    distinct_ids_sql, params = _cohort_distinct_ids_sql(cohort, index, team=cohort.team)
+    # Callers embed this in `distinct_id IN (...)`, so it must select exactly distinct_id.
+    return f"SELECT distinct_id FROM ({distinct_ids_sql})", params
+
+
+def format_cohort_subquery(cohort: Cohort, index: int, custom_match_field="person_id") -> tuple[str, dict[str, Any]]:
+    is_precalculated = is_precalculated_query(cohort)
+    if is_precalculated:
+        query, params = format_precalculated_cohort_query(cohort, index)
+    else:
+        query, params = format_person_query(cohort, index)
+
+    person_query = f"{custom_match_field} IN ({query})"
+    return person_query, params
+
+
+def insert_static_cohort(person_uuids: Sequence[Optional[uuid.UUID]], cohort_id: int, *, team_id: int):
+    tag_queries(
+        product=ProductKey.COHORTS,
+        cohort_id=cohort_id,
+        team_id=team_id,
+        name="insert_static_cohort",
+        feature=Feature.COHORT,
+    )
+    persons = [
+        {
+            "id": str(uuid.uuid4()),
+            "person_id": str(person_uuid),
+            "cohort_id": cohort_id,
+            "team_id": team_id,
+            "_timestamp": datetime.now(),
+        }
+        for person_uuid in person_uuids
+    ]
+    sync_execute(INSERT_PERSON_STATIC_COHORT, persons)
+
+
+def remove_person_from_static_cohort(person_uuid: uuid.UUID, cohort_id: int, *, team_id: int):
+    """Remove a person from a static cohort in ClickHouse.
+
+    Uses DELETE FROM with mutations_sync=0 and lightweight_deletes_sync=0 to avoid replica
+    synchronization issues when some replicas are inactive. In tests, uses synchronous mutations
+    for deterministic behavior. This is an exception to PostHog's usual pattern due to the table
+    lacking an is_deleted and version columns.
+    """
+    tag_queries(
+        product=ProductKey.COHORTS,
+        cohort_id=cohort_id,
+        team_id=team_id,
+        name="remove_person_from_static_cohort",
+        feature=Feature.COHORT,
+    )
+
+    # Use synchronous mutations in tests for deterministic behavior
+    if settings.TEST:
+        ch_settings = {
+            "mutations_sync": "2",
+            "lightweight_deletes_sync": "2",
+        }
+    else:
+        # Use async mutations in production to avoid replica sync issues
+        ch_settings = {
+            "mutations_sync": "0",
+            "lightweight_deletes_sync": "0",
+        }
+
+    sync_execute(
+        DELETE_PERSON_FROM_STATIC_COHORT,
+        {
+            "person_id": str(person_uuid),
+            "cohort_id": cohort_id,
+            "team_id": team_id,
+        },
+        settings=ch_settings,
+    )
+
+
+def get_static_cohort_size(
+    *,
+    cohort_id: int,
+    team_id: int,
+    consistency: ReadConsistency = "eventual",
+) -> int:
+    return count_cohort_members(team_id=team_id, cohort_id=cohort_id, consistency=consistency)
+
+
+def recalculate_cohortpeople(
+    cohort: Cohort, pending_version: int, *, initiating_user_id: Optional[int]
+) -> Optional[int]:
+    """
+    Recalculate cohort people for all environments of the project.
+    NOTE: Currently, this only returns the count for the team where the cohort was created. Instead, it should return for all teams.
+    """
+    relevant_teams = Team.objects.order_by("id").filter(project_id=cohort.team.project_id)
+    count_by_team_id: dict[int, int] = {}
+    tag_queries(product=ProductKey.COHORTS, feature=Feature.COHORT, cohort_id=cohort.id)
+    if initiating_user_id:
+        tag_queries(user_id=initiating_user_id)
+    for team in relevant_teams:
+        tag_queries(team_id=team.id)
+        _recalculate_cohortpeople_for_team(cohort, pending_version, team)
+        count: Optional[int]
+        if cohort.is_static:
+            count = get_static_cohort_size(cohort_id=cohort.id, team_id=team.id)
+        else:
+            count = get_cohort_size(cohort, override_version=pending_version, team_id=team.id)
+        count_by_team_id[team.id] = count if count is not None else 0
+
+    return count_by_team_id[cohort.team_id]
+
+
+def _recalculate_cohortpeople_for_team(cohort: Cohort, pending_version: int, team: Team) -> int:
+    tag_queries(product=ProductKey.COHORTS, feature=Feature.COHORT, name="recalculate_cohortpeople_for_team_hogql")
+
+    history = CohortCalculationHistory.objects.create(
+        team=team, cohort=cohort, filters=cohort.properties.to_dict() if cohort.properties.values else {}
+    )
+
+    try:
+        result = _recalculate_cohortpeople_for_team_hogql(cohort, pending_version, team, history)
+        return result
+
+    except Exception as e:
+        history.finished_at = timezone.now()
+        history.error = str(e)
+        history.error_code = parse_error_code(e)
+        history.save(update_fields=["finished_at", "error", "error_code"])
+        raise
+
+
+def hogql_cohort_subquery_sql(cohort: Cohort, *, team: Team) -> tuple[str, HogQLContext]:
+    from posthog.hogql_queries.hogql_cohort_query import HogQLCohortQuery
+
+    sql, hogql_context = HogQLCohortQuery(cohort=cohort, team=team).get_query_executor().generate_clickhouse_sql()
+
+    return _trim_trailing_settings(sql), hogql_context
+
+
+def _recalculate_cohortpeople_for_team_hogql(
+    cohort: Cohort, pending_version: int, team: Team, history: CohortCalculationHistory
+) -> int:
+    cohort_params: dict[str, Any]
+    if cohort.is_static:
+        cohort_query, cohort_params = format_static_cohort_query(cohort, 0, prepend="")
+    elif not cohort.properties.values:
+        history.finished_at = timezone.now()
+        history.count = 0
+        history.error = "Cohort has no properties defined"
+        history.error_code = CohortErrorCode.NO_PROPERTIES
+        history.save(update_fields=["finished_at", "count", "error", "error_code"])
+        return 0
+    else:
+        cohort_query, hogql_context = hogql_cohort_subquery_sql(cohort, team=team)
+        cohort_params = hogql_context.values
+
+    recalculate_cohortpeople_sql = RECALCULATE_COHORT_BY_ID.format(cohort_filter=cohort_query)
+
+    def execute_query():
+        tag_queries(
+            product=ProductKey.COHORTS,
+            kind="cohort_calculation",
+            query_type="CohortsQueryHogQL",
+            feature=Feature.COHORT,
+            cohort_id=cohort.pk,
+            team_id=team.id,
+        )
+        hogql_global_settings = HogQLGlobalSettings()
+
+        return sync_execute(
+            recalculate_cohortpeople_sql,
+            {
+                **cohort_params,
+                "cohort_id": cohort.pk,
+                "team_id": team.id,
+                "new_version": pending_version,
+            },
+            settings={
+                "max_execution_time": COHORT_QUERY_TIMEOUT_SECONDS,
+                "send_timeout": COHORT_QUERY_TIMEOUT_SECONDS,
+                "receive_timeout": COHORT_QUERY_TIMEOUT_SECONDS,
+                "optimize_on_insert": 0,
+                "max_ast_elements": hogql_global_settings.max_ast_elements,
+                "max_expanded_ast_elements": hogql_global_settings.max_expanded_ast_elements,
+                "max_bytes_ratio_before_external_group_by": 0.5,
+                "max_bytes_ratio_before_external_sort": 0.5,
+            },
+            workload=Workload.OFFLINE,
+            ch_user=ClickHouseUser.COHORTS,
+            team_id=team.id,
+        )
+
+    result, query_end_time = run_cohort_query(
+        execute_query,
+        cohort_id=cohort.pk,
+        history=history,
+        query=recalculate_cohortpeople_sql,
+    )
+
+    if history:
+        history.finished_at = query_end_time
+        if isinstance(result, list) and len(result) == 0:
+            history.count = 0
+        else:
+            history.count = result
+
+        history.save(update_fields=["finished_at", "count"])
+
+    return result
+
+
+def get_cohort_size(cohort: Cohort, override_version: Optional[int] = None, *, team_id: int) -> Optional[int]:
+    tag_queries(
+        product=ProductKey.COHORTS, name="get_cohort_size", feature=Feature.COHORT, cohort_id=cohort.pk, team_id=team_id
+    )
+    count_result = sync_execute(
+        GET_COHORT_SIZE_SQL,
+        {
+            "cohort_id": cohort.pk,
+            "version": override_version if override_version is not None else cohort.version,
+            "team_id": team_id,
+        },
+        workload=Workload.OFFLINE,
+        ch_user=ClickHouseUser.COHORTS,
+    )
+
+    if count_result and len(count_result) and len(count_result[0]):
+        return count_result[0][0]
+    else:
+        return None
+
+
+def simplified_cohort_filter_properties(cohort: Cohort, team: Team, is_negated=False) -> PropertyGroup:
+    """
+    'Simplifies' cohort property filters, removing team-specific context from properties.
+    """
+    if cohort.is_static:
+        return PropertyGroup(
+            type=PropertyOperatorType.AND,
+            values=[Property(type="static-cohort", key="id", value=cohort.pk, negation=is_negated)],
+        )
+
+    # Cohort has been precalculated
+    if is_precalculated_query(cohort):
+        return PropertyGroup(
+            type=PropertyOperatorType.AND,
+            values=[
+                Property(
+                    type="precalculated-cohort",
+                    key="id",
+                    value=cohort.pk,
+                    negation=is_negated,
+                )
+            ],
+        )
+
+    # Cohort can have multiple match groups.
+    # Each group is either
+    # 1. "user has done X in time range Y at least N times" or
+    # 2. "user has properties XYZ", including belonging to another cohort
+    #
+    # Users who match _any_ of the groups are considered to match the cohort.
+
+    for property in cohort.properties.flat:
+        if property.type == "behavioral":
+            # TODO: Support behavioral property type in other insights
+            return PropertyGroup(
+                type=PropertyOperatorType.AND,
+                values=[Property(type="cohort", key="id", value=cohort.pk, negation=is_negated)],
+            )
+
+        elif property.type == "cohort":
+            # If entire cohort is negated, just return the negated cohort.
+            if is_negated:
+                return PropertyGroup(
+                    type=PropertyOperatorType.AND,
+                    values=[
+                        Property(
+                            type="cohort",
+                            key="id",
+                            value=cohort.pk,
+                            negation=is_negated,
+                        )
+                    ],
+                )
+            # :TRICKY: We need to ensure we don't have infinite loops in here
+            # guaranteed during cohort creation
+            return Filter(data={"properties": cohort.properties.to_dict()}, team=team).property_groups
+
+    # We have person properties only
+    # TODO: Handle negating a complete property group
+    if is_negated:
+        return PropertyGroup(
+            type=PropertyOperatorType.AND,
+            values=[Property(type="cohort", key="id", value=cohort.pk, negation=is_negated)],
+        )
+    else:
+        return cohort.properties
+
+
+def _get_cohort_ids_by_person_uuid(uuid: str, team_id: int) -> list[int]:
+    tag_queries(product=ProductKey.COHORTS, name="get_cohort_ids_by_person_uuid", feature=Feature.COHORT)
+    res = sync_execute(GET_COHORTS_BY_PERSON_UUID, {"person_id": uuid, "team_id": team_id})
+    cohort_ids_from_cohortperson = [row[0] for row in res]
+    cohorts = Cohort.objects.filter(deleted=False, team_id=team_id, pk__in=cohort_ids_from_cohortperson)
+    values_list_result = cohorts.values_list("id", "version")
+    id_latest_version_map = dict(values_list_result)
+    cohort_ids = []
+    for row in res:
+        cohort_id_from_cohortperson = row[0]
+        version_from_cohortperson = row[1]
+        latest_version = id_latest_version_map.get(cohort_id_from_cohortperson)
+        if latest_version is None:
+            continue
+        if latest_version != version_from_cohortperson:
+            continue
+        cohort_ids.append(cohort_id_from_cohortperson)
+    return cohort_ids
+
+
+def _get_static_cohort_ids_by_person_uuid(uuid: str, team_id: int) -> list[int]:
+    tag_queries(product=ProductKey.COHORTS, name="get_static_cohort_ids_by_person_uuid", feature=Feature.COHORT)
+    res = sync_execute(GET_STATIC_COHORTPEOPLE_BY_PERSON_UUID, {"person_id": uuid, "team_id": team_id})
+    return [row[0] for row in res]
+
+
+def get_all_cohort_ids_by_person_uuid(uuid: str, team_id: int) -> list[int]:
+    with tags_context(team_id=team_id):
+        cohort_ids = _get_cohort_ids_by_person_uuid(uuid, team_id)
+        static_cohort_ids = _get_static_cohort_ids_by_person_uuid(uuid, team_id)
+    return [*cohort_ids, *static_cohort_ids]
+
+
+def get_nested_cohort_ids(cohort: Cohort) -> set[int]:
+    """Extract cohort IDs referenced in a cohort's property filters."""
+    ids: set[int] = set()
+    for prop in cohort.properties.flat:
+        if prop.type == "cohort" and not isinstance(prop.value, list):
+            try:
+                ids.add(int(prop.value))
+            except (ValueError, TypeError):
+                continue
+    return ids
+
+
+def get_all_cohort_dependencies(
+    cohort: Cohort,
+    using_database: str = "default",
+    seen_cohorts_cache: Optional[dict[int, CohortOrEmpty]] = None,
+    stop_traversal_at_static: bool = False,
+) -> list[Cohort]:
+    """
+    Return cohorts referenced by this cohort, recursively.
+
+    When stop_traversal_at_static is True, a static root cohort returns no dependencies.
+    Static nested cohorts are still returned, but their own dependencies are not traversed.
+    """
+
+    if seen_cohorts_cache is None:
+        seen_cohorts_cache = {}
+
+    if stop_traversal_at_static and cohort.is_static:
+        return []
+
+    cohorts = []
+    seen_cohort_ids = set()
+    seen_cohort_ids.add(cohort.id)
+
+    queue = list(get_nested_cohort_ids(cohort))
+
+    while queue:
+        cohort_id = queue.pop()
+        try:
+            if cohort_id in seen_cohorts_cache:
+                current_cohort = seen_cohorts_cache[cohort_id]
+                if not current_cohort:
+                    continue
+            else:
+                current_cohort = Cohort.objects.db_manager(using_database).get(
+                    pk=cohort_id, team_id=cohort.team_id, deleted=False
+                )
+                seen_cohorts_cache[cohort_id] = current_cohort
+            if current_cohort.id not in seen_cohort_ids:
+                cohorts.append(current_cohort)
+                seen_cohort_ids.add(current_cohort.id)
+
+                if not (stop_traversal_at_static and current_cohort.is_static):
+                    queue.extend(get_nested_cohort_ids(current_cohort))
+
+        except Cohort.DoesNotExist:
+            seen_cohorts_cache[cohort_id] = ""
+            continue
+
+    return cohorts
+
+
+def get_all_cohort_dependents(cohort: Cohort, using_database: str = "default") -> list[Cohort]:
+    """
+    Get all cohorts that reference the given cohort, traversing the full dependent chain.
+    For example: if A depends on B, and B depends on C, this returns [A, B] for cohort C.
+    This is the reverse traversal of get_dependency_cohorts.
+    """
+    cohorts: list[int] = []
+    seen_cohort_ids: set[int] = {cohort.id}
+    queue: list[int] = [cohort.id]
+
+    while queue:
+        cohort_id = queue.pop()
+
+        for related_id in get_cohort_dependents(cohort_id):
+            if related_id not in seen_cohort_ids:
+                queue.append(related_id)
+                seen_cohort_ids.add(related_id)
+
+        if cohort_id != cohort.id:
+            cohorts.append(cohort_id)
+
+    try:
+        dependent_cohorts = Cohort.objects.db_manager(using_database).filter(id__in=cohorts, deleted=False).all()
+        return list(dependent_cohorts)
+    except Exception as e:
+        logger.exception("Failed to fetch cohorts", error=str(e))
+    return []
+
+
+def sort_cohorts_topologically(cohort_ids: set[int], seen_cohorts_cache: dict[int, CohortOrEmpty]) -> list[int]:
+    """
+    Sorts the given cohorts in an order where cohorts with no dependencies are placed first,
+    followed by cohorts that depend on the preceding ones. It ensures that each cohort in the sorted list
+    only depends on cohorts that appear earlier in the list.
+    """
+
+    if not cohort_ids:
+        return []
+
+    dependency_graph: dict[int, list[int]] = {}
+    seen = set()
+
+    # build graph (adjacency list)
+    def traverse(cohort):
+        # add parent
+        dependency_graph[cohort.id] = []
+        for prop in cohort.properties.flat:
+            if prop.type == "cohort" and not isinstance(prop.value, list):
+                # add child
+                dependency_graph[cohort.id].append(int(prop.value))
+
+                neighbor_cohort = seen_cohorts_cache.get(int(prop.value))
+                if not neighbor_cohort:
+                    continue
+
+                if cohort.id not in seen:
+                    seen.add(cohort.id)
+                    traverse(neighbor_cohort)
+
+    for cohort_id in cohort_ids:
+        cohort = seen_cohorts_cache.get(int(cohort_id))
+        if not cohort:
+            continue
+        traverse(cohort)
+
+    # post-order DFS (children first, then the parent)
+    def dfs(node, seen, sorted_arr):
+        neighbors = dependency_graph.get(node, [])
+        for neighbor in neighbors:
+            if neighbor not in seen:
+                dfs(neighbor, seen, sorted_arr)
+        if seen_cohorts_cache.get(node):
+            sorted_arr.append(int(node))
+        seen.add(node)
+
+    sorted_cohort_ids: list[int] = []
+    seen = set()
+    for cohort_id in cohort_ids:
+        if cohort_id not in seen:
+            seen.add(cohort_id)
+            dfs(cohort_id, seen, sorted_cohort_ids)
+
+    return sorted_cohort_ids
+
+
+def cohort_filters_have_values(filters_dict: dict | None) -> bool:
+    """Check whether a cohort filters dict contains at least one filter criterion."""
+    properties = filters_dict.get("properties") if isinstance(filters_dict, dict) else None
+    values = properties.get("values") if isinstance(properties, dict) else None
+    return isinstance(values, list) and len(values) > 0
+
+
+def insert_actors_into_cohort_by_query(
+    cohort: Cohort,
+    query: str,
+    params: dict[str, Any],
+    context: HogQLContext,
+    *,
+    team_id: int,
+):
+    tag_queries(product=ProductKey.COHORTS, feature=Feature.COHORT)
+    sync_execute(
+        INSERT_COHORT_ALL_PEOPLE_THROUGH_PERSON_ID.format(cohort_table=PERSON_STATIC_COHORT_TABLE, query=query),
+        {
+            "cohort_id": cohort.pk,
+            "_timestamp": datetime.now(),
+            "team_id": team_id,
+            **context.values,
+            **params,
+        },
+    )
+
+
+def insert_cohort_query_actors_into_ch(cohort: Cohort, *, team: Team):
+    context = HogQLContext(enable_select_queries=True, team_id=team.id)
+    query = print_cohort_hogql_query(cohort, context, team=team)
+    insert_actors_into_cohort_by_query(cohort, query, {}, context, team_id=team.id)
+
+
+def build_static_cohort_filters_query(cohort: Cohort, *, team: Team) -> tuple[str, dict[str, Any], HogQLContext]:
+    # Compile the cohort's criteria (cohort.properties) to ClickHouse SQL. The cohort is static, but
+    # it's being populated for the first time, so we evaluate the criteria rather than reading the
+    # (still-empty) static cohort table — HogQLCohortQuery builds from cohort.properties regardless of is_static.
+    cohort_query, hogql_context = hogql_cohort_subquery_sql(cohort, team=team)
+
+    # Params live on hogql_context.values, which the consumer already spreads — pass {} to avoid spreading twice.
+    return f"SELECT id AS actor_id FROM ({cohort_query})", {}, hogql_context
+
+
+def insert_cohort_filter_actors_into_ch(cohort: Cohort, *, team: Team):
+    query, params, context = build_static_cohort_filters_query(cohort, team=team)
+    insert_actors_into_cohort_by_query(cohort, query, params, context, team_id=team.id)
+
+
+def insert_cohort_people_into_pg(cohort: Cohort, *, team_id: int):
+    from posthog.helpers.batch_iterators import CursorBatchIterator
+
+    tag_queries(product=ProductKey.COHORTS, feature=Feature.COHORT)
+
+    CH_PAGE_SIZE = 10_000
+
+    # Use cursor-based pagination to stream from ClickHouse in pages instead of
+    # loading all rows into memory at once. Cursor-based avoids the O(n²) cost
+    # of LIMIT/OFFSET where later pages must scan and discard all preceding rows.
+    def fetch_batch(cursor: str, batch_size: int) -> tuple[list[str], str]:
+        # nosemgrep: clickhouse-fstring-param-audit - table name from constant, values parameterized
+        rows = sync_execute(
+            f"SELECT person_id FROM {PERSON_STATIC_COHORT_TABLE} WHERE team_id = %(team_id)s AND cohort_id = %(cohort_id)s AND person_id > %(cursor)s ORDER BY person_id LIMIT %(limit)s",
+            {
+                "cohort_id": cohort.pk,
+                "team_id": team_id,
+                "cursor": cursor,
+                "limit": batch_size,
+            },
+        )
+        if not rows:
+            return [], cursor
+        items = [str(r[0]) for r in rows]
+        return items, items[-1]
+
+    batch_iterator = CursorBatchIterator(
+        fetch_batch, CH_PAGE_SIZE, initial_cursor="00000000-0000-0000-0000-000000000000"
+    )
+    cohort._insert_users_list_with_batching(batch_iterator, insert_in_clickhouse=False, team_id=team_id)
+
+
+# ── Cohort membership operations (Postgres / personhog) ───────────────
+
+
+def _check_cohort_membership_via_personhog(person_id: int, cohort_ids: list[int]) -> dict[int, bool]:
+    from posthog.personhog_client.client import get_personhog_client
+    from posthog.personhog_client.proto import CheckCohortMembershipRequest
+
+    client = get_personhog_client()
+    if client is None:
+        raise RuntimeError("personhog client not configured")
+
+    resp = client.check_cohort_membership(CheckCohortMembershipRequest(person_id=person_id, cohort_ids=cohort_ids))
+    membership_by_cohort: dict[int, bool] = {m.cohort_id: m.is_member for m in resp.memberships}
+    return {cohort_id: membership_by_cohort.get(cohort_id, False) for cohort_id in cohort_ids}
+
+
+def check_cohort_membership(team_id: int, person_id: int, cohort_ids: list[int]) -> dict[int, bool]:
+    """Return ``{cohort_id: is_member}`` for the given person via personhog.
+
+    Membership for cohorts the person is not in is returned as ``False`` rather
+    than being omitted, so callers can index directly by cohort_id.
+    """
+    from posthog.personhog_client.client import personhog_call
+
+    if not cohort_ids:
+        return {}
+
+    from products.cohorts.backend.models.cohort import Cohort
+
+    # Scope cohort_ids to the team via Cohort on the default DB before querying
+    # the personhog RPC. The RPC just filters by person_id + cohort_id and does
+    # not enforce team ownership, so the tenant boundary has to be applied here.
+    # Cohorts belonging to a different team are reported as ``False`` rather than
+    # looked up. Same pattern as `posthog.models.team.util.delete_bulky_postgres_data`.
+    scoped_cohort_ids = list(Cohort.objects.filter(id__in=cohort_ids, team_id=team_id).values_list("id", flat=True))
+    if not scoped_cohort_ids:
+        return dict.fromkeys(cohort_ids, False)
+
+    scoped_result = personhog_call(
+        "check_cohort_membership",
+        lambda: _check_cohort_membership_via_personhog(person_id, scoped_cohort_ids),
+    )
+    # Expand back to the caller's original cohort_ids; cohorts that were scoped
+    # out (not owned by this team) register as non-member.
+    return {cohort_id: scoped_result.get(cohort_id, False) for cohort_id in cohort_ids}
+
+
+def is_person_in_cohort(team_id: int, person_id: int, cohort_id: int) -> bool:
+    """Convenience single-cohort variant of ``check_cohort_membership``."""
+    return check_cohort_membership(team_id, person_id, [cohort_id]).get(cohort_id, False)
+
+
+_LIST_COHORT_MEMBER_IDS_PAGE_SIZE = 10_000
+
+
+def _list_cohort_member_ids_via_personhog(cohort_id: int) -> list[int]:
+    from posthog.personhog_client.client import get_personhog_client
+    from posthog.personhog_client.proto import ListCohortMemberIdsRequest
+
+    client = get_personhog_client()
+    if client is None:
+        raise RuntimeError("personhog client not configured")
+
+    all_ids: list[int] = []
+    cursor = 0
+    while True:
+        resp = client.list_cohort_member_ids(
+            ListCohortMemberIdsRequest(cohort_id=cohort_id, cursor=cursor, limit=_LIST_COHORT_MEMBER_IDS_PAGE_SIZE)
+        )
+        all_ids.extend(resp.person_ids)
+        if resp.next_cursor == 0:
+            break
+        cursor = resp.next_cursor
+    return all_ids
+
+
+def list_cohort_member_ids(team_id: int, cohort_id: int) -> list[int]:
+    """Return all person IDs belonging to a static cohort via personhog."""
+    from posthog.personhog_client.client import personhog_call
+
+    from products.cohorts.backend.models.cohort import Cohort
+
+    # Validate cohort ownership on the default DB before querying the personhog
+    # RPC — the proto has no team_id field, so the tenant boundary is applied here.
+    # Same pattern as check_cohort_membership / delete_bulky_postgres_data.
+    if not Cohort.objects.filter(id=cohort_id, team_id=team_id).exists():
+        return []
+
+    return personhog_call(
+        "list_cohort_member_ids",
+        lambda: _list_cohort_member_ids_via_personhog(cohort_id),
+    )
+
+
+# ── Cohort write operations ─────────────────────────────────────────
+
+
+def _insert_cohort_members_via_personhog(cohort_id: int, person_ids: list[int], version: int | None) -> int:
+    from posthog.personhog_client.client import get_personhog_client
+    from posthog.personhog_client.proto import InsertCohortMembersRequest
+
+    client = get_personhog_client()
+    if client is None:
+        raise RuntimeError("personhog client not configured")
+
+    resp = client.insert_cohort_members(
+        InsertCohortMembersRequest(
+            cohort_id=cohort_id,
+            person_ids=person_ids,
+            version=version,
+        )
+    )
+    return resp.inserted_count
+
+
+def insert_cohort_members(
+    team_id: int,
+    cohort_id: int,
+    person_ids: list[int],
+    version: int | None,
+    *,
+    _skip_ownership_check: bool = False,
+) -> int:
+    """Insert person IDs into a static cohort's PG membership table.
+
+    Routes through personhog. Returns the number of newly inserted rows
+    (duplicates are skipped).
+    """
+    from posthog.personhog_client.client import personhog_call
+
+    if not person_ids:
+        return 0
+
+    from products.cohorts.backend.models.cohort import Cohort
+
+    if not _skip_ownership_check and not Cohort.objects.filter(id=cohort_id, team_id=team_id).exists():
+        return 0
+
+    return personhog_call(
+        "insert_cohort_members",
+        lambda: _insert_cohort_members_via_personhog(cohort_id, person_ids, version),
+    )
+
+
+def _delete_cohort_member_via_personhog(cohort_id: int, person_id: int) -> bool:
+    from posthog.personhog_client.client import get_personhog_client
+    from posthog.personhog_client.proto import DeleteCohortMemberRequest
+
+    client = get_personhog_client()
+    if client is None:
+        raise RuntimeError("personhog client not configured")
+
+    resp = client.delete_cohort_member(DeleteCohortMemberRequest(cohort_id=cohort_id, person_id=person_id))
+    return resp.deleted
+
+
+def delete_cohort_member(team_id: int, cohort_id: int, person_id: int) -> bool:
+    """Remove a single person from a static cohort's membership via personhog.
+
+    Returns ``True`` if a row was deleted, ``False`` otherwise.
+    """
+    from posthog.personhog_client.client import personhog_call
+
+    from products.cohorts.backend.models.cohort import Cohort
+
+    if not Cohort.objects.filter(id=cohort_id, team_id=team_id).exists():
+        return False
+
+    return personhog_call(
+        "delete_cohort_member",
+        lambda: _delete_cohort_member_via_personhog(cohort_id, person_id),
+    )
+
+
+_DELETE_BULK_MAX_ITERATIONS = 10_000
+
+
+def _delete_cohort_members_bulk_via_personhog(cohort_ids: list[int], batch_size: int) -> int:
+    from posthog.personhog_client.client import get_personhog_client
+    from posthog.personhog_client.proto import DeleteCohortMembersBulkRequest
+
+    client = get_personhog_client()
+    if client is None:
+        raise RuntimeError("personhog client not configured")
+
+    total_deleted = 0
+    for _ in range(_DELETE_BULK_MAX_ITERATIONS):
+        resp = client.delete_cohort_members_bulk(
+            DeleteCohortMembersBulkRequest(cohort_ids=cohort_ids, batch_size=batch_size)
+        )
+        total_deleted += resp.deleted_count
+        if resp.deleted_count < batch_size:
+            break
+    else:
+        logger.error(
+            "delete_cohort_members_bulk_max_iterations",
+            cohort_ids=cohort_ids,
+            total_deleted=total_deleted,
+            max_iterations=_DELETE_BULK_MAX_ITERATIONS,
+        )
+    return total_deleted
+
+
+def delete_cohort_members_bulk(team_id: int, cohort_ids: list[int], batch_size: int = 10_000) -> int:
+    """Delete all cohort membership rows for the given cohort IDs via personhog.
+
+    Returns the total number of deleted rows.
+    """
+    from posthog.personhog_client.client import personhog_call
+
+    if not cohort_ids:
+        return 0
+
+    return personhog_call(
+        "delete_cohort_members_bulk",
+        lambda: _delete_cohort_members_bulk_via_personhog(cohort_ids, batch_size),
+    )
+
+
+def _count_cohort_members_via_personhog(cohort_ids: list[int], consistency: ReadConsistency) -> int:
+    from posthog.personhog_client import consistency_to_read_options
+    from posthog.personhog_client.client import get_personhog_client
+    from posthog.personhog_client.proto import CountCohortMembersRequest
+
+    client = get_personhog_client()
+    if client is None:
+        raise RuntimeError("personhog client not configured")
+
+    resp = client.count_cohort_members(
+        CountCohortMembersRequest(
+            cohort_ids=cohort_ids,
+            read_options=consistency_to_read_options(consistency),
+        )
+    )
+    return resp.count
+
+
+def count_cohort_members(team_id: int, cohort_id: int, *, consistency: ReadConsistency = "eventual") -> int:
+    """Return the number of persons in a static cohort.
+
+    Routes through personhog.
+
+    Use ``consistency="strong"`` when reading immediately after a write
+    (e.g. after inserting or deleting cohort members) to avoid stale counts
+    from personhog's eventual consistency.
+    """
+    from posthog.personhog_client.client import personhog_call
+
+    from products.cohorts.backend.models.cohort import Cohort
+
+    if not Cohort.objects.filter(id=cohort_id, team_id=team_id).exists():
+        return 0
+
+    return personhog_call(
+        "count_cohort_members",
+        lambda: _count_cohort_members_via_personhog([cohort_id], consistency),
+    )

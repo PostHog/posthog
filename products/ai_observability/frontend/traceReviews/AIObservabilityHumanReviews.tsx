@@ -11,7 +11,7 @@ import { AIObservabilityReviews } from './AIObservabilityReviews'
 
 const HUMAN_REVIEWS_TAB_PARAM = 'human_reviews_tab'
 
-export function AIObservabilityHumanReviews({ tabId }: { tabId?: string }): JSX.Element {
+export function AIObservabilityHumanReviews(): JSX.Element {
     const { searchParams } = useValues(router)
     const { push } = useActions(router)
 
@@ -26,7 +26,7 @@ export function AIObservabilityHumanReviews({ tabId }: { tabId?: string }): JSX.
         {
             key: 'queues',
             label: 'Queues',
-            content: <AIObservabilityReviewQueues tabId={tabId} />,
+            content: <AIObservabilityReviewQueues />,
             link: combineUrl(urls.aiObservabilityReviews(), {
                 ...searchParams,
                 [HUMAN_REVIEWS_TAB_PARAM]: undefined,
@@ -36,7 +36,7 @@ export function AIObservabilityHumanReviews({ tabId }: { tabId?: string }): JSX.
         {
             key: 'reviews',
             label: 'Reviews',
-            content: <AIObservabilityReviews tabId={tabId} />,
+            content: <AIObservabilityReviews />,
             link: combineUrl(urls.aiObservabilityReviews(), {
                 ...searchParams,
                 [HUMAN_REVIEWS_TAB_PARAM]: 'reviews',
@@ -46,7 +46,7 @@ export function AIObservabilityHumanReviews({ tabId }: { tabId?: string }): JSX.
         {
             key: 'scorers',
             label: 'Scorers',
-            content: <AIObservabilityScoreDefinitions tabId={tabId} />,
+            content: <AIObservabilityScoreDefinitions />,
             link: combineUrl(urls.aiObservabilityReviews(), {
                 ...searchParams,
                 [HUMAN_REVIEWS_TAB_PARAM]: 'scorers',

@@ -1,0 +1,24 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n            SELECT person_id\n            FROM posthog_cohortpeople\n            WHERE cohort_id = $1::bigint AND person_id > $2\n            ORDER BY person_id ASC\n            LIMIT $3\n            ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "person_id",
+        "type_info": "Int8"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Int8",
+        "Int8",
+        "Int8"
+      ]
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "9149a91fb9ab2782935bc5e41c94e471792f630e9228e275ea233ac15acc7d18"
+}

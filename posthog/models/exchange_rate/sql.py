@@ -3,9 +3,9 @@ import re
 import csv
 import datetime
 
+from posthog.clickhouse.client.connection import ClickHouseUser, get_clickhouse_creds
 from posthog.clickhouse.cluster import ON_CLUSTER_CLAUSE
 from posthog.clickhouse.table_engines import ReplacingMergeTree
-from posthog.settings import CLICKHOUSE_PASSWORD, CLICKHOUSE_USER
 from posthog.settings.data_stores import CLICKHOUSE_DATABASE
 
 from .currencies import SUPPORTED_CURRENCY_CODES
@@ -40,7 +40,19 @@ def HISTORICAL_EXCHANGE_RATE_DICTIONARY():
     currencies = []
 
     # Load the CSV file
-    with open(os.path.join(os.path.dirname(__file__), "historical.csv")) as f:
+    csv_path = os.path.join(os.path.dirname(__file__), "historical.csv")
+    if not os.path.exists(csv_path):
+        # `historical.csv` is a large (~9MB) git-tracked asset that ships with the repo.
+        # When it's missing the checkout is incomplete (e.g. a partial/sparse clone or a
+        # sandboxed environment that skipped large files), not a logic bug — so surface an
+        # actionable message instead of a bare FileNotFoundError from `open` below.
+        raise FileNotFoundError(
+            f"Exchange rate data file not found at {csv_path}. "
+            "This file is tracked in git and required to backfill ClickHouse exchange rates; "
+            "ensure your checkout includes it (a partial or sparse clone may have skipped it)."
+        )
+
+    with open(csv_path) as f:
         reader = csv.reader(f)
 
         # Get header row with currency codes
@@ -192,6 +204,8 @@ WINDOW w AS (
 )
 EXCHANGE_RATE_DICTIONARY_QUERY = re.sub(r"\s\s+", " ", EXCHANGE_RATE_DICTIONARY_QUERY)
 
+CLICKHOUSE_DICT_READER_USER, CLICKHOUSE_DICT_READER_PASSWORD = get_clickhouse_creds(ClickHouseUser.DICT_READER)
+
 
 # Use RANGE_HASHED to simplify queries by date
 #
@@ -224,8 +238,8 @@ RANGE(MIN start_date MAX end_date)""".format(
         on_cluster_clause=ON_CLUSTER_CLAUSE(on_cluster),
         decimal_precision=EXCHANGE_RATE_DECIMAL_PRECISION,
         query=EXCHANGE_RATE_DICTIONARY_QUERY,
-        clickhouse_user=CLICKHOUSE_USER,
-        clickhouse_password=CLICKHOUSE_PASSWORD,
+        clickhouse_user=CLICKHOUSE_DICT_READER_USER,
+        clickhouse_password=CLICKHOUSE_DICT_READER_PASSWORD,
     )
 
 

@@ -14,13 +14,19 @@ from posthog.exceptions_capture import capture_exception
 from posthog.models import User
 from posthog.models.comment import Comment
 from posthog.models.instance_setting import get_instance_setting
-from posthog.tasks.email import send_new_ticket_notification
 
 from .cache import invalidate_messages_cache, invalidate_tickets_cache
 from .events import capture_message_received, capture_message_sent, capture_ticket_created
 from .models import EmailOutboxMessage, Ticket
 from .models.constants import Channel
-from .tasks import post_reply_to_github, post_reply_to_slack, post_reply_to_teams, send_email_reply
+from .tasks import (
+    post_reply_to_github,
+    post_reply_to_slack,
+    post_reply_to_teams,
+    post_reply_to_teams_via_graph,
+    send_email_reply,
+)
+from .teams import parse_teams_root_message_id, resolve_shared_channel_team_id
 
 logger = structlog.get_logger(__name__)
 
@@ -35,6 +41,27 @@ def _is_private_message(item_context: dict | None) -> bool:
 def _get_comment_created_by_id(comment: Comment) -> int | None:
     created_by_id = getattr(comment, "created_by_id", None)
     return created_by_id if isinstance(created_by_id, int) else None
+
+
+def _is_outbound_reply(item_context: dict | None, created_by_id: int | None) -> bool:
+    """True for messages that should be delivered to the customer's channel.
+
+    This includes human team replies (has created_by, non-customer, non-private) and
+    public AI replies (author_type == "AI" with is_private == False).
+    """
+    if not isinstance(item_context, dict):
+        return False
+    if _is_private_message(item_context):
+        return False
+    author_type = item_context.get("author_type")
+    if created_by_id and author_type != "customer":
+        return True
+    if author_type == "AI":
+        return True
+    return False
+
+
+AI_BOT_DISPLAY_NAME = "AI assistant"
 
 
 @receiver(post_save, sender=Ticket)
@@ -103,7 +130,9 @@ def update_ticket_on_message(sender, instance: Comment, created: bool, **kwargs)
 
         # New message: update denormalized stats
         author_type = item_context.get("author_type") if isinstance(item_context, dict) else None
-        is_team_message = created_by_id and author_type != "customer"
+        is_team_message = (created_by_id and author_type != "customer") or (
+            author_type == "AI" and not _is_private_message(item_context)
+        )
 
         update_fields = {
             "message_count": F("message_count") + 1,
@@ -127,16 +156,19 @@ def update_ticket_on_message(sender, instance: Comment, created: bool, **kwargs)
 
             # Customer-facing analytics (to customer's project)
             if is_team_message:
-                capture_message_sent(ticket, comment_id, content or "", created_by_id)
+                author = User.objects.filter(id=created_by_id).first() if created_by_id else None
+                capture_message_sent(ticket, comment_id, content or "", author=author)
             else:
+                author = None
                 capture_message_received(ticket, comment_id, content or "")
 
             # Internal analytics (PostHog tracking its own usage)
             props = {"channel_source": ticket.channel_source}
-            if is_team_message and created_by_id:
-                user = User.objects.filter(id=created_by_id).first()
-                if user:
-                    report_user_action(user, "support message sent", props, team=ticket.team)
+            if is_team_message:
+                if author:
+                    report_user_action(author, "support message sent", props, team=ticket.team)
+                else:
+                    report_team_action(ticket.team, "support message sent", props)
             else:
                 report_team_action(ticket.team, "support message received", props)
             # Send email notification on first customer message (i.e. new ticket)
@@ -144,6 +176,10 @@ def update_ticket_on_message(sender, instance: Comment, created: bool, **kwargs)
                 try:
                     conversations_settings = ticket.team.conversations_settings or {}
                     if conversations_settings.get("notification_recipients"):
+                        # posthog.tasks.__init__ eagerly imports every task module; this signal
+                        # module is wired at django.setup(), so import the task lazily.
+                        from posthog.tasks.email import send_new_ticket_notification  # noqa: PLC0415
+
                         send_new_ticket_notification.delay(
                             ticket_id=item_id,
                             team_id=team_id,
@@ -245,13 +281,12 @@ def handle_comment_soft_delete(sender, instance: Comment, **kwargs):
 @receiver(post_save, sender=Comment)
 def post_slack_reply_on_team_message(sender, instance: Comment, created: bool, **kwargs):
     """
-    When a team member replies to a Slack-sourced ticket, post the reply
+    When a team member or AI bot replies to a Slack-sourced ticket, post the reply
     back to the Slack thread via a Celery task.
 
     Only triggers for:
     - Newly created comments (not edits)
-    - Non-private messages
-    - Messages with a created_by (team member, not customer)
+    - Outbound replies (human team or public AI)
     - Tickets with channel_source="slack" and valid slack thread info
     """
     if instance.scope != "conversations_ticket":
@@ -261,16 +296,9 @@ def post_slack_reply_on_team_message(sender, instance: Comment, created: bool, *
         return
 
     item_context = instance.item_context
-    if _is_private_message(item_context):
-        return
-
-    # Only team messages (has created_by, not customer-authored)
     created_by_id = _get_comment_created_by_id(instance)
-    if not created_by_id:
-        return
 
-    author_type = item_context.get("author_type") if isinstance(item_context, dict) else None
-    if author_type == "customer":
+    if not _is_outbound_reply(item_context, created_by_id):
         return
 
     # Don't echo messages that originated from Slack back to Slack
@@ -305,6 +333,8 @@ def post_slack_reply_on_team_message(sender, instance: Comment, created: bool, *
             if created_by:
                 author_name = f"{created_by.first_name} {created_by.last_name}".strip() or created_by.email
                 author_email = created_by.email
+            else:
+                author_name = settings_dict.get("slack_bot_display_name") or AI_BOT_DISPLAY_NAME
 
             cast(Any, post_reply_to_slack).delay(
                 ticket_id=str(ticket.id),
@@ -325,13 +355,12 @@ def post_slack_reply_on_team_message(sender, instance: Comment, created: bool, *
 @receiver(post_save, sender=Comment)
 def send_email_reply_on_team_message(sender, instance: Comment, created: bool, **kwargs):
     """
-    When a team member replies to an email-sourced ticket, send the reply
+    When a team member or AI bot replies to an email-sourced ticket, send the reply
     back to the customer via email through a Celery task.
 
     Only triggers for:
     - Newly created comments (not edits)
-    - Non-private messages
-    - Messages with a created_by (team member, not customer)
+    - Outbound replies (human team or public AI)
     - Tickets with channel_source="email"
     """
     if instance.scope != "conversations_ticket":
@@ -341,15 +370,13 @@ def send_email_reply_on_team_message(sender, instance: Comment, created: bool, *
         return
 
     item_context = instance.item_context
-    if _is_private_message(item_context):
-        return
-
     created_by_id = _get_comment_created_by_id(instance)
-    if not created_by_id:
+
+    if not _is_outbound_reply(item_context, created_by_id):
         return
 
-    author_type = item_context.get("author_type") if isinstance(item_context, dict) else None
-    if author_type == "customer":
+    # Don't echo messages that originated from email back via email
+    if isinstance(item_context, dict) and item_context.get("from_email"):
         return
 
     team_id = instance.team_id
@@ -400,13 +427,12 @@ def send_email_reply_on_team_message(sender, instance: Comment, created: bool, *
 @receiver(post_save, sender=Comment)
 def post_teams_reply_on_team_message(sender, instance: Comment, created: bool, **kwargs):
     """
-    When a team member replies to a Teams-sourced ticket, post the reply
+    When a team member or AI bot replies to a Teams-sourced ticket, post the reply
     back to the Teams conversation via a Celery task.
 
     Only triggers for:
     - Newly created comments (not edits)
-    - Non-private messages
-    - Messages with a created_by (team member, not customer)
+    - Outbound replies (human team or public AI)
     - Tickets with channel_source="teams" and valid teams thread info
     - Messages not originating from Teams (to avoid echo)
     """
@@ -417,15 +443,9 @@ def post_teams_reply_on_team_message(sender, instance: Comment, created: bool, *
         return
 
     item_context = instance.item_context
-    if _is_private_message(item_context):
-        return
-
     created_by_id = _get_comment_created_by_id(instance)
-    if not created_by_id:
-        return
 
-    author_type = item_context.get("author_type") if isinstance(item_context, dict) else None
-    if author_type == "customer":
+    if not _is_outbound_reply(item_context, created_by_id):
         return
 
     # Don't echo messages that originated from Teams back to Teams
@@ -446,7 +466,7 @@ def post_teams_reply_on_team_message(sender, instance: Comment, created: bool, *
                 channel_source=Channel.TEAMS,
             ).first()
 
-            if not ticket or not ticket.teams_conversation_id or not ticket.teams_service_url:
+            if not ticket or not ticket.teams_conversation_id:
                 return
 
             team = ticket.team
@@ -457,16 +477,36 @@ def post_teams_reply_on_team_message(sender, instance: Comment, created: bool, *
             author_name = ""
             if created_by:
                 author_name = f"{created_by.first_name} {created_by.last_name}".strip() or created_by.email
+            else:
+                author_name = AI_BOT_DISPLAY_NAME
 
-            cast(Any, post_reply_to_teams).delay(
-                ticket_id=str(ticket.id),
-                team_id=team_id,
-                content=content,
-                rich_content=rich_content,
-                author_name=author_name,
-                teams_service_url=ticket.teams_service_url,
-                teams_conversation_id=ticket.teams_conversation_id,
-            )
+            # Shared channels are written to via Graph (the bot connector can't post
+            # there); standard channels keep using the bot connector reply path.
+            shared_team_id = resolve_shared_channel_team_id(team, ticket.teams_channel_id)
+            if shared_team_id:
+                root_message_id = parse_teams_root_message_id(ticket.teams_conversation_id)
+                if not root_message_id:
+                    return
+                cast(Any, post_reply_to_teams_via_graph).delay(
+                    ticket_id=str(ticket.id),
+                    team_id=team_id,
+                    teams_team_id=shared_team_id,
+                    channel_id=ticket.teams_channel_id,
+                    root_message_id=root_message_id,
+                    content=content,
+                    rich_content=rich_content,
+                    author_name=author_name,
+                )
+            elif ticket.teams_service_url:
+                cast(Any, post_reply_to_teams).delay(
+                    ticket_id=str(ticket.id),
+                    team_id=team_id,
+                    content=content,
+                    rich_content=rich_content,
+                    author_name=author_name,
+                    teams_service_url=ticket.teams_service_url,
+                    teams_conversation_id=ticket.teams_conversation_id,
+                )
         except Exception:
             logger.exception("teams_reply_signal_failed", item_id=item_id)
 
@@ -476,13 +516,12 @@ def post_teams_reply_on_team_message(sender, instance: Comment, created: bool, *
 @receiver(post_save, sender=Comment)
 def post_github_reply_on_team_message(sender, instance: Comment, created: bool, **kwargs):
     """
-    When a team member replies to a GitHub-sourced ticket, post the reply
+    When a team member or AI bot replies to a GitHub-sourced ticket, post the reply
     back to the GitHub issue via a Celery task.
 
     Only triggers for:
     - Newly created comments (not edits)
-    - Non-private messages
-    - Messages with a created_by (team member, not customer)
+    - Outbound replies (human team or public AI)
     - Tickets with channel_source="github" and valid github issue info
     - Messages not originating from GitHub (to avoid echo)
     """
@@ -493,15 +532,9 @@ def post_github_reply_on_team_message(sender, instance: Comment, created: bool, 
         return
 
     item_context = instance.item_context
-    if _is_private_message(item_context):
-        return
-
     created_by_id = _get_comment_created_by_id(instance)
-    if not created_by_id:
-        return
 
-    author_type = item_context.get("author_type") if isinstance(item_context, dict) else None
-    if author_type == "customer":
+    if not _is_outbound_reply(item_context, created_by_id):
         return
 
     if isinstance(item_context, dict) and item_context.get("from_github"):
@@ -532,6 +565,8 @@ def post_github_reply_on_team_message(sender, instance: Comment, created: bool, 
             author_name = ""
             if created_by:
                 author_name = f"{created_by.first_name} {created_by.last_name}".strip() or created_by.email
+            else:
+                author_name = AI_BOT_DISPLAY_NAME
 
             cast(Any, post_reply_to_github).delay(
                 ticket_id=str(ticket.id),

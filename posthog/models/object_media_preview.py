@@ -21,7 +21,7 @@ class ObjectMediaPreview(UUIDModel, CreatedMetaFields, UpdatedMetaFields):
         related_name="object_previews",
     )
     exported_asset = models.ForeignKey(
-        "ExportedAsset",
+        "exports.ExportedAsset",
         on_delete=models.CASCADE,
         null=True,
         blank=True,

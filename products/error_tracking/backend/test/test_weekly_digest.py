@@ -1,27 +1,39 @@
+import json
 from datetime import timedelta
 from uuid import uuid4
 
+import pytest
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin, _create_event, _create_person, flush_persons_and_events
+from unittest.mock import patch
 
+from django.test import SimpleTestCase, override_settings
 from django.utils import timezone
 
+import requests
 from parameterized import parameterized
 
 from posthog.models import Team
 from posthog.models.organization import Organization
 from posthog.models.utils import uuid7
+from posthog.tasks.email import send_error_tracking_weekly_digest_for_org
+from posthog.tasks.email_utils import compute_week_over_week_change
 
-from products.error_tracking.backend.models import ErrorTrackingIssue, ErrorTrackingIssueFingerprintV2
+from products.error_tracking.backend.models import (
+    ErrorTrackingIssue,
+    ErrorTrackingIssueFingerprintV2,
+    ErrorTrackingRecommendation,
+)
 from products.error_tracking.backend.weekly_digest import (
     auto_select_project_for_user,
-    compute_week_over_week_change,
     get_crash_free_sessions,
     get_daily_exception_counts,
     get_exception_counts,
     get_exception_summary_for_team,
     get_new_issues_for_team,
     get_org_ids_with_exceptions,
+    get_source_maps_recommendation_for_team,
     get_top_issues_for_team,
+    send_digest_to_workflow,
 )
 
 from ee.clickhouse.materialized_columns.columns import materialize
@@ -477,3 +489,140 @@ class TestComputeWeekOverWeekChange:
 
     def test_returns_none_when_no_change(self):
         assert compute_week_over_week_change(100, 100, higher_is_better=True) is None
+
+
+# total_frames >= 20 and unresolved_pct > 0.30 => an active (not completed) recommendation
+_ACTIVE_META = {
+    "total_frames": 100,
+    "unresolved_frames": 72,
+    "unresolved_pct": 0.72,
+    "threshold_pct": 0.30,
+    "min_sample_frames": 20,
+    "lookback_hours": 24,
+}
+
+
+class TestSourceMapsRecommendationForDigest(APIBaseTest):
+    def _create_recommendation(
+        self, *, meta: dict, computed: bool = True, dismissed: bool = False
+    ) -> ErrorTrackingRecommendation:
+        now = timezone.now()
+        return ErrorTrackingRecommendation.objects.create(
+            team=self.team,
+            type="source_maps",
+            meta=meta,
+            computed_at=now if computed else None,
+            dismissed_at=now if dismissed else None,
+        )
+
+    def test_returns_none_when_no_recommendation(self):
+        assert get_source_maps_recommendation_for_team(self.team) is None
+
+    def test_returns_none_when_not_yet_computed(self):
+        self._create_recommendation(meta=_ACTIVE_META, computed=False)
+        assert get_source_maps_recommendation_for_team(self.team) is None
+
+    def test_returns_none_when_dismissed(self):
+        self._create_recommendation(meta=_ACTIVE_META, dismissed=True)
+        assert get_source_maps_recommendation_for_team(self.team) is None
+
+    def test_returns_none_when_completed_below_threshold(self):
+        self._create_recommendation(meta={**_ACTIVE_META, "unresolved_frames": 5, "unresolved_pct": 0.05})
+        assert get_source_maps_recommendation_for_team(self.team) is None
+
+    def test_returns_none_when_completed_too_few_frames(self):
+        self._create_recommendation(meta={**_ACTIVE_META, "total_frames": 5})
+        assert get_source_maps_recommendation_for_team(self.team) is None
+
+    def test_returns_data_when_active(self):
+        self._create_recommendation(meta=_ACTIVE_META)
+        result = get_source_maps_recommendation_for_team(self.team)
+        assert result is not None
+        assert result["unresolved_percent"] == 72
+        assert result["lookback_hours"] == 24
+        assert result["wizard_command"] == "npx -y @posthog/wizard@latest upload-source-maps"
+        assert result["docs_url"].startswith("https://posthog.com/docs/error-tracking/upload-source-maps")
+
+    @override_settings(CLOUD_DEPLOYMENT="EU")
+    def test_wizard_command_appends_region_eu_on_eu_cloud(self):
+        self._create_recommendation(meta=_ACTIVE_META)
+        result = get_source_maps_recommendation_for_team(self.team)
+        assert result is not None
+        assert result["wizard_command"] == "npx -y @posthog/wizard@latest upload-source-maps --region eu"
+
+    def test_only_returns_recommendation_for_the_given_team(self):
+        other_team = Team.objects.create(organization=self.organization, name="Other")
+        self._create_recommendation(meta=_ACTIVE_META)
+        assert get_source_maps_recommendation_for_team(other_team) is None
+
+
+class TestSendDigestToWorkflow(SimpleTestCase):
+    def test_raises_on_non_2xx_so_failures_are_not_marked_sent(self):
+        with patch("products.error_tracking.backend.weekly_digest.requests.post") as mock_post:
+            mock_post.return_value.raise_for_status.side_effect = requests.HTTPError(
+                "500", response=mock_post.return_value
+            )
+            with pytest.raises(requests.HTTPError):
+                send_digest_to_workflow({"recipient_email": "a@b.com"}, "distinct-1")
+
+    @override_settings(WORKFLOWS_WEBHOOK_SECRET="Bearer test-token")
+    def test_sends_secret_as_authorization_header(self):
+        with patch("products.error_tracking.backend.weekly_digest.requests.post") as mock_post:
+            send_digest_to_workflow({"recipient_email": "a@b.com"}, "distinct-1")
+            assert mock_post.call_args.kwargs["headers"] == {"Authorization": "Bearer test-token"}
+
+
+class TestWeeklyDigestWorkflowDelivery(ClickhouseTestMixin, APIBaseTest):
+    @classmethod
+    def setUpTestData(cls):
+        super().setUpTestData()
+        materialize("events", "$exception_issue_id", is_nullable=True)
+
+    @override_settings(ERROR_TRACKING_WEEKLY_DIGEST_ALLOWED_EMAILS=["*"])
+    def test_task_posts_json_safe_digest_and_dedupes_on_retry(self):
+        issue = ErrorTrackingIssue.objects.create(
+            id=uuid7(), team=self.team, status=ErrorTrackingIssue.Status.ACTIVE, name="TestError"
+        )
+        _create_event(
+            distinct_id="user_1",
+            event="$exception",
+            team=self.team,
+            properties={"$exception_issue_id": str(issue.id)},
+            timestamp=_days_ago(1),
+        )
+        flush_persons_and_events()
+
+        self.user.partial_notification_settings = {
+            "error_tracking_weekly_digest_project_enabled": {str(self.team.id): True}
+        }
+        self.user.save()
+
+        with patch("products.error_tracking.backend.weekly_digest.requests.post") as mock_post:
+            send_error_tracking_weekly_digest_for_org(str(self.organization.id))
+
+            assert mock_post.call_count == 1
+            url = mock_post.call_args.args[0] if mock_post.call_args.args else mock_post.call_args.kwargs["url"]
+            assert url == "https://webhooks.us.posthog.com/public/webhooks/019f2754-aeff-0000-6a0d-5d3933a94b08"
+
+            payload = mock_post.call_args.kwargs["json"]
+            json.dumps(payload)  # the workflow webhook only accepts JSON-serializable payloads
+            assert payload["event"] == "error_tracking_weekly_digest"
+            assert payload["distinct_id"] == self.user.distinct_id
+
+            digest = payload["digest"]
+            assert digest["recipient_email"] == self.user.email
+            assert digest["org_name"] == self.organization.name
+            section = digest["project_sections"][0]
+            assert section["team_name"] == self.team.name
+            assert section["exception_count"] == "1"
+            assert section["top_issues"][0]["id"] == str(issue.id)
+            assert section["top_issues"][0]["occurrence_count"] == "1"
+            # The email template branches on `ingestion_failure_count > 0`, so it
+            # must stay numeric; the formatted value ships as the display twin.
+            assert section["ingestion_failure_count"] == 0
+            assert section["ingestion_failure_count_display"] == "0"
+            assert "team" not in section
+
+            # Retry of the org task must not send the same campaign twice (MessagingRecord dedupe)
+            send_error_tracking_weekly_digest_for_org(str(self.organization.id))
+            assert mock_post.call_count == 1

@@ -33,8 +33,8 @@ class TestSCIMUsersAPI(APILicensedTest):
 
         # Generate SCIM token
         self.plain_token, hashed_token = generate_scim_token()
-        self.domain.scim_enabled = True
-        self.domain.scim_bearer_token = hashed_token
+        self.domain._scim_enabled = True
+        self.domain._scim_bearer_token = hashed_token
         self.domain.save()
 
         self.scim_headers = {"HTTP_AUTHORIZATION": f"Bearer {self.plain_token}"}
@@ -996,3 +996,112 @@ class TestSCIMUsersAPI(APILicensedTest):
 
         assert len(all_ids) == total
         assert len(set(all_ids)) == total
+
+    def test_patch_replace_email_with_multi_at_domain_is_rejected(self):
+        # A multi-"@" address whose second segment is a verified domain must not pass the
+        # domain-ownership guard: the real delivery domain is the final segment.
+        user = User.objects.create_user(
+            email="multiat@example.com", password=None, first_name="Multi", is_email_verified=True
+        )
+        OrganizationMembership.objects.create(
+            user=user, organization=self.organization, level=OrganizationMembership.Level.MEMBER
+        )
+        SCIMProvisionedUser.objects.create(
+            user=user,
+            organization_domain=self.domain,
+            username="multiat@example.com",
+            identity_provider=SCIMProvisionedUser.IdentityProvider.OTHER,
+            active=True,
+        )
+
+        patch_data = {
+            "schemas": ["urn:ietf:params:scim:api:messages:2.0:PatchOp"],
+            "Operations": [
+                {
+                    "op": "replace",
+                    "path": "emails",
+                    "value": [{"value": "attacker@example.com@evil.com", "primary": True}],
+                }
+            ],
+        }
+
+        response = self.client.patch(
+            f"/scim/v2/{self.domain.id}/Users/{user.id}", data=patch_data, content_type="application/scim+json"
+        )
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        user.refresh_from_db()
+        assert user.email == "multiat@example.com"
+
+    def test_patch_replace_email_case_collision_rejected(self):
+        # A case-variant of an existing account's email collides at login time (email__iexact),
+        # so SCIM must reject it even though the unique index is case-sensitive.
+        user_a = User.objects.create_user(
+            email="existing@example.com", password=None, first_name="A", is_email_verified=True
+        )
+        OrganizationMembership.objects.create(
+            user=user_a, organization=self.organization, level=OrganizationMembership.Level.MEMBER
+        )
+        user_b = User.objects.create_user(
+            email="userb@example.com", password=None, first_name="B", is_email_verified=True
+        )
+        OrganizationMembership.objects.create(
+            user=user_b, organization=self.organization, level=OrganizationMembership.Level.MEMBER
+        )
+        SCIMProvisionedUser.objects.create(
+            user=user_b,
+            organization_domain=self.domain,
+            username="userb@example.com",
+            identity_provider=SCIMProvisionedUser.IdentityProvider.OTHER,
+            active=True,
+        )
+
+        patch_data = {
+            "schemas": ["urn:ietf:params:scim:api:messages:2.0:PatchOp"],
+            "Operations": [
+                {
+                    "op": "replace",
+                    "path": "emails",
+                    "value": [{"value": "EXISTING@example.com", "primary": True}],
+                }
+            ],
+        }
+
+        response = self.client.patch(
+            f"/scim/v2/{self.domain.id}/Users/{user_b.id}", data=patch_data, content_type="application/scim+json"
+        )
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        user_b.refresh_from_db()
+        assert user_b.email == "userb@example.com"
+
+    def test_deactivate_owner_is_blocked(self):
+        # Deprovisioning must run the canonical User.leave path, which protects an
+        # organization from being left without an owner.
+        owner = User.objects.create_user(
+            email="owner2@example.com", password=None, first_name="Owner", is_email_verified=True
+        )
+        OrganizationMembership.objects.create(
+            user=owner, organization=self.organization, level=OrganizationMembership.Level.OWNER
+        )
+        SCIMProvisionedUser.objects.create(
+            user=owner,
+            organization_domain=self.domain,
+            username="owner2@example.com",
+            identity_provider=SCIMProvisionedUser.IdentityProvider.OTHER,
+            active=True,
+        )
+
+        patch_data = {
+            "schemas": ["urn:ietf:params:scim:api:messages:2.0:PatchOp"],
+            "Operations": [{"op": "replace", "value": {"active": False}}],
+        }
+
+        response = self.client.patch(
+            f"/scim/v2/{self.domain.id}/Users/{owner.id}", data=patch_data, content_type="application/scim+json"
+        )
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert OrganizationMembership.objects.filter(
+            user=owner, organization=self.organization, level=OrganizationMembership.Level.OWNER
+        ).exists()

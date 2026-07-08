@@ -1,7 +1,13 @@
 import type { ApiClient, GroupType } from '@/api/client'
 import { hasScope } from '@/lib/api'
 import type { ScopedCache } from '@/lib/cache/ScopedCache'
-import { ErrorCode, MissingOrganizationContextError, MissingProjectContextError, wrapError } from '@/lib/errors'
+import {
+    ErrorCode,
+    MissingOrganizationContextError,
+    MissingProjectContextError,
+    PostHogApiError,
+    wrapError,
+} from '@/lib/errors'
 import { buildActiveEnvironmentContextPrompt } from '@/lib/instructions'
 import { getPostHogClient } from '@/lib/posthog'
 import { sanitizeHeaderValue } from '@/lib/utils'
@@ -42,7 +48,7 @@ export class StateManager {
             // The DRF serializer returns `null` (not `[]`) for unscoped keys, so
             // normalize at the boundary — downstream code treats these as arrays.
             return {
-                scopes,
+                scopes: scopes ?? [],
                 scoped_teams: scoped_teams ?? [],
                 scoped_organizations: scoped_organizations ?? [],
             }
@@ -117,31 +123,59 @@ export class StateManager {
         // otherwise pick the first scoped team deterministically. The org is
         // omitted here — `getAnalyticsContext` recovers it from the project.
         if (scoped_teams.length > 0) {
-            if (scoped_teams.includes(activeTeam.id)) {
+            if (activeTeam && scoped_teams.includes(activeTeam.id)) {
                 return { projectId: activeTeam.id }
             }
             return { projectId: scoped_teams[0]! }
         }
 
         // No team scoping: prefer the user's active org/team when the scope
-        // allows it.
-        if (scoped_organizations.length === 0 || scoped_organizations.includes(activeOrganization.id)) {
-            return { organizationId: activeOrganization.id, projectId: activeTeam.id }
+        // allows it. `activeOrganization` / `activeTeam` can be null for users
+        // with no `current_organization` / `current_team` (newly provisioned
+        // accounts, users who left their last org) — fall through to the
+        // scoped-org fallback below when either is missing.
+        if (
+            activeOrganization &&
+            (scoped_organizations.length === 0 || scoped_organizations.includes(activeOrganization.id))
+        ) {
+            return activeTeam
+                ? { organizationId: activeOrganization.id, projectId: activeTeam.id }
+                : { organizationId: activeOrganization.id }
         }
 
-        // Active org isn't in the scope. Pick the first allowed org and fall
-        // back to its first project. If the project lookup fails or the org has
-        // no projects, return the org alone and let the agent disambiguate.
-        const organizationId = scoped_organizations[0]!
+        // Active org isn't in the scope (or the user has no active org). Pick
+        // the first allowed org and fall back to its first project. If the
+        // project lookup fails or the org has no projects, return the org alone
+        // and let the agent disambiguate. With no scoped orgs and no active
+        // org, we have nothing to anchor on — return empty and let the caller
+        // surface a recoverable missing-context error.
+        const organizationId = scoped_organizations[0]
+        if (!organizationId) {
+            return {}
+        }
         try {
             const projectsResult = await this._api.organizations().projects({ orgId: organizationId }).list()
             if (projectsResult.success && projectsResult.data.length > 0) {
                 return { organizationId, projectId: Number(projectsResult.data[0]!) }
             }
             if (!projectsResult.success) {
-                this._reportException(projectsResult.error, 'default_org_project_projects_list_failed', {
-                    organization_id: organizationId,
-                })
+                // A 404 here means the API key/OAuth token points at an org the
+                // requesting user can no longer access (or a deleted org): the
+                // org-nested projects endpoint is scoped to the user's
+                // memberships. That's a recoverable user-config state — the
+                // agent recovers via switch-project/switch-organization — so
+                // warn instead of capturing, mirroring the 403 permission_denied
+                // path in client.ts. Only genuine 5xx/unexpected failures reach
+                // error tracking.
+                if (this._isRecoverableNotFound(projectsResult.error)) {
+                    console.warn(
+                        `[StateManager] Scoped org ${organizationId} projects lookup returned 404 (org not accessible to this user or deleted); falling back to org-only context`
+                    )
+                } else {
+                    this._reportException(projectsResult.error, 'default_org_project_projects_list_failed', {
+                        organization_id: organizationId,
+                    })
+                }
             }
         } catch (error) {
             this._reportException(error, 'default_org_project_projects_list_threw', {
@@ -150,6 +184,15 @@ export class StateManager {
         }
 
         return { organizationId }
+    }
+
+    /**
+     * A 404 from the scoped-org projects lookup is an expected missing-context
+     * state (org deleted, or the user lost access to a still-scoped org), not a
+     * service bug. Treat it as recoverable so it stays out of error tracking.
+     */
+    private _isRecoverableNotFound(error: unknown): boolean {
+        return error instanceof PostHogApiError && error.status === 404
     }
 
     private _reportException(error: unknown, context: string, extra: Record<string, unknown> = {}): void {
@@ -341,7 +384,7 @@ export class StateManager {
             this.getCachedOrFetchOrg().catch(() => undefined),
             this.getCachedOrFetchProject().catch(() => undefined),
         ])
-        return buildActiveEnvironmentContextPrompt(user, org, project)
+        return buildActiveEnvironmentContextPrompt(user, org, project, this._api.publicBaseUrl)
     }
 
     /**
@@ -375,11 +418,25 @@ export class StateManager {
     async getAiConsentGiven(): Promise<boolean | undefined> {
         try {
             const org = await this.getCachedOrFetchOrg()
-            if (!org) {
-                return undefined
+            if (org) {
+                const consent = (org as { is_ai_data_processing_approved?: boolean | null })
+                    .is_ai_data_processing_approved
+                return !!consent
             }
-            const consent = (org as { is_ai_data_processing_approved?: boolean | null }).is_ai_data_processing_approved
-            return !!consent
+
+            // Team-scoped tokens (e.g. sandbox OAuth tokens) can never fetch
+            // `/api/organizations/{id}/` — see the guard in getCachedOrFetchOrg.
+            // But `/api/users/@me/` is exempt from team scoping and embeds the
+            // full org serializer (including the consent flag) for the user's
+            // *current* org. That org isn't necessarily the one owning the
+            // scoped project, so only trust the flag when it matches the active
+            // project's owning org; otherwise stay undefined so callers keep
+            // failing closed.
+            const [user, project] = await Promise.all([this.getCachedOrFetchUser(), this.getCachedOrFetchProject()])
+            if (user?.organization && project?.organization === user.organization.id) {
+                return !!user.organization.is_ai_data_processing_approved
+            }
+            return undefined
         } catch {
             return undefined
         }

@@ -1,0 +1,28 @@
+{
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "properties": {
+        "current_action_id": {
+            "description": "Start execution from this action ID instead of the trigger. Each test run executes a single node and returns the next action id.",
+            "type": "string"
+        },
+        "globals": {
+            "additionalProperties": {},
+            "description": "Test trigger payload, typically {event, person, groups}.",
+            "propertyNames": {
+                "type": "string"
+            },
+            "type": "object"
+        },
+        "id": {
+            "description": "A UUID string identifying this hog flow.",
+            "type": "string"
+        },
+        "mock_async_functions": {
+            "default": true,
+            "description": "True (default) mocks HTTP/email/SMS. False fires real side effects.",
+            "type": "boolean"
+        }
+    },
+    "required": ["id"],
+    "type": "object"
+}

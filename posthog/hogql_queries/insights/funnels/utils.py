@@ -1,5 +1,6 @@
+from typing import TypeIs
+
 from rest_framework.exceptions import ValidationError
-from typing_extensions import TypeIs
 
 from posthog.schema import (
     ActionsNode,
@@ -12,9 +13,14 @@ from posthog.schema import (
 
 from posthog.hogql import ast
 from posthog.hogql.parser import parse_expr
+from posthog.hogql.property import apply_path_cleaning
 
 from posthog.constants import FUNNEL_WINDOW_INTERVAL_TYPES
+from posthog.hogql_queries.insights.utils.breakdowns import ALL_USERS_COHORT_ID, NOT_IN_COHORT_ID
+from posthog.models.team.team import Team
 from posthog.types import FunnelEntityNode, FunnelExclusionEntityNode
+
+from products.cohorts.backend.models.cohort import Cohort
 
 
 def funnel_window_interval_unit_to_sql(
@@ -39,7 +45,11 @@ def funnel_window_interval_unit_to_sql(
 
 
 def get_breakdown_expr(
-    breakdowns: list[str | int] | str | int, properties_column: str | None, normalize_url: bool | None = False
+    breakdowns: list[str | int] | str | int,
+    properties_column: str | None,
+    normalize_url: bool | None = False,
+    path_cleaning: bool | None = False,
+    team: Team | None = None,
 ) -> ast.Expr:
     def make_field(breakdown: str | int) -> ast.Expr:
         if properties_column is None:
@@ -47,6 +57,10 @@ def get_breakdown_expr(
             return ast.Field(chain=[breakdown])
         else:
             return ast.Field(chain=[*properties_column.split("."), breakdown])
+
+    # Fail loudly rather than silently skipping cleaning if a caller forgets the team
+    if path_cleaning and team is None:
+        raise ValueError("get_breakdown_expr: path_cleaning=True requires a team")
 
     if isinstance(breakdowns, str) or isinstance(breakdowns, int) or breakdowns is None:
         return ast.Call(
@@ -66,6 +80,8 @@ def get_breakdown_expr(
                     ast.Constant(value=""),
                 ],
             )
+            if path_cleaning and team is not None:
+                expr = apply_path_cleaning(expr, team)
             if normalize_url:
                 regex = "[\\\\/?#]*$"
                 expr = parse_expr(
@@ -126,3 +142,15 @@ def alias_columns_in_select(columns: list[ast.Expr], table_alias: str) -> list[a
         else:
             raise ValueError(f"Unexpected select expression {col!r}")
     return result
+
+
+def get_breakdown_cohort_name(cohort_id: int, team: Team, not_in_cohort_name: str | None = None) -> str:
+    if cohort_id == ALL_USERS_COHORT_ID:
+        return "all users"
+    elif cohort_id == NOT_IN_COHORT_ID:
+        if not_in_cohort_name:
+            return f"Not in {not_in_cohort_name}"
+        return "Not in cohort"
+    else:
+        cohort_name = Cohort.objects.get(pk=cohort_id, team__project_id=team.project_id).name
+        return cohort_name or ""

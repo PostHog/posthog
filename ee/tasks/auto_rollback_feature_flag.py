@@ -1,12 +1,16 @@
-from datetime import datetime, timedelta
+from datetime import UTC, datetime, timedelta
+from typing import cast
 from zoneinfo import ZoneInfo
 
 from celery import shared_task
 
+from posthog.schema import TrendsQuery
+
 from posthog.clickhouse.query_tagging import Feature, Product, tags_context
-from posthog.models.filters.filter import Filter
+from posthog.hogql_queries.insights.trends.trends_query_runner import TrendsQueryRunner
+from posthog.hogql_queries.legacy_compatibility.filter_to_query import filter_to_query
+from posthog.hogql_queries.query_runner import ExecutionMode
 from posthog.models.team import Team
-from posthog.queries.trends.trends import Trends
 from posthog.scoping_audit import skip_team_scope_audit
 
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
@@ -45,21 +49,24 @@ def calculate_rolling_average(threshold_metric: dict, team: Team, timezone: str)
 
     rolling_average_days = 7
 
-    filter = Filter(
-        data={
-            **threshold_metric,
-            "date_from": (curr - timedelta(days=rolling_average_days)).strftime("%Y-%m-%d %H:%M:%S.%f"),
-            "date_to": curr.strftime("%Y-%m-%d %H:%M:%S.%f"),
-        },
-        team=team,
-    )
-    trends_query = Trends()
-    result = trends_query.run(filter, team)
+    metric = {
+        **threshold_metric,
+        "date_from": (curr - timedelta(days=rolling_average_days)).strftime("%Y-%m-%d %H:%M:%S.%f"),
+        "date_to": curr.strftime("%Y-%m-%d %H:%M:%S.%f"),
+    }
+    # Stored rollback metrics use the lowercase legacy insight value; filter_to_query keys on the
+    # uppercase insight constants (e.g. "TRENDS").
+    if isinstance(metric.get("insight"), str):
+        metric["insight"] = metric["insight"].upper()
 
-    if not len(result):
+    query = filter_to_query(metric)
+    response = TrendsQueryRunner(query=cast(TrendsQuery, query), team=team).run(ExecutionMode.CALCULATE_BLOCKING_ALWAYS)
+
+    results = getattr(response, "results", None)
+    if not results:
         return False
 
-    data = result[0]["data"]
+    data = results[0]["data"]
 
     return sum(data) / rolling_average_days
 
@@ -70,7 +77,7 @@ def check_condition(rollback_condition: dict, feature_flag: FeatureFlag) -> bool
         base_start_date = created_date.strftime("%Y-%m-%dT%H:%M:%S")
         base_end_date = (created_date + timedelta(days=1)).strftime("%Y-%m-%dT%H:%M:%S")
 
-        current_time = datetime.utcnow()
+        current_time = datetime.now(UTC)
         target_end_date = current_time.strftime("%Y-%m-%dT%H:%M:%S")
         target_start_date = (current_time - timedelta(days=1)).strftime("%Y-%m-%dT%H:%M:%S")
 

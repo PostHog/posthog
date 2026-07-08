@@ -1,10 +1,18 @@
 import fs from 'fs'
 import path from 'path'
 
-import { expect, test } from '../../utils/playwright-test-base'
+import { PlaywrightWorkspaceSetupResult, expect, test } from '../../utils/workspace-test-base'
 
 test.describe('Billing', () => {
-    test.beforeEach(async ({ page }) => {
+    let workspace: PlaywrightWorkspaceSetupResult | null = null
+
+    test.beforeAll(async ({ playwrightSetup }) => {
+        workspace = await playwrightSetup.createWorkspace({ skip_onboarding: true, no_demo_data: true })
+    })
+
+    test.beforeEach(async ({ page, playwrightSetup }) => {
+        await playwrightSetup.login(page, workspace!)
+
         // This replicates cy.intercept('/api/billing/') with fixture
         // We'll read the JSON from a fixture folder. Adjust the path as needed.
         await page.route('**/api/billing/', async (route) => {

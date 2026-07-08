@@ -1,0 +1,27 @@
+{
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "description": "Request body for registering a scout config without waiting for the coordinator tick.\n\nUpsert keyed on `skill_name`: if the coordinator (or a concurrent caller) already\nregistered the row, the provided tunables are applied to it instead.",
+    "properties": {
+        "emit": {
+            "description": "Whether the scout writes findings to the inbox. False = dry-run: it runs and logs but emits nothing. Defaults to true.",
+            "type": "boolean"
+        },
+        "enabled": {
+            "description": "Whether this scout runs on its schedule. Defaults to true.",
+            "type": "boolean"
+        },
+        "run_interval_minutes": {
+            "description": "Minutes between runs (30–43200). Defaults to 1440 (every 24 hours).",
+            "maximum": 43200,
+            "minimum": 30,
+            "type": "number"
+        },
+        "skill_name": {
+            "description": "The `signals-scout-*` skill to register a config for. The skill must already exist on this project — author it via the skills store first.",
+            "maxLength": 200,
+            "type": "string"
+        }
+    },
+    "required": ["skill_name"],
+    "type": "object"
+}

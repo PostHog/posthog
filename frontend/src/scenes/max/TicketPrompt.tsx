@@ -81,7 +81,7 @@ export function TicketPrompt({ conversationId, traceId, summary, initialText }: 
             name: '',
             email: '',
             kind: 'bug',
-            target_area: 'max-ai',
+            target_area: 'posthog-ai',
             severity_level: 'low',
             message: messageContent,
             tags: ['raised_from_posthog_ai_chat'],

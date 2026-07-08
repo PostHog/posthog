@@ -24,7 +24,7 @@ import { usersLemonSelectOptions } from 'lib/components/UserSelectItem'
 import { OrganizationMembershipLevel } from 'lib/constants'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { LemonTableLink } from 'lib/lemon-ui/LemonTable/LemonTableLink'
-import { fullName } from 'lib/utils'
+import { fullName } from 'lib/utils/strings'
 import { organizationLogic } from 'scenes/organizationLogic'
 import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
@@ -36,6 +36,7 @@ import { roleAccessControlLogic } from './roleAccessControlLogic'
 export function RolesAccessControls(): JSX.Element {
     const { sortedRoles, rolesLoading, selectedRoleId, canEditRoles } = useValues(roleAccessControlLogic)
     const { currentOrganization } = useValues(organizationLogic)
+    const { guardAvailableFeature } = useValues(upgradeModalLogic)
 
     const { selectRoleId, setEditingRoleId } = useActions(roleAccessControlLogic)
 
@@ -132,7 +133,7 @@ export function RolesAccessControls(): JSX.Element {
             <LemonButton
                 className="mt-2"
                 type="primary"
-                onClick={() => setEditingRoleId('new')}
+                onClick={() => guardAvailableFeature(AvailableFeature.ROLE_BASED_ACCESS, () => setEditingRoleId('new'))}
                 icon={<IconPlus />}
                 disabledReason={defaultRoleRestrictionReason}
             >

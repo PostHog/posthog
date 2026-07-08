@@ -60,6 +60,9 @@ services:
             file: docker-compose.base.yml
             service: zookeeper
         logging: *default-logging
+        environment:
+            ZOO_AUTOPURGE_PURGEINTERVAL: 1
+            ZOO_AUTOPURGE_SNAPRETAINCOUNT: 3
         volumes:
             - zookeeper-datalog:/datalog
             - zookeeper-data:/data
@@ -99,7 +102,13 @@ services:
             POSTHOG_SKIP_MIGRATION_CHECKS: '1'
             PERSONHOG_ADDR: 'personhog-router:50052'
             PERSONHOG_ENABLED: 'true'
-            PERSONHOG_ROLLOUT_PERCENTAGE: '100'
+            BROWSERLESS_CDP_URL: 'ws://browserless:3000'
+            BROWSERLESS_TOKEN: ${BROWSERLESS_SECRET:-$POSTHOG_SECRET}
+            HEATMAP_BROWSERLESS_URL: 'http://browserless:3000'
+            HEATMAP_BROWSERLESS_TOKEN: ${BROWSERLESS_SECRET:-$POSTHOG_SECRET}
+            # AI provider keys for PostHog's AI features. Blank unless set in .env.
+            ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
+            OPENAI_API_KEY: ${OPENAI_API_KEY:-}
         image: $REGISTRY_URL:$POSTHOG_APP_TAG
         depends_on:
             db:
@@ -113,6 +122,8 @@ services:
             web:
                 condition: service_started
             personhog-router:
+                condition: service_started
+            browserless:
                 condition: service_started
     web:
         extends:
@@ -144,7 +155,9 @@ services:
             DEPLOYMENT: 'hobby'
             PERSONHOG_ADDR: 'personhog-router:50052'
             PERSONHOG_ENABLED: 'true'
-            PERSONHOG_ROLLOUT_PERCENTAGE: '100'
+            # AI provider keys for PostHog's AI features. Blank unless set in .env.
+            ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
+            OPENAI_API_KEY: ${OPENAI_API_KEY:-}
         depends_on:
             - db
             - redis7
@@ -285,11 +298,16 @@ services:
             - web
             - livestream
     objectstorage:
-        extends:
-            file: docker-compose.base.yml
-            service: objectstorage
-
+        # Transitional legacy MinIO source for hobby migrations.
+        # Dev/CI stacks use SeaweedFS-backed objectstorage from docker-compose.base.yml,
+        # but hobby keeps MinIO so bin/migrate-storage-hobby still has a MinIO source.
+        image: minio/minio:RELEASE.2025-04-22T22-12-26Z
         restart: on-failure
+        environment:
+            MINIO_ROOT_USER: object_storage_root_user
+            MINIO_ROOT_PASSWORD: object_storage_root_password
+        entrypoint: sh
+        command: -c 'mkdir -p /data/posthog /data/ducklake-dev /data/ai-blobs && minio server --address ":19000" --console-address ":19001" /data'
         logging: *default-logging
         volumes:
             - objectstorage:/data
@@ -321,6 +339,14 @@ services:
             timeout: 10s
             retries: 30
             start_period: 10s
+
+    browserless:
+        # Renders image exports and heatmap screenshots (no browser ships in the PostHog image).
+        image: ghcr.io/browserless/chromium:v2.51.2
+        restart: on-failure
+        logging: *default-logging
+        environment:
+            TOKEN: ${BROWSERLESS_SECRET:-$POSTHOG_SECRET}
 
     asyncmigrationscheck:
         extends:
@@ -381,6 +407,13 @@ services:
         environment:
             SITE_URL: https://$DOMAIN
             SECRET_KEY: $POSTHOG_SECRET
+            BROWSERLESS_CDP_URL: 'ws://browserless:3000'
+            BROWSERLESS_TOKEN: ${BROWSERLESS_SECRET:-$POSTHOG_SECRET}
+            HEATMAP_BROWSERLESS_URL: 'http://browserless:3000'
+            HEATMAP_BROWSERLESS_TOKEN: ${BROWSERLESS_SECRET:-$POSTHOG_SECRET}
+            # AI provider keys for PostHog's AI features. Blank unless set in .env.
+            ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
+            OPENAI_API_KEY: ${OPENAI_API_KEY:-}
         depends_on:
             - db
             - redis7
@@ -389,6 +422,7 @@ services:
             - objectstorage
             - seaweedfs
             - temporal
+            - browserless
 
     cyclotron-janitor:
         extends:
@@ -490,7 +524,7 @@ services:
             - redis7
 
     kafka-init:
-        image: docker.redpanda.com/redpandadata/redpanda:v25.1.9
+        image: docker.io/redpandadata/redpanda:v25.1.9
         entrypoint: /bin/sh
         logging: *default-logging
         command:
@@ -526,6 +560,8 @@ services:
                     events_plugin_ingestion_dlq \
                     events_plugin_ingestion_overflow \
                     events_plugin_ingestion_async \
+                    ingestion-clientwarnings-main-1 \
+                    heatmaps_ingestion \
                     clickhouse_groups \
                     clickhouse_person \
                     clickhouse_person_distinct_id \

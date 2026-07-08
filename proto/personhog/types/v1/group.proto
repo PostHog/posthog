@@ -125,6 +125,19 @@ message GroupTypeMappingsBatchResponse {
   repeated GroupTypeMappingsByKey results = 1;
 }
 
+message CountGroupTypeMappingsRequest {
+  ReadOptions read_options = 1;
+}
+
+message GroupTypeMappingCount {
+  int64 team_id = 1;
+  int64 count = 2;
+}
+
+message CountGroupTypeMappingsResponse {
+  repeated GroupTypeMappingCount counts = 1;
+}
+
 // ============================================================
 // Group write operations
 // ============================================================

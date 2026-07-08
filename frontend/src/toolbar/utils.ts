@@ -1,14 +1,13 @@
-import { finder } from '@medv/finder'
 import { querySelectorAllDeep } from 'query-selector-shadow-dom'
 import { CSSProperties } from 'react'
 
-import { CLICK_TARGETS, CLICK_TARGET_SELECTOR, TAGS_TO_IGNORE, escapeRegex } from 'lib/actionUtils'
-import { cssEscape } from 'lib/utils/cssEscape'
+import { CLICK_TARGETS, CLICK_TARGET_SELECTOR, TAGS_TO_IGNORE, escapeRegex } from 'lib/utils/actions'
 
 import { patch } from '~/toolbar/patch'
 import { toolbarLogger } from '~/toolbar/toolbarLogger'
 import { captureToolbarException } from '~/toolbar/toolbarPosthogJS'
 import { ActionStepForm, ElementRect } from '~/toolbar/types'
+import { finder } from '~/toolbar/vendor/finder'
 import { ActionStepType } from '~/types'
 
 import { ActionStepPropertyKey } from './actions/ActionStep'
@@ -18,6 +17,19 @@ export const TOOLBAR_ID = '__POSTHOG_TOOLBAR__'
 // Props arrive via the `__posthog=<base64>` URL fragment, so the static type is not
 // load-bearing at runtime — verify before storing strings that flow into auth headers.
 export const asNonEmptyString = (v: unknown): string | null => (typeof v === 'string' && v.length > 0 ? v : null)
+
+// `fetch` that always resolves to something safe to read `.status`/`.ok`/`.json()` off. A
+// site-level `window.fetch` wrapper on the customer page can resolve to `undefined`/`null` (or
+// another non-object), which makes every downstream `.status` access throw a TypeError. Normalize
+// any non-object value into a synthetic failed response so the toolbar's OAuth chain and its
+// callers can treat it as an ordinary request failure rather than crashing.
+export async function safeFetch(input: RequestInfo | URL, init?: RequestInit): Promise<Response> {
+    const response = await fetch(input, init)
+    if (response && typeof response === 'object') {
+        return response
+    }
+    return new Response(JSON.stringify({ results: [], detail: 'invalid_fetch_response' }), { status: 502 })
+}
 
 const elementToQueryCache = new WeakMap<HTMLElement, string | undefined>()
 export const TOOLBAR_CONTAINER_CLASS = 'toolbar-global-fade-container'
@@ -146,7 +158,7 @@ function computeElementQuery(element: HTMLElement, dataAttributes: string[]): st
             continue
         }
 
-        const escapedSelector = `[${cssEscape(name)}="${cssEscape(value)}"]`
+        const escapedSelector = `[${CSS.escape(name)}="${CSS.escape(value)}"]`
         const unescapedSelector = `[${name}="${value}"]`
 
         if (querySelectorAllDeep(escapedSelector).length == 1) {
@@ -162,13 +174,21 @@ function computeElementQuery(element: HTMLElement, dataAttributes: string[]): st
             tagName: (name) => !TAGS_TO_IGNORE.includes(name),
             // include several selectors e.g. prefer .project-homepage > .project-header > .project-title over .project-title
             seedMinLength: 5,
-            attr: (name) => {
+            attr: (name, value) => {
                 // preference to data attributes if they exist
                 // that aren't in the PostHog preferred list - they were returned early above
-                return name.startsWith('data-')
+                return name.startsWith('data-') && value.length < 100 && !containsUnstableGeneratedId(value)
             },
+            // the combination guard tripped and cut the candidate search short -
+            // the selector may degrade to a brittle positional path - record host
+            // and depth so we can see how often and where pathological DOMs hit this
+            onCombinationsCapped: ({ levels }) =>
+                toolbarLogger.warn('element_selector', 'finder hit maxCombinations cap, candidate search truncated', {
+                    host: window.location.host,
+                    levels,
+                }),
         })
-        return slashDotDataAttrUnescape(foundSelector)
+        return unescapeCssSelector(foundSelector)
     } catch (error) {
         toolbarLogger.warn('element_selector', 'Error while trying to find a selector for element')
         captureToolbarException(error, 'element_selector_computation')
@@ -407,7 +427,7 @@ export function getElementForStep(step: ActionStepForm, allElements?: HTMLElemen
     }
 
     if (step.href && (step.href_selected || typeof step.href_selected === 'undefined')) {
-        selector += `[href="${cssEscape(step.href)}"]`
+        selector += `[href="${CSS.escape(step.href)}"]`
     }
 
     const hasText = step.text && step.text.trim() && (step.text_selected || typeof step.text_selected === 'undefined')
@@ -635,14 +655,34 @@ export function getHeatMapHue(count: number, maxCount: number): number {
 }
 
 /*
- * KLUDGE: e.g. [data-attr="session\.recording\.preview"] is valid CSS
- * but our action matching doesn't support it
- * in order to avoid trying to write a general purpose CSS unescaper
- * we just remove the backslash in this specific pattern
- * if it matches data-attr="bla\.blah\.blah"
+ * KLUDGE: finder() builds selectors with CSS.escape, e.g. [data-attr="session\.recording\.preview"]
+ * or [data-id="base-ui-\:rg\:-viewport"]. That's valid CSS, but our action/element matching compares
+ * raw attribute values, so the escapes must be removed. This handles single-character escapes
+ * (\. -> ., \: -> :) and hex code-point escapes (\31 -> 1) without being a fully general CSS unescaper.
+ *
+ * Safety: this only works correctly because finder's wordLike gate rejects id/class tokens that
+ * contain ':', so unescaping outside quoted attribute values never produces pseudo-class collisions.
+ * If that gate is ever relaxed, this function will need to become attribute-value-aware.
  */
-export function slashDotDataAttrUnescape(foundSelector: string): string | undefined {
-    return foundSelector.replace(/\\./g, '.')
+export function unescapeCssSelector(foundSelector: string): string {
+    return foundSelector.replace(/\\([0-9a-fA-F]{1,6} ?|.)/g, (_, escaped: string) => {
+        if (/^[0-9a-fA-F]/.test(escaped)) {
+            // hex code-point escape: \31 23-foo → "123-foo", \: would not reach here
+            const codePoint = parseInt(escaped, 16)
+            // guard invalid code points (> U+10FFFF or 0) per CSS spec — fall back to U+FFFD
+            return codePoint === 0 || codePoint > 0x10ffff ? '�' : String.fromCodePoint(codePoint)
+        }
+        return escaped
+    })
+}
+
+// React's useId() emits per-render identifiers like ":r5:" (React <= 18) or "«r5»" (React 19),
+// which component libraries embed in DOM attributes (e.g. data-id="base-ui-:rg:-viewport").
+// They change between renders and deploys, so a selector built on one never matches recorded events.
+const UNSTABLE_GENERATED_ID_REGEX = /:r[0-9a-z]*:|«r[0-9a-z]*»/i
+
+export function containsUnstableGeneratedId(value: string): boolean {
+    return UNSTABLE_GENERATED_ID_REGEX.test(value)
 }
 
 export function makeNavigateWrapper(onNavigate: () => void, patchKey: string): () => () => void {

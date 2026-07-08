@@ -1,13 +1,15 @@
+from unittest.mock import patch
+
 from django.test import override_settings
 
 from parameterized import parameterized
 
-from posthog.models.oauth import OAuthAccessToken
+from posthog.models.oauth import OAuthAccessToken, OAuthApplication
 from posthog.models.personal_api_key import PersonalAPIKey
 from posthog.models.team.team import Team
 
-from ee.api.agentic_provisioning.test.base import HMAC_SECRET, ProvisioningTestBase
-from ee.api.agentic_provisioning.views import _create_provisioned_pat
+from ee.api.agentic_provisioning.test.base import HMAC_SECRET, TEST_STRIPE_OAUTH_CLIENT_ID, ProvisioningTestBase
+from ee.api.agentic_provisioning.views import _maybe_create_provisioned_pat
 
 
 @override_settings(STRIPE_SIGNING_SECRET=HMAC_SECRET)
@@ -25,6 +27,24 @@ class TestProvisioningResources(ProvisioningTestBase):
         assert data["id"] == str(self.team.id)
         assert "api_key" in data["complete"]["access_configuration"]
         assert "host" in data["complete"]["access_configuration"]
+
+    @patch("ee.api.agentic_provisioning.views._capture_provisioning_event")
+    def test_create_resource_capture_attributes_client(self, mock_capture_event):
+        token = self._get_bearer_token()
+        res = self._post_signed_with_bearer(
+            "/api/agentic/provisioning/resources",
+            data={"service_id": "analytics"},
+            token=token,
+        )
+        assert res.status_code == 200
+
+        success_calls = [
+            call for call in mock_capture_event.call_args_list if call.args[:2] == ("resource_created", "success")
+        ]
+        assert len(success_calls) == 1
+        partner = success_calls[0].kwargs["partner"]
+        assert partner is not None
+        assert partner.name == "PostHog Stripe App"
 
     def test_get_resource_returns_complete(self):
         token = self._get_bearer_token()
@@ -132,8 +152,13 @@ class TestProvisioningResources(ProvisioningTestBase):
         assert pat is not None
         assert pat.label == self.team.name[:40]
 
-    def test_create_resource_pat_is_scoped_to_authorized_team(self):
+    def test_create_resource_pat_narrowed_to_granted_token_scope(self):
+        # The test bearer is granted only query:read; the PAT must not widen to the
+        # full ceiling even when the app's grantable set is broader.
         token = self._get_bearer_token()
+        app = OAuthApplication.objects.get(client_id=TEST_STRIPE_OAUTH_CLIENT_ID)
+        app.scopes = ["insight:read", "query:read"]
+        app.save(update_fields=["scopes"])
         self._post_signed_with_bearer(
             "/api/agentic/provisioning/resources",
             data={"service_id": "analytics"},
@@ -141,9 +166,62 @@ class TestProvisioningResources(ProvisioningTestBase):
         )
         pat = PersonalAPIKey.objects.filter(user=self.user).order_by("-created_at").first()
         assert pat is not None
-        assert pat.scopes == ["*"]
+        assert pat.scopes == ["query:read"]
         assert pat.scoped_teams == [self.team.id]
         assert pat.scoped_organizations == [str(self.team.organization_id)]
+
+    def test_create_resource_pat_excludes_optional_scopes_outside_grant(self):
+        token = self._get_bearer_token()
+        app = OAuthApplication.objects.get(client_id=TEST_STRIPE_OAUTH_CLIENT_ID)
+        app.scopes = ["query:read"]
+        app.optional_scopes = ["insight:read"]
+        app.save(update_fields=["scopes", "optional_scopes"])
+        self._post_signed_with_bearer(
+            "/api/agentic/provisioning/resources",
+            data={"service_id": "analytics"},
+            token=token,
+        )
+        pat = PersonalAPIKey.objects.filter(user=self.user).order_by("-created_at").first()
+        assert pat is not None
+        assert pat.scopes == ["query:read"]
+
+    def test_create_resource_omits_pat_when_app_gate_off(self):
+        token = self._get_bearer_token()
+        app = OAuthApplication.objects.get(client_id=TEST_STRIPE_OAUTH_CLIENT_ID)
+        app.provisioning_issues_personal_api_key = False
+        app.save(update_fields=["provisioning_issues_personal_api_key"])
+        before = PersonalAPIKey.objects.filter(user=self.user).count()
+        res = self._post_signed_with_bearer(
+            "/api/agentic/provisioning/resources",
+            data={"service_id": "analytics"},
+            token=token,
+        )
+        assert res.status_code == 200
+        assert "personal_api_key" not in res.json()["complete"]["access_configuration"]
+        assert PersonalAPIKey.objects.filter(user=self.user).count() == before
+
+    @parameterized.expand([("gate_off", False), ("gate_on", True)])
+    def test_create_provisioned_pat_gate(self, _name, gate_on):
+        app = OAuthApplication.objects.create(
+            name="Gate test app",
+            client_id=f"gate_test_{gate_on}",
+            client_secret="",
+            client_type=OAuthApplication.CLIENT_CONFIDENTIAL,
+            authorization_grant_type=OAuthApplication.GRANT_AUTHORIZATION_CODE,
+            redirect_uris="https://localhost",
+            algorithm="RS256",
+            scopes=["insight:read"],
+            provisioning_issues_personal_api_key=gate_on,
+        )
+        result = _maybe_create_provisioned_pat(self.user, self.team, app, "insight:read")
+        if gate_on:
+            assert result is not None
+            pat = PersonalAPIKey.objects.filter(user=self.user).order_by("-created_at").first()
+            assert pat is not None
+            assert pat.scopes == ["insight:read"]
+        else:
+            assert result is None
+            assert not PersonalAPIKey.objects.filter(user=self.user).exists()
 
     def test_create_resource_does_not_delete_existing_pats(self):
         token = self._get_bearer_token()
@@ -329,6 +407,8 @@ class TestProvisioningResources(ProvisioningTestBase):
         )
 
         project_id = "proj_race_same_org"
+        token = self._get_bearer_token()
+        access_token_app = OAuthAccessToken.objects.get(token=token).application
         original_update_or_create = TeamProvisioningConfig.objects.update_or_create
         raced: list[int] = []
 
@@ -336,11 +416,13 @@ class TestProvisioningResources(ProvisioningTestBase):
             defaults = kwargs.get("defaults", {})
             if "stripe_project_id" in defaults and not raced:
                 raced.append(1)
-                original_update_or_create(team=winner_team, defaults={"stripe_project_id": project_id})
+                original_update_or_create(
+                    team=winner_team,
+                    defaults={"stripe_project_id": project_id, "application": access_token_app},
+                )
                 raise IntegrityError
             return original_update_or_create(*args, **kwargs)
 
-        token = self._get_bearer_token()
         with patch.object(TeamProvisioningConfig.objects, "update_or_create", side_effect=race_then_raise):
             res = self._post_signed_with_bearer(
                 "/api/agentic/provisioning/resources",
@@ -363,12 +445,13 @@ class TestProvisioningResources(ProvisioningTestBase):
             organization=self.organization,
             name="Pre-existing project",
         )
-        TeamProvisioningConfig.objects.update_or_create(
-            team=existing_team, defaults={"stripe_project_id": "proj_existing"}
-        )
 
         token = self._get_bearer_token()
         access_token = OAuthAccessToken.objects.get(token=token)
+        TeamProvisioningConfig.objects.update_or_create(
+            team=existing_team,
+            defaults={"stripe_project_id": "proj_existing", "application": access_token.application},
+        )
         assert access_token.scoped_teams == [self.team.id]
 
         res = self._post_signed_with_bearer(
@@ -402,8 +485,12 @@ class TestProvisioningResources(ProvisioningTestBase):
             organization=self.organization,
             name="Restricted project",
         )
+
+        token = self._get_bearer_token()
+        access_token_obj = OAuthAccessToken.objects.get(token=token)
         TeamProvisioningConfig.objects.update_or_create(
-            team=restricted_team, defaults={"stripe_project_id": "proj_restricted"}
+            team=restricted_team,
+            defaults={"stripe_project_id": "proj_restricted", "application": access_token_obj.application},
         )
         AccessControl.objects.create(
             team=restricted_team,
@@ -412,7 +499,6 @@ class TestProvisioningResources(ProvisioningTestBase):
             resource_id=str(restricted_team.id),
         )
 
-        token = self._get_bearer_token()
         res = self._post_signed_with_bearer(
             "/api/agentic/provisioning/resources",
             data={"service_id": "analytics", "project_id": "proj_restricted"},
@@ -423,6 +509,50 @@ class TestProvisioningResources(ProvisioningTestBase):
 
         access_token = OAuthAccessToken.objects.get(token=token)
         assert restricted_team.id not in (access_token.scoped_teams or [])
+
+    def test_create_resource_with_existing_project_id_owned_by_other_partner_does_not_leak(self):
+        # Same project_id but provisioned by a different OAuth application.
+        # The current partner must not be able to resolve into the other partner's
+        # team (which would otherwise hand back that team's api_token/PAT).
+        from posthog.models.oauth import OAuthApplication
+        from posthog.models.team.team_provisioning_config import TeamProvisioningConfig
+
+        other_partner = OAuthApplication.objects.create(
+            name="Other Partner",
+            client_id="other_partner_client_id",
+            client_secret="",
+            client_type=OAuthApplication.CLIENT_CONFIDENTIAL,
+            authorization_grant_type=OAuthApplication.GRANT_AUTHORIZATION_CODE,
+            redirect_uris="https://localhost",
+            algorithm="RS256",
+            provisioning_partner_type="other_partner",
+        )
+        other_partner_team = Team.objects.create_with_data(
+            initiating_user=self.user,
+            organization=self.organization,
+            name="Other partner project",
+        )
+        TeamProvisioningConfig.objects.update_or_create(
+            team=other_partner_team,
+            defaults={"stripe_project_id": "proj_shared_id", "application": other_partner},
+        )
+
+        token = self._get_bearer_token()
+        access_token = OAuthAccessToken.objects.get(token=token)
+        assert access_token.application_id != other_partner.id
+
+        res = self._post_signed_with_bearer(
+            "/api/agentic/provisioning/resources",
+            data={"service_id": "analytics", "project_id": "proj_shared_id"},
+            token=token,
+        )
+        # stripe_project_id is unique across all TPCs, so the create branch hits
+        # IntegrityError and the race_winner lookup (also partner-bound) misses.
+        assert res.status_code == 409
+        assert res.json()["error"]["code"] == "project_id_conflict"
+
+        access_token.refresh_from_db()
+        assert other_partner_team.id not in (access_token.scoped_teams or [])
 
     def test_create_resource_race_winner_rejects_when_user_lacks_team_access(self):
         from unittest.mock import patch
@@ -455,6 +585,8 @@ class TestProvisioningResources(ProvisioningTestBase):
         )
 
         project_id = "proj_race_restricted"
+        token = self._get_bearer_token()
+        access_token_app = OAuthAccessToken.objects.get(token=token).application
         original_update_or_create = TeamProvisioningConfig.objects.update_or_create
         raced: list[int] = []
 
@@ -462,11 +594,13 @@ class TestProvisioningResources(ProvisioningTestBase):
             defaults = kwargs.get("defaults", {})
             if "stripe_project_id" in defaults and not raced:
                 raced.append(1)
-                original_update_or_create(team=restricted_team, defaults={"stripe_project_id": project_id})
+                original_update_or_create(
+                    team=restricted_team,
+                    defaults={"stripe_project_id": project_id, "application": access_token_app},
+                )
                 raise IntegrityError
             return original_update_or_create(*args, **kwargs)
 
-        token = self._get_bearer_token()
         with patch.object(TeamProvisioningConfig.objects, "update_or_create", side_effect=race_then_raise):
             res = self._post_signed_with_bearer(
                 "/api/agentic/provisioning/resources",
@@ -525,7 +659,94 @@ class TestProvisioningResources(ProvisioningTestBase):
 
 
 @override_settings(STRIPE_SIGNING_SECRET=HMAC_SECRET)
+class TestProvisioningResourceRemove(ProvisioningTestBase):
+    def test_remove_strips_team_from_sibling_tokens(self):
+        # Removing a resource has to revoke the team from every live token
+        # the partner installation holds for that user. Otherwise a sibling
+        # bearer that still has the team in scope can short-circuit past the
+        # auto-add guard and keep operating on the removed team.
+        from posthog.models.oauth import OAuthAccessToken, OAuthRefreshToken
+        from posthog.models.team.team_provisioning_config import TeamProvisioningConfig
+
+        token = self._get_bearer_token()
+        access_token = OAuthAccessToken.objects.get(token=token)
+        TeamProvisioningConfig.objects.update_or_create(
+            team=self.team,
+            defaults={"stripe_project_id": "proj_remove_me", "application": access_token.application},
+        )
+
+        # Sibling token for the same user+application also has the team in scope.
+        sibling_at = OAuthAccessToken.objects.create(
+            application=access_token.application,
+            user=access_token.user,
+            token="sibling_access_token_value",
+            expires=access_token.expires,
+            scope=access_token.scope,
+            scoped_teams=[self.team.id, 99999],
+        )
+        sibling_rt = OAuthRefreshToken.objects.create(
+            application=access_token.application,
+            user=access_token.user,
+            token="sibling_refresh_token_value",
+            access_token=sibling_at,
+            scoped_teams=[self.team.id, 99999],
+        )
+
+        res = self._post_signed_with_bearer(
+            f"/api/agentic/provisioning/resources/{self.team.id}/remove",
+            token=token,
+        )
+        assert res.status_code == 200, res.json()
+        assert res.json()["status"] == "removed"
+
+        sibling_at.refresh_from_db()
+        sibling_rt.refresh_from_db()
+        assert self.team.id not in (sibling_at.scoped_teams or [])
+        assert self.team.id not in (sibling_rt.scoped_teams or [])
+
+    def test_remove_does_not_delete_other_partners_config(self):
+        # The base team is in the caller's scope, but its config belongs to a
+        # different partner. remove strips the caller's own scope but must leave
+        # the other partner's provisioning mapping intact.
+        from posthog.models.oauth import OAuthAccessToken, OAuthApplication
+        from posthog.models.team.team_provisioning_config import TeamProvisioningConfig
+
+        other_partner = OAuthApplication.objects.create(
+            name="Other Partner",
+            client_id="other_partner_remove_client_id",
+            client_secret="",
+            client_type=OAuthApplication.CLIENT_CONFIDENTIAL,
+            authorization_grant_type=OAuthApplication.GRANT_AUTHORIZATION_CODE,
+            redirect_uris="https://localhost",
+            algorithm="RS256",
+            provisioning_partner_type="other_partner",
+        )
+        TeamProvisioningConfig.objects.update_or_create(
+            team=self.team, defaults={"application": other_partner, "stripe_project_id": "proj_other_owner"}
+        )
+
+        token = self._get_bearer_token()
+        res = self._post_signed_with_bearer(
+            f"/api/agentic/provisioning/resources/{self.team.id}/remove",
+            token=token,
+        )
+        assert res.status_code == 200, res.json()
+
+        config = TeamProvisioningConfig.objects.get(team=self.team)
+        assert config.application_id == other_partner.id
+
+        # the caller's token only had this team in scope, so stripping it revokes the token
+        assert not OAuthAccessToken.objects.filter(token=token).exists()
+
+
+@override_settings(STRIPE_SIGNING_SECRET=HMAC_SECRET)
 class TestCreateProvisionedPat(ProvisioningTestBase):
+    def _minting_app(self) -> OAuthApplication:
+        app = OAuthApplication.objects.get(client_id=TEST_STRIPE_OAUTH_CLIENT_ID)
+        app.scopes = ["query:read"]
+        app.save(update_fields=["scopes"])
+        return app
+
     @parameterized.expand(
         [
             ("default_when_none", None, "{team_name}"),
@@ -534,7 +755,9 @@ class TestCreateProvisionedPat(ProvisioningTestBase):
         ]
     )
     def test_label_prefix_resolution(self, _name, label_prefix, expected_label_template):
-        api_key = _create_provisioned_pat(self.user, self.team, label_prefix=label_prefix)
+        api_key = _maybe_create_provisioned_pat(
+            self.user, self.team, self._minting_app(), "query:read", label_prefix=label_prefix
+        )
         assert api_key is not None
         pat = PersonalAPIKey.objects.filter(user=self.user).order_by("-created_at").first()
         assert pat is not None
@@ -543,8 +766,19 @@ class TestCreateProvisionedPat(ProvisioningTestBase):
     def test_label_is_truncated_to_40_chars(self):
         self.team.name = "A" * 60
         self.team.save()
-        _create_provisioned_pat(self.user, self.team, label_prefix="LongPartnerName")
+        _maybe_create_provisioned_pat(
+            self.user, self.team, self._minting_app(), "query:read", label_prefix="LongPartnerName"
+        )
         pat = PersonalAPIKey.objects.filter(user=self.user).order_by("-created_at").first()
         assert pat is not None
         assert len(pat.label) == 40
         assert pat.label.startswith("LongPartnerName - ")
+
+    def test_no_pat_when_ceiling_unseeded(self):
+        # A flag-on app without a scope ceiling must not fall back to ["*"] or
+        # mint an empty-scope key — skip the mint entirely.
+        app = OAuthApplication.objects.get(client_id=TEST_STRIPE_OAUTH_CLIENT_ID)
+        assert app.scopes == []
+        initial_count = PersonalAPIKey.objects.filter(user=self.user).count()
+        assert _maybe_create_provisioned_pat(self.user, self.team, app, "query:read") is None
+        assert PersonalAPIKey.objects.filter(user=self.user).count() == initial_count

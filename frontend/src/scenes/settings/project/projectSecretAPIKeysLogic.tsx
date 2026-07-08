@@ -6,12 +6,16 @@ import { LemonDialog } from '@posthog/lemon-ui'
 
 import api from 'lib/api'
 import { CodeSnippet } from 'lib/components/CodeSnippet'
+import { FEATURE_FLAGS } from 'lib/constants'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import {
     PROJECT_SECRET_API_KEY_ALLOWED_API_SCOPE_ACTION,
     PROJECT_SECRET_API_KEY_SCOPE_PRESETS,
     ProjectSecretAPIKeyAllowedScope,
+    ProjectSecretAPIKeyScopePreset,
 } from 'lib/scopes'
+import { capitalizeFirstLetter } from 'lib/utils/strings'
 import { teamLogic } from 'scenes/teamLogic'
 
 import { ProjectSecretAPIKeyApi } from '~/generated/core/api.schemas'
@@ -25,10 +29,15 @@ export type EditingProjectKeyFormValues = ProjectSecretAPIKeyRequest & {
 
 export const MAX_PROJECT_API_KEYS_PER_PROJECT = 10
 
+// llm_gateway powers the new AI gateway here, so label it "AI gateway" (PAKs keep "LLM gateway").
+const PROJECT_SECRET_SCOPE_OBJECT_NAMES: Record<string, string> = {
+    llm_gateway: 'AI gateway',
+}
+
 export const projectSecretAPIKeysLogic = kea<projectSecretAPIKeysLogicType>([
     path(['scenes', 'settings', 'project', 'projectSecretAPIKeysLogic']),
     connect(() => ({
-        values: [teamLogic, ['currentTeamId']],
+        values: [teamLogic, ['currentTeamId'], featureFlagLogic, ['featureFlags']],
     })),
 
     actions({
@@ -164,11 +173,16 @@ export const projectSecretAPIKeysLogic = kea<projectSecretAPIKeysLogicType>([
             },
         ],
         filteredScopes: [
-            (s) => [s.searchTerm],
-            (searchTerm: string): { key: string; disabledActions: APIScopeAction[] }[] => {
+            (s) => [s.searchTerm, s.featureFlags],
+            (searchTerm: string, featureFlags): { key: string; label: string; disabledActions: APIScopeAction[] }[] => {
                 const allActions: APIScopeAction[] = ['read', 'write']
+                // llm_gateway:read is added only when the ai-gateway flag is on, mirroring the backend.
+                const allowedScopeActions: string[] = [...PROJECT_SECRET_API_KEY_ALLOWED_API_SCOPE_ACTION]
+                if (featureFlags[FEATURE_FLAGS.AI_GATEWAY]) {
+                    allowedScopeActions.push('llm_gateway:read')
+                }
                 const allowedByKey = new Map<string, Set<APIScopeAction>>()
-                for (const scopeAction of PROJECT_SECRET_API_KEY_ALLOWED_API_SCOPE_ACTION) {
+                for (const scopeAction of allowedScopeActions) {
                     const [key, action] = scopeAction.split(':') as [string, APIScopeAction]
                     if (!allowedByKey.has(key)) {
                         allowedByKey.set(key, new Set())
@@ -177,14 +191,22 @@ export const projectSecretAPIKeysLogic = kea<projectSecretAPIKeysLogicType>([
                 }
                 const scopes = Array.from(allowedByKey.entries()).map(([key, allowed]) => ({
                     key,
+                    label: PROJECT_SECRET_SCOPE_OBJECT_NAMES[key] ?? capitalizeFirstLetter(key.replace(/_/g, ' ')),
                     disabledActions: allActions.filter((a) => !allowed.has(a)),
                 }))
                 if (!searchTerm.trim()) {
                     return scopes
                 }
                 const lowerSearch = searchTerm.toLowerCase()
-                return scopes.filter(({ key }) => key.replace(/_/g, ' ').toLowerCase().includes(lowerSearch))
+                return scopes.filter(({ label }) => label.toLowerCase().includes(lowerSearch))
             },
+        ],
+        availablePresets: [
+            (s) => [s.featureFlags],
+            (featureFlags): ProjectSecretAPIKeyScopePreset[] =>
+                PROJECT_SECRET_API_KEY_SCOPE_PRESETS.filter(
+                    ({ value }) => value !== 'llm_gateway' || featureFlags[FEATURE_FLAGS.AI_GATEWAY]
+                ),
         ],
     })),
 

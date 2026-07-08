@@ -22,7 +22,7 @@ function phaseAtLeast(current: string, target: string): boolean {
 
 export function AiFirstHomepage(): JSX.Element {
     const { mode, animationPhase, query, threadStarted } = useValues(aiFirstHomepageLogic)
-    const { conversationId } = useValues(maxLogic({ tabId: HOMEPAGE_TAB_ID }))
+    const { conversationId } = useValues(maxLogic({ panelId: HOMEPAGE_TAB_ID }))
 
     const isIdle = mode === 'idle'
     const isAi = mode === 'ai'
@@ -30,7 +30,7 @@ export function AiFirstHomepage(): JSX.Element {
     const isContent = animationPhase === 'content'
 
     return (
-        <BindLogic logic={maxLogic} props={{ tabId: HOMEPAGE_TAB_ID }}>
+        <BindLogic logic={maxLogic} props={{ panelId: HOMEPAGE_TAB_ID }}>
             <Search.Root
                 logicKey="homepage"
                 showAskAiLink={false}
@@ -41,10 +41,12 @@ export function AiFirstHomepage(): JSX.Element {
                 {/* Chat header — fixed at top, fades in independently */}
                 <div
                     className={cn(
-                        'absolute top-0 left-0 right-0 z-10 transition-opacity duration-300 ease-out motion-reduce:duration-0',
+                        // visibility joins the transition so the fade still plays but the hidden
+                        // header releases its raster backing (see PanelLayout scrims)
+                        'absolute top-0 left-0 right-0 z-10 transition-[opacity,visibility] duration-300 ease-out motion-reduce:duration-0',
                         isAi && phaseAtLeast(animationPhase, 'separator')
                             ? 'opacity-100'
-                            : 'opacity-0 pointer-events-none'
+                            : 'opacity-0 pointer-events-none invisible'
                     )}
                 >
                     {isAi && (

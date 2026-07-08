@@ -56,14 +56,15 @@ class TestTask(TestCase):
         user = User.objects.create(email="test@test.com")
         Integration.objects.create(team=self.team, kind="github", config={})
 
-        task = Task.create_and_run(
-            team=self.team,
-            title="Test Create and Run",
-            description="Test Description",
-            origin_product=Task.OriginProduct.USER_CREATED,
-            user_id=user.id,
-            repository="posthog/posthog",
-        )
+        with self.captureOnCommitCallbacks(execute=True):
+            task = Task.create_and_run(
+                team=self.team,
+                title="Test Create and Run",
+                description="Test Description",
+                origin_product=Task.OriginProduct.USER_CREATED,
+                user_id=user.id,
+                repository="posthog/posthog",
+            )
 
         self.assertIsNotNone(task.id)
         self.assertEqual(task.title, "Test Create and Run")
@@ -88,15 +89,16 @@ class TestTask(TestCase):
         user = User.objects.create(email="test@test.com")
         Integration.objects.create(team=self.team, kind="github", config={})
 
-        task = Task.create_and_run(
-            team=self.team,
-            title="Slack Task",
-            description="Slack Description",
-            origin_product=Task.OriginProduct.SLACK,
-            user_id=user.id,
-            repository="posthog/posthog",
-            initial_permission_mode="bypassPermissions",
-        )
+        with self.captureOnCommitCallbacks(execute=True):
+            task = Task.create_and_run(
+                team=self.team,
+                title="Slack Task",
+                description="Slack Description",
+                origin_product=Task.OriginProduct.SLACK,
+                user_id=user.id,
+                repository="posthog/posthog",
+                initial_permission_mode="bypassPermissions",
+            )
 
         run_id = mock_execute_workflow.call_args.kwargs["run_id"]
         task_run = TaskRun.objects.get(id=run_id)
@@ -104,18 +106,58 @@ class TestTask(TestCase):
         self.assertEqual(task.origin_product, Task.OriginProduct.SLACK)
 
     @patch("products.tasks.backend.temporal.client.execute_task_processing_workflow")
+    def test_create_and_run_threads_ai_stage_into_state(self, mock_execute_workflow):
+        user = User.objects.create(email="test@test.com")
+        Integration.objects.create(team=self.team, kind="github", config={})
+
+        with self.captureOnCommitCallbacks(execute=True):
+            Task.create_and_run(
+                team=self.team,
+                title="Signal Task",
+                description="Signal Description",
+                origin_product=Task.OriginProduct.SIGNAL_REPORT,
+                user_id=user.id,
+                repository="posthog/posthog",
+                ai_stage="research",
+            )
+
+        run_id = mock_execute_workflow.call_args.kwargs["run_id"]
+        task_run = TaskRun.objects.get(id=run_id)
+        self.assertEqual(task_run.state["ai_stage"], "research")
+
+    @patch("products.tasks.backend.temporal.client.execute_task_processing_workflow")
+    def test_create_and_run_omits_ai_stage_when_not_provided(self, mock_execute_workflow):
+        user = User.objects.create(email="test@test.com")
+        Integration.objects.create(team=self.team, kind="github", config={})
+
+        with self.captureOnCommitCallbacks(execute=True):
+            Task.create_and_run(
+                team=self.team,
+                title="Plain Task",
+                description="Plain Description",
+                origin_product=Task.OriginProduct.USER_CREATED,
+                user_id=user.id,
+                repository="posthog/posthog",
+            )
+
+        run_id = mock_execute_workflow.call_args.kwargs["run_id"]
+        task_run = TaskRun.objects.get(id=run_id)
+        self.assertNotIn("ai_stage", task_run.state)
+
+    @patch("products.tasks.backend.temporal.client.execute_task_processing_workflow")
     def test_create_and_run_omits_permission_mode_when_not_provided(self, mock_execute_workflow):
         user = User.objects.create(email="test@test.com")
         Integration.objects.create(team=self.team, kind="github", config={})
 
-        Task.create_and_run(
-            team=self.team,
-            title="Plain Task",
-            description="Plain Description",
-            origin_product=Task.OriginProduct.USER_CREATED,
-            user_id=user.id,
-            repository="posthog/posthog",
-        )
+        with self.captureOnCommitCallbacks(execute=True):
+            Task.create_and_run(
+                team=self.team,
+                title="Plain Task",
+                description="Plain Description",
+                origin_product=Task.OriginProduct.USER_CREATED,
+                user_id=user.id,
+                repository="posthog/posthog",
+            )
 
         run_id = mock_execute_workflow.call_args.kwargs["run_id"]
         task_run = TaskRun.objects.get(id=run_id)
@@ -126,14 +168,15 @@ class TestTask(TestCase):
         user = User.objects.create(email="test@test.com")
         Integration.objects.create(team=self.team, kind="github", config={})
 
-        task = Task.create_and_run(
-            team=self.team,
-            title="Test Task",
-            description="Test Description",
-            origin_product=Task.OriginProduct.USER_CREATED,
-            user_id=user.id,
-            repository="posthog/posthog-js",
-        )
+        with self.captureOnCommitCallbacks(execute=True):
+            task = Task.create_and_run(
+                team=self.team,
+                title="Test Task",
+                description="Test Description",
+                origin_product=Task.OriginProduct.USER_CREATED,
+                user_id=user.id,
+                repository="posthog/posthog-js",
+            )
 
         self.assertEqual(task.repository, "posthog/posthog-js")
 
@@ -161,14 +204,15 @@ class TestTask(TestCase):
     def test_create_and_run_public_repo_without_integration(self, mock_execute_workflow):
         user = User.objects.create(email="test@test.com")
 
-        task = Task.create_and_run(
-            team=self.team,
-            title="Test Task",
-            description="Test Description",
-            origin_product=Task.OriginProduct.USER_CREATED,
-            user_id=user.id,
-            repository="posthog/hedgebox",
-        )
+        with self.captureOnCommitCallbacks(execute=True):
+            task = Task.create_and_run(
+                team=self.team,
+                title="Test Task",
+                description="Test Description",
+                origin_product=Task.OriginProduct.USER_CREATED,
+                user_id=user.id,
+                repository="posthog/hedgebox",
+            )
 
         self.assertEqual(task.repository, "posthog/hedgebox")
         self.assertIsNone(task.github_integration)
@@ -196,14 +240,15 @@ class TestTask(TestCase):
         user = User.objects.create(email="test@test.com")
         integration = Integration.objects.create(team=self.team, kind="github", config={})
 
-        task = Task.create_and_run(
-            team=self.team,
-            title="Test Task",
-            description="Test Description",
-            origin_product=Task.OriginProduct.USER_CREATED,
-            user_id=user.id,
-            repository="posthog/posthog",
-        )
+        with self.captureOnCommitCallbacks(execute=True):
+            task = Task.create_and_run(
+                team=self.team,
+                title="Test Task",
+                description="Test Description",
+                origin_product=Task.OriginProduct.USER_CREATED,
+                user_id=user.id,
+                repository="posthog/posthog",
+            )
 
         self.assertEqual(task.github_integration, integration)
         mock_execute_workflow.assert_called_once()
@@ -224,14 +269,15 @@ class TestTask(TestCase):
             repository_cache=[{"full_name": "posthog/posthog", "id": 1}],
         )
 
-        task = Task.create_and_run(
-            team=self.team,
-            title="Signal Report",
-            description="Research",
-            origin_product=Task.OriginProduct.SIGNAL_REPORT,
-            user_id=user.id,
-            repository="posthog/posthog",
-        )
+        with self.captureOnCommitCallbacks(execute=True):
+            task = Task.create_and_run(
+                team=self.team,
+                title="Signal Report",
+                description="Research",
+                origin_product=Task.OriginProduct.SIGNAL_REPORT,
+                user_id=user.id,
+                repository="posthog/posthog",
+            )
 
         self.assertIsNone(task.github_integration)
         self.assertEqual(task.github_user_integration, user_integration)
@@ -360,6 +406,52 @@ class TestTask(TestCase):
 
         task.refresh_from_db()
         self.assertTrue(task.internal)
+
+
+class TestTaskSlackPrNotification(TestCase):
+    organization: ClassVar[Organization]
+    team: ClassVar[Team]
+
+    @classmethod
+    def setUpTestData(cls):
+        cls.organization = Organization.objects.create(name="Test Org")
+        cls.team = Team.objects.create(organization=cls.organization, name="Test Team")
+
+    def _task(self) -> Task:
+        return Task.objects.create(
+            team=self.team,
+            title="Test Task",
+            description="Test Description",
+            origin_product=Task.OriginProduct.SLACK,
+        )
+
+    def test_mark_slack_pr_notified_records_overrides_and_persists(self):
+        # Records the announced PR, overrides on a new one, and survives a reload.
+        task = self._task()
+        self.assertIsNone(task.slack_notified_pr_url)
+
+        pr_1 = "https://github.com/org/repo/pull/1"
+        pr_2 = "https://github.com/org/repo/pull/2"
+        task.mark_slack_pr_notified(pr_1)
+        self.assertEqual(task.slack_notified_pr_url, pr_1)
+
+        task.mark_slack_pr_notified(pr_2)
+        self.assertEqual(task.slack_notified_pr_url, pr_2)
+
+        task.refresh_from_db()
+        self.assertEqual(task.slack_notified_pr_url, pr_2)
+
+    def test_mark_slack_pr_notified_preserves_other_state_keys(self):
+        # It's a merge into the shared state bag, not a wholesale write.
+        task = self._task()
+        task.state = {"unrelated": "keep-me"}
+        task.save(update_fields=["state"])
+
+        task.mark_slack_pr_notified("https://github.com/org/repo/pull/1")
+
+        task.refresh_from_db()
+        self.assertEqual(task.state["unrelated"], "keep-me")
+        self.assertEqual(task.slack_notified_pr_url, "https://github.com/org/repo/pull/1")
 
 
 class TestTaskSlug(TestCase):
@@ -1314,6 +1406,43 @@ class TestSandboxEnvironment(TestCase):
     )
     def test_is_valid_env_var_key(self, key, expected_valid):
         self.assertEqual(SandboxEnvironment.is_valid_env_var_key(key), expected_valid)
+
+    @parameterized.expand(
+        [
+            ("NODE_OPTIONS", True),
+            ("NODE_REPL_EXTERNAL_MODULE", True),
+            ("LD_PRELOAD", True),
+            ("LD_LIBRARY_PATH", True),
+            ("DYLD_INSERT_LIBRARIES", True),
+            ("BASH_ENV", True),
+            ("GIT_SSH_COMMAND", True),
+            ("GIT_CONFIG_KEY_0", True),
+            ("GIT_CONFIG_VALUE_0", True),
+            ("NODE_ENV", False),
+            ("node_options", False),
+            ("MY_API_KEY", False),
+            ("LDAP_URL", False),
+            ("GITHUB_ACTOR", False),
+        ]
+    )
+    def test_is_blocked_sandbox_env_key(self, key, expected_blocked):
+        from products.tasks.backend.constants import is_blocked_sandbox_env_key
+
+        self.assertEqual(is_blocked_sandbox_env_key(key), expected_blocked)
+
+    def test_filter_user_sandbox_env_vars_drops_reserved_and_blocked(self):
+        from products.tasks.backend.constants import filter_user_sandbox_env_vars
+
+        safe, skipped = filter_user_sandbox_env_vars(
+            {
+                "SAFE_VAR": "ok",
+                "NODE_OPTIONS": "--import=evil",
+                "LD_PRELOAD": "/tmp/evil.so",
+                "GITHUB_TOKEN": "stolen",
+            }
+        )
+        self.assertEqual(safe, {"SAFE_VAR": "ok"})
+        self.assertEqual(sorted(skipped), ["GITHUB_TOKEN", "LD_PRELOAD", "NODE_OPTIONS"])
 
     @parameterized.expand(
         [

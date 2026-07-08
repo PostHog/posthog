@@ -3,7 +3,38 @@ import { SkeletonItem, TaxonomicDefinitionTypes, isSkeletonItem } from 'lib/comp
 /** Search terms mapped to properties that should be promoted when that exact term is searched. */
 export const PROMOTED_PROPERTIES_BY_SEARCH_TERM: Record<string, string[]> = {
     url: ['$current_url'],
+    path: ['$pathname'],
     email: ['$email'],
+}
+
+/**
+ * Generic promotion helper: partitions `items` so any item whose name (as
+ * returned by `getName`) appears in `PROMOTED_PROPERTIES_BY_SEARCH_TERM` for
+ * the given `searchQuery` floats to the front. Returns `items` unchanged when
+ * the query is empty, there are no promoted names for the query, or nothing in
+ * the list matches the promoted set.
+ */
+export function promoteMatchingBy<T>(items: T[], searchQuery: string, getName: (item: T) => string | undefined): T[] {
+    const query = searchQuery.toLowerCase().trim()
+    if (!query) {
+        return items
+    }
+    const promotedNames = PROMOTED_PROPERTIES_BY_SEARCH_TERM[query]
+    if (!promotedNames?.length) {
+        return items
+    }
+    const promotedSet = new Set(promotedNames)
+    const promoted: T[] = []
+    const rest: T[] = []
+    for (const item of items) {
+        const name = getName(item)
+        if (name && promotedSet.has(name)) {
+            promoted.push(item)
+        } else {
+            rest.push(item)
+        }
+    }
+    return promoted.length > 0 ? [...promoted, ...rest] : items
 }
 
 /**
@@ -17,32 +48,14 @@ export function promoteMatchingProperties<T extends TaxonomicDefinitionTypes | S
     if (!searchQuery) {
         return results
     }
-
-    const query = searchQuery.toLowerCase().trim()
-    const promotedPropertyNames = PROMOTED_PROPERTIES_BY_SEARCH_TERM[query]
-    if (!promotedPropertyNames?.length) {
-        return results
-    }
-
-    const promotedPropertyNameSet = new Set(promotedPropertyNames)
-    const promoted: T[] = []
-    const rest: T[] = []
-
-    for (const item of results as (T | undefined)[]) {
-        if (!item) {
-            continue
+    return promoteMatchingBy(
+        results.filter((item): item is T => !!item),
+        searchQuery,
+        (item) => {
+            if (isSkeletonItem(item)) {
+                return undefined
+            }
+            return 'name' in item ? (item as { name?: string }).name : undefined
         }
-        if (isSkeletonItem(item)) {
-            rest.push(item)
-            continue
-        }
-        const name = 'name' in item ? (item as { name?: string }).name : undefined
-        if (name && promotedPropertyNameSet.has(name)) {
-            promoted.push(item)
-        } else {
-            rest.push(item)
-        }
-    }
-
-    return promoted.length > 0 ? [...promoted, ...rest] : results
+    )
 }

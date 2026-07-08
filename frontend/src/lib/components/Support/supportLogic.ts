@@ -1,14 +1,12 @@
 import { actions, connect, kea, listeners, path, props, reducers, selectors } from 'kea'
 import { forms } from 'kea-forms'
-import { urlToAction } from 'kea-router'
 import posthog from 'posthog-js'
 
 import { LemonSelectOptions } from '@posthog/lemon-ui'
 
 import api from 'lib/api'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
-import { uuid } from 'lib/utils'
-import { parseExceptionEvent } from 'lib/utils/exceptionUtils'
+import { uuid } from 'lib/utils/dom'
 import { billingLogic } from 'scenes/billing/billingLogic'
 import { organizationLogic } from 'scenes/organizationLogic'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
@@ -27,6 +25,7 @@ import {
     UserType,
 } from '~/types'
 
+import { parseExceptionEvent } from './exceptionUtils'
 import type { supportLogicType } from './supportLogicType'
 import { openSupportModal } from './SupportModal'
 
@@ -192,6 +191,16 @@ const TARGET_AREA_TO_NAME_GENERAL = [
 
 const TARGET_AREA_TO_NAME_PRODUCTS = [
     {
+        value: 'ai_gateway',
+        'data-attr': `support-form-target-area-ai_gateway`,
+        label: 'AI gateway',
+    },
+    {
+        value: 'llm-analytics',
+        'data-attr': `support-form-target-area-llm-analytics`,
+        label: 'AI observability',
+    },
+    {
         value: 'apps',
         'data-attr': `support-form-target-area-apps`,
         label: 'Apps (incl. integrations, plugins, webhooks, and custom apps)',
@@ -247,24 +256,19 @@ const TARGET_AREA_TO_NAME_PRODUCTS = [
         label: 'Heatmaps',
     },
     {
-        value: 'llm-analytics',
-        'data-attr': `support-form-target-area-llm-analytics`,
-        label: 'AI observability',
-    },
-    {
         value: 'logs',
         'data-attr': `support-form-target-area-logs`,
         label: 'Logs',
     },
     {
-        value: 'max-ai',
-        'data-attr': `support-form-target-area-max-ai`,
+        value: 'posthog-ai',
+        'data-attr': `support-form-target-area-posthog-ai`,
         label: 'PostHog AI',
     },
     {
         value: 'posthog-mcp',
         'data-attr': `support-form-target-area-posthog-mcp`,
-        label: 'MCP Server',
+        label: 'PostHog MCP',
     },
     {
         value: 'analytics',
@@ -280,6 +284,16 @@ const TARGET_AREA_TO_NAME_PRODUCTS = [
         value: 'session_replay',
         'data-attr': `support-form-target-area-session_replay`,
         label: 'Session replay (incl. recordings)',
+    },
+    {
+        value: 'signals',
+        'data-attr': `support-form-target-area-signals`,
+        label: 'Signals',
+    },
+    {
+        value: 'slack',
+        'data-attr': `support-form-target-area-slack`,
+        label: 'Slack app',
     },
     {
         value: 'surveys',
@@ -307,6 +321,11 @@ export const TARGET_AREA_TO_NAME = [
     { title: 'General', options: TARGET_AREA_TO_NAME_GENERAL },
     { title: 'Individual product', options: TARGET_AREA_TO_NAME_PRODUCTS },
 ]
+
+// `key` is the label (not the value) so the searchable input shows readable text on edit, not the raw target_area
+export const TARGET_AREA_OPTIONS: { key: string; label: string; value: string }[] = TARGET_AREA_TO_NAME.flatMap(
+    (group) => group.options.map((option) => ({ key: option.label, label: option.label, value: option.value }))
+)
 
 export const SEVERITY_LEVEL_TO_NAME = {
     critical: 'Outage, data loss, or data breach',
@@ -341,6 +360,7 @@ export const getLabelBasedOnTargetArea = (target_area: SupportTicketTargetArea):
 }
 
 export const URL_PATH_TO_TARGET_AREA: Record<string, SupportTicketTargetArea> = {
+    'ai-gateway': 'ai_gateway',
     insights: 'analytics',
     recordings: 'session_replay',
     replay: 'session_replay',
@@ -377,6 +397,16 @@ export const SUPPORT_TICKET_TEMPLATES = {
     support:
         "Please explain as fully as possible what you're aiming to do, and what you'd like help with.\n\nIf your question involves an existing insight or dashboard, please include a link to it.",
 }
+
+const SUPPORT_TICKET_CUSTOM_FIELD_IDENTIFIERS = {
+    severity: 22084126888475,
+    distinct_id: 22129191462555,
+    target_area: 27242745654043,
+    organization_id: 27031528411291,
+    support_type: 26073267652251,
+    account_owner: 37742340880411,
+    exception_event: 39967113285659,
+} as const
 
 export function getURLPathToTargetArea(pathname: string): SupportTicketTargetArea | null {
     const pathParts = pathname.split('/')
@@ -432,7 +462,7 @@ export const supportLogic = kea<supportLogicType>([
     })),
     actions(() => ({
         closeSupportForm: true,
-        openSupportForm: (values: Partial<SupportFormFields>) => values,
+        openSupportForm: (values: Partial<SupportFormFields> & { target?: 'modal' | 'sidePanel' }) => values,
         submitZendeskTicket: (form: SupportFormFields) => form,
         ensureZendeskOrganization: true,
         updateUrlParams: true,
@@ -528,7 +558,8 @@ export const supportLogic = kea<supportLogicType>([
             severity_level,
             message,
             exception_event,
-        }: Partial<SupportFormFields>) => {
+            target,
+        }: Partial<SupportFormFields> & { target?: 'modal' | 'sidePanel' }) => {
             let area = target_area ?? getURLPathToTargetArea(window.location.pathname)
             if (!userLogic.values.user) {
                 area = 'login'
@@ -550,7 +581,8 @@ export const supportLogic = kea<supportLogicType>([
                 actions.closeEmailForm()
             }
 
-            if (values.sidePanelAvailable) {
+            const useSidePanel = target ? target === 'sidePanel' : values.sidePanelAvailable
+            if (useSidePanel) {
                 const panelOptions = [kind ?? '', area ?? ''].join(':')
                 actions.openSidePanel(SidePanelTab.Support, panelOptions === ':' ? undefined : panelOptions)
             } else {
@@ -645,23 +677,23 @@ export const supportLogic = kea<supportLogicType>([
                     tags: [planLevelTag, accountOwnerTag, ...(tags || [])],
                     custom_fields: [
                         {
-                            id: 22084126888475,
+                            id: SUPPORT_TICKET_CUSTOM_FIELD_IDENTIFIERS.severity,
                             value: severity_level,
                         },
                         {
-                            id: 22129191462555,
+                            id: SUPPORT_TICKET_CUSTOM_FIELD_IDENTIFIERS.distinct_id,
                             value: posthog.get_distinct_id(),
                         },
                         {
-                            id: 27242745654043,
+                            id: SUPPORT_TICKET_CUSTOM_FIELD_IDENTIFIERS.target_area,
                             value: target_area ?? '',
                         },
                         {
-                            id: 27031528411291,
+                            id: SUPPORT_TICKET_CUSTOM_FIELD_IDENTIFIERS.organization_id,
                             value: userLogic?.values?.user?.organization?.id ?? '',
                         },
                         {
-                            id: 26073267652251,
+                            id: SUPPORT_TICKET_CUSTOM_FIELD_IDENTIFIERS.support_type,
                             value: values.hasAvailableFeature(AvailableFeature.PRIORITY_SUPPORT)
                                 ? 'priority_support'
                                 : values.hasAvailableFeature(AvailableFeature.EMAIL_SUPPORT)
@@ -669,11 +701,11 @@ export const supportLogic = kea<supportLogicType>([
                                   : 'free_support',
                         },
                         {
-                            id: 37742340880411,
+                            id: SUPPORT_TICKET_CUSTOM_FIELD_IDENTIFIERS.account_owner,
                             value: accountOwner?.name || 'unassigned',
                         },
                         {
-                            id: 39967113285659,
+                            id: SUPPORT_TICKET_CUSTOM_FIELD_IDENTIFIERS.exception_event,
                             value: exception_event ? parseExceptionEvent(exception_event) : '',
                         },
                     ],
@@ -840,39 +872,6 @@ export const supportLogic = kea<supportLogicType>([
                     organization_name: organizationLogic.values.currentOrganization?.name,
                     error_message: error instanceof Error ? error.message : String(error),
                     error_status: error && typeof error === 'object' && 'status' in error ? error.status : undefined,
-                })
-            }
-        },
-    })),
-
-    urlToAction(({ actions, values }) => ({
-        '*': (_, _search, hashParams) => {
-            if (values.isSupportFormOpen) {
-                return
-            }
-
-            const [panel, ...panelOptions] = (hashParams['panel'] ?? '').split(':')
-
-            if (panel === SidePanelTab.Support) {
-                const [kind, area, severity, isEmailFormOpen] = panelOptions
-
-                actions.openSupportForm({
-                    kind: Object.keys(SUPPORT_KIND_TO_SUBJECT).includes(kind) ? kind : null,
-                    target_area: getLabelBasedOnTargetArea(area) ? area : null,
-                    severity_level: Object.keys(SEVERITY_LEVEL_TO_NAME).includes(severity) ? severity : null,
-                    isEmailFormOpen: isEmailFormOpen ?? 'false',
-                })
-                return
-            }
-
-            // Legacy supportModal param
-            if ('supportModal' in hashParams) {
-                const [kind, area, severity] = (hashParams['supportModal'] || '').split(':')
-
-                actions.openSupportForm({
-                    kind: Object.keys(SUPPORT_KIND_TO_SUBJECT).includes(kind) ? kind : null,
-                    target_area: Object.keys(TARGET_AREA_TO_NAME).includes(area) ? area : null,
-                    severity_level: Object.keys(SEVERITY_LEVEL_TO_NAME).includes(severity) ? severity : null,
                 })
             }
         },

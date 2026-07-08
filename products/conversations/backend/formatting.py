@@ -153,6 +153,11 @@ def extract_slack_user_ids(text: str, blocks: list[JSON] | None = None) -> set[s
     return ids
 
 
+def strip_slack_user_mentions(text: str) -> str:
+    """Remove ``<@USERID>`` mention tokens, leaving only the message's own text."""
+    return _RE_SLACK_USER_MENTION.sub("", text)
+
+
 def content_to_slack_mrkdwn(content: str) -> str:
     """Convert markdown comment content to Slack mrkdwn text."""
     if not content:
@@ -326,6 +331,32 @@ def _parse_rich_text_inline_elements(elements: list[JSON], user_names: dict[str,
     return nodes
 
 
+def _preformatted_elements_to_text(elements: list[JSON], user_names: dict[str, str] | None = None) -> str:
+    """Flatten a Slack preformatted block's inline elements to literal text.
+
+    Code blocks hold plain text (no marks/links), so each element is reduced to its
+    textual value rather than dropped: link -> label or url, emoji -> char or :name:,
+    user -> resolved name or raw mention, channel -> #name.
+    """
+    parts: list[str] = []
+    for el in elements:
+        el_type = el.get("type")
+        if el_type == "link":
+            parts.append(el.get("text") or el.get("url", ""))
+        elif el_type == "emoji":
+            char = _slack_unicode_to_char(el.get("unicode", "")) or _slack_emoji_name_to_char(el.get("name", ""))
+            parts.append(char or f":{el.get('name', '')}:")
+        elif el_type == "user":
+            uid = el.get("user_id", "")
+            name = user_names.get(uid) if user_names else None
+            parts.append(f"@{name}" if name else f"<@{uid}>")
+        elif el_type == "channel":
+            parts.append(f"#{el.get('name') or el.get('channel_id', '')}")
+        else:
+            parts.append(el.get("text", ""))
+    return "".join(parts)
+
+
 def slack_blocks_to_rich_content(blocks: list[JSON] | None, user_names: dict[str, str] | None = None) -> JSON | None:
     """Parse Slack rich_text blocks into PostHog SupportEditor-compatible JSON."""
     if not blocks:
@@ -360,9 +391,13 @@ def slack_blocks_to_rich_content(blocks: list[JSON] | None, user_names: dict[str
                 continue
 
             if element_type == "rich_text_preformatted":
-                inline_nodes = _parse_rich_text_inline_elements(element.get("elements", []), user_names)
-                if inline_nodes:
-                    doc_nodes.append({"type": "paragraph", "content": inline_nodes})
+                code_text = _preformatted_elements_to_text(element.get("elements", []), user_names)
+                doc_nodes.append(
+                    {
+                        "type": "codeBlock",
+                        "content": [{"type": "text", "text": code_text}] if code_text else [],
+                    }
+                )
                 continue
 
             if element_type == "rich_text_quote":
@@ -435,6 +470,12 @@ def rich_content_to_markdown(rich_content: JSON | None, include_images: bool = T
 
         if node_type == "paragraph":
             blocks.append(_serialize_inline_nodes_to_markdown(node.get("content", []), include_images=include_images))
+            continue
+
+        if node_type == "codeBlock":
+            code_text = "".join(child.get("text", "") for child in node.get("content", []))
+            language = node.get("attrs", {}).get("language") or ""
+            blocks.append(f"```{language}\n{code_text}\n```")
             continue
 
         if node_type == "image" and include_images:
@@ -511,7 +552,19 @@ def rich_content_to_slack_blocks(rich_content: JSON | None, include_images: bool
                         section_elements.append({"type": "link", "url": src, "text": alt})
 
             if section_elements:
+                if rich_text_elements:
+                    rich_text_elements.append(
+                        {"type": "rich_text_section", "elements": [{"type": "text", "text": "\n"}]}
+                    )
                 rich_text_elements.append({"type": "rich_text_section", "elements": section_elements})
+            continue
+
+        if node_type == "codeBlock":
+            code_text = "".join(child.get("text", "") for child in node.get("content", []))
+            if code_text:
+                rich_text_elements.append(
+                    {"type": "rich_text_preformatted", "elements": [{"type": "text", "text": code_text}]}
+                )
             continue
 
         if node_type == "image" and include_images:

@@ -1,3 +1,4 @@
+from collections.abc import Callable
 from datetime import datetime, timedelta
 from zoneinfo import ZoneInfo
 
@@ -15,7 +16,9 @@ from parameterized import parameterized
 
 from posthog.constants import AvailableFeature
 from posthog.jwt import PosthogJwtAudience
-from posthog.models.subscription import (
+
+from products.dashboards.backend.models.dashboard import Dashboard
+from products.exports.backend.models.subscription import (
     SUBSCRIPTION_COUNT_ALLOWED_ON_FREE_TIER,
     UNSUBSCRIBE_TOKEN_EXP_DAYS,
     Subscription,
@@ -23,11 +26,10 @@ from posthog.models.subscription import (
     get_unsubscribe_token,
     unsubscribe_using_token,
 )
-
 from products.product_analytics.backend.models.insight import Insight
 
 
-@patch.object(settings, "SECRET_KEY", "not-so-secret")
+@patch.object(settings, "JWT_SIGNING_KEY", "not-so-secret")
 @freeze_time("2022-01-01")
 class TestSubscription(BaseTest):
     def _create_insight_subscription(self, **kwargs):
@@ -54,6 +56,68 @@ class TestSubscription(BaseTest):
         assert subscription.title == "My Subscription"
         subscription.set_next_delivery_date(datetime(2022, 1, 2, 0, 0, 0).replace(tzinfo=ZoneInfo("UTC")))
         assert subscription.next_delivery_date == datetime(2022, 1, 15, 0, 0).replace(tzinfo=ZoneInfo("UTC"))
+
+    def _create_subscription(self, **kwargs) -> Subscription:
+        return Subscription.objects.create(
+            team=self.team,
+            target_type="email",
+            target_value="tests@posthog.com",
+            frequency="weekly",
+            interval=1,
+            start_date=datetime(2022, 1, 1, tzinfo=ZoneInfo("UTC")),
+            **kwargs,
+        )
+
+    @parameterized.expand(
+        [
+            (
+                "insight_relation",
+                lambda self: self._create_subscription(insight=Insight.objects.create(team=self.team)),
+                Subscription.ResourceType.INSIGHT,
+            ),
+            (
+                "dashboard_relation",
+                lambda self: self._create_subscription(dashboard=Dashboard.objects.create(team=self.team)),
+                Subscription.ResourceType.DASHBOARD,
+            ),
+            (
+                "prompt_no_relation",
+                lambda self: self._create_subscription(prompt="Summarize signups"),
+                Subscription.ResourceType.AI_PROMPT,
+            ),
+        ]
+    )
+    def test_resource_type_derived_from_relation(
+        self, _name: str, make_subscription: Callable[..., Subscription], expected: "Subscription.ResourceType"
+    ):
+        subscription = make_subscription(self)
+
+        assert subscription.resource_type == expected
+        subscription.refresh_from_db()
+        assert subscription.resource_type == expected
+
+    def test_resource_type_raises_without_relation(self):
+        subscription = self._create_subscription()
+        with self.assertRaises(ValueError):
+            _ = subscription.resource_type
+
+    @parameterized.expand(
+        [
+            ("insight", 1, None, None, Subscription.ResourceType.INSIGHT),
+            ("dashboard", None, 2, None, Subscription.ResourceType.DASHBOARD),
+            ("prompt", None, None, "Summarize signups", Subscription.ResourceType.AI_PROMPT),
+            ("insight_takes_precedence", 1, 2, "ignored", Subscription.ResourceType.INSIGHT),
+        ]
+    )
+    def test_derive_resource_type(
+        self, _name: str, insight_id: int | None, dashboard_id: int | None, prompt: str | None, expected: str
+    ):
+        assert Subscription.derive_resource_type(insight_id, dashboard_id, prompt) == expected
+
+    @parameterized.expand([("all_none", None), ("empty_prompt", "")])
+    def test_derive_resource_type_raises_when_relationless(self, _name: str, prompt: str | None):
+        with pytest.raises(ValueError, match="no insight, dashboard, or prompt"):
+            Subscription.derive_resource_type(None, None, prompt)
 
     def test_update_next_delivery_date_on_save(self):
         subscription = self._create_insight_subscription()
@@ -285,6 +349,22 @@ class TestSubscription(BaseTest):
         )
         assert subscription.summary == expected_summary
 
+    @parameterized.expand(
+        [
+            ("daily", "daily", 1),
+            ("weekly", "weekly", 7),
+            ("monthly", "monthly", 30),
+            ("yearly", "yearly", 365),
+            ("unknown_falls_back_to_weekly", "", 7),
+        ]
+    )
+    def test_ai_report_window_days(self, _name, frequency, expected_days):
+        # Construct with a valid cadence (the model eagerly builds an rrule on init), then assign
+        # the case under test — `ai_report_window_days` reads `frequency` live.
+        subscription = Subscription(frequency="daily")
+        subscription.frequency = frequency
+        assert subscription.ai_report_window_days == expected_days
+
     def test_subscription_delivery_creation(self):
         subscription = self._create_insight_subscription()
 
@@ -473,7 +553,7 @@ class TestSubscriptionLimit(BaseTest):
         self.organization.available_product_features = []
         self.organization.save()
         self._create_subscriptions(2)
-        with patch("posthog.models.subscription.SUBSCRIPTION_COUNT_ALLOWED_ON_FREE_TIER", 2):
+        with patch("products.exports.backend.models.subscription.SUBSCRIPTION_COUNT_ALLOWED_ON_FREE_TIER", 2):
             result = Subscription.check_subscription_limit(self.team.id, self.organization)
         assert result is not None
         assert "2" in result

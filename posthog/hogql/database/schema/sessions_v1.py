@@ -1,8 +1,6 @@
 import re
 from typing import TYPE_CHECKING, Optional, cast
 
-from posthog.schema import BounceRatePageViewMode
-
 from posthog.hogql import ast
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.database.models import (
@@ -28,6 +26,7 @@ from posthog.models.sessions.sql import (
     SELECT_SESSION_PROP_STRING_VALUES_SQL_WITH_FILTER,
 )
 from posthog.queries.insight import insight_sync_execute
+from posthog.schema_enums import BounceRatePageViewMode
 
 from products.event_definitions.backend.models.property_definition import PropertyType
 
@@ -77,23 +76,49 @@ RAW_SESSIONS_FIELDS: dict[str, FieldOrTable] = {
 }
 
 LAZY_SESSIONS_FIELDS: dict[str, FieldOrTable] = {
-    "id": StringDatabaseField(name="session_id", nullable=False),
+    "id": StringDatabaseField(
+        name="session_id", nullable=False, description="Session identifier; matches `events.$session_id`."
+    ),
     # TODO remove this, it's a duplicate of the correct session_id field below to get some trends working on a deadline
-    "session_id": StringDatabaseField(name="session_id", nullable=False),
+    "session_id": StringDatabaseField(
+        name="session_id", nullable=False, description="Session identifier; matches `events.$session_id`."
+    ),
     "team_id": IntegerDatabaseField(name="team_id", nullable=False),
     "distinct_id": StringDatabaseField(name="distinct_id", nullable=False),
-    "$start_timestamp": DateTimeDatabaseField(name="$start_timestamp", nullable=False),
-    "$end_timestamp": DateTimeDatabaseField(name="$end_timestamp", nullable=False),
+    "$start_timestamp": DateTimeDatabaseField(
+        name="$start_timestamp", nullable=False, description="Timestamp of the first event in the session."
+    ),
+    "$end_timestamp": DateTimeDatabaseField(
+        name="$end_timestamp", nullable=False, description="Timestamp of the last event in the session."
+    ),
     # URLs / paths
-    "$urls": StringArrayDatabaseField(name="$urls", nullable=False),
-    "$num_uniq_urls": IntegerDatabaseField(name="$num_uniq_urls", nullable=False),
-    "$entry_current_url": StringDatabaseField(name="$entry_current_url"),
-    "$entry_pathname": StringDatabaseField(name="$entry_pathname"),
-    "$entry_hostname": StringDatabaseField(name="$entry_host"),
-    "$exit_current_url": StringDatabaseField(name="$exit_current_url"),
-    "$exit_pathname": StringDatabaseField(name="$exit_pathname"),
-    "$exit_hostname": StringDatabaseField(name="$exit_host"),
-    "$entry_referring_domain": StringDatabaseField(name="$entry_referring_domain"),
+    "$urls": StringArrayDatabaseField(
+        name="$urls", nullable=False, description="Distinct URLs visited during the session."
+    ),
+    "$num_uniq_urls": IntegerDatabaseField(
+        name="$num_uniq_urls", nullable=False, description="Number of distinct URLs visited during the session."
+    ),
+    "$entry_current_url": StringDatabaseField(
+        name="$entry_current_url", description="Full URL of the first page viewed in the session."
+    ),
+    "$entry_pathname": StringDatabaseField(
+        name="$entry_pathname", description="Path of the first page viewed in the session (URL without host or query)."
+    ),
+    "$entry_hostname": StringDatabaseField(
+        name="$entry_host", description="Host of the first page viewed in the session."
+    ),
+    "$exit_current_url": StringDatabaseField(
+        name="$exit_current_url", description="Full URL of the last page viewed in the session."
+    ),
+    "$exit_pathname": StringDatabaseField(
+        name="$exit_pathname", description="Path of the last page viewed in the session (URL without host or query)."
+    ),
+    "$exit_hostname": StringDatabaseField(
+        name="$exit_host", description="Host of the last page viewed in the session."
+    ),
+    "$entry_referring_domain": StringDatabaseField(
+        name="$entry_referring_domain", description="Referring domain that brought the user into the session."
+    ),
     # UTM parameters
     "$entry_utm_source": StringDatabaseField(name="$entry_utm_source"),
     "$entry_utm_campaign": StringDatabaseField(name="$entry_utm_campaign"),
@@ -119,12 +144,20 @@ LAZY_SESSIONS_FIELDS: dict[str, FieldOrTable] = {
     "$pageview_count": IntegerDatabaseField(name="$pageview_count"),
     "$autocapture_count": IntegerDatabaseField(name="$autocapture_count"),
     # Derived
-    "$channel_type": StringDatabaseField(name="$channel_type"),
-    "$session_duration": IntegerDatabaseField(name="$session_duration"),
+    "$channel_type": StringDatabaseField(
+        name="$channel_type",
+        description="Derived acquisition channel (e.g. Organic Search, Paid Social) for the session.",
+    ),
+    "$session_duration": IntegerDatabaseField(
+        name="$session_duration", description="Session duration in seconds ($end_timestamp - $start_timestamp)."
+    ),
     "duration": IntegerDatabaseField(
         name="duration"
     ),  # alias of $session_duration, deprecated but included for backwards compatibility
-    "$is_bounce": BooleanDatabaseField(name="$is_bounce"),
+    "$is_bounce": BooleanDatabaseField(
+        name="$is_bounce",
+        description="True if the session was a bounce (single page view, short duration, no interaction).",
+    ),
     # some aliases for people reverting from v2 to v1
     "$end_current_url": StringDatabaseField(name="$end_current_url"),
     "$end_pathname": StringDatabaseField(name="$end_pathname"),
@@ -132,6 +165,10 @@ LAZY_SESSIONS_FIELDS: dict[str, FieldOrTable] = {
 
 
 class RawSessionsTableV1(Table):
+    description: str = (
+        "Raw sessions aggregate-state table backing `sessions`. Columns hold AggregateFunction states that "
+        "must be merged; query `sessions` instead unless you specifically need the raw states."
+    )
     fields: dict[str, FieldOrTable] = RAW_SESSIONS_FIELDS
 
     def to_printed_clickhouse(self, context):
@@ -360,6 +397,10 @@ def select_from_sessions_table_v1(
 
 
 class SessionsTableV1(LazyTable):
+    description: str = (
+        "Aggregated user sessions (one row per session), with entry/exit URLs, attribution, and duration. "
+        "Join from events via `events.$session_id = sessions.session_id`."
+    )
     fields: dict[str, FieldOrTable] = LAZY_SESSIONS_FIELDS
 
     def lazy_select(

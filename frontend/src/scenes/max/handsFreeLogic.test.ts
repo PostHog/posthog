@@ -14,9 +14,9 @@ describe('handsFreeLogic state machine', () => {
     beforeEach(() => {
         useMocks(maxMocks)
         initKeaTests()
-        parent = maxLogic({ tabId: 'hands-free-test-tab' })
+        parent = maxLogic({ panelId: 'hands-free-test-tab' })
         parent.mount()
-        logic = handsFreeLogic({ tabId: 'hands-free-test-tab' })
+        logic = handsFreeLogic({ panelId: 'hands-free-test-tab' })
         logic.mount()
     })
 

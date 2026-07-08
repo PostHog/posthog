@@ -194,7 +194,7 @@ def cmd_sync(
     # restarts; a re-run then short-circuits before the heavier coder/SSH
     # preflight below. (ensure_runtime_ready covers the coder install check.)
     mutagen.ensure_mutagen_installed(verbose=verbose)
-    mutagen.register_daemon()
+    mutagen.ensure_daemon_with_shim()
     if mutagen.sync_list(label_selector=label):
         click.echo(
             f"Sync already running for {name}. Use `hogli devbox:sync{_workspace_arg_suffix(name)} --status` to inspect."

@@ -3,7 +3,7 @@ import { useActions, useValues } from 'kea'
 import { IconDownload } from '@posthog/icons'
 import { LemonButton, LemonMenu } from '@posthog/lemon-ui'
 
-import { humanFriendlyNumber } from 'lib/utils'
+import { humanFriendlyNumber } from 'lib/utils/numbers'
 
 import { logsExportLogic } from './logsExportLogic'
 import { logsViewerLogic } from './logsViewerLogic'

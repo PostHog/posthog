@@ -2,6 +2,8 @@ import { useState } from 'react'
 
 import { LemonModal } from '@posthog/lemon-ui'
 
+import { backendAssetUrl } from 'lib/utils/apiHost'
+
 export interface StepScreenshotThumbnailProps {
     mediaId: string
 }
@@ -22,7 +24,7 @@ export function StepScreenshotThumbnail({ mediaId }: StepScreenshotThumbnailProp
                 onClick={() => setShowScreenshotModal(true)}
             >
                 <img
-                    src={`/uploaded_media/${mediaId}`}
+                    src={backendAssetUrl(`/uploaded_media/${mediaId}`)}
                     alt="Element screenshot"
                     className="w-full h-full object-cover"
                     title="Click to view screenshot"
@@ -37,7 +39,7 @@ export function StepScreenshotThumbnail({ mediaId }: StepScreenshotThumbnailProp
             >
                 <div className="flex flex-col items-center justify-center gap-4">
                     <img
-                        src={`/uploaded_media/${mediaId}`}
+                        src={backendAssetUrl(`/uploaded_media/${mediaId}`)}
                         alt="Element screenshot"
                         className="max-w-full max-h-[70vh]"
                     />

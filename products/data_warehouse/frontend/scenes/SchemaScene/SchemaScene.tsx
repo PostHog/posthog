@@ -4,6 +4,7 @@ import { useEffect } from 'react'
 
 import { LemonButton, LemonSkeleton } from '@posthog/lemon-ui'
 
+import { ActivityLog } from 'lib/components/ActivityLog/ActivityLog'
 import { NotFound } from 'lib/components/NotFound'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { LemonTab, LemonTabs } from 'lib/lemon-ui/LemonTabs'
@@ -14,6 +15,7 @@ import { urls } from 'scenes/urls'
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 import { ProductKey } from '~/queries/schema/schema-general'
+import { ActivityScope } from '~/types'
 
 import { cleanSourceId } from 'products/data_warehouse/frontend/utils'
 
@@ -39,7 +41,8 @@ export const scene: SceneExport<SchemaSceneProps> = {
 const SECTION_LABELS: Record<SchemaConfigurationSection, string> = {
     details: 'Details',
     'sync-method': 'Sync method',
-    columns: 'Columns',
+    columns: 'Columns and filters',
+    descriptions: 'Descriptions',
     schedule: 'Schedule',
     'danger-zone': 'Danger zone',
 }
@@ -61,8 +64,11 @@ function SchemaSceneContent({ sourceId, schemaId }: SchemaSceneProps): JSX.Eleme
 
     const cleanedSourceId = cleanSourceId(sourceId)
     const showMetrics = !!featureFlags[FEATURE_FLAGS.DWH_SOURCE_METRICS]
+    const showDescriptions = !!featureFlags[FEATURE_FLAGS.DATA_WAREHOUSE_SEMANTIC_ENRICHMENT]
     const showColumnsSection = supportsColumnSelection
-    const visibleSections = SCHEMA_CONFIGURATION_SECTIONS.filter((key) => key !== 'columns' || showColumnsSection)
+    const visibleSections = SCHEMA_CONFIGURATION_SECTIONS.filter(
+        (key) => (key !== 'columns' || showColumnsSection) && (key !== 'descriptions' || showDescriptions)
+    )
 
     useEffect(() => {
         if (!showMetrics && currentTab === 'metrics') {
@@ -75,6 +81,12 @@ function SchemaSceneContent({ sourceId, schemaId }: SchemaSceneProps): JSX.Eleme
             setCurrentSection('details')
         }
     }, [showColumnsSection, currentSection, setCurrentSection])
+
+    useEffect(() => {
+        if (!showDescriptions && currentSection === 'descriptions') {
+            setCurrentSection('details')
+        }
+    }, [showDescriptions, currentSection, setCurrentSection])
 
     if (schemaDataLoading && !schema) {
         return (
@@ -126,6 +138,12 @@ function SchemaSceneContent({ sourceId, schemaId }: SchemaSceneProps): JSX.Eleme
             content: <MetricsTab sourceId={cleanedSourceId} schemaId={schema.id} />,
         })
     }
+
+    tabs.push({
+        label: 'History',
+        key: 'history',
+        content: <ActivityLog id={schema.id} scope={ActivityScope.EXTERNAL_DATA_SCHEMA} />,
+    })
 
     const activeTab = !showMetrics && currentTab === 'metrics' ? 'configuration' : currentTab
 

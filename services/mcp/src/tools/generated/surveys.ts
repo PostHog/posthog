@@ -6,12 +6,19 @@ import {
     SurveysCreateBody,
     SurveysDestroyParams,
     SurveysGlobalStatsRetrieveQueryParams,
+    SurveysLaunchParams,
     SurveysListQueryParams,
     SurveysPartialUpdateBody,
     SurveysPartialUpdateParams,
+    SurveysResponsesListParams,
+    SurveysResponsesListQueryParams,
     SurveysRetrieveParams,
     SurveysStatsRetrieveParams,
     SurveysStatsRetrieveQueryParams,
+    SurveysStopParams,
+    SurveysSummarizeResponsesCreateBody,
+    SurveysSummarizeResponsesCreateParams,
+    SurveysSummarizeResponsesCreateQueryParams,
 } from '@/generated/surveys/api'
 import { withUiApp } from '@/resources/ui-apps'
 import { withPostHogUrl, type WithPostHogUrl } from '@/tools/tool-utils'
@@ -168,6 +175,22 @@ const surveyGet = (): ToolBase<typeof SurveyGetSchema, WithPostHogUrl<Schemas.Su
         },
     })
 
+const SurveyLaunchSchema = SurveysLaunchParams.omit({ project_id: true })
+
+const surveyLaunch = (): ToolBase<typeof SurveyLaunchSchema, WithPostHogUrl<Schemas.Survey>> =>
+    withUiApp('survey', {
+        name: 'survey-launch',
+        schema: SurveyLaunchSchema,
+        handler: async (context: Context, params: z.infer<typeof SurveyLaunchSchema>) => {
+            const projectId = await context.stateManager.getProjectId()
+            const result = await context.api.request<Schemas.Survey>({
+                method: 'POST',
+                path: `/api/projects/${encodeURIComponent(String(projectId))}/surveys/${encodeURIComponent(String(params.id))}/launch/`,
+            })
+            return await withPostHogUrl(context, result, `/surveys/${result.id}`)
+        },
+    })
+
 const SurveyStatsSchema = SurveysStatsRetrieveParams.omit({ project_id: true }).extend(
     SurveysStatsRetrieveQueryParams.shape
 )
@@ -184,9 +207,26 @@ const surveyStats = (): ToolBase<typeof SurveyStatsSchema, WithPostHogUrl<Schema
                 query: {
                     date_from: params.date_from,
                     date_to: params.date_to,
+                    include_per_question_stats: params.include_per_question_stats,
                 },
             })
             return await withPostHogUrl(context, result, `/surveys/${result.survey_id}`)
+        },
+    })
+
+const SurveyStopSchema = SurveysStopParams.omit({ project_id: true })
+
+const surveyStop = (): ToolBase<typeof SurveyStopSchema, WithPostHogUrl<Schemas.Survey>> =>
+    withUiApp('survey', {
+        name: 'survey-stop',
+        schema: SurveyStopSchema,
+        handler: async (context: Context, params: z.infer<typeof SurveyStopSchema>) => {
+            const projectId = await context.stateManager.getProjectId()
+            const result = await context.api.request<Schemas.Survey>({
+                method: 'POST',
+                path: `/api/projects/${encodeURIComponent(String(projectId))}/surveys/${encodeURIComponent(String(params.id))}/stop/`,
+            })
+            return await withPostHogUrl(context, result, `/surveys/${result.id}`)
         },
     })
 
@@ -316,9 +356,11 @@ const surveysGetAll = (): ToolBase<typeof SurveysGetAllSchema, WithPostHogUrl<Sc
                 path: `/api/projects/${encodeURIComponent(String(projectId))}/surveys/`,
                 query: {
                     archived: params.archived,
+                    ids: Array.isArray(params.ids) ? params.ids.join(',') || undefined : params.ids,
                     limit: params.limit,
                     offset: params.offset,
                     search: params.search,
+                    type: params.type,
                 },
             })
             return await withPostHogUrl(
@@ -354,12 +396,70 @@ const surveysGlobalStats = (): ToolBase<typeof SurveysGlobalStatsSchema, Schemas
         },
     })
 
+const SurveysResponsesListSchema = SurveysResponsesListParams.omit({ project_id: true }).extend(
+    SurveysResponsesListQueryParams.shape
+)
+
+const surveysResponsesList = (): ToolBase<typeof SurveysResponsesListSchema, Schemas.SurveyResponsesList> =>
+    withUiApp('survey-stats', {
+        name: 'surveys-responses-list',
+        schema: SurveysResponsesListSchema,
+        handler: async (context: Context, params: z.infer<typeof SurveysResponsesListSchema>) => {
+            const projectId = await context.stateManager.getProjectId()
+            const result = await context.api.request<Schemas.SurveyResponsesList>({
+                method: 'GET',
+                path: `/api/projects/${encodeURIComponent(String(projectId))}/surveys/${encodeURIComponent(String(params.id))}/responses/`,
+                query: {
+                    exclude_archived: params.exclude_archived,
+                    limit: params.limit,
+                    offset: params.offset,
+                    question_id: params.question_id,
+                    score_gte: params.score_gte,
+                    score_lte: params.score_lte,
+                    since: params.since,
+                    until: params.until,
+                },
+            })
+            return result
+        },
+    })
+
+const SurveysSummarizeResponsesCreateSchema = SurveysSummarizeResponsesCreateParams.omit({ project_id: true })
+    .extend(SurveysSummarizeResponsesCreateQueryParams.shape)
+    .extend(SurveysSummarizeResponsesCreateBody.shape)
+
+const surveysSummarizeResponsesCreate = (): ToolBase<typeof SurveysSummarizeResponsesCreateSchema, unknown> => ({
+    name: 'surveys-summarize-responses-create',
+    schema: SurveysSummarizeResponsesCreateSchema,
+    handler: async (context: Context, params: z.infer<typeof SurveysSummarizeResponsesCreateSchema>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const body: Record<string, unknown> = {}
+        if (params.force_refresh !== undefined) {
+            body['force_refresh'] = params.force_refresh
+        }
+        const result = await context.api.request<unknown>({
+            method: 'POST',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/surveys/${encodeURIComponent(String(params.id))}/summarize_responses/`,
+            body,
+            query: {
+                question_id: params.question_id,
+                question_index: params.question_index,
+            },
+        })
+        return result
+    },
+})
+
 export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
     'survey-create': surveyCreate,
     'survey-delete': surveyDelete,
     'survey-get': surveyGet,
+    'survey-launch': surveyLaunch,
     'survey-stats': surveyStats,
+    'survey-stop': surveyStop,
     'survey-update': surveyUpdate,
     'surveys-get-all': surveysGetAll,
     'surveys-global-stats': surveysGlobalStats,
+    'surveys-responses-list': surveysResponsesList,
+    'surveys-summarize-responses-create': surveysSummarizeResponsesCreate,
 }

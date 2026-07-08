@@ -110,7 +110,7 @@ class MCPIntentEmbeddingCache(UUIDModel, TeamScopedRootMixin):
 
 class MCPSession(UUIDModel, TeamScopedRootMixin):
     # On-demand intent store keyed by (team, session_id). The session list itself
-    # is aggregated on the fly from mcp_tool_call events (see logic.py); the
+    # is aggregated on the fly from $mcp_tool_call events (see logic.py); the
     # backfill that once populated session_start/_end/duration/etc. is gone.
     team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE)
     session_id = models.CharField(max_length=64)

@@ -10,12 +10,16 @@ from posthog.test.base import (
     _create_person,
     snapshot_clickhouse_queries,
 )
+from unittest.mock import patch
+
+from django.test import override_settings
 
 from parameterized import parameterized
 
 from posthog.schema import (
     BreakdownAttributionType,
     BreakdownFilter,
+    CompareFilter,
     DateRange,
     EventPropertyFilter,
     EventsNode,
@@ -33,8 +37,9 @@ from posthog.hogql import ast
 from posthog.constants import FunnelOrderType
 from posthog.hogql_queries.insights.funnels.funnels_query_runner import FunnelsQueryRunner
 from posthog.hogql_queries.insights.funnels.test.test_funnel_persons import get_actors
-from posthog.models.cohort.cohort import Cohort
 from posthog.test.test_journeys import journeys_for
+
+from products.cohorts.backend.models.cohort import Cohort
 
 FORMAT_TIME = "%Y-%m-%d %H:%M:%S"
 FORMAT_TIME_DAY_END = "%Y-%m-%d 23:59:59"
@@ -130,6 +135,66 @@ class TestFunnelTrendsUDF(ClickhouseTestMixin, APIBaseTest):
 
         self.assertEqual(len(results), 7)
         self.assertEqual(formatted_results[0]["days"][0], "2021-06-07")
+
+    def _run_conversion_window_trends(self, *, hide_incomplete_periods: bool) -> list[dict]:
+        # user_a enters twice: once well in the past (06-07, window long elapsed) and once recently
+        # (06-12, window still open). A single later step-two event (06-13) converts BOTH entrances,
+        # since each is within the 7-day window. recent_entrant only just entered and hasn't converted.
+        journeys_for(
+            {
+                "user_a": [
+                    {"event": "step one", "timestamp": datetime(2021, 6, 7)},
+                    {"event": "step one", "timestamp": datetime(2021, 6, 12)},
+                    {"event": "step two", "timestamp": datetime(2021, 6, 13)},
+                ],
+                "recent_entrant": [
+                    {"event": "step one", "timestamp": datetime(2021, 6, 15)},
+                ],
+            },
+            self.team,
+        )
+
+        query = FunnelsQuery(
+            dateRange=DateRange(date_from="2021-06-07 00:00:00", date_to="2021-06-18 23:59:59"),
+            interval="day",
+            series=[EventsNode(event="step one"), EventsNode(event="step two")],
+            funnelsFilter=FunnelsFilter(
+                funnelVizType="trends",
+                funnelWindowInterval=7,
+                funnelWindowIntervalUnit="day",
+                hideIncompleteConversionWindowPeriods=hide_incomplete_periods,
+            ),
+        )
+        return FunnelsQueryRunner(query=query, team=self.team, just_summarize=True).calculate().results
+
+    @freeze_time("2021-06-18 12:00:00")
+    def test_keeps_incomplete_conversion_window_periods_by_default(self):
+        results = self._run_conversion_window_trends(hide_incomplete_periods=False)
+        by_day = {row["timestamp"].date(): row for row in results}
+
+        # every daily period in range is present, including the recent incomplete ones
+        self.assertEqual([row["timestamp"].date() for row in results], [date(2021, 6, day) for day in range(7, 19)])
+        # both of user_a's entrances converted
+        self.assertEqual(by_day[date(2021, 6, 7)]["reached_to_step_count"], 1)
+        self.assertEqual(by_day[date(2021, 6, 12)]["reached_to_step_count"], 1)
+        # recent entrant shows as a non-converter, which is what drags the recent trend down
+        self.assertEqual(by_day[date(2021, 6, 15)]["reached_from_step_count"], 1)
+        self.assertEqual(by_day[date(2021, 6, 15)]["reached_to_step_count"], 0)
+
+    @freeze_time("2021-06-18 12:00:00")
+    def test_hides_incomplete_conversion_window_periods_when_enabled(self):
+        results = self._run_conversion_window_trends(hide_incomplete_periods=True)
+        by_day = {row["timestamp"].date(): row for row in results}
+
+        # now=2021-06-18 12:00, window=7d -> cutoff=2021-06-11 12:00. A period is kept only once its
+        # whole day has cleared the window (entrance_period_start + 1 day <= cutoff), i.e. entrances
+        # on or before 2021-06-10.
+        self.assertEqual([row["timestamp"].date() for row in results], [date(2021, 6, day) for day in range(7, 11)])
+        # the old entrance that converted is retained, even though its conversion event is recent
+        self.assertEqual(by_day[date(2021, 6, 7)]["reached_to_step_count"], 1)
+        # the recent entrance (06-12) and the recent non-converter (06-15) are hidden
+        self.assertNotIn(date(2021, 6, 12), by_day)
+        self.assertNotIn(date(2021, 6, 15), by_day)
 
     @parameterized.expand(["US/Pacific", "UTC"])
     def test_only_one_user_reached_one_step(self, timezone):
@@ -3384,3 +3449,184 @@ class TestFunnelTrendsUDF(ClickhouseTestMixin, APIBaseTest):
 
         self.assertEqual(1, results[0]["reached_from_step_count"])
         self.assertEqual(0, results[0]["reached_to_step_count"])
+
+
+@override_settings(IN_UNIT_TESTING=True)
+class TestFunnelTrendsCompareUDF(ClickhouseTestMixin, APIBaseTest):
+    """Compare-to-previous on funnel TRENDS viz. Tagged-row contract that later viz modes will reuse."""
+
+    maxDiff = None
+
+    def _build_query(
+        self,
+        date_from: str = "2021-06-07 00:00:00",
+        date_to: str = "2021-06-13 23:59:59",
+        compare: bool = True,
+        compare_to: Optional[str] = None,
+    ) -> FunnelsQuery:
+        return FunnelsQuery(
+            dateRange=DateRange(date_from=date_from, date_to=date_to),
+            interval="day",
+            series=[EventsNode(event="step one"), EventsNode(event="step two")],
+            funnelsFilter=FunnelsFilter(
+                funnelVizType="trends",
+                funnelWindowInterval=7,
+                funnelWindowIntervalUnit="day",
+            ),
+            compareFilter=CompareFilter(compare=compare, compare_to=compare_to),
+        )
+
+    @patch("posthoganalytics.feature_enabled", return_value=True)
+    def test_compare_default_previous_period_tags_rows(self, _feature_enabled):
+        # Current period 2021-06-07 .. 2021-06-13. Default previous is the prior 7-day window
+        # (2021-05-31 .. 2021-06-06). One conversion lands in each window.
+        journeys_for(
+            {
+                "current_user": [
+                    {"event": "step one", "timestamp": datetime(2021, 6, 8, 10)},
+                    {"event": "step two", "timestamp": datetime(2021, 6, 8, 11)},
+                ],
+                "previous_user": [
+                    {"event": "step one", "timestamp": datetime(2021, 6, 1, 10)},
+                    {"event": "step two", "timestamp": datetime(2021, 6, 1, 11)},
+                ],
+            },
+            self.team,
+        )
+
+        results = FunnelsQueryRunner(query=self._build_query(), team=self.team).calculate().results
+
+        # Frontend-facing shape: one summarized series per period, tagged with compare_label.
+        # This is the same contract STEPS and TIME_TO_CONVERT slices will reuse.
+        labels = [row.get("compare_label") for row in results]
+        self.assertEqual(labels, ["current", "previous"])
+
+        current_series = next(r for r in results if r["compare_label"] == "current")
+        previous_series = next(r for r in results if r["compare_label"] == "previous")
+
+        # Each series carries the standard summarized funnel-trends payload (count is interval count).
+        self.assertEqual(len(current_series["data"]), 7)
+        self.assertEqual(len(previous_series["data"]), 7)
+        # Conversion happened on day index 1 (June 8) in current and day index 1 (June 1) in previous.
+        # Conversion rate is 100% (1/1) so the data point is 100.0.
+        self.assertIn(100.0, current_series["data"])
+        self.assertIn(100.0, previous_series["data"])
+        # Day labels for current period start at 2021-06-07; previous at 2021-05-31.
+        self.assertEqual(current_series["days"][0], "2021-06-07")
+        self.assertEqual(previous_series["days"][0], "2021-05-31")
+
+    @patch("posthoganalytics.feature_enabled", return_value=True)
+    def test_compare_with_custom_offset_shifts_previous_window(self, _feature_enabled):
+        # Custom offset `-30d` puts the previous window 30 days before the current window's start
+        # regardless of the current window's length.
+        journeys_for(
+            {
+                "current_user": [
+                    {"event": "step one", "timestamp": datetime(2021, 6, 8, 10)},
+                    {"event": "step two", "timestamp": datetime(2021, 6, 8, 11)},
+                ],
+                "previous_user": [
+                    # 2021-05-08 = 30 days before 2021-06-07
+                    {"event": "step one", "timestamp": datetime(2021, 5, 8, 10)},
+                    {"event": "step two", "timestamp": datetime(2021, 5, 8, 11)},
+                ],
+                "noise_user": [
+                    # Falls in the *default* previous window but NOT in the -30d window: must be ignored.
+                    {"event": "step one", "timestamp": datetime(2021, 6, 1, 10)},
+                    {"event": "step two", "timestamp": datetime(2021, 6, 1, 11)},
+                ],
+            },
+            self.team,
+        )
+
+        results = FunnelsQueryRunner(query=self._build_query(compare_to="-30d"), team=self.team).calculate().results
+
+        previous_series = next(r for r in results if r["compare_label"] == "previous")
+        # Previous window starts 30 days before the current window's start (2021-06-07 - 30d = 2021-05-08).
+        self.assertEqual(previous_series["days"][0], "2021-05-08")
+        # The conversion on 2021-05-08 lands inside the previous window.
+        self.assertIn(100.0, previous_series["data"])
+        # The 2021-06-01 conversion (default-previous window) does NOT contribute here.
+        self.assertEqual(previous_series["data"].count(100.0), 1)
+
+    @patch("posthoganalytics.feature_enabled", return_value=True)
+    def test_compare_with_empty_previous_period(self, _feature_enabled):
+        # Only the current period has events; previous-period series must still be returned (zeroed).
+        journeys_for(
+            {
+                "current_user": [
+                    {"event": "step one", "timestamp": datetime(2021, 6, 8, 10)},
+                    {"event": "step two", "timestamp": datetime(2021, 6, 8, 11)},
+                ],
+            },
+            self.team,
+        )
+
+        results = FunnelsQueryRunner(query=self._build_query(), team=self.team).calculate().results
+
+        labels = [row["compare_label"] for row in results]
+        self.assertEqual(labels, ["current", "previous"])
+
+        previous_series = next(r for r in results if r["compare_label"] == "previous")
+        # Skeleton intact: 7 days, no conversions.
+        self.assertEqual(len(previous_series["data"]), 7)
+        self.assertEqual(len(previous_series["days"]), 7)
+        self.assertEqual(set(previous_series["data"]), {0.0})
+
+    @patch("posthoganalytics.feature_enabled", return_value=True)
+    def test_compare_holds_funnel_window_constant(self, _feature_enabled):
+        # The previous-period sub-runner must use the same funnel window as the current-period one.
+        # Only the date range shifts when compare is on; funnelWindowInterval / funnelWindowIntervalUnit
+        # stay put. This is what keeps current and previous comparable.
+        runner = FunnelsQueryRunner(query=self._build_query(), team=self.team)
+        previous_funnel = runner._build_previous_funnel()
+
+        # Structural contract: previous funnel inherits the same funnelsFilter (window, attribution, etc.)
+        self.assertEqual(previous_funnel.context.funnelsFilter, runner.context.funnelsFilter)
+        # Sanity: compareFilter is cleared on the previous query so it can't recurse.
+        self.assertIsNone(previous_funnel.context.query.compareFilter)
+        # Sanity: previous query's dateRange differs from current.
+        self.assertNotEqual(previous_funnel.context.query.dateRange, runner.query.dateRange)
+
+    @patch("posthoganalytics.feature_enabled", return_value=False)
+    def test_compare_feature_flag_off_returns_single_period(self, _feature_enabled):
+        # When the `funnels-compare` flag is off, the runner ignores compareFilter and behaves
+        # as if compare=False — saved-funnel safety.
+        journeys_for(
+            {
+                "u": [
+                    {"event": "step one", "timestamp": datetime(2021, 6, 8, 10)},
+                    {"event": "step two", "timestamp": datetime(2021, 6, 8, 11)},
+                ],
+            },
+            self.team,
+        )
+
+        results = FunnelsQueryRunner(query=self._build_query(), team=self.team).calculate().results
+
+        # Single-period response: one summarized series, no compare_label tagging.
+        self.assertEqual(len(results), 1)
+        self.assertNotIn("compare_label", results[0])
+
+    @patch("posthoganalytics.feature_enabled", return_value=True)
+    def test_compare_with_all_time_date_range(self, _feature_enabled):
+        # When date_from='all', mirror trends' behavior: the runner does not reject the query;
+        # the previous period is whatever QueryPreviousPeriodDateRange resolves to and rows are
+        # tagged accordingly. The frontend toggle hides "compare" when date_from='all', but the
+        # backend stays tolerant of stale clients.
+        journeys_for(
+            {
+                "u": [
+                    {"event": "step one", "timestamp": datetime(2021, 6, 8, 10)},
+                    {"event": "step two", "timestamp": datetime(2021, 6, 8, 11)},
+                ],
+            },
+            self.team,
+        )
+
+        query = self._build_query(date_from="all", date_to="2021-06-13 23:59:59")
+        results = FunnelsQueryRunner(query=query, team=self.team).calculate().results
+
+        labels = {row.get("compare_label") for row in results}
+        # The orchestrator still emits both tags; the data may be empty / overlapping — that's expected.
+        self.assertEqual(labels, {"current", "previous"})

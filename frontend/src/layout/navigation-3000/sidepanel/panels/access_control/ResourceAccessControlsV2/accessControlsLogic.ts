@@ -3,8 +3,8 @@ import { loaders } from 'kea-loaders'
 import { urlToAction } from 'kea-router'
 
 import api from 'lib/api'
-import { toSentenceCase } from 'lib/utils'
-import { pluralizeResource } from 'lib/utils/accessControlUtils'
+import { captureAccessControlEvent, pluralizeResource } from 'lib/utils/accessControlUtils'
+import { toSentenceCase } from 'lib/utils/strings'
 import { membersLogic } from 'scenes/organization/membersLogic'
 import { userLogic } from 'scenes/userLogic'
 
@@ -306,12 +306,24 @@ export const accessControlsLogic = kea<accessControlsLogicType>([
 
     listeners(({ actions, values }) => ({
         setActiveTab: ({ activeTab }) => {
+            captureAccessControlEvent('access_control_settings_tab_changed', {
+                tab: activeTab,
+                ui_version: 'v2',
+            })
+
             // Lazy load data for the tab
             if (activeTab === 'roles' && !values.rolesData && !values.rolesDataLoading) {
                 actions.loadRoles()
             } else if (activeTab === 'members' && !values.membersData && !values.membersDataLoading) {
                 actions.loadMembers()
             }
+        },
+
+        openRuleModal: ({ state }) => {
+            captureAccessControlEvent('access_control_rule_modal_opened', {
+                scope_type: state.scopeType,
+                ui_version: 'v2',
+            })
         },
 
         saveGroupedRules: async ({ scopeType, scopeId, projectLevel, resourceLevels }) => {
@@ -401,11 +413,11 @@ export const accessControlsLogic = kea<accessControlsLogicType>([
 
             if (projectUpdate) {
                 if (scopeType === 'default') {
-                    actions.updateAccessControlDefault(projectUpdate.level ?? AccessControlLevel.None)
+                    actions.updateAccessControlDefault(projectUpdate.level ?? AccessControlLevel.None, 'v2')
                 } else if (scopeType === 'role') {
-                    actions.updateAccessControlRoles([{ role: scopeId, level: projectUpdate.level }])
+                    actions.updateAccessControlRoles([{ role: scopeId, level: projectUpdate.level }], 'v2')
                 } else if (scopeType === 'member') {
-                    actions.updateAccessControlMembers([{ member: scopeId, level: projectUpdate.level }])
+                    actions.updateAccessControlMembers([{ member: scopeId, level: projectUpdate.level }], 'v2')
                 }
             }
 

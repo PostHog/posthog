@@ -15,16 +15,15 @@ from temporalio.client import (
     SchedulePolicy,
     ScheduleState,
 )
-from temporalio.common import RetryPolicy, SearchAttributePair, TypedSearchAttributes
+from temporalio.common import RetryPolicy
 
 from posthog.temporal.common.client import sync_connect
 from posthog.temporal.common.schedule import create_schedule, delete_schedule, schedule_exists
-from posthog.temporal.common.search_attributes import POSTHOG_DAG_ID_KEY, POSTHOG_ORG_ID_KEY, POSTHOG_TEAM_ID_KEY
 from posthog.temporal.data_modeling.workflows.execute_dag import ExecuteDAGInputs
 
 from products.data_modeling.backend.models import DAG, Node
 from products.data_modeling.backend.models.datawarehouse_saved_query import DataWarehouseSavedQuery
-from products.data_modeling.backend.schedule import build_schedule_spec
+from products.data_modeling.backend.schedule import build_schedule_spec, dag_schedule_search_attributes
 
 logger = structlog.get_logger(__name__)
 
@@ -42,6 +41,12 @@ class Command(BaseCommand):
             help="Comma separated list of team IDs to migrate",
         )
         parser.add_argument(
+            "--start-after-team-id",
+            default=None,
+            type=int,
+            help="Resume after this team ID (exclusive), following the team_id ordering used by this command",
+        )
+        parser.add_argument(
             "--dry-run",
             action="store_true",
             default=False,
@@ -56,6 +61,8 @@ class Command(BaseCommand):
             except ValueError:
                 raise CommandError("team_ids must be a comma separated list of team IDs")
             dags = dags.filter(team_id__in=team_ids)
+        if options.get("start_after_team_id") is not None:
+            dags = dags.filter(team_id__gt=options["start_after_team_id"])
         dags = dags.order_by("team_id")
         total = dags.count()
         if total == 0:
@@ -159,12 +166,10 @@ class Command(BaseCommand):
                 state=ScheduleState(note=f"DAG schedule for team {team.pk}"),
                 policy=SchedulePolicy(overlap=ScheduleOverlapPolicy.SKIP),
             )
-            search_attributes = TypedSearchAttributes(
-                search_attributes=[
-                    SearchAttributePair(key=POSTHOG_TEAM_ID_KEY, value=team.pk),
-                    SearchAttributePair(key=POSTHOG_ORG_ID_KEY, value=str(team.organization_id)),
-                    SearchAttributePair(key=POSTHOG_DAG_ID_KEY, value=str(dag.id)),
-                ]
+            search_attributes = dag_schedule_search_attributes(
+                team_id=team.pk,
+                organization_id=str(team.organization_id),
+                dag_id=str(dag.id),
             )
             create_schedule(
                 temporal,

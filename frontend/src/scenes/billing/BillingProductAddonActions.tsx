@@ -7,6 +7,7 @@ import { LemonButton, LemonButtonProps, LemonTag } from '@posthog/lemon-ui'
 import { TRIAL_CANCELLATION_SURVEY_ID, UNSUBSCRIBE_SURVEY_ID } from 'lib/constants'
 import { More } from 'lib/lemon-ui/LemonButton/More'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
+import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 
 import { BillingProductV2AddonType } from '~/types'
 
@@ -27,6 +28,10 @@ interface BillingProductAddonActionsProps {
     align?: 'left' | 'right'
     /** Collapse pricing into the CTA: hide the paragraph below and swap the next-to-button flat rate for the prorated amount when it applies. */
     hidePricingNote?: boolean
+    /** Disable the purchase/trial CTA (e.g. while a sibling package is being activated). */
+    purchaseDisabledReason?: string
+    /** Called when the purchase/trial CTA is clicked, before the activation fires. */
+    onPurchaseClick?: () => void
 }
 
 export const BillingProductAddonActions = ({
@@ -36,9 +41,12 @@ export const BillingProductAddonActions = ({
     ctaTextOverride,
     align = 'right',
     hidePricingNote = false,
+    purchaseDisabledReason,
+    onPurchaseClick,
 }: BillingProductAddonActionsProps): JSX.Element => {
     const { billing, billingError, currentPlatformAddon, unusedPlatformAddonAmount, switchPlanLoading } =
         useValues(billingLogic)
+    const { preflight } = useValues(preflightLogic)
     const {
         currentAndUpgradePlans,
         billingProductLoading,
@@ -113,7 +121,7 @@ export const BillingProductAddonActions = ({
             <>
                 {hasFlatRate ? (
                     showLabel ? (
-                        <h4 className="leading-5 font-bold mb-0 flex gap-x-0.5">
+                        <h4 className="leading-5 font-bold mb-0 flex gap-x-0.5 whitespace-nowrap">
                             {isTrialEligible ? (
                                 <span>{addon.trial?.length} day free trial</span>
                             ) : hidePricingNote && isProrated ? (
@@ -137,14 +145,18 @@ export const BillingProductAddonActions = ({
                         disableClientSideRouting
                         disabledReason={
                             (billingError && billingError.message) ||
-                            (billing?.subscription_level === 'free' && 'Upgrade to add add-ons')
+                            (billing?.subscription_level === 'free' && 'Upgrade to add add-ons') ||
+                            purchaseDisabledReason
                         }
                         loading={billingProductLoading === addon.type || trialLoading}
-                        onClick={
-                            isTrialEligible
-                                ? () => activateTrial()
-                                : () => initiateProductUpgrade(addon, currentAndUpgradePlans?.upgradePlan, '')
-                        }
+                        onClick={() => {
+                            onPurchaseClick?.()
+                            if (isTrialEligible) {
+                                activateTrial()
+                            } else {
+                                initiateProductUpgrade(addon, currentAndUpgradePlans?.upgradePlan, '')
+                            }
+                        }}
                     >
                         {ctaTextOverride ?? (isTrialEligible ? 'Start trial' : 'Add')}
                     </LemonButton>
@@ -236,7 +248,7 @@ export const BillingProductAddonActions = ({
         return (
             <>
                 {showLabel && (
-                    <h4 className="leading-5 font-bold mb-0 flex gap-x-0.5">
+                    <h4 className="leading-5 font-bold mb-0 flex gap-x-0.5 whitespace-nowrap">
                         {hidePricingNote && isProrated ? (
                             <span>${amountDue.toFixed(2)} today (prorated)</span>
                         ) : (
@@ -272,10 +284,34 @@ export const BillingProductAddonActions = ({
         // Current trial on this addon
         content = renderTrialActions()
     } else if (addon.type === 'enterprise') {
+        // Enterprise is sales-led — always route to sales (matches prod). In local dev, also offer an
+        // explicit override so engineers can still start the self-serve trial; it's gated on is_debug so
+        // it never renders in production.
         content = (
-            <LemonButton type="primary" to="https://posthog.com/talk-to-a-human" targetBlank>
-                Contact us
-            </LemonButton>
+            <>
+                <LemonButton type="primary" to="https://posthog.com/talk-to-a-human" targetBlank>
+                    Contact us
+                </LemonButton>
+                {preflight?.is_debug && (
+                    <LemonButton
+                        type="secondary"
+                        size="xsmall"
+                        loading={trialLoading || billingProductLoading === addon.type}
+                        disabledReason={purchaseDisabledReason}
+                        tooltip="Local dev only — starts the self-serve trial. Never shown in production."
+                        onClick={() => {
+                            onPurchaseClick?.()
+                            if (isTrialEligible) {
+                                activateTrial()
+                            } else {
+                                initiateProductUpgrade(addon, currentAndUpgradePlans?.upgradePlan, '')
+                            }
+                        }}
+                    >
+                        Local dev override
+                    </LemonButton>
+                )}
+            </>
         )
     } else if (addon.contact_support) {
         content = (
@@ -298,7 +334,7 @@ export const BillingProductAddonActions = ({
         <div className={clsx(align === 'right' && 'min-w-64')}>
             <div
                 className={clsx(
-                    'mt-2 self-center flex items-center gap-x-3 whitespace-nowrap justify-end',
+                    'mt-2 self-center flex flex-wrap items-center gap-x-3 gap-y-1 justify-end',
                     align === 'left' ? 'flex-row-reverse' : 'ml-4'
                 )}
             >

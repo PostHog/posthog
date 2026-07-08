@@ -11,9 +11,9 @@ from posthog.cdp.filters import (
     compile_filters_bytecode,
     hog_function_filters_to_expr,
 )
-from posthog.models.cohort.cohort import Cohort
 
 from products.actions.backend.models.action import Action
+from products.cohorts.backend.models.cohort import Cohort
 
 from common.hogvm.python.execute import execute_bytecode
 from common.hogvm.python.operation import HOGQL_BYTECODE_VERSION
@@ -207,6 +207,24 @@ class TestHogFunctionFilters(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest
             3,
             2,
         ]
+
+    def test_multi_value_exact_filter_matches_numeric_property(self):
+        # Survey ratings and other numeric event properties arrive as numbers, while a multi-value
+        # "exact" filter stores its values as strings. Membership must still match (it compiles to a
+        # type-coercing equality chain, not a strict IN).
+        filters = {
+            "properties": [
+                {
+                    "key": "$survey_response_1",
+                    "value": ["1", "2", "3", "4", "5", "6"],
+                    "operator": "exact",
+                    "type": "event",
+                }
+            ]
+        }
+        bytecode = compile_filters_bytecode(filters, self.team)["bytecode"]
+        assert execute_bytecode(bytecode, {"properties": {"$survey_response_1": 6}}).result is True
+        assert execute_bytecode(bytecode, {"properties": {"$survey_response_1": 7}}).result is False
 
     def test_filters_full(self):
         bytecode = self.filters_to_bytecode(filters=self.filters)

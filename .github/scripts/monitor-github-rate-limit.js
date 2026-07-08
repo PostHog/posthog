@@ -10,6 +10,7 @@
 
 const POSTHOG_HOST = 'https://us.i.posthog.com'
 const EVENT_NAME = 'github_rate_limit_observed'
+const DEFAULT_SOURCE = 'github_token'
 
 async function captureEvent({ fetchImpl, posthogToken, event, distinctId, properties, timestamp }) {
     const res = await fetchImpl(`${POSTHOG_HOST}/capture/`, {
@@ -52,7 +53,11 @@ function buildTrigger(context) {
     }
 }
 
-function buildProperties({ resource, snapshot, observedAt, observedAtSeconds, repo, runId, trigger }) {
+// `source` identifies which rate-limit bucket the snapshot came from: the
+// per-repo default GITHUB_TOKEN, or a dedicated GitHub App installation bucket
+// (e.g. posthog-devex-general, the setup-action offload bucket). The two are
+// separate 15k buckets, so downstream they're a per-bucket time series.
+function buildProperties({ resource, snapshot, observedAt, observedAtSeconds, repo, runId, trigger, source = DEFAULT_SOURCE }) {
     const used = typeof snapshot.used === 'number' ? snapshot.used : snapshot.limit - snapshot.remaining
     const utilization = snapshot.limit > 0 ? used / snapshot.limit : 0
     return {
@@ -64,14 +69,15 @@ function buildProperties({ resource, snapshot, observedAt, observedAtSeconds, re
         utilization,
         reset_at: new Date(snapshot.reset * 1000).toISOString(),
         reset_in_seconds: Math.max(0, snapshot.reset - observedAtSeconds),
-        source: 'github_token',
+        source,
         observed_at: observedAt,
         workflow_run_id: runId || null,
         ...trigger,
     }
 }
 
-module.exports = async ({ github, context, core }, { now: _now, fetch: _fetch } = {}) => {
+module.exports = async ({ github, context, core }, { now: _now, fetch: _fetch, source: _source } = {}) => {
+    const source = _source || DEFAULT_SOURCE
     const fetchImpl = _fetch || fetch
     const observedAtDate = _now ? _now() : new Date()
     const observedAt = observedAtDate.toISOString()
@@ -95,8 +101,8 @@ module.exports = async ({ github, context, core }, { now: _now, fetch: _fetch } 
     let failures = 0
     for (const [resource, snapshot] of Object.entries(resources)) {
         if (!snapshot || typeof snapshot.limit !== 'number' || typeof snapshot.remaining !== 'number') continue
-        const properties = buildProperties({ resource, snapshot, observedAt, observedAtSeconds, repo, runId, trigger })
-        core.info(`${resource}: ${properties.remaining}/${properties.limit} remaining (resets ${properties.reset_at})`)
+        const properties = buildProperties({ resource, snapshot, observedAt, observedAtSeconds, repo, runId, trigger, source })
+        core.info(`[${source}] ${resource}: ${properties.remaining}/${properties.limit} remaining (resets ${properties.reset_at})`)
         try {
             await captureEvent({
                 fetchImpl,

@@ -16,7 +16,12 @@ export function HogFunctionBackfills({ id }: BatchExportBackfillsLogicProps): JS
 
     return (
         <BindLogic logic={batchExportDataLogic} props={{ id: configuration.batch_export_id! }}>
-            <BatchExportBackfills id={configuration.batch_export_id!} context="hog_function" />
+            <div className="flex flex-col gap-3">
+                <p className="text-secondary mb-0">
+                    Backfills re-run this destination against historical events from a time range you choose.
+                </p>
+                <BatchExportBackfills id={configuration.batch_export_id!} context="hog_function" />
+            </div>
         </BindLogic>
     )
 }

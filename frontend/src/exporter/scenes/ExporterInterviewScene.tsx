@@ -1,12 +1,30 @@
 import Vapi from '@vapi-ai/web'
 import { memo, useCallback, useEffect, useRef, useState } from 'react'
 
+import * as roboHogPng from '@posthog/brand/hoggies/png/robo-hog'
 import { LemonButton } from '@posthog/lemon-ui'
 
-import { Logo } from 'lib/brand/Logo'
-import { RobotHog } from 'lib/components/hedgehogs'
+import { Logo } from 'lib/brand'
+import { pngHoggie } from 'lib/brand/hoggies'
+import { useHogfetti } from 'lib/components/Hogfetti/Hogfetti'
 
 import { InterviewExportPayload } from '../types'
+
+const HedgehogRoboHog = pngHoggie(roboHogPng)
+
+// Vapi surfaces several normal-completion signals through its `error` channel because
+// the underlying Daily.co transport reports the local participant being evicted as
+// an error. Treat these as expected end-of-call events rather than failures.
+const BENIGN_END_OF_CALL_MESSAGES = ['Meeting has ended', 'Meeting ended due to ejection', 'Worker has ended call']
+
+const isBenignEndOfCallError = (message: string): boolean =>
+    BENIGN_END_OF_CALL_MESSAGES.some((pattern) => message.includes(pattern))
+
+// Floor for the celebratory end-of-call effect. A 20-second bail-out doesn't
+// deserve confetti — it reads as desperate rather than thankful. Two minutes
+// is the rough point where the interviewee has given enough of a substantive
+// answer that we genuinely want to thank them for the time.
+const HOGFETTI_MIN_CALL_DURATION_MS = 2 * 60 * 1000
 
 type CallState = 'already-replied' | 'idle' | 'loading' | 'connecting' | 'in-call' | 'ended' | 'error'
 
@@ -44,7 +62,7 @@ const CallStatusPanel = memo(function CallStatusPanel({
     return (
         <div className="flex-shrink-0 mx-auto md:mx-0 md:w-40">
             <div className="w-40 h-40 mx-auto">
-                <RobotHog className="w-full h-full" alt="" />
+                <HedgehogRoboHog className="w-full h-full" />
             </div>
             {state === 'in-call' && <p className="text-sm text-muted text-center mt-2">{PHASE_LABELS[phase]}</p>}
         </div>
@@ -236,10 +254,35 @@ export default function ExporterInterviewScene({
     const agentTalkingRef = useRef<boolean>(false)
     const lastPhaseRef = useRef<ConversationPhase>('thinking')
     const isMountedRef = useRef<boolean>(true)
+    const callStartedAtRef = useRef<number | null>(null)
+    const hogfettiFiredRef = useRef<boolean>(false)
+    const { trigger: triggerHogfetti, HogfettiComponent } = useHogfetti({ count: 75, duration: 3000 })
 
     useEffect(() => {
         document.title = `Interview · ${interview.topic}`
     }, [interview.topic])
+
+    useEffect(() => {
+        if (state !== 'ended' || hogfettiFiredRef.current) {
+            return
+        }
+        const startedAt = callStartedAtRef.current
+        if (startedAt === null) {
+            return
+        }
+        if (Date.now() - startedAt < HOGFETTI_MIN_CALL_DURATION_MS) {
+            return
+        }
+        // Mark as fired before the early returns below so a resize-driven
+        // re-run cannot retrigger the celebration. `useHogfetti`'s `trigger`
+        // identity changes whenever `dimensions` updates (window resize),
+        // and that dep change re-runs this effect while `state === 'ended'`.
+        hogfettiFiredRef.current = true
+        if (typeof window !== 'undefined' && window.matchMedia?.('(prefers-reduced-motion: reduce)').matches) {
+            return
+        }
+        triggerHogfetti()
+    }, [state, triggerHogfetti])
 
     useEffect(() => {
         return () => {
@@ -259,6 +302,8 @@ export default function ExporterInterviewScene({
         vapiRef.current = null
         agentTalkingRef.current = false
         lastPhaseRef.current = 'thinking'
+        callStartedAtRef.current = null
+        hogfettiFiredRef.current = false
         setConversationPhase('thinking')
         setState('loading')
         void (async () => {
@@ -285,8 +330,6 @@ export default function ExporterInterviewScene({
                 // error so the user gets the retry affordance.
                 const callEndedRef = { current: false }
                 const callConnectedRef = { current: false }
-                const isBenignEndOfCallError = (msg: string): boolean =>
-                    msg.includes('Meeting has ended') || msg.includes('Meeting ended due to ejection')
                 vapi.on('call-end', () => {
                     callEndedRef.current = true
                     setState('ended')
@@ -341,6 +384,7 @@ export default function ExporterInterviewScene({
                 // Mark that the call actually connected — gates the benign-error suppression
                 // so pre-connection "Meeting has ended" failures still surface to the user.
                 callConnectedRef.current = true
+                callStartedAtRef.current = Date.now()
                 setState((current) => (current === 'connecting' ? 'in-call' : current))
             } catch (e) {
                 if (!isMountedRef.current) {
@@ -364,8 +408,9 @@ export default function ExporterInterviewScene({
 
     return (
         <div className="max-w-2xl mx-auto px-4 py-12">
+            <HogfettiComponent />
             <div className="mb-8">
-                <Logo className="text-lg" />
+                <Logo size="md" />
             </div>
 
             <div className="flex flex-col md:flex-row md:items-start gap-6 md:gap-8 mb-8">

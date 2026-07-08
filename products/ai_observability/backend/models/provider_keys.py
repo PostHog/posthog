@@ -1,9 +1,12 @@
 from typing import Any
 
-from django.db import models
+from django.db import models, transaction
+from django.db.models.signals import post_delete, post_save
+from django.dispatch import receiver
 
 from posthog.helpers.encrypted_fields import EncryptedJSONField
 from posthog.models.utils import UUIDTModel
+from posthog.plugins.plugin_server_api import reload_provider_keys_on_workers
 
 
 class LLMProvider(models.TextChoices):
@@ -16,6 +19,7 @@ class LLMProvider(models.TextChoices):
     FIREWORKS = "fireworks"
     AZURE_OPENAI = "azure_openai", "Azure OpenAI"
     TOGETHER_AI = "together_ai", "Together AI"
+    MINIMAX = "minimax", "MiniMax"
 
 
 class LLMProviderKey(UUIDTModel):
@@ -57,3 +61,21 @@ class LLMProviderKey(UUIDTModel):
                 "api_version": self.encrypted_config.get("api_version", ""),
             }
         return {}
+
+
+def _reload_provider_key_on_commit(team_id: int, provider_key_id: str) -> None:
+    transaction.on_commit(lambda: reload_provider_keys_on_workers(team_id=team_id, provider_key_ids=[provider_key_id]))
+
+
+@receiver(post_save, sender=LLMProviderKey)
+def provider_key_saved(sender, instance: LLMProviderKey, created: bool, **kwargs: Any) -> None:
+    update_fields = kwargs.get("update_fields")
+    if update_fields is not None and set(update_fields).issubset({"last_used_at"}):
+        return
+
+    _reload_provider_key_on_commit(instance.team_id, str(instance.id))
+
+
+@receiver(post_delete, sender=LLMProviderKey)
+def provider_key_deleted(sender, instance: LLMProviderKey, **kwargs: Any) -> None:
+    _reload_provider_key_on_commit(instance.team_id, str(instance.id))

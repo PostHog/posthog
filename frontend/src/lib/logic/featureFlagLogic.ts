@@ -87,7 +87,7 @@ function spyOnFeatureFlags(featureFlags: FeatureFlagsSet): FeatureFlagsSet {
 }
 
 export function getFeatureFlagPayload(flag: FeatureFlagKey): any {
-    return posthog.getFeatureFlagPayload(flag)
+    return posthog.getFeatureFlagResult(flag, { send_event: false })?.payload
 }
 
 export const featureFlagLogic = kea<featureFlagLogicType>([

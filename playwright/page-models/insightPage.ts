@@ -23,6 +23,9 @@ export class InsightPage {
     readonly topBarName: Locator
     readonly activeTab: Locator
 
+    readonly personsModal: Locator
+    readonly personsModalViewEventsButton: Locator
+
     readonly trends: TrendsInsight
     readonly funnels: FunnelsInsight
     readonly retention: RetentionInsight
@@ -39,6 +42,9 @@ export class InsightPage {
         this.cancelButton = page.getByTestId('insight-cancel-edit-button')
         this.topBarName = page.getByTestId('scene-name')
         this.activeTab = page.locator('.LemonTabs__tab--active')
+
+        this.personsModal = page.getByTestId('persons-modal')
+        this.personsModalViewEventsButton = page.getByTestId('person-modal-view-events')
 
         this.trends = new TrendsInsight(page)
         this.funnels = new FunnelsInsight(page)
@@ -75,29 +81,40 @@ export class InsightPage {
     ): Promise<InsightPage> {
         const base = options?.edit ? urls.insightEdit(shortId) : urls.insightView(shortId)
 
-        if (!options?.queryParams) {
-            await this.page.goto(base, { waitUntil: 'domcontentloaded' })
-            return this
+        let url = base
+        if (options?.queryParams) {
+            const params = new URLSearchParams()
+            for (const [k, v] of Object.entries(options.queryParams)) {
+                params.set(k, typeof v === 'object' ? JSON.stringify(v) : String(v))
+            }
+            const sep = base.includes('?') ? '&' : '?'
+            url = `${base}${sep}${params}`
         }
 
-        const params = new URLSearchParams()
-        for (const [k, v] of Object.entries(options.queryParams)) {
-            params.set(k, typeof v === 'object' ? JSON.stringify(v) : String(v))
-        }
-        const sep = base.includes('?') ? '&' : '?'
-        await this.page.goto(`${base}${sep}${params}`, { waitUntil: 'domcontentloaded' })
+        const insightLoaded = this.waitForInsightLoad()
+        await this.page.goto(url, { waitUntil: 'domcontentloaded' })
+        await insightLoaded
         return this
     }
 
     async save(): Promise<void> {
         const originalUrl = this.page.url()
         const originalPathname = new URL(originalUrl).pathname
+
+        // Wait for any in-progress query to finish — the save button uses aria-disabled while queries run
+        await expect(this.saveButton).not.toHaveAttribute('aria-disabled', 'true', { timeout: 60000 })
+
         const saveRequestPromise = this.page.waitForResponse(
             (response) =>
                 /\/api\/(?:projects|environments)\/\d+\/insights(?:\/\d+)?\/?(?:\?.*)?$/.test(response.url()) &&
                 ['POST', 'PATCH'].includes(response.request().method()),
-            { timeout: 60000 }
+            { timeout: 30000 }
         )
+
+        // Saving switches back to view mode, which re-fetches the insight. Drain that
+        // fetch before returning — left in flight, its response can land after a later
+        // edit and clobber it (see waitForInsightLoad).
+        const insightReloaded = this.waitForInsightLoad()
 
         await this.saveButton.click()
 
@@ -137,15 +154,37 @@ export class InsightPage {
         if (new URL(this.page.url()).pathname === originalPathname) {
             await expect(this.editButton).toBeVisible()
         }
+
+        await insightReloaded
+    }
+
+    // Both navigating to an insight and entering edit mode trigger a re-fetch of the
+    // insight (GET ?short_id=...). If a test edits the query while that fetch is in
+    // flight, the response clobbers the local edit and the page reverts to a clean
+    // "No changes" state. Wait for the fetch so edits made afterwards stick.
+    private waitForInsightLoad(): Promise<unknown> {
+        return this.page.waitForResponse(
+            (response) =>
+                /\/api\/(?:projects|environments)\/\d+\/insights\/?\?(?=.*\bshort_id=)/.test(response.url()) &&
+                response.request().method() === 'GET',
+            { timeout: 30000 }
+        )
     }
 
     async edit(): Promise<void> {
+        const insightLoaded = this.waitForInsightLoad()
         await this.editButton.click()
+        await insightLoaded
     }
 
     async discard(): Promise<void> {
+        // Discarding switches back to view mode, which re-fetches the insight. Drain that
+        // fetch before returning — left in flight, its response can land after a later
+        // edit and clobber it (see waitForInsightLoad).
+        const insightReloaded = this.waitForInsightLoad()
         await this.page.getByTestId('insight-cancel-edit-button').click()
         await expect(this.editButton).toBeVisible()
+        await insightReloaded
     }
 
     async editName(insightName: string = randomString('insight')): Promise<void> {
@@ -167,7 +206,9 @@ export class InsightPage {
     }
 
     async openPersonsModal(): Promise<void> {
-        await this.page.locator('.TrendsInsight canvas').click()
+        // Click the static `role="img"` canvas — the quill chart also renders an
+        // `aria-hidden` overlay canvas, so an unscoped `canvas` would match two.
+        await this.page.locator('.TrendsInsight canvas[role="img"]').click()
         await this.page.waitForSelector('[data-attr="persons-modal"]', { state: 'visible' })
     }
 

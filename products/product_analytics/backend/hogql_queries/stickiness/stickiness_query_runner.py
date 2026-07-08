@@ -12,6 +12,7 @@ from posthog.schema import (
     DataWarehouseNode,
     EventsNode,
     HogQLQueryModifiers,
+    ResolvedDateRangeResponse,
     StickinessComputationMode,
     StickinessQuery,
     StickinessQueryResponse,
@@ -33,11 +34,11 @@ from posthog.hogql_queries.utils.query_previous_period_date_range import QueryPr
 from posthog.hogql_queries.validation.rules import DisallowUnsupportedDataWarehouseSettings, RequireAtLeastOneSeries
 from posthog.hogql_queries.validation.validation import QueryValidationRule
 from posthog.models import Team
-from posthog.models.cohort.util import get_count_operator, get_count_operator_ast
 from posthog.models.filters.mixins.utils import cached_property
 from posthog.models.user import User
 
 from products.actions.backend.models.action import Action
+from products.cohorts.backend.models.util import get_count_operator, get_count_operator_ast
 
 
 class SeriesWithExtras:
@@ -383,7 +384,16 @@ class StickinessQueryRunner(AnalyticsQueryRunner[StickinessQueryResponse]):
 
                 res.append(series_object)
 
-        return StickinessQueryResponse(results=res, timings=timings, modifiers=self.modifiers, hogql=response_hogql)
+        return StickinessQueryResponse(
+            results=res,
+            timings=timings,
+            modifiers=self.modifiers,
+            hogql=response_hogql,
+            resolved_date_range=ResolvedDateRangeResponse(
+                date_from=self.query_date_range.date_from(),
+                date_to=self.query_date_range.date_to(),
+            ),
+        )
 
     def where_clause(self, series_with_extra: SeriesWithExtras) -> ast.Expr:
         date_range = self.date_range(series_with_extra)
@@ -471,13 +481,6 @@ class StickinessQueryRunner(AnalyticsQueryRunner[StickinessQueryResponse]):
             # TODO: Can we load the Action in more efficiently?
             action = Action.objects.get(pk=int(series.id), team__project_id=self.team.project_id)
             return action.name
-
-    def intervals_num(self) -> int:
-        delta = self.query_date_range.date_to() - self.query_date_range.date_from()
-        if self.query_date_range.interval_name == "day":
-            return delta.days + 1
-        else:
-            return delta.days
 
     def setup_series(self) -> list[SeriesWithExtras]:
         series_with_extras = [

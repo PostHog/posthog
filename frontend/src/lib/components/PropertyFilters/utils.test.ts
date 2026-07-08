@@ -3,12 +3,15 @@ import {
     convertPropertiesToPropertyGroup,
     convertPropertyGroupToProperties,
     createDefaultPropertyFilter,
+    isGroupCardFilterKey,
     isValidPropertyFilter,
     normalizePropertyFilterValue,
     propertyFilterTypeToTaxonomicFilterType,
+    resolvePropertyDefinitionId,
     taxonomicFilterTypeToPropertyFilterType,
 } from 'lib/components/PropertyFilters/utils'
 
+import { propertyDefinitionsModelType } from '~/models/propertyDefinitionsModelType'
 import { BreakdownFilter } from '~/queries/schema/schema-general'
 
 import {
@@ -17,12 +20,31 @@ import {
     ElementPropertyFilter,
     EmptyPropertyFilter,
     FilterLogicalOperator,
+    PropertyDefinition,
+    PropertyDefinitionType,
     PropertyFilterType,
     PropertyGroupFilter,
     PropertyOperator,
     SessionPropertyFilter,
 } from '../../../types'
 import { TaxonomicFilterGroup, TaxonomicFilterGroupType } from '../TaxonomicFilter/types'
+
+describe('isGroupCardFilterKey()', () => {
+    it.each([
+        { key: '$group_key', type: PropertyFilterType.Group, expected: true },
+        { key: 'id', type: PropertyFilterType.Group, expected: true },
+        // 'id' is also the Cohort key — must not match there.
+        { key: 'id', type: PropertyFilterType.Cohort, expected: false },
+        // Group *property* filters use other keys.
+        { key: 'industry', type: PropertyFilterType.Group, expected: false },
+        // '$group_key' only makes sense for a Group-type filter.
+        { key: '$group_key', type: PropertyFilterType.Event, expected: false },
+        { key: '$group_key', type: undefined, expected: false },
+        { key: undefined, type: PropertyFilterType.Group, expected: false },
+    ])('returns $expected for key=$key type=$type', ({ key, type, expected }) => {
+        expect(isGroupCardFilterKey(key, type)).toBe(expected)
+    })
+})
 
 describe('isValidPropertyFilter()', () => {
     it('returns values correctly', () => {
@@ -353,20 +375,24 @@ describe('createDefaultPropertyFilter()', () => {
         )
     })
 
-    it('creates a standard event property filter with Exact operator', () => {
+    it.each([
+        ['$browser', PropertyOperator.Exact],
+        ['$current_url', PropertyOperator.IContains],
+        ['$pathname', PropertyOperator.IContains],
+    ])('defaults the %s event property filter to the %s operator', (propertyKey, expectedOperator) => {
         const result = createDefaultPropertyFilter(
             null,
-            '$browser',
+            propertyKey,
             PropertyFilterType.Event,
             makeGroup(TaxonomicFilterGroupType.EventProperties),
             noopDescribeProperty
         )
         expect(result).toEqual(
             expect.objectContaining({
-                key: '$browser',
+                key: propertyKey,
                 value: null,
                 type: PropertyFilterType.Event,
-                operator: PropertyOperator.Exact,
+                operator: expectedOperator,
             })
         )
     })
@@ -427,5 +453,45 @@ describe('createDefaultPropertyFilter()', () => {
             noopDescribeProperty
         )
         expect(result).toEqual(expect.objectContaining({ key: 'user.email', value: null }))
+    })
+})
+
+describe('resolvePropertyDefinitionId()', () => {
+    const modelWith = (
+        byKey: Record<string, PropertyDefinition>
+    ): propertyDefinitionsModelType['values']['getPropertyDefinition'] =>
+        ((name, type) =>
+            byKey[`${type}/${name}`] ?? null) as propertyDefinitionsModelType['values']['getPropertyDefinition']
+
+    it('returns the id already on the definition without consulting the model', () => {
+        const getPropertyDefinition = jest.fn()
+        expect(
+            resolvePropertyDefinitionId(
+                { id: 'abc', name: '$browser' },
+                TaxonomicFilterGroupType.EventProperties,
+                getPropertyDefinition as unknown as propertyDefinitionsModelType['values']['getPropertyDefinition']
+            )
+        ).toBe('abc')
+        expect(getPropertyDefinition).not.toHaveBeenCalled()
+    })
+
+    // Recovers a name-only pinned/default property's id from the model, keyed by the
+    // group type mapped through to a PropertyDefinitionType — the /properties/undefined regression.
+    it.each([
+        [TaxonomicFilterGroupType.EventProperties, PropertyDefinitionType.Event, '$current_url', 'event-url-id'],
+        [TaxonomicFilterGroupType.PersonProperties, PropertyDefinitionType.Person, 'email', 'person-email-id'],
+    ])('recovers a name-only %s id from the model', (groupType, defType, name, id) => {
+        const get = modelWith({ [`${defType}/${name}`]: { id, name } as PropertyDefinition })
+        expect(resolvePropertyDefinitionId({ name } as PropertyDefinition, groupType, get)).toBe(id)
+    })
+
+    it('returns undefined when the model has no matching definition', () => {
+        expect(
+            resolvePropertyDefinitionId(
+                { name: 'never-loaded' } as PropertyDefinition,
+                TaxonomicFilterGroupType.EventProperties,
+                () => null
+            )
+        ).toBeUndefined()
     })
 })

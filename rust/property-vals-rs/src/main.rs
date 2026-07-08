@@ -3,11 +3,12 @@ use std::time::Duration;
 
 use axum::{response::IntoResponse, routing::get, Router};
 use common_kafka::kafka_consumer::SingleTopicConsumer;
+use common_kafka::kafka_producer::EnvelopeEncoding;
 use lifecycle::{ComponentOptions, Manager};
 use property_vals_rs::{
     config::Config,
     fan_out::{extract_tuple, fan_out, fan_out_group},
-    producer::AggregatedProducer,
+    producer::{AggregatedProducer, WireFormat},
     types::{Event, GroupIdentify, PropertyValueMessage},
     worker::{worker_loop, ReductionConfig},
 };
@@ -86,6 +87,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         groups_topic = %config.groups_kafka_consumer_topic,
         groups_consumer_group = %config.groups_kafka_consumer_group,
         intermediate_topic = %config.intermediate_topic,
+        intermediate_topic_encoding = ?config.intermediate_topic_encoding,
+        intermediate_topic_format = ?config.intermediate_topic_format,
         merger_consumer_group = %config.merger_consumer_group,
         output_topic = %config.output_topic,
         flush_interval_secs = config.flush_interval_secs,
@@ -100,7 +103,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         events_handle.clone(),
         config.intermediate_topic.clone(),
         produce_timeout,
-        true,
+        config.intermediate_topic_encoding,
+        config.intermediate_topic_format,
     )
     .await?;
 
@@ -113,7 +117,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         groups_handle.clone(),
         config.intermediate_topic.clone(),
         produce_timeout,
-        true,
+        config.intermediate_topic_encoding,
+        config.intermediate_topic_format,
     )
     .await?;
 
@@ -121,12 +126,14 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     merger_consumer_config.kafka_consumer_topic = config.intermediate_topic.clone();
     merger_consumer_config.kafka_consumer_group = config.merger_consumer_group.clone();
     let merger_consumer = SingleTopicConsumer::new(config.kafka.clone(), merger_consumer_config)?;
+    // Output topic is read by ClickHouse, which expects raw rows — never encode.
     let merger_producer = AggregatedProducer::new(
         &config.kafka,
         merger_handle.clone(),
         config.output_topic.clone(),
         produce_timeout,
-        config.emit_event_name,
+        EnvelopeEncoding::None,
+        WireFormat::Json,
     )
     .await?;
 
@@ -146,22 +153,14 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let excluded_events = shared_config.excluded_property_keys.clone();
     let excluded_groups = shared_config.excluded_property_keys.clone();
-    let max_property_value_len = shared_config.max_property_value_len;
-    let aggregate_by_event_name = shared_config.aggregate_by_event_name;
+    let length_caps = shared_config.length_caps;
 
     tokio::spawn(worker_loop::<Event, _, _>(
         shared_config.clone(),
         events_consumer,
         events_producer,
         events_handle.clone(),
-        move |e: &Event| {
-            fan_out(
-                e,
-                &excluded_events,
-                max_property_value_len,
-                aggregate_by_event_name,
-            )
-        },
+        move |e: &Event| fan_out(e, &excluded_events, length_caps),
         "events",
         ReductionConfig::default(),
     ));
@@ -170,7 +169,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         groups_consumer,
         groups_producer,
         groups_handle.clone(),
-        move |g: &GroupIdentify| fan_out_group(g, &excluded_groups, max_property_value_len),
+        move |g: &GroupIdentify| fan_out_group(g, &excluded_groups, length_caps),
         "groups",
         ReductionConfig::default(),
     ));

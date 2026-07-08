@@ -36,6 +36,8 @@ export interface BulkSelectionConfig<T extends Record<string, any>, K extends Bu
     /** Initial selection (uncontrolled). Read once on mount; later changes are ignored.
      *  Useful for stories and test scaffolds that want to render the bar pre-populated. */
     initialSelectedKeys?: ReadonlyArray<K>
+    /** Extra classes for the bulk-action bar wrapper (e.g. spacing). Opt-in so other tables are unaffected. */
+    barClassName?: string
 }
 
 export interface UseBulkSelectionResult<T, K extends BulkSelectionKey = BulkSelectionKey> {

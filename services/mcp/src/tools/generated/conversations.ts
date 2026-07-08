@@ -4,8 +4,12 @@ import { z } from 'zod'
 import type { Schemas } from '@/api/generated'
 import {
     ConversationsTicketsListQueryParams,
+    ConversationsTicketsMessagesListParams,
+    ConversationsTicketsMessagesListQueryParams,
     ConversationsTicketsPartialUpdateBody,
     ConversationsTicketsPartialUpdateParams,
+    ConversationsTicketsReplyCreateBody,
+    ConversationsTicketsReplyCreateParams,
     ConversationsTicketsRetrieveParams,
 } from '@/generated/conversations/api'
 import { withPostHogUrl, pickResponseFields, type WithPostHogUrl } from '@/tools/tool-utils'
@@ -39,6 +43,8 @@ const conversationsTicketsList = (): ToolBase<
                 sla: params.sla,
                 status: params.status,
                 tags: params.tags,
+                tags_all: params.tags_all,
+                tags_exclude: params.tags_exclude,
             },
         })
         const filtered = {
@@ -60,6 +66,61 @@ const conversationsTicketsList = (): ToolBase<
             ),
         } as typeof result
         return await withPostHogUrl(context, filtered, '/conversations/tickets')
+    },
+})
+
+const ConversationsTicketsMessagesRetrieveSchema = ConversationsTicketsMessagesListParams.omit({
+    project_id: true,
+}).extend(ConversationsTicketsMessagesListQueryParams.shape)
+
+const conversationsTicketsMessagesRetrieve = (): ToolBase<
+    typeof ConversationsTicketsMessagesRetrieveSchema,
+    Schemas.PaginatedTicketMessageList
+> => ({
+    name: 'conversations-tickets-messages-retrieve',
+    schema: ConversationsTicketsMessagesRetrieveSchema,
+    handler: async (context: Context, params: z.infer<typeof ConversationsTicketsMessagesRetrieveSchema>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const result = await context.api.request<Schemas.PaginatedTicketMessageList>({
+            method: 'GET',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/conversations/tickets/${encodeURIComponent(String(params.id))}/messages/`,
+            query: {
+                limit: params.limit,
+                offset: params.offset,
+            },
+        })
+        return result
+    },
+})
+
+const ConversationsTicketsReplyCreateSchema = ConversationsTicketsReplyCreateParams.omit({ project_id: true }).extend(
+    ConversationsTicketsReplyCreateBody.shape
+)
+
+const conversationsTicketsReplyCreate = (): ToolBase<
+    typeof ConversationsTicketsReplyCreateSchema,
+    Schemas.TicketMessage
+> => ({
+    name: 'conversations-tickets-reply-create',
+    schema: ConversationsTicketsReplyCreateSchema,
+    handler: async (context: Context, params: z.infer<typeof ConversationsTicketsReplyCreateSchema>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const body: Record<string, unknown> = {}
+        if (params.message !== undefined) {
+            body['message'] = params.message
+        }
+        if (params.is_private !== undefined) {
+            body['is_private'] = params.is_private
+        }
+        if (params.rich_content !== undefined) {
+            body['rich_content'] = params.rich_content
+        }
+        const result = await context.api.request<Schemas.TicketMessage>({
+            method: 'POST',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/conversations/tickets/${encodeURIComponent(String(params.id))}/reply/`,
+            body,
+        })
+        return result
     },
 })
 
@@ -144,6 +205,8 @@ const conversationsTicketsUpdate = (): ToolBase<
 
 export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
     'conversations-tickets-list': conversationsTicketsList,
+    'conversations-tickets-messages-retrieve': conversationsTicketsMessagesRetrieve,
+    'conversations-tickets-reply-create': conversationsTicketsReplyCreate,
     'conversations-tickets-retrieve': conversationsTicketsRetrieve,
     'conversations-tickets-update': conversationsTicketsUpdate,
 }

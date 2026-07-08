@@ -550,8 +550,8 @@ class JavaScriptCompiler(Visitor):
         self._start_scope()
         for arg in node.params:
             self._declare_local(arg)
-        if isinstance(node.body, ast.Placeholder):
-            body_code = ast.Block(declarations=[ast.ExprStatement(expr=node.body.expr), ast.ReturnStatement(expr=None)])
+        if isinstance(node.body, ast.Placeholder):  # type: ignore[unreachable]
+            body_code = ast.Block(declarations=[ast.ExprStatement(expr=node.body.expr), ast.ReturnStatement(expr=None)])  # type: ignore[unreachable]
         else:
             body_code = self.visit(_as_block(node.body))
         self._end_scope()

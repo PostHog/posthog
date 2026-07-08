@@ -7,13 +7,14 @@ from products.web_analytics.dags import (
     cache_warming,
     eager_web_analytics_precompute,
     web_analytics_watchdog,
+    web_dimensional_precompute,
     web_pre_aggregated_accuracy,
     web_preaggregated,
     web_preaggregated_asset_checks,
     web_preaggregated_team_selection,
 )
 
-from . import resources
+from . import loggers, resources
 
 # Build schedules list conditionally based on TEST mode
 schedules = [
@@ -22,6 +23,7 @@ schedules = [
     web_preaggregated_team_selection.web_analytics_team_candidates_schedule,
     cache_warming.web_analytics_cache_warming_schedule,
     eager_web_analytics_precompute.web_analytics_eager_baseline_warming_schedule,
+    web_dimensional_precompute.web_dimensional_precompute_schedule,
     cache_favicons.cache_authorized_domain_favicons_schedule,
     web_analytics_watchdog.web_analytics_watchdog_schedule,
 ]
@@ -51,8 +53,10 @@ defs = dagster.Definitions(
         web_analytics_watchdog.web_analytics_watchdog_job,
         cache_warming.web_analytics_cache_warming_job,
         eager_web_analytics_precompute.web_analytics_eager_baseline_warming_job,
+        web_dimensional_precompute.web_dimensional_precompute_job,
         cache_favicons.cache_authorized_domain_favicons_job,
     ],
     schedules=schedules,
+    loggers=loggers,
     resources=resources,
 )

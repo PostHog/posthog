@@ -19,7 +19,7 @@ jobs:
             contents: read
             pull-requests: read
         timeout-minutes: 5
-        if: github.repository == 'PostHog/posthog' && github.event_name != 'merge_group'
+        if: github.repository_owner == 'PostHog' && github.event_name != 'merge_group'
         name: Determine need to run node Docker build
         outputs:
             node_files: ${{ steps.filter.outputs.node_files }}
@@ -46,6 +46,8 @@ jobs:
                         - 'common/replay-shared/**'
                         - 'common/replay-headless/**'
                         - 'rust/cyclotron-node/**'
+                        - 'rust/common/hogvm/**'
+                        - 'rust/replay-anonymizer-node/**'
                         - 'Dockerfile.node'
                         - '.github/workflows/ci-nodejs-container.yml'
                         - 'turbo.json'
@@ -59,7 +61,7 @@ jobs:
         if: |
             (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && needs.changes.outputs.node_files == 'true') ||
             github.event_name == 'merge_group' ||
-            (github.event_name == 'push' && github.ref == 'refs/heads/master' && needs.changes.outputs.node_files == 'true')
+            (github.event_name == 'push' && github.ref == 'refs/heads/master' && needs.changes.outputs.node_files == 'true' && github.repository_owner == 'PostHog' && vars.CD_DEPLOY_ENABLED == 'true')
         runs-on: depot-ubuntu-latest
         timeout-minutes: 30
         permissions:
@@ -89,6 +91,8 @@ jobs:
                   github-token: ${{ secrets.GITHUB_TOKEN }}
                   dockerhub-username: ${{ secrets.DOCKERHUB_USER }}
                   dockerhub-password: ${{ secrets.DOCKERHUB_TOKEN }}
+                  # Prod deploys from private ECR; pause the public ghcr push during an embargo.
+                  push-to-ghcr: ${{ vars.PUBLIC_IMAGE_PUSH_PAUSED != 'true' }}
 
             - name: Build and push container image
               id: build
@@ -97,7 +101,7 @@ jobs:
                   context: .
                   buildx-fallback: false
                   project: '00mrvlsdvh'
-                  push: true
+                  push: ${{ github.event_name == 'pull_request' || github.event_name == 'merge_group' || vars.CD_DEPLOY_ENABLED == 'true' }}
                   file: Dockerfile.node
                   tags: ${{ steps.docker-meta.outputs.tags }}
                   labels: ${{ steps.docker-meta.outputs.labels }}
@@ -138,7 +142,7 @@ jobs:
                   properties: '{"status": "failure", "commit_hash": "${{ github.sha }}"}'
 
             - name: Get deployer token
-              if: github.ref == 'refs/heads/master' && github.event_name == 'push'
+              if: github.ref == 'refs/heads/master' && github.event_name == 'push' && vars.CD_DEPLOY_ENABLED == 'true'
               id: deployer
               uses: actions/create-github-app-token@1b10c78c7865c340bc4f6099eb2f838309f1e8c3 # v3.1.1
               with:
@@ -148,14 +152,14 @@ jobs:
                   repositories: charts
 
             - name: Get PR labels
-              if: github.ref == 'refs/heads/master' && github.event_name == 'push'
+              if: github.ref == 'refs/heads/master' && github.event_name == 'push' && vars.CD_DEPLOY_ENABLED == 'true'
               id: labels
               uses: ./.github/actions/get-pr-labels
               with:
                   token: ${{ secrets.GITHUB_TOKEN }}
 
             - name: Trigger node deployment
-              if: github.ref == 'refs/heads/master' && github.event_name == 'push'
+              if: github.ref == 'refs/heads/master' && github.event_name == 'push' && vars.CD_DEPLOY_ENABLED == 'true'
               uses: peter-evans/repository-dispatch@28959ce8df70de7be546dd1250a005dd32156697 # v4.0.1
               with:
                   token: ${{ steps.deployer.outputs.token }}

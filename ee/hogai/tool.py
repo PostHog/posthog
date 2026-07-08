@@ -1,9 +1,9 @@
+import re
 import json
 import uuid
 from abc import ABC, abstractmethod
 from collections.abc import Sequence
 from functools import cached_property
-from string import Formatter
 from typing import Any, Literal, Self
 
 import structlog
@@ -13,7 +13,7 @@ from langchain_core.tools import BaseTool
 from langgraph.types import interrupt
 from pydantic import BaseModel, ValidationError
 
-from posthog.schema import ApprovalResumePayload, AssistantTool
+from posthog.schema import ApprovalResumePayload, AssistantTool, ClientToolResultPayload
 
 from posthog.models import Team, User
 from posthog.rbac.user_access_control import AccessControlLevel, UserAccessControl
@@ -28,6 +28,8 @@ from ee.hogai.tool_errors import MaxToolAccessDeniedError, MaxToolRetryableError
 from ee.hogai.utils.types.base import AssistantMessageUnion, AssistantState, NodePath
 
 logger = structlog.get_logger(__name__)
+
+_CONTEXT_PLACEHOLDER_RE = re.compile(r"\{\{|\}\}|\{([A-Za-z_][A-Za-z0-9_]*)\}")
 
 
 class ToolMessagesArtifact(BaseModel):
@@ -50,6 +52,17 @@ class ApprovalRequest(BaseModel):
     tool_name: str
     preview: str
     payload: dict[str, Any]
+    original_tool_call_id: str | None = None
+
+
+class ClientToolCallRequest(BaseModel):
+    """Interrupt payload when a tool hands execution to its client-side handler.
+
+    Nothing is streamed: the frontend detects the pending call from the thread, runs the
+    registered handler, and resumes with a ClientToolResultPayload.
+    """
+
+    tool_name: str
     original_tool_call_id: str | None = None
 
 
@@ -247,22 +260,31 @@ class MaxTool(AssistantContextMixin, AssistantDispatcherMixin, BaseTool):
     def format_context_prompt_injection(self, context: dict[str, Any]) -> str | None:
         if not self.context_prompt_template:
             return None
-        # Build initial context
         formatted_context = {
             key: (json.dumps(value) if isinstance(value, dict | list) else value) for key, value in context.items()
         }
-        # Extract expected keys from template
-        expected_keys = {
-            field for _, field, _, _ in Formatter().parse(self.context_prompt_template) if field is not None
-        }
-        # If they expect key is not present in the context (for example, cached FE) - use None as a default
-        for key in expected_keys:
+        # Only substitute `{valid_identifier}` placeholders. Plain `str.format` parses
+        # any `{...}` — including literal code blocks like `fun onEvent(event) { ... }`
+        # in prompt templates — as placeholders, which raises on substitution.
+        # `{{` / `}}` are honored as literal-brace escapes for backwards compatibility.
+        tool_name = self.get_name()
+
+        def _substitute(match: re.Match[str]) -> str:
+            text = match.group(0)
+            if text == "{{":
+                return "{"
+            if text == "}}":
+                return "}"
+            key = match.group(1)
             if key not in formatted_context:
-                formatted_context[key] = None
                 logger.warning(
-                    f"Context prompt template for {self.get_name()} expects key {key} but it is not present in the context"
+                    f"Context prompt template for {tool_name} expects key {key} but it is not present in the context"
                 )
-        return self.context_prompt_template.format(**formatted_context)
+                return "None"
+            value = formatted_context[key]
+            return "None" if value is None else str(value)
+
+        return _CONTEXT_PLACEHOLDER_RE.sub(_substitute, self.context_prompt_template)
 
     def set_node_path(self, node_path: tuple[NodePath, ...]):
         self._node_path = node_path
@@ -391,6 +413,24 @@ class MaxTool(AssistantContextMixin, AssistantDispatcherMixin, BaseTool):
                 "Please acknowledge their decision and ask if they would like to proceed differently.",
                 None,
             )
+
+    def request_client_execution(self) -> dict[str, Any]:
+        """Pause the graph until this tool's frontend handler resumes the conversation.
+
+        The handler receives this tool call's arguments. Returns the handler's result dict;
+        validate its domain shape in the calling tool.
+        """
+        response = interrupt(
+            ClientToolCallRequest(tool_name=self.name, original_tool_call_id=self._original_tool_call_id)
+        )
+        try:
+            payload = ClientToolResultPayload.model_validate(response)
+        except ValidationError as e:
+            raise MaxToolRetryableError(f"Invalid client tool result: {e}")
+        # All interrupts pending in one superstep receive the same resume value — fail loudly on misdelivery
+        if payload.tool_call_id and self._original_tool_call_id and payload.tool_call_id != self._original_tool_call_id:
+            raise MaxToolRetryableError("The client tool result was addressed to a different tool call")
+        return payload.result
 
     def _reconstruct_kwargs_from_payload(self, payload: dict) -> dict:
         """Reconstruct kwargs from stored payload (Pydantic deserialization)."""

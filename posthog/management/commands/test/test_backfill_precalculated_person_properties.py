@@ -5,8 +5,7 @@ from unittest.mock import patch
 
 from django.core.management import call_command
 
-from posthog.models import Cohort
-from posthog.models.cohort.cohort import CohortType
+from products.cohorts.backend.models.cohort import Cohort, CohortType
 
 
 class BackfillPrecalculatedPersonPropertiesCommandTestCase(BaseTest):

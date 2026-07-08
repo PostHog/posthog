@@ -1,7 +1,7 @@
 import { LemonTag } from '@posthog/lemon-ui'
 
 import { CopyToClipboardInline } from 'lib/components/CopyToClipboard'
-import { identifierToHuman } from 'lib/utils'
+import { identifierToHuman } from 'lib/utils/strings'
 
 interface MetricTagProps {
     properties: Record<string, any>

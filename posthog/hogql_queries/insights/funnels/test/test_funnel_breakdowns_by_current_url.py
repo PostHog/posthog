@@ -203,3 +203,103 @@ class TestFunnelBreakdownsByCurrentURL(ClickhouseTestMixin, APIBaseTest):
             ],
             key=sk,
         )
+
+    @snapshot_clickhouse_queries
+    def test_breakdown_by_pathname_with_path_cleaning(self) -> None:
+        self.team.path_cleaning_filters = [{"alias": "/cleaned-home", "regex": "/home.*"}]
+        self.team.save()
+
+        response = self._run(
+            FunnelsQuery(
+                series=[
+                    EventsNode(event="watched movie", name="watched movie"),
+                    EventsNode(event="terminate funnel", name="terminate funnel"),
+                ],
+                dateRange=DateRange(
+                    date_from="2020-01-02T00:00:00Z",
+                    date_to="2020-01-12T00:00:00Z",
+                ),
+                funnelsFilter=FunnelsFilter(),
+                breakdownFilter=BreakdownFilter(
+                    breakdown="$pathname",
+                    breakdown_type="event",
+                    breakdown_normalize_url=True,
+                    breakdown_path_cleaning=True,
+                    breakdown_limit=100,  # never have other
+                ),
+            )
+        )
+
+        actual = []
+        for breakdown_value in response:
+            for funnel_step in breakdown_value:
+                actual.append(
+                    (
+                        funnel_step["name"],
+                        funnel_step["count"],
+                        funnel_step["breakdown"],
+                    )
+                )
+
+        sk = lambda x: (x[1], x[2][0], x[0])
+        assert sorted(actual, key=sk) == sorted(
+            [
+                ("watched movie", 2, ["/"]),
+                ("terminate funnel", 2, ["/"]),
+                ("watched movie", 2, ["/cleaned-home"]),
+                ("terminate funnel", 2, ["/cleaned-home"]),
+            ],
+            key=sk,
+        )
+
+    @snapshot_clickhouse_queries
+    def test_breakdown_by_pathname_with_path_cleaning_without_normalization(self) -> None:
+        # Path cleaning must apply on its own, not only when normalize_url is also enabled.
+        self.team.path_cleaning_filters = [{"alias": "/cleaned-home", "regex": "/home.*"}]
+        self.team.save()
+
+        response = self._run(
+            FunnelsQuery(
+                series=[
+                    EventsNode(event="watched movie", name="watched movie"),
+                    EventsNode(event="terminate funnel", name="terminate funnel"),
+                ],
+                dateRange=DateRange(
+                    date_from="2020-01-02T00:00:00Z",
+                    date_to="2020-01-12T00:00:00Z",
+                ),
+                funnelsFilter=FunnelsFilter(),
+                breakdownFilter=BreakdownFilter(
+                    breakdown="$pathname",
+                    breakdown_type="event",
+                    breakdown_normalize_url=False,
+                    breakdown_path_cleaning=True,
+                    breakdown_limit=100,
+                ),
+            )
+        )
+
+        actual = []
+        for breakdown_value in response:
+            for funnel_step in breakdown_value:
+                actual.append(
+                    (
+                        funnel_step["name"],
+                        funnel_step["count"],
+                        funnel_step["breakdown"],
+                    )
+                )
+
+        sk = lambda x: (x[1], x[2][0], x[0])
+        # The /home* variants collapse to /cleaned-home; the others keep their raw, un-normalized values.
+        assert sorted(actual, key=sk) == sorted(
+            [
+                ("watched movie", 2, ["/cleaned-home"]),
+                ("terminate funnel", 2, ["/cleaned-home"]),
+                ("watched movie", 1, ["?"]),
+                ("terminate funnel", 1, ["?"]),
+                ("watched movie", 1, ["/"]),
+                ("terminate funnel", 1, ["/"]),
+            ],
+            key=sk,
+        )

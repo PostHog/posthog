@@ -157,10 +157,3 @@ export function captureHostContextChanged(params: {
 export function captureLinkOpened(url: string): void {
     capture('mcp_ui_app_link_opened', { url })
 }
-
-/**
- * Capture display mode change requested.
- */
-export function captureDisplayModeRequested(mode: string): void {
-    capture('mcp_ui_app_display_mode_requested', { mode })
-}

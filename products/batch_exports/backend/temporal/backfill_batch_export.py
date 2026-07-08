@@ -19,7 +19,6 @@ import temporalio.exceptions
 from asgiref.sync import sync_to_async
 from structlog.contextvars import bind_contextvars
 
-from posthog.batch_exports.models import BatchExport, BatchExportBackfill, BatchExportRun
 from posthog.clickhouse import query_tagging
 from posthog.clickhouse.query_tagging import Product
 from posthog.sync import database_sync_to_async
@@ -34,6 +33,7 @@ from posthog.temporal.common.client import connect
 from posthog.temporal.common.heartbeat import Heartbeater
 from posthog.temporal.common.logger import get_write_only_logger
 
+from products.batch_exports.backend.models.batch_export import BatchExport, BatchExportBackfill, BatchExportRun
 from products.batch_exports.backend.service import (
     BackfillBatchExportInputs,
     BackfillDetails,
@@ -813,7 +813,7 @@ def backfill_range(
     end_at: dt.datetime | None,
     step: dt.timedelta,
     timezone: str | None = None,
-) -> typing.Generator[tuple[dt.datetime | None, dt.datetime], None, None]:
+) -> typing.Generator[tuple[dt.datetime | None, dt.datetime]]:
     """Generate range of dates between start_at and end_at.
 
     Args:

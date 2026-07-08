@@ -6,7 +6,7 @@ from rest_framework.viewsets import GenericViewSet
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.exceptions import Conflict
 
-from ee.models.assistant import CORE_MEMORY_MAX_CHARACTERS, CoreMemory
+from products.posthog_ai.backend.models.assistant import CORE_MEMORY_MAX_CHARACTERS, CoreMemory
 
 
 class MaxCoreMemorySerializer(serializers.ModelSerializer):

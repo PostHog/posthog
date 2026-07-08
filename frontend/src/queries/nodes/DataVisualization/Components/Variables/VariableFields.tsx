@@ -43,6 +43,11 @@ export const formatVariableReference = (codeName: string): string => {
     return `{variables.${codeName}}`
 }
 
+// `values` is backed by a JSONField that can hold non-array data for older records,
+// so coerce defensively before mapping/rendering to avoid runtime crashes.
+export const getListVariableValues = (variable: ListVariable): string[] =>
+    Array.isArray(variable.values) ? variable.values : []
+
 // Field components for direct prop binding (used in modal)
 export interface DirectFieldProps<T extends Variable = Variable> {
     variable: T
@@ -81,7 +86,7 @@ export const BooleanField = ({ variable, updateVariable }: DirectFieldProps<Bool
 
 export const ListValuesField = ({ variable, updateVariable }: DirectFieldProps<ListVariable>): JSX.Element => (
     <LemonInputSelect
-        value={variable.values}
+        value={getListVariableValues(variable)}
         onChange={(value) => updateVariable({ ...variable, values: value })}
         placeholder="Options..."
         mode="multiple"
@@ -96,7 +101,7 @@ export const ListDefaultField = ({ variable, updateVariable }: DirectFieldProps<
         className="w-full"
         placeholder="Select default value"
         value={variable.default_value}
-        options={(variable.values ?? []).map((n: string) => ({ label: n, value: n }))}
+        options={getListVariableValues(variable).map((n: string) => ({ label: n, value: n }))}
         onChange={(value) => updateVariable({ ...variable, default_value: value ?? '' })}
         allowClear
         dropdownMaxContentWidth

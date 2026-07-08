@@ -11,7 +11,7 @@ import api from 'lib/api'
 import { dataColorVars } from 'lib/colors'
 import { SetupTaskId, globalSetupLogic } from 'lib/components/ProductSetup'
 import { dayjs } from 'lib/dayjs'
-import { humanFriendlyDetailedTime } from 'lib/utils'
+import { humanFriendlyDetailedTime } from 'lib/utils/datetime'
 import { teamLogic } from 'scenes/teamLogic'
 
 import {
@@ -36,6 +36,15 @@ const DEFAULT_LIVE_TAIL_POLL_INTERVAL_MS = 1000
 const DEFAULT_LOGS_PAGE_SIZE: number = 250
 export const DEFAULT_INITIAL_LOGS_LIMIT = null as number | null
 const NEW_QUERY_STARTED_ERROR_MESSAGE = 'new query started' as const
+
+// Parse cache keyed on log object identity — leak-free by construction (entries die with their
+// logs) and shared across logic instances. Parsing is pure per object, so cached entries are
+// always correct as long as log objects are never mutated in place after creation (they aren't:
+// `logs` is only ever replaced wholesale via `setLogs`). The same immutability contract is why
+// live-tail prepends can keep existing log references untouched so their parsed rows stay
+// reference-stable, and why newLogUuids is tracked as a separate set rather than a flag on each
+// log — avoiding a clone of every existing log object per poll tick.
+const parsedLogCache = new WeakMap<LogMessage, ParsedLogMessage>()
 const DEFAULT_LIVE_TAIL_POLL_INTERVAL_MAX_MS = 5000
 
 function classifyQueryError(error: unknown): { error_type: string; status_code: number | null } {
@@ -157,6 +166,7 @@ export const logsViewerDataLogic = kea<logsViewerDataLogicType>([
         setLiveTailRunning: (enabled: boolean) => ({ enabled }),
         setLiveTailInterval: (interval: number) => ({ interval }),
         setLogs: (logs: LogMessage[]) => ({ logs }),
+        setNewLogUuids: (newLogUuids: string[]) => ({ newLogUuids }),
         setSparkline: (sparkline: any[] | null) => ({ sparkline }),
         setNextCursor: (nextCursor: string | null) => ({ nextCursor }),
         expireLiveTail: () => true,
@@ -168,6 +178,16 @@ export const logsViewerDataLogic = kea<logsViewerDataLogicType>([
     }),
 
     reducers({
+        // UUIDs of the last live-tail batch, for the one-shot row highlight (see parsedLogCache comment above).
+        newLogUuids: [
+            new Set<string>(),
+            {
+                setNewLogUuids: (_, { newLogUuids }) => new Set(newLogUuids),
+                // A fresh query result set has no "just arrived" rows.
+                fetchLogsSuccess: () => new Set<string>(),
+                clearLogs: () => new Set<string>(),
+            },
+        ],
         initialLogsLimit: [
             DEFAULT_INITIAL_LOGS_LIMIT as number | null,
             {
@@ -180,6 +200,9 @@ export const logsViewerDataLogic = kea<logsViewerDataLogicType>([
             { persist: false },
             {
                 setLiveLogsCheckpoint: (_, { liveLogsCheckpoint }) => liveLogsCheckpoint,
+                // Drop the stale checkpoint when a new query starts so the still-loading region
+                // can't flash against the previous query's data before the fresh one lands.
+                clearLogs: () => null,
             },
         ],
         liveTailExpired: [
@@ -296,6 +319,12 @@ export const logsViewerDataLogic = kea<logsViewerDataLogicType>([
                     actions.setHasMoreLogsToLoad(!!response.hasMore)
                     actions.setNextCursor(response.nextCursor ?? null)
                     actions.setMaxExportableLogs(response.maxExportableLogs)
+                    // The checkpoint (fixed per query, identical on every row) marks the latest
+                    // timestamp ingestion is known to have fully caught up to — used to flag the
+                    // still-loading tail of the sparkline.
+                    if (response.results.length > 0) {
+                        actions.setLiveLogsCheckpoint(response.results[0].live_logs_checkpoint ?? null)
+                    }
                     return response.results
                 },
                 fetchNextLogsPage: async ({ limit }, breakpoint) => {
@@ -396,6 +425,14 @@ export const logsViewerDataLogic = kea<logsViewerDataLogicType>([
                         continue
                     }
                     seen.add(log.uuid)
+
+                    // Existing log references are stable across polls — cache hit = no re-render.
+                    const cached = parsedLogCache.get(log)
+                    if (cached) {
+                        result.push(cached)
+                        continue
+                    }
+
                     const cleanBody = colors.unstyle(log.body)
                     let parsedBody: JsonType | null = null
                     try {
@@ -403,13 +440,15 @@ export const logsViewerDataLogic = kea<logsViewerDataLogicType>([
                     } catch {
                         // Not JSON, that's fine
                     }
-                    result.push({
+                    const parsed: ParsedLogMessage = {
                         ...log,
                         attributes: stringifyLogAttributes(log.attributes),
                         cleanBody,
                         parsedBody,
                         originalLog: log,
-                    })
+                    }
+                    parsedLogCache.set(log, parsed)
+                    result.push(parsed)
                 }
 
                 return result
@@ -475,6 +514,51 @@ export const logsViewerDataLogic = kea<logsViewerDataLogicType>([
                     }))
 
                 return { data, labels, dates }
+            },
+        ],
+        // Sparkline bar indices that are still being ingested (incomplete), to be hatched. A bucket is
+        // incomplete when its end is past the ingestion checkpoint. The latest bucket is the in-progress
+        // bar so the checkpoint always trails "now" a little; we only flag anything once the checkpoint
+        // lags the latest bucket's *start* by at least a quarter of a bar, otherwise ingestion is
+        // effectively caught up. When the lag spans more than two buckets but they're all empty, we flag
+        // only the latest bar rather than hatching a wide empty stretch. Bucket times and the checkpoint
+        // are both UTC ISO strings, so the relative comparison is timezone-safe.
+        //
+        // Empty while the sparkline query is in flight or before a fresh checkpoint lands (it's cleared
+        // on each new query); otherwise the hatch flickers mid-load as new data and a new checkpoint race.
+        sparklineIncompleteBarIndices: [
+            (s) => [s.sparklineData, s.liveLogsCheckpoint, s.sparklineLoading],
+            (
+                sparklineData: { dates: string[]; data: { values: number[] }[] },
+                liveLogsCheckpoint: string | null,
+                sparklineLoading: boolean
+            ): number[] => {
+                const { dates, data } = sparklineData
+                if (sparklineLoading || !liveLogsCheckpoint || dates.length < 2) {
+                    return []
+                }
+                const firstBucketMs = dayjs(dates[0]).valueOf()
+                const lastBucketMs = dayjs(dates[dates.length - 1]).valueOf()
+                const intervalMs = dayjs(dates[1]).valueOf() - firstBucketMs
+                if (intervalMs <= 0) {
+                    return []
+                }
+                const checkpointMs = dayjs(liveLogsCheckpoint).valueOf()
+                if (!Number.isFinite(checkpointMs) || lastBucketMs - checkpointMs < intervalMs * 0.25) {
+                    return []
+                }
+                const incomplete = dates.reduce<number[]>((indices, date, index) => {
+                    if (dayjs(date).valueOf() + intervalMs > checkpointMs) {
+                        indices.push(index)
+                    }
+                    return indices
+                }, [])
+                const bucketTotal = (index: number): number =>
+                    data.reduce((sum, series) => sum + (series.values[index] ?? 0), 0)
+                if (incomplete.length > 2 && incomplete.every((index) => bucketTotal(index) === 0)) {
+                    return [dates.length - 1]
+                }
+                return incomplete
             },
         ],
         totalLogsMatchingFilters: [
@@ -605,19 +689,19 @@ export const logsViewerDataLogic = kea<logsViewerDataLogicType>([
         },
         cancelInProgressLogs: ({ logsAbortController }) => {
             if (values.logsAbortController !== null) {
-                values.logsAbortController.abort(NEW_QUERY_STARTED_ERROR_MESSAGE)
+                values.logsAbortController.abort(new DOMException(NEW_QUERY_STARTED_ERROR_MESSAGE, 'AbortError'))
             }
             actions.setLogsAbortController(logsAbortController)
         },
         cancelInProgressSparkline: ({ sparklineAbortController }) => {
             if (values.sparklineAbortController !== null) {
-                values.sparklineAbortController.abort(NEW_QUERY_STARTED_ERROR_MESSAGE)
+                values.sparklineAbortController.abort(new DOMException(NEW_QUERY_STARTED_ERROR_MESSAGE, 'AbortError'))
             }
             actions.setSparklineAbortController(sparklineAbortController)
         },
         cancelInProgressLiveTail: ({ liveTailAbortController }) => {
             if (values.liveTailAbortController !== null) {
-                values.liveTailAbortController.abort('live tail request cancelled')
+                values.liveTailAbortController.abort(new DOMException('live tail request cancelled', 'AbortError'))
             }
             actions.setLiveTailAbortController(liveTailAbortController)
             cache.disposables.dispose('liveTailTimer')
@@ -667,11 +751,11 @@ export const logsViewerDataLogic = kea<logsViewerDataLogicType>([
 
                 if (newLogs.length > 0) {
                     actions.setLiveTailInterval(DEFAULT_LIVE_TAIL_POLL_INTERVAL_MS)
+                    // Prepend new logs; existing references stay untouched (see parsedLogCache comment).
+                    // Replacing newLogUuids highlights the new batch and un-highlights the previous one.
+                    actions.setNewLogUuids(newLogs.map((log) => log.uuid))
                     actions.setLogs(
-                        [
-                            ...newLogs.map((log) => ({ ...log, new: true })),
-                            ...values.logs.map((log) => ({ ...log, new: false })),
-                        ]
+                        [...newLogs, ...values.logs]
                             .sort((a, b) => Date.parse(b.timestamp) - Date.parse(a.timestamp))
                             .slice(0, DEFAULT_LOGS_PAGE_SIZE)
                     )
@@ -682,6 +766,9 @@ export const logsViewerDataLogic = kea<logsViewerDataLogicType>([
                         DEFAULT_LIVE_TAIL_POLL_INTERVAL_MAX_MS
                     )
                     actions.setLiveTailInterval(newInterval)
+                    // No new logs this tick — clear the previous batch's highlights so rows that
+                    // scroll out and back don't replay the arrival animation on a quiet stream.
+                    actions.setNewLogUuids([])
                 }
             } catch (error) {
                 if (signal.aborted) {

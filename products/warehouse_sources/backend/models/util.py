@@ -4,8 +4,6 @@ from ipaddress import IPv6Address, ip_address
 from typing import TYPE_CHECKING, Any, Protocol, Union
 from urllib.parse import urlparse
 
-from django.db.models import Q
-
 from posthog.hogql.database.models import (
     BooleanDatabaseField,
     DatabaseField,
@@ -22,7 +20,7 @@ from posthog.hogql.database.models import (
 )
 
 if TYPE_CHECKING:
-    from products.data_modeling.backend.models.datawarehouse_saved_query import DataWarehouseSavedQuery
+    from products.data_modeling.backend.facade.models import DataWarehouseSavedQuery
     from products.warehouse_sources.backend.models.table import DataWarehouseTable
 
 
@@ -33,7 +31,7 @@ class DatabaseFieldFactory(Protocol):
 
 
 def get_view_or_table_by_name(team, name) -> Union["DataWarehouseSavedQuery", "DataWarehouseTable", None]:
-    from products.data_modeling.backend.models.datawarehouse_saved_query import DataWarehouseSavedQuery
+    from products.data_modeling.backend.facade.models import DataWarehouseSavedQuery
     from products.warehouse_sources.backend.models.table import DataWarehouseTable
 
     table_names = [name]
@@ -46,8 +44,11 @@ def get_view_or_table_by_name(team, name) -> Union["DataWarehouseSavedQuery", "D
             table_names = [f"{chain[1]}_{chain[0]}_{chain[2]}", f"{chain[1]}{chain[0]}_{chain[2]}"]
 
     table: DataWarehouseSavedQuery | DataWarehouseTable | None = (
-        DataWarehouseTable.objects.filter(Q(deleted__isnull=True) | Q(deleted=False))
+        # `queryable()` ignores soft-deleted tables and orphans of a soft-deleted source.
+        DataWarehouseTable.objects.queryable()
         .filter(team=team, name__in=table_names)
+        # Deterministic resolution when more than one live table matches: newest wins.
+        .order_by("-created_at")
         .first()
     )
     if table is None:
@@ -134,6 +135,9 @@ def remove_named_tuples(type):
 def clean_type(column_type: str) -> str:
     # Replace newline characters followed by empty space
     column_type = re.sub(r"\n\s+", "", column_type)
+
+    if column_type.startswith("LowCardinality("):
+        column_type = column_type.replace("LowCardinality(", "")[:-1]
 
     if column_type.startswith("Nullable("):
         column_type = column_type.replace("Nullable(", "")[:-1]
@@ -226,14 +230,64 @@ POSTGRES_TO_CLICKHOUSE_TYPE = {
 }
 
 
+MYSQL_TO_CLICKHOUSE_TYPE = {
+    "tinyint": "Int8",
+    "smallint": "Int16",
+    "mediumint": "Int32",
+    "int": "Int32",
+    "integer": "Int32",
+    "bigint": "Int64",
+    # deltalake-style widening: unsigned ints map to the next signed type that holds their range.
+    "tinyint unsigned": "Int16",
+    "smallint unsigned": "Int32",
+    "mediumint unsigned": "Int64",
+    "int unsigned": "Int64",
+    "integer unsigned": "Int64",
+    "bigint unsigned": "UInt64",
+    "float": "Float32",
+    "double": "Float64",
+    "double precision": "Float64",
+    "real": "Float64",
+    "decimal": "Decimal",
+    "numeric": "Decimal",
+    "boolean": "Bool",
+    "bool": "Bool",
+    "bit": "String",
+    "date": "Date",
+    "datetime": "DateTime",
+    "timestamp": "DateTime",
+    "time": "String",
+    "year": "String",
+    "char": "String",
+    "varchar": "String",
+    "tinytext": "String",
+    "text": "String",
+    "mediumtext": "String",
+    "longtext": "String",
+    "binary": "String",
+    "varbinary": "String",
+    "tinyblob": "String",
+    "blob": "String",
+    "mediumblob": "String",
+    "longblob": "String",
+    "enum": "String",
+    "set": "String",
+    "json": "String",
+    "uuid": "String",
+}
+
+
 CLICKHOUSE_TYPE_TO_HOGQL_LABEL = {
+    "Int8": "integer",
     "Int16": "integer",
     "Int32": "integer",
     "Int64": "integer",
+    "UInt64": "integer",
     "Float32": "float",
     "Float64": "float",
     "Bool": "boolean",
     "Date": "date",
+    "DateTime": "datetime",
     "DateTime64": "datetime",
     "String": "string",
     "Decimal": "numeric",
@@ -383,6 +437,75 @@ def postgres_columns_to_dwh_columns(columns: list[tuple[str, str, bool]]) -> dic
     return {
         column_name: postgres_column_to_dwh_column(column_name, postgres_type, nullable)
         for column_name, postgres_type, nullable in columns
+    }
+
+
+def mysql_column_to_dwh_column(_column_name: str, mysql_type: str, nullable: bool) -> dict[str, Any]:
+    # `information_schema.columns.data_type` carries the bare type, but be defensive against
+    # full `column_type` strings like `int(10) unsigned` by stripping display widths.
+    normalized_type = " ".join(re.sub(r"\(.*?\)", "", mysql_type.lower()).split())
+    clickhouse_type: str | None = MYSQL_TO_CLICKHOUSE_TYPE.get(normalized_type)
+
+    if clickhouse_type is None:
+        if normalized_type.startswith(("decimal", "numeric")):
+            clickhouse_type = "Decimal"
+        elif normalized_type.startswith(("datetime", "timestamp")):
+            clickhouse_type = "DateTime"
+        elif "int" in normalized_type:
+            clickhouse_type = "Int64"
+        else:
+            clickhouse_type = "String"
+
+    if nullable:
+        clickhouse_type = f"Nullable({clickhouse_type})"
+
+    raw_clickhouse_type = clean_type(clickhouse_type)
+    return {
+        "clickhouse": clickhouse_type,
+        "hogql": CLICKHOUSE_TYPE_TO_HOGQL_LABEL.get(raw_clickhouse_type, "string"),
+        "valid": True,
+    }
+
+
+def mysql_columns_to_dwh_columns(columns: list[tuple[str, str, bool]]) -> dict[str, dict[str, Any]]:
+    return {
+        column_name: mysql_column_to_dwh_column(column_name, mysql_type, nullable)
+        for column_name, mysql_type, nullable in columns
+    }
+
+
+def snowflake_column_to_dwh_column(_column_name: str, snowflake_type: str, nullable: bool) -> dict[str, Any]:
+    normalized_type = snowflake_type.lower()
+
+    if normalized_type.startswith("number"):
+        clickhouse_type = "Decimal"
+    elif normalized_type.startswith("float"):
+        clickhouse_type = "Float64"
+    elif normalized_type.startswith("boolean"):
+        clickhouse_type = "Bool"
+    elif normalized_type.startswith("date"):
+        clickhouse_type = "Date"
+    elif normalized_type.startswith("timestamp"):
+        clickhouse_type = "DateTime64"
+    else:
+        # variant/object/array (and anything unrecognized) map to String.
+        clickhouse_type = "String"
+
+    if nullable:
+        clickhouse_type = f"Nullable({clickhouse_type})"
+
+    raw_clickhouse_type = clean_type(clickhouse_type)
+    return {
+        "clickhouse": clickhouse_type,
+        "hogql": CLICKHOUSE_TYPE_TO_HOGQL_LABEL.get(raw_clickhouse_type, "string"),
+        "valid": True,
+    }
+
+
+def snowflake_columns_to_dwh_columns(columns: list[tuple[str, str, bool]]) -> dict[str, dict[str, Any]]:
+    return {
+        column_name: snowflake_column_to_dwh_column(column_name, snowflake_type, nullable)
+        for column_name, snowflake_type, nullable in columns
     }
 
 

@@ -110,11 +110,31 @@ def _save_generation_summary_event(
     )
 
 
+def _embedding_metadata(batch_run_id: str, job_id: str) -> dict[str, str]:
+    """Ids carried in the embedding's `metadata` JSON so `rendering` can stay a fixed enum.
+
+    `batch_run_id` pairs the embedding to its summary event ($ai_batch_run_id); `job_id`
+    scopes a clustering read to one ClusteringJob (read back via JSONExtractString).
+    """
+    return {
+        constants.EMBEDDING_METADATA_BATCH_RUN_ID_KEY: batch_run_id,
+        constants.EMBEDDING_METADATA_JOB_ID_KEY: job_id,
+    }
+
+
+def _embedding_document_id(item_id: str, job_id: str) -> str:
+    """Scope the embedding's `document_id` per (item, job) so overlapping jobs don't collapse on
+    the document_embeddings ReplacingMergeTree key — see EMBEDDING_DOCUMENT_ID_JOB_DELIMITER.
+    """
+    return f"{item_id}{constants.EMBEDDING_DOCUMENT_ID_JOB_DELIMITER}{job_id}"
+
+
 def _embed_trace_summary(
     summary_result: SummarizationResponse,
     trace_id: str,
     mode: str,
     batch_run_id: str,
+    job_id: str,
     team: Team,
 ) -> None:
     summary_text = _format_summary_for_embedding(summary_result)
@@ -123,17 +143,20 @@ def _embed_trace_summary(
     embedder = LLMTracesSummarizerEmbedder(team=team)
     embedder.embed_document(
         content=summary_text,
-        document_id=trace_id,
+        document_id=_embedding_document_id(trace_id, job_id),
         document_type=document_type_with_mode,
-        rendering=batch_run_id,
+        rendering=mode,
         product=LLM_TRACES_SUMMARIES_PRODUCT,
+        metadata=_embedding_metadata(batch_run_id, job_id),
     )
 
 
 def _embed_generation_summary(
     summary_result: SummarizationResponse,
     generation_id: str,
+    mode: str,
     batch_run_id: str,
+    job_id: str,
     team: Team,
 ) -> None:
     summary_text = _format_summary_for_embedding(summary_result)
@@ -141,10 +164,11 @@ def _embed_generation_summary(
     embedder = LLMTracesSummarizerEmbedder(team=team)
     embedder.embed_document(
         content=summary_text,
-        document_id=generation_id,
+        document_id=_embedding_document_id(generation_id, job_id),
         document_type=constants.GENERATION_DOCUMENT_TYPE,
-        rendering=batch_run_id,
+        rendering=mode,
         product="llm-analytics",
+        metadata=_embedding_metadata(batch_run_id, job_id),
     )
 
 
@@ -232,11 +256,11 @@ async def summarize_and_save_activity(input: SummarizeAndSaveInput) -> Summariza
             if is_generation:
                 assert input.generation_id is not None
                 await database_sync_to_async(_embed_generation_summary, thread_sensitive=False)(
-                    summary_result, input.generation_id, input.batch_run_id, team
+                    summary_result, input.generation_id, input.mode, input.batch_run_id, input.job_id, team
                 )
             else:
                 await database_sync_to_async(_embed_trace_summary, thread_sensitive=False)(
-                    summary_result, input.trace_id, input.mode, input.batch_run_id, team
+                    summary_result, input.trace_id, input.mode, input.batch_run_id, input.job_id, team
                 )
             embedding_requested = True
         except Exception as e:

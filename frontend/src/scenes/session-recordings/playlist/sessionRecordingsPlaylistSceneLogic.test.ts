@@ -28,6 +28,9 @@ describe('sessionRecordingsPlaylistSceneLogic', () => {
             get: {
                 '/api/projects/:team/session_recording_playlists/:id': mockPlaylist,
             },
+            post: {
+                '/api/projects/:team/session_recording_playlists/:id/playlist_viewed': [200, {}],
+            },
             patch: {
                 '/api/projects/:team/session_recording_playlists/:id': () => {
                     return [

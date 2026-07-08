@@ -5,10 +5,11 @@ from unittest.mock import AsyncMock, patch
 
 from posthog.schema import AgentMode, AssistantMessage, HumanMessage
 
+from products.posthog_ai.backend.models.assistant import Conversation
+
 from ee.hogai.research_agent.runner import STREAMING_NODES, VERBOSE_NODES, ResearchAgentRunner
 from ee.hogai.utils.types import AssistantState, PartialAssistantState
 from ee.hogai.utils.types.base import AssistantNodeName
-from ee.models import Conversation
 
 
 class TestResearchAgentRunnerConfiguration(BaseTest):

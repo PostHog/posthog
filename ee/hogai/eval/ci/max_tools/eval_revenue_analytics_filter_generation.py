@@ -13,11 +13,11 @@ from posthog.schema import (
     RevenueAnalyticsPropertyFilter,
 )
 
+from products.posthog_ai.backend.models.assistant import Conversation
 from products.revenue_analytics.backend.max_tools import RevenueAnalyticsFilterOptionsGraph
 from products.revenue_analytics.backend.prompts import USER_FILTER_OPTIONS_PROMPT
 
 from ee.hogai.django_checkpoint.checkpointer import DjangoCheckpointer
-from ee.models.assistant import Conversation
 
 from ...base import MaxPublicEval
 

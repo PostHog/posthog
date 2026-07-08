@@ -3,7 +3,7 @@ import { actions, kea, listeners, path, reducers } from 'kea'
 import { lemonToast } from '@posthog/lemon-ui'
 
 import api from 'lib/api'
-import { twoFactorLogic } from 'scenes/authentication/twoFactorLogic'
+import { twoFactorLogic } from 'scenes/authentication/two-factor-setup/twoFactorLogic'
 import { userLogic } from 'scenes/userLogic'
 
 import type { apiStatusLogicType } from './apiStatusLogicType'
@@ -84,6 +84,13 @@ export const apiStatusLogic = kea<apiStatusLogicType>([
                                 },
                                 autoClose: false,
                             }
+                        )
+                    } else if (responseData.code === 'impersonation_read_only') {
+                        lemonToast.error(
+                            typeof responseData.detail === 'string' && responseData.detail
+                                ? responseData.detail
+                                : 'This action is not allowed during read-only user impersonation.',
+                            { hideButton: true }
                         )
                     }
                 }

@@ -5,7 +5,7 @@ import { router } from 'kea-router'
 import { PaginationManual, lemonToast } from '@posthog/lemon-ui'
 
 import api, { CountedPaginatedResponse } from 'lib/api'
-import { delay } from 'lib/utils'
+import { delay } from 'lib/utils/async'
 import { cohortEditLogic } from 'scenes/cohorts/cohortEditLogic'
 import { projectLogic } from 'scenes/projectLogic'
 import { urls } from 'scenes/urls'

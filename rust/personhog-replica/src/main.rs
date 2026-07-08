@@ -308,17 +308,30 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let max_send = config.grpc_max_send_message_size;
     let max_recv = config.grpc_max_recv_message_size;
     let max_concurrent_requests = config.max_concurrent_requests;
+    let max_response_size = if config.gzip_max_response_size > 0 {
+        Some(config.gzip_max_response_size)
+    } else {
+        None
+    };
     let gzip_config = AsyncGzipConfig::new(
         config.gzip_response_compression,
         config.gzip_compression_level,
         config.gzip_min_payload_size,
-    );
+    )
+    .with_max_response_size(max_response_size, config.gzip_max_response_size_enforce);
 
     if gzip_config.enabled {
         tracing::info!(
             level = gzip_config.compression_level,
             min_payload_size = gzip_config.min_payload_size,
             "Async gzip response compression enabled"
+        );
+    }
+    if let Some(limit) = gzip_config.max_response_size {
+        tracing::info!(
+            limit_bytes = limit,
+            enforce = gzip_config.max_response_size_enforce,
+            "Response size limit active"
         );
     }
     if max_concurrent_requests > 0 {
@@ -345,16 +358,20 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         if let Some(age) = max_connection_age {
             server = server.max_connection_age(age);
         }
+        // accept_compressed only decodes gzip request frames from opted-in
+        // clients; response compression is exclusively the gzip layer above
+        // (never send_compressed — see the tonic entry in Cargo.toml). Note
+        // max_decoding_message_size bounds the wire (compressed) size, so a
+        // compressed request can decode larger than the limit.
         if let Err(e) = server
             .layer(AsyncGzipLayer::new(gzip_config))
             .layer(GrpcMetricsLayer::default().with_processing_time_header())
             .layer(GrpcLoadShedLayer::new(max_concurrent_requests))
             .add_service(
                 PersonHogReplicaServer::new(service)
+                    .accept_compressed(CompressionEncoding::Gzip)
                     .max_encoding_message_size(max_send)
-                    .max_decoding_message_size(max_recv)
-                    .accept_compressed(CompressionEncoding::Zstd)
-                    .send_compressed(CompressionEncoding::Zstd),
+                    .max_decoding_message_size(max_recv),
             )
             .serve_with_incoming_shutdown(incoming, grpc_handle.shutdown_signal())
             .await

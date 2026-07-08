@@ -16,8 +16,6 @@ export const exceptionCardLogic = kea<exceptionCardLogicType>([
     actions({
         setShowJSONProperties: (showJSON: boolean) => ({ showJSON }),
         setShowAdditionalProperties: (showProperties: boolean) => ({ showProperties }),
-        setShowAsText: (showAsText: boolean) => ({ showAsText }),
-        setShowAllFrames: (showAllFrames: boolean) => ({ showAllFrames }),
         setLoading: (loading: boolean) => ({ loading }),
         setCurrentSessionTab: (tab: string) => ({ tab }),
         setCurrentTab: (tab: string) => ({ tab }),
@@ -53,18 +51,6 @@ export const exceptionCardLogic = kea<exceptionCardLogicType>([
             true,
             {
                 setShowAdditionalProperties: (_, { showProperties }) => showProperties,
-            },
-        ],
-        showAsText: [
-            false,
-            {
-                setShowAsText: (_, { showAsText }) => showAsText,
-            },
-        ],
-        showAllFrames: [
-            false,
-            {
-                setShowAllFrames: (_, { showAllFrames }: { showAllFrames: boolean }) => showAllFrames,
             },
         ],
         loading: [

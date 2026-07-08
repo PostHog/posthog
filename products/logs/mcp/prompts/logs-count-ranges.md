@@ -47,8 +47,8 @@ Same shape as `query-logs`. Applied **before** bucketing.
 ```json
 {
   "ranges": [
-    { "date_from": "2026-04-26T00:00:00", "date_to": "2026-04-26T02:24:00", "count": 1024 },
-    { "date_from": "2026-04-26T02:24:00", "date_to": "2026-04-26T04:48:00", "count": 47 }
+    { "date_from": "2026-04-26T00:00:00Z", "date_to": "2026-04-26T02:24:00Z", "count": 1024 },
+    { "date_from": "2026-04-26T02:24:00Z", "date_to": "2026-04-26T04:48:00Z", "count": 47 }
   ],
   "interval": "2h"
 }
@@ -74,14 +74,14 @@ Same shape as `query-logs`. Applied **before** bucketing.
 
 ## Drill into the densest hour from a previous call
 
-After picking the densest bucket from the response above (say `{date_from: "2026-04-26T15:00:00", date_to: "2026-04-26T16:00:00", count: 894}`):
+After picking the densest bucket from the response above (say `{date_from: "2026-04-26T15:00:00Z", date_to: "2026-04-26T16:00:00Z", count: 894}`):
 
 ```json
 {
   "query": {
     "dateRange": {
-      "date_from": "2026-04-26T15:00:00",
-      "date_to": "2026-04-26T16:00:00"
+      "date_from": "2026-04-26T15:00:00Z",
+      "date_to": "2026-04-26T16:00:00Z"
     },
     "targetBuckets": 12,
     "serviceNames": ["api-gateway"],

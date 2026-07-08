@@ -1,7 +1,6 @@
 # Example: { type: tool-call, toolCallId: t1, toolName: search, input: { q: "x" } }
 
 id: vercel_sdk
-priority: 30
 
 rules:
     - on:

@@ -11,7 +11,7 @@ import { initKeaTests } from '~/test/init'
 import type { Experiment } from '~/types'
 
 import { NEW_EXPERIMENT } from '../constants'
-import { createExperimentLogic } from './createExperimentLogic'
+import { createExperimentLogic, DRAFT_STORAGE_KEY } from './createExperimentLogic'
 
 jest.mock('lib/lemon-ui/LemonToast/LemonToast', () => ({
     lemonToast: {
@@ -29,13 +29,19 @@ describe('createExperimentLogic', () => {
     let routerPushSpy: jest.SpyInstance
 
     beforeEach(() => {
-        // Clear localStorage to prevent persisted state from affecting tests
+        // Clear persisted state to prevent it from affecting tests
         localStorage.clear()
+        sessionStorage.clear()
 
         useMocks({
+            get: {
+                // saveExperiment verifies flag-key availability before building the payload
+                '/api/projects/:team_id/feature_flags/': () => [200, { results: [], count: 0 }],
+                '/api/projects/:team_id/experiments': () => [200, { results: [], count: 0 }],
+            },
             post: {
-                [`/api/projects/${MOCK_TEAM_ID}/experiments`]: async (req) => {
-                    const body = (await req.json()) as Experiment
+                [`/api/projects/${MOCK_TEAM_ID}/experiments`]: async ({ request }) => {
+                    const body = (await request.json()) as Experiment
                     if (!body.name || !body.description) {
                         return [400, { detail: 'Validation error' }]
                     }
@@ -65,7 +71,9 @@ describe('createExperimentLogic', () => {
     })
 
     afterEach(() => {
-        logic.unmount()
+        if (logic.isMounted()) {
+            logic.unmount()
+        }
         routerPushSpy.mockRestore()
     })
 
@@ -336,10 +344,11 @@ describe('createExperimentLogic', () => {
     })
 
     describe('form navigation scenarios', () => {
-        const TAB_ID = 'test-tab'
-
         beforeEach(() => {
             sessionStorage.clear()
+            // Fully unmount the shared singleton so each test controls the
+            // mount lifecycle and afterMount/beforeUnmount fire as expected.
+            logic.unmount()
         })
 
         it('draft from sessionStorage is loaded when creating a new experiment', async () => {
@@ -350,11 +359,11 @@ describe('createExperimentLogic', () => {
             }
 
             sessionStorage.setItem(
-                `experiment-draft-${TAB_ID}`,
+                DRAFT_STORAGE_KEY,
                 JSON.stringify({ experiment: storedDraft, timestamp: Date.now() })
             )
 
-            const newLogic = createExperimentLogic({ tabId: TAB_ID })
+            const newLogic = createExperimentLogic()
             newLogic.mount()
 
             await expectLogic(newLogic).toMatchValues({
@@ -368,8 +377,8 @@ describe('createExperimentLogic', () => {
             newLogic.unmount()
         })
 
-        it('form state does not leak between new experiment sessions in the same tab', async () => {
-            const firstNew = createExperimentLogic({ tabId: TAB_ID })
+        it('form state does not leak between new experiment sessions', async () => {
+            const firstNew = createExperimentLogic()
             firstNew.mount()
 
             firstNew.actions.setExperimentValue('name', 'First Attempt')
@@ -383,7 +392,7 @@ describe('createExperimentLogic', () => {
 
             sessionStorage.clear()
 
-            const secondNew = createExperimentLogic({ tabId: TAB_ID })
+            const secondNew = createExperimentLogic()
             secondNew.mount()
 
             await expectLogic(secondNew).toMatchValues({
@@ -394,71 +403,63 @@ describe('createExperimentLogic', () => {
         })
 
         it('unmount/remount with no draft starts fresh', async () => {
-            logic.actions.setExperiment({
+            const freshLogic = createExperimentLogic()
+            freshLogic.mount()
+
+            freshLogic.actions.setExperiment({
                 ...NEW_EXPERIMENT,
                 id: 123,
                 name: 'Saved Experiment',
                 description: 'Already saved',
             })
 
-            logic.unmount()
+            freshLogic.unmount()
 
-            const freshLogic = createExperimentLogic()
-            freshLogic.mount()
+            const remounted = createExperimentLogic()
+            remounted.mount()
 
-            await expectLogic(freshLogic).toMatchValues({
+            await expectLogic(remounted).toMatchValues({
                 experiment: partial({ id: 'new', name: '', description: '' }),
             })
 
-            freshLogic.unmount()
+            remounted.unmount()
         })
 
-        it('two in-app tabs with new experiment forms maintain independent state', async () => {
-            const tab1Logic = createExperimentLogic({ tabId: 'tab-1' })
-            const tab2Logic = createExperimentLogic({ tabId: 'tab-2' })
-            tab1Logic.mount()
-            tab2Logic.mount()
+        it('draft written on unmount is read back by a freshly-built logic', async () => {
+            const firstNew = createExperimentLogic()
+            firstNew.mount()
 
-            // Type into tab 1
-            tab1Logic.actions.setExperimentValue('name', 'Tab 1 Experiment')
-            tab1Logic.actions.setExperimentValue('feature_flag_key', 'tab-1-flag')
+            firstNew.actions.setExperimentValue('name', 'Work In Progress')
+            firstNew.actions.setExperimentValue('feature_flag_key', 'wip-flag')
 
-            // Type into tab 2
-            tab2Logic.actions.setExperimentValue('name', 'Tab 2 Experiment')
-            tab2Logic.actions.setExperimentValue('feature_flag_key', 'tab-2-flag')
-
-            // Both tabs retain their own data
-            await expectLogic(tab1Logic).toMatchValues({
-                experiment: partial({ name: 'Tab 1 Experiment', feature_flag_key: 'tab-1-flag' }),
-            })
-            await expectLogic(tab2Logic).toMatchValues({
-                experiment: partial({ name: 'Tab 2 Experiment', feature_flag_key: 'tab-2-flag' }),
+            await expectLogic(firstNew).toMatchValues({
+                experiment: partial({ name: 'Work In Progress', feature_flag_key: 'wip-flag' }),
             })
 
-            // Modify tab 1 again — tab 2 is unaffected
-            tab1Logic.actions.setExperimentValue('name', 'Tab 1 Updated')
+            // Navigating away without saving writes the draft to sessionStorage
+            firstNew.unmount()
 
-            await expectLogic(tab1Logic).toMatchValues({
-                experiment: partial({ name: 'Tab 1 Updated', feature_flag_key: 'tab-1-flag' }),
-            })
-            await expectLogic(tab2Logic).toMatchValues({
-                experiment: partial({ name: 'Tab 2 Experiment', feature_flag_key: 'tab-2-flag' }),
+            const secondNew = createExperimentLogic()
+            secondNew.mount()
+
+            await expectLogic(secondNew).toMatchValues({
+                experiment: partial({ id: 'new', name: 'Work In Progress', feature_flag_key: 'wip-flag' }),
             })
 
-            tab1Logic.unmount()
-            tab2Logic.unmount()
+            secondNew.unmount()
         })
     })
 
     describe('post-save state reset', () => {
-        const TAB_ID = 'test-tab'
-
         beforeEach(() => {
             sessionStorage.clear()
+            // Fully unmount the shared singleton so each test controls the
+            // mount lifecycle and afterMount/beforeUnmount fire as expected.
+            logic.unmount()
         })
 
         it('form resets to NEW_EXPERIMENT after saving and re-entering create mode', async () => {
-            const firstLogic = createExperimentLogic({ tabId: TAB_ID })
+            const firstLogic = createExperimentLogic()
             firstLogic.mount()
 
             await expectLogic(firstLogic).toMatchValues({
@@ -483,7 +484,7 @@ describe('createExperimentLogic', () => {
             firstLogic.unmount()
 
             // User navigates back to /experiments/new — component remounts the logic
-            const secondLogic = createExperimentLogic({ tabId: TAB_ID })
+            const secondLogic = createExperimentLogic()
             secondLogic.mount()
 
             await expectLogic(secondLogic).toMatchValues({
@@ -494,7 +495,7 @@ describe('createExperimentLogic', () => {
         })
 
         it('navigating away without saving preserves draft for next visit', async () => {
-            const firstLogic = createExperimentLogic({ tabId: TAB_ID })
+            const firstLogic = createExperimentLogic()
             firstLogic.mount()
 
             firstLogic.actions.setExperimentValue('name', 'Work In Progress')
@@ -504,11 +505,11 @@ describe('createExperimentLogic', () => {
                 experiment: partial({ name: 'Work In Progress', feature_flag_key: 'wip-flag' }),
             })
 
-            // User navigates away (e.g. switches tab) — no cancel, no save
+            // User navigates away — no cancel, no save
             firstLogic.unmount()
 
             // User comes back to /experiments/new
-            const secondLogic = createExperimentLogic({ tabId: TAB_ID })
+            const secondLogic = createExperimentLogic()
             secondLogic.mount()
 
             await expectLogic(secondLogic).toMatchValues({
@@ -519,7 +520,7 @@ describe('createExperimentLogic', () => {
         })
 
         it('cancel clears draft so re-entering create mode starts fresh', async () => {
-            const firstLogic = createExperimentLogic({ tabId: TAB_ID })
+            const firstLogic = createExperimentLogic()
             firstLogic.mount()
 
             firstLogic.actions.setExperimentValue('name', 'Will Cancel')
@@ -534,7 +535,7 @@ describe('createExperimentLogic', () => {
             firstLogic.unmount()
 
             // User navigates back to /experiments/new
-            const secondLogic = createExperimentLogic({ tabId: TAB_ID })
+            const secondLogic = createExperimentLogic()
             secondLogic.mount()
 
             await expectLogic(secondLogic).toMatchValues({
@@ -542,38 +543,6 @@ describe('createExperimentLogic', () => {
             })
 
             secondLogic.unmount()
-        })
-
-        it('canceling one tab does not affect the other', async () => {
-            const tab1Logic = createExperimentLogic({ tabId: 'tab-1' })
-            const tab2Logic = createExperimentLogic({ tabId: 'tab-2' })
-            tab1Logic.mount()
-            tab2Logic.mount()
-
-            tab1Logic.actions.setExperimentValue('name', 'Tab 1 Experiment')
-            tab1Logic.actions.setExperimentValue('feature_flag_key', 'tab-1-flag')
-            tab2Logic.actions.setExperimentValue('name', 'Tab 2 Experiment')
-            tab2Logic.actions.setExperimentValue('feature_flag_key', 'tab-2-flag')
-
-            // Cancel tab 1
-            tab1Logic.actions.cancelForm()
-            tab1Logic.unmount()
-
-            // Tab 2 is unaffected
-            await expectLogic(tab2Logic).toMatchValues({
-                experiment: partial({ name: 'Tab 2 Experiment', feature_flag_key: 'tab-2-flag' }),
-            })
-
-            // Re-opening tab 1 starts fresh
-            const newTab1Logic = createExperimentLogic({ tabId: 'tab-1' })
-            newTab1Logic.mount()
-
-            await expectLogic(newTab1Logic).toMatchValues({
-                experiment: partial({ id: 'new', name: '', feature_flag_key: '' }),
-            })
-
-            newTab1Logic.unmount()
-            tab2Logic.unmount()
         })
     })
 

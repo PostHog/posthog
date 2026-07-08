@@ -319,6 +319,29 @@ class GroupTypeMappingsBatchResponse(_message.Message):
 
     def __init__(self, results: _Optional[_Iterable[_Union[GroupTypeMappingsByKey, _Mapping]]] = ...) -> None: ...
 
+class CountGroupTypeMappingsRequest(_message.Message):
+    __slots__ = ("read_options",)
+    READ_OPTIONS_FIELD_NUMBER: _ClassVar[int]
+    read_options: _common_pb2.ReadOptions
+
+    def __init__(self, read_options: _Optional[_Union[_common_pb2.ReadOptions, _Mapping]] = ...) -> None: ...
+
+class GroupTypeMappingCount(_message.Message):
+    __slots__ = ("team_id", "count")
+    TEAM_ID_FIELD_NUMBER: _ClassVar[int]
+    COUNT_FIELD_NUMBER: _ClassVar[int]
+    team_id: int
+    count: int
+
+    def __init__(self, team_id: _Optional[int] = ..., count: _Optional[int] = ...) -> None: ...
+
+class CountGroupTypeMappingsResponse(_message.Message):
+    __slots__ = ("counts",)
+    COUNTS_FIELD_NUMBER: _ClassVar[int]
+    counts: _containers.RepeatedCompositeFieldContainer[GroupTypeMappingCount]
+
+    def __init__(self, counts: _Optional[_Iterable[_Union[GroupTypeMappingCount, _Mapping]]] = ...) -> None: ...
+
 class CreateGroupRequest(_message.Message):
     __slots__ = ("team_id", "group_type_index", "group_key", "group_properties", "created_at")
     TEAM_ID_FIELD_NUMBER: _ClassVar[int]

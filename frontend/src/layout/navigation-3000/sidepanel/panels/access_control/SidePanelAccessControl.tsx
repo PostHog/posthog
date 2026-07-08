@@ -1,6 +1,7 @@
 import { useValues } from 'kea'
+import { useEffect } from 'react'
 
-import { resourceTypeToString } from 'lib/utils/accessControlUtils'
+import { captureAccessControlEvent, resourceTypeToString } from 'lib/utils/accessControlUtils'
 
 import { AccessControlResourceType } from '~/types'
 
@@ -11,6 +12,18 @@ import { AccessControlObject } from './AccessControlObject'
 
 export const SidePanelAccessControl = (): JSX.Element => {
     const { sceneSidePanelContext } = useValues(sidePanelContextLogic)
+
+    const { access_control_resource: resource, access_control_resource_id: resourceId } = sceneSidePanelContext
+
+    useEffect(() => {
+        if (!resource || !resourceId) {
+            return
+        }
+        captureAccessControlEvent('access_control_side_panel_viewed', {
+            resource,
+            resource_id: resourceId,
+        })
+    }, [resource, resourceId])
 
     return (
         <div className="flex flex-col overflow-hidden grow">

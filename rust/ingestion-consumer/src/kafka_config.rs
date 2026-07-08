@@ -185,14 +185,49 @@ impl ConsumerConfigBuilder {
 
     /// Enable sticky partition assignments based on the kafka client ID supplied.
     /// Always uses cooperative-sticky strategy for consistent behavior across all pods.
-    /// When client_id is provided, also enables static membership for truly sticky assignments.
-    pub fn with_sticky_partition_assignment(mut self, client_id: Option<&str>) -> Self {
+    /// When `static_membership` is set and a client_id is provided, also pins
+    /// `group.instance.id` to it for static membership — only safe for pods with
+    /// stable names, since a same-name restart collides with the broker-held slot.
+    pub fn with_sticky_partition_assignment(
+        mut self,
+        client_id: Option<&str>,
+        static_membership: bool,
+    ) -> Self {
         self.config
             .set("partition.assignment.strategy", "cooperative-sticky");
 
         if let Some(found_client_id) = client_id {
             self.config.set("client.id", found_client_id);
-            self.config.set("group.instance.id", found_client_id);
+            if static_membership {
+                self.config.set("group.instance.id", found_client_id);
+            }
+        }
+        self
+    }
+
+    /// Strip classic-only keys when the KIP-848 consumer group protocol is selected.
+    ///
+    /// When `group.protocol=consumer`, librdkafka rejects the whole config at
+    /// startup if any classic-only key is set: `session.timeout.ms`,
+    /// `heartbeat.interval.ms` (broker-side under KIP-848) and
+    /// `partition.assignment.strategy` (replaced by the server-side
+    /// `group.remote.assignor`). Remove them after the full config is built so
+    /// the batch-consumer defaults don't break a consumer opted into the new
+    /// protocol. Mirrors the Node.js `stripClassicProtocolConfig`.
+    ///
+    /// `group.instance.id` (static membership, when enabled) is intentionally
+    /// kept — KIP-848 supports it.
+    pub fn strip_classic_protocol_keys_if_consumer(mut self) -> Self {
+        let is_consumer_protocol = self.config.get("group.protocol") == Some("consumer");
+        if is_consumer_protocol {
+            for key in [
+                "session.timeout.ms",
+                "heartbeat.interval.ms",
+                "partition.assignment.strategy",
+                "group.protocol.type",
+            ] {
+                self.config.remove(key);
+            }
         }
         self
     }
@@ -200,5 +235,57 @@ impl ConsumerConfigBuilder {
     /// Build the final configuration
     pub fn build(self) -> ClientConfig {
         self.config
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn strips_classic_keys_under_consumer_protocol() {
+        let config = ConsumerConfigBuilder::for_batch_consumer("kafka:9092", "g")
+            .with_sticky_partition_assignment(Some("pod-1"), true)
+            .set("group.protocol", "consumer")
+            .strip_classic_protocol_keys_if_consumer()
+            .build();
+
+        assert_eq!(config.get("group.protocol"), Some("consumer"));
+        assert_eq!(config.get("session.timeout.ms"), None);
+        assert_eq!(config.get("heartbeat.interval.ms"), None);
+        assert_eq!(config.get("partition.assignment.strategy"), None);
+        // Static membership is valid under KIP-848 and must survive the strip.
+        assert_eq!(config.get("group.instance.id"), Some("pod-1"));
+    }
+
+    #[test]
+    fn keeps_classic_keys_under_classic_protocol() {
+        let config = ConsumerConfigBuilder::for_batch_consumer("kafka:9092", "g")
+            .with_sticky_partition_assignment(None, false)
+            .strip_classic_protocol_keys_if_consumer()
+            .build();
+
+        assert_eq!(config.get("session.timeout.ms"), Some("60000"));
+        assert_eq!(
+            config.get("partition.assignment.strategy"),
+            Some("cooperative-sticky")
+        );
+    }
+
+    #[test]
+    fn static_membership_toggle_controls_group_instance_id() {
+        // Off (default): client.id is still set for sticky assignment, but no
+        // group.instance.id — so a restart rejoins dynamically without colliding.
+        let dynamic = ConsumerConfigBuilder::for_batch_consumer("kafka:9092", "g")
+            .with_sticky_partition_assignment(Some("pod-1"), false)
+            .build();
+        assert_eq!(dynamic.get("client.id"), Some("pod-1"));
+        assert_eq!(dynamic.get("group.instance.id"), None);
+
+        // On: group.instance.id is pinned to the client id for static membership.
+        let static_member = ConsumerConfigBuilder::for_batch_consumer("kafka:9092", "g")
+            .with_sticky_partition_assignment(Some("pod-1"), true)
+            .build();
+        assert_eq!(static_member.get("group.instance.id"), Some("pod-1"));
     }
 }

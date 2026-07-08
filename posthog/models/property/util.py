@@ -10,8 +10,6 @@ from django.db.models import QuerySet
 
 from rest_framework import exceptions
 
-from posthog.schema import PropertyOperator
-
 from posthog.hogql import ast
 from posthog.hogql.database.s3_table import S3Table
 from posthog.hogql.hogql import HogQLContext
@@ -21,14 +19,6 @@ from posthog.hogql.visitor import TraversingVisitor
 from posthog.clickhouse.kafka_engine import trim_quotes_expr
 from posthog.clickhouse.materialized_columns import TableWithProperties, get_materialized_column_for_property
 from posthog.constants import PropertyOperatorType
-from posthog.models.cohort import Cohort
-from posthog.models.cohort.util import (
-    format_cohort_subquery,
-    format_filter_query,
-    format_precalculated_cohort_query,
-    format_static_cohort_query,
-    get_count_operator,
-)
 from posthog.models.event import Selector
 from posthog.models.group.sql import GET_GROUP_IDS_BY_PROPERTY_SQL
 from posthog.models.person.sql import GET_DISTINCT_IDS_BY_PERSON_ID_FILTER, GET_DISTINCT_IDS_BY_PROPERTY_SQL
@@ -44,12 +34,21 @@ from posthog.models.property.property import ValueT
 from posthog.models.team import Team
 from posthog.queries.person_distinct_id_query import get_team_distinct_ids_query
 from posthog.queries.util import PersonPropertiesMode
+from posthog.schema_enums import PropertyOperator
 from posthog.session_recordings.queries.session_query import SessionQuery
 from posthog.types import ErrorTrackingIssueFilter
 from posthog.utils import is_json, is_valid_regex
 
 from products.actions.backend.models.action import Action
 from products.actions.backend.models.util import get_action_tables_and_properties
+from products.cohorts.backend.models.cohort import Cohort
+from products.cohorts.backend.models.util import (
+    format_cohort_subquery,
+    format_filter_query,
+    format_precalculated_cohort_query,
+    format_static_cohort_query,
+    get_count_operator,
+)
 
 StringMatching = Literal["selector", "tag_name", "href", "text"]
 
@@ -182,20 +181,14 @@ def parse_prop_clauses(
                 )  # If cohort doesn't exist, nothing can match, unless an OR operator is used
             else:
                 if person_properties_mode == PersonPropertiesMode.USING_SUBQUERY:
-                    person_id_query, cohort_filter_params = format_filter_query(
-                        cohort,
-                        idx,
-                        cast(HogQLContext, hogql_context),
-                        custom_match_field=person_id_joined_alias,
-                    )
+                    person_id_query, cohort_filter_params = format_filter_query(cohort, idx)
                     params = {**params, **cohort_filter_params}
                     final.append(f"{property_operator} {table_formatted}distinct_id IN ({person_id_query})")
                 else:
                     person_id_query, cohort_filter_params = format_cohort_subquery(
                         cohort,
                         idx,
-                        cast(HogQLContext, hogql_context),
-                        custom_match_field=f"{person_id_joined_alias}",
+                        custom_match_field=person_id_joined_alias,
                     )
                     params = {**params, **cohort_filter_params}
                     final.append(f"{property_operator} {person_id_query}")

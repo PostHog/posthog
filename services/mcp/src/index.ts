@@ -1,36 +1,15 @@
-import { MCP_DOCS_URL, OAUTH_SCOPES_SUPPORTED, getAuthorizationServerUrl } from '@/lib/constants'
-import {
-    buildInsufficientScopeChallenge,
-    ErrorCode,
-    findPostHogPermissionError,
-    formatPermissionErrorMessage,
-} from '@/lib/errors'
+import { resolveEffectiveClientName } from '@/lib/client-detection'
+import { MCP_DOCS_URL, getAuthorizationServerUrl } from '@/lib/constants'
 import { isIdJagAccessToken } from '@/lib/id-jag'
 import { RequestLogger, withLogging } from '@/lib/logging'
 import { extractClientInfoFromBody } from '@/lib/mcp-client-info'
-import { getPostHogClient } from '@/lib/posthog'
-import { MCP_ANALYTICS_VERSION } from '@/lib/posthog/analytics'
+import { RequestProperties } from '@/lib/request-properties'
 import { buildRedirectUrl, matchAuthServerRedirect } from '@/lib/routing'
-import { hash, parseMcpMode, sanitizeHeaderValue } from '@/lib/utils'
+import { extractBearerToken, hash, parseMcpMode, sanitizeHeaderValue } from '@/lib/utils'
+import { getAdvertisedOAuthScopes } from '@/tools/toolDefinitions'
 import type { CloudRegion } from '@/tools/types'
 
-import { MCP, RequestProperties } from './mcp'
-import { proxyToHono, shouldProxyToHono } from './proxy'
-
-function extendMcpServerLog(log: RequestLogger, props: RequestProperties): void {
-    const mcpServerLog: Record<string, unknown> = {
-        ...(props.mcpAnalyticsInitAction ? { mcpAnalyticsInitAction: props.mcpAnalyticsInitAction } : {}),
-        ...(props.mcpAnalyticsInitReason ? { mcpAnalyticsInitReason: props.mcpAnalyticsInitReason } : {}),
-        ...(props.mcpAnalyticsInitErrorName ? { mcpAnalyticsInitErrorName: props.mcpAnalyticsInitErrorName } : {}),
-        ...(props.mcpAnalyticsInitErrorMessage
-            ? { mcpAnalyticsInitErrorMessage: props.mcpAnalyticsInitErrorMessage }
-            : {}),
-    }
-
-    if (Object.keys(mcpServerLog).length > 0) {
-        log.extend(mcpServerLog)
-    }
-}
+import { proxyToHono, resolveProxyRegion } from './proxy'
 
 // Helper to get the public-facing URL, respecting reverse proxy headers
 // This is needed for local development with ngrok/cloudflared where request.url
@@ -84,78 +63,6 @@ function getRegionFromRequest(request: Request): CloudRegion | null {
     const url = new URL(request.url)
     const queryRegion = url.searchParams.get('region') as CloudRegion | null
     return queryRegion
-}
-
-// Detect error codes and return appropriate responses
-const onThenErrorHandler = async (response: Response): Promise<Response> => {
-    if (!response.ok) {
-        const body = await response.clone().text()
-        const errorResponse = generateErrorResponseFromMessage(body)
-        if (errorResponse) {
-            return errorResponse
-        }
-    }
-
-    return response
-}
-
-const onCatchErrorHandler = async (
-    error: Error,
-    log: RequestLogger,
-    ctx: ExecutionContext<RequestProperties>
-): Promise<Response> => {
-    const permissionError = findPostHogPermissionError(error)
-    if (permissionError) {
-        return new Response(formatPermissionErrorMessage(permissionError), {
-            status: 403,
-            headers: {
-                'Content-Type': 'text/plain; charset=utf-8',
-                'WWW-Authenticate': buildInsufficientScopeChallenge(permissionError),
-            },
-        })
-    }
-
-    const knownErrorResponse = generateErrorResponseFromMessage(error.message)
-    if (knownErrorResponse) {
-        return knownErrorResponse
-    }
-
-    // Unrecognized error → opaque 500 to the client. Surface the underlying
-    // error in the wide log and PostHog so we can debug without scraping CF
-    // request traces.
-    log.extend({
-        errorName: error?.name,
-        errorMessage: error?.message,
-        errorStack: error?.stack,
-    })
-
-    try {
-        const client = getPostHogClient()
-        const distinctId = ctx.props?.userHash
-        client.captureException(error, distinctId, {
-            team: 'posthog_ai',
-            source: 'mcp_request_handler',
-            mcp_transport: ctx.props?.transport,
-            mcp_version: MCP_ANALYTICS_VERSION,
-            has_organization_id: !!ctx.props?.organizationId,
-            has_project_id: !!ctx.props?.projectId,
-        })
-        ctx.waitUntil(client.flush())
-    } catch {
-        // Never let observability break the request.
-    }
-
-    return new Response('Internal server error', { status: 500 })
-}
-
-const generateErrorResponseFromMessage = (message: string): Response | null => {
-    if (message.includes(ErrorCode.INACTIVE_OAUTH_TOKEN)) {
-        return new Response('OAuth token is inactive', { status: 401 })
-    } else if (message.includes(ErrorCode.INVALID_API_KEY)) {
-        return new Response('Invalid API key', { status: 401 })
-    }
-
-    return null
 }
 
 const handleRequest = async (
@@ -262,7 +169,7 @@ const handleRequest = async (
             JSON.stringify({
                 resource: resourceUrl.toString().replace(/\/$/, ''),
                 authorization_servers: [authorizationServer],
-                scopes_supported: OAUTH_SCOPES_SUPPORTED,
+                scopes_supported: getAdvertisedOAuthScopes(),
                 bearer_methods_supported: ['header'],
             }),
             {
@@ -274,7 +181,7 @@ const handleRequest = async (
         )
     }
 
-    const token = request.headers.get('Authorization')?.split(' ')[1]
+    const token = extractBearerToken(request)
     const sessionId = url.searchParams.get('sessionId')
 
     if (!token) {
@@ -363,7 +270,7 @@ const handleRequest = async (
         projectId,
         clientUserAgent,
         mcpConsumer,
-        mcpClientName: clientInfo.clientName,
+        mcpClientName: resolveEffectiveClientName(clientInfo.clientName, mcpVendorClient),
         mcpClientVersion: clientInfo.clientVersion,
         mcpProtocolVersion: clientInfo.protocolVersion,
         mcpVendorClient,
@@ -413,36 +320,15 @@ const handleRequest = async (
         Object.assign(ctx.props, { viaSseRedirect: true })
     }
 
-    let server: Promise<Response> | null = null
     if (url.pathname.startsWith('/mcp')) {
-        const proxyResult = await shouldProxyToHono(token, ctx.props.userHash, env.MCP_KV)
-        if (proxyResult.proxy) {
-            log.extend({ proxy: 'hono', region: proxyResult.region })
-            return proxyToHono(request, proxyResult.region)
-        }
-        Object.assign(ctx.props, { transport: 'streamable-http' })
-        server = MCP.serve('/mcp').fetch(request, env, ctx)
-    }
-
-    if (server !== null) {
-        return server
-            .then(async (response) => {
-                const handledResponse = await onThenErrorHandler(response)
-                extendMcpServerLog(log, ctx.props)
-                return handledResponse
-            })
-            .catch((error: Error) => {
-                extendMcpServerLog(log, ctx.props)
-                return onCatchErrorHandler(error, log, ctx)
-            })
+        const region = await resolveProxyRegion(token, ctx.props.userHash, env.MCP_KV)
+        log.extend({ proxy: 'hono', region })
+        return proxyToHono(request, region)
     }
 
     log.extend({ error: 'route_not_found' })
     return new Response('Not found', { status: 404 })
 }
-
-// Durable Object class export - required for Wrangler to find the class for the MCP_OBJECT binding
-export { MCP } from './mcp'
 
 // Worker entry point
 export default {

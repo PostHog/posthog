@@ -112,7 +112,7 @@ pub struct HypercacheFlagsWrapper {
     /// Cohort definitions referenced by flags (including transitive deps).
     /// Precomputed by Django at cache-write time so the Rust service can skip
     /// the separate CohortCacheManager PG query.
-    #[serde(default)]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub cohorts: Option<Vec<Cohort>>,
 }
 
@@ -128,11 +128,11 @@ pub struct Holdout {
 
 #[derive(Debug, Clone, Deserialize, Serialize, Default)]
 pub struct FlagPropertyGroup {
-    #[serde(default)]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub properties: Option<Vec<PropertyFilter>>,
-    #[serde(default)]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub rollout_percentage: Option<f64>,
-    #[serde(default)]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub variant: Option<String>,
     /// Per-condition-set aggregation group type index. The outer Option distinguishes
     /// "field absent" (legacy flags, should fall back to flag-level) from "field
@@ -155,11 +155,12 @@ pub struct FlagPropertyGroup {
     /// (`cohort_name`, `group_key_names`), and field typos would be silently dropped
     /// on round-trip and the Python `verify_flags_cache` verifier would report
     /// spurious `FIELD_MISMATCH` against the Django JSONB passthrough. Only
-    /// unknown-key passthrough is guaranteed here — absent-vs-null normalization for
-    /// known optional fields (e.g. `variant`, `rollout_percentage`) is handled by the
-    /// Python verifier's `_strip_null_values` helper, since those fields lack
-    /// `skip_serializing_if` and will re-emit as `null` on a serialize round-trip.
-    /// See plans/verify-flags-cache-loose-comparison.md.
+    /// unknown-key passthrough is guaranteed here. The known optional fields
+    /// (`properties`, `rollout_percentage`, `variant`) carry
+    /// `skip_serializing_if = "Option::is_none"` so an absent source key stays
+    /// absent on cache-write rather than re-emitting as `null`.
+    /// See plans/verify-flags-cache-loose-comparison.md and
+    /// plans/rust-flag-models-skip-serializing-if-sweep.md.
     #[serde(flatten)]
     pub extra: serde_json::Map<String, serde_json::Value>,
 }
@@ -180,7 +181,7 @@ pub struct MultivariateFlagOptions {
 pub struct FlagFilters {
     #[serde(default)]
     pub groups: Vec<FlagPropertyGroup>,
-    #[serde(default)]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub multivariate: Option<MultivariateFlagOptions>,
     /// The group type index is used to determine which group type to use for the flag.
     ///
@@ -199,19 +200,19 @@ pub struct FlagFilters {
     /// against Django's JSONB passthrough and a fabricated null shows up as drift.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub aggregation_group_type_index: Option<i32>,
-    #[serde(default)]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub payloads: Option<serde_json::Value>,
     /// Early access feature enrollment. When `true`, the flag is evaluated against the
     /// person property `$feature_enrollment/{flag_key}`.
-    #[serde(default)]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub feature_enrollment: Option<bool>,
     /// Holdout format: `{"id": 42, "exclusion_percentage": 10}`.
     /// Defines a set of users intentionally excluded from a test or experiment.
-    #[serde(default)]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub holdout: Option<Holdout>,
     /// Flag-level toggle: when true, condition evaluation stops at the first
     /// matching group rather than continuing to evaluate subsequent groups.
-    #[serde(default)]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub early_exit: Option<bool>,
     /// Captures unknown JSONB keys so they survive the cache round-trip unchanged.
     /// Without this, legacy filter keys (`holdout_groups`), top-level stray keys,
@@ -219,10 +220,14 @@ pub struct FlagFilters {
     /// `payloads`) would be silently dropped on round-trip and the Python
     /// `verify_flags_cache` verifier would report spurious `FIELD_MISMATCH`
     /// against the Django JSONB passthrough. Only unknown-key passthrough is
-    /// guaranteed here — absent-vs-null normalization for known optional fields
-    /// (e.g. `multivariate`, `payloads`, `super_groups`) is handled by the
-    /// Python verifier's `_strip_null_values` helper.
-    /// See plans/verify-flags-cache-loose-comparison.md.
+    /// guaranteed here. The known optional fields (`multivariate`, `payloads`,
+    /// `feature_enrollment`, `holdout`, `early_exit`,
+    /// `aggregation_group_type_index`) carry
+    /// `skip_serializing_if = "Option::is_none"` so an absent source key stays
+    /// absent on cache-write. Keys that only ever travel through `extra` (e.g.
+    /// `super_groups`, the legacy `holdout_groups`) are emitted only when present.
+    /// See plans/verify-flags-cache-loose-comparison.md and
+    /// plans/rust-flag-models-skip-serializing-if-sweep.md.
     #[serde(flatten)]
     pub extra: serde_json::Map<String, serde_json::Value>,
 }
@@ -251,6 +256,7 @@ pub enum BucketingIdentifier {
 pub struct FeatureFlag {
     pub id: FeatureFlagId,
     pub team_id: i32,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub name: Option<String>,
     pub key: String,
     pub filters: FlagFilters,
@@ -258,18 +264,40 @@ pub struct FeatureFlag {
     pub deleted: bool,
     #[serde(default)]
     pub active: bool,
-    #[serde(default)]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub ensure_experience_continuity: Option<bool>,
-    #[serde(default)]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub version: Option<i32>,
-    #[serde(default)]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub evaluation_runtime: Option<String>,
     /// Evaluation context tags for this flag. JSON key is `evaluation_contexts`,
     /// but Rust field remains `evaluation_tags` for internal compatibility.
-    #[serde(default, rename = "evaluation_contexts")]
+    #[serde(
+        default,
+        rename = "evaluation_contexts",
+        skip_serializing_if = "Option::is_none"
+    )]
     pub evaluation_tags: Option<Vec<String>>,
-    #[serde(default)]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub bucketing_identifier: Option<String>,
+    /// True if the flag has at least one non-deleted linked experiment. Surfaced to
+    /// SDKs via FlagDetailsMetadata so they can decide whether to keep or strip
+    /// $feature_flag_called event properties.
+    ///
+    /// Defaults to `true` (rather than the usual `#[serde(default)]` bool false) so cache
+    /// entries written by older Django without the field over-preserve properties instead of
+    /// stripping them. A spurious `true` only wastes bytes; a spurious `false` would strip
+    /// unrecoverable experiment-exposure data. The panic fallback shares this default via
+    /// `default_has_experiment()`; the PG fallback query computes the real value.
+    #[serde(default = "default_has_experiment")]
+    pub has_experiment: bool,
+}
+
+/// Default for `FeatureFlag::has_experiment` when experiment linkage is unknowable — an
+/// older-Django cache payload missing the field, or the panic fallback that can't compute
+/// it. See the field doc for why this is `true` rather than `false`.
+pub(crate) fn default_has_experiment() -> bool {
+    true
 }
 
 impl FeatureFlag {
@@ -302,6 +330,9 @@ pub struct FeatureFlagRow {
     pub evaluation_tags: Option<Vec<String>>,
     #[serde(default)]
     pub bucketing_identifier: Option<String>,
+    /// Populated by the from_pg fallback query via a correlated EXISTS over posthog_experiment.
+    #[serde(default)]
+    pub has_experiment: bool,
 }
 
 /// Request-scoped view of flag definitions plus the per-request filter set.
@@ -773,5 +804,160 @@ mod unknown_key_passthrough_tests {
 
         let output = serde_json::to_value(&filters).expect("FlagFilters should serialize cleanly");
         assert_eq!(output["aggregation_group_type_index"], 2);
+    }
+}
+
+#[cfg(test)]
+mod skip_serializing_if_tests {
+    //! Verify the `skip_serializing_if = "Option::is_none"` sweep across the
+    //! cache-write structs. For every swept `Option<T>` field:
+    //! - Absent input round-trips as absent (no fabricated `null` key on serialize).
+    //! - A real value round-trips unchanged (no happy-path regression).
+    //!
+    //! Fabricating `"field": null` on cache write diverges from the Django JSONB
+    //! passthrough and shows up as drift against the Python `verify_flags_cache`
+    //! verifier. See plans/rust-flag-models-skip-serializing-if-sweep.md.
+    use super::*;
+
+    /// Asserts a key is absent from a serialized JSON object.
+    fn assert_absent(value: &serde_json::Value, key: &str) {
+        let map = value
+            .as_object()
+            .expect("serialized value should be an object");
+        assert!(
+            !map.contains_key(key),
+            "absent field `{key}` must not be promoted to a null key on serialize"
+        );
+    }
+
+    #[test]
+    fn flag_property_group_absent_options_stay_absent() {
+        let group: FlagPropertyGroup = serde_json::from_value(serde_json::json!({})).unwrap();
+        let output = serde_json::to_value(&group).unwrap();
+        assert_absent(&output, "properties");
+        assert_absent(&output, "rollout_percentage");
+        assert_absent(&output, "variant");
+    }
+
+    #[test]
+    fn flag_property_group_values_round_trip() {
+        let input = serde_json::json!({
+            "properties": [],
+            "rollout_percentage": 50.0,
+            "variant": "control"
+        });
+        let group: FlagPropertyGroup = serde_json::from_value(input).unwrap();
+        let output = serde_json::to_value(&group).unwrap();
+        assert!(output["properties"].is_array());
+        assert_eq!(output["rollout_percentage"], 50.0);
+        assert_eq!(output["variant"], "control");
+    }
+
+    #[test]
+    fn flag_filters_absent_options_stay_absent() {
+        let filters: FlagFilters = serde_json::from_value(serde_json::json!({})).unwrap();
+        let output = serde_json::to_value(&filters).unwrap();
+        assert_absent(&output, "multivariate");
+        assert_absent(&output, "aggregation_group_type_index");
+        assert_absent(&output, "payloads");
+        assert_absent(&output, "feature_enrollment");
+        assert_absent(&output, "holdout");
+        assert_absent(&output, "early_exit");
+    }
+
+    #[test]
+    fn flag_filters_values_round_trip() {
+        let input = serde_json::json!({
+            "groups": [],
+            "multivariate": {"variants": []},
+            "aggregation_group_type_index": 2,
+            "payloads": {"true": "p"},
+            "feature_enrollment": true,
+            "holdout": {"id": 42, "exclusion_percentage": 10.0},
+            "early_exit": true
+        });
+        let filters: FlagFilters = serde_json::from_value(input).unwrap();
+        let output = serde_json::to_value(&filters).unwrap();
+        assert!(output["multivariate"].is_object());
+        assert_eq!(output["aggregation_group_type_index"], 2);
+        assert_eq!(output["payloads"]["true"], "p");
+        assert_eq!(output["feature_enrollment"], true);
+        assert_eq!(output["holdout"]["id"], 42);
+        assert_eq!(output["early_exit"], true);
+    }
+
+    #[test]
+    fn feature_flag_absent_options_stay_absent() {
+        let input = serde_json::json!({
+            "id": 1,
+            "team_id": 1,
+            "key": "k",
+            "filters": {"groups": []}
+        });
+        let flag: FeatureFlag = serde_json::from_value(input).unwrap();
+        let output = serde_json::to_value(&flag).unwrap();
+        assert_absent(&output, "name");
+        assert_absent(&output, "ensure_experience_continuity");
+        assert_absent(&output, "version");
+        assert_absent(&output, "evaluation_runtime");
+        // `evaluation_tags` serializes under the `evaluation_contexts` JSON key.
+        assert_absent(&output, "evaluation_contexts");
+        assert_absent(&output, "evaluation_tags");
+        assert_absent(&output, "bucketing_identifier");
+    }
+
+    #[test]
+    fn feature_flag_values_round_trip() {
+        let input = serde_json::json!({
+            "id": 1,
+            "team_id": 1,
+            "key": "k",
+            "filters": {"groups": []},
+            "name": "My Flag",
+            "ensure_experience_continuity": true,
+            "version": 3,
+            "evaluation_runtime": "all",
+            "evaluation_contexts": ["docs"],
+            "bucketing_identifier": "device_id"
+        });
+        let flag: FeatureFlag = serde_json::from_value(input).unwrap();
+        let output = serde_json::to_value(&flag).unwrap();
+        assert_eq!(output["name"], "My Flag");
+        assert_eq!(output["ensure_experience_continuity"], true);
+        assert_eq!(output["version"], 3);
+        assert_eq!(output["evaluation_runtime"], "all");
+        assert_eq!(output["evaluation_contexts"], serde_json::json!(["docs"]));
+        assert_eq!(output["bucketing_identifier"], "device_id");
+    }
+
+    #[test]
+    fn hypercache_wrapper_absent_cohorts_stays_absent() {
+        let input = serde_json::json!({
+            "flags": [],
+            "evaluation_metadata": {
+                "dependency_stages": [],
+                "flags_with_missing_deps": [],
+                "transitive_deps": {}
+            }
+        });
+        let wrapper: HypercacheFlagsWrapper = serde_json::from_value(input).unwrap();
+        let output = serde_json::to_value(&wrapper).unwrap();
+        assert_absent(&output, "cohorts");
+    }
+
+    #[test]
+    fn hypercache_wrapper_cohorts_round_trip() {
+        let input = serde_json::json!({
+            "flags": [],
+            "evaluation_metadata": {
+                "dependency_stages": [],
+                "flags_with_missing_deps": [],
+                "transitive_deps": {}
+            },
+            "cohorts": []
+        });
+        let wrapper: HypercacheFlagsWrapper = serde_json::from_value(input).unwrap();
+        let output = serde_json::to_value(&wrapper).unwrap();
+        assert!(output["cohorts"].is_array());
     }
 }

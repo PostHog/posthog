@@ -1,7 +1,4 @@
-"""
-Refresh long-lived credentials inside a running task sandbox.
-This module re-resolves a fresh token and re-applies it in place.
-"""
+"""Refresh long-lived credentials inside a running task sandbox by re-resolving and re-applying tokens in place."""
 
 import shlex
 import base64
@@ -9,12 +6,26 @@ import logging
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Protocol
 
-from products.tasks.backend.models import Task
-from products.tasks.backend.services.agentsh import ENV_FILE
-from products.tasks.backend.temporal.process_task.utils import get_sandbox_github_token
+import redis
+
+from posthog.models.integration import Integration
+from posthog.models.user_integration import ReauthorizationRequired, UserGitHubIntegration, UserIntegration
+from posthog.redis import get_client
+
+from products.tasks.backend.exceptions import CredentialUnavailableError
+from products.tasks.backend.logic.services.agentsh import ENV_FILE
+from products.tasks.backend.models import Task, TaskRun
+from products.tasks.backend.temporal.process_task.utils import (
+    PrAuthorshipMode,
+    get_github_token,
+    get_pr_authorship_mode,
+    get_sandbox_github_token,
+    is_caller_token_run,
+    resolve_user_github_integration_for_task,
+)
 
 if TYPE_CHECKING:
-    from products.tasks.backend.services.sandbox import SandboxBase
+    from products.tasks.backend.logic.services.sandbox import SandboxBase
 
     from .activities.get_task_processing_context import TaskProcessingContext
 
@@ -22,17 +33,12 @@ logger = logging.getLogger(__name__)
 
 GITHUB_ENV_KEYS = ("GITHUB_TOKEN", "GH_TOKEN")
 
-# GitHub App tokens are refreshed server-side at their half-life, so a freshly
-# resolved token has at least ~half its TTL remaining. Refresh at half of that
-# floor again to guarantee the in-sandbox copy never lapses during an active run.
-#   ghs_ = installation access token, ~1h TTL  → refresh every 20 min
-#   ghu_ = user-to-server token,      ~8h TTL  → refresh every 2 h
+# Refresh at half the token's server-side half-life so the in-sandbox copy never lapses mid-run.
+#   ghs_ = installation token (~1h) → 20 min; ghu_ = user-to-server token (~8h) → 2 h
 _GITHUB_REFRESH_INTERVAL_BY_PREFIX: dict[str, float] = {
     "ghs_": 20 * 60,
     "ghu_": 2 * 60 * 60,
 }
-# Used before the first token is resolved, and for any unrecognized prefix —
-# short enough to stay under the 1h installation-token floor.
 DEFAULT_REFRESH_INTERVAL_SECONDS: float = 20 * 60
 
 
@@ -44,12 +50,7 @@ def github_refresh_interval_seconds(token: str) -> float:
 
 
 def set_git_remote_token(sandbox: "SandboxBase", repository: str, github_token: str) -> bool:
-    """Rewrite ``origin``'s remote URL with a fresh ``x-access-token``.
-
-    Takes effect immediately — git re-reads ``.git/config`` on every operation,
-    so this fixes ``git fetch``/``push`` even mid-turn. Guards on ``.git`` so it
-    no-ops when the snapshot predates the clone.
-    """
+    """Rewrite ``origin``'s remote URL with a fresh ``x-access-token``; git re-reads it on every op. No-ops pre-clone."""
     org, repo = repository.lower().split("/")
     repo_path = f"/tmp/workspace/repos/{org}/{repo}"
     update_remote = (
@@ -70,13 +71,10 @@ def set_git_remote_token(sandbox: "SandboxBase", repository: str, github_token: 
 
 
 def update_sandbox_env_file(sandbox: "SandboxBase", updates: dict[str, str]) -> bool:
-    """Replace specific keys in the agentsh env file, preserving all other entries.
+    """Replace specific keys in the NUL-delimited agentsh env file, preserving all other entries.
 
-    The env file is a NUL-delimited ``key=value`` list that the agentsh exec
-    wrapper re-sources on every command, so updating it here propagates fresh
-    tokens to the agent's subsequent ``gh``/``git`` invocations without a reboot.
-    Read-modify-write (via base64 to survive NUL bytes) so we never clobber the
-    rest of the captured environment.
+    Read-modify-write via base64 to survive NUL bytes. The exec wrapper re-sources the
+    file per command, so updates reach the agent's later ``gh``/``git`` calls without a reboot.
     """
     if not updates:
         return True
@@ -124,6 +122,104 @@ def apply_github_credentials_to_sandbox(sandbox: "SandboxBase", repository: str 
     update_sandbox_env_file(sandbox, dict.fromkeys(GITHUB_ENV_KEYS, github_token))
 
 
+USER_TOKEN_REFRESH_INTERVAL_SECONDS: float = _GITHUB_REFRESH_INTERVAL_BY_PREFIX["ghu_"]
+# TTL covers a slow mint + propagation; wait stays under the refresh activity's 2 min timeout.
+_ROTATION_LOCK_TTL_SECONDS = 120
+_ROTATION_LOCK_WAIT_SECONDS = 90
+
+
+def _rotation_lock_key(user_integration_id: int) -> str:
+    return f"tasks:gh_user_token_rotate:{user_integration_id}"
+
+
+def _live_sandboxes_for_user_integration(user_integration_id: int) -> list[tuple[str, str, str | None]]:
+    rows: list[tuple[str, str, str | None]] = []
+    runs = (
+        TaskRun.objects.filter(
+            status=TaskRun.Status.IN_PROGRESS,
+            task__github_user_integration_id=user_integration_id,
+        )
+        .select_related("task")
+        .only("id", "state", "task__repository", "task__github_user_integration_id", "task__origin_product")
+    )
+    for run in runs:
+        sandbox_id = (run.state or {}).get("sandbox_id")
+        if not sandbox_id:
+            continue
+        # Only user-authored runs use this integration's rotating token. Bot-authored runs use an
+        # installation token, and caller-supplied-token runs are pinned to their own credential —
+        # propagating over either would swap its identity.
+        if get_pr_authorship_mode(run.task, run.state) != PrAuthorshipMode.USER:
+            continue
+        if is_caller_token_run(str(run.id), run.state):
+            continue
+        rows.append((str(run.id), sandbox_id, run.task.repository))
+    return rows
+
+
+def _propagate_user_token(user_integration_id: int, token: str) -> int:
+    from products.tasks.backend.logic.services.sandbox import Sandbox  # noqa: PLC0415
+
+    applied = 0
+    for run_id, sandbox_id, repository in _live_sandboxes_for_user_integration(user_integration_id):
+        try:
+            sandbox = Sandbox.get_by_id(sandbox_id)
+            if sandbox.is_running():
+                apply_github_credentials_to_sandbox(sandbox, repository, token)
+                applied += 1
+        except Exception:
+            logger.warning(
+                "Failed to propagate refreshed GitHub user token to sibling sandbox",
+                extra={"integration_id": user_integration_id, "run_id": run_id, "sandbox_id": sandbox_id},
+                exc_info=True,
+            )
+    return applied
+
+
+def resolve_coordinated_user_token(integration: UserGitHubIntegration) -> str | None:
+    """Usable user-to-server token, with the rotating mint serialized per integration.
+
+    Refreshing a user token revokes the previous one, so concurrent callers sharing an
+    integration would revoke each other's in-flight token. Serialize the mint under a
+    per-integration lock and propagate the fresh token to live sandboxes.
+    """
+    if not integration.user_access_token_expired():
+        return integration.get_usable_user_access_token()
+
+    integration_id = integration.integration.id
+    lock = get_client().lock(
+        _rotation_lock_key(integration_id),
+        timeout=_ROTATION_LOCK_TTL_SECONDS,
+        blocking_timeout=_ROTATION_LOCK_WAIT_SECONDS,
+    )
+    if not lock.acquire():
+        # Waited out the budget — read the current token without minting; the holder's propagation self-heals.
+        integration.integration.refresh_from_db()
+        return UserGitHubIntegration(integration.integration).user_access_token
+
+    try:
+        integration.integration.refresh_from_db()
+        current = UserGitHubIntegration(integration.integration)
+        was_expired = current.user_access_token_expired()
+        # Mints only if still expired; a prior holder's fresh token is returned without rotating.
+        token = current.get_usable_user_access_token()
+        if was_expired and token:
+            propagated = _propagate_user_token(integration_id, token)
+            logger.info(
+                "Rotated and propagated GitHub user token",
+                extra={"integration_id": integration_id, "sibling_sandboxes_updated": propagated},
+            )
+        return token
+    finally:
+        try:
+            lock.release()
+        except redis.exceptions.LockError:
+            logger.warning(
+                "GitHub user-token rotation lock already expired/released",
+                extra={"integration_id": integration_id},
+            )
+
+
 @dataclass
 class CredentialRefreshOutcome:
     kind: str
@@ -155,14 +251,50 @@ class GitHubSandboxCredential:
                 self.kind, refreshed=False, next_refresh_seconds=DEFAULT_REFRESH_INTERVAL_SECONDS
             )
 
-        token = get_sandbox_github_token(
-            ctx.github_integration_id,
-            run_id=ctx.run_id,
-            state=ctx.state,
-            task=task,
-            github_user_integration_id=ctx.github_user_integration_id,
-            repository=ctx.repository,
+        integration = None
+        if get_pr_authorship_mode(task, ctx.state) == PrAuthorshipMode.USER and not is_caller_token_run(
+            ctx.run_id, ctx.state
+        ):
+            integration = resolve_user_github_integration_for_task(task, repository=ctx.repository, allow_refresh=True)
+
+        if integration is not None:
+            return self._refresh_shared_user_integration(sandbox, ctx, task, integration)
+
+        github_integration_id = task.github_integration_id
+        github_user_integration_id = (
+            str(task.github_user_integration_id) if task.github_user_integration_id else ctx.github_user_integration_id
         )
+        if (
+            github_integration_id is None
+            and github_user_integration_id is None
+            and not is_caller_token_run(ctx.run_id, ctx.state)
+        ):
+            raise CredentialUnavailableError(
+                "GitHub integration for this run was disconnected mid-run",
+                {"run_id": ctx.run_id, "task_id": ctx.task_id},
+            )
+
+        try:
+            token = get_sandbox_github_token(
+                github_integration_id,
+                run_id=ctx.run_id,
+                state=ctx.state,
+                task=task,
+                github_user_integration_id=github_user_integration_id,
+                repository=ctx.repository,
+            )
+        except (Integration.DoesNotExist, UserIntegration.DoesNotExist) as e:
+            raise CredentialUnavailableError(
+                "GitHub integration for this run no longer exists",
+                {"run_id": ctx.run_id, "task_id": ctx.task_id},
+                cause=e,
+            )
+        except ReauthorizationRequired as e:
+            raise CredentialUnavailableError(
+                "GitHub user integration for this run requires reauthorization",
+                {"run_id": ctx.run_id, "task_id": ctx.task_id},
+                cause=e,
+            )
         if not token:
             return CredentialRefreshOutcome(
                 self.kind, refreshed=False, next_refresh_seconds=DEFAULT_REFRESH_INTERVAL_SECONDS
@@ -172,6 +304,43 @@ class GitHubSandboxCredential:
         return CredentialRefreshOutcome(
             self.kind, refreshed=True, next_refresh_seconds=github_refresh_interval_seconds(token)
         )
+
+    def _refresh_shared_user_integration(
+        self, sandbox: "SandboxBase", ctx: "TaskProcessingContext", task: Task, integration: UserGitHubIntegration
+    ) -> CredentialRefreshOutcome:
+        try:
+            token = resolve_coordinated_user_token(integration)
+        except (ReauthorizationRequired, UserIntegration.DoesNotExist) as e:
+            fallback = self._installation_token_fallback(ctx, task, cause=e)
+            if not fallback:
+                return CredentialRefreshOutcome(
+                    self.kind, refreshed=False, next_refresh_seconds=DEFAULT_REFRESH_INTERVAL_SECONDS
+                )
+            apply_github_credentials_to_sandbox(sandbox, ctx.repository, fallback)
+            return CredentialRefreshOutcome(
+                self.kind, refreshed=True, next_refresh_seconds=github_refresh_interval_seconds(fallback)
+            )
+        if token:
+            apply_github_credentials_to_sandbox(sandbox, ctx.repository, token)
+        return CredentialRefreshOutcome(
+            self.kind, refreshed=bool(token), next_refresh_seconds=USER_TOKEN_REFRESH_INTERVAL_SECONDS
+        )
+
+    def _installation_token_fallback(self, ctx: "TaskProcessingContext", task: Task, cause: Exception) -> str | None:
+        if task.github_integration_id is None:
+            raise CredentialUnavailableError(
+                "GitHub user integration requires reauthorization and no team installation is available",
+                {"run_id": ctx.run_id, "task_id": ctx.task_id},
+                cause=cause,
+            )
+        try:
+            return get_github_token(task.github_integration_id)
+        except Integration.DoesNotExist as e:
+            raise CredentialUnavailableError(
+                "GitHub integration for this run no longer exists",
+                {"run_id": ctx.run_id, "task_id": ctx.task_id},
+                cause=e,
+            )
 
 
 def build_sandbox_credentials(ctx: "TaskProcessingContext") -> list[SandboxCredential]:

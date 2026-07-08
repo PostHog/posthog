@@ -18,9 +18,9 @@ import { subscriptions } from 'kea-subscriptions'
 
 import api from 'lib/api'
 import { SetupTaskId, globalSetupLogic } from 'lib/components/ProductSetup'
-import { isDomain, isURL } from 'lib/utils'
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
 import { addProductIntent } from 'lib/utils/product-intents'
+import { isDomain, isURL } from 'lib/utils/url'
 import { sceneLogic } from 'scenes/sceneLogic'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
@@ -347,7 +347,7 @@ export const authorizedUrlListLogic = kea<authorizedUrlListLogicType>([
                 breakpoint()
                 const result = response.results as [string, number][]
 
-                if (result && result.length === 0) {
+                if (!result || result.length === 0) {
                     return []
                 }
 

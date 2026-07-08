@@ -1,7 +1,7 @@
 import { querySelectorAllDeep } from 'query-selector-shadow-dom'
 import { useMemo } from 'react'
 
-import { pluralize } from 'lib/utils'
+import { pluralize } from 'lib/utils/strings'
 
 interface SelectorCountProps {
     selector: string | null

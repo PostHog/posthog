@@ -170,7 +170,18 @@ class UpsertDashboardTool(MaxTool):
             return CREATE_NO_INSIGHTS_PROMPT, None
 
         dashboard = await self._create_dashboard_with_tiles(action.name, action.description, insights)
-        await self._report_dashboard_action(dashboard, "dashboard created")
+        # AI dashboards are always built from scratch (no template, no duplicate); set the same provenance
+        # props the serializer create() path emits so `from_template`/`duplicated` filters include AI traffic.
+        await self._report_dashboard_action(
+            dashboard,
+            "dashboard created",
+            {
+                "from_template": False,
+                "template_key": None,
+                "duplicated": False,
+                "duplicated_from_dashboard_id": None,
+            },
+        )
         await self._report_new_insights(validated_artifacts, insights)
         output = await self._format_dashboard_output(dashboard, insights)
 
@@ -244,13 +255,16 @@ class UpsertDashboardTool(MaxTool):
 
         return resolved
 
-    async def _report_dashboard_action(self, dashboard: Dashboard, event: str) -> None:
+    async def _report_dashboard_action(
+        self, dashboard: Dashboard, event: str, extra_properties: dict[str, Any] | None = None
+    ) -> None:
         await database_sync_to_async(report_user_action)(
             self._user,
             event,
             {
                 **await database_sync_to_async(dashboard.get_analytics_metadata)(),
                 "source": EventSource.POSTHOG_AI,
+                **(extra_properties or {}),
             },
             team=self._team,
         )
@@ -265,6 +279,8 @@ class UpsertDashboardTool(MaxTool):
                     "insight created",
                     {
                         "insight_id": insight.short_id,
+                        **insight.get_analytics_query_kinds(),
+                        **insight.get_analytics_query_metadata(),
                         "source": EventSource.POSTHOG_AI,
                     },
                     team=self._team,
@@ -551,6 +567,7 @@ class UpsertDashboardTool(MaxTool):
         context = DashboardContext(
             team=self._team,
             insights_data=insights_data,
+            user=self._user,
             name=dashboard.name,
             description=dashboard.description,
             dashboard_id=str(dashboard.id),

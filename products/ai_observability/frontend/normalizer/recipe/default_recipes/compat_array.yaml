@@ -2,7 +2,6 @@
 # Lowest priority (5) so it claims these before the envelope rules can shadow it.
 
 id: compat_array
-priority: 5
 
 rules:
     - on:

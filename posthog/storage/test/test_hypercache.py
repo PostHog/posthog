@@ -7,10 +7,17 @@ from unittest.mock import Mock, patch
 from django.core.cache import cache
 from django.test import override_settings
 
+from botocore.exceptions import BotoCoreError, ClientError
 from parameterized import parameterized
 
 from posthog.storage import object_storage
-from posthog.storage.hypercache import DEFAULT_CACHE_MISS_TTL, DEFAULT_CACHE_TTL, HyperCache, HyperCacheStoreMissing
+from posthog.storage.hypercache import (
+    DEFAULT_CACHE_MISS_TTL,
+    DEFAULT_CACHE_TTL,
+    HyperCache,
+    HyperCacheDependencyUnavailable,
+    HyperCacheStoreMissing,
+)
 
 
 class HyperCacheTestBase:
@@ -100,6 +107,34 @@ class TestHyperCacheGetFromCache(HyperCacheTestBase):
         assert result == {"default": "data"}
         assert source == "db"
 
+    @parameterized.expand(
+        [
+            ("value_error", ValueError("Invalid endpoint: https://${POSTHOG_DOMAIN}")),
+            ("object_storage_error", object_storage.ObjectStorageError("read failed")),
+            ("boto_core_error", BotoCoreError()),
+            ("client_error", ClientError({"Error": {"Code": "AccessDenied"}}, "GetObject")),
+        ]
+    )
+    def test_get_from_cache_s3_exception_falls_back_to_db(self, _name, exception):
+        """A storage-layer failure on the S3 read must degrade to a cache miss, not a 500."""
+        self.hypercache.clear_cache(self.team_id, kinds=["redis"])
+
+        with patch.object(object_storage, "read", side_effect=exception):
+            result, source = self.hypercache.get_from_cache_with_source(self.team_id)
+
+        assert result == {"default": "data"}
+        assert source == "db"
+
+    def test_get_from_cache_corrupt_s3_payload_falls_back_to_db(self):
+        """A malformed S3 blob (json.JSONDecodeError, a ValueError subclass) must degrade to a cache miss."""
+        self.hypercache.clear_cache(self.team_id, kinds=["redis"])
+
+        with patch.object(object_storage, "read", return_value="{not valid json"):
+            result, source = self.hypercache.get_from_cache_with_source(self.team_id)
+
+        assert result == {"default": "data"}
+        assert source == "db"
+
     def test_get_from_cache_with_source_empty(self):
         """Test getting data with source information - Empty result"""
 
@@ -150,6 +185,76 @@ class TestHyperCacheUpdateCache(HyperCacheTestBase):
         result = hc.update_cache(self.team_id)
 
         assert result is False
+
+
+class TestHyperCacheDependencyUnavailable(HyperCacheTestBase):
+    """A load_fn raising HyperCacheDependencyUnavailable skips the write and returns a
+    miss without caching a sentinel."""
+
+    @staticmethod
+    def _load_fn_unavailable(team):
+        raise HyperCacheDependencyUnavailable("persons db down")
+
+    def test_update_cache_returns_false_and_writes_nothing(self):
+        hc = HyperCache(namespace="dep_test", value="value", load_fn=self._load_fn_unavailable)
+        hc.clear_cache(self.team_id, kinds=["redis", "s3"])
+
+        with (
+            patch("posthog.storage.hypercache.capture_exception") as mock_capture,
+            patch("posthog.storage.hypercache.HYPERCACHE_REBUILD_SKIPPED_COUNTER") as mock_skipped,
+        ):
+            result = hc.update_cache(self.team_id)
+
+        assert result is False
+        # Nothing written, not even a miss sentinel, so a prior entry survives
+        assert cache.get(hc.get_cache_key(self.team_id)) is None
+        # The source of the failure already reported it, so update_cache does not
+        mock_capture.assert_not_called()
+        # The skip is counted so the refresh/warm path feeds the skip metric, not just
+        # the signal path
+        mock_skipped.labels.assert_called_once_with(namespace="dep_test", reason="dependency_unavailable")
+        mock_skipped.labels.return_value.inc.assert_called_once()
+
+    def test_get_from_cache_returns_transient_miss_without_sentinel(self):
+        hc = HyperCache(namespace="dep_test", value="value", load_fn=self._load_fn_unavailable)
+        hc.clear_cache(self.team_id, kinds=["redis", "s3"])
+
+        result, source = hc.get_from_cache_with_source(self.team_id)
+
+        assert result is None
+        # Distinct from a plain "db" miss so etag-aware callers can fail loud
+        assert source == "dependency_unavailable"
+        # No miss sentinel cached, so the next read retries instead of serving a cached miss
+        assert cache.get(hc.get_cache_key(self.team_id)) is None
+
+    def test_get_if_none_match_raises_when_etag_enabled_and_cold(self):
+        # On a cold cache during an outage, the etag-aware read must surface the typed
+        # signal to the caller (→ retryable 503), not degrade to a silent miss.
+        hc = HyperCache(namespace="dep_test", value="value", load_fn=self._load_fn_unavailable, enable_etag=True)
+        hc.clear_cache(self.team_id, kinds=["redis", "s3"])
+
+        with pytest.raises(HyperCacheDependencyUnavailable):
+            hc.get_if_none_match(self.team_id, client_etag=None)
+
+    def test_get_if_none_match_raises_when_etag_disabled_and_cold(self):
+        hc = HyperCache(namespace="dep_test", value="value", load_fn=self._load_fn_unavailable)
+        hc.clear_cache(self.team_id, kinds=["redis", "s3"])
+
+        with pytest.raises(HyperCacheDependencyUnavailable):
+            hc.get_if_none_match(self.team_id, client_etag=None)
+
+    def test_get_if_none_match_still_degrades_on_redis_failure(self):
+        # A genuine Redis failure during the etag check must still degrade to full
+        # data — only the dependency-unavailable signal is re-raised.
+        hc = HyperCache(namespace="dep_test", value="value", load_fn=lambda team: {"ok": True}, enable_etag=True)
+        hc.clear_cache(self.team_id, kinds=["redis", "s3"])
+
+        with patch.object(hc, "get_etag", side_effect=Exception("redis down")):
+            data, etag, modified = hc.get_if_none_match(self.team_id, client_etag=None)
+
+        assert data == {"ok": True}
+        assert etag is None
+        assert modified is True
 
 
 class TestHyperCacheIntegration(HyperCacheTestBase):
@@ -1158,3 +1263,185 @@ class TestHyperCacheRemoveExpiryTracking(BaseTest):
             hc.clear_cache(42)
 
         mock_redis.zrem.assert_called_once_with(self.SORTED_SET_KEY, "42")
+
+
+class TestHyperCacheSetCacheValueRedisOnly(BaseTest):
+    """Tests for set_cache_value_redis_only, focused on the track_expiry option."""
+
+    SORTED_SET_KEY = "test_redis_only_expiry_sorted_set"
+
+    @property
+    def sample_data(self) -> dict:
+        return {"key": "value"}
+
+    def _make_hypercache(self, secondary: bool = False) -> HyperCache:
+        return HyperCache(
+            namespace="test",
+            value="value",
+            load_fn=lambda key: {"data": "test"},
+            token_based=True,
+            expiry_sorted_set_key=self.SORTED_SET_KEY,
+            cache_alias="flags_dedicated" if secondary else None,
+            secondary_cache_alias="default" if secondary else None,
+        )
+
+    @patch("posthog.storage.object_storage.write")
+    @patch("posthog.storage.hypercache.get_client")
+    def test_track_expiry_stamps_sorted_set_without_writing_s3(self, mock_get_client, mock_s3_write):
+        mock_redis = Mock()
+        mock_get_client.return_value = mock_redis
+
+        hc = self._make_hypercache()
+        hc.set_cache_value_redis_only(self.team, self.sample_data, track_expiry=True)
+
+        # Redis-only path never touches S3.
+        mock_s3_write.assert_not_called()
+        # Expiry tracking is stamped with the team's api_token (token-based cache).
+        mock_redis.zadd.assert_called_once()
+        sorted_set_key, member_map = mock_redis.zadd.call_args[0]
+        assert sorted_set_key == self.SORTED_SET_KEY
+        assert str(self.team.api_token) in member_map
+        # The value is readable from the Redis tier afterwards.
+        assert hc.get_from_cache(self.team.api_token) == self.sample_data
+
+    @patch("posthog.storage.hypercache.get_client")
+    def test_default_does_not_track_expiry(self, mock_get_client):
+        hc = self._make_hypercache()
+        hc.set_cache_value_redis_only(self.team, self.sample_data)
+
+        # No expiry tracking by default → no Redis client for the sorted set is requested.
+        mock_get_client.assert_not_called()
+
+    @patch("posthog.storage.hypercache.get_client")
+    def test_track_expiry_raises_for_non_team_key(self, mock_get_client):
+        # track_expiry needs a Team to derive the identifier, so a non-Team key must fail
+        # loud rather than silently skip the stamp.
+        hc = self._make_hypercache()
+        with pytest.raises(ValueError, match="requires a Team key"):
+            hc.set_cache_value_redis_only(self.team.api_token, self.sample_data, track_expiry=True)
+
+        mock_get_client.assert_not_called()
+
+    @override_settings(
+        CACHES={
+            "default": {
+                "BACKEND": "django.core.cache.backends.locmem.LocMemCache",
+                "LOCATION": "redis-only-secondary",
+            },
+            "flags_dedicated": {
+                "BACKEND": "django.core.cache.backends.locmem.LocMemCache",
+                "LOCATION": "redis-only-primary",
+            },
+        }
+    )
+    @patch("posthog.storage.hypercache.get_client")
+    def test_track_expiry_mirrors_to_secondary_cache(self, mock_get_client):
+        from django.core.cache import caches
+
+        caches["default"].clear()
+        caches["flags_dedicated"].clear()
+        mock_get_client.return_value = Mock()
+
+        hc = self._make_hypercache(secondary=True)
+        hc.set_cache_value_redis_only(self.team, self.sample_data, track_expiry=True)
+
+        cache_key = hc.get_cache_key(self.team)
+        expected = json.dumps(self.sample_data, sort_keys=True)
+        assert caches["flags_dedicated"].get(cache_key) == expected
+        assert caches["default"].get(cache_key) == expected
+
+
+@override_settings(
+    CACHES={
+        "default": {
+            "BACKEND": "django.core.cache.backends.locmem.LocMemCache",
+            "LOCATION": "skip-if-unchanged-test-cache",
+        },
+    }
+)
+class TestHyperCacheSkipIfUnchanged(BaseTest):
+    """set_cache_value(skip_if_unchanged=True) avoids redundant rewrites of unchanged content."""
+
+    @property
+    def sample_data(self) -> dict:
+        return {"key": "value", "nested": {"data": "test"}}
+
+    def _hypercache(self, enable_etag: bool = True) -> HyperCache:
+        return HyperCache(
+            namespace="skip_ns",
+            value="skip_value",
+            load_fn=lambda team: {"default": "data"},
+            enable_etag=enable_etag,
+            expiry_sorted_set_key="skip_ns_expiry",
+        )
+
+    def test_requires_expiry_tracking(self):
+        """skip_if_unchanged on a cache with no expiry tracking can't keep entries alive,
+        so it raises rather than silently letting them expire."""
+        hc = HyperCache(
+            namespace="skip_ns",
+            value="skip_value",
+            load_fn=lambda team: {"default": "data"},
+            enable_etag=True,
+        )
+        with pytest.raises(ValueError, match="expiry tracking"):
+            hc.set_cache_value(self.team.id, self.sample_data, skip_if_unchanged=True)
+
+    def setUp(self):
+        super().setUp()
+        cache.clear()
+
+    def test_skips_redundant_write_when_unchanged(self):
+        """An ETag-enabled signal write of byte-identical data skips the Redis and S3 rewrites."""
+        hc = self._hypercache()
+        with patch.object(hc, "_set_cache_value_s3") as s3_write:
+            hc.set_cache_value(self.team.id, self.sample_data, skip_if_unchanged=True)
+            etag_before = hc.get_etag(self.team.id)
+
+            with (
+                patch.object(hc, "_set_cache_value_redis", wraps=hc._set_cache_value_redis) as redis_write,
+                patch("posthog.storage.hypercache.HYPERCACHE_WRITE_SKIPPED_UNCHANGED_COUNTER") as skip_counter,
+            ):
+                size = hc.set_cache_value(self.team.id, self.sample_data, skip_if_unchanged=True)
+
+        redis_write.assert_not_called()
+        # The S3 PUT is the costlier write this optimization skips; only the first write reached it.
+        s3_write.assert_called_once()
+        # The skip counter is the only signal ops have that the optimization fired.
+        skip_counter.labels.assert_called_once_with(namespace="skip_ns", value="skip_value")
+        skip_counter.labels.return_value.inc.assert_called_once()
+        assert size == len(json.dumps(self.sample_data, sort_keys=True))
+        # The stored ETag is untouched, so readers comparing ETags won't refetch.
+        assert hc.get_etag(self.team.id) == etag_before
+
+    def test_changed_write_reuses_serialization_correctly(self):
+        """When the content changed, the skip path's serialization is threaded into the Redis
+        write instead of re-dumped; the stored value and ETag must still match the new payload."""
+        hc = self._hypercache()
+        changed = {"key": "changed", "extra": [3, 1, 2]}
+        with patch.object(hc, "_set_cache_value_s3"):
+            hc.set_cache_value(self.team.id, self.sample_data, skip_if_unchanged=True)
+            hc.set_cache_value(self.team.id, changed, skip_if_unchanged=True)
+
+        assert hc.get_from_cache(self.team.id) == changed
+        assert hc.get_etag(self.team.id) == hc._compute_etag(json.dumps(changed, sort_keys=True))
+
+    @parameterized.expand(
+        [
+            # Each case is a distinct way the skip guard fails to hold, so the write proceeds.
+            ("content_changed", True, True, {"key": "changed"}),
+            ("etag_disabled", False, True, None),
+            ("skip_flag_off", True, False, None),
+        ]
+    )
+    def test_write_proceeds(self, _name, enable_etag, skip_if_unchanged, second_data):
+        """The write proceeds whenever the skip guard doesn't hold: content changed, ETags
+        disabled, or skip_if_unchanged off (the refresh/backfill path, which rewrites
+        unchanged content to extend the TTL)."""
+        hc = self._hypercache(enable_etag=enable_etag)
+        second = self.sample_data if second_data is None else second_data
+        with patch.object(hc, "_set_cache_value_s3"):
+            hc.set_cache_value(self.team.id, self.sample_data, skip_if_unchanged=skip_if_unchanged)
+            with patch.object(hc, "_set_cache_value_redis", wraps=hc._set_cache_value_redis) as redis_write:
+                hc.set_cache_value(self.team.id, second, skip_if_unchanged=skip_if_unchanged)
+        redis_write.assert_called_once()

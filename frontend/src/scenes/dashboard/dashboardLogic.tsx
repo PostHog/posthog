@@ -14,15 +14,24 @@ import {
     sharedListeners,
 } from 'kea'
 import { loaders } from 'kea-loaders'
-import { actionToUrl, router, urlToAction } from 'kea-router'
+import { actionToUrl, beforeUnload, router, urlToAction } from 'kea-router'
+import { CombinedLocation } from 'kea-router/lib/utils'
 import uniqBy from 'lodash.uniqby'
-import posthog from 'posthog-js'
 import { ResponsiveLayouts } from 'react-grid-layout'
 
 import { LemonDialog, lemonToast } from '@posthog/lemon-ui'
 import type { DashboardWidgetRunResultApi } from '@posthog/products-dashboards/frontend/generated/api.schemas'
 import { isWidgetConfigValidationError, updateDashboardWidgetTile } from '@posthog/products-dashboards/frontend/utils'
+import {
+    DASHBOARD_WIDGET_CATALOG,
+    getDashboardWidgetCatalogEntry,
+} from '@posthog/products-dashboards/frontend/widget_types/catalog'
 import { DASHBOARD_WIDGET_FETCH_ERROR_MESSAGE } from '@posthog/products-dashboards/frontend/widgets/constants'
+import {
+    applyIssueMetadataToWidgetListResult,
+    type WidgetIssueMetadataContext,
+    type WidgetIssueMetadataDelta,
+} from '@posthog/products-dashboards/frontend/widgets/error_tracking/applyWidgetIssueMetadataChange'
 
 import api, { ApiMethodOptions, getJSONOrNull } from 'lib/api'
 import { ApiError } from 'lib/api-error'
@@ -33,17 +42,26 @@ import { FEATURE_FLAGS } from 'lib/constants'
 import { Dayjs, dayjs, now } from 'lib/dayjs'
 import { Link } from 'lib/lemon-ui/Link'
 import { featureFlagLogic, getFeatureFlagPayload } from 'lib/logic/featureFlagLogic'
-import { clearDOMTextSelection, getJSHeapMemory, shouldCancelQuery, toParams, uuid } from 'lib/utils'
 import { accessLevelSatisfied } from 'lib/utils/accessControlUtils'
+import { clearDOMTextSelection, getJSHeapMemory, uuid } from 'lib/utils/dom'
 import { DashboardEventSource, eventUsageLogic } from 'lib/utils/eventUsageLogic'
+import { objectsEqual } from 'lib/utils/objects'
+import { shouldCancelQuery } from 'lib/utils/requests'
+import { toParams } from 'lib/utils/url'
 import { BREAKPOINTS, dashboardToSaveableTemplate, getDashboardTileDisplayName } from 'scenes/dashboard/dashboardUtils'
-import { calculateDuplicateLayout, calculateLayouts } from 'scenes/dashboard/tileLayouts'
+import {
+    calculateDuplicateLayout,
+    calculateInsertionLayout,
+    calculateLayouts,
+    DEFAULT_INSERTED_TILE_SIZE,
+} from 'scenes/dashboard/tileLayouts'
 import {
     chunkTileIds,
     fetchRunWidgets,
     findNewlyAddedWidgetTiles,
     WIDGET_CLIENT_TTL_MS,
 } from 'scenes/dashboard/widgetFetchUtils'
+import { createDashboardWidgetTileRefreshScheduler } from 'scenes/dashboard/widgetTileRefreshScheduler'
 import { dataThemeLogic } from 'scenes/dataThemeLogic'
 import { MaxContextInput, createMaxContextHelpers } from 'scenes/max/maxTypes'
 import { Scene } from 'scenes/sceneTypes'
@@ -109,11 +127,13 @@ import {
     encodeURLVariables,
     getDashboardWidgetType,
     getInsightWithRetry,
+    isLayoutEditEventSource,
     layoutsByTile,
     parseURLFilters,
     parseURLVariables,
     runWithLimit,
     shouldSharedDashboardAutoForceForStaleTime,
+    shouldSnapshotUrlAtEditModeEntry,
 } from './dashboardUtils'
 import { TileFiltersOverride } from './TileFiltersOverride'
 import { tileLogic } from './tileLogic'
@@ -159,6 +179,13 @@ export enum RefreshDashboardItemsAction {
 // to stop kea typegen getting confused
 export type DashboardTileLayoutUpdatePayload = Pick<DashboardTile, 'id' | 'layouts'>
 
+export interface PendingInsertion {
+    x: number
+    y: number
+    // Width override for the full-width fallback when the hovered column can't anchor the tile; else null.
+    w: number | null
+}
+
 const tileLayoutsFromDashboard = (
     dashboard: DashboardType<QueryBasedInsightModel> | null | undefined
 ): Record<number, DashboardTile['layouts']> => {
@@ -167,6 +194,29 @@ const tileLayoutsFromDashboard = (
         tileIdToLayouts[tile.id] = tile.layouts
     })
     return tileIdToLayouts
+}
+
+function mergeUpdatedWidgetTileIntoDashboard(
+    dashboard: DashboardType<QueryBasedInsightModel>,
+    updatedTile: DashboardTile<QueryBasedInsightModel>
+): DashboardType<QueryBasedInsightModel> | null {
+    return getQueryBasedDashboard({
+        ...dashboard,
+        tiles: dashboard.tiles.map((existingTile) => {
+            if (existingTile.id !== updatedTile.id) {
+                return existingTile
+            }
+
+            return {
+                ...existingTile,
+                ...updatedTile,
+                widget:
+                    existingTile.widget && updatedTile.widget
+                        ? { ...existingTile.widget, ...updatedTile.widget }
+                        : (updatedTile.widget ?? existingTile.widget),
+            }
+        }),
+    } as DashboardType<InsightModel>)
 }
 
 export const dashboardLogic = kea<dashboardLogicType>([
@@ -224,10 +274,8 @@ export const dashboardLogic = kea<dashboardLogicType>([
         loadingDashboardItemsStarted: (action: DashboardLoadAction) => ({ action }),
         /** Expose response size information about the current dashboard load in dashboardLoadData. */
         setInitialLoadResponseBytes: (responseBytes: number) => ({ responseBytes }),
-        /** Manually refresh the entire dashboard. Pass withAnalysis: true to also run AI analysis after refresh. */
-        triggerDashboardRefresh: (payload?: { withAnalysis?: boolean }) => ({
-            withAnalysis: payload?.withAnalysis ?? false,
-        }),
+        /** Manually refresh the entire dashboard. */
+        triggerDashboardRefresh: true,
         /**
          * If the latest tile data is older than SHARED_DASHBOARD_AUTO_FORCE_IF_STALE_MINUTES,
          * queue a single force-blocking refresh on the next microtask. Reads
@@ -242,6 +290,14 @@ export const dashboardLogic = kea<dashboardLogicType>([
             forceRefresh?: boolean
         }) => payload,
         refreshDashboardWidgets: (payload: { tileIds: number[]; forceRefresh?: boolean }) => payload,
+        /** Debounced run_widgets refresh for a single tile (tile filters). */
+        scheduleRefreshDashboardWidgets: (tileId: number) => ({ tileId }),
+        applyWidgetIssueMetadataChange: (payload: {
+            tileId: number
+            issueId: string
+            delta: WidgetIssueMetadataDelta
+            context: WidgetIssueMetadataContext
+        }) => payload,
         setWidgetRunResults: (results: Record<number, DashboardWidgetRunResultApi>) => ({ results }),
         setWidgetRefreshStatuses: (tileIds: number[], loading: boolean, error?: string | null) => ({
             tileIds,
@@ -252,19 +308,13 @@ export const dashboardLogic = kea<dashboardLogicType>([
             dashboardId: number
             widgets: { widgetType: string; config: Record<string, unknown> }[]
         }) => payload,
-        updateWidgetTileConfig: (payload: {
-            tile: DashboardTile<QueryBasedInsightModel>
-            config: Record<string, unknown>
-        }) => payload,
-        updateWidgetTileMetadata: (payload: {
-            tile: DashboardTile<QueryBasedInsightModel>
-            name?: string
-            description?: string
-        }) => payload,
         setAddWidgetModalOpen: (open: boolean) => ({ open }),
         toggleAddWidgetSelectedType: (widgetType: string) => ({ widgetType }),
         clearAddWidgetSelectedTypes: true,
+        toggleAddWidgetCollapsedGroup: (groupId: string) => ({ groupId }),
         addWidgetTileFinished: true,
+        /** One-shot signal asking the view to scroll the dashboard to the bottom (e.g. after adding tiles). */
+        requestScrollToBottom: true,
         /** Update a single refresh status. */
         setRefreshStatus: (shortId: InsightShortId, loading = false, queued = false) => ({ shortId, loading, queued }),
         /** Update multiple refresh statuses. */
@@ -274,7 +324,9 @@ export const dashboardLogic = kea<dashboardLogicType>([
             queued,
         }),
         setRefreshError: (shortId: InsightShortId, error?: Error) => ({ shortId, error }),
-        abortQuery: (payload: { queryId: string; queryStartTime: number }) => payload,
+        /** Number of insights enrolled in the current refresh cycle, captured up front. */
+        setRefreshTilesTotal: (total: number) => ({ total }),
+        abortQuery: (payload: { queryId: string; queryStartTime: number; shortId: InsightShortId }) => payload,
         abortAnyRunningQuery: true,
         cancelDashboardRefresh: true,
 
@@ -298,6 +350,10 @@ export const dashboardLogic = kea<dashboardLogicType>([
         saveEditModeChanges: () => true,
         resetUrlFilters: () => true,
         resetIntermittentFilters: () => true,
+        restoreUrlStateAtEditModeEntry: (snapshot: { filters?: unknown; variables?: unknown } | null) => ({
+            snapshot,
+        }),
+        setUrlSearchParamsAtEditModeEntry: (snapshot: { filters?: unknown; variables?: unknown }) => ({ snapshot }),
         applyFilters: true,
         resetUrlVariables: true,
         setInitialVariablesLoaded: (initialVariablesLoaded: boolean) => ({ initialVariablesLoaded }),
@@ -334,6 +390,8 @@ export const dashboardLogic = kea<dashboardLogicType>([
          * Dashboard layout & tiles.
          */
         updateLayouts: (layouts: ResponsiveLayouts) => ({ layouts }),
+        setPendingInsertion: (pendingInsertion: PendingInsertion | null) => ({ pendingInsertion }),
+        applyPendingInsertion: true,
         updateContainerWidth: (containerWidth: number, columns: number) => ({ containerWidth, columns }),
         updateTileColor: (tileId: number, color: InsightColor | null) => ({ tileId, color }),
         toggleTileDescription: (tileId: number) => ({ tileId }),
@@ -388,14 +446,6 @@ export const dashboardLogic = kea<dashboardLogicType>([
             loadLayoutFromServerOnPreview,
         }),
         dashboardNotFound: true,
-
-        /**
-         * AI Dashboard Refresh Analysis.
-         */
-        setAnalyzeStatus: (isAnalyzing: boolean) => ({ isAnalyzing }),
-        setRefreshAnalysisCacheKey: (cacheKey: string | null) => ({ cacheKey }),
-        setRefreshAnalysisResult: (result: string | null) => ({ result }),
-        setAnalysisRating: (rating: 'up' | 'down' | null) => ({ rating }),
     })),
 
     loaders(({ actions, props, values, cache }) => ({
@@ -463,6 +513,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
                     return null
                 },
                 saveEditModeChanges: async (_, breakpoint) => {
+                    cache.dashboardChangesPersisted = false
                     try {
                         // Only persist sm layouts; xs layouts are derived on the fly
                         const layoutsToUpdate = (values.dashboard?.tiles || []).map((tile) => ({
@@ -530,6 +581,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
                         if (shouldRefreshTilesAfterSave) {
                             cache.shouldRefreshTilesAfterSave = true
                         }
+                        cache.dashboardChangesPersisted = true
                         return getQueryBasedDashboard(updatedDashboard)
                     } catch (e) {
                         lemonToast.error('Could not update dashboard: ' + String(e))
@@ -537,6 +589,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
                     }
                 },
                 removeTile: async ({ tile }) => {
+                    // The reducer drops the tile optimistically; here we only persist and roll back on failure.
                     try {
                         await api.update(`api/environments/${values.currentTeamId}/dashboards/${props.id}`, {
                             tiles: [{ id: tile.id, deleted: true }],
@@ -546,13 +599,15 @@ export const dashboardLogic = kea<dashboardLogicType>([
                             dashboardId: props.id,
                         })
 
-                        return {
-                            ...values.dashboard,
-                            tiles: values.tiles.filter((t) => t.id !== tile.id),
-                        } as DashboardType<QueryBasedInsightModel>
+                        return values.dashboard
                     } catch (e) {
                         lemonToast.error('Could not remove tile from dashboard: ' + String(e))
-                        return values.dashboard
+                        // Re-insert the tile (its layout puts it back in place) and suppress the undo toast.
+                        cache.removedTileForUndo = undefined
+                        return {
+                            ...values.dashboard,
+                            tiles: [...(values.tiles || []), tile],
+                        } as DashboardType<QueryBasedInsightModel>
                     }
                 },
                 setDashboardMode: async ({ mode, source }) => {
@@ -680,6 +735,60 @@ export const dashboardLogic = kea<dashboardLogicType>([
                 },
             },
         ],
+        widgetTileUpdate: [
+            null,
+            {
+                updateWidgetTile: async ({
+                    tile,
+                    config,
+                    name,
+                    description,
+                }: {
+                    tile: DashboardTile<QueryBasedInsightModel>
+                    config?: Record<string, unknown>
+                    name?: string | null
+                    description?: string
+                }) => {
+                    if (!values.dashboard?.id || !tile.widget) {
+                        return null
+                    }
+                    if (config === undefined && name === undefined && description === undefined) {
+                        return null
+                    }
+
+                    try {
+                        const shouldShowDescription =
+                            description !== undefined &&
+                            description.trim().length > 0 &&
+                            tile.show_description === false
+
+                        const updatedTile = await updateDashboardWidgetTile({
+                            teamId: teamLogic.values.currentTeamId!,
+                            dashboardId: values.dashboard.id,
+                            tile,
+                            config,
+                            name,
+                            description,
+                            showDescription: shouldShowDescription ? true : undefined,
+                        })
+                        const dashboard = mergeUpdatedWidgetTileIntoDashboard(values.dashboard, updatedTile)
+                        if (dashboard) {
+                            dashboardsModel.actions.updateDashboardSuccess(dashboard)
+                        }
+                        if (config !== undefined) {
+                            actions.scheduleRefreshDashboardWidgets(tile.id)
+                        }
+                        return null
+                    } catch (e) {
+                        if (config !== undefined && isWidgetConfigValidationError(e)) {
+                            throw e
+                        }
+                        lemonToast.error(e instanceof ApiError ? (e.detail ?? e.message) : 'Could not update widget')
+                        throw e
+                    }
+                },
+            },
+        ],
     })),
     reducers(({ props }) => ({
         dashboardLoading: [
@@ -801,6 +910,13 @@ export const dashboardLogic = kea<dashboardLogicType>([
                         tiles: state?.tiles?.map((tile) => (tile.id === tileId ? { ...tile, ...properties } : tile)),
                     } as DashboardType<QueryBasedInsightModel>
                 },
+                removeTile: (state, { tile }) => {
+                    // Optimistically drop the tile so the grid reflows immediately; the loader rolls back on failure.
+                    return {
+                        ...state,
+                        tiles: state?.tiles?.filter((t) => t.id !== tile.id),
+                    } as DashboardType<QueryBasedInsightModel>
+                },
                 [dashboardsModel.actionTypes.tileMovedToDashboard]: (state, { tile, dashboardId }) => {
                     if (state?.id === dashboardId) {
                         return {
@@ -869,11 +985,17 @@ export const dashboardLogic = kea<dashboardLogicType>([
                         return state
                     }
 
+                    // A bare PATCH (rename, display-option persist) doesn't recompute the insight, so
+                    // its response carries `result: null` and stale-but-empty cache metadata. Keep the
+                    // tile's already-computed chart data instead of blanking it into "Chart data didn't load".
+                    const existing = tiles[tileIndex].insight as QueryBasedInsightModel
                     tiles[tileIndex] = {
                         ...tiles[tileIndex],
                         insight: {
-                            ...(tiles[tileIndex].insight as QueryBasedInsightModel),
+                            ...existing,
                             ...item,
+                            result: item.result ?? existing.result,
+                            last_refresh: item.last_refresh ?? existing.last_refresh,
                         },
                     }
 
@@ -960,8 +1082,24 @@ export const dashboardLogic = kea<dashboardLogicType>([
                     [shortId]: { errored: true, error, timer: state[shortId]?.timer || null },
                 }),
                 refreshDashboardItems: () => ({}),
-                abortQuery: () => ({}),
+                // Drop only the aborted tile so sibling tiles still in flight stay tracked; wiping the
+                // whole map here would make them count as completed and overstate "X out of Y".
+                abortQuery: (state, { shortId }) => {
+                    const { [shortId]: _aborted, ...rest } = state
+                    return rest
+                },
                 cancelDashboardRefresh: () => ({}),
+            },
+        ],
+        // Denominator for "X out of Y", pinned up front so Y stays fixed while tiles enroll one by one.
+        // null = no batch pinned → selector falls back to the live map size (single-insight refreshes).
+        // Reset on cycle boundaries only, never on the per-tile abortQuery, so an aborted tile can't shrink Y.
+        refreshTilesTotal: [
+            null as number | null,
+            {
+                setRefreshTilesTotal: (_, { total }) => total,
+                refreshDashboardItems: () => null,
+                cancelDashboardRefresh: () => null,
             },
         ],
         columns: [
@@ -980,6 +1118,44 @@ export const dashboardLogic = kea<dashboardLogicType>([
             null as DashboardMode | null,
             {
                 setDashboardMode: (_, { mode }) => mode,
+            },
+        ],
+        layoutEditMode: [
+            false,
+            {
+                setDashboardMode: (_, { mode, source }) => {
+                    if (mode !== DashboardMode.Edit) {
+                        return false
+                    }
+                    if (isLayoutEditEventSource(source)) {
+                        return true
+                    }
+                    return false
+                },
+            },
+        ],
+        pendingInsertion: [
+            null as PendingInsertion | null,
+            {
+                setPendingInsertion: (_, { pendingInsertion }) => pendingInsertion,
+                // Clear on a real mode switch, but not on mode === null — the text/button add flow routes through it.
+                setDashboardMode: (state, { mode }) => (mode != null ? null : state),
+                // No hideAddInsightToDashboardModal handler on purpose: it fires as the insight is added, so
+                // clearing there would drop the target before the tile lands.
+            },
+        ],
+        urlSearchParamsAtEditModeEntry: [
+            null as { filters?: unknown; variables?: unknown } | null,
+            {
+                setUrlSearchParamsAtEditModeEntry: (_, { snapshot }) => snapshot,
+                setDashboardMode: (snapshot, { mode, source }) => {
+                    if (mode === null && source !== DashboardEventSource.DashboardHeaderDiscardChanges) {
+                        return null
+                    }
+                    return snapshot
+                },
+                restoreUrlStateAtEditModeEntry: () => null,
+                saveEditModeChangesSuccess: () => null,
             },
         ],
         loadLayoutFromServerOnPreview: [
@@ -1140,35 +1316,6 @@ export const dashboardLogic = kea<dashboardLogicType>([
                 }),
             },
         ],
-        refreshAnalysisCacheKey: [
-            null as string | null,
-            {
-                setRefreshAnalysisCacheKey: (_, { cacheKey }) => cacheKey,
-                triggerDashboardRefresh: () => null,
-            },
-        ],
-        refreshAnalysisResult: [
-            null as string | null,
-            {
-                setRefreshAnalysisResult: (_, { result }) => result,
-                triggerDashboardRefresh: () => null,
-            },
-        ],
-        analysisRating: [
-            null as 'up' | 'down' | null,
-            {
-                setAnalysisRating: (_, { rating }) => rating,
-                setRefreshAnalysisResult: () => null,
-                triggerDashboardRefresh: () => null,
-            },
-        ],
-        isAnalyzing: [
-            false,
-            {
-                setAnalyzeStatus: (_, { isAnalyzing }) => isAnalyzing,
-                triggerDashboardRefresh: () => false,
-            },
-        ],
         isSavingTags: [
             false,
             {
@@ -1183,6 +1330,25 @@ export const dashboardLogic = kea<dashboardLogicType>([
             {} as Record<number, DashboardWidgetRunResultApi>,
             {
                 setWidgetRunResults: (state, { results }) => ({ ...state, ...results }),
+                applyWidgetIssueMetadataChange: (state, { tileId, issueId, delta, context }) => {
+                    const run = state[tileId]
+                    if (!run?.result || typeof run.result !== 'object') {
+                        return state
+                    }
+                    const nextResult = applyIssueMetadataToWidgetListResult(
+                        run.result as Parameters<typeof applyIssueMetadataToWidgetListResult>[0],
+                        issueId,
+                        delta,
+                        context
+                    )
+                    return {
+                        ...state,
+                        [tileId]: {
+                            ...run,
+                            result: nextResult,
+                        },
+                    }
+                },
             },
         ],
         widgetRefreshStatus: [
@@ -1215,6 +1381,13 @@ export const dashboardLogic = kea<dashboardLogicType>([
                 addWidgetTileFinished: () => false,
             },
         ],
+        // Incremented on each scroll-to-bottom request; the view effects on the change.
+        scrollToBottomSignal: [
+            0,
+            {
+                requestScrollToBottom: (state) => state + 1,
+            },
+        ],
         addWidgetModalOpen: [
             false,
             {
@@ -1236,6 +1409,21 @@ export const dashboardLogic = kea<dashboardLogicType>([
                 clearAddWidgetSelectedTypes: () => [],
             },
         ],
+        addWidgetCollapsedGroups: [
+            [] as string[],
+            {
+                setAddWidgetModalOpen: (state, { open }) => (open ? [] : state),
+                toggleAddWidgetCollapsedGroup: (state, { groupId }) => {
+                    const collapsed = new Set(state)
+                    if (collapsed.has(groupId)) {
+                        collapsed.delete(groupId)
+                    } else {
+                        collapsed.add(groupId)
+                    }
+                    return Array.from(collapsed)
+                },
+            },
+        ],
     })),
     selectors(() => ({
         shouldUseStreaming: [
@@ -1247,11 +1435,13 @@ export const dashboardLogic = kea<dashboardLogicType>([
             },
         ],
         canAutoPreview: [
-            (s) => [s.dashboard],
-            (dashboard) => {
+            (s) => [s.insightTiles],
+            (insightTiles) => {
                 const payload = getFeatureFlagPayload(FEATURE_FLAGS.DASHBOARD_AUTO_PREVIEW_LIMIT)
                 const limit = typeof payload === 'number' ? payload : DEFAULT_AUTO_PREVIEW_TILE_LIMIT
-                return (dashboard?.tiles.length || 0) < limit
+                // The limit is about the number of insights on a dashboard (per the flag's intent),
+                // so count insight tiles only — not text, button, or widget tiles.
+                return insightTiles.length < limit
             },
         ],
         hasIntermittentFilters: [
@@ -1498,8 +1688,19 @@ export const dashboardLogic = kea<dashboardLogicType>([
         tiles: [(s) => [s.dashboard], (dashboard) => dashboard?.tiles?.filter((t) => !t.deleted) || []],
         widgetTiles: [(s) => [s.tiles], (tiles) => tiles.filter((t) => !!t.widget)],
         dashboardWidgetsEnabled: [
+            (s) => [s.featureFlags, s.tiles, s.placement],
+            (featureFlags, tiles, placement): boolean => {
+                // Shared dashboards don't receive team feature flags; render widget tiles when
+                // metadata is already present on the exported dashboard payload.
+                if (placement === DashboardPlacement.Public && tiles.some((tile) => !!tile.widget)) {
+                    return true
+                }
+                return !!featureFlags[FEATURE_FLAGS.DASHBOARD_WIDGETS]
+            },
+        ],
+        inlineTileInsertionEnabled: [
             (s) => [s.featureFlags],
-            (featureFlags): boolean => !!featureFlags[FEATURE_FLAGS.DASHBOARD_WIDGETS],
+            (featureFlags): boolean => !!featureFlags[FEATURE_FLAGS.DASHBOARD_INLINE_TILE_INSERTION],
         ],
         insightTiles: [
             (s) => [s.tiles],
@@ -1514,7 +1715,6 @@ export const dashboardLogic = kea<dashboardLogicType>([
                 s.initialVariablesLoaded,
                 s.initialQuickFiltersLoaded,
                 s.dashboardFiltersEnabled,
-                s.isAnalyzing,
             ],
             (
                 dashboardLoading,
@@ -1522,11 +1722,9 @@ export const dashboardLogic = kea<dashboardLogicType>([
                 refreshStatus,
                 initialVariablesLoaded,
                 initialQuickFiltersLoaded,
-                dashboardFiltersEnabled,
-                isAnalyzing
+                dashboardFiltersEnabled
             ) => {
                 return (
-                    isAnalyzing ||
                     dashboardLoading ||
                     dashboardStreaming ||
                     Object.values(refreshStatus).some((s) => s.loading || s.queued) ||
@@ -1662,7 +1860,14 @@ export const dashboardLogic = kea<dashboardLogicType>([
                 return size
             },
         ],
-        layouts: [(s) => [s.tiles], (tiles) => calculateLayouts(tiles)],
+        layouts: [
+            (s) => [s.tiles],
+            (tiles) => calculateLayouts(tiles),
+            // Tile refreshes replace `tiles` once per insight response without touching geometry;
+            // keeping the result reference stable stops react-grid-layout re-laying-out every tile
+            // N times per dashboard refresh cycle.
+            { resultEqualityCheck: objectsEqual },
+        ],
         layout: [
             (s) => [s.layouts, s.sizeKey],
             (layouts: ResponsiveLayouts, sizeKey: DashboardLayoutSize | undefined) =>
@@ -1683,11 +1888,13 @@ export const dashboardLogic = kea<dashboardLogicType>([
             },
         ],
         refreshMetrics: [
-            (s) => [s.refreshStatus],
-            (refreshStatus) => {
-                const total = Object.keys(refreshStatus).length ?? 0
+            (s) => [s.refreshStatus, s.refreshTilesTotal],
+            (refreshStatus, refreshTilesTotal) => {
+                const inFlight = Object.values(refreshStatus).filter((s) => s.loading || s.queued).length
+                // Pinned batch size keeps Y fixed for the cycle; fall back to the live map for single-insight refreshes.
+                const total = refreshTilesTotal ?? Object.keys(refreshStatus).length
                 return {
-                    completed: total - (Object.values(refreshStatus).filter((s) => s.loading || s.queued).length ?? 0),
+                    completed: total - inFlight,
                     total,
                 }
             },
@@ -1764,7 +1971,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
             },
         ],
     })),
-    events(({ actions, props, values }) => ({
+    events(({ actions, props, values, cache }) => ({
         afterMount: () => {
             // NOTE: initial dashboard load is done after variables are loaded in initialVariablesLoaded
             if (props.id) {
@@ -1808,7 +2015,11 @@ export const dashboardLogic = kea<dashboardLogicType>([
             }
         },
         beforeUnmount: () => {
+            cache.widgetTileRefreshScheduler?.cancelAll()
             actions.abortAnyRunningQuery()
+            // Bound the inline-insertion target's lifetime to this mount, so a never-consumed target
+            // (e.g. an add flow abandoned by navigating away) can't reposition a tile on a later visit.
+            cache.tileIdsBeforeInsertion = undefined
         },
     })),
     sharedListeners(({ values, props, actions }) => ({
@@ -1840,6 +2051,14 @@ export const dashboardLogic = kea<dashboardLogicType>([
         },
     })),
     listeners(({ actions, values, cache, props, sharedListeners }) => ({
+        scheduleRefreshDashboardWidgets: ({ tileId }: { tileId: number }) => {
+            if (!cache.widgetTileRefreshScheduler) {
+                cache.widgetTileRefreshScheduler = createDashboardWidgetTileRefreshScheduler((id) =>
+                    actions.refreshDashboardWidgets({ tileIds: [id], forceRefresh: true })
+                )
+            }
+            cache.widgetTileRefreshScheduler.schedule(tileId)
+        },
         setAddWidgetModalOpen: ({ open }) => {
             if (open) {
                 actions.clearAddWidgetSelectedTypes()
@@ -1854,12 +2073,6 @@ export const dashboardLogic = kea<dashboardLogicType>([
                     dashboardsModel.actions.unpinDashboard(values.dashboard.id, DashboardEventSource.SceneCommonButtons)
                 }
             }
-        },
-        setAnalysisRating: ({ rating }) => {
-            posthog.capture('dashboard refresh ai analysis feedback', {
-                rating: rating === 'up' ? 'thumbs_up' : 'thumbs_down',
-                analysis_text: values.refreshAnalysisResult,
-            })
         },
         updateTileColor: async ({ tileId, color }) => {
             // Defense in depth: shared dashboards (DashboardPlacement.Public)
@@ -1920,11 +2133,6 @@ export const dashboardLogic = kea<dashboardLogicType>([
                 primary_interaction_id: dashboardQueryId,
                 time_to_see_data_ms: Math.floor(performance.now() - startTime),
             })
-
-            if (values.isAnalyzing) {
-                actions.setAnalyzeStatus(false)
-                actions.setRefreshAnalysisCacheKey(null)
-            }
         },
         tileStreamingFailure: ({ error }) => {
             if (error?.message?.includes('404') || error?.status === 404) {
@@ -1950,6 +2158,94 @@ export const dashboardLogic = kea<dashboardLogicType>([
                 actions.loadDashboard({ action: DashboardLoadAction.Update })
             }
         },
+        setPendingInsertion: ({ pendingInsertion }) => {
+            // Snapshot current tile ids so we can identify the tile the add flow appends afterwards.
+            cache.tileIdsBeforeInsertion = pendingInsertion ? new Set((values.tiles || []).map((t) => t.id)) : undefined
+        },
+        applyPendingInsertion: async () => {
+            // Capture before setPendingInsertion(null) below clears it.
+            const slot = values.pendingInsertion
+            const previousTileIds = cache.tileIdsBeforeInsertion as Set<number> | undefined
+            if (!slot || !previousTileIds) {
+                return
+            }
+
+            // Load-bearing assumption: exactly one unknown tile appeared since the snapshot and it is the
+            // one the add flow just created. A concurrent arrival (background refresh, a collaborator's add)
+            // in this window could be mis-targeted — blast radius is one tile's layout, which we accept.
+            const newTile = (values.tiles || []).find((tile) => !tile.deleted && !previousTileIds.has(tile.id))
+            if (!newTile) {
+                // The appended tile hasn't reached state yet; a later arrival signal will retry.
+                return
+            }
+
+            // Clear before persisting so the resulting updateDashboardSuccess doesn't re-enter this listener.
+            actions.setPendingInsertion(null)
+
+            const smLayout = values.layouts?.sm
+            const newTileLayoutEntry = smLayout?.find((l) => String(l.i) === String(newTile.id))
+            const w = slot.w ?? newTileLayoutEntry?.w ?? DEFAULT_INSERTED_TILE_SIZE.w
+            const h = newTileLayoutEntry?.h ?? DEFAULT_INSERTED_TILE_SIZE.h
+
+            const { newTileLayout, tilesToUpdate } = calculateInsertionLayout(
+                smLayout,
+                newTile.id,
+                slot.y,
+                slot.x,
+                w,
+                h
+            )
+
+            // Apply optimistically so the grid reflows immediately.
+            const shiftById = new Map(tilesToUpdate.map((t) => [t.id, t.layouts.sm]))
+            const newSmLayout = (smLayout || []).map((l) => {
+                if (String(l.i) === String(newTile.id)) {
+                    return { ...l, ...newTileLayout.sm }
+                }
+                const shifted = shiftById.get(parseInt(l.i))
+                return shifted ? { ...l, ...shifted } : l
+            })
+            actions.updateLayouts({ ...values.layouts, sm: newSmLayout })
+
+            // The inline insert has now landed at the line — report it (outcome, vs the option-clicked intent).
+            const insertedTileType = newTile.text
+                ? 'text_card'
+                : newTile.button_tile
+                  ? 'button'
+                  : newTile.widget
+                    ? 'widget'
+                    : 'insight'
+            eventUsageLogic.actions.reportDashboardTileInsertedInline(insertedTileType, slot.x, slot.y, slot.w != null)
+
+            // In edit mode the change is saved with the rest of the edit session.
+            if (values.layoutEditMode) {
+                return
+            }
+
+            // Persist the repositioning (same raw-PATCH shape as duplicateTile / saveEditModeChanges).
+            // TODO: drop this follow-up request once the tile-create endpoints can insert at a position
+            // (and reflow the displaced tiles) server-side, so an inline insert is a single round trip.
+            try {
+                const response: DashboardType<InsightModel> = await api.update(
+                    `api/environments/${values.currentTeamId}/dashboards/${props.id}`,
+                    {
+                        tiles: [...tilesToUpdate, { id: newTile.id, layouts: newTileLayout }],
+                    }
+                )
+                const updated = getQueryBasedDashboard(response)
+                if (updated) {
+                    dashboardsModel.actions.updateDashboardSuccess(updated)
+                }
+            } catch (e) {
+                lemonToast.error('Could not position the new tile: ' + String(e))
+            }
+        },
+        [dashboardsModel.actionTypes.updateDashboardSuccess]: ({ dashboard }) => {
+            // Text/button (via updateDashboard) and widget (client-merged) tiles arrive through here.
+            if (dashboard?.id === props.id) {
+                actions.applyPendingInsertion()
+            }
+        },
         [dashboardsModel.actionTypes.updateDashboardInsight]: ({ insight, extraDashboardIds, sourceDashboardId }) => {
             if (sourceDashboardId != null && sourceDashboardId !== props.id) {
                 // Same rationale as the reducer: ignore refresh payloads scoped to another dashboard.
@@ -1968,6 +2264,28 @@ export const dashboardLogic = kea<dashboardLogicType>([
             if (tileIndex === -1) {
                 // this is a new tile created from an insight context we need to reload the dashboard
                 actions.loadDashboard({ action: DashboardLoadAction.Update })
+            }
+        },
+        duplicateTile: () => {
+            cache.widgetTileIdsBeforeDuplicate = new Set(values.widgetTiles.map((tile) => tile.id))
+        },
+        duplicateTileSuccess: ({ dashboard }) => {
+            if (!dashboard || !values.dashboardWidgetsEnabled) {
+                return
+            }
+
+            const previousTileIds = cache.widgetTileIdsBeforeDuplicate as Set<number> | undefined
+            cache.widgetTileIdsBeforeDuplicate = undefined
+            if (!previousTileIds) {
+                return
+            }
+
+            const createdTiles = findNewlyAddedWidgetTiles(previousTileIds, dashboard.tiles)
+            if (createdTiles.length > 0) {
+                actions.refreshDashboardWidgets({
+                    tileIds: createdTiles.map((tile) => tile.id),
+                    forceRefresh: true,
+                })
             }
         },
         removeTile: ({ tile }) => {
@@ -2124,45 +2442,14 @@ export const dashboardLogic = kea<dashboardLogicType>([
             })
         },
         /** Triggered from dashboard refresh button, when user refreshes entire dashboard */
-        triggerDashboardRefresh: async ({ withAnalysis }, breakpoint) => {
+        triggerDashboardRefresh: () => {
             actions.resetInterval()
-
-            if (withAnalysis) {
-                try {
-                    // Gather current data from the frontend store
-                    const clientResults: Record<number, any> = {}
-                    values.insightTiles.forEach((tile) => {
-                        if (tile.insight && tile.insight.result) {
-                            clientResults[tile.id] = {
-                                insight_name: tile.insight.name || tile.insight.derived_name,
-                                data: tile.insight.result,
-                            }
-                        }
-                    })
-
-                    // Snapshot the current cached state ("before") before any refresh happens
-                    const snapshotResponse = await api.create(
-                        `api/environments/${values.currentTeamId}/dashboards/${props.id}/snapshot`,
-                        { client_results: clientResults }
-                    )
-                    const { cache_key: cacheKey } = snapshotResponse
-
-                    if (!cacheKey) {
-                        throw new Error('No cache key returned from snapshot')
-                    }
-
-                    actions.setRefreshAnalysisCacheKey(cacheKey)
-                    actions.setAnalyzeStatus(true)
-
-                    await breakpoint()
-                } catch (e: any) {
-                    lemonToast.error('Failed to start analysis: ' + String(e))
-                    return
-                }
-            }
-
             actions.refreshDashboardItems({ action: RefreshDashboardItemsAction.Refresh, forceRefresh: true })
-            if (values.dashboardWidgetsEnabled) {
+            if (
+                values.dashboardWidgetsEnabled &&
+                values.placement !== DashboardPlacement.Export &&
+                values.placement !== DashboardPlacement.Public
+            ) {
                 const widgetTileIds = values.widgetTiles.map((tile) => tile.id)
                 if (widgetTileIds.length > 0) {
                     actions.refreshDashboardWidgets({ tileIds: widgetTileIds, forceRefresh: true })
@@ -2175,6 +2462,11 @@ export const dashboardLogic = kea<dashboardLogicType>([
             const insight = tile.insight
 
             if (!insight) {
+                return
+            }
+
+            // Shared/public/export viewers must not be able to trigger server-side refreshes.
+            if (isSharedView()) {
                 return
             }
 
@@ -2256,6 +2548,8 @@ export const dashboardLogic = kea<dashboardLogicType>([
                 await breakpoint()
                 actions.resetIntermittentFilters()
 
+                // Pin the progress denominator to the batch size before enrolling the insights
+                actions.setRefreshTilesTotal(tilesStaleCount)
                 // Set refresh status for all insights
                 actions.setRefreshStatuses(
                     sortedTilesToRefresh.map((tile) => tile.insight.short_id),
@@ -2278,8 +2572,6 @@ export const dashboardLogic = kea<dashboardLogicType>([
                     dashboardLoadData,
                     dashboard,
                     lastDashboardRefresh,
-                    isAnalyzing,
-                    refreshAnalysisCacheKey,
                 } = values
 
                 const fetchSyncInsightFunctions = sortedTilesToRefresh.map((tile) => async () => {
@@ -2328,7 +2620,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
                     } catch (e: any) {
                         if (shouldCancelQuery(e)) {
                             console.warn(`Insight refresh cancelled for ${insight.short_id} due to abort signal:`, e)
-                            actions.abortQuery({ queryId, queryStartTime })
+                            actions.abortQuery({ queryId, queryStartTime, shortId: insight.short_id })
                             tilesAbortedCount++
                         } else {
                             actions.setRefreshError(insight.short_id, e)
@@ -2384,23 +2676,6 @@ export const dashboardLogic = kea<dashboardLogicType>([
                         refreshDurationMs: Math.floor(performance.now() - dashboardRefreshStartTime),
                     }
                 )
-
-                // Run AI analysis after tiles finish, if it was requested and refresh wasn't aborted
-                if (isAnalyzing && refreshAnalysisCacheKey && tilesAbortedCount === 0) {
-                    const cacheKey = refreshAnalysisCacheKey
-                    try {
-                        const analysisResponse = await api.create(
-                            `api/environments/${currentTeamId}/dashboards/${dashboardId}/analyze_refresh_result`,
-                            { cache_key: cacheKey }
-                        )
-                        actions.setRefreshAnalysisResult(analysisResponse.result)
-                    } catch (e: any) {
-                        lemonToast.error('Failed to analyze dashboard changes: ' + String(e))
-                    } finally {
-                        actions.setAnalyzeStatus(false)
-                        actions.setRefreshAnalysisCacheKey(null)
-                    }
-                }
             }
 
             if (
@@ -2479,14 +2754,34 @@ export const dashboardLogic = kea<dashboardLogicType>([
             try {
                 const previousWidgetTileIds = new Set(values.widgetTiles.map((tile) => tile.id))
 
+                // Inline insertion: create the widget at the chosen slot instead of the backend's
+                // default bottom placement, and let applyPendingInsertion shift existing tiles down.
+                // Only single-widget adds insert positionally — applyPendingInsertion repositions one
+                // tile, so a multi-select add can't be cleanly inserted at a single slot; it appends.
+                if (values.pendingInsertion && widgets.length !== 1) {
+                    actions.setPendingInsertion(null)
+                }
+                const insertSlot = widgets.length === 1 ? values.pendingInsertion : null
+                const widgetsPayload = widgets.map(({ widgetType, config }) => {
+                    if (!insertSlot) {
+                        return { widget_type: widgetType, config }
+                    }
+                    const defaultLayout =
+                        widgetType in DASHBOARD_WIDGET_CATALOG
+                            ? getDashboardWidgetCatalogEntry(widgetType).defaultLayout
+                            : undefined
+                    const w = insertSlot.w ?? defaultLayout?.w ?? DEFAULT_INSERTED_TILE_SIZE.w
+                    const h = defaultLayout?.h ?? DEFAULT_INSERTED_TILE_SIZE.h
+                    return {
+                        widget_type: widgetType,
+                        config,
+                        layouts: { sm: { x: insertSlot.x, y: insertSlot.y, w, h } },
+                    }
+                })
+
                 const response = await api.create(
                     `api/environments/${teamLogic.values.currentTeamId}/dashboards/${dashboardId}/widgets/batch/`,
-                    {
-                        widgets: widgets.map(({ widgetType, config }) => ({
-                            widget_type: widgetType,
-                            config,
-                        })),
-                    }
+                    { widgets: widgetsPayload }
                 )
                 const createdTiles = findNewlyAddedWidgetTiles(previousWidgetTileIds, response.tiles)
                 if (createdTiles.length > 0 && values.dashboard?.id === dashboardId) {
@@ -2496,6 +2791,11 @@ export const dashboardLogic = kea<dashboardLogicType>([
                     } as DashboardType<InsightModel>)
                     if (dashboard) {
                         dashboardsModel.actions.updateDashboardSuccess(dashboard)
+
+                        // Only auto-scroll when the new tiles actually went to the bottom.
+                        if (!insertSlot) {
+                            actions.requestScrollToBottom()
+                        }
                     }
                 }
 
@@ -2515,61 +2815,6 @@ export const dashboardLogic = kea<dashboardLogicType>([
                 throw e
             } finally {
                 actions.addWidgetTileFinished()
-            }
-        },
-        updateWidgetTileConfig: async ({ tile, config }) => {
-            if (!values.dashboard?.id || !tile.widget) {
-                return
-            }
-            try {
-                const updatedTile = await updateDashboardWidgetTile({
-                    teamId: teamLogic.values.currentTeamId!,
-                    dashboardId: values.dashboard.id,
-                    tile,
-                    config,
-                })
-                const dashboard = getQueryBasedDashboard({
-                    ...values.dashboard,
-                    tiles: values.dashboard.tiles.map((existingTile) =>
-                        existingTile.id === tile.id ? { ...existingTile, ...updatedTile } : existingTile
-                    ),
-                } as DashboardType<InsightModel>)
-                if (dashboard) {
-                    dashboardsModel.actions.updateDashboardSuccess(dashboard)
-                }
-                actions.refreshDashboardWidgets({ tileIds: [tile.id], forceRefresh: true })
-            } catch (e) {
-                if (isWidgetConfigValidationError(e)) {
-                    throw e
-                }
-                lemonToast.error(e instanceof ApiError ? (e.detail ?? e.message) : 'Could not update widget')
-                throw e
-            }
-        },
-        updateWidgetTileMetadata: async ({ tile, name, description }) => {
-            if (!values.dashboard?.id || !tile.widget) {
-                return
-            }
-            try {
-                const updatedTile = await updateDashboardWidgetTile({
-                    teamId: teamLogic.values.currentTeamId!,
-                    dashboardId: values.dashboard.id,
-                    tile,
-                    name,
-                    description,
-                })
-                const dashboard = getQueryBasedDashboard({
-                    ...values.dashboard,
-                    tiles: values.dashboard.tiles.map((existingTile) =>
-                        existingTile.id === tile.id ? { ...existingTile, ...updatedTile } : existingTile
-                    ),
-                } as DashboardType<InsightModel>)
-                if (dashboard) {
-                    dashboardsModel.actions.updateDashboardSuccess(dashboard)
-                }
-            } catch (e) {
-                lemonToast.error(e instanceof ApiError ? (e.detail ?? e.message) : 'Could not update widget')
-                throw e
             }
         },
         saveEditModeChanges: () => {
@@ -2595,6 +2840,11 @@ export const dashboardLogic = kea<dashboardLogicType>([
                 // Sync the saved dashboard (including any name/description changes) to
                 // dashboardsModel so the sidebar and other global views stay up to date
                 dashboardsModel.actions.updateDashboardSuccess(dashboard)
+            }
+            // Only toast when changes were actually persisted — the no-op exit path skips the PATCH.
+            if (cache.dashboardChangesPersisted) {
+                cache.dashboardChangesPersisted = false
+                lemonToast.success('Dashboard saved')
             }
             if (cache.shouldRefreshTilesAfterSave) {
                 cache.shouldRefreshTilesAfterSave = false
@@ -2635,13 +2885,29 @@ export const dashboardLogic = kea<dashboardLogicType>([
             })
         },
         setDashboardMode: async ({ mode, source }) => {
-            if (mode === DashboardMode.Edit && source !== DashboardEventSource.DashboardHeaderDiscardChanges) {
+            if (
+                mode === DashboardMode.Edit &&
+                values.urlSearchParamsAtEditModeEntry === null &&
+                shouldSnapshotUrlAtEditModeEntry(source)
+            ) {
+                const encodedFilters = encodeURLFilters(values.urlFilters)
+                actions.setUrlSearchParamsAtEditModeEntry({
+                    filters: encodedFilters[SEARCH_PARAM_FILTERS_KEY],
+                    variables: router.values.searchParams[SEARCH_PARAM_QUERY_VARIABLES_KEY],
+                })
+            }
+
+            if (
+                mode === DashboardMode.Edit &&
+                source !== DashboardEventSource.DashboardHeaderDiscardChanges &&
+                isLayoutEditEventSource(source)
+            ) {
                 clearDOMTextSelection()
                 lemonToast.info('Now editing the dashboard – press E or click Save to persist changes')
             } else if (source === DashboardEventSource.DashboardHeaderDiscardChanges) {
                 // reset filters to that before previewing
                 actions.resetIntermittentFilters()
-                actions.resetUrlVariables()
+                actions.restoreUrlStateAtEditModeEntry(values.urlSearchParamsAtEditModeEntry)
 
                 // reset tile data by reloading dashboard
                 actions.refreshDashboardItems({
@@ -2675,7 +2941,26 @@ export const dashboardLogic = kea<dashboardLogicType>([
             }
 
             if (mode || source) {
-                eventUsageLogic.actions.reportDashboardModeToggled(values.dashboard, mode, source, values.layoutZoom)
+                const isFilterOnlyEditEntry =
+                    mode === DashboardMode.Edit && source !== null && !isLayoutEditEventSource(source)
+
+                if (mode === DashboardMode.Edit && source !== null && isLayoutEditEventSource(source)) {
+                    eventUsageLogic.actions.reportDashboardLayoutEditModeEntered(
+                        values.dashboard,
+                        source,
+                        values.layoutEditMode ? values.layoutZoom : null
+                    )
+                }
+
+                if (!isFilterOnlyEditEntry) {
+                    eventUsageLogic.actions.reportDashboardModeToggled(
+                        values.dashboard,
+                        mode,
+                        source,
+                        values.layoutEditMode ? values.layoutZoom : null,
+                        values.layoutEditMode
+                    )
+                }
             }
 
             if (mode !== DashboardMode.Edit) {
@@ -2716,6 +3001,8 @@ export const dashboardLogic = kea<dashboardLogicType>([
                     actions.dashboardNotFound()
                     return // We hit a 404
                 }
+                // Insight tiles arrive via a dashboard reload; reposition to the pending insertion row.
+                actions.applyPendingInsertion()
             },
             sharedListeners.handleDashboardLoadComplete,
         ],
@@ -2796,7 +3083,11 @@ export const dashboardLogic = kea<dashboardLogicType>([
                 forceRefresh: false,
             })
         },
-        setProperties: () => {
+        setProperties: ({ properties }) => {
+            eventUsageLogic.actions.reportDashboardFiltersChanged(values.dashboard, 'properties', {
+                property_count: properties?.length ?? 0,
+            })
+
             if (values.canAutoPreview) {
                 actions.refreshDashboardItems({
                     action: RefreshDashboardItemsAction.Preview,
@@ -2804,7 +3095,12 @@ export const dashboardLogic = kea<dashboardLogicType>([
                 })
             }
         },
-        setDates: () => {
+        setDates: ({ date_from, date_to }) => {
+            eventUsageLogic.actions.reportDashboardFiltersChanged(values.dashboard, 'date', {
+                date_from,
+                date_to: date_to ?? null,
+            })
+
             if (values.canAutoPreview) {
                 actions.refreshDashboardItems({
                     action: RefreshDashboardItemsAction.Preview,
@@ -2812,7 +3108,11 @@ export const dashboardLogic = kea<dashboardLogicType>([
                 })
             }
         },
-        setBreakdownFilter: () => {
+        setBreakdownFilter: ({ breakdown_filter }) => {
+            eventUsageLogic.actions.reportDashboardFiltersChanged(values.dashboard, 'breakdown', {
+                breakdown_type: breakdown_filter?.breakdown_type ?? null,
+            })
+
             if (values.canAutoPreview) {
                 actions.refreshDashboardItems({
                     action: RefreshDashboardItemsAction.Preview,
@@ -2828,7 +3128,11 @@ export const dashboardLogic = kea<dashboardLogicType>([
                 })
             }
         },
-        overrideVariableValue: () => {
+        overrideVariableValue: ({ variableId }) => {
+            eventUsageLogic.actions.reportDashboardFiltersChanged(values.dashboard, 'variable', {
+                variable_id: variableId,
+            })
+
             actions.refreshDashboardItems({
                 action: RefreshDashboardItemsAction.Preview,
                 forceRefresh: false,
@@ -2861,6 +3165,10 @@ export const dashboardLogic = kea<dashboardLogicType>([
                 }
                 await breakpoint(QUICK_FILTER_DEBOUNCE_MS)
             }
+
+            eventUsageLogic.actions.reportDashboardFiltersChanged(values.dashboard, 'quick_filters', {
+                visible_filter_count: visibleFilterCount,
+            })
 
             actions.refreshDashboardItems({
                 action: RefreshDashboardItemsAction.Preview,
@@ -2952,6 +3260,23 @@ export const dashboardLogic = kea<dashboardLogicType>([
                     lemonToast.success('Tile filters saved')
                 },
             })
+        },
+    })),
+
+    beforeUnload(({ values, actions }) => ({
+        enabled: (newLocation?: CombinedLocation) => {
+            if (values.dashboardMode !== DashboardMode.Edit || !values.hasUnsavedLayoutChanges) {
+                return false
+            }
+            // Ignore in-page navigations such as opening a side panel
+            if (newLocation && newLocation.pathname === router.values.location.pathname) {
+                return false
+            }
+            return true
+        },
+        message: 'Leave dashboard?\nChanges you made to the layout will be discarded.',
+        onConfirm: () => {
+            actions.setDashboardMode(null, DashboardEventSource.DashboardHeaderDiscardChanges)
         },
     })),
 
@@ -3079,6 +3404,25 @@ export const dashboardLogic = kea<dashboardLogicType>([
             const newSearchParams = { ...currentLocation.searchParams }
             delete newSearchParams[SEARCH_PARAM_FILTERS_KEY]
             return [currentLocation.pathname, newSearchParams, currentLocation.hashParams]
+        },
+        restoreUrlStateAtEditModeEntry: ({ snapshot }) => {
+            try {
+                const { currentLocation } = router.values
+                const newSearchParams = { ...currentLocation.searchParams }
+                delete newSearchParams[SEARCH_PARAM_FILTERS_KEY]
+                delete newSearchParams[SEARCH_PARAM_QUERY_VARIABLES_KEY]
+
+                if (snapshot?.filters !== undefined) {
+                    newSearchParams[SEARCH_PARAM_FILTERS_KEY] = snapshot.filters
+                }
+                if (snapshot?.variables !== undefined) {
+                    newSearchParams[SEARCH_PARAM_QUERY_VARIABLES_KEY] = snapshot.variables
+                }
+
+                return [currentLocation.pathname, newSearchParams, currentLocation.hashParams]
+            } catch {
+                return undefined
+            }
         },
     })),
 

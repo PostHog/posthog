@@ -11,11 +11,15 @@ import {
     EvaluationsPartialUpdateParams,
     EvaluationsRetrieveParams,
     EvaluationsTestHogCreateBody,
+    LlmAnalyticsClusteringConfigSetEventFiltersCreateBody,
+    LlmAnalyticsClusteringJobsCreateBody,
+    LlmAnalyticsClusteringJobsDestroyParams,
     LlmAnalyticsClusteringJobsListQueryParams,
+    LlmAnalyticsClusteringJobsPartialUpdateBody,
+    LlmAnalyticsClusteringJobsPartialUpdateParams,
     LlmAnalyticsClusteringJobsRetrieveParams,
     LlmAnalyticsEvaluationConfigSetActiveKeyCreateBody,
     LlmAnalyticsEvaluationReportsCreateBody,
-    LlmAnalyticsEvaluationReportsDestroyParams,
     LlmAnalyticsEvaluationReportsGenerateCreateParams,
     LlmAnalyticsEvaluationReportsListQueryParams,
     LlmAnalyticsEvaluationReportsPartialUpdateBody,
@@ -26,6 +30,8 @@ import {
     LlmAnalyticsEvaluationSummaryCreateBody,
     LlmAnalyticsModelsRetrieveQueryParams,
     LlmAnalyticsPersonalSpendListQueryParams,
+    LlmAnalyticsProviderKeysListQueryParams,
+    LlmAnalyticsProviderKeysRetrieveParams,
     LlmAnalyticsReviewQueueItemsCreateBody,
     LlmAnalyticsReviewQueueItemsDestroyParams,
     LlmAnalyticsReviewQueueItemsListQueryParams,
@@ -45,7 +51,6 @@ import {
     LlmAnalyticsScoreDefinitionsPartialUpdateBody,
     LlmAnalyticsScoreDefinitionsPartialUpdateParams,
     LlmAnalyticsScoreDefinitionsRetrieveParams,
-    LlmAnalyticsSentimentCreateBody,
     LlmAnalyticsSummarizationCreateBody,
     LlmAnalyticsTraceReviewsCreateBody,
     LlmAnalyticsTraceReviewsDestroyParams,
@@ -60,23 +65,6 @@ import {
     LlmPromptsNamePartialUpdateParams,
     LlmPromptsNameRetrieveParams,
     LlmPromptsNameRetrieveQueryParams,
-    LlmSkillsCreateBody,
-    LlmSkillsListQueryParams,
-    LlmSkillsNameArchiveCreateParams,
-    LlmSkillsNameDuplicateCreateBody,
-    LlmSkillsNameDuplicateCreateParams,
-    LlmSkillsNameFilesCreateBody,
-    LlmSkillsNameFilesCreateParams,
-    LlmSkillsNameFilesDestroyParams,
-    LlmSkillsNameFilesDestroyQueryParams,
-    LlmSkillsNameFilesRenameCreateBody,
-    LlmSkillsNameFilesRenameCreateParams,
-    LlmSkillsNameFilesRetrieveParams,
-    LlmSkillsNameFilesRetrieveQueryParams,
-    LlmSkillsNamePartialUpdateBody,
-    LlmSkillsNamePartialUpdateParams,
-    LlmSkillsNameRetrieveParams,
-    LlmSkillsNameRetrieveQueryParams,
     TaggersCreateBody,
     TaggersListQueryParams,
     TaggersTestHogCreateBody,
@@ -84,6 +72,89 @@ import {
 import { PromptListInputSchema, ScoreDefinitionConfigSchema } from '@/schema/tool-inputs'
 import { withPostHogUrl, type WithPostHogUrl } from '@/tools/tool-utils'
 import type { Context, ToolBase, ZodObjectAny } from '@/tools/types'
+
+const LlmaClusteringConfigGetSchema = z.object({})
+
+const llmaClusteringConfigGet = (): ToolBase<typeof LlmaClusteringConfigGetSchema, Schemas.ClusteringConfig> => ({
+    name: 'llma-clustering-config-get',
+    schema: LlmaClusteringConfigGetSchema,
+    // eslint-disable-next-line no-unused-vars
+    handler: async (context: Context, params: z.infer<typeof LlmaClusteringConfigGetSchema>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const result = await context.api.request<Schemas.ClusteringConfig>({
+            method: 'GET',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/llm_analytics/clustering_config/`,
+        })
+        return result
+    },
+})
+
+const LlmaClusteringConfigSetEventFiltersSchema = LlmAnalyticsClusteringConfigSetEventFiltersCreateBody
+
+const llmaClusteringConfigSetEventFilters = (): ToolBase<
+    typeof LlmaClusteringConfigSetEventFiltersSchema,
+    Schemas.ClusteringConfig
+> => ({
+    name: 'llma-clustering-config-set-event-filters',
+    schema: LlmaClusteringConfigSetEventFiltersSchema,
+    handler: async (context: Context, params: z.infer<typeof LlmaClusteringConfigSetEventFiltersSchema>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const body: Record<string, unknown> = {}
+        if (params.event_filters !== undefined) {
+            body['event_filters'] = params.event_filters
+        }
+        const result = await context.api.request<Schemas.ClusteringConfig>({
+            method: 'POST',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/llm_analytics/clustering_config/set_event_filters/`,
+            body,
+        })
+        return result
+    },
+})
+
+const LlmaClusteringJobCreateSchema = LlmAnalyticsClusteringJobsCreateBody
+
+const llmaClusteringJobCreate = (): ToolBase<typeof LlmaClusteringJobCreateSchema, Schemas.ClusteringJob> => ({
+    name: 'llma-clustering-job-create',
+    schema: LlmaClusteringJobCreateSchema,
+    handler: async (context: Context, params: z.infer<typeof LlmaClusteringJobCreateSchema>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const body: Record<string, unknown> = {}
+        if (params.name !== undefined) {
+            body['name'] = params.name
+        }
+        if (params.analysis_level !== undefined) {
+            body['analysis_level'] = params.analysis_level
+        }
+        if (params.event_filters !== undefined) {
+            body['event_filters'] = params.event_filters
+        }
+        if (params.enabled !== undefined) {
+            body['enabled'] = params.enabled
+        }
+        const result = await context.api.request<Schemas.ClusteringJob>({
+            method: 'POST',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/llm_analytics/clustering_jobs/`,
+            body,
+        })
+        return result
+    },
+})
+
+const LlmaClusteringJobDeleteSchema = LlmAnalyticsClusteringJobsDestroyParams.omit({ project_id: true })
+
+const llmaClusteringJobDelete = (): ToolBase<typeof LlmaClusteringJobDeleteSchema, unknown> => ({
+    name: 'llma-clustering-job-delete',
+    schema: LlmaClusteringJobDeleteSchema,
+    handler: async (context: Context, params: z.infer<typeof LlmaClusteringJobDeleteSchema>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const result = await context.api.request<unknown>({
+            method: 'DELETE',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/llm_analytics/clustering_jobs/${encodeURIComponent(String(params.id))}/`,
+        })
+        return result
+    },
+})
 
 const LlmaClusteringJobGetSchema = LlmAnalyticsClusteringJobsRetrieveParams.omit({ project_id: true })
 
@@ -114,6 +185,37 @@ const llmaClusteringJobList = (): ToolBase<typeof LlmaClusteringJobListSchema, S
                 limit: params.limit,
                 offset: params.offset,
             },
+        })
+        return result
+    },
+})
+
+const LlmaClusteringJobUpdateSchema = LlmAnalyticsClusteringJobsPartialUpdateParams.omit({ project_id: true }).extend(
+    LlmAnalyticsClusteringJobsPartialUpdateBody.shape
+)
+
+const llmaClusteringJobUpdate = (): ToolBase<typeof LlmaClusteringJobUpdateSchema, Schemas.ClusteringJob> => ({
+    name: 'llma-clustering-job-update',
+    schema: LlmaClusteringJobUpdateSchema,
+    handler: async (context: Context, params: z.infer<typeof LlmaClusteringJobUpdateSchema>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const body: Record<string, unknown> = {}
+        if (params.name !== undefined) {
+            body['name'] = params.name
+        }
+        if (params.analysis_level !== undefined) {
+            body['analysis_level'] = params.analysis_level
+        }
+        if (params.event_filters !== undefined) {
+            body['event_filters'] = params.event_filters
+        }
+        if (params.enabled !== undefined) {
+            body['enabled'] = params.enabled
+        }
+        const result = await context.api.request<Schemas.ClusteringJob>({
+            method: 'PATCH',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/llm_analytics/clustering_jobs/${encodeURIComponent(String(params.id))}/`,
+            body,
         })
         return result
     },
@@ -189,6 +291,12 @@ const llmaEvaluationCreate = (): ToolBase<typeof LlmaEvaluationCreateSchema, Sch
         }
         if (params.conditions !== undefined) {
             body['conditions'] = params.conditions
+        }
+        if (params.target !== undefined) {
+            body['target'] = params.target
+        }
+        if (params.target_config !== undefined) {
+            body['target_config'] = params.target_config
         }
         if (params.model_configuration !== undefined) {
             body['model_configuration'] = params.model_configuration
@@ -270,10 +378,11 @@ const llmaEvaluationList = (): ToolBase<typeof LlmaEvaluationListSchema, Schemas
             path: `/api/projects/${encodeURIComponent(String(projectId))}/evaluations/`,
             query: {
                 enabled: params.enabled,
-                id__in: params.id__in,
+                evaluation_type: params.evaluation_type,
+                id__in: Array.isArray(params.id__in) ? params.id__in.join(',') || undefined : params.id__in,
                 limit: params.limit,
                 offset: params.offset,
-                order_by: params.order_by,
+                order_by: Array.isArray(params.order_by) ? params.order_by.join(',') || undefined : params.order_by,
                 search: params.search,
             },
         })
@@ -281,7 +390,7 @@ const llmaEvaluationList = (): ToolBase<typeof LlmaEvaluationListSchema, Schemas
     },
 })
 
-const LlmaEvaluationReportCreateSchema = LlmAnalyticsEvaluationReportsCreateBody.omit({ deleted: true })
+const LlmaEvaluationReportCreateSchema = LlmAnalyticsEvaluationReportsCreateBody
 
 const llmaEvaluationReportCreate = (): ToolBase<typeof LlmaEvaluationReportCreateSchema, Schemas.EvaluationReport> => ({
     name: 'llma-evaluation-report-create',
@@ -297,12 +406,6 @@ const llmaEvaluationReportCreate = (): ToolBase<typeof LlmaEvaluationReportCreat
         }
         if (params.rrule !== undefined) {
             body['rrule'] = params.rrule
-        }
-        if (params.starts_at !== undefined) {
-            body['starts_at'] = params.starts_at
-        }
-        if (params.timezone_name !== undefined) {
-            body['timezone_name'] = params.timezone_name
         }
         if (params.delivery_targets !== undefined) {
             body['delivery_targets'] = params.delivery_targets
@@ -329,22 +432,6 @@ const llmaEvaluationReportCreate = (): ToolBase<typeof LlmaEvaluationReportCreat
             method: 'POST',
             path: `/api/projects/${encodeURIComponent(String(projectId))}/llm_analytics/evaluation_reports/`,
             body,
-        })
-        return result
-    },
-})
-
-const LlmaEvaluationReportDeleteSchema = LlmAnalyticsEvaluationReportsDestroyParams.omit({ project_id: true })
-
-const llmaEvaluationReportDelete = (): ToolBase<typeof LlmaEvaluationReportDeleteSchema, Schemas.EvaluationReport> => ({
-    name: 'llma-evaluation-report-delete',
-    schema: LlmaEvaluationReportDeleteSchema,
-    handler: async (context: Context, params: z.infer<typeof LlmaEvaluationReportDeleteSchema>) => {
-        const projectId = await context.stateManager.getProjectId()
-        const result = await context.api.request<Schemas.EvaluationReport>({
-            method: 'PATCH',
-            path: `/api/projects/${encodeURIComponent(String(projectId))}/llm_analytics/evaluation_reports/${encodeURIComponent(String(params.id))}/`,
-            body: { deleted: true },
         })
         return result
     },
@@ -394,6 +481,7 @@ const llmaEvaluationReportList = (): ToolBase<
             method: 'GET',
             path: `/api/projects/${encodeURIComponent(String(projectId))}/llm_analytics/evaluation_reports/`,
             query: {
+                evaluation: params.evaluation,
                 limit: params.limit,
                 offset: params.offset,
             },
@@ -430,26 +518,20 @@ const LlmaEvaluationReportUpdateSchema = LlmAnalyticsEvaluationReportsPartialUpd
     project_id: true,
 }).extend(LlmAnalyticsEvaluationReportsPartialUpdateBody.shape)
 
-const llmaEvaluationReportUpdate = (): ToolBase<typeof LlmaEvaluationReportUpdateSchema, Schemas.EvaluationReport> => ({
+const llmaEvaluationReportUpdate = (): ToolBase<
+    typeof LlmaEvaluationReportUpdateSchema,
+    Schemas.EvaluationReportUpdate
+> => ({
     name: 'llma-evaluation-report-update',
     schema: LlmaEvaluationReportUpdateSchema,
     handler: async (context: Context, params: z.infer<typeof LlmaEvaluationReportUpdateSchema>) => {
         const projectId = await context.stateManager.getProjectId()
         const body: Record<string, unknown> = {}
-        if (params.evaluation !== undefined) {
-            body['evaluation'] = params.evaluation
-        }
         if (params.frequency !== undefined) {
             body['frequency'] = params.frequency
         }
         if (params.rrule !== undefined) {
             body['rrule'] = params.rrule
-        }
-        if (params.starts_at !== undefined) {
-            body['starts_at'] = params.starts_at
-        }
-        if (params.timezone_name !== undefined) {
-            body['timezone_name'] = params.timezone_name
         }
         if (params.delivery_targets !== undefined) {
             body['delivery_targets'] = params.delivery_targets
@@ -459,9 +541,6 @@ const llmaEvaluationReportUpdate = (): ToolBase<typeof LlmaEvaluationReportUpdat
         }
         if (params.enabled !== undefined) {
             body['enabled'] = params.enabled
-        }
-        if (params.deleted !== undefined) {
-            body['deleted'] = params.deleted
         }
         if (params.report_prompt_guidance !== undefined) {
             body['report_prompt_guidance'] = params.report_prompt_guidance
@@ -475,7 +554,7 @@ const llmaEvaluationReportUpdate = (): ToolBase<typeof LlmaEvaluationReportUpdat
         if (params.daily_run_cap !== undefined) {
             body['daily_run_cap'] = params.daily_run_cap
         }
-        const result = await context.api.request<Schemas.EvaluationReport>({
+        const result = await context.api.request<Schemas.EvaluationReportUpdate>({
             method: 'PATCH',
             path: `/api/projects/${encodeURIComponent(String(projectId))}/llm_analytics/evaluation_reports/${encodeURIComponent(String(params.id))}/`,
             body,
@@ -611,6 +690,12 @@ const llmaEvaluationUpdate = (): ToolBase<typeof LlmaEvaluationUpdateSchema, Sch
         if (params.conditions !== undefined) {
             body['conditions'] = params.conditions
         }
+        if (params.target !== undefined) {
+            body['target'] = params.target
+        }
+        if (params.target_config !== undefined) {
+            body['target_config'] = params.target_config
+        }
         if (params.model_configuration !== undefined) {
             body['model_configuration'] = params.model_configuration
         }
@@ -660,6 +745,9 @@ const llmaPromptCreate = (): ToolBase<typeof LlmaPromptCreateSchema, Schemas.LLM
         }
         if (params.prompt !== undefined) {
             body['prompt'] = params.prompt
+        }
+        if (params.version_description !== undefined) {
+            body['version_description'] = params.version_description
         }
         const result = await context.api.request<Schemas.LLMPrompt>({
             method: 'POST',
@@ -758,12 +846,52 @@ const llmaPromptUpdate = (): ToolBase<typeof LlmaPromptUpdateSchema, Schemas.LLM
         if (params.base_version !== undefined) {
             body['base_version'] = params.base_version
         }
+        if (params.version_description !== undefined) {
+            body['version_description'] = params.version_description
+        }
         const result = await context.api.request<Schemas.LLMPrompt>({
             method: 'PATCH',
             path: `/api/projects/${encodeURIComponent(String(projectId))}/llm_prompts/name/${encodeURIComponent(String(params.prompt_name))}/`,
             body,
         })
         return result
+    },
+})
+
+const LlmaProviderKeyGetSchema = LlmAnalyticsProviderKeysRetrieveParams.omit({ project_id: true })
+
+const llmaProviderKeyGet = (): ToolBase<typeof LlmaProviderKeyGetSchema, Schemas.LLMProviderKey> => ({
+    name: 'llma-provider-key-get',
+    schema: LlmaProviderKeyGetSchema,
+    handler: async (context: Context, params: z.infer<typeof LlmaProviderKeyGetSchema>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const result = await context.api.request<Schemas.LLMProviderKey>({
+            method: 'GET',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/llm_analytics/provider_keys/${encodeURIComponent(String(params.id))}/`,
+        })
+        return result
+    },
+})
+
+const LlmaProviderKeyListSchema = LlmAnalyticsProviderKeysListQueryParams
+
+const llmaProviderKeyList = (): ToolBase<
+    typeof LlmaProviderKeyListSchema,
+    WithPostHogUrl<Schemas.PaginatedLLMProviderKeyList>
+> => ({
+    name: 'llma-provider-key-list',
+    schema: LlmaProviderKeyListSchema,
+    handler: async (context: Context, params: z.infer<typeof LlmaProviderKeyListSchema>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const result = await context.api.request<Schemas.PaginatedLLMProviderKeyList>({
+            method: 'GET',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/llm_analytics/provider_keys/`,
+            query: {
+                limit: params.limit,
+                offset: params.offset,
+            },
+        })
+        return await withPostHogUrl(context, result, '/ai-observability')
     },
 })
 
@@ -1136,309 +1264,6 @@ const llmaScoreDefinitionUpdate = (): ToolBase<typeof LlmaScoreDefinitionUpdateS
     },
 })
 
-const LlmaSentimentCreateSchema = LlmAnalyticsSentimentCreateBody
-
-const llmaSentimentCreate = (): ToolBase<typeof LlmaSentimentCreateSchema, Schemas.SentimentBatchResponse> => ({
-    name: 'llma-sentiment-create',
-    schema: LlmaSentimentCreateSchema,
-    handler: async (context: Context, params: z.infer<typeof LlmaSentimentCreateSchema>) => {
-        const projectId = await context.stateManager.getProjectId()
-        const body: Record<string, unknown> = {}
-        if (params.ids !== undefined) {
-            body['ids'] = params.ids
-        }
-        if (params.analysis_level !== undefined) {
-            body['analysis_level'] = params.analysis_level
-        }
-        if (params.force_refresh !== undefined) {
-            body['force_refresh'] = params.force_refresh
-        }
-        if (params.date_from !== undefined) {
-            body['date_from'] = params.date_from
-        }
-        if (params.date_to !== undefined) {
-            body['date_to'] = params.date_to
-        }
-        const result = await context.api.request<Schemas.SentimentBatchResponse>({
-            method: 'POST',
-            path: `/api/projects/${encodeURIComponent(String(projectId))}/llm_analytics/sentiment/`,
-            body,
-        })
-        return result
-    },
-})
-
-const LlmaSkillArchiveSchema = LlmSkillsNameArchiveCreateParams.omit({ project_id: true }).extend({
-    skill_name: LlmSkillsNameArchiveCreateParams.shape['skill_name'].describe(
-        'The kebab-case name of the skill to archive.'
-    ),
-})
-
-const llmaSkillArchive = (): ToolBase<typeof LlmaSkillArchiveSchema, unknown> => ({
-    name: 'llma-skill-archive',
-    schema: LlmaSkillArchiveSchema,
-    handler: async (context: Context, params: z.infer<typeof LlmaSkillArchiveSchema>) => {
-        const projectId = await context.stateManager.getProjectId()
-        const result = await context.api.request<unknown>({
-            method: 'POST',
-            path: `/api/projects/${encodeURIComponent(String(projectId))}/llm_skills/name/${encodeURIComponent(String(params.skill_name))}/archive/`,
-        })
-        return result
-    },
-})
-
-const LlmaSkillCreateSchema = LlmSkillsCreateBody
-
-const llmaSkillCreate = (): ToolBase<typeof LlmaSkillCreateSchema, Schemas.LLMSkillCreate> => ({
-    name: 'llma-skill-create',
-    schema: LlmaSkillCreateSchema,
-    handler: async (context: Context, params: z.infer<typeof LlmaSkillCreateSchema>) => {
-        const projectId = await context.stateManager.getProjectId()
-        const body: Record<string, unknown> = {}
-        if (params.name !== undefined) {
-            body['name'] = params.name
-        }
-        if (params.description !== undefined) {
-            body['description'] = params.description
-        }
-        if (params.body !== undefined) {
-            body['body'] = params.body
-        }
-        if (params.license !== undefined) {
-            body['license'] = params.license
-        }
-        if (params.compatibility !== undefined) {
-            body['compatibility'] = params.compatibility
-        }
-        if (params.allowed_tools !== undefined) {
-            body['allowed_tools'] = params.allowed_tools
-        }
-        if (params.metadata !== undefined) {
-            body['metadata'] = params.metadata
-        }
-        if (params.files !== undefined) {
-            body['files'] = params.files
-        }
-        const result = await context.api.request<Schemas.LLMSkillCreate>({
-            method: 'POST',
-            path: `/api/projects/${encodeURIComponent(String(projectId))}/llm_skills/`,
-            body,
-        })
-        return result
-    },
-})
-
-const LlmaSkillDuplicateSchema = LlmSkillsNameDuplicateCreateParams.omit({ project_id: true }).extend(
-    LlmSkillsNameDuplicateCreateBody.shape
-)
-
-const llmaSkillDuplicate = (): ToolBase<typeof LlmaSkillDuplicateSchema, Schemas.LLMSkill> => ({
-    name: 'llma-skill-duplicate',
-    schema: LlmaSkillDuplicateSchema,
-    handler: async (context: Context, params: z.infer<typeof LlmaSkillDuplicateSchema>) => {
-        const projectId = await context.stateManager.getProjectId()
-        const body: Record<string, unknown> = {}
-        if (params.new_name !== undefined) {
-            body['new_name'] = params.new_name
-        }
-        const result = await context.api.request<Schemas.LLMSkill>({
-            method: 'POST',
-            path: `/api/projects/${encodeURIComponent(String(projectId))}/llm_skills/name/${encodeURIComponent(String(params.skill_name))}/duplicate/`,
-            body,
-        })
-        return result
-    },
-})
-
-const LlmaSkillFileCreateSchema = LlmSkillsNameFilesCreateParams.omit({ project_id: true }).extend(
-    LlmSkillsNameFilesCreateBody.shape
-)
-
-const llmaSkillFileCreate = (): ToolBase<typeof LlmaSkillFileCreateSchema, Schemas.LLMSkill> => ({
-    name: 'llma-skill-file-create',
-    schema: LlmaSkillFileCreateSchema,
-    handler: async (context: Context, params: z.infer<typeof LlmaSkillFileCreateSchema>) => {
-        const projectId = await context.stateManager.getProjectId()
-        const body: Record<string, unknown> = {}
-        if (params.path !== undefined) {
-            body['path'] = params.path
-        }
-        if (params.content !== undefined) {
-            body['content'] = params.content
-        }
-        if (params.content_type !== undefined) {
-            body['content_type'] = params.content_type
-        }
-        if (params.base_version !== undefined) {
-            body['base_version'] = params.base_version
-        }
-        const result = await context.api.request<Schemas.LLMSkill>({
-            method: 'POST',
-            path: `/api/projects/${encodeURIComponent(String(projectId))}/llm_skills/name/${encodeURIComponent(String(params.skill_name))}/files/`,
-            body,
-        })
-        return result
-    },
-})
-
-const LlmaSkillFileDeleteSchema = LlmSkillsNameFilesDestroyParams.omit({ project_id: true }).extend(
-    LlmSkillsNameFilesDestroyQueryParams.shape
-)
-
-const llmaSkillFileDelete = (): ToolBase<typeof LlmaSkillFileDeleteSchema, Schemas.LLMSkill> => ({
-    name: 'llma-skill-file-delete',
-    schema: LlmaSkillFileDeleteSchema,
-    handler: async (context: Context, params: z.infer<typeof LlmaSkillFileDeleteSchema>) => {
-        const projectId = await context.stateManager.getProjectId()
-        const result = await context.api.request<Schemas.LLMSkill>({
-            method: 'DELETE',
-            path: `/api/projects/${encodeURIComponent(String(projectId))}/llm_skills/name/${encodeURIComponent(String(params.skill_name))}/files/${encodeURIComponent(String(params.file_path))}/`,
-            query: {
-                base_version: params.base_version,
-            },
-        })
-        return result
-    },
-})
-
-const LlmaSkillFileGetSchema = LlmSkillsNameFilesRetrieveParams.omit({ project_id: true }).extend(
-    LlmSkillsNameFilesRetrieveQueryParams.shape
-)
-
-const llmaSkillFileGet = (): ToolBase<typeof LlmaSkillFileGetSchema, Schemas.LLMSkillFile> => ({
-    name: 'llma-skill-file-get',
-    schema: LlmaSkillFileGetSchema,
-    handler: async (context: Context, params: z.infer<typeof LlmaSkillFileGetSchema>) => {
-        const projectId = await context.stateManager.getProjectId()
-        const result = await context.api.request<Schemas.LLMSkillFile>({
-            method: 'GET',
-            path: `/api/projects/${encodeURIComponent(String(projectId))}/llm_skills/name/${encodeURIComponent(String(params.skill_name))}/files/${encodeURIComponent(String(params.file_path))}/`,
-            query: {
-                version: params.version,
-            },
-        })
-        return result
-    },
-})
-
-const LlmaSkillFileRenameSchema = LlmSkillsNameFilesRenameCreateParams.omit({ project_id: true }).extend(
-    LlmSkillsNameFilesRenameCreateBody.shape
-)
-
-const llmaSkillFileRename = (): ToolBase<typeof LlmaSkillFileRenameSchema, Schemas.LLMSkill> => ({
-    name: 'llma-skill-file-rename',
-    schema: LlmaSkillFileRenameSchema,
-    handler: async (context: Context, params: z.infer<typeof LlmaSkillFileRenameSchema>) => {
-        const projectId = await context.stateManager.getProjectId()
-        const body: Record<string, unknown> = {}
-        if (params.old_path !== undefined) {
-            body['old_path'] = params.old_path
-        }
-        if (params.new_path !== undefined) {
-            body['new_path'] = params.new_path
-        }
-        if (params.base_version !== undefined) {
-            body['base_version'] = params.base_version
-        }
-        const result = await context.api.request<Schemas.LLMSkill>({
-            method: 'POST',
-            path: `/api/projects/${encodeURIComponent(String(projectId))}/llm_skills/name/${encodeURIComponent(String(params.skill_name))}/files-rename/`,
-            body,
-        })
-        return result
-    },
-})
-
-const LlmaSkillGetSchema = LlmSkillsNameRetrieveParams.omit({ project_id: true }).extend(
-    LlmSkillsNameRetrieveQueryParams.shape
-)
-
-const llmaSkillGet = (): ToolBase<typeof LlmaSkillGetSchema, Schemas.LLMSkill> => ({
-    name: 'llma-skill-get',
-    schema: LlmaSkillGetSchema,
-    handler: async (context: Context, params: z.infer<typeof LlmaSkillGetSchema>) => {
-        const projectId = await context.stateManager.getProjectId()
-        const result = await context.api.request<Schemas.LLMSkill>({
-            method: 'GET',
-            path: `/api/projects/${encodeURIComponent(String(projectId))}/llm_skills/name/${encodeURIComponent(String(params.skill_name))}/`,
-            query: {
-                version: params.version,
-            },
-        })
-        return result
-    },
-})
-
-const LlmaSkillListSchema = LlmSkillsListQueryParams
-
-const llmaSkillList = (): ToolBase<typeof LlmaSkillListSchema, Schemas.PaginatedLLMSkillListList> => ({
-    name: 'llma-skill-list',
-    schema: LlmaSkillListSchema,
-    handler: async (context: Context, params: z.infer<typeof LlmaSkillListSchema>) => {
-        const projectId = await context.stateManager.getProjectId()
-        const result = await context.api.request<Schemas.PaginatedLLMSkillListList>({
-            method: 'GET',
-            path: `/api/projects/${encodeURIComponent(String(projectId))}/llm_skills/`,
-            query: {
-                created_by_id: params.created_by_id,
-                limit: params.limit,
-                offset: params.offset,
-                search: params.search,
-            },
-        })
-        return result
-    },
-})
-
-const LlmaSkillUpdateSchema = LlmSkillsNamePartialUpdateParams.omit({ project_id: true }).extend(
-    LlmSkillsNamePartialUpdateBody.shape
-)
-
-const llmaSkillUpdate = (): ToolBase<typeof LlmaSkillUpdateSchema, Schemas.LLMSkill> => ({
-    name: 'llma-skill-update',
-    schema: LlmaSkillUpdateSchema,
-    handler: async (context: Context, params: z.infer<typeof LlmaSkillUpdateSchema>) => {
-        const projectId = await context.stateManager.getProjectId()
-        const body: Record<string, unknown> = {}
-        if (params.body !== undefined) {
-            body['body'] = params.body
-        }
-        if (params.edits !== undefined) {
-            body['edits'] = params.edits
-        }
-        if (params.description !== undefined) {
-            body['description'] = params.description
-        }
-        if (params.license !== undefined) {
-            body['license'] = params.license
-        }
-        if (params.compatibility !== undefined) {
-            body['compatibility'] = params.compatibility
-        }
-        if (params.allowed_tools !== undefined) {
-            body['allowed_tools'] = params.allowed_tools
-        }
-        if (params.metadata !== undefined) {
-            body['metadata'] = params.metadata
-        }
-        if (params.files !== undefined) {
-            body['files'] = params.files
-        }
-        if (params.file_edits !== undefined) {
-            body['file_edits'] = params.file_edits
-        }
-        if (params.base_version !== undefined) {
-            body['base_version'] = params.base_version
-        }
-        const result = await context.api.request<Schemas.LLMSkill>({
-            method: 'PATCH',
-            path: `/api/projects/${encodeURIComponent(String(projectId))}/llm_skills/name/${encodeURIComponent(String(params.skill_name))}/`,
-            body,
-        })
-        return result
-    },
-})
-
 const LlmaSummarizationCreateSchema = LlmAnalyticsSummarizationCreateBody
 
 const llmaSummarizationCreate = (): ToolBase<typeof LlmaSummarizationCreateSchema, Schemas.SummarizeResponse> => ({
@@ -1533,10 +1358,10 @@ const llmaTaggerList = (): ToolBase<typeof LlmaTaggerListSchema, WithPostHogUrl<
             path: `/api/projects/${encodeURIComponent(String(projectId))}/taggers/`,
             query: {
                 enabled: params.enabled,
-                id__in: params.id__in,
+                id__in: Array.isArray(params.id__in) ? params.id__in.join(',') || undefined : params.id__in,
                 limit: params.limit,
                 offset: params.offset,
-                order_by: params.order_by,
+                order_by: Array.isArray(params.order_by) ? params.order_by.join(',') || undefined : params.order_by,
                 search: params.search,
             },
         })
@@ -1715,8 +1540,13 @@ const llmaTraceReviewUpdate = (): ToolBase<
 })
 
 export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
+    'llma-clustering-config-get': llmaClusteringConfigGet,
+    'llma-clustering-config-set-event-filters': llmaClusteringConfigSetEventFilters,
+    'llma-clustering-job-create': llmaClusteringJobCreate,
+    'llma-clustering-job-delete': llmaClusteringJobDelete,
     'llma-clustering-job-get': llmaClusteringJobGet,
     'llma-clustering-job-list': llmaClusteringJobList,
+    'llma-clustering-job-update': llmaClusteringJobUpdate,
     'llma-evaluation-config-get': llmaEvaluationConfigGet,
     'llma-evaluation-config-set-active-key': llmaEvaluationConfigSetActiveKey,
     'llma-evaluation-create': llmaEvaluationCreate,
@@ -1725,7 +1555,6 @@ export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
     'llma-evaluation-judge-models': llmaEvaluationJudgeModels,
     'llma-evaluation-list': llmaEvaluationList,
     'llma-evaluation-report-create': llmaEvaluationReportCreate,
-    'llma-evaluation-report-delete': llmaEvaluationReportDelete,
     'llma-evaluation-report-generate': llmaEvaluationReportGenerate,
     'llma-evaluation-report-get': llmaEvaluationReportGet,
     'llma-evaluation-report-list': llmaEvaluationReportList,
@@ -1741,6 +1570,8 @@ export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
     'llma-prompt-get': llmaPromptGet,
     'llma-prompt-list': llmaPromptList,
     'llma-prompt-update': llmaPromptUpdate,
+    'llma-provider-key-get': llmaProviderKeyGet,
+    'llma-provider-key-list': llmaProviderKeyList,
     'llma-review-queue-create': llmaReviewQueueCreate,
     'llma-review-queue-delete': llmaReviewQueueDelete,
     'llma-review-queue-get': llmaReviewQueueGet,
@@ -1756,17 +1587,6 @@ export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
     'llma-score-definition-list': llmaScoreDefinitionList,
     'llma-score-definition-new-version': llmaScoreDefinitionNewVersion,
     'llma-score-definition-update': llmaScoreDefinitionUpdate,
-    'llma-sentiment-create': llmaSentimentCreate,
-    'llma-skill-archive': llmaSkillArchive,
-    'llma-skill-create': llmaSkillCreate,
-    'llma-skill-duplicate': llmaSkillDuplicate,
-    'llma-skill-file-create': llmaSkillFileCreate,
-    'llma-skill-file-delete': llmaSkillFileDelete,
-    'llma-skill-file-get': llmaSkillFileGet,
-    'llma-skill-file-rename': llmaSkillFileRename,
-    'llma-skill-get': llmaSkillGet,
-    'llma-skill-list': llmaSkillList,
-    'llma-skill-update': llmaSkillUpdate,
     'llma-summarization-create': llmaSummarizationCreate,
     'llma-tagger-create': llmaTaggerCreate,
     'llma-tagger-list': llmaTaggerList,

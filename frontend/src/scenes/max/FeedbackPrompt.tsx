@@ -8,8 +8,9 @@ import { LemonButton, LemonInput, LemonModal } from '@posthog/lemon-ui'
 import { SupportForm } from 'lib/components/Support/SupportForm'
 import { supportLogic } from 'lib/components/Support/supportLogic'
 
+import { MessageTemplate } from 'products/posthog_ai/frontend/api/primitives'
+
 import { feedbackPromptLogic } from './feedbackPromptLogic'
-import { MessageTemplate } from './messages/MessageTemplate'
 import { captureFeedback } from './utils'
 
 interface FeedbackPromptProps {
@@ -96,7 +97,7 @@ export function FeedbackPrompt({ conversationId, traceId }: FeedbackPromptProps)
             name: '',
             email: '',
             kind: 'feedback',
-            target_area: 'max-ai',
+            target_area: 'posthog-ai',
             severity_level: 'low',
             message: feedbackText,
         })

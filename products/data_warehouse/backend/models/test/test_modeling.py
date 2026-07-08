@@ -9,8 +9,7 @@ from posthog.hogql.database.database import Database
 from posthog.hogql.errors import QueryError
 from posthog.hogql.parser import parse_select
 
-from products.data_modeling.backend.models.datawarehouse_saved_query import DataWarehouseSavedQuery
-from products.data_modeling.backend.models.modeling import (
+from products.data_modeling.backend.facade.modeling import (
     DEFAULT_RESOLUTION_DEADLINE_SECONDS,
     DEFAULT_RESOLUTION_MAX_VIEW_DEPTH,
     BoundedResolver,
@@ -21,8 +20,9 @@ from products.data_modeling.backend.models.modeling import (
     ResolutionTimeoutError,
     get_parents_from_model_query,
 )
-from products.data_warehouse.backend.types import ExternalDataSourceType
-from products.warehouse_sources.backend.models import DataWarehouseTable, ExternalDataSchema, ExternalDataSource
+from products.data_modeling.backend.facade.models import DataWarehouseSavedQuery
+from products.warehouse_sources.backend.facade.models import DataWarehouseTable, ExternalDataSchema, ExternalDataSource
+from products.warehouse_sources.backend.facade.types import ExternalDataSourceType
 
 GET_PARENTS_TEST_CASES = [
     ("select events.*, persons.* from events, persons", {"events", "persons"}),
@@ -178,6 +178,31 @@ class TestModelPath(BaseTest):
         self.assertEqual(len(paths), 2)
         self.assertIn(["events", saved_query.id.hex], paths)
         self.assertIn(["persons", saved_query.id.hex], paths)
+
+    def test_update_paths_for_posthog_namespaced_table_query(self):
+        """`posthog.*`-namespaced tables (e.g. ai_events) must resolve as valid model-path parents on
+        the UPDATE path too. `update_paths_from_query` keys off `get_posthog_table_names()`, which omits
+        namespaced tables — so re-saving/re-materializing a view over `posthog.ai_events` raised
+        UnknownParentError until the hidden table names were unioned in. (The create path already
+        resolves them via `get_table()`.)"""
+        query = "SELECT trace_id FROM posthog.ai_events"
+        saved_query = DataWarehouseSavedQuery.objects.create(
+            team=self.team,
+            name="my_model",
+            query={"query": query},
+        )
+
+        # Create path seeds the initial paths (it resolves namespaced tables via get_table()).
+        DataWarehouseModelPath.objects.create_from_saved_query(saved_query)
+
+        # Update path is hit whenever an existing view is re-saved or re-materialized.
+        DataWarehouseModelPath.objects.update_from_saved_query(saved_query)
+
+        # `posthog.ai_events` is stored as two ltree labels (LabelTreeField splits on "."), exactly
+        # as the create path stores it — the update path must converge on the same single path.
+        paths = [mp.path for mp in DataWarehouseModelPath.objects.filter(team=self.team, saved_query=saved_query)]
+        self.assertEqual(len(paths), 1)
+        self.assertIn(["posthog", "ai_events", saved_query.id.hex], paths)
 
     def test_create_from_warehouse_table_old_notation_nodes_query(self):
         """Test creation of a model path from a query that reads from a managed source using old notation."""
@@ -704,7 +729,7 @@ class TestResolverFactoryInjection(BaseTest):
         Without a shared anchor, each resolver would get its own deadline_seconds budget
         and prepare_ast_for_printing's multi-pass resolution would compound the bound.
         """
-        from products.data_modeling.backend.models.modeling import bounded_resolver_factory_for_view
+        from products.data_modeling.backend.facade.modeling import bounded_resolver_factory_for_view
 
         factory = bounded_resolver_factory_for_view("caller", deadline_seconds=10.0)
         context = HogQLContext(team_id=self.team.pk, team=self.team, enable_select_queries=True)
@@ -727,7 +752,7 @@ class TestResolverFactoryInjection(BaseTest):
         """
         from posthog.hogql.printer import prepare_ast_for_printing
 
-        from products.data_modeling.backend.models.modeling import bounded_resolver_factory_for_view
+        from products.data_modeling.backend.facade.modeling import bounded_resolver_factory_for_view
 
         # Use the shared factory helper so the deadline is end-to-end across passes
         factory = bounded_resolver_factory_for_view("caller", max_view_depth=DEFAULT_RESOLUTION_MAX_VIEW_DEPTH)

@@ -9,7 +9,7 @@ import { lemonToast } from '@posthog/lemon-ui'
 
 import api from 'lib/api'
 import { dayjs } from 'lib/dayjs'
-import { dateStringToDayJs } from 'lib/utils'
+import { dateStringToDayJs } from 'lib/utils/dateFilters'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { NEW_FLAG } from 'scenes/feature-flags/featureFlagLogic'
 import { sceneConfigurations } from 'scenes/scenes'

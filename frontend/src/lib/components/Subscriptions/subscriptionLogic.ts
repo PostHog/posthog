@@ -2,19 +2,99 @@ import { actions, events, kea, key, listeners, path, props, reducers } from 'kea
 import { forms } from 'kea-forms'
 import { loaders } from 'kea-loaders'
 import { beforeUnload, router, urlToAction } from 'kea-router'
+import posthog from 'posthog-js'
 
 import api, { ApiError } from 'lib/api'
 import { dayjs } from 'lib/dayjs'
 import { recordRecentSlackChannel, slackChannelId } from 'lib/integrations/slackChannel'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
-import { isEmail, isURL } from 'lib/utils'
+import { isEmail } from 'lib/utils/url'
 import { getInsightId } from 'scenes/insights/utils'
 
-import { ExportedAssetType, ExporterFormat, SubscriptionType } from '~/types'
+import { ExportedAssetType, ExporterFormat, SubscriptionResourceTypes, SubscriptionType } from '~/types'
+
+import type { AIWindowConfigApi } from 'products/subscriptions/frontend/generated/api.schemas'
 
 import type { subscriptionLogicType } from './subscriptionLogicType'
 import { subscriptionsLogic } from './subscriptionsLogic'
-import { SubscriptionBaseProps, urlForSubscription } from './utils'
+import { AI_PROMPT_MAX_LENGTH, SubscriptionBaseProps, urlForSubscription } from './utils'
+
+function validatePrompt(
+    resource_type: SubscriptionType['resource_type'],
+    prompt: string | null | undefined
+): string | undefined {
+    if (resource_type !== SubscriptionResourceTypes.AiPrompt) {
+        return undefined
+    }
+    const trimmedPrompt = prompt?.trim()
+    if (!trimmedPrompt) {
+        return 'A prompt is required for prompt subscriptions'
+    }
+    if (trimmedPrompt.length > AI_PROMPT_MAX_LENGTH) {
+        return `Prompt cannot exceed ${AI_PROMPT_MAX_LENGTH} characters`
+    }
+    return undefined
+}
+
+const AI_WINDOW_MAX_DAYS = 365
+
+function validateAiWindow(subscription: Partial<SubscriptionType>): {
+    ai_prompt_config?: { window: { start_days_ago?: any; end_days_ago?: any } }
+} {
+    if (subscription.resource_type !== SubscriptionResourceTypes.AiPrompt) {
+        return {}
+    }
+    const window = subscription.ai_prompt_config?.window
+    const mode = window?.mode ?? 'since_last_sent'
+    if (mode === 'since_last_sent') {
+        return {}
+    }
+    const start = window?.start_days_ago
+    if (start === null || start === undefined) {
+        return { ai_prompt_config: { window: { start_days_ago: 'Set how many days back the report should look' } } }
+    }
+    if (start < 1 || start > AI_WINDOW_MAX_DAYS) {
+        return { ai_prompt_config: { window: { start_days_ago: `Must be between 1 and ${AI_WINDOW_MAX_DAYS} days` } } }
+    }
+    if (mode === 'last_n_days') {
+        return {}
+    }
+    const end = window?.end_days_ago
+    if (end === null || end === undefined) {
+        return { ai_prompt_config: { window: { end_days_ago: 'Set where the analyzed range should end' } } }
+    }
+    if (end < 0 || end > AI_WINDOW_MAX_DAYS) {
+        return { ai_prompt_config: { window: { end_days_ago: `Must be between 0 and ${AI_WINDOW_MAX_DAYS} days` } } }
+    }
+    if (end >= start) {
+        return { ai_prompt_config: { window: { end_days_ago: 'Must be closer to now than the start of the range' } } }
+    }
+    return {}
+}
+
+function validateTargetValue(target_type: string, target_value: string | undefined): string | undefined {
+    if (!target_value) {
+        return target_type === 'email'
+            ? 'At least one email is required'
+            : target_type === 'slack'
+              ? 'A channel is required'
+              : 'This field is required.'
+    }
+    if (target_type === 'email' && !target_value.split(',').every((email) => isEmail(email))) {
+        return 'All emails must be valid'
+    }
+    return undefined
+}
+
+function validateDashboardExportInsights(
+    subscription: Partial<SubscriptionType>,
+    dashboardId: number | undefined
+): any {
+    if (subscription.resource_type === SubscriptionResourceTypes.AiPrompt || !dashboardId) {
+        return undefined
+    }
+    return subscription.dashboard_export_insights?.length ? undefined : 'Select at least one insight'
+}
 
 function subscriptionSaveErrorMessage(error: unknown): string {
     if (error instanceof ApiError) {
@@ -28,6 +108,7 @@ function subscriptionSaveErrorMessage(error: unknown): string {
 }
 
 const NEW_SUBSCRIPTION: Partial<SubscriptionType> = {
+    resource_type: SubscriptionResourceTypes.Insight,
     frequency: 'weekly',
     interval: 1,
     start_date: dayjs().hour(9).minute(0).second(0).toISOString(),
@@ -39,6 +120,7 @@ const NEW_SUBSCRIPTION: Partial<SubscriptionType> = {
     enabled: true,
     summary_enabled: false,
     summary_prompt_guide: '',
+    ai_prompt_config: { window: { mode: 'since_last_sent' } },
 }
 
 export interface SubscriptionLogicProps extends SubscriptionBaseProps {
@@ -55,6 +137,11 @@ export const subscriptionLogic = kea<subscriptionLogicType>([
         setPreviewLoading: (loading: boolean) => ({ loading }),
         setPreviewError: (error: string | null) => ({ error }),
         setPreviewImageUrl: (url: string | null) => ({ url }),
+        selectAiExamplePrompt: (prompt: string, label: string, window?: AIWindowConfigApi) => ({
+            prompt,
+            label,
+            window,
+        }),
     }),
 
     reducers({
@@ -89,7 +176,19 @@ export const subscriptionLogic = kea<subscriptionLogicType>([
             __default: undefined as unknown as SubscriptionType,
             loadSubscription: async () => {
                 if (props.id && props.id !== 'new') {
-                    return await api.subscriptions.get(props.id)
+                    const subscription = await api.subscriptions.get(props.id)
+                    // Rows created before a window was chosen carry ai_prompt_config: {} — normalise
+                    // so the analysis window select renders the effective default instead of empty.
+                    return {
+                        ...subscription,
+                        ai_prompt_config: {
+                            ...subscription.ai_prompt_config,
+                            window: {
+                                ...subscription.ai_prompt_config?.window,
+                                mode: subscription.ai_prompt_config?.window?.mode ?? 'since_last_sent',
+                            },
+                        },
+                    }
                 }
                 return { ...NEW_SUBSCRIPTION }
             },
@@ -105,51 +204,34 @@ export const subscriptionLogic = kea<subscriptionLogicType>([
     forms(({ props, actions }) => ({
         subscription: {
             defaults: { enabled: NEW_SUBSCRIPTION.enabled } as unknown as SubscriptionType,
-            errors: ({
-                frequency,
-                interval,
-                target_value,
-                target_type,
-                title,
-                start_date,
-                dashboard_export_insights,
-            }) => ({
-                frequency: !frequency ? 'You need to set a schedule frequency' : undefined,
-                title: !title ? 'You need to give your subscription a name' : undefined,
-                interval: !interval ? 'You need to set an interval' : undefined,
-                start_date: !start_date ? 'You need to set a delivery time' : undefined,
-                target_type: !['slack', 'email', 'webhook'].includes(target_type)
+            errors: (subscription) => ({
+                frequency: !subscription.frequency ? 'You need to set a schedule frequency' : undefined,
+                title: !subscription.title ? 'You need to give your subscription a name' : undefined,
+                interval: !subscription.interval ? 'You need to set an interval' : undefined,
+                start_date: !subscription.start_date ? 'You need to set a delivery time' : undefined,
+                target_type: !['slack', 'email'].includes(subscription.target_type)
                     ? 'Unsupported target type'
                     : undefined,
-                target_value: !target_value
-                    ? 'This field is required.'
-                    : target_type == 'email'
-                      ? !target_value
-                          ? 'At least one email is required'
-                          : !target_value.split(',').every((email) => isEmail(email))
-                            ? 'All emails must be valid'
-                            : undefined
-                      : target_type == 'slack'
-                        ? !target_value
-                            ? 'A channel is required'
-                            : undefined
-                        : target_type == 'webhook'
-                          ? !isURL(target_value)
-                              ? 'Must be a valid URL'
-                              : undefined
-                          : undefined,
-                dashboard_export_insights:
-                    props.dashboardId && (!dashboard_export_insights || dashboard_export_insights.length === 0)
-                        ? ('Select at least one insight' as any)
-                        : undefined,
+                prompt: validatePrompt(subscription.resource_type, subscription.prompt),
+                ...validateAiWindow(subscription),
+                target_value: validateTargetValue(subscription.target_type, subscription.target_value),
+                dashboard_export_insights: validateDashboardExportInsights(subscription, props.dashboardId),
             }),
             submit: async (subscription, breakpoint) => {
-                const insightId = props.insightShortId ? await getInsightId(props.insightShortId) : undefined
+                const isAi = subscription.resource_type === SubscriptionResourceTypes.AiPrompt
+                const insightId = !isAi && props.insightShortId ? await getInsightId(props.insightShortId) : undefined
 
                 const payload = {
                     ...subscription,
-                    insight: insightId,
-                    dashboard: props.dashboardId,
+                    insight: isAi ? undefined : insightId,
+                    dashboard: isAi ? undefined : props.dashboardId,
+                    // AI subscriptions have no dashboard, so a carried-over insight selection would
+                    // trip the backend's "insights without a dashboard" guard. Clear it.
+                    dashboard_export_insights: isAi ? [] : subscription.dashboard_export_insights,
+                    // Only AI subscriptions carry a prompt; a stale one on a non-AI sub (e.g. after
+                    // toggling resource_type back) would be rejected by the backend, so drop it.
+                    prompt: isAi ? subscription.prompt?.trim() : undefined,
+                    ai_prompt_config: isAi ? subscription.ai_prompt_config : undefined,
                 }
 
                 breakpoint()
@@ -163,11 +245,20 @@ export const subscriptionLogic = kea<subscriptionLogicType>([
 
                 if (updatedSub.id !== props.id) {
                     router.actions.replace(urlForSubscription(updatedSub.id, props))
+                    posthog.capture('subscription created', {
+                        resource_type: isAi ? 'ai' : props.dashboardId ? 'dashboard' : 'insight',
+                        dashboard_id: props.dashboardId,
+                        insight_short_id: props.insightShortId,
+                        subscription_id: updatedSub.id,
+                        target_type: updatedSub.target_type,
+                    })
                 }
 
-                // If a subscriptionsLogic for this insight/dashboard is mounted already, let's make sure
-                // this change is propagated to `subscriptions` there
-                subscriptionsLogic.findMounted(props)?.actions.loadSubscriptions()
+                // If a subscriptionsLogic for this insight/dashboard is mounted already, refresh both
+                // its resource-scoped list and the AI subscriptions section so new entries show up
+                const mountedSubscriptionsLogic = subscriptionsLogic.findMounted(props)
+                mountedSubscriptionsLogic?.actions.loadSubscriptions()
+                mountedSubscriptionsLogic?.actions.loadAiSubscriptions()
                 actions.loadSubscriptionSuccess(updatedSub)
                 actions.loadSummaryQuota()
                 lemonToast.success(`Subscription saved.`)
@@ -177,10 +268,23 @@ export const subscriptionLogic = kea<subscriptionLogicType>([
         },
     })),
 
-    listeners(({ actions, values, props }) => ({
+    listeners(({ actions, values, props, selectors }) => ({
         submitSubscriptionSuccess: ({ subscription }) => {
             if (subscription?.target_type === 'slack' && subscription.target_value && subscription.integration_id) {
                 recordRecentSlackChannel(subscription.integration_id, slackChannelId(subscription.target_value))
+            }
+        },
+        selectAiExamplePrompt: ({ prompt, label, window }) => {
+            posthog.capture('subscription_ai_example_prompt_selected', { label })
+            actions.setSubscriptionValue('prompt', prompt)
+            const currentMode = values.subscription?.ai_prompt_config?.window?.mode ?? 'since_last_sent'
+            if (window && currentMode === 'since_last_sent') {
+                // Presets that imply a timeframe prefill the analysis window — but only while the
+                // window is still the default, so a deliberately-chosen one survives the click.
+                // Spread keeps future sibling config keys intact.
+                actions.setSubscriptionValues({
+                    ai_prompt_config: { ...values.subscription?.ai_prompt_config, window },
+                })
             }
         },
         submitSubscriptionFailure: ({ error }) => {
@@ -195,7 +299,7 @@ export const subscriptionLogic = kea<subscriptionLogicType>([
             lemonToast.error(message)
         },
 
-        setSubscriptionValue: ({ name, value }) => {
+        setSubscriptionValue: ({ name, value }, _breakpoint, _action, previousState) => {
             const key = Array.isArray(name) ? name[0] : name
             if (key === 'frequency') {
                 if (value === 'daily') {
@@ -216,6 +320,18 @@ export const subscriptionLogic = kea<subscriptionLogicType>([
                     target_value: '',
                     integration_id: null,
                 })
+            }
+
+            const path = Array.isArray(name) ? name.join('.') : name
+            if (path === 'ai_prompt_config.window.mode') {
+                // Reducers run before listeners, so previousState tells a real mode switch (reset the
+                // day bounds) apart from a same-mode re-select (keep them).
+                const previousConfig = selectors.subscription(previousState)?.ai_prompt_config
+                if (value !== previousConfig?.window?.mode) {
+                    actions.setSubscriptionValues({
+                        ai_prompt_config: { ...previousConfig, window: { mode: value } },
+                    })
+                }
             }
         },
 
@@ -316,6 +432,15 @@ export const subscriptionLogic = kea<subscriptionLogicType>([
             }
         },
         '/*/*/subscriptions/:id': () => {
+            actions.loadSubscription()
+        },
+        '/subscriptions/new': (_, searchParams) => {
+            actions.loadSubscriptionSuccess({ ...NEW_SUBSCRIPTION, resource_type: SubscriptionResourceTypes.AiPrompt })
+            if (searchParams.target_type) {
+                actions.setSubscriptionValue('target_type', searchParams.target_type)
+            }
+        },
+        '/subscriptions/:id/edit': () => {
             actions.loadSubscription()
         },
     })),

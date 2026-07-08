@@ -6,7 +6,7 @@
 # All other fields (title, description, enrich_url, etc.) are yours to configure.
 category: Workflows
 feature: workflows
-url_prefix: /pipeline/destinations
+url_prefix: /workflows
 ui_apps:
     workflow:
         type: detail
@@ -36,11 +36,14 @@ tools:
     hog-flow-templates-update:
         operation: hog_flow_templates_update
         enabled: false
+    hog-flows-asset-content-retrieve:
+        operation: hog_flows_asset_content_retrieve
+        enabled: false
+    hog-flows-assets-retrieve:
+        operation: hog_flows_assets_retrieve
+        enabled: false
     hog-flows-batch-jobs-create:
         operation: hog_flows_batch_jobs_create
-        enabled: false
-    hog-flows-batch-jobs-retrieve:
-        operation: hog_flows_batch_jobs_retrieve
         enabled: false
     hog-flows-bulk-delete-create:
         operation: hog_flows_bulk_delete_create
@@ -54,40 +57,14 @@ tools:
     hog-flows-invocations-create:
         operation: hog_flows_invocations_create
         enabled: false
-    hog-flows-logs-retrieve:
-        operation: hog_flows_logs_retrieve
-        enabled: true
-        scopes:
-            - hog_flow:read
-        annotations:
-            readOnly: true
-            destructive: false
-            idempotent: true
-        title: Get workflow logs
-        description: >
-            Retrieve execution logs for a specific workflow by ID. Returns log entries with timestamp, level (DEBUG,
-            LOG, INFO, WARN, ERROR), and message. Use to debug why a workflow is failing or not producing expected
-            results. Supports filtering by log level, text search, time range (after/before), and pagination via limit.
-    hog-flows-metrics-retrieve:
-        operation: hog_flows_metrics_retrieve
-        enabled: true
-        scopes:
-            - hog_flow:read
-        annotations:
-            readOnly: true
-            destructive: false
-            idempotent: true
-        title: Get workflow metrics
-        description: >
-            Retrieve execution metrics for a specific workflow by ID. Returns time-series data showing success and
-            failure counts over a configurable interval (hour, day, or week). Use to understand workflow health,
-            identify failure spikes, and monitor execution reliability. Supports breakdown by metric kind
-            (success/failure) or name, and time range filtering.
     hog-flows-metrics-totals-retrieve:
         operation: hog_flows_metrics_totals_retrieve
         enabled: false
     hog-flows-partial-update:
         operation: hog_flows_partial_update
+        enabled: false
+    hog-flows-rerun-create:
+        operation: hog_flows_rerun_create
         enabled: false
     hog-flows-schedules-create:
         operation: hog_flows_schedules_create
@@ -98,14 +75,14 @@ tools:
     hog-flows-schedules-list:
         operation: hog_flows_schedules_list
         enabled: false
-    hog-flows-schedules-partial-update:
-        operation: hog_flows_schedules_partial_update
-        enabled: false
     hog-flows-update:
         operation: hog_flows_update
         enabled: false
     hog-flows-user-blast-radius-create:
         operation: hog_flows_user_blast_radius_create
+        enabled: false
+    internal-hog-flows-batch-jobs-status-update:
+        operation: internal_hog_flows_batch_jobs_status_update
         enabled: false
     internal-hog-flows-process-due-schedules-create:
         operation: internal_hog_flows_process_due_schedules_create
@@ -125,13 +102,23 @@ tools:
             readOnly: false
             destructive: false
             idempotent: false
-        enrich_url: hog-{id}
+        enrich_url: '{id}/workflow'
         title: Create workflow
         description: >
-            Create a workflow. Requires an actions array with exactly one type='trigger' (config sets trigger type:
-            event|webhook|manual|batch|schedule|tracking_pixel). Other action types:
-            function/function_email/function_sms/function_push (CDP template), delay (e.g. '30m'), conditional_branch,
-            wait_until_condition. Connect via edges. Defaults to status='draft'; set 'active' to enable.
+            Create a workflow. It is created as a draft and does NOT run until enabled: test it with workflows-test-run
+            first, then enable (workflows-enable) only with the user's explicit approval — enabling is a one-way door,
+            since live workflows can't be edited over MCP. Provide an actions array with exactly one type='trigger'
+            (config.type: event|webhook|manual|batch|tracking_pixel) plus action nodes
+            (function/function_email/function_sms, delay, conditional_branch, wait_until_condition, ...) connected by
+            edges. Read the building-workflows skill for node shapes before composing: a node that mismatches the
+            per-type schema saves but breaks the visual editor. Two traps that save but break: (1) a conditional_branch
+            condition needs a 'filters' wrapper — {filters:{properties:[...]}}, not {properties:[...]} on the condition;
+            omitting it passes save but the editor flags it and the branch won't evaluate your condition. (2) Never
+            hand-author bytecode anywhere; send properties/hash and the server compiles it. A 'batch' trigger broadcasts
+            to an audience (config.filters.properties: person-property conditions and/or cohort references), one run per
+            matching person, and does NOT fire on enable: dispatch with workflows-run-batch or attach a schedule with
+            workflows-schedule-create. Behavioral targeting ('did event X at least N times over the last M days') is
+            unsupported; reject it and explain why.
         ui_app: workflow
     workflows-get:
         operation: hog_flows_retrieve
@@ -142,12 +129,45 @@ tools:
             readOnly: true
             destructive: false
             idempotent: true
-        enrich_url: hog-{id}
+        enrich_url: '{id}/workflow'
         title: Get workflow
         description: >
             Get a specific workflow by ID. Returns the full workflow definition including trigger, edges, actions, exit
-            condition, and variables.
+            condition, variables, and any recurring 'schedules' (read-only here). For a batch workflow, check
+            status=='active' plus an active entry in 'schedules' to confirm it will actually fire.
         ui_app: workflow
+    workflows-get-invocation:
+        operation: hog_flows_invocation_result_retrieve
+        enabled: true
+        scopes:
+            - hog_flow:read
+            - person:read
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        title: Get workflow invocation
+        description: >
+            Get a single workflow invocation by invocation_id, including invocation_globals — the raw triggering payload
+            (event/person/groups) that the run executed against. Use after workflows-list-invocations to inspect exactly
+            what input produced a failure.
+    workflows-global-stats:
+        operation: hog_flows_metrics_global_retrieve
+        enabled: true
+        scopes:
+            - hog_flow:read
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        list: true
+        title: Workflow stats overview
+        description: >
+            At-a-glance health across ALL workflows in one call: per-workflow succeeded/failed counts over a window
+            (after/before, default last 7 days), sorted most-failing first. Start here when debugging — find which
+            workflows are failing, then drill into those with workflows-list-invocations (who it failed for) →
+            workflows-get-invocation (the triggering payload) → workflows-logs (the failing step). Avoids scanning every
+            workflow one at a time. For a single workflow's time-series, use workflows-stats.
     workflows-list:
         operation: hog_flows_list
         enabled: true
@@ -163,20 +183,109 @@ tools:
             List all workflows in the project. Returns workflows with their name, description, status
             (draft/active/archived), version, trigger configuration, and timestamps.
         ui_app: workflow-list
-    workflows-run:
+    workflows-list-batch-jobs:
+        operation: hog_flows_batch_jobs_list
+        enabled: true
+        scopes:
+            - hog_flow:read
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        list: true
+        title: List workflow batch runs
+        description: >
+            List past batch runs for a workflow (both one-off broadcasts and schedule-triggered runs). Each entry shows
+            the audience filters and variable overrides the run used, plus when it was created. The status field is not
+            tracked — use workflows-logs / workflows-stats for the outcome of a run.
+    workflows-list-invocations:
+        operation: hog_flows_invocation_results_retrieve
+        enabled: true
+        scopes:
+            - hog_flow:read
+            - person:read
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        list: true
+        title: List workflow invocations
+        description: >
+            List a workflow's individual invocations (one execution per person/event), each collapsed to its final
+            outcome — status, error_kind/error_message, distinct_id, person_id, timings. This is the per-recipient
+            failure view: filter status=failed to see who it failed for and why. Filter by distinct_id and time range.
+            Distinct from workflows-list-batch-jobs (the dispatch ledger, which has no per-person outcome) — drill from
+            a failed invocation into workflows-logs for the step-by-step trace.
+    workflows-logs:
+        operation: hog_flows_logs_retrieve
+        enabled: true
+        scopes:
+            - hog_flow:read
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        title: Get workflow logs
+        description: >
+            Retrieve execution logs for a specific workflow by ID. Returns log entries with timestamp, level (DEBUG,
+            LOG, INFO, WARN, ERROR), and message. Use to debug why a workflow is failing or not producing expected
+            results. Supports filtering by log level, text search, time range (after/before), and pagination via limit.
+    workflows-patch-graph:
+        operation: hog_flows_graph_partial_update
+        enabled: true
+        scopes:
+            - hog_flow:write
+        annotations:
+            readOnly: false
+            destructive: false
+            idempotent: false
+        input_schema: WorkflowGraphPatchSchema
+        title: Patch workflow graph
+        description: >
+            Surgically edit a draft workflow's graph by sending a small, ordered list of operations instead of resending
+            every action and edge. Prefer this over workflows-update for any change to an existing draft — to tweak one
+            node's config use update_action with a deep-merge patch (e.g. change just an email subject), and use
+            add_action / remove_action / add_edge / remove_edge / replace_action_edges for structural changes. Reference
+            nodes and edges by id. Operations apply atomically: the graph is read, the ops applied in order, the result
+            fully validated (dangling edges, branch indexes, single trigger), and saved only if valid — otherwise
+            nothing changes. Draft only — active workflows are read-only via MCP. The full updated workflow is returned,
+            so you don't need to re-fetch before the next edit. When adding or editing a conditional_branch, each
+            condition needs a 'filters' wrapper: {filters:{properties:[...]}}, not {properties:[...]} on the condition.
+            Re-test the changed path with workflows-test-run after patching.
+    workflows-stats:
+        operation: hog_flows_metrics_retrieve
+        enabled: true
+        scopes:
+            - hog_flow:read
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        title: Get workflow stats
+        description: >
+            Execution stats for a single workflow by ID: time-series success/failure counts over a configurable interval
+            (hour, day, or week). Use to inspect one workflow's health — failure spikes and reliability trends. For an
+            at-a-glance view across ALL workflows, call workflows-global-stats first, then drill in here. Supports
+            breakdown by metric kind (success/failure) or name, and time range filtering.
+    workflows-test-run:
         operation: hog_flows_invocations_create
         enabled: true
         scopes:
             - hog_flow:write
+            - group:read
         annotations:
             readOnly: false
             destructive: true
             idempotent: false
         title: Test-run workflow
         description: >
-            Test-invoke a saved workflow. Pass test event data via globals (typically {event, person, groups}). Async
-            actions (HTTP/email/SMS) are mocked by default; set mock_async_functions=false to fire real side effects.
-            Optional current_action_id starts from a specific node. Returns the execution trace.
+            Test-invoke a workflow one node at a time; it does NOT traverse the full graph in one call. The result
+            includes nextActionId. To verify a path end to end, chain calls: start at the trigger (omit
+            current_action_id), then pass the returned nextActionId as current_action_id on the next call, and repeat.
+            To test a specific branch, set current_action_id to that node. Skip delay nodes by jumping to the action
+            after them, since delays are not simulated. Pass test data via globals (typically {event, person, groups}).
+            Async actions (HTTP/email/SMS) are mocked by default; set mock_async_functions=false to fire real side
+            effects. Returns the step's execution trace.
         exclude_params:
             - configuration
     workflows-update:
@@ -188,9 +297,28 @@ tools:
             readOnly: false
             destructive: false
             idempotent: true
-        enrich_url: hog-{id}
+        enrich_url: '{id}/workflow'
         title: Update workflow
-        description: Update a workflow by ID. Use workflows-enable / workflows-disable / workflows-archive to change status.
+        description: >
+            Fallback editor. Prefer workflows-patch-graph for graph changes: it sends only the delta, is structurally
+            validated, and returns the full updated graph. Reach for workflows-update for top-level metadata a patch
+            can't express (name, description, exit_condition), or as an escape hatch to replace the whole workflow when
+            you can't get workflows-patch-graph to land a change. Draft only: active workflows are read-only via MCP
+            (editing risks breaking already-scheduled runs), so create a new draft to change a live one. Status changes
+            go through workflows-enable / workflows-archive.
         exclude_params:
             - status
         ui_app: workflow
+    workflows-update-schedule:
+        operation: hog_flows_schedules_partial_update
+        enabled: true
+        scopes:
+            - hog_flow:write
+        annotations:
+            readOnly: false
+            destructive: false
+            idempotent: true
+        title: Update workflow schedule
+        description: >
+            Update a recurring schedule's RRULE, start time, timezone, or variable overrides. Changing the cadence
+            reschedules the next run. Each firing re-broadcasts to the workflow's current trigger audience.

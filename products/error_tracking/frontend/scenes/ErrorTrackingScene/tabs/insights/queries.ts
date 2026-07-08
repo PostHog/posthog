@@ -1,20 +1,20 @@
 import { dayjs } from 'lib/dayjs'
-import { dateStringToDayJs } from 'lib/utils'
+import { dateStringToDayJs } from 'lib/utils/dateFilters'
 import { urls } from 'scenes/urls'
 
-import { InsightVizNode, NodeKind, ProductKey, TrendsQuery } from '~/queries/schema/schema-general'
-import { BaseMathType, ChartDisplayType, IntervalType, PropertyGroupFilter, UniversalFiltersGroup } from '~/types'
+import { DateRange, InsightVizNode, NodeKind, ProductKey, TrendsQuery } from '~/queries/schema/schema-general'
+import { AnyPropertyFilter, BaseMathType, ChartDisplayType, IntervalType } from '~/types'
 
 export interface InsightQueryFilters {
-    filterGroup: UniversalFiltersGroup
+    properties: AnyPropertyFilter[]
     filterTestAccounts: boolean
 }
 
 const MAX_HOURS_FOR_HOURLY_INTERVAL = 25
 
-export function getInterval(dateFrom: string | null, dateTo: string | null): IntervalType {
-    const from = dateStringToDayJs(dateFrom)
-    const to = dateStringToDayJs(dateTo) ?? dayjs()
+export function getInterval(dateFrom: string | null | undefined, dateTo: string | null | undefined): IntervalType {
+    const from = dateStringToDayJs(dateFrom ?? null)
+    const to = dateStringToDayJs(dateTo ?? null) ?? dayjs()
     if (from && to.diff(from, 'hour') < MAX_HOURS_FOR_HOURLY_INTERVAL) {
         return 'hour'
     }
@@ -22,11 +22,10 @@ export function getInterval(dateFrom: string | null, dateTo: string | null): Int
 }
 
 export function buildExceptionVolumeQuery(
-    dateFrom: string,
-    dateTo: string | null,
-    { filterGroup, filterTestAccounts }: InsightQueryFilters
+    dateRange: DateRange,
+    { properties, filterTestAccounts }: InsightQueryFilters
 ): InsightVizNode<TrendsQuery> {
-    const interval = getInterval(dateFrom, dateTo)
+    const interval = getInterval(dateRange.date_from, dateRange.date_to)
     return {
         kind: NodeKind.InsightVizNode,
         source: {
@@ -39,10 +38,10 @@ export function buildExceptionVolumeQuery(
                 },
             ],
             interval,
-            dateRange: { date_from: dateFrom, date_to: dateTo },
+            dateRange,
             trendsFilter: { display: ChartDisplayType.ActionsBar },
             filterTestAccounts,
-            properties: filterGroup as PropertyGroupFilter,
+            properties,
             tags: { productKey: ProductKey.ERROR_TRACKING },
         },
         showHeader: false,
@@ -51,11 +50,10 @@ export function buildExceptionVolumeQuery(
 }
 
 export function buildAffectedUsersQuery(
-    dateFrom: string,
-    dateTo: string | null,
-    { filterGroup, filterTestAccounts }: InsightQueryFilters
+    dateRange: DateRange,
+    { properties, filterTestAccounts }: InsightQueryFilters
 ): InsightVizNode<TrendsQuery> {
-    const interval = getInterval(dateFrom, dateTo)
+    const interval = getInterval(dateRange.date_from, dateRange.date_to)
     return {
         kind: NodeKind.InsightVizNode,
         source: {
@@ -69,10 +67,10 @@ export function buildAffectedUsersQuery(
                 },
             ],
             interval,
-            dateRange: { date_from: dateFrom, date_to: dateTo },
+            dateRange,
             trendsFilter: { display: ChartDisplayType.ActionsLineGraph },
             filterTestAccounts,
-            properties: filterGroup as PropertyGroupFilter,
+            properties,
             tags: { productKey: ProductKey.ERROR_TRACKING },
         },
         showHeader: false,
@@ -81,11 +79,10 @@ export function buildAffectedUsersQuery(
 }
 
 export function buildCrashFreeSessionsQuery(
-    dateFrom: string,
-    dateTo: string | null,
-    { filterGroup, filterTestAccounts }: InsightQueryFilters
+    dateRange: DateRange,
+    { properties, filterTestAccounts }: InsightQueryFilters
 ): InsightVizNode<TrendsQuery> {
-    const interval = getInterval(dateFrom, dateTo)
+    const interval = getInterval(dateRange.date_from, dateRange.date_to)
     return {
         kind: NodeKind.InsightVizNode,
         source: {
@@ -105,14 +102,14 @@ export function buildCrashFreeSessionsQuery(
                 },
             ],
             interval,
-            dateRange: { date_from: dateFrom, date_to: dateTo },
+            dateRange,
             trendsFilter: {
                 display: ChartDisplayType.ActionsLineGraph,
                 formulaNodes: [{ formula: '(A - B) / A * 100', custom_name: 'Crash-free sessions %' }],
                 aggregationAxisPostfix: '%',
             },
             filterTestAccounts,
-            properties: filterGroup as PropertyGroupFilter,
+            properties,
             tags: { productKey: ProductKey.ERROR_TRACKING },
         },
         showHeader: false,

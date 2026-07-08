@@ -5,6 +5,7 @@ use crate::flags::flag_matching_utils::match_flag_value_to_flag_filter;
 use crate::flags::flag_models::{FeatureFlag, FeatureFlagId};
 use crate::properties::property_matching::match_property;
 use crate::properties::property_models::OperatorType;
+use chrono_tz::Tz;
 use serde::{de, Deserialize, Deserializer, Serialize};
 use serde_json::Value;
 use std::{collections::HashMap, fmt, str::FromStr};
@@ -212,12 +213,23 @@ pub struct FlagsResponse {
     pub request_id: Uuid,
     /// Timestamp when flags were evaluated, in milliseconds since Unix epoch
     pub evaluated_at: i64,
+    /// Set to `true` when the team is gated into slim `$feature_flag_called` events
+    /// (TeamFeatureFlagsConfig.minimal_flag_called_events). Omitted otherwise, so SDKs
+    /// that see no field at all fall back to full events, same as legacy teams.
+    /// Only reaches the wire on this v2 shape: `LegacyFlagsResponse`, `DecideV1Response`,
+    /// and `DecideV2Response` intentionally never carry it over. SDKs old enough to hit
+    /// those response shapes predate this field and have no code path that reads it, so
+    /// there's nothing gained by sending it to them.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub minimal_flag_called_events: Option<bool>,
 
     /// Additional configuration data merged into the response at the top level
     #[serde(flatten)]
     pub config: ConfigResponse,
 }
 
+/// Legacy `/flags` response shape. This and the two decide response shapes below never
+/// carry `minimal_flag_called_events`: see the field's doc on `FlagsResponse` for why.
 #[derive(Debug, PartialEq, Eq, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct LegacyFlagsResponse {
@@ -342,6 +354,7 @@ impl FlagsResponse {
             quota_limited,
             request_id,
             evaluated_at: chrono::Utc::now().timestamp_millis(),
+            minimal_flag_called_events: None,
             config: ConfigResponse::default(),
         }
     }
@@ -361,6 +374,7 @@ impl FlagsResponse {
             quota_limited,
             request_id,
             evaluated_at,
+            minimal_flag_called_events: None,
             config: ConfigResponse::default(),
         }
     }
@@ -439,6 +453,10 @@ pub struct FlagDetailsMetadata {
     pub version: i32,
     pub description: Option<String>,
     pub payload: Option<Value>,
+    /// True if the flag has at least one non-deleted linked experiment. SDKs use this to
+    /// decide whether to keep all $feature_flag_called event properties or send a minimal event.
+    #[serde(default)]
+    pub has_experiment: bool,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Deserialize, Serialize)]
@@ -457,6 +475,7 @@ pub trait FromFeatureAndMatch {
         detailed_analysis: bool,
         property_values: Option<&HashMap<String, Value>>,
         flag_evaluation_results: Option<&HashMap<FeatureFlagId, FlagValue>>,
+        team_timezone: Tz,
     ) -> Self;
     fn create_error(flag: &FeatureFlag, error: &FlagError, condition_index: Option<i32>) -> Self;
     fn get_reason_description(match_info: &FeatureFlagMatch) -> Option<String>;
@@ -464,7 +483,8 @@ pub trait FromFeatureAndMatch {
 
 impl FromFeatureAndMatch for FlagDetails {
     fn create(flag: &FeatureFlag, flag_match: &FeatureFlagMatch) -> Self {
-        Self::create_with_analysis(flag, flag_match, false, None, None)
+        // Timezone is only consulted for detailed analysis, which is off here.
+        Self::create_with_analysis(flag, flag_match, false, None, None, Tz::UTC)
     }
 
     fn create_with_analysis(
@@ -473,6 +493,7 @@ impl FromFeatureAndMatch for FlagDetails {
         detailed_analysis: bool,
         property_values: Option<&HashMap<String, Value>>,
         flag_evaluation_results: Option<&HashMap<FeatureFlagId, FlagValue>>,
+        team_timezone: Tz,
     ) -> Self {
         FlagDetails {
             key: flag.key.clone(),
@@ -489,6 +510,7 @@ impl FromFeatureAndMatch for FlagDetails {
                 version: flag.version.unwrap_or(0),
                 description: None,
                 payload: flag_match.payload.clone(),
+                has_experiment: flag.has_experiment,
             },
             conditions: if detailed_analysis {
                 Some(Self::build_condition_analysis(
@@ -496,6 +518,7 @@ impl FromFeatureAndMatch for FlagDetails {
                     flag_match,
                     property_values,
                     flag_evaluation_results,
+                    team_timezone,
                 ))
             } else {
                 None
@@ -519,6 +542,7 @@ impl FromFeatureAndMatch for FlagDetails {
                 version: flag.version.unwrap_or(0),
                 description: None,
                 payload: None,
+                has_experiment: flag.has_experiment,
             },
             conditions: None,
         }
@@ -558,6 +582,7 @@ impl FlagDetails {
         flag_match: &FeatureFlagMatch,
         property_values: Option<&HashMap<String, Value>>,
         flag_evaluation_results: Option<&HashMap<FeatureFlagId, FlagValue>>,
+        team_timezone: Tz,
     ) -> Vec<ConditionAnalysis> {
         let mut analyses = Vec::new();
 
@@ -588,6 +613,9 @@ impl FlagDetails {
 
                     let type_str = match property.prop_type {
                         crate::properties::property_models::PropertyType::Person => "person",
+                        crate::properties::property_models::PropertyType::PersonMetadata => {
+                            "person_metadata"
+                        }
                         crate::properties::property_models::PropertyType::Group => "group",
                         crate::properties::property_models::PropertyType::Cohort => "cohort",
                         crate::properties::property_models::PropertyType::Flag => "flag",
@@ -654,7 +682,8 @@ impl FlagDetails {
 
                     let (property_matched, actual_value) = if let Some(props) = property_values {
                         let actual = props.get(&property.key).cloned();
-                        let matched = match_property(property, props, false).unwrap_or(false);
+                        let matched =
+                            match_property(property, props, false, team_timezone).unwrap_or(false);
                         (matched, actual)
                     } else {
                         // No properties available, fall back to condition-level match
@@ -1037,6 +1066,7 @@ mod tests {
                     version: 1,
                     description: None,
                     payload: Some(json!({"key": "value"})),
+                    has_experiment: false,
                 },
                 conditions: None,
             },
@@ -1060,6 +1090,7 @@ mod tests {
                     version: 1,
                     description: None,
                     payload: None,
+                    has_experiment: false,
                 },
                 conditions: None,
             },
@@ -1083,6 +1114,7 @@ mod tests {
                     version: 1,
                     description: None,
                     payload: Some(Value::Null),
+                    has_experiment: false,
                 },
                 conditions: None,
             },
@@ -1138,6 +1170,21 @@ mod tests {
         assert!(obj.contains_key("errorsWhileComputingFlags"));
         assert!(obj.contains_key("flags"));
         assert!(obj.contains_key("requestId"));
+    }
+
+    #[test]
+    fn test_minimal_flag_called_events_round_trips_through_serde() {
+        let mut response = FlagsResponse::new(false, HashMap::new(), None, Uuid::new_v4());
+
+        let json = serde_json::to_value(&response).unwrap();
+        assert!(
+            !json.as_object().unwrap().contains_key("minimalFlagCalledEvents"),
+            "absence must mean full events — SDKs treat a missing key the same as an old cache entry"
+        );
+
+        response.minimal_flag_called_events = Some(true);
+        let json = serde_json::to_value(&response).unwrap();
+        assert_eq!(json.get("minimalFlagCalledEvents"), Some(&json!(true)));
     }
 
     #[test]
@@ -1234,8 +1281,13 @@ mod tests {
         property_values.insert("email".to_string(), serde_json::json!("test@example.com"));
 
         // Build condition analysis
-        let analysis =
-            FlagDetails::build_condition_analysis(&flag, &flag_match, Some(&property_values), None);
+        let analysis = FlagDetails::build_condition_analysis(
+            &flag,
+            &flag_match,
+            Some(&property_values),
+            None,
+            chrono_tz::Tz::UTC,
+        );
 
         // Verify we have analysis for both conditions
         assert_eq!(analysis.len(), 2);
@@ -1316,6 +1368,7 @@ mod tests {
             &flag_match,
             Some(&HashMap::new()),
             Some(&flag_results),
+            chrono_tz::Tz::UTC,
         );
 
         assert_eq!(analysis.len(), 1);
@@ -1347,6 +1400,7 @@ mod tests {
             &flag_match,
             Some(&HashMap::new()),
             Some(&flag_results),
+            chrono_tz::Tz::UTC,
         );
 
         assert_eq!(analysis.len(), 1);
@@ -1379,6 +1433,7 @@ mod tests {
             &flag_match,
             Some(&HashMap::new()),
             None, // empty — dependency flag 42 absent
+            chrono_tz::Tz::UTC,
         );
 
         assert_eq!(analysis.len(), 1);

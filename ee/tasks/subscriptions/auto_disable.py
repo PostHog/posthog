@@ -5,7 +5,8 @@ import structlog
 
 from posthog.email import EmailMessage
 from posthog.exceptions_capture import capture_exception
-from posthog.models.subscription import Subscription
+
+from products.exports.backend.models.subscription import Subscription
 
 from ee.tasks.subscriptions import SUPPORTED_TARGET_TYPES
 
@@ -33,6 +34,16 @@ SLACK_PERMISSION_REVOKED_DISABLE_REASON = DisableReason(
     key="slack_permission_revoked",
     description="PostHog can no longer post to this Slack channel",
     user_message="Cannot re-enable {target_type} subscription: PostHog can't post to this Slack channel. Reconnect Slack or re-add the bot to the channel, then try again.",
+)
+AI_PROMPT_INVALID_DISABLE_REASON = DisableReason(
+    key="ai_prompt_invalid",
+    description="AI subscription prompt or creator is invalid",
+    user_message="Cannot re-enable AI subscription: the original creator is unavailable or the prompt is invalid. Edit the subscription with a valid prompt to re-enable.",
+)
+AI_CONSENT_REVOKED_DISABLE_REASON = DisableReason(
+    key="ai_consent_revoked",
+    description="Organization has not approved AI data processing",
+    user_message="Cannot re-enable AI subscription: your organization has not approved AI data processing. Approve it in your organization settings, then re-enable this subscription.",
 )
 
 logger = structlog.get_logger(__name__)
@@ -87,9 +98,7 @@ def disable_invalid_subscription(subscription: Subscription, reason: DisableReas
 
     if subscription.created_by and subscription.created_by.email:
         try:
-            send_notifications_for_disabled_subscription(
-                subscription, reason.description, [subscription.created_by.email]
-            )
+            send_notifications_for_disabled_subscription(subscription, reason, [subscription.created_by.email])
         except Exception as e:
             # Disabling is the durable side effect; email is best-effort. If the email
             # fails (SMTP outage, ImproperlyConfigured on self-hosted, Customer.io 5xx)
@@ -104,7 +113,9 @@ def disable_invalid_subscription(subscription: Subscription, reason: DisableReas
             )
 
 
-def send_notifications_for_disabled_subscription(subscription: Subscription, reason: str, targets: list[str]) -> None:
+def send_notifications_for_disabled_subscription(
+    subscription: Subscription, reason: DisableReason, targets: list[str]
+) -> None:
     logger.info(
         "subscription.send_disabled_notification",
         subscription_id=subscription.id,
@@ -126,7 +137,8 @@ def send_notifications_for_disabled_subscription(subscription: Subscription, rea
         template_context={
             "subscription_url": subscription.url,
             "subscription_title": display_name,
-            "reason": reason,
+            "reason": reason.description,
+            "action_message": reason.user_message.format(target_type=subscription.target_type),
         },
     )
     for target in targets:

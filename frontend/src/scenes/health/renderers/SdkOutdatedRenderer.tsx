@@ -1,8 +1,8 @@
-import { LemonTag, Link } from '@posthog/lemon-ui'
+import { LemonTag, Link, Tooltip } from '@posthog/lemon-ui'
 
 import { TZLabel } from 'lib/components/TZLabel'
-import { SDK_DOCS_LINKS, SDK_TYPE_READABLE_NAME } from 'scenes/onboarding/sdks/sdkConstants'
-import type { SdkType } from 'scenes/onboarding/sdks/sdkDoctorLogic'
+import { SDK_DOCS_LINKS, SDK_TYPE_READABLE_NAME } from 'scenes/onboarding/shared/sdkHealth/sdkConstants'
+import type { SdkType } from 'scenes/onboarding/shared/sdkHealth/sdkHealthLogic'
 
 import type { HealthIssue } from '../types'
 
@@ -12,11 +12,31 @@ interface UsageEntry {
     max_timestamp: string
     release_date: string | null
     is_latest: boolean
+    is_outdated?: boolean
+    status_reason?: string
+}
+
+const statusTag = (entry: UsageEntry): JSX.Element => {
+    const tag = entry.is_latest ? (
+        <LemonTag type="success" size="small">
+            Current
+        </LemonTag>
+    ) : entry.is_outdated ? (
+        <LemonTag type="danger" size="small">
+            Outdated
+        </LemonTag>
+    ) : (
+        <LemonTag type="warning" size="small">
+            Behind
+        </LemonTag>
+    )
+    return entry.status_reason ? <Tooltip title={entry.status_reason}>{tag}</Tooltip> : tag
 }
 
 export const SdkOutdatedRenderer = ({ issue }: { issue: HealthIssue }): JSX.Element => {
     const sdkName = issue.payload.sdk_name as SdkType | undefined
     const latestVersion = issue.payload.latest_version as string | undefined
+    const reason = issue.payload.reason as string | undefined
     const usage = issue.payload.usage as UsageEntry[] | undefined
 
     if (!sdkName) {
@@ -43,6 +63,7 @@ export const SdkOutdatedRenderer = ({ issue }: { issue: HealthIssue }): JSX.Elem
                     </div>
                 )}
             </div>
+            {reason && <div className="text-muted mb-2">{reason}</div>}
             {usage && usage.length > 0 && (
                 <table className="w-full text-xs border-collapse">
                     <thead>
@@ -63,17 +84,7 @@ export const SdkOutdatedRenderer = ({ issue }: { issue: HealthIssue }): JSX.Elem
                                 <td className="py-1 pr-2">
                                     <TZLabel time={entry.max_timestamp} />
                                 </td>
-                                <td className="py-1">
-                                    {entry.is_latest ? (
-                                        <LemonTag type="success" size="small">
-                                            Current
-                                        </LemonTag>
-                                    ) : (
-                                        <LemonTag type="warning" size="small">
-                                            Outdated
-                                        </LemonTag>
-                                    )}
-                                </td>
+                                <td className="py-1">{statusTag(entry)}</td>
                             </tr>
                         ))}
                     </tbody>

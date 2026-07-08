@@ -17,6 +17,8 @@ CRITICAL: Be minimalist. Only include filters and settings that are essential to
 
 MANDATORY: Never call query-logs without setting `serviceNames` or at least one `log_resource_attribute` filter. Unfiltered log queries are too broad, expensive, and noisy. If the user hasn't specified a service, use the workflow above to discover services first, then ask or infer.
 
+MANDATORY: Always pass `query.dateRange` explicitly (e.g. `{ "date_from": "-1h" }`). Omitting it fails with a 400 `parse_error` ("Input should be a valid dictionary or instance of DateRange") — the server does not fall back to a default window.
+
 All parameters must be nested inside a `query` object.
 
 # Data narrowing
@@ -72,7 +74,7 @@ Do not invent a different attribute key based on what looks plausible — use th
 
 ## Time period
 
-Use the `query.dateRange` field to control the time window. If the question doesn't mention time, the default is the last hour (`-1h`). Examples of relative dates: `-1h`, `-6h`, `-1d`, `-7d`, `-30d`.
+Use the `query.dateRange` field to control the time window — pass it on every call. If the question doesn't mention time, use the last hour: `{ "date_from": "-1h" }`. Examples of relative dates: `-1h`, `-6h`, `-1d`, `-7d`, `-30d`.
 
 # Parameters
 
@@ -81,6 +83,8 @@ All parameters go inside `query`.
 ## query.severityLevels
 
 Filter by log severity: `trace`, `debug`, `info`, `warn`, `error`, `fatal`. Omit to include all levels.
+
+This filter is an **exact match against the response's `severity_text` field** using these six lowercase buckets — it is _not_ a numeric range and _not_ case-insensitive. If a service ingests non-canonical severity strings (e.g. `"ERROR"`, `"Warning"`, `"err"`), `severityLevels: ["error"]` will not match them and you will get zero rows. When a severity filter returns nothing unexpectedly, discover the actual stored values with `logs-attribute-values-list { key: "severity_text" }` and either filter on the value you find or fall back to a `searchTerm`. See "Severity fields in the response" below for the `severity_text` / `severity_number` / `level` mapping.
 
 ## query.serviceNames
 
@@ -100,7 +104,7 @@ A list of property filters to narrow results. Each filter specifies `key`, `oper
 
 ## query.dateRange
 
-Date range to filter results. Defaults to the last hour (`-1h`).
+Date range to filter results. Required in practice: omitting it fails with a 400 `parse_error`, so always pass it (use `{ "date_from": "-1h" }` when the question doesn't mention time).
 
 - `date_from`: Start of the range. Accepts ISO 8601 timestamps or relative formats: `-1h`, `-6h`, `-1d`, `-7d`, `-30d`.
 - `date_to`: End of the range. Same format. Omit or null for "now".
@@ -113,6 +117,10 @@ Maximum number of results (1-1000). Defaults to 100.
 
 Cursor for pagination. Use the `nextCursor` value from the previous response.
 
+## query.excludeAttributes
+
+Set `true` to drop the per-log `attributes` and `resource_attributes` maps from results (the maps stay present but empty). These maps can hold large values, so excluding them keeps big result sets compact — set it when you only need `body`, `severity_text`, `timestamp`, and `service`-level fields and not the full attribute maps. Defaults to false.
+
 # Examples
 
 ## List recent error logs
@@ -121,7 +129,8 @@ Cursor for pagination. Use the `nextCursor` value from the previous response.
 {
   "query": {
     "severityLevels": ["error", "fatal"],
-    "serviceNames": ["<service>"]
+    "serviceNames": ["<service>"],
+    "dateRange": { "date_from": "-1h" }
   }
 }
 ```
@@ -181,7 +190,8 @@ Cursor for pagination. Use the `nextCursor` value from the previous response.
 {
   "query": {
     "serviceNames": ["<service>"],
-    "filterGroup": [{ "key": "message", "operator": "icontains", "type": "log", "value": "timeout" }]
+    "filterGroup": [{ "key": "message", "operator": "icontains", "type": "log", "value": "timeout" }],
+    "dateRange": { "date_from": "-1h" }
   }
 }
 ```
@@ -192,10 +202,42 @@ Cursor for pagination. Use the `nextCursor` value from the previous response.
 {
   "query": {
     "serviceNames": ["<service>"],
-    "filterGroup": [{ "key": "trace_id", "operator": "is_set", "type": "log_attribute" }]
+    "filterGroup": [{ "key": "trace_id", "operator": "is_set", "type": "log_attribute" }],
+    "dateRange": { "date_from": "-1h" }
   }
 }
 ```
+
+# Severity fields in the response
+
+Each returned log row carries three overlapping severity fields. Read and report `severity_text`; treat the other two as redundant:
+
+| Field             | What it is                                                      | Use it for                                                            |
+| ----------------- | --------------------------------------------------------------- | --------------------------------------------------------------------- |
+| `severity_text`   | Canonical severity string. **Prefer this.**                     | Filtering (`severityLevels`), grouping, and anything you show a user. |
+| `severity_number` | OpenTelemetry numeric severity (1–24). Redundant with the text. | Sorting by exact severity, or interop with OTel tooling.              |
+| `level`           | ClickHouse alias for `severity_text`. Redundant.                | Ignore — prefer `severity_text`.                                      |
+
+`severity_number` maps to the `severityLevels` buckets by OTel range. Use this when you only have a number and need the bucket, or vice-versa:
+
+| Bucket  | `severity_number` range | Canonical `severity_text` |
+| ------- | ----------------------- | ------------------------- |
+| `trace` | 1–4                     | `trace`                   |
+| `debug` | 5–8                     | `debug`                   |
+| `info`  | 9–12                    | `info`                    |
+| `warn`  | 13–16                   | `warn`                    |
+| `error` | 17–20                   | `error`                   |
+| `fatal` | 21–24                   | `fatal`                   |
+
+When the user asks for "warnings and above", that is `severityLevels: ["warn", "error", "fatal"]` — there is no numeric `>=` operator on the top-level severity filter.
+
+# If the query fails (500 / timeout)
+
+A `query-logs` call that returns a 500 almost always means the query scanned too much data and timed out server-side — it is rarely a bug in your filters. Do not retry the same call. Instead, narrow and re-size:
+
+1. Shorten `dateRange` (e.g. `-1h` instead of `-1d`).
+2. Add `serviceNames` or a `log_resource_attribute` filter to reduce the scan.
+3. Size the volume with `logs-count`, then locate the busy window with `logs-count-ranges`, before pulling rows again.
 
 # Reminders
 

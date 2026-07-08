@@ -2,12 +2,10 @@ import re
 from collections.abc import Iterable
 from datetime import date, datetime
 from difflib import get_close_matches
-from typing import Any, ClassVar, Literal, Optional, Union, cast, get_args
+from typing import Any, ClassVar, Optional, cast, get_args
 from uuid import UUID
 
 from django.conf import settings as django_settings
-
-from posthog.schema import MaterializationMode, PersonsOnEventsMode
 
 from posthog.hogql import ast
 from posthog.hogql.ast import StringType
@@ -30,24 +28,15 @@ from posthog.hogql.functions.mapping import (
     HOGQL_COMPARISON_MAPPING,
     is_allowed_parametric_function,
 )
-from posthog.hogql.printer.types import (
-    JoinExprResponse,
-    PrintableMaterializedColumn,
-    PrintableMaterializedPropertyGroupItem,
-)
+from posthog.hogql.printer.types import JoinExprResponse
 from posthog.hogql.resolver import resolve_types
 from posthog.hogql.resolver_utils import lookup_field_by_name
 from posthog.hogql.visitor import Visitor, clone_expr
 
 from posthog.clickhouse.kafka_engine import json_extract_trim_quotes
-from posthog.clickhouse.materialized_columns import (
-    MaterializedColumn,
-    TablesWithMaterializedColumns,
-    get_materialized_column_for_property,
-)
-from posthog.models.property import PropertyName, TableColumn
 from posthog.models.team.team import WeekStartDay
 from posthog.models.utils import UUIDT
+from posthog.schema_enums import PersonsOnEventsMode
 
 MAX_PLACEHOLDER_MACRO_EXPANSION_DEPTH = 8
 
@@ -58,6 +47,15 @@ def get_channel_definition_dict():
     return f"{django_settings.CLICKHOUSE_DATABASE}.channel_definition_dict"
 
 
+def get_geoip_city_postal_dict():
+    """Temporary (June 2026 MaxMind incident: https://posthog.slack.com/archives/C0B9DDSCTF1): the ip_trie dictionary backing the lookupGeoip* functions.
+
+    The dictionary maps an IP to GeoLite2 `city_name` / `postal_code` and was created manually on the cloud clusters
+    for the incident backfill — it is not part of any migration, so the functions only work where it exists.
+    """
+    return f"{django_settings.CLICKHOUSE_DATABASE}.city_postal_ip_trie"
+
+
 def resolve_field_type(expr: ast.Expr) -> ast.Type | None:
     expr_type = expr.type
     while isinstance(expr_type, ast.FieldAliasType):
@@ -66,7 +64,7 @@ def resolve_field_type(expr: ast.Expr) -> ast.Type | None:
 
 
 class BasePrinter(Visitor[str]):
-    # NOTE: Call "print_ast()", not this class directly.
+    # NOTE: Call "prepare_and_print_ast()", not this class directly.
     # Shared AST walker for all dialect printers (HogQL, ClickHouse, Postgres).
     # Each subclass sets ``DIALECT_NAME`` to identify itself for error messages and
     # resolver wiring; dialect-specific rendering lives in subclass-overridden hooks.
@@ -520,6 +518,25 @@ class BasePrinter(Visitor[str]):
         scope = ast.SelectQueryType(tables={"t": node_type})
         return [resolve_types(clone_expr(pred), self.context, self.DIALECT_NAME, [scope]) for pred in predicates]
 
+    def _ensure_access_control_where_clause(
+        self,
+        table_type: ast.TableType | ast.LazyTableType,
+        node_type: ast.TableOrSelectType | None,
+    ) -> ast.Expr | None:
+        """Object-level access-control guard for this table, or None.
+        Override it per dialect: ClickHouse enforces, Postgres/DuckDB/HogQL no-op.
+        """
+        raise NotImplementedError("BasePrinter._ensure_access_control_where_clause not overridden")
+
+    def _events_retention_floor(
+        self,
+        table_type: ast.TableType | ast.LazyTableType,
+        node_type: ast.TableOrSelectType | None,
+    ) -> ast.Expr | None:
+        """Floor events-table scans to the team's retention window. Overridden by the ClickHouse dialect;
+        default no-op — the HogQL and warehouse dialects don't enforce events retention."""
+        return None
+
     def _print_table_ref(self, table_type: ast.TableType | ast.LazyTableType, node: ast.JoinExpr) -> str:
         """Print a table reference. Fail-fast by default: each dialect must override.
 
@@ -541,8 +558,8 @@ class BasePrinter(Visitor[str]):
     def visit_join_expr(self, node: ast.JoinExpr) -> JoinExprResponse:
         # Constraints to add to the SELECT's WHERE clause (for most join types)
         extra_where: ast.Expr | None = None
-        # For LEFT JOINs, team_id goes in ON instead of WHERE to preserve NULL rows
-        team_id_for_on_clause: ast.Expr | None = None
+        # For LEFT JOINs, guards (team_id + access control) go in ON instead of WHERE to preserve NULL rows
+        on_clause_guard: ast.Expr | None = None
 
         join_strings = []
         if node.join_type is not None:
@@ -568,23 +585,35 @@ class BasePrinter(Visitor[str]):
 
             self._collect_table_top_level_settings(table_type.table)
 
-            # :IMPORTANT: Ensures team_id filtering on every table. For LEFT JOINs, we add it to the
-            # ON clause (not WHERE) to preserve LEFT JOIN semantics - otherwise NULL rows get filtered out.
+            # :IMPORTANT: Ensures team_id and resource_id filtering on every table.
+            # For LEFT JOINs, we add guards to ON (not WHERE) to preserve NULL rows.
             team_id_expr = self._ensure_team_id_where_clause(table_type, node.type)
-            is_left_join = node.join_type is not None and "LEFT" in node.join_type
-            if is_left_join and team_id_expr is not None and node.constraint is not None:
-                team_id_for_on_clause = team_id_expr
-            else:
-                extra_where = team_id_expr
+            access_control_expr = self._ensure_access_control_where_clause(table_type, node.type)
 
-            # Apply table-level predicates (e.g., date filters on PostgresTable).
+            combined_guard: ast.Expr | None = None
+            if team_id_expr and access_control_expr:
+                combined_guard = ast.And(exprs=[team_id_expr, access_control_expr], type=ast.BooleanType())
+            else:
+                combined_guard = team_id_expr or access_control_expr
+
+            is_left_join = node.join_type is not None and "LEFT" in node.join_type
+            if is_left_join and combined_guard is not None and node.constraint is not None:
+                on_clause_guard = combined_guard
+            else:
+                extra_where = combined_guard
+
+            # Apply table-level predicates (e.g., date filters on PostgresTable), plus the cohort-gated
+            # events-retention floor (timestamp > now() - retention) injected at the lowest level on the events table.
             predicate_exprs = self._get_table_predicates(table_type, node.type)
+            retention_floor = self._events_retention_floor(table_type, node.type)
+            if retention_floor is not None:
+                predicate_exprs = [*predicate_exprs, retention_floor]
             for pred in predicate_exprs:
                 if is_left_join and node.constraint is not None:
-                    if team_id_for_on_clause is None:
-                        team_id_for_on_clause = pred
+                    if on_clause_guard is None:
+                        on_clause_guard = pred
                     else:
-                        team_id_for_on_clause = ast.And(exprs=[team_id_for_on_clause, pred])
+                        on_clause_guard = ast.And(exprs=[on_clause_guard, pred])
                 else:
                     if extra_where is None:
                         extra_where = pred
@@ -670,8 +699,8 @@ class BasePrinter(Visitor[str]):
             # Allowlist gate against `setattr`-bypass — the printer interpolates `constraint_type` verbatim.
             if node.constraint.constraint_type not in ast.VALID_JOIN_CONSTRAINT_TYPES:
                 raise QueryError(f"Invalid join constraint type: {node.constraint.constraint_type!r}")
-            if team_id_for_on_clause is not None:
-                combined_constraint = ast.And(exprs=[team_id_for_on_clause, node.constraint.expr])
+            if on_clause_guard is not None:
+                combined_constraint = ast.And(exprs=[on_clause_guard, node.constraint.expr])
                 join_strings.append(f"{node.constraint.constraint_type} {self.visit(combined_constraint)}")
             else:
                 join_strings.append(f"{node.constraint.constraint_type} {self.visit(node.constraint)}")
@@ -774,7 +803,16 @@ class BasePrinter(Visitor[str]):
 
     def visit_array_access(self, node: ast.ArrayAccess):
         symbol = self._array_access_prefix(bool(node.nullish))
-        return f"{self.visit(node.array)}{symbol}[{self.visit(node.property)}]"
+        array = self.visit(node.array)
+        # `[...]` binds tighter than any infix-printed form, so a loose operand
+        # must be parenthesized or the printed text re-parses with the access on
+        # the operand's last token (`(1 AS x)[1]` would print as `1 AS x[1]`,
+        # which doesn't parse back).
+        if isinstance(node.array, ast.BetweenExpr | ast.IsDistinctFrom) or (
+            isinstance(node.array, ast.Alias) and not node.array.hidden
+        ):
+            array = f"({array})"
+        return f"{array}{symbol}[{self.visit(node.property)}]"
 
     def _tuple_access_separator(self, nullish: bool) -> str:
         """Separator for tuple-access expressions. HogQL overrides to emit nullish ``?.`` when requested."""
@@ -1076,6 +1114,18 @@ class BasePrinter(Visitor[str]):
             if passthrough is not None:
                 return passthrough
 
+            # SQL/Python-style cast names (int, float, string, uuid, …) map to HogQL's
+            # to<Type> functions. Prefer that hint over the lexically-nearest name — for a
+            # short input like "int" the closest match is the operator "in", which sends
+            # users down the wrong path instead of toward "toInt". Match case-insensitively
+            # so casts with internal capitals (toUUID, toDateTime) are found and the
+            # canonically-cased name is suggested.
+            cast_suggestion = {name.lower(): name for name in ALL_EXPOSED_FUNCTION_NAMES}.get(f"to{node.name}".lower())
+            if cast_suggestion is not None:
+                raise QueryError(
+                    f"Unsupported function call '{node.name}(...)'. Perhaps you meant '{cast_suggestion}(...)'?"
+                )
+
             close_matches = get_close_matches(node.name, ALL_EXPOSED_FUNCTION_NAMES, 1)
             if len(close_matches) > 0:
                 raise QueryError(
@@ -1100,13 +1150,6 @@ class BasePrinter(Visitor[str]):
         """Render a PostHog-extension function call. Default is HogQL pass-through; CH overrides."""
         args = [self.visit(arg) for arg in node.args]
         return f"{node.name}({', '.join(args)})"
-
-    def _yield_property_group_columns(self, field_type, table_name: str, field_name: str, property_name: str):
-        """Yield printable property-group column accessors for this dialect.
-
-        Default yields nothing (property groups are a ClickHouse-only storage optimization).
-        """
-        yield from ()
 
     def visit_placeholder(self, node: ast.Placeholder):
         if node.field is None:
@@ -1165,6 +1208,7 @@ class BasePrinter(Visitor[str]):
         return self._print_identifier(type.name)
 
     def visit_field_type(self, type: ast.FieldType):
+        name_resolution_ambiguous = False
         try:
             last_select = self._last_select()
             type_with_name_in_scope = (
@@ -1173,7 +1217,9 @@ class BasePrinter(Visitor[str]):
                 else None
             )
         except ResolutionError:
+            # The name resolves to more than one source: it genuinely needs a table prefix to disambiguate.
             type_with_name_in_scope = None
+            name_resolution_ambiguous = True
 
         if (
             isinstance(type.table_type, ast.TableType)
@@ -1220,8 +1266,16 @@ class BasePrinter(Visitor[str]):
                     if not isinstance(resolved_field, DatabaseField):
                         raise QueryError(f"Can't resolve field {type.name}")
                     field_sql = self._print_identifier(resolved_field.name)
-                if self.context.within_non_hogql_query and type_with_name_in_scope == type:
-                    # Do not prepend table name in non-hogql context. We don't know what it actually is.
+                if (
+                    self.context.within_non_hogql_query
+                    and not name_resolution_ambiguous
+                    and (type_with_name_in_scope is None or type_with_name_in_scope == type)
+                ):
+                    # Print the column bare. A non-HogQL fragment (lightweight-DELETE predicate, legacy insight) splices
+                    # into a single-base-table context whose mutation analyzer rejects table-qualified names. We can drop
+                    # the prefix whenever the bare name is unambiguous: it resolves to *this* field, or to nothing at all
+                    # (e.g. a materialized column the physical pass synthesized, which isn't in the HogQL scope). We keep
+                    # the prefix only when the name resolves to a *different* field (shadowing) or is ambiguous.
                     return field_sql
                 field_sql = f"{self.visit(type.table_type)}.{field_sql}"
 
@@ -1257,134 +1311,25 @@ class BasePrinter(Visitor[str]):
 
         return field_sql
 
-    def _get_materialized_property_source_for_property_type(
-        self, type: ast.PropertyType
-    ) -> PrintableMaterializedColumn | PrintableMaterializedPropertyGroupItem | None:
-        """
-        Find the most efficient materialized property source for the provided property type.
-        """
-        for source in self._get_all_materialized_property_sources(type.field_type, str(type.chain[0])):
-            return source
-        return None
-
-    def _get_table_name(self, table: ast.TableType) -> str:
-        return table.table.to_printed_hogql()
-
-    def _get_all_materialized_property_sources(
-        self, field_type: ast.FieldType, property_name: str
-    ) -> Iterable[PrintableMaterializedColumn | PrintableMaterializedPropertyGroupItem]:
-        """
-        Find all materialized property sources for the provided field type and property name, ordered from what is
-        likely to be the most efficient access path to the least efficient.
-        """
-        # TODO: It likely makes sense to make this independent of whether or not property groups are used.
-        if self.context.modifiers.materializationMode == "disabled":
-            return
-
-        field = field_type.resolve_database_field(self.context)
-
-        # check for a materialised column
-        table = field_type.table_type
-        while isinstance(table, (ast.TableAliasType, ast.ColumnAliasedTableType, ast.VirtualTableType)):
-            table = table.table_type
-
-        if isinstance(table, ast.TableType):
-            table_name = self._get_table_name(table)
-
-            if field is None:
-                raise QueryError(f"Can't resolve field {field_type.name} on table {table_name}")
-            if not isinstance(field, DatabaseField):
-                raise QueryError(f"Can't resolve field {field_type.name} on table {table_name}")
-            field_name = cast(Union[Literal["properties"], Literal["person_properties"]], field.name)
-
-            # In non-HogQL contexts (legacy queries, data deletion predicates) the consumer splices
-            # this fragment into a query whose table scope is fixed and known (e.g. ``events e``,
-            # ``DELETE FROM sharded_events``). Mirror what visit_field_type already does for regular
-            # columns at line 1201: drop the table prefix. In particular, lightweight DELETE rewrites
-            # the predicate into a mutation, whose expression analyzer rejects table-qualified
-            # references like ``sharded_events.mat_$current_url`` even when the column exists.
-            table_prefix: str | None = (
-                None if self.context.within_non_hogql_query else self.visit(field_type.table_type)
-            )
-
-            materialized_column = self._get_materialized_column(table_name, property_name, field_name)
-            if materialized_column is not None:
-                yield PrintableMaterializedColumn(
-                    table_prefix,
-                    self._print_identifier(materialized_column.name),
-                    is_nullable=materialized_column.is_nullable,
-                    has_minmax_index=materialized_column.has_minmax_index,
-                    has_ngram_lower_index=materialized_column.has_ngram_lower_index,
-                    has_bloom_filter_index=materialized_column.has_bloom_filter_index,
-                    has_bloom_filter_lower_index=materialized_column.has_bloom_filter_lower_index,
-                )
-
-            # Check for dmat (dynamic materialized) columns
-            if dmat_column := self._get_dmat_column(table_name, field_name, property_name):
-                yield PrintableMaterializedColumn(
-                    table_prefix,
-                    self._print_identifier(dmat_column),
-                    is_nullable=True,
-                    has_minmax_index=False,
-                    has_ngram_lower_index=False,
-                    has_bloom_filter_index=False,
-                    has_bloom_filter_lower_index=False,
-                )
-
-            yield from self._yield_property_group_columns(field_type, table_name, field_name, property_name)
-        elif self.context.within_non_hogql_query and (
-            isinstance(table, ast.SelectQueryAliasType) and table.alias == "events__pdi__person"
-        ):
-            # :KLUDGE: Legacy person properties handling. Only used within non-HogQL queries, such as insights.
-            if self.context.modifiers.personsOnEventsMode != PersonsOnEventsMode.DISABLED:
-                materialized_column = self._get_materialized_column("events", property_name, "person_properties")
-            else:
-                materialized_column = self._get_materialized_column("person", property_name, "properties")
-            if materialized_column is not None:
-                yield PrintableMaterializedColumn(
-                    None,
-                    self._print_identifier(materialized_column.name),
-                    is_nullable=materialized_column.is_nullable,
-                    has_minmax_index=materialized_column.has_minmax_index,
-                    has_ngram_lower_index=materialized_column.has_ngram_lower_index,
-                    has_bloom_filter_index=materialized_column.has_bloom_filter_index,
-                    has_bloom_filter_lower_index=materialized_column.has_bloom_filter_lower_index,
-                )
-
     def visit_property_type(self, type: ast.PropertyType):
+        # After lowering, a blob property read is a `PropertyAccess`. A `PropertyType` still reaching the printer is the
+        # leftover OUTER reference to a person/group property that `resolve_lazy_tables` pulled into a join subquery: the
+        # JSON extract now lives inside that subquery (and was lowered there), so this outer node is just an
+        # `alias.column` read of the subquery's result — nothing to lower. (Plus, in the ClickHouse override, a
+        # data-warehouse struct column.) The printer makes no physical-column decision — that moved to
+        # `logical_property_lowering` + the ClickHouse physical passes.
         if type.joined_subquery is not None and type.joined_subquery_field_name is not None:
             return f"{self._print_identifier(type.joined_subquery.alias)}.{self._print_identifier(type.joined_subquery_field_name)}"
 
-        materialized_property_source = self._get_materialized_property_source_for_property_type(type)
-        if materialized_property_source is not None:
-            # Special handling for $ai_trace_id, $ai_session_id, and $ai_is_error to avoid nullIf wrapping for index optimization
-            if (
-                len(type.chain) == 1
-                and type.chain[0] in ("$ai_trace_id", "$ai_session_id", "$ai_is_error")
-                and isinstance(materialized_property_source, PrintableMaterializedColumn)
-            ):
-                materialized_property_sql = str(materialized_property_source)
-            elif (
-                isinstance(materialized_property_source, PrintableMaterializedColumn)
-                and not materialized_property_source.is_nullable
-            ):
-                # TODO: rematerialize all columns to properly support empty strings and "null" string values.
-                if self.context.modifiers.materializationMode == MaterializationMode.LEGACY_NULL_AS_STRING:
-                    materialized_property_sql = f"nullIf({materialized_property_source}, '')"
-                else:  # MaterializationMode AUTO or LEGACY_NULL_AS_NULL
-                    materialized_property_sql = f"nullIf(nullIf({materialized_property_source}, ''), 'null')"
-            else:
-                materialized_property_sql = str(materialized_property_source)
-
-            if len(type.chain) == 1:
-                return materialized_property_sql
-            else:
-                return self._unsafe_json_extract_trim_quotes(
-                    materialized_property_sql,
-                    self._json_property_args(type.chain[1:]),
-                )
-
         return self._unsafe_json_extract_trim_quotes(self.visit(type.field_type), self._json_property_args(type.chain))
+
+    def visit_property_access(self, node: ast.PropertyAccess) -> str:
+        # Renders a lowered property read: extract the key path from the JSON source in this dialect's syntax (ClickHouse
+        # JSONExtractRaw + null/quote scrub via the base helper; Postgres/DuckDB override
+        # `_unsafe_json_extract_trim_quotes`/`_json_property_args` for `->`/`->>`). It calls the same JSON-extract helper
+        # `visit_property_type` uses for its blob fallback just above, so the output is the plain JSON-extract form. No
+        # physical-column decision happens here.
+        return self._unsafe_json_extract_trim_quotes(self.visit(node.expr), self._json_property_args(node.keys))
 
     def visit_sample_expr(self, node: ast.SampleExpr) -> Optional[str]:
         # SAMPLE 1 means no sampling, skip it entirely
@@ -1578,33 +1523,6 @@ class BasePrinter(Visitor[str]):
     def _json_property_args(self, chain: Iterable[Any]) -> list[str]:
         return [self.context.add_value(name) for name in chain]
 
-    def _get_materialized_column(
-        self, table_name: str, property_name: PropertyName, field_name: TableColumn
-    ) -> MaterializedColumn | None:
-        return get_materialized_column_for_property(
-            cast(TablesWithMaterializedColumns, table_name), field_name, property_name
-        )
-
-    def _get_dmat_column(self, table_name: str, field_name: str, property_name: str) -> str | None:
-        """
-        Get the dmat column name for a property if available.
-
-        Returns the column name (e.g., 'dmat_string_3') if a materialized slot exists,
-        otherwise None.
-        """
-        if self.context.property_swapper is None:
-            return None
-
-        # Only event properties have dmat columns
-        if table_name != "events" or field_name != "properties":
-            return None
-
-        prop_info = self.context.property_swapper.event_properties.get(property_name)
-        if prop_info:
-            return prop_info.get("dmat")
-
-        return None
-
     def _get_timezone(self) -> str:
         if self.context.modifiers.convertToProjectTimezone is False:
             return "UTC"
@@ -1621,6 +1539,15 @@ class BasePrinter(Visitor[str]):
         elif isinstance(node_type, ast.CallType):
             return node_type.return_type.nullable
         elif isinstance(node_type, ast.FieldType):
+            # A field reading from a subquery (alias) has no database field, so `is_nullable` defaults to True and
+            # over-wraps the column in `ifNull(...)`. Its real nullability is the projected column's constant type —
+            # use that, so a non-nullable value selected from a subquery isn't needlessly null-wrapped (which, for a
+            # join key, ClickHouse can't use). Real-table fields keep `is_nullable` (identical result, no risk).
+            if not isinstance(node_type.table_type, ast.BaseTableType):
+                try:
+                    return node_type.resolve_constant_type(self.context).nullable
+                except Exception:
+                    return True
             return node_type.is_nullable(self.context)
         return None
 

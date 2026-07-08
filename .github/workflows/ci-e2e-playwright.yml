@@ -6,17 +6,31 @@
 name: E2E CI Playwright
 on:
     pull_request:
+        # Draft PRs skip E2E entirely — the broad path filter below matches nearly
+        # every code PR, and a full ~25-minute stack boot per draft push is the
+        # remaining big per-PR cost. The ready-for-review full run is the merge
+        # gate; use workflow_dispatch to force a run on a draft.
+        types: [opened, synchronize, reopened, ready_for_review]
     workflow_dispatch:
+        inputs:
+            playwright_retries:
+                description: 'Override Playwright retries (leave empty for default of 1 on CI — a cold-start net while Trunk quarantine matures). Set to 0 to surface true per-test failure rate.'
+                required: false
+                type: string
+                default: ''
     push:
         branches:
             - master
+    # Required so `Playwright tests pass` (a required status check) reports on
+    # merge queue entries — without it the queue would wait for the check until
+    # timeout. The jobs themselves skip on merge_group (the suite already runs
+    # in full on every PR) and the aggregator treats skipped as success.
+    merge_group:
 
 permissions:
     contents: read
 
 env:
-    DOCKERHUB_USERNAME: ${{ secrets.DOCKERHUB_USERNAME }}
-    DOCKERHUB_TOKEN: ${{ secrets.DOCKERHUB_TOKEN }}
     SECRET_KEY: '6b01eee4f945ca25045b5aab440b953461faf08693a9abbf1166dc7c6b9772da' # unsafe - for testing only
     REDIS_URL: redis://localhost
     DATABASE_URL: postgres://posthog:posthog@localhost:5432/posthog_e2e_test
@@ -50,12 +64,11 @@ env:
     PGPORT: 5432
     # this is a fake key so this workflow can run for external contributors as they do not have access to secrets (that we don't need here)
     OIDC_RSA_PRIVATE_KEY: ${{ vars.OIDC_RSA_FAKE_PRIVATE_KEY }}
-    OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
-    ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
-    GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
-    INKEEP_API_KEY: ${{ secrets.INKEEP_API_KEY }}
-    AZURE_INFERENCE_CREDENTIAL: ${{ secrets.AZURE_INFERENCE_CREDENTIAL }}
-    AZURE_INFERENCE_ENDPOINT: ${{ secrets.AZURE_INFERENCE_ENDPOINT }}
+    PERSONHOG_ADDR: 'localhost:50052'
+    # Internal API auth needs a non-empty INTERNAL_API_SECRET when DEBUG/TEST are off. The dev value
+    # matches the Node plugins container's non-prod default, so Django<->Node internal calls authenticate.
+    INTERNAL_API_SECRET: posthog123
+    RUNS_ON_INTERNAL_PR: ${{ github.event_name != 'pull_request' || github.event.pull_request.head.repo.fork == false }}
 
 concurrency:
     group: ${{ github.workflow }}-${{ github.head_ref || github.ref }}
@@ -65,16 +78,21 @@ jobs:
     changes:
         runs-on: ubuntu-latest
         timeout-minutes: 5
-        # Run on master push, manual dispatch, and on internal-repo PRs.
+        # Run on master push, manual dispatch, and on ready internal-repo PRs.
+        # Drafts skip E2E (see the trigger comment); the `Playwright tests pass`
+        # aggregator treats skipped as success, and drafts can't merge anyway.
         if: |
+            github.event_name != 'merge_group' && (
             github.event_name == 'push' ||
             github.event_name == 'workflow_dispatch' ||
-            github.event.pull_request.head.repo.full_name == github.repository
+            (github.event.pull_request.head.repo.full_name == github.repository &&
+             github.event.pull_request.draft != true))
         name: Determine need to run E2E checks
         outputs:
             shouldRun: ${{ steps.decide.outputs.shouldRun }}
             oldest_supported: ${{ steps.read-versions.outputs.oldest_supported }}
             schema_cache_key: ${{ steps.schema-key.outputs.key }}
+            schema_migrations_key: ${{ steps.schema-key.outputs.migrations_key }}
         steps:
             # fetch-depth=1000 + blob:none mirrors ci-backend / ci-dagster so HEAD^2
             # (PR branch tip) is reachable for the merge-base step below without the
@@ -85,13 +103,15 @@ jobs:
             # and the per-blob credential lookup intermittently fails with "could not
             # read Username for github.com" (e.g. #59779 on 2026-05-23, blocked merge
             # until the job was retried). Materializing only the one file this job
-            # reads collapses the lazy fetch to a single blob.
+            # reads collapses the lazy fetch to a handful of blobs.
             - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
               with:
                   fetch-depth: 1000
                   filter: blob:none
                   clean: false
-                  sparse-checkout: .github/clickhouse-versions.json
+                  sparse-checkout: |
+                      .github/clickhouse-versions.json
+                      docker-compose.base.yml
                   sparse-checkout-cone-mode: false
 
             - uses: actions/create-github-app-token@1b10c78c7865c340bc4f6099eb2f838309f1e8c3 # v3.1.1
@@ -110,6 +130,7 @@ jobs:
                       shouldRun:
                         # Any change that could affect E2E behavior triggers a run.
                         - playwright/**
+                        - 'products/*/frontend/e2e/**'
                         - .github/workflows/ci-e2e-playwright.yml
                         - 'ee/**'
                         - 'posthog/!(temporal/**)/**'
@@ -122,14 +143,51 @@ jobs:
                         - docker-compose.dev.yml
                         - Dockerfile
 
+            # Visual Review auto-commits a snapshot baseline after human review and CI
+            # approval. Re-running the ~25-min E2E stack for that bot push is pure waste;
+            # the `playwright_tests` aggregator treats the resulting skip as success. Key
+            # off the push delta (this push's commits), not the whole-PR diff dorny reports,
+            # so it fires even when the PR also carries real code changes.
+            - name: Detect Visual Review baseline-only push
+              id: baseline_push
+              if: github.event_name == 'pull_request' && github.event.action == 'synchronize'
+              env:
+                  GH_TOKEN: ${{ github.token }}
+                  REPO: ${{ github.repository }}
+                  ACTOR: ${{ github.actor }}
+                  BEFORE: ${{ github.event.before }}
+                  AFTER: ${{ github.event.after }}
+              run: |
+                  set -euo pipefail
+                  result=false
+                  # Visual Review commits the approved baseline as a bot (a [bot] app or posthog-bot).
+                  case "$ACTOR" in
+                      *'[bot]' | posthog-bot) is_bot=true ;;
+                      *) is_bot=false ;;
+                  esac
+                  zero=0000000000000000000000000000000000000000
+                  if [ "$is_bot" = true ] && [ -n "$BEFORE" ] && [ "$BEFORE" != "$zero" ] && [ -n "$AFTER" ]; then
+                      # compare uses merge-base(before, after), which for an appended commit is
+                      # exactly the push delta; a force-push/rebase widens it and won't match.
+                      files=$(gh api "repos/${REPO}/compare/${BEFORE}...${AFTER}" --jq '.files[].filename' || true)
+                      if [ -n "$files" ] && ! grep -qvE '^(frontend|playwright)/snapshots\.yml$' <<<"$files"; then
+                          result=true
+                      fi
+                  fi
+                  echo "result=$result" >>"$GITHUB_OUTPUT"
+                  echo "Visual Review baseline-only push: $result"
+
             - name: Decide whether to run Playwright
               id: decide
               env:
                   IS_PUSH: ${{ github.event_name == 'push' }}
                   IS_DISPATCH: ${{ github.event_name == 'workflow_dispatch' }}
                   SHOULD_RUN: ${{ steps.changes.outputs.shouldRun }}
+                  IS_BASELINE_ONLY: ${{ steps.baseline_push.outputs.result }}
               run: |
-                  if [[ "$IS_PUSH" == "true" || "$IS_DISPATCH" == "true" || "$SHOULD_RUN" == "true" ]]; then
+                  if [[ "$IS_BASELINE_ONLY" == "true" ]]; then
+                      echo "shouldRun=false" >> "$GITHUB_OUTPUT"
+                  elif [[ "$IS_PUSH" == "true" || "$IS_DISPATCH" == "true" || "$SHOULD_RUN" == "true" ]]; then
                       echo "shouldRun=true" >> "$GITHUB_OUTPUT"
                   else
                       echo "shouldRun=false" >> "$GITHUB_OUTPUT"
@@ -155,19 +213,44 @@ jobs:
               # remote.origin.fetch and pull every branch.
               run: git fetch --no-tags --depth=1000 --filter=blob:none origin "$BASE_REF:refs/remotes/origin/$BASE_REF"
 
-            - name: Compute schema cache key from merge-base
+            - name: Compute schema cache keys
               id: schema-key
+              # PRs only: master pushes deliberately skip the schema cache and run the
+              # full migration history, so the canonical run never relies on this
+              # optimization.
               if: steps.decide.outputs.shouldRun == 'true' && github.event_name == 'pull_request'
               env:
                   BASE_REF: ${{ github.event.pull_request.base.ref }}
+                  # Manual cache-bust knob — keep in sync with SCHEMA_CACHE_EPOCH in
+                  # ci-backend.yml, which saves these caches on master pushes.
+                  SCHEMA_CACHE_EPOCH: v1
               run: |
                   # HEAD is the synthetic merge commit; HEAD^2 is the PR branch tip.
                   MERGE_BASE=$(git merge-base HEAD^2 "origin/${BASE_REF}" 2>/dev/null || echo "")
-                  if [ -n "$MERGE_BASE" ]; then
-                      echo "key=posthog-schema-master-${MERGE_BASE}" >> $GITHUB_OUTPUT
-                  else
+                  if [ -z "$MERGE_BASE" ]; then
                       echo "key=" >> $GITHUB_OUTPUT
+                      echo "migrations_key=" >> $GITHUB_OUTPUT
                       echo "::notice::merge-base not found (branch too stale?) — schema cache will be skipped"
+                      exit 0
+                  fi
+                  echo "key=posthog-schema-master-${MERGE_BASE}" >> $GITHUB_OUTPUT
+                  # Shared migration-set key: mirrors the save-side computation in
+                  # ci-backend.yml (same inputs, hash, and prefix) so it hits whenever
+                  # the merge-base's migration files match a saved master schema — far
+                  # more stable than the per-SHA key, which needs the exact merge-base
+                  # commit's cache to still be alive.
+                  MIG_FILES=$(git ls-tree -r --format='%(objectname) %(path)' "$MERGE_BASE" \
+                      | grep -E '/migrations/[^/]+\.py$|^[0-9a-f]+ uv\.lock$' \
+                      | grep -vE '/(clickhouse|async_migrations)/migrations/' \
+                      | LC_ALL=C sort) || true
+                  PG_IMAGE=$(git show "${MERGE_BASE}:docker-compose.base.yml" 2>/dev/null \
+                      | grep -m1 -E '^[[:space:]]*image:[[:space:]]*postgres:' | tr -d '[:space:]')
+                  if [ -z "$MIG_FILES" ]; then
+                      echo "migrations_key=" >> $GITHUB_OUTPUT
+                      echo "::notice::no migration files matched — restore will fall back to the SHA schema key"
+                  else
+                      MIG_HASH=$(printf '%s\n%s' "$MIG_FILES" "$PG_IMAGE" | sha256sum | cut -c1-40)
+                      echo "migrations_key=posthog-schema-mig-${SCHEMA_CACHE_EPOCH}-${MIG_HASH}" >> $GITHUB_OUTPUT
                   fi
 
     playwright:
@@ -184,6 +267,15 @@ jobs:
             pull-requests: write
         outputs:
             vr_run_id: ${{ steps.vr-create.outputs.run_id }}
+        env:
+            DOCKERHUB_USERNAME: ${{ vars.DOCKERHUB_USER }}
+            DOCKERHUB_TOKEN: ${{ secrets.DOCKERHUB_TOKEN }}
+            OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+            ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+            GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+            INKEEP_API_KEY: ${{ secrets.INKEEP_API_KEY }}
+            AZURE_INFERENCE_CREDENTIAL: ${{ secrets.AZURE_INFERENCE_CREDENTIAL }}
+            AZURE_INFERENCE_ENDPOINT: ${{ secrets.AZURE_INFERENCE_ENDPOINT }}
         steps:
             - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
               with:
@@ -191,8 +283,8 @@ jobs:
                   repository: ${{ github.event.pull_request.head.repo.full_name || github.repository }}
                   clean: false
                   # PR-controlled code runs in this job (pnpm installs, Playwright tests). Don't leave
-                  # GITHUB_TOKEN in .git/config where that code could read it — the comment step
-                  # below receives the token explicitly via its `github-token:` input instead.
+                  # GITHUB_TOKEN in .git/config where that code could read it — the report step
+                  # below receives the token explicitly via its GITHUB_TOKEN env instead.
                   persist-credentials: false
             - name: Clean up data directories with container permissions
               run: |
@@ -200,40 +292,12 @@ jobs:
                   [ -d "data" ] && docker run --rm -v "$(pwd)/data:/data" alpine sh -c "rm -rf /data/seaweedfs /data/minio" || true
               continue-on-error: true
 
-            - name: Stop/Start stack with Docker Compose
+            - name: Pull Docker images
               shell: bash
               run: |
                   export CLICKHOUSE_SERVER_IMAGE=${{ needs.changes.outputs.oldest_supported }}
                   cp posthog/user_scripts/latest_user_defined_function.xml docker/clickhouse/user_defined_function.xml
-
-                  (
-                    max_attempts=3
-                    attempt=1
-                    delay=5
-
-                    while [ $attempt -le $max_attempts ]; do
-                        echo "Attempt $attempt of $max_attempts to start stack..."
-
-                        if docker compose -f docker-compose.dev.yml down && \
-                          docker compose -f docker-compose.dev.yml -f docker-compose.profiles.yml up -d; then
-                            echo "Stack started successfully"
-                            exit 0
-                        fi
-
-                        echo "Failed to start stack on attempt $attempt"
-
-                        if [ $attempt -lt $max_attempts ]; then
-                            sleep_time=$((delay * 2 ** (attempt - 1)))
-                            echo "Waiting ${sleep_time} seconds before retry..."
-                            sleep $sleep_time
-                        fi
-
-                        attempt=$((attempt + 1))
-                    done
-
-                    echo "Failed to start stack after $max_attempts attempts"
-                    exit 1
-                  ) &
+                  docker compose -f docker-compose.dev.yml -f docker-compose.profiles.yml pull --quiet &
 
             - name: Add service hostnames to /etc/hosts
               shell: bash
@@ -242,7 +306,8 @@ jobs:
             - name: Set up Python
               uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6.2.0
               with:
-                  python-version: 3.12.12
+                  python-version: 3.13.13
+                  token: ${{ github.token }}
 
             - name: Install uv
               id: setup-uv
@@ -270,19 +335,33 @@ jobs:
             - name: Install pnpm
               uses: pnpm/action-setup@0e279bb959325dab635dd2c09392533439d90093 # v6.0.8
 
+            - name: Fix node-gyp permissions
+              run: find ~/setup-pnpm -name gyp_main.py -exec chmod +x {} +
+
             - name: Set up Node.js
               uses: actions/setup-node@6044e13b5dc448c55e2357c09f80417699197238 # v6.2.0
               with:
                   node-version-file: .nvmrc
-                  cache: pnpm
-                  cache-dependency-path: |
-                      pnpm-lock.yaml
-                      .github/workflows/ci-e2e-playwright.yml
+                  token: ${{ github.token }}
 
-            # tests would intermittently fail in GH actions
-            # with exit code 134 _after passing_ all tests
-            # this appears to fix it
-            # absolute wild tbh https://stackoverflow.com/a/75503402
+            # This job checks out the PR head (not the merge ref), so it can't use
+            # the ./.github/actions/pnpm-install local action — an un-rebased head
+            # may not contain it. Cache the store inline instead, sharing the same
+            # pnpm-<os>-<lockhash> key as the action and gating the save to master.
+            - name: Get pnpm store path
+              id: pnpm-store
+              shell: bash
+              run: echo "path=$(pnpm store path --silent)" >> "$GITHUB_OUTPUT"
+
+            - name: Restore pnpm cache
+              uses: actions/cache/restore@cdf6c1fa76f9f475f3d7449005a359c84ca0f306 # v5.0.3
+              with:
+                  path: ${{ steps.pnpm-store.outputs.path }}
+                  key: pnpm-${{ runner.os }}-${{ hashFiles('pnpm-lock.yaml') }}
+                  restore-keys: pnpm-${{ runner.os }}-
+
+            # Workaround for SIGABRT (exit 134) raised after all tests pass.
+            # See https://pytest-qt.readthedocs.io/en/latest/troubleshooting.html#tlambert03-setup-qt-libs
             - uses: tlambert03/setup-qt-libs@19e4ef2d781d81f5f067182e228b54ec90d23b76 # v1.8
 
             - name: Install plugin_transpiler
@@ -336,11 +415,18 @@ jobs:
                   pnpm --filter=@posthog/playwright... install --frozen-lockfile
                   bin/turbo --filter=@posthog/frontend prepare
 
+            - name: Save pnpm cache
+              if: github.ref == 'refs/heads/master'
+              uses: actions/cache/save@cdf6c1fa76f9f475f3d7449005a359c84ca0f306 # v5.0.3
+              with:
+                  path: ${{ steps.pnpm-store.outputs.path }}
+                  key: pnpm-${{ runner.os }}-${{ hashFiles('pnpm-lock.yaml') }}
+
             - name: Log in to Docker Hub
               if: ${{ env.DOCKERHUB_USERNAME != '' && env.DOCKERHUB_TOKEN != '' }}
               uses: docker/login-action@4907a6ddec9925e35a0a9e82d7399ccc52663121 # v4.1.0
               with:
-                  username: ${{ secrets.DOCKERHUB_USERNAME }}
+                  username: ${{ vars.DOCKERHUB_USER }}
                   password: ${{ secrets.DOCKERHUB_TOKEN }}
 
             - name: Start Docker services
@@ -395,40 +481,46 @@ jobs:
                   run_clickhouse_query 'DROP DATABASE IF EXISTS posthog_test SYNC'
                   run_clickhouse_query 'CREATE DATABASE posthog_test'
 
-            - name: Cache Rust dependencies
-              uses: Swatinem/rust-cache@c19371144df3bb44fab255c43d04cbc2ab54d1c4 # v2.9.1
-              with:
-                  shared-key: 'v2-rust-backend'
-                  workspaces: rust
-                  save-if: ${{ github.ref == 'refs/heads/master' }}
-
             - name: Install sqlx-cli
               uses: ./.github/actions/setup-sqlx-cli
 
             - name: Restore schema cache from master
-              # Cache key is the merge-base SHA — produced by ci-backend on master push.
-              # Cache miss falls through to a full migrate below.
-              if: github.event_name == 'pull_request' && needs.changes.outputs.schema_cache_key != ''
+              # PRs only — master pushes run the full migration history on purpose.
+              # Both keys are produced by ci-backend on master push. Prefer the shared
+              # migration-set key (stable while master's migration files are unchanged);
+              # fall back to the exact merge-base SHA key. Cache miss falls through to
+              # a full migrate below.
+              if: github.event_name == 'pull_request' && (needs.changes.outputs.schema_migrations_key != '' || needs.changes.outputs.schema_cache_key != '')
               uses: actions/cache/restore@cdf6c1fa76f9f475f3d7449005a359c84ca0f306 # v5.0.3
               id: schema-cache
               with:
                   path: schema.sql.gz
-                  key: ${{ needs.changes.outputs.schema_cache_key }}
+                  key: ${{ needs.changes.outputs.schema_migrations_key || needs.changes.outputs.schema_cache_key }}
+                  restore-keys: |
+                      ${{ needs.changes.outputs.schema_cache_key }}
 
             - name: Prime posthog_e2e_test from cached schema
               # Schema dump is from master's `posthog` db but schemas are db-name agnostic.
               # Hogli's db:restore-schema-fresh DROPs+CREATEs the target db, restores the
               # schema, and runs ensure_migration_defaults to seed RunPython data that's
               # missing from a schema-only dump. The migrate step below still runs and
-              # layers any PR-added migrations on top — the cache just skips the bulk of
-              # the historical migration work.
-              if: steps.schema-cache.outputs.cache-hit == 'true'
+              # layers any newer migrations on top — the cache just skips the bulk of
+              # the historical migration work. Treat cache/restore problems as misses:
+              # restore-schema-fresh leaves a fresh empty db on failure, so the migrate
+              # step below runs the full history.
+              if: github.event_name == 'pull_request'
               env:
                   TARGET_DB: posthog_e2e_test
               run: |
+                  if [ ! -f schema.sql.gz ]; then
+                      echo "::notice::Schema cache miss — the migrate step below runs the full history"
+                      exit 0
+                  fi
                   mkdir -p .postgres-backups
                   mv schema.sql.gz .postgres-backups/schema-latest.sql.gz
-                  ./bin/hogli db:restore-schema-fresh
+                  if ! ./bin/hogli db:restore-schema-fresh; then
+                      echo "::warning::Schema restore failed (stale/incompatible cached dump?) — the migrate step below runs the full history"
+                  fi
 
             - name: Apply postgres and clickhouse migrations and setup dev
               run: |
@@ -451,6 +543,11 @@ jobs:
                   sqlx migrate run -D "$CYCLOTRON_NODE_DATABASE_URL" --source rust/cyclotron-node-migrations/
 
                   python manage.py migrate_clickhouse 2>&1
+
+                  # Person/group reads go through personhog (no ORM fallback), so the replica
+                  # and router must be running before setup_dev creates demo persons.
+                  COMPOSE_FILE=docker-compose.dev.yml COMPOSE_PROFILES=ingestion bin/ci-wait-for-docker launch personhog-replica personhog-router
+
                   python manage.py setup_dev
 
             - name: Source celery queues
@@ -514,19 +611,38 @@ jobs:
 
             - name: Run Playwright tests
               id: playwright-tests
+              # continue-on-error so a failure doesn't fail the job here; the quarantine gate
+              # below is the verdict — it passes when every failure is an already-quarantined
+              # flake, fails otherwise.
+              continue-on-error: true
               shell: bash
+              env:
+                  # Retries default to 1 as a cold-start net while Trunk's quarantine list
+                  # matures — a not-yet-classified flake gets one retry instead of reding the PR.
+                  # Drop back to 0 once quarantine reliably catches flakes so raw signal reaches
+                  # Trunk. The flake-audit workflow still forces 0; workflow_dispatch can override.
+                  PLAYWRIGHT_RETRIES: ${{ inputs.playwright_retries || '1' }}
               # WARNING: Worker count is tuned to avoid CPU scheduling contention. Talk to #team-devex before changing.
               # Reduced from 6+4 to 4+2 to minimize CPU scheduling contention (see PR #46853)
               # Capture-only: VR is the gate for visual changes, Playwright just captures screenshots
               run: |
-                  pnpm --filter=@posthog/playwright exec playwright test --workers=4 --max-failures=5 --update-snapshots
+                  pnpm --filter=@posthog/playwright exec playwright test --workers=4 --update-snapshots
 
             - name: Verify changed Playwright tests are stable
-              if: success() && github.event_name == 'pull_request'
+              if: steps.playwright-tests.outcome == 'success' && github.event_name == 'pull_request'
               shell: bash
+              env:
+                  BASE_SHA: ${{ github.event.pull_request.base.sha }}
+                  HEAD_SHA: ${{ github.event.pull_request.head.sha }}
               run: |
-                  BASE_SHA="${{ github.event.pull_request.base.sha }}"
-                  git fetch --no-tags --prune --depth=50 origin "$BASE_SHA"
+                  # The script diffs from the merge-base of BASE_SHA and HEAD so a PR on an
+                  # older master doesn't inherit specs changed only on master. The merge-base
+                  # must be reachable from *both* tips: this job checks out HEAD at depth 1, so
+                  # deepen both histories (depth=1000 + blob:none mirrors the merge-base fetches
+                  # in the `changes` job). If the branch point is still out of reach, the script
+                  # warns and falls back to BASE_SHA — bounded by its own test-run budget guard.
+                  git fetch --no-tags --prune --depth=1000 --filter=blob:none origin "$BASE_SHA"
+                  git fetch --no-tags --depth=1000 --filter=blob:none origin "$HEAD_SHA"
                   .github/scripts/verify-playwright-new-tests-and-snapshots.sh "$BASE_SHA" 10
 
             # Visual Review: create run + upload snapshots directly from the test job.
@@ -611,6 +727,27 @@ jobs:
                   path: playwright/junit-results.xml
                   if-no-files-found: ignore
 
+            # Quarantine gate: uploads junit to Trunk and gates the job. Exit 0 when every
+            # failure is an already-quarantined flake, non-zero otherwise (falls back to the
+            # raw test outcome if Trunk is unreachable). Runs the token only on internal PRs,
+            # master, and the merge queue — never on fork PRs or Dependabot, which have no
+            # secret.
+            - name: Quarantine gate
+              if: ${{ !cancelled() && env.RUNS_ON_INTERNAL_PR == 'true' && github.repository == 'PostHog/posthog' && github.actor != 'dependabot[bot]' }}
+              uses: trunk-io/analytics-uploader@385f1ccdf345b4532dc4b6c665dd432b702b8e28 # v2.1.2
+              with:
+                  junit-paths: playwright/junit-results.xml
+                  org-slug: posthog-inc
+                  quarantine: true
+                  previous-step-outcome: ${{ steps.playwright-tests.outcome }}
+                  token: ${{ secrets.TRUNK_API_TOKEN }}
+            # No Trunk secret on fork PRs and Dependabot; fall back to the raw playwright
+            # outcome so a genuine failure still goes red exactly as before.
+            - name: Fail on Playwright failure (no quarantine gate)
+              if: ${{ !cancelled() && steps.playwright-tests.outcome == 'failure' && !(env.RUNS_ON_INTERNAL_PR == 'true' && github.repository == 'PostHog/posthog' && github.actor != 'dependabot[bot]') }}
+              shell: bash
+              run: exit 1
+
             - name: Publish report to Cloudflare Pages
               if: always() && (github.event_name == 'push' || github.event.pull_request.head.repo.full_name == github.repository)
               id: cf-deploy
@@ -641,104 +778,19 @@ jobs:
                   echo "- Commit: \`${{ github.sha }}\`" >> $GITHUB_STEP_SUMMARY
                   echo "- Run: [#${{ github.run_number }}](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }})" >> $GITHUB_STEP_SUMMARY
 
-            - name: Upsert report URL comment on PR
+            - name: Post Playwright section to CI report comment
               if: always() && github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository
               continue-on-error: true
-              uses: actions/github-script@ed597411d8f924073f98dfc5c65a23a2325f34cd # v8.0.0
               env:
                   DEPLOYMENT_URL: ${{ steps.cf-deploy.outputs.deployment-url }}
-              with:
-                  github-token: ${{ secrets.GITHUB_TOKEN }}
-                  script: |
-                      const fs = require('fs');
-                      const marker = '<!-- playwright-report-comment -->';
-                      const reportUrl = process.env.DEPLOYMENT_URL;
-                      const jobPassed = '${{ job.status }}' === 'success';
-
-                      // Collect failed and flaky tests from JSON report — only populated when
-                      // results.json exists (i.e. tests actually ran). If the file is missing
-                      // (setup failure, cancelled, etc.) extraLines stays empty and we treat
-                      // it the same as "no failures found", so we don't delete an existing
-                      // comment that may have relevant info from a previous run.
-                      let extraLines = '';
-                      let resultsRead = false;
-                      let failed = [];
-                      try {
-                          const results = JSON.parse(fs.readFileSync('playwright/results.json', 'utf8'));
-                          resultsRead = true;
-                          const flaky = [];
-                          function collect(suites) {
-                              for (const suite of suites || []) {
-                                  for (const spec of suite.specs || []) {
-                                      for (const test of spec.tests || []) {
-                                          if (test.status === 'unexpected') {
-                                              failed.push(`- ${spec.title} (${test.projectName})`);
-                                          } else if (test.status === 'flaky') {
-                                              flaky.push(`- ${spec.title} (${test.projectName})`);
-                                          }
-                                      }
-                                  }
-                                  collect(suite.suites);
-                              }
-                          }
-                          collect(results.suites);
-                          if (failed.length > 0) {
-                              extraLines += `\n\n❌ **${failed.length} failed test${failed.length > 1 ? 's' : ''}:**\n${failed.join('\n')}`;
-                          }
-                          if (flaky.length > 0) {
-                              extraLines += `\n\n⚠️ **${flaky.length} flaky test${flaky.length > 1 ? 's' : ''}:**\n${flaky.join('\n')}`;
-                          }
-                      } catch {}
-
-                      // Flake verification results for changed test files
-                      try {
-                          const flakeResults = JSON.parse(fs.readFileSync('playwright/flake-verification-results.json', 'utf8'));
-                          if (flakeResults.status === 'failed') {
-                              const fileList = flakeResults.files.map(f => `- \`${f}\``).join('\n');
-                              const flakeReportLink = reportUrl ? ` [View report →](${reportUrl})` : '';
-                              extraLines += `\n\n🔁 **Flake verification failed** (--repeat-each=${flakeResults.repeat_count}):\n${fileList}\n\nThe report only shows the tests under verification.${flakeReportLink} Fix these before merging.`;
-                          }
-                      } catch {}
-
-                      const { data: comments } = await github.rest.issues.listComments({
-                          owner: context.repo.owner,
-                          repo: context.repo.repo,
-                          issue_number: context.issue.number,
-                      });
-                      const existing = comments.find(c => c.body.includes(marker));
-
-                      // No failures or flakies — nothing to comment about
-                      if (!extraLines) {
-                          // Clean up any existing comment, but only when we know tests actually ran and passed
-                          if (resultsRead && existing) {
-                              await github.rest.issues.deleteComment({
-                                  owner: context.repo.owner,
-                                  repo: context.repo.repo,
-                                  comment_id: existing.id,
-                              });
-                          }
-                          return;
-                      }
-
-                      const reportLink = reportUrl ? ` · [View test results →](${reportUrl})` : '';
-                      const footer = '\n\n\n*These issues are not necessarily caused by your changes.*\n*Annoyed by this comment? Help fix flakies and failures and it\'ll disappear!*';
-                      const body = `${marker}\n🎭 Playwright report${reportLink}${extraLines}${footer}`;
-
-                      if (existing) {
-                          await github.rest.issues.updateComment({
-                              owner: context.repo.owner,
-                              repo: context.repo.repo,
-                              comment_id: existing.id,
-                              body,
-                          });
-                      } else {
-                          await github.rest.issues.createComment({
-                              owner: context.repo.owner,
-                              repo: context.repo.repo,
-                              issue_number: context.issue.number,
-                              body,
-                          });
-                      }
+                  GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+              run: |
+                  if [ -f .github/scripts/post-playwright-section.mjs ]; then
+                      node .github/scripts/post-playwright-section.mjs
+                      node frontend/bin/ci-report/delete-legacy-comments.mjs
+                  else
+                      echo "Skipping Playwright section — script not present on this checkout"
+                  fi
 
     capture-run-time:
         name: Capture run time
@@ -804,6 +856,7 @@ jobs:
               uses: actions/setup-node@6044e13b5dc448c55e2357c09f80417699197238 # v6.2.0
               with:
                   node-version-file: .nvmrc
+                  token: ${{ github.token }}
 
             - name: Install VR CLI
               run: cd products/visual_review/cli && npm ci && npm run build && npm link

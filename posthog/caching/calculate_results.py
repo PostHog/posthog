@@ -21,6 +21,7 @@ from products.product_analytics.backend.models.insight import Insight, generate_
 
 if TYPE_CHECKING:
     from posthog.caching.fetch_from_cache import InsightResult
+    from posthog.rbac.user_access_control import UserAccessControl
 
 
 logger = structlog.get_logger(__name__)
@@ -53,6 +54,7 @@ def calculate_for_query_based_insight(
     dashboard: Optional[Dashboard] = None,
     execution_mode: ExecutionMode,
     user: Optional[User],
+    user_access_control: Optional["UserAccessControl"] = None,
     filters_override: Optional[dict] = None,
     variables_override: Optional[dict] = None,
     tile_filters_override: Optional[dict] = None,
@@ -89,6 +91,7 @@ def calculate_for_query_based_insight(
         variables_override_json=variables_override_json,
         execution_mode=execution_mode,
         user=user,
+        user_access_control=user_access_control,
         insight_id=insight.pk,
         dashboard_id=dashboard.pk if dashboard else None,
         # QUERY_ASYNC provides extended max execution time for insight queries

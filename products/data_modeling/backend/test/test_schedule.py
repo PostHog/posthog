@@ -2,9 +2,23 @@ import uuid
 from collections import Counter
 from datetime import timedelta
 
-from temporalio.client import ScheduleCalendarSpec
+import pytest
+from posthog.test.base import BaseTest
+from unittest import mock
 
-from products.data_modeling.backend.schedule import _deterministic_int, build_schedule_spec
+from temporalio.client import ScheduleCalendarSpec, ScheduleListActionStartWorkflow
+
+from products.data_modeling.backend.models import Node
+from products.data_modeling.backend.models.dag import DAG
+from products.data_modeling.backend.models.datawarehouse_saved_query import DataWarehouseSavedQuery
+from products.data_modeling.backend.models.node import NodeType
+from products.data_modeling.backend.schedule import (
+    _deterministic_int,
+    build_schedule_spec,
+    get_v2_saved_query_ids,
+    get_v2_scheduled_dag_ids,
+    partition_saved_queries_by_v2_schedule,
+)
 
 
 class TestDeterministicInt:
@@ -236,3 +250,158 @@ class TestBuildScheduleSpecEdgeCases:
     def test_boundary_30d_is_monthly(self):
         spec = build_schedule_spec(uuid.uuid4(), timedelta(days=30))
         assert len(spec.calendars[0].day_of_month) == 1
+
+
+@pytest.mark.django_db
+class TestV2ScheduleGuard(BaseTest):
+    def _saved_query_on_dag(self, name: str, dag: DAG) -> DataWarehouseSavedQuery:
+        sq = DataWarehouseSavedQuery.objects.create(
+            name=name,
+            team=self.team,
+            query={"query": "SELECT 1", "kind": "HogQLQuery"},
+        )
+        Node.objects.create(team=self.team, dag=dag, saved_query=sq, type=NodeType.VIEW)
+        return sq
+
+    def setUp(self):
+        super().setUp()
+        self.v2_dag = DAG.objects.create(team=self.team, name="v2")
+        self.v1_dag = DAG.objects.create(team=self.team, name="v1")
+        self.sq_on_v2 = self._saved_query_on_dag("on_v2", self.v2_dag)
+        self.sq_on_v1 = self._saved_query_on_dag("on_v1", self.v1_dag)
+
+    def test_get_v2_saved_query_ids_returns_only_migrated_dag_queries(self):
+        with mock.patch(
+            "products.data_modeling.backend.schedule.get_v2_scheduled_dag_ids",
+            return_value={str(self.v2_dag.id)},
+        ):
+            result = get_v2_saved_query_ids([self.sq_on_v2.id, self.sq_on_v1.id])
+        assert result == {self.sq_on_v2.id}
+
+    def test_get_v2_saved_query_ids_empty_when_no_v2_schedules(self):
+        with mock.patch(
+            "products.data_modeling.backend.schedule.get_v2_scheduled_dag_ids",
+            return_value=set(),
+        ):
+            result = get_v2_saved_query_ids([self.sq_on_v2.id, self.sq_on_v1.id])
+        assert result == set()
+
+    def test_partition_splits_v1_eligible_from_v2(self):
+        with mock.patch(
+            "products.data_modeling.backend.schedule.get_v2_scheduled_dag_ids",
+            return_value={str(self.v2_dag.id)},
+        ):
+            eligible, on_v2 = partition_saved_queries_by_v2_schedule([self.sq_on_v2, self.sq_on_v1])
+        assert [sq.id for sq in eligible] == [self.sq_on_v1.id]
+        assert [sq.id for sq in on_v2] == [self.sq_on_v2.id]
+
+    def test_partition_keeps_all_when_no_v2_schedules(self):
+        with mock.patch(
+            "products.data_modeling.backend.schedule.get_v2_scheduled_dag_ids",
+            return_value=set(),
+        ):
+            eligible, on_v2 = partition_saved_queries_by_v2_schedule([self.sq_on_v2, self.sq_on_v1])
+        assert {sq.id for sq in eligible} == {self.sq_on_v2.id, self.sq_on_v1.id}
+        assert on_v2 == []
+
+    def test_partition_empty_input(self):
+        eligible, on_v2 = partition_saved_queries_by_v2_schedule([])
+        assert eligible == []
+        assert on_v2 == []
+
+
+class TestGetV2ScheduledDagIds:
+    def _listing(self, schedule_id: str, workflow: str):
+        action = mock.Mock(spec=ScheduleListActionStartWorkflow, workflow=workflow)
+        return mock.Mock(id=schedule_id, schedule=mock.Mock(action=action))
+
+    def test_full_sweep_scopes_by_schedule_type_server_side(self):
+        captured: dict = {}
+        listings = [
+            self._listing("dag-on-v2", "data-modeling-execute-dag"),
+            self._listing("sq-on-v1", "data-modeling-run"),
+        ]
+
+        async def fake_list_schedules(*args, **kwargs):
+            captured["kwargs"] = kwargs
+
+            async def gen():
+                for listing in listings:
+                    yield listing
+
+            return gen()
+
+        temporal = mock.Mock()
+        temporal.list_schedules = fake_list_schedules
+        with mock.patch(
+            "products.data_modeling.backend.schedule.async_connect",
+            new=mock.AsyncMock(return_value=temporal),
+        ):
+            result = get_v2_scheduled_dag_ids()
+
+        # WorkflowType isn't queryable on schedules, so the full sweep scopes server-side on the
+        # PostHogScheduleType tag instead of paginating the whole namespace.
+        assert captured["kwargs"]["query"] == 'PostHogScheduleType = "data-modeling-execute-dag"'
+        assert result == {"dag-on-v2"}
+
+    def test_scopes_listing_by_posthog_dag_id_when_candidates_given(self):
+        captured: dict = {}
+        listings = [
+            self._listing("dag-on-v2", "data-modeling-execute-dag"),
+            self._listing("sq-on-v1", "data-modeling-run"),
+        ]
+
+        async def fake_list_schedules(*args, **kwargs):
+            captured["kwargs"] = kwargs
+
+            async def gen():
+                for listing in listings:
+                    yield listing
+
+            return gen()
+
+        temporal = mock.Mock()
+        temporal.list_schedules = fake_list_schedules
+        with mock.patch(
+            "products.data_modeling.backend.schedule.async_connect",
+            new=mock.AsyncMock(return_value=temporal),
+        ):
+            result = get_v2_scheduled_dag_ids({"dag-on-v2"})
+
+        # Server-side filtering on the PostHogDagId search attribute (allowed, unlike WorkflowType)
+        # keeps us from paginating the whole namespace.
+        assert captured["kwargs"]["query"] == "PostHogDagId IN ('dag-on-v2')"
+        assert result == {"dag-on-v2"}
+
+    def test_tiered_schedule_ids_resolve_to_the_dag_id(self):
+        # cadence-tier schedules are "{dag_id}:{seconds}"; returning them raw would make every
+        # v2-detection consumer treat migrated DAGs as v1 and recreate v1 schedules
+        listings = [
+            self._listing("dag-a:900", "data-modeling-execute-dag"),
+            self._listing("dag-a:86400", "data-modeling-execute-dag"),
+            self._listing("dag-b", "data-modeling-execute-dag"),
+        ]
+
+        async def fake_list_schedules(*args, **kwargs):
+            async def gen():
+                for listing in listings:
+                    yield listing
+
+            return gen()
+
+        temporal = mock.Mock()
+        temporal.list_schedules = fake_list_schedules
+        with mock.patch(
+            "products.data_modeling.backend.schedule.async_connect",
+            new=mock.AsyncMock(return_value=temporal),
+        ):
+            result = get_v2_scheduled_dag_ids()
+
+        assert result == {"dag-a", "dag-b"}
+
+    def test_empty_candidates_skips_temporal(self):
+        connect = mock.AsyncMock()
+        with mock.patch("products.data_modeling.backend.schedule.async_connect", new=connect):
+            result = get_v2_scheduled_dag_ids(set())
+        assert result == set()
+        connect.assert_not_called()

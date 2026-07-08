@@ -49,11 +49,36 @@ jobs:
                       .github/scripts/monitor-github-rate-limit.js
                   sparse-checkout-cone-mode: false
 
-            - name: Poll /rate_limit and emit to PostHog
+            - name: Poll GITHUB_TOKEN bucket and emit to PostHog
               uses: actions/github-script@ed597411d8f924073f98dfc5c65a23a2325f34cd # v8.0.0
               env:
                   POSTHOG_DEVEX_PROJECT_API_TOKEN: ${{ secrets.POSTHOG_DEVEX_PROJECT_API_TOKEN }}
               with:
                   script: |
                       const script = require('./.github/scripts/monitor-github-rate-limit.js')
-                      await script({ github, context, core })
+                      await script({ github, context, core }, { source: 'github_token' })
+
+            # The setup-action offload bucket (posthog-devex-general) is a
+            # separate 15k installation bucket from GITHUB_TOKEN. Mint its token
+            # and poll /rate_limit through it so its core budget is observable as
+            # its own series. /rate_limit reads don't consume the budget they
+            # report, so this doesn't distort the measurement. No-ops until the
+            # org secret exists (continue-on-error mint + empty-token guard).
+            - name: Mint posthog-devex-general token
+              id: devex-token
+              continue-on-error: true
+              uses: actions/create-github-app-token@1b10c78c7865c340bc4f6099eb2f838309f1e8c3 # v3.1.1
+              with:
+                  client-id: ${{ secrets.GH_APP_POSTHOG_DEVEX_GENERAL_APP_ID }}
+                  private-key: ${{ secrets.GH_APP_POSTHOG_DEVEX_GENERAL_PRIVATE_KEY }}
+
+            - name: Poll posthog-devex-general bucket and emit to PostHog
+              if: steps.devex-token.outputs.token != ''
+              uses: actions/github-script@ed597411d8f924073f98dfc5c65a23a2325f34cd # v8.0.0
+              env:
+                  POSTHOG_DEVEX_PROJECT_API_TOKEN: ${{ secrets.POSTHOG_DEVEX_PROJECT_API_TOKEN }}
+              with:
+                  github-token: ${{ steps.devex-token.outputs.token }}
+                  script: |
+                      const script = require('./.github/scripts/monitor-github-rate-limit.js')
+                      await script({ github, context, core }, { source: 'posthog-devex-general' })

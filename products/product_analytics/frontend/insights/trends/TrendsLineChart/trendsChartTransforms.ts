@@ -1,20 +1,18 @@
-import { DEFAULT_Y_AXIS_ID, movingAverageKey } from 'lib/hog-charts'
+import { DEFAULT_Y_AXIS_ID, movingAverageKey, normalizeAxisLabel } from '@posthog/quill-charts'
 import type {
     ConfidenceIntervalConfig,
     MovingAverageConfig,
     Series,
+    TimeInterval,
     TimeSeriesLineChartConfig,
     TooltipConfig,
     TrendLineConfig,
-} from 'lib/hog-charts'
-import { normalizeAxisLabel } from 'lib/hog-charts/utils/axis-labels'
-import { ciRanges } from 'lib/statistics'
-
-import type { CurrencyCode, GoalLine as SchemaGoalLine, TrendsFilter } from '~/queries/schema/schema-general'
-import { ChartDisplayType, type IntervalType } from '~/types'
+} from '@posthog/quill-charts'
 
 import { schemaGoalLinesToConfigs } from '../shared/goalLinesAdapter'
+import { humanizeSeriesLabel } from '../shared/humanizeSeriesLabel'
 import { buildTrendsYAxisConfig } from '../shared/trendsAxisFormat'
+import type { CiRangesFn, GoalLineLike, YFormatterFields } from '../shared/trendsChartDisplayOptions'
 
 // Shape both IndexedTrendResult (kea) and TrendsResultItem (MCP) satisfy.
 export interface TrendsResultLike {
@@ -30,7 +28,8 @@ export interface TrendsResultLike {
 }
 
 export interface BuildTrendsSeriesOpts<R extends TrendsResultLike, M = unknown> {
-    display?: ChartDisplayType
+    /** Area fill under each series (web maps `display === ActionsAreaGraph`). */
+    isArea?: boolean
     showMultipleYAxes?: boolean
     // Negative number — index from the end where the in-progress tail begins. Omit to skip.
     incompletenessOffsetFromEnd?: number
@@ -38,6 +37,9 @@ export interface BuildTrendsSeriesOpts<R extends TrendsResultLike, M = unknown> 
     getColor: (r: R, index: number) => string
     getHidden?: (r: R, index: number) => boolean
     buildMeta?: (r: R, index: number) => M
+    // Resolves the legend/series label (custom name + breakdown formatting). Hosts that lack the
+    // breakdown/cohort deps (e.g. MCP) omit it and fall back to the raw humanized event name.
+    getLabel?: (r: R) => string
 }
 
 // Shared between buildMainTrendsSeries (stroke.partial.fromIndex) and buildDerivedConfigs
@@ -66,12 +68,12 @@ export function buildMainTrendsSeries<R extends TrendsResultLike, M = unknown>(
     const meta: M | undefined = opts.buildMeta ? opts.buildMeta(r, index) : undefined
     return {
         key: String(r.id),
-        label: r.label ?? '',
+        label: opts.getLabel ? opts.getLabel(r) : humanizeSeriesLabel(r.label),
         data: r.data,
         color: opts.getColor(r, index),
         yAxisId,
         meta,
-        fill: opts.display === ChartDisplayType.ActionsAreaGraph ? {} : undefined,
+        fill: opts.isArea ? {} : undefined,
         stroke: dashedFromIndex !== undefined ? { partial: { fromIndex: dashedFromIndex } } : undefined,
         visibility: excluded ? { excluded: true } : undefined,
     }
@@ -87,12 +89,15 @@ export function buildTrendsSeries<R extends TrendsResultLike, M = unknown>(
 export interface BuildDerivedConfigsOpts<R extends TrendsResultLike> {
     showConfidenceIntervals?: boolean
     confidenceLevel?: number
+    // Injected so the transforms stay free of `lib/statistics`. CI is skipped when omitted.
+    ciRanges?: CiRangesFn
     showMovingAverage?: boolean
     movingAverageIntervals?: number
     showTrendLines?: boolean
     isStickiness?: boolean
     incompletenessOffsetFromEnd?: number
     getHidden?: (r: R) => boolean
+    getLabel?: (r: R) => string
 }
 
 export interface DerivedConfigs {
@@ -111,8 +116,9 @@ export function buildDerivedConfigs<R extends TrendsResultLike>(
         return out
     }
 
-    if (opts.showConfidenceIntervals) {
+    if (opts.showConfidenceIntervals && opts.ciRanges) {
         const ci = (opts.confidenceLevel ?? 95) / 100
+        const ciRanges = opts.ciRanges
         out.confidenceIntervals = results.map((r) => {
             const [lower, upper] = ciRanges(r.data, ci)
             return { seriesKey: String(r.id), lower, upper }
@@ -123,6 +129,7 @@ export function buildDerivedConfigs<R extends TrendsResultLike>(
     if (includeMa) {
         const window = opts.movingAverageIntervals as number
         out.movingAverage = results
+            .filter((r) => !opts.getHidden?.(r))
             .filter((r) => r.data.length >= window)
             .map((r) => ({ seriesKey: String(r.id), window }))
     }
@@ -139,7 +146,7 @@ export function buildDerivedConfigs<R extends TrendsResultLike>(
                 trendLines.push({
                     seriesKey: movingAverageKey(String(r.id)),
                     kind: 'linear',
-                    label: `${r.label ?? ''} (Moving avg)`,
+                    label: `${opts.getLabel ? opts.getLabel(r) : humanizeSeriesLabel(r.label)} (Moving avg)`,
                 })
             }
         }
@@ -155,7 +162,7 @@ export function buildDerivedConfigs<R extends TrendsResultLike>(
             // Self-map: applyComparisonDimming only checks key presence; the paired primary
             // id isn't carried on TrendsResultLike.
             comparisonOf[key] = key
-            if (includeMa && r.data.length >= (opts.movingAverageIntervals as number)) {
+            if (includeMa && !opts.getHidden?.(r) && r.data.length >= (opts.movingAverageIntervals as number)) {
                 comparisonOf[movingAverageKey(key)] = key
             }
         }
@@ -169,22 +176,25 @@ export function buildDerivedConfigs<R extends TrendsResultLike>(
 
 export interface BuildTrendsLineTimeSeriesConfigOpts<R extends TrendsResultLike> {
     results: readonly R[]
-    trendsFilter?: TrendsFilter | null
-    baseCurrency?: CurrencyCode
+    trendsFilter?: YFormatterFields | null
+    baseCurrency?: string
     isPercentStackView: boolean
     isStickiness?: boolean
     yAxisScaleType?: string | null
-    interval?: IntervalType | null
+    interval?: TimeInterval | null
     timezone?: string
     allDays?: string[]
     xAxisLabel?: string | null
     yAxisLabel?: string | null
-    goalLines?: SchemaGoalLine[] | null
+    xAxisTickFormatter?: (value: string, index: number) => string | null
+    goalLines?: GoalLineLike[] | null
     incompletenessOffsetFromEnd?: number
     getHidden?: (r: R) => boolean
+    getLabel?: (r: R) => string
 
     showConfidenceIntervals?: boolean
     confidenceLevel?: number
+    ciRanges?: CiRangesFn
     showMovingAverage?: boolean
     movingAverageIntervals?: number
     showTrendLines?: boolean
@@ -193,6 +203,7 @@ export interface BuildTrendsLineTimeSeriesConfigOpts<R extends TrendsResultLike>
 
     showCrosshair?: boolean
     tooltip?: TooltipConfig
+    legend?: TimeSeriesLineChartConfig['legend']
 }
 
 export function buildTrendsLineTimeSeriesConfig<R extends TrendsResultLike>(
@@ -206,12 +217,14 @@ export function buildTrendsLineTimeSeriesConfig<R extends TrendsResultLike>(
     const derivedConfigs = buildDerivedConfigs(opts.results, {
         showConfidenceIntervals: opts.showConfidenceIntervals,
         confidenceLevel: opts.confidenceLevel,
+        ciRanges: opts.ciRanges,
         showMovingAverage: opts.showMovingAverage,
         movingAverageIntervals: opts.movingAverageIntervals,
         showTrendLines: opts.showTrendLines,
         isStickiness: opts.isStickiness,
         incompletenessOffsetFromEnd: opts.incompletenessOffsetFromEnd,
         getHidden: opts.getHidden,
+        getLabel: opts.getLabel,
     })
     return {
         xAxis: {
@@ -219,6 +232,7 @@ export function buildTrendsLineTimeSeriesConfig<R extends TrendsResultLike>(
             timezone: opts.timezone,
             interval: opts.interval ?? 'day',
             allDays: opts.allDays ?? [],
+            tickFormatter: opts.xAxisTickFormatter,
         },
         yAxis: {
             ...yAxis,
@@ -230,5 +244,6 @@ export function buildTrendsLineTimeSeriesConfig<R extends TrendsResultLike>(
         percentStackView: opts.isPercentStackView,
         showCrosshair: opts.showCrosshair,
         tooltip: opts.tooltip,
+        legend: opts.legend,
     }
 }

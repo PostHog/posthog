@@ -21,7 +21,13 @@ CORE_MEMORY_MAX_LEN = 5001
 
 _TAG_RE = re.compile(r"</?[a-zA-Z_][^>]*>")
 _LLM_MARKER_RE = re.compile(
-    r"</?\s*(?:system|user|assistant|human|insight_data|user_context|subscription_title|core_memory)\b[^>]*>?",
+    r"</?\s*(?:"
+    r"system|user|assistant|human|insight_data|user_context|subscription_title|core_memory"
+    # AI subscription synthesis prompt framing tags — sanitize so a crafted event name
+    # or prompt can't escape the `<user_prompt>` / `<project_context>` / `<plan_intent>` /
+    # `<query_results>` envelope and inject instruction-shaped content into the LLM context.
+    r"|user_prompt|project_context|plan_intent|query_results"
+    r")\b[^>]*>?",
     re.IGNORECASE,
 )
 _NEWLINE_RE = re.compile(r"[\r\n\u2028\u2029]+")
@@ -76,7 +82,19 @@ def sanitize_user_text(
 
 def sanitize_core_memory_text(value: str | None, max_len: int = CORE_MEMORY_MAX_LEN) -> str:
     """Sanitize core memory facts. Preserves newlines so each fact stays on its own line,
-    but strips structural LLM markers so the memory cannot escape its `<core_memory>` wrapper."""
+    but strips structural LLM markers so the memory cannot escape its `<core_memory>` wrapper.
+    Core-memory-defaulted alias of `strip_llm_framing_markers` — identical operation."""
+    return strip_llm_framing_markers(value, max_len)
+
+
+def strip_llm_framing_markers(value: str | None, max_len: int) -> str:
+    """Strip invisible characters and structural LLM framing tags (e.g. `</query_results>`,
+    `<system>`) while PRESERVING newlines and markdown layout. Use for already-formatted content —
+    query results, core-memory facts — that must keep its structure but must not be able to break
+    out of its framing envelope and inject instruction-shaped content into an LLM prompt.
+
+    Contrast with `sanitize_user_text`, which also collapses newlines and strips all tags: right for
+    short single-line values (names, labels) but destructive to a formatted block like a table."""
     if not value:
         return ""
     cleaned = _strip_invisible(value)

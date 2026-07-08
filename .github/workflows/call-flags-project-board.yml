@@ -12,11 +12,14 @@ permissions:
 
 jobs:
     call-flags-project:
-        uses: PostHog/.github/.github/workflows/flags-project-board.yml@d8b55d05dc5150f05c24542a6397ff3ecfbfb56d
-        # Only on PostHog/posthog, as there's no GitHub token on forks
-        if: ${{ github.event.pull_request.head.repo.full_name == github.repository && github.actor != 'dependabot[bot]' }}
+        uses: PostHog/.github/.github/workflows/flags-project-board.yml@69336b569d22687f8982eea6ff7d450a885cda05
+        if: ${{ github.event.pull_request.head.repo.full_name == github.repository }}
         with:
             pr_number: ${{ github.event.pull_request.number }}
             pr_node_id: ${{ github.event.pull_request.node_id }}
             is_draft: ${{ github.event.pull_request.draft }}
+        # The called workflow lives in PostHog/.github and only declares `inputs:` (no `secrets:`) under
+        # workflow_call, so scoped secret passing isn't possible until that reusable workflow adds a
+        # secrets: block too.
+        # nosemgrep: yaml.github-actions.security.secrets-inherit.secrets-inherit
         secrets: inherit

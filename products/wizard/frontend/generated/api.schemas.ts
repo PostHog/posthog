@@ -9,9 +9,9 @@
  */
 /**
  * * `idle` - IDLE
- * `running` - RUNNING
- * `completed` - COMPLETED
- * `error` - ERROR
+ * * `running` - RUNNING
+ * * `completed` - COMPLETED
+ * * `error` - ERROR
  */
 export type RunPhaseEnumApi = (typeof RunPhaseEnumApi)[keyof typeof RunPhaseEnumApi]
 
@@ -24,10 +24,10 @@ export const RunPhaseEnumApi = {
 
 /**
  * * `pending` - PENDING
- * `in_progress` - IN_PROGRESS
- * `completed` - COMPLETED
- * `failed` - FAILED
- * `canceled` - CANCELED
+ * * `in_progress` - IN_PROGRESS
+ * * `completed` - COMPLETED
+ * * `failed` - FAILED
+ * * `canceled` - CANCELED
  */
 export type WizardTaskDTOStatusEnumApi = (typeof WizardTaskDTOStatusEnumApi)[keyof typeof WizardTaskDTOStatusEnumApi]
 
@@ -118,11 +118,11 @@ export interface UpsertWizardSessionRequestApi {
     /** UTC timestamp when the wizard started this run. Matches the timestamp encoded in session_id. */
     started_at: string
     /** Lifecycle stage of the wizard run.
-
-  * `idle` - IDLE
-  * `running` - RUNNING
-  * `completed` - COMPLETED
-  * `error` - ERROR */
+     *
+     * * `idle` - IDLE
+     * * `running` - RUNNING
+     * * `completed` - COMPLETED
+     * * `error` - ERROR */
     run_phase: RunPhaseEnumApi
     tasks: WizardTaskDTOApi[]
     /**
@@ -154,6 +154,17 @@ export type WizardSessionsListParams = {
      * Filter to a single workflow (e.g. 'onboarding').
      */
     workflow_id?: string
+}
+
+export type WizardSessionsLatestRetrieveParams = {
+    /**
+     * Filter to a single skill within the workflow (e.g. 'nextjs').
+     */
+    skill_id?: string
+    /**
+     * Filter to a single workflow (e.g. 'posthog-integration').
+     */
+    workflow_id: string
 }
 
 export type WizardSessionsStreamRetrieveParams = {

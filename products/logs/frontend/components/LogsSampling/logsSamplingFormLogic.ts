@@ -129,7 +129,11 @@ export function buildSamplingFormDefaults(rule: LogsSamplingRuleApi | null): Log
     }
     form.filter_group = extractFilterGroup(cfg.filter_group)
     if (rule_type === RuleTypeEnumApi.RateLimit) {
-        const stored = cfg.logs_per_second
+        // Read the byte-rate field the ingestion worker enforces on (`kb_per_second`).
+        // Fall back to the legacy `logs_per_second` field for rules saved before this
+        // fix so they still populate the form — the stored number was always derived as
+        // KB/s, and re-saving rewrites it to `kb_per_second`.
+        const stored = typeof cfg.kb_per_second === 'number' ? cfg.kb_per_second : cfg.logs_per_second
         if (typeof stored === 'number' && Number.isFinite(stored) && stored > 0) {
             const { amount, unit } = chooseDisplayUnit(stored)
             form.rate_limit_amount = amount
@@ -141,19 +145,18 @@ export function buildSamplingFormDefaults(rule: LogsSamplingRuleApi | null): Log
 
 export function buildSamplingConfigPayload(form: LogsSamplingFormType): Record<string, unknown> {
     if (form.rule_type === RuleTypeEnumApi.RateLimit) {
-        const lps = rateLimitAmountToKbPerSecond(form.rate_limit_amount, form.rate_limit_unit)
+        // The form expresses a byte rate (KB/s · MB/s · GB/s) and the preview plots the
+        // threshold in bytes — so the rule must be stored in byte mode (`kb_per_second`),
+        // which charges each log its own uncompressed size. Writing `logs_per_second`
+        // here silently enforced a records-per-second cap instead, ignoring the chosen unit.
+        const kbPerSecond = rateLimitAmountToKbPerSecond(form.rate_limit_amount, form.rate_limit_unit)
         return {
-            logs_per_second: lps,
-            burst_logs: lps * BURST_MULTIPLIER,
+            kb_per_second: kbPerSecond,
+            burst_kb: kbPerSecond * BURST_MULTIPLIER,
             filter_group: wrapFilterGroup(form.filter_group),
         }
     }
-    // `patterns: []` keeps the existing path_drop config validator happy.
-    // Backend filter_group evaluation is wired in the follow-up PR; today the
-    // worker reads `patterns` only, so rules saved through the new UI are
-    // no-ops on the ingestion path until that lands.
     return {
-        patterns: [],
         filter_group: wrapFilterGroup(form.filter_group),
     }
 }

@@ -1,8 +1,10 @@
 import json
 from typing import Any, Optional, Union, cast
 
-from posthog.test.base import APIBaseTest, BaseTest
+from posthog.test.base import APIBaseTest
 from unittest.mock import ANY, patch
+
+from django.test import SimpleTestCase
 
 from parameterized import parameterized
 from rest_framework import status
@@ -65,6 +67,12 @@ class TestPropertyDefinitionAPI(APIBaseTest):
         response = self.client.get(f"/api/projects/{self.team.pk}/property_definitions/{property.id}")
         assert response.status_code == status.HTTP_200_OK
         assert response.json()["property_type"] == "DateTime"
+
+    def test_retrieve_with_non_uuid_id_returns_404(self):
+        # Links built without a saved definition id (e.g. pinned defaults) request
+        # `.../property_definitions/undefined` — that must 404, not 500 with a UUID ValueError.
+        response = self.client.get(f"/api/projects/{self.team.pk}/property_definitions/undefined")
+        assert response.status_code == status.HTTP_404_NOT_FOUND
 
     def test_list_property_definitions(self):
         response = self.client.get(f"/api/projects/{self.team.pk}/property_definitions/")
@@ -515,6 +523,11 @@ class TestPropertyDefinitionAPI(APIBaseTest):
         assert response.status_code == status.HTTP_200_OK
         assert any(prop["name"] == expected_name for prop in response.json()["results"])
 
+    def test_viewset_runs_query_serializer_validation(self) -> None:
+        response = self.client.get(f"/api/projects/{self.team.pk}/property_definitions/?type=group")
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert "group_type_index" in response.json()["detail"]
+
     @parameterized.expand(
         [
             (
@@ -580,6 +593,21 @@ class TestPropertyDefinitionAPI(APIBaseTest):
         if expected_names:
             assert [r["name"] for r in response.json()["results"]] == expected_names
 
+    def test_feature_flag_filter_with_event_names_does_not_require_eventproperty_rows(self) -> None:
+        PropertyDefinition.objects.create(team=self.team, name="$feature/my-flag", property_type="Boolean")
+        PropertyDefinition.objects.create(team=self.team, name="$feature/other-flag", property_type="Boolean")
+        # No EventProperty rows for $feature/* — this is the post-fix state
+
+        response = self.client.get(
+            f"/api/projects/{self.team.pk}/property_definitions/"
+            f"?is_feature_flag=true&event_names=%5B%22%24pageview%22%5D&filter_by_event_names=true"
+        )
+        assert response.status_code == status.HTTP_200_OK
+        names = [r["name"] for r in response.json()["results"]]
+        assert "$feature/my-flag" in names
+        assert "$feature/other-flag" in names
+        assert all(r["is_seen_on_filtered_events"] is None for r in response.json()["results"])
+
     @patch("posthoganalytics.capture")
     def test_delete_property_definition(self, mock_capture):
         property_definition = PropertyDefinition.objects.create(
@@ -598,6 +626,8 @@ class TestPropertyDefinitionAPI(APIBaseTest):
                 "$pathname": ANY,
                 "$session_id": ANY,
                 "was_impersonated": ANY,
+                "access_method": ANY,
+                "user_agent": ANY,
                 "mcp_user_agent": ANY,
                 "mcp_client_name": ANY,
                 "mcp_client_version": ANY,
@@ -995,15 +1025,26 @@ class TestPropertyDefinitionAPI(APIBaseTest):
         assert "$virt_bot_name" in virtual_names
 
 
-class TestPropertyDefinitionQuerySerializer(BaseTest):
-    def test_validation(self):
-        assert PropertyDefinitionQuerySerializer(data={}).is_valid()
-        assert PropertyDefinitionQuerySerializer(data={"type": "event", "event_names": '["foo","bar"]'}).is_valid()
-        assert PropertyDefinitionQuerySerializer(data={"type": "person"}).is_valid()
-        assert not PropertyDefinitionQuerySerializer(data={"type": "person", "event_names": '["foo","bar"]'}).is_valid()
+class TestPropertyDefinitionQuerySerializer(SimpleTestCase):
+    @parameterized.expand(
+        [
+            ["defaults", {}],
+            ["event with event_names", {"type": "event", "event_names": '["foo","bar"]'}],
+            ["person", {"type": "person"}],
+            ["group with valid index", {"type": "group", "group_type_index": 3}],
+        ]
+    )
+    def test_valid_query(self, _name: str, data: dict[str, Any]) -> None:
+        assert PropertyDefinitionQuerySerializer(data=data).is_valid()
 
-        assert PropertyDefinitionQuerySerializer(data={"type": "group", "group_type_index": 3}).is_valid()
-        assert not PropertyDefinitionQuerySerializer(data={"type": "group"}).is_valid()
-        assert not PropertyDefinitionQuerySerializer(data={"type": "group", "group_type_index": 77}).is_valid()
-        assert not PropertyDefinitionQuerySerializer(data={"type": "group", "group_type_index": -1}).is_valid()
-        assert not PropertyDefinitionQuerySerializer(data={"type": "event", "group_type_index": 3}).is_valid()
+    @parameterized.expand(
+        [
+            ["event_names set for non-event type", {"type": "person", "event_names": '["foo","bar"]'}],
+            ["group type without index", {"type": "group"}],
+            ["group_type_index above limit", {"type": "group", "group_type_index": 77}],
+            ["negative group_type_index", {"type": "group", "group_type_index": -1}],
+            ["group_type_index set for non-group type", {"type": "event", "group_type_index": 3}],
+        ]
+    )
+    def test_invalid_query(self, _name: str, data: dict[str, Any]) -> None:
+        assert not PropertyDefinitionQuerySerializer(data=data).is_valid()

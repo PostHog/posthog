@@ -1,0 +1,11 @@
+{
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "properties": {
+        "session_id": {
+            "pattern": "^[^/]+$",
+            "type": "string"
+        }
+    },
+    "required": ["session_id"],
+    "type": "object"
+}

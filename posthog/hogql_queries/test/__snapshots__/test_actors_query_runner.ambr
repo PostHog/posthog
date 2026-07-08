@@ -5,9 +5,10 @@
   SELECT id, id, 1 
   FROM persons 
   WHERE or(ilike(toString(properties.email), '%SEARCHSTRING%'), ilike(toString(properties.name), '%SEARCHSTRING%'), ilike(toString(id), '%SEARCHSTRING%'), in(id, (
-  SELECT person_id 
-  FROM person_distinct_ids 
-  WHERE ilike(distinct_id, '%SEARCHSTRING%')))) ORDER BY id ASC 
+        SELECT person_id 
+        FROM person_distinct_ids 
+        WHERE ilike(distinct_id, '%SEARCHSTRING%')))) 
+  ORDER BY id ASC 
   LIMIT 50000
   '''
 # ---

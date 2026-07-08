@@ -3,10 +3,11 @@ import { router } from 'kea-router'
 
 import { LemonButton, LemonInput, LemonTable, LemonTag } from '@posthog/lemon-ui'
 
-import { AppShortcut } from 'lib/components/AppShortcuts/AppShortcut'
-import { keyBinds } from 'lib/components/AppShortcuts/shortcuts'
 import { ProductIntroduction } from 'lib/components/ProductIntroduction/ProductIntroduction'
+import { Shortcut } from 'lib/components/Shortcuts/Shortcut'
+import { keyBinds } from 'lib/components/Shortcuts/shortcuts'
 import { LemonTableLink } from 'lib/lemon-ui/LemonTable/LemonTableLink'
+import { getAccessControlDisabledReason } from 'lib/utils/accessControlUtils'
 import { sceneConfigurations } from 'scenes/scenes'
 import { Scene, SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
@@ -14,7 +15,7 @@ import { urls } from 'scenes/urls'
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 import { ProductKey } from '~/queries/schema/schema-general'
-import { EarlyAccessFeatureType } from '~/types'
+import { AccessControlLevel, AccessControlResourceType, EarlyAccessFeatureType } from '~/types'
 
 import { earlyAccessFeaturesLogic } from './earlyAccessFeaturesLogic'
 
@@ -38,6 +39,12 @@ export function EarlyAccessFeatures(): JSX.Element {
     const { setSearchTerm } = useActions(earlyAccessFeaturesLogic)
     const shouldShowEmptyState = filteredEarlyAccessFeatures.length == 0 && !earlyAccessFeaturesLoading && !searchTerm
 
+    // Creating an early access feature requires editor access to the resource.
+    const accessControlDisabledReason = getAccessControlDisabledReason(
+        AccessControlResourceType.EarlyAccessFeature,
+        AccessControlLevel.Editor
+    )
+
     return (
         <SceneContent>
             <SceneTitleSection
@@ -47,7 +54,7 @@ export function EarlyAccessFeatures(): JSX.Element {
                     type: sceneConfigurations[Scene.EarlyAccessFeatures].iconType || 'default_icon_type',
                 }}
                 actions={
-                    <AppShortcut
+                    <Shortcut
                         name="NewEarlyAccessFeature"
                         keybind={[keyBinds.new]}
                         intent="New early access feature"
@@ -60,10 +67,11 @@ export function EarlyAccessFeatures(): JSX.Element {
                             to={urls.earlyAccessFeature('new')}
                             tooltip="New feature"
                             data-attr="create-feature"
+                            disabledReason={accessControlDisabledReason ?? undefined}
                         >
                             New feature
                         </LemonButton>
-                    </AppShortcut>
+                    </Shortcut>
                 }
             />
 

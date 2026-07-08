@@ -4,9 +4,11 @@
         <strong>automatically disabled</strong> because:
     </p>
     <p><i>{{ reason }}</i></p>
-    <p>
-        To resume delivery, fix the issue above and re-enable the subscription.
-    </p>
+    {% if action_message %}
+    <p>{{ action_message }}</p>
+    {% else %}
+    <p>To resume delivery, fix the issue above and re-enable the subscription.</p>
+    {% endif %}
     {% if subscription_url %}
     <div class="mb mt text-center">
         <a class="button" href="{% absolute_uri subscription_url %}">Manage subscription</a>

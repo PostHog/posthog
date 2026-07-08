@@ -33,6 +33,48 @@ import { EMAIL_TYPE_SUPPORTED_FIELDS, EmailTemplaterLogicProps, emailTemplaterLo
 
 export type EmailEditorMode = 'full' | 'preview'
 
+function EmailPreviewIframe({ html, title }: { html: string; title: string }): JSX.Element {
+    const iframeRef = useRef<HTMLIFrameElement>(null)
+    const observerRef = useRef<ResizeObserver | null>(null)
+    const [height, setHeight] = useState<number | null>(null)
+
+    const measure = useCallback(() => {
+        const doc = iframeRef.current?.contentDocument
+        if (doc?.documentElement) {
+            setHeight(doc.documentElement.scrollHeight)
+        }
+    }, [])
+
+    // Size the iframe to its document so the preview shows the whole email. The
+    // ResizeObserver re-measures as images load; re-attached on every load since
+    // srcDoc replaces the document.
+    const onLoad = useCallback(() => {
+        measure()
+        const body = iframeRef.current?.contentDocument?.body
+        if (body) {
+            observerRef.current?.disconnect()
+            observerRef.current = new ResizeObserver(measure)
+            observerRef.current.observe(body)
+        }
+    }, [measure])
+
+    useEffect(() => () => observerRef.current?.disconnect(), [])
+
+    return (
+        <iframe
+            ref={iframeRef}
+            srcDoc={html}
+            // allow-same-origin without allow-scripts keeps the content inert (no JS runs)
+            // while letting the parent read the document height
+            sandbox="allow-same-origin"
+            title={title}
+            className="w-full"
+            style={{ height: height ?? 150 }}
+            onLoad={onLoad}
+        />
+    )
+}
+
 function AddAdvancedFieldButtons(): JSX.Element | null {
     const { hiddenAdvancedFields } = useValues(emailTemplaterLogic)
     const { revealAdvancedField } = useActions(emailTemplaterLogic)
@@ -163,7 +205,9 @@ function DestinationEmailTemplaterForm({
                                 className={clsx(
                                     activeContentTab === 'visual'
                                         ? 'flex flex-col flex-1'
-                                        : 'absolute inset-0 -z-10 opacity-0 pointer-events-none'
+                                        : // invisible releases the hidden editor's raster backing while
+                                          // visibility (unlike display:none) preserves its layout state
+                                          'absolute inset-0 -z-10 opacity-0 pointer-events-none invisible'
                                 )}
                             >
                                 <EmailEditor
@@ -206,7 +250,7 @@ function DestinationEmailTemplaterForm({
                                     </LemonButton>
                                 </div>
 
-                                <iframe srcDoc={value} sandbox="" title="Email template preview" className="flex-1" />
+                                <EmailPreviewIframe html={value} title="Email template preview" />
                             </>
                         )}
                     </LemonField>
@@ -535,7 +579,9 @@ function NativeEmailTemplaterForm({
                                 className={clsx(
                                     activeContentTab === 'visual'
                                         ? 'flex flex-col flex-1'
-                                        : 'absolute inset-0 -z-10 opacity-0 pointer-events-none'
+                                        : // invisible releases the hidden editor's raster backing while
+                                          // visibility (unlike display:none) preserves its layout state
+                                          'absolute inset-0 -z-10 opacity-0 pointer-events-none invisible'
                                 )}
                             >
                                 <EmailEditor
@@ -618,7 +664,7 @@ function NativeEmailTemplaterForm({
                                     </LemonButton>
                                 </div>
 
-                                <iframe srcDoc={value} sandbox="" title="Email template preview" className="flex-1" />
+                                <EmailPreviewIframe html={value} title="Email template preview" />
                             </>
                         )}
                     </LemonField>

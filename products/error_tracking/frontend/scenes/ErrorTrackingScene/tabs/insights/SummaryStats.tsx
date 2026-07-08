@@ -2,7 +2,7 @@ import { useValues } from 'kea'
 
 import { LemonSkeleton } from '@posthog/lemon-ui'
 
-import { compactNumber } from 'lib/utils'
+import { compactNumber } from 'lib/utils/numbers'
 
 import { errorTrackingInsightsLogic } from './errorTrackingInsightsLogic'
 

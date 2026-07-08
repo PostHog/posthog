@@ -1,5 +1,4 @@
 import os
-import logging
 from pathlib import Path
 
 import pytest
@@ -10,15 +9,12 @@ from django.conf import settings
 import posthoganalytics
 from dotenv import load_dotenv
 from posthoganalytics import Posthog
-from posthoganalytics.ai.gemini import genai
 from posthoganalytics.ai.openai import AsyncOpenAI
 
+from posthog.llm.gateway_client import get_async_anthropic_gateway_client
 from posthog.models import Organization, Team
 
 load_dotenv(Path(__file__).resolve().parents[3] / ".env")
-
-logging.getLogger("google_genai").setLevel(logging.ERROR)
-logging.getLogger("google.genai").setLevel(logging.ERROR)
 
 # Initialize posthoganalytics default_client so the LLM wrapper (which requires it) works
 posthoganalytics.default_client = Posthog(  # ty: ignore[invalid-assignment]
@@ -30,14 +26,17 @@ posthoganalytics.default_client = Posthog(  # ty: ignore[invalid-assignment]
 
 # Django settings are loaded before conftest, so .env vars aren't picked up.
 # Override settings that need to come from .env.
-if not settings.ANTHROPIC_API_KEY:
-    settings.ANTHROPIC_API_KEY = os.environ.get("ANTHROPIC_API_KEY", "")
 if not getattr(settings, "OPENAI_API_KEY", ""):
     settings.OPENAI_API_KEY = os.environ.get("OPENAI_API_KEY", "")
+if not getattr(settings, "LLM_GATEWAY_URL", ""):
+    settings.LLM_GATEWAY_URL = os.environ.get("LLM_GATEWAY_URL", "")
+if not getattr(settings, "LLM_GATEWAY_API_KEY", ""):
+    settings.LLM_GATEWAY_API_KEY = os.environ.get("LLM_GATEWAY_PERSONAL_API_KEY", "") or os.environ.get(
+        "LLM_GATEWAY_API_KEY", ""
+    )
 
-# Gemini client expects GOOGLE_API_KEY; alias from GEMINI_API_KEY if needed
-if not os.environ.get("GOOGLE_API_KEY") and os.environ.get("GEMINI_API_KEY"):
-    os.environ["GOOGLE_API_KEY"] = os.environ["GEMINI_API_KEY"]
+# Team id used by the eval harness when attributing LLM cost via the gateway.
+EVAL_TEAM_ID = int(os.environ.get("SIGNALS_EVAL_TEAM_ID", "1"))
 
 
 def pytest_addoption(parser):
@@ -94,9 +93,13 @@ async def openai_client(posthog_client):
 
 
 @pytest.fixture
-def gemini_client():
-    api_key = os.environ.get("GEMINI_API_KEY") or os.environ.get("GOOGLE_API_KEY", "")
-    return genai.AsyncClient(api_key=api_key)
+def gateway_client():
+    """Async Anthropic client pointed at the internal LLM gateway's native Messages endpoint.
+
+    Used by eval_grouping_e2e to drive the production signals pre-emit pipeline
+    (`_check_actionability` etc.) through the gateway, attributing cost to EVAL_TEAM_ID.
+    """
+    return get_async_anthropic_gateway_client(product="signals", team_id=EVAL_TEAM_ID)
 
 
 @pytest.fixture

@@ -4,13 +4,13 @@ import { FEATURE_FLAGS } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { tabUiStateLogic } from 'lib/logic/tabUiStateLogic'
-import { objectsEqual, sortedKeys } from 'lib/utils'
+import { objectsEqual, sortedKeys } from 'lib/utils/objects'
 import { RequiredExcept } from 'lib/utils/types'
 import { teamLogic } from 'scenes/teamLogic'
 
 import { dataNodeLogic } from '~/queries/nodes/DataNode/dataNodeLogic'
 import { QueryFeature, getQueryFeatures } from '~/queries/nodes/DataTable/queryFeatures'
-import { insightVizDataCollectionId } from '~/queries/nodes/InsightViz/InsightViz'
+import { insightVizDataCollectionId } from '~/queries/nodes/InsightViz/insightVizKeys'
 import {
     AnyDataNode,
     AnyResponseType,
@@ -32,8 +32,6 @@ export interface DataTableLogicProps {
     context?: QueryContext<DataTableNode>
     // Override the data logic node key if needed
     dataNodeLogicKey?: string
-    // Used to scope per-tab UI state (e.g. expanded rows) so it survives tab switches
-    tabId?: string
 }
 
 export interface DataTableRow {
@@ -88,21 +86,15 @@ export const dataTableLogic = kea<dataTableLogicType>([
     })),
     listeners(({ props, actions }) => ({
         toggleRowExpanded: ({ rowIndex }) => {
-            if (props.tabId === undefined) {
-                return
-            }
-            actions.toggleExpandedRow(props.tabId, props.vizKey, rowIndex)
+            actions.toggleExpandedRow(undefined, props.vizKey, rowIndex)
         },
     })),
     selectors({
         context: [() => [(_, props) => props.context], (context) => context],
         expandedRows: [
-            (s) => [s.expandedRowsFor, (_, p) => p.tabId, (_, p) => p.vizKey],
-            (
-                expandedRowsFor: (tabId: string | undefined, vizKey: string) => number[],
-                tabId: string | undefined,
-                vizKey: string
-            ): number[] => expandedRowsFor(tabId, vizKey),
+            (s) => [s.expandedRowsFor, (_, p) => p.vizKey],
+            (expandedRowsFor: (tabId: string | undefined, vizKey: string) => number[], vizKey: string): number[] =>
+                expandedRowsFor(undefined, vizKey),
             { resultEqualityCheck: objectsEqual },
         ],
         sourceKind: [(_, p) => [p.query], (query): NodeKind | null => query.source?.kind],
@@ -214,6 +206,9 @@ export const dataTableLogic = kea<dataTableLogicType>([
                 const rows = results ? (results.map((result: any) => ({ result })) ?? null) : null
                 return context?.dataTableRowsTransformer ? context.dataTableRowsTransformer(rows ?? []) : rows
             },
+            // A reload or poll reparses JSON, so unchanged results still arrive as new identities;
+            // keeping the previous array lets memoized rows skip re-rendering.
+            { resultEqualityCheck: objectsEqual },
         ],
         queryWithDefaults: [
             (s, p) => [p.query, s.columnsInQuery, s.featureFlags, (_, props) => props.context],

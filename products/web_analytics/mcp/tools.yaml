@@ -12,29 +12,152 @@ tools:
     heatmap-screenshots-content-retrieve:
         operation: heatmap_screenshots_content_retrieve
         enabled: false
-    heatmaps-events-retrieve:
+    heatmaps-events:
         operation: heatmaps_events_retrieve
-        enabled: false
+        enabled: true
+        scopes:
+            - heatmap:read
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        title: Get sessions behind heatmap coordinates
+        description: >
+            Drill into the individual session interactions behind one or more heatmap coordinates. Pass `points` as a
+            JSON array of the spots you want to inspect (the `pointer_relative_x` / `pointer_y` values from
+            `heatmaps-list`), plus the same page/date filters. Returns the underlying per-session interactions so you
+            can open the session recordings that produced a hotspot.
+        feature_flag: heatmaps-mcp
     heatmaps-list:
         operation: heatmaps_list
-        enabled: false
-    saved-create:
+        enabled: true
+        scopes:
+            - heatmap:read
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        list: true
+        title: List heatmap interactions for a page
+        description: >
+            Aggregated heatmap interactions captured on a page. Filter by `url_exact` (one page) or `url_pattern` (regex
+            across pages), a date window (`date_from`/`date_to`, data is retained 90 days), and optionally a viewport
+            range (`viewport_width_min`/`viewport_width_max`, CSS px) to isolate a device class. Set `type` to 'click'
+            (default), 'rageclick', 'mousemove', or 'scrolldepth'. For clicks each result is a point —
+            `pointer_relative_x` (0..1 across the viewport), `pointer_y` (absolute pixels down the page), and a `count`;
+            'scrolldepth' returns reach buckets instead. For the click types the response also includes a `fold` summary
+            — `pct_below_fold` (share of non-fixed interactions that landed below the user's initial viewport, i.e.
+            required scrolling), `below_fold_count`, `total_count`, and the `median_viewport_height` (the typical fold
+            line in CSS px) — so a high `pct_below_fold` flags engaged content sitting off the first screen. `rageclick`
+            hotspots and shallow scroll depth are the strongest signals that something on the page is confusing or
+            buried. Heatmaps only know coordinates, not what was clicked — cross-reference autocapture events on the
+            same URL to name the elements, and use `heatmaps-events` to jump to the sessions behind a hotspot. Click
+            results are returned hottest-first and capped at `limit` (default 500); busy pages have thousands of
+            distinct coordinates, so the default page plus the `fold` summary is usually enough for analysis — raise
+            `limit` or page with `offset` only if you need more, and check `has_more` to know when the list is
+            truncated.
+        feature_flag: heatmaps-mcp
+    heatmaps-saved-create:
         operation: saved_create
-        enabled: false
+        enabled: true
+        scopes:
+            - heatmap:write
+        annotations:
+            readOnly: false
+            destructive: false
+            idempotent: false
+        title: Create a saved heatmap
+        description: >
+            Create a saved heatmap for a page URL. For type 'screenshot' (the default) this enqueues a headless render
+            of the page at each target width — poll `heatmaps-saved-get` until `status` is 'completed'; the rendered
+            page (with data overlaid) is then viewable by the user in the PostHog UI. Provide `widths` (CSS px,
+            100-3000) to control which viewports are rendered, or omit it for sensible defaults. The URL must be exact —
+            wildcards are not allowed.
+        exclude_params:
+            - deleted
+        feature_flag: heatmaps-mcp
+    heatmaps-saved-get:
+        operation: saved_retrieve
+        enabled: true
+        scopes:
+            - heatmap:read
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        title: Get a saved heatmap
+        description: >
+            Get a single saved heatmap by its `short_id`, including per-width render `status`. Poll this after
+            `heatmaps-saved-create` until `status` is 'completed'; the rendered page is then viewable by the user in the
+            PostHog UI.
+        feature_flag: heatmaps-mcp
+    heatmaps-saved-list:
+        operation: saved_list
+        enabled: true
+        scopes:
+            - heatmap:read
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        list: true
+        title: List saved heatmaps
+        description: >
+            List saved heatmaps for the project. A saved heatmap pins a page URL plus a set of viewport widths and (for
+            type 'screenshot') renders the page so heatmap data can be overlaid on it. Filter by `type`, `status`,
+            `created_by`, or a `search` substring on URL/name. The rendered page (screenshot with data overlaid) is
+            viewable by the user in the PostHog UI.
+        feature_flag: heatmaps-mcp
+    heatmaps-saved-regenerate:
+        operation: saved_regenerate_create
+        enabled: true
+        scopes:
+            - heatmap:write
+        annotations:
+            readOnly: false
+            destructive: true
+            idempotent: false
+        title: Regenerate a saved heatmap screenshot
+        description: >
+            Re-run screenshot generation for a saved heatmap of type 'screenshot' by its `short_id`. Clears the existing
+            renders and re-renders at every target width; `status` returns to 'processing'. Use when a page has changed
+            or a render failed.
+        feature_flag: heatmaps-mcp
+    heatmaps-saved-update:
+        operation: saved_partial_update
+        enabled: true
+        scopes:
+            - heatmap:write
+        annotations:
+            readOnly: false
+            destructive: true
+            idempotent: true
+        title: Update a saved heatmap
+        description: >
+            Update a saved heatmap by its `short_id`. Send only the fields to change — rename via `name`, change
+            `widths`, or soft-delete by setting `deleted: true` (deletion goes through this update, not a destroy call).
+            Changing the `url` of a 'screenshot' heatmap triggers a fresh render.
+        feature_flag: heatmaps-mcp
     saved-destroy:
         operation: saved_destroy
         enabled: false
-    saved-list:
-        operation: saved_list
+    web-analytics-achievements-acknowledge-celebration:
+        operation: web_analytics_achievements_acknowledge_celebration
         enabled: false
-    saved-partial-update:
-        operation: saved_partial_update
+    web-analytics-achievements-overview:
+        operation: web_analytics_achievements_overview
         enabled: false
-    saved-regenerate-create:
-        operation: saved_regenerate_create
+    web-analytics-achievements-preferences:
+        operation: web_analytics_achievements_preferences
         enabled: false
-    saved-retrieve:
-        operation: saved_retrieve
+    web-analytics-achievements-record-interaction:
+        operation: web_analytics_achievements_record_interaction
+        enabled: false
+    web-analytics-achievements-record-visit:
+        operation: web_analytics_achievements_record_visit
+        enabled: false
+    web-analytics-achievements-update-preferences:
+        operation: web_analytics_achievements_update_preferences
         enabled: false
     web-analytics-filter-presets-create:
         operation: web_analytics_filter_presets_create
@@ -53,6 +176,9 @@ tools:
         enabled: false
     web-analytics-filter-presets-update:
         operation: web_analytics_filter_presets_update
+        enabled: false
+    web-analytics-recap:
+        operation: web_analytics_recap
         enabled: false
     web-analytics-weekly-digest:
         operation: web_analytics_weekly_digest

@@ -6,10 +6,8 @@ from django.core.management.base import BaseCommand, CommandError
 import structlog
 
 from products.data_modeling.backend.models.datawarehouse_saved_query import DataWarehouseSavedQuery
-from products.data_warehouse.backend.data_load.saved_query_service import (
-    saved_query_workflow_exists,
-    sync_saved_query_workflow,
-)
+from products.data_modeling.backend.schedule import partition_saved_queries_by_v2_schedule
+from products.data_warehouse.backend.facade.api import saved_query_workflow_exists, sync_saved_query_workflow
 
 logger = structlog.get_logger(__name__)
 
@@ -29,6 +27,12 @@ class Command(BaseCommand):
             default=None,
             type=str,
             help="Comma separated list of team IDs to filter by",
+        )
+        parser.add_argument(
+            "--start-after-saved-query-id",
+            default=None,
+            type=str,
+            help="Resume after this saved query UUID (exclusive), following the id ordering used by this command",
         )
         parser.add_argument(
             "--dry-run",
@@ -59,10 +63,21 @@ class Command(BaseCommand):
                 raise CommandError("team-ids must be a comma separated list of team IDs")
             queryset = queryset.filter(team_id__in=team_ids)
 
-        saved_queries = list(queryset)
+        if options.get("start_after_saved_query_id") is not None:
+            queryset = queryset.filter(id__gt=options["start_after_saved_query_id"])
+
+        saved_queries = list(queryset.order_by("id"))
 
         if len(saved_queries) == 0:
             raise CommandError("No materialized saved queries found matching filters")
+
+        # Never create a v1 schedule for a saved query whose DAG already runs on v2.
+        saved_queries, on_v2 = partition_saved_queries_by_v2_schedule(saved_queries)
+        if on_v2:
+            logger.info(f"Skipping {len(on_v2)} saved queries on DAGs already migrated to v2")
+        if not saved_queries:
+            logger.info("All matching saved queries are on v2 DAGs, nothing to do")
+            return
 
         logger.info(f"Found {len(saved_queries)} materialized saved queries to check")
 

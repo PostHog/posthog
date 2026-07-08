@@ -1,0 +1,298 @@
+name: Agent services CI
+
+# Runs typecheck, lint, unit tests, and the agent-tests e2e suite for the
+# v2 agent platform Node.js services (services/agent-*).
+
+on:
+    pull_request:
+    merge_group:
+    push:
+        branches:
+            - master
+
+concurrency:
+    group: ${{ github.workflow }}-${{ github.head_ref || github.ref }}
+    cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+    changes:
+        runs-on: ubuntu-latest
+        timeout-minutes: 5
+        name: Determine need to run agent services checks
+        permissions:
+            contents: read
+            pull-requests: read
+        outputs:
+            agents: ${{ steps.filter.outputs.agents || 'true' }}
+        steps:
+            - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+              with:
+                  clean: false
+
+            - uses: actions/create-github-app-token@1b10c78c7865c340bc4f6099eb2f838309f1e8c3 # v3.1.1
+              id: app-token
+              if: github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository
+              with:
+                  client-id: ${{ secrets.GH_APP_POSTHOG_PATHS_FILTER_APP_ID }}
+                  private-key: ${{ secrets.GH_APP_POSTHOG_PATHS_FILTER_PRIVATE_KEY }}
+            - uses: dorny/paths-filter@fbd0ab8f3e69293af611ebaee6363fc25e6d187d # v4.0.1
+              id: filter
+              if: github.event_name != 'push' # Run all checks on master push
+              with:
+                  token: ${{ steps.app-token.outputs.token || github.token }}
+                  filters: |
+                      agents:
+                        - .github/workflows/ci-agents.yml
+                        - 'products/agent_platform/services/**'
+                        - 'products/agent_platform/packages/**'
+                        # Transitional: in-flight branches still have these at the
+                        # old paths. Drop once they've rebased onto the move.
+                        - 'services/agent-ingress/**'
+                        - 'services/agent-runner/**'
+                        - 'services/agent-janitor/**'
+                        - 'services/agent-shared/**'
+                        - 'services/agent-tools/**'
+                        - 'services/agent-tests/**'
+                        - 'services/agent-sandbox-host/**'
+                        - 'services/agents/**'
+                        - 'pnpm-lock.yaml'
+                        - 'pnpm-workspace.yaml'
+                        - '.oxlintrc.json'
+                        - '.oxfmtrc*'
+
+    typecheck-lint:
+        if: needs.changes.outputs.agents == 'true'
+        name: ${{ matrix.workspace }} typecheck + lint + format
+        needs: changes
+        runs-on: depot-ubuntu-latest
+        timeout-minutes: 10
+        strategy:
+            fail-fast: false
+            matrix:
+                workspace:
+                    - '@posthog/agent-shared'
+                    - '@posthog/agent-ingress'
+                    - '@posthog/agent-runner'
+                    - '@posthog/agent-janitor'
+                    - '@posthog/agent-tools'
+                    - '@posthog/agent-tests'
+                    - '@posthog/agent-sandbox-host'
+                    - '@posthog/agents-image'
+        steps:
+            - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+              with:
+                  clean: false
+
+            - name: Install pnpm dependencies
+              uses: ./.github/actions/pnpm-install
+              with:
+                  install-command: pnpm --filter="${{ matrix.workspace }}..." install --frozen-lockfile
+
+            - name: Typecheck
+              run: pnpm --filter="${{ matrix.workspace }}" typescript:check
+
+            - name: Lint
+              run: pnpm --filter="${{ matrix.workspace }}" lint
+
+            # The agent Node workspaces own their own oxfmt check, run per-workspace
+            # against the same root .oxfmtrc.json, so a service is format-gated by its
+            # own CI rather than relying on the repo-wide frontend formatting job.
+            - name: Format
+              run: pnpm --filter="${{ matrix.workspace }}" format:check
+
+    unit-tests:
+        if: needs.changes.outputs.agents == 'true'
+        name: ${{ matrix.workspace }} unit tests
+        needs: changes
+        runs-on: depot-ubuntu-latest
+        timeout-minutes: 10
+        # agent-tests is the e2e suite — runs in the separate `e2e-tests`
+        # job below with the docker-compose stack.
+        # agents-image has no tests; covered by typecheck.
+        env:
+            COMPOSE_FILE: docker-compose.dev.yml
+            # Unit suites in the agent services now run against the same
+            # real backing services prod uses — PG (`agent_runtime_queue_test`),
+            # Redis (`RedisSessionEventBus`), Kafka (`KafkaLogSink`), and
+            # SeaweedFS (`S3BundleStore` + `S3MemoryStore`). The in-memory
+            # variants were deleted to stop dev/prod silently diverging
+            # (see services/agent-shared/CLAUDE.md). Startup is cheap and
+            # uniform setup beats per-workspace conditionals.
+            AGENT_TEST_DB_URL: 'postgres://posthog:posthog@localhost:5432/agent_runtime_queue_test'
+            AGENT_MEMORY_TEST_S3_ENDPOINT: 'http://localhost:8333'
+            REDIS_URL: 'redis://localhost:6379'
+            KAFKA_HOSTS: 'localhost:9092'
+        strategy:
+            fail-fast: false
+            matrix:
+                workspace:
+                    - '@posthog/agent-shared'
+                    - '@posthog/agent-ingress'
+                    - '@posthog/agent-runner'
+                    - '@posthog/agent-janitor'
+                    - '@posthog/agent-tools'
+                    - '@posthog/agent-sandbox-host'
+        steps:
+            - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+              with:
+                  clean: false
+
+            - name: Stop/Start backing services via docker compose
+              env:
+                  WAIT_FOR_DOCKER_LAUNCH_RETRIES: 3
+                  WAIT_FOR_DOCKER_LAUNCH_RETRY_DELAY: 5
+              run: bin/ci-wait-for-docker launch --down db redis7 kafka seaweedfs
+
+            - name: Wait for backing services
+              run: bin/ci-wait-for-docker wait --only db redis7 kafka seaweedfs
+
+            - name: Add service hostnames to /etc/hosts
+              run: echo "127.0.0.1 db redis7 kafka seaweedfs" | sudo tee -a /etc/hosts
+
+            - name: Install pnpm dependencies
+              uses: ./.github/actions/pnpm-install
+              with:
+                  install-command: pnpm --filter="${{ matrix.workspace }}..." install --frozen-lockfile
+
+            # Schema is Django-owned (the agent_platform product DB). The test DB
+            # is created fresh and migrated by Django below; `reset()` then only
+            # truncates between cases (see persistence/test-reset.ts). This is the
+            # single source of truth — no hand-maintained SQL snapshot to drift.
+            - name: Create empty test database
+              run: |
+                  docker compose -f docker-compose.dev.yml exec -T db psql -U posthog -c "DROP DATABASE IF EXISTS agent_runtime_queue_test;"
+                  docker compose -f docker-compose.dev.yml exec -T db psql -U posthog -c "CREATE DATABASE agent_runtime_queue_test;"
+
+            - name: Set up Python
+              uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6.2.0
+              with:
+                  python-version-file: 'pyproject.toml'
+                  token: ${{ github.token }}
+
+            - name: Install uv
+              uses: astral-sh/setup-uv@37802adc94f370d6bfd71619e3f0bf239e1f3b78 # v7.6.0
+              with:
+                  version: '0.11.14' # pinned: unpinned setup-uv calls GH API on every job, exhausts rate limit
+                  enable-cache: true
+                  cache-dependency-glob: uv.lock
+                  save-cache: ${{ github.ref == 'refs/heads/master' }}
+
+            - name: Install python dependencies
+              run: UV_PROJECT_ENVIRONMENT=$pythonLocation uv sync --frozen --dev
+
+            - name: Migrate agent_platform schema into the test DB
+              # Single source of truth: apply the Django agent_platform migrations
+              # to the test DB. PRODUCT_DB_AGENT_PLATFORM_WRITER_URL points the
+              # `agent_platform_db_writer` alias at it; migrate agent_platform --database
+              # agent_platform_db_writer then applies just the agent_platform app.
+              env:
+                  DEBUG: '1'
+                  PRODUCT_DB_AGENT_PLATFORM_WRITER_URL: 'postgres://posthog:posthog@localhost:5432/agent_runtime_queue_test'
+                  PRODUCT_DB_CIRCUIT_BREAKER_ENABLED: '0'
+              run: UV_PROJECT_ENVIRONMENT=$pythonLocation uv run python manage.py migrate agent_platform --database agent_platform_db_writer
+
+            - name: Run unit tests
+              run: pnpm --filter="${{ matrix.workspace }}" test
+
+    e2e-tests:
+        if: needs.changes.outputs.agents == 'true'
+        name: agent-tests e2e (Postgres + Redis + Kafka + SeaweedFS)
+        needs: changes
+        runs-on: depot-ubuntu-latest-4
+        timeout-minutes: 25 # vitest runs file-serial; ~100s locally
+        env:
+            COMPOSE_FILE: docker-compose.dev.yml
+            # Skip the real-inference suite — needs provider API keys (Anthropic /
+            # OpenAI / PostHog AI gateway). Covered by separate scheduled runs.
+            AGENT_SKIP_REAL_INFERENCE: '1'
+            AGENT_TEST_DB_URL: 'postgres://posthog:posthog@localhost:5432/agent_runtime_queue_test'
+            AGENT_MEMORY_TEST_S3_ENDPOINT: 'http://localhost:8333'
+            REDIS_URL: 'redis://localhost:6379'
+            KAFKA_HOSTS: 'localhost:9092'
+        steps:
+            - name: Code check out
+              uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+              with:
+                  clean: false
+
+            - name: Stop/Start Postgres + Redis + Kafka + SeaweedFS via docker compose
+              env:
+                  WAIT_FOR_DOCKER_LAUNCH_RETRIES: 3
+                  WAIT_FOR_DOCKER_LAUNCH_RETRY_DELAY: 5
+              run: bin/ci-wait-for-docker launch --down db redis7 kafka seaweedfs
+
+            - name: Wait for docker services
+              run: bin/ci-wait-for-docker wait --only db redis7 kafka seaweedfs
+
+            - name: Add service hostnames to /etc/hosts
+              run: echo "127.0.0.1 db redis7 kafka seaweedfs" | sudo tee -a /etc/hosts
+
+            - name: Install pnpm dependencies
+              uses: ./.github/actions/pnpm-install
+              with:
+                  install-command: pnpm --filter='@posthog/agent-tests...' install --frozen-lockfile
+
+            # Schema is Django-owned (the agent_platform product DB). The test DB
+            # is created fresh and migrated by Django below; the harness's
+            # `reset()` then only truncates between cases. Single source of truth.
+            - name: Create empty test database
+              run: |
+                  docker compose -f docker-compose.dev.yml exec -T db psql -U posthog -c "DROP DATABASE IF EXISTS agent_runtime_queue_test;"
+                  docker compose -f docker-compose.dev.yml exec -T db psql -U posthog -c "CREATE DATABASE agent_runtime_queue_test;"
+
+            - name: Set up Python
+              uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6.2.0
+              with:
+                  python-version-file: 'pyproject.toml'
+                  token: ${{ github.token }}
+
+            - name: Install uv
+              uses: astral-sh/setup-uv@37802adc94f370d6bfd71619e3f0bf239e1f3b78 # v7.6.0
+              with:
+                  version: '0.11.14' # pinned: unpinned setup-uv calls GH API on every job, exhausts rate limit
+                  enable-cache: true
+                  cache-dependency-glob: uv.lock
+                  save-cache: ${{ github.ref == 'refs/heads/master' }}
+
+            - name: Install python dependencies
+              run: UV_PROJECT_ENVIRONMENT=$pythonLocation uv sync --frozen --dev
+
+            - name: Migrate agent_platform schema into the test DB
+              env:
+                  DEBUG: '1'
+                  PRODUCT_DB_AGENT_PLATFORM_WRITER_URL: 'postgres://posthog:posthog@localhost:5432/agent_runtime_queue_test'
+                  PRODUCT_DB_CIRCUIT_BREAKER_ENABLED: '0'
+              run: UV_PROJECT_ENVIRONMENT=$pythonLocation uv run python manage.py migrate agent_platform --database agent_platform_db_writer
+
+            - name: Run e2e tests
+              run: pnpm --filter=@posthog/agent-tests test
+
+            - name: Output Postgres logs on failure
+              if: failure()
+              run: docker compose -f docker-compose.dev.yml logs db | tail -200
+
+    agent_ci_pass:
+        needs: [typecheck-lint, unit-tests, e2e-tests]
+        name: Agent services CI Pass
+        runs-on: ubuntu-latest
+        timeout-minutes: 5
+        if: always()
+        steps:
+            - run: exit 0
+            - name: Check outcomes
+              env:
+                  TYPECHECK_LINT: ${{ needs.typecheck-lint.result }}
+                  UNIT_TESTS: ${{ needs.unit-tests.result }}
+                  E2E_TESTS: ${{ needs.e2e-tests.result }}
+              run: |
+                  failed=0
+                  for var in TYPECHECK_LINT UNIT_TESTS E2E_TESTS; do
+                      val="${!var}"
+                      if [[ "$val" != "success" && "$val" != "skipped" ]]; then
+                          echo "FAILED $var: $val"
+                          failed=1
+                      else
+                          echo "OK $var: $val"
+                      fi
+                  done
+                  exit $failed

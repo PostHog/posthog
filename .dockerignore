@@ -49,6 +49,26 @@
 !services/mcp/types.d.ts
 !services/mcp/worker-configuration.d.ts
 !services/mcp/public
+!services/agents
+!services/agent-ingress
+!services/agent-runner
+!services/agent-janitor
+!services/agent-shared
+!services/agent-tools
+!services/agent-sandbox-host
+!packages/quill
+services/agent-*/node_modules
+services/agent-*/dist
+services/agent-*/.next
+services/agents/node_modules
+services/agents/dist
+services/agent-tests
+!services/agent-proxy
+!services/agent-proxy/package.json
+!services/agent-proxy/tsconfig.json
+!services/agent-proxy/scripts
+!services/agent-proxy/src
+!services/agent-proxy/types.d.ts
 !pnpm-lock.yaml
 !pnpm-workspace.yaml
 !pyproject.toml
@@ -62,8 +82,6 @@
 !share/GeoLite2-City.mmdb
 !staticfiles
 !tailwind.config.js
-!test-runner-jest-environment.js
-!test-runner-jest.config.js
 !tools/hogli
 !tools/openapi-codegen
 !tsconfig.json
@@ -76,10 +94,22 @@ packages/quill/**/node_modules
 packages/quill/**/dist
 products/**/node_modules
 nodejs/node_modules
+# The image-scrub sidecar is a standalone package nested in nodejs/src; keep its deps and (Stage-2) model
+# artifacts out of the plugin-server build context.
+nodejs/src/ingestion/pipelines/sessionreplay/ml-mirror-image-scrub-sidecar/node_modules
+nodejs/src/ingestion/pipelines/sessionreplay/ml-mirror-image-scrub-sidecar/models
+nodejs/src/ingestion/pipelines/sessionreplay/ml-mirror-image-scrub-sidecar/corpus
+nodejs/src/ingestion/pipelines/sessionreplay/ml-mirror-image-scrub-sidecar/test-data
+nodejs/src/ingestion/pipelines/sessionreplay/ml-mirror-image-scrub-sidecar/out
+nodejs/src/ingestion/pipelines/sessionreplay/ml-mirror-image-scrub-sidecar/tmp
+nodejs/src/ingestion/pipelines/sessionreplay/ml-mirror-image-scrub-sidecar/*.traineddata
 services/mcp/node_modules
 services/mcp/dist
 services/mcp/.wrangler
 services/mcp/tests
+services/agent-proxy/node_modules
+services/agent-proxy/dist
+services/agent-proxy/tests
 ee/**/node_modules
 docs/**/node_modules
 **/__pycache__
@@ -94,3 +124,15 @@ rust/target
 !docker-compose.base.yml
 !docker-compose.dev.yml
 !docker
+
+# Test / story / spec sources are never needed to build or run any image. Excluding them keeps them
+# out of the COPYed layers and stops test-only edits from busting the collectstatic + frontend-build
+# cache. Shared by all Dockerfiles — no image build (main, node, llm-analytics, etc.) needs them.
+products/**/test_*.py
+products/**/*_test.py
+products/**/*.test.*
+products/**/*.spec.*
+products/**/*.stories.*
+frontend/src/**/*.test.*
+frontend/src/**/*.spec.*
+frontend/src/**/*.stories.*

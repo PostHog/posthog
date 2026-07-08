@@ -1,0 +1,333 @@
+import secrets
+from datetime import datetime, timedelta
+from typing import Optional
+
+from django.conf import settings
+from django.db import models
+from django.db.models import Q
+from django.http import HttpResponse, HttpResponseRedirect
+from django.utils.text import slugify
+from django.utils.timezone import now
+
+import structlog
+from rest_framework.exceptions import NotFound
+
+from posthog.exceptions_capture import capture_exception
+from posthog.jwt import PosthogJwtAudience, decode_jwt, encode_jwt
+from posthog.models.utils import UUIDT
+from posthog.settings import DEBUG
+from posthog.storage import object_storage
+from posthog.storage.object_storage import ObjectStorageError
+from posthog.utils import absolute_uri
+
+logger = structlog.get_logger(__name__)
+
+PUBLIC_ACCESS_TOKEN_EXP_DAYS = 365
+MAX_AGE_CONTENT = 86400  # 1 day
+EXPORTED_ASSET_PURPOSE_RENDER = "render"
+EXPORTED_ASSET_PURPOSE_SUBSCRIPTION_DELIVERY = "subscription_delivery"
+
+SEVEN_DAYS = timedelta(days=7)
+SIX_MONTHS = timedelta(days=180)
+TWELVE_MONTHS = timedelta(days=365)
+
+
+def get_default_access_token() -> str:
+    return secrets.token_urlsafe(22)
+
+
+class ExportedAssetManager(models.Manager):
+    def get_queryset(self):
+        # keep assets whose TTL has not passed or who have no TTL set
+        return super().get_queryset().filter(Q(expires_after__gte=now()) | Q(expires_after__isnull=True))
+
+
+class ExportedAsset(models.Model):
+    class ExportFormat(models.TextChoices):
+        PNG = "image/png", "image/png"
+        PDF = "application/pdf", "application/pdf"
+        CSV = "text/csv", "text/csv"
+        XLSX = (
+            "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        )
+        WEBM = "video/webm", "video/webm"
+        MP4 = "video/mp4", "video/mp4"
+        GIF = "image/gif", "image/gif"
+        JSON = "application/json", "application/json"
+
+    SUPPORTED_FORMATS = [
+        ExportFormat.PNG,
+        ExportFormat.PDF,
+        ExportFormat.CSV,
+        ExportFormat.XLSX,
+        ExportFormat.WEBM,
+        ExportFormat.MP4,
+        ExportFormat.GIF,
+        ExportFormat.JSON,
+    ]
+
+    # Relations
+    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE)
+    dashboard = models.ForeignKey("dashboards.Dashboard", on_delete=models.CASCADE, null=True)
+    insight = models.ForeignKey("product_analytics.Insight", on_delete=models.CASCADE, null=True)
+
+    # Content related fields
+    export_format = models.CharField(max_length=100, choices=ExportFormat)
+    content = models.BinaryField(null=True)
+    created_at = models.DateTimeField(auto_now_add=True, blank=True)
+    # DateTime after the created_at after which this asset should be deleted
+    # ExportedAssets are *not* deleted immediately after the TTL period has passed
+    # the object manager has been altered to exclude these assets
+    # to allow for lazy deletes
+    expires_after = models.DateTimeField(null=True, blank=True)
+    created_by = models.ForeignKey("posthog.User", on_delete=models.SET_NULL, null=True, blank=True)
+    # for example holds filters for CSV exports
+    export_context = models.JSONField(null=True, blank=True)
+    # path in object storage or some other location identifier for the asset
+    # 1000 characters would hold a 20 UUID forward slash separated path with space to spare
+    content_location = models.TextField(null=True, blank=True, max_length=1000)
+    # If there is an exception in calculating this export, record it here to display to the user.
+    exception = models.TextField(null=True, blank=True)
+    # The exception class name (e.g., "QueryError", "TimeoutError") for categorization
+    exception_type = models.CharField(max_length=255, null=True, blank=True)
+    # Classification of the failure, see failure_handler.py for details
+    failure_type = models.CharField(max_length=255, null=True, blank=True)
+    # If truthy, this asset was created by an internal/system process rather than a user.
+    # Excluded from the per-team user-export quota in posthog/api/exports.py.
+    is_system = models.BooleanField(null=True, default=False)
+
+    # DEPRECATED: We now use JWT for accessing assets
+    access_token = models.CharField(max_length=400, null=True, blank=True, default=get_default_access_token)
+
+    # replace the default manager with one that filters out TTL deleted objects (before their deletion is processed)
+    objects = ExportedAssetManager()
+    objects_including_ttl_deleted: models.Manager["ExportedAsset"] = models.Manager()
+
+    class Meta:
+        db_table = "posthog_exportedasset"
+
+    def save(self, *args, **kwargs):
+        if not self.expires_after:
+            self.expires_after = self.compute_expires_after(self.export_format)
+
+            update_fields = kwargs.get("update_fields")
+            if update_fields is not None:
+                kwargs["update_fields"] = {*update_fields, "expires_after"}
+
+        super().save(*args, **kwargs)
+
+    @classmethod
+    def get_expiry_delta(cls, export_format: str) -> timedelta:
+        if export_format in (cls.ExportFormat.CSV, cls.ExportFormat.XLSX):
+            return SEVEN_DAYS
+        elif export_format in (cls.ExportFormat.MP4, cls.ExportFormat.WEBM, cls.ExportFormat.GIF):
+            return TWELVE_MONTHS
+        return SIX_MONTHS
+
+    @classmethod
+    def compute_expires_after(cls, export_format: str) -> datetime:
+        expiry_datetime = now() + cls.get_expiry_delta(export_format)
+        return expiry_datetime.replace(hour=0, minute=0, second=0, microsecond=0)
+
+    @property
+    def has_content(self):
+        return self.content is not None or self.content_location is not None
+
+    @property
+    def filename(self):
+        ext = self.ExportFormat(self.export_format).name.lower()
+        filename = "export"
+
+        if self.export_context and self.export_context.get("filename"):
+            filename = slugify(str(self.export_context.get("filename")))
+        elif self.dashboard and self.dashboard.name is not None:
+            filename = f"{filename}-{slugify(self.dashboard.name)}"
+        elif self.insight:
+            insight_name = self.insight.name or self.insight.derived_name or "insight"
+            filename = f"{filename}-{slugify(insight_name)}"
+
+        timestamp = self.created_at.strftime("%Y-%m-%d-%H%M%S") if self.created_at else ""
+        if timestamp:
+            filename = f"{filename}-{timestamp}"
+
+        filename = f"{filename}.{ext}"
+
+        return filename
+
+    @property
+    def file_ext(self):
+        return self.export_format.split("/")[1]
+
+    @property
+    def export_type(self) -> str:
+        if self.insight_id is not None:
+            return "insight"
+        if self.dashboard_id is not None:
+            return "dashboard"
+        ctx = self.export_context or {}
+        if ctx.get("session_recording_id"):
+            return "recording"
+        if ctx.get("heatmap_url"):
+            return "heatmap"
+        return "unknown"
+
+    @property
+    def is_session_recording_export(self) -> bool:
+        """Teammates may retrieve by id if they can view the linked session recording."""
+        return bool((self.export_context or {}).get("session_recording_id"))
+
+    def get_analytics_metadata(self):
+        return {
+            "asset_id": self.id,
+            "export_format": self.export_format,
+            "dashboard_id": self.dashboard_id,
+            "insight_id": self.insight_id,
+        }
+
+    def get_public_content_url(self, expiry_delta: Optional[timedelta] = None):
+        token = get_public_access_token(self, expiry_delta)
+        return absolute_uri(f"/exporter/{self.filename}?token={token}")
+
+    def get_subscription_delivery_content_url(self, expiry_delta: Optional[timedelta] = None):
+        token = get_subscription_delivery_access_token(self, expiry_delta)
+        return absolute_uri(f"/exporter/{self.filename}?token={token}")
+
+    @classmethod
+    def delete_expired_assets(cls):
+        expired_assets = ExportedAsset.objects_including_ttl_deleted.filter(expires_after__lte=now())
+        logger.info("deleting_expired_assets", count=expired_assets.count())
+        expired_assets.delete()
+
+    @classmethod
+    def get_supported_format_values(cls):
+        return [format_choice.value for format_choice in cls.SUPPORTED_FORMATS]
+
+
+def get_public_access_token(asset: ExportedAsset, expiry_delta: Optional[timedelta] = None) -> str:
+    if not expiry_delta:
+        expiry_delta = timedelta(days=PUBLIC_ACCESS_TOKEN_EXP_DAYS)
+    return encode_jwt(
+        {"id": asset.id},
+        expiry_delta=expiry_delta,
+        audience=PosthogJwtAudience.EXPORTED_ASSET,
+    )
+
+
+def get_render_access_token(asset: ExportedAsset, expiry_delta: Optional[timedelta] = None) -> str:
+    if not expiry_delta:
+        expiry_delta = timedelta(minutes=15)
+    return encode_jwt(
+        {"id": asset.id, "purpose": EXPORTED_ASSET_PURPOSE_RENDER},
+        expiry_delta=expiry_delta,
+        audience=PosthogJwtAudience.EXPORTED_ASSET,
+    )
+
+
+def get_subscription_delivery_access_token(asset: ExportedAsset, expiry_delta: Optional[timedelta] = None) -> str:
+    if not expiry_delta:
+        expiry_delta = timedelta(days=PUBLIC_ACCESS_TOKEN_EXP_DAYS)
+    return encode_jwt(
+        {"id": asset.id, "purpose": EXPORTED_ASSET_PURPOSE_SUBSCRIPTION_DELIVERY},
+        expiry_delta=expiry_delta,
+        audience=PosthogJwtAudience.EXPORTED_ASSET,
+    )
+
+
+def asset_for_token(token: str) -> tuple[ExportedAsset, str | None]:
+    info = decode_jwt(token, audience=PosthogJwtAudience.EXPORTED_ASSET)
+    asset = ExportedAsset.objects.select_related("dashboard", "insight", "team__organization").get(pk=info["id"])
+    return asset, info.get("purpose")
+
+
+def get_content_response(asset: ExportedAsset, download: bool = False):
+    if asset.content_location:
+        content_disposition = f'attachment; filename="{asset.filename}"' if download else None
+        presigned_url = object_storage.get_presigned_url(
+            asset.content_location,
+            content_type=asset.export_format,
+            content_disposition=content_disposition,
+        )
+        if presigned_url:
+            return HttpResponseRedirect(presigned_url)
+
+    content = asset.content
+    if not content:
+        raise NotFound()
+
+    res = HttpResponse(content, content_type=asset.export_format)
+    if download:
+        res["Content-Disposition"] = f'attachment; filename="{asset.filename}"'
+
+    if not DEBUG:
+        res["Cache-Control"] = f"max-age={MAX_AGE_CONTENT}"
+
+    return res
+
+
+def save_content(exported_asset: ExportedAsset, content: bytes) -> None:
+    try:
+        if settings.OBJECT_STORAGE_ENABLED:
+            save_content_to_object_storage(exported_asset, content)
+        else:
+            save_content_to_exported_asset(exported_asset, content)
+    except ObjectStorageError as ose:
+        capture_exception(ose)
+        logger.error(
+            "exported_asset.object-storage-error",
+            exported_asset_id=exported_asset.id,
+            exception=ose,
+            exc_info=True,
+        )
+        save_content_to_exported_asset(exported_asset, content)
+
+
+def save_content_to_exported_asset(exported_asset: ExportedAsset, content: bytes) -> None:
+    exported_asset.content = content
+    exported_asset.save(update_fields=["content"])
+
+
+def save_content_to_object_storage(exported_asset: ExportedAsset, content: bytes) -> None:
+    path_parts: list[str] = [
+        settings.OBJECT_STORAGE_EXPORTS_FOLDER,
+        exported_asset.export_format.split("/")[1],
+        f"team-{exported_asset.team.id}",
+        f"task-{exported_asset.id}",
+        str(UUIDT()),
+    ]
+    object_path = "/".join(path_parts)
+    object_storage.write(object_path, content)
+    exported_asset.content_location = object_path
+    exported_asset.save(update_fields=["content_location"])
+
+
+def _get_object_path(exported_asset: ExportedAsset) -> str:
+    path_parts: list[str] = [
+        settings.OBJECT_STORAGE_EXPORTS_FOLDER,
+        exported_asset.export_format.split("/")[1],
+        f"team-{exported_asset.team.id}",
+        f"task-{exported_asset.id}",
+        str(UUIDT()),
+    ]
+    return "/".join(path_parts)
+
+
+def save_content_from_file(exported_asset: ExportedAsset, file_path: str) -> None:
+    """Save content from a file to object storage, with fallback to storing in the database."""
+    try:
+        if settings.OBJECT_STORAGE_ENABLED:
+            object_path = _get_object_path(exported_asset)
+            object_storage.write_from_file(object_path, file_path)
+            exported_asset.content_location = object_path
+            exported_asset.save(update_fields=["content_location"])
+            return
+    except ObjectStorageError as ose:
+        capture_exception(ose)
+        logger.error(
+            "exported_asset.object-storage-error",
+            exported_asset_id=exported_asset.id,
+            exception=ose,
+            exc_info=True,
+        )
+    with open(file_path, "rb") as f:
+        save_content_to_exported_asset(exported_asset, f.read())

@@ -4,6 +4,7 @@ from posthog.schema import (
     CachedWebStatsTableQueryResponse,
     WebAnalyticsOrderByDirection,
     WebAnalyticsOrderByFields,
+    WebAnalyticsPreComputeStrategy,
     WebExternalClicksTableQuery,
     WebExternalClicksTableQueryResponse,
     WebStatsTableQueryResponse,
@@ -148,5 +149,6 @@ GROUP BY "context.columns.url"
             types=response.types,
             hogql=response.hogql,
             modifiers=self.modifiers,
+            preComputeStrategy=WebAnalyticsPreComputeStrategy.LIVE,
             **self.paginator.response_params(),
         )

@@ -21,7 +21,8 @@ import {
     VariablesSummary,
 } from 'lib/components/Cards/InsightCard/InsightDetails'
 import { ObjectTags } from 'lib/components/ObjectTags/ObjectTags'
-import { isKeyOf, pluralize } from 'lib/utils'
+import { isKeyOf } from 'lib/utils/guards'
+import { pluralize } from 'lib/utils/strings'
 import { urls } from 'scenes/urls'
 
 import { DashboardType } from '~/types'
@@ -147,6 +148,7 @@ const dashboardActionsMapping: Record<
     breakdown_colors: () => null,
     data_color_theme_id: () => null,
     last_accessed_at: () => null,
+    folder: () => null,
     is_shared: () => null,
     creation_mode: () => null,
     user_access_level: () => null,

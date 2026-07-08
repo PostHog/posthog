@@ -22,13 +22,12 @@ from django.db.models import Q, Subquery, UniqueConstraint
 from django.db.models.constraints import BaseConstraint
 from django.utils.text import slugify
 
-from posthog.hogql import ast
-
 from posthog.constants import MAX_SLUG_LENGTH
-from posthog.person_db_router import PERSONS_DB_MODELS
 
 if TYPE_CHECKING:
     from random import Random
+
+    from posthog.hogql import ast
 
 T = TypeVar("T")
 
@@ -243,7 +242,7 @@ class BytecodeModelMixin(models.Model):
                 self.bytecode = None
                 self.bytecode_error = str(e)
 
-    def get_expr(self) -> ast.Expr:
+    def get_expr(self) -> "ast.Expr":
         raise NotImplementedError()
 
 
@@ -484,23 +483,11 @@ class RootTeamQuerySet(models.QuerySet):
         if "team_id" in kwargs:
             team_id = kwargs.pop("team_id")
 
-            # Check if this model is in the persons database
-            # For persons DB models, we can't join with the Team table (cross-database)
-            if self.model._meta.model_name in PERSONS_DB_MODELS:
-                # Fetch the effective team_id directly from the default database
-                # Cannot use subquery as it would execute against persons_db
-                try:
-                    team = Team.objects.using("default").get(id=team_id)
-                    effective_team_id = team.parent_team_id if team.parent_team_id else team_id
-                except Team.DoesNotExist:
-                    effective_team_id = team_id
-                team_filter = Q(team_id=effective_team_id)
-            else:
-                # For non-persons DB models: use the original logic with JOIN
-                parent_team_subquery = Team.objects.filter(id=team_id).values("parent_team_id")[:1]
-                team_filter = Q(team_id=Subquery(parent_team_subquery)) | Q(
-                    team_id=team_id, team__parent_team_id__isnull=True
-                )
+            # Scope to the team and, when it is an environment, its project root team.
+            parent_team_subquery = Team.objects.filter(id=team_id).values("parent_team_id")[:1]
+            team_filter = Q(team_id=Subquery(parent_team_subquery)) | Q(
+                team_id=team_id, team__parent_team_id__isnull=True
+            )
             return super().filter(team_filter, *args, **kwargs)
         return super().filter(*args, **kwargs)
 
@@ -528,26 +515,8 @@ class RootTeamMixin(models.Model):
         abstract = True
 
     def save(self, *args: Any, **kwargs: Any) -> None:
-        if self._meta.model_name in PERSONS_DB_MODELS:
-            return self._save_in_persons_db(*args, **kwargs)
-
         if hasattr(self, "team") and self.team and hasattr(self.team, "parent_team") and self.team.parent_team:  # type: ignore
             self.team = self.team.parent_team  # type: ignore
-        super().save(*args, **kwargs)
-
-    def _save_in_persons_db(self, *args, **kwargs) -> None:
-        """
-        If the model is stored in persons db, referencing the foreign key will raise an error.
-        Reference the actual table column instead and query `team` manually.
-        """
-        team_id: Optional[int] = getattr(self, "team_id", None)
-        if team_id:
-            from posthog.models import Team
-
-            team = Team.objects.get(id=team_id)
-            if hasattr(team, "parent_team") and team.parent_team:
-                self.team_id = team.parent_team.id
-
         super().save(*args, **kwargs)
 
 

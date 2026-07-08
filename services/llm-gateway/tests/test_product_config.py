@@ -6,6 +6,9 @@ from fastapi import HTTPException
 from llm_gateway.products.config import (
     ALLOWED_PRODUCTS,
     BEDROCK_MODELS,
+    POSTHOG_AI_DEV_APP_ID,
+    POSTHOG_AI_EU_APP_ID,
+    POSTHOG_AI_US_APP_ID,
     POSTHOG_CODE_EU_APP_ID,
     POSTHOG_CODE_US_APP_ID,
     PRODUCT_ALIASES,
@@ -40,6 +43,9 @@ class TestCheckProductAccess:
             ("llm_gateway", "personal_api_key", None, "claude-3-opus", True, None),
             ("llm_gateway", "oauth_access_token", "any-app-id", "gpt-4o", False, "not authorized"),
             ("llm_gateway", "personal_api_key", None, None, True, None),
+            # ci allows API keys with any model (used by e2e test runs); OAuth rejected (no app IDs)
+            ("ci", "personal_api_key", None, "claude-3-opus", True, None),
+            ("ci", "oauth_access_token", "any-app-id", "gpt-4o", False, "not authorized"),
             # posthog_code requires OAuth with valid app ID
             ("posthog_code", "personal_api_key", None, None, False, "requires OAuth"),
             ("posthog_code", "oauth_access_token", "invalid-app-id", None, False, "not authorized"),
@@ -58,12 +64,29 @@ class TestCheckProductAccess:
             ("llma_translation", "personal_api_key", None, "gpt-4.1-mini", True, None),
             ("llma_translation", "personal_api_key", None, "claude-3-opus", False, "not allowed"),
             ("llma_translation", "oauth_access_token", "any-app-id", "gpt-4.1-mini", False, "not authorized"),
-            # signals requires OAuth with a posthog_code app ID; API keys rejected; no model allowlist
-            ("signals", "personal_api_key", None, None, False, "requires OAuth"),
-            ("signals", "oauth_access_token", "invalid-app-id", None, False, "not authorized"),
-            ("signals", "oauth_access_token", POSTHOG_CODE_US_APP_ID, None, True, None),
-            ("signals", "oauth_access_token", POSTHOG_CODE_EU_APP_ID, None, True, None),
-            ("signals", "oauth_access_token", POSTHOG_CODE_US_APP_ID, "claude-3-opus", True, None),
+            # signals allows API keys (shared gateway key) with any model, and OAuth from the
+            # array/twig (posthog_code) app for coding-agent tasks
+            ("signals", "personal_api_key", None, "claude-haiku-4-5", True, None),
+            ("signals", "personal_api_key", None, "claude-sonnet-4-5", True, None),
+            ("signals", "personal_api_key", None, "claude-3-opus", True, None),
+            ("signals", "oauth_access_token", "any-app-id", "claude-haiku-4-5", False, "not authorized"),
+            ("signals", "oauth_access_token", POSTHOG_CODE_US_APP_ID, "claude-haiku-4-5", True, None),
+            ("signals", "oauth_access_token", POSTHOG_CODE_EU_APP_ID, "claude-sonnet-4-5", True, None),
+            # conversations: utility prompts (API key) and support-reply sandbox (array OAuth app)
+            ("conversations", "personal_api_key", None, "claude-haiku-4-5", True, None),
+            ("conversations", "personal_api_key", None, "claude-sonnet-4-6", True, None),
+            ("conversations", "personal_api_key", None, "claude-sonnet-5", True, None),
+            ("conversations", "personal_api_key", None, "claude-opus-4-8", False, "not allowed"),
+            ("conversations", "oauth_access_token", "any-app-id", "claude-sonnet-5", False, "not authorized"),
+            ("conversations", "oauth_access_token", POSTHOG_CODE_US_APP_ID, "claude-sonnet-5", True, None),
+            ("conversations", "oauth_access_token", POSTHOG_CODE_EU_APP_ID, "claude-sonnet-4-6", True, None),
+            # posthog_ai allows API keys with any model and OAuth from the PostHog AI app.
+            ("posthog_ai", "personal_api_key", None, "claude-sonnet-4-5", True, None),
+            ("posthog_ai", "personal_api_key", None, "gpt-5.3-codex", True, None),
+            ("posthog_ai", "oauth_access_token", "any-app-id", "claude-sonnet-4-5", False, "not authorized"),
+            ("posthog_ai", "oauth_access_token", POSTHOG_AI_US_APP_ID, "claude-sonnet-4-5", True, None),
+            ("posthog_ai", "oauth_access_token", POSTHOG_AI_EU_APP_ID, "gpt-5.3-codex", True, None),
+            ("posthog_ai", "oauth_access_token", POSTHOG_AI_DEV_APP_ID, "claude-3-opus", True, None),
             # unknown product
             ("unknown", "personal_api_key", None, None, False, "Unknown product"),
         ],
@@ -90,8 +113,10 @@ class TestCheckProductAccess:
             "claude-opus-4-6",
             "claude-opus-4-7",
             "claude-opus-4-8",
+            "claude-fable-5",
             "claude-sonnet-4-5",
             "claude-sonnet-4-6",
+            "claude-sonnet-5",
             "claude-haiku-4-5",
             "gpt-5.5",
             "gpt-5.3-codex",
@@ -127,8 +152,10 @@ class TestCheckProductAccess:
             "claude-opus-4-6",
             "claude-opus-4-7",
             "claude-opus-4-8",
+            "claude-fable-5",
             "claude-sonnet-4-5",
             "claude-sonnet-4-6",
+            "claude-sonnet-5",
             "claude-haiku-4-5",
             "gpt-5.5",
             "gpt-5.3-codex",
@@ -201,7 +228,9 @@ class TestCheckProductAccess:
             "claude-opus-4-6",
             "claude-opus-4-7",
             "claude-opus-4-8",
+            "claude-fable-5",
             "claude-sonnet-4-5",
+            "claude-sonnet-5",
             "claude-haiku-4-5",
             "gpt-5.3-codex",
             "gpt-5.2",
@@ -281,6 +310,7 @@ class TestCheckProductAccess:
             "claude-opus-4-7",
             "claude-opus-4-8",
             "claude-sonnet-4-6",
+            "claude-sonnet-5",
             "claude-haiku-4-5",
             "gpt-5.3-codex",
         ],
@@ -299,6 +329,27 @@ class TestCheckProductAccess:
     def test_slack_app_rejects_unauthorized_oauth_app(self):
         allowed, error = check_product_access(
             "slack_app", "oauth_access_token", "00000000-0000-0000-0000-000000000000", "claude-sonnet-4-6"
+        )
+        assert allowed is False
+        assert error is not None
+        assert "not authorized" in error
+
+    @pytest.mark.parametrize(
+        "application_id",
+        [
+            POSTHOG_AI_US_APP_ID,
+            POSTHOG_AI_EU_APP_ID,
+            POSTHOG_AI_DEV_APP_ID,
+        ],
+    )
+    def test_posthog_ai_allows_oauth_apps(self, application_id: str):
+        allowed, error = check_product_access("posthog_ai", "oauth_access_token", application_id, "claude-sonnet-4-5")
+        assert allowed is True
+        assert error is None
+
+    def test_posthog_ai_rejects_posthog_code_oauth_app(self):
+        allowed, error = check_product_access(
+            "posthog_ai", "oauth_access_token", POSTHOG_CODE_US_APP_ID, "claude-sonnet-4-5"
         )
         assert allowed is False
         assert error is not None

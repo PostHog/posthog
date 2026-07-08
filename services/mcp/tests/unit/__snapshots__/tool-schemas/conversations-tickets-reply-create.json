@@ -1,0 +1,24 @@
+{
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "properties": {
+        "id": {
+            "description": "The ticket's UUID or its numeric ticket number.",
+            "type": "string"
+        },
+        "is_private": {
+            "default": false,
+            "description": "If true, store as an internal note (not sent to the customer). If false, the reply is delivered to the customer over the ticket's channel.",
+            "type": "boolean"
+        },
+        "message": {
+            "description": "Reply content in markdown.",
+            "maxLength": 5000,
+            "type": "string"
+        },
+        "rich_content": {
+            "description": "Optional TipTap rich content JSON for formatted messages."
+        }
+    },
+    "required": ["id", "message"],
+    "type": "object"
+}

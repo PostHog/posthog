@@ -1,5 +1,9 @@
+from datetime import UTC, datetime
+
 from posthog.test.base import APIBaseTest, BaseTest, ClickhouseTestMixin
 from unittest import mock
+
+from django.test import override_settings
 
 from structlog.contextvars import get_contextvars
 
@@ -13,11 +17,153 @@ from posthog.schema import (
     WebStatsTableQuery,
 )
 
+from posthog.hogql import ast
+
+from posthog import redis
 from posthog.clickhouse.query_tagging import get_query_tag_value
 from posthog.hogql_queries.query_runner import AnalyticsQueryRunner
 
-from products.web_analytics.backend.hogql_queries.web_lazy_precompute_common import compute_filters_eligibility_hash
+from products.analytics_platform.backend.lazy_computation.lazy_computation_executor import (
+    LazyComputationResult,
+    TtlSchedule,
+)
+from products.web_analytics.backend.hogql_queries.web_lazy_precompute_common import (
+    OOM_PIN_TTL_SECONDS,
+    PerQueryOptedOut,
+    PerQueryOptInNotSet,
+    TooManyFilters,
+    UnsupportedFilterKey,
+    _oom_pin_key,
+    check_common_eligibility,
+    compute_filters_eligibility_hash,
+    host_filter_expr,
+    is_precompute_enabled_for_team,
+    is_precompute_unrestricted_for_team,
+    is_team_oom_pinned,
+    pin_team_oom,
+    web_ensure_precomputed,
+)
 from products.web_analytics.backend.hogql_queries.web_overview import WebOverviewQueryRunner
+
+_COMMON = "products.web_analytics.backend.hogql_queries.web_lazy_precompute_common"
+
+
+def _date_range() -> tuple[datetime, datetime]:
+    return (datetime(2024, 1, 1, tzinfo=UTC), datetime(2024, 1, 8, tzinfo=UTC))
+
+
+class TestIsPrecomputeEnabledForTeam(BaseTest):
+    @mock.patch(f"{_COMMON}.is_org_feature_flag_enabled", return_value=False)
+    def test_team_in_setting_bypasses_org_flag(self, flag) -> None:
+        with override_settings(WEB_ANALYTICS_LAZY_PRECOMPUTE_TEAM_IDS=[self.team.pk]):
+            assert is_precompute_enabled_for_team(self.team) is True
+        flag.assert_not_called()  # short-circuits before the flag is ever evaluated
+
+    @override_settings(WEB_ANALYTICS_LAZY_PRECOMPUTE_TEAM_IDS=[])
+    @mock.patch(f"{_COMMON}.is_org_feature_flag_enabled", return_value=True)
+    def test_team_not_in_setting_falls_back_to_enabled_flag(self, _flag) -> None:
+        assert is_precompute_enabled_for_team(self.team) is True
+
+    @override_settings(WEB_ANALYTICS_LAZY_PRECOMPUTE_TEAM_IDS=[])
+    @mock.patch(f"{_COMMON}.is_org_feature_flag_enabled", return_value=False)
+    def test_team_not_in_setting_with_flag_off_is_ineligible(self, _flag) -> None:
+        assert is_precompute_enabled_for_team(self.team) is False
+
+    @override_settings(WEB_ANALYTICS_LAZY_PRECOMPUTE_TEAM_IDS=[])
+    @mock.patch(f"{_COMMON}.is_org_feature_flag_enabled", return_value=False)
+    def test_unrestricted_team_is_enrolled_without_being_in_enrollment_list(self, flag) -> None:
+        with override_settings(WEB_ANALYTICS_LAZY_PRECOMPUTE_UNRESTRICTED_TEAM_IDS=[self.team.pk]):
+            assert is_precompute_enabled_for_team(self.team) is True
+        flag.assert_not_called()
+
+    @override_settings(WEB_ANALYTICS_LAZY_PRECOMPUTE_UNRESTRICTED_TEAM_IDS=[])
+    def test_team_not_in_unrestricted_list_is_restricted(self) -> None:
+        assert is_precompute_unrestricted_for_team(self.team) is False
+
+    def test_team_in_unrestricted_list_is_unrestricted(self) -> None:
+        with override_settings(WEB_ANALYTICS_LAZY_PRECOMPUTE_UNRESTRICTED_TEAM_IDS=[self.team.pk]):
+            assert is_precompute_unrestricted_for_team(self.team) is True
+
+
+class TestCheckCommonEligibilityUnrestricted(BaseTest):
+    def _check(self, *, use_precompute, properties=None) -> None:
+        check_common_eligibility(
+            team=self.team,
+            use_web_analytics_precompute=use_precompute,
+            conversion_goal=None,
+            sampling=None,
+            modifiers=None,
+            properties=properties or [],
+            resolve_date_range=_date_range,
+        )
+
+    def test_restricted_team_rejects_untouched_opt_in(self) -> None:
+        with override_settings(
+            WEB_ANALYTICS_LAZY_PRECOMPUTE_TEAM_IDS=[self.team.pk],
+            WEB_ANALYTICS_LAZY_PRECOMPUTE_UNRESTRICTED_TEAM_IDS=[],
+        ):
+            with self.assertRaises(PerQueryOptInNotSet):
+                self._check(use_precompute=None)
+
+    def test_unrestricted_team_accepts_untouched_as_opt_out_default(self) -> None:
+        with override_settings(WEB_ANALYTICS_LAZY_PRECOMPUTE_UNRESTRICTED_TEAM_IDS=[self.team.pk]):
+            self._check(use_precompute=None)
+            self._check(use_precompute=True)
+
+    def test_unrestricted_team_rejects_explicit_opt_out(self) -> None:
+        with override_settings(WEB_ANALYTICS_LAZY_PRECOMPUTE_UNRESTRICTED_TEAM_IDS=[self.team.pk]):
+            with self.assertRaises(PerQueryOptedOut):
+                self._check(use_precompute=False)
+
+    def test_unrestricted_team_accepts_arbitrary_multi_filter(self) -> None:
+        props = [
+            EventPropertyFilter(key="$browser", value="Chrome", operator=PropertyOperator.EXACT),
+            EventPropertyFilter(key="$os", value="Mac OS X", operator=PropertyOperator.IS_NOT),
+        ]
+        with override_settings(WEB_ANALYTICS_LAZY_PRECOMPUTE_UNRESTRICTED_TEAM_IDS=[self.team.pk]):
+            self._check(use_precompute=None, properties=props)
+
+    def test_restricted_team_rejects_multi_filter(self) -> None:
+        props = [
+            EventPropertyFilter(key="$host", value="a.com", operator=PropertyOperator.EXACT),
+            EventPropertyFilter(key="$host", value="b.com", operator=PropertyOperator.EXACT),
+        ]
+        with override_settings(
+            WEB_ANALYTICS_LAZY_PRECOMPUTE_TEAM_IDS=[self.team.pk],
+            WEB_ANALYTICS_LAZY_PRECOMPUTE_UNRESTRICTED_TEAM_IDS=[],
+        ):
+            with self.assertRaises(TooManyFilters):
+                self._check(use_precompute=True, properties=props)
+
+    def test_restricted_team_rejects_non_host_filter(self) -> None:
+        props = [EventPropertyFilter(key="$browser", value="Chrome", operator=PropertyOperator.EXACT)]
+        with override_settings(
+            WEB_ANALYTICS_LAZY_PRECOMPUTE_TEAM_IDS=[self.team.pk],
+            WEB_ANALYTICS_LAZY_PRECOMPUTE_UNRESTRICTED_TEAM_IDS=[],
+        ):
+            with self.assertRaises(UnsupportedFilterKey):
+                self._check(use_precompute=True, properties=props)
+
+
+class TestHostFilterExpr(BaseTest):
+    def test_empty_properties_is_true_constant(self) -> None:
+        expr = host_filter_expr([], team=self.team)
+        assert isinstance(expr, ast.Constant)
+        assert expr.value is True
+
+    def test_restricted_team_builds_single_host_equals(self) -> None:
+        props = [EventPropertyFilter(key="$host", value="example.com", operator=PropertyOperator.EXACT)]
+        with override_settings(WEB_ANALYTICS_LAZY_PRECOMPUTE_UNRESTRICTED_TEAM_IDS=[]):
+            expr = host_filter_expr(props, team=self.team)
+        assert isinstance(expr, ast.Call)
+        assert expr.name == "equals"
+
+    def test_unrestricted_team_translates_arbitrary_filters(self) -> None:
+        props = [EventPropertyFilter(key="$browser", value="Chrome", operator=PropertyOperator.EXACT)]
+        with override_settings(WEB_ANALYTICS_LAZY_PRECOMPUTE_UNRESTRICTED_TEAM_IDS=[self.team.pk]):
+            expr = host_filter_expr(props, team=self.team)
+        # property_to_expr produces a comparison/AST node; it must not be the trivial True constant.
+        assert not (isinstance(expr, ast.Constant) and expr.value is True)
 
 
 def _overview(
@@ -214,3 +360,74 @@ class TestFiltersEligibilityHashContextvarBinding(ClickhouseTestMixin, APIBaseTe
             runner.calculate()
 
         assert captured["query_tag"] is None
+
+
+class TestTeamOomPin(BaseTest):
+    def tearDown(self):
+        redis.get_client().delete(_oom_pin_key(self.team.pk))
+        super().tearDown()
+
+    def test_unpinned_team(self):
+        assert is_team_oom_pinned(self.team.pk) is False
+
+    def test_pin_then_read_with_ttl(self):
+        pin_team_oom(self.team.pk)
+        assert is_team_oom_pinned(self.team.pk) is True
+        ttl = redis.get_client().ttl(_oom_pin_key(self.team.pk))
+        assert 0 < ttl <= OOM_PIN_TTL_SECONDS
+
+    @mock.patch(f"{_COMMON}.redis.get_client", side_effect=Exception("redis down"))
+    def test_redis_failure_reads_as_unpinned(self, _client):
+        assert is_team_oom_pinned(self.team.pk) is False
+
+
+class TestWebEnsurePrecomputed(BaseTest):
+    def tearDown(self):
+        redis.get_client().delete(_oom_pin_key(self.team.pk))
+        super().tearDown()
+
+    @mock.patch(f"{_COMMON}.ensure_precomputed")
+    def test_pins_team_on_oom_and_runs_uncapped_first(self, mock_ensure):
+        mock_ensure.return_value = LazyComputationResult(ready=False, job_ids=[], memory_exceeded=True)
+        web_ensure_precomputed(team=self.team, ttl_seconds={"default": 3600}, table=None)
+        # ran with the caller's raw schedule this time (not yet pinned), then pinned for next time
+        assert mock_ensure.call_args.kwargs["ttl_seconds"] == {"default": 3600}
+        assert is_team_oom_pinned(self.team.pk) is True
+
+    @mock.patch(f"{_COMMON}.ensure_precomputed")
+    def test_pinned_team_gets_width_capped_schedule(self, mock_ensure):
+        pin_team_oom(self.team.pk)
+        mock_ensure.return_value = LazyComputationResult(ready=True, job_ids=[], memory_exceeded=False)
+        web_ensure_precomputed(team=self.team, ttl_seconds={"default": 3600}, table=None)
+        passed = mock_ensure.call_args.kwargs["ttl_seconds"]
+        assert isinstance(passed, TtlSchedule)
+        assert passed.max_window_days == 1
+
+    @mock.patch(f"{_COMMON}.ensure_precomputed")
+    def test_already_pinned_oom_refreshes_ttl(self, mock_ensure):
+        pin_team_oom(self.team.pk)
+        # expire-soon, then a re-OOM should refresh the TTL back to full
+        redis.get_client().expire(_oom_pin_key(self.team.pk), 5)
+        mock_ensure.return_value = LazyComputationResult(ready=False, job_ids=[], memory_exceeded=True)
+        web_ensure_precomputed(team=self.team, ttl_seconds={"default": 3600}, table=None)
+        ttl = redis.get_client().ttl(_oom_pin_key(self.team.pk))
+        assert ttl > 5
+
+    @mock.patch(f"{_COMMON}.ensure_precomputed")
+    def test_no_pin_on_success(self, mock_ensure):
+        mock_ensure.return_value = LazyComputationResult(ready=True, job_ids=[], memory_exceeded=False)
+        web_ensure_precomputed(team=self.team, ttl_seconds={"default": 3600}, table=None)
+        assert is_team_oom_pinned(self.team.pk) is False
+
+    @mock.patch(f"{_COMMON}.ensure_precomputed")
+    def test_pinned_team_restamps_prebuilt_schedule(self, mock_ensure):
+        # A caller may pass an already-built TtlSchedule (ensure_precomputed accepts one);
+        # the pin must stamp the cap onto it, not crash by re-parsing it.
+        pin_team_oom(self.team.pk)
+        mock_ensure.return_value = LazyComputationResult(ready=True, job_ids=[], memory_exceeded=False)
+        prebuilt = TtlSchedule(rules=[], default_ttl_seconds=3600, max_window_days=None)
+        web_ensure_precomputed(team=self.team, ttl_seconds=prebuilt, table=None)
+        passed = mock_ensure.call_args.kwargs["ttl_seconds"]
+        assert isinstance(passed, TtlSchedule)
+        assert passed.max_window_days == 1
+        assert passed.default_ttl_seconds == 3600

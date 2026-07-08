@@ -5,6 +5,8 @@ from unittest.mock import AsyncMock, MagicMock, patch
 from langchain_core.runnables import RunnableConfig
 from parameterized import parameterized
 
+from products.posthog_ai.backend.models.assistant import Conversation
+
 from ee.hogai.tool_errors import MaxToolRetryableError
 from ee.hogai.tools.read_taxonomy.core import (
     DYNAMIC_EVENT_PROPERTIES_HINT,
@@ -17,7 +19,6 @@ from ee.hogai.tools.read_taxonomy.core import (
 from ee.hogai.tools.read_taxonomy.tool import ReadTaxonomyTool
 from ee.hogai.utils.types import AssistantState
 from ee.hogai.utils.types.base import NodePath
-from ee.models import Conversation
 
 
 class TestReadTaxonomyTool(NonAtomicBaseTest):
@@ -105,17 +106,17 @@ class TestReadTaxonomyTool(NonAtomicBaseTest):
     def test_execute_taxonomy_query_read_events(self, mock_format_events, mock_toolkit_class):
         mock_format_events.return_value = "events:\n  - $pageview\n  - $autocapture"
 
-        result = execute_taxonomy_query(ReadEvents(), mock_toolkit_class.return_value, self.team)
+        result = execute_taxonomy_query(ReadEvents(), mock_toolkit_class.return_value, self.team, self.user)
 
         self.assertIn("events:", result)
-        mock_format_events.assert_called_once_with([], self.team, limit=500, offset=0)
+        mock_format_events.assert_called_once_with([], self.team, self.user, limit=500, offset=0)
 
     @patch("ee.hogai.tools.read_taxonomy.core.TaxonomyAgentToolkit")
     def test_person_entity_properties_include_dynamic_hint(self, mock_toolkit_class):
         mock_toolkit = mock_toolkit_class.return_value
         mock_toolkit.retrieve_entity_properties.return_value = "- email\n- name"
 
-        result = execute_taxonomy_query(ReadEntityProperties(entity="person"), mock_toolkit, self.team)
+        result = execute_taxonomy_query(ReadEntityProperties(entity="person"), mock_toolkit, self.team, self.user)
 
         self.assertIn(DYNAMIC_PERSON_PROPERTIES_HINT, result)
         self.assertIn("$survey_dismissed", result)
@@ -127,7 +128,7 @@ class TestReadTaxonomyTool(NonAtomicBaseTest):
         mock_toolkit = mock_toolkit_class.return_value
         mock_toolkit.retrieve_entity_properties.return_value = "- $start_timestamp"
 
-        result = execute_taxonomy_query(ReadEntityProperties(entity="session"), mock_toolkit, self.team)
+        result = execute_taxonomy_query(ReadEntityProperties(entity="session"), mock_toolkit, self.team, self.user)
 
         self.assertNotIn(DYNAMIC_PERSON_PROPERTIES_HINT, result)
 
@@ -136,7 +137,7 @@ class TestReadTaxonomyTool(NonAtomicBaseTest):
         mock_toolkit = mock_toolkit_class.return_value
         mock_toolkit.retrieve_event_or_action_properties.return_value = "- $browser\n- $os"
 
-        result = execute_taxonomy_query(ReadEventProperties(event_name="$pageview"), mock_toolkit, self.team)
+        result = execute_taxonomy_query(ReadEventProperties(event_name="$pageview"), mock_toolkit, self.team, self.user)
 
         self.assertIn(DYNAMIC_EVENT_PROPERTIES_HINT, result)
         self.assertIn("$feature/{flag_key}", result)

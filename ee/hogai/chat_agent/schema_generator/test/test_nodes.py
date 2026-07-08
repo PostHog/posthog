@@ -19,6 +19,8 @@ from posthog.schema import (
     VisualizationArtifactContent,
 )
 
+from products.posthog_ai.backend.models.assistant import AgentArtifact, Conversation
+
 from ee.hogai.chat_agent.schema_generator.nodes import (
     RETRIES_ALLOWED,
     SchemaGenerationException,
@@ -29,7 +31,6 @@ from ee.hogai.chat_agent.schema_generator.parsers import PydanticOutputParserExc
 from ee.hogai.chat_agent.schema_generator.utils import SchemaGeneratorOutput
 from ee.hogai.utils.types import AssistantState, PartialAssistantState
 from ee.hogai.utils.types.base import ArtifactRefMessage, IntermediateStep
-from ee.models import AgentArtifact, Conversation
 
 DummySchema = SchemaGeneratorOutput[AssistantTrendsQuery]
 
@@ -360,7 +361,9 @@ class TestSchemaGeneratorNode(BaseTest):
             DummyGeneratorNode,
             "_model",
             return_value=RunnableLambda(
-                lambda _: """\n\n{\"query\":{\"kind\":\"RetentionQuery\",\"dateRange\":{\"date_from\":\"2024-01-01\",\"date_to\":\"2024-12-31\"},\"retentionFilter\":{\"period\":\"Week\",\"totalIntervals\":11,\"targetEntity\":{\"name\":\"Application Opened\",\"type\":\"events\"},\"returningEntity\":{\"name\":\"Application Opened\",\"type\":\"events\"}},\"filterTestAccounts\":false}\t \t\t \t\t \t \t"""
+                lambda _: (
+                    """\n\n{\"query\":{\"kind\":\"RetentionQuery\",\"dateRange\":{\"date_from\":\"2024-01-01\",\"date_to\":\"2024-12-31\"},\"retentionFilter\":{\"period\":\"Week\",\"totalIntervals\":11,\"targetEntity\":{\"name\":\"Application Opened\",\"type\":\"events\"},\"returningEntity\":{\"name\":\"Application Opened\",\"type\":\"events\"}},\"filterTestAccounts\":false}\t \t\t \t\t \t \t"""
+                )
             ),
         ):
             new_state = await node(AssistantState(messages=[HumanMessage(content="Text")]), {})

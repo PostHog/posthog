@@ -31,6 +31,7 @@ def track_workflow_event(input: TrackWorkflowEventInput) -> None:
             event=input.event_name,
             properties=input.properties,
             groups=input.groups or {},
+            send_feature_flags=True,
         )
     except Exception:
         logger.exception(

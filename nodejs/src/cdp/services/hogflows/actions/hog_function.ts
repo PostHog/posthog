@@ -1,6 +1,7 @@
 import { DateTime } from 'luxon'
 
-import { HogFlowAction } from '../../../../schema/hogflow'
+import { HogFlowAction } from '~/cdp/schema/hogflow'
+
 import {
     CyclotronJobInvocationHogFlow,
     CyclotronJobInvocationHogFunction,
@@ -8,6 +9,7 @@ import {
     MinimalLogEntry,
 } from '../../../types'
 import { HogExecutorExecuteAsyncOptions } from '../../hog-executor.service'
+import { EmailValidationService } from '../../messaging/email-validation.service'
 import { RecipientPreferencesService } from '../../messaging/recipient-preferences.service'
 import { trackHogFlowBillableInvocation } from '../billing-utils'
 import { HogFlowFunctionsService } from '../hogflow-functions.service'
@@ -22,6 +24,7 @@ export class HogFunctionHandler implements ActionHandler {
     constructor(
         private hogFlowFunctionsService: HogFlowFunctionsService,
         private recipientPreferencesService: RecipientPreferencesService,
+        private emailValidationService: EmailValidationService,
         private hogFlowActionBillingType: 'fetch' | 'email'
     ) {}
 
@@ -50,12 +53,29 @@ export class HogFunctionHandler implements ActionHandler {
             ...functionResult.warehouseWebhookPayloads,
         ]
         result.metrics = [...result.metrics, ...functionResult.metrics]
+        result.emailAssets = [...result.emailAssets, ...functionResult.emailAssets]
 
         if (!functionResult.finished) {
             // Set the state of the function result on the substate of the flow for the next execution
             result.invocation.state.currentAction!.hogFunctionState = functionResult.invocation.state
-            // Also the queueParameters are required
+            // Preserve queue routing and parameters from the function result
+            result.invocation.queue = functionResult.invocation.queue
             result.invocation.queueParameters = functionResult.invocation.queueParameters
+            result.invocation.queueMetadata = functionResult.invocation.queueMetadata
+            // Routing-only reschedule signature: the queue changed AND no explicit
+            // `queueScheduledAt` was set. That's the shape produced by `routeEmailToQueue`
+            // and `routeToQueue` in hog-executor.service.ts when moving a job between the
+            // hogflow and email queues — the next dequeue continues the same action on the
+            // new queue. Tag the action state so the executor can suppress the redundant
+            // "Resuming..." / "Workflow will pause until..." pair on the next dequeue.
+            //
+            // The queue-changed check is what keeps async pauses (fetches, SES throttle
+            // retries) out of this branch: both keep `queueScheduledAt` set OR leave the
+            // queue unchanged, so they don't satisfy both halves of the condition.
+            const queueChanged = functionResult.invocation.queue !== invocation.queue
+            if (queueChanged && !functionResult.invocation.queueScheduledAt) {
+                result.invocation.state.currentAction!.routingOnlyReschedule = true
+            }
             return {
                 scheduledAt: functionResult.invocation.queueScheduledAt ?? DateTime.now(),
             }
@@ -88,6 +108,7 @@ export class HogFunctionHandler implements ActionHandler {
             {
                 event: invocation.state.event,
                 person: invocation.person,
+                groups: invocation.groups,
                 variables: invocation.state.variables,
             }
         )
@@ -107,6 +128,33 @@ export class HogFunctionHandler implements ActionHandler {
                 metrics: [],
                 capturedPostHogEvents: [],
                 warehouseWebhookPayloads: [],
+                emailAssets: [],
+            }
+        }
+
+        // Predicted hard bounce (bad syntax / dead domain): skip before the send reaches
+        // SES so it never counts against our bounce rate. Runs after the opt-out check so
+        // an opted-out recipient never triggers a DNS lookup.
+        const emailSkipReason = await this.emailValidationService.getSkipReason(hogFunctionInvocation, action)
+        if (emailSkipReason) {
+            return {
+                finished: true,
+                skipped: true,
+                invocation: hogFunctionInvocation,
+                logs: [{ level: 'info', timestamp: DateTime.now(), message: emailSkipReason }],
+                metrics: [
+                    {
+                        team_id: hogFunctionInvocation.teamId,
+                        app_source_id: hogFunctionInvocation.functionId,
+                        instance_id: action.id,
+                        metric_kind: 'email',
+                        metric_name: 'email_bounce_prevented',
+                        count: 1,
+                    },
+                ],
+                capturedPostHogEvents: [],
+                warehouseWebhookPayloads: [],
+                emailAssets: [],
             }
         }
 

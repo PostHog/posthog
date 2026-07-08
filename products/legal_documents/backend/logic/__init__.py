@@ -130,6 +130,71 @@ def mark_document_signed(document: LegalDocument) -> LegalDocument:
     return document
 
 
+def delete_document(document: LegalDocument, *, strict_pandadoc: bool = False) -> None:
+    """
+    Remove a legal document end-to-end.
+
+    Three things may need to go away depending on document state: the PandaDoc
+    envelope (only meaningful for in-flight, unsigned envelopes — completed
+    envelopes can't be voided and PandaDoc returns 423), the signed PDF in
+    object storage (only present once the row is signed), and the database
+    row itself. The row delete triggers `ModelActivityMixin` since
+    `LegalDocument` has `activity_logging_on_delete = True`, so the audit
+    trail is automatic.
+
+    `strict_pandadoc` controls failure handling on the PandaDoc void:
+    - True (self-serve path): re-raise PandaDocError so the facade's
+      transaction rolls back. The user gets a 503 and can retry. The
+      row stays put — better that than telling the user the envelope
+      was cancelled when it wasn't.
+    - False (admin path, default): log + capture and continue. Staff
+      can verify envelope state manually, and best-effort matches the
+      historic admin contract.
+    """
+    # Only call PandaDoc for in-flight envelopes. Signed envelopes have
+    # already completed on PandaDoc's side; voiding them would 409/423 and
+    # generate Sentry noise on every staff delete of a counter-signed
+    # document. Voiding (status transition) is preferred over a hard delete
+    # so PandaDoc retains the audit record of the cancelled signing process.
+    if document.pandadoc_document_id and document.status != LegalDocument.Status.SIGNED:
+        try:
+            pandadoc_client.PandaDocClient().void_document(document_id=document.pandadoc_document_id)
+        except pandadoc_client.PandaDocError as exc:
+            if strict_pandadoc:
+                raise
+            logger.warning(
+                "legal_document_pandadoc_void_failed",
+                document_id=str(document.id),
+                pandadoc_document_id=document.pandadoc_document_id,
+                error=str(exc),
+            )
+            capture_exception(
+                exc,
+                additional_properties={
+                    "legal_document_id": str(document.id),
+                    "pandadoc_document_id": document.pandadoc_document_id,
+                },
+            )
+
+    # S3 only holds the PDF once the row is signed (PandaDoc webhook streams
+    # it in on completion, or admin uploads it directly). Skip the round-trip
+    # for unsigned rows that never had a PDF in the first place.
+    if document.status == LegalDocument.Status.SIGNED and settings.OBJECT_STORAGE_ENABLED:
+        try:
+            object_storage.delete(signed_pdf_storage_key(document))
+        except Exception as exc:
+            # No capture_exception here: object_storage.delete already
+            # captures the underlying boto error, and double-capturing
+            # pollutes Sentry without adding signal.
+            logger.warning(
+                "legal_document_signed_pdf_delete_failed",
+                document_id=str(document.id),
+                error=str(exc),
+            )
+
+    document.delete()
+
+
 # Customer.io template name for the email sent to org owners when we auto opt
 # them out of AI data processing because they signed a BAA. Wired through
 # CUSTOMER_IO_TEMPLATE_ID_MAP in posthog/email.py.

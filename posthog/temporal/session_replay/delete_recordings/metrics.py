@@ -13,7 +13,7 @@ from temporalio.worker import (
     WorkflowInterceptorClassInput,
 )
 
-from posthog.temporal.ai_observability.metrics import ExecutionTimeRecorder, get_metric_meter
+from posthog.temporal.common.metrics import ExecutionTimeRecorder, get_metric_meter
 
 # ---------------------------------------------------------------------------
 # Histogram bucket config (imported by common/worker.py for PrometheusConfig)

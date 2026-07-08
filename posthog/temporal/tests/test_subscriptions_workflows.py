@@ -1,7 +1,7 @@
 import uuid
 from collections.abc import Callable, Sequence
 from concurrent.futures import ThreadPoolExecutor
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import Any, cast
 from zoneinfo import ZoneInfo
 
@@ -10,26 +10,32 @@ from freezegun import freeze_time
 from unittest.mock import AsyncMock, MagicMock, patch
 
 from django.conf import settings
+from django.utils import timezone
 
 import pytest_asyncio
 from asgiref.sync import sync_to_async
 from slack_sdk.errors import SlackApiError
 from temporalio.client import Client
+from temporalio.exceptions import ApplicationError
 from temporalio.testing import ActivityEnvironment, WorkflowEnvironment
 from temporalio.worker import UnsandboxedWorkflowRunner, Worker
 
 from posthog.hogql.errors import QueryError
 
 from posthog.errors import CHQueryErrorS3Error
-from posthog.models.exported_asset import ExportedAsset
+from posthog.models import OrganizationMembership
 from posthog.models.instance_setting import set_instance_setting
 from posthog.models.integration import Integration
-from posthog.models.subscription import Subscription, SubscriptionDelivery
 from posthog.slo.types import SloArea, SloConfig, SloOperation, SloOutcome
-from posthog.tasks.exports.failure_handler import ExcelColumnLimitExceeded
 from posthog.temporal.common.slo_interceptor import SloInterceptor
 from posthog.temporal.exports.activities import export_asset_activity
-from posthog.temporal.subscriptions.activities import (
+
+from products.dashboards.backend.models.dashboard import Dashboard
+from products.dashboards.backend.models.dashboard_tile import DashboardTile
+from products.exports.backend.models.exported_asset import ExportedAsset
+from products.exports.backend.models.subscription import Subscription, SubscriptionDelivery
+from products.exports.backend.tasks.failure_handler import ExcelColumnLimitExceeded
+from products.exports.backend.temporal.subscriptions.activities import (
     advance_next_delivery_date,
     create_delivery_record,
     create_export_assets,
@@ -38,32 +44,48 @@ from posthog.temporal.subscriptions.activities import (
     update_delivery_record,
     validate_subscription_for_delivery,
 )
-from posthog.temporal.subscriptions.types import (
+from products.exports.backend.temporal.subscriptions.ai_subscription.activities import (
+    _CREDIT_RESET_FALLBACK_DAYS,
+    _ai_credit_reset_date,
+    _skip_ai_delivery_over_credit_limit_sync,
+    generate_ai_subscription_report,
+)
+from products.exports.backend.temporal.subscriptions.ai_subscription.report_pipeline import AiReportResult
+from products.exports.backend.temporal.subscriptions.ai_subscription.spec_generator import PromptRejectedError
+from products.exports.backend.temporal.subscriptions.types import (
     CreateDeliveryRecordInputs,
     CreateExportAssetsInputs,
     DeliverSubscriptionInputs,
     DeliveryStatus,
     FetchDueSubscriptionsActivityInputs,
+    GenerateAIReportInputs,
     ProcessSubscriptionWorkflowInputs,
     ScheduleAllSubscriptionsWorkflowInputs,
     SubscriptionTriggerType,
     TrackedSubscriptionInputs,
     UpdateDeliveryRecordInputs,
 )
-from posthog.temporal.subscriptions.workflows import (
+from products.exports.backend.temporal.subscriptions.workflows import (
     HandleSubscriptionValueChangeWorkflow,
+    ProcessAISubscriptionWorkflow,
     ProcessSubscriptionWorkflow,
     ScheduleAllSubscriptionsWorkflow,
 )
-
-from products.dashboards.backend.models.dashboard import Dashboard
-from products.dashboards.backend.models.dashboard_tile import DashboardTile
 from products.product_analytics.backend.models.insight import Insight
 
+from ee.tasks.subscriptions.auto_disable import AI_CONSENT_REVOKED_DISABLE_REASON, SLACK_DISCONNECTED_DISABLE_REASON
 from ee.tasks.subscriptions.slack_subscriptions import SlackDeliveryResult
 from ee.tasks.test.subscriptions.subscriptions_test_factory import create_subscription
 
 pytestmark = [pytest.mark.asyncio, pytest.mark.django_db(transaction=True)]
+
+_GENERATE_REPORT = (
+    "products.exports.backend.temporal.subscriptions.ai_subscription.activities.build_ai_subscription_report"
+)
+_IS_OVER_BUDGET = (
+    "products.exports.backend.temporal.subscriptions.ai_subscription.activities.is_team_over_ai_credit_budget"
+)
+_CREDIT_LIMITED_EMAIL = "products.exports.backend.temporal.subscriptions.ai_subscription.delivery.EmailMessage"
 
 SUBSCRIPTION_SCHEDULE_ACTIVITIES: Sequence[Callable[..., Any]] = cast(
     Sequence[Callable[..., Any]],
@@ -74,6 +96,7 @@ SUBSCRIPTION_SCHEDULE_ACTIVITIES: Sequence[Callable[..., Any]] = cast(
         create_export_assets,
         export_asset_activity,
         deliver_subscription,
+        generate_ai_subscription_report,
         update_delivery_record,
         advance_next_delivery_date,
     ],
@@ -87,6 +110,7 @@ SUBSCRIPTION_PROCESS_ACTIVITIES: Sequence[Callable[..., Any]] = cast(
         create_export_assets,
         export_asset_activity,
         deliver_subscription,
+        generate_ai_subscription_report,
         update_delivery_record,
         advance_next_delivery_date,
     ],
@@ -104,6 +128,7 @@ async def subscriptions_worker(temporal_client: Client):
             ScheduleAllSubscriptionsWorkflow,
             HandleSubscriptionValueChangeWorkflow,
             ProcessSubscriptionWorkflow,
+            ProcessAISubscriptionWorkflow,
         ],
         activities=SUBSCRIPTION_SCHEDULE_ACTIVITIES,
         interceptors=[SloInterceptor()],
@@ -115,7 +140,7 @@ async def subscriptions_worker(temporal_client: Client):
 @patch("posthog.temporal.exports.activities.exporter")
 @patch("posthog.slo.events.posthoganalytics")
 @patch("ee.tasks.subscriptions.get_metric_meter")
-@patch("posthog.temporal.subscriptions.activities.send_email_subscription_report")
+@patch("products.exports.backend.temporal.subscriptions.activities.send_email_subscription_report")
 @freeze_time("2022-02-02T08:55:00.000Z")
 @pytest.mark.asyncio
 async def test_subscription_delivery_scheduling(
@@ -191,8 +216,10 @@ async def test_subscription_delivery_scheduling(
 @patch("posthog.temporal.exports.activities.exporter")
 @patch("posthog.slo.events.posthoganalytics")
 @patch("ee.tasks.subscriptions.get_metric_meter")
-@patch("posthog.temporal.subscriptions.activities.get_slack_integration_for_team", return_value=None)
-@patch("posthog.temporal.subscriptions.activities.send_email_subscription_report")
+@patch(
+    "products.exports.backend.temporal.subscriptions.delivery_common.get_slack_integration_for_team", return_value=None
+)
+@patch("products.exports.backend.temporal.subscriptions.activities.send_email_subscription_report")
 @freeze_time("2022-02-02T08:55:00.000Z")
 @pytest.mark.asyncio
 async def test_does_not_schedule_subscription_if_item_is_deleted(
@@ -255,7 +282,7 @@ async def test_does_not_schedule_subscription_if_item_is_deleted(
 @patch("posthog.temporal.exports.activities.exporter")
 @patch("posthog.slo.events.posthoganalytics")
 @patch("ee.tasks.subscriptions.get_metric_meter")
-@patch("posthog.temporal.subscriptions.activities.send_email_subscription_report")
+@patch("products.exports.backend.temporal.subscriptions.activities.send_email_subscription_report")
 @pytest.mark.asyncio
 async def test_handle_subscription_value_change_email(
     mock_send_email: MagicMock,
@@ -329,8 +356,11 @@ async def test_handle_subscription_value_change_email(
     assert completed_calls[0].kwargs["properties"]["outcome"] == SloOutcome.SUCCESS
 
 
-@patch("posthog.temporal.subscriptions.activities.send_slack_message_with_integration_async", new_callable=AsyncMock)
-@patch("posthog.temporal.subscriptions.activities.get_slack_integration_for_team")
+@patch(
+    "products.exports.backend.temporal.subscriptions.activities.send_slack_message_with_integration_async",
+    new_callable=AsyncMock,
+)
+@patch("products.exports.backend.temporal.subscriptions.delivery_common.get_slack_integration_for_team")
 @patch("posthog.temporal.exports.activities.exporter")
 @patch("posthog.slo.events.posthoganalytics")
 @patch("ee.tasks.subscriptions.get_metric_meter")
@@ -403,8 +433,10 @@ async def test_deliver_subscription_report_slack(
 
 
 @patch("ee.tasks.subscriptions.auto_disable.send_notifications_for_disabled_subscription")
-@patch("posthog.temporal.subscriptions.activities.build_insight_delivery_snapshot")
-@patch("posthog.temporal.subscriptions.activities.get_slack_integration_for_team", return_value=None)
+@patch("products.exports.backend.temporal.subscriptions.activities.build_insight_delivery_snapshot")
+@patch(
+    "products.exports.backend.temporal.subscriptions.delivery_common.get_slack_integration_for_team", return_value=None
+)
 @freeze_time("2022-02-02T08:55:00.000Z")
 @pytest.mark.asyncio
 async def test_process_subscription_records_missing_slack_integration_failure(
@@ -534,10 +566,12 @@ async def test_deliver_subscription_auto_disables_invalid_subscriptions(
         patch("ee.tasks.subscriptions.auto_disable.send_notifications_for_disabled_subscription") as send_mock,
         # Always patched — only consulted on the slack branch, harmless otherwise.
         patch(
-            "posthog.temporal.subscriptions.activities.get_slack_integration_for_team",
+            "products.exports.backend.temporal.subscriptions.delivery_common.get_slack_integration_for_team",
             return_value=None,
         ),
-        patch("posthog.temporal.subscriptions.activities._capture_delivery_failed_event") as capture_mock,
+        patch(
+            "products.exports.backend.temporal.subscriptions.delivery_common._capture_delivery_failed_event"
+        ) as capture_mock,
     ):
         result = await env.run(
             deliver_subscription,
@@ -580,7 +614,9 @@ async def test_no_assets_does_not_auto_disable(team, user):
 
     with (
         patch("ee.tasks.subscriptions.auto_disable.disable_invalid_subscription") as disable_mock,
-        patch("posthog.temporal.subscriptions.activities._capture_delivery_failed_event") as capture_mock,
+        patch(
+            "products.exports.backend.temporal.subscriptions.activities._capture_delivery_failed_event"
+        ) as capture_mock,
     ):
         # Bogus id ensures `assets` resolves empty.
         result = await env.run(
@@ -635,7 +671,9 @@ async def test_deliver_subscription_retry_idempotent_after_auto_disable(team, us
     # First call: unsupported_target triggers auto-disable + per-recipient failure.
     with (
         patch("ee.tasks.subscriptions.auto_disable.send_notifications_for_disabled_subscription") as send_mock,
-        patch("posthog.temporal.subscriptions.activities._capture_delivery_failed_event") as capture_mock,
+        patch(
+            "products.exports.backend.temporal.subscriptions.delivery_common._capture_delivery_failed_event"
+        ) as capture_mock,
     ):
         first_result = await env.run(deliver_subscription, inputs)
 
@@ -653,7 +691,9 @@ async def test_deliver_subscription_retry_idempotent_after_auto_disable(team, us
     # so the disable email and analytics event do NOT fire again.
     with (
         patch("ee.tasks.subscriptions.auto_disable.send_notifications_for_disabled_subscription") as send_mock,
-        patch("posthog.temporal.subscriptions.activities._capture_delivery_failed_event") as capture_mock,
+        patch(
+            "products.exports.backend.temporal.subscriptions.delivery_common._capture_delivery_failed_event"
+        ) as capture_mock,
     ):
         second_result = await env.run(deliver_subscription, inputs)
 
@@ -695,7 +735,9 @@ async def test_validate_subscription_for_delivery(
     env = ActivityEnvironment()
     with (
         patch("ee.tasks.subscriptions.auto_disable.send_notifications_for_disabled_subscription") as send_mock,
-        patch("posthog.temporal.subscriptions.activities._capture_delivery_failed_event") as capture_mock,
+        patch(
+            "products.exports.backend.temporal.subscriptions.activities._capture_delivery_failed_event"
+        ) as capture_mock,
     ):
         abort_info = await env.run(validate_subscription_for_delivery, subscription.id)
 
@@ -739,7 +781,9 @@ async def test_deliver_subscription_short_circuits_when_already_disabled(team, u
 
     env = ActivityEnvironment()
 
-    with patch("posthog.temporal.subscriptions.activities.disable_invalid_subscription") as disable_mock:
+    with patch(
+        "products.exports.backend.temporal.subscriptions.activities.disable_invalid_subscription"
+    ) as disable_mock:
         result = await env.run(
             deliver_subscription,
             DeliverSubscriptionInputs(
@@ -808,15 +852,17 @@ async def test_deliver_subscription_handles_slack_api_errors(team, user, slack_e
     with (
         patch("ee.tasks.subscriptions.auto_disable.send_notifications_for_disabled_subscription") as send_mock,
         patch(
-            "posthog.temporal.subscriptions.activities.get_slack_integration_for_team",
+            "products.exports.backend.temporal.subscriptions.delivery_common.get_slack_integration_for_team",
             return_value=mock_integration,
         ),
         patch(
-            "posthog.temporal.subscriptions.activities.send_slack_message_with_integration_async",
+            "products.exports.backend.temporal.subscriptions.activities.send_slack_message_with_integration_async",
             new_callable=AsyncMock,
             side_effect=slack_error,
         ),
-        patch("posthog.temporal.subscriptions.activities._capture_delivery_failed_event") as capture_mock,
+        patch(
+            "products.exports.backend.temporal.subscriptions.delivery_common._capture_delivery_failed_event"
+        ) as capture_mock,
     ):
         if expect_auto_disable:
             result = await ActivityEnvironment().run(deliver_subscription, inputs)
@@ -868,6 +914,9 @@ async def test_create_export_assets_creates_exported_assets(
     assert asset.team_id == team.id
     assert asset.insight_id == insight.id
     assert asset.export_format == "image/png"
+    # The exporter renders the insight as the asset's creator — without it the render is userless
+    # and warehouse access control fails closed, breaking deliveries of warehouse-backed insights.
+    assert asset.created_by_id == user.id
 
     # SLO started is emitted by the interceptor, not this activity. Internal QueryRunner.run()
     # calls during snapshot build emit query_service SLO events — those are unrelated.
@@ -883,7 +932,7 @@ async def test_create_export_assets_creates_exported_assets(
     )
 
 
-@patch("posthog.temporal.subscriptions.activities.build_insight_delivery_snapshot")
+@patch("products.exports.backend.temporal.subscriptions.activities.build_insight_delivery_snapshot")
 @patch("posthog.slo.events.posthoganalytics")
 @freeze_time("2022-02-02T08:55:00.000Z")
 @pytest.mark.asyncio
@@ -1225,7 +1274,7 @@ async def test_create_export_assets_empty_dashboard(team, user):
 
 
 @patch("ee.tasks.subscriptions.get_metric_meter")
-@patch("posthog.temporal.subscriptions.activities.send_email_subscription_report")
+@patch("products.exports.backend.temporal.subscriptions.activities.send_email_subscription_report")
 @freeze_time("2022-02-02T08:55:00.000Z")
 @pytest.mark.asyncio
 async def test_deliver_subscription_sends_email(
@@ -1261,7 +1310,7 @@ async def test_deliver_subscription_sends_email(
 @patch("posthog.temporal.exports.activities.exporter")
 @patch("posthog.slo.events.posthoganalytics")
 @patch("ee.tasks.subscriptions.get_metric_meter")
-@patch("posthog.temporal.subscriptions.activities.send_email_subscription_report")
+@patch("products.exports.backend.temporal.subscriptions.activities.send_email_subscription_report")
 @freeze_time("2022-02-02T08:55:00.000Z")
 @pytest.mark.asyncio
 async def test_deliver_subscription_workflow_end_to_end(
@@ -1336,7 +1385,7 @@ async def test_deliver_subscription_workflow_end_to_end(
 @patch("posthog.temporal.exports.activities.exporter")
 @patch("posthog.slo.events.posthoganalytics")
 @patch("ee.tasks.subscriptions.get_metric_meter")
-@patch("posthog.temporal.subscriptions.activities.send_email_subscription_report")
+@patch("products.exports.backend.temporal.subscriptions.activities.send_email_subscription_report")
 @pytest.mark.asyncio
 async def test_new_subscription_sends_invite_email(
     mock_send_email: MagicMock,
@@ -1400,7 +1449,7 @@ async def test_new_subscription_sends_invite_email(
 @patch("posthog.temporal.exports.activities.exporter")
 @patch("posthog.slo.events.posthoganalytics")
 @patch("ee.tasks.subscriptions.get_metric_meter")
-@patch("posthog.temporal.subscriptions.activities.send_email_subscription_report")
+@patch("products.exports.backend.temporal.subscriptions.activities.send_email_subscription_report")
 @pytest.mark.asyncio
 async def test_manual_send_uses_regular_template_not_invite(
     mock_send_email: MagicMock,
@@ -1460,7 +1509,7 @@ async def test_manual_send_uses_regular_template_not_invite(
 @patch("posthog.temporal.exports.activities.exporter")
 @patch("posthog.slo.events.posthoganalytics")
 @patch("ee.tasks.subscriptions.get_metric_meter")
-@patch("posthog.temporal.subscriptions.activities.send_email_subscription_report")
+@patch("products.exports.backend.temporal.subscriptions.activities.send_email_subscription_report")
 @freeze_time("2022-02-02T08:55:00.000Z")
 @pytest.mark.asyncio
 async def test_scheduled_delivery_updates_next_delivery_date(
@@ -1548,7 +1597,7 @@ def _make_export_counter(fail_count: int, error_factory):
 @patch("posthog.temporal.exports.activities.exporter")
 @patch("posthog.slo.events.posthoganalytics")
 @patch("ee.tasks.subscriptions.get_metric_meter")
-@patch("posthog.temporal.subscriptions.activities.send_email_subscription_report")
+@patch("products.exports.backend.temporal.subscriptions.activities.send_email_subscription_report")
 @freeze_time("2022-02-02T08:55:00.000Z")
 @pytest.mark.asyncio
 async def test_export_error_slo_outcome(
@@ -1633,7 +1682,7 @@ async def test_export_error_slo_outcome(
 @patch("posthog.temporal.exports.activities.exporter")
 @patch("posthog.slo.events.posthoganalytics")
 @patch("ee.tasks.subscriptions.get_metric_meter")
-@patch("posthog.temporal.subscriptions.activities.send_email_subscription_report")
+@patch("products.exports.backend.temporal.subscriptions.activities.send_email_subscription_report")
 @freeze_time("2022-02-02T08:55:00.000Z")
 @pytest.mark.asyncio
 async def test_partial_export_failure_delivers_successful_assets(
@@ -1730,8 +1779,8 @@ async def test_partial_export_failure_delivers_successful_assets(
 @patch("posthog.temporal.exports.activities.exporter")
 @patch("posthog.slo.events.posthoganalytics")
 @patch("ee.tasks.subscriptions.get_metric_meter")
-@patch("posthog.temporal.subscriptions.activities.send_email_subscription_report")
-@patch("posthog.temporal.subscriptions.activities.build_insight_delivery_snapshot")
+@patch("products.exports.backend.temporal.subscriptions.activities.send_email_subscription_report")
+@patch("products.exports.backend.temporal.subscriptions.activities.build_insight_delivery_snapshot")
 @pytest.mark.asyncio
 async def test_workflow_survives_large_insight_snapshot(
     mock_build_snapshot: MagicMock,
@@ -1864,8 +1913,10 @@ async def test_fetch_due_subscriptions_excludes_disabled(team, user):
 
 
 @patch("ee.tasks.subscriptions.auto_disable.send_notifications_for_disabled_subscription")
-@patch("posthog.temporal.subscriptions.activities.build_insight_delivery_snapshot")
-@patch("posthog.temporal.subscriptions.activities.get_slack_integration_for_team", return_value=None)
+@patch("products.exports.backend.temporal.subscriptions.activities.build_insight_delivery_snapshot")
+@patch(
+    "products.exports.backend.temporal.subscriptions.delivery_common.get_slack_integration_for_team", return_value=None
+)
 @patch("posthog.temporal.exports.activities.exporter")
 @patch("posthog.slo.events.posthoganalytics")
 @freeze_time("2022-02-02T08:55:00.000Z")
@@ -1963,3 +2014,489 @@ async def test_deliver_subscription_emits_success_slo_when_disabling(
         assert props["outcome"] == SloOutcome.SUCCESS, (
             f"subscription_delivery SLO must stay success after auto-disable, got {props}"
         )
+
+
+@sync_to_async
+def _create_ai_subscription(team, user, *, target_type="email", target_value="ai@posthog.com") -> Subscription:
+    # The creator is a member of the team's org when they make the subscription — the credit-limit
+    # notice is gated on that membership, so tests asserting the email send need it to hold.
+    OrganizationMembership.objects.get_or_create(organization_id=team.organization_id, user=user)
+    return create_subscription(
+        team=team,
+        created_by=user,
+        prompt="Top events",
+        title="AI report",
+        target_type=target_type,
+        target_value=target_value,
+    )
+
+
+@sync_to_async
+def _create_ai_delivery(subscription: Subscription, *, report: str | None = None) -> SubscriptionDelivery:
+    return SubscriptionDelivery.objects.create(
+        subscription=subscription,
+        team=subscription.team,
+        temporal_workflow_id="wf-test",
+        idempotency_key=str(uuid.uuid4()),
+        trigger_type="scheduled",
+        target_type=subscription.target_type,
+        target_value=subscription.target_value,
+        content_snapshot={"ai_report": report} if report is not None else {},
+    )
+
+
+@sync_to_async
+def _set_ai_consent(team, approved: bool) -> None:
+    org = team.organization
+    org.is_ai_data_processing_approved = approved
+    org.save(update_fields=["is_ai_data_processing_approved"])
+
+
+@sync_to_async
+def _set_org_usage(team, usage) -> None:
+    org = team.organization
+    org.usage = usage
+    org.save(update_fields=["usage"])
+
+
+def _ai_delivery_inputs(subscription_id: int, delivery_id) -> DeliverSubscriptionInputs:
+    return DeliverSubscriptionInputs(
+        subscription_id=subscription_id, exported_asset_ids=[], total_insight_count=0, delivery_id=delivery_id
+    )
+
+
+async def test_generate_ai_report_consent_revoked_aborts_and_auto_disables(team, user):
+    await _set_ai_consent(team, False)
+    sub = await _create_ai_subscription(team, user)
+    delivery = await _create_ai_delivery(sub)
+
+    with patch("ee.tasks.subscriptions.auto_disable.send_notifications_for_disabled_subscription"):
+        result = await ActivityEnvironment().run(
+            generate_ai_subscription_report, GenerateAIReportInputs(subscription_id=sub.id, delivery_id=delivery.id)
+        )
+
+    assert result.aborted is True
+    error = result.recipient_results[0].error
+    assert error is not None and error["type"] == AI_CONSENT_REVOKED_DISABLE_REASON.key
+    await sync_to_async(sub.refresh_from_db)()
+    assert sub.enabled is False
+
+
+async def test_generate_ai_report_prompt_rejected_aborts_and_auto_disables(team, user):
+    await _set_ai_consent(team, True)
+    sub = await _create_ai_subscription(team, user)
+    delivery = await _create_ai_delivery(sub)
+
+    with (
+        patch(_GENERATE_REPORT, side_effect=PromptRejectedError("Prompt is empty.")),
+        patch("ee.tasks.subscriptions.auto_disable.send_notifications_for_disabled_subscription"),
+    ):
+        result = await ActivityEnvironment().run(
+            generate_ai_subscription_report, GenerateAIReportInputs(subscription_id=sub.id, delivery_id=delivery.id)
+        )
+
+    assert result.aborted is True
+    # The PromptRejectedError detail must reach the delivery record, not be swallowed.
+    assert any(r.error and r.error.get("type") == "PromptRejectedError" for r in result.recipient_results), (
+        "prompt-rejected abort must carry the rejection detail in recipient_results"
+    )
+    await sync_to_async(sub.refresh_from_db)()
+    assert sub.enabled is False
+
+
+async def test_generate_ai_report_persists_report_for_delivery(team, user):
+    await _set_ai_consent(team, True)
+    sub = await _create_ai_subscription(team, user)
+    delivery = await _create_ai_delivery(sub)
+
+    with patch(
+        _GENERATE_REPORT,
+        return_value=AiReportResult(markdown="# Report", diagnostics=(), window_end_utc="2026-06-25T12:00:00+00:00"),
+    ):
+        result = await ActivityEnvironment().run(
+            generate_ai_subscription_report, GenerateAIReportInputs(subscription_id=sub.id, delivery_id=delivery.id)
+        )
+
+    assert result.aborted is False
+    # The report is handed to delivery via the row, not the activity return value.
+    refreshed = await sync_to_async(SubscriptionDelivery.objects.get)(pk=delivery.id)
+    assert refreshed.content_snapshot["ai_report"] == "# Report"
+
+
+async def test_deliver_ai_subscription_sends_persisted_report_to_email(team, user):
+    sub = await _create_ai_subscription(team, user)
+    delivery = await _create_ai_delivery(sub, report="# Report")
+
+    with patch(
+        "products.exports.backend.temporal.subscriptions.ai_subscription.activities.send_email_ai_subscription_report"
+    ) as mock_send:
+        result = await ActivityEnvironment().run(deliver_subscription, _ai_delivery_inputs(sub.id, delivery.id))
+
+    mock_send.assert_called_once()
+    assert mock_send.call_args.kwargs["markdown"] == "# Report"
+    assert result.recipient_results[0].status == "success"
+
+
+async def test_deliver_ai_subscription_missing_slack_integration_auto_disables(team, user):
+    sub = await _create_ai_subscription(team, user, target_type="slack", target_value="C123|#channel")
+    delivery = await _create_ai_delivery(sub, report="# Report")
+
+    with (
+        patch(
+            "products.exports.backend.temporal.subscriptions.delivery_common.get_slack_integration_for_team",
+            return_value=None,
+        ),
+        patch("ee.tasks.subscriptions.auto_disable.send_notifications_for_disabled_subscription"),
+    ):
+        result = await ActivityEnvironment().run(deliver_subscription, _ai_delivery_inputs(sub.id, delivery.id))
+
+    error = result.recipient_results[0].error
+    assert error is not None and error["type"] == SLACK_DISCONNECTED_DISABLE_REASON.key
+    await sync_to_async(sub.refresh_from_db)()
+    assert sub.enabled is False
+
+
+async def test_deliver_ai_subscription_missing_report_raises_for_retry(team, user):
+    # Generation persists the report before delivery is scheduled; a missing report
+    # means the row was lost, so delivery must fail loudly rather than send an empty report.
+    sub = await _create_ai_subscription(team, user)
+    delivery = await _create_ai_delivery(sub, report=None)
+
+    with pytest.raises(ApplicationError) as exc_info:
+        await ActivityEnvironment().run(deliver_subscription, _ai_delivery_inputs(sub.id, delivery.id))
+    # Non-retryable is the load-bearing behavior: re-running delivery can't regenerate the
+    # report, so Temporal must not retry.
+    assert exc_info.value.non_retryable is True
+
+
+async def test_deliver_ai_subscription_without_delivery_id_raises(team, user):
+    # The AI workflow always creates the delivery row before delivery; a None reference is
+    # a wiring bug, so it must fail rather than silently no-op.
+    sub = await _create_ai_subscription(team, user)
+
+    with pytest.raises(ApplicationError) as exc_info:
+        await ActivityEnvironment().run(deliver_subscription, _ai_delivery_inputs(sub.id, None))
+    assert exc_info.value.non_retryable is True
+
+
+async def test_generate_ai_report_skips_regeneration_when_already_persisted(team, user):
+    # Idempotency on Temporal redispatch: a prior attempt already wrote the report, so the
+    # LLM pipeline must not run again (no re-bill).
+    await _set_ai_consent(team, True)
+    sub = await _create_ai_subscription(team, user)
+    delivery = await _create_ai_delivery(sub, report="# Already here")
+
+    with patch(_GENERATE_REPORT) as mock_generate:
+        result = await ActivityEnvironment().run(
+            generate_ai_subscription_report, GenerateAIReportInputs(subscription_id=sub.id, delivery_id=delivery.id)
+        )
+
+    assert result.aborted is False
+    mock_generate.assert_not_called()
+
+
+async def test_generate_ai_report_skips_when_over_credit_budget(team, user):
+    # Over budget on a cache miss → skip generation (no LLM spend), reschedule, notify once.
+    # Far-future period end so the synced-period reschedule is exercised regardless of when this runs.
+    await _set_ai_consent(team, True)
+    await _set_org_usage(team, {"period": ["2025-01-01T00:00:00Z", "2099-02-01T00:00:00Z"]})
+    sub = await _create_ai_subscription(team, user)
+    delivery = await _create_ai_delivery(sub)
+
+    with (
+        patch(_IS_OVER_BUDGET, return_value=True),
+        patch(_GENERATE_REPORT) as mock_generate,
+        patch(_CREDIT_LIMITED_EMAIL) as mock_email,
+    ):
+        result = await ActivityEnvironment().run(
+            generate_ai_subscription_report, GenerateAIReportInputs(subscription_id=sub.id, delivery_id=delivery.id)
+        )
+
+    assert result.skipped is True
+    assert result.aborted is False
+    mock_generate.assert_not_called()  # no LLM tokens spent while over budget
+    mock_email.return_value.send.assert_called_once()  # owner notified once
+    await sync_to_async(sub.refresh_from_db)()
+    assert sub.enabled is True, "an over-budget sub stays enabled — it resumes when credits reset"
+    assert sub.next_delivery_date == datetime(2099, 2, 1, tzinfo=ZoneInfo("UTC"))
+
+
+async def test_generate_ai_report_credit_check_fails_open(team, user):
+    # A quota-lookup error must not drop a deliverable report — fail open and generate.
+    await _set_ai_consent(team, True)
+    sub = await _create_ai_subscription(team, user)
+    delivery = await _create_ai_delivery(sub)
+
+    with (
+        patch(_IS_OVER_BUDGET, side_effect=RuntimeError("quota cache unavailable")),
+        patch(
+            _GENERATE_REPORT,
+            return_value=AiReportResult(
+                markdown="# Report", diagnostics=(), window_end_utc="2026-06-25T12:00:00+00:00"
+            ),
+        ) as mock_generate,
+    ):
+        result = await ActivityEnvironment().run(
+            generate_ai_subscription_report, GenerateAIReportInputs(subscription_id=sub.id, delivery_id=delivery.id)
+        )
+
+    assert result.skipped is False and result.aborted is False
+    mock_generate.assert_called_once()
+    refreshed = await sync_to_async(SubscriptionDelivery.objects.get)(pk=delivery.id)
+    assert refreshed.content_snapshot["ai_report"] == "# Report"
+
+
+async def test_generate_ai_report_already_generated_bypasses_credit_gate(team, user):
+    # A report already on the row (tokens spent on a prior attempt) ships even when over budget —
+    # the idempotency check returns before the gate, so the budget is never consulted.
+    await _set_ai_consent(team, True)
+    sub = await _create_ai_subscription(team, user)
+    delivery = await _create_ai_delivery(sub, report="# Cached")
+
+    with (
+        patch(_IS_OVER_BUDGET, return_value=True) as mock_over_budget,
+        patch(_GENERATE_REPORT) as mock_generate,
+    ):
+        result = await ActivityEnvironment().run(
+            generate_ai_subscription_report, GenerateAIReportInputs(subscription_id=sub.id, delivery_id=delivery.id)
+        )
+
+    assert result.aborted is False and result.skipped is False
+    mock_generate.assert_not_called()  # idempotency: no re-bill
+    mock_over_budget.assert_not_called()  # gate bypassed entirely on an already-generated report
+
+
+@pytest.mark.parametrize(
+    "usage",
+    [
+        None,
+        {"period": []},
+        {"period": ["2025-01-01T00:00:00Z", None]},
+        {"period": ["2025-01-01T00:00:00Z", "not-a-date"]},
+    ],
+)
+async def test_ai_credit_reset_date_falls_back_on_bad_billing_period(team, user, usage):
+    await _set_org_usage(team, usage)
+    sub = await _create_ai_subscription(team, user)
+
+    reset_date = await sync_to_async(_ai_credit_reset_date)(sub)
+
+    # Bad/missing period → fallback reschedules ~one billing cycle out, not just "some future date".
+    expected = timezone.now() + timedelta(days=_CREDIT_RESET_FALLBACK_DAYS)
+    assert abs((reset_date - expected).total_seconds()) < 60
+
+
+async def test_ai_credit_reset_date_uses_synced_period_end_not_fallback(team, user):
+    # A real synced period ending in 10 days postpones to that cycle end — we wait only until
+    # credits actually reset, never the full 31-day fallback when the true reset is sooner.
+    period_end = timezone.now() + timedelta(days=10)
+    await _set_org_usage(team, {"period": ["2025-01-01T00:00:00Z", period_end.isoformat()]})
+    sub = await _create_ai_subscription(team, user)
+
+    reset_date = await sync_to_async(_ai_credit_reset_date)(sub)
+
+    assert reset_date == period_end
+    assert reset_date < timezone.now() + timedelta(days=_CREDIT_RESET_FALLBACK_DAYS)
+
+
+async def test_ai_credit_reset_date_falls_back_when_period_already_elapsed(team, user):
+    # A rolled-over-but-not-yet-synced period leaves period[1] in the past; promising a reset "on a
+    # past date" would re-fire every tick and email stale dates, so we fall back to ~one cycle out.
+    await _set_org_usage(team, {"period": ["2024-01-01T00:00:00Z", "2024-02-01T00:00:00Z"]})
+    sub = await _create_ai_subscription(team, user)
+
+    reset_date = await sync_to_async(_ai_credit_reset_date)(sub)
+
+    expected = timezone.now() + timedelta(days=_CREDIT_RESET_FALLBACK_DAYS)
+    assert reset_date > timezone.now()
+    assert abs((reset_date - expected).total_seconds()) < 60
+
+
+async def test_skip_helper_reschedules_past_credit_reset_and_emails_owner(team, user):
+    # Far-future period end so the synced-period path is exercised regardless of when this runs.
+    await _set_org_usage(team, {"period": ["2025-01-01T00:00:00Z", "2099-02-01T00:00:00Z"]})
+    sub = await _create_ai_subscription(team, user)
+
+    with patch(_CREDIT_LIMITED_EMAIL) as mock_email:
+        reset_date = await sync_to_async(_skip_ai_delivery_over_credit_limit_sync)(sub)
+
+    assert reset_date == datetime(2099, 2, 1, tzinfo=ZoneInfo("UTC"))
+    await sync_to_async(sub.refresh_from_db)()
+    assert sub.next_delivery_date == datetime(2099, 2, 1, tzinfo=ZoneInfo("UTC"))
+    assert sub.enabled, "an over-limit sub stays enabled — it resumes when credits reset"
+    mock_email.return_value.send.assert_called_once()
+    # campaign_key carries sub id + billing-period date so MessagingRecord dedups to one notice per cycle.
+    campaign_key = mock_email.call_args.kwargs["campaign_key"]
+    assert str(sub.id) in campaign_key
+    assert "2099-02-01" in campaign_key
+
+
+async def test_skip_helper_no_owner_reschedules_without_emailing(team, user):
+    await _set_org_usage(team, {"period": ["2025-01-01T00:00:00Z", "2099-02-01T00:00:00Z"]})
+    sub = await _create_ai_subscription(team, user)
+    sub.created_by = None
+    await sync_to_async(sub.save)(update_fields=["created_by"])
+
+    with patch(_CREDIT_LIMITED_EMAIL) as mock_email:
+        reset_date = await sync_to_async(_skip_ai_delivery_over_credit_limit_sync)(sub)
+
+    assert reset_date == datetime(2099, 2, 1, tzinfo=ZoneInfo("UTC"))
+    await sync_to_async(sub.refresh_from_db)()
+    assert sub.next_delivery_date == datetime(2099, 2, 1, tzinfo=ZoneInfo("UTC"))
+    mock_email.assert_not_called()
+
+
+async def test_skip_helper_no_email_when_creator_left_org(team, user):
+    # The creator was removed from the org after making the sub — don't email a former member their
+    # old org's billing status (it leaks outside the org). Still reschedules; org learns via billing.
+    await _set_org_usage(team, {"period": ["2025-01-01T00:00:00Z", "2099-02-01T00:00:00Z"]})
+    sub = await _create_ai_subscription(team, user)
+    await sync_to_async(OrganizationMembership.objects.filter(organization_id=team.organization_id, user=user).delete)()
+
+    with patch(_CREDIT_LIMITED_EMAIL) as mock_email:
+        reset_date = await sync_to_async(_skip_ai_delivery_over_credit_limit_sync)(sub)
+
+    assert reset_date == datetime(2099, 2, 1, tzinfo=ZoneInfo("UTC"))
+    await sync_to_async(sub.refresh_from_db)()
+    assert sub.next_delivery_date == datetime(2099, 2, 1, tzinfo=ZoneInfo("UTC")), "still reschedules past reset"
+    mock_email.assert_not_called()
+
+
+async def test_skip_helper_falls_back_when_billing_period_unsynced(team, user):
+    # No synced usage → reschedule roughly a cycle out so the sub still moves forward.
+    await _set_org_usage(team, None)
+    sub = await _create_ai_subscription(team, user)
+
+    with patch(_CREDIT_LIMITED_EMAIL) as mock_email:
+        reset_date = await sync_to_async(_skip_ai_delivery_over_credit_limit_sync)(sub)
+
+    assert reset_date > timezone.now()
+    await sync_to_async(sub.refresh_from_db)()
+    assert sub.next_delivery_date is not None and sub.next_delivery_date > timezone.now()
+    # Owner still gets the one-per-cycle notice on the fallback path, keyed on the fallback date.
+    mock_email.return_value.send.assert_called_once()
+    assert reset_date.date().isoformat() in mock_email.call_args.kwargs["campaign_key"]
+
+
+@patch("posthog.slo.events.posthoganalytics")
+@patch("ee.tasks.subscriptions.get_metric_meter")
+@patch(_CREDIT_LIMITED_EMAIL)
+@patch("products.exports.backend.temporal.subscriptions.ai_subscription.activities.send_email_ai_subscription_report")
+@patch(_GENERATE_REPORT)
+@patch(_IS_OVER_BUDGET, return_value=True)
+@freeze_time("2022-02-02T08:55:00.000Z")
+@pytest.mark.asyncio
+async def test_schedule_ai_subscription_over_credit_budget_lands_skipped(
+    mock_over_budget: MagicMock,
+    mock_generate: MagicMock,
+    mock_send_report: MagicMock,
+    mock_credit_email: MagicMock,
+    mock_metric_meter: MagicMock,
+    mock_analytics: MagicMock,
+    temporal_client: Client,
+    team,
+    user,
+):
+    # End-to-end: an over-budget AI sub lands SKIPPED (not FAILED — it isn't broken) without
+    # spending LLM tokens, and stays enabled so it resumes when credits reset. Proves the
+    # generate-phase skip signal wires through to the workflow's SKIPPED status.
+    await _set_ai_consent(team, True)
+    await _set_org_usage(team, {"period": ["2022-01-01T00:00:00Z", "2099-02-01T00:00:00Z"]})
+    sub = await _create_ai_subscription(team, user)
+    await sync_to_async(Subscription.objects.filter(pk=sub.id).update)(
+        next_delivery_date=datetime(2022, 2, 2, 8, 0, tzinfo=ZoneInfo("UTC"))
+    )
+
+    async with await WorkflowEnvironment.start_time_skipping() as env:
+        async with Worker(
+            env.client,
+            task_queue=settings.TEMPORAL_TASK_QUEUE,
+            workflows=[ScheduleAllSubscriptionsWorkflow, ProcessSubscriptionWorkflow, ProcessAISubscriptionWorkflow],
+            activities=SUBSCRIPTION_SCHEDULE_ACTIVITIES,
+            interceptors=[SloInterceptor()],
+            workflow_runner=UnsandboxedWorkflowRunner(),
+            activity_executor=ThreadPoolExecutor(max_workers=50),
+            debug_mode=True,
+        ):
+            await env.client.execute_workflow(
+                ScheduleAllSubscriptionsWorkflow.run,
+                ScheduleAllSubscriptionsWorkflowInputs(),
+                id=str(uuid.uuid4()),
+                task_queue=settings.TEMPORAL_TASK_QUEUE,
+            )
+
+    mock_generate.assert_not_called()  # no LLM spend while over budget
+    mock_send_report.assert_not_called()  # delivery skipped
+    delivery = await sync_to_async(SubscriptionDelivery.objects.filter(subscription=sub).latest)("created_at")
+    assert delivery.status == SubscriptionDelivery.Status.SKIPPED
+    await sync_to_async(sub.refresh_from_db)()
+    assert sub.enabled is True
+
+
+@patch("posthog.slo.events.posthoganalytics")
+@patch("ee.tasks.subscriptions.get_metric_meter")
+@patch("products.exports.backend.temporal.subscriptions.ai_subscription.activities.send_email_ai_subscription_report")
+@patch(
+    "products.exports.backend.temporal.subscriptions.ai_subscription.activities.build_ai_subscription_report",
+    return_value=AiReportResult(markdown="# AI Report", diagnostics=(), window_end_utc="2026-06-25T12:00:00+00:00"),
+)
+@freeze_time("2022-02-02T08:55:00.000Z")
+@pytest.mark.asyncio
+async def test_schedule_routes_ai_subscription_through_full_workflow(
+    mock_generate: MagicMock,
+    mock_send_email: MagicMock,
+    mock_metric_meter: MagicMock,
+    mock_analytics: MagicMock,
+    temporal_client: Client,
+    team,
+    user,
+):
+    # End-to-end: the scheduler fans a due AI sub out to ProcessAISubscriptionWorkflow,
+    # which runs create-record -> validate -> generate (persist) -> deliver -> finalize.
+    # Activity-level tests don't catch wrong activity sequencing / input wiring; this does.
+    sub = await _create_ai_subscription(team, user)
+    await sync_to_async(Subscription.objects.filter(pk=sub.id).update)(
+        next_delivery_date=datetime(2022, 2, 2, 8, 0, tzinfo=ZoneInfo("UTC"))
+    )
+
+    async with await WorkflowEnvironment.start_time_skipping() as env:
+        async with Worker(
+            env.client,
+            task_queue=settings.TEMPORAL_TASK_QUEUE,
+            workflows=[ScheduleAllSubscriptionsWorkflow, ProcessSubscriptionWorkflow, ProcessAISubscriptionWorkflow],
+            activities=SUBSCRIPTION_SCHEDULE_ACTIVITIES,
+            interceptors=[SloInterceptor()],
+            workflow_runner=UnsandboxedWorkflowRunner(),
+            activity_executor=ThreadPoolExecutor(max_workers=50),
+            debug_mode=True,
+        ):
+            await env.client.execute_workflow(
+                ScheduleAllSubscriptionsWorkflow.run,
+                ScheduleAllSubscriptionsWorkflowInputs(),
+                id=str(uuid.uuid4()),
+                task_queue=settings.TEMPORAL_TASK_QUEUE,
+            )
+
+    # The LLM ran once, the report was shipped, and the delivery record landed COMPLETED.
+    mock_generate.assert_called_once()
+    mock_send_email.assert_called_once()
+    assert mock_send_email.call_args.kwargs["markdown"] == "# AI Report"
+    delivery = await sync_to_async(SubscriptionDelivery.objects.filter(subscription=sub).latest)("created_at")
+    assert delivery.status == SubscriptionDelivery.Status.COMPLETED
+
+
+async def test_fetch_due_subscriptions_includes_ai_with_resource_type(team, user):
+    sub = await _create_ai_subscription(team, user)
+    # `Subscription.save` recomputes next_delivery_date from the rrule, so write a past
+    # value via `.update()` to make it due.
+    await sync_to_async(Subscription.objects.filter(pk=sub.id).update)(
+        next_delivery_date=datetime(2020, 1, 1, tzinfo=ZoneInfo("UTC"))
+    )
+
+    fetched = await ActivityEnvironment().run(
+        fetch_due_subscriptions_activity, FetchDueSubscriptionsActivityInputs(buffer_minutes=15)
+    )
+
+    match = next((s for s in fetched if s.subscription_id == sub.id), None)
+    assert match is not None, "due AI subscription must be picked up by the shared scheduler fetch"
+    assert match.resource_type == Subscription.ResourceType.AI_PROMPT

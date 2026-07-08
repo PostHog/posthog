@@ -1,13 +1,16 @@
 import { useActions, useValues } from 'kea'
+import { useMemo } from 'react'
+
+import { Spinner } from '@posthog/lemon-ui'
 
 import { DateFilter } from 'lib/components/DateFilter/DateFilter'
 
-import { Query } from '~/queries/Query/Query'
 import { InsightVizNode, NodeKind, ProductKey, TrendsQuery } from '~/queries/schema/schema-general'
 import {
     AnyPropertyFilter,
     BaseMathType,
     ChartDisplayType,
+    InsightLogicProps,
     PropertyFilterType,
     PropertyMathType,
     PropertyOperator,
@@ -15,6 +18,7 @@ import {
 
 import { replayScannerLogic } from '../replayScannerLogic'
 import { ScannerType } from '../types'
+import { VisionInsightChart } from './VisionInsightChart'
 
 const RECORDING_OBSERVED_EVENT = '$recording_observed'
 const COLLECTION_ID = 'replay-vision-scanner-insights'
@@ -63,7 +67,10 @@ function buildQuery(
                     properties: [base],
                 },
             ],
-            trendsFilter: { display: ChartDisplayType.ActionsLineGraph, formula: 'A / B * 100' },
+            trendsFilter: {
+                display: ChartDisplayType.ActionsLineGraph,
+                formulaNodes: [{ formula: 'A / B * 100', custom_name: 'Yes rate' }],
+            },
             dateRange,
             interval: 'day',
         }
@@ -92,20 +99,19 @@ function buildQuery(
         }
     }
     if (scannerType === 'scorer') {
-        const scoreSeries = (math: PropertyMathType, name: string): TrendsQuery['series'][number] => ({
+        const scoreSeries = (math: PropertyMathType): TrendsQuery['series'][number] => ({
             kind: NodeKind.EventsNode,
             event: RECORDING_OBSERVED_EVENT,
             math,
             math_property: 'scanner_output_score',
-            name,
             properties: [base],
         })
         return {
             kind: NodeKind.TrendsQuery,
             series: [
-                scoreSeries(PropertyMathType.Median, 'p50'),
-                scoreSeries(PropertyMathType.P90, 'p90'),
-                scoreSeries(PropertyMathType.Average, 'avg'),
+                scoreSeries(PropertyMathType.Median),
+                scoreSeries(PropertyMathType.P90),
+                scoreSeries(PropertyMathType.Average),
             ],
             trendsFilter: { display: ChartDisplayType.ActionsLineGraph },
             dateRange,
@@ -145,43 +151,59 @@ function chartTitle(scannerType: ScannerType): string {
 export function ScannerInsightsChart({
     scannerId,
     scannerType,
-    tabId,
 }: {
     scannerId: string
     scannerType: ScannerType
-    tabId: string
 }): JSX.Element {
-    const { chartDateFrom, chartDateTo } = useValues(replayScannerLogic({ id: scannerId, tabId }))
-    const { setChartDateRange } = useActions(replayScannerLogic({ id: scannerId, tabId }))
+    const { chartDateFrom, chartDateTo, coverageStats, observationStatsApiLoading } = useValues(
+        replayScannerLogic({ id: scannerId })
+    )
+    const { setChartDateRange } = useActions(replayScannerLogic({ id: scannerId }))
+    // Memoized so a re-render (e.g. stats arriving) can't churn the query and abort an in-flight load.
     // `tags.productKey` is required for ClickHouse query tagging; without it the runner aborts.
-    const source: TrendsQuery = {
-        ...buildQuery(scannerId, scannerType, chartDateFrom, chartDateTo),
-        tags: { productKey: ProductKey.REPLAY_VISION },
-    }
+    const chartQuery = useMemo<InsightVizNode>(
+        () => ({
+            kind: NodeKind.InsightVizNode,
+            source: {
+                ...buildQuery(scannerId, scannerType, chartDateFrom, chartDateTo),
+                tags: { productKey: ProductKey.REPLAY_VISION },
+            },
+        }),
+        [scannerId, scannerType, chartDateFrom, chartDateTo]
+    )
+    const chartInsightProps = useMemo<InsightLogicProps>(
+        () => ({
+            dashboardItemId: `new-replay-vision-scanner-${scannerId}-chart`,
+            dataNodeCollectionId: COLLECTION_ID,
+        }),
+        [scannerId]
+    )
     return (
         <div className="border rounded p-4 bg-surface-primary space-y-3">
             <div className="flex items-baseline justify-between gap-2">
-                <span className="text-sm font-medium">{chartTitle(scannerType)}</span>
+                <div>
+                    <div className="text-sm font-medium">{chartTitle(scannerType)}</div>
+                    {coverageStats.totalSessions > 0 ? (
+                        <div className="text-xs text-muted tabular-nums mt-0.5">
+                            Scanned <span className="font-semibold text-default">{coverageStats.recentSessions}</span>{' '}
+                            session
+                            {coverageStats.recentSessions === 1 ? '' : 's'} in the last {coverageStats.recentDays} day
+                            {coverageStats.recentDays === 1 ? '' : 's'} ·{' '}
+                            <span className="font-semibold text-default">{coverageStats.totalSessions}</span> total
+                        </div>
+                    ) : observationStatsApiLoading ? (
+                        <div className="text-xs text-muted mt-0.5 flex items-center gap-1.5">
+                            <Spinner /> Loading coverage…
+                        </div>
+                    ) : null}
+                </div>
                 <DateFilter
                     dateFrom={chartDateFrom}
                     dateTo={chartDateTo}
                     onChange={(from, to) => setChartDateRange(from ?? null, to ?? null)}
                 />
             </div>
-            <div className="InsightCard h-80">
-                <Query
-                    query={{ kind: NodeKind.InsightVizNode, source } as InsightVizNode}
-                    readOnly
-                    embedded
-                    inSharedMode
-                    context={{
-                        insightProps: {
-                            dashboardItemId: `new-replay-vision-scanner-${scannerId}-chart`,
-                            dataNodeCollectionId: COLLECTION_ID,
-                        },
-                    }}
-                />
-            </div>
+            <VisionInsightChart query={chartQuery} insightProps={chartInsightProps} className="InsightCard h-80" />
         </div>
     )
 }

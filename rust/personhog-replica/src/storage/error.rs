@@ -13,6 +13,14 @@ pub enum StorageError {
     /// Connection pool exhausted or closed
     #[error("Database pool exhausted")]
     PoolExhausted,
+
+    /// Resource not found (e.g. person, distinct_id)
+    #[error("Not found: {0}")]
+    NotFound(String),
+
+    /// Operation precondition violated (e.g. concurrent modification)
+    #[error("Failed precondition: {0}")]
+    FailedPrecondition(String),
 }
 
 impl Clone for StorageError {
@@ -21,6 +29,8 @@ impl Clone for StorageError {
             Self::Connection(msg) => Self::Connection(msg.clone()),
             Self::Query(msg) => Self::Query(msg.clone()),
             Self::PoolExhausted => Self::PoolExhausted,
+            Self::NotFound(msg) => Self::NotFound(msg.clone()),
+            Self::FailedPrecondition(msg) => Self::FailedPrecondition(msg.clone()),
         }
     }
 }

@@ -1,0 +1,29 @@
+# Flat type-discriminated agent-item stream (OpenAI Agents SDK and similar):
+# {type: message, role, content}, {type: tool_call, callId, name, arguments},
+# {type: tool_result, callId, name, output}. Items arrive as array elements that
+# the dispatcher flattens, so each is matched here on its own. Without these,
+# tool_call / tool_result items match nothing and fall to the catch-all stringify.
+
+id: typed_agent_items
+
+rules:
+    - on:
+          type: tool_call
+          callId: { is: string }
+          name: { is: string }
+      emit:
+          role: assistant
+          content: ''
+          toolCall:
+              id: $.callId
+              name: $.name
+              args: $.arguments
+
+    - on:
+          type: tool_result
+          callId: { is: string }
+      emit:
+          role: tool
+          content:
+              stringify: $.output
+          toolCallId: $.callId

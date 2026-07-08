@@ -30,7 +30,7 @@ def time_sliced_results(
     order_by_earliest: bool,
     make_runner: Callable[[DateRange], TimeSliceableRunner],
     analytics_props: Any = None,
-) -> Generator[Any, None, None]:
+) -> Generator[Any]:
     """
     A generator that yields results by splitting the query into progressive time slices.
 

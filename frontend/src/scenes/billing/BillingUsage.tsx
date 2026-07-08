@@ -11,8 +11,9 @@ import { RestrictionScope, useRestrictedArea } from 'lib/components/RestrictedAr
 import { LemonInputSelect } from 'lib/lemon-ui/LemonInputSelect/LemonInputSelect'
 import { LemonLabel } from 'lib/lemon-ui/LemonLabel/LemonLabel'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
+import { getAccessControlDisabledReason } from 'lib/utils/accessControlUtils'
 
-import { ExporterFormat } from '~/types'
+import { AccessControlLevel, AccessControlResourceType, ExporterFormat } from '~/types'
 
 import { buildBillingCsv } from './billing-utils'
 import { BillingDataTable } from './BillingDataTable'
@@ -62,6 +63,12 @@ export function BillingUsage(): JSX.Element {
     if (restrictionReason) {
         return <BillingNoAccess title="Usage" reason={restrictionReason} />
     }
+
+    // Creating an export requires editor access to the export resource.
+    const exportAccessControlDisabledReason = getAccessControlDisabledReason(
+        AccessControlResourceType.Export,
+        AccessControlLevel.Editor
+    )
 
     const onExportCsv = (): void => {
         const csv = buildBillingCsv({
@@ -188,7 +195,12 @@ export function BillingUsage(): JSX.Element {
                                 Clear filters
                             </LemonButton>
                             {showSeries && (
-                                <LemonButton type="secondary" size="medium" onClick={onExportCsv}>
+                                <LemonButton
+                                    type="secondary"
+                                    size="medium"
+                                    onClick={onExportCsv}
+                                    disabledReason={exportAccessControlDisabledReason ?? undefined}
+                                >
                                     Export CSV
                                 </LemonButton>
                             )}

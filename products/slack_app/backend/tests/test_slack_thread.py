@@ -42,7 +42,9 @@ class TestSlackThreadHandler(TestCase):
         )
         handler = SlackThreadHandler(context)
 
-        handler.post_or_update_progress("In progress...", task_url="posthog-code://task/abc/run/xyz")
+        handler.post_or_update_progress(
+            "In progress...", task_url="https://us.posthog.com/project/1/tasks/abc?runId=xyz"
+        )
 
         mock_client.chat_postMessage.assert_called_once()
         blocks = mock_client.chat_postMessage.call_args.kwargs["blocks"]
@@ -50,6 +52,7 @@ class TestSlackThreadHandler(TestCase):
 
         assert len(actions) == 1
         assert actions[0]["text"]["text"] == "View agent logs"
+        assert actions[0]["url"] == "https://us.posthog.com/project/1/tasks/abc?runId=xyz"
 
     @patch.object(SlackThreadHandler, "_find_progress_message_ts", return_value="1234.9999")
     @patch.object(SlackThreadHandler, "_get_client")
@@ -84,7 +87,7 @@ class TestSlackThreadHandler(TestCase):
         mock_client.chat_delete.assert_not_called()
 
     @patch.object(SlackThreadHandler, "_get_client")
-    def test_update_reaction_removes_seedling_and_eyes(self, mock_get_client):
+    def test_update_reaction_removes_eyes_then_adds_new(self, mock_get_client):
         mock_client = MagicMock()
         mock_get_client.return_value = mock_client
 
@@ -98,9 +101,8 @@ class TestSlackThreadHandler(TestCase):
         handler.update_reaction("hedgehog")
 
         remove_calls = mock_client.reactions_remove.call_args_list
-        assert len(remove_calls) == 2
-        assert remove_calls[0].kwargs["name"] == "seedling"
-        assert remove_calls[1].kwargs["name"] == "eyes"
+        assert len(remove_calls) == 1
+        assert remove_calls[0].kwargs["name"] == "eyes"
         mock_client.reactions_add.assert_called_once_with(channel="C001", timestamp="1234.5678", name="hedgehog")
 
     @patch.object(SlackThreadHandler, "_get_client")
@@ -125,7 +127,7 @@ class TestSlackThreadHandler(TestCase):
         assert "Pull request opened" in kwargs["text"]
         actions = kwargs["blocks"][1]["elements"]
         assert actions[0]["text"]["text"] == "View PR"
-        assert actions[1]["text"]["text"] == "Open in PostHog Code"
+        assert actions[1]["text"]["text"] == "Open in PostHog"
 
     @patch.object(SlackThreadHandler, "_find_progress_message_ts", return_value=None)
     @patch.object(SlackThreadHandler, "_get_client")
@@ -190,22 +192,7 @@ class TestSlackThreadHandlerWithoutTaskUrl(TestCase):
 
     @patch.object(SlackThreadHandler, "delete_progress")
     @patch.object(SlackThreadHandler, "_get_client")
-    def test_post_pr_opened_sandbox_cleaned_without_task_url_keeps_pr_button(
-        self, mock_get_client, _mock_delete_progress
-    ):
-        mock_client = MagicMock()
-        mock_get_client.return_value = mock_client
-        handler = SlackThreadHandler(self._make_context())
-
-        handler.post_pr_opened_sandbox_cleaned("https://github.com/org/repo/pull/1", task_url=None)
-
-        mock_client.chat_postMessage.assert_called_once()
-        actions = _action_blocks(mock_client.chat_postMessage.call_args.kwargs)
-        assert len(actions) == 1
-        assert _button_texts(actions[0]) == ["View PR"]
-
-    @patch.object(SlackThreadHandler, "_get_client")
-    def test_post_pr_opened_without_task_url_keeps_pr_button(self, mock_get_client):
+    def test_post_pr_opened_without_task_url_keeps_pr_button(self, mock_get_client, _mock_delete_progress):
         mock_client = MagicMock()
         mock_get_client.return_value = mock_client
         handler = SlackThreadHandler(self._make_context())
@@ -219,26 +206,15 @@ class TestSlackThreadHandlerWithoutTaskUrl(TestCase):
 
     @patch.object(SlackThreadHandler, "delete_progress")
     @patch.object(SlackThreadHandler, "_get_client")
-    def test_post_completion_without_task_url_keeps_pr_button(self, mock_get_client, _mock_delete_progress):
+    def test_post_completion_without_task_url_drops_actions(self, mock_get_client, _mock_delete_progress):
+        # The PR-bearing completion case routes through ``post_pr_opened`` via
+        # the activity-level dedupe helper, so ``post_completion`` only handles
+        # the no-PR terminal state and never carries a View PR button.
         mock_client = MagicMock()
         mock_get_client.return_value = mock_client
         handler = SlackThreadHandler(self._make_context())
 
-        handler.post_completion("https://github.com/org/repo/pull/1", task_url=None)
-
-        mock_client.chat_postMessage.assert_called_once()
-        actions = _action_blocks(mock_client.chat_postMessage.call_args.kwargs)
-        assert len(actions) == 1
-        assert _button_texts(actions[0]) == ["View PR"]
-
-    @patch.object(SlackThreadHandler, "delete_progress")
-    @patch.object(SlackThreadHandler, "_get_client")
-    def test_post_completion_without_pr_or_task_url_drops_actions(self, mock_get_client, _mock_delete_progress):
-        mock_client = MagicMock()
-        mock_get_client.return_value = mock_client
-        handler = SlackThreadHandler(self._make_context())
-
-        handler.post_completion(pr_url=None, task_url=None)
+        handler.post_completion(task_url=None)
 
         mock_client.chat_postMessage.assert_called_once()
         assert _action_blocks(mock_client.chat_postMessage.call_args.kwargs) == []
@@ -269,3 +245,42 @@ class TestSlackThreadHandlerWithoutTaskUrl(TestCase):
 
         mock_client.chat_postMessage.assert_called_once()
         assert _action_blocks(mock_client.chat_postMessage.call_args.kwargs) == []
+
+
+class TestPostPrOpenedReplyTarget(TestCase):
+    """``post_pr_opened`` no longer owns the mention-target decision — the
+    caller resolves the Slack user id and passes it in. The handler just
+    embeds it (or omits the prefix entirely when it's ``None``).
+    """
+
+    def _context(self) -> SlackThreadContext:
+        return SlackThreadContext(integration_id=1, channel="C001", thread_ts="1.0")
+
+    @parameterized.expand(
+        [
+            ("explicit_actor_tags_them", "ULATEST", "<@ULATEST> *Pull request opened* :rocket:"),
+            ("none_means_no_tag", None, "*Pull request opened* :rocket:"),
+        ]
+    )
+    @patch.object(SlackThreadHandler, "delete_progress")
+    @patch.object(SlackThreadHandler, "_get_client")
+    def test_post_pr_opened_uses_caller_supplied_target(
+        self,
+        _name: str,
+        reply_target: str | None,
+        expected_text_start: str,
+        mock_get_client,
+        _mock_delete_progress,
+    ):
+        mock_client = MagicMock()
+        mock_get_client.return_value = mock_client
+        handler = SlackThreadHandler(self._context())
+
+        handler.post_pr_opened(
+            "https://github.com/org/repo/pull/1",
+            task_url=None,
+            reply_target_slack_user_id=reply_target,
+        )
+
+        kwargs = mock_client.chat_postMessage.call_args.kwargs
+        assert kwargs["text"].startswith(expected_text_start)

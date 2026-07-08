@@ -1,0 +1,23 @@
+{
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "properties": {
+        "feature_flag_key": {
+            "description": "Optional feature flag key to use in the destination team.",
+            "type": "string"
+        },
+        "id": {
+            "description": "A unique integer value identifying this experiment.",
+            "type": "number"
+        },
+        "name": {
+            "description": "Optional name for the copied experiment.",
+            "type": "string"
+        },
+        "target_team_id": {
+            "description": "The team ID to copy the experiment to.",
+            "type": "number"
+        }
+    },
+    "required": ["id", "target_team_id"],
+    "type": "object"
+}

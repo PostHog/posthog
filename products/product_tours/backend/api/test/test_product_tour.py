@@ -284,7 +284,7 @@ class TestProductTour(APIBaseTest):
         for name in tour_names:
             ProductTour.objects.create(team=self.team, name=name, content={"steps": []})
 
-        response = self.client.get(f"/api/projects/{self.team.id}/product_tours/?search={search}")
+        response = self.client.get(f"/api/projects/{self.team.id}/product_tours/", {"search": search})
         assert response.status_code == status.HTTP_200_OK
         result_names = [r["name"] for r in response.json()["results"]]
 
@@ -320,7 +320,7 @@ class TestProductTour(APIBaseTest):
         a = ProductTour.objects.create(team=self.team, name="Alpha", content={"steps": []})
         b = ProductTour.objects.create(team=self.team, name="Beta", content={"steps": []})
 
-        response = self.client.get(f"/api/projects/{self.team.id}/product_tours/?search={search}")
+        response = self.client.get(f"/api/projects/{self.team.id}/product_tours/", {"search": search})
         assert response.status_code == status.HTTP_200_OK
         result_ids = {r["id"] for r in response.json()["results"]}
 
@@ -358,6 +358,51 @@ class TestProductTour(APIBaseTest):
             body = response.json()
             assert body["attr"] == "search", f"expected error scoped to 'search', got {body}"
             assert "200 characters" in body["detail"], f"expected error detail to mention the cap, got {body['detail']}"
+
+    @parameterized.expand(
+        [
+            ("email in name", "alerts+ops@example.com", "alerts+ops@example.com"),
+            ("uuid in name", "run 1b9d6bcd-bbfd-4b2d-9b5d-ab8dfbbd4bed", "1b9d6bcd-bbfd-4b2d-9b5d-ab8dfbbd4bed"),
+            ("dotted identifier", "com.acme.billing tour", "com.acme.billing"),
+        ]
+    )
+    def test_list_filter_by_search_matches_literal_substring_below_trigram_threshold(self, _name, tour_name, search):
+        matching = ProductTour.objects.create(team=self.team, name=tour_name, content={"steps": []})
+        ProductTour.objects.create(team=self.team, name="Totally unrelated", content={"steps": []})
+
+        response = self.client.get(f"/api/projects/{self.team.id}/product_tours/", {"search": search})
+        assert response.status_code == status.HTTP_200_OK
+        results = response.json()["results"]
+
+        match_type_by_id = {r["id"]: r["search_match_type"] for r in results}
+        assert match_type_by_id.get(str(matching.id)) == "exact", (
+            "a literal substring must match and be labelled exact even when it scores below the trigram thresholds"
+        )
+        assert all(r["name"] != "Totally unrelated" for r in results)
+
+    def test_list_filter_by_search_hides_similar_matches_when_exact_matches_exist(self):
+        for name in ("onboarding tour", "tour for onboarding", "onbarding flow", "Engineering tour"):
+            ProductTour.objects.create(team=self.team, name=name, content={"steps": []})
+
+        response = self.client.get(f"/api/projects/{self.team.id}/product_tours/?search=onboarding")
+        assert response.status_code == status.HTTP_200_OK
+        results = response.json()["results"]
+
+        match_type_by_name = {r["name"]: r["search_match_type"] for r in results}
+        assert match_type_by_name == {
+            "onboarding tour": "exact",
+            "tour for onboarding": "exact",
+        }, "similar matches must be hidden when exact matches exist"
+
+    def test_list_filter_by_search_match_type_absent_without_search(self):
+        ProductTour.objects.create(team=self.team, name="Alpha", content={"steps": []})
+
+        response = self.client.get(f"/api/projects/{self.team.id}/product_tours/")
+        assert response.status_code == status.HTTP_200_OK
+        results = response.json()["results"]
+
+        assert results
+        assert all("search_match_type" not in r for r in results)
 
 
 class TestProductTourAnalyticsMetadata(APIBaseTest):

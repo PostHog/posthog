@@ -11,12 +11,13 @@ from posthog import event_usage
 from posthog.models import Team, User
 from posthog.sync import database_sync_to_async
 
+from products.posthog_ai.backend.models.assistant import Conversation
+
 from ee.hogai.chat_agent.stream_processor import ChatAgentStreamProcessor
 from ee.hogai.core.runner import BaseAgentRunner
 from ee.hogai.research_agent.graph import ResearchAgentGraph
 from ee.hogai.utils.types import AssistantOutput
 from ee.hogai.utils.types.base import AssistantNodeName, AssistantState, PartialAssistantState
-from ee.models import Conversation
 
 _tracer = trace.get_tracer(__name__)
 
@@ -109,7 +110,7 @@ class ResearchAgentRunner(BaseAgentRunner):
         stream_subgraphs: bool = True,
         stream_first_message: bool = True,
         stream_only_assistant_messages: bool = False,
-    ) -> AsyncGenerator[AssistantOutput, None]:
+    ) -> AsyncGenerator[AssistantOutput]:
         if self._user:
             with _tracer.start_as_current_span("posthoganalytics.capture"):
                 await database_sync_to_async(posthoganalytics.capture)(

@@ -1,6 +1,6 @@
 import { Page } from '@playwright/test'
 
-import { expect, test } from '../../utils/playwright-test-base'
+import { PlaywrightWorkspaceSetupResult, expect, test } from '../../utils/workspace-test-base'
 import { createMockBatchExport, MOCK_EXPORT_ID, setupBatchExportRoutes } from './batch-export-helpers'
 
 async function setupMetricsRoutes(page: Page): Promise<void> {
@@ -24,6 +24,16 @@ async function setupMetricsRoutes(page: Page): Promise<void> {
 }
 
 test.describe('Batch export metrics', () => {
+    let workspace: PlaywrightWorkspaceSetupResult | null = null
+
+    test.beforeAll(async ({ playwrightSetup }) => {
+        workspace = await playwrightSetup.createWorkspace({ skip_onboarding: true, no_demo_data: true })
+    })
+
+    test.beforeEach(async ({ page, playwrightSetup }) => {
+        await playwrightSetup.login(page, workspace!)
+    })
+
     test('Renders metrics content', async ({ page }) => {
         await setupMetricsRoutes(page)
 

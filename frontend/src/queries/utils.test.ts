@@ -13,6 +13,7 @@ import {
     convertDataTableNodeToDataVisualizationNode,
     escapeDottedHogQLIdentifier,
     escapeHogQLString,
+    escapePropertyAsHogQLIdentifier,
     hogql,
     supportsBarValueStacking,
 } from './utils'
@@ -20,8 +21,12 @@ import {
 window.POSTHOG_APP_CONTEXT = { current_team: { id: MOCK_TEAM_ID } } as unknown as AppContext
 
 describe('hogql tag', () => {
-    initKeaTests()
-    teamLogic.mount()
+    // In beforeEach (not describe scope): mounting at collection time fires the preflight
+    // load before the MSW harness's beforeAll has installed its fetch stub
+    beforeEach(() => {
+        initKeaTests()
+        teamLogic.mount()
+    })
 
     it('properly returns query with no substitutions', () => {
         expect(hogql`SELECT * FROM events`).toEqual('SELECT * FROM events')
@@ -98,6 +103,43 @@ describe('escapeHogQLString', () => {
         ['back\\slash', "'back\\\\slash'"],
     ])('escapes %s to %s', (input, expected) => {
         expect(escapeHogQLString(input)).toEqual(expected)
+    })
+})
+
+describe('escapePropertyAsHogQLIdentifier', () => {
+    it('leaves simple identifiers unquoted', () => {
+        expect(escapePropertyAsHogQLIdentifier('browser')).toEqual('browser')
+        expect(escapePropertyAsHogQLIdentifier('$browser')).toEqual('$browser')
+    })
+
+    it('double-quotes identifiers with special characters but no double quote', () => {
+        expect(escapePropertyAsHogQLIdentifier('order items')).toEqual('"order items"')
+    })
+
+    it('backtick-wraps identifiers containing a double quote', () => {
+        expect(escapePropertyAsHogQLIdentifier('a"b')).toEqual('`a"b`')
+    })
+
+    it('doubles inner backticks when an identifier has both a double quote and a backtick', () => {
+        // Backslash-escaping (`a"b\`c`) would be rejected by the HogQL parser; doubling round-trips.
+        expect(escapePropertyAsHogQLIdentifier('a"b`c')).toEqual('`a"b``c`')
+    })
+
+    it('escapes backslashes so they survive the parser instead of forming an escape sequence', () => {
+        expect(escapePropertyAsHogQLIdentifier('a\\b')).toEqual('"a\\\\b"')
+        expect(escapePropertyAsHogQLIdentifier('end\\')).toEqual('"end\\\\"')
+        // A backslash alongside a double quote takes the backtick branch and still escapes both.
+        expect(escapePropertyAsHogQLIdentifier('a"\\b')).toEqual('`a"\\\\b`')
+        // A backslash immediately before an inner backtick (which forces the backtick branch).
+        expect(escapePropertyAsHogQLIdentifier('a"b\\`c')).toEqual('`a"b\\\\``c`')
+    })
+
+    it('escapes control characters instead of emitting them raw', () => {
+        expect(escapePropertyAsHogQLIdentifier('a\tb')).toEqual('"a\\tb"')
+        expect(escapePropertyAsHogQLIdentifier('a\nb')).toEqual('"a\\nb"')
+        expect(escapePropertyAsHogQLIdentifier('a\bb')).toEqual('"a\\bb"')
+        // An embedded double quote forces the backtick branch; the control char is still escaped.
+        expect(escapePropertyAsHogQLIdentifier('a"\tb')).toEqual('`a"\\tb`')
     })
 })
 

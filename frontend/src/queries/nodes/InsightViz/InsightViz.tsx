@@ -4,11 +4,13 @@ import clsx from 'clsx'
 import { BindLogic, BuiltLogic, LogicWrapper } from 'kea'
 import { useState } from 'react'
 
+// InsightViz renders the .InsightCard__viz wrapper whose styles live in InsightCard.scss.
+// Import it here so the viz is sized correctly wherever it renders, not only inside an InsightCard.
+import 'lib/components/Cards/InsightCard/InsightCard.scss'
 import { useAttachedLogic } from 'lib/logic/scenes/useAttachedLogic'
 import { insightDataLogic } from 'scenes/insights/insightDataLogic'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
-import { keyForInsightLogicProps } from 'scenes/insights/sharedUtils'
 
 import { ErrorBoundary } from '~/layout/ErrorBoundary'
 import { AnyResponseType, DashboardFilter, HogQLVariable, InsightVizNode } from '~/queries/schema/schema-general'
@@ -18,16 +20,10 @@ import { InsightLogicProps } from '~/types'
 import { DataNodeLogicProps, dataNodeLogic } from '../DataNode/dataNodeLogic'
 import { EditorFilters } from './EditorFilters'
 import { InsightVizDisplay } from './InsightVizDisplay'
+import { insightVizDataCollectionId, insightVizDataNodeKey } from './insightVizKeys'
 import { getCachedResults } from './utils'
 
-/** The key for the dataNodeLogic mounted by an InsightViz for insight of insightProps */
-export const insightVizDataNodeKey = (insightProps: InsightLogicProps<any>): string => {
-    return `InsightViz.${keyForInsightLogicProps('new')(insightProps)}`
-}
-
-export const insightVizDataCollectionId = (props: InsightLogicProps<any> | undefined, fallback: string): string => {
-    return props?.dataNodeCollectionId ?? props?.dashboardId?.toString() ?? props?.dashboardItemId ?? fallback
-}
+export { insightVizDataCollectionId, insightVizDataNodeKey } from './insightVizKeys'
 
 type InsightVizProps = {
     uniqueKey?: string | number

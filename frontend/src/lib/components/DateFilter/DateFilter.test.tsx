@@ -4,7 +4,7 @@ import { cleanup, render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { Provider } from 'kea'
 
-import { dateMapping } from 'lib/utils'
+import { dateMapping } from 'lib/utils/dateFilters'
 
 import { initKeaTests } from '~/test/init'
 

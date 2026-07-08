@@ -21,14 +21,17 @@ import type {
     CommentsListParams,
     ListParams,
     MembersListParams,
+    OrganizationAIAccessRequestResponseApi,
     OrganizationApi,
     OrganizationMemberApi,
+    OrganizationMemberGithubLoginApi,
     PaginatedActivityLogListApi,
     PaginatedApprovalPolicyListApi,
     PaginatedChangeRequestListApi,
     PaginatedCommentListApi,
     PaginatedOrganizationListApi,
     PaginatedOrganizationMemberListApi,
+    PaginatedOrganizationPersonalAPIKeyListApi,
     PaginatedRoleListApi,
     PaginatedRoleMembershipListApi,
     PatchedApprovalPolicyApi,
@@ -37,8 +40,8 @@ import type {
     PatchedOrganizationMemberApi,
     PatchedPinnedSceneTabsApi,
     PatchedRoleApi,
+    PersonalApiKeysListParams,
     PinnedSceneTabsApi,
-    PromotedProductIntentApi,
     RoleApi,
     RoleMembershipApi,
     RolesListParams,
@@ -68,7 +71,7 @@ export const getListUrl = (params?: ListParams) => {
 
     Object.entries(params || {}).forEach(([key, value]) => {
         if (value !== undefined) {
-            normalizedParams.append(key, value === null ? 'null' : value.toString())
+            normalizedParams.append(key, value === null ? 'null' : String(value))
         }
     })
 
@@ -156,12 +159,29 @@ export const destroy = async (id: string, options?: RequestInit): Promise<void> 
     })
 }
 
+export const getRequestAiAccessCreateUrl = (id: string) => {
+    return `/api/organizations/${id}/request_ai_access/`
+}
+
+/**
+ * Notify organization admins that a member is requesting PostHog AI be enabled.
+ */
+export const requestAiAccessCreate = async (
+    id: string,
+    options?: RequestInit
+): Promise<OrganizationAIAccessRequestResponseApi> => {
+    return apiMutator<OrganizationAIAccessRequestResponseApi>(getRequestAiAccessCreateUrl(id), {
+        ...options,
+        method: 'POST',
+    })
+}
+
 export const getMembersListUrl = (organizationId: string, params?: MembersListParams) => {
     const normalizedParams = new URLSearchParams()
 
     Object.entries(params || {}).forEach(([key, value]) => {
         if (value !== undefined) {
-            normalizedParams.append(key, value === null ? 'null' : value.toString())
+            normalizedParams.append(key, value === null ? 'null' : String(value))
         }
     })
 
@@ -234,6 +254,21 @@ export const membersDestroy = async (
     })
 }
 
+export const getMembersGithubLoginRetrieveUrl = (organizationId: string, userUuid: string) => {
+    return `/api/organizations/${organizationId}/members/${userUuid}/github_login/`
+}
+
+export const membersGithubLoginRetrieve = async (
+    organizationId: string,
+    userUuid: string,
+    options?: RequestInit
+): Promise<OrganizationMemberGithubLoginApi> => {
+    return apiMutator<OrganizationMemberGithubLoginApi>(getMembersGithubLoginRetrieveUrl(organizationId, userUuid), {
+        ...options,
+        method: 'GET',
+    })
+}
+
 export const getMembersScopedApiKeysRetrieveUrl = (organizationId: string, userUuid: string) => {
     return `/api/organizations/${organizationId}/members/${userUuid}/scoped_api_keys/`
 }
@@ -249,12 +284,39 @@ export const membersScopedApiKeysRetrieve = async (
     })
 }
 
+export const getPersonalApiKeysListUrl = (organizationId: string, params?: PersonalApiKeysListParams) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/organizations/${organizationId}/personal_api_keys/?${stringifiedParams}`
+        : `/api/organizations/${organizationId}/personal_api_keys/`
+}
+
+export const personalApiKeysList = async (
+    organizationId: string,
+    params?: PersonalApiKeysListParams,
+    options?: RequestInit
+): Promise<PaginatedOrganizationPersonalAPIKeyListApi> => {
+    return apiMutator<PaginatedOrganizationPersonalAPIKeyListApi>(getPersonalApiKeysListUrl(organizationId, params), {
+        ...options,
+        method: 'GET',
+    })
+}
+
 export const getRolesListUrl = (organizationId: string, params?: RolesListParams) => {
     const normalizedParams = new URLSearchParams()
 
     Object.entries(params || {}).forEach(([key, value]) => {
         if (value !== undefined) {
-            normalizedParams.append(key, value === null ? 'null' : value.toString())
+            normalizedParams.append(key, value === null ? 'null' : String(value))
         }
     })
 
@@ -360,7 +422,7 @@ export const getRolesRoleMembershipsListUrl = (
 
     Object.entries(params || {}).forEach(([key, value]) => {
         if (value !== undefined) {
-            normalizedParams.append(key, value === null ? 'null' : value.toString())
+            normalizedParams.append(key, value === null ? 'null' : String(value))
         }
     })
 
@@ -455,7 +517,7 @@ export const getActivityLogListUrl = (projectId: string, params?: ActivityLogLis
 
     Object.entries(params || {}).forEach(([key, value]) => {
         if (value !== undefined) {
-            normalizedParams.append(key, value === null ? 'null' : value.toString())
+            normalizedParams.append(key, value === null ? 'null' : String(value))
         }
     })
 
@@ -482,7 +544,7 @@ export const getAdvancedActivityLogsListUrl = (projectId: string, params?: Advan
 
     Object.entries(params || {}).forEach(([key, value]) => {
         if (value !== undefined) {
-            normalizedParams.append(key, value === null ? 'null' : value.toString())
+            normalizedParams.append(key, value === null ? 'null' : String(value))
         }
     })
 
@@ -540,7 +602,7 @@ export const getApprovalPoliciesListUrl = (projectId: string, params?: ApprovalP
 
     Object.entries(params || {}).forEach(([key, value]) => {
         if (value !== undefined) {
-            normalizedParams.append(key, value === null ? 'null' : value.toString())
+            normalizedParams.append(key, value === null ? 'null' : String(value))
         }
     })
 
@@ -646,7 +708,7 @@ export const getChangeRequestsListUrl = (projectId: string, params?: ChangeReque
 
     Object.entries(params || {}).forEach(([key, value]) => {
         if (value !== undefined) {
-            normalizedParams.append(key, value === null ? 'null' : value.toString())
+            normalizedParams.append(key, value === null ? 'null' : String(value))
         }
     })
 
@@ -689,7 +751,7 @@ export const getChangeRequestsApproveCreateUrl = (projectId: string, id: string)
 
 /**
  * Approve a change request.
-If quorum is reached, automatically applies the change immediately.
+ * If quorum is reached, automatically applies the change immediately.
  */
 export const changeRequestsApproveCreate = async (
     projectId: string,
@@ -711,7 +773,7 @@ export const getChangeRequestsCancelCreateUrl = (projectId: string, id: string) 
 
 /**
  * Cancel a change request.
-Only the requester can cancel their own pending change request.
+ * Only the requester can cancel their own pending change request.
  */
 export const changeRequestsCancelCreate = async (
     projectId: string,
@@ -753,7 +815,7 @@ export const getCommentsListUrl = (projectId: string, params?: CommentsListParam
 
     Object.entries(params || {}).forEach(([key, value]) => {
         if (value !== undefined) {
-            normalizedParams.append(key, value === null ? 'null' : value.toString())
+            normalizedParams.append(key, value === null ? 'null' : String(value))
         }
     })
 
@@ -906,24 +968,6 @@ export const getCommentsCountRetrieveUrl = (projectId: string) => {
 
 export const commentsCountRetrieve = async (projectId: string, options?: RequestInit): Promise<void> => {
     return apiMutator<void>(getCommentsCountRetrieveUrl(projectId), {
-        ...options,
-        method: 'GET',
-    })
-}
-
-export const getEnvironmentsPromotedProductIntentRetrieveUrl = (projectId: string, id: number) => {
-    return `/api/projects/${projectId}/environments/${id}/promoted_product_intent/`
-}
-
-/**
- * Return the product key (e.g. `session_replay`, `web_analytics`) this team selected as their primary product during onboarding. Resolved from the team's most recent primary-onboarding `ProductIntent` record (the one carrying the `onboarding product selected - primary` context) — not from the `user showed product intent` event, which also fires for non-onboarding contexts. Returns `null` when no primary onboarding product intent has been captured (e.g. teams created before this signal existed, or where onboarding was skipped).
- */
-export const environmentsPromotedProductIntentRetrieve = async (
-    projectId: string,
-    id: number,
-    options?: RequestInit
-): Promise<PromotedProductIntentApi> => {
-    return apiMutator<PromotedProductIntentApi>(getEnvironmentsPromotedProductIntentRetrieveUrl(projectId, id), {
         ...options,
         method: 'GET',
     })

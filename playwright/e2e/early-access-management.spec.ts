@@ -1,10 +1,17 @@
-import { delay } from 'lib/utils'
+import { delay } from 'lib/utils/async'
 
 import { randomString } from '../utils'
-import { expect, test } from '../utils/playwright-test-base'
+import { PlaywrightWorkspaceSetupResult, expect, test } from '../utils/workspace-test-base'
 
 test.describe('Early Access Management', () => {
-    test.beforeEach(async ({ page }) => {
+    let workspace: PlaywrightWorkspaceSetupResult | null = null
+
+    test.beforeAll(async ({ playwrightSetup }) => {
+        workspace = await playwrightSetup.createWorkspace({ use_current_time: true, skip_onboarding: true })
+    })
+
+    test.beforeEach(async ({ page, playwrightSetup }) => {
+        await playwrightSetup.login(page, workspace!)
         await page.goto('/early_access_features')
     })
 
@@ -37,8 +44,12 @@ test.describe('Early Access Management', () => {
         await page.goto('/early_access_features')
         await expect(page.locator('tbody')).toContainText(name)
 
-        // edit feature
-        await page.locator('a.Link', { hasText: name }).click()
+        // edit feature — use the row link by role and confirm we actually navigated to the
+        // feature detail before clicking Edit. The Edit button only renders once the feature
+        // has loaded in view mode, so a click that didn't navigate would hang for the full
+        // test timeout waiting for it.
+        await page.getByRole('link', { name }).click()
+        await expect(page).toHaveURL(/\/early_access_features\/[\w-]+$/)
         await page.locator('[data-attr="edit-feature"]').click()
         await expect(page.locator('[data-attr="scene-title-textarea"]')).toContainText(name)
         await expect(page.locator('[data-attr="save-feature"]')).toContainText('Save')

@@ -13,12 +13,19 @@ from temporalio.exceptions import ApplicationError
 from posthog.api.capture import capture_internal
 from posthog.models.team import Team
 from posthog.sync import database_sync_to_async
+from posthog.temporal.ai_observability.evaluation_event_io import extract_event_io
+from posthog.temporal.ai_observability.evaluation_workflow_activities import (
+    SendTrialUsageEmailInputs,
+    increment_trial_eval_count_activity,
+    send_trial_usage_email_activity,
+    update_key_state_activity,
+)
 from posthog.temporal.ai_observability.message_utils import extract_text_from_messages
-from posthog.temporal.ai_observability.run_evaluation import extract_event_io
+from posthog.temporal.ai_observability.model_resolution import model_spec
 from posthog.temporal.common.base import PostHogWorkflow
 from posthog.temporal.common.scoped import scoped_temporal
 
-from products.ai_observability.backend.llm import TRIAL_MODEL_IDS, Client, CompletionRequest
+from products.ai_observability.backend.llm import DEFAULT_MODEL_BY_PROVIDER, Client, CompletionRequest
 from products.ai_observability.backend.llm.config import get_eval_config
 from products.ai_observability.backend.llm.errors import (
     AuthenticationError,
@@ -28,18 +35,14 @@ from products.ai_observability.backend.llm.errors import (
     RateLimitError,
     StructuredOutputParseError,
 )
-from products.ai_observability.backend.models.evaluation_config import EvaluationConfig
 from products.ai_observability.backend.models.provider_keys import LLMProviderKey
 from products.ai_observability.backend.models.taggers import Tagger
 
 logger = structlog.get_logger(__name__)
 
-DEFAULT_TAGGER_MODEL = "gpt-5-mini"
-# Trial-funded fallback when no model_configuration is set — must stay on the allowlist
-# so a future default-model bump can't silently bypass the TRIAL_MODEL_IDS guard.
-assert DEFAULT_TAGGER_MODEL in TRIAL_MODEL_IDS, (
-    f"DEFAULT_TAGGER_MODEL ({DEFAULT_TAGGER_MODEL}) must be in TRIAL_MODEL_IDS"
-)
+# Attribution fallback for $ai_tag events if a result omits its model. The model actually
+# used is resolved per-run by model_spec() (see posthog.temporal.ai_observability.model_resolution).
+DEFAULT_TAGGER_MODEL = DEFAULT_MODEL_BY_PROVIDER["openai"]
 
 LLM_TAGGER_RETRY_POLICY = RetryPolicy(
     maximum_attempts=3,
@@ -194,8 +197,6 @@ class ExecuteTaggerInputs:
 @scoped_temporal()
 async def execute_tagger_activity(inputs: ExecuteTaggerInputs) -> dict[str, Any]:
     """Execute LLM tagger to classify the target event."""
-    from django.utils import timezone
-
     tagger = inputs.tagger
     event_data = inputs.event_data
 
@@ -211,63 +212,15 @@ async def execute_tagger_activity(inputs: ExecuteTaggerInputs) -> dict[str, Any]
     min_tags = tagger_config.get("min_tags", 0)
     max_tags = tagger_config.get("max_tags")
 
-    # Resolve model configuration and API key
+    # Resolve model configuration and API key. A null model_configuration defers to the team's
+    # active key (provider-aware), matching execute_llm_judge_activity.
     team_id = tagger["team_id"]
     model_configuration = tagger.get("model_configuration")
-
-    def _get_provider_key_by_id(key_id: str) -> LLMProviderKey:
-        try:
-            key = LLMProviderKey.objects.get(id=key_id, team_id=team_id)
-            if key.state != LLMProviderKey.State.OK:
-                raise ApplicationError(
-                    f"This API key has been disabled (status: {key.state}). Re-validate to recover, or replace it.",
-                    {"error_type": "key_invalid", "key_id": str(key.id), "key_state": key.state},
-                    non_retryable=True,
-                )
-            key.last_used_at = timezone.now()
-            key.save(update_fields=["last_used_at"])
-            return key
-        except LLMProviderKey.DoesNotExist:
-            raise ApplicationError(
-                "Provider key not found.",
-                {"error_type": "key_not_found", "key_id": key_id},
-                non_retryable=True,
-            )
-
-    def _check_trial_quota() -> None:
-        config, _ = EvaluationConfig.objects.get_or_create(team_id=team_id)
-        if config.trial_evals_used >= config.trial_eval_limit:
-            raise ApplicationError(
-                f"Trial limit ({config.trial_eval_limit}) reached. Add your own API key to continue.",
-                {"error_type": "trial_limit_reached", "trial_eval_limit": config.trial_eval_limit},
-                non_retryable=True,
-            )
-
-    if model_configuration:
-        provider = model_configuration["provider"]
-        model = model_configuration["model"]
-        provider_key_id = model_configuration.get("provider_key_id")
-
-        if provider_key_id:
-            provider_key = await database_sync_to_async(_get_provider_key_by_id)(provider_key_id)
-        else:
-            # Trial mode — enforce allowlist so teams can't run expensive non-trial
-            # models on PostHog-funded credits. Matches the guard in execute_llm_judge_activity.
-            if model not in TRIAL_MODEL_IDS:
-                raise ApplicationError(
-                    f"Model '{model}' is not available on the trial plan. Please add your own API key to use this model.",
-                    {"error_type": "model_not_allowed", "model": model},
-                    non_retryable=True,
-                )
-            await database_sync_to_async(_check_trial_quota)()
-            provider_key = None
-    else:
-        provider = "openai"
-        model = DEFAULT_TAGGER_MODEL
-        await database_sync_to_async(_check_trial_quota)()
-        provider_key = None
-
-    is_byok = provider_key is not None
+    resolved = await database_sync_to_async(lambda: model_spec(model_configuration).resolve(team_id))()
+    provider = resolved.provider
+    model = resolved.model
+    provider_key = resolved.provider_key
+    is_byok = resolved.is_byok
     key_id = str(provider_key.id) if provider_key else None
 
     # Build context from event
@@ -408,8 +361,8 @@ def run_hog_tagger(bytecode: list, event_data: dict[str, Any], valid_tag_names: 
     event_type = event_data["event"]
     input_raw, output_raw = extract_event_io(event_type, properties)
 
-    input_val = json.dumps(input_raw) if isinstance(input_raw, (list, dict)) else (input_raw or "")
-    output_val = json.dumps(output_raw) if isinstance(output_raw, (list, dict)) else (output_raw or "")
+    input_val = json.dumps(input_raw) if isinstance(input_raw, list | dict) else (input_raw or "")
+    output_val = json.dumps(output_raw) if isinstance(output_raw, list | dict) else (output_raw or "")
 
     globals_dict: dict[str, Any] = {
         "input": input_val,
@@ -569,7 +522,7 @@ async def emit_tagger_event_activity(inputs: EmitTaggerEventInputs) -> None:
 
         event_timestamp = datetime.now(UTC)
 
-        resp = capture_internal(
+        routed_result = capture_internal(
             token=team.api_token,
             event_name="$ai_tag",
             event_source="llm_analytics_tagger",
@@ -578,7 +531,7 @@ async def emit_tagger_event_activity(inputs: EmitTaggerEventInputs) -> None:
             properties=properties,
             process_person_profile=True,
         )
-        resp.raise_for_status()
+        routed_result.raise_for_status()
 
     await database_sync_to_async(_emit, thread_sensitive=False)()
 
@@ -663,21 +616,32 @@ class RunTaggerWorkflow(PostHogWorkflow):
                     details = e.cause.details[0]
                     error_type = details.get("error_type")
 
-                    if error_type in ("trial_limit_reached", "key_invalid", "parse_error", "model_not_allowed"):
-                        if error_type in ("trial_limit_reached", "model_not_allowed"):
+                    if error_type in (
+                        "provider_key_required",
+                        "trial_limit_reached",
+                        "key_invalid",
+                        "parse_error",
+                        "model_not_allowed",
+                        "no_default_model",
+                    ):
+                        if error_type in (
+                            "provider_key_required",
+                            "trial_limit_reached",
+                            "model_not_allowed",
+                            "no_default_model",
+                        ):
                             await temporalio.workflow.execute_activity(
                                 disable_tagger_activity,
                                 args=[tagger["id"], tagger["team_id"]],
                                 schedule_to_close_timeout=timedelta(seconds=30),
                                 retry_policy=RetryPolicy(maximum_attempts=2),
                             )
-                            if temporalio.workflow.patched("trial-usage-email"):
+                            if error_type in (
+                                "provider_key_required",
+                                "trial_limit_reached",
+                                "model_not_allowed",
+                            ) and temporalio.workflow.patched("trial-usage-email"):
                                 try:
-                                    from posthog.temporal.ai_observability.run_evaluation import (
-                                        SendTrialUsageEmailInputs,
-                                        send_trial_usage_email_activity,
-                                    )
-
                                     await temporalio.workflow.execute_activity(
                                         send_trial_usage_email_activity,
                                         SendTrialUsageEmailInputs(team_id=tagger["team_id"], threshold_pct=100),
@@ -699,8 +663,6 @@ class RunTaggerWorkflow(PostHogWorkflow):
                         }
 
                     # Update key state for API-related errors
-                    from posthog.temporal.ai_observability.run_evaluation import update_key_state_activity
-
                     key_id = details.get("key_id")
                     if key_id and error_type in ("auth_error", "permission_error", "quota_error", "rate_limit"):
                         new_state = (
@@ -716,12 +678,6 @@ class RunTaggerWorkflow(PostHogWorkflow):
 
         # Increment trial counter if using PostHog key (LLM taggers only — Hog taggers have no LLM cost)
         if tagger_type != "hog" and not result.get("is_byok"):
-            from posthog.temporal.ai_observability.run_evaluation import (
-                SendTrialUsageEmailInputs,
-                increment_trial_eval_count_activity,
-                send_trial_usage_email_activity,
-            )
-
             threshold_pct = await temporalio.workflow.execute_activity(
                 increment_trial_eval_count_activity,
                 tagger["team_id"],

@@ -1,0 +1,19 @@
+# Migrations acknowledged to run DDL on a hot table (HotTableAlterPolicy).
+#
+# posthog_team, posthog_user, posthog_organization, and posthog_project are read on
+# virtually every request. Any ALTER TABLE on them takes an ACCESS EXCLUSIVE lock, and
+# while that lock request waits behind in-flight queries, every later query on the table
+# queues behind it - even a metadata-only ADD COLUMN can stall site-wide traffic until
+# lock_timeout cancels it, with each bin/migrate retry repeating the stall.
+#
+# Before adding a line here, check whether the field belongs on a Team extension model
+# instead (posthog/models/team/README.md) - that only creates a new table and needs no
+# acknowledgment.
+#
+# Adding a line means: I understand this migration can stall production traffic while it
+# waits for its lock, and the deploy is coordinated with #team-infrastructure for a
+# low-traffic window.
+#
+# Format: one "<app_label>.<migration_name>" per line, e.g.
+# posthog.1234_team_some_genuinely_core_field
+posthog.1244_team_event_retention_months

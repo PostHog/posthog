@@ -1,238 +1,56 @@
-import { actions, afterMount, connect, kea, listeners, path, reducers, selectors } from 'kea'
-import { loaders } from 'kea-loaders'
+import { actions, connect, kea, path, reducers, selectors } from 'kea'
 import { actionToUrl, router, urlToAction } from 'kea-router'
-import posthog from 'posthog-js'
 
-import api, { PaginatedResponse } from 'lib/api'
-import { billingLogic } from 'scenes/billing/billingLogic'
-import { databaseTableListLogic } from 'scenes/data-management/database/databaseTableListLogic'
+import { FEATURE_FLAGS } from 'lib/constants'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { urls } from 'scenes/urls'
 
 import { SIDE_PANEL_CONTEXT_KEY, SidePanelSceneContext } from '~/layout/navigation-3000/sidepanel/types'
-import { DatabaseSchemaDataWarehouseTable } from '~/queries/schema/schema-general'
-import {
-    BillingProductV2Type,
-    DataWarehouseActivityRecord,
-    DataWarehouseJobStats,
-    DataWarehouseJobStatsRequestPayload,
-    DataWarehouseSavedQuery,
-    DataWarehouseSourceRowCount,
-} from '~/types'
-
-import { sourcesDataLogic } from 'products/data_warehouse/frontend/shared/logics/sourcesDataLogic'
 
 import type { dataWarehouseSceneLogicType } from './dataWarehouseSceneLogicType'
-import { dataWarehouseViewsLogic } from './saved_queries/dataWarehouseViewsLogic'
 
 export enum DataWarehouseTab {
-    OVERVIEW = 'overview',
-    DASHBOARD = 'dashboard',
-    MODELING = 'modeling',
     SETTINGS = 'settings',
+    MODELING = 'modeling',
 }
 
+// Single source of truth for which tabs the Data ops scene exposes. The scene, the URL
+// state, and the default tab all derive from availableTabs / activeTab below.
 export const dataWarehouseSceneLogic = kea<dataWarehouseSceneLogicType>([
     path(['scenes', 'data-warehouse', 'dataWarehouseSceneLogic']),
     connect(() => ({
-        values: [
-            databaseTableListLogic,
-            ['database', 'dataWarehouseTables', 'databaseLoading'],
-            sourcesDataLogic,
-            ['dataWarehouseSources', 'dataWarehouseSourcesLoading'],
-            billingLogic,
-            ['billingPeriodUTC', 'billing'],
-            dataWarehouseViewsLogic,
-            ['dataWarehouseSavedQueries'],
-        ],
-        actions: [
-            databaseTableListLogic,
-            ['loadDatabase'],
-            sourcesDataLogic,
-            ['loadSources'],
-            billingLogic,
-            ['loadBilling'],
-        ],
+        values: [featureFlagLogic, ['featureFlags']],
     })),
     actions({
-        loadMoreRunningActivity: true,
-        loadMoreCompletedActivity: true,
-        setActivityRunningCurrentPage: (page: number) => ({ page }),
-        setActivityCompletedCurrentPage: (page: number) => ({ page }),
-        checkAutoLoadMoreRunning: true,
-        checkAutoLoadMoreCompleted: true,
         setActiveTab: (tab: DataWarehouseTab) => ({ tab }),
     }),
-    loaders(() => ({
-        totalRowsStats: [
-            {} as DataWarehouseSourceRowCount,
-            {
-                loadTotalRowsStats: async () => {
-                    return await api.dataWarehouse.totalRowsStats()
-                },
-            },
-        ],
-        runningActivityResponse: [
-            null as PaginatedResponse<DataWarehouseActivityRecord> | null,
-            {
-                loadRunningActivityResponse: async () => {
-                    return await api.dataWarehouse.runningActivity({ limit: 20, offset: 0, cutoff_days: 30 })
-                },
-            },
-        ],
-        completedActivityResponse: [
-            null as PaginatedResponse<DataWarehouseActivityRecord> | null,
-            {
-                loadCompletedActivityResponse: async () => {
-                    return await api.dataWarehouse.completedActivity({ limit: 20, offset: 0, cutoff_days: 30 })
-                },
-            },
-        ],
-        jobStats: [
-            null as DataWarehouseJobStats | null,
-            {
-                loadJobStats: async ({ days }: DataWarehouseJobStatsRequestPayload) => {
-                    return await api.dataWarehouse.jobStats({ days })
-                },
-            },
-        ],
-        dataOpsDashboardId: [
-            null as number | null,
-            {
-                loadDataOpsDashboardId: async () => {
-                    const response = await api.dataWarehouse.dataOpsDashboard()
-                    return response.dashboard_id
-                },
-            },
-        ],
-    })),
-    reducers(() => ({
-        activeTab: [
-            DataWarehouseTab.OVERVIEW as DataWarehouseTab,
+    reducers({
+        selectedTab: [
+            DataWarehouseTab.MODELING as DataWarehouseTab,
             {
                 setActiveTab: (_, { tab }) => tab,
             },
         ],
-        activityRunningCurrentPage: [
-            1 as number,
-            {
-                setActivityRunningCurrentPage: (_, { page }) => page,
-                loadRunningActivityResponse: () => 1,
-            },
-        ],
-        activityCompletedCurrentPage: [
-            1 as number,
-            {
-                setActivityCompletedCurrentPage: (_, { page }) => page,
-                loadCompletedActivityResponse: () => 1,
-            },
-        ],
-        runningActivityMoreLoading: [
-            false as boolean,
-            {
-                loadMoreRunningActivity: () => true,
-                loadRunningActivityResponseSuccess: () => false,
-            },
-        ],
-        completedActivityMoreLoading: [
-            false as boolean,
-            {
-                loadMoreCompletedActivity: () => true,
-                loadCompletedActivityResponseSuccess: () => false,
-            },
-        ],
-    })),
+    }),
     selectors({
-        recentActivityRunning: [
-            (s) => [s.runningActivityResponse],
-            (response: PaginatedResponse<DataWarehouseActivityRecord> | null): DataWarehouseActivityRecord[] => {
-                return response?.results || []
-            },
-        ],
-        recentActivityCompleted: [
-            (s) => [s.completedActivityResponse],
-            (response: PaginatedResponse<DataWarehouseActivityRecord> | null): DataWarehouseActivityRecord[] => {
-                return response?.results || []
-            },
-        ],
-        recentActivityRunningHasMore: [
-            (s) => [s.runningActivityResponse],
-            (response: PaginatedResponse<DataWarehouseActivityRecord> | null): boolean => {
-                return !!response?.next
-            },
-        ],
-        recentActivityCompletedHasMore: [
-            (s) => [s.completedActivityResponse],
-            (response: PaginatedResponse<DataWarehouseActivityRecord> | null): boolean => {
-                return !!response?.next
-            },
-        ],
-        selfManagedTables: [
-            (s) => [s.dataWarehouseTables],
-            (dataWarehouseTables): DatabaseSchemaDataWarehouseTable[] => {
-                return dataWarehouseTables.filter((table) => !table.source)
-            },
-        ],
-        activityRunningPaginationState: [
-            (s) => [s.recentActivityRunning, s.activityRunningCurrentPage],
-            (recentActivityRunning: DataWarehouseActivityRecord[], activityRunningCurrentPage: number) => {
-                const pageSize = 8
-                const totalData = recentActivityRunning.length
-                const pageCount = Math.max(Math.ceil(totalData / pageSize), 1)
-                const startIndex = (activityRunningCurrentPage - 1) * pageSize
-                const endIndex = Math.min(startIndex + pageSize, totalData)
-                const dataSourcePage = recentActivityRunning.slice(startIndex, endIndex)
-
-                return {
-                    currentPage: activityRunningCurrentPage,
-                    pageCount,
-                    dataSourcePage,
-                    currentStartIndex: startIndex,
-                    currentEndIndex: endIndex,
-                    entryCount: totalData,
-                    isOnLastPage: activityRunningCurrentPage === pageCount,
-                    hasDataOnCurrentPage: dataSourcePage.length > 0,
+        availableTabs: [
+            (s) => [s.featureFlags],
+            (featureFlags): DataWarehouseTab[] => {
+                const tabs: DataWarehouseTab[] = []
+                if (featureFlags[FEATURE_FLAGS.DATA_MODELING_TAB]) {
+                    tabs.push(DataWarehouseTab.MODELING)
                 }
-            },
-        ],
-        activityCompletedPaginationState: [
-            (s) => [s.recentActivityCompleted, s.activityCompletedCurrentPage],
-            (recentActivityCompleted: DataWarehouseActivityRecord[], activityCompletedCurrentPage: number) => {
-                const pageSize = 8
-                const totalData = recentActivityCompleted.length
-                const pageCount = Math.max(Math.ceil(totalData / pageSize), 1)
-                const startIndex = (activityCompletedCurrentPage - 1) * pageSize
-                const endIndex = Math.min(startIndex + pageSize, totalData)
-                const dataSourcePage = recentActivityCompleted.slice(startIndex, endIndex)
-
-                return {
-                    currentPage: activityCompletedCurrentPage,
-                    pageCount,
-                    dataSourcePage,
-                    currentStartIndex: startIndex,
-                    currentEndIndex: endIndex,
-                    entryCount: totalData,
-                    isOnLastPage: activityCompletedCurrentPage === pageCount,
-                    hasDataOnCurrentPage: dataSourcePage.length > 0,
+                if (featureFlags[FEATURE_FLAGS.DATA_WAREHOUSE_SCENE]) {
+                    tabs.push(DataWarehouseTab.SETTINGS)
                 }
+                return tabs
             },
         ],
-        tablesLoading: [
-            (s) => [s.databaseLoading, s.dataWarehouseSourcesLoading],
-            (databaseLoading: boolean, dataWarehouseSourcesLoading: boolean): boolean => {
-                return databaseLoading || dataWarehouseSourcesLoading
-            },
-        ],
-        dataWarehouseProduct: [
-            (s) => [s.billing],
-            (billing): BillingProductV2Type | null => {
-                return billing?.products?.find((product) => product.type === 'data_warehouse') || null
-            },
-        ],
-        materializedViews: [
-            (s) => [s.dataWarehouseSavedQueries],
-            (queries: DataWarehouseSavedQuery[]) => {
-                return queries.filter((q) => q.is_materialized)
-            },
+        // The selected tab clamped to what's actually available (null when nothing is).
+        activeTab: [
+            (s) => [s.selectedTab, s.availableTabs],
+            (selectedTab, availableTabs): DataWarehouseTab | null =>
+                availableTabs.includes(selectedTab) ? selectedTab : (availableTabs[0] ?? null),
         ],
         [SIDE_PANEL_CONTEXT_KEY]: [
             () => [],
@@ -241,107 +59,26 @@ export const dataWarehouseSceneLogic = kea<dataWarehouseSceneLogicType>([
             }),
         ],
     }),
-    listeners(({ values, actions }) => ({
-        setActivityRunningCurrentPage: () => {
-            actions.checkAutoLoadMoreRunning()
-        },
-        setActivityCompletedCurrentPage: () => {
-            actions.checkAutoLoadMoreCompleted()
-        },
-        checkAutoLoadMoreRunning: () => {
-            const paginationState = values.activityRunningPaginationState
-            const { isOnLastPage, hasDataOnCurrentPage } = paginationState
-            const { recentActivityRunningHasMore, runningActivityResponseLoading } = values
-
-            if (
-                isOnLastPage &&
-                hasDataOnCurrentPage &&
-                recentActivityRunningHasMore &&
-                !runningActivityResponseLoading
-            ) {
-                actions.loadMoreRunningActivity()
-            }
-        },
-        checkAutoLoadMoreCompleted: () => {
-            const paginationState = values.activityCompletedPaginationState
-            const { isOnLastPage, hasDataOnCurrentPage } = paginationState
-            const { recentActivityCompletedHasMore, completedActivityResponseLoading } = values
-
-            if (
-                isOnLastPage &&
-                hasDataOnCurrentPage &&
-                recentActivityCompletedHasMore &&
-                !completedActivityResponseLoading
-            ) {
-                actions.loadMoreCompletedActivity()
-            }
-        },
-        loadMoreRunningActivity: async () => {
-            try {
-                const currentData = values.recentActivityRunning
-                const response = await api.dataWarehouse.runningActivity({
-                    limit: 20,
-                    offset: currentData.length,
-                    cutoff_days: 30,
-                })
-                const newData = [...currentData, ...(response.results || [])]
-                const newResponse = { ...response, results: newData }
-
-                actions.loadRunningActivityResponseSuccess(newResponse)
-            } catch (error) {
-                posthog.captureException(error)
-            }
-        },
-        loadMoreCompletedActivity: async () => {
-            try {
-                const currentData = values.recentActivityCompleted
-                const response = await api.dataWarehouse.completedActivity({
-                    limit: 20,
-                    offset: currentData.length,
-                    cutoff_days: 30,
-                })
-                const newData = [...currentData, ...(response.results || [])]
-                const newResponse = { ...response, results: newData }
-
-                actions.loadCompletedActivityResponseSuccess(newResponse)
-            } catch (error) {
-                posthog.captureException(error)
-            }
-        },
-        setActiveTab: ({ tab }) => {
-            if (tab === DataWarehouseTab.DASHBOARD && values.dataOpsDashboardId === null) {
-                actions.loadDataOpsDashboardId()
-            }
-        },
-    })),
-    afterMount(({ actions, values }) => {
-        if (!values.database && !values.databaseLoading) {
-            actions.loadDatabase()
-        }
-        actions.loadSources()
-        actions.loadRunningActivityResponse()
-        actions.loadCompletedActivityResponse()
-        actions.loadTotalRowsStats()
-        actions.loadJobStats({ days: 7 })
-        actions.loadBilling()
-    }),
     urlToAction(({ actions, values }) => ({
         [urls.dataOps()]: (_, searchParams) => {
-            const tab = searchParams.tab as DataWarehouseTab | undefined
-            if (tab && Object.values(DataWarehouseTab).includes(tab) && tab !== values.activeTab) {
-                actions.setActiveTab(tab)
-            } else if (!tab && values.activeTab !== DataWarehouseTab.OVERVIEW) {
-                actions.setActiveTab(DataWarehouseTab.OVERVIEW)
+            const requested = searchParams.tab as DataWarehouseTab | undefined
+            const target =
+                requested && values.availableTabs.includes(requested)
+                    ? requested
+                    : (values.availableTabs[0] ?? DataWarehouseTab.SETTINGS)
+            if (target !== values.selectedTab) {
+                actions.setActiveTab(target)
             }
         },
     })),
     actionToUrl(({ values }) => ({
         setActiveTab: () => {
             const searchParams = { ...router.values.searchParams }
-            if (values.activeTab === DataWarehouseTab.OVERVIEW) {
-                delete searchParams.tab
-            } else {
+            // The default (first available) tab is canonical at /data-ops with no ?tab.
+            if (values.activeTab && values.activeTab !== values.availableTabs[0]) {
                 searchParams.tab = values.activeTab
+            } else {
+                delete searchParams.tab
             }
             return [urls.dataOps(), searchParams]
         },

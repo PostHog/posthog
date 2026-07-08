@@ -27,12 +27,7 @@ export const logsViewsLogic = kea<logsViewsLogicType>([
 
     connect((props: LogsViewsLogicProps) => ({
         values: [teamLogic, ['currentTeamId']],
-        actions: [
-            logsViewerFiltersLogic({ id: props.id }),
-            ['setFilters'],
-            logsSceneLogic({ tabId: props.id }),
-            ['setActiveTab'],
-        ],
+        actions: [logsViewerFiltersLogic({ id: props.id }), ['setFilters'], logsSceneLogic(), ['setActiveTab']],
     })),
 
     actions({

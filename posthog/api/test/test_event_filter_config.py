@@ -1,9 +1,12 @@
 from posthog.test.base import APIBaseTest
 from unittest.mock import patch
 
+from django.test import SimpleTestCase
+
 from parameterized import parameterized
 from rest_framework import status
 
+from posthog.api.event_filter_config import EventFilterConfigSerializer, EventFilterConfigViewSet
 from posthog.models.event_filter_config import EventFilterConfig, EventFilterMode
 from posthog.models.organization import Organization
 from posthog.models.team.team import Team
@@ -39,7 +42,7 @@ class TestEventFilterConfigAPI(APIBaseTest):
         self.assertFalse(EventFilterConfig.objects.filter(team=self.team).exists())
 
     def test_list_returns_existing_config(self):
-        tree = _cond()
+        tree = _or(_cond())
         EventFilterConfig.objects.create(team=self.team, mode=EventFilterMode.LIVE, filter_tree=tree)
 
         response = self.client.get(self._url())
@@ -89,7 +92,7 @@ class TestEventFilterConfigAPI(APIBaseTest):
 
     def test_create_upserts_filter_tree(self):
         seed = self._seed_config()
-        new_tree = _cond("distinct_id", "exact", "user-1")
+        new_tree = _or(_cond("distinct_id", "exact", "user-1"))
         new_test_cases = [
             {"distinct_id": "user-1", "expected_result": "drop"},
             {"distinct_id": "someone-else", "expected_result": "ingest"},
@@ -149,11 +152,12 @@ class TestEventFilterConfigAPI(APIBaseTest):
         self.assertEqual(EventFilterConfig.objects.filter(team=self.team).count(), 1)
 
     def test_create_prunes_filter_tree_on_save(self):
-        tree = _and(_cond())
+        # Empty/single-child nested groups are pruned, but the root stays a group.
+        tree = _or(_and(_cond()), {"type": "and", "children": []})
         response = self.client.post(self._url(), data={"filter_tree": tree}, format="json")
 
         self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertEqual(response.json()["filter_tree"], _cond())
+        self.assertEqual(response.json()["filter_tree"], _or(_cond()))
 
     def test_create_timestamps_are_read_only(self):
         response = self.client.post(
@@ -181,55 +185,6 @@ class TestEventFilterConfigAPI(APIBaseTest):
         self.assertGreaterEqual(response.json()["updated_at"], seed["updated_at"])
 
     # -- Validation --
-
-    def test_rejects_invalid_filter_tree(self):
-        response = self.client.post(
-            self._url(),
-            data={"filter_tree": {"type": "condition", "field": "bad_field", "operator": "exact", "value": "x"}},
-            format="json",
-        )
-
-        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
-        data = response.json()
-        self.assertEqual(data["type"], "validation_error")
-        self.assertEqual(data["attr"], "filter_tree__filter_tree")
-        self.assertIn("field must be one of", data["detail"])
-
-    def test_rejects_invalid_test_cases(self):
-        response = self.client.post(
-            self._url(),
-            data={"test_cases": [{"expected_result": "maybe"}]},
-            format="json",
-        )
-
-        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
-        data = response.json()
-        self.assertEqual(data["type"], "validation_error")
-        self.assertEqual(data["attr"], "test_cases__test_cases")
-        self.assertIn("must be 'drop' or 'ingest'", data["detail"])
-
-    def test_rejects_invalid_mode(self):
-        response = self.client.post(self._url(), data={"mode": "turbo"}, format="json")
-
-        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
-        data = response.json()
-        self.assertEqual(data["type"], "validation_error")
-        self.assertEqual(data["attr"], "mode")
-
-    def test_rejects_failing_test_cases(self):
-        response = self.client.post(
-            self._url(),
-            data={
-                "filter_tree": _cond("event_name", "exact", "$pageview"),
-                "test_cases": [{"event_name": "$pageview", "expected_result": "ingest"}],
-            },
-            format="json",
-        )
-
-        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
-        data = response.json()
-        self.assertEqual(data["type"], "validation_error")
-        self.assertIn("expected 'ingest' but got 'drop'", data["detail"])
 
     def test_rejected_request_does_not_persist(self):
         seed = self._seed_config()
@@ -397,3 +352,42 @@ class TestEventFilterConfigAPI(APIBaseTest):
         response = self.client.get(self._url())
 
         self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED)
+
+
+class TestEventFilterConfigValidationNoDB(SimpleTestCase):
+    # validate_filter_tree / validate_test_cases / validate (run_test_cases) are pure
+    # (no context, no DB), so the matrix runs without a database. The endpoint wiring is
+    # guarded by the meta test below and by test_rejected_request_does_not_persist.
+    def test_rejects_invalid_filter_tree(self) -> None:
+        serializer = EventFilterConfigSerializer(
+            data={"filter_tree": {"type": "condition", "field": "bad_field", "operator": "exact", "value": "x"}}
+        )
+        assert not serializer.is_valid()
+        assert "field must be one of" in str(serializer.errors["filter_tree"])
+
+    def test_rejects_invalid_test_cases(self) -> None:
+        serializer = EventFilterConfigSerializer(data={"test_cases": [{"expected_result": "maybe"}]})
+        assert not serializer.is_valid()
+        assert "must be 'drop' or 'ingest'" in str(serializer.errors["test_cases"])
+
+    def test_rejects_invalid_mode(self) -> None:
+        serializer = EventFilterConfigSerializer(data={"mode": "turbo"})
+        assert not serializer.is_valid()
+        assert "mode" in serializer.errors
+
+    def test_rejects_failing_test_cases(self) -> None:
+        serializer = EventFilterConfigSerializer(
+            data={
+                "filter_tree": _cond("event_name", "exact", "$pageview"),
+                "test_cases": [{"event_name": "$pageview", "expected_result": "ingest"}],
+            }
+        )
+        assert not serializer.is_valid()
+        assert "expected 'ingest' but got 'drop'" in str(serializer.errors["test_cases"])
+
+    def test_validation_serializer_is_wired_to_viewset(self) -> None:
+        # Wiring guard (no DB): the create/update actions validate through this serializer
+        # (self.get_serializer(...).is_valid(raise_exception=True)). If serializer_class is
+        # swapped or dropped, the no-DB matrix above would still pass but the endpoint would
+        # stop validating.
+        assert EventFilterConfigViewSet.serializer_class is EventFilterConfigSerializer

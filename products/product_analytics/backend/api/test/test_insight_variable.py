@@ -133,6 +133,42 @@ class TestInsightVariable(APIBaseTest):
         assert response.status_code == 200
         assert response.json()["values"] == ["a", "b", "c"]
 
+    @parameterized.expand(
+        [
+            ("null_values", None),
+            ("dict_values", {"unexpected": "shape"}),
+            ("string_values", "not-a-list"),
+        ]
+    )
+    def test_list_variable_with_non_array_values_is_normalized_on_read(self, _name, stored_values):
+        variable = InsightVariable.objects.create(
+            team=self.team, name="List Var", type="List", code_name="list_var", values=stored_values
+        )
+        response = self.client.get(f"/api/environments/{self.team.pk}/insight_variables/{variable.id}/")
+        assert response.status_code == 200
+        assert response.json()["values"] == []
+
+    @parameterized.expand(
+        [
+            ("null_values", None),
+            ("dict_values", {"unexpected": "shape"}),
+            ("string_values", "not-a-list"),
+        ]
+    )
+    def test_update_list_variable_with_non_array_values_coerces_to_empty_list(self, _name, new_values):
+        variable = InsightVariable.objects.create(
+            team=self.team, name="List Var", type="List", code_name="list_var", values=["a"]
+        )
+        response = self.client.patch(
+            f"/api/environments/{self.team.pk}/insight_variables/{variable.id}/",
+            data={"values": new_values},
+            content_type="application/json",
+        )
+        assert response.status_code == 200
+        assert response.json()["values"] == []
+        variable.refresh_from_db()
+        assert variable.values == []
+
     def test_update_type_to_list_coerces_null_values(self):
         variable = InsightVariable.objects.create(team=self.team, name="Str Var", type="String", code_name="str_var")
         response = self.client.patch(

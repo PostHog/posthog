@@ -200,11 +200,13 @@ tools:
         list: true
         title: List run snapshots
         description: >
-            List all snapshots captured in a run with their diff results. Each snapshot carries an `identifier` (e.g.
+            List the snapshots captured in a run with their diff results. Each snapshot carries an `identifier` (e.g.
             Storybook story id + theme), a `result` (`unchanged`, `changed`, `new`, `removed`), an optional
             `classification_reason` (`tolerated_hash`, `below_threshold`, `exact`), diff percentage / pixel count, and
-            `review_state` (`pending`, `approved`). Renders an interactive diff viewer with baseline / current / diff
-            images and approve / tolerate actions. Paginated — pass a `limit` (e.g. 50) when a run might have many
+            `review_state` (`pending`, `approved`). Currently-quarantined snapshots are EXCLUDED by default — they are
+            known-flaky noise, not changes to review — and reported only as a `quarantined_count` on the response; pass
+            `include_quarantined=true` to fetch them too. Renders an interactive diff viewer with baseline / current /
+            diff images and approve / tolerate actions. Paginated — pass a `limit` (e.g. 50) when a run might have many
             snapshots (a broken run can produce 3000+ pairs); the diff viewer caps the visible list at 100 and
             prioritises actionable results regardless.
         ui_app: visual-review-snapshots

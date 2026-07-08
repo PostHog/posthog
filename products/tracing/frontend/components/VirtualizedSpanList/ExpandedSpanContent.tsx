@@ -1,13 +1,18 @@
-import { formatDuration } from '../../TraceFlameChart'
+import { formatDuration } from '../../TraceWaterfallView'
 import { SPAN_KIND_LABELS, STATUS_CODE_LABELS } from '../../types'
 import type { Span } from '../../types'
 import { SpanAttributes } from './SpanAttributes'
 
 export interface ExpandedSpanContentProps {
     span: Span
+    /**
+     * Render the "Span details" KVP table alongside the attributes. The drawer's summary header
+     * already surfaces these facts, so it passes false. @default true
+     */
+    showDetails?: boolean
 }
 
-export function ExpandedSpanContent({ span }: ExpandedSpanContentProps): JSX.Element {
+export function ExpandedSpanContent({ span, showDetails = true }: ExpandedSpanContentProps): JSX.Element {
     const status = STATUS_CODE_LABELS[span.status_code]
 
     // The OTel attributes the user set on the span — the thing the row is here to surface.
@@ -29,7 +34,16 @@ export function ExpandedSpanContent({ span }: ExpandedSpanContentProps): JSX.Ele
     return (
         <div className="flex flex-col gap-2 p-2 bg-primary border-t border-border">
             <SpanAttributes title="Attributes" attributes={attributes} emptyLabel="No attributes set on this span" />
-            <SpanAttributes title="Span details" attributes={details} />
+            {/* Sibling section after the span attributes — same split the logs detail view uses.
+                Often absent (non-k8s / no resource attrs), so hidden when empty to avoid noise. */}
+            {Object.keys(span.resource_attributes ?? {}).length > 0 && (
+                <SpanAttributes
+                    title="Resource attributes"
+                    attributes={span.resource_attributes}
+                    emptyLabel="No resource attributes on this span"
+                />
+            )}
+            {showDetails && <SpanAttributes title="Span details" attributes={details} />}
         </div>
     )
 }

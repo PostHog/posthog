@@ -17,7 +17,6 @@ import type { webhookTabLogicType } from './webhookTabLogicType'
 
 export interface WebhookTabLogicProps {
     id: string
-    tabId?: string
 }
 
 export const WEBHOOK_SECTIONS = ['overview', 'configuration', 'activity'] as const

@@ -1,4 +1,5 @@
-import type { Series, TimeSeriesLineChartConfig, TooltipConfig } from 'lib/hog-charts'
+import type { Series, TimeSeriesLineChartConfig, TooltipConfig } from '@posthog/quill-charts'
+
 import type { SeriesDatum } from 'scenes/insights/InsightTooltip/insightTooltipUtils'
 
 import type { GoalLine as SchemaGoalLine, TrendsFilter } from '~/queries/schema/schema-general'
@@ -7,7 +8,15 @@ import type { FunnelStepWithNestedBreakdown, IntervalType } from '~/types'
 import { buildTrendsLineTimeSeriesConfig, buildTrendsSeries } from '../../trends/TrendsLineChart/trendsChartTransforms'
 import type { FunnelSeriesMeta } from '../shared/funnelSeriesMeta'
 
-export type IndexedFunnelStep = FunnelStepWithNestedBreakdown & { id: number; seriesIndex: number }
+// `colorIndex`, `compare`, and `compare_label` are added at runtime by `funnelDataLogic.indexedSteps`
+// (the base FunnelStep types don't declare them).
+export type IndexedFunnelStep = FunnelStepWithNestedBreakdown & {
+    id: number
+    seriesIndex: number
+    colorIndex: number
+    compare?: boolean
+    compare_label?: string | null
+}
 
 // The API populates `data`/`days`, but the base FunnelStep type marks them optional —
 // normalize so the trends transform never receives undefined.
@@ -18,6 +27,8 @@ interface NormalizedFunnelStep {
     days?: string[]
     breakdown_value?: SeriesDatum['breakdown_value']
     order: number
+    compare?: boolean
+    compare_label?: string | null
 }
 
 function normalizeStep(step: IndexedFunnelStep): NormalizedFunnelStep {
@@ -28,6 +39,8 @@ function normalizeStep(step: IndexedFunnelStep): NormalizedFunnelStep {
         days: step.days,
         breakdown_value: step.breakdown_value as SeriesDatum['breakdown_value'],
         order: step.order,
+        compare: step.compare,
+        compare_label: step.compare_label,
     }
 }
 
@@ -47,6 +60,7 @@ export function buildFunnelLineSeries(
         buildMeta: (step) => ({
             days: step.days,
             breakdown_value: step.breakdown_value,
+            compare_label: (step.compare_label ?? undefined) as SeriesDatum['compare_label'],
             order: step.order,
             label: step.label,
         }),

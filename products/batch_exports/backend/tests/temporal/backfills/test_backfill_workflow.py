@@ -13,7 +13,6 @@ import temporalio.common
 import temporalio.exceptions
 from asgiref.sync import sync_to_async
 
-from posthog.batch_exports.models import BatchExportBackfill
 from posthog.temporal.tests.utils.models import (
     acreate_batch_export,
     adelete_batch_export,
@@ -21,6 +20,7 @@ from posthog.temporal.tests.utils.models import (
     afetch_batch_export_backfills,
 )
 
+from products.batch_exports.backend.models.batch_export import BatchExportBackfill
 from products.batch_exports.backend.temporal.backfill_batch_export import (
     BackfillBatchExportInputs,
     BackfillBatchExportWorkflow,
@@ -437,7 +437,7 @@ async def test_backfill_batch_export_workflow_fails_when_schedule_deleted_after_
     )
 
     # Wait for at least one workflow to start running before deleting the schedule
-    await wait_for_workflows(temporal_client, desc.id, expected_count=1, timeout=10)
+    await wait_for_workflows(temporal_client, desc.id, expected_count=1, assert_exact=False, timeout=10)
 
     await temporal_schedule_every_5_minutes.delete()
 

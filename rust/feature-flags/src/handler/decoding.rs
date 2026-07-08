@@ -10,7 +10,7 @@ use crate::{
 use axum::http::{header::CONTENT_TYPE, header::USER_AGENT, HeaderMap};
 use base64::{engine::general_purpose, Engine as _};
 use bytes::Bytes;
-use common_compression;
+use common_compression::{self, has_gzip_magic_header};
 use common_metrics::inc;
 use percent_encoding::percent_decode;
 
@@ -117,7 +117,7 @@ pub(crate) fn decode_body(
 
     // Fallback: Auto-detect gzip by checking magic bytes (0x1f, 0x8b)
     // This handles cases where clients send gzipped data without proper headers
-    if body.len() >= 2 && body[0] == 0x1f && body[1] == 0x8b {
+    if has_gzip_magic_header(&body) {
         tracing::debug!("Auto-detected gzip compression from magic bytes");
         inc(
             FLAG_REQUEST_KLUDGE_COUNTER,
@@ -569,12 +569,14 @@ mod tests {
         #[case(Some("posthog-flutter/4.0.0"), "posthog-flutter")]
         #[case(Some("posthog-python/1.4.0"), "posthog-python")]
         #[case(Some("posthog-ruby/2.0.0"), "posthog-ruby")]
+        #[case(Some("posthog-ruby2.0.0"), "posthog-ruby")]
         #[case(Some("posthog-php/3.0.0"), "posthog-php")]
         #[case(Some("posthog-java/1.0.0"), "posthog-java")]
         #[case(Some("posthog-go/0.1.0"), "posthog-go")]
         #[case(Some("posthog-node/2.2.0"), "posthog-node")]
         #[case(Some("posthog-dotnet/1.0.0"), "posthog-dotnet")]
         #[case(Some("posthog-elixir/0.2.0"), "posthog-elixir")]
+        #[case(Some("posthog-rs/0.10.0"), "posthog-rs")]
         #[case(
             Some("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"),
             "browser"

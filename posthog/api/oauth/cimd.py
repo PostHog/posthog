@@ -35,9 +35,10 @@ from posthog.models.oauth import (
 )
 from posthog.ph_client import ph_scoped_capture
 from posthog.rate_limit import IPThrottle
+from posthog.scopes import filter_to_unprivileged_scopes
 from posthog.security.url_validation import is_url_allowed
 
-from .dcr import validate_client_name
+from .client_name import sanitize_client_name, validate_client_name
 
 logger = structlog.get_logger(__name__)
 
@@ -93,18 +94,29 @@ class CIMDGlobalThrottle(SimpleRateThrottle):
 CIMD_THROTTLE_CLASSES: list[type[SimpleRateThrottle]] = [CIMDBurstThrottle, CIMDSustainedThrottle, CIMDGlobalThrottle]
 
 
-class CIMDMetadataDocument(TypedDict, total=False):
-    client_id: str
-    client_name: str
-    redirect_uris: list[str]
-    logo_uri: str
-    grant_types: list[str]
-    response_types: list[str]
-    token_endpoint_auth_method: str
-    # Optional PostHog extension: if present, PostHog will look up the token
-    # and link this CIMD app to the owning organization. Verified partners get
-    # a higher default rate limit and an identity trail for abuse response.
-    posthog_verification_token: str
+class ComPostHogNamespace(TypedDict, total=False):
+    verification_token: str
+    scopes: list[str]
+
+
+# Functional form required: "com.posthog" is not a valid Python identifier.
+CIMDMetadataDocument = TypedDict(
+    "CIMDMetadataDocument",
+    {
+        "client_id": str,
+        "client_name": str,
+        "redirect_uris": list[str],
+        "logo_uri": str,
+        "grant_types": list[str],
+        "response_types": list[str],
+        "token_endpoint_auth_method": str,
+        # Legacy top-level token — still read for backwards compatibility.
+        "posthog_verification_token": str,
+        # Preferred namespace — takes precedence over the legacy top-level key.
+        "com.posthog": ComPostHogNamespace,
+    },
+    total=False,
+)
 
 
 def validate_cimd_url(url: str | None, *, perform_dns_check: bool = False) -> tuple[bool, str | None]:
@@ -311,12 +323,69 @@ def fetch_cimd_metadata(url: str) -> tuple[CIMDMetadataDocument, int]:
 
 
 def _resolve_verification_token(metadata: CIMDMetadataDocument) -> CIMDVerificationToken | None:
-    """Look up a CIMD metadata `posthog_verification_token`. Returns the token
-    record (with its organization) on match, or None if missing or invalid."""
+    """Look up a verification token from CIMD metadata, preferring the nested
+    `com.posthog.verification_token` and falling back to the legacy top-level
+    `posthog_verification_token`. Falls back to the top-level token when the nested
+    one is absent OR present-but-unrecognized, so a typo'd nested token doesn't drop
+    a partner whose legacy token still resolves. Returns the token record, or None."""
+    com_posthog = metadata.get("com.posthog")
+    if isinstance(com_posthog, dict):
+        nested_raw = com_posthog.get("verification_token")
+        if nested_raw and isinstance(nested_raw, str):
+            token = find_cimd_verification_token(nested_raw)
+            if token is not None:
+                return token
+
     raw = metadata.get("posthog_verification_token")
     if not raw or not isinstance(raw, str):
         return None
     return find_cimd_verification_token(raw)
+
+
+def _resolve_scopes(metadata: CIMDMetadataDocument) -> list[str] | None:
+    """Resolve the allow-listed `com.posthog.scopes` for an app, or None when the field
+    is absent so callers leave existing scopes untouched. A present field returns a
+    (possibly empty) list, capped to grantable scopes by `filter_to_unprivileged_scopes`.
+
+    Raises CIMDValidationError when the field is present and non-empty but every entry is
+    non-grantable. An empty ceiling falls back to the broad UNPRIVILEGED_SCOPES default
+    (`effective_ceiling`), so silently storing `[]` here would widen a misconfigured app
+    to the full default surface — broader than it asked for. Reject it the way DCR rejects
+    an all-stripped `scope` string, so the partner fixes their metadata. An explicitly empty
+    list is left as the legitimate "use default" signal, same as an absent field.
+    """
+    com_posthog = metadata.get("com.posthog")
+    if not isinstance(com_posthog, dict):
+        return None
+    # Untrusted partner JSON: the TypedDict says list[str], but guard the real type.
+    raw_scopes: object = com_posthog.get("scopes")
+    if not isinstance(raw_scopes, list):
+        return None
+    filtered = filter_to_unprivileged_scopes(raw_scopes)
+    if raw_scopes and not filtered:
+        raise CIMDValidationError(
+            "None of the declared com.posthog.scopes are available to self-registered clients. "
+            "Remove the field to register with the default scope set."
+        )
+    return filtered
+
+
+def _resolve_optional_scopes(metadata: CIMDMetadataDocument) -> list[str] | None:
+    """Resolve `com.posthog.optional_scopes` — the declinable subset a partner offers on top
+    of its required `scopes`, so a CIMD client gets the same required/optional consent split as
+    any other app. Returns None when the field is absent (leave existing scopes untouched),
+    otherwise the grantable-filtered list. Unlike `scopes`, an empty result is benign (it just
+    means no optional scopes, with no widen-to-default fallback), so a fully non-grantable list
+    resolves to `[]` rather than rejecting the registration.
+    """
+    com_posthog = metadata.get("com.posthog")
+    if not isinstance(com_posthog, dict):
+        return None
+    # Untrusted partner JSON: guard the real type rather than trust the TypedDict.
+    raw_optional: object = com_posthog.get("optional_scopes")
+    if not isinstance(raw_optional, list):
+        return None
+    return filter_to_unprivileged_scopes(raw_optional)
 
 
 def _create_cimd_application(url: str, metadata: CIMDMetadataDocument) -> OAuthApplication:
@@ -326,10 +395,14 @@ def _create_cimd_application(url: str, metadata: CIMDMetadataDocument) -> OAuthA
         validate_client_name(client_name)
     except Exception:
         client_name = "CIMD Client"
+    # Escape the partner-controlled name so the stored value is HTML-safe in any sink.
+    client_name = sanitize_client_name(client_name)
 
     redirect_uris = " ".join(metadata.get("redirect_uris", []))
     logo_uri = metadata.get("logo_uri") or None
     verification = _resolve_verification_token(metadata)
+    resolved_scopes = _resolve_scopes(metadata)
+    resolved_optional_scopes = _resolve_optional_scopes(metadata)
 
     app = OAuthApplication(
         name=client_name,
@@ -344,6 +417,8 @@ def _create_cimd_application(url: str, metadata: CIMDMetadataDocument) -> OAuthA
         cimd_metadata_last_fetched=timezone.now(),
         logo_uri=logo_uri,
         organization=verification.organization if verification else None,
+        scopes=resolved_scopes if resolved_scopes is not None else [],
+        optional_scopes=resolved_optional_scopes if resolved_optional_scopes is not None else [],
         user=None,
     )
     app.full_clean()
@@ -376,7 +451,7 @@ def _update_cimd_application(app: OAuthApplication, metadata: CIMDMetadataDocume
     if client_name:
         try:
             validate_client_name(client_name)
-            app.name = client_name
+            app.name = sanitize_client_name(client_name)
         except Exception:
             pass  # Keep existing name if new one is invalid
 
@@ -389,6 +464,17 @@ def _update_cimd_application(app: OAuthApplication, metadata: CIMDMetadataDocume
     verification = _resolve_verification_token(metadata)
     new_org = verification.organization if verification else None
     update_fields = ["name", "redirect_uris", "logo_uri", "cimd_metadata_last_fetched"]
+
+    resolved_scopes = _resolve_scopes(metadata)
+    if resolved_scopes is not None:
+        app.scopes = resolved_scopes
+        update_fields.append("scopes")
+    # Refresh `optional_scopes` from the same metadata so the required/optional split never
+    # drifts: both fields are rewritten together on every fetch.
+    resolved_optional_scopes = _resolve_optional_scopes(metadata)
+    if resolved_optional_scopes is not None:
+        app.optional_scopes = resolved_optional_scopes
+        update_fields.append("optional_scopes")
     old_org_id = app.organization_id
     new_org_id = new_org.id if new_org else None
     if old_org_id != new_org_id:
@@ -503,7 +589,10 @@ def fetch_and_upsert_cimd_application(url: str, capture_ph_event=posthoganalytic
                     "cache_ttl": cache_ttl,
                     "is_verified": new_app.organization_id is not None,
                     "organization_id": str(new_app.organization_id) if new_app.organization_id else None,
-                    "had_verification_token_attempt": bool(metadata.get("posthog_verification_token")),
+                    "had_verification_token_attempt": bool(
+                        metadata.get("posthog_verification_token")
+                        or (isinstance(ns := metadata.get("com.posthog"), dict) and ns.get("verification_token"))
+                    ),
                 },
             )
             return new_app
@@ -523,7 +612,10 @@ def refresh_cimd_metadata_task(url: str) -> None:
     try:
         with ph_scoped_capture() as capture_ph_event:
             fetch_and_upsert_cimd_application(url, capture_ph_event=capture_ph_event)
-    except (CIMDFetchError, CIMDValidationError) as e:
+    except CIMDValidationError as e:
+        # Expected rejection of a non-compliant partner document — log for observability, don't surface as an error.
+        logger.warning("cimd_background_refresh_failed", url=url, error=str(e))
+    except CIMDFetchError as e:
         logger.warning("cimd_background_refresh_failed", url=url, error=str(e))
         capture_exception(e)
 
@@ -550,7 +642,10 @@ def register_cimd_provisioning_application_task(url: str) -> None:
                         "organization_id": str(app.organization_id) if app.organization_id else None,
                     },
                 )
-    except (CIMDFetchError, CIMDValidationError) as e:
+    except CIMDValidationError as e:
+        # Expected rejection of a non-compliant partner document — log for observability, don't surface as an error.
+        logger.warning("cimd_background_registration_failed", url=url, error=str(e))
+    except CIMDFetchError as e:
         logger.warning("cimd_background_registration_failed", url=url, error=str(e))
         capture_exception(e)
 
@@ -570,8 +665,7 @@ def get_or_create_cimd_application(url: str) -> OAuthApplication:
     """
     # Existing client: check cache freshness and if not fresh, fire refresh in the background, returning existing app immediately
     if app := OAuthApplication.objects.filter(cimd_metadata_url=url).first():
-        if not cache.get(_cache_key(url)):
-            refresh_cimd_metadata_task.delay(url)
+        enqueue_cimd_refresh_if_stale(url)
         return app
 
     # New client: synchronous fetch
@@ -587,6 +681,18 @@ def get_or_create_cimd_application(url: str) -> OAuthApplication:
             return app
 
     raise CIMDFetchError(f"Another request is already registering this client ({url}). Please try again.")
+
+
+def enqueue_cimd_refresh_if_stale(url: str) -> None:
+    """Fire a background metadata refresh if the cached document has gone stale.
+
+    Single source of the freshness check, used both by get_or_create_cimd_application
+    and by callers that resolve an existing CIMD app via a direct lookup (the agentic
+    provisioning auth path) so document changes are picked up on the same TTL, instead
+    of freezing the app's scopes and config at first registration.
+    """
+    if not cache.get(_cache_key(url)):
+        refresh_cimd_metadata_task.delay(url)
 
 
 def get_application_by_client_id(client_id: str) -> OAuthApplication:

@@ -4,10 +4,9 @@ use std::fmt;
 use futures::stream::FuturesUnordered;
 use futures::StreamExt;
 
-use crate::v1::context::Context;
-use crate::v1::sinks::event::Event;
+use crate::v1::context::RequestContext;
 use crate::v1::sinks::sink::Sink;
-use crate::v1::sinks::types::SinkResult;
+use crate::v1::sinks::types::{PreparedEvent, SinkResult};
 use crate::v1::sinks::SinkName;
 
 // ---------------------------------------------------------------------------
@@ -57,12 +56,12 @@ impl Router {
         self.sinks.keys().copied().collect()
     }
 
-    /// Publish a batch of events to the named sink.
+    /// Publish a batch of already-serialized events to the named sink.
     pub async fn publish_batch(
         &self,
         sink: SinkName,
-        ctx: &Context,
-        events: &[&(dyn Event + Send + Sync)],
+        ctx: &RequestContext,
+        events: &[PreparedEvent],
     ) -> Result<Vec<Box<dyn SinkResult>>, RouterError> {
         let target = self
             .sinks
@@ -75,10 +74,12 @@ impl Router {
     pub async fn publish(
         &self,
         sink: SinkName,
-        ctx: &Context,
-        event: &(dyn Event + Send + Sync),
+        ctx: &RequestContext,
+        event: &PreparedEvent,
     ) -> Result<Option<Box<dyn SinkResult>>, RouterError> {
-        let results = self.publish_batch(sink, ctx, &[event]).await?;
+        let results = self
+            .publish_batch(sink, ctx, std::slice::from_ref(event))
+            .await?;
         Ok(results.into_iter().next())
     }
 
@@ -117,7 +118,7 @@ mod tests {
     use uuid::Uuid;
 
     use crate::config::CaptureMode;
-    use crate::v1::context::Context;
+    use crate::v1::context::RequestContext;
     use crate::v1::sinks::event::Event;
     use crate::v1::sinks::kafka::mock::MockProducer;
     use crate::v1::sinks::kafka::sink::KafkaSink;
@@ -128,6 +129,8 @@ mod tests {
     use super::*;
 
     // -- Test helpers --------------------------------------------------------
+
+    use crate::v1::test_utils::prepared;
 
     struct FakeEvent {
         parsed_uuid: Uuid,
@@ -143,11 +146,6 @@ mod tests {
                 destination: Destination::AnalyticsMain,
             }
         }
-
-        fn with_publish(mut self, p: bool) -> Self {
-            self.publish = p;
-            self
-        }
     }
 
     impl Event for FakeEvent {
@@ -161,7 +159,7 @@ mod tests {
         fn destination(&self) -> &Destination {
             &self.destination
         }
-        fn headers(&self, _ctx: &Context) -> CapturedEventHeaders {
+        fn headers(&self, _ctx: &RequestContext) -> CapturedEventHeaders {
             CapturedEventHeaders {
                 token: None,
                 distinct_id: None,
@@ -176,15 +174,14 @@ mod tests {
                 dlq_reason: None,
                 dlq_step: None,
                 dlq_timestamp: None,
+                content_encoding: None,
             }
         }
-        fn partition_key(&self, _ctx: &Context, buf: &mut String) {
-            use std::fmt::Write;
-            let _ = write!(buf, "key:{}", self.uuid());
+        fn partition_key(&self, _ctx: &RequestContext) -> String {
+            format!("key:{}", self.uuid())
         }
-        fn serialize_into(&self, _ctx: &Context, buf: &mut String) -> anyhow::Result<()> {
-            buf.push_str(r#"{"event":"test"}"#);
-            Ok(())
+        fn serialize(&self, _ctx: &RequestContext) -> anyhow::Result<bytes::Bytes> {
+            Ok(bytes::Bytes::from(r#"{"event":"test"}"#.to_string()))
         }
     }
 
@@ -223,7 +220,7 @@ mod tests {
         (router, handle, monitor)
     }
 
-    fn test_ctx() -> Context {
+    fn test_ctx() -> RequestContext {
         let mut ctx = crate::v1::test_utils::test_context();
         ctx.created_at = None;
         ctx
@@ -252,7 +249,7 @@ mod tests {
             test_router(SinkName::Msk, &[SinkName::Msk, SinkName::Ws]);
         let ctx = test_ctx();
         let event = FakeEvent::ok("evt-1");
-        let events: Vec<&(dyn Event + Send + Sync)> = vec![&event];
+        let events = prepared(&[&event], &ctx);
 
         let results = router
             .publish_batch(SinkName::Msk, &ctx, &events)
@@ -267,7 +264,7 @@ mod tests {
         let (router, _handle, _monitor) = test_router(SinkName::Msk, &[SinkName::Msk]);
         let ctx = test_ctx();
         let event = FakeEvent::ok("evt-1");
-        let events: Vec<&(dyn Event + Send + Sync)> = vec![&event];
+        let events = prepared(&[&event], &ctx);
 
         match router.publish_batch(SinkName::Ws, &ctx, &events).await {
             Err(RouterError::SinkNotFound(SinkName::Ws)) => {}
@@ -281,20 +278,14 @@ mod tests {
         let (router, _handle, _monitor) = test_router(SinkName::Msk, &[SinkName::Msk]);
         let ctx = test_ctx();
         let event = FakeEvent::ok("evt-1");
+        let prepared = prepared(&[&event], &ctx);
 
-        let result = router.publish(SinkName::Msk, &ctx, &event).await.unwrap();
+        let result = router
+            .publish(SinkName::Msk, &ctx, &prepared[0])
+            .await
+            .unwrap();
         assert!(result.is_some());
         assert_eq!(result.unwrap().outcome(), Outcome::Success);
-    }
-
-    #[tokio::test]
-    async fn publish_single_non_publishable_returns_none() {
-        let (router, _handle, _monitor) = test_router(SinkName::Msk, &[SinkName::Msk]);
-        let ctx = test_ctx();
-        let event = FakeEvent::ok("evt-1").with_publish(false);
-
-        let result = router.publish(SinkName::Msk, &ctx, &event).await.unwrap();
-        assert!(result.is_none());
     }
 
     #[tokio::test]
@@ -302,8 +293,9 @@ mod tests {
         let (router, _handle, _monitor) = test_router(SinkName::Msk, &[SinkName::Msk]);
         let ctx = test_ctx();
         let event = FakeEvent::ok("evt-1");
+        let prepared = prepared(&[&event], &ctx);
 
-        match router.publish(SinkName::Ws, &ctx, &event).await {
+        match router.publish(SinkName::Ws, &ctx, &prepared[0]).await {
             Err(RouterError::SinkNotFound(SinkName::Ws)) => {}
             Err(e) => panic!("expected SinkNotFound(Ws), got: {e}"),
             Ok(_) => panic!("expected error, got Ok"),

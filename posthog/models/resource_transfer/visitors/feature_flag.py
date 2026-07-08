@@ -4,7 +4,6 @@ from typing import Any
 
 from django.db import models
 
-from posthog.models import Cohort
 from posthog.models.resource_transfer.types import ResourceTransferEdge
 from posthog.models.resource_transfer.visitors.base import ResourceTransferVisitor
 from posthog.models.resource_transfer.visitors.common import build_edges_for_ids, make_json_id_rewriter
@@ -18,6 +17,7 @@ from posthog.models.resource_transfer.visitors.feature_flag_filters import (
 )
 
 from products.actions.backend.models.action import Action
+from products.cohorts.backend.models.cohort import Cohort
 from products.experiments.backend.models.experiment import ExperimentHoldout
 
 

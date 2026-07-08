@@ -4,7 +4,7 @@ use anyhow::{Context, Error};
 use inquire::{validator::Validation, CustomUserError};
 use reqwest::Url;
 use std::path::PathBuf;
-use tracing::info;
+use tracing::{debug, warn};
 
 use serde::{Deserialize, Serialize};
 
@@ -62,8 +62,10 @@ impl CredentialProvider for HomeDirProvider {
 }
 
 /// Reads credentials atomically from a single source. Tries the process env first; if the
-/// required variables aren't there and an explicit `--env-file` path was supplied, tries that
-/// file next. `host` is optional and is only read from the same source that supplied the rest.
+/// required variables aren't there and an explicit `--dotenv-file` path was supplied, tries that
+/// file next. A missing `--dotenv-file` is a warning, not a fatal error — we skip it and let the
+/// caller fall back to other credential sources. `host` is optional and is only read from the
+/// same source that supplied the rest.
 pub struct EnvVarProvider {
     pub env_file: Option<PathBuf>,
 }
@@ -85,14 +87,29 @@ impl CredentialProvider for EnvVarProvider {
             return Ok(t);
         }
         if let Some(path) = &self.env_file {
-            let file = load_dotenv(path)?;
-            if let Some(t) = try_source(|n| file.get(n).cloned()) {
-                return Ok(t);
+            match load_dotenv(path) {
+                Ok(file) => {
+                    if let Some(t) = try_source(|n| file.get(n).cloned()) {
+                        return Ok(t);
+                    }
+                    anyhow::bail!(
+                        "Couldn't find POSTHOG_CLI_API_KEY and POSTHOG_CLI_PROJECT_ID in process env or {}",
+                        path.display()
+                    )
+                }
+                // A missing file is non-fatal: warn and fall back to other sources. Any other
+                // read failure (e.g. permissions) is a real problem and still propagates.
+                Err(e)
+                    if e.downcast_ref::<std::io::Error>()
+                        .is_some_and(|io| io.kind() == std::io::ErrorKind::NotFound) =>
+                {
+                    warn!(
+                        "Env file {} not found; falling back to default credential sources",
+                        path.display()
+                    );
+                }
+                Err(e) => return Err(e),
             }
-            anyhow::bail!(
-                "Couldn't find POSTHOG_CLI_API_KEY and POSTHOG_CLI_PROJECT_ID in process env or {}",
-                path.display()
-            )
         }
         anyhow::bail!("Couldn't find POSTHOG_CLI_API_KEY and POSTHOG_CLI_PROJECT_ID in process env")
     }
@@ -148,8 +165,8 @@ pub fn get_token(env_file: Option<PathBuf>) -> Result<Token, Error> {
     let env = EnvVarProvider { env_file };
     let env_err = match env.get_credentials() {
         Ok(token) => {
-            info!(
-                "Using token from environment or --env-file, for environment {}",
+            debug!(
+                "Using token from environment or --dotenv-file, for environment {}",
                 token.env_id
             );
             return Ok(token);
@@ -159,7 +176,7 @@ pub fn get_token(env_file: Option<PathBuf>) -> Result<Token, Error> {
     let provider = HomeDirProvider;
     let dir_err = match provider.get_credentials() {
         Ok(token) => {
-            info!(
+            debug!(
                 "Using token from: {}, for environment {}",
                 provider.report_location(),
                 token.env_id
@@ -330,5 +347,20 @@ mod tests {
         let token = provider.get_credentials().unwrap();
         assert_eq!(token.token, "phx_from_file");
         assert_eq!(token.env_id, "222");
+    }
+
+    #[test]
+    fn provider_skips_missing_env_file_without_read_error() {
+        let _guard = ENV_TEST_LOCK.lock().unwrap();
+        clear_env();
+
+        let provider = EnvVarProvider {
+            env_file: Some(PathBuf::from("/definitely/not/a/real/path/.env")),
+        };
+        // A missing env file must not surface a file-read error — it falls through to the
+        // generic "not in process env" message so the caller can try other sources.
+        let err = provider.get_credentials().unwrap_err().to_string();
+        assert!(err.contains("in process env"));
+        assert!(!err.contains("env file"));
     }
 }

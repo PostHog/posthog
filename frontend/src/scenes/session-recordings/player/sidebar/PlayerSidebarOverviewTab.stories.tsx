@@ -1,5 +1,6 @@
 import type { Meta, StoryObj } from '@storybook/react'
 import { BindLogic } from 'kea'
+import { HttpResponse } from 'msw'
 
 import recordingEventsJson from 'scenes/session-recordings/__mocks__/recording_events_query'
 import { recordingMetaJson } from 'scenes/session-recordings/__mocks__/recording_meta'
@@ -28,8 +29,8 @@ const meta: Meta<OverviewTabProps> = {
         mswDecorator({
             get: {
                 '/api/projects/:team_id/notebooks/recording_comments': { results: [] },
-                '/api/environments/:team_id/session_recordings': (req) => {
-                    const version = req.url.searchParams.get('version')
+                '/api/environments/:team_id/session_recordings': ({ request }) => {
+                    const version = new URL(request.url).searchParams.get('version')
                     return [
                         200,
                         {
@@ -40,8 +41,8 @@ const meta: Meta<OverviewTabProps> = {
                     ]
                 },
                 '/api/projects/:team_id/session_recording_playlists': recordingPlaylists,
-                '/api/projects/:team_id/session_recording_playlists/:playlist_id': (req) => {
-                    const playlistId = req.params.playlist_id
+                '/api/projects/:team_id/session_recording_playlists/:playlist_id': ({ params }) => {
+                    const playlistId = params.playlist_id
 
                     return [
                         200,
@@ -88,14 +89,14 @@ const meta: Meta<OverviewTabProps> = {
                         },
                     ]
                 },
-                '/api/projects/:team_id/session_recording_playlists/:playlist_id/recordings': (req) => {
-                    const playlistId = req.params.playlist_id
+                '/api/projects/:team_id/session_recording_playlists/:playlist_id/recordings': ({ params }) => {
+                    const playlistId = params.playlist_id
                     const response = playlistId === '1234567' ? recordings : []
                     return [200, { has_next: false, results: response, version: 1 }]
                 },
-                '/api/environments/:team_id/session_recordings/:id/snapshots': (req, res, ctx) => {
-                    if (req.url.searchParams.get('source') === 'blob_v2') {
-                        return res(ctx.text(snapshotsAsJSONLines()))
+                '/api/environments/:team_id/session_recordings/:id/snapshots': ({ request }) => {
+                    if (new URL(request.url).searchParams.get('source') === 'blob_v2') {
+                        return new HttpResponse(snapshotsAsJSONLines())
                     }
                     return [
                         200,
@@ -111,18 +112,19 @@ const meta: Meta<OverviewTabProps> = {
                         },
                     ]
                 },
-                '/api/environments/:team_id/session_recordings/:id': (req, res, ctx) => {
-                    if (req.params.id === '12345') {
-                        return res(ctx.json(recordingMetaJson))
-                    } else if (req.params.id === 'thirty_others') {
-                        return res(
-                            ctx.json({
+                '/api/environments/:team_id/session_recordings/:id': ({ params }) => {
+                    if (params.id === '12345') {
+                        return [200, recordingMetaJson]
+                    } else if (params.id === 'thirty_others') {
+                        return [
+                            200,
+                            {
                                 ...recordingMetaJson,
                                 viewers: Array.from({ length: 30 }, (_, i) => `${i}@example.com`),
-                            })
-                        )
+                            },
+                        ]
                     }
-                    return res(ctx.json({ ...recordingMetaJson, viewers: ['abcdefg'] }))
+                    return [200, { ...recordingMetaJson, viewers: ['abcdefg'] }]
                 },
                 'api/projects/:team/notebooks': {
                     count: 0,
@@ -132,15 +134,16 @@ const meta: Meta<OverviewTabProps> = {
                 },
             },
             post: {
-                '/api/environments/:team_id/query/:kind': (req, res, ctx) => {
-                    const body = req.body as Record<string, any>
+                '/api/environments/:team_id/query/:kind': async ({ request }) => {
+                    const body = (await request.json()) as Record<string, any>
                     if (
                         body.query.kind === 'HogQLQuery' &&
                         // very lazy match
                         body.query.query.includes('any(properties.$geoip_country_code) as $geoip_country_code')
                     ) {
-                        return res(
-                            ctx.json({
+                        return [
+                            200,
+                            {
                                 columns: [
                                     'session_id',
                                     '$geoip_country_code',
@@ -167,16 +170,16 @@ const meta: Meta<OverviewTabProps> = {
                                         'https://hedgehog.io/entry-page',
                                     ],
                                 ],
-                            })
-                        )
+                            },
+                        ]
                     }
 
                     if (body.query.kind === 'EventsQuery' && body.query.properties.length === 1) {
-                        return res(ctx.json(recordingEventsJson))
+                        return [200, recordingEventsJson]
                     }
 
                     // default to an empty response or we duplicate information
-                    return res(ctx.json({ results: [] }))
+                    return [200, { results: [] }]
                 },
             },
         }),

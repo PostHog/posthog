@@ -1,4 +1,4 @@
-from datetime import datetime
+from datetime import UTC, datetime
 from typing import Any, Optional
 from uuid import uuid4
 
@@ -183,7 +183,7 @@ def produce_replay_summary(
     if settings.TEST:
         # we don't want to set _timestamp if we're using a real KafkaProducer
         # and `ClickhouseProducer` does not use kafka when in test mode
-        data["_timestamp"] = kafka_timestamp or datetime.utcnow().timestamp()
+        data["_timestamp"] = kafka_timestamp or datetime.now(UTC).timestamp()
 
     p = ClickhouseProducer()
     # because this is in a test it will write directly using SQL not really with Kafka

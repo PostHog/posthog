@@ -29,7 +29,7 @@ message ResolveItem {
   // Serialized rust/cymbal Exception before frame and exception remapping.
   bytes exception_json = 3;
   // Serialized resolution metadata. The current convention is JSON bytes with
-  // resolver-specific keys such as `apple_debug_images_json`.
+  // resolver-specific keys such as `debug_images_json`.
   bytes metadata = 4;
   // Deadline for this logical exception in milliseconds. The server may shed
   // stale items instead of starting work it cannot return in time.
@@ -126,4 +126,9 @@ message LoadEvent {
   uint64 sequence = 4;
   // Optional short human-readable note. Not interpreted by the router.
   string message = 5;
+  // Current server-side exception items in flight on this pod. Routers use
+  // this as a soft load signal, not as an admission guarantee.
+  uint32 in_flight = 6;
+  // Server-side item concurrency cap used to interpret `in_flight`.
+  uint32 max_in_flight = 7;
 }

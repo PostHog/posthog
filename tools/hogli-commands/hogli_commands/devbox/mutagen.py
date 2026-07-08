@@ -7,6 +7,8 @@ wrappers. v1 only targets Coder workspaces as the remote endpoint.
 
 from __future__ import annotations
 
+import os
+import re
 import json
 import shutil
 import hashlib
@@ -21,6 +23,44 @@ from .coder import _fail
 
 _MANAGED_MUTAGEN_DIR = Path.home() / ".hogli" / "bin"
 _MUTAGEN_VERSION = "0.18.1"
+
+# mutagen hardcodes `-oServerAliveInterval=10 -oServerAliveCountMax=1` onto every
+# ssh command line it builds, and a command-line `-o` overrides ~/.ssh/config, so
+# the keepalive cannot be relaxed via config. One missed keepalive (interval x
+# count = 10s of silence) tears the connection down -- which is exactly what
+# happens when a devbox's Tailscale path flaps to a DERP relay (it resets the
+# direct path roughly every 26s) mid-sync, surfacing as a "broken pipe" at the
+# staging step and a sync that loops forever without ever reaching `watching`.
+# We can't change the constant, but we can interpose an ssh that rewrites it for
+# devbox connections: a shim on MUTAGEN_SSH_PATH bumps the count so the
+# connection rides out a reset window. _KEEPALIVE_COUNT x interval(10s) is the
+# resulting silence tolerance (~30s, comfortably past the ~26s reset cadence).
+_SSH_SHIM_DIR = Path.home() / ".hogli" / "mutagen-ssh-shim"
+_KEEPALIVE_COUNT = 3
+
+# Baked at generation time (see ensure_ssh_shim): only when the ssh/scp target is
+# a devbox (a `coder.*` host -- the sole thing hogli syncs to) do we bump
+# mutagen's count; every other invocation passes through untouched, so a shared
+# daemon's non-devbox syncs are unaffected. Execs the real ssh/scp by absolute
+# path so a shim-dir entry on PATH can never make the shim re-invoke itself.
+_SHIM_TEMPLATE = """#!/usr/bin/env bash
+# Managed by hogli (`hogli devbox:sync`) -- do not edit; regenerated on sync.
+# Raises mutagen's intolerant `-oServerAliveCountMax=1` for devbox (coder.*)
+# connections so the sync survives a Tailscale/DERP path reset instead of dying
+# with a broken pipe. Any non-devbox ssh is passed through unchanged.
+devbox=
+for a in "$@"; do
+  case "$a" in coder.*|*@coder.*) devbox=1 ;; esac
+done
+args=()
+for a in "$@"; do
+  case "$a" in
+  -oServerAliveCountMax=*) [ -n "$devbox" ] && a="-oServerAliveCountMax={count}" ;;
+  esac
+  args+=("$a")
+done
+exec "{real}" ${{args[@]+"${{args[@]}}"}}
+"""
 _RELEASE_URL_TEMPLATE = (
     "https://github.com/mutagen-io/mutagen/releases/download/v{version}/mutagen_{os}_{arch}_v{version}.tar.gz"
 )
@@ -72,6 +112,17 @@ def _mutagen_bin() -> str:
     return shutil.which("mutagen") or "mutagen"
 
 
+def _mutagen_env() -> dict[str, str]:
+    """Process env for mutagen calls, pinning ssh resolution to the keepalive shim.
+
+    Setting ``MUTAGEN_SSH_PATH`` here means any daemon mutagen *auto-starts* as a
+    child of this process inherits it (the only env channel that reaches the
+    daemon -- see ``ensure_daemon_with_shim``). Pointing at the dir is safe even
+    before the shim exists: mutagen just falls back to a PATH ssh.
+    """
+    return {**os.environ, "MUTAGEN_SSH_PATH": str(_SSH_SHIM_DIR)}
+
+
 def _run(args: list[str], *, capture_output: bool = False) -> subprocess.CompletedProcess[str]:
     """Run a mutagen subprocess with consistent text handling.
 
@@ -81,7 +132,7 @@ def _run(args: list[str], *, capture_output: bool = False) -> subprocess.Complet
     resolved = args
     if args and args[0] == "mutagen":
         resolved = [_mutagen_bin(), *args[1:]]
-    return subprocess.run(resolved, capture_output=capture_output, text=True)
+    return subprocess.run(resolved, capture_output=capture_output, text=True, env=_mutagen_env())
 
 
 def mutagen_installed() -> bool:
@@ -177,24 +228,140 @@ def ensure_mutagen_installed(*, verbose: bool = False) -> None:
         click.echo("mutagen CLI is installed.")
 
 
-def register_daemon() -> None:
-    """Install the mutagen daemon's autostart hook (LaunchAgent / systemd user unit).
+def _resolve_real_ssh(name: str) -> str:
+    """Absolute path to the real ssh/scp the shim should exec.
 
-    Idempotent on mutagen's side -- re-running just re-applies the same hook.
-    Best-effort: any failure is logged as a warning, not fatal, because the
-    daemon will still start on demand the first time a sync command runs;
-    autostart just means it survives reboots without intervention.
+    Searches standard locations first (robust against a hijacked ``PATH``), then
+    falls back to a ``PATH`` lookup with the shim dir removed so the shim can
+    never resolve to itself.
     """
-    result = _run(["mutagen", "daemon", "register"], capture_output=True)
+    for candidate in (f"/usr/bin/{name}", f"/bin/{name}", f"/usr/local/bin/{name}"):
+        if os.path.isfile(candidate) and os.access(candidate, os.X_OK):
+            return candidate
+    entries = [e for e in os.environ.get("PATH", "").split(os.pathsep) if e and Path(e) != _SSH_SHIM_DIR]
+    return shutil.which(name, path=os.pathsep.join(entries)) or name
+
+
+def _write_owner_only(target: Path, content: str) -> None:
+    """Atomically write ``content`` as an owner-only (0o700) executable.
+
+    Writes to a fresh temp opened with a restrictive mode (umask only clears
+    bits, and 0o700 has none in group/other, so it lands at 0o700) and renames
+    it into place, so the script is never briefly world-readable or half-written.
+    """
+    tmp = target.with_name(f".{target.name}.tmp")
+    fd = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o700)
+    with os.fdopen(fd, "w") as f:
+        f.write(content)
+    os.replace(tmp, target)
+
+
+def ensure_ssh_shim() -> Path:
+    """Write the ssh/scp keepalive-rewriting shims, returning their directory.
+
+    Idempotent: each shim is rewritten only when its content (which embeds the
+    resolved real-binary path and keepalive count) changes. mutagen invokes both
+    ssh and scp, so both are shimmed; the rewrite is a no-op for any arg that
+    isn't ``-oServerAliveCountMax=``.
+    """
+    _SSH_SHIM_DIR.mkdir(parents=True, exist_ok=True)
+    # The daemon execs these scripts, so keep the dir and scripts owner-only: no
+    # other local account can tamper with what runs as us, and they need no wider
+    # access. The dir chmod also self-heals an older world-readable install.
+    _SSH_SHIM_DIR.chmod(0o700)
+    for name in ("ssh", "scp"):
+        target = _SSH_SHIM_DIR / name
+        content = _SHIM_TEMPLATE.format(count=_KEEPALIVE_COUNT, real=_resolve_real_ssh(name))
+        if not target.exists() or target.read_text() != content:
+            _write_owner_only(target, content)
+        else:
+            target.chmod(0o700)  # content already current; just heal perms
+    return _SSH_SHIM_DIR
+
+
+def _daemon_pids() -> list[int]:
+    """PIDs of running mutagen daemon processes (best-effort, cross-platform)."""
+    try:
+        # POSIX `-A -o` (not BSD `-axo`) so this parses on both macOS and Linux.
+        result = subprocess.run(["ps", "-A", "-o", "pid=,args="], capture_output=True, text=True)
+    except (OSError, subprocess.SubprocessError):
+        return []
+    pids: list[int] = []
+    for line in result.stdout.splitlines():
+        pid_str, _, args = line.strip().partition(" ")
+        # `daemon run` is the daemon's own subcommand -- specific enough to skip
+        # transient `ps`/`grep` lines that merely mention "mutagen daemon".
+        if "mutagen" in args and "daemon run" in args and pid_str.isdigit():
+            pids.append(int(pid_str))
+    return pids
+
+
+def _daemon_ssh_path(pid: int) -> str | None:
+    """The ``MUTAGEN_SSH_PATH`` a process was started with, or ``None`` (best-effort).
+
+    The value can legitimately contain spaces (a home dir like ``/Users/John
+    Doe``), so both branches preserve them: Linux reads ``/proc/<pid>/environ``,
+    which is NUL-delimited; macOS/BSD parse ``ps eww``, whose env is
+    space-delimited with no per-entry boundary, so we capture from our key up to
+    the next ``KEY=`` (or line end) rather than splitting on whitespace.
+    """
+    if platform.system() == "Linux":
+        try:
+            raw = Path(f"/proc/{pid}/environ").read_bytes()
+        except OSError:
+            return None
+        for entry in raw.split(b"\0"):
+            key, sep, value = entry.partition(b"=")
+            if sep and key == b"MUTAGEN_SSH_PATH":
+                return value.decode(errors="replace")
+        return None
+    try:
+        result = subprocess.run(["ps", "eww", "-o", "command=", "-p", str(pid)], capture_output=True, text=True)
+    except (OSError, subprocess.SubprocessError):
+        return None
+    match = re.search(r"(?:^|\s)MUTAGEN_SSH_PATH=(.*?)(?=\s\S+=|$)", result.stdout)
+    return match.group(1) if match else None
+
+
+def _daemon_uses_shim(shim_dir: Path) -> bool:
+    """Whether a running daemon already routes ssh through our shim."""
+    target = str(shim_dir)
+    return any(_daemon_ssh_path(pid) == target for pid in _daemon_pids())
+
+
+def ensure_daemon_with_shim() -> None:
+    """Ensure the mutagen daemon spawns ssh through the keepalive shim.
+
+    The daemon -- not the create call -- spawns ssh, so the shim only takes
+    effect if the daemon's own env carries ``MUTAGEN_SSH_PATH``. A
+    launchd/systemd-*registered* daemon has its env owned by the service manager
+    (the invoking shell's env never reaches it), so we deliberately do not
+    register; instead we let mutagen auto-start the daemon as a child of a hogli
+    subprocess, which inherits ``_mutagen_env``. If a stale or service-managed
+    daemon is already running without the shim, reset it: stop (sessions are
+    persisted and resume on the next start), unregister any autostart hook so the
+    restart forks a child, then start a fresh daemon carrying the env.
+
+    The trade-off versus the old ``mutagen daemon register`` is losing
+    autostart-on-reboot; mutagen still starts the daemon on demand on the next
+    sync command, so an existing session simply resumes when the user next runs
+    ``hogli devbox:sync``.
+    """
+    shim_dir = ensure_ssh_shim()
+    if _daemon_uses_shim(shim_dir):
+        return
+    _run(["mutagen", "daemon", "stop"], capture_output=True)
+    _run(["mutagen", "daemon", "unregister"], capture_output=True)
+    result = _run(["mutagen", "daemon", "start"], capture_output=True)
     if result.returncode != 0:
-        stderr = (result.stderr or "").strip()
         click.echo(
             click.style(
-                "Warning: `mutagen daemon register` failed; sync will still work "
-                "but the daemon won't auto-restart after reboot.",
+                "Warning: could not start the mutagen daemon with the keepalive shim; "
+                "sync may not survive network blips. A sync command will retry the start.",
                 fg="yellow",
             )
         )
+        stderr = (result.stderr or "").strip()
         if stderr:
             click.echo(f"  {stderr}", err=True)
 

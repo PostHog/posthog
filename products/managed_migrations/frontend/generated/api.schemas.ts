@@ -9,9 +9,9 @@
  */
 /**
  * * `completed` - Completed
- * `failed` - Failed
- * `paused` - Paused
- * `running` - Running
+ * * `failed` - Failed
+ * * `paused` - Paused
+ * * `running` - Running
  */
 export type BatchImportStatusEnumApi = (typeof BatchImportStatusEnumApi)[keyof typeof BatchImportStatusEnumApi]
 
@@ -94,9 +94,9 @@ export type ManagedMigrationsListParams = {
     search?: string
     /**
      * * `completed` - Completed
-     * `failed` - Failed
-     * `paused` - Paused
-     * `running` - Running
+     * * `failed` - Failed
+     * * `paused` - Paused
+     * * `running` - Running
      */
     status?: ManagedMigrationsListStatus
 }

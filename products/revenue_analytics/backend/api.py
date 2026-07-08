@@ -18,6 +18,7 @@ from posthog.api.documentation import _FallbackSerializer
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.clickhouse.query_tagging import Feature, tag_queries
 from posthog.models.team.team import Team
+from posthog.models.user import User
 
 from products.revenue_analytics.backend.joins import ensure_person_join_for_team, remove_person_join_for_team
 from products.revenue_analytics.backend.views import RevenueAnalyticsBaseView
@@ -25,7 +26,7 @@ from products.revenue_analytics.backend.views.schemas import SCHEMAS as VIEW_SCH
 
 
 # Extracted to a separate function to be reused in the TaxonomyAgentToolkit
-def find_values_for_revenue_analytics_property(key: str, team: Team) -> list[str]:
+def find_values_for_revenue_analytics_property(key: str, team: Team, user: User) -> list[str]:
     # Get the scope from before the first dot
     # and if there's no dot then it's the base case which is RevenueAnalyticsRevenueItemView
     scope, *chain = key.split(".")
@@ -33,7 +34,7 @@ def find_values_for_revenue_analytics_property(key: str, team: Team) -> list[str
         chain = [scope]
         scope = "revenue_analytics_revenue_item"
 
-    database = Database.create_for(team=team)
+    database = Database.create_for(team=team, user=user)
     schema = VIEW_SCHEMAS[DatabaseSchemaManagedViewTableKind(scope)]
 
     # Try and find the union view for this class
@@ -66,7 +67,7 @@ def find_values_for_revenue_analytics_property(key: str, team: Team) -> list[str
     values = []
     try:
         tag_queries(product=ProductKey.REVENUE_ANALYTICS, feature=Feature.QUERY)
-        result = execute_hogql_query(query, team=team)
+        result = execute_hogql_query(query, team=team, user=user)
         values = [row[0] for row in result.results]
     except Exception as e:
         capture_exception(e)
@@ -86,7 +87,7 @@ class RevenueAnalyticsTaxonomyViewSet(TeamAndOrgViewSetMixin, GenericViewSet):
         if key is None:
             return Response({"results": [], "refreshing": False})
 
-        values = find_values_for_revenue_analytics_property(key, self.team)
+        values = find_values_for_revenue_analytics_property(key, self.team, cast(User, request.user))
         return Response({"results": [{"name": value} for value in values], "refreshing": False})
 
 

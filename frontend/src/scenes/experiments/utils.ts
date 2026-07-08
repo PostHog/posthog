@@ -3,7 +3,7 @@ import { match } from 'ts-pattern'
 import { getSeriesColor } from 'lib/colors'
 import { EXPERIMENT_DEFAULT_DURATION, FunnelLayout } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
-import { uuid } from 'lib/utils'
+import { uuid } from 'lib/utils/dom'
 import { MathAvailability } from 'scenes/insights/filters/ActionFilter/ActionFilterRow/ActionFilterRow'
 
 import {
@@ -45,6 +45,11 @@ import {
     UniversalFiltersGroupValue,
 } from '~/types'
 
+import type {
+    ExperimentFeatureFlagFiltersApi,
+    ExperimentFeatureFlagInputApi,
+} from 'products/experiments/frontend/generated/api.schemas'
+
 import { EXPERIMENT_VARIANT_MULTIPLE } from './constants'
 import { SharedMetric } from './SharedMetrics/sharedMetricLogic'
 
@@ -76,7 +81,18 @@ export function getExposureConfigDisplayName(config: ExperimentExposureConfig): 
 
 export function getVariantColor(variantKey: string, featureFlagVariants: MultivariateFlagVariant[]): string {
     const variantIndex = featureFlagVariants.findIndex((v) => v.key === variantKey)
-    return variantIndex !== -1 ? getSeriesColor(variantIndex) : 'var(--text-muted)'
+    return variantIndex !== -1 ? getSeriesColor(variantIndex) : 'var(--muted)'
+}
+
+/**
+ * Variants for an experiment, read flag-first. The linked feature flag is the source of truth;
+ * `parameters.feature_flag_variants` is a legacy mirror that only matters while creating an
+ * experiment, before its flag exists. Saved experiments always resolve from the flag.
+ */
+export function getExperimentVariants(experiment: Partial<Experiment> | null | undefined): MultivariateFlagVariant[] {
+    return (
+        experiment?.feature_flag?.filters?.multivariate?.variants ?? experiment?.parameters?.feature_flag_variants ?? []
+    )
 }
 
 export function formatUnitByQuantity(value: number, unit: string): string {
@@ -709,12 +725,16 @@ export const isLegacyExperimentQuery = (query: unknown): query is ExperimentTren
  *
  * We should remove these legacy metrics once we've migrated all experiments to the new query runner.
  */
-export const isLegacyExperiment = ({ metrics, metrics_secondary, saved_metrics }: Experiment): boolean => {
+export const isLegacyExperiment = (experiment?: Experiment | null): boolean => {
+    if (!experiment) {
+        return false
+    }
+    const { metrics, metrics_secondary, saved_metrics } = experiment
     // saved_metrics has a different structure and so we need to check for it separately
-    if (saved_metrics.some(isLegacySharedMetric)) {
+    if ((saved_metrics ?? []).some(isLegacySharedMetric)) {
         return true
     }
-    return [...metrics, ...metrics_secondary].some(isLegacyExperimentQuery)
+    return [...(metrics ?? []), ...(metrics_secondary ?? [])].some(isLegacyExperimentQuery)
 }
 
 export const isLegacySharedMetric = ({ query }: SharedMetric): boolean => isLegacyExperimentQuery(query)
@@ -951,3 +971,175 @@ export function getOrderedMetricsWithResults(
             metricIndex: originalIndexMap.get(metric.uuid) ?? index, // Original position for retry
         }))
 }
+
+export type MetricWithResult = {
+    metric: ExperimentMetric
+    result: CachedNewExperimentQueryResponse | undefined
+    error: unknown
+    displayIndex: number
+    metricIndex: number
+}
+
+/**
+ * Narrows to a real, saved experiment: present and not the "new"/draft sentinel id. Used by the
+ * recalculation-flow component wrappers before mounting experiment-keyed child logics.
+ */
+export const isSavedExperiment = (experiment: Experiment | null | undefined): experiment is Experiment =>
+    experiment?.id != null && experiment.id !== 'new'
+
+export type ExperimentWritePayload<T> = Omit<T, 'feature_flag'> & {
+    feature_flag?: ExperimentFeatureFlagInputApi
+}
+
+/** Update payload for the experiment API: flag config travels in the write shape. An echoed
+ * read-only flag is also accepted — the backend ignores flag objects carrying a non-null id. */
+export type ExperimentUpdatePayload = Omit<Partial<Experiment>, 'feature_flag'> & {
+    feature_flag?: ExperimentFeatureFlagInputApi | Experiment['feature_flag']
+    update_feature_flag_params?: boolean
+}
+
+/** Maps UI variants to the flag's write shape, dropping null names the generated type disallows. */
+export function toFlagVariantsInput(
+    variants: MultivariateFlagVariant[]
+): NonNullable<ExperimentFeatureFlagFiltersApi['multivariate']>['variants'] {
+    return variants.map(({ key, name, rollout_percentage }) => ({
+        key,
+        ...(name != null ? { name } : {}),
+        rollout_percentage,
+    }))
+}
+
+/** The flag-config keys the GET projection mirrors into `parameters`. `ensure_experience_continuity`
+ * is also user-set (the wizard's continuity toggle writes it); the others only echo the flag. */
+type ProjectedFlagConfigParameters = Experiment['parameters'] & {
+    ensure_experience_continuity?: boolean | null
+    feature_flag_payloads?: Record<string, string>
+}
+
+/**
+ * Builds an experiment write payload that sends flag config through the `feature_flag` object
+ * (the flag's own filters shape) instead of the deprecated `parameters` keys, which are stripped.
+ * The read-only `feature_flag` echoed by a GET response is dropped either way.
+ *
+ * Pass `omitFlagConfig` when the experiment links to a pre-existing flag: the flag is linked
+ * as-is, and the API rejects explicit config for it.
+ */
+export function toExperimentWritePayload<T extends Pick<Experiment, 'parameters'>>(
+    experiment: T,
+    { omitFlagConfig = false }: { omitFlagConfig?: boolean } = {}
+): ExperimentWritePayload<T> {
+    const {
+        feature_flag_variants,
+        rollout_percentage,
+        aggregation_group_type_index,
+        feature_flag_payloads,
+        ensure_experience_continuity,
+        ...parameters
+    } = (experiment.parameters ?? {}) as ProjectedFlagConfigParameters
+    const { feature_flag: _echoedFlag, ...rest } = experiment as T & { feature_flag?: unknown }
+    // Preserve a null/undefined parameters as-is: coercing it to {} would rewrite a stored
+    // null on PATCH.
+    const payload = {
+        ...rest,
+        parameters: experiment.parameters == null ? experiment.parameters : parameters,
+    } as ExperimentWritePayload<T>
+
+    if (omitFlagConfig) {
+        return payload
+    }
+
+    const filters: ExperimentFeatureFlagFiltersApi = {}
+    if (feature_flag_variants && feature_flag_variants.length > 0) {
+        filters.multivariate = { variants: toFlagVariantsInput(feature_flag_variants) }
+    }
+    if (rollout_percentage != null) {
+        filters.groups = [{ properties: [], rollout_percentage }]
+    }
+    // Forwarded rather than dropped: on update the backend would backfill these from the linked
+    // flag anyway, but on create (e.g. the duplicate prefill) there is no flag to backfill from,
+    // so dropping them would silently lose group aggregation and variant payloads.
+    if (aggregation_group_type_index != null) {
+        filters.aggregation_group_type_index = aggregation_group_type_index
+    }
+    if (feature_flag_payloads && Object.keys(feature_flag_payloads).length > 0) {
+        filters.payloads = feature_flag_payloads
+    }
+
+    const featureFlag: ExperimentFeatureFlagInputApi = {
+        ...(Object.keys(filters).length > 0 ? { filters } : {}),
+        ...(ensure_experience_continuity != null ? { ensure_experience_continuity } : {}),
+    }
+    if (Object.keys(featureFlag).length > 0) {
+        payload.feature_flag = featureFlag
+    }
+    return payload
+}
+
+/**
+ * Pure zip of one metric type (`primary` | `secondary`) with its results and errors, in display order.
+ * Same shaping as {@link getOrderedMetricsWithResults} but curried over the experiment, so a caller can
+ * bind it once per experiment instance and reuse it for both primary and secondary:
+ *
+ *   const zip = metricResults(experiment)
+ *   const primary = zip(primaryResults, primaryErrors, 'primary')
+ *   const secondary = zip(secondaryResults, secondaryErrors, 'secondary')
+ *
+ * Used by the recalculation flow; the legacy per-metric path keeps using getOrderedMetricsWithResults.
+ */
+export const metricResults =
+    (experiment: Experiment) =>
+    (
+        results: CachedNewExperimentQueryResponse[],
+        errors: unknown[],
+        type: 'primary' | 'secondary'
+    ): MetricWithResult[] => {
+        const regularMetrics = (
+            type === 'secondary' ? experiment.metrics_secondary || [] : experiment.metrics || []
+        ) as ExperimentMetric[]
+
+        /**
+         * Reshape saved/shared metrics into the inline ExperimentMetric shape so both can be merged and
+         * ordered together below.
+         */
+        const sharedMetrics = (experiment.saved_metrics || [])
+            .filter((sharedMetric) => sharedMetric.metadata?.type === type)
+            .map((sharedMetric) => ({
+                ...sharedMetric.query,
+                name: sharedMetric.name,
+                sharedMetricId: sharedMetric.saved_metric,
+                isSharedMetric: true,
+                breakdownFilter: {
+                    ...sharedMetric.query?.breakdownFilter,
+                    breakdowns: sharedMetric.metadata?.breakdowns || [],
+                },
+            })) as ExperimentMetric[]
+
+        /**
+         * Merge inline + shared metrics, dropping any without a uuid (defensive). One entry per metric
+         * carries everything the output row needs, keyed by uuid for the ordering pass below.
+         */
+        const byUuid = new Map(
+            [...regularMetrics, ...sharedMetrics]
+                .map((metric, index) => ({ metric, result: results[index], error: errors[index], index }))
+                .filter((entry): entry is { metric: ExperimentMetric & { uuid: string } } & typeof entry =>
+                    Boolean(entry.metric.uuid)
+                )
+                .map((entry) => [entry.metric.uuid, entry])
+        )
+
+        const orderedUuids =
+            type === 'secondary'
+                ? experiment.secondary_metrics_ordered_uuids || []
+                : experiment.primary_metrics_ordered_uuids || []
+
+        return orderedUuids
+            .map((uuid) => byUuid.get(uuid))
+            .filter((entry): entry is NonNullable<typeof entry> => Boolean(entry))
+            .map(({ metric, result, error, index }, displayIndex) => ({
+                metric,
+                result,
+                error,
+                displayIndex,
+                metricIndex: index,
+            }))
+    }

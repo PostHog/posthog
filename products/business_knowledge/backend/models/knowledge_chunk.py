@@ -1,6 +1,7 @@
 from typing import Any
 
 from django.contrib.postgres.indexes import GinIndex
+from django.contrib.postgres.search import SearchVectorField
 from django.db import models
 
 from posthog.models.scoping.manager import TeamScopedManager
@@ -34,6 +35,14 @@ class KnowledgeChunk(models.Model):
     # Rough character length; kept separately so the agent can ORDER BY / LIMIT
     # without loading content into HogQL context.
     char_count = models.PositiveIntegerField()
+    # `english`-config tsvector of `content`, backing full-text relevance search.
+    # Maintained in `logic._bulk_create_chunks` right after the rows are inserted
+    # (the single chunk-creation choke point) rather than by a DB trigger or a
+    # GeneratedField: the test schema is built from model state with migrations
+    # disabled, so a migration-only trigger would not exist there, and a
+    # GeneratedField can't use the STABLE two-arg `to_tsvector(text, text)`.
+    # Nullable so the INSERT can land before the vector is computed.
+    content_search_vector = SearchVectorField(null=True)
     created_at = models.DateTimeField(auto_now_add=True)
 
     objects = TeamScopedManager()
@@ -44,6 +53,7 @@ class KnowledgeChunk(models.Model):
             models.Index(fields=["team", "source"], name="bk_chunk_team_source"),
             models.Index(fields=["document", "ordinal"], name="bk_chunk_doc_ordinal"),
             GinIndex(fields=["content"], opclasses=["gin_trgm_ops"], name="bk_chunk_content_trgm"),
+            GinIndex(fields=["content_search_vector"], name="bk_chunk_content_tsv"),
         ]
         # One physical chunk per (document, heading_path, ordinal). Matches
         # the uuid5 seed so the deterministic id can never collide silently.

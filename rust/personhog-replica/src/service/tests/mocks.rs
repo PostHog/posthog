@@ -102,6 +102,41 @@ impl storage::PersonLookup for FailingStorage {
     ) -> storage::StorageResult<i64> {
         Err(self.error.clone())
     }
+
+    async fn delete_personless_distinct_ids_batch_for_team(
+        &self,
+        _team_id: i64,
+        _batch_size: i64,
+    ) -> storage::StorageResult<i64> {
+        Err(self.error.clone())
+    }
+
+    async fn split_person(
+        &self,
+        _team_id: i64,
+        _person_id: i64,
+        _distinct_ids_to_split: &[String],
+    ) -> storage::StorageResult<Vec<storage::SplitResult>> {
+        Err(self.error.clone())
+    }
+
+    async fn set_person_distinct_id_version_floor(
+        &self,
+        _team_id: i64,
+        _distinct_id: &str,
+        _version: i64,
+    ) -> storage::StorageResult<Option<storage::Person>> {
+        Err(self.error.clone())
+    }
+
+    async fn set_person_version_floor(
+        &self,
+        _team_id: i64,
+        _person_id: i64,
+        _min_version: i64,
+    ) -> storage::StorageResult<bool> {
+        Err(self.error.clone())
+    }
 }
 
 #[async_trait]
@@ -152,6 +187,7 @@ impl storage::FeatureFlagStorage for FailingStorage {
     async fn delete_hash_key_overrides_by_teams(
         &self,
         _team_ids: &[i64],
+        _batch_size: i64,
     ) -> storage::StorageResult<i64> {
         Err(self.error.clone())
     }
@@ -287,6 +323,13 @@ impl storage::GroupStorage for FailingStorage {
         _project_ids: &[i64],
         _consistency: storage::postgres::ConsistencyLevel,
     ) -> storage::StorageResult<Vec<storage::GroupTypeMapping>> {
+        Err(self.error.clone())
+    }
+
+    async fn count_group_type_mappings(
+        &self,
+        _consistency: storage::postgres::ConsistencyLevel,
+    ) -> storage::StorageResult<Vec<(i64, i64)>> {
         Err(self.error.clone())
     }
 
@@ -440,6 +483,41 @@ impl storage::PersonLookup for SuccessStorage {
     ) -> storage::StorageResult<i64> {
         Ok(0)
     }
+
+    async fn delete_personless_distinct_ids_batch_for_team(
+        &self,
+        _team_id: i64,
+        _batch_size: i64,
+    ) -> storage::StorageResult<i64> {
+        Ok(0)
+    }
+
+    async fn split_person(
+        &self,
+        _team_id: i64,
+        _person_id: i64,
+        _distinct_ids_to_split: &[String],
+    ) -> storage::StorageResult<Vec<storage::SplitResult>> {
+        Ok(vec![])
+    }
+
+    async fn set_person_distinct_id_version_floor(
+        &self,
+        _team_id: i64,
+        _distinct_id: &str,
+        _version: i64,
+    ) -> storage::StorageResult<Option<storage::Person>> {
+        Ok(None)
+    }
+
+    async fn set_person_version_floor(
+        &self,
+        _team_id: i64,
+        _person_id: i64,
+        _min_version: i64,
+    ) -> storage::StorageResult<bool> {
+        Ok(false)
+    }
 }
 
 #[async_trait]
@@ -490,6 +568,7 @@ impl storage::FeatureFlagStorage for SuccessStorage {
     async fn delete_hash_key_overrides_by_teams(
         &self,
         _team_ids: &[i64],
+        _batch_size: i64,
     ) -> storage::StorageResult<i64> {
         Ok(0)
     }
@@ -631,6 +710,13 @@ impl storage::GroupStorage for SuccessStorage {
         _project_ids: &[i64],
         _consistency: storage::postgres::ConsistencyLevel,
     ) -> storage::StorageResult<Vec<storage::GroupTypeMapping>> {
+        Ok(Vec::new())
+    }
+
+    async fn count_group_type_mappings(
+        &self,
+        _consistency: storage::postgres::ConsistencyLevel,
+    ) -> storage::StorageResult<Vec<(i64, i64)>> {
         Ok(Vec::new())
     }
 
@@ -837,6 +923,41 @@ impl storage::PersonLookup for PopulatedStorage {
     ) -> storage::StorageResult<i64> {
         Ok(0)
     }
+
+    async fn delete_personless_distinct_ids_batch_for_team(
+        &self,
+        _team_id: i64,
+        _batch_size: i64,
+    ) -> storage::StorageResult<i64> {
+        Ok(0)
+    }
+
+    async fn split_person(
+        &self,
+        _team_id: i64,
+        _person_id: i64,
+        _distinct_ids_to_split: &[String],
+    ) -> storage::StorageResult<Vec<storage::SplitResult>> {
+        Ok(vec![])
+    }
+
+    async fn set_person_distinct_id_version_floor(
+        &self,
+        _team_id: i64,
+        _distinct_id: &str,
+        _version: i64,
+    ) -> storage::StorageResult<Option<storage::Person>> {
+        Ok(None)
+    }
+
+    async fn set_person_version_floor(
+        &self,
+        _team_id: i64,
+        _person_id: i64,
+        _min_version: i64,
+    ) -> storage::StorageResult<bool> {
+        Ok(false)
+    }
 }
 
 #[async_trait]
@@ -887,6 +1008,7 @@ impl storage::FeatureFlagStorage for PopulatedStorage {
     async fn delete_hash_key_overrides_by_teams(
         &self,
         _team_ids: &[i64],
+        _batch_size: i64,
     ) -> storage::StorageResult<i64> {
         Ok(0)
     }
@@ -1028,6 +1150,13 @@ impl storage::GroupStorage for PopulatedStorage {
         _project_ids: &[i64],
         _consistency: storage::postgres::ConsistencyLevel,
     ) -> storage::StorageResult<Vec<storage::GroupTypeMapping>> {
+        Ok(Vec::new())
+    }
+
+    async fn count_group_type_mappings(
+        &self,
+        _consistency: storage::postgres::ConsistencyLevel,
+    ) -> storage::StorageResult<Vec<(i64, i64)>> {
         Ok(Vec::new())
     }
 
@@ -1210,6 +1339,41 @@ impl storage::PersonLookup for ConsistencyTrackingStorage {
     ) -> storage::StorageResult<i64> {
         Ok(0)
     }
+
+    async fn delete_personless_distinct_ids_batch_for_team(
+        &self,
+        _team_id: i64,
+        _batch_size: i64,
+    ) -> storage::StorageResult<i64> {
+        Ok(0)
+    }
+
+    async fn split_person(
+        &self,
+        _team_id: i64,
+        _person_id: i64,
+        _distinct_ids_to_split: &[String],
+    ) -> storage::StorageResult<Vec<storage::SplitResult>> {
+        Ok(vec![])
+    }
+
+    async fn set_person_distinct_id_version_floor(
+        &self,
+        _team_id: i64,
+        _distinct_id: &str,
+        _version: i64,
+    ) -> storage::StorageResult<Option<storage::Person>> {
+        Ok(None)
+    }
+
+    async fn set_person_version_floor(
+        &self,
+        _team_id: i64,
+        _person_id: i64,
+        _min_version: i64,
+    ) -> storage::StorageResult<bool> {
+        Ok(false)
+    }
 }
 
 #[async_trait]
@@ -1263,6 +1427,7 @@ impl storage::FeatureFlagStorage for ConsistencyTrackingStorage {
     async fn delete_hash_key_overrides_by_teams(
         &self,
         _team_ids: &[i64],
+        _batch_size: i64,
     ) -> storage::StorageResult<i64> {
         Ok(0)
     }
@@ -1398,6 +1563,14 @@ impl storage::GroupStorage for ConsistencyTrackingStorage {
         _project_ids: &[i64],
         consistency: storage::postgres::ConsistencyLevel,
     ) -> storage::StorageResult<Vec<storage::GroupTypeMapping>> {
+        self.record(consistency);
+        Ok(Vec::new())
+    }
+
+    async fn count_group_type_mappings(
+        &self,
+        consistency: storage::postgres::ConsistencyLevel,
+    ) -> storage::StorageResult<Vec<(i64, i64)>> {
         self.record(consistency);
         Ok(Vec::new())
     }

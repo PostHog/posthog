@@ -4,7 +4,7 @@ import { router } from 'kea-router'
 import posthog, { JsonRecord } from 'posthog-js'
 
 import api from 'lib/api'
-import { describerFor } from 'lib/components/ActivityLog/activityLogLogic'
+import { describerFor, ensureActivityDescribersLoaded } from 'lib/components/ActivityLog/activityLogLogic'
 import { HumanizedActivityLogItem, humanize } from 'lib/components/ActivityLog/humanizeActivity'
 import { showCriticalNotificationToast } from 'lib/components/NotificationsMenu/notificationToasts'
 import { FEATURE_FLAGS } from 'lib/constants'
@@ -12,8 +12,9 @@ import { dayjs } from 'lib/dayjs'
 import { LemonDialog } from 'lib/lemon-ui/LemonDialog'
 import { LemonMarkdown } from 'lib/lemon-ui/LemonMarkdown'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { retryWithBackoff, toParams } from 'lib/utils'
 import { liveEventsHostOrigin } from 'lib/utils/apiHost'
+import { retryWithBackoff } from 'lib/utils/async'
+import { toParams } from 'lib/utils/url'
 import { organizationLogic } from 'scenes/organizationLogic'
 import { projectLogic } from 'scenes/projectLogic'
 import { teamLogic } from 'scenes/teamLogic'
@@ -21,7 +22,7 @@ import { urls } from 'scenes/urls'
 
 import { connectToNotificationsSSE } from '~/layout/navigation-3000/sidepanel/panels/activity/notificationsSSE'
 import { ChangesResponse } from '~/layout/navigation-3000/sidepanel/panels/activity/sidePanelActivityLogic'
-import { InAppNotification, InsightShortId } from '~/types'
+import { InAppNotification, InsightShortId, ResourceEditedEvent } from '~/types'
 
 import {
     notificationsList,
@@ -35,9 +36,9 @@ import {
     NotificationEventSourceTypeEnumApi,
     NotificationsListParams,
 } from 'products/notifications/frontend/generated/api.schemas'
+import { RESOURCE_EDITED_EVENT_TYPE, resourceEditedLogic } from 'products/notifications/frontend/resourceEditedLogic'
 
 import { sidePanelContextLogic } from '../../sidePanelContextLogic'
-import { sidePanelStateLogic } from '../../sidePanelStateLogic'
 import type { sidePanelNotificationsLogicType } from './sidePanelNotificationsLogicType'
 
 const LEGACY_POLL_TIMEOUT = 5 * 60 * 1000
@@ -45,7 +46,14 @@ const SSE_RETRY_ATTEMPTS = 3
 const SSE_RETRY_INITIAL_DELAY_MS = 30000
 const SSE_RETRY_BACKOFF_MULTIPLIER = 4
 
-const SOURCE_TYPE_TO_PATH: Record<NotificationEventSourceTypeEnumApi, (id: string) => string> = {
+// Notifications fetched per page for the in-app list (initial load + "Load more"). Backend max_limit is 100.
+const NOTIFICATION_PAGE_SIZE = 30
+
+// Maps each source type to a path builder from `source_id`, or `null` to fall through to the
+// backend-provided `source_url` (customer_analytics carries a precise account deep-link a
+// source_id→path mapping can't build). Kept as a full `Record` — not `Partial` — so adding a
+// `NotificationEventSourceTypeEnumApi` value fails the build until it's handled here.
+const SOURCE_TYPE_TO_PATH: Record<NotificationEventSourceTypeEnumApi, ((id: string) => string) | null> = {
     replay: (id) => urls.replaySingle(id),
     notebook: (id) => urls.notebook(id),
     insight: (id) => urls.insightView(id as InsightShortId),
@@ -54,6 +62,7 @@ const SOURCE_TYPE_TO_PATH: Record<NotificationEventSourceTypeEnumApi, (id: strin
     survey: (id) => urls.survey(id),
     experiment: (id) => urls.experiment(id),
     error_tracking: (id) => urls.errorTrackingIssue(id),
+    customer_analytics: null,
 }
 
 export interface NotificationGroup {
@@ -75,12 +84,22 @@ export function groupKey(n: InAppNotification): string {
 }
 
 export function buildNotificationSourcePath(notification: InAppNotification): string | null {
-    if (notification.source_type && notification.source_id && notification.source_type in SOURCE_TYPE_TO_PATH) {
-        return SOURCE_TYPE_TO_PATH[notification.source_type as NotificationEventSourceTypeEnumApi](
-            notification.source_id
-        )
+    const toPath = notification.source_type
+        ? SOURCE_TYPE_TO_PATH[notification.source_type as NotificationEventSourceTypeEnumApi]
+        : undefined
+    if (toPath && notification.source_id) {
+        return toPath(notification.source_id)
     }
     return notification.source_url || null
+}
+
+// When the recap experience is enabled, send digest clicks to the recap page instead of the raw
+// dashboard. The digest's source_url is `/project/{id}/web?...`; only the `/web` segment is rewritten.
+export function withRecapSourceUrl(notification: InAppNotification): InAppNotification {
+    if (!notification.source_url) {
+        return notification
+    }
+    return { ...notification, source_url: notification.source_url.replace(/\/web(?=$|[?#])/, '/web/recap') }
 }
 
 export interface ChangelogFlagPayload {
@@ -105,7 +124,7 @@ export const sidePanelNotificationsLogic = kea<sidePanelNotificationsLogicType>(
             organizationLogic,
             ['currentOrganization'],
         ],
-        actions: [sidePanelStateLogic, ['openSidePanel'], teamLogic, ['loadCurrentTeamSuccess']],
+        actions: [teamLogic, ['loadCurrentTeamSuccess'], resourceEditedLogic, ['resourceEdited']],
     })),
     actions({
         togglePolling: (pageIsVisible: boolean) => ({ pageIsVisible }),
@@ -214,6 +233,20 @@ export const sidePanelNotificationsLogic = kea<sidePanelNotificationsLogicType>(
                 markAllAsRead: () => 0,
             },
         ],
+        // Notifications the user explicitly toggled read/unread this session. They're exempt from
+        // auto-mark-on-view, so a deliberate "keep this unread" isn't silently undone 3s later.
+        // In-memory only, so a page reload clears it and auto-mark resumes for everything.
+        manuallyToggledIds: [
+            new Set<string>() as Set<string>,
+            {
+                toggleRead: (state, { id }) => {
+                    const next = new Set(state)
+                    next.add(id)
+                    return next
+                },
+                markAllAsRead: () => new Set<string>(),
+            },
+        ],
         loadedGroupKeys: [
             new Set<string>() as Set<string>,
             {
@@ -261,10 +294,13 @@ export const sidePanelNotificationsLogic = kea<sidePanelNotificationsLogicType>(
                     await breakpoint(1)
 
                     try {
-                        const response = await api.get<ChangesResponse>(
-                            `api/projects/${values.currentProjectId}/my_notifications?` +
-                                toParams({ unread: onlyUnread })
-                        )
+                        const [response] = await Promise.all([
+                            api.get<ChangesResponse>(
+                                `api/projects/${values.currentProjectId}/my_notifications?` +
+                                    toParams({ unread: onlyUnread })
+                            ),
+                            ensureActivityDescribersLoaded(),
+                        ])
 
                         actions.clearErrorCount()
                         return response
@@ -432,6 +468,13 @@ export const sidePanelNotificationsLogic = kea<sidePanelNotificationsLogicType>(
                                     token,
                                     abortController.signal,
                                     (notification) => {
+                                        // Transient "edited elsewhere" events ride this stream but are
+                                        // not inbox notifications — forward them to interested editors and
+                                        // skip the unread-count / toast / list handling below.
+                                        if (notification.notification_type === RESOURCE_EDITED_EVENT_TYPE) {
+                                            actions.resourceEdited(notification as unknown as ResourceEditedEvent)
+                                            return
+                                        }
                                         if (!values.isInitialLoadComplete) {
                                             return
                                         }
@@ -565,6 +608,8 @@ export const sidePanelNotificationsLogic = kea<sidePanelNotificationsLogicType>(
                 if (!notification) {
                     return
                 }
+                // Keep the unread count (gates the badge + "Mark all as read") in sync with the toggle
+                actions.setInAppUnreadCount(Math.max(0, values.inAppUnreadCount + (notification.read ? -1 : 1)))
                 const projectId = (values.currentProjectId ?? '').toString()
                 try {
                     if (notification.read) {
@@ -588,7 +633,7 @@ export const sidePanelNotificationsLogic = kea<sidePanelNotificationsLogicType>(
                 }
                 try {
                     const resp = await notificationsList((values.currentProjectId ?? '').toString(), {
-                        limit: 20,
+                        limit: NOTIFICATION_PAGE_SIZE,
                         offset: values.mainListOffset,
                     })
                     const results = resp.results as InAppNotification[]
@@ -642,7 +687,10 @@ export const sidePanelNotificationsLogic = kea<sidePanelNotificationsLogicType>(
                 try {
                     let importantChangesHumanized = humanize(importantChanges?.results || [], describerFor, true)
 
-                    const flagPayload = posthog.getFeatureFlagPayload('changelog-notification')
+                    // 'changelog-notification' is an externally managed flag, not a FEATURE_FLAGS key, so it's read directly.
+                    const flagPayload = posthog.getFeatureFlagResult('changelog-notification', {
+                        send_event: false,
+                    })?.payload
                     const changelogNotifications = flagPayload
                         ? (flagPayload as JsonRecord[]).map(
                               (notification) =>
@@ -711,6 +759,14 @@ export const sidePanelNotificationsLogic = kea<sidePanelNotificationsLogicType>(
             },
         ],
         hasUnread: [(s) => [s.unreadCount], (unreadCount) => unreadCount > 0],
+        // Unread among the rows actually loaded into the panel. The panel's "Mark all as read"
+        // button and Unread tab key off this — not `inAppUnreadCount`, a separately-fetched server
+        // total that's hand-patched at several call sites — so they can never drift from the
+        // visible rows. `inAppUnreadCount` stays the source for the global bell badge.
+        loadedUnreadCount: [
+            (s) => [s.inAppNotifications],
+            (inAppNotifications): number => inAppNotifications.filter((n) => !n.read).length,
+        ],
         projectNameForNotification: [
             (s) => [s.currentTeamId, s.currentOrganization],
             (currentTeamId, currentOrganization) => {
@@ -723,10 +779,17 @@ export const sidePanelNotificationsLogic = kea<sidePanelNotificationsLogicType>(
             },
         ],
         sourcePathForNotification: [
-            () => [],
-            () =>
-                (notification: InAppNotification): string | null =>
-                    buildNotificationSourcePath(notification),
+            (s) => [s.featureFlags],
+            (featureFlags) =>
+                (notification: InAppNotification): string | null => {
+                    // When the recap flag is on, the digest links to the recap page instead of the raw dashboard
+                    const recapEnabled = !!featureFlags[FEATURE_FLAGS.WEB_ANALYTICS_RECAP]
+                    const target =
+                        recapEnabled && notification.notification_type === 'web_analytics_digest'
+                            ? withRecapSourceUrl(notification)
+                            : notification
+                    return buildNotificationSourcePath(target)
+                },
         ],
         groups: [
             (s) => [s.inAppNotifications, s.loadedGroupKeys],
@@ -771,7 +834,9 @@ export const sidePanelNotificationsLogic = kea<sidePanelNotificationsLogicType>(
         if (values.realTimeNotificationsEnabled) {
             void (async () => {
                 try {
-                    const resp = await notificationsList((values.currentProjectId ?? '').toString(), { limit: 20 })
+                    const resp = await notificationsList((values.currentProjectId ?? '').toString(), {
+                        limit: NOTIFICATION_PAGE_SIZE,
+                    })
                     actions.setInAppNotifications(resp.results as InAppNotification[], !!resp.next)
                 } catch {
                     // Swallow

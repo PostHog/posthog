@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import re
 import abc
 import time
 import logging
@@ -9,9 +10,8 @@ from collections.abc import Callable, Iterable, Iterator, Mapping, Sequence, Set
 from concurrent.futures import ALL_COMPLETED, FIRST_EXCEPTION, Future, ThreadPoolExecutor, as_completed
 from copy import copy
 from dataclasses import dataclass, field
-from typing import Any, Generic, Literal, NamedTuple, Optional, TypeVar
+from typing import Any, ClassVar, Generic, Literal, NamedTuple, Optional, TypeVar
 
-import dagster
 from clickhouse_driver import Client
 from clickhouse_pool import ChPool
 
@@ -20,7 +20,27 @@ from posthog.clickhouse.client.connection import NodeRole, Workload, _make_ch_po
 from posthog.settings import CLICKHOUSE_PER_TEAM_SETTINGS
 from posthog.settings.data_stores import CLICKHOUSE_CLUSTER
 
-logger = dagster.get_dagster_logger("clickhouse")
+
+class _LazyDagsterLogger:
+    """Defer `import dagster` (~320ms) off this module's import. cluster.py loads very early at
+    django.setup() (via posthog.errors -> the clickhouse client), but the dagster logger is only
+    needed when a log call actually fires. get_dagster_logger() resolves the dagster run context at
+    emit time, so caching one instance here matches the previous module-level behavior — no change to
+    log routing inside dagster ops, just no dagster import for the web/migrate/shell/celery processes
+    that never log from here.
+    """
+
+    _logger: ClassVar[logging.Logger | None] = None
+
+    def __getattr__(self, name: str) -> Any:
+        if _LazyDagsterLogger._logger is None:
+            import dagster  # noqa: PLC0415
+
+            _LazyDagsterLogger._logger = dagster.get_dagster_logger("clickhouse")
+        return getattr(_LazyDagsterLogger._logger, name)
+
+
+logger = _LazyDagsterLogger()
 
 
 def ON_CLUSTER_CLAUSE(on_cluster=True):
@@ -42,6 +62,7 @@ _MULTINODE_HOST_PORT_OVERRIDES: dict[str, tuple[str, int]] = {
     "clickhouse-aux": ("localhost", 9200),
     "clickhouse-ops": ("localhost", 9300),
     "clickhouse-sessions": ("localhost", 9400),
+    "clickhouse-logs": ("localhost", 9500),
 }
 
 
@@ -546,6 +567,37 @@ def get_cluster(
     )
 
 
+# Masks inline credentials (e.g. dictionary `SOURCE(CLICKHOUSE(... PASSWORD '…'))` or
+# `CREATE USER … IDENTIFIED BY '…'`) so they never reach logs. ClickHouse needs the password in
+# the source SQL for dictionary reloads to authenticate, so we redact at the logging boundary
+# rather than dropping it from the query.
+_SQL_SECRET_RE = re.compile(r"(?i)\b(PASSWORD|IDENTIFIED\s+WITH\s+\S+\s+BY|IDENTIFIED\s+BY)\s+'(?:[^']|'')*'")
+
+
+def redact_sql_secrets(sql: str) -> str:
+    return _SQL_SECRET_RE.sub(r"\1 '[REDACTED]'", sql)
+
+
+# Cap how much SQL we embed in a Query repr. Reprs land in logs (every statement the migration
+# runner executes) and traces, so a multi-megabyte statement — e.g. a large seed INSERT with all
+# its VALUES inline — floods them. The head is enough to identify the statement.
+_MAX_QUERY_REPR_LEN = 1500
+
+
+def _truncate_query(query: str) -> str:
+    if len(query) <= _MAX_QUERY_REPR_LEN:
+        return query
+    return f"{query[:_MAX_QUERY_REPR_LEN]}… ({len(query) - _MAX_QUERY_REPR_LEN} more chars truncated)"
+
+
+def _redact_parameters(parameters: Any) -> Any:
+    if isinstance(parameters, Mapping):
+        return {k: ("[REDACTED]" if "password" in str(k).lower() else v) for k, v in parameters.items()}
+    if isinstance(parameters, list):
+        return [_redact_parameters(p) for p in parameters]
+    return parameters
+
+
 @dataclass
 class Query:
     query: str
@@ -556,11 +608,13 @@ class Query:
         return client.execute(self.query, self.parameters, settings=self.settings)
 
     def __repr__(self) -> str:
+        query = _truncate_query(redact_sql_secrets(self.query))
         if self.parameters and isinstance(self.parameters, list):
-            params_repr = f"{self.parameters[:50]!r} (showing first 50 out of {len(self.parameters)} parameters)"
+            shown = _redact_parameters(self.parameters[:50])
+            params_repr = f"{shown!r} (showing first 50 out of {len(self.parameters)} parameters)"
         else:
-            params_repr = f"{self.parameters!r}"
-        return f"Query(query={self.query!r}, parameters={params_repr}, settings={self.settings!r})"
+            params_repr = f"{_redact_parameters(self.parameters)!r}"
+        return f"Query(query={query!r}, parameters={params_repr}, settings={self.settings!r})"
 
 
 @dataclass

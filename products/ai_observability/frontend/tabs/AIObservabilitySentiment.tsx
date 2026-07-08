@@ -1,6 +1,7 @@
 import { useActions, useValues } from 'kea'
+import { combineUrl } from 'kea-router'
 
-import { IconRefresh } from '@posthog/icons'
+import { IconPlus, IconRefresh } from '@posthog/icons'
 import { LemonButton, Link, Spinner, Tooltip } from '@posthog/lemon-ui'
 
 import { TZLabel } from 'lib/components/TZLabel'
@@ -8,16 +9,12 @@ import { LemonSlider } from 'lib/lemon-ui/LemonSlider'
 import { urls } from 'scenes/urls'
 
 import { MessageSentimentBar, SENTIMENT_BAR_COLOR } from '../components/SentimentTag'
+import { normalizeMessages } from '../messageNormalization'
 import { extractContentText, formatScore } from '../sentimentUtils'
 import type { SentimentLabel } from '../sentimentUtils'
 import type { CompatMessage } from '../types'
-import { getTraceTimestamp, normalizeMessages } from '../utils'
-import type {
-    GroupedSentimentCard,
-    SentimentCard,
-    SentimentCategory,
-    SentimentFeedbackLabel,
-} from './aiObservabilitySentimentLogic'
+import { getTraceTimestamp } from '../utils'
+import type { GroupedSentimentCard, SentimentCard, SentimentCategory } from './aiObservabilitySentimentLogic'
 import { CLASSIFIER_WINDOW, aiObservabilitySentimentLogic } from './aiObservabilitySentimentLogic'
 
 /**
@@ -43,7 +40,7 @@ function getMessageAtIndex(aiInput: unknown, index: number): CompatMessage | nul
         if (!Array.isArray(parsed) || index < 0 || index >= parsed.length) {
             return null
         }
-        const normalized = normalizeMessages([parsed[index]], 'user')
+        const normalized = normalizeMessages([parsed[index]], 'user').messages
         return normalized[0] ?? null
     } catch {
         return null
@@ -85,64 +82,6 @@ function ContextMessage({ aiInput, index }: { aiInput: unknown; index: number })
                 <span className="break-words min-w-0">{displayText || '(empty)'}</span>
             </Tooltip>
         </div>
-    )
-}
-
-function SentimentFeedbackButtons({ card }: { card: SentimentCard }): JSX.Element {
-    const { feedbackByCardKey } = useValues(aiObservabilitySentimentLogic)
-    const { submitSentimentFeedback } = useActions(aiObservabilitySentimentLogic)
-    const cardKey = `${card.generation.uuid}:${card.messageIndex}`
-    const currentFeedback = feedbackByCardKey[cardKey]
-
-    const options: {
-        label: SentimentFeedbackLabel
-        emoji: string
-        tooltip: string
-        selectedBg: string
-        hoverBg: string
-    }[] = [
-        {
-            label: 'negative',
-            emoji: '😠',
-            tooltip: 'Label as negative',
-            selectedBg: 'bg-danger-highlight',
-            hoverBg: 'hover:bg-danger/50',
-        },
-        {
-            label: 'neutral',
-            emoji: '😐',
-            tooltip: 'Label as neutral',
-            selectedBg: 'bg-border-light',
-            hoverBg: '',
-        },
-        {
-            label: 'positive',
-            emoji: '😊',
-            tooltip: 'Label as positive',
-            selectedBg: 'bg-success-highlight',
-            hoverBg: 'hover:bg-success/50',
-        },
-    ]
-
-    return (
-        <span
-            className={`inline-flex items-center gap-0 ${currentFeedback ? 'opacity-100' : 'opacity-0 group-hover/card:opacity-100'} transition-opacity`}
-            onClick={(e) => e.stopPropagation()}
-        >
-            {options.map(({ label, emoji, tooltip, selectedBg, hoverBg }) => (
-                <Tooltip key={label} title={tooltip}>
-                    <LemonButton
-                        size="xsmall"
-                        type="tertiary"
-                        className={`rounded ${currentFeedback === label ? selectedBg : `opacity-60 ${hoverBg}`}`}
-                        onClick={() => submitSentimentFeedback(cardKey, label, card)}
-                        data-attr={`llma-sentiment-feedback-${label}`}
-                    >
-                        <span className="text-sm">{emoji}</span>
-                    </LemonButton>
-                </Tooltip>
-            ))}
-        </span>
     )
 }
 
@@ -193,7 +132,6 @@ function SentimentCardRow({
                                 </span>
                             </Tooltip>
                         )}
-                        <SentimentFeedbackButtons card={card} />
                         <MessageSentimentBar sentiment={sentiment} />
                         <span className="text-xs text-muted whitespace-nowrap tabular-nums">
                             {formatScore(sentiment.score)}
@@ -241,7 +179,7 @@ const CATEGORY_CONFIG: { value: SentimentCategory; label: string; activeClass: s
 ]
 
 function SentimentControls(): JSX.Element {
-    const { activeFilters, intensityThreshold, sentimentSummary, stillAnalyzing, generationsLoading } =
+    const { activeFilters, intensityThreshold, sentimentSummary, generationsLoading } =
         useValues(aiObservabilitySentimentLogic)
     const { toggleSentimentCategory, setIntensityThreshold, loadGenerations } =
         useActions(aiObservabilitySentimentLogic)
@@ -272,9 +210,9 @@ function SentimentControls(): JSX.Element {
                         )
                     })}
                 </div>
-                {total > 0 && !stillAnalyzing && (
+                {total > 0 && !generationsLoading && (
                     <Tooltip
-                        title={`${sentimentSummary.positive} positive, ${sentimentSummary.negative} negative, ${sentimentSummary.neutral} neutral messages across all analyzed generations`}
+                        title={`${sentimentSummary.positive} positive, ${sentimentSummary.negative} negative, ${sentimentSummary.neutral} neutral messages across all sentiment evaluation results`}
                     >
                         <span className="text-xs text-muted tabular-nums ml-1">{total} total</span>
                     </Tooltip>
@@ -309,18 +247,56 @@ function SentimentControls(): JSX.Element {
     )
 }
 
+function SentimentEvaluationOnboarding(): JSX.Element {
+    return (
+        <div className="flex flex-col items-center justify-center text-center py-20 text-muted">
+            <p className="text-lg font-medium mb-1 text-default">Create a sentiment evaluation</p>
+            <p className="text-sm max-w-xl mb-4">
+                This tab shows stored sentiment evaluation results from your AI generation events. Create a sentiment
+                evaluation to start classifying user-message sentiment for matching generations.
+            </p>
+            <LemonButton
+                type="primary"
+                icon={<IconPlus />}
+                to={combineUrl(urls.aiObservabilityEvaluation('new'), { type: 'sentiment' }).url}
+                data-attr="llma-sentiment-create-evaluation"
+            >
+                Create sentiment evaluation
+            </LemonButton>
+        </div>
+    )
+}
+
 export function AIObservabilitySentiment(): JSX.Element {
     const {
         generations,
         generationsLoading,
         generationsError,
+        sentimentEvaluationsLoading,
+        hasLoadedSentimentEvaluations,
+        showSentimentEvaluationOnboarding,
         groupedSentimentCards,
         sentimentCards,
-        stillAnalyzing,
         expandedCardIds,
         hasMore,
     } = useValues(aiObservabilitySentimentLogic)
     const { loadMoreGenerations } = useActions(aiObservabilitySentimentLogic)
+
+    if (sentimentEvaluationsLoading || !hasLoadedSentimentEvaluations) {
+        return (
+            <div className="flex items-center justify-center py-20" data-attr="llma-sentiment-tab">
+                <Spinner className="text-4xl" captureTime />
+            </div>
+        )
+    }
+
+    if (showSentimentEvaluationOnboarding) {
+        return (
+            <div data-attr="llma-sentiment-tab">
+                <SentimentEvaluationOnboarding />
+            </div>
+        )
+    }
 
     return (
         <div data-attr="llma-sentiment-tab">
@@ -337,8 +313,8 @@ export function AIObservabilitySentiment(): JSX.Element {
                 </div>
             ) : generations.length === 0 ? (
                 <div className="text-center py-20 text-muted">
-                    <p className="text-lg font-medium mb-1">No generations with user input found</p>
-                    <p className="text-sm">Try changing the date range or filters.</p>
+                    <p className="text-lg font-medium mb-1">No sentiment evaluation results found</p>
+                    <p className="text-sm">Try changing the date range or filters, or wait for matching generations.</p>
                 </div>
             ) : (
                 <>
@@ -357,24 +333,23 @@ export function AIObservabilitySentiment(): JSX.Element {
                         </div>
                     )}
 
-                    {(generationsLoading || stillAnalyzing) && (
+                    {generationsLoading && (
                         <div className="flex items-center justify-center py-8 gap-2 text-muted">
                             <Spinner className="text-lg" />
-                            <span className="text-sm">
-                                Analyzing sentiment on the fly, this can take a minute or two…
-                            </span>
+                            <span className="text-sm">Loading sentiment evaluation results…</span>
                         </div>
                     )}
 
-                    {!generationsLoading && !stillAnalyzing && sentimentCards.length === 0 && (
+                    {!generationsLoading && sentimentCards.length === 0 && (
                         <div className="text-center py-10 text-muted">
                             <p className="text-sm">
-                                No generations match the current sentiment filter. Try adjusting the controls above.
+                                No sentiment evaluation results match the current filter. Try adjusting the controls
+                                above.
                             </p>
                         </div>
                     )}
 
-                    {!generationsLoading && !stillAnalyzing && hasMore && (
+                    {!generationsLoading && hasMore && (
                         <div className="flex justify-center py-4">
                             <LemonButton
                                 type="secondary"

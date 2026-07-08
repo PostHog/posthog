@@ -1,7 +1,7 @@
 import { useActions, useValues } from 'kea'
 import { combineUrl, router } from 'kea-router'
 
-import { IconPencil, IconPlus, IconSearch, IconTrash } from '@posthog/icons'
+import { IconPencil, IconPlus, IconSearch, IconTrash, IconWarning } from '@posthog/icons'
 import {
     LemonButton,
     LemonInput,
@@ -27,6 +27,8 @@ import { Query } from '~/queries/Query/Query'
 import { InsightVizNode, NodeKind, ProductKey } from '~/queries/schema/schema-general'
 import { AccessControlLevel, AccessControlResourceType } from '~/types'
 
+import { LLMProviderKey, llmProviderKeysLogic } from '../settings/llmProviderKeysLogic'
+import { getUnhealthyProviderKey, providerKeyStateIssueDescription } from '../settings/providerKeyStateUtils'
 import { TrialUsageMeter } from '../settings/TrialUsageMeter'
 import { llmTaggersLogic } from './llmTaggersLogic'
 import { Tagger } from './types'
@@ -37,8 +39,8 @@ export const scene: SceneExport = {
     productKey: ProductKey.AI_OBSERVABILITY,
 }
 
-function TaggerMetrics({ tabId }: { tabId?: string }): JSX.Element {
-    const { chartQuery, totalRuns, taggers, runStatsLoading } = useValues(llmTaggersLogic({ tabId }))
+function TaggerMetrics(): JSX.Element {
+    const { chartQuery, totalRuns, taggers, runStatsLoading } = useValues(llmTaggersLogic)
 
     const enabledCount = taggers.filter((t) => t.enabled && !t.deleted).length
 
@@ -93,10 +95,19 @@ function TaggerMetrics({ tabId }: { tabId?: string }): JSX.Element {
     )
 }
 
-function AIObservabilityTagsContent({ tabId }: { tabId?: string }): JSX.Element {
-    const taggersLogic = llmTaggersLogic({ tabId })
+function getTaggerProviderKeyIssue(tagger: Tagger, providerKeys: LLMProviderKey[]): LLMProviderKey | null {
+    if (tagger.tagger_type === 'hog') {
+        return null
+    }
+
+    return getUnhealthyProviderKey(providerKeys, tagger.model_configuration?.provider_key_id)
+}
+
+function AIObservabilityTagsContent(): JSX.Element {
+    const taggersLogic = llmTaggersLogic()
     const { filteredTaggers, taggersLoading, taggersFilter, dateFilter, runStatsMap, tagDistributionMap } =
         useValues(taggersLogic)
+    const { providerKeys } = useValues(llmProviderKeysLogic)
     const { setTaggersFilter, toggleTaggerEnabled, loadTaggers, setDates } = useActions(taggersLogic)
     const { currentTeamId } = useValues(teamLogic)
     const { push } = useActions(router)
@@ -120,24 +131,41 @@ function AIObservabilityTagsContent({ tabId }: { tabId?: string }): JSX.Element 
         {
             title: 'Status',
             key: 'enabled',
-            render: (_, tagger) => (
-                <div className="flex items-center gap-2">
-                    <AccessControlAction
-                        resourceType={AccessControlResourceType.LlmAnalytics}
-                        minAccessLevel={AccessControlLevel.Editor}
-                    >
-                        <LemonSwitch
-                            checked={tagger.enabled}
-                            onChange={() => toggleTaggerEnabled(tagger.id)}
-                            size="small"
-                            data-attr="toggle-tagger-enabled"
-                        />
-                    </AccessControlAction>
-                    <span className={tagger.enabled ? 'text-success' : 'text-muted'}>
-                        {tagger.enabled ? 'Enabled' : 'Disabled'}
-                    </span>
-                </div>
-            ),
+            render: (_, tagger) => {
+                const providerKeyIssue = tagger.enabled ? getTaggerProviderKeyIssue(tagger, providerKeys) : null
+                if (providerKeyIssue) {
+                    return (
+                        <Tooltip
+                            title={`Paused because API key ${providerKeyIssue.name} ${providerKeyStateIssueDescription(
+                                providerKeyIssue.state
+                            )}.`}
+                        >
+                            <LemonTag type="warning" icon={<IconWarning />} data-attr="tagger-status-key-issue">
+                                Key issue
+                            </LemonTag>
+                        </Tooltip>
+                    )
+                }
+
+                return (
+                    <div className="flex items-center gap-2">
+                        <AccessControlAction
+                            resourceType={AccessControlResourceType.LlmAnalytics}
+                            minAccessLevel={AccessControlLevel.Editor}
+                        >
+                            <LemonSwitch
+                                checked={tagger.enabled}
+                                onChange={() => toggleTaggerEnabled(tagger.id)}
+                                size="small"
+                                data-attr="toggle-tagger-enabled"
+                            />
+                        </AccessControlAction>
+                        <span className={tagger.enabled ? 'text-success' : 'text-muted'}>
+                            {tagger.enabled ? 'Enabled' : 'Disabled'}
+                        </span>
+                    </div>
+                )
+            },
             sorter: (a, b) => Number(b.enabled) - Number(a.enabled),
         },
         {
@@ -249,11 +277,11 @@ function AIObservabilityTagsContent({ tabId }: { tabId?: string }): JSX.Element 
 
     return (
         <div className="space-y-4">
-            <TrialUsageMeter showSettingsLink={false} noun="runs" />
+            <TrialUsageMeter showSettingsLink noun="runs" />
 
             <DateFilter dateFrom={dateFilter.dateFrom} dateTo={dateFilter.dateTo} onChange={setDates} />
 
-            <TaggerMetrics tabId={tabId} />
+            <TaggerMetrics />
 
             <div className="flex items-center gap-2">
                 <LemonInput
@@ -281,7 +309,7 @@ function AIObservabilityTagsContent({ tabId }: { tabId?: string }): JSX.Element 
     )
 }
 
-export function AIObservabilityTagsScene({ tabId }: { tabId?: string }): JSX.Element {
+export function AIObservabilityTagsScene(): JSX.Element {
     const { searchParams } = useValues(router)
     return (
         <SceneContent>
@@ -305,7 +333,7 @@ export function AIObservabilityTagsScene({ tabId }: { tabId?: string }): JSX.Ele
                     </AccessControlAction>
                 }
             />
-            <AIObservabilityTagsContent tabId={tabId} />
+            <AIObservabilityTagsContent />
         </SceneContent>
     )
 }

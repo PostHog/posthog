@@ -3,7 +3,7 @@ from posthog.test.base import APIBaseTest
 from parameterized import parameterized
 from rest_framework import status
 
-from posthog.models import Organization, Tag, Team
+from posthog.models import ActivityLog, Organization, Tag, Team
 from posthog.models.tagged_item import TaggedItem
 
 from products.dashboards.backend.models.dashboard import Dashboard
@@ -85,16 +85,17 @@ class TestTaggedItemSerializerMixin(APIBaseTest):
 
     def test_can_list_tags(self) -> None:
         dashboard = Dashboard.objects.create(team_id=self.team.id, name="private dashboard")
-        tag = Tag.objects.create(name="dashboard tag", team_id=self.team.id)
+        tag = Tag.objects.create(name="zebra tag", team_id=self.team.id)
         dashboard.tagged_items.create(tag_id=tag.id)
 
         insight = Insight.objects.create(team_id=self.team.id, name="empty insight")
-        tag2 = Tag.objects.create(name="insight tag", team_id=self.team.id)
+        tag2 = Tag.objects.create(name="apple tag", team_id=self.team.id)
         insight.tagged_items.create(tag_id=tag2.id)
 
         response = self.client.get(f"/api/projects/{self.team.id}/tags")
         assert response.status_code == status.HTTP_200_OK
-        assert sorted(response.json()) == ["dashboard tag", "insight tag"]
+        # Tags are returned in alphabetical order regardless of insertion order
+        assert response.json() == ["apple tag", "zebra tag"]
 
 
 class TestBulkUpdateTags(APIBaseTest):
@@ -193,6 +194,33 @@ class TestBulkUpdateTags(APIBaseTest):
         data = response.json()
         assert data["updated"][0]["tags"] == ["existing"]
         assert data["skipped"] == []
+
+    def test_bulk_update_tags_logs_activity(self):
+        # A silent bulk edit was the reported gap: single-object updates log tag changes, the bulk
+        # path didn't. Guards that the shared mixin threads its bulk_tag_activity_scope into an
+        # activity entry (scope + "updated" verb + tags diff) for the resource.
+        dashboard = self._create_dashboard_with_tags("dash", ["existing"])
+
+        response = self.client.post(
+            self._bulk_update_url(),
+            {"ids": [dashboard.id], "action": "add", "tags": ["new"]},
+            content_type="application/json",
+        )
+
+        assert response.status_code == status.HTTP_200_OK
+        logs = ActivityLog.objects.filter(scope="Dashboard", activity="updated", item_id=str(dashboard.id))
+        assert logs.count() == 1
+        log = logs.get()
+        assert log.detail is not None
+        assert log.detail["changes"] == [
+            {
+                "type": "Dashboard",
+                "action": "changed",
+                "field": "tags",
+                "before": ["existing"],
+                "after": ["existing", "new"],
+            }
+        ]
 
     # --- Validation errors ---
 

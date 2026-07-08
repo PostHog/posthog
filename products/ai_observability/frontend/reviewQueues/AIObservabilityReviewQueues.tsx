@@ -29,8 +29,8 @@ import {
     REVIEW_QUEUES_PER_PAGE,
 } from './aiObservabilityReviewQueuesLogic'
 
-export function AIObservabilityReviewQueues({ tabId }: { tabId?: string }): JSX.Element {
-    const logic = useMountedLogic(aiObservabilityReviewQueuesLogic({ tabId }))
+export function AIObservabilityReviewQueues(): JSX.Element {
+    const logic = useMountedLogic(aiObservabilityReviewQueuesLogic())
     const {
         setQueueFilters,
         setQueueItemFilters,

@@ -1,5 +1,6 @@
 import datetime as dt
 
+from freezegun import freeze_time
 from posthog.test.base import APIBaseTest
 from unittest.mock import MagicMock, patch
 
@@ -13,7 +14,7 @@ from posthog.models.organization import Organization
 from posthog.models.team.team import Team
 
 from products.ai_observability.backend.models.evaluation_reports import EvaluationReport, EvaluationReportRun
-from products.ai_observability.backend.models.evaluations import Evaluation
+from products.ai_observability.backend.models.evaluations import Evaluation, EvaluationTarget
 
 
 class TestEvaluationReportApi(APIBaseTest):
@@ -32,6 +33,19 @@ class TestEvaluationReportApi(APIBaseTest):
         )
         self.base_url = f"/api/environments/{self.team.id}/llm_analytics/evaluation_reports/"
 
+    def _create_boolean_evaluation(self, name: str = "Other Eval") -> Evaluation:
+        return Evaluation.objects.create(
+            team=self.team,
+            name=name,
+            evaluation_type="llm_judge",
+            evaluation_config={"prompt": "test"},
+            output_type="boolean",
+            output_config={},
+            enabled=True,
+            created_by=self.user,
+            conditions=[{"id": "c1", "rollout_percentage": 100, "properties": []}],
+        )
+
     def _create_report(self, **kwargs) -> EvaluationReport:
         defaults = {
             "team": self.team,
@@ -49,11 +63,38 @@ class TestEvaluationReportApi(APIBaseTest):
             "evaluation": str(self.evaluation.id),
             "frequency": "scheduled",
             "rrule": "FREQ=DAILY",
-            "starts_at": timezone.now().isoformat(),
             "delivery_targets": [{"type": "email", "value": "test@example.com"}],
         }
         payload.update(overrides)
         return payload
+
+    def _create_sentiment_evaluation(self) -> Evaluation:
+        return Evaluation.objects.create(
+            team=self.team,
+            name="Sentiment Eval",
+            evaluation_type="sentiment",
+            evaluation_config={},
+            output_type="sentiment",
+            output_config={},
+            enabled=True,
+            created_by=self.user,
+            conditions=[{"id": "c1", "rollout_percentage": 100, "properties": []}],
+        )
+
+    def _create_trace_evaluation(self) -> Evaluation:
+        return Evaluation.objects.create(
+            team=self.team,
+            name="Trace Eval",
+            evaluation_type="llm_judge",
+            evaluation_config={"prompt": "test"},
+            output_type="boolean",
+            output_config={},
+            target=EvaluationTarget.TRACE,
+            target_config={"window_seconds": 60},
+            enabled=True,
+            created_by=self.user,
+            conditions=[{"id": "c1", "rollout_percentage": 100, "properties": []}],
+        )
 
     def test_unauthenticated_user_cannot_access(self):
         self.client.logout()
@@ -62,7 +103,7 @@ class TestEvaluationReportApi(APIBaseTest):
 
     def test_list_reports(self):
         self._create_report(rrule="FREQ=DAILY", timezone_name="UTC")
-        self._create_report()
+        self._create_report(evaluation=self._create_boolean_evaluation())
         response = self.client.get(self.base_url)
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         results = response.json()["results"]
@@ -71,6 +112,17 @@ class TestEvaluationReportApi(APIBaseTest):
         first = results[0]
         for field in ("delivery_targets", "rrule", "starts_at", "timezone_name", "report_prompt_guidance"):
             self.assertIn(field, first)
+
+    def test_list_filters_by_evaluation(self) -> None:
+        report = self._create_report()
+        self._create_report(evaluation=self._create_boolean_evaluation())
+
+        response = self.client.get(self.base_url, {"evaluation": str(self.evaluation.id)})
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        results = response.json()["results"]
+        self.assertEqual(len(results), 1)
+        self.assertEqual(results[0]["id"], str(report.id))
 
     def test_mcp_list_returns_slim_payload(self):
         self._create_report(rrule="FREQ=DAILY", timezone_name="UTC")
@@ -96,7 +148,7 @@ class TestEvaluationReportApi(APIBaseTest):
 
     def test_list_excludes_deleted(self):
         self._create_report()
-        self._create_report(deleted=True)
+        self._create_report(evaluation=self._create_boolean_evaluation(), deleted=True)
         response = self.client.get(self.base_url)
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(len(response.json()["results"]), 1)
@@ -111,6 +163,7 @@ class TestEvaluationReportApi(APIBaseTest):
         self.assertEqual(report.created_by_id, self.user.id)
         self.assertEqual(report.rrule, "FREQ=DAILY")
         self.assertEqual(report.timezone_name, "UTC")
+        self.assertIsNotNone(report.starts_at)
 
     def test_create_count_triggered_report_is_default(self):
         response = self.client.post(
@@ -130,8 +183,92 @@ class TestEvaluationReportApi(APIBaseTest):
         self.assertEqual(report.rrule, "")
         self.assertIsNone(report.starts_at)
 
+    def test_create_updates_existing_report_for_evaluation(self):
+        report = self._create_report(delivery_targets=[])
+
+        response = self.client.post(
+            self.base_url,
+            {
+                "evaluation": str(self.evaluation.id),
+                "frequency": "scheduled",
+                "rrule": "FREQ=WEEKLY;BYDAY=MO,FR",
+                "delivery_targets": [{"type": "email", "value": "updated@example.com"}],
+            },
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response.json())
+        self.assertEqual(EvaluationReport.objects.filter(evaluation=self.evaluation).count(), 1)
+        report.refresh_from_db()
+        self.assertEqual(report.frequency, EvaluationReport.Frequency.SCHEDULED)
+        self.assertEqual(report.rrule, "FREQ=WEEKLY;BYDAY=MO,FR")
+        self.assertEqual(report.delivery_targets, [{"type": "email", "value": "updated@example.com"}])
+
+    def test_create_rejects_sentiment_evaluation(self):
+        sentiment_evaluation = self._create_sentiment_evaluation()
+        response = self.client.post(
+            self.base_url,
+            {
+                "evaluation": str(sentiment_evaluation.id),
+                "frequency": "every_n",
+                "trigger_threshold": 100,
+                "delivery_targets": [],
+            },
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(response.json().get("attr"), "evaluation")
+
+    def test_create_rejects_trace_target_evaluation(self):
+        trace_evaluation = self._create_trace_evaluation()
+        response = self.client.post(
+            self.base_url,
+            {
+                "evaluation": str(trace_evaluation.id),
+                "frequency": "every_n",
+                "trigger_threshold": 100,
+                "delivery_targets": [],
+            },
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(response.json().get("attr"), "evaluation")
+
+    def test_deliverable_excludes_trace_target_reports(self):
+        # A report directly attached to a trace eval (e.g. created before the eval switched targets,
+        # bypassing the serializer) must not enter the delivery pipeline.
+        gen_report = self._create_report()
+        trace_report = self._create_report(evaluation=self._create_trace_evaluation())
+
+        deliverable_ids = set(EvaluationReport.objects.deliverable().values_list("id", flat=True))
+
+        self.assertIn(gen_report.id, deliverable_ids)
+        self.assertNotIn(trace_report.id, deliverable_ids)
+
+    def test_generate_rejects_trace_target_evaluation(self):
+        report = self._create_report(evaluation=self._create_trace_evaluation())
+        response = self.client.post(f"{self.base_url}{report.id}/generate/")
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+
+    def test_list_excludes_sentiment_reports(self):
+        sentiment_evaluation = self._create_sentiment_evaluation()
+        EvaluationReport.objects.create(
+            team=self.team,
+            evaluation=sentiment_evaluation,
+            frequency=EvaluationReport.Frequency.EVERY_N,
+            trigger_threshold=100,
+            delivery_targets=[],
+        )
+
+        response = self.client.get(self.base_url)
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(len(response.json()["results"]), 0)
+
     def test_create_scheduled_sets_next_delivery_date(self):
-        response = self.client.post(self.base_url, self._scheduled_payload(rrule="FREQ=HOURLY"), format="json")
+        response = self.client.post(self.base_url, self._scheduled_payload(rrule="FREQ=WEEKLY;BYDAY=MO"), format="json")
         self.assertEqual(response.status_code, status.HTTP_201_CREATED, response.json())
         self.assertIsNotNone(response.json()["next_delivery_date"])
 
@@ -144,12 +281,18 @@ class TestEvaluationReportApi(APIBaseTest):
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
         self.assertEqual(response.json().get("attr"), "rrule")
 
-    def test_create_scheduled_requires_starts_at(self):
-        payload = self._scheduled_payload()
-        payload.pop("starts_at")
-        response = self.client.post(self.base_url, payload, format="json")
+    def test_create_scheduled_defaults_starts_at(self):
+        with freeze_time("2026-01-15T16:37:42Z"):
+            response = self.client.post(self.base_url, self._scheduled_payload(), format="json")
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED, response.json())
+        report = EvaluationReport.objects.get()
+        self.assertEqual(report.starts_at, dt.datetime(2026, 1, 15, 16, 0, tzinfo=dt.UTC))
+        self.assertEqual(report.timezone_name, "UTC")
+
+    def test_create_scheduled_rejects_unsupported_rrule(self):
+        response = self.client.post(self.base_url, self._scheduled_payload(rrule="FREQ=HOURLY"), format="json")
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
-        self.assertEqual(response.json().get("attr"), "starts_at")
+        self.assertEqual(response.json().get("attr"), "rrule")
 
     def test_create_rejects_invalid_rrule(self):
         response = self.client.post(self.base_url, self._scheduled_payload(rrule="NOT_AN_RRULE"), format="json")
@@ -328,28 +471,61 @@ class TestEvaluationReportApi(APIBaseTest):
 
     def test_update_report(self):
         report = self._create_report()
-        response = self.client.patch(
-            f"{self.base_url}{report.id}/",
-            {"frequency": "scheduled", "rrule": "FREQ=WEEKLY;BYDAY=MO", "starts_at": timezone.now().isoformat()},
-            format="json",
-        )
+        with freeze_time("2026-01-15T16:37:42Z"):
+            response = self.client.patch(
+                f"{self.base_url}{report.id}/",
+                {"frequency": "scheduled", "rrule": "FREQ=WEEKLY;BYDAY=MO"},
+                format="json",
+            )
         self.assertEqual(response.status_code, status.HTTP_200_OK, response.json())
         report.refresh_from_db()
         self.assertEqual(report.frequency, "scheduled")
         self.assertEqual(report.rrule, "FREQ=WEEKLY;BYDAY=MO")
+        self.assertEqual(report.starts_at, dt.datetime(2026, 1, 15, 16, 0, tzinfo=dt.UTC))
+        self.assertEqual(report.timezone_name, "UTC")
+
+    def test_update_allows_full_resource_echo_for_unchanged_read_only_fields(self) -> None:
+        report = self._create_report()
+        retrieve_response = self.client.get(f"{self.base_url}{report.id}/")
+        self.assertEqual(retrieve_response.status_code, status.HTTP_200_OK)
+        payload = retrieve_response.json()
+        payload["enabled"] = False
+
+        response = self.client.patch(f"{self.base_url}{report.id}/", payload, format="json")
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response.json())
+        report.refresh_from_db()
+        self.assertEqual(report.evaluation_id, self.evaluation.id)
+        self.assertFalse(report.deleted)
+        self.assertFalse(report.enabled)
+
+    def test_update_rejects_evaluation_reparent(self) -> None:
+        report = self._create_report()
+        other_evaluation = self._create_boolean_evaluation()
+
+        response = self.client.patch(
+            f"{self.base_url}{report.id}/",
+            {"evaluation": str(other_evaluation.id)},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(response.json().get("attr"), "evaluation")
+        report.refresh_from_db()
+        self.assertEqual(report.evaluation_id, self.evaluation.id)
 
     def test_delete_returns_405(self):
         report = self._create_report()
         response = self.client.delete(f"{self.base_url}{report.id}/")
         self.assertEqual(response.status_code, status.HTTP_405_METHOD_NOT_ALLOWED)
 
-    def test_soft_delete_via_patch(self):
+    def test_rejects_soft_delete_via_patch(self):
         report = self._create_report()
         response = self.client.patch(f"{self.base_url}{report.id}/", {"deleted": True}, format="json")
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
         report.refresh_from_db()
-        self.assertTrue(report.deleted)
-        self.assertEqual(EvaluationReport.objects.filter(deleted=False).count(), 0)
+        self.assertFalse(report.deleted)
+        self.assertEqual(EvaluationReport.objects.filter(deleted=False).count(), 1)
 
     def test_runs_action_returns_paginated_shape(self):
         report = self._create_report()
@@ -429,10 +605,9 @@ class TestEvaluationReportApi(APIBaseTest):
         self.assertEqual(event_name, "llma evaluation report updated")
 
     @patch("products.ai_observability.backend.api.evaluation_reports.report_user_action")
-    def test_soft_delete_reports_user_action(self, mock_report: MagicMock) -> None:
+    def test_rejected_soft_delete_does_not_report_user_action(self, mock_report: MagicMock) -> None:
         report = self._create_report()
         mock_report.reset_mock()
         response = self.client.patch(f"{self.base_url}{report.id}/", {"deleted": True}, format="json")
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-        event_name = mock_report.call_args_list[0].args[1]
-        self.assertEqual(event_name, "llma evaluation report deleted")
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        mock_report.assert_not_called()

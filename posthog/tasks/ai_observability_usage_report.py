@@ -9,8 +9,6 @@ from dateutil import parser
 from posthoganalytics.client import Client as PostHogClient
 from retry import retry
 
-from posthog.schema import AIEventType
-
 from posthog.clickhouse.client import sync_execute
 from posthog.clickhouse.client.connection import Workload
 from posthog.clickhouse.query_tagging import Feature, Product, tags_context
@@ -18,6 +16,7 @@ from posthog.exceptions_capture import capture_exception
 from posthog.logging.timing import timed_log
 from posthog.models.property.util import get_property_string_expr
 from posthog.models.team.team import Team
+from posthog.schema_enums import AIEventType
 from posthog.tasks.report_utils import capture_event
 from posthog.tasks.utils import CeleryQueue
 from posthog.utils import get_instance_region, get_previous_day
@@ -79,6 +78,9 @@ class TeamMetrics:
     ai_evaluation_count: int = 0
     ai_is_error_count: int = 0
     ai_trial_evaluation_count: int = 0
+    ai_llm_judge_evaluation_count: int = 0
+    ai_hog_evaluation_count: int = 0
+    ai_sentiment_evaluation_count: int = 0
     ai_trace_summary_count: int = 0
     ai_generation_summary_count: int = 0
     ai_trace_clusters_count: int = 0
@@ -327,6 +329,11 @@ def _combine_all_metrics_results(results_list: list) -> dict[int, TeamMetrics]:
             # Trial evaluation count (index 27)
             metrics.ai_trial_evaluation_count += row[27] or 0
 
+            # Evaluation runtime counts (indices 28-30)
+            metrics.ai_llm_judge_evaluation_count += row[28] or 0
+            metrics.ai_hog_evaluation_count += row[29] or 0
+            metrics.ai_sentiment_evaluation_count += row[30] or 0
+
     return team_metrics
 
 
@@ -381,7 +388,11 @@ def get_all_ai_metrics(
             countIf(toFloat64OrNull(properties_group_ai['$ai_total_cost_usd']) = 0) as total_cost_zero_count,
             -- Error count
             countIf(properties_group_ai['$ai_is_error'] = 'true') as ai_is_error_count,
-            countIf(event = '$ai_evaluation' AND properties_group_ai['$ai_evaluation_key_type'] = 'posthog') as ai_trial_evaluation_count
+            -- Evaluation counts
+            countIf(event = '$ai_evaluation' AND properties_group_ai['$ai_evaluation_key_type'] = 'posthog') as ai_trial_evaluation_count,
+            countIf(event = '$ai_evaluation' AND properties_group_ai['$ai_evaluation_runtime'] = 'llm_judge') as ai_llm_judge_evaluation_count,
+            countIf(event = '$ai_evaluation' AND properties_group_ai['$ai_evaluation_runtime'] = 'hog') as ai_hog_evaluation_count,
+            countIf(event = '$ai_evaluation' AND properties_group_ai['$ai_evaluation_runtime'] = 'sentiment') as ai_sentiment_evaluation_count
         FROM events
         WHERE team_id IN %(team_ids)s
           AND event IN %(ai_events)s
@@ -675,7 +686,9 @@ def _get_all_ai_observability_reports(
     try:
         team_ids = get_teams_with_ai_events(period_start, period_end, AI_OBSERVABILITY_REPORT_TRIGGER_EVENTS)
     except Exception:
-        logger.exception("[AIO Usage Error] teams query failed", phase="teams")
+        logger.exception(
+            "[AIO Usage Error] teams query failed", phase="teams", event_source="ai_observability_usage_report"
+        )
         # Re-raise so Celery's autoretry_for=(Exception,) kicks in. Do not swallow.
         raise
 
@@ -690,7 +703,9 @@ def _get_all_ai_observability_reports(
     try:
         all_metrics = get_all_ai_metrics(period_start, period_end, team_ids)
     except Exception:
-        logger.exception("[AIO Usage Error] metrics query failed", phase="metrics")
+        logger.exception(
+            "[AIO Usage Error] metrics query failed", phase="metrics", event_source="ai_observability_usage_report"
+        )
         # Re-raise so Celery's autoretry_for=(Exception,) kicks in. Do not swallow.
         raise
     logger.info(f"Retrieved metrics for {len(all_metrics)} teams")
@@ -710,7 +725,11 @@ def _get_all_ai_observability_reports(
     try:
         all_breakdowns = get_all_ai_dimension_breakdowns(period_start, period_end, team_ids)
     except Exception:
-        logger.exception("[AIO Usage Error] breakdowns query failed", phase="breakdowns")
+        logger.exception(
+            "[AIO Usage Error] breakdowns query failed",
+            phase="breakdowns",
+            event_source="ai_observability_usage_report",
+        )
         # Re-raise so Celery's autoretry_for=(Exception,) kicks in. Do not swallow.
         raise
     logger.info(f"Retrieved breakdowns for {len(all_breakdowns)} teams")
@@ -720,7 +739,9 @@ def _get_all_ai_observability_reports(
     try:
         survey_metrics = get_llm_feedback_survey_metrics(period_start, period_end, team_ids)
     except Exception:
-        logger.exception("[AIO Usage Error] surveys query failed", phase="surveys")
+        logger.exception(
+            "[AIO Usage Error] surveys query failed", phase="surveys", event_source="ai_observability_usage_report"
+        )
         # Re-raise so Celery's autoretry_for=(Exception,) kicks in. Do not swallow.
         raise
     logger.info(f"Retrieved survey metrics for {len(survey_metrics)} teams")
@@ -749,6 +770,9 @@ def _get_all_ai_observability_reports(
                 "ai_evaluation_count": 0,
                 "ai_is_error_count": 0,
                 "ai_trial_evaluation_count": 0,
+                "ai_llm_judge_evaluation_count": 0,
+                "ai_hog_evaluation_count": 0,
+                "ai_sentiment_evaluation_count": 0,
                 "ai_trace_summary_count": 0,
                 "ai_generation_summary_count": 0,
                 "ai_trace_clusters_count": 0,
@@ -794,6 +818,9 @@ def _get_all_ai_observability_reports(
             report["ai_evaluation_count"] += metrics.ai_evaluation_count
             report["ai_is_error_count"] += metrics.ai_is_error_count
             report["ai_trial_evaluation_count"] += metrics.ai_trial_evaluation_count
+            report["ai_llm_judge_evaluation_count"] += metrics.ai_llm_judge_evaluation_count
+            report["ai_hog_evaluation_count"] += metrics.ai_hog_evaluation_count
+            report["ai_sentiment_evaluation_count"] += metrics.ai_sentiment_evaluation_count
             report["ai_trace_summary_count"] += metrics.ai_trace_summary_count
             report["ai_generation_summary_count"] += metrics.ai_generation_summary_count
             report["ai_trace_clusters_count"] += metrics.ai_trace_clusters_count
@@ -894,6 +921,7 @@ def capture_ai_observability_report(
             "[AIO Usage Error] AI observability usage report sent to PostHog for organization failed",
             organization_id=organization_id,
             error=str(err),
+            event_source="ai_observability_usage_report",
         )
 
         try:
@@ -909,6 +937,7 @@ def capture_ai_observability_report(
                 "[AIO Usage Error] Failed to capture error event",
                 organization_id=organization_id,
                 error=str(capture_err),
+                event_source="ai_observability_usage_report",
             )
 
         raise
@@ -1000,6 +1029,7 @@ def send_ai_observability_usage_reports(
                 "[AIO Usage Error] Failed to queue AI observability report for organization",
                 organization_id=org_id,
                 error=str(err),
+                event_source="ai_observability_usage_report",
             )
             capture_exception(err)
 

@@ -25,7 +25,7 @@ from posthog.hogql_queries.utils.query_date_range import QueryDateRange
 from posthog.models import Team
 
 from products.logs.backend.alert_utils import MAX_BYTES_TO_READ
-from products.logs.backend.logs_query_runner import LogsFilterBuilder
+from products.logs.backend.logs_query_runner import LIVE_LOGS_CHECKPOINT_QUERY, LogsFilterBuilder
 from products.logs.backend.models import LogsAlertConfiguration
 
 
@@ -505,18 +505,6 @@ class BatchedAlertCheckQuery:
         )
 
 
-# Explicit per-partition `GROUP BY` is required on both the dev `MergeTree`
-# shard (no auto-merge at all) and the prod `AggregatingMergeTree` between
-# merges. A bare `min(max_observed_timestamp)` scans every raw insert and
-# returns the oldest value ever written.
-_LIVE_LOGS_CHECKPOINT_SQL = """
-    SELECT min(partition_checkpoint) FROM (
-        SELECT _topic, _partition, max(max_observed_timestamp) AS partition_checkpoint
-        FROM logs_kafka_metrics
-        GROUP BY _topic, _partition
-    )
-"""
-
 # Fall back to `now` when the checkpoint is older than this — a quiet partition
 # can pin `min(...)` hours behind while other partitions have fresh data.
 CHECKPOINT_MAX_STALENESS = dt.timedelta(minutes=5)
@@ -531,7 +519,7 @@ def fetch_live_logs_checkpoint(team: Team) -> dt.datetime | None:
     )
     response = execute_hogql_query(
         query_type="alert_check_checkpoint",
-        query=parse_select(_LIVE_LOGS_CHECKPOINT_SQL),
+        query=LIVE_LOGS_CHECKPOINT_QUERY,
         team=team,
         workload=Workload.LOGS,
         modifiers=HogQLQueryModifiers(convertToProjectTimezone=False),

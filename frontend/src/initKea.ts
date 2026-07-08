@@ -9,9 +9,8 @@ import { windowValuesPlugin } from 'kea-window-values'
 import posthog from 'posthog-js'
 
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
-import { identifierToHuman } from 'lib/utils'
-import { addProjectIdIfMissing, removeProjectIdIfPresent, stripTrailingSlash } from 'lib/utils/router-utils'
-import { getTabsSnapshotForHistory, sceneLogic } from 'scenes/sceneLogic'
+import { addProjectIdIfMissing, removeProjectIdIfPresent, stripTrailingSlash } from 'lib/utils/kea-router'
+import { identifierToHuman } from 'lib/utils/strings'
 
 import { disposablesPlugin } from '~/kea-disposables'
 
@@ -32,6 +31,14 @@ const ERROR_FILTER_ALLOW_LIST = [
     'loadSimilarIssues', // Gracefully handled in the similar issues list
     'saveEarlyAccessFeature', // Field-level errors handled in earlyAccessFeatureLogic
 ]
+
+/*
+Transient gateway/proxy errors. These are infrastructure-level failures (the gateway can't
+reach the backend), not application bugs, so we still toast the user a retryable failure but
+don't report them to error tracking — otherwise sporadic 5xxs surface as noisy code-regression
+issues. 500 is intentionally excluded: those are genuine backend exceptions worth capturing.
+*/
+const TRANSIENT_GATEWAY_STATUSES = [502, 503, 504]
 
 interface InitKeaProps {
     state?: Record<string, any>
@@ -82,24 +89,15 @@ export function initKea({
             },
             replaceInitialPathInWindow:
                 typeof replaceInitialPathInWindow === 'undefined' ? true : replaceInitialPathInWindow,
-            getRouterState: () => {
-                // This state is persisted into window.history
-                const logic = sceneLogic.findMounted()
-                if (logic) {
-                    // Strip sceneParams etc. — they are not JSON-safe and break structuredClone (cyclic/deep graphs)
-                    const tabs = getTabsSnapshotForHistory(logic.values.tabs)
-                    if (typeof structuredClone !== 'undefined') {
-                        return { tabs: structuredClone(tabs) }
-                    }
-                    // structuredClone fails in jest for some reason, despite us being on the right versions
-                    return { tabs: JSON.parse(JSON.stringify(tabs)) || [] }
-                }
-                return undefined
-            },
         }),
         formsPlugin,
         loadersPlugin({
             onFailure({ error, reducerKey, actionKey }: { error: any; reducerKey: string; actionKey: string }) {
+                // A request aborted by us (superseded query, unmount, manual cancel) is not a
+                // failure — don't toast, log, or report it.
+                if (error?.name === 'AbortError') {
+                    return
+                }
                 // Read-only mode (`ReadOnlyModeError`) flows through this path unchanged:
                 // it extends `ApiError` with `status=403`, so the `!(isLoadAction && error.status === 403)`
                 // condition already suppresses the toast for load actions, and write actions
@@ -129,10 +127,22 @@ export function initKea({
                         lemonToast.error(`${identifierToHuman(actionKey)} failed: ${errorMessage}`)
                     }
                 }
+                // Cooperative cancellation (an aborted fetch, or a query superseded via
+                // `abortController.abort('new query started')` as in the logs/tracing data
+                // logics) is expected control flow, not a failure worth logging or reporting.
+                const isCancellation =
+                    error?.name === 'AbortError' ||
+                    error === 'new query started' ||
+                    error?.message === 'new query started'
+                if (isCancellation) {
+                    return
+                }
                 if (!errorsSilenced) {
                     console.error({ error, reducerKey, actionKey })
                 }
-                posthog.captureException(error)
+                if (!TRANSIENT_GATEWAY_STATUSES.includes(error?.status)) {
+                    posthog.captureException(error)
+                }
             },
         }),
         subscriptionsPlugin,

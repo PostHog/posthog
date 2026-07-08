@@ -14,10 +14,9 @@ import { LemonTable, LemonTableColumn, LemonTableColumns } from 'lib/lemon-ui/Le
 import { updatedAtColumn } from 'lib/lemon-ui/LemonTable/columnUtils'
 import { LemonTableLink } from 'lib/lemon-ui/LemonTable/LemonTableLink'
 import { ProfilePicture } from 'lib/lemon-ui/ProfilePicture'
-import { capitalizeFirstLetter } from 'lib/utils'
+import { capitalizeFirstLetter } from 'lib/utils/strings'
 import { urls } from 'scenes/urls'
 
-import { WorkflowsSceneProps } from '../WorkflowsScene'
 import { getHogFlowStep } from './hogflows/steps/HogFlowSteps'
 import { HogFlow } from './hogflows/types'
 import { newWorkflowLogic } from './newWorkflowLogic'
@@ -90,7 +89,7 @@ function WorkflowActionsSummary({ workflow }: { workflow: HogFlow }): JSX.Elemen
     )
 }
 
-export function WorkflowsTable(props: WorkflowsSceneProps): JSX.Element {
+export function WorkflowsTable(): JSX.Element {
     const logic = workflowsLogic()
     const {
         filteredWorkflows,
@@ -124,7 +123,6 @@ export function WorkflowsTable(props: WorkflowsSceneProps): JSX.Element {
         // We can't just reset state within the logic's unmount as that would trigger when switching tabs
         const newWorkflowLogic = workflowLogic.findMounted({
             id: 'new',
-            tabId: props.tabId,
         })
         newWorkflowLogic?.unmount()
 

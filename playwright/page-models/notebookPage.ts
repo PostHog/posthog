@@ -122,9 +122,25 @@ export class NotebookPage {
 
     async removeInsightNode(): Promise<void> {
         const node = this.insightNodes.first()
-        await node.click()
+        // Click the top-left corner of the node to ensure ProseMirror treats it
+        // as a NodeSelection (not a content selection inside the node)
+        await node.click({ position: { x: 2, y: 2 } })
         await this.page.keyboard.press('Backspace')
         await this.page.keyboard.press('Backspace')
+
+        // Wait briefly for ProseMirror to flush the DOM update before checking.
+        // Without this, Locator.count() can see a stale snapshot and trigger
+        // the fallback spuriously.
+        await this.insightNodes.first().waitFor({ state: 'detached', timeout: 2000 }).catch(() => {})
+
+        // If the node wasn't removed (click landed inside content), retry by
+        // clicking the node and pressing Backspace again (avoids selectAll which
+        // could wipe other notebook content)
+        if ((await this.insightNodes.count()) > 0) {
+            await this.insightNodes.first().click({ position: { x: 2, y: 2 } })
+            await this.page.keyboard.press('Backspace')
+            await this.page.keyboard.press('Backspace')
+        }
     }
 
     async deleteFromList(notebookName: string): Promise<void> {

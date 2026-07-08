@@ -1,1 +1,1 @@
-0026_alter_signalsourceconfig_source_product_and_more
+0054_alter_signalsourceconfig_source_type

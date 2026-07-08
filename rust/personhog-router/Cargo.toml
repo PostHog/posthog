@@ -1,3 +1,4 @@
+# no-op: trigger rebuild
 [package]
 name = "personhog-router"
 version = "0.1.0"
@@ -13,7 +14,8 @@ k8s-awareness = { path = "../common/k8s-awareness" }
 common-alloc = { path = "../common/alloc" }
 metrics-exporter-prometheus = { workspace = true }
 lifecycle = { path = "../common/lifecycle" }
-kube = { version = "0.98", features = ["client"] }
+k8s-openapi = { version = "0.24", features = ["latest"] }
+kube = { version = "0.98", features = ["client", "runtime"] }
 
 async-trait = { workspace = true }
 axum = { workspace = true }

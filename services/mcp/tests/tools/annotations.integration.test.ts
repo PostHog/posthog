@@ -47,6 +47,7 @@ describe('Annotations', { concurrent: false }, () => {
                 content: `Test annotation ${generateUniqueKey('ann')}`,
                 date_marker: '2024-01-15T12:00:00Z',
                 scope: 'project' as const,
+                emoji: '🤖',
             }
 
             const result = await createTool.handler(context, params)
@@ -56,6 +57,7 @@ describe('Annotations', { concurrent: false }, () => {
             expect(annotation.content).toBe(params.content)
             expect(annotation.date_marker).toContain('2024-01-15')
             expect(annotation.scope).toBe('project')
+            expect(annotation.emoji).toBe('🤖')
 
             createdAnnotationIds.push(annotation.id)
         })
@@ -160,6 +162,25 @@ describe('Annotations', { concurrent: false }, () => {
 
             expect(updated.id).toBe(created.id)
             expect(updated.date_marker).toContain('2024-06-15')
+        })
+
+        it('should update annotation emoji', async () => {
+            const createResult = await createTool.handler(context, {
+                content: `Emoji update ${generateUniqueKey('emoji')}`,
+                date_marker: '2024-07-15T00:00:00Z',
+                scope: 'project' as const,
+            })
+            const created = parseToolResponse(createResult)
+            createdAnnotationIds.push(created.id)
+
+            const result = await updateTool.handler(context, {
+                id: created.id,
+                emoji: '🚀',
+            })
+            const updated = parseToolResponse(result)
+
+            expect(updated.id).toBe(created.id)
+            expect(updated.emoji).toBe('🚀')
         })
 
         it('should update annotation scope', async () => {

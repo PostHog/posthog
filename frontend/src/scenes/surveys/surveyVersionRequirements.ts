@@ -233,11 +233,10 @@ export const SURVEY_SDK_REQUIREMENTS: SurveyFeatureRequirement[] = [
             'posthog-js': '1.300.0',
             'posthog-react-native': '4.15.0',
             'posthog-ios': '3.38.0',
+            'posthog-android': '3.49.0', // via posthog-android-surveys-compose UI module
             posthog_flutter: '5.13.0',
         },
-        unsupportedSdks: [
-            { sdk: 'posthog-android', issue: false }, // delegate pattern - no built-in UI
-        ],
+        unsupportedSdks: [],
         check: (s) => s.appearance?.inputBackground !== undefined || s.appearance?.inputTextColor !== undefined,
     },
     {
@@ -246,11 +245,10 @@ export const SURVEY_SDK_REQUIREMENTS: SurveyFeatureRequirement[] = [
             'posthog-js': '1.310.1',
             'posthog-react-native': '4.17.0',
             'posthog-ios': '3.38.0',
+            'posthog-android': '3.49.0', // via posthog-android-surveys-compose UI module
             posthog_flutter: '5.13.0',
         },
-        unsupportedSdks: [
-            { sdk: 'posthog-android', issue: false }, // delegate pattern - no built-in UI
-        ],
+        unsupportedSdks: [],
         check: (s) => s.appearance?.textColor !== undefined || s.appearance?.submitButtonTextColor !== undefined,
     },
     {
@@ -259,11 +257,10 @@ export const SURVEY_SDK_REQUIREMENTS: SurveyFeatureRequirement[] = [
             'posthog-js': '1.326.0',
             'posthog-react-native': '4.19.0',
             'posthog-ios': '3.38.0',
+            'posthog-android': '3.49.0', // via posthog-android-surveys-compose UI module
             posthog_flutter: '5.13.0',
         },
-        unsupportedSdks: [
-            { sdk: 'posthog-android', issue: false }, // delegate pattern - no built-in UI
-        ],
+        unsupportedSdks: [],
         check: (s) =>
             s.questions.some(
                 (q) => q.type === SurveyQuestionType.Rating && q.scale === SURVEY_RATING_SCALE.THUMB_2_POINT
@@ -312,10 +309,10 @@ export const SURVEY_SDK_REQUIREMENTS: SurveyFeatureRequirement[] = [
         sdkVersions: {
             'posthog-js': '1.141.0',
             'posthog-ios': '3.54.0',
+            'posthog-android': '3.49.0',
         },
         unsupportedSdks: [
             { sdk: 'posthog-react-native', issue: 'https://github.com/PostHog/posthog-js/issues/3193' },
-            { sdk: 'posthog-android', issue: 'https://github.com/PostHog/posthog-android/issues/448' },
             { sdk: 'posthog_flutter', issue: 'https://github.com/PostHog/posthog-flutter/issues/322' },
         ],
         check: (s) => (s.appearance?.surveyPopupDelaySeconds ?? 0) > 0,

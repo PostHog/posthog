@@ -11,8 +11,10 @@ from posthoganalytics import Posthog
 from llm_gateway.auth.models import resolve_distinct_id
 from llm_gateway.callbacks.base import InstrumentedCallback
 from llm_gateway.products.config import get_product_config
+from llm_gateway.rate_limiting.cost_refresh import normalize_metric_labels
 from llm_gateway.request_context import (
     get_auth_user,
+    get_effort,
     get_posthog_flags,
     get_posthog_properties,
     get_product,
@@ -49,7 +51,13 @@ def _replace_binary_content(data: Any) -> Any:
             return data
 
 
-_MAX_CAPTURE_SIZE = 15 * 1024 * 1024
+# Capture rejects events whose Kafka message exceeds message.max.bytes (~1 MB,
+# the librdkafka default) with a 413, and the posthoganalytics client drops
+# events over its own ~900 KB ceiling. $ai_generation events carry the full
+# prompt/completion via $ai_input / $ai_output_choices, so they routinely cross
+# that line. Truncate well below 1 MB to leave headroom for the event envelope
+# (distinct_id, event name, other properties) and JSON re-escaping on the wire.
+_MAX_CAPTURE_SIZE = 800 * 1024
 _MIN_FIELD_SIZE_TO_TRUNCATE = 10 * 1024
 _TRUNCATION_MARKER = "[truncated: content too large for capture]"
 _TRUNCATABLE_FIELDS = ("$ai_output_choices", "$ai_input")
@@ -61,6 +69,38 @@ def _is_product_billable(product: str) -> bool:
     """
     config = get_product_config(product)
     return bool(config and config.billable)
+
+
+def _apply_owned_event_properties(properties: dict[str, Any], product: str, team_id: int | None) -> None:
+    """Enforce gateway-owned event properties, run after caller `x-posthog-property-*` headers are merged.
+
+    `ai_product`, `$ai_billable`, and `$ai_effort` are gateway-derived (effort via
+    `ProviderConfig.extract_effort`) and must not be spoofable via headers, so we re-assert them
+    here and drop `$ai_effort` when the gateway found none. `team_id`, in contrast, is a
+    deliberate caller override (e.g. a shared-key caller attributing to a customer team); we only
+    fall back to the key owner's team when no override was supplied.
+    """
+    properties["ai_product"] = product
+    properties["$ai_billable"] = _is_product_billable(product)
+    effort = get_effort()
+    if effort is not None:
+        properties["$ai_effort"] = effort
+    else:
+        properties.pop("$ai_effort", None)
+    if team_id is not None:
+        properties.setdefault("team_id", team_id)
+    # A header-supplied team_id arrives as a string ("42"); store it as an int so the captured
+    # property matches the rest of the platform (the usage reporter reads it via JSONExtractInt)
+    # rather than relying on ClickHouse string coercion.
+    raw_team_id = properties.get("team_id")
+    if raw_team_id is not None:
+        try:
+            properties["team_id"] = int(raw_team_id)
+        except (TypeError, ValueError):
+            if team_id is not None:
+                properties["team_id"] = team_id
+            else:
+                properties.pop("team_id", None)
 
 
 # Stable namespace for hashing non-UUID trace identifiers (e.g. Claude Code's
@@ -167,9 +207,14 @@ class PostHogCallback(InstrumentedCallback):
         is_streaming = standard_logging_object.get("stream", False)
         usage_object = (standard_logging_object.get("metadata") or {}).get("usage_object") or {}
 
+        ai_provider, ai_model = normalize_metric_labels(
+            standard_logging_object.get("model", ""),
+            standard_logging_object.get("custom_llm_provider", ""),
+        )
+
         properties: dict[str, Any] = {
-            "$ai_model": standard_logging_object.get("model", ""),
-            "$ai_provider": standard_logging_object.get("custom_llm_provider", ""),
+            "$ai_model": ai_model,
+            "$ai_provider": ai_provider,
             "$ai_input": _replace_binary_content(standard_logging_object.get("messages")),
             "$ai_input_tokens": standard_logging_object.get("prompt_tokens", 0),
             "$ai_output_tokens": standard_logging_object.get("completion_tokens", 0),
@@ -177,8 +222,6 @@ class PostHogCallback(InstrumentedCallback):
             "$ai_stream": is_streaming,
             "$ai_trace_id": trace_id,
             "$ai_span_id": str(uuid4()),
-            "ai_product": product,
-            "$ai_billable": _is_product_billable(product),
             # Stamped explicitly to bypass the SDK's group_type_index lookup.
             # The AI usage report hardcodes `$group_1` (posthog/tasks/usage_report.py)
             # so the gateway must guarantee that slot regardless of how the
@@ -213,8 +256,7 @@ class PostHogCallback(InstrumentedCallback):
             for flag_key, variant in posthog_flags.items():
                 properties[f"$feature/{flag_key}"] = variant
 
-        if team_id:
-            properties["team_id"] = team_id
+        _apply_owned_event_properties(properties, product, team_id)
 
         response_cost = standard_logging_object.get("response_cost")
         if response_cost is not None:
@@ -291,8 +333,6 @@ class PostHogCallback(InstrumentedCallback):
             "$ai_trace_id": trace_id,
             "$ai_is_error": True,
             "$ai_error": standard_logging_object.get("error_str", ""),
-            "ai_product": product,
-            "$ai_billable": _is_product_billable(product),
             "$group_1": self._region_url,
         }
 
@@ -306,8 +346,7 @@ class PostHogCallback(InstrumentedCallback):
             for flag_key, variant in posthog_flags.items():
                 properties[f"$feature/{flag_key}"] = variant
 
-        if team_id:
-            properties["team_id"] = team_id
+        _apply_owned_event_properties(properties, product, team_id)
 
         capture_kwargs: dict[str, Any] = {
             "distinct_id": distinct_id,

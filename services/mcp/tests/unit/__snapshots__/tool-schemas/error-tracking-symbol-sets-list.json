@@ -19,6 +19,11 @@
             "minLength": 1,
             "type": "string"
         },
+        "search": {
+            "description": "Case-insensitive substring search across reference, release version, release project, and release commit SHA.",
+            "minLength": 1,
+            "type": "string"
+        },
         "status": {
             "default": "all",
             "description": "Upload status filter: `valid` has an uploaded file, `invalid` is missing a file, `all` returns both.\n\n* `all` - all\n* `valid` - valid\n* `invalid` - invalid",

@@ -36,7 +36,7 @@ export function SubscriptionsModal(props: SubscriptionsModalProps): JSX.Element 
         <LemonModal
             onClose={closeModal}
             isOpen={isOpen}
-            width={600}
+            width={720}
             simple
             title=""
             inline={inline}

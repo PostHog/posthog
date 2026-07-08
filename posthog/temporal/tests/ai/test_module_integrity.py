@@ -24,11 +24,8 @@ class TestAITemporalModuleIntegrity:
             "ChatAgentWorkflow",
             "ResearchAgentWorkflow",
             "SummarizeLLMTracesWorkflow",
-            "SlackConversationRunnerWorkflow",
-            "PostHogCodeSlackMentionWorkflow",
-            "PostHogCodeSlackMentionCommandWorkflow",
-            "PostHogCodeSlackTerminateTaskWorkflow",
             "AnomalyInvestigationWorkflow",
+            "CheckpointCompactionWorkflow",
         ]
         actual_workflow_names = [workflow.__name__ for workflow in ai.AI_WORKFLOWS]
         assert len(actual_workflow_names) == len(expected_workflows), (
@@ -54,27 +51,9 @@ class TestAITemporalModuleIntegrity:
             "process_chat_agent_activity",
             "process_research_agent_activity",
             "summarize_llm_traces_activity",
-            "process_slack_conversation_activity",
-            "enforce_posthog_code_billing_quota_activity",
-            "resolve_posthog_code_slack_user_activity",
-            "handle_posthog_code_rules_command_activity",
-            "handle_posthog_code_slack_mention_command_activity",
-            "resolve_posthog_code_slack_command_user_activity",
-            "collect_posthog_code_thread_messages_activity",
-            "create_posthog_code_routing_rule_activity",
-            "cascade_posthog_code_repository_activity",
-            "discover_posthog_code_repository_via_agent_activity",
-            "select_posthog_code_repository_activity",
-            "classify_posthog_code_task_needs_repo_activity",
-            "post_posthog_code_no_repos_activity",
-            "post_posthog_code_repo_picker_activity",
-            "block_posthog_code_task_if_no_personal_github_activity",
-            "create_posthog_code_task_for_repo_activity",
-            "forward_posthog_code_followup_activity",
-            "post_posthog_code_picker_timeout_activity",
-            "post_posthog_code_internal_error_activity",
-            "process_posthog_code_terminate_task_activity",
             "investigate_anomaly_activity",
+            "select_checkpoint_compaction_batch",
+            "compact_checkpoint_conversations",
         ]
         actual_activity_names = [activity.__name__ for activity in ai.AI_ACTIVITIES]
         assert len(actual_activity_names) == len(expected_activities), (
@@ -95,7 +74,6 @@ class TestAITemporalModuleIntegrity:
         expected_exports = [
             "SyncVectorsInputs",
             "SummarizeLLMTracesInputs",
-            "SlackConversationRunnerWorkflowInputs",
         ]
         actual_exports = ai.__all__
         assert len(actual_exports) == len(expected_exports), (
@@ -247,6 +225,8 @@ class TestSignalsProductModuleIntegrity:
             "EmitEvalSignalWorkflow",
             "RunSignalsScoutWorkflow",
             "SignalsScoutCoordinatorWorkflow",
+            "CustomSignalAgentWorkflow",
+            "SignalReportInboxNotificationWorkflow",
         ]
         actual_workflow_names = [w.__name__ for w in SIGNALS_PRODUCT_WORKFLOWS]
         assert len(actual_workflow_names) == len(expected_workflows), (
@@ -262,9 +242,13 @@ class TestSignalsProductModuleIntegrity:
         """Ensure all expected signals product activities are present."""
         expected_activities = [
             "dispatch_inbox_slack_notifications_activity",
+            "get_inbox_notification_state_activity",
+            "send_report_inbox_notifications_activity",
             "emit_backfill_signal_activity",
             "fetch_error_tracking_issues_activity",
             "assign_and_emit_signal_activity",
+            "capture_signal_dropped_activity",
+            "check_signals_quota_limited_activity",
             "delete_report_activity",
             "emit_eval_signal_activity",
             "fetch_report_contexts_activity",
@@ -298,7 +282,9 @@ class TestSignalsProductModuleIntegrity:
             "verify_match_specificity_activity",
             "wait_for_signal_in_clickhouse_activity",
             "fetch_enabled_signals_scout_runs_activity",
+            "stamp_dispatched_signals_scout_runs_activity",
             "run_signals_scout_activity",
+            "run_custom_signal_agent_activity",
         ]
         actual_activity_names = [a.__name__ for a in SIGNALS_PRODUCT_ACTIVITIES]
         assert len(actual_activity_names) == len(expected_activities), (
@@ -327,7 +313,6 @@ class TestAIObservabilityModuleIntegrity:
             "AIObservabilityEvaluationSamplerWorkflow",
             "AIObservabilityEvaluationClusteringCoordinatorWorkflow",
             "AIObservabilityEvaluationClusteringWorkflow",
-            "ClassifySentimentWorkflow",
             "RunEvaluationWorkflow",
         ]
         actual_workflow_names = [w.__name__ for w in LLM_ANALYTICS_WORKFLOWS]
@@ -365,7 +350,6 @@ class TestAIObservabilityModuleIntegrity:
             "generate_evaluation_cluster_labels_activity",
             "compute_evaluation_cluster_aggregates_activity",
             "emit_evaluation_cluster_events_activity",
-            "classify_sentiment_activity",
             "fetch_evaluation_activity",
             "increment_trial_eval_count_activity",
             "disable_evaluation_activity",
@@ -374,6 +358,7 @@ class TestAIObservabilityModuleIntegrity:
             "update_key_state_activity",
             "execute_llm_judge_activity",
             "execute_hog_eval_activity",
+            "execute_sentiment_eval_activity",
             "emit_evaluation_event_activity",
             "emit_internal_telemetry_activity",
             "emit_eval_signal_activity",

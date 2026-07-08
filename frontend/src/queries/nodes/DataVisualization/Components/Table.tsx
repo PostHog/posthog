@@ -8,7 +8,7 @@ import { IconPin, IconPinFilled } from '@posthog/icons'
 import { LemonTable, LemonTableColumn, Tooltip } from '@posthog/lemon-ui'
 
 import { execHog } from 'lib/hog'
-import { lightenDarkenColor } from 'lib/utils'
+import { lightenDarkenColor } from 'lib/utils/colors'
 import { InsightEmptyState, InsightErrorState } from 'scenes/insights/EmptyStates'
 
 import { themeLogic } from '~/layout/navigation-3000/themeLogic'
@@ -56,6 +56,19 @@ function getDisplayedColumnTitle(
 ): React.ReactNode {
     const { title } = renderColumnMeta(columnName, query, context)
     return label || title || columnName
+}
+
+// Plain-text representation of a cell, used as the hover title so clipped content is
+// still visible on hover. The full value stays in the DOM (CSS ellipsis only), so
+// selecting and copying a cell copies the whole value, not just the clipped portion.
+function getCellTitle(cell: TableDataCell<any>): string | undefined {
+    if (typeof cell.formattedValue === 'string') {
+        return cell.formattedValue
+    }
+    if (typeof cell.value === 'string' || typeof cell.value === 'number') {
+        return String(cell.value)
+    }
+    return undefined
 }
 
 export const Table = (props: TableProps): JSX.Element => {
@@ -130,11 +143,18 @@ export const Table = (props: TableProps): JSX.Element => {
                                   ? sourceColumnTitle
                                   : String(sourceColumnTitle)
 
-                        return <div className="truncate">{renderedSourceColumnTitle}</div>
+                        return (
+                            <div
+                                className="truncate"
+                                title={typeof sourceColumnTitle === 'string' ? sourceColumnTitle : undefined}
+                            >
+                                {renderedSourceColumnTitle}
+                            </div>
+                        )
                     }
 
                     return (
-                        <div className="truncate">
+                        <div className="truncate" title={getCellTitle(cell)}>
                             {renderColumn(
                                 cell.sourceColumnName ?? column.name,
                                 cell.formattedValue,
@@ -242,7 +262,11 @@ export const Table = (props: TableProps): JSX.Element => {
                         }
                     />
                 ) : (
-                    <InsightEmptyState heading="There are no matching rows for this query" detail="" />
+                    <InsightEmptyState
+                        heading="There are no matching rows for this query"
+                        detail=""
+                        sampleDataVariant="table"
+                    />
                 )
             }
             footer={tabularData.length > 0 ? <LoadNext query={props.query} /> : null}

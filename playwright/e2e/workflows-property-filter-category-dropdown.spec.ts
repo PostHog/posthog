@@ -1,7 +1,5 @@
-import { expect } from '@playwright/test'
-
 import { mockFeatureFlags } from '../utils/mockApi'
-import { test } from '../utils/playwright-test-base'
+import { PlaywrightWorkspaceSetupResult, expect, test } from '../utils/workspace-test-base'
 
 const TRIGGER_NODE_ID = 'trigger_node'
 const EXIT_NODE_ID = 'exit_node'
@@ -70,7 +68,16 @@ function buildConditionalBranchWorkflow(): Record<string, any> {
 }
 
 test.describe('Workflows conditional branch property filter category dropdown', () => {
-    test.beforeEach(async ({ page }) => {
+    let workspace: PlaywrightWorkspaceSetupResult | null = null
+
+    test.beforeAll(async ({ playwrightSetup }) => {
+        workspace = await playwrightSetup.createWorkspace({ skip_onboarding: true, no_demo_data: true })
+    })
+
+    test.beforeEach(async ({ page, playwrightSetup }) => {
+        // Log in (sets the session + CSRF cookie the test needs to create a hog_flow) without
+        // navigating into the app, so the feature flag mock is installed before the editor loads.
+        await playwrightSetup.login(page, workspace!)
         await mockFeatureFlags(page, {
             'taxonomic-filter-category-dropdown': 'pill',
         })

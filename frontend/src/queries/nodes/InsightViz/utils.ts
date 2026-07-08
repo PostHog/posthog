@@ -1,7 +1,7 @@
 import equal from 'fast-deep-equal'
 
 import { ApiError } from 'lib/api'
-import { getEventNamesForAction } from 'lib/utils'
+import { getEventNamesForAction } from 'lib/utils/events'
 
 import { examples } from '~/queries/examples'
 import {

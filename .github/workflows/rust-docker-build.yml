@@ -1,16 +1,19 @@
 name: Build and deploy rust container images
 
 # Production build + deploy for Rust services on master.
+# Uses selective builds: only images affected by changed files are built and deployed.
+# workflow_dispatch always builds all images (escape hatch).
 #
 # Image list: .github/rust-images.yml
 # Build steps: .github/workflows/_rust-build-images.yml
-# Deploy matrix below must be updated when adding new services.
+# Affected-set computation: rust/affected-services (Rust binary crate)
 
 on:
     workflow_dispatch:
     push:
         paths:
             - 'rust/**'
+            - 'proto/**'
             - '.github/workflows/rust-docker-build.yml'
             - '.github/workflows/_rust-build-images.yml'
             - '.github/rust-images.yml'
@@ -19,6 +22,7 @@ on:
     pull_request:
         paths:
             - 'rust/**'
+            - 'proto/**'
             - '.github/workflows/rust-docker-build.yml'
             - '.github/workflows/_rust-build-images.yml'
             - '.github/rust-images.yml'
@@ -30,9 +34,61 @@ concurrency:
     cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
+    affected:
+        name: compute affected images
+        runs-on: ubuntu-24.04
+        timeout-minutes: 10
+        # Skip on workflow_dispatch — always build everything (escape hatch)
+        if: >-
+            github.event_name != 'workflow_dispatch' &&
+            (github.event_name != 'pull_request' ||
+             github.event.pull_request.head.repo.full_name == github.repository)
+        permissions:
+            contents: read
+        outputs:
+            image-filter: ${{ steps.compute.outputs.images }}
+        steps:
+            - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+              with:
+                  fetch-depth: 0
+                  sparse-checkout: |
+                      rust/
+                      proto/
+                      .github/rust-images.yml
+                      .github/actions/rust-compute-affected/
+                  sparse-checkout-cone-mode: false
+                  clean: false
+
+            - name: Install rust
+              uses: dtolnay/rust-toolchain@3c5f7ea28cd621ae0bf5283f0e981fb97b8a7af9
+              with:
+                  toolchain: 1.91.1
+
+            - name: Compute affected images
+              id: compute
+              uses: ./.github/actions/rust-compute-affected
+              with:
+                  event-name: ${{ github.event_name }}
+                  pr-base-sha: ${{ github.event.pull_request.base.sha }}
+                  push-before-sha: ${{ github.event.before }}
+
     build-images:
+        needs: affected
+        # always() is required because 'affected' may be skipped (workflow_dispatch),
+        # and GitHub Actions treats skipped dependencies as failures by default.
+        # !cancelled() prevents running after manual workflow cancellation.
+        # Run unless affected explicitly found zero images ('none') or failed.
+        if: |
+            always() && !cancelled() &&
+            (github.event_name != 'pull_request' ||
+             github.event.pull_request.head.repo.full_name == github.repository) &&
+            needs.affected.result != 'failure' &&
+            needs.affected.outputs.image-filter != 'none'
         uses: ./.github/workflows/_rust-build-images.yml
         with:
+            # Only the canonical deploy repo pushes prod images on master; PRs still push for validation.
+            push: ${{ github.event_name == 'pull_request' || vars.CD_DEPLOY_ENABLED == 'true' }}
+            image-filter: ${{ needs.affected.outputs.image-filter || '' }}
             tag-rules: |
                 type=ref,event=pr
                 type=ref,event=branch
@@ -40,7 +96,9 @@ jobs:
                 type=semver,pattern={{major}}.{{minor}}
                 type=sha
             timeout-minutes: 30
-        secrets: inherit
+        secrets:
+            POSTHOG_API_TOKEN: ${{ secrets.POSTHOG_API_TOKEN }}
+            POSTHOG_DEVEX_PROJECT_API_TOKEN: ${{ secrets.POSTHOG_DEVEX_PROJECT_API_TOKEN }}
         permissions:
             id-token: write
             contents: read
@@ -51,8 +109,10 @@ jobs:
         runs-on: ubuntu-24.04
         timeout-minutes: 5
         needs: build-images
-        if: github.ref == 'refs/heads/master'
+        if: github.repository_owner == 'PostHog' && vars.CD_DEPLOY_ENABLED == 'true' && github.ref == 'refs/heads/master'
         strategy:
+            # fail-fast false so one missing digest doesn't cancel other deploys
+            fail-fast: false
             matrix:
                 include:
                     - release: capture
@@ -76,17 +136,23 @@ jobs:
                     - release: flags-cache-jumphost
                       digest_key: flags-cache-warmer
                       values_key: image
+                    - release: flags-cache-builder
+                      digest_key: flags-cache-builder
+                      values_key: image
                     - release: flags-consumer
                       digest_key: flags-consumer
+                      values_key: image
+                    - release: cohort-event-shuffler
+                      digest_key: cohort-event-shuffler
+                      values_key: image
+                    - release: cohort-stream-processor
+                      digest_key: cohort-stream-processor
                       values_key: image
                     - release: batch-import-worker
                       digest_key: batch-import-worker
                       values_key: image
                     - release: cymbal
                       digest_key: cymbal
-                      values_key: image
-                    - release: cymbal-resolution
-                      digest_key: cymbal-resolution
                       values_key: image
                     - release: embedding-worker
                       digest_key: embedding-worker
@@ -122,7 +188,23 @@ jobs:
                       digest_key: hypercache-server
                       values_key: image
         steps:
+            - name: check if image was built
+              id: check
+              env:
+                  DIGESTS: ${{ needs.build-images.outputs.digests }}
+                  KEY: ${{ matrix.digest_key }}
+              run: |
+                  digest=$(echo "$DIGESTS" | python3 -c "import json,sys; d=json.load(sys.stdin); print(d.get('$KEY',''))")
+                  if [ -n "$digest" ]; then
+                      echo "skip=false" >> "$GITHUB_OUTPUT"
+                      echo "digest=$digest" >> "$GITHUB_OUTPUT"
+                  else
+                      echo "Skipping ${{ matrix.release }} — image not in this build"
+                      echo "skip=true" >> "$GITHUB_OUTPUT"
+                  fi
+
             - name: get deployer token
+              if: steps.check.outputs.skip != 'true'
               id: deployer
               uses: actions/create-github-app-token@1b10c78c7865c340bc4f6099eb2f838309f1e8c3 # v3.1.1
               with:
@@ -132,6 +214,7 @@ jobs:
                   repositories: charts
 
             - name: trigger ${{ matrix.release }} deployment
+              if: steps.check.outputs.skip != 'true'
               uses: peter-evans/repository-dispatch@28959ce8df70de7be546dd1250a005dd32156697 # v4.0.1
               with:
                   token: ${{ steps.deployer.outputs.token }}
@@ -139,7 +222,7 @@ jobs:
                   event-type: commit_state_update
                   client-payload: |
                       {
-                        "values": {"${{ matrix.values_key }}": {"sha": "${{ fromJson(needs.build-images.outputs.digests)[matrix.digest_key] }}"}},
+                        "values": {"${{ matrix.values_key }}": {"sha": "${{ steps.check.outputs.digest }}"}},
                         "release": "${{ matrix.release }}",
                         "commit": ${{ toJson(github.event.head_commit) }},
                         "repository": ${{ toJson(github.repository) }},

@@ -7,7 +7,7 @@ from common.hogvm.python.operation import HOGQL_BYTECODE_VERSION
 
 class TestCohortBytecodeScenarios(APIBaseTest):
     def _create_and_fetch(self, name: str, filters: dict[str, Any]):
-        from posthog.models.cohort.cohort import Cohort
+        from products.cohorts.backend.models.cohort import Cohort
 
         resp = self.client.post(
             f"/api/projects/{self.team.id}/cohorts/",
@@ -19,7 +19,7 @@ class TestCohortBytecodeScenarios(APIBaseTest):
         return cohort
 
     def _patch_and_fetch(self, cohort_id: int, filters: dict[str, Any]):
-        from posthog.models.cohort.cohort import Cohort
+        from products.cohorts.backend.models.cohort import Cohort
 
         resp = self.client.patch(
             f"/api/projects/{self.team.id}/cohorts/{cohort_id}/",

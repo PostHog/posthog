@@ -2,15 +2,15 @@ import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
 
 import { LemonButton, LemonTag } from '@posthog/lemon-ui'
+import type { SubscriptionApi } from '@posthog/products-subscriptions/frontend/generated/api.schemas'
+import { ResourceTypeEnumApi } from '@posthog/products-subscriptions/frontend/generated/api.schemas'
 
 import { NotFound } from 'lib/components/NotFound'
 import { deleteWithUndo } from 'lib/utils/deleteWithUndo'
 import { getCurrentTeamId } from 'lib/utils/getAppContext'
-import { sceneLogic } from 'scenes/sceneLogic'
-import { SceneExport, type SceneProps } from 'scenes/sceneTypes'
+import { SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
-import type { SubscriptionApi } from '~/generated/core/api.schemas'
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 
@@ -20,14 +20,13 @@ import { SubscriptionSummary } from './components/SubscriptionSummary'
 import { subscriptionSceneLogic } from './subscriptionSceneLogic'
 import { subscriptionsSceneLogic } from './subscriptionsSceneLogic'
 
-function SubscriptionDetailActions({ sub, tabId }: { sub: SubscriptionApi; tabId?: string }): JSX.Element {
+function SubscriptionDetailActions({ sub }: { sub: SubscriptionApi }): JSX.Element {
     const { push } = useActions(router)
-    const { activeTabId } = useValues(sceneLogic)
-    const { setEnabled } = useActions(subscriptionSceneLogic)
-    const { subscriptionLoading } = useValues(subscriptionSceneLogic)
-    const listTabId = tabId ?? activeTabId ?? undefined
+    const { setEnabled, deliverSubscription } = useActions(subscriptionSceneLogic)
+    const { subscriptionLoading, deliveringSubscriptionId } = useValues(subscriptionSceneLogic)
     const editHref = subscriptionEditHref(sub)
     const enabled = isSubscriptionEnabled(sub)
+    const isDelivering = deliveringSubscriptionId === sub.id
 
     const deleteSubscription = (): void => {
         const name = subscriptionName(sub)
@@ -38,9 +37,7 @@ function SubscriptionDetailActions({ sub, tabId }: { sub: SubscriptionApi; tabId
                 name,
             },
             callback: () => {
-                if (listTabId) {
-                    subscriptionsSceneLogic.findMounted({ tabId: listTabId })?.actions.deleteSubscriptionSuccess()
-                }
+                subscriptionsSceneLogic.findMounted()?.actions.deleteSubscriptionSuccess()
                 push(urls.subscriptions())
             },
         })
@@ -65,6 +62,15 @@ function SubscriptionDetailActions({ sub, tabId }: { sub: SubscriptionApi; tabId
                 </LemonButton>
             ) : null}
             <LemonButton
+                type="primary"
+                onClick={() => deliverSubscription(sub.id)}
+                loading={isDelivering}
+                disabledReason={isDelivering ? 'Sending test delivery…' : null}
+                data-attr="subscription-detail-header-test-delivery"
+            >
+                Test delivery
+            </LemonButton>
+            <LemonButton
                 type="secondary"
                 status="danger"
                 data-attr="subscription-detail-delete"
@@ -76,17 +82,19 @@ function SubscriptionDetailActions({ sub, tabId }: { sub: SubscriptionApi; tabId
     )
 }
 
-export function SubscriptionScene({ tabId }: SceneProps): JSX.Element {
+export function SubscriptionScene(): JSX.Element {
     const {
         subscription,
         subscriptionLoading,
-        deliveriesEnabled,
         deliveriesPage,
         deliveriesPageLoading,
         deliveringSubscriptionId,
         deliveryStatusFilter,
+        deliveryFeedback,
+        recentlyThankedDeliveries,
     } = useValues(subscriptionSceneLogic)
-    const { loadDeliveriesPage, deliverSubscription, setDeliveryStatusFilter } = useActions(subscriptionSceneLogic)
+    const { loadDeliveriesPage, deliverSubscription, setDeliveryStatusFilter, submitDeliveryFeedback } =
+        useActions(subscriptionSceneLogic)
 
     const showNotFound = !subscriptionLoading && !subscription
 
@@ -101,9 +109,7 @@ export function SubscriptionScene({ tabId }: SceneProps): JSX.Element {
                         description={null}
                         resourceType={{ type: 'inbox' }}
                         isLoading={subscriptionLoading}
-                        actions={
-                            subscription ? <SubscriptionDetailActions sub={subscription} tabId={tabId} /> : undefined
-                        }
+                        actions={subscription ? <SubscriptionDetailActions sub={subscription} /> : undefined}
                     />
                     {subscription ? (
                         // Mute the body when the subscription is paused — the LemonTag in the
@@ -112,17 +118,24 @@ export function SubscriptionScene({ tabId }: SceneProps): JSX.Element {
                             <SubscriptionSummary sub={subscription} />
                         </div>
                     ) : null}
-                    {deliveriesEnabled ? (
-                        <SubscriptionDeliveryHistory
-                            deliveriesPage={deliveriesPage}
-                            deliveriesPageLoading={deliveriesPageLoading}
-                            loadDeliveriesPage={loadDeliveriesPage}
-                            deliveryStatusFilter={deliveryStatusFilter}
-                            onDeliveryStatusFilterChange={setDeliveryStatusFilter}
-                            onTestDelivery={subscription ? () => deliverSubscription(subscription.id) : undefined}
-                            testDeliveryLoading={Boolean(subscription && deliveringSubscriptionId === subscription.id)}
-                        />
-                    ) : null}
+                    <SubscriptionDeliveryHistory
+                        deliveriesPage={deliveriesPage}
+                        deliveriesPageLoading={deliveriesPageLoading}
+                        loadDeliveriesPage={loadDeliveriesPage}
+                        deliveryStatusFilter={deliveryStatusFilter}
+                        onDeliveryStatusFilterChange={setDeliveryStatusFilter}
+                        // Empty-state CTA intentionally coexists with the header Test delivery button:
+                        // it's the discoverable first-run nudge when a subscription has no deliveries yet.
+                        onTestDelivery={subscription ? () => deliverSubscription(subscription.id) : undefined}
+                        testDeliveryLoading={Boolean(subscription && deliveringSubscriptionId === subscription.id)}
+                        onDeliveryFeedback={
+                            subscription?.resource_type === ResourceTypeEnumApi.AiPrompt
+                                ? (deliveryId, feedback) => submitDeliveryFeedback(deliveryId, feedback, 'in_app')
+                                : undefined
+                        }
+                        deliveryFeedback={deliveryFeedback}
+                        recentlyThankedDeliveries={recentlyThankedDeliveries}
+                    />
                 </div>
             )}
         </SceneContent>

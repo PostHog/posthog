@@ -28,7 +28,7 @@ export function VariantTag({
 
     const variantColor = experiment.feature_flag?.filters.multivariate?.variants
         ? getVariantColor(variantKey, experiment.feature_flag?.filters.multivariate?.variants)
-        : 'var(--text-muted)'
+        : 'var(--muted)'
 
     /**
      * this is only used on the distribution table, to display the holdout name

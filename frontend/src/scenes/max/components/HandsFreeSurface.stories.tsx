@@ -18,8 +18,8 @@ interface DriverProps {
 // Mounts maxLogic + handsFreeLogic and drives them into a target state so each story
 // captures a single visual configuration without spinning up real WebSockets or audio.
 function HandsFreeSurfaceStory({ status, connection, partialTranscript, error }: DriverProps): JSX.Element {
-    useMountedLogic(maxLogic({ tabId: TAB_ID }))
-    const logic = handsFreeLogic({ tabId: TAB_ID })
+    useMountedLogic(maxLogic({ panelId: TAB_ID }))
+    const logic = handsFreeLogic({ panelId: TAB_ID })
     useMountedLogic(logic)
     const { setStatus, setConnection, setPartialTranscript, setError } = useActions(logic)
 
@@ -38,7 +38,7 @@ function HandsFreeSurfaceStory({ status, connection, partialTranscript, error }:
 
     return (
         <div className="max-w-md mx-auto p-4 bg-bg-light border rounded">
-            <HandsFreeSurface tabId={TAB_ID} />
+            <HandsFreeSurface panelId={TAB_ID} />
         </div>
     )
 }

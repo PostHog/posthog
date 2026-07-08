@@ -15,6 +15,9 @@ concurrency:
     group: ${{ github.workflow }}-${{ github.head_ref || github.ref }}
     cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
+env:
+    RUNS_ON_INTERNAL_PR: ${{ github.event_name != 'pull_request' || github.event.pull_request.head.repo.fork == false }}
+
 jobs:
     # Job to decide if we should run python ci
     # See https://github.com/dorny/paths-filter#conditional-execution for more details
@@ -43,17 +46,19 @@ jobs:
                   token: ${{ steps.app-token.outputs.token || github.token }}
                   filters: |
                       python:
+                        # ruff/mypy/ty run repo-wide (`.`) in code-quality, so any Python
+                        # file anywhere must trigger this workflow — otherwise an unformatted
+                        # file lands undetected and trips the next unrelated PR that does run.
+                        - '**/*.py'
+                        - '*.py' # root-level scripts (e.g. manage.py); '**/' alone may not match root
                         - 'pyproject.toml'
                         - 'uv.lock'
-                        - 'ee/**/*.py'
                         - 'posthog/**/*'
-                        - 'products/**/*.py'
                         # Make sure we run if someone is explicitly change the workflows
                         - .github/workflows/ci-python.yml
                         - .github/workflows/ci-dagster.yml
                         - .github/workflows/ci-backend.yml
                         - .flox/env/manifest.toml
-                        - bin/check_uv_python_compatibility.py
                         # Schema changes need to trigger Python CI to validate schema.py is regenerated
                         - 'frontend/src/queries/schema.json'
                         # Products changes need to trigger Python CI to validate the json usage is still valid
@@ -63,14 +68,12 @@ jobs:
                         - 'tools/hogli-commands/hogli_commands/**'
                         - 'hogli.yaml'
                         - 'bin/**'
-                        # LLM Gateway service
-                        - 'services/llm-gateway/**/*.py'
-                        # GitHub scripts
-                        - '.github/scripts/**/*.py'
-                        # PR approval agent
+                        # Dev tools with dedicated pytest steps below
                         - 'tools/pr-approval-agent/**'
-                        # query-performance-ai dev tool
                         - 'tools/query-performance-ai/**'
+                        # Stamphog policy files validated by the pr-approval-agent suite
+                        - '.stamphog/**'
+                        - '**/AGENT_APPROVALS.md'
 
     code-quality:
         needs: changes
@@ -88,7 +91,8 @@ jobs:
             - name: Set up Python
               uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6.2.0
               with:
-                  python-version: 3.12.12
+                  python-version: 3.13.13
+                  token: ${{ github.token }}
 
             - name: Install uv
               id: setup-uv
@@ -194,6 +198,11 @@ jobs:
               run: |
                   pytest tools/query-performance-ai/query_performance_ai -v --junitxml=junit-query-performance-ai.xml
 
+            - name: Run pr-approval-agent (stamphog) tests
+              shell: bash
+              run: |
+                  pytest tools/pr-approval-agent -v --junitxml=junit-pr-approval-agent.xml
+
             - name: Upload test results
               uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
               if: always()
@@ -203,6 +212,7 @@ jobs:
                       junit-hogli.xml
                       junit-hogli-commands.xml
                       junit-query-performance-ai.xml
+                      junit-pr-approval-agent.xml
 
             - name: Run dependency detection script tests
               shell: bash
@@ -215,6 +225,18 @@ jobs:
               with:
                   name: junit-results-dependency-detection
                   path: junit-dependency-detection.xml
+
+            # Upload results to Trunk for flaky-test detection. Non-gating (continue-on-error),
+            # so a Trunk outage never fails the job. Runs the token only on internal PRs,
+            # master, and the merge queue — never on fork PRs or Dependabot, which have no secret.
+            - name: Upload test results to Trunk
+              if: ${{ !cancelled() && env.RUNS_ON_INTERNAL_PR == 'true' && github.repository == 'PostHog/posthog' && github.actor != 'dependabot[bot]' }}
+              continue-on-error: true
+              uses: trunk-io/analytics-uploader@385f1ccdf345b4532dc4b6c665dd432b702b8e28 # v2.1.2
+              with:
+                  junit-paths: junit-*.xml
+                  org-slug: posthog-inc
+                  token: ${{ secrets.TRUNK_API_TOKEN }}
 
             # - name: Check if "taxonomy.json/taxonomy.tsx" is up to date
             #   if: needs.changes.outputs.python == 'true'

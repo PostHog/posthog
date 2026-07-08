@@ -1,4 +1,4 @@
-import { actions, connect, kea, key, path, props, reducers, selectors } from 'kea'
+import { actions, connect, kea, path, props, reducers, selectors } from 'kea'
 
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 
@@ -10,17 +10,14 @@ import errorsQueryTemplate from '../../backend/queries/errors.sql?raw'
 import { SortDirection, SortState, aiObservabilitySharedLogic } from '../aiObservabilitySharedLogic'
 import type { aiObservabilityErrorsLogicType } from './aiObservabilityErrorsLogicType'
 
-export interface AIObservabilityErrorsLogicProps {
-    tabId?: string
-}
+export type AIObservabilityErrorsLogicProps = Record<string, never>
 
 export const aiObservabilityErrorsLogic = kea<aiObservabilityErrorsLogicType>([
     path(['products', 'ai_observability', 'frontend', 'tabs', 'aiObservabilityErrorsLogic']),
-    key((props: AIObservabilityErrorsLogicProps) => props.tabId || 'default'),
     props({} as AIObservabilityErrorsLogicProps),
-    connect((props: AIObservabilityErrorsLogicProps) => ({
+    connect(() => ({
         values: [
-            aiObservabilitySharedLogic({ tabId: props.tabId }),
+            aiObservabilitySharedLogic,
             ['dateFilter', 'shouldFilterTestAccounts', 'propertyFilters'],
             groupsModel,
             ['groupsTaxonomicTypes'],

@@ -1,26 +1,35 @@
+import random
+import pathlib
+import importlib
+import importlib.util
 from datetime import timedelta
 
 import pytest
 from posthog.test.base import APIBaseTest
 
-from django.conf import settings
+from django.apps import apps
 from django.test import override_settings
 from django.urls import include, path
 from django.utils import timezone
 
+from opentelemetry.sdk.trace import TracerProvider
+from opentelemetry.sdk.trace.export import SimpleSpanProcessor
+from opentelemetry.sdk.trace.export.in_memory_span_exporter import InMemorySpanExporter
 from rest_framework import viewsets
 from rest_framework.decorators import action
 from rest_framework.response import Response
 
-from posthog.api.annotation import AnnotationSerializer
-from posthog.api.oauth.test_dcr import generate_rsa_key
-from posthog.api.routing import DefaultRouterPlusPlus, TeamAndOrgViewSetMixin
-from posthog.models.annotation import Annotation
+from posthog.api.routing import DefaultRouterPlusPlus, RouterRegistry, TeamAndOrgViewSetMixin
+from posthog.auth import ProjectSecretAPIKeyAuthentication
 from posthog.models.oauth import OAuthAccessToken, OAuthApplication
 from posthog.models.organization import Organization
 from posthog.models.project import Project
 from posthog.models.scoping import get_current_team_id
 from posthog.models.team.team import Team
+from posthog.permissions import APIScopePermission
+
+from products.annotations.backend.api.annotation import AnnotationSerializer
+from products.annotations.backend.models.annotation import Annotation
 
 
 class FooViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
@@ -67,6 +76,37 @@ scoped_test_organizations_router.register(
 urlpatterns = [
     path("api/", include(test_router.urls)),
 ]
+
+
+@override_settings(ROOT_URLCONF=__name__)
+class TestTeamAndOrgViewSetMixinSpanTagging(APIBaseTest):
+    """The request (root) span should be tagged with team_id for team/project views."""
+
+    def _recording_tracer(self):
+        exporter = InMemorySpanExporter()
+        provider = TracerProvider()
+        provider.add_span_processor(SimpleSpanProcessor(exporter))
+        return provider.get_tracer("test"), exporter
+
+    def _root_span(self, exporter):
+        spans = [s for s in exporter.get_finished_spans() if s.name == "test-request-root"]
+        self.assertEqual(len(spans), 1)
+        return spans[0]
+
+    def test_team_view_tags_request_span_with_team_id(self):
+        tracer, exporter = self._recording_tracer()
+        with tracer.start_as_current_span("test-request-root"):
+            response = self.client.get(f"/api/environments/{self.team.id}/foos/")
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(self._root_span(exporter).attributes["team_id"], self.team.id)
+
+    def test_organization_view_does_not_tag_team_id(self):
+        # Org-scoped views have no single team, so the stamp must not fire.
+        tracer, exporter = self._recording_tracer()
+        with tracer.start_as_current_span("test-request-root"):
+            response = self.client.get(f"/api/organizations/{self.organization.id}/foos/")
+        self.assertEqual(response.status_code, 200)
+        self.assertNotIn("team_id", self._root_span(exporter).attributes or {})
 
 
 @override_settings(ROOT_URLCONF=__name__)  # Use `urlpatterns` from this file and not from `posthog.urls`
@@ -175,13 +215,7 @@ class TestTeamAndOrgViewSetMixin(APIBaseTest):
         )
 
 
-@override_settings(
-    ROOT_URLCONF=__name__,
-    OAUTH2_PROVIDER={
-        **settings.OAUTH2_PROVIDER,
-        "OIDC_RSA_PRIVATE_KEY": generate_rsa_key(),
-    },
-)
+@override_settings(ROOT_URLCONF=__name__)
 class TestOAuthAccessTokenAuthentication(APIBaseTest):
     """Test that OAuth access tokens work through the routing layer with proper permissions"""
 
@@ -285,3 +319,193 @@ class TestOAuthAccessTokenAuthentication(APIBaseTest):
         )
         self.assertEqual(response.status_code, 200)
         self.assertEqual(response.json()["count"], 1)
+
+
+def test_router_registry_add_returns_item_and_resolves_by_name():
+    registry = RouterRegistry()
+    item = DefaultRouterPlusPlus().register(r"things", FooViewSet, "things")
+    assert registry.add("things", item) is item
+    assert registry.get("things") is item
+
+
+def test_router_registry_rejects_duplicate_name():
+    registry = RouterRegistry()
+    item = DefaultRouterPlusPlus().register(r"things", FooViewSet, "things")
+    registry.add("things", item)
+    with pytest.raises(ValueError):
+        registry.add("things", item)
+
+
+def test_router_registry_get_unknown_name_lists_known():
+    registry = RouterRegistry()
+    registry.add("things", DefaultRouterPlusPlus().register(r"things", FooViewSet, "things"))
+    with pytest.raises(KeyError, match="things"):
+        registry.get("missing")
+
+
+def _registry_with_parents():
+    registry = RouterRegistry()
+    root = DefaultRouterPlusPlus()
+    registry.set_root(root)
+    registry.add("projects", root.register(r"projects", FooViewSet, "projects"))
+    registry.add("environments", root.register(r"environments", FooViewSet, "environments"))
+    return registry
+
+
+def test_register_legacy_dual_route_registers_both_surfaces():
+    registry = _registry_with_parents()
+    project_item, environment_item = registry.register_legacy_dual_route(
+        r"things", FooViewSet, "project_things", ["team_id"]
+    )
+    assert project_item is not None
+    assert environment_item is not None
+
+
+@pytest.mark.parametrize(
+    "basename,lookups,match",
+    [
+        ("project_things", [], "non-empty"),
+        ("project_things", ["project_id"], "team_id"),
+        ("things", ["team_id"], "must start with"),
+    ],
+)
+def test_register_legacy_dual_route_rejects_bad_input(basename, lookups, match):
+    registry = _registry_with_parents()
+    with pytest.raises(ValueError, match=match):
+        registry.register_legacy_dual_route(r"things", FooViewSet, basename, lookups)
+
+
+# --- Product route auto-discovery -----------------------------------------------------
+# Mirrors the discovery loop in posthog/api/__init__.py so the tests exercise the same
+# filter (products.* app whose `.routes` module exists).
+
+
+def _discover_product_route_modules():
+    modules = []
+    for app_config in apps.get_app_configs():
+        if not app_config.name.startswith("products."):
+            continue
+        module_name = f"{app_config.name}.routes"
+        if importlib.util.find_spec(module_name) is None:
+            continue
+        modules.append(importlib.import_module(module_name))
+    return modules
+
+
+def _build_product_routes(modules):
+    router = DefaultRouterPlusPlus()
+    registry = RouterRegistry()
+    registry.set_root(router)
+    registry.add("projects", router.register(r"projects", FooViewSet, "projects"))
+    registry.add("environments", router.register(r"environments", FooViewSet, "environments"))
+    registry.add("organizations", router.register(r"organizations", FooViewSet, "organizations"))
+    for module in modules:
+        module.register_routes(registry)
+    return router
+
+
+def _url_signature(router):
+    return sorted((str(pattern.pattern), pattern.name) for pattern in router.urls)
+
+
+def _iter_router_viewset_actions(router):
+    for pattern in router.urls:
+        callback = getattr(pattern, "callback", None)
+        viewset_class = getattr(callback, "cls", None)
+        actions = getattr(callback, "actions", None)
+        if viewset_class is None or actions is None:
+            continue
+        yield pattern.name, viewset_class, set(actions.values())
+
+
+def test_product_route_discovery_is_order_independent():
+    modules = _discover_product_route_modules()
+    assert modules, "expected to discover product route modules"
+    in_order = _url_signature(_build_product_routes(modules))
+    shuffled = modules[:]
+    random.Random(20240601).shuffle(shuffled)
+    out_of_order = _url_signature(_build_product_routes(shuffled))
+    assert in_order == out_of_order
+
+
+def test_discovery_covers_every_product_with_a_routes_module():
+    # Every routes.py on disk must be reachable through INSTALLED_APPS, otherwise the loop
+    # would silently drop it. parents[3] of .../posthog/api/test/test_routing.py is the repo root.
+    repo_root = pathlib.Path(__file__).resolve().parents[3]
+    on_disk = {
+        f"products.{path.parent.parent.name}.backend.routes" for path in repo_root.glob("products/*/backend/routes.py")
+    }
+    discovered = {module.__name__ for module in _discover_product_route_modules()}
+    assert discovered == on_disk
+
+
+def test_every_discovered_routes_module_is_callable():
+    modules = _discover_product_route_modules()
+    missing = [m.__name__ for m in modules if not callable(getattr(m, "register_routes", None))]
+    assert not missing, f"routes modules without a register_routes callable: {missing}"
+
+
+def test_project_secret_api_key_authentication_routes_include_api_scope_permission():
+    from posthog.api import router
+
+    _assert_project_secret_api_key_routes_include_api_scope_permission(router)
+
+
+def _assert_project_secret_api_key_routes_include_api_scope_permission(router):
+    missing = []
+    authenticator = ProjectSecretAPIKeyAuthentication()
+    for route_name, viewset_class, actions in _iter_router_viewset_actions(router):
+        if ProjectSecretAPIKeyAuthentication not in viewset_class.authentication_classes:
+            continue
+
+        for action_name in actions:
+            view = viewset_class()
+            view.action = action_name
+            view.request = type("Request", (), {"successful_authenticator": authenticator})()
+            view.kwargs = {}
+            permissions = view.get_permissions()
+            if not any(isinstance(permission, APIScopePermission) for permission in permissions):
+                missing.append(f"{route_name}:{viewset_class.__name__}.{action_name}")
+
+    assert not missing, (
+        "ProjectSecretAPIKeyAuthentication routes must include APIScopePermission from get_permissions(): "
+        + ", ".join(sorted(missing))
+    )
+
+
+def test_project_secret_api_key_route_contract_fails_without_api_scope_permission():
+    class MisconfiguredPSAKViewSet(viewsets.GenericViewSet):
+        authentication_classes = [ProjectSecretAPIKeyAuthentication]
+
+        def list(self, request):
+            return Response({})
+
+    router = DefaultRouterPlusPlus()
+    router.register(r"misconfigured-psak", MisconfiguredPSAKViewSet, "misconfigured_psak")
+
+    with pytest.raises(AssertionError, match="misconfigured_psak-list:MisconfiguredPSAKViewSet.list"):
+        _assert_project_secret_api_key_routes_include_api_scope_permission(router)
+
+
+def test_project_secret_api_key_route_contract_passes_with_team_and_org_mixin():
+    class ConfiguredPSAKViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
+        authentication_classes = [ProjectSecretAPIKeyAuthentication]
+        scope_object = "endpoint"
+
+        def list(self, request):
+            return Response({})
+
+    router = DefaultRouterPlusPlus()
+    router.register(r"configured-psak", ConfiguredPSAKViewSet, "configured_psak")
+
+    _assert_project_secret_api_key_routes_include_api_scope_permission(router)
+
+
+def test_router_registry_add_rejects_products_caller():
+    registry = RouterRegistry()
+    item = DefaultRouterPlusPlus().register(r"things", FooViewSet, "things")
+    # Give the calling frame a products.* __name__ so the guard sees a product caller.
+    namespace = {"registry": registry, "item": item, "__name__": "products.fake.backend.routes"}
+    source = "def _caller():\n    registry.add('things', item)\n_caller()"
+    with pytest.raises(RuntimeError, match="core-owned"):
+        exec(compile(source, "products/fake/backend/routes.py", "exec"), namespace)

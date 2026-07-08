@@ -35,6 +35,12 @@ export const batchExportsCreateBodyDestinationOneTwoConfigPrefixDefault = ``
 export const batchExportsCreateBodyDestinationOneTwoConfigFileFormatDefault = `JSONLines`
 export const batchExportsCreateBodyDestinationOneThreeConfigTableIdDefault = `events`
 export const batchExportsCreateBodyDestinationOneThreeConfigUseJsonTypeDefault = false
+export const batchExportsCreateBodyDestinationOneFourConfigSchemaDefault = `public`
+export const batchExportsCreateBodyDestinationOneFourConfigTableNameDefault = `events`
+export const batchExportsCreateBodyDestinationOneFourConfigHasSelfSignedCertDefault = false
+export const batchExportsCreateBodyDestinationOneFiveConfigFileFormatDefault = `JSONLines`
+export const batchExportsCreateBodyDestinationOneSixConfigFileFormatDefault = `JSONLines`
+export const batchExportsCreateBodyDestinationOneSixConfigUseVirtualStyleAddressingDefault = false
 export const batchExportsCreateBodyOffsetDayMin = 0
 export const batchExportsCreateBodyOffsetDayMax = 6
 
@@ -114,8 +120,8 @@ export const BatchExportsCreateBody = /* @__PURE__ */ zod
                                         'Optional compression codec applied to exported files. Valid codecs depend on file_format.\n\n* `brotli` - brotli\n* `gzip` - gzip\n* `lz4` - lz4\n* `snappy` - snappy\n* `zstd` - zstd'
                                     ),
                                 file_format: zod
-                                    .enum(['JSONLines', 'Parquet'])
-                                    .describe('* `JSONLines` - JSONLines\n* `Parquet` - Parquet')
+                                    .enum(['Parquet', 'JSONLines'])
+                                    .describe('* `Parquet` - Parquet\n* `JSONLines` - JSONLines')
                                     .default(batchExportsCreateBodyDestinationOneTwoConfigFileFormatDefault)
                                     .describe(
                                         'File format used for exported objects.\n\n* `JSONLines` - JSONLines\n* `Parquet` - Parquet'
@@ -159,6 +165,145 @@ export const BatchExportsCreateBody = /* @__PURE__ */ zod
                             ),
                     })
                     .describe('Request shape for creating or updating a BigQuery batch-export destination.'),
+                zod
+                    .object({
+                        type: zod.enum(['Postgres']),
+                        integration_id: zod
+                            .number()
+                            .describe(
+                                'ID of a postgresql-kind Integration providing connection credentials. Required when creating a batch export. Use the integrations-list MCP tool to find one.'
+                            ),
+                        config: zod
+                            .object({
+                                database: zod.string().describe('PostgreSQL database name to connect to.'),
+                                schema: zod
+                                    .string()
+                                    .default(batchExportsCreateBodyDestinationOneFourConfigSchemaDefault)
+                                    .describe('PostgreSQL schema name containing the destination table.'),
+                                table_name: zod
+                                    .string()
+                                    .default(batchExportsCreateBodyDestinationOneFourConfigTableNameDefault)
+                                    .describe('PostgreSQL table name to write exported rows into.'),
+                                has_self_signed_cert: zod
+                                    .boolean()
+                                    .default(batchExportsCreateBodyDestinationOneFourConfigHasSelfSignedCertDefault)
+                                    .describe(
+                                        'Legacy SSL option for direct credential configuration. Ignored when using a PostgreSQL integration.'
+                                    ),
+                            })
+                            .describe(
+                                'Typed configuration for a PostgreSQL batch-export destination.\n\nConnection credentials may live in a linked Integration (when one is provided) or\ninline in this config (legacy). Mirrors the non-credential fields of\n`PostgresBatchExportInputs` in `products/batch_exports/backend/service.py`.'
+                            ),
+                    })
+                    .describe('Request shape for creating or updating a PostgreSQL batch-export destination.'),
+                zod
+                    .object({
+                        type: zod.enum(['AwsS3']),
+                        integration_id: zod
+                            .number()
+                            .optional()
+                            .describe(
+                                'ID of an aws-s3-kind Integration providing AWS credentials. Preferred over inline credentials. Use the integrations-list MCP tool to find one.'
+                            ),
+                        config: zod
+                            .object({
+                                bucket_name: zod.string().describe('Name of the destination bucket.'),
+                                region: zod.string().describe("Region the bucket is in (e.g. 'us-east-1')."),
+                                prefix: zod.string().describe('Object key prefix applied to every exported file.'),
+                                compression: zod
+                                    .union([
+                                        zod
+                                            .enum(['brotli', 'gzip', 'lz4', 'snappy', 'zstd'])
+                                            .describe(
+                                                '* `brotli` - brotli\n* `gzip` - gzip\n* `lz4` - lz4\n* `snappy` - snappy\n* `zstd` - zstd'
+                                            ),
+                                        zod.null(),
+                                    ])
+                                    .optional()
+                                    .describe(
+                                        'Optional compression codec applied to exported files. Valid codecs depend on file_format.\n\n* `brotli` - brotli\n* `gzip` - gzip\n* `lz4` - lz4\n* `snappy` - snappy\n* `zstd` - zstd'
+                                    ),
+                                file_format: zod
+                                    .enum(['Parquet', 'JSONLines'])
+                                    .describe('* `Parquet` - Parquet\n* `JSONLines` - JSONLines')
+                                    .default(batchExportsCreateBodyDestinationOneFiveConfigFileFormatDefault)
+                                    .describe(
+                                        'File format used for exported objects.\n\n* `Parquet` - Parquet\n* `JSONLines` - JSONLines'
+                                    ),
+                                max_file_size_mb: zod
+                                    .number()
+                                    .nullish()
+                                    .describe(
+                                        'If set, rolls to a new file once the current file exceeds this size in MB.'
+                                    ),
+                                encryption: zod
+                                    .string()
+                                    .nullish()
+                                    .describe(
+                                        "Optional S3 server-side encryption algorithm (e.g. 'AES256' or 'aws:kms')."
+                                    ),
+                                kms_key_id: zod
+                                    .string()
+                                    .nullish()
+                                    .describe("KMS key ID to use when encryption is 'aws:kms'."),
+                            })
+                            .describe(
+                                'Typed configuration for an AWS S3 batch-export destination.\n\nAWS credentials live in the linked aws-s3 Integration. Mirrors the non-credential fields of\n`AwsS3BatchExportInputs` in `products/batch_exports/backend/service.py`.'
+                            ),
+                    })
+                    .describe('Request shape for creating or updating an AWS S3 batch-export destination.'),
+                zod
+                    .object({
+                        type: zod.enum(['S3Compatible']),
+                        integration_id: zod
+                            .number()
+                            .optional()
+                            .describe(
+                                'ID of an s3-compatible-kind Integration providing credentials and the provider endpoint URL. Preferred over inline credentials. Use the integrations-list MCP tool to find one.'
+                            ),
+                        config: zod
+                            .object({
+                                bucket_name: zod.string().describe('Name of the destination bucket.'),
+                                region: zod.string().describe("Region the bucket is in (e.g. 'us-east-1')."),
+                                prefix: zod.string().describe('Object key prefix applied to every exported file.'),
+                                compression: zod
+                                    .union([
+                                        zod
+                                            .enum(['brotli', 'gzip', 'lz4', 'snappy', 'zstd'])
+                                            .describe(
+                                                '* `brotli` - brotli\n* `gzip` - gzip\n* `lz4` - lz4\n* `snappy` - snappy\n* `zstd` - zstd'
+                                            ),
+                                        zod.null(),
+                                    ])
+                                    .optional()
+                                    .describe(
+                                        'Optional compression codec applied to exported files. Valid codecs depend on file_format.\n\n* `brotli` - brotli\n* `gzip` - gzip\n* `lz4` - lz4\n* `snappy` - snappy\n* `zstd` - zstd'
+                                    ),
+                                file_format: zod
+                                    .enum(['Parquet', 'JSONLines'])
+                                    .describe('* `Parquet` - Parquet\n* `JSONLines` - JSONLines')
+                                    .default(batchExportsCreateBodyDestinationOneSixConfigFileFormatDefault)
+                                    .describe(
+                                        'File format used for exported objects.\n\n* `Parquet` - Parquet\n* `JSONLines` - JSONLines'
+                                    ),
+                                max_file_size_mb: zod
+                                    .number()
+                                    .nullish()
+                                    .describe(
+                                        'If set, rolls to a new file once the current file exceeds this size in MB.'
+                                    ),
+                                use_virtual_style_addressing: zod
+                                    .boolean()
+                                    .default(
+                                        batchExportsCreateBodyDestinationOneSixConfigUseVirtualStyleAddressingDefault
+                                    )
+                                    .describe('Use virtual-hosted-style addressing rather than path-style.'),
+                            })
+                            .describe(
+                                'Typed configuration for an S3-compatible batch-export destination (Cloudflare R2,\nDigitalOcean Spaces, etc.).\n\nCredentials and the provider `endpoint_url` live in the linked s3-compatible Integration.\nMirrors the non-credential fields of `S3CompatibleBatchExportInputs` in\n`products/batch_exports/backend/service.py`.'
+                            ),
+                    })
+                    .describe('Request shape for creating or updating an S3-compatible batch-export destination.'),
             ])
             .describe('Destination configuration. Required integration_id is enforced per destination type.'),
         interval: zod
@@ -217,6 +362,12 @@ export const batchExportsPartialUpdateBodyDestinationOneTwoConfigPrefixDefault =
 export const batchExportsPartialUpdateBodyDestinationOneTwoConfigFileFormatDefault = `JSONLines`
 export const batchExportsPartialUpdateBodyDestinationOneThreeConfigTableIdDefault = `events`
 export const batchExportsPartialUpdateBodyDestinationOneThreeConfigUseJsonTypeDefault = false
+export const batchExportsPartialUpdateBodyDestinationOneFourConfigSchemaDefault = `public`
+export const batchExportsPartialUpdateBodyDestinationOneFourConfigTableNameDefault = `events`
+export const batchExportsPartialUpdateBodyDestinationOneFourConfigHasSelfSignedCertDefault = false
+export const batchExportsPartialUpdateBodyDestinationOneFiveConfigFileFormatDefault = `JSONLines`
+export const batchExportsPartialUpdateBodyDestinationOneSixConfigFileFormatDefault = `JSONLines`
+export const batchExportsPartialUpdateBodyDestinationOneSixConfigUseVirtualStyleAddressingDefault = false
 export const batchExportsPartialUpdateBodyOffsetDayMin = 0
 export const batchExportsPartialUpdateBodyOffsetDayMax = 6
 
@@ -296,8 +447,8 @@ export const BatchExportsPartialUpdateBody = /* @__PURE__ */ zod
                                         'Optional compression codec applied to exported files. Valid codecs depend on file_format.\n\n* `brotli` - brotli\n* `gzip` - gzip\n* `lz4` - lz4\n* `snappy` - snappy\n* `zstd` - zstd'
                                     ),
                                 file_format: zod
-                                    .enum(['JSONLines', 'Parquet'])
-                                    .describe('* `JSONLines` - JSONLines\n* `Parquet` - Parquet')
+                                    .enum(['Parquet', 'JSONLines'])
+                                    .describe('* `Parquet` - Parquet\n* `JSONLines` - JSONLines')
                                     .default(batchExportsPartialUpdateBodyDestinationOneTwoConfigFileFormatDefault)
                                     .describe(
                                         'File format used for exported objects.\n\n* `JSONLines` - JSONLines\n* `Parquet` - Parquet'
@@ -341,6 +492,147 @@ export const BatchExportsPartialUpdateBody = /* @__PURE__ */ zod
                             ),
                     })
                     .describe('Request shape for creating or updating a BigQuery batch-export destination.'),
+                zod
+                    .object({
+                        type: zod.enum(['Postgres']),
+                        integration_id: zod
+                            .number()
+                            .describe(
+                                'ID of a postgresql-kind Integration providing connection credentials. Required when creating a batch export. Use the integrations-list MCP tool to find one.'
+                            ),
+                        config: zod
+                            .object({
+                                database: zod.string().describe('PostgreSQL database name to connect to.'),
+                                schema: zod
+                                    .string()
+                                    .default(batchExportsPartialUpdateBodyDestinationOneFourConfigSchemaDefault)
+                                    .describe('PostgreSQL schema name containing the destination table.'),
+                                table_name: zod
+                                    .string()
+                                    .default(batchExportsPartialUpdateBodyDestinationOneFourConfigTableNameDefault)
+                                    .describe('PostgreSQL table name to write exported rows into.'),
+                                has_self_signed_cert: zod
+                                    .boolean()
+                                    .default(
+                                        batchExportsPartialUpdateBodyDestinationOneFourConfigHasSelfSignedCertDefault
+                                    )
+                                    .describe(
+                                        'Legacy SSL option for direct credential configuration. Ignored when using a PostgreSQL integration.'
+                                    ),
+                            })
+                            .describe(
+                                'Typed configuration for a PostgreSQL batch-export destination.\n\nConnection credentials may live in a linked Integration (when one is provided) or\ninline in this config (legacy). Mirrors the non-credential fields of\n`PostgresBatchExportInputs` in `products/batch_exports/backend/service.py`.'
+                            ),
+                    })
+                    .describe('Request shape for creating or updating a PostgreSQL batch-export destination.'),
+                zod
+                    .object({
+                        type: zod.enum(['AwsS3']),
+                        integration_id: zod
+                            .number()
+                            .optional()
+                            .describe(
+                                'ID of an aws-s3-kind Integration providing AWS credentials. Preferred over inline credentials. Use the integrations-list MCP tool to find one.'
+                            ),
+                        config: zod
+                            .object({
+                                bucket_name: zod.string().describe('Name of the destination bucket.'),
+                                region: zod.string().describe("Region the bucket is in (e.g. 'us-east-1')."),
+                                prefix: zod.string().describe('Object key prefix applied to every exported file.'),
+                                compression: zod
+                                    .union([
+                                        zod
+                                            .enum(['brotli', 'gzip', 'lz4', 'snappy', 'zstd'])
+                                            .describe(
+                                                '* `brotli` - brotli\n* `gzip` - gzip\n* `lz4` - lz4\n* `snappy` - snappy\n* `zstd` - zstd'
+                                            ),
+                                        zod.null(),
+                                    ])
+                                    .optional()
+                                    .describe(
+                                        'Optional compression codec applied to exported files. Valid codecs depend on file_format.\n\n* `brotli` - brotli\n* `gzip` - gzip\n* `lz4` - lz4\n* `snappy` - snappy\n* `zstd` - zstd'
+                                    ),
+                                file_format: zod
+                                    .enum(['Parquet', 'JSONLines'])
+                                    .describe('* `Parquet` - Parquet\n* `JSONLines` - JSONLines')
+                                    .default(batchExportsPartialUpdateBodyDestinationOneFiveConfigFileFormatDefault)
+                                    .describe(
+                                        'File format used for exported objects.\n\n* `Parquet` - Parquet\n* `JSONLines` - JSONLines'
+                                    ),
+                                max_file_size_mb: zod
+                                    .number()
+                                    .nullish()
+                                    .describe(
+                                        'If set, rolls to a new file once the current file exceeds this size in MB.'
+                                    ),
+                                encryption: zod
+                                    .string()
+                                    .nullish()
+                                    .describe(
+                                        "Optional S3 server-side encryption algorithm (e.g. 'AES256' or 'aws:kms')."
+                                    ),
+                                kms_key_id: zod
+                                    .string()
+                                    .nullish()
+                                    .describe("KMS key ID to use when encryption is 'aws:kms'."),
+                            })
+                            .describe(
+                                'Typed configuration for an AWS S3 batch-export destination.\n\nAWS credentials live in the linked aws-s3 Integration. Mirrors the non-credential fields of\n`AwsS3BatchExportInputs` in `products/batch_exports/backend/service.py`.'
+                            ),
+                    })
+                    .describe('Request shape for creating or updating an AWS S3 batch-export destination.'),
+                zod
+                    .object({
+                        type: zod.enum(['S3Compatible']),
+                        integration_id: zod
+                            .number()
+                            .optional()
+                            .describe(
+                                'ID of an s3-compatible-kind Integration providing credentials and the provider endpoint URL. Preferred over inline credentials. Use the integrations-list MCP tool to find one.'
+                            ),
+                        config: zod
+                            .object({
+                                bucket_name: zod.string().describe('Name of the destination bucket.'),
+                                region: zod.string().describe("Region the bucket is in (e.g. 'us-east-1')."),
+                                prefix: zod.string().describe('Object key prefix applied to every exported file.'),
+                                compression: zod
+                                    .union([
+                                        zod
+                                            .enum(['brotli', 'gzip', 'lz4', 'snappy', 'zstd'])
+                                            .describe(
+                                                '* `brotli` - brotli\n* `gzip` - gzip\n* `lz4` - lz4\n* `snappy` - snappy\n* `zstd` - zstd'
+                                            ),
+                                        zod.null(),
+                                    ])
+                                    .optional()
+                                    .describe(
+                                        'Optional compression codec applied to exported files. Valid codecs depend on file_format.\n\n* `brotli` - brotli\n* `gzip` - gzip\n* `lz4` - lz4\n* `snappy` - snappy\n* `zstd` - zstd'
+                                    ),
+                                file_format: zod
+                                    .enum(['Parquet', 'JSONLines'])
+                                    .describe('* `Parquet` - Parquet\n* `JSONLines` - JSONLines')
+                                    .default(batchExportsPartialUpdateBodyDestinationOneSixConfigFileFormatDefault)
+                                    .describe(
+                                        'File format used for exported objects.\n\n* `Parquet` - Parquet\n* `JSONLines` - JSONLines'
+                                    ),
+                                max_file_size_mb: zod
+                                    .number()
+                                    .nullish()
+                                    .describe(
+                                        'If set, rolls to a new file once the current file exceeds this size in MB.'
+                                    ),
+                                use_virtual_style_addressing: zod
+                                    .boolean()
+                                    .default(
+                                        batchExportsPartialUpdateBodyDestinationOneSixConfigUseVirtualStyleAddressingDefault
+                                    )
+                                    .describe('Use virtual-hosted-style addressing rather than path-style.'),
+                            })
+                            .describe(
+                                'Typed configuration for an S3-compatible batch-export destination (Cloudflare R2,\nDigitalOcean Spaces, etc.).\n\nCredentials and the provider `endpoint_url` live in the linked s3-compatible Integration.\nMirrors the non-credential fields of `S3CompatibleBatchExportInputs` in\n`products/batch_exports/backend/service.py`.'
+                            ),
+                    })
+                    .describe('Request shape for creating or updating an S3-compatible batch-export destination.'),
             ])
             .optional()
             .describe('Destination configuration. Required integration_id is enforced per destination type.'),
@@ -412,8 +704,8 @@ export const FileDownloadBatchExportsCreateBody = /* @__PURE__ */ zod.union([
             file: zod
                 .object({
                     format: zod
-                        .enum(['JSONLines', 'Parquet'])
-                        .describe('* `JSONLines` - JSONLines\n* `Parquet` - Parquet')
+                        .enum(['Parquet', 'JSONLines'])
+                        .describe('* `Parquet` - Parquet\n* `JSONLines` - JSONLines')
                         .default(fileDownloadBatchExportsCreateBodyOneFileFormatDefault)
                         .describe('File format\n\n* `Parquet` - Parquet\n* `JSONLines` - JSONLines'),
                     compression: zod
@@ -448,8 +740,8 @@ export const FileDownloadBatchExportsCreateBody = /* @__PURE__ */ zod.union([
             file: zod
                 .object({
                     format: zod
-                        .enum(['JSONLines', 'Parquet'])
-                        .describe('* `JSONLines` - JSONLines\n* `Parquet` - Parquet')
+                        .enum(['Parquet', 'JSONLines'])
+                        .describe('* `Parquet` - Parquet\n* `JSONLines` - JSONLines')
                         .default(fileDownloadBatchExportsCreateBodyTwoFileFormatDefault)
                         .describe('File format\n\n* `Parquet` - Parquet\n* `JSONLines` - JSONLines'),
                     compression: zod
@@ -482,8 +774,8 @@ export const FileDownloadBatchExportsCreateBody = /* @__PURE__ */ zod.union([
             file: zod
                 .object({
                     format: zod
-                        .enum(['JSONLines', 'Parquet'])
-                        .describe('* `JSONLines` - JSONLines\n* `Parquet` - Parquet')
+                        .enum(['Parquet', 'JSONLines'])
+                        .describe('* `Parquet` - Parquet\n* `JSONLines` - JSONLines')
                         .default(fileDownloadBatchExportsCreateBodyThreeFileFormatDefault)
                         .describe('File format\n\n* `Parquet` - Parquet\n* `JSONLines` - JSONLines'),
                     compression: zod
@@ -515,10 +807,10 @@ export const FileDownloadBatchExportsCreateBody = /* @__PURE__ */ zod.union([
 
 /**
  * Get a batch export on demand run.
-
-If the underlying batch export run has completed, we return keys to the
-generated file downloads so that users may download them by making a request
-to /download.
+ *
+ * If the underlying batch export run has completed, we return keys to the
+ * generated file downloads so that users may download them by making a request
+ * to /download.
  */
 export const FileDownloadBatchExportsRetrieveParams = /* @__PURE__ */ zod.object({
     id: zod.string().describe('A UUID string identifying this batch export run.'),
@@ -549,8 +841,8 @@ export const FileDownloadBatchExportsCancelCreateBody = /* @__PURE__ */ zod
         file: zod
             .object({
                 format: zod
-                    .enum(['JSONLines', 'Parquet'])
-                    .describe('* `JSONLines` - JSONLines\n* `Parquet` - Parquet')
+                    .enum(['Parquet', 'JSONLines'])
+                    .describe('* `Parquet` - Parquet\n* `JSONLines` - JSONLines')
                     .default(fileDownloadBatchExportsCancelCreateBodyFileFormatDefault)
                     .describe('File format\n\n* `Parquet` - Parquet\n* `JSONLines` - JSONLines'),
                 compression: zod

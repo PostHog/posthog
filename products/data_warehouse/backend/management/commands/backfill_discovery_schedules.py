@@ -6,8 +6,9 @@ Temporal schedule (``discover-schemas-{source_id}``) created at source-creation 
 this command ensures the schedule exists for sources that were created before that
 wiring landed.
 
-Idempotent: safe to re-run. ``sync_discover_schemas_schedule`` upserts the schedule
-(creates if missing, updates otherwise).
+Idempotent: safe to re-run. ``bulk_sync_discover_schemas_schedules`` upserts each
+schedule (creates if missing, updates otherwise) over a single shared Temporal
+connection, running the per-source upserts concurrently.
 
 Usage:
     # Dry-run (default) — counts sources, creates nothing
@@ -31,11 +32,10 @@ from django.core.management.base import BaseCommand
 
 import structlog
 
-from posthog.temporal.data_imports.sources import SourceRegistry
-
-from products.data_warehouse.backend.data_load.service import sync_discover_schemas_schedule
-from products.data_warehouse.backend.types import ExternalDataSourceType
-from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
+from products.data_warehouse.backend.logic.data_load.service import bulk_sync_discover_schemas_schedules
+from products.warehouse_sources.backend.facade.models import ExternalDataSource
+from products.warehouse_sources.backend.facade.source_management import SourceRegistry
+from products.warehouse_sources.backend.facade.types import ExternalDataSourceType
 
 logger = structlog.get_logger(__name__)
 
@@ -77,12 +77,8 @@ class Command(BaseCommand):
         if team_id_filter is not None:
             queryset = queryset.filter(team_id=team_id_filter)
 
-        total = queryset.count()
-        self.stdout.write(f"Found {total} sources to process (live_run={live_run}).")
-
-        processed = 0
+        eligible: list[ExternalDataSource] = []
         skipped_unregistered = 0
-        failed = 0
 
         for source in queryset.iterator(chunk_size=200):
             try:
@@ -95,23 +91,23 @@ class Command(BaseCommand):
                 skipped_unregistered += 1
                 continue
 
-            if not live_run:
-                processed += 1
-                continue
+            eligible.append(source)
 
-            try:
-                # `create=False` upserts: updates if the schedule exists, creates if not.
-                # This makes the command idempotent under partial failures and re-runs.
-                sync_discover_schemas_schedule(source, create=False)
-                processed += 1
-            except Exception as e:
-                logger.exception(
-                    "Failed to backfill discovery schedule",
-                    source_id=str(source.id),
-                    team_id=source.team_id,
-                    source_type=source.source_type,
-                    exc_info=e,
-                )
-                failed += 1
+        self.stdout.write(f"Found {len(eligible)} sources to process (live_run={live_run}).")
 
-        self.stdout.write(f"Done. processed={processed} skipped_unregistered={skipped_unregistered} failed={failed}")
+        if not live_run:
+            self.stdout.write(f"Done. processed={len(eligible)} skipped_unregistered={skipped_unregistered} failed=0")
+            return
+
+        # `bulk_sync_discover_schemas_schedules` upserts over a single shared Temporal
+        # connection and runs the per-source upserts concurrently — far faster than
+        # reconnecting per source. It returns failures instead of raising, so a single bad
+        # source doesn't abort the backfill.
+        failures = bulk_sync_discover_schemas_schedules(eligible)
+        for source_id, exc in failures:
+            logger.exception("Failed to backfill discovery schedule", source_id=source_id, exc_info=exc)
+
+        processed = len(eligible) - len(failures)
+        self.stdout.write(
+            f"Done. processed={processed} skipped_unregistered={skipped_unregistered} failed={len(failures)}"
+        )

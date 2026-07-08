@@ -1,0 +1,53 @@
+# Guards the local dev sandbox profile (bin/dev-sandbox*) against regressions.
+# Path-filtered, so it only runs when the sandbox files themselves change.
+name: Dev sandbox self-test
+
+on:
+    push:
+        branches:
+            - master
+        paths:
+            - bin/dev-sandbox
+            - bin/dev-sandbox.sb
+            - bin/dev-sandbox-selftest
+            - bin/dev-sandbox-shims
+            - bin/dev-sandbox-shims-selftest
+            - .github/workflows/dev-sandbox-selftest.yml
+    pull_request:
+        paths:
+            - bin/dev-sandbox
+            - bin/dev-sandbox.sb
+            - bin/dev-sandbox-selftest
+            - bin/dev-sandbox-shims
+            - bin/dev-sandbox-shims-selftest
+            - .github/workflows/dev-sandbox-selftest.yml
+
+concurrency:
+    group: ${{ github.workflow }}-${{ github.head_ref || github.ref }}
+    cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+    selftest:
+        name: Verify dev sandbox profile
+        # sandbox-exec (Seatbelt) is macOS-only. Depot macOS is a fixed FIFO pool
+        # (Startup+ plan); if it's unavailable, swap runs-on for `macos-14`.
+        runs-on: depot-macos-latest
+        timeout-minutes: 15
+        permissions:
+            contents: read
+        steps:
+            - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+            - name: Run dev sandbox self-test
+              run: bin/dev-sandbox-selftest
+
+    shims-selftest:
+        name: Verify dev sandbox shims routing
+        # Pure string-logic test — no sandbox-exec needed, so it runs on Linux.
+        runs-on: ubuntu-latest
+        timeout-minutes: 5
+        permissions:
+            contents: read
+        steps:
+            - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+            - name: Run dev sandbox shims self-test
+              run: bin/dev-sandbox-shims-selftest

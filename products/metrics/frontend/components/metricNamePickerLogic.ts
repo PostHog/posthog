@@ -1,4 +1,4 @@
-import { actions, afterMount, kea, key, listeners, path, props, reducers } from 'kea'
+import { actions, afterMount, kea, listeners, path, reducers } from 'kea'
 import { loaders } from 'kea-loaders'
 
 import api from 'lib/api'
@@ -10,14 +10,8 @@ export interface MetricNameItem {
     metric_type: string
 }
 
-export interface MetricNamePickerLogicProps {
-    tabId: string
-}
-
 export const metricNamePickerLogic = kea<metricNamePickerLogicType>([
     path(['products', 'metrics', 'frontend', 'components', 'metricNamePickerLogic']),
-    props({} as MetricNamePickerLogicProps),
-    key((p) => p.tabId),
     actions({
         setSearch: (search: string) => ({ search }),
     }),

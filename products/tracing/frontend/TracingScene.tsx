@@ -1,67 +1,79 @@
-import { useActions, useValues } from 'kea'
+import { BindLogic, useActions, useValues } from 'kea'
+import { router } from 'kea-router'
 import posthog from 'posthog-js'
 
 import { LemonBanner, LemonButton, LemonModal, Link } from '@posthog/lemon-ui'
 
+import { FEATURE_FLAGS } from 'lib/constants'
 import { IconFeedback } from 'lib/lemon-ui/icons'
-import { SpinnerOverlay } from 'lib/lemon-ui/Spinner/Spinner'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { useAttachedLogic } from 'lib/logic/scenes/useAttachedLogic'
 import { SceneExport } from 'scenes/sceneTypes'
 import { teamLogic } from 'scenes/teamLogic'
+import { urls } from 'scenes/urls'
 
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneDivider } from '~/layout/scenes/components/SceneDivider'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 import { ProductIntentContext, ProductKey } from '~/queries/schema/schema-general'
 
+import { FacetRail } from './components/FacetRail/FacetRail'
 import { TracingSetupPrompt } from './components/SetupPrompt/SetupPrompt'
+import { TraceDrawer } from './components/TraceDrawer/TraceDrawer'
 import { VirtualizedSpanList } from './components/VirtualizedSpanList/VirtualizedSpanList'
+import { OperationsTable } from './OperationsTable'
 import { TraceCompareFlame } from './TraceCompareFlame'
 import { TraceCompareTable } from './TraceCompareTable'
-import { TraceFlameChart } from './TraceFlameChart'
+import { tracingConfigLogic } from './tracingConfigLogic'
 import { tracingDataLogic } from './tracingDataLogic'
+import { TracingDisplayBar } from './TracingDisplayBar'
 import { TracingFilterBar } from './TracingFilterBar'
-import { tracingFiltersLogic } from './tracingFiltersLogic'
-import { tracingSceneLogic, TracingSceneLogicProps } from './tracingSceneLogic'
+import { TRACING_SCENE_VIEWER_ID, tracingFiltersLogic } from './tracingFiltersLogic'
+import { tracingSceneLogic } from './tracingSceneLogic'
 import { TracingSparkline } from './TracingSparkline'
-import { TracingTabIdProvider, useTracingTabId } from './TracingTabContext'
 import type { Span } from './types'
 
 const TRACING_FEEDBACK_SURVEY_ID = '019e6a26-4943-0000-24a0-dc46310f6b7c'
 const TRACING_DOCS_URL = 'https://posthog.com/docs/tracing'
 
-export const scene: SceneExport<TracingSceneLogicProps> = {
+export const scene: SceneExport = {
     component: TracingScene,
     logic: tracingSceneLogic,
     productKey: ProductKey.TRACING,
 }
 
-export default function TracingScene(props: TracingSceneLogicProps = {}): JSX.Element {
-    const sceneLogic = tracingSceneLogic(props)
-    // Keep filters + data logic alive across tab switches by attaching them to the scene
-    // root. The root itself is kept mounted by `tabAwareScene()` even when the tab is inactive.
-    useAttachedLogic(tracingFiltersLogic({ tabId: props.tabId }), sceneLogic)
-    useAttachedLogic(tracingDataLogic({ tabId: props.tabId }), sceneLogic)
+export default function TracingScene(): JSX.Element {
+    const sceneLogic = tracingSceneLogic()
+    // Keep filters + data logic alive across React unmounts by attaching them to the scene root.
+    useAttachedLogic(tracingFiltersLogic({ id: TRACING_SCENE_VIEWER_ID }), sceneLogic)
+    useAttachedLogic(tracingDataLogic({ id: TRACING_SCENE_VIEWER_ID }), sceneLogic)
 
+    // Bind the scene's keyed instances so nested components (filter bar, sparkline, ...)
+    // resolve them from context — the same components work inside an embedded viewer
+    // bound to a different id.
     return (
-        <TracingTabIdProvider value={props.tabId}>
-            <TracingSceneContents />
-        </TracingTabIdProvider>
+        <BindLogic logic={tracingFiltersLogic} props={{ id: TRACING_SCENE_VIEWER_ID }}>
+            <BindLogic logic={tracingDataLogic} props={{ id: TRACING_SCENE_VIEWER_ID }}>
+                <TracingSceneContents />
+            </BindLogic>
+        </BindLogic>
     )
 }
 
 function TracingSceneContents(): JSX.Element {
-    const tabId = useTracingTabId()
     const {
-        rootSpans,
+        listRows,
         spansLoading,
-        isTraceModalOpen,
+        isTraceOpen,
         selectedTraceId,
+        selectedSpanId,
+        selectedTraceTs,
         sparklineData,
         sparklineLoading,
-        totalSpansMatchingFilters,
-        modalSpans,
+        openTraceSpans,
         isLoadingFullTrace,
+        canLoadMoreTraceSpans,
+        traceSpansLoadingMore,
         aggregation,
         aggregationLoading,
         filters,
@@ -72,21 +84,36 @@ function TracingSceneContents(): JSX.Element {
         compareFlameSpanName,
         hasMoreToLoad,
         visibleRowDateRange,
-        expandedSpanIds,
-    } = useValues(tracingSceneLogic({ tabId }))
+        durationHistogramData,
+        durationHistogramLoading,
+        visibleRowDurationRange,
+        isDurationMode,
+        activeTracingTab,
+    } = useValues(tracingSceneLogic())
+    const { featureFlags } = useValues(featureFlagLogic)
     const {
-        openTraceModal,
-        closeTraceModal,
+        openTrace,
+        closeTrace,
+        selectSpan,
         setDateRange,
         setOverlayWindows,
         openCompareFlame,
         closeCompareFlame,
         fetchNextPage,
+        loadMoreTraceSpans,
         setVisibleRowRange,
-        toggleExpandSpan,
-    } = useActions(tracingSceneLogic({ tabId }))
+        setSort,
+    } = useActions(tracingSceneLogic())
     const { addProductIntent } = useActions(teamLogic)
+    const { facetRailCollapsed } = useValues(tracingConfigLogic)
     const compareMode = filters.compareMode
+    const operationsViewEnabled = !!featureFlags[FEATURE_FLAGS.TRACING_OPERATIONS_VIEW]
+    const facetRailEnabled = !!featureFlags[FEATURE_FLAGS.TRACING_FACET_RAIL]
+
+    // Resolved aggregation window (ms) — turns span counts into a request rate.
+    // Use sparklineWindowMs which correctly resolves relative date strings (e.g. '-1h').
+    const { sparklineWindowMs } = useValues(tracingFiltersLogic)
+    const operationsWindowMs = sparklineWindowMs.endMs - sparklineWindowMs.startMs
 
     const onDocsLinkClick = (): void => {
         addProductIntent({
@@ -153,68 +180,89 @@ function TracingSceneContents(): JSX.Element {
                 Tracing is in alpha. Expect bugs, missing features, and breaking changes.
             </LemonBanner>
             <TracingSetupPrompt>
+                <TracingFilterBar />
+                <SceneDivider />
                 <TracingSparkline
                     sparklineData={sparklineData}
-                    sparklineLoading={sparklineLoading}
+                    sparklineLoading={sparklineLoading || (isDurationMode && durationHistogramLoading)}
                     onDateRangeChange={setDateRange}
                     displayTimezone="UTC"
                     compare={compareConfig}
                     visibleRowDateRange={visibleRowDateRange}
+                    durationHistogram={isDurationMode ? durationHistogramData : null}
+                    visibleRowDurationRange={visibleRowDurationRange}
                 />
-                <SceneDivider />
-                <TracingFilterBar />
-                {!sparklineLoading && totalSpansMatchingFilters > 0 && (
-                    <div className="text-xs text-muted px-1">
-                        {totalSpansMatchingFilters.toLocaleString()} spans matching filters
+                <div className="flex flex-row gap-2 flex-1 min-h-0">
+                    {facetRailEnabled && !facetRailCollapsed && <FacetRail />}
+                    <div className="flex flex-col gap-2 flex-1 min-w-0 min-h-0">
+                        <TracingDisplayBar />
+                        {operationsViewEnabled && activeTracingTab === 'operations' ? (
+                            <OperationsTable
+                                rows={aggregation.current}
+                                loading={aggregationLoading}
+                                windowMs={operationsWindowMs}
+                                onRowClick={(row) =>
+                                    router.actions.push(urls.tracingOperation(row.service_name, row.name))
+                                }
+                            />
+                        ) : compareMode ? (
+                            <TraceCompareTable
+                                current={aggregation.current}
+                                previous={aggregation.previous}
+                                loading={aggregationLoading}
+                                onRowClick={(row) => openCompareFlame(row.name, row.service_name)}
+                            />
+                        ) : (
+                            <VirtualizedSpanList
+                                dataSource={listRows}
+                                loading={spansLoading}
+                                hasMoreToLoad={hasMoreToLoad}
+                                onLoadMore={fetchNextPage}
+                                onVisibleRowRangeChange={setVisibleRowRange}
+                                orderBy={filters.orderBy}
+                                orderDirection={filters.orderDirection}
+                                onSort={(column) =>
+                                    // Click an active column to flip direction; a new column starts at DESC.
+                                    setSort(
+                                        column,
+                                        column === filters.orderBy && filters.orderDirection === 'DESC' ? 'ASC' : 'DESC'
+                                    )
+                                }
+                                emptyState={
+                                    <div className="flex flex-col items-center gap-1">
+                                        <span>No spans found</span>
+                                        <Link to={TRACING_DOCS_URL} onClick={onDocsLinkClick} target="_blank">
+                                            Learn how to send traces
+                                        </Link>
+                                    </div>
+                                }
+                                onRowClick={(span: Span) => {
+                                    // Clicking a row leaves the scrollable <main tabIndex="0"> as the active
+                                    // element; react-modal then scrolls it back into view when restoring focus
+                                    // on close. Blur so the restore target is <body>, which doesn't scroll.
+                                    ;(document.activeElement as HTMLElement | null)?.blur?.()
+                                    // Anchor the waterfall on the clicked span — in Spans mode this is often a
+                                    // child span, so without spanId the drawer would open unfocused at the root.
+                                    openTrace(span.trace_id, { spanId: span.span_id, ts: span.timestamp })
+                                }}
+                            />
+                        )}
                     </div>
-                )}
-                {compareMode ? (
-                    <div className="flex flex-col flex-1 min-h-0 overflow-auto">
-                        <TraceCompareTable
-                            current={aggregation.current}
-                            previous={aggregation.previous}
-                            loading={aggregationLoading}
-                            onRowClick={(row) => openCompareFlame(row.name, row.service_name)}
-                        />
-                    </div>
-                ) : (
-                    <VirtualizedSpanList
-                        dataSource={rootSpans}
-                        loading={spansLoading}
-                        hasMoreToLoad={hasMoreToLoad}
-                        onLoadMore={fetchNextPage}
-                        onVisibleRowRangeChange={setVisibleRowRange}
-                        expandedSpanIds={expandedSpanIds}
-                        onToggleExpand={toggleExpandSpan}
-                        emptyState={
-                            <div className="flex flex-col items-center gap-1">
-                                <span>No spans found</span>
-                                <Link to={TRACING_DOCS_URL} onClick={onDocsLinkClick} target="_blank">
-                                    Learn how to send traces
-                                </Link>
-                            </div>
-                        }
-                        onRowClick={(span: Span) => {
-                            // Clicking a row leaves the scrollable <main tabIndex="0"> as the active
-                            // element; react-modal then scrolls it back into view when restoring focus
-                            // on close. Blur so the restore target is <body>, which doesn't scroll.
-                            ;(document.activeElement as HTMLElement | null)?.blur?.()
-                            openTraceModal(span.trace_id)
-                        }}
-                    />
-                )}
-            </TracingSetupPrompt>
-            <LemonModal
-                title={`Trace ${selectedTraceId}`}
-                isOpen={isTraceModalOpen}
-                onClose={closeTraceModal}
-                width="90vw"
-            >
-                <div className="relative min-h-32">
-                    {isLoadingFullTrace && <SpinnerOverlay />}
-                    <TraceFlameChart spans={modalSpans} />
                 </div>
-            </LemonModal>
+            </TracingSetupPrompt>
+            <TraceDrawer
+                isOpen={isTraceOpen}
+                traceId={selectedTraceId}
+                ts={selectedTraceTs}
+                spans={openTraceSpans}
+                loading={isLoadingFullTrace}
+                hasMoreSpans={canLoadMoreTraceSpans}
+                loadingMoreSpans={traceSpansLoadingMore}
+                onLoadMoreSpans={loadMoreTraceSpans}
+                selectedSpanId={selectedSpanId}
+                onSelectSpan={selectSpan}
+                onClose={closeTrace}
+            />
             <LemonModal
                 title={`Call tree diff: ${compareFlameSpanName ?? ''}`}
                 isOpen={compareFlameSpanName !== null}

@@ -1,6 +1,7 @@
+import { isDevEnv } from '~/common/utils/env-utils'
+
 import { CommonConfig } from './common/config'
 import { PluginServerCapabilities, PluginServerMode, stringToPluginServerMode } from './types'
-import { isDevEnv } from './utils/env-utils'
 
 // =============================================================================
 // Capability Groups for Local Development
@@ -23,8 +24,9 @@ export const CAPABILITIES_CDP: PluginServerCapabilities = {
 /** CDP + Workflows - full CDP with HogFlow workflow automation */
 export const CAPABILITIES_CDP_WORKFLOWS: PluginServerCapabilities = {
     ...CAPABILITIES_CDP,
-    cdpBatchHogFlow: true,
+    cdpCyclotronWorkerBatchResolve: true,
     cdpCyclotronWorkerHogFlow: true,
+    cdpCyclotronWorkerEmail: true,
     cdpCyclotronV2Janitor: isDevEnv(),
     cdpHogflowScheduler: isDevEnv(),
     cdpHogflowSubscriptionMatcher: isDevEnv(),
@@ -130,6 +132,14 @@ export function getPluginServerCapabilities(
             return {
                 cdpCyclotronWorkerHogFlowLegacyPg: true,
             }
+        case PluginServerMode.cdp_cyclotron_worker_email:
+            return {
+                cdpCyclotronWorkerEmail: true,
+            }
+        case PluginServerMode.cdp_cyclotron_worker_email_legacy_pg:
+            return {
+                cdpCyclotronWorkerEmailLegacyPg: true,
+            }
         case PluginServerMode.cdp_precalculated_filters:
             return {
                 cdpPrecalculatedFilters: true,
@@ -164,9 +174,9 @@ export function getPluginServerCapabilities(
             return {
                 errorTrackingIngestion: true,
             }
-        case PluginServerMode.cdp_batch_hogflow_requests:
+        case PluginServerMode.cdp_cyclotron_worker_batch_resolve:
             return {
-                cdpBatchHogFlow: true,
+                cdpCyclotronWorkerBatchResolve: true,
             }
         case PluginServerMode.cdp_data_warehouse_events:
             return {
@@ -181,7 +191,6 @@ export function getPluginServerCapabilities(
                 cdpRerunWorker: true,
             }
         case PluginServerMode.ingestion_v2:
-        case PluginServerMode.ingestion_v2_testing:
         case PluginServerMode.ingestion_v2_combined:
             throw new Error(`Mode ${mode} is handled by IngestionGeneralServer, not PluginServer`)
         case PluginServerMode.ingestion_api:
@@ -192,6 +201,9 @@ export function getPluginServerCapabilities(
             }
         case PluginServerMode.recordings_blob_ingestion_v2:
         case PluginServerMode.recordings_blob_ingestion_v2_overflow:
+        case PluginServerMode.recordings_blob_ingestion_v2_ml_mirror:
+        case PluginServerMode.recordings_blob_ingestion_v2_ml_parquet_sink:
+        case PluginServerMode.recordings_blob_ingestion_v2_ml_image_scrub:
         case PluginServerMode.recording_api:
             throw new Error(`Mode ${mode} is handled by IngestionSessionReplayServer, not PluginServer`)
     }

@@ -6,8 +6,11 @@ import { getDashboardWidgetCatalogEntry } from '@posthog/products-dashboards/fro
 import api, { ApiMethodOptions, getJSONOrNull } from 'lib/api'
 import type { Dayjs } from 'lib/dayjs'
 import { currentSessionId } from 'lib/internalMetrics'
-import { objectClean, shouldCancelQuery, toParams } from 'lib/utils'
 import { accessLevelSatisfied } from 'lib/utils/accessControlUtils'
+import { DashboardEventSource } from 'lib/utils/eventUsageLogic'
+import { objectClean } from 'lib/utils/objects'
+import { shouldCancelQuery } from 'lib/utils/requests'
+import { toParams } from 'lib/utils/url'
 
 import { getQueryBasedInsightModel } from '~/queries/nodes/InsightViz/utils'
 import { pollForResults } from '~/queries/query'
@@ -63,6 +66,7 @@ export function dashboardToSaveableTemplate(
                 }
                 if (tile.button_tile) {
                     return {
+                        type: 'BUTTON' as const,
                         button_tile: {
                             url: tile.button_tile.url,
                             text: tile.button_tile.text,
@@ -132,9 +136,9 @@ export function getDashboardWidgetType(
     )
 }
 
-/** Widget tiles are not shown on shared/public/export dashboard views. */
+/** Widget tiles are hidden on export; on public/shared views they render with a login placeholder. */
 export function isWidgetTileVisibleOnPlacement(placement: DashboardPlacement): boolean {
-    return placement !== DashboardPlacement.Public && placement !== DashboardPlacement.Export
+    return placement !== DashboardPlacement.Export
 }
 
 export const BREAKPOINTS: Record<DashboardLayoutSize, number> = {
@@ -436,4 +440,26 @@ export function combineDashboardFilters(...filters: DashboardFilter[]): Dashboar
         })
         return combined
     }, {} as DashboardFilter)
+}
+
+const LAYOUT_EDIT_EVENT_SOURCES = new Set<DashboardEventSource>([
+    DashboardEventSource.SceneCommonButtons,
+    DashboardEventSource.CardEdgeHover,
+    DashboardEventSource.CardDragHandle,
+    DashboardEventSource.DashboardsList,
+])
+
+export function isLayoutEditEventSource(source: DashboardEventSource | null): boolean {
+    return source !== null && LAYOUT_EDIT_EVENT_SOURCES.has(source)
+}
+
+export function shouldSnapshotUrlAtEditModeEntry(source: DashboardEventSource | null): boolean {
+    return (
+        source !== null &&
+        (isLayoutEditEventSource(source) ||
+            source === DashboardEventSource.DashboardFilters ||
+            source === DashboardEventSource.DashboardVariableOverride ||
+            source === DashboardEventSource.DashboardInsightColorsModal ||
+            source === DashboardEventSource.DashboardHeaderOverridesBanner)
+    )
 }

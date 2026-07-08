@@ -3,9 +3,11 @@ from posthog.schema import CohortPropertyFilter, PropertyOperator, RecordingsQue
 from posthog.hogql import ast
 from posthog.hogql.parser import parse_select
 
-from posthog.models import Cohort, Team
+from posthog.models import Team
 from posthog.session_recordings.queries.sub_queries.base_query import SessionRecordingsListingBaseQuery
 from posthog.session_recordings.queries.utils import is_anonymous_cohort_fix_enabled, poe_is_active
+
+from products.cohorts.backend.models.cohort import Cohort
 
 
 class CohortPropertyGroupsSubQuery(SessionRecordingsListingBaseQuery):

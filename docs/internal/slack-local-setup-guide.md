@@ -96,10 +96,14 @@ features:
   bot_user:
     display_name: posthog-slack-dev
     always_online: true
+  app_home:
+    home_tab_enabled: true
+    messages_tab_enabled: false
+    messages_tab_read_only_enabled: false
 oauth_config:
   redirect_urls:
-    # Path is `slack`, not `slack-posthog-code` (PostHog Code piggybacks on it).
     - https://<you>-posthog.ngrok.dev/integrations/slack/callback
+    - https://<you>-posthog.ngrok.dev/complete/slack-link/
   scopes:
     bot:
       - app_mentions:read
@@ -111,11 +115,15 @@ oauth_config:
       - reactions:write
       - users:read
       - users:read.email
+    user:
+      - identity.basic
+      - identity.email
 settings:
   event_subscriptions:
     request_url: https://<you>-posthog.ngrok.dev/slack/event-callback
     bot_events:
       - app_mention
+      - app_home_opened
   interactivity:
     is_enabled: true
     request_url: https://<you>-posthog.ngrok.dev/slack/interactivity-callback
@@ -131,21 +139,28 @@ Django must be up at that moment.
 > `link_shared` is left out on purpose — it needs the `links:read` scope (the manifest won't save
 > otherwise) and the coding agent doesn't use it.
 
+> The `app_home` block + `app_home_opened` bot event power the App Home tab; the
+> sign-in-with-Slack flow needs `user` scopes `identity.basic` + `identity.email` and the second
+> redirect URL (`/complete/slack-link/`). Drop those if you don't want either feature locally —
+> they're behind the `slack-app-home` and `slack-app-oauth` flags.
+
 ## Step 3 — backend credentials and `SITE_URL`
 
-Add the three app credentials to `.env` and restart the `django` + `temporal-django-worker`
-processes so it reloads:
+PostHog Code reuses the regular Slack notifications app, so set the standard
+`SLACK_APP_*` credentials in `.env` and restart the `django` +
+`temporal-django-worker` processes so it reloads. These are dynamic settings
+seeded from the env on boot (`posthog/settings/dynamic_settings.py`):
 
 ```bash
-SLACK_POSTHOG_CODE_CLIENT_ID=<client id>
-SLACK_POSTHOG_CODE_CLIENT_SECRET=<client secret>
-SLACK_POSTHOG_CODE_SIGNING_SECRET=<signing secret>
+SLACK_APP_CLIENT_ID=<client id>
+SLACK_APP_CLIENT_SECRET=<client secret>
+SLACK_APP_SIGNING_SECRET=<signing secret>
 ```
 
 Confirm the backend picked them up:
 
 ```bash
-curl -sS https://<you>-posthog.ngrok.dev/_preflight | jq '.posthog_code_slack_service'
+curl -sS https://<you>-posthog.ngrok.dev/_preflight | jq '.slack_service'
 # => { "available": true, "client_id": "...." }
 ```
 
@@ -167,36 +182,33 @@ Put it in `.env` instead if you want it to survive restarts from a fresh shell.
 
 ## Step 4 — feature flags
 
-Two flags gate the flow: `tasks` (shows the PostHog Code settings page and the Tasks UI) and
-`posthog-code-slack-availability` (enables the Slack connect button and lets the mention webhook
-proceed). Both are active flags in `frontend/src/lib/constants.tsx`, so the normal local sync
-enables both at 100%:
+One flag gates the UI: `tasks` (shows the Tasks scene and gates task creation —
+`products/tasks/backend/access.py`). It's an active flag in
+`frontend/src/lib/constants.tsx`, so the normal local sync enables it at 100%:
 
 ```bash
 python manage.py sync_feature_flags
 ```
 
-If you already sync flags the usual way locally, they're likely on already — nothing to do.
-(`setup_background_agents` also turns on `tasks` as part of the sandbox setup.)
+If you already sync flags the usual way locally, it's likely on already — nothing to do.
+(`setup_background_agents` also turns on `tasks` as part of the sandbox setup.) The
+Slack mention webhook itself is not flag-gated — once the `slack` integration is
+connected, `@PostHog` events reach the agent unconditionally.
 
 ## Step 5 — connect the integrations
 
-**Slack (PostHog Code).** This has its own settings page, separate from the regular Slack
-notifications integration: **Settings → PostHog Code → Slack integration**, i.e.
-`https://<you>-posthog.ngrok.dev/project/<id>/settings/environment-posthog-code`. The page only
-shows when `tasks` is on, and the **Add to Slack** button only enables when
-`posthog-code-slack-availability` is on and the backend creds are present (hard-refresh if you
-just changed either).
-
-Click **Add to Slack** → authorize in your dev workspace → you bounce back to PostHog. This
-creates an `Integration` row of kind `slack-posthog-code` (distinct from the `slack`
-notifications kind). Verify:
+**Slack.** PostHog Code piggybacks on the regular Slack notifications install — there's no
+separate "PostHog Code Slack" install anymore. Go to **Settings → Project → Integrations**,
+find Slack, click **Connect to Slack**, and authorize in your dev workspace. The PostHog Code
+agent reads the same `Integration` row that the notifications product writes. Verify:
 
 ```bash
 python manage.py shell -c "from posthog.models.integration import Integration; \
-print(list(Integration.objects.filter(kind='slack-posthog-code').values('id','team_id','integration_id')))"
+print(list(Integration.objects.filter(kind='slack').values('id','team_id','integration_id')))"
 # => [{'id': ..., 'team_id': 1, 'integration_id': 'T0........'}]
 ```
+
+The `tasks` flag from Step 4 still gates the Tasks UI on top of the connected integration.
 
 **GitHub** (Settings → Integrations): connect a _team_ GitHub with at least one repo (otherwise
 the repo cascade has nothing to pick and creates a no-repo task), and connect your _personal_
@@ -244,9 +256,9 @@ should react 👀 → 🦔 (or ❌ if the sandbox is gone). Expected from the co
 
 The walls we actually hit and fixed:
 
-| Symptom                                                              | Cause / fix                                                                                                                                                               |
-| -------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `curl /_preflight` returns `200` with an empty body, `server: Caddy` | The tunnel reaches Caddy but isn't sending `Host: localhost`, so Caddy doesn't match its site block. Add `host_header: localhost` to the tunnel.                          |
-| OAuth → browser `ERR_SSL_PROTOCOL_ERROR` on `localhost:8010`         | `SITE_URL` is still the localhost default. Point it at your https tunnel and restart django (Step 3).                                                                     |
-| OAuth → "redirect_uri did not match any configured URIs"             | The Slack app's **Redirect URLs** must include `https://<tunnel>/integrations/slack/callback` (note: `slack`, not `slack-posthog-code`) — add it **and click Save URLs**. |
-| Manifest won't save: "link_shared is missing scope links:read"       | Remove `link_shared` from `bot_events` (Step 2).                                                                                                                          |
+| Symptom                                                              | Cause / fix                                                                                                                                      |
+| -------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `curl /_preflight` returns `200` with an empty body, `server: Caddy` | The tunnel reaches Caddy but isn't sending `Host: localhost`, so Caddy doesn't match its site block. Add `host_header: localhost` to the tunnel. |
+| OAuth → browser `ERR_SSL_PROTOCOL_ERROR` on `localhost:8010`         | `SITE_URL` is still the localhost default. Point it at your https tunnel and restart django (Step 3).                                            |
+| OAuth → "redirect_uri did not match any configured URIs"             | The Slack app's **Redirect URLs** must include `https://<tunnel>/integrations/slack/callback` — add it **and click Save URLs**.                  |
+| Manifest won't save: "link_shared is missing scope links:read"       | Remove `link_shared` from `bot_events` (Step 2).                                                                                                 |

@@ -5,6 +5,9 @@
 {% block section %}
 <p>Hey {{ user_name }},</p>
 
+{% if invite_message %}
+<p>{{ invite_message|linebreaksbr }}</p>
+{% else %}
 <p>
     We're researching <strong>{{ topic }}</strong> and your perspective would be really valuable. Got 5–10 minutes for a quick voice conversation?
 </p>
@@ -12,6 +15,7 @@
 <p>
     It's a casual call with an AI interviewer — not a sales call, just research. You can do it whenever's convenient in the next few days.
 </p>
+{% endif %}
 
 <p style="text-align: center; margin: 32px 0;">
     <a href="{{ interview_url }}" target="_blank" style="background: #1d4aff; color: #ffffff; padding: 12px 24px; border-radius: 6px; text-decoration: none; font-weight: 600;">

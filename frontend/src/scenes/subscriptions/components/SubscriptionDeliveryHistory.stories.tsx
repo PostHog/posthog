@@ -4,7 +4,7 @@ import { useMemo, useState } from 'react'
 import type {
     PaginatedSubscriptionDeliveryListApi,
     SubscriptionsDeliveriesListStatus,
-} from '~/generated/core/api.schemas'
+} from '@posthog/products-subscriptions/frontend/generated/api.schemas'
 
 import { SubscriptionDeliveryHistory } from './SubscriptionDeliveryHistory'
 import { MOCK_SUBSCRIPTION_DELIVERIES } from './subscriptionStoryFixtures'
@@ -64,6 +64,19 @@ export const WithExpandedSummary: Story = {
         loadDeliveriesPage: noopLoadPage,
         onTestDelivery: noopTestDelivery,
         __storyOnlyInitiallyExpandedDeliveryIds: EXPANDED_SUMMARY_STORY_IDS,
+    },
+}
+
+// AI-prompt delivery expanded: the rendered report markdown plus the per-query accordion (the failed query open).
+const EXPANDED_AI_REPORT_STORY_IDS: ReadonlySet<string> = new Set(['del-ai-report'])
+
+export const WithExpandedAiReport: Story = {
+    args: {
+        deliveriesPage: pageWithRows,
+        deliveriesPageLoading: false,
+        loadDeliveriesPage: noopLoadPage,
+        onTestDelivery: noopTestDelivery,
+        __storyOnlyInitiallyExpandedDeliveryIds: EXPANDED_AI_REPORT_STORY_IDS,
     },
 }
 

@@ -3,14 +3,14 @@ import { forms } from 'kea-forms'
 import { subscriptions } from 'kea-subscriptions'
 
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
-import { urls } from 'scenes/urls'
 
 import { actionsLogic } from '~/toolbar/actions/actionsLogic'
 import { toolbarLogic } from '~/toolbar/bar/toolbarLogic'
-import { toolbarConfigLogic, toolbarFetch } from '~/toolbar/toolbarConfigLogic'
-import { toolbarLogger } from '~/toolbar/toolbarLogger'
-import { captureToolbarException, toolbarPosthogJS } from '~/toolbar/toolbarPosthogJS'
+import { toolbarApi } from '~/toolbar/toolbarApi'
+import { toolbarConfigLogic } from '~/toolbar/toolbarConfigLogic'
+import { toolbarPosthogJS } from '~/toolbar/toolbarPosthogJS'
 import { ActionDraftType, ActionForm } from '~/toolbar/types'
+import { urls } from '~/toolbar/urls'
 import {
     actionStepToActionStepFormItem,
     elementToActionStep,
@@ -20,7 +20,7 @@ import {
 import { AccessControlLevel, ActionType, ElementType } from '~/types'
 
 import type { actionsTabLogicType } from './actionsTabLogicType'
-import { ActionStepPropertyKey } from './ActionStep'
+import type { ActionStepPropertyKey } from './ActionStep'
 
 function newAction(
     element: HTMLElement | null,
@@ -224,46 +224,38 @@ export const actionsTabLogic = kea<actionsTabLogicType>([
                     actionToSave.name = findUniqueActionName(values.newActionName)
                 }
 
-                try {
-                    let res: Response
-                    if (selectedActionId && selectedActionId !== 'new') {
-                        res = await toolbarFetch(
-                            `/api/projects/@current/actions/${selectedActionId}/`,
-                            'PATCH',
-                            actionToSave
-                        )
-                    } else {
-                        res = await toolbarFetch(`/api/projects/@current/actions/`, 'POST', actionToSave)
-                    }
-                    if (!res.ok) {
-                        const errorData = await res.json().catch(() => ({}))
-                        throw new Error(errorData.detail || `Request failed: ${res.status}`)
-                    }
-                    const response: ActionType = await res.json()
-                    breakpoint() // guard against stale async after unmount
+                const isUpdate = selectedActionId && selectedActionId !== 'new'
+                const result = isUpdate
+                    ? await toolbarApi.actions.update(selectedActionId, actionToSave, {
+                          context: 'save_action',
+                          toastOnError: 'Failed to save action',
+                      })
+                    : await toolbarApi.actions.create(actionToSave, {
+                          context: 'save_action',
+                          toastOnError: 'Failed to save action',
+                      })
 
-                    actions.selectAction(null)
-                    actionsLogic.actions.updateAction({ action: response })
-
-                    if (!values.automaticActionCreationEnabled) {
-                        lemonToast.success('Action saved', {
-                            button: {
-                                label: 'Open in PostHog',
-                                action: () =>
-                                    window.open(joinWithUiHost(values.uiHost, urls.action(response.id)), '_blank'),
-                            },
-                        })
-                    }
-
-                    actions.actionCreatedSuccess(response)
-                } catch (e) {
-                    toolbarLogger.error('actions', 'Failed to save action', { actionId: selectedActionId })
-                    captureToolbarException(e, 'action_save')
-                    if (e instanceof Error) {
-                        lemonToast.error(`Action save failed: ${e.message}`)
-                    }
-                    actions.submitActionFormFailure(e instanceof Error ? e : new Error(String(e)), {})
+                if (!result.ok) {
+                    actions.submitActionFormFailure(new Error(result.error.detail), {})
+                    return
                 }
+                const response = result.data
+                breakpoint() // guard against stale async after unmount
+
+                actions.selectAction(null)
+                actionsLogic.actions.updateAction({ action: response })
+
+                if (!values.automaticActionCreationEnabled) {
+                    lemonToast.success('Action saved', {
+                        button: {
+                            label: 'Open in PostHog',
+                            action: () =>
+                                window.open(joinWithUiHost(values.uiHost, urls.action(response.id)), '_blank'),
+                        },
+                    })
+                }
+
+                actions.actionCreatedSuccess(response)
             },
 
             // whether we show errors after touch (true) or submit (false)

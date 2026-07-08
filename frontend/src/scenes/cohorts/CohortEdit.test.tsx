@@ -209,7 +209,7 @@ describe('cohortEditLogic', () => {
                 },
             })
 
-            render(<CohortEdit id={cohortId} tabId="test-tab" />)
+            render(<CohortEdit id={cohortId} />)
 
             const inProgressElements = await screen.findAllByText('In progress...')
             expect(inProgressElements.length).toBeGreaterThan(0)
@@ -237,7 +237,7 @@ describe('cohortEditLogic', () => {
                 },
             })
 
-            render(<CohortEdit id={cohortId} tabId="test-tab" />)
+            render(<CohortEdit id={cohortId} />)
 
             const inProgressElements = await screen.findAllByText('In progress...')
             expect(inProgressElements.length).toBeGreaterThan(0)
@@ -265,7 +265,7 @@ describe('cohortEditLogic', () => {
                 },
             })
 
-            render(<CohortEdit id={cohortId} tabId="test-tab" />)
+            render(<CohortEdit id={cohortId} />)
 
             await screen.findByText(
                 "We're queuing a recalculation. The table below shows results from the previous calculation."
@@ -292,7 +292,7 @@ describe('cohortEditLogic', () => {
                 },
             })
 
-            render(<CohortEdit id={cohortId} tabId="test-tab" />)
+            render(<CohortEdit id={cohortId} />)
 
             // Wait a bit for component to render then verify no loading states
             await new Promise((resolve) => setTimeout(resolve, 100))
@@ -301,7 +301,6 @@ describe('cohortEditLogic', () => {
 
         it('shows retry button and contact support link when calculation fails', async () => {
             const cohortId = 2
-            const tabId = 'test-tab-error'
 
             useMocks({
                 get: {
@@ -310,8 +309,10 @@ describe('cohortEditLogic', () => {
                         name: 'Test Cohort',
                         is_static: false,
                         filters: { properties: { type: 'AND', values: [] } },
+                        // A failed calculation leaves pending_version ahead of version, since version
+                        // only advances on success. The error banner must still win over "pending".
                         version: 1,
-                        pending_version: 1,
+                        pending_version: 2,
                         is_calculating: false,
                         errors_calculating: 1,
                         last_calculation: '2024-01-01T00:00:00Z',
@@ -333,7 +334,7 @@ describe('cohortEditLogic', () => {
                 },
             })
 
-            render(<CohortEdit id={cohortId} tabId={tabId} />)
+            render(<CohortEdit id={cohortId} />)
 
             // Verify error message is shown
             await screen.findByText(/Calculation failed:/)
@@ -341,7 +342,7 @@ describe('cohortEditLogic', () => {
 
             // Verify Retry button is shown as the primary action in the error banner
             // LemonBanner renders action buttons - find the one with "Retry" text
-            const retryButtons = screen.getAllByRole('button', { name: 'Retry' })
+            const retryButtons = screen.getAllByText('Retry')
             expect(retryButtons.length).toBeGreaterThan(0)
             const retryButton = retryButtons[0]
 
@@ -349,12 +350,144 @@ describe('cohortEditLogic', () => {
             expect(screen.getByText('contact support')).toBeInTheDocument()
 
             // Get the logic instance and verify clicking retry triggers submitCohort
-            logic = cohortEditLogic({ id: cohortId, tabId })
+            logic = cohortEditLogic({ id: cohortId })
             logic.mount()
 
             await expectLogic(logic, async () => {
                 await userEvent.click(retryButton)
             }).toDispatchActions(['submitCohort'])
         })
+
+        it('shows the error banner, not a pending state, when a stuck calculation has failed', async () => {
+            const cohortId = 3
+
+            useMocks({
+                get: {
+                    [`/api/projects/:team_id/cohorts/${cohortId}/`]: {
+                        id: cohortId,
+                        name: 'Test Cohort',
+                        is_static: false,
+                        filters: { properties: { type: 'AND', values: [] } },
+                        // pending_version stuck ahead of version because every calculation failed
+                        version: 1,
+                        pending_version: 5,
+                        is_calculating: false,
+                        errors_calculating: 3,
+                        last_calculation: '2024-01-01T00:00:00Z',
+                        last_error_message: 'Invalid regular expression',
+                    },
+                },
+            })
+
+            render(<CohortEdit id={cohortId} />)
+
+            await screen.findByText(/Calculation failed:/)
+            expect(screen.getByText(/Invalid regular expression/)).toBeInTheDocument()
+            // The pending/calculating messaging must not be shown for a failed cohort
+            expect(screen.queryAllByText('In progress...')).toHaveLength(0)
+            expect(
+                screen.queryByText(
+                    "We're queuing a recalculation. The table below shows results from the previous calculation."
+                )
+            ).not.toBeInTheDocument()
+        })
+
+        it('shows calculating, not the error banner, while a retry is in flight after a prior failure', async () => {
+            const cohortId = 4
+
+            useMocks({
+                get: {
+                    [`/api/projects/:team_id/cohorts/${cohortId}/`]: {
+                        id: cohortId,
+                        name: 'Test Cohort',
+                        is_static: false,
+                        filters: { properties: { type: 'AND', values: [] } },
+                        // A retry is in flight (is_calculating) even though prior attempts errored,
+                        // so the calculating banner must win over the failure banner.
+                        version: 1,
+                        pending_version: 2,
+                        is_calculating: true,
+                        errors_calculating: 1,
+                        last_calculation: '2024-01-01T00:00:00Z',
+                        last_error_message: 'Query execution timed out',
+                    },
+                },
+            })
+
+            render(<CohortEdit id={cohortId} />)
+
+            expect(await screen.findAllByText('In progress...')).not.toHaveLength(0)
+            expect(screen.queryByText(/Calculation failed:/)).not.toBeInTheDocument()
+        })
+
+        // Pins the selector contract the fix changed, including the errors_calculating=0 and
+        // version=null boundaries the DOM tests above don't exercise.
+        it.each([
+            // stuck behind because every attempt failed: failed, not pending
+            {
+                version: 1,
+                pending_version: 5,
+                is_calculating: false,
+                errors_calculating: 3,
+                isPending: false,
+                isCalcOrPending: false,
+            },
+            // retry in flight after a prior failure: is_calculating wins
+            {
+                version: 1,
+                pending_version: 2,
+                is_calculating: true,
+                errors_calculating: 1,
+                isPending: false,
+                isCalcOrPending: true,
+            },
+            // genuine pending, never errored
+            {
+                version: 1,
+                pending_version: 2,
+                is_calculating: false,
+                errors_calculating: 0,
+                isPending: true,
+                isCalcOrPending: true,
+            },
+            // never calculated and never errored: pending
+            {
+                version: null,
+                pending_version: 1,
+                is_calculating: false,
+                errors_calculating: 0,
+                isPending: true,
+                isCalcOrPending: true,
+            },
+            // never calculated but already failing: failed, not pending
+            {
+                version: null,
+                pending_version: 1,
+                is_calculating: false,
+                errors_calculating: 2,
+                isPending: false,
+                isCalcOrPending: false,
+            },
+        ])(
+            'isPendingCalculation=$isPending / isCalculatingOrPending=$isCalcOrPending for %o',
+            async ({ version, pending_version, is_calculating, errors_calculating, isPending, isCalcOrPending }) => {
+                logic = cohortEditLogic({ id: 1 })
+                logic.mount()
+
+                await expectLogic(logic, () => {
+                    logic.actions.setCohort({
+                        ...mockCohort,
+                        id: 1,
+                        version,
+                        pending_version,
+                        is_calculating,
+                        errors_calculating,
+                    })
+                }).toMatchValues({
+                    isPendingCalculation: isPending,
+                    isCalculatingOrPending: isCalcOrPending,
+                })
+            }
+        )
     })
 })

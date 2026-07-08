@@ -2,13 +2,10 @@ use std::collections::HashSet;
 use std::sync::Arc;
 use std::time::Instant;
 
-use aws_config::BehaviorVersion;
 use clap::Parser;
 use common_database::{get_pool, PostgresReader};
 use common_hypercache::writer::HyperCacheWriter;
-use common_hypercache::{HyperCacheConfig, KeyType};
 use common_redis::CompressionConfig;
-use common_s3::{S3Client, S3Impl};
 use common_types::TeamId;
 use envconfig::Envconfig;
 use rand::Rng;
@@ -17,19 +14,10 @@ use tracing::level_filters::LevelFilter;
 use tracing_subscriber::EnvFilter;
 
 use feature_flags::flags::cache_builder::build_flags_cache;
+use feature_flags::flags::cache_writer::{build_writer, persist_flags_cache};
 use feature_flags::server::create_redis_client;
 
 common_alloc::used!();
-
-/// Redis sorted-set key used by Python's `FLAGS_CACHE_EXPIRY_SORTED_SET`. Keeping these
-/// in lockstep lets the existing refresh/verification workflows pick up entries this
-/// binary warms.
-const FLAGS_CACHE_EXPIRY_SORTED_SET: &str = "flags_cache_expiry";
-
-/// HyperCache namespace and object-name used by Python's flags warmer. Must match the
-/// feature-flags service's reader so entries written here are discoverable at request time.
-const HYPERCACHE_NAMESPACE: &str = "feature_flags";
-const HYPERCACHE_OBJECT_NAME: &str = "flags.json";
 
 /// Logging tag passed to `create_redis_client`; appears in connection-retry and failure logs.
 const REDIS_CLIENT_TYPE: &str = "flags-cache-warmer";
@@ -174,19 +162,15 @@ async fn main() {
     };
     let redis_client: Arc<dyn common_redis::Client + Send + Sync> = redis_client;
 
-    let s3_client = create_s3_client(&infra).await;
-
-    let mut cache_config = HyperCacheConfig::new(
-        HYPERCACHE_NAMESPACE.to_string(),
-        HYPERCACHE_OBJECT_NAME.to_string(),
-        infra.object_storage_region.clone(),
-        infra.object_storage_bucket.clone(),
+    let writer = Arc::new(
+        build_writer(
+            redis_client,
+            &infra.object_storage_region,
+            &infra.object_storage_bucket,
+            Some(infra.object_storage_endpoint.as_str()),
+        )
+        .await,
     );
-    if !infra.object_storage_endpoint.is_empty() {
-        cache_config.s3_endpoint = Some(infra.object_storage_endpoint.clone());
-    }
-    cache_config.expiry_sorted_set_key = Some(FLAGS_CACHE_EXPIRY_SORTED_SET.to_string());
-    let writer = Arc::new(HyperCacheWriter::new(redis_client, s3_client, cache_config));
 
     let plan = build_team_plan(&cli, &pg_reader).await;
     if plan.total == 0 {
@@ -312,22 +296,7 @@ async fn warm_team(
     ttl_seconds: u64,
 ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     let cache = build_flags_cache(pg_reader, team_id).await?;
-    persist_flags_cache(writer, team_id, &cache, ttl_seconds).await
-}
-
-async fn persist_flags_cache(
-    writer: &HyperCacheWriter,
-    team_id: TeamId,
-    cache: &feature_flags::flags::flag_models::HypercacheFlagsWrapper,
-    ttl_seconds: u64,
-) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-    let key = KeyType::int(team_id);
-    let json = serde_json::to_string(cache)?;
-
-    // Use set_with_etag (not set): set() unconditionally DELs the :etag key
-    // via delete_etag, and FlagDefinitionsCache keys on (team_id, etag), so
-    // a missing etag forces the in-memory cache bypass on every /flags request.
-    writer.set_with_etag(&key, &json, ttl_seconds).await?;
+    persist_flags_cache(writer, team_id, &cache, ttl_seconds).await?;
     Ok(())
 }
 
@@ -610,28 +579,10 @@ fn read_team_ids_from_stdin() -> Vec<TeamId> {
     ids
 }
 
-async fn create_s3_client(infra: &InfraConfig) -> Arc<dyn S3Client + Send + Sync> {
-    let mut aws_config_builder = aws_config::defaults(BehaviorVersion::latest())
-        .region(aws_config::Region::new(infra.object_storage_region.clone()));
-
-    if !infra.object_storage_endpoint.is_empty() {
-        aws_config_builder = aws_config_builder.endpoint_url(&infra.object_storage_endpoint);
-    }
-
-    let aws_config = aws_config_builder.load().await;
-
-    let mut s3_config_builder = aws_sdk_s3::config::Builder::from(&aws_config);
-    if !infra.object_storage_endpoint.is_empty() {
-        s3_config_builder = s3_config_builder.force_path_style(true);
-    }
-
-    let aws_s3_client = aws_sdk_s3::Client::from_conf(s3_config_builder.build());
-    Arc::new(S3Impl::new(aws_s3_client))
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
+    use feature_flags::flags::cache_writer::{HYPERCACHE_NAMESPACE, HYPERCACHE_OBJECT_NAME};
 
     fn cli(min: u64, max: u64, no_stagger: bool) -> Cli {
         Cli {

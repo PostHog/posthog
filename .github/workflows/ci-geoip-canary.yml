@@ -1,0 +1,86 @@
+# Canary against the live GeoLite2 database from mmdbcdn.posthog.net.
+#
+# PR and master jest runs resolve GeoIP lookups against a pinned MaxMind test
+# fixture (nodejs/jest.setup-env.ts), so they are deterministic but blind to
+# upstream breakage. This workflow is the safety net: it downloads the current
+# database — the same one baked into production images — and checks that known
+# IPs still resolve with usable city/postal data. It catches releases like the
+# 2026-06-09 GeoLite2 build that blanked city/postal fields for most IPs.
+#
+# Runs on master pushes and on a schedule, so a bad MaxMind release is caught
+# even when nothing is being merged.
+
+name: GeoIP database canary
+
+on:
+    push:
+        branches:
+            - master
+    schedule:
+        - cron: '23 */6 * * *' # every 6 hours
+    workflow_dispatch:
+
+env:
+    SLACK_CHANNEL: 'C0185UNBSJZ'
+
+permissions:
+    contents: read
+
+jobs:
+    canary:
+        name: Live GeoLite2 database sanity
+        runs-on: ubuntu-latest
+        timeout-minutes: 15
+        steps:
+            - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+              with:
+                  clean: false
+
+            - name: Download MaxMind database
+              run: ./bin/download-mmdb
+
+            - name: Install pnpm dependencies
+              uses: ./.github/actions/pnpm-install
+              with:
+                  install-command: pnpm --filter=@posthog/nodejs... install --frozen-lockfile
+
+            - name: Run canary against live database
+              id: canary
+              env:
+                  GEOIP_LIVE_TEST: '1'
+              run: cd nodejs && pnpm jest src/common/utils/geoip-live.test.ts --runInBand --forceExit
+
+            # Only the canary test itself failing means the live GeoLite2 build dropped
+            # location data for the anchor IPs — i.e. a bad MaxMind release is already
+            # baked into production images. Infra failures upstream (checkout, MaxMind
+            # download, pnpm install) are CI noise, not a degraded database, so don't
+            # page Slack for them. On the schedule nobody is watching the run, so alert
+            # explicitly when the test genuinely fails.
+            - name: Notify Slack on canary failure
+              if: failure() && steps.canary.outcome == 'failure'
+              uses: slackapi/slack-github-action@af78098f536edbc4de71162a307590698245be95 # v3.0.1
+              with:
+                  method: chat.postMessage
+                  token: ${{ secrets.SLACK_DEVEX_BOT_TOKEN }}
+                  errors: true
+                  payload: |
+                      channel: "${{ env.SLACK_CHANNEL }}"
+                      text: ":red_circle: GeoIP canary failed — live GeoLite2 database may be degraded"
+                      blocks:
+                        - type: "section"
+                          text:
+                            type: "mrkdwn"
+                            text: ":red_circle: *GeoIP canary failed* — anchor IPs no longer resolve usable city/postal data, so a bad MaxMind release may already be baked into production images."
+                        - type: "section"
+                          fields:
+                            - type: "mrkdwn"
+                              text: "*Trigger*\n${{ github.event_name }}"
+                            - type: "mrkdwn"
+                              text: "*Next step*\nCheck the run for the degraded IPs"
+                        - type: "actions"
+                          elements:
+                            - type: "button"
+                              text:
+                                type: "plain_text"
+                                text: "View run"
+                              url: "${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"

@@ -9,8 +9,8 @@
  */
 /**
  * * `read_write` - read_write
- * `read` - read
- * `none` - none
+ * * `read` - read
+ * * `none` - none
  */
 export type AccessLevelEnumApi = (typeof AccessLevelEnumApi)[keyof typeof AccessLevelEnumApi]
 
@@ -26,10 +26,10 @@ export const AccessLevelEnumApi = {
 export interface PropertyAccessControlRuleApi {
     readonly id: string
     /** The access level for this rule.
-
-  * `read_write` - read_write
-  * `read` - read
-  * `none` - none */
+     *
+     * * `read_write` - read_write
+     * * `read` - read
+     * * `none` - none */
     access_level: AccessLevelEnumApi
     /**
      * The organization member UUID this rule applies to, if any.
@@ -49,9 +49,9 @@ export interface PropertyAccessControlRuleApi {
 
 /**
  * Serializes the aggregate state for a property definition.
-
-Preserves the existing API shape: ``access_controls`` is the list
-of rules, plus the available levels and the computed default.
+ *
+ * Preserves the existing API shape: ``access_controls`` is the list
+ * of rules, plus the available levels and the computed default.
  */
 export interface PropertyAccessControlStateApi {
     /** List of all access control rules for this property definition. */
@@ -69,10 +69,10 @@ export interface PropertyAccessControlUpdateApi {
     /** The property definition ID this rule applies to. */
     property_definition_id: string
     /** The access level to set for this rule.
-
-  * `read_write` - read_write
-  * `read` - read
-  * `none` - none */
+     *
+     * * `read_write` - read_write
+     * * `read` - read
+     * * `none` - none */
     access_level: AccessLevelEnumApi
     /**
      * The organization member UUID to set an override for.

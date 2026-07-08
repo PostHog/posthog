@@ -52,8 +52,10 @@ describe('subscriptionLogic', () => {
                 },
             },
             post: {
-                '/api/environments/:team/subscriptions': (req, res, ctx) =>
-                    res(ctx.json({ id: 42, ...(req.body as Partial<SubscriptionType>) } as SubscriptionType)),
+                '/api/environments/:team/subscriptions': async ({ request }) => [
+                    200,
+                    { id: 42, ...((await request.json()) as Partial<SubscriptionType>) } as SubscriptionType,
+                ],
             },
         })
         initKeaTests()
@@ -158,5 +160,96 @@ describe('subscriptionLogic', () => {
         }).toFinishListeners()
 
         expect(getRecentSlackChannelIds(7)).toEqual(expectedIds)
+    })
+
+    it('rejects empty prompt when resource_type is ai_prompt', async () => {
+        // The parent-less /subscriptions/new route is the AI flow; its urlToAction sets
+        // resource_type='ai_prompt' (the /insights/... route forces 'insight').
+        router.actions.push('/subscriptions/new')
+        await expectLogic(newLogic).toFinishListeners()
+        newLogic.actions.setSubscriptionValues({ resource_type: 'ai_prompt', prompt: '   ', title: 'AI test' })
+        newLogic.actions.submitSubscription()
+        await expectLogic(newLogic).toFinishListeners()
+        expect(newLogic.values.subscriptionErrors.prompt).toBeTruthy()
+    })
+
+    it('rejects prompts exceeding 4000 characters when resource_type is ai_prompt', async () => {
+        router.actions.push('/subscriptions/new')
+        await expectLogic(newLogic).toFinishListeners()
+        newLogic.actions.setSubscriptionValues({
+            resource_type: 'ai_prompt',
+            prompt: 'x'.repeat(4001),
+            title: 'AI test',
+        })
+        newLogic.actions.submitSubscription()
+        await expectLogic(newLogic).toFinishListeners()
+        expect(newLogic.values.subscriptionErrors.prompt).toContain('4000')
+    })
+
+    it('accepts a valid AI prompt', async () => {
+        router.actions.push('/insights/123/subscriptions/new')
+        await expectLogic(newLogic).toFinishListeners()
+        newLogic.actions.setSubscriptionValues({
+            resource_type: 'ai_prompt',
+            prompt: 'Show me the biggest event gains last week',
+            title: 'AI test',
+        })
+        await expectLogic(newLogic).toFinishListeners()
+        expect(newLogic.values.subscriptionErrors.prompt).toBeUndefined()
+    })
+
+    it('clears a carried-over insight selection when saving an AI subscription', async () => {
+        // Opening the AI flow from a dashboard pre-populates dashboard_export_insights;
+        // those must not be sent, else the backend rejects insights without a dashboard.
+        let capturedBody: Partial<SubscriptionType> | undefined
+        useMocks({
+            post: {
+                '/api/environments/:team/subscriptions': async ({ request }) => {
+                    capturedBody = (await request.json()) as Partial<SubscriptionType>
+                    return [200, { id: 42, ...capturedBody } as SubscriptionType]
+                },
+            },
+        })
+        router.actions.push('/subscriptions/new')
+        await expectLogic(newLogic).toFinishListeners()
+        newLogic.actions.setSubscriptionValues({
+            resource_type: 'ai_prompt',
+            prompt: 'Show me the biggest event gains last week',
+            title: 'AI test',
+            target_type: 'email',
+            target_value: 'ben@posthog.com',
+            dashboard_export_insights: [1, 2, 3],
+        })
+        newLogic.actions.submitSubscription()
+        await expectLogic(newLogic).toFinishListeners().toDispatchActions(['submitSubscriptionSuccess'])
+        expect(capturedBody?.dashboard_export_insights).toEqual([])
+        expect(capturedBody?.dashboard).toBeUndefined()
+        expect(capturedBody?.insight).toBeUndefined()
+    })
+
+    it('drops a stale prompt when saving a non-AI subscription', async () => {
+        // Toggling resource_type back to insight after typing a prompt leaves it in form state;
+        // it must not be sent, else the backend rejects a non-AI sub that carries a prompt.
+        let capturedBody: Partial<SubscriptionType> | undefined
+        useMocks({
+            post: {
+                '/api/environments/:team/subscriptions': async ({ request }) => {
+                    capturedBody = (await request.json()) as Partial<SubscriptionType>
+                    return [200, { id: 43, ...capturedBody } as SubscriptionType]
+                },
+            },
+        })
+        router.actions.push('/subscriptions/new')
+        await expectLogic(newLogic).toFinishListeners()
+        newLogic.actions.setSubscriptionValues({
+            resource_type: 'insight',
+            prompt: 'stale prompt left over from the AI toggle',
+            title: 'Insight test',
+            target_type: 'email',
+            target_value: 'ben@posthog.com',
+        })
+        newLogic.actions.submitSubscription()
+        await expectLogic(newLogic).toFinishListeners().toDispatchActions(['submitSubscriptionSuccess'])
+        expect(capturedBody?.prompt).toBeUndefined()
     })
 })

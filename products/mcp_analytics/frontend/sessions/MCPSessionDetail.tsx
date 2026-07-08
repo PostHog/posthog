@@ -2,6 +2,7 @@ import { useActions, useValues } from 'kea'
 
 import { IconBolt, IconClock, IconSparkles, IconUser, IconWarning } from '@posthog/icons'
 import { LemonButton, LemonSkeleton, LemonTag } from '@posthog/lemon-ui'
+import { Button, Spinner } from '@posthog/quill-primitives'
 
 import { CopyToClipboardInline } from 'lib/components/CopyToClipboard'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
@@ -19,14 +20,14 @@ function MetaBadge({ icon, label }: { icon: React.ReactNode; label: React.ReactN
 }
 
 export function MCPSessionDetail(): JSX.Element {
-    const { selectedSession, toolCalls, toolCallsLoading, selectedSessionIntent, isSelectedSessionGenerating } =
+    const { selectedSession, selectedSessionToolCalls, selectedSessionIntent, isSelectedSessionGenerating } =
         useValues(mcpSessionsLogic)
-    const { generateIntent } = useActions(mcpSessionsLogic)
+    const { generateIntent, loadMoreToolCalls } = useActions(mcpSessionsLogic)
 
     if (!selectedSession) {
         return (
             <div className="flex h-full items-center justify-center text-sm text-secondary p-6 text-center">
-                Pick a session on the left to step through its tool calls.
+                Pick a session to step through its tool calls.
             </div>
         )
     }
@@ -38,11 +39,12 @@ export function MCPSessionDetail(): JSX.Element {
         ? selectedSession.person_name || selectedSession.person_email || selectedSession.distinct_id
         : selectedSession.distinct_id || 'unknown'
 
-    // While the selected session's tool calls load, animate the whole detail panel
-    const loading = toolCallsLoading
+    // The panel's view of the selected session's calls: the list, whether more pages exist, whether
+    // the first page is still loading (skeleton), and whether a "Load more" append is in flight.
+    const { calls: toolCalls, hasNext, loading, loadingMore } = selectedSessionToolCalls
 
     return (
-        <div className="flex flex-col">
+        <div className="flex flex-col h-full min-h-0">
             <header className="flex flex-col gap-2 shrink-0 border-b border-primary px-3 pt-3 pb-2">
                 <div className="flex items-center gap-2 min-w-0">
                     {loading ? (
@@ -119,7 +121,7 @@ export function MCPSessionDetail(): JSX.Element {
                 </div>
             </header>
 
-            <section className="px-3 py-3" style={{ overflowY: 'scroll', maxHeight: 'calc(100vh - 32rem)' }}>
+            <section className="flex-1 min-h-0 overflow-y-auto px-3 py-3">
                 {loading ? (
                     <div className="flex flex-col gap-2">
                         <LemonSkeleton repeat={3} className="h-16 w-full" />
@@ -127,56 +129,75 @@ export function MCPSessionDetail(): JSX.Element {
                 ) : toolCalls.length === 0 ? (
                     <div className="text-sm text-secondary">No tool calls captured for this session.</div>
                 ) : (
-                    <ol className="flex flex-col gap-2 list-none pl-0">
-                        {toolCalls.map((toolCall, idx) => (
-                            <li
-                                key={toolCall.event_id || `${toolCall.timestamp}-${idx}`}
-                                className={`relative flex flex-col gap-1 rounded border bg-surface-primary px-2 py-1.5 transition-colors hover:bg-surface-secondary ${
-                                    toolCall.is_error
-                                        ? 'border-danger border-l-2'
-                                        : 'border-primary border-l-2 border-l-accent/60'
-                                }`}
-                            >
-                                <div className="flex items-center justify-between gap-2 text-xs">
-                                    <div className="flex items-center gap-1.5 min-w-0">
-                                        {toolCall.is_error ? (
-                                            <IconWarning className="text-danger shrink-0 text-xs" />
-                                        ) : (
-                                            <IconBolt className="text-accent shrink-0 text-xs" />
+                    <>
+                        <ol className="flex flex-col gap-2 list-none pl-0">
+                            {toolCalls.map((toolCall, idx) => (
+                                <li
+                                    key={toolCall.event_id || `${toolCall.timestamp}-${idx}`}
+                                    className={`relative flex flex-col gap-1 rounded border bg-surface-primary px-2 py-1.5 transition-colors hover:bg-surface-secondary ${
+                                        toolCall.is_error
+                                            ? 'border-danger border-l-2'
+                                            : 'border-primary border-l-2 border-l-accent/60'
+                                    }`}
+                                >
+                                    <div className="flex items-center justify-between gap-2 text-xs">
+                                        <div className="flex items-center gap-1.5 min-w-0">
+                                            {toolCall.is_error ? (
+                                                <IconWarning className="text-danger shrink-0 text-xs" />
+                                            ) : (
+                                                <IconBolt className="text-accent shrink-0 text-xs" />
+                                            )}
+                                            <span className="font-mono font-semibold truncate">
+                                                {toolCall.tool_name || 'unknown'}
+                                            </span>
+                                            {toolCall.is_error ? (
+                                                <LemonTag type="danger" size="small">
+                                                    error
+                                                </LemonTag>
+                                            ) : null}
+                                        </div>
+                                        <div className="flex items-center gap-2 text-secondary whitespace-nowrap font-mono text-[11px]">
+                                            {toolCall.duration_ms != null ? (
+                                                <span>{formatDuration(toolCall.duration_ms)} ·</span>
+                                            ) : null}
+                                            <span>
+                                                {formatRelativeOffset(
+                                                    selectedSession.session_start,
+                                                    toolCall.timestamp
+                                                )}
+                                            </span>
+                                        </div>
+                                    </div>
+
+                                    <div className="text-xs leading-snug pl-5">
+                                        {toolCall.intent || (
+                                            <span className="text-secondary italic">No intent captured.</span>
                                         )}
-                                        <span className="font-mono font-semibold truncate">
-                                            {toolCall.tool_name || 'unknown'}
-                                        </span>
-                                        {toolCall.is_error ? (
-                                            <LemonTag type="danger" size="small">
-                                                error
-                                            </LemonTag>
-                                        ) : null}
                                     </div>
-                                    <div className="flex items-center gap-2 text-secondary whitespace-nowrap font-mono text-[11px]">
-                                        {toolCall.duration_ms != null ? (
-                                            <span>{formatDuration(toolCall.duration_ms)} ·</span>
-                                        ) : null}
-                                        <span>
-                                            {formatRelativeOffset(selectedSession.session_start, toolCall.timestamp)}
-                                        </span>
-                                    </div>
-                                </div>
 
-                                <div className="text-xs leading-snug pl-5">
-                                    {toolCall.intent || (
-                                        <span className="text-secondary italic">No intent captured.</span>
-                                    )}
-                                </div>
-
-                                {toolCall.is_error && toolCall.error_message ? (
-                                    <div className="text-xs text-danger font-mono pl-5 break-all">
-                                        {toolCall.error_message}
-                                    </div>
-                                ) : null}
-                            </li>
-                        ))}
-                    </ol>
+                                    {toolCall.is_error && toolCall.error_message ? (
+                                        <div className="text-xs text-danger font-mono pl-5 break-all">
+                                            {toolCall.error_message}
+                                        </div>
+                                    ) : null}
+                                </li>
+                            ))}
+                        </ol>
+                        {hasNext ? (
+                            <div className="flex justify-center pt-2" data-quill>
+                                <Button
+                                    variant="outline"
+                                    size="sm"
+                                    onClick={() => loadMoreToolCalls()}
+                                    disabled={loadingMore}
+                                    data-attr="mcp-session-load-more-tool-calls"
+                                >
+                                    {loadingMore ? <Spinner /> : null}
+                                    Load more
+                                </Button>
+                            </div>
+                        ) : null}
+                    </>
                 )}
             </section>
 
@@ -205,7 +226,7 @@ export function MCPSessionDetail(): JSX.Element {
                         loading={isSelectedSessionGenerating}
                         onClick={() => generateIntent(selectedSession.session_id)}
                     >
-                        {isSelectedSessionGenerating ? 'Thinking…' : "What's the session intent?"}
+                        {isSelectedSessionGenerating ? 'Thinking…' : 'Summarize session intent'}
                     </LemonButton>
                 )}
             </footer>

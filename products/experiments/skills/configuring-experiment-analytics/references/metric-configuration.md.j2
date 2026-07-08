@@ -1,0 +1,311 @@
+# Metric configuration
+
+All metrics use `kind: "ExperimentMetric"`. Legacy kinds (`ExperimentTrendsQuery`, `ExperimentFunnelsQuery`) are rejected.
+
+The full Pydantic schema below is rendered from `posthog/schema.py` at build
+time — if a field is missing here, fix the model. It is the `ExperimentMetric`
+discriminated union: pick the variant matching your `metric_type` (`mean`,
+`funnel`, `ratio`, `retention`) under `$defs`, and read that variant's
+`required` array for the mandatory fields. The shared event-source building
+blocks (`EventsNode`, `ActionsNode`, `ExperimentDataWarehouseNode`) and the
+property-filter types are defined once under `$defs` and referenced by `$ref`.
+The schema is authoritative; the prose and examples below are guidance.
+
+## Schema
+
+```json
+{{ pydantic_schema("posthog.schema.ExperimentMetric") }}
+```
+
+## Mean metric
+
+Average of a numeric property per user. Use for revenue per user, session
+duration, page views per user, and similar magnitudes. Drives the math via the
+`source.math` / `source.math_property` pair on a single `EventsNode`,
+`ActionsNode`, or `ExperimentDataWarehouseNode`.
+
+### Right
+
+```json
+{
+  "kind": "ExperimentMetric",
+  "metric_type": "mean",
+  "name": "Average revenue per user",
+  "source": {
+    "kind": "EventsNode",
+    "event": "purchase_completed",
+    "math": "sum",
+    "math_property": "revenue"
+  }
+}
+```
+
+## Funnel metric
+
+Conversion rate from exposure through one or more ordered actions. The
+experiment's exposure event is automatically prepended as `step_0`, so even a
+single entry in `series` creates a valid 2-step funnel (exposure → action).
+
+### Right — single-step funnel (exposure → action)
+
+```json
+{
+  "kind": "ExperimentMetric",
+  "metric_type": "funnel",
+  "name": "Reached checkout",
+  "series": [{ "kind": "EventsNode", "event": "checkout_started" }]
+}
+```
+
+Measures "% of exposed users who reached checkout".
+
+### Right — multi-step funnel (exposure → action 1 → action 2 → ...)
+
+```json
+{
+  "kind": "ExperimentMetric",
+  "metric_type": "funnel",
+  "name": "Checkout conversion",
+  "series": [
+    { "kind": "EventsNode", "event": "add_to_cart" },
+    { "kind": "EventsNode", "event": "checkout_started" },
+    { "kind": "EventsNode", "event": "purchase_completed" }
+  ]
+}
+```
+
+Step order matters — users must complete steps in sequence.
+
+## Ratio metric
+
+Rate of one event relative to another. Each side (`numerator`, `denominator`)
+is an `EventsNode` / `ActionsNode` / `ExperimentDataWarehouseNode` with its own
+`math` and `math_property` — the math determines how each side is aggregated
+before the ratio is taken.
+
+Use for revenue per pageview, click-through rate, error rate, engagement
+ratios.
+
+### Right — click-through rate (count / count)
+
+```json
+{
+  "kind": "ExperimentMetric",
+  "metric_type": "ratio",
+  "name": "Click-through rate",
+  "numerator": {
+    "kind": "EventsNode",
+    "event": "button_clicked"
+  },
+  "denominator": {
+    "kind": "EventsNode",
+    "event": "$pageview"
+  }
+}
+```
+
+### Right — revenue per pageview (sum of property / count)
+
+To divide a property sum by an event count, the numerator's `math` is `"sum"`
+and `math_property` names the numeric property to sum. The denominator stays
+at the default count.
+
+```json
+{
+  "kind": "ExperimentMetric",
+  "metric_type": "ratio",
+  "name": "Revenue per pageview",
+  "numerator": {
+    "kind": "EventsNode",
+    "event": "purchase_completed",
+    "math": "sum",
+    "math_property": "revenue"
+  },
+  "denominator": {
+    "kind": "EventsNode",
+    "event": "$pageview"
+  }
+}
+```
+
+### Wrong — `is_set` filter instead of `math` / `math_property`
+
+```json
+{
+  "kind": "ExperimentMetric",
+  "metric_type": "ratio",
+  "name": "Revenue per pageview",
+  "numerator": {
+    "kind": "EventsNode",
+    "event": "purchase_completed",
+    "properties": [
+      { "key": "revenue", "value": "is_set", "operator": "is_set", "type": "event" }
+    ]
+  },
+  "denominator": { "kind": "EventsNode", "event": "$pageview" }
+}
+```
+
+A property filter scopes *which events* count — it does not sum them. The
+numerator above counts purchases that have a revenue property, not the revenue
+total. Aggregation lives in `math` / `math_property`, never in a filter.
+
+## Retention metric
+
+Whether users return after initial exposure. Tracks `start_event` →
+`completion_event` over a window defined by `retention_window_start`,
+`retention_window_end`, and `retention_window_unit`. `start_handling` is
+required and controls how users with multiple start events are anchored:
+`"first_seen"` (anchor on first occurrence) or `"last_seen"` (anchor on most
+recent).
+
+The window is measured **from the start event** and bucketed by
+`retention_window_unit`, which is `"day"` or `"hour"`. The start occurrence never
+counts as its own completion — only a *distinct* later event does — so the start
+and completion events may be the same:
+
+- **Different events** (e.g. `$pageview` → `uploaded_file`) — conversion retention:
+  "did the user reach the target action within the window?"
+- **Same event** (e.g. `nav_panel_clicked` → `nav_panel_clicked`) —
+  repeat retention: "did the user fire it _again_ within the window?" `From 0`
+  counts a repeat from the same period onward (same-day/same-hour repeats count);
+  `From N` (N ≥ 1) requires the repeat in a later period. Use `start_handling: "first_seen"`
+  so in-experiment repeats fall after the anchor — `last_seen` anchors on the user's
+  final occurrence, which has no in-experiment activity after it.
+
+### Right — conversion retention (different events)
+
+```json
+{
+  "kind": "ExperimentMetric",
+  "metric_type": "retention",
+  "name": "7-day file-upload retention",
+  "start_event": {
+    "kind": "EventsNode",
+    "event": "$pageview"
+  },
+  "completion_event": {
+    "kind": "EventsNode",
+    "event": "uploaded_file"
+  },
+  "retention_window_start": 0,
+  "retention_window_end": 7,
+  "retention_window_unit": "day",
+  "start_handling": "first_seen"
+}
+```
+
+### Right — repeat retention (same event)
+
+```json
+{
+  "kind": "ExperimentMetric",
+  "metric_type": "retention",
+  "name": "7-day repeat-click retention",
+  "start_event": {
+    "kind": "EventsNode",
+    "event": "nav_panel_clicked"
+  },
+  "completion_event": {
+    "kind": "EventsNode",
+    "event": "nav_panel_clicked"
+  },
+  "retention_window_start": 0,
+  "retention_window_end": 7,
+  "retention_window_unit": "day",
+  "start_handling": "first_seen"
+}
+```
+
+Measures "of users who clicked the promoted product, how many clicked it again
+within 7 days". The first click anchors the window and never counts as its own
+completion — only a later distinct click does, so a one-time clicker is correctly
+counted as not retained.
+
+### Wrong — missing `retention_window_start` and `start_handling`
+
+```json
+{
+  "kind": "ExperimentMetric",
+  "metric_type": "retention",
+  "name": "7-day retention",
+  "start_event": { "kind": "EventsNode", "event": "$pageview" },
+  "completion_event": { "kind": "EventsNode", "event": "uploaded_file" },
+  "retention_window_end": 7,
+  "retention_window_unit": "day"
+}
+```
+
+Pydantic rejects the payload with a missing-field error. Both fields are
+required on every retention metric — the schema is the source of truth.
+
+## Adding metrics to an experiment
+
+A metric reaches an experiment via one of two independent `experiment-update`
+fields. Attaching a shared metric does **not** touch the inline `metrics` array,
+and vice versa.
+
+### Inline metric — `metrics`
+
+Call `experiment-update` with the full `metrics` array. This **replaces** the
+entire inline list.
+
+To add a metric without losing existing ones:
+
+1. Call `experiment-get` to get current metrics
+2. Append the new metric to the existing array
+3. Call `experiment-update` with the combined array
+
+### Shared (saved) metric — `saved_metrics_ids`
+
+Reuse a metric that already exists in the project instead of duplicating it
+inline. Resolve the id with `experiment-saved-metrics-list`, then attach it:
+
+1. Call `experiment-saved-metrics-list` to find the metric and its `id` (pass a
+   `search` term to resolve by name; results are paginated, so use `limit`/`offset`
+   when browsing a large project)
+2. Call `experiment-get` to read the experiment's current `saved_metrics`
+3. Call `experiment-update` with `saved_metrics_ids` — this **replaces** all
+   existing saved-metric links, so send the full desired set:
+
+```json
+{
+  "saved_metrics_ids": [
+    { "id": 42, "metadata": { "type": "primary" } },
+    { "id": 57, "metadata": { "type": "secondary" } }
+  ]
+}
+```
+
+The `id` here is the **saved-metric id**. Note the read/write asymmetry when you
+rebuild the set from `experiment-get`: each entry in the returned `saved_metrics`
+exposes a top-level `id` (the *link* row) and a separate `saved_metric` (the
+*metric* id). Map each existing entry's **`saved_metric`** into the `id` you
+resend — sending the link `id` attaches the wrong metric or fails validation.
+
+`metadata` is optional and defaults to `primary`. Pass an empty array to detach
+all shared metrics.
+
+To promote a one-off inline metric into a reusable shared metric, call
+`experiment-saved-metrics-create` with the same `query` (the `ExperimentMetric`
+object), then attach it via `saved_metrics_ids` as above.
+
+## Property filters
+
+Any `EventsNode` can include property filters to narrow *which* events count.
+Filters never change aggregation — for that, use `math` / `math_property`.
+
+```json
+{
+  "kind": "EventsNode",
+  "event": "purchase_completed",
+  "properties": [
+    {
+      "key": "plan",
+      "value": ["pro", "enterprise"],
+      "operator": "exact",
+      "type": "event"
+    }
+  ]
+}
+```

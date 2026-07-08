@@ -13,19 +13,24 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
+import pytest
 import unittest
 from posthog.test.base import BaseTest
 from unittest.mock import MagicMock, patch
 
 from django.conf import settings
 from django.core.management.base import OutputWrapper
+from django.db import connection
 from django.test import override_settings
+from django.test.utils import CaptureQueriesContext
 
 from parameterized import parameterized
 
+from posthog.kafka_client.topics import KAFKA_FLAGS_CACHE_INVALIDATION
 from posthog.models import Team
-from posthog.models.cohort.cohort import Cohort
 
+from products.cohorts.backend.models.cohort import Cohort
+from products.experiments.backend.models.experiment import Experiment
 from products.feature_flags.backend.flags_cache import (
     _compare_flag_fields,
     _compute_flag_dependencies,
@@ -43,6 +48,7 @@ from products.feature_flags.backend.flags_cache import (
     get_teams_with_flags_queryset,
     update_flags_cache,
 )
+from products.feature_flags.backend.flags_cache_messages import FlagsCacheInvalidation
 from products.feature_flags.backend.models.evaluation_context import EvaluationContext, FeatureFlagEvaluationContext
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
 
@@ -539,6 +545,77 @@ class TestServiceFlagsCache(BaseTest):
 
 
 @override_settings(FLAGS_REDIS_URL="redis://test")
+class TestHasExperimentField(BaseTest):
+    """has_experiment reflects whether a flag has a non-deleted linked experiment."""
+
+    def setUp(self):
+        super().setUp()
+        clear_flags_cache(self.team, kinds=["redis", "s3"])
+
+    def _make_flag(self, key: str) -> FeatureFlag:
+        return FeatureFlag.objects.create(
+            team=self.team,
+            key=key,
+            created_by=self.user,
+            filters={"groups": [{"properties": [], "rollout_percentage": 100}]},
+        )
+
+    @parameterized.expand(
+        [
+            ("no_experiment", "none", False),
+            ("active_experiment", "active", True),
+            ("stopped_not_deleted_experiment", "stopped", True),
+            ("deleted_experiment", "deleted", False),
+        ]
+    )
+    def test_has_experiment_value(self, _name: str, experiment_state: str, expected: bool):
+        flag = self._make_flag("exp-flag")
+        if experiment_state == "active":
+            Experiment.objects.create(team=self.team, name="exp", feature_flag=flag)
+        elif experiment_state == "stopped":
+            Experiment.objects.create(team=self.team, name="exp", feature_flag=flag, end_date=datetime.now(UTC))
+        elif experiment_state == "deleted":
+            Experiment.objects.create(team=self.team, name="exp", feature_flag=flag, deleted=True)
+
+        flags = _get_feature_flags_for_service(self.team)["flags"]
+        assert flags[0]["has_experiment"] is expected
+
+    def test_has_experiment_present_in_batch_output(self):
+        flag = self._make_flag("exp-flag")
+        Experiment.objects.create(team=self.team, name="exp", feature_flag=flag)
+
+        flags = _get_feature_flags_for_teams_batch([self.team])[self.team.id]["flags"]
+        assert flags[0]["has_experiment"] is True
+
+    def test_has_experiment_no_n_plus_one(self):
+        """has_experiment is computed via a bulk Exists subquery, so the number of queries
+        touching the experiment table stays constant as flags/experiments grow. Counting only
+        experiment-table queries isolates this from unrelated per-flag queries on other paths."""
+
+        def experiment_query_count(ctx: CaptureQueriesContext) -> int:
+            return sum(1 for q in ctx.captured_queries if "posthog_experiment" in q["sql"])
+
+        first = self._make_flag("flag-0")
+        Experiment.objects.create(team=self.team, name="exp-0", feature_flag=first)
+
+        with CaptureQueriesContext(connection) as baseline:
+            _get_feature_flags_for_service(self.team)
+
+        for i in range(1, 6):
+            extra = self._make_flag(f"flag-{i}")
+            Experiment.objects.create(team=self.team, name=f"exp-{i}", feature_flag=extra)
+
+        with CaptureQueriesContext(connection) as scaled:
+            _get_feature_flags_for_service(self.team)
+
+        assert experiment_query_count(scaled) == experiment_query_count(baseline), (
+            f"Experiment-table query count grew from {experiment_query_count(baseline)} to "
+            f"{experiment_query_count(scaled)} as flags/experiments were added — "
+            "indicates an N+1 in the has_experiment computation."
+        )
+
+
+@override_settings(FLAGS_REDIS_URL="redis://test")
 class TestServiceFlagsSignals(BaseTest):
     """Test Django signal handlers for automatic cache invalidation."""
 
@@ -601,6 +678,33 @@ class TestServiceFlagsSignals(BaseTest):
         # Signal should trigger the Celery task
         mock_task.delay.assert_called_once_with(self.team.id)
 
+    @parameterized.expand(["create", "soft_delete", "delete"])
+    @patch("products.feature_flags.backend.tasks.update_team_service_flags_cache")
+    @patch("django.db.transaction.on_commit", lambda fn: fn())
+    def test_signal_fired_on_experiment_change(self, action, mock_task):
+        # Creating, soft-deleting, or hard-deleting an experiment invalidates the linked
+        # flag's team cache so has_experiment refreshes.
+        flag = FeatureFlag.objects.create(
+            team=self.team,
+            key="exp-flag",
+            created_by=self.user,
+            filters={"groups": [{"properties": [], "rollout_percentage": 100}]},
+        )
+        if action == "create":
+            # Reset first so we assert on the experiment-create signal, not the flag-create one.
+            mock_task.reset_mock()
+            Experiment.objects.create(team=self.team, name="My experiment", feature_flag=flag)
+        else:
+            experiment = Experiment.objects.create(team=self.team, name="My experiment", feature_flag=flag)
+            mock_task.reset_mock()
+            if action == "soft_delete":
+                experiment.deleted = True
+                experiment.save()
+            else:
+                experiment.delete()
+
+        mock_task.delay.assert_called_once_with(self.team.id)
+
     @patch("products.feature_flags.backend.tasks.update_team_service_flags_cache")
     @patch("django.db.transaction.on_commit", lambda fn: fn())
     def test_signal_fired_on_team_create(self, mock_task):
@@ -636,6 +740,197 @@ class TestServiceFlagsSignals(BaseTest):
         # Cache should be cleared (this will load from DB and return empty)
         # We can't test directly with the deleted team object, but the signal should have fired
         # In production, this prevents stale cache entries
+
+
+@override_settings(FLAGS_REDIS_URL="redis://test")
+class TestServiceFlagsKafkaRouting(BaseTest):
+    """Kafka/Celery routing side of the signal handlers. The per-team feature
+    flag exclusively routes each invalidation to Kafka or Celery — never both —
+    and a Kafka produce failure must not break the signal handler."""
+
+    def setUp(self):
+        super().setUp()
+        clear_flags_cache(self.team, kinds=["redis", "s3"])
+
+    @patch("products.feature_flags.backend.flags_cache._produce_invalidation")
+    @patch("products.feature_flags.backend.flags_cache._route_to_kafka", return_value=False)
+    @patch("products.feature_flags.backend.tasks.update_team_service_flags_cache")
+    @patch("django.db.transaction.on_commit", lambda fn: fn())
+    def test_flag_off_routes_to_celery_only(self, mock_task, mock_gate, mock_produce):
+        FeatureFlag.objects.create(
+            team=self.team,
+            key="flag-off",
+            created_by=self.user,
+            filters={"groups": [{"properties": [], "rollout_percentage": 100}]},
+        )
+        mock_task.delay.assert_called_once_with(self.team.id)
+        mock_produce.assert_not_called()
+
+    @patch("products.feature_flags.backend.flags_cache.producer_scope")
+    @patch("products.feature_flags.backend.flags_cache._route_to_kafka", return_value=True)
+    @patch("products.feature_flags.backend.tasks.update_team_service_flags_cache")
+    @patch("django.db.transaction.on_commit", lambda fn: fn())
+    def test_flag_on_routes_to_kafka_only(self, mock_task, mock_gate, mock_producer_scope):
+        mock_producer = MagicMock()
+        mock_producer_scope.return_value.__enter__.return_value = mock_producer
+
+        FeatureFlag.objects.create(
+            team=self.team,
+            key="flag-on",
+            created_by=self.user,
+            filters={"groups": [{"properties": [], "rollout_percentage": 100}]},
+        )
+
+        mock_task.delay.assert_not_called()
+        mock_producer_scope.assert_called_once()
+        scope_kwargs = mock_producer_scope.call_args.kwargs
+        assert scope_kwargs["topic"] == KAFKA_FLAGS_CACHE_INVALIDATION
+        assert scope_kwargs["flush_timeout"] == 0
+
+        mock_producer.produce.assert_called_once()
+        produce_kwargs = mock_producer.produce.call_args.kwargs
+        assert produce_kwargs["topic"] == KAFKA_FLAGS_CACHE_INVALIDATION
+        # team_id-keyed partitioning gives the future consumer per-team ordering.
+        assert produce_kwargs["key"] == str(self.team.id)
+
+        # `data` must be a dict — the producer's default serializer does
+        # `json.dumps(data)` and would `TypeError` on bytes.
+        data = produce_kwargs["data"]
+        assert isinstance(data, dict), f"expected dict, got {type(data).__name__}"
+        envelope = FlagsCacheInvalidation.model_validate(data)
+        assert envelope.version == 1
+        assert envelope.team_id == self.team.id
+        assert envelope.operation == "invalidate"
+
+    @patch("products.feature_flags.backend.flags_cache.producer_scope")
+    @patch("products.feature_flags.backend.flags_cache._route_to_kafka", return_value=True)
+    @patch("products.feature_flags.backend.tasks.update_team_service_flags_cache")
+    @patch("django.db.transaction.on_commit", lambda fn: fn())
+    def test_flag_on_kafka_failure_does_not_raise_or_fall_back_to_celery(
+        self, mock_task, mock_gate, mock_producer_scope
+    ):
+        mock_producer_scope.side_effect = RuntimeError("kafka cluster unreachable")
+
+        # Should not raise — Kafka outage must not break flag editing. Celery
+        # is not a fallback when the flag is on, so it must stay untouched.
+        FeatureFlag.objects.create(
+            team=self.team,
+            key="flag-on-kafka-error",
+            created_by=self.user,
+            filters={"groups": [{"properties": [], "rollout_percentage": 100}]},
+        )
+
+        mock_task.delay.assert_not_called()
+        mock_gate.assert_called_once_with(self.team.id)
+        mock_producer_scope.assert_called_once()
+
+    @patch("products.feature_flags.backend.flags_cache._produce_invalidation")
+    @patch("products.feature_flags.backend.flags_cache._route_to_kafka", return_value=False)
+    @patch("products.feature_flags.backend.tasks.update_team_service_flags_cache")
+    @patch("django.db.transaction.on_commit", lambda fn: fn())
+    def test_flag_off_celery_broker_failure_propagates(self, mock_task, mock_gate, mock_produce):
+        mock_task.delay.side_effect = RuntimeError("celery broker unreachable")
+
+        # Celery is the sole path when the flag is off, so a broker failure
+        # must be loud rather than swallowed.
+        with pytest.raises(RuntimeError, match="celery broker unreachable"):
+            FeatureFlag.objects.create(
+                team=self.team,
+                key="flag-off-celery-down",
+                created_by=self.user,
+                filters={"groups": [{"properties": [], "rollout_percentage": 100}]},
+            )
+
+        mock_gate.assert_called_once_with(self.team.id)
+        mock_produce.assert_not_called()
+
+    @patch("products.feature_flags.backend.flags_cache._produce_invalidation")
+    @patch(
+        "products.feature_flags.backend.flags_cache.posthoganalytics.feature_enabled",
+        side_effect=RuntimeError("posthoganalytics borked"),
+    )
+    @patch("products.feature_flags.backend.tasks.update_team_service_flags_cache")
+    @patch("django.db.transaction.on_commit", lambda fn: fn())
+    def test_gate_exception_falls_back_to_celery_only(self, mock_task, mock_feature_enabled, mock_produce):
+        FeatureFlag.objects.create(
+            team=self.team,
+            key="gate-broken",
+            created_by=self.user,
+            filters={"groups": [{"properties": [], "rollout_percentage": 100}]},
+        )
+        mock_task.delay.assert_called_once_with(self.team.id)
+        mock_produce.assert_not_called()
+
+    @patch("products.feature_flags.backend.flags_cache.TOMBSTONE_COUNTER")
+    @patch("products.feature_flags.backend.flags_cache._produce_invalidation")
+    @patch(
+        "products.feature_flags.backend.flags_cache.posthoganalytics.feature_enabled",
+        return_value=None,
+    )
+    @patch("products.feature_flags.backend.tasks.update_team_service_flags_cache")
+    @patch("django.db.transaction.on_commit", lambda fn: fn())
+    def test_gate_cache_cold_falls_back_to_celery_and_increments_tombstone(
+        self, mock_task, mock_feature_enabled, mock_produce, mock_tombstone
+    ):
+        FeatureFlag.objects.create(
+            team=self.team,
+            key="gate-cache-cold",
+            created_by=self.user,
+            filters={"groups": [{"properties": [], "rollout_percentage": 100}]},
+        )
+        mock_task.delay.assert_called_once_with(self.team.id)
+        mock_produce.assert_not_called()
+        mock_tombstone.labels.assert_called_once_with(
+            namespace="flags",
+            operation="dual_write_gate_cache_cold",
+            component="flags_cache",
+        )
+        mock_tombstone.labels.return_value.inc.assert_called_once()
+
+    @patch("products.feature_flags.backend.flags_cache._produce_invalidation")
+    @patch("products.feature_flags.backend.flags_cache._route_to_kafka", return_value=True)
+    @patch("products.feature_flags.backend.tasks.update_team_service_flags_cache")
+    @patch("django.db.transaction.on_commit", lambda fn: fn())
+    def test_team_create_routes_to_kafka_when_flag_on(self, mock_task, mock_gate, mock_produce):
+        new_team = Team.objects.create(organization=self.organization, name="Kafka Routing Team")
+        mock_task.delay.assert_not_called()
+        mock_produce.assert_called_with(new_team.id)
+
+    @patch("products.feature_flags.backend.flags_cache._produce_invalidation")
+    @patch("products.feature_flags.backend.flags_cache._route_to_kafka", return_value=True)
+    @patch("products.feature_flags.backend.tasks.update_team_service_flags_cache")
+    @patch("django.db.transaction.on_commit", lambda fn: fn())
+    def test_evaluation_context_save_routes_to_kafka_when_flag_on(self, mock_task, mock_gate, mock_produce):
+        flag = FeatureFlag.objects.create(
+            team=self.team,
+            key="flag-on-ctx-save",
+            created_by=self.user,
+            filters={"groups": [{"properties": [], "rollout_percentage": 100}]},
+        )
+        # Ignore signals from the FeatureFlag create — only assert on the context save.
+        mock_task.reset_mock()
+        mock_produce.reset_mock()
+
+        ctx = EvaluationContext.objects.create(team=self.team, name="ctx-kafka-routing")
+        FeatureFlagEvaluationContext.objects.create(feature_flag=flag, evaluation_context=ctx)
+
+        mock_task.delay.assert_not_called()
+        mock_produce.assert_called_with(self.team.id)
+
+    @patch("products.feature_flags.backend.flags_cache._produce_invalidation")
+    @patch("products.feature_flags.backend.flags_cache._route_to_kafka", return_value=True)
+    @patch("products.feature_flags.backend.tasks.update_team_service_flags_cache")
+    @patch("django.db.transaction.on_commit", lambda fn: fn())
+    def test_cohort_change_does_not_route_through_gate(self, mock_task, mock_gate, mock_produce):
+        """Cohort changes flow through their own topic — must bypass _enqueue_invalidation."""
+        Cohort.objects.create(
+            team=self.team,
+            name="cohort-no-kafka",
+            filters={"properties": {"type": "AND", "values": []}},
+        )
+        mock_task.delay.assert_called_with(self.team.id)
+        mock_gate.assert_not_called()
+        mock_produce.assert_not_called()
 
 
 @override_settings(FLAGS_REDIS_URL="redis://test")
@@ -851,6 +1146,7 @@ class TestServiceFlagsDataFormat(BaseTest):
                 }
             },
             last_backfill_person_properties_at=datetime(2024, 1, 15, 12, 0, 0, tzinfo=UTC),
+            last_backfill_events_at=datetime(2024, 1, 15, 12, 0, 0, tzinfo=UTC),
         )
 
         # 1) full-flag: exercises all optional nested structures.
@@ -3326,7 +3622,7 @@ class TestSerializeCohort(BaseTest):
         )
         result = _serialize_cohort(cohort)
 
-        # Hypercache/service cohort schema: these 17 fields must always be present in the serialized payload
+        # Hypercache/service cohort schema: these 18 fields must always be present in the serialized payload
         expected_fields = {
             "id",
             "name",
@@ -3345,6 +3641,7 @@ class TestSerializeCohort(BaseTest):
             "created_by_id",
             "cohort_type",
             "last_backfill_person_properties_at",
+            "last_backfill_events_at",
         }
         assert set(result.keys()) == expected_fields
         assert result["id"] == cohort.id

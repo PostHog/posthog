@@ -144,51 +144,53 @@ if direct_host:
     lock_timeout_ms = os.getenv("MIGRATE_LOCK_TIMEOUT", "20000")
     DATABASES["default_direct"]["OPTIONS"] = {"options": f"-c lock_timeout={lock_timeout_ms}"}
 
-# Add the persons_db_writer database configuration using PERSONS_DB_WRITER_URL
-# For local development, default to the persons database in the main container if no URL is provided
-persons_db_writer_url = os.getenv("PERSONS_DB_WRITER_URL")
-if not persons_db_writer_url and DEBUG and not TEST:
-    # Default to local persons database in main container in development mode (but not test mode)
-    # This matches the docker-compose.dev.yml configuration
-    # A default is needed for generate_demo_data to properly populate the correct databases
-    # with the demo data
-    persons_db_writer_url = f"postgres://{PG_USER}:{PG_PASSWORD}@{PG_HOST}:{PG_PORT}/posthog_persons"
-elif not persons_db_writer_url and TEST:
-    # In test mode, use a placeholder database name that will be updated by conftest
-    # pytest-django adds test_ prefix which isn't known at settings import time
-    # conftest.py django_db_setup fixture will update the NAME with the correct test database name
-    test_persons_db = PG_DATABASE + "_persons"
-    persons_db_writer_url = f"postgres://{PG_USER}:{PG_PASSWORD}@{PG_HOST}:{PG_PORT}/{test_persons_db}"
-
-if persons_db_writer_url:
-    DATABASES["persons_db_writer"] = dict(
-        dj_database_url.config(env="PERSONS_DB_WRITER_URL", default=persons_db_writer_url, conn_max_age=0)
-    )
-
-    # Fall back to the writer URL if no reader URL is set
-    DATABASES["persons_db_reader"] = dict(
-        dj_database_url.config(env="PERSONS_DB_READER_URL", default=persons_db_writer_url, conn_max_age=0)
-    )
-    if DISABLE_SERVER_SIDE_CURSORS:
-        DATABASES["persons_db_writer"]["DISABLE_SERVER_SIDE_CURSORS"] = True
-        DATABASES["persons_db_reader"]["DISABLE_SERVER_SIDE_CURSORS"] = True
-
-    if TEST:
-        # The persons DB schema is built by sqlx (rust/persons_migrations), not Django —
-        # PersonDBRouter.allow_migrate blocks every Django migration on it. Without MIGRATE=False,
-        # pytest-django's setup_databases still walks and records all ~1,300 Django migrations
-        # against the empty persons test database on every shard (~300s of pure overhead, scaling
-        # with migration count), even though the router skips the actual DDL. Skipping migrate here
-        # leaves conftest.run_persons_sqlx_migrations to build the real schema.
-        DATABASES["persons_db_writer"]["TEST"] = {"MIGRATE": False, "DEPENDENCIES": []}
-        DATABASES["persons_db_reader"]["TEST"] = {"MIRROR": "persons_db_writer"}
-
-    DATABASE_ROUTERS.insert(0, "posthog.person_db_router.PersonDBRouter")
+# The persons database is not a Django connection. Person/group/cohort data lives behind
+# the personhog service and is reached through the personhog client or off-Django psycopg
+# (posthog/persons_db.py), never the ORM. PersonDBRouter stays registered solely as a guard
+# that raises if a persons-DB model is queried through the ORM while the test block is active
+# (see posthog/person_db_router.py); it routes nothing and adds no DATABASES entry.
+DATABASE_ROUTERS.insert(0, "posthog.person_db_router.PersonDBRouter")
 
 
 product_routes = load_product_db_routes(Path(__file__).resolve().parents[2])
 configured_product_databases: set[str] = set()
 PRODUCT_DB_WRITER_URLS: dict[str, str] = {}
+
+
+# Per-product SSL for the migration DIRECT_URL only. Runtime writer/reader route
+# through PgBouncer (in-cluster, plaintext, no SSL); only the direct migration
+# connection reaches Aurora, whose pg_hba requires SSL (hostssl). dj_database_url
+# sets only connect_timeout, so set sslmode here. Scoped per product (e.g.
+# PRODUCT_DB_AGENT_PLATFORM_SSL_MODE); unset for local dev/test (plain Postgres).
+def _apply_product_db_ssl_options(db: str, options: dict) -> None:
+    ssl_mode = os.getenv(f"PRODUCT_DB_{db.upper()}_SSL_MODE")
+    ssl_root_cert = os.getenv(f"PRODUCT_DB_{db.upper()}_SSL_ROOT_CERT")
+    if ssl_mode:
+        options["sslmode"] = ssl_mode
+    if ssl_root_cert:
+        options["sslrootcert"] = ssl_root_cert
+
+
+# Fail-fast circuit breaker for product databases. When a product DB is
+# unreachable, the custom backend raises immediately on connect instead of
+# blocking the worker on `connect_timeout`, so one product's outage can't
+# exhaust the shared worker pool. See posthog/db_circuit_breaker.py.
+PRODUCT_DB_FAIL_OPEN_ENGINE = "posthog.db_backends.failopen"
+PRODUCT_DB_CIRCUIT_BREAKER_ENABLED: bool = get_from_env(
+    "PRODUCT_DB_CIRCUIT_BREAKER_ENABLED", not TEST, type_cast=str_to_bool
+)
+PRODUCT_DB_CIRCUIT_BREAKER_FAILURE_THRESHOLD: int = get_from_env(
+    "PRODUCT_DB_CIRCUIT_BREAKER_FAILURE_THRESHOLD", 3, type_cast=int
+)
+PRODUCT_DB_CIRCUIT_BREAKER_COOLDOWN_SECONDS: int = get_from_env(
+    "PRODUCT_DB_CIRCUIT_BREAKER_COOLDOWN_SECONDS", 30, type_cast=int
+)
+PRODUCT_DB_CIRCUIT_BREAKER_PROBE_TIMEOUT_SECONDS: int = get_from_env(
+    "PRODUCT_DB_CIRCUIT_BREAKER_PROBE_TIMEOUT_SECONDS", 5, type_cast=int
+)
+PRODUCT_DB_CIRCUIT_BREAKER_WINDOW_SECONDS: int = get_from_env(
+    "PRODUCT_DB_CIRCUIT_BREAKER_WINDOW_SECONDS", 30, type_cast=int
+)
 
 for route in product_routes:
     if route.database in configured_product_databases:
@@ -212,10 +214,12 @@ for route in product_routes:
     PRODUCT_DB_WRITER_URLS[db] = writer_url
     DATABASES[writer_alias] = dict(dj_database_url.parse(writer_url, conn_max_age=0))
     DATABASES[writer_alias].setdefault("OPTIONS", {})["connect_timeout"] = 3
+    DATABASES[writer_alias]["ENGINE"] = PRODUCT_DB_FAIL_OPEN_ENGINE
 
     reader_url = os.getenv(reader_env, writer_url)
     DATABASES[reader_alias] = dict(dj_database_url.parse(reader_url, conn_max_age=0))
     DATABASES[reader_alias].setdefault("OPTIONS", {})["connect_timeout"] = 3
+    DATABASES[reader_alias]["ENGINE"] = PRODUCT_DB_FAIL_OPEN_ENGINE
 
     if TEST:
         # Skip the global migration-graph walk during test DB setup. Without
@@ -250,6 +254,7 @@ for route in product_routes:
         direct_alias = f"{db}_db_direct"
         DATABASES[direct_alias] = dict(dj_database_url.parse(direct_url, conn_max_age=0))
         DATABASES[direct_alias].setdefault("OPTIONS", {})["connect_timeout"] = 10
+        _apply_product_db_ssl_options(db, DATABASES[direct_alias]["OPTIONS"])
         if DISABLE_SERVER_SIDE_CURSORS:
             DATABASES[direct_alias]["DISABLE_SERVER_SIDE_CURSORS"] = True
 
@@ -313,6 +318,9 @@ CLICKHOUSE_WRITABLE_CLUSTER: str = os.getenv("CLICKHOUSE_WRITABLE_CLUSTER", "pos
 CLICKHOUSE_PRIMARY_REPLICA_CLUSTER: str = os.getenv("CLICKHOUSE_PRIMARY_REPLICA_CLUSTER", "posthog_primary_replica")
 CLICKHOUSE_AUX_CLUSTER: str = os.getenv("CLICKHOUSE_AUX_CLUSTER", "aux")
 CLICKHOUSE_AI_EVENTS_CLUSTER: str = os.getenv("CLICKHOUSE_AI_EVENTS_CLUSTER", "ai_events")
+# query_log_archive's single data table lives on the OPS cluster; every cluster's
+# Distributed read/write tables route to it via this cluster name.
+CLICKHOUSE_OPS_CLUSTER: str = os.getenv("CLICKHOUSE_OPS_CLUSTER", "ops")
 # Opt-in flag for the multinode ClickHouse smoke-test stack. When true, migrations
 # respect their declared NodeRole(s) instead of being collapsed to NodeRole.ALL,
 # so a per-cluster topology can actually exercise routing.
@@ -357,7 +365,9 @@ CLICKHOUSE_LOGS_CLUSTER_HOST: str = os.getenv("CLICKHOUSE_LOGS_CLUSTER_HOST", "l
 CLICKHOUSE_LOGS_CLUSTER_PORT: str = os.getenv("CLICKHOUSE_LOGS_CLUSTER_PORT", "9000")
 CLICKHOUSE_LOGS_CLUSTER_USER: str = os.getenv("CLICKHOUSE_LOGS_CLUSTER_USER", "default")
 CLICKHOUSE_LOGS_CLUSTER_PASSWORD: str = os.getenv("CLICKHOUSE_LOGS_CLUSTER_PASSWORD", "")
-CLICKHOUSE_LOGS_CLUSTER_DATABASE: str = CLICKHOUSE_TEST_DB if TEST else os.getenv("CLICKHOUSE_LOGS_DATABASE", "default")
+CLICKHOUSE_LOGS_CLUSTER_DATABASE: str = (
+    CLICKHOUSE_TEST_DB if TEST else os.getenv("CLICKHOUSE_LOGS_DATABASE", CLICKHOUSE_DATABASE)
+)
 CLICKHOUSE_LOGS_CLUSTER_SECURE: bool = get_from_env(
     "CLICKHOUSE_LOGS_CLUSTER_SECURE", not TEST and not DEBUG, type_cast=str_to_bool
 )
@@ -516,9 +526,21 @@ if not CDP_API_URL:
         "http://localhost:6738" if DEBUG else "http://ingestion-cdp-api.posthog.svc.cluster.local"
     )  # localhost is correct — plugin server runs on host in dev
 
-# Shared secret for internal API authentication between Django and Node.js services
+# Shared secret for internal API authentication between Django and Node.js services.
+# Only the services that make/serve internal calls get this injected, so a missing value must not
+# block startup. Defaults to the public dev secret in DEBUG/TEST; elsewhere it defaults to empty and
+# internal API requests fail closed at request time (InternalAPIAuthentication) rather than silently
+# running on a known-public value. Stripped at load so a mounted secret's trailing newline can't
+# cause a spurious mismatch; get_list already strips the fallbacks.
+# Do not add new callers or protected endpoints to this shared secret — mint a scoped JWT (see
+# RECORDING_API_JWT_SECRET) or add a dedicated per-purpose secret. See .agents/security.md.
 LOCAL_DEV_INTERNAL_API_SECRET = "posthog123"
-INTERNAL_API_SECRET = get_from_env("INTERNAL_API_SECRET", LOCAL_DEV_INTERNAL_API_SECRET)
+INTERNAL_API_SECRET = get_from_env(
+    "INTERNAL_API_SECRET", LOCAL_DEV_INTERNAL_API_SECRET if DEBUG or TEST else ""
+).strip()
+# Previous secrets still accepted for verification during zero-downtime rotation, newest first.
+# Receivers accept INTERNAL_API_SECRET plus these; senders always send INTERNAL_API_SECRET.
+INTERNAL_API_SECRET_FALLBACKS = get_list(os.getenv("INTERNAL_API_SECRET_FALLBACKS", ""))
 
 EMBEDDING_API_URL = get_from_env("EMBEDDING_API_URL", "")
 
@@ -530,9 +552,31 @@ if not EMBEDDING_API_URL:
 # This allows feature-flags service to have dedicated Redis for better resource isolation
 FLAGS_REDIS_URL = os.getenv("FLAGS_REDIS_URL", None)
 
+# Dedicated Redis for ai-gateway HyperCache reads. In local dev defaults to the
+# sibling ai-gateway's valkey (host port 6381) so the gateway-credential blob is
+# published where the gateway reads it — zero config for the agent-platform e2e
+# (see bin/setup-gateway-e2e). Prod sets it explicitly; tests leave it unset.
+AI_GATEWAY_REDIS_URL = os.getenv("AI_GATEWAY_REDIS_URL", "redis://localhost:6381" if DEBUG and not TEST else None)
+
+TASKS_REDIS_URL = os.getenv("TASKS_REDIS_URL", None)
+
+# Public base URL of the LLM gateway, surfaced in the app's per-gateway endpoint
+# examples (…/v1/<slug>/messages). Deployment-specific; empty until configured,
+# except in local dev where it defaults to the gateway's local listen addr
+# (AI_GATEWAY_LISTEN_ADDR=:8080 in PostHog/ai-gateway).
+AI_GATEWAY_PUBLIC_URL = os.getenv("AI_GATEWAY_PUBLIC_URL", "http://localhost:8080" if DEBUG else "")
+
 # Rust feature flags service URL
 # This is used to proxy flag evaluation requests to the Rust feature flags service
 FEATURE_FLAGS_SERVICE_URL = os.getenv("FEATURE_FLAGS_SERVICE_URL", "http://localhost:3001")
+
+# Definitions fleet, which serves remote_config (the eval fleet 404s it). Falls back until set per env.
+FEATURE_FLAGS_DEFINITIONS_SERVICE_URL = os.getenv("FEATURE_FLAGS_DEFINITIONS_SERVICE_URL", FEATURE_FLAGS_SERVICE_URL)
+
+# Temporary (Rust remote_config port, phase 2): when true, each Django remote_config response is
+# shadow-compared against Rust. Off by default; flip per environment to start/stop without a deploy.
+# Delete with remote_config_shadow.py at the phase-3 cutover.
+REMOTE_CONFIG_SHADOW_ENABLED = get_from_env("REMOTE_CONFIG_SHADOW_ENABLED", False, type_cast=str_to_bool)
 
 # Bearer token for marking Django -> Rust /flags calls as internal (non-billable).
 # When set, internal Django callers (toolbar prep, my_flags, evaluation_reasons) pass this
@@ -570,6 +614,33 @@ if FLAGS_REDIS_URL:
     CACHES[FLAGS_DEDICATED_CACHE_ALIAS] = {
         "BACKEND": "django_redis.cache.RedisCache",
         "LOCATION": FLAGS_REDIS_URL,
+        "OPTIONS": {
+            "CLIENT_CLASS": "django_redis.client.DefaultClient",
+            "COMPRESSOR": "posthog.caching.zstd_compressor.ZstdCompressor",
+        },
+        "KEY_PREFIX": "posthog",
+    }
+
+# Dedicated cache for the ai-gateway service (if configured)
+if AI_GATEWAY_REDIS_URL:
+    from posthog.caching.ai_gateway_redis_cache import AI_GATEWAY_DEDICATED_CACHE_ALIAS
+
+    CACHES[AI_GATEWAY_DEDICATED_CACHE_ALIAS] = {
+        "BACKEND": "django_redis.cache.RedisCache",
+        "LOCATION": AI_GATEWAY_REDIS_URL,
+        "OPTIONS": {
+            "CLIENT_CLASS": "django_redis.client.DefaultClient",
+            "COMPRESSOR": "posthog.caching.zstd_compressor.ZstdCompressor",
+        },
+        "KEY_PREFIX": "posthog",
+    }
+
+if TASKS_REDIS_URL:
+    from posthog.caching.tasks_redis_cache import TASKS_DEDICATED_CACHE_ALIAS
+
+    CACHES[TASKS_DEDICATED_CACHE_ALIAS] = {
+        "BACKEND": "django_redis.cache.RedisCache",
+        "LOCATION": TASKS_REDIS_URL,
         "OPTIONS": {
             "CLIENT_CLASS": "django_redis.client.DefaultClient",
             "COMPRESSOR": "posthog.caching.zstd_compressor.ZstdCompressor",

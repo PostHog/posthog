@@ -11,6 +11,7 @@
  */
 
 import { cssVarsFlat } from './css'
+import { generateDataVizVars } from './data-viz'
 import { generateShadowCSS, shadow } from './shadow'
 import { generateSpacingCSS } from './spacing'
 import { generateFontSizeCSS, generateFontFamilyCSS } from './typography'
@@ -61,11 +62,7 @@ export type ColorTuple = readonly [light: string, dark: string, tailwindClass: s
 function surface(lightness: number, chromaScale: number, mode: 'light' | 'dark', alpha?: number): string {
     const hueVar = mode === 'light' ? 'var(--theme-hue)' : 'var(--theme-dark-hue)'
     const chromaExpr =
-        chromaScale === 1
-            ? 'var(--theme-tint)'
-            : chromaScale === 0
-              ? '0'
-              : `calc(var(--theme-tint) * ${chromaScale})`
+        chromaScale === 1 ? 'var(--theme-tint)' : chromaScale === 0 ? '0' : `calc(var(--theme-tint) * ${chromaScale})`
     const alphaSuffix = alpha !== undefined ? ` / ${alpha * 100}%` : ''
     return `oklch(${lightness} ${chromaExpr} ${hueVar}${alphaSuffix})`
 }
@@ -103,6 +100,13 @@ export function buildSemanticColors(): Record<string, ColorTuple> {
         // list rows): light hsl(70 16% 93%), dark hsl(240 8% 10%), in OKLCH.
         muted: [surface(0.953, 1.28, 'light'), surface(0.209, 1.33, 'dark'), 'bg-muted'],
         'muted-foreground': [oklch(0.446, 0.03, 257), oklch(0.709, 0, 0), 'text-muted-foreground'],
+        // One step quieter than muted-foreground — tertiary meta text (attachment
+        // filenames, reply meta). Derived from muted-foreground so it tracks it.
+        'subtle-foreground': [
+            'color-mix(in oklab, var(--muted-foreground) 80%, transparent)',
+            'color-mix(in oklab, var(--muted-foreground) 80%, transparent)',
+            'text-subtle-foreground',
+        ],
 
         // Chrome — UI furniture surface (toolbars, menubars, nav). Matched to
         // PostHog app's --color-bg-surface-tertiary: light hsl(77 13% 89%),
@@ -125,11 +129,7 @@ export function buildSemanticColors(): Record<string, ColorTuple> {
         ],
 
         success: [oklch(0.94, 0.06, 154.03), oklch(0.27, 0.04, 157.6), 'bg-success'],
-        'success-foreground': [
-            oklch(0.448, 0.119, 151.328),
-            oklch(0.925, 0.084, 155.995),
-            'text-success-foreground',
-        ],
+        'success-foreground': [oklch(0.448, 0.119, 151.328), oklch(0.925, 0.084, 155.995), 'text-success-foreground'],
 
         warning: [oklch(0.93, 0.04, 74.41), oklch(0.29, 0.03, 75), 'bg-warning'],
         'warning-foreground': [oklch(0.476, 0.114, 61.907), oklch(0.77, 0.14, 99.29), 'text-warning-foreground'],
@@ -138,8 +138,8 @@ export function buildSemanticColors(): Record<string, ColorTuple> {
         'info-foreground': [oklch(0.49, 0.02, 254), oklch(0.882, 0.059, 254.128), 'text-info-foreground'],
 
         // ── Borders & rings (theme-derived) ───────────
-        border: [surface(0.90, 0.8, 'light'), surface(0.27, 1.2, 'dark'), 'border-border'],
-        input: [surface(0.81, 0.5, 'light'), surface(0.30, 1.5, 'dark'), 'border-input'],
+        border: [surface(0.9, 0.8, 'light'), surface(0.27, 1.2, 'dark'), 'border-border'],
+        input: [surface(0.81, 0.5, 'light'), surface(0.3, 1.5, 'dark'), 'border-input'],
         ring: [oklch(0.446, 0.03, 257), oklch(0.709, 0, 0), 'border-ring'],
 
         // ── Interactive fills for default button / interactive elements ───────────
@@ -304,6 +304,10 @@ export function generateColorSystemCSS(
     const light = partition(0)
     const dark = partition(1)
 
+    // Data-viz tokens (categorical palette + graph chrome) are static like the
+    // semantic static vars — they live with them on :root / the scope selector.
+    const dataViz = generateDataVizVars()
+
     // ── Scoped mode ─────────────────────────────────────
     // All vars gated behind the scope selector to avoid clashing
     // with the consumer's existing CSS custom properties.
@@ -339,6 +343,9 @@ ${themeKnobs()}
 ${cssVarsFlat(light.staticVars)}
 ${cssVarsFlat(light.dynamicVars)}
 
+  /* Data-visualization palette + graph chrome (see data-viz.ts) */
+${dataViz.light}
+
   /* Override Tailwind --color-* theme tokens within scope so utilities
    * like bg-card, text-foreground, border-border resolve to quill's
    * values instead of the consumer's global theme. */
@@ -348,6 +355,7 @@ ${generateColorMappingsCSS()}
 ${darkScopeSel} {
 ${cssVarsFlat(dark.staticVars)}
 ${cssVarsFlat(dark.dynamicVars)}
+${dataViz.dark}
 }
 `
     }
@@ -371,10 +379,14 @@ ${themeKnobs()}
 /* Static colors (no theme-var references, safe on :root) */
 :root {
 ${cssVarsFlat(light.staticVars)}
+
+  /* Data-visualization palette + graph chrome (see data-viz.ts) */
+${dataViz.light}
 }
 
 ${darkSelector} {
 ${cssVarsFlat(dark.staticVars)}
+${dataViz.dark}
 }
 
 /*

@@ -1,25 +1,35 @@
 import { useActions, useValues } from 'kea'
+import { type ComponentType, isValidElement } from 'react'
 
 import { LemonButton, Link, Spinner } from '@posthog/lemon-ui'
 
 import { WarningHog } from 'lib/components/hedgehogs'
-import { ProductIntroduction } from 'lib/components/ProductIntroduction/ProductIntroduction'
+import {
+    ProductIntroduction,
+    type ProductIntroductionProps,
+} from 'lib/components/ProductIntroduction/ProductIntroduction'
 import { RestrictionScope, useRestrictedArea } from 'lib/components/RestrictedArea'
 import { TeamMembershipLevel } from 'lib/constants'
-import androidImage from 'scenes/onboarding/sdks/logos/android.svg'
-import flutterImage from 'scenes/onboarding/sdks/logos/flutter.svg'
-import javascriptImage from 'scenes/onboarding/sdks/logos/javascript_web.svg'
-import nextjsImage from 'scenes/onboarding/sdks/logos/nextjs.svg'
-import nodejsImage from 'scenes/onboarding/sdks/logos/nodejs.svg'
-import pythonImage from 'scenes/onboarding/sdks/logos/python.svg'
-import reactImage from 'scenes/onboarding/sdks/logos/react.svg'
+import { cn } from 'lib/utils/css-classes'
+import androidImage from 'scenes/onboarding/shared/logos/android.svg'
+import flutterImage from 'scenes/onboarding/shared/logos/flutter.svg'
+import { IOSLogo } from 'scenes/onboarding/shared/logos/IOSLogo'
+import javascriptImage from 'scenes/onboarding/shared/logos/javascript_web.svg'
+import nextjsImage from 'scenes/onboarding/shared/logos/nextjs.svg'
+import nodejsImage from 'scenes/onboarding/shared/logos/nodejs.svg'
+import pythonImage from 'scenes/onboarding/shared/logos/python.svg'
+import reactImage from 'scenes/onboarding/shared/logos/react.svg'
 import { teamLogic } from 'scenes/teamLogic'
 
 import { ProductIntentContext, ProductKey } from '~/queries/schema/schema-general'
 
 import { exceptionIngestionLogic } from './exceptionIngestionLogic'
 
-const FRAMEWORK_LINKS: { name: string; image?: string; docsLink: string }[] = [
+export const ERROR_TRACKING_FRAMEWORK_LINKS: {
+    name: string
+    image?: string | JSX.Element
+    docsLink: string
+}[] = [
     {
         name: 'JavaScript',
         image: javascriptImage,
@@ -29,7 +39,7 @@ const FRAMEWORK_LINKS: { name: string; image?: string; docsLink: string }[] = [
     { name: 'React', image: reactImage, docsLink: 'https://posthog.com/docs/error-tracking/installation/react' },
     { name: 'Node.js', image: nodejsImage, docsLink: 'https://posthog.com/docs/error-tracking/installation/nodejs' },
     { name: 'Python', image: pythonImage, docsLink: 'https://posthog.com/docs/error-tracking/installation/python' },
-    { name: 'iOS', docsLink: 'https://posthog.com/docs/error-tracking/installation/ios' },
+    { name: 'iOS', image: <IOSLogo />, docsLink: 'https://posthog.com/docs/error-tracking/installation/ios' },
     { name: 'Android', image: androidImage, docsLink: 'https://posthog.com/docs/error-tracking/installation/android' },
     {
         name: 'React Native',
@@ -56,13 +66,29 @@ export const ErrorTrackingSetupPrompt = ({
             <Spinner />
         </div>
     ) : !hasSentExceptionEvent && !exceptionAutocaptureEnabled ? (
-        <IngestionStatusCheck className={className} />
+        <ErrorTrackingIngestionPrompt className={className} />
     ) : (
         <>{children}</>
     )
 }
 
-const IngestionStatusCheck = ({ className }: { className?: string }): JSX.Element | null => {
+export type ErrorTrackingIngestionPromptProps = {
+    className?: string
+    /** Passed to `IntroductionComponent` (e.g. `WidgetCardProductIntroduction--stacked`). */
+    introductionClassName?: string
+    /** When true, passed through to `WidgetCardProductIntroduction` for always-vertical layout. */
+    introductionStacked?: boolean
+    IntroductionComponent?: ComponentType<ProductIntroductionProps>
+    actionElementClassName?: string
+}
+
+export function ErrorTrackingIngestionPrompt({
+    className,
+    introductionClassName,
+    introductionStacked,
+    IntroductionComponent = ProductIntroduction,
+    actionElementClassName = 'flex flex-col items-start gap-4',
+}: ErrorTrackingIngestionPromptProps): JSX.Element {
     const { addProductIntent, updateCurrentTeam } = useActions(teamLogic)
     const restrictionReason = useRestrictedArea({
         minimumAccessLevel: TeamMembershipLevel.Admin,
@@ -77,18 +103,19 @@ const IngestionStatusCheck = ({ className }: { className?: string }): JSX.Elemen
     }
 
     return (
-        <ProductIntroduction
+        <IntroductionComponent
             productName="Error tracking"
             thingName="issue"
             titleOverride="You haven't captured any exceptions"
             description="PostHog captures exceptions from any of our SDKs. JavaScript apps can flip on exception autocapture; other platforms wire it up in code – the docs have per-SDK instructions."
             isEmpty={true}
             productKey={ProductKey.ERROR_TRACKING}
-            className={className}
+            className={cn(introductionClassName, className)}
+            {...(introductionStacked !== undefined ? { stacked: introductionStacked } : {})}
             mcpSurfaceKey="error_tracking.assign"
             customHog={WarningHog}
             actionElementOverride={
-                <div className="flex flex-col items-start gap-4">
+                <div className={actionElementClassName}>
                     <p className="text-sm text-secondary m-0">
                         Read our{' '}
                         <Link to="https://posthog.com/docs/error-tracking" onClick={onDocsLinkClick}>
@@ -97,7 +124,7 @@ const IngestionStatusCheck = ({ className }: { className?: string }): JSX.Elemen
                         , or pick a framework to get started:
                     </p>
                     <div className="flex flex-wrap gap-2">
-                        {FRAMEWORK_LINKS.map(({ name, image, docsLink }) => (
+                        {ERROR_TRACKING_FRAMEWORK_LINKS.map(({ name, image, docsLink }) => (
                             <LemonButton
                                 key={name}
                                 type="secondary"
@@ -106,7 +133,9 @@ const IngestionStatusCheck = ({ className }: { className?: string }): JSX.Elemen
                                 targetBlank
                                 onClick={onDocsLinkClick}
                                 icon={
-                                    image ? (
+                                    isValidElement(image) ? (
+                                        <span className="flex w-5 h-5 [&_svg]:w-full [&_svg]:h-full">{image}</span>
+                                    ) : typeof image === 'string' ? (
                                         <img src={image} alt="" aria-hidden="true" className="w-5 h-5" />
                                     ) : undefined
                                 }

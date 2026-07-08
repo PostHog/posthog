@@ -83,6 +83,18 @@ class TestLazyJoins(BaseTest):
         printed = self._print_select("select count() from persons")
         assert printed == self.snapshot
 
+    def test_sample_on_lazy_table_is_stripped(self):
+        # A lazy table expands into an aggregating subquery; ClickHouse rejects a SAMPLE modifier on
+        # a subquery, so it must be dropped rather than left to produce invalid SQL — but not
+        # silently: the user asked for sampling and needs to know it did not apply.
+        context = HogQLContext(team_id=self.team.pk, enable_select_queries=True, modifiers=HogQLQueryModifiers())
+        expr = parse_select("select session_id, $channel_type from sessions SAMPLE 10")
+        printed, _ = prepare_and_print_ast(expr, context, "clickhouse")
+        assert "SAMPLE" not in printed
+        assert [warning.message for warning in context.warnings] == [
+            'SAMPLE clause ignored: the "sessions" table is computed on the fly and cannot be sampled'
+        ]
+
     def _print_select(self, select: str, modifiers: HogQLQueryModifiers | None = None):
         expr = parse_select(select)
         query, _ = prepare_and_print_ast(
@@ -156,5 +168,49 @@ class TestLazyJoins(BaseTest):
         printed = self._print_select(
             "select person_id, person.properties from events",
             HogQLQueryModifiers(personsOnEventsMode=PersonsOnEventsMode.PERSON_ID_OVERRIDE_PROPERTIES_JOINED),
+        )
+        assert printed == self.snapshot
+
+    @pytest.mark.usefixtures("unittest_snapshot")
+    def test_events_session_join_with_timestamp_filter(self):
+        # Documents SQL generation for events with session access and a timestamp filter.
+        printed = self._print_select(
+            "SELECT event, session.$session_duration "
+            "FROM events "
+            "WHERE timestamp >= '2024-01-01' AND timestamp < '2024-01-08'"
+        )
+        assert printed == self.snapshot
+
+    @pytest.mark.usefixtures("unittest_snapshot")
+    def test_events_sessions_join_with_alias(self):
+        # Documents that events table alias is propagated.
+        printed = self._print_select(
+            "SELECT event, session.$session_duration "
+            "FROM events AS e "
+            "WHERE e.timestamp >= '2024-01-01' AND event = 'my-event'"
+        )
+        assert printed == self.snapshot
+
+    @pytest.mark.usefixtures("unittest_snapshot")
+    def test_events_session_join_with_multiple_predicates(self):
+        # Documents events query with session access and multiple event-level predicates.
+        printed = self._print_select(
+            "SELECT event, session.$session_duration "
+            "FROM events "
+            "WHERE timestamp >= '2024-01-01' "
+            "AND timestamp < '2024-01-08' "
+            "AND event = '$pageview' "
+            "AND $session_id IS NOT NULL"
+        )
+        assert printed == self.snapshot
+
+    @pytest.mark.usefixtures("unittest_snapshot")
+    def test_events_session_join_with_session_duration_filter(self):
+        # Documents that session duration filters remain in outer WHERE (can't be pushed down).
+        printed = self._print_select(
+            "SELECT event, session.$session_duration "
+            "FROM events "
+            "WHERE timestamp >= '2024-01-01' "
+            "AND session.$session_duration > 0"
         )
         assert printed == self.snapshot

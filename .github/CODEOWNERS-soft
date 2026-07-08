@@ -8,56 +8,61 @@
 # Surveys - owned by @PostHog/team-surveys
 frontend/src/scenes/settings/environment/SurveySettings.tsx @PostHog/team-surveys
 frontend/src/scenes/surveys/ @PostHog/team-surveys
-frontend/src/scenes/onboarding/sdks/surveys @PostHog/team-surveys
-ee/surveys @PostHog/team-surveys
-posthog/admin/admins/survey_admin.py @PostHog/team-surveys
-posthog/api/survey.py @PostHog/team-surveys
-posthog/api/test/test_survey.py @PostHog/team-surveys
-posthog/models/surveys/survey.py @PostHog/team-surveys
+ee/surveys/ @PostHog/team-surveys
 posthog/tasks/stop_surveys_reached_target.py @PostHog/team-surveys
-posthog/tasks/update_survey_adaptive_sampling @PostHog/team-surveys
-posthog/tasks/update_survey_iteration @PostHog/team-surveys
+posthog/tasks/update_survey_adaptive_sampling.py @PostHog/team-surveys
+posthog/tasks/update_survey_iteration.py @PostHog/team-surveys
 posthog/tasks/test/test_stop_surveys_reached_target.py @PostHog/team-surveys
+posthog/tasks/test/test_update_survey_adaptive_sampling.py @PostHog/team-surveys
+posthog/tasks/test/test_update_survey_iteration.py @PostHog/team-surveys
 posthog/templates/surveys @PostHog/team-surveys
 
 # Product Tours - owned by @PostHog/team-surveys
 products/product_tours/** @PostHog/team-surveys
 frontend/src/toolbar/product-tours/** @PostHog/team-surveys
-posthog/api/product_tour.py @PostHog/team-surveys
-posthog/models/product_tour.py @PostHog/team-surveys
-posthog/tasks/product_tour.py @PostHog/team-surveys
-posthog/templates/product_tour.py @PostHog/team-surveys
-posthog/tests/test_product_tour.py @PostHog/team-surveys
-posthog/tests/test_product_tour.py @PostHog/team-surveys
 
 # Nodejs Services - ownership is split between ingestion and workflows teams
 nodejs/tests/ @PostHog/team-ingestion
 nodejs/src/ingestion/ @PostHog/team-ingestion
+nodejs/src/ingestion/pipelines/sessionreplay/ @PostHog/team-replay @PostHog/team-ingestion
+# Rust session-replay anonymizer (native counterpart of the sessionreplay anonymize pipeline)
+rust/replay-anonymizer-node/** @PostHog/team-ai-research
 nodejs/src/cdp/ @PostHog/team-workflows
-nodejs/src/session-replay/ @PostHog/team-replay
-nodejs/src/session-replay/shared/ @PostHog/team-replay @PostHog/team-ingestion
+nodejs/src/session-replay/recording-rasterizer/ @PostHog/team-replay
 
 # CDP / Workflows - owned by @PostHog/team-workflows
 posthog/cdp/** @PostHog/team-workflows
+posthog/models/messaging.py @PostHog/team-workflows
+posthog/temporal/messaging/ @PostHog/team-workflows
+frontend/src/scenes/data-pipelines/ @PostHog/team-workflows
+frontend/src/scenes/hog-functions/ @PostHog/team-workflows
+
+# Platform email infrastructure - owned by @PostHog/team-platform-features
+# The shared SMTP/HTTP send path, email settings, and platform-level emails (e.g. daily/weekly
+# project digests). Product-specific emails keep their own owners via more specific entries
+# (workflows messaging above; weekly digest temporal workflow and AI observability templates below).
+posthog/email.py @PostHog/team-platform-features
+posthog/settings/email.py @PostHog/team-platform-features
+posthog/tasks/email.py @PostHog/team-platform-features
+posthog/tasks/email_utils.py @PostHog/team-platform-features
+posthog/helpers/email_utils.py @PostHog/team-platform-features
 
 # Web Analytics - owned by @PostHog/team-web-analytics
 frontend/src/scenes/web-analytics/** @PostHog/team-web-analytics
-posthog/hogql_queries/web_analytics/** @PostHog/team-web-analytics
+posthog/models/web_preaggregated/** @PostHog/team-web-analytics
+posthog/models/channel_type/** @PostHog/team-web-analytics
 frontend/src/toolbar/web-vitals/** @PostHog/team-web-analytics
 rust/common/cookieless/** @PostHog/team-web-analytics
 nodejs/src/ingestion/cookieless/** @PostHog/team-web-analytics
+frontend/src/scenes/marketing-analytics/ @PostHog/team-web-analytics
 
 # Heatmaps - owned by @PostHog/team-web-analytics
 frontend/src/scenes/heatmaps/** @PostHog/team-web-analytics
 frontend/src/lib/components/heatmaps/** @PostHog/team-web-analytics
 frontend/src/toolbar/elements/heatmapToolbarMenuLogic.ts @PostHog/team-web-analytics
 posthog/heatmaps/** @PostHog/team-web-analytics
-posthog/models/heatmap_saved.py @PostHog/team-web-analytics
 posthog/hogql/database/schema/heatmaps.py @PostHog/team-web-analytics
-posthog/tasks/heatmap_screenshot.py @PostHog/team-web-analytics
-nodejs/src/ingestion/analytics/heatmap-subpipeline.ts @PostHog/team-web-analytics
-nodejs/src/ingestion/event-processing/extract-heatmap-data-step.ts @PostHog/team-web-analytics
-nodejs/src/ingestion/event-processing/event-pipeline-runner-heatmap-step.ts @PostHog/team-web-analytics
+nodejs/src/ingestion/heatmaps/ @PostHog/team-web-analytics
 
 # Analytics Platform - owned by @PostHog/team-analytics-platform
 posthog/dags/locations/analytics*platform.py @PostHog/team-analytics-platform
@@ -65,75 +70,137 @@ ee/tasks/subscriptions/** @PostHog/team-analytics-platform
 frontend/src/scenes/data-management/schema/** @PostHog/team-analytics-platform
 frontend/src/scenes/dashboard/ @PostHog/team-analytics-platform
 posthog/api/schema_property_group.py @PostHog/team-analytics-platform
-posthog/hogql/database/schema/sessions*\*.py @PostHog/team-analytics-platform
-posthog/models/raw_sessions/** @PostHog/team-analytics-platform
-posthog/models/schema.py @PostHog/team-analytics-platform
-posthog/models/sessions/** @PostHog/team-analytics-platform
+posthog/hogql_queries/sessions_query_runner.py @PostHog/team-analytics-platform
+posthog/hogql_queries/sessions_timeline_query_runner.py @PostHog/team-analytics-platform
+posthog/dags/sessions.py @PostHog/team-analytics-platform
+ee/clickhouse/materialized_columns/** @PostHog/team-analytics-platform
 posthog/tasks/alerts/** @PostHog/team-analytics-platform
-posthog/tasks/exports/** @PostHog/team-analytics-platform
+posthog/temporal/alerts/ @PostHog/team-analytics-platform
+posthog/temporal/exports/ @PostHog/team-analytics-platform
+frontend/src/scenes/alerts/ @PostHog/team-analytics-platform
+frontend/src/scenes/health-alerts/ @PostHog/team-analytics-platform
+frontend/src/scenes/exports/ @PostHog/team-analytics-platform
+frontend/src/scenes/subscriptions/ @PostHog/team-analytics-platform
+frontend/src/scenes/sessions/ @PostHog/team-analytics-platform
 
 # Revenue Analytics - owned by @rafaeelaudibert and @PostHog/team-web-analytics
-products/revenue_analytics/\*\* @rafaeelaudibert @PostHog/team-web-analytics
+products/revenue_analytics/** @rafaeelaudibert @PostHog/team-web-analytics
 
 # Feature Flags (Rust evaluator + remaining monolith tests) - owned by @PostHog/team-feature-flags
 # Note: the Django models and API moved to products/feature_flags/ (covered by products/feature_flags/product.yaml).
 rust/feature-flags/ @PostHog/team-feature-flags
+rust/flags-consumer/ @PostHog/team-feature-flags
+rust/flags_read_store_migrations/ @PostHog/team-feature-flags
 posthog/test/test_feature_flag_analytics.py @PostHog/team-feature-flags
 
 # Cohorts - owned by @PostHog/team-feature-flags
 posthog/api/cohort.py @PostHog/team-feature-flags
-posthog/models/cohort/ @PostHog/team-feature-flags
+posthog/models/cohortmembership/ @PostHog/team-feature-flags
 frontend/src/scenes/cohorts/ @PostHog/team-feature-flags
+posthog/tasks/calculate_cohort.py @PostHog/team-feature-flags
+posthog/hogql_queries/hogql_cohort_query.py @PostHog/team-feature-flags
+
+# Auto-label scope mappings - owned by @PostHog/team-feature-flags so mappings
+# can change without editing the Auto Assign Labels workflow or its script
+.github/auto-assign-labels.json @PostHog/team-feature-flags
 
 # Feature Flags frontend - owned by @PostHog/team-feature-flags
 frontend/src/scenes/feature-flags/ @PostHog/team-feature-flags
+frontend/src/scenes/FeatureFlagPermissions.tsx @PostHog/team-feature-flags
+posthog/tasks/early_access_feature.py @PostHog/team-feature-flags
 
 # Data warehouse - owned by @PostHog/team-data-stack
-posthog/temporal/data_imports/** @PostHog/team-warehouse-sources
+products/warehouse_sources/backend/temporal/data_imports/** @PostHog/team-warehouse-sources
 posthog/warehouse/** @PostHog/team-data-stack
 products/data_warehouse/** @PostHog/team-data-stack
-frontend/src/scenes/data-warehouse/\*\* @PostHog/team-data-stack
+frontend/src/scenes/data-warehouse/** @PostHog/team-data-stack
 posthog/management/commands/generate_source_configs.py @PostHog/team-warehouse-sources
+frontend/src/scenes/data-management/ @PostHog/team-warehouse-sources
 posthog/settings/data_warehouse.py @PostHog/team-data-stack
 frontend/src/scenes/models/** @PostHog/team-data-modeling
 posthog/temporal/data_modeling/** @PostHog/team-data-modeling
 
 # HogQL - owned by @PostHog/team-data-tools
 # and also hard owned by the @PostHog/hogql on `CODEOWNERS` file
-posthog/hogql/\*\* @PostHog/team-data-tools
+posthog/hogql/** @PostHog/team-data-tools
+posthog/hogql_queries/hogql_query_runner.py @PostHog/team-data-tools
+rust/hogql/ @PostHog/team-data-tools
 
 # Tracing/Metrics — owned by @PostHog/logs (logs itself comes from products/logs/product.yaml)
 products/tracing/** @PostHog/logs
 products/metrics/** @PostHog/logs
+posthog/temporal/logs_alerting/ @PostHog/logs
 
 # Error Tracking - owned by @PostHog/team-error-tracking
 products/error_tracking/backend/** @PostHog/team-error-tracking
 products/error_tracking/frontend/** @PostHog/team-error-tracking
 products/error_tracking/mcp/** @PostHog/team-error-tracking
 products/error_tracking/skills/** @PostHog/team-error-tracking
-posthog/hogql_queries/error_tracking/error_tracking_query_runner.py @PostHog/team-error-tracking
-posthog/hogql_queries/error_tracking/error_tracking_issue_correlation_query_runner.py @PostHog/team-error-tracking
+cli/** @PostHog/team-error-tracking
 rust/cymbal/** @PostHog/team-error-tracking
+rust/cymbal-resolution/** @PostHog/team-error-tracking
+rust/cymbal-proto/** @PostHog/team-error-tracking
+rust/common/symbol_data/** @PostHog/team-error-tracking
 
-# Notebooks - owned by @PostHog/team-platform-features
-frontend/src/scenes/notebooks/ @PostHog/team-platform-features
-frontend/src/lib/components/RichContentEditor/ @PostHog/team-platform-features
+# Notebooks - owned by @PostHog/team-data-tools
+frontend/src/scenes/notebooks/ @PostHog/team-data-tools
+frontend/src/lib/components/RichContentEditor/ @PostHog/team-data-tools
+
+# Comments - owned by @PostHog/team-platform-features
+frontend/src/scenes/comments/ @PostHog/team-platform-features
+posthog/api/comments.py @PostHog/team-platform-features
+posthog/models/comment/ @PostHog/team-platform-features
+
+# Authentication, audit logs, activity, approvals, access control - owned by @PostHog/team-platform-features
+# Note: backend authentication stays hard-owned by @PostHog/team-security on CODEOWNERS.
+frontend/src/scenes/authentication/ @PostHog/team-platform-features
+frontend/src/scenes/audit-logs/ @PostHog/team-platform-features
+frontend/src/scenes/activity/ @PostHog/team-platform-features
+posthog/models/activity_logging/ @PostHog/team-platform-features
+frontend/src/scenes/approvals/ @PostHog/team-platform-features
+frontend/src/scenes/resource-transfer/ @PostHog/team-platform-features
+posthog/api/resource_transfer.py @PostHog/team-platform-features
+posthog/models/resource_transfer/ @PostHog/team-platform-features
+posthog/rbac/ @PostHog/team-platform-features
 
 # Session Replay python files - owned by @PostHog/team-replay
-posthog/session_recordings/**/\*.py @PostHog/team-replay
-ee/session_recordings/**/\*.py @PostHog/team-replay
+posthog/session_recordings/**/*.py @PostHog/team-replay
+ee/session_recordings/ @PostHog/team-replay
 
-# Mobile Session Replay - owned by @PostHog/team-replay
-ee/frontend/mobile-replay @PostHog/team-replay
+# Session Replay frontend - owned by @PostHog/team-replay
+frontend/src/scenes/session-recordings/ @PostHog/team-replay
+posthog/temporal/session_replay/ @PostHog/team-replay
 
 # Product onboarding - owned by @PostHog/team-growth
 frontend/src/scenes/onboarding/ @PostHog/team-growth
+frontend/src/scenes/startups/ @PostHog/team-growth
+frontend/src/scenes/wizard/ @PostHog/team-growth
+frontend/src/scenes/welcome/ @PostHog/team-growth
+frontend/src/scenes/oauth/ @PostHog/team-growth
+frontend/src/scenes/agentic/ @PostHog/team-growth
+frontend/src/scenes/project-homepage/ @PostHog/team-growth
+frontend/src/scenes/health/ @PostHog/team-growth
 
-# SDK Doctor - owned by @PostHog/team-growth
-frontend/src/layout/navigation-3000/sidepanel/panels/SdkDoctor @PostHog/team-growth
+# Per-product onboarding SDK docs override the general onboarding owner above
+# (last-match-wins, so these must come after the onboarding rule to take effect).
+frontend/src/scenes/onboarding/sdks/surveys/ @PostHog/team-surveys
+
+# Settings & project administration - owned by @PostHog/team-growth
+frontend/src/scenes/settings/ @PostHog/team-growth
+frontend/src/scenes/organization/ @PostHog/team-growth
+frontend/src/scenes/project/ @PostHog/team-growth
+# instance/ admin scenes are team-growth's, except QueryPerformance (team-experiments).
+# The assign-reviewers script unions the owners of every matching rule — it does NOT
+# apply last-match-wins — so growth must be scoped to its specific subfolders rather
+# than the whole instance/ dir, or growth gets tagged on QueryPerformance PRs too.
+frontend/src/scenes/instance/AsyncMigrations/ @PostHog/team-growth
+frontend/src/scenes/instance/DeadLetterQueue/ @PostHog/team-growth
+frontend/src/scenes/instance/SystemStatus/ @PostHog/team-growth
+frontend/src/scenes/instance/QueryPerformance/ @PostHog/team-experiments
 
 # Weekly digest - owned by @PostHog/team-growth
-posthog/temporal/weekly-digest @PostHog/team-growth
+posthog/temporal/weekly_digest @PostHog/team-growth
+posthog/temporal/tests/weekly_digest @PostHog/team-growth
 
 # AI observability - owned by @PostHog/team-ai-observability
 Dockerfile.llm-analytics @PostHog/team-ai-observability
@@ -155,10 +222,15 @@ services/mcp/src/tools/generated/ai_observability.ts @PostHog/team-ai-observabil
 services/mcp/src/tools/aiObservability/ @PostHog/team-ai-observability
 services/mcp/src/ui-apps/apps/generated/llm-costs.tsx @PostHog/team-ai-observability
 
+# Prompt management - shared between @PostHog/team-ai-observability and @PostHog/team-experiments
+products/ai_observability/frontend/prompts/ @PostHog/team-ai-observability @PostHog/team-experiments
+products/ai_observability/backend/models/llm_prompt.py @PostHog/team-ai-observability @PostHog/team-experiments
+posthog/**/*llm_prompt*.py @PostHog/team-ai-observability @PostHog/team-experiments
+
 # LLM Gateway - owned by @PostHog/team-ai-gateway
-nodejs/src/ingestion/ai/costs/ @PostHog/team-ai-observability @PostHog/team-ai-gateway
-nodejs/src/ingestion/ai/costs/scripts/ @PostHog/team-ai-gateway
-nodejs/src/ingestion/ai/costs/providers/ @PostHog/team-ai-gateway
+nodejs/src/ingestion/pipelines/ai/costs/ @PostHog/team-ai-observability @PostHog/team-ai-gateway
+nodejs/src/ingestion/pipelines/ai/costs/scripts/ @PostHog/team-ai-gateway
+nodejs/src/ingestion/pipelines/ai/costs/providers/ @PostHog/team-ai-gateway
 products/ai_observability/backend/api/proxy.py @PostHog/team-ai-gateway
 products/ai_observability/backend/api/test/test_proxy.py @PostHog/team-ai-gateway
 products/ai_observability/frontend/playground/ @PostHog/team-ai-gateway
@@ -174,9 +246,9 @@ services/llm-gateway/ @PostHog/team-ai-gateway
 .github/dependabot.yml @PostHog/team-devex
 .github/pull_request_template.md @PostHog/team-devex
 Dockerfile @PostHog/team-devex
-docker-compose\*.yml @PostHog/team-devex
+docker-compose*.yml @PostHog/team-devex
 .prettierrc @PostHog/team-devex
-mypy.ini @PostHog/team-devex
+.test_quarantine.json @PostHog/team-devex
 posthog/management/migration_analysis/ @PostHog/team-devex
 tools/hogli/ @PostHog/team-devex
 tools/hogli-commands/ @PostHog/team-devex
@@ -192,12 +264,107 @@ AGENTS.md @PostHog/team-devex
 .agents/* @PostHog/team-devex
 .claude/agents/ingestion/ @PostHog/team-ingestion
 .agents/skills/ingestion-*/ @PostHog/team-ingestion
-.claude/skills/ingestion-*/ @PostHog/team-ingestion
+.agents/skills/manage-dashboard-widgets/ @PostHog/team-analytics-platform
 tools/pr-approval-agent/ @PostHog/team-devex
 tools/phrocs/ @PostHog/team-devex
 tools/query-performance-ai/ @PostHog/team-analytics-platform
 greptile.json @PostHog/team-devex
-docs/published/developing-locally.md @PostHog/team-devex
+docs/published/handbook/engineering/developing-locally.md @PostHog/team-devex
+
+# Product Analytics - owned by @PostHog/team-product-analytics
+frontend/src/scenes/insights/ @PostHog/team-product-analytics
+frontend/src/scenes/trends/ @PostHog/team-product-analytics
+frontend/src/scenes/funnels/ @PostHog/team-product-analytics
+frontend/src/scenes/retention/ @PostHog/team-product-analytics
+frontend/src/scenes/paths/ @PostHog/team-product-analytics
+frontend/src/scenes/paths-v2/ @PostHog/team-product-analytics
+frontend/src/scenes/saved-insights/ @PostHog/team-product-analytics
+frontend/src/scenes/actions/ @PostHog/team-product-analytics
+frontend/src/scenes/annotations/ @PostHog/team-product-analytics
+frontend/src/scenes/groups/ @PostHog/team-product-analytics
+frontend/src/scenes/persons/ @PostHog/team-product-analytics
+frontend/src/scenes/persons-management/ @PostHog/team-product-analytics
+posthog/api/event_definition.py @PostHog/team-product-analytics
+posthog/api/event.py @PostHog/team-product-analytics
+posthog/api/element.py @PostHog/team-product-analytics
+posthog/api/person.py @PostHog/team-product-analytics
+posthog/models/action/ @PostHog/team-product-analytics
+posthog/hogql_queries/insights/ @PostHog/team-product-analytics
+posthog/hogql_queries/groups/ @PostHog/team-product-analytics
+posthog/hogql_queries/events_query_runner.py @PostHog/team-product-analytics
+posthog/hogql_queries/actors_query_runner.py @PostHog/team-product-analytics
+posthog/hogql_queries/property_values_query_runner.py @PostHog/team-product-analytics
+ee/clickhouse/views/groups.py @PostHog/team-product-analytics
+ee/clickhouse/queries/related_actors_query.py @PostHog/team-product-analytics
+posthog/temporal/product_analytics/ @PostHog/team-product-analytics
+frontend/src/scenes/themes/ @PostHog/team-product-analytics
+posthog/taxonomy/ @PostHog/team-product-analytics
+
+# MCP Analytics - owned by @PostHog/team-mcp-analytics
+posthog/temporal/mcp_analytics/ @PostHog/team-mcp-analytics
+
+# Experiments - owned by @PostHog/team-experiments
+frontend/src/scenes/experiments/ @PostHog/team-experiments
+posthog/temporal/experiments/ @PostHog/team-experiments
+ee/clickhouse/queries/experiments/ @PostHog/team-experiments
+
+# Data modeling - owned by @PostHog/team-data-modeling
+frontend/src/scenes/data-model/ @PostHog/team-data-modeling
+posthog/hogql_queries/endpoints/ @PostHog/team-data-modeling
+
+# Signals / PostHog AI - owned by @PostHog/team-self-driving
+frontend/src/scenes/max/ @PostHog/team-self-driving
+frontend/src/scenes/inbox/ @PostHog/team-self-driving
+ee/hogai/ @PostHog/team-self-driving
+ee/support_sidebar_max/ @PostHog/team-self-driving
+posthog/models/ai/** @PostHog/team-self-driving
+posthog/hogql_queries/document_embeddings_query_runner.py @PostHog/team-self-driving
+
+# Billing - owned by @PostHog/team-billing
+frontend/src/scenes/billing/ @PostHog/team-billing
+frontend/src/scenes/coupons/ @PostHog/team-billing
+ee/billing/ @PostHog/team-billing
+ee/api/billing.py @PostHog/team-billing
+posthog/tasks/sync_billing.py @PostHog/team-billing
+posthog/tasks/usage_report.py @PostHog/team-billing
+posthog/temporal/usage_report/ @PostHog/team-billing
+posthog/temporal/quota_limiting/ @PostHog/team-billing
+
+# Query performance (merged into Analytics Platform) - owned by @PostHog/team-analytics-platform
+posthog/queries/ @PostHog/team-analytics-platform
+posthog/caching/ @PostHog/team-analytics-platform
+posthog/hogql/database/schema/sessions*.py @PostHog/team-analytics-platform
+posthog/models/raw_sessions/** @PostHog/team-analytics-platform
+posthog/models/sessions/** @PostHog/team-analytics-platform
+
+# Ingestion (persons identity pipeline) - owned by @PostHog/team-ingestion
+posthog/temporal/delete_persons/ @PostHog/team-ingestion
+posthog/temporal/sync_person_distinct_ids/ @PostHog/team-ingestion
+posthog/tasks/split_person.py @PostHog/team-ingestion
+posthog/models/person/** @PostHog/team-ingestion
+posthog/dags/detach_distinct_id.py @PostHog/team-ingestion
+posthog/dags/fix_missing_person_overrides.py @PostHog/team-ingestion
+posthog/dags/fix_person_id_overrides.py @PostHog/team-ingestion
+posthog/dags/person_property_reconciliation.py @PostHog/team-ingestion
+
+# Ingestion (Rust capture + Kafka + property defs) - owned by @PostHog/team-ingestion
+rust/capture/ @PostHog/team-ingestion
+rust/ingestion-consumer/ @PostHog/team-ingestion
+rust/kafka-deduplicator/ @PostHog/team-ingestion
+rust/kafka-assigner/ @PostHog/team-ingestion
+rust/kafka-assigner-proto/ @PostHog/team-ingestion
+rust/property-defs-rs/ @PostHog/team-ingestion
+rust/property-vals-rs/ @PostHog/team-ingestion
+
+# Personhog (persons gRPC service) - owned by @PostHog/team-ingestion
+rust/personhog-router/ @PostHog/team-ingestion
+rust/personhog-replica/ @PostHog/team-ingestion
+rust/personhog-leader/ @PostHog/team-ingestion
+rust/personhog-writer/ @PostHog/team-ingestion
+rust/personhog-coordination/ @PostHog/team-ingestion
+rust/personhog-common/ @PostHog/team-ingestion
+rust/personhog-proto/ @PostHog/team-ingestion
+rust/behavioral_cohorts_migrations/ @PostHog/team-ingestion
 
 # User interviews - owned by individuals (no team); product.yaml only auto-assigns team slugs
 products/user_interviews/** @pauldambra @fivestarspicy @ksvat
@@ -206,3 +373,18 @@ products/user_interviews/** @pauldambra @fivestarspicy @ksvat
 posthog/api/documentation.py @PostHog/team-devex
 posthog/api/mixins.py @PostHog/team-devex
 posthog/management/commands/find_enum_collisions.py @PostHog/team-devex
+
+# Managed reverse proxy - owned by @PostHog/team-platform-features
+# Placed last so these paths win over the broad frontend/src/scenes/settings/ rule (last-match-wins).
+posthog/models/proxy_record.py @PostHog/team-platform-features
+posthog/api/proxy_record.py @PostHog/team-platform-features
+posthog/api/proxy_record_diagnostics.py @PostHog/team-platform-features
+posthog/api/test/test_proxy_record.py @PostHog/team-platform-features
+posthog/api/test/test_proxy_record_diagnostics.py @PostHog/team-platform-features
+posthog/temporal/proxy_service/ @PostHog/team-platform-features
+posthog/templates/email/proxy_provisioned.html @PostHog/team-platform-features
+frontend/src/scenes/settings/environment/ManagedReverseProxy.tsx @PostHog/team-platform-features
+frontend/src/scenes/settings/environment/ProxySDKSetup.tsx @PostHog/team-platform-features
+frontend/src/scenes/settings/environment/proxyLogic.ts @PostHog/team-platform-features
+frontend/src/scenes/settings/environment/proxyLogic.test.ts @PostHog/team-platform-features
+frontend/src/lib/components/ReverseProxyChecker/ @PostHog/team-platform-features

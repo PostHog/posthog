@@ -2,7 +2,7 @@ import './TaxonomicFilter.scss'
 
 import clsx from 'clsx'
 import { BindLogic, useActions, useValues } from 'kea'
-import { forwardRef, useEffect, useMemo, useRef, useState } from 'react'
+import { forwardRef, useEffect, useId, useRef, useState } from 'react'
 
 import { Link } from '@posthog/lemon-ui'
 
@@ -22,20 +22,9 @@ import { urls } from 'scenes/urls'
 
 import { CategoryDropdown } from './CategoryDropdown'
 import { InfiniteSelectResults } from './InfiniteSelectResults'
-import { TaxonomicFilterAdapter } from './TaxonomicFilterAdapter'
 import { defaultDataWarehousePopoverFields, taxonomicFilterLogic } from './taxonomicFilterLogic'
 
-let uniqueMemoizedIndex = 0
-
-export function TaxonomicFilter(props: TaxonomicFilterProps): JSX.Element {
-    const { featureFlags } = useValues(featureFlagLogic)
-    if (featureFlags[FEATURE_FLAGS.TAXONOMIC_FILTER_HEADLESS]) {
-        return <TaxonomicFilterAdapter {...props} />
-    }
-    return <TaxonomicFilterLegacy {...props} />
-}
-
-function TaxonomicFilterLegacy({
+export function TaxonomicFilter({
     taxonomicFilterLogicKey: taxonomicFilterLogicKeyInput,
     groupType,
     value,
@@ -70,12 +59,10 @@ function TaxonomicFilterLegacy({
     enableKeywordShortcuts,
     excludedOperators,
     selectingKeyOnly,
+    collapseUrlsToContainsRow,
 }: TaxonomicFilterProps): JSX.Element {
-    // Generate a unique key for each unique TaxonomicFilter that's rendered
-    const taxonomicFilterLogicKey = useMemo(
-        () => taxonomicFilterLogicKeyInput || `taxonomic-filter-${uniqueMemoizedIndex++}`,
-        [taxonomicFilterLogicKeyInput]
-    )
+    const generatedKey = useId()
+    const taxonomicFilterLogicKey = taxonomicFilterLogicKeyInput || `taxonomic-filter-${generatedKey}`
 
     const searchInputRef = useRef<HTMLInputElement | null>(null)
     const focusInput = (): void => searchInputRef.current?.focus()
@@ -117,6 +104,7 @@ function TaxonomicFilterLegacy({
         enableKeywordShortcuts,
         excludedOperators,
         selectingKeyOnly,
+        collapseUrlsToContainsRow,
     }
 
     const logic = taxonomicFilterLogic(taxonomicFilterLogicProps)

@@ -5,15 +5,16 @@ from posthog.test.base import BaseTest
 
 from posthog.models import Organization, Team, User
 
-from ee.hogai.session_summaries.session.output_data import SessionSummarySerializer
-from ee.hogai.session_summaries.tests.conftest import get_mock_enriched_llm_json_response
-from ee.models.session_summaries import (
+from products.replay.backend.models.session_summaries import (
     ExtraSummaryContext,
     SessionGroupSummary,
     SessionSummaryPage,
     SessionSummaryRunMeta,
     SingleSessionSummary,
 )
+
+from ee.hogai.session_summaries.session.output_data import SessionSummarySerializer
+from ee.hogai.session_summaries.tests.conftest import get_mock_enriched_llm_json_response
 
 
 class TestSingleSessionSummary(BaseTest):

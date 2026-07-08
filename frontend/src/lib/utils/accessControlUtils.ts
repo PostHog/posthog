@@ -1,7 +1,24 @@
-import { toSentenceCase } from 'lib/utils'
-import { getAppContext } from 'lib/utils/getAppContext'
+import posthog from 'posthog-js'
 
-import { APIScopeObject, AccessControlLevel, AccessControlResourceType } from '~/types'
+import { getAppContext } from 'lib/utils/getAppContext'
+import { toSentenceCase } from 'lib/utils/strings'
+
+import { APIScopeObject, AccessControlLevel, AccessControlResourceType, AvailableFeature } from '~/types'
+
+/** Which iteration of the access control settings UI an interaction came from. */
+export type AccessControlUIVersion = 'v1' | 'v2'
+
+/**
+ * Capture an access control analytics event. All events are tagged with
+ * `platform_feature: ACCESS_CONTROL` so usage of the feature can be grouped and
+ * filtered together, matching the tagging used elsewhere (e.g. RestrictedArea).
+ */
+export const captureAccessControlEvent = (event: string, properties?: Record<string, unknown>): void => {
+    posthog.capture(event, {
+        ...properties,
+        platform_feature: AvailableFeature.ACCESS_CONTROL,
+    })
+}
 
 /**
  * Returns the minimum allowed access level for a resource.
@@ -56,6 +73,8 @@ export const pluralizeResource = (resource: APIScopeObject): string => {
         return 'data warehouse tables & views'
     } else if (resource === AccessControlResourceType.Logs) {
         return 'logs'
+    } else if (resource === AccessControlResourceType.Tracing) {
+        return 'tracing'
     }
 
     return resource.replace(/_/g, ' ') + 's'
@@ -192,7 +211,7 @@ export const getAccessControlTooltip = (resource: APIScopeObject): string | null
         return 'Access control only applies to managed sources (Stripe, Postgres, etc.) and covers CRUD operations on the source configuration. It does not restrict querying data from those sources.'
     }
     if (resource === AccessControlResourceType.WarehouseObjects) {
-        return 'Controls creating, editing, and deleting warehouse tables, views (aka "models"), folders, and joins, plus materialization actions (sync now, revert, sync frequency). Does not restrict querying the underlying data via SQL — blocked users can still SELECT from these tables.'
+        return 'Viewer is required to query a table or view via SQL. Editor and above also control creating, editing, and deleting tables, views (aka "models"), folders, and joins.'
     }
     return null
 }

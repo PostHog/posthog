@@ -18,6 +18,7 @@ from ee.hogai.core.agent_modes.presets.ai_observability import (
     ai_observability_agent,
     chat_agent_plan_ai_observability_agent,
 )
+from ee.hogai.core.agent_modes.presets.customer_analytics import customer_analytics_agent
 from ee.hogai.core.agent_modes.presets.error_tracking import chat_agent_plan_error_tracking_agent, error_tracking_agent
 from ee.hogai.core.agent_modes.presets.flags import chat_agent_plan_flags_agent, flags_agent
 from ee.hogai.core.agent_modes.presets.product_analytics import (
@@ -35,7 +36,11 @@ from ee.hogai.core.agent_modes.presets.user_interview import (
 )
 from ee.hogai.core.agent_modes.prompt_builder import AgentPromptBuilder
 from ee.hogai.core.agent_modes.toolkit import AgentToolkit, AgentToolkitManager
-from ee.hogai.utils.feature_flags import has_plan_mode_feature_flag, has_user_interview_mode_feature_flag
+from ee.hogai.utils.feature_flags import (
+    has_customer_analytics_mode_feature_flag,
+    has_plan_mode_feature_flag,
+    has_user_interview_mode_feature_flag,
+)
 from ee.hogai.utils.types.base import AssistantState, NodePath
 
 # Execution and plan mode definitions - fictitious modes used to trigger transition in and out of plan mode
@@ -99,6 +104,8 @@ def get_execution_mode_registry(team: Team, user: User) -> dict[AgentMode, Agent
     registry = dict(DEFAULT_CHAT_AGENT_MODE_REGISTRY)
     if has_user_interview_mode_feature_flag(team, user):
         registry[AgentMode.USER_INTERVIEW] = user_interview_agent
+    if has_customer_analytics_mode_feature_flag(team, user):
+        registry[AgentMode.CUSTOMER_ANALYTICS] = customer_analytics_agent
     return registry
 
 

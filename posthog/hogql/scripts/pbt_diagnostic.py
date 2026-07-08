@@ -2,10 +2,10 @@
 
 Reuses the strategies from `test_parser_grammar_pbt.py` (the
 auto-generated grammar PBT introduced in PR #58627) but runs as an
-ad-hoc CLI rather than a pytest collection. Backend-agnostic:
-defaults to `cpp-json` vs `rust-json` (the two compiled backends);
-point `--candidate` at `python` or any other backend in a feature
-branch that adds one.
+ad-hoc CLI rather than a pytest collection. Defaults to `cpp-json` vs
+`rust-py` (the primary parity target — `rust-json` was a stepping
+stone and may end up in a future wasm build, but isn't the primary
+production candidate).
 
 Distinct from the pytest PBT in five ways:
 
@@ -17,9 +17,11 @@ Distinct from the pytest PBT in five ways:
    both ASTs together and print only the path from root to the first
    differing node.
 3. **Auto-shrinker (`--shrink-failures`).** For each ast_mismatch
-   and reject, run a delete-one-token reducer that keeps the smallest
-   variant which still triggers the same divergence shape. Drops
-   typical PBT failures from 200+ chars to <50.
+   and reject, run shrinkray (via `_shrink` / `shrink_to_shape`) to
+   reduce it to the smallest variant that still triggers the same
+   divergence shape. Drops typical PBT failures from 200+ chars to a
+   handful. Needs the optional `hogql-parser-parity` dependency group
+   (`uv sync --group hogql-parser-parity`).
 4. **Optional JSONL persistence (`--write-divergences PATH`).** Drop
    one JSON line per failing example for cross-run analysis or
    regression-corpus extraction.
@@ -36,7 +38,7 @@ The shared parse / AST-diff / divergence-shape vocabulary lives in
 
 Typical usage:
 
-    # Default: cpp-json vs python (works in master out of the box)
+    # Default: cpp-json vs rust-py
     PYTHONPATH=. python posthog/hogql/scripts/pbt_diagnostic.py --n 5000
 
     # With auto-shrinking on every failure
@@ -59,27 +61,33 @@ Typical usage:
 """
 
 # ruff: noqa: T201 (this is a CLI script — print is the output channel)
-# ruff: noqa: E402 (django.setup() must run between import django and the
-#                   project-app imports below)
+# ruff: noqa: E402 (DJANGO_SETTINGS_MODULE must be set before the project-app
+#                   imports below)
 
 from __future__ import annotations
 
 import os
-import re
 import sys
 import json
 import argparse
 import traceback
 from collections import Counter
+from collections.abc import Callable
 from typing import Any
 
-import django
-
+# Skip django.setup(): parser core only reads settings.TEST, so settings alone avoids ready()-hook DB/redis init.
 os.environ.setdefault("DJANGO_SETTINGS_MODULE", "posthog.settings")
-django.setup()
 
-from hypothesis import assume, given, settings
+from hypothesis import (
+    assume,
+    given,
+    settings,
+    strategies as st,
+)
 
+# Eager so a missing `hogql-parser-parity` dep group fails at script-load,
+# not mid-grind where shrink_to_shape would lose every finding so far.
+from posthog.hogql.scripts import _shrink  # noqa: F401
 from posthog.hogql.scripts._diagnostic_common import (
     DivergenceShape,
     _ast_mismatch_shape,
@@ -88,9 +96,15 @@ from posthog.hogql.scripts._diagnostic_common import (
     _node_type,
     _probe_backend,
     _safe_parse,
-    _shape_for,
+    asts_agree,
+    shrink_to_shape,
 )
-from posthog.hogql.test._generated_grammar_strategies import expr_strategy, program_strategy, select_strategy
+from posthog.hogql.test._generated_grammar_strategies import (
+    expr_strategy,
+    fullTemplateString_strategy,
+    program_strategy,
+    select_strategy,
+)
 from posthog.hogql.test.test_parser_grammar_pbt import (
     _PBT_SETTINGS,
     _apply_grammar_mutation,
@@ -99,71 +113,27 @@ from posthog.hogql.test.test_parser_grammar_pbt import (
 )
 
 # ---------------------------------------------------------------------------
+# string_literal strategy
+# ---------------------------------------------------------------------------
+# No generated strategy (the unquoter isn't a grammar rule): build quoted literals over a branch-driving alphabet.
+_SL_QUOTE_PAIRS = [("'", "'"), ('"', '"'), ("`", "`"), ("{", "}")]
+# Excludes NUL: the cpp wheel's PyArg_ParseTuple("s") rejects it (ValueError) while PyO3's &str accepts it.
+_SL_ALPHABET = "'\"`{}\\bfrnt0avxyo ab\n\té£"
+
+
+def string_literal_strategy() -> st.SearchStrategy[str]:
+    body = st.text(alphabet=_SL_ALPHABET, max_size=12)
+    quoted = st.builds(lambda pair, b: pair[0] + b + pair[1], st.sampled_from(_SL_QUOTE_PAIRS), body)
+    # Raw never-empty forms (mismatched/unquoted) exercise the SyntaxError path; min_size=1 so cpp never sees "".
+    raw = st.text(alphabet=_SL_ALPHABET, min_size=1, max_size=14)
+    return st.one_of(quoted, raw)
+
+
+# ---------------------------------------------------------------------------
 # Auto-shrinker
 # ---------------------------------------------------------------------------
 #
-# Hypothesis has its own shrinker but we're running queries that already
-# escaped from a Hypothesis trial — by the time the diagnostic sees them,
-# Hypothesis has moved on. We re-run our own delete-one-token reducer so
-# each printed failure is a small repro the human can paste into a unit
-# test.
-
-
-_TOKEN_RE = re.compile(r"\s+|[^\s]+")
-
-
-def _tokenize_for_shrink(query: str) -> list[str]:
-    """Split into shrinker units. We use whitespace-or-non-whitespace
-    runs so paren matching is preserved (a token like `(` or `)` is a
-    single shrinker unit). The original whitespace is retained so we
-    can re-join faithfully."""
-    return [m.group(0) for m in _TOKEN_RE.finditer(query)]
-
-
-def _shrink_query(
-    query: str,
-    rule: str,
-    oracle_backend: str,
-    candidate_backend: str,
-    target_shape: DivergenceShape,
-    max_passes: int = 5,
-) -> str:
-    """Greedy delete-one-token shrinker. Each pass walks every token
-    and drops it (and its trailing whitespace) if the resulting query
-    still triggers the same divergence shape. Stops when a pass
-    removes nothing or after `max_passes`. Linear in
-    tokens × passes — fine for ~50-300-token PBT queries."""
-    current = query
-    for _ in range(max_passes):
-        tokens = _tokenize_for_shrink(current)
-        # Try delete each non-whitespace token (and any trailing
-        # whitespace token) in turn.
-        improved = False
-        i = 0
-        while i < len(tokens):
-            if tokens[i].isspace():
-                i += 1
-                continue
-            # Build a candidate with tokens[i] removed (plus any
-            # immediately-following whitespace token).
-            drop_to = i + 1
-            if drop_to < len(tokens) and tokens[drop_to].isspace():
-                drop_to += 1
-            candidate = "".join(tokens[:i] + tokens[drop_to:])
-            if not candidate.strip():
-                i += 1
-                continue
-            shape = _shape_for(candidate, rule, oracle_backend, candidate_backend)
-            if shape == target_shape:
-                current = candidate
-                tokens = _tokenize_for_shrink(current)
-                improved = True
-                # Don't advance i — the next token slid into this slot.
-                continue
-            i += 1
-        if not improved:
-            break
-    return current
+# Hypothesis has moved on by the time the diagnostic sees a failure, so we re-reduce via shrinkray (`shrink_to_shape`) to the smallest variant with the same divergence shape — a tight repro to paste into a unit test.
 
 
 # ---------------------------------------------------------------------------
@@ -206,7 +176,11 @@ def _print_failure_sample(
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("--n", type=int, default=int(os.environ.get("N", "500")))
-    parser.add_argument("--rule", choices=("expr", "select", "program"), default="expr")
+    parser.add_argument(
+        "--rule",
+        choices=("expr", "select", "program", "full_template_string", "string_literal"),
+        default="expr",
+    )
     parser.add_argument("--jiggle", action="store_true")
     parser.add_argument(
         "--mutate",
@@ -239,15 +213,18 @@ def main() -> int:
             "so the match denominator is exactly --n."
         ),
     )
+    _BACKENDS = ("cpp-json", "rust-json", "rust-py")
     parser.add_argument(
         "--oracle",
         default=os.environ.get("ORACLE_BACKEND", "cpp-json"),
+        choices=_BACKENDS,
         help="Source-of-truth backend (default: cpp-json)",
     )
     parser.add_argument(
         "--candidate",
-        default=os.environ.get("CANDIDATE_BACKEND", "rust-json"),
-        help="Backend under test (default: rust-json; override in feature branches that add a fourth backend)",
+        default=os.environ.get("CANDIDATE_BACKEND", "rust-py"),
+        choices=_BACKENDS,
+        help="Backend under test (default: rust-py)",
     )
     parser.add_argument(
         "--max-mismatch-samples",
@@ -284,14 +261,7 @@ def main() -> int:
             return 1
 
     counts: Counter[str] = Counter()
-    # Buckets store `(query, shrunk_or_none, steps_for_mismatch)`. We
-    # shrink ONCE per failure (in `run()` below) and reuse the result
-    # both for the JSONL writer and the summary print loop — otherwise
-    # the two paths would shrink independently and could land on
-    # different minima of the same divergence (greedy deletion picks
-    # the first viable reduction at each step, so order matters), and
-    # a user cross-referencing the two outputs would see two
-    # different "minimal" repros for the same bug.
+    # Buckets store `(query, shrunk_or_none, steps_for_mismatch)`; we shrink ONCE per failure here and reuse it for both the JSONL writer and the summary print loop, since shrinking is the slow step and doing it twice is pure waste.
     mismatch_buckets: dict[tuple[str, str], list[tuple[str, str | None, list]]] = {}
     reject_buckets: dict[str, list[tuple[str, str | None]]] = {}
     # Two-sided contract: the oracle rejected but the candidate accepted —
@@ -304,11 +274,15 @@ def main() -> int:
     # abort the whole grind. Keyed by normalised `<ExcType>: …`.
     crash_buckets: dict[str, list[str]] = {}
 
-    base_strategy = {
+    # `Callable[..., ...]` so the no-arg `string_literal_strategy` and the `depth`-taking grammar strategies unify.
+    strategies_by_rule: dict[str, Callable[..., st.SearchStrategy[str]]] = {
         "expr": expr_strategy,
         "select": select_strategy,
         "program": program_strategy,
-    }[args.rule]()
+        "full_template_string": fullTemplateString_strategy,
+        "string_literal": string_literal_strategy,
+    }
+    base_strategy = strategies_by_rule[args.rule]()
     strategy = base_strategy
     # Grammar-aware mutation runs first, on the clean space-separated query —
     # the whitespace jiggle below would otherwise break its tokenisation.
@@ -365,7 +339,7 @@ def main() -> int:
                 counts["candidate_accepts_oracle_reject"] += 1
                 bucket = _node_type(rc_ast)
                 shape = DivergenceShape(kind="candidate_accepts_oracle_reject")
-                shrunk = _shrink_query(query, args.rule, oracle, candidate, shape) if args.shrink_failures else None
+                shrunk = shrink_to_shape(query, args.rule, oracle, candidate, shape) if args.shrink_failures else None
                 accept_reject_buckets.setdefault(bucket, []).append((query, shrunk))
                 write_record(
                     {
@@ -408,7 +382,7 @@ def main() -> int:
             counts["candidate_reject"] += 1
             sig = c_detail or "<no message>"
             shape = DivergenceShape(kind="candidate_reject", reject_signature=sig)
-            shrunk = _shrink_query(query, args.rule, oracle, candidate, shape) if args.shrink_failures else None
+            shrunk = shrink_to_shape(query, args.rule, oracle, candidate, shape) if args.shrink_failures else None
             reject_buckets.setdefault(sig, []).append((query, shrunk))
             write_record(
                 {
@@ -441,7 +415,7 @@ def main() -> int:
             )
             return
 
-        if o_ast == c_ast:
+        if asts_agree(o_ast, c_ast):
             counts["match"] += 1
             return
 
@@ -449,7 +423,7 @@ def main() -> int:
         mismatch_bucket = (_node_type(o_ast), _node_type(c_ast))
         steps = _diff_path(o_ast, c_ast)
         shape = _ast_mismatch_shape(mismatch_bucket, steps)
-        shrunk = _shrink_query(query, args.rule, oracle, candidate, shape) if args.shrink_failures else None
+        shrunk = shrink_to_shape(query, args.rule, oracle, candidate, shape) if args.shrink_failures else None
         mismatch_buckets.setdefault(mismatch_bucket, []).append((query, shrunk, steps))
         write_record(
             {
@@ -458,8 +432,8 @@ def main() -> int:
                 "oracle": oracle,
                 "candidate": candidate,
                 "query": query,
-                "oracle_root": bucket[0],
-                "candidate_root": bucket[1],
+                "oracle_root": mismatch_bucket[0],
+                "candidate_root": mismatch_bucket[1],
                 "diff_path": steps,
             },
             shrunk,

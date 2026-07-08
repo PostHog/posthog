@@ -1,3 +1,5 @@
+import { AGENT_USE_CASE_SCOPES } from 'lib/agentScopes.generated'
+
 import type { APIScopeAction, APIScopeObject } from '~/types'
 
 export const MAX_API_KEYS_PER_USER = 10 // Same as in posthog/api/personal_api_key.py
@@ -11,6 +13,18 @@ export type APIScope = {
     disabledWhenProjectScoped?: boolean
     description?: string
     warnings?: Partial<Record<'read' | 'write', string | JSX.Element>>
+    /** Mirrors `PRIVILEGED_SCOPES` in posthog/scopes.py — excluded from every unprivileged preset. */
+    unprivilegedExcluded?: boolean
+}
+
+// Scopes whose write action also writes a feature flag as a side effect (survey targeting flag,
+// early access feature linked flag), so they imply `feature_flag:write`. Single source of truth for
+// both the picker warning (attached below) and the auto-select in personalAPIKeysLogic, so the rule
+// and the copy can't drift. `ScopeAccessRow` renders warnings as plain text — no markdown formatting.
+export const SCOPES_IMPLYING_FEATURE_FLAG_WRITE: Partial<Record<APIScopeObject, string>> = {
+    survey: 'Surveys with targeting also manage a feature flag, so this key needs feature_flag:write too.',
+    early_access_feature:
+        'Early access features manage a linked feature flag, so this key needs feature_flag:write too.',
 }
 
 export const API_SCOPES: APIScope[] = [
@@ -18,26 +32,49 @@ export const API_SCOPES: APIScope[] = [
     { key: 'access_control', objectName: 'Access control', objectPlural: 'access controls' },
     { key: 'account', objectName: 'Account', objectPlural: 'accounts' },
     { key: 'activity_log', objectName: 'Activity log', objectPlural: 'activity logs' },
+    { key: 'agents', objectName: 'Agent', objectPlural: 'agents' },
+    {
+        key: 'agent_approvals',
+        objectName: 'Agent approval',
+        objectPlural: 'agent approvals',
+        info: 'Grants the ability to approve or reject queued agent tool-approval requests on behalf of the consenting user, including requests whose spec sets `allow_agent_approver: false` (human-only). Only grant this to OAuth clients that put a human in the loop at decide time, like the PostHog Code desktop app.',
+        disabledActions: ['read'],
+    },
     { key: 'alert', objectName: 'Alert', objectPlural: 'alerts' },
     { key: 'annotation', objectName: 'Annotation', objectPlural: 'annotations' },
     { key: 'approvals', objectName: 'Approvals', objectPlural: 'approvals' },
     { key: 'batch_export', objectName: 'Batch export', objectPlural: 'batch exports' },
+    { key: 'business_knowledge', objectName: 'Business knowledge', objectPlural: 'business knowledge' },
     // `clickhouse_test_cluster_perf` is omitted — see `INTERNAL_API_SCOPE_OBJECTS` in posthog/scopes.py.
     { key: 'cohort', objectName: 'Cohort', objectPlural: 'cohorts' },
     { key: 'comment', objectName: 'Comment', objectPlural: 'comments' },
+    {
+        key: 'conversation',
+        objectName: 'AI conversation',
+        objectPlural: 'AI conversations',
+        info: 'Programmatic access to the PostHog AI (Max) chat via the conversations API.',
+    },
     { key: 'customer_analytics', objectName: 'Customer analytics', objectPlural: 'customer analytics' },
     { key: 'customer_journey', objectName: 'Customer journey', objectPlural: 'customer journeys' },
     { key: 'dashboard', objectName: 'Dashboard', objectPlural: 'dashboards' },
     { key: 'dashboard_template', objectName: 'Dashboard template', objectPlural: 'dashboard templates' },
     { key: 'dataset', objectName: 'Dataset', objectPlural: 'datasets' },
-    { key: 'desktop_recording', objectName: 'Desktop recording', objectPlural: 'desktop recordings' },
-    { key: 'early_access_feature', objectName: 'Early access feature', objectPlural: 'early access features' },
+    {
+        key: 'early_access_feature',
+        objectName: 'Early access feature',
+        objectPlural: 'early access features',
+        warnings: {
+            write: SCOPES_IMPLYING_FEATURE_FLAG_WRITE.early_access_feature,
+        },
+    },
     { key: 'element', objectName: 'Element', objectPlural: 'elements' },
     { key: 'endpoint', objectName: 'Endpoint', objectPlural: 'endpoints' },
+    { key: 'engineering_analytics', objectName: 'Engineering analytics', objectPlural: 'engineering analytics' },
     { key: 'event_definition', objectName: 'Event definition', objectPlural: 'event definitions' },
     { key: 'error_tracking', objectName: 'Error tracking', objectPlural: 'error tracking' },
     { key: 'evaluation', objectName: 'Evaluation', objectPlural: 'evaluations' },
     { key: 'experiment', objectName: 'Experiment', objectPlural: 'experiments' },
+    { key: 'experiment_holdout', objectName: 'Holdout', objectPlural: 'holdouts' },
     { key: 'experiment_saved_metric', objectName: 'Shared metric', objectPlural: 'shared metrics' },
     { key: 'external_data_source', objectName: 'External data source', objectPlural: 'external data sources' },
     { key: 'export', objectName: 'Export', objectPlural: 'exports' },
@@ -57,18 +94,31 @@ export const API_SCOPES: APIScope[] = [
     { key: 'heatmap', objectName: 'Heatmap', objectPlural: 'heatmaps' },
     { key: 'hog_flow', objectName: 'Workflow', objectPlural: 'workflows' },
     { key: 'hog_function', objectName: 'Hog function', objectPlural: 'hog functions' },
+    {
+        key: 'ingestion_warning',
+        objectName: 'Ingestion warning',
+        objectPlural: 'ingestion warnings',
+        disabledActions: ['write'],
+    },
     { key: 'insight', objectName: 'Insight', objectPlural: 'insights' },
     { key: 'insight_variable', objectName: 'Insight variable', objectPlural: 'insight variables' },
     { key: 'integration', objectName: 'Integration', objectPlural: 'integrations', disabledActions: ['write'] },
     { key: 'legal_document', objectName: 'Legal document', objectPlural: 'legal documents' },
     { key: 'live_debugger', objectName: 'Live debugger', objectPlural: 'live debugger' },
     { key: 'llm_analytics', objectName: 'AI observability', objectPlural: 'AI observability' },
-    { key: 'llm_gateway', objectName: 'LLM gateway', objectPlural: 'LLM gateway', disabledActions: ['write'] },
+    {
+        key: 'llm_gateway',
+        objectName: 'LLM gateway',
+        objectPlural: 'LLM gateway',
+        disabledActions: ['write'],
+        unprivilegedExcluded: true,
+    },
     { key: 'llm_prompt', objectName: 'LLM prompt', objectPlural: 'LLM prompts' },
     { key: 'llm_provider_key', objectName: 'LLM provider key', objectPlural: 'LLM provider keys' },
     { key: 'llm_skill', objectName: 'LLM skill', objectPlural: 'LLM skills' },
     { key: 'logs', objectName: 'Logs', objectPlural: 'logs' },
     { key: 'marketing_analytics', objectName: 'Marketing analytics', objectPlural: 'marketing analytics' },
+    { key: 'mcp_analytics', objectName: 'MCP analytics', objectPlural: 'MCP analytics' },
     { key: 'metrics', objectName: 'Metrics', objectPlural: 'metrics' },
     { key: 'notebook', objectName: 'Notebook', objectPlural: 'notebooks' },
     { key: 'organization', objectName: 'Organization', objectPlural: 'organizations', disabledWhenProjectScoped: true },
@@ -94,9 +144,14 @@ export const API_SCOPES: APIScope[] = [
         },
     },
     { key: 'person', objectName: 'Person', objectPlural: 'persons' },
-    { key: 'persisted_folder', objectName: 'Persisted folder', objectPlural: 'persisted folders' },
     { key: 'customer_profile_config', objectName: 'Customer profile config', objectPlural: 'customer profile configs' },
     { key: 'plugin', objectName: 'Plugin', objectPlural: 'plugins' },
+    {
+        key: 'product_enablement',
+        objectName: 'Product enablement',
+        objectPlural: 'product enablement',
+        disabledActions: ['read'],
+    },
     { key: 'product_tour', objectName: 'Product tour', objectPlural: 'product tours' },
     {
         key: 'project',
@@ -108,7 +163,8 @@ export const API_SCOPES: APIScope[] = [
     },
     { key: 'property_definition', objectName: 'Property definition', objectPlural: 'property definitions' },
     { key: 'query', objectName: 'Query', objectPlural: 'queries', disabledActions: ['write'] },
-    // `query_performance` is omitted — see `INTERNAL_API_SCOPE_OBJECTS` in posthog/scopes.py.
+    // `query_performance` is omitted — OAuth-hidden, PAT-grantable only (see `OAUTH_HIDDEN_SCOPE_OBJECTS` in posthog/scopes.py).
+    // `wizard_session` is also omitted for the same reason.
     { key: 'replay_scanner', objectName: 'Replay scanner', objectPlural: 'replay scanners' },
     { key: 'revenue_analytics', objectName: 'Revenue analytics', objectPlural: 'revenue analytics' },
     { key: 'session_recording', objectName: 'Session recording', objectPlural: 'session recordings' },
@@ -119,9 +175,18 @@ export const API_SCOPES: APIScope[] = [
     },
     { key: 'sharing_configuration', objectName: 'Sharing configuration', objectPlural: 'sharing configurations' },
     { key: 'subscription', objectName: 'Subscription', objectPlural: 'subscriptions' },
-    { key: 'survey', objectName: 'Survey', objectPlural: 'surveys' },
+    {
+        key: 'survey',
+        objectName: 'Survey',
+        objectPlural: 'surveys',
+        warnings: {
+            write: SCOPES_IMPLYING_FEATURE_FLAG_WRITE.survey,
+        },
+    },
+    { key: 'tagger', objectName: 'Tagger', objectPlural: 'taggers' },
     { key: 'ticket', objectName: 'Ticket', objectPlural: 'tickets' },
     { key: 'tracing', objectName: 'Tracing', objectPlural: 'tracing' },
+    { key: 'field_note', objectName: 'Field note', objectPlural: 'field notes' },
     { key: 'uploaded_media', objectName: 'Uploaded media', objectPlural: 'uploaded media' },
     { key: 'usage_metric', objectName: 'Usage metric', objectPlural: 'usage metrics' },
     {
@@ -141,6 +206,7 @@ export const API_SCOPES: APIScope[] = [
     },
     { key: 'signal_scout', objectName: 'Signals agent', objectPlural: 'signals agents' },
     { key: 'task', objectName: 'Task', objectPlural: 'tasks' },
+    { key: 'user_interview', objectName: 'User interview', objectPlural: 'user interviews' },
     { key: 'visual_review', objectName: 'Visual review', objectPlural: 'visual reviews' },
     {
         key: 'webhook',
@@ -154,9 +220,32 @@ export const API_SCOPES: APIScope[] = [
 ]
 API_SCOPES.sort((a, b) => a.objectName.localeCompare(b.objectName))
 
-export const PROJECT_SECRET_API_KEY_ALLOWED_API_SCOPE_ACTION = ['endpoint:read'] as const
+export const PROJECT_SECRET_API_KEY_ALLOWED_API_SCOPE_ACTION = ['endpoint:read', 'feature_flag:read'] as const
 
 export type ProjectSecretAPIKeyAllowedScope = (typeof PROJECT_SECRET_API_KEY_ALLOWED_API_SCOPE_ACTION)[number]
+
+const API_KEY_CREATION_ACTIONS = ['read', 'write'] as const
+
+// Scopes the manual key-creation UI can render and submit. This excludes actions
+// disabled for Personal API Keys and any generated scope whose object has no UI row.
+const API_KEY_CREATION_RENDERABLE_SCOPES = new Set(
+    API_SCOPES.flatMap(({ key, disabledActions }) =>
+        API_KEY_CREATION_ACTIONS.filter((action) => !disabledActions?.includes(action)).map(
+            (action) => `${key}:${action}`
+        )
+    )
+)
+
+// Actions the manual key-creation UI withholds from Personal API Keys
+// (e.g. file_system:write, integration:write, user:write) — see `disabledActions`
+// above.
+export const API_KEY_CREATION_DISABLED_SCOPES = new Set(
+    API_SCOPES.flatMap(({ key, disabledActions }) => (disabledActions ?? []).map((action) => `${key}:${action}`))
+)
+
+export const AGENT_CLI_API_KEY_SCOPES = AGENT_USE_CASE_SCOPES.filter((scope) =>
+    API_KEY_CREATION_RENDERABLE_SCOPES.has(scope)
+)
 
 export const API_KEY_SCOPE_PRESETS: {
     value: string
@@ -191,17 +280,22 @@ export const API_KEY_SCOPE_PRESETS: {
     {
         value: 'mcp_server',
         label: 'MCP Server',
-        scopes: API_SCOPES.filter(({ key }) => !key.includes('llm_gateway')).map(({ key }) =>
-            ['feature_flag', 'insight', 'dashboard', 'survey', 'experiment', 'event_definition'].includes(key)
-                ? `${key}:write`
-                : `${key}:read`
-        ),
+        // file_system is excluded because the MCP server doesn't request it, not because it's privileged.
+        scopes: API_SCOPES.filter(
+            ({ key, unprivilegedExcluded }) => !unprivilegedExcluded && key !== 'file_system'
+        ).map(({ key }) => `${key}:write`),
+        access_type: 'all',
+    },
+    {
+        value: 'agent_cli',
+        label: 'Agent CLI',
+        scopes: AGENT_CLI_API_KEY_SCOPES,
         access_type: 'all',
     },
     {
         value: 'read_only_access',
         label: 'Read-only access',
-        scopes: API_SCOPES.map(({ key }) => `${key}:read`),
+        scopes: API_SCOPES.filter(({ unprivilegedExcluded }) => !unprivilegedExcluded).map(({ key }) => `${key}:read`),
     },
     { value: 'all_access', label: 'All access', scopes: ['*'] },
 ]
@@ -211,12 +305,18 @@ export const APIScopeActionLabels: Record<APIScopeAction, string> = {
     write: 'Write',
 }
 
-export const PROJECT_SECRET_API_KEY_SCOPE_PRESETS: {
+export type ProjectSecretAPIKeyScopePreset = {
     value: string
     label: string
     scopes: string[]
     isCloudOnly?: boolean
-}[] = [{ value: 'endpoint_execution', label: 'Endpoint execution', scopes: ['endpoint:read'] }]
+}
+
+export const PROJECT_SECRET_API_KEY_SCOPE_PRESETS: ProjectSecretAPIKeyScopePreset[] = [
+    { value: 'endpoint_execution', label: 'Endpoint execution', scopes: ['endpoint:read'] },
+    { value: 'local_evaluation', label: 'Local feature flag evaluation', scopes: ['feature_flag:read'] },
+    { value: 'llm_gateway', label: 'AI gateway access', scopes: ['llm_gateway:read'] },
+]
 
 export const DEFAULT_OAUTH_SCOPES = ['openid', 'email', 'profile']
 
@@ -268,6 +368,7 @@ export const getScopeDescription = (scope: string): string | undefined => {
     }
 
     if (scope === 'introspection') {
+        // OAuth-internal scope — never shown to users; list call sites .filter(Boolean) it out.
         return undefined
     }
 
@@ -277,12 +378,14 @@ export const getScopeDescription = (scope: string): string | undefined => {
         return scope
     }
 
+    const actionWord = action === 'write' ? 'Write' : 'Read'
+
     const scopeObject = API_SCOPES.find((s) => s.key === object)
     if (!scopeObject) {
-        // Unknown / hidden scope — call sites .filter(Boolean) the result.
-        return undefined
+        // OAuth-hidden scope (e.g. wizard_session, query_performance) — absent from API_SCOPES,
+        // so derive a readable label from the raw key rather than surfacing the raw identifier.
+        return `${actionWord} access to ${object.replace(/_/g, ' ')}`
     }
-    const actionWord = action === 'write' ? 'Write' : 'Read'
 
     return `${actionWord} access to ${scopeObject.objectPlural}`
 }

@@ -17,12 +17,13 @@ from posthog.management.commands.backfill_precalculated_events import (
     compute_backfill_days,
     extract_behavioral_filters,
 )
-from posthog.models import Cohort, Team
-from posthog.models.cohort.cohort import CohortType
+from posthog.models import Team
 from posthog.temporal.messaging.backfill_precalculated_events_coordinator_workflow import (
     BackfillPrecalculatedEventsCoordinatorInputs,
 )
 from posthog.temporal.messaging.types import BehavioralEventFilter
+
+from products.cohorts.backend.models.cohort import Cohort, CohortType
 
 
 class TestExtractBehavioralFilters(BaseTest):

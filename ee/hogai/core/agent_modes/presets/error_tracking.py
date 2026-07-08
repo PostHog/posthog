@@ -87,7 +87,7 @@ class ErrorTrackingAgentToolkit(AgentToolkit):
 
     @property
     def tools(self) -> list[type["MaxTool"]]:
-        from products.error_tracking.backend.tools.search_issues import SearchErrorTrackingIssuesTool
+        from products.error_tracking.backend.facade.tools import SearchErrorTrackingIssuesTool
 
         tools: list[type[MaxTool]] = [SearchErrorTrackingIssuesTool]
         return tools

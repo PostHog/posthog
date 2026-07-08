@@ -3,7 +3,7 @@ import posthoganalytics
 from temporalio import activity, workflow
 from temporalio.common import MetricCounter, MetricMeter
 
-from posthog.models.subscription import Subscription
+from products.exports.backend.models.subscription import Subscription
 
 logger = structlog.get_logger(__name__)
 

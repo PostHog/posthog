@@ -54,6 +54,7 @@ class OrganizationUsageInfo(TypedDict):
     api_queries_read_bytes: OrganizationUsageResource | None
     llm_events: OrganizationUsageResource | None
     ai_credits: OrganizationUsageResource | None
+    signals_credits: OrganizationUsageResource | None
     workflow_emails: OrganizationUsageResource | None
     workflow_destinations_dispatched: OrganizationUsageResource | None
     logs_mb_ingested: OrganizationUsageResource | None
@@ -143,7 +144,7 @@ def default_is_ai_training_opted_in():
     return getattr(settings, "CLOUD_DEPLOYMENT", None) != "EU"
 
 
-class Organization(ModelActivityMixin, UUIDTModel):  # type: ignore[django-manager-missing]
+class Organization(ModelActivityMixin, UUIDTModel):
     class Meta:
         constraints = [
             models.UniqueConstraint(
@@ -232,6 +233,12 @@ class Organization(ModelActivityMixin, UUIDTModel):  # type: ignore[django-manag
     )
     enforce_2fa = models.BooleanField(null=True, blank=True)
     members_can_invite = models.BooleanField(default=True, null=True, blank=True)
+    members_can_create_projects = models.BooleanField(
+        default=False,
+        null=True,
+        blank=True,
+        help_text="When True, organization members (below admin) are allowed to create new projects. Admins and owners can always create projects.",
+    )
     members_can_use_personal_api_keys = models.BooleanField(default=True)
     allow_publicly_shared_resources = models.BooleanField(default=True)
     default_role = models.ForeignKey(

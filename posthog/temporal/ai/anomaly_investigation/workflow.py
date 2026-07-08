@@ -33,7 +33,7 @@ from posthog.temporal.common.heartbeat import Heartbeater
 from posthog.utils import absolute_uri
 
 from products.alerts.backend.models.alert import AlertCheck, AlertConfiguration, InvestigationStatus
-from products.notebooks.backend.models import Notebook
+from products.notebooks.backend.facade import api as notebooks
 
 logger = structlog.get_logger(__name__)
 
@@ -146,14 +146,14 @@ async def investigate_anomaly_activity(inputs: AnomalyInvestigationWorkflowInput
         )
     )
 
-    notebook = await sync_to_async(Notebook.objects.create, thread_sensitive=False)(
-        team=team,
+    notebook = await sync_to_async(notebooks.create_notebook, thread_sensitive=False)(
+        team.id,
         title=f"Investigation — {alert.name or 'anomaly alert'}",
         content=notebook_content,
         text_content=result.report.summary,
-        created_by=user,
-        last_modified_by=user,
-        visibility=Notebook.Visibility.DEFAULT,
+        created_by_id=user.id,
+        last_modified_by_id=user.id,
+        creation_source=notebooks.NotebookCreationSource.TEMPORAL_AGENT,
     )
 
     summary_for_list = _truncate_summary(result.report.summary)

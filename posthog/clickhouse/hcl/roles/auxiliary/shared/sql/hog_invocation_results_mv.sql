@@ -1,0 +1,30 @@
+SELECT
+  team_id,
+  function_kind,
+  function_id,
+  invocation_id,
+  parent_run_id,
+  status,
+  attempts,
+  is_retry,
+  scheduled_at,
+  if(
+    first_scheduled_at = toDateTime64('1970-01-01 00:00:00', 6, 'UTC'),
+    scheduled_at,
+    first_scheduled_at
+  ) AS first_scheduled_at,
+  started_at,
+  finished_at,
+  duration_ms,
+  error_kind,
+  error_message,
+  event_uuid,
+  distinct_id,
+  person_id,
+  invocation_globals,
+  version,
+  is_deleted,
+  _timestamp,
+  _offset,
+  _partition
+FROM posthog.kafka_hog_invocation_results

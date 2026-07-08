@@ -6,13 +6,13 @@ import {
     type ChartTheme,
     type PointClickData,
     type TooltipContext,
-} from 'lib/hog-charts'
+} from '@posthog/quill-charts'
 
 import {
     FUNNEL_BAR_HORIZONTAL_VALUE_DOMAIN,
     type FunnelBarHorizontalSegmentMeta,
     type FunnelBarHorizontalStepData,
-} from './funnelBarHorizontalTransforms'
+} from '../shared/funnelBarHorizontalShared'
 
 const BAR_CORNER_RADIUS = 4
 
@@ -23,6 +23,9 @@ interface SingleStepBarProps {
     onSegmentClick: (meta: FunnelBarHorizontalSegmentMeta) => void
     renderTooltip: (ctx: TooltipContext<FunnelBarHorizontalSegmentMeta>) => JSX.Element | null
     onError: (error: Error, info: ErrorInfo) => void
+    /** Tailwind height of the bar track. Compare mode stacks two bars per step, so it passes a
+     *  shorter height to keep the step row close to a single bar's footprint. */
+    heightClassName?: string
 }
 
 const CHART_CONFIG: BarChartConfig = {
@@ -34,8 +37,8 @@ const CHART_CONFIG: BarChartConfig = {
     animateHover: true,
     margins: { top: 0, right: 0, bottom: 0, left: 0 },
     tooltip: { placement: 'cursor' },
+    barCornerRadius: BAR_CORNER_RADIUS,
     bars: {
-        cornerRadius: BAR_CORNER_RADIUS,
         bandPadding: 0,
         minBandSize: 0,
         valueDomain: FUNNEL_BAR_HORIZONTAL_VALUE_DOMAIN,
@@ -50,6 +53,7 @@ export function SingleStepBar({
     onSegmentClick,
     renderTooltip,
     onError,
+    heightClassName = 'h-8',
 }: SingleStepBarProps): JSX.Element {
     const onPointClick = useMemo(
         () =>
@@ -65,7 +69,7 @@ export function SingleStepBar({
     )
 
     return (
-        <div className="flex flex-col h-8 my-1">
+        <div className={`flex flex-col ${heightClassName} my-1`}>
             <BarChart<FunnelBarHorizontalSegmentMeta>
                 series={stepData.series}
                 labels={[stepData.label]}

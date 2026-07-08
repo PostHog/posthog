@@ -7,7 +7,10 @@
 category: User interview topics
 feature: user_interviews
 url_prefix: /user_interviews
-ui_apps: {}
+ui_apps:
+    invite-email-preview:
+        type: detail
+        view_prop: data
 tools:
     user-interview-topics-add-interviewee:
         operation: user_interview_topics_add_interviewee_create
@@ -42,16 +45,18 @@ tools:
             about. `topic` is the free-text description of the question or product area. Targets are specified as a
             combination of `interviewee_emails` (list of email addresses) and `interviewee_distinct_ids` (list of
             PostHog distinct IDs) — at least one of the two must be provided. To target a cohort, resolve cohort members
-            to emails/distinct_ids in the calling agent first (see the planning-user-interviews skill) and pass them
-            explicitly here — topics snapshot their audience at creation time. Pass `agent_context` (free text) to give
-            the voice agent extra background or instructions, and `questions` (list of strings) for the ordered set of
-            questions the agent should work through.
+            to emails/distinct_ids in the calling agent first (see the planning-voice-agent-user-interviews skill) and
+            pass them explicitly here — topics snapshot their audience at creation time. Pass `agent_context` (free
+            text) to give the voice agent extra background or instructions, and `questions` (list of strings) for the
+            ordered set of questions the agent should work through.
         include_params:
             - interviewee_emails
             - interviewee_distinct_ids
             - topic
             - agent_context
             - questions
+            - invite_subject
+            - invite_message
         feature_flag: user-interviews
     user-interview-topics-destroy:
         operation: user_interview_topics_destroy
@@ -219,7 +224,32 @@ tools:
             - questions
             - interviewee_emails
             - interviewee_distinct_ids
+            - invite_subject
+            - invite_message
         feature_flag: user-interviews
+    user-interview-topics-preview-invite:
+        operation: user_interview_topics_preview_invite_create
+        enabled: true
+        scopes:
+            - user_interview:read
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        title: Preview the invite email for a targeted interviewee
+        description: >
+            Render the invitation email exactly as a specific targeted interviewee would receive it — the personalized
+            subject and HTML body — without sending anything and without creating any share links. Pass
+            interviewee_identifier (an email or distinct ID already on the topic) to preview for a particular person, or
+            omit it to preview for the first targeted interviewee. The response includes the rendered subject and html,
+            the recipient, whether they are emailable, and whether the embedded link is a placeholder.
+        include_params:
+            - interviewee_identifier
+        ui_app: invite-email-preview
+        feature_flag: user-interviews
+    user-interview-topics-preview-invite-create:
+        operation: user_interview_topics_preview_invite_create
+        enabled: false
     user-interview-topics-remove-interviewee:
         operation: user_interview_topics_remove_interviewee_create
         enabled: true
@@ -268,7 +298,10 @@ tools:
             on a user interview topic whose identifier is an email address. The email includes a friendly greeting and a
             button linking to the public voice-interview page. Distinct-ID-only interviewees are skipped and surfaced in
             the response. Use this once a topic is finalized; safe to call repeatedly — invites are deduplicated per
-            share via the messaging system's idempotency record, and a token rotation produces a fresh send key.
+            share via the messaging system's idempotency record, and a token rotation produces a fresh send key. Email
+            delivery is intentionally capped at 500 recipients per send (and rate-limited per team). For larger
+            audiences, don't loop this — use user-interview-topics-generate-links (or the links CSV export) to get one
+            public link per interviewee and mail-merge them through your own email tooling instead.
         include_params:
             - subject
             - reply_to
@@ -304,11 +337,29 @@ tools:
             scope to a single research topic — use this to answer questions like "do I have any responses on my X topic
             yet?". Use `limit`/`offset` for pagination. `transcript` and `summary` can be long; when listing, prefer
             skimming the response shapes and then call `user-interviews-retrieve` for the full text of a specific
-            interview.
+            interview. Pass `classifications` (comma-separated; any of `abandoned`, `off-topic`) to return only
+            responses carrying any of those classifications — e.g. `classifications=abandoned` to find drop-offs.
         feature_flag: user-interviews
     user-interviews-partial-update:
         operation: user_interviews_partial_update
-        enabled: false
+        enabled: true
+        scopes:
+            - user_interview:write
+        annotations:
+            readOnly: false
+            destructive: false
+            idempotent: true
+        title: Set classifications on an interview response
+        description: >
+            Replace the searchable `classifications` on a single interview response. The valid classifications are
+            `abandoned` and `off-topic`. `abandoned` is auto-derived from the transcript when the response is recorded;
+            use this to correct it or to apply `off-topic`, which is never auto-set. Sending `classifications` replaces
+            the entire list — pass the full desired set, not a delta, so include the auto-derived `abandoned` if you
+            want to keep it. Filter by these later via the `classifications` parameter on `user-interviews-list` and
+            `user-interviews-search`.
+        include_params:
+            - classifications
+        feature_flag: user-interviews
     user-interviews-retrieve:
         operation: user_interviews_retrieve
         enabled: true
@@ -340,8 +391,9 @@ tools:
             is a single (interview, document_type) pair — an interview can appear up to twice if both its transcript and
             summary score above other interviews. Use `document_types` to restrict to just `transcript` or just
             `summary`. Filter by `topic_id` to scope the search to a single interview topic. `limit` caps the number of
-            returned matches (1-50, default 10). Useful for surfacing relevant excerpts when the caller has a research
-            question rather than a known string to grep for.
+            returned matches (1-50, default 10). Filter by `classifications` (any of `abandoned`, `off-topic`) to
+            restrict the search to responses carrying those; combines with `topic_id` as AND. Useful for surfacing
+            relevant excerpts when the caller has a research question rather than a known string to grep for.
         feature_flag: user-interviews
     user-interviews-update:
         operation: user_interviews_update

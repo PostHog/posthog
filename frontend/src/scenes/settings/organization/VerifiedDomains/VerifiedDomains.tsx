@@ -1,20 +1,21 @@
 import { useActions, useValues } from 'kea'
 
-import { IconCheckCircle, IconInfo, IconLock, IconTrash, IconWarning } from '@posthog/icons'
+import { IconInfo, IconLock, IconPeople, IconShieldLock, IconShuffle, IconTrash, IconWarning } from '@posthog/icons'
 
 import { PayGateMini } from 'lib/components/PayGateMini/PayGateMini'
 import { RestrictionScope } from 'lib/components/RestrictedArea'
 import { useRestrictedArea } from 'lib/components/RestrictedArea'
-import { OrganizationMembershipLevel } from 'lib/constants'
-import { IconExclamation, IconOffline } from 'lib/lemon-ui/icons'
+import { FEATURE_FLAGS, OrganizationMembershipLevel } from 'lib/constants'
+import { IconExclamation } from 'lib/lemon-ui/icons'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { More } from 'lib/lemon-ui/LemonButton/More'
 import { LemonDialog } from 'lib/lemon-ui/LemonDialog'
 import { LemonSwitch } from 'lib/lemon-ui/LemonSwitch/LemonSwitch'
 import { LemonTable, LemonTableColumns } from 'lib/lemon-ui/LemonTable'
-import { LemonTag } from 'lib/lemon-ui/LemonTag/LemonTag'
+import { LemonTag, LemonTagType } from 'lib/lemon-ui/LemonTag/LemonTag'
 import { Link } from 'lib/lemon-ui/Link'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { organizationLogic } from 'scenes/organizationLogic'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { urls } from 'scenes/urls'
@@ -23,12 +24,51 @@ import { ProductKey } from '~/queries/schema/schema-general'
 import { AvailableFeature, OrganizationDomainType } from '~/types'
 
 import { AddDomainModal } from './AddDomainModal'
+import { ConfigureIdJagModal } from './ConfigureIdJagModal'
 import { ConfigureSAMLModal } from './ConfigureSAMLModal'
 import { ConfigureSCIMModal } from './ConfigureSCIMModal'
 import { ScimLogsModal } from './ScimLogsModal'
 import { SSOSelect } from './SSOSelect'
 import { verifiedDomainsLogic } from './verifiedDomainsLogic'
 import { VerifyDomainModal } from './VerifyDomainModal'
+
+// One distinctive icon per integration type, reused across each integration's status badges.
+const SAML_ICON = <IconShieldLock />
+const SCIM_ICON = <IconPeople />
+const XAA_ICON = <IconShuffle />
+
+function IntegrationBadge({
+    label,
+    type,
+    tooltip,
+    icon,
+    to,
+}: {
+    label: string
+    type: LemonTagType
+    tooltip: string
+    icon?: JSX.Element
+    to?: string
+}): JSX.Element {
+    const tag = (
+        <LemonTag type={type} icon={icon}>
+            {label}
+        </LemonTag>
+    )
+    // The tooltip needs a plain element it can attach hover handlers to; LemonTag can't reliably act as a
+    // Base UI tooltip trigger (it would also pick up the injected onClick and look clickable), so wrap it.
+    return (
+        <Tooltip title={tooltip}>
+            {to ? (
+                <Link to={to} className="inline-flex">
+                    {tag}
+                </Link>
+            ) : (
+                <span className="inline-flex">{tag}</span>
+            )}
+        </Tooltip>
+    )
+}
 
 export function VerifiedDomains(): JSX.Element {
     const { verifiedDomainsLoading, updatingDomainLoading } = useValues(verifiedDomainsLogic)
@@ -67,6 +107,7 @@ function VerifiedDomainsTable(): JSX.Element {
         isSSOEnforcementAvailable,
         isSAMLAvailable,
         isSCIMAvailable,
+        isXAAAuthenticationAvailable,
     } = useValues(verifiedDomainsLogic)
     const { currentOrganization } = useValues(organizationLogic)
     const {
@@ -75,9 +116,13 @@ function VerifiedDomainsTable(): JSX.Element {
         setVerifyModal,
         setConfigureSAMLModalId,
         setConfigureSCIMModalId,
+        setConfigureIdJagModalId,
         setScimLogsModalId,
     } = useActions(verifiedDomainsLogic)
     const { preflight } = useValues(preflightLogic)
+    const { featureFlags } = useValues(featureFlagLogic)
+
+    const showXAAControls = !!featureFlags[FEATURE_FLAGS.XAA_AUTHENTICATION] && isXAAAuthenticationAvailable
 
     const restrictionReason = useRestrictedArea({
         minimumAccessLevel: OrganizationMembershipLevel.Admin,
@@ -158,57 +203,108 @@ function VerifiedDomainsTable(): JSX.Element {
             },
         },
         {
-            key: 'saml',
-            title: 'SAML',
-            render: function SAML(_, { saml_acs_url, saml_entity_id, saml_x509_cert, has_saml }) {
+            key: 'integrations',
+            title: 'Integrations',
+            render: function Integrations(
+                _,
+                { has_saml, saml_acs_url, saml_entity_id, saml_x509_cert, scim_enabled, has_id_jag }
+            ) {
+                const billingLink = urls.organizationBilling([ProductKey.PLATFORM_AND_SUPPORT])
+                const badges: JSX.Element[] = []
+
                 if (!isSAMLAvailable) {
-                    return (
-                        <Link
-                            to={urls.organizationBilling([ProductKey.PLATFORM_AND_SUPPORT])}
-                            className="flex items-center gap-1"
-                        >
-                            <IconLock className="text-warning text-lg" /> Upgrade to enable
-                        </Link>
+                    badges.push(
+                        <IntegrationBadge
+                            key="saml"
+                            label="SAML"
+                            type="muted"
+                            icon={SAML_ICON}
+                            tooltip="Upgrade your plan to enable SAML"
+                            to={billingLink}
+                        />
+                    )
+                } else if (has_saml) {
+                    badges.push(
+                        <IntegrationBadge
+                            key="saml"
+                            label="SAML"
+                            type="success"
+                            icon={SAML_ICON}
+                            tooltip="SAML is enabled"
+                        />
+                    )
+                } else if (saml_acs_url || saml_entity_id || saml_x509_cert) {
+                    badges.push(
+                        <IntegrationBadge
+                            key="saml"
+                            label="SAML"
+                            type="warning"
+                            icon={SAML_ICON}
+                            tooltip="SAML is partially configured"
+                        />
+                    )
+                } else {
+                    badges.push(
+                        <IntegrationBadge
+                            key="saml"
+                            label="SAML"
+                            type="muted"
+                            icon={SAML_ICON}
+                            tooltip="SAML is not enabled"
+                        />
                     )
                 }
-                return has_saml ? (
-                    <div className="flex items-center gap-1 text-success">
-                        <IconCheckCircle className="text-lg pt-0.5" /> SAML enabled
-                    </div>
-                ) : saml_acs_url || saml_entity_id || saml_x509_cert ? (
-                    <div className="flex items-center gap-1 text-warning">
-                        <IconWarning className="text-lg pt-0.5" /> SAML partially configured
-                    </div>
-                ) : (
-                    <div className="flex items-center gap-1">
-                        <IconOffline className="text-lg" /> SAML not set up
-                    </div>
-                )
-            },
-        },
-        {
-            key: 'scim',
-            title: 'SCIM',
-            render: function SCIM(_, { scim_enabled }) {
+
                 if (!isSCIMAvailable) {
-                    return (
-                        <Link
-                            to={urls.organizationBilling([ProductKey.PLATFORM_AND_SUPPORT])}
-                            className="flex items-center gap-1"
-                        >
-                            <IconLock className="text-warning text-lg" /> Upgrade to enable
-                        </Link>
+                    badges.push(
+                        <IntegrationBadge
+                            key="scim"
+                            label="SCIM"
+                            type="muted"
+                            icon={SCIM_ICON}
+                            tooltip="Upgrade your plan to enable SCIM"
+                            to={billingLink}
+                        />
+                    )
+                } else if (scim_enabled) {
+                    badges.push(
+                        <IntegrationBadge
+                            key="scim"
+                            label="SCIM"
+                            type="success"
+                            icon={SCIM_ICON}
+                            tooltip="SCIM is enabled"
+                        />
+                    )
+                } else {
+                    badges.push(
+                        <IntegrationBadge
+                            key="scim"
+                            label="SCIM"
+                            type="muted"
+                            icon={SCIM_ICON}
+                            tooltip="SCIM is not enabled"
+                        />
                     )
                 }
-                return scim_enabled ? (
-                    <div className="flex items-center gap-1 text-success">
-                        <IconCheckCircle className="text-lg pt-0.5" /> SCIM enabled
-                    </div>
-                ) : (
-                    <div className="flex items-center gap-1">
-                        <IconOffline className="text-lg" /> SCIM not set up
-                    </div>
-                )
+
+                if (showXAAControls && has_id_jag) {
+                    badges.push(
+                        <IntegrationBadge
+                            key="xaa"
+                            label="XAA"
+                            type="success"
+                            icon={XAA_ICON}
+                            tooltip="XAA is enabled"
+                        />
+                    )
+                }
+
+                if (badges.length === 0) {
+                    return <span className="text-muted">Not configured</span>
+                }
+
+                return <div className="flex items-center gap-1 flex-wrap">{badges}</div>
             },
         },
         {
@@ -238,6 +334,15 @@ function VerifiedDomainsTable(): JSX.Element {
                                 >
                                     Configure SCIM
                                 </LemonButton>
+                                {showXAAControls && (
+                                    <LemonButton
+                                        onClick={() => setConfigureIdJagModalId(id)}
+                                        fullWidth
+                                        disabledReason={restrictionReason}
+                                    >
+                                        Configure XAA
+                                    </LemonButton>
+                                )}
                                 {isSCIMAvailable && (
                                     <LemonButton
                                         onClick={() => setScimLogsModalId(id)}
@@ -379,6 +484,7 @@ function VerifiedDomainsTable(): JSX.Element {
             <AddDomainModal />
             <ConfigureSAMLModal />
             <ConfigureSCIMModal />
+            {showXAAControls && <ConfigureIdJagModal />}
             <ScimLogsModal />
             <VerifyDomainModal />
         </div>

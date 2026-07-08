@@ -63,6 +63,7 @@ def get_python_version_from_pyproject() -> str:
         data = tomllib.load(f)
 
     requires_python = data.get("project", {}).get("requires-python", "")
+    # Extract version from format like "==X.Y.Z" or ">=X.Y.Z"
     match = re.search(r"(\d+\.\d+\.\d+)", requires_python)
     if not match:
         raise ValueError(f"Could not parse Python version from: {requires_python}")

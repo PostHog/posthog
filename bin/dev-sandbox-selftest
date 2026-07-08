@@ -1,0 +1,217 @@
+#!/usr/bin/env bash
+# Self-test for the dev sandbox (bin/dev-sandbox + bin/dev-sandbox.sb).
+#
+# Regression guard: asserts the profile compiles, credential contents are
+# blocked, persistence writes are blocked, the $HOME->repo ancestor chain is
+# traversable (getcwd/realpath), env tokens are stripped, and the allowlisted
+# toolchain dirs are readable. Run locally (`bin/dev-sandbox-selftest`) or in CI
+# (.github/workflows/dev-sandbox-selftest.yml).
+#
+# Interpreters under $HOME (nvm/pyenv/hostedtoolcache) can't be exec'd inside the
+# sandbox by design, so the path-traversal check uses /usr/bin/python3, which
+# lives outside $HOME on macOS.
+
+set -uo pipefail # intentionally not -e: run every check, then report
+
+cd "$(dirname "$0")/.." || exit 1
+SANDBOX="bin/dev-sandbox"
+fail=0
+pass() { printf '  \033[32mok\033[0m   %s\n' "$1"; }
+die() {
+    printf '  \033[31mFAIL\033[0m %s\n' "$1"
+    fail=1
+}
+
+if [[ "$(uname -s)" != "Darwin" ]] || ! command -v sandbox-exec >/dev/null 2>&1; then
+    echo "Sandbox is a no-op on this platform — nothing to test."
+    exit 0
+fi
+
+echo "dev-sandbox self-test"
+
+# 1. Profile compiles and the sandbox is actually enforcing (not failing open).
+err="$($SANDBOX 'echo SANDBOX_MARKER' 2>&1 >/dev/null)"
+out="$($SANDBOX 'echo SANDBOX_MARKER' 2>/dev/null)"
+if [[ "$out" == "SANDBOX_MARKER" && "$err" != *"failed to initialize"* ]]; then
+    pass "profile compiles, sandbox active"
+else
+    die "sandbox not active (fail-open or broken profile): ${err:-no stderr}"
+fi
+
+# 2. Repo is readable.
+if $SANDBOX 'head -1 package.json >/dev/null' 2>/dev/null; then
+    pass "repo readable"
+else
+    die "repo not readable"
+fi
+
+# 3. Credential file CONTENTS are blocked. Probe a file in $HOME root (always
+#    exists); never create credential dirs as a side effect.
+secret="$HOME/.dev_sandbox_selftest_secret"
+echo secret >"$secret"
+if $SANDBOX "cat '$secret'" >/dev/null 2>&1; then
+    die "HOME file content readable (must be blocked)"
+else
+    pass "HOME file content blocked"
+fi
+rm -f "$secret"
+if [[ -d "$HOME/.aws" ]]; then
+    aws_probe="$HOME/.aws/.dev_sandbox_selftest"
+    echo secret >"$aws_probe" 2>/dev/null || true
+    if [[ -f "$aws_probe" ]]; then
+        if $SANDBOX "cat '$aws_probe'" >/dev/null 2>&1; then die ".aws content readable"; else pass ".aws content blocked"; fi
+        rm -f "$aws_probe"
+    fi
+fi
+
+# 4. Writes that enable persistence are blocked. Only if ~/.ssh already exists —
+#    never create it (default umask 0755 would break the user's real ssh).
+if [[ -d "$HOME/.ssh" ]]; then
+    if $SANDBOX "echo x > '$HOME/.ssh/.dev_sandbox_selftest'" >/dev/null 2>&1; then
+        die ".ssh write allowed (must be blocked)"
+        rm -f "$HOME/.ssh/.dev_sandbox_selftest"
+    else
+        pass ".ssh write blocked"
+    fi
+else
+    echo "  --   ~/.ssh absent, skipping write-deny check"
+fi
+
+# 5. $HOME->repo ancestor chain is traversable: getcwd + realpath of a repo file.
+#    /usr/bin/python3 lives outside $HOME so it is exec'able inside the sandbox.
+if [[ -x /usr/bin/python3 ]]; then
+    if $SANDBOX "/usr/bin/python3 -c 'import os,sys; sys.exit(0 if os.path.isfile(os.path.realpath(\"package.json\")) else 1)'" 2>/dev/null; then
+        pass "getcwd + realpath through HOME ancestors"
+    else
+        die "path traversal into repo blocked (ancestor-chain allow missing?)"
+    fi
+else
+    echo "  --   /usr/bin/python3 absent, skipping traversal check"
+fi
+
+# 6. Ambient tokens are stripped from the child environment.
+# Single quotes below are intentional: $GITHUB_TOKEN must be expanded by the
+# sandboxed shell, not by this one.
+# shellcheck disable=SC2016
+token_seen="$(GITHUB_TOKEN=should-vanish $SANDBOX 'printf %s "${GITHUB_TOKEN:-}"' 2>/dev/null)"
+if [[ -z "$token_seen" ]]; then
+    pass "GITHUB_TOKEN stripped"
+else
+    die "GITHUB_TOKEN not stripped"
+fi
+
+# 7. Allowlisted toolchain dirs are readable. Only the ones that already exist —
+#    never create dirs in $HOME as a side effect.
+for d in .cache .npm .cargo "Library/Caches/node-gyp"; do
+    if [[ ! -d "$HOME/$d" ]]; then
+        echo "  --   \$HOME/$d absent, skipping"
+        continue
+    fi
+    if $SANDBOX "ls -d '$HOME/$d' >/dev/null" 2>/dev/null; then
+        pass "readable: \$HOME/$d"
+    else
+        die "allowlisted dir not readable: \$HOME/$d"
+    fi
+done
+
+# 8. cargo publish token stays blocked even though ~/.cargo is allowed (only if
+#    ~/.cargo already exists — don't create it).
+if [[ -d "$HOME/.cargo" ]]; then
+    cred="$HOME/.cargo/credentials.toml"
+    created=0
+    if [[ ! -f "$cred" ]]; then
+        printf '[registry]\ntoken="x"\n' >"$cred" 2>/dev/null && created=1
+    fi
+    if [[ -f "$cred" ]]; then
+        if $SANDBOX "cat '$cred'" >/dev/null 2>&1; then
+            die "cargo credentials readable"
+        else
+            pass "cargo credentials blocked"
+        fi
+        [[ "$created" == 1 ]] && rm -f "$cred"
+    fi
+else
+    echo "  --   ~/.cargo absent, skipping cargo-credentials check"
+fi
+
+# 9. The docker daemon socket is unreachable inside the sandbox — otherwise a
+#    dependency could escape via `docker run -v $HOME:/host ...`. Only meaningful
+#    when a daemon is actually reachable from outside the sandbox.
+if command -v docker >/dev/null 2>&1 && docker version --format '{{.Server.Version}}' >/dev/null 2>&1; then
+    if $SANDBOX "docker version --format '{{.Server.Version}}'" >/dev/null 2>&1; then
+        die "docker daemon reachable inside sandbox (container-mount escape possible)"
+    else
+        pass "docker daemon socket blocked (no container escape)"
+    fi
+else
+    echo "  --   no reachable docker daemon, skipping escape check"
+fi
+
+# 10. SSH agent unreachable inside the sandbox — otherwise a dep could use your
+#     keys (auth/sign) without reading ~/.ssh. Only meaningful with a live agent.
+if [[ -n "${SSH_AUTH_SOCK:-}" ]] && ssh-add -l >/dev/null 2>&1; then
+    if $SANDBOX 'ssh-add -l' >/dev/null 2>&1; then
+        die "ssh agent reachable inside sandbox (keys usable)"
+    else
+        pass "ssh agent unreachable"
+    fi
+else
+    echo "  --   no usable ssh agent, skipping"
+fi
+
+# 11. Execute-later write targets are read-only inside the sandbox (poisoning
+#     them would run code OUTSIDE the sandbox). Probe files only — never real ones.
+check_write_blocked() {
+    if $SANDBOX "echo x > '$1'" >/dev/null 2>&1; then
+        die "writable, should be blocked: $2"
+        rm -f "$1"
+    else
+        pass "write blocked: $2"
+    fi
+}
+check_write_blocked "bin/.dev_sandbox_selftest_probe" "repo bin/"
+mkdir -p .git/hooks 2>/dev/null || true
+check_write_blocked ".git/hooks/.dev_sandbox_selftest_probe" ".git/hooks"
+if [[ -d "$HOME/.cargo/bin" ]]; then
+    check_write_blocked "$HOME/.cargo/bin/.dev_sandbox_selftest_probe" "cargo bin"
+fi
+
+# 12. The rendered profile + its preflight stamp are read-only inside the sandbox.
+#     Otherwise a dependency could overwrite them and have a poisoned profile
+#     loaded on the next cache hit (which re-runs neither render nor preflight),
+#     bypassing the sandbox entirely. Earlier checks have already rendered it.
+rendered_profiles=("${TMPDIR:-/tmp}"/posthog-dev-sandbox-*.sb)
+rendered_profile="${rendered_profiles[0]}" # literal glob if none matched -> -f false below
+if [[ -f "$rendered_profile" ]]; then
+    check_write_blocked "$rendered_profile" "rendered profile (cache poisoning)"
+    check_write_blocked "$rendered_profile.ok" "rendered profile stamp (cache poisoning)"
+else
+    die "rendered profile not found (expected after earlier sandbox runs)"
+fi
+
+# 13. PATH is sanitized: read-denied $HOME dirs are dropped from the child PATH so a
+#     bare-command spawn keeps working. node/libuv resolve bare names via posix_spawnp,
+#     which aborts the whole PATH search on the first EPERM Seatbelt returns for an
+#     existing-but-denied dir — so one unreadable $HOME shim dir (nvm/fnm/asdf/pyenv)
+#     ahead of the real binary breaks every bare spawn (e.g. pnpm lifecycle scripts).
+#     Assert a $HOME dir is dropped while system + repo bins survive. String-only, so
+#     the probe dir need not exist.
+repo="$(pwd -P)"
+shim="$HOME/.dev_sandbox_selftest_shim/bin"
+child_path="$(PATH="$shim:/usr/bin:/bin:$repo/bin" $SANDBOX 'printf %s "$PATH"' 2>/dev/null)"
+if [[ ":$child_path:" == *":$shim:"* ]]; then
+    die "PATH not sanitized: read-denied \$HOME dir survived in child PATH"
+elif [[ ":$child_path:" != *":/usr/bin:"* ]] || [[ ":$child_path:" != *":$repo/bin:"* ]]; then
+    die "PATH over-sanitized: dropped a system or repo dir (got: $child_path)"
+else
+    pass "PATH sanitized: denied \$HOME dir dropped, system + repo bins kept"
+fi
+
+echo
+if [[ $fail -eq 0 ]]; then
+    echo "PASS — all dev-sandbox self-tests passed"
+    exit 0
+else
+    echo "FAIL — dev-sandbox self-tests failed"
+    exit 1
+fi

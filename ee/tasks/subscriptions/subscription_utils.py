@@ -7,12 +7,12 @@ import structlog
 from celery import chain
 from prometheus_client import Histogram
 
-from posthog.models.exported_asset import ExportedAsset
 from posthog.models.sharing_configuration import SharingConfiguration
-from posthog.models.subscription import Subscription
 from posthog.tasks import exporter
 from posthog.utils import wait_for_parallel_celery_group
 
+from products.exports.backend.models.exported_asset import ExportedAsset
+from products.exports.backend.models.subscription import Subscription
 from products.product_analytics.backend.models.insight import Insight
 
 logger = structlog.get_logger(__name__)
@@ -58,6 +58,9 @@ def generate_assets(
 
         # Create all the assets we need
         expiry = ExportedAsset.compute_expires_after(ExportedAsset.ExportFormat.PNG)
+        # Attribute the asset to the subscription owner so background renders resolve warehouse
+        # HogQL access control against their access (SharingConfiguration has no owner -> None).
+        asset_created_by = resource.created_by if isinstance(resource, Subscription) else None
         assets = [
             ExportedAsset(
                 team=resource.team,
@@ -65,6 +68,7 @@ def generate_assets(
                 insight=insight,
                 dashboard=resource.dashboard,
                 expires_after=expiry,
+                created_by=asset_created_by,
             )
             for insight in insights[:max_asset_count]
         ]

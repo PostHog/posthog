@@ -2,6 +2,7 @@ from typing import Any, cast
 
 from django.db import IntegrityError
 
+from drf_spectacular.utils import extend_schema
 from rest_framework import exceptions, mixins, serializers, viewsets
 from rest_framework.permissions import SAFE_METHODS, BasePermission
 from rest_framework.request import Request
@@ -23,8 +24,9 @@ class CanEditDashboardCollaborator(BasePermission):
         if request.method in SAFE_METHODS:
             return True
         try:
-            # nosemgrep: idor-lookup-without-team (dashboard access validated by parent viewset)
-            dashboard: Dashboard = Dashboard.objects.get(id=view.parents_query_dict["dashboard_id"])
+            dashboard: Dashboard = Dashboard.objects.get(
+                id=view.parents_query_dict["dashboard_id"], team__project_id=view.team.project_id
+            )
         except Dashboard.DoesNotExist:
             raise exceptions.NotFound("Dashboard not found.")
 
@@ -86,6 +88,7 @@ class DashboardCollaboratorSerializer(serializers.ModelSerializer, UserPermissio
             raise serializers.ValidationError("User already is a collaborator.")
 
 
+@extend_schema(extensions={"x-product": "dashboards"})
 class DashboardCollaboratorViewSet(
     TeamAndOrgViewSetMixin,
     mixins.ListModelMixin,
@@ -104,8 +107,9 @@ class DashboardCollaboratorViewSet(
     def get_serializer_context(self) -> dict[str, Any]:
         context = super().get_serializer_context()
         try:
-            # nosemgrep: idor-lookup-without-team (dashboard access validated by parent viewset)
-            context["dashboard"] = Dashboard.objects.get(id=context["dashboard_id"])
+            context["dashboard"] = Dashboard.objects.get(
+                id=context["dashboard_id"], team__project_id=self.team.project_id
+            )
         except Dashboard.DoesNotExist:
             raise exceptions.NotFound("Dashboard not found.")
         return context

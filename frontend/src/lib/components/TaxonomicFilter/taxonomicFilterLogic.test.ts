@@ -1,6 +1,8 @@
 import { MOCK_TEAM_ID } from 'lib/api.mock'
 
+import { getContext } from 'kea'
 import { expectLogic } from 'kea-test-utils'
+import posthog from 'posthog-js'
 
 import {
     isSkeletonItem,
@@ -10,15 +12,17 @@ import {
     taxonomicFilterLogic,
 } from 'lib/components/TaxonomicFilter/taxonomicFilterLogic'
 import { TaxonomicFilterGroupType, TaxonomicFilterLogicProps } from 'lib/components/TaxonomicFilter/types'
+import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 
 import { useMocks } from '~/mocks/jest'
 import { actionsModel } from '~/models/actionsModel'
 import { groupsModel } from '~/models/groupsModel'
+import { NodeKind } from '~/queries/schema/schema-general'
 import { CORE_FILTER_DEFINITIONS_BY_GROUP } from '~/taxonomy/taxonomy'
 import { initKeaTests } from '~/test/init'
 import { mockEventDefinitions, mockSessionPropertyDefinitions } from '~/test/mocks'
-import { AppContext, EventDefinition, PropertyDefinition } from '~/types'
+import { AppContext, EventDefinition, PropertyDefinition, PropertyFilterType } from '~/types'
 
 import { infiniteListLogic } from './infiniteListLogic'
 import { recentTaxonomicFiltersLogic } from './recentTaxonomicFiltersLogic'
@@ -34,8 +38,8 @@ describe('taxonomicFilterLogic', () => {
     beforeEach(() => {
         useMocks({
             get: {
-                '/api/projects/:team/event_definitions': (res) => {
-                    const search = res.url.searchParams.get('search')
+                '/api/projects/:team/event_definitions': ({ request }) => {
+                    const search = new URL(request.url).searchParams.get('search')
                     const results = search
                         ? mockEventDefinitions.filter((e) => e.name.includes(search))
                         : mockEventDefinitions
@@ -47,8 +51,8 @@ describe('taxonomicFilterLogic', () => {
                         },
                     ]
                 },
-                '/api/environments/:team/sessions/property_definitions': (res) => {
-                    const search = res.url.searchParams.get('search')
+                '/api/environments/:team/sessions/property_definitions': ({ request }) => {
+                    const search = new URL(request.url).searchParams.get('search')
                     const results = search
                         ? mockSessionPropertyDefinitions.filter((e) => e.name.includes(search))
                         : mockSessionPropertyDefinitions
@@ -187,6 +191,48 @@ describe('taxonomicFilterLogic', () => {
         })
     })
 
+    it('emits search latency for the active remote tab when its results land', async () => {
+        const captureSpy = jest.spyOn(posthog, 'capture')
+        const eventsListLogic = infiniteListLogic({
+            ...logic.props,
+            listGroupType: TaxonomicFilterGroupType.Events,
+        })
+
+        await expectLogic(eventsListLogic, () => logic.actions.setSearchQuery('event')).toDispatchActions([
+            'loadRemoteItemsSuccess',
+        ])
+        await expectLogic(logic).toDispatchActions(['infiniteListResultsReceived']).delay(1)
+
+        const latencyCall = captureSpy.mock.calls.find(([event]) => event === 'taxonomic filter search latency')
+        expect(latencyCall).toBeTruthy()
+        expect(latencyCall?.[1]).toMatchObject({
+            groupType: TaxonomicFilterGroupType.Events,
+            searchQuery: 'event',
+            time_to_see_data_ms: expect.any(Number),
+        })
+
+        captureSpy.mockRestore()
+    })
+
+    it('taxonomicGroups keeps a stable reference across equal-but-freshly-allocated object props', () => {
+        // A parent re-render that passes an inline object literal (e.g. metadataSource={{ ... }}) hands
+        // the logic a new-but-deep-equal prop on every tick. Without resultEqualityCheck on the
+        // prop-derived selectors, taxonomicGroups recomputes and mints fresh group objects each time,
+        // cascading through the infinite list (group -> rawLocalItems -> ... -> selectedItem) and handing
+        // react-window new rowProps every render, which drives its layout-effect setState past React's
+        // update limit (error #185). This locks the reference in so that cascade cannot start.
+        const state = getContext().store.getState()
+        const propsA = { ...logic.props, metadataSource: { kind: NodeKind.HogQLQuery, query: 'select 1' } }
+        const propsB = { ...logic.props, metadataSource: { kind: NodeKind.HogQLQuery, query: 'select 1' } }
+
+        expect(propsA.metadataSource).not.toBe(propsB.metadataSource)
+
+        const groupsA = logic.selectors.taxonomicGroups(state, propsA)
+        const groupsB = logic.selectors.taxonomicGroups(state, propsB)
+
+        expect(groupsB).toBe(groupsA)
+    })
+
     it('tabs skip groups with no results', async () => {
         await expectLogic(logic).toDispatchActions(['infiniteListResultsReceived']).delay(1).clearHistory()
 
@@ -226,8 +272,8 @@ describe('taxonomicFilterLogic', () => {
         beforeEach(() => {
             useMocks({
                 get: {
-                    '/api/projects/:team/event_definitions': (res) => {
-                        const search = res.url.searchParams.get('search')
+                    '/api/projects/:team/event_definitions': ({ request }) => {
+                        const search = new URL(request.url).searchParams.get('search')
                         const results = search
                             ? eventsWithPageview.filter((e) => e.name.toLowerCase().includes(search.toLowerCase()))
                             : eventsWithPageview
@@ -346,6 +392,9 @@ describe('taxonomicFilterLogic', () => {
                 taxonomicGroupTypes: [
                     TaxonomicFilterGroupType.SuggestedFilters,
                     TaxonomicFilterGroupType.InternalEventProperties,
+                    // Second substantive group so "All" is retained (a single substantive group
+                    // drops it); Events has no 'activity' match so top matches stay unchanged
+                    TaxonomicFilterGroupType.Events,
                 ],
             }
             const noGetValueLogic = taxonomicFilterLogic(logicProps)
@@ -732,29 +781,116 @@ describe('taxonomicFilterLogic', () => {
         })
     })
 
-    describe('SuggestedFilters presence', () => {
+    describe('SuggestedFilters presence by variant', () => {
+        afterEach(() => {
+            featureFlagLogic.actions.setFeatureFlags([], {
+                [FEATURE_FLAGS.TAXONOMIC_FILTER_CATEGORY_DROPDOWN]: 'control',
+            })
+        })
+
         it.each([
             {
-                groupTypes: [TaxonomicFilterGroupType.SuggestedFilters, TaxonomicFilterGroupType.Events],
-                expectQuickFilters: true,
-                description: 'includes SuggestedFilters when listed in groupTypes',
+                description: 'control: includes SuggestedFilters when explicitly listed in a multi-group picker',
+                variant: 'control',
+                groupTypes: [
+                    TaxonomicFilterGroupType.SuggestedFilters,
+                    TaxonomicFilterGroupType.Events,
+                    TaxonomicFilterGroupType.Actions,
+                ],
+                expectPresent: true,
+                expectDefault: true,
             },
             {
+                description: 'control: does not auto-inject SuggestedFilters for a multi-group picker',
+                variant: 'control',
                 groupTypes: [TaxonomicFilterGroupType.Events, TaxonomicFilterGroupType.Actions],
-                expectQuickFilters: false,
-                description: 'excludes SuggestedFilters when not listed in groupTypes',
+                expectPresent: false,
+                expectDefault: false,
             },
-        ])('$description', ({ groupTypes, expectQuickFilters }) => {
+            {
+                description: 'pill: auto-injects SuggestedFilters as the default for a multi-group picker',
+                variant: 'pill',
+                groupTypes: [TaxonomicFilterGroupType.Events, TaxonomicFilterGroupType.Actions],
+                expectPresent: true,
+                expectDefault: true,
+            },
+            {
+                description: 'pill: does not auto-inject SuggestedFilters for a single substantive group',
+                variant: 'pill',
+                groupTypes: [TaxonomicFilterGroupType.Events],
+                expectPresent: false,
+                expectDefault: false,
+            },
+            {
+                description: 'control: strips explicitly-listed SuggestedFilters for a single substantive group',
+                variant: 'control',
+                groupTypes: [TaxonomicFilterGroupType.SuggestedFilters, TaxonomicFilterGroupType.Events],
+                expectPresent: false,
+                expectDefault: false,
+            },
+            {
+                description: 'pill: strips explicitly-listed SuggestedFilters for a single substantive group',
+                variant: 'pill',
+                groupTypes: [TaxonomicFilterGroupType.SuggestedFilters, TaxonomicFilterGroupType.Events],
+                expectPresent: false,
+                expectDefault: false,
+            },
+        ])('$description', ({ variant, groupTypes, expectPresent, expectDefault }) => {
+            featureFlagLogic.actions.setFeatureFlags([], {
+                [FEATURE_FLAGS.TAXONOMIC_FILTER_CATEGORY_DROPDOWN]: variant,
+            })
+
             const testLogicProps: TaxonomicFilterLogicProps = {
-                taxonomicFilterLogicKey: `testOptIn-${groupTypes.join('-')}`,
+                taxonomicFilterLogicKey: `testVariant-${variant}-${groupTypes.join('-')}`,
                 taxonomicGroupTypes: groupTypes,
             }
             const testLogic = taxonomicFilterLogic(testLogicProps)
             testLogic.mount()
 
             expect(testLogic.values.taxonomicGroupTypes.includes(TaxonomicFilterGroupType.SuggestedFilters)).toBe(
-                expectQuickFilters
+                expectPresent
             )
+            if (expectDefault) {
+                expect(testLogic.values.activeTab).toBe(TaxonomicFilterGroupType.SuggestedFilters)
+            } else {
+                expect(testLogic.values.activeTab).not.toBe(TaxonomicFilterGroupType.SuggestedFilters)
+            }
+
+            testLogic.unmount()
+        })
+
+        it('pill flag resolving after mount still makes SuggestedFilters the default tab', () => {
+            const testLogic = taxonomicFilterLogic({
+                taxonomicFilterLogicKey: 'testLateFlagDefault',
+                taxonomicGroupTypes: [TaxonomicFilterGroupType.Events, TaxonomicFilterGroupType.Actions],
+            })
+            testLogic.mount()
+
+            expect(testLogic.values.activeTab).toBe(TaxonomicFilterGroupType.Events)
+
+            featureFlagLogic.actions.setFeatureFlags([], {
+                [FEATURE_FLAGS.TAXONOMIC_FILTER_CATEGORY_DROPDOWN]: 'pill',
+            })
+
+            expect(testLogic.values.taxonomicGroupTypes).toContain(TaxonomicFilterGroupType.SuggestedFilters)
+            expect(testLogic.values.activeTab).toBe(TaxonomicFilterGroupType.SuggestedFilters)
+
+            testLogic.unmount()
+        })
+
+        it('an explicit tab choice made before the pill flag resolves is kept', () => {
+            const testLogic = taxonomicFilterLogic({
+                taxonomicFilterLogicKey: 'testLateFlagExplicit',
+                taxonomicGroupTypes: [TaxonomicFilterGroupType.Events, TaxonomicFilterGroupType.Actions],
+            })
+            testLogic.mount()
+
+            testLogic.actions.setActiveTab(TaxonomicFilterGroupType.Actions)
+            featureFlagLogic.actions.setFeatureFlags([], {
+                [FEATURE_FLAGS.TAXONOMIC_FILTER_CATEGORY_DROPDOWN]: 'pill',
+            })
+
+            expect(testLogic.values.activeTab).toBe(TaxonomicFilterGroupType.Actions)
 
             testLogic.unmount()
         })
@@ -819,6 +955,24 @@ describe('taxonomicFilterLogic', () => {
                     TaxonomicFilterGroupType.Events,
                     TaxonomicFilterGroupType.Actions,
                     TaxonomicFilterGroupType.EventProperties,
+                ],
+            },
+            {
+                description: 'single substantive group leads, with Recent/Pinned after it (no All)',
+                groupTypes: [TaxonomicFilterGroupType.Events],
+                expected: [
+                    TaxonomicFilterGroupType.Events,
+                    TaxonomicFilterGroupType.RecentFilters,
+                    TaxonomicFilterGroupType.PinnedFilters,
+                ],
+            },
+            {
+                description: 'single substantive group drops an explicitly-prepended All and still leads',
+                groupTypes: [TaxonomicFilterGroupType.SuggestedFilters, TaxonomicFilterGroupType.Events],
+                expected: [
+                    TaxonomicFilterGroupType.Events,
+                    TaxonomicFilterGroupType.RecentFilters,
+                    TaxonomicFilterGroupType.PinnedFilters,
                 ],
             },
         ])('$description', ({ groupTypes, expected }) => {
@@ -966,6 +1120,35 @@ describe('taxonomicFilterLogic', () => {
         })
     })
 
+    describe('Replay group activity-count options', () => {
+        let replayLogic: ReturnType<typeof taxonomicFilterLogic.build>
+
+        beforeEach(() => {
+            replayLogic = taxonomicFilterLogic({
+                taxonomicFilterLogicKey: 'testReplayActivityCounts',
+                taxonomicGroupTypes: [TaxonomicFilterGroupType.Replay],
+            })
+            replayLogic.mount()
+        })
+
+        afterEach(() => {
+            replayLogic.unmount()
+        })
+
+        it('surfaces click/keypress/mouse activity counts as recording filters', () => {
+            const replayGroup = replayLogic.values.taxonomicGroups.find(
+                (g) => g.type === TaxonomicFilterGroupType.Replay
+            )
+            const recordingFilterKeys = (replayGroup?.options ?? [])
+                .filter((o: any) => o.propertyFilterType === PropertyFilterType.Recording)
+                .map((o: any) => o.key)
+
+            expect(recordingFilterKeys).toEqual(
+                expect.arrayContaining(['click_count', 'keypress_count', 'mouse_activity_count'])
+            )
+        })
+    })
+
     describe('keywordShortcuts on Events and EventProperties groups', () => {
         let testLogic: ReturnType<typeof taxonomicFilterLogic.build>
 
@@ -1077,6 +1260,98 @@ describe('taxonomicFilterLogic', () => {
             expect(personsGroup?.getValue).toBeDefined() // oxlint-disable-line jest/no-restricted-matchers
             expect(() => personsGroup?.getValue?.(person as any)).not.toThrow()
             expect(personsGroup?.getValue?.(person as any)).toBe(expected)
+        })
+    })
+
+    describe('Feature Flags group keeps recently-used flags selectable', () => {
+        let flagLogic: ReturnType<typeof taxonomicFilterLogic.build>
+
+        beforeEach(() => {
+            flagLogic = taxonomicFilterLogic({
+                taxonomicFilterLogicKey: 'featureFlagDependencyTest',
+                taxonomicGroupTypes: [TaxonomicFilterGroupType.FeatureFlags],
+            })
+            flagLogic.mount()
+        })
+
+        afterEach(() => {
+            flagLogic.unmount()
+        })
+
+        it.each([
+            {
+                description: 'an active flag is selectable',
+                flag: { id: 1, key: 'my-flag', name: 'My flag', active: true },
+                expectedDisabled: false,
+                expectedName: 'my-flag',
+            },
+            {
+                description: 'an explicitly inactive flag is disabled',
+                flag: { id: 1, key: 'my-flag', name: 'My flag', active: false },
+                expectedDisabled: true,
+                expectedName: 'my-flag (disabled)',
+            },
+            {
+                // Recents/pinned entries are persisted stripped to { name, id }, so they carry no
+                // `active` field; a missing `active` must not read as disabled or recently-used
+                // flags can no longer be picked as flag-dependency match criteria. The same guard
+                // applies to getName, which would otherwise render "732889 (disabled)".
+                description: 'a recently-used flag missing the active field stays selectable',
+                flag: { name: '732889', id: 732889 },
+                expectedDisabled: false,
+                expectedName: '732889',
+            },
+        ])('getIsDisabled/getName: $description', ({ flag, expectedDisabled, expectedName }) => {
+            const flagGroup = flagLogic.values.taxonomicGroups.find(
+                (g) => g.type === TaxonomicFilterGroupType.FeatureFlags
+            )
+            expect(flagGroup?.getIsDisabled).toBeDefined() // oxlint-disable-line jest/no-restricted-matchers
+            expect(flagGroup?.getIsDisabled?.(flag as any)).toBe(expectedDisabled)
+            expect(flagGroup?.getName?.(flag as any)).toBe(expectedName)
+        })
+    })
+
+    describe('SQL expression (HogQLExpression) group commits its value', () => {
+        let hogqlLogic: ReturnType<typeof taxonomicFilterLogic.build>
+        const onChange = jest.fn()
+
+        beforeEach(() => {
+            onChange.mockClear()
+            hogqlLogic = taxonomicFilterLogic({
+                taxonomicFilterLogicKey: 'hogqlExpressionTest',
+                taxonomicGroupTypes: [TaxonomicFilterGroupType.HogQLExpression],
+                onChange,
+            })
+            hogqlLogic.mount()
+        })
+
+        afterEach(() => {
+            hogqlLogic.unmount()
+        })
+
+        it('getValue returns the expression so the headless menu can commit it', () => {
+            const group = hogqlLogic.values.taxonomicGroups.find(
+                (g) => g.type === TaxonomicFilterGroupType.HogQLExpression
+            )
+            expect(group?.getValue).toBeDefined() // oxlint-disable-line jest/no-restricted-matchers
+            // The headless menu synthesizes an item carrying the expression in `value`.
+            const item = { name: 'properties.$current_url', value: 'properties.$current_url' }
+            expect(group?.getValue?.(item as any)).toBe('properties.$current_url')
+        })
+
+        it('selectItem with the derived value fires onChange with the expression, not null', async () => {
+            const group = hogqlLogic.values.taxonomicGroups.find(
+                (g) => g.type === TaxonomicFilterGroupType.HogQLExpression
+            )!
+            const item = { name: 'properties.$current_url', value: 'properties.$current_url' }
+            // Mirror TaxonomicFilterMenu's handleCommit: the value is derived via group.getValue.
+            const value = group.getValue?.(item as any) ?? null
+
+            await expectLogic(hogqlLogic, () => {
+                hogqlLogic.actions.selectItem(group, value, item as any)
+            }).toDispatchActions(['selectItem'])
+
+            expect(onChange).toHaveBeenCalledWith(group, 'properties.$current_url', item)
         })
     })
 })

@@ -4,6 +4,7 @@ import { offset } from '@floating-ui/react'
 import { useActions, useValues } from 'kea'
 import posthog from 'posthog-js'
 import React, { ReactNode, useEffect, useMemo, useRef, useState } from 'react'
+import { useDebouncedCallback } from 'use-debounce'
 
 import { IconArrowRight, IconCheck, IconPencil, IconStopFilled, IconTrash, IconX } from '@posthog/icons'
 import { LemonButton, LemonSwitch, LemonTextArea, Spinner } from '@posthog/lemon-ui'
@@ -23,6 +24,7 @@ import { maxGlobalLogic } from '../maxGlobalLogic'
 import { maxLogic } from '../maxLogic'
 import { maxThreadLogic } from '../maxThreadLogic'
 import { MAX_SLASH_COMMANDS } from '../slash-commands'
+import { FillInHint } from './FillInHint'
 import { HandsFreeButton } from './HandsFreeButton'
 import { HandsFreeSurface } from './HandsFreeSurface'
 import { SlashCommandAutocomplete } from './SlashCommandAutocomplete'
@@ -143,15 +145,16 @@ export const QuestionInput = React.forwardRef<HTMLDivElement, QuestionInputProps
     },
     ref
 ) {
-    const { dataProcessingAccepted, dataProcessingApprovalDisabledReason } = useValues(maxGlobalLogic)
-    const { question, tabId: maxTabId } = useValues(maxLogic)
-    const { setQuestion } = useActions(maxLogic)
+    const { dataProcessingAccepted } = useValues(maxGlobalLogic)
+    const { question, panelId: maxPanelId, fillInHint } = useValues(maxLogic)
+    const { setQuestion, setFillInHint } = useActions(maxLogic)
     const { user } = useValues(userLogic)
     const {
         conversation,
         threadLoading,
         inputDisabled,
-        submissionDisabledReason,
+        contextDisabledReason,
+        queueDisabledReason,
         isSharedThread,
         cancelLoading,
         pendingPrompt,
@@ -164,9 +167,15 @@ export const QuestionInput = React.forwardRef<HTMLDivElement, QuestionInputProps
         queuedMessages,
         queueSubmitting,
     } = useValues(maxThreadLogic)
-    const { askMax, stopGeneration, completeThreadGeneration, setSupportOverrideEnabled, updateQueuedMessage } =
-        useActions(maxThreadLogic)
-    const { isActive: handsFreeActive } = useValues(handsFreeLogic({ tabId: maxTabId }))
+    const {
+        askMax,
+        stopGeneration,
+        completeThreadGeneration,
+        setSupportOverrideEnabled,
+        updateQueuedMessage,
+        releaseSandboxPrewarm,
+    } = useActions(maxThreadLogic)
+    const { isActive: handsFreeActive } = useValues(handsFreeLogic({ panelId: maxPanelId }))
     // Only the hands-free row needs bottom-aligned pills — it has the mic + submit pair
     // pinned to the bottom and pills sitting in normal flow look misaligned next to them.
     // Keep the legacy items-start layout when the flag is off so existing screenshots
@@ -176,20 +185,87 @@ export const QuestionInput = React.forwardRef<HTMLDivElement, QuestionInputProps
     const isImpersonatedInternalConversation = user?.is_impersonated && conversation?.is_internal
 
     const [showAutocomplete, setShowAutocomplete] = useState(false)
+    // Tracks an explicit dismissal (e.g. Esc) so the popover stays closed while the
+    // user keeps typing a message that still starts with "/". "/" + Esc is a valid path.
+    const [autocompleteDismissed, setAutocompleteDismissed] = useState(false)
     const [editingQueueId, setEditingQueueId] = useState<string | null>(null)
     const displayQueuedMessages = useMemo(() => [...queuedMessages].reverse(), [queuedMessages])
-    const hasQuestion = question.trim().length > 0
-    const isQueueingSubmission = queueingEnabled && threadLoading && hasQuestion
-    const showStopButton = threadLoading && !isQueueingSubmission
 
-    // Update autocomplete visibility when question changes
+    // Hold the textarea value in local state so each keystroke is an isolated, cheap re-render
+    // rather than a global kea dispatch. Binding the input directly to kea made every keystroke
+    // notify every store subscriber, so input lag grew with conversation length (more mounted
+    // messages = more subscriptions to sweep). kea remains the source of truth for submit, slash
+    // commands, and draft persistence — we sync to it on a debounce, immediately for slash
+    // commands so the autocomplete stays responsive, and on submit/blur.
+    const [inputValue, setInputValue] = useState(question)
+    const debouncedSetQuestion = useDebouncedCallback((value: string) => setQuestion(value), 150)
+
+    // Flush any pending debounce when the component unmounts so that a draft typed just
+    // before programmatic navigation (no blur event) is still persisted to kea.
     useEffect(() => {
-        const isSlashCommand = question[0] === '/'
-        if (isSlashCommand && !showAutocomplete) {
+        return () => debouncedSetQuestion.flush()
+    }, [debouncedSetQuestion])
+
+    // Mirror external question changes (draft restore, slash command insertion, clear on submit)
+    // back into local state. Writing the same value is a no-op, so the debounced sync below
+    // doesn't cause an extra render.
+    useEffect(() => {
+        setInputValue(question)
+    }, [question])
+
+    const handleQuestionChange = (value: string): void => {
+        setInputValue(value)
+        // The user typing their own text ends the fill-in cue.
+        if (fillInHint) {
+            setFillInHint(null)
+        }
+        if (value.startsWith('/')) {
+            // Slash commands drive the autocomplete off kea's `question`, so sync immediately.
+            debouncedSetQuestion.cancel()
+            setQuestion(value)
+        } else {
+            debouncedSetQuestion(value)
+        }
+    }
+
+    const submit = (prompt: string): void => {
+        // askMax reads the prompt arg directly and clears `question` afterwards, so drop any
+        // pending debounce to stop it from re-populating the just-sent text.
+        debouncedSetQuestion.cancel()
+        if (fillInHint) {
+            setFillInHint(null)
+        }
+        askMax(prompt)
+    }
+
+    const hasQuestion = inputValue.trim().length > 0
+    // A fill-in suggestion typed its prefix in and is waiting for the user to complete it.
+    const showFillInHint = !!fillInHint
+    const isQueueingSubmission = queueingEnabled && threadLoading && hasQuestion
+    const showStopButton = threadLoading && !isQueueingSubmission && !cancelLoading
+
+    // Mirrors maxThreadLogic's `submissionDisabledReason` selector, but using the local input
+    // value so the submit guard stays correct while the debounced sync to kea is still pending.
+    const submissionDisabledReason = contextDisabledReason
+        ? contextDisabledReason
+        : !inputValue
+          ? 'I need some input first'
+          : queueDisabledReason
+
+    // Update autocomplete visibility when the input changes
+    useEffect(() => {
+        const isSlashCommand = inputValue[0] === '/'
+        // Once the input is no longer a slash command, clear any prior dismissal so
+        // typing "/" again later reopens the popover.
+        if (!isSlashCommand && autocompleteDismissed) {
+            setAutocompleteDismissed(false)
+        }
+        const shouldShow = isSlashCommand && !autocompleteDismissed
+        if (shouldShow && !showAutocomplete) {
             posthog.capture('Max slash command autocomplete shown')
         }
-        setShowAutocomplete(isSlashCommand)
-    }, [question, showAutocomplete])
+        setShowAutocomplete(shouldShow)
+    }, [inputValue, showAutocomplete, autocompleteDismissed])
 
     let disabledReason = submissionDisabledReason
     if (threadLoading && !isQueueingSubmission) {
@@ -197,11 +273,6 @@ export const QuestionInput = React.forwardRef<HTMLDivElement, QuestionInputProps
     }
     if (cancelLoading) {
         disabledReason = 'Cancelling...'
-    }
-    // For non-admins, disable button when consent not given (admins see popup instead)
-    const isAdmin = !dataProcessingApprovalDisabledReason
-    if (!dataProcessingAccepted && !isAdmin && !disabledReason) {
-        disabledReason = dataProcessingApprovalDisabledReason
     }
 
     useEffect(() => {
@@ -273,14 +344,17 @@ export const QuestionInput = React.forwardRef<HTMLDivElement, QuestionInputProps
                         )}
                     >
                         {handsFreeActive ? (
-                            <HandsFreeSurface tabId={maxTabId} />
+                            <HandsFreeSurface panelId={maxPanelId} />
                         ) : (
                             <SlashCommandAutocomplete
                                 visible={showAutocomplete}
-                                onClose={() => setShowAutocomplete(false)}
+                                onClose={() => {
+                                    setShowAutocomplete(false)
+                                    setAutocompleteDismissed(true)
+                                }}
                             >
                                 <div className="relative w-full">
-                                    {!question && (
+                                    {!inputValue && (
                                         <div
                                             id="textarea-hint"
                                             className="text-secondary absolute top-4 left-4 text-sm pointer-events-none"
@@ -308,13 +382,36 @@ export const QuestionInput = React.forwardRef<HTMLDivElement, QuestionInputProps
                                             )}
                                         </div>
                                     )}
+                                    {/* Postfix cue after a fill-in suggestion's typed-in prefix. */}
+                                    {showFillInHint && (
+                                        <div className="absolute top-4 left-4 right-4 overflow-hidden pointer-events-none">
+                                            <FillInHint text={inputValue} hint={fillInHint} />
+                                        </div>
+                                    )}
                                     <LemonTextArea
-                                        aria-describedby={!question ? 'textarea-hint' : undefined}
+                                        aria-describedby={!inputValue ? 'textarea-hint' : undefined}
                                         id="question-input"
                                         data-attr="max-chat-input"
                                         ref={textAreaRef}
-                                        value={isSharedThread ? '' : question}
-                                        onChange={(value) => setQuestion(value)}
+                                        value={isSharedThread ? '' : inputValue}
+                                        onChange={handleQuestionChange}
+                                        onBlur={(e) => {
+                                            debouncedSetQuestion.flush()
+                                            // Release any sandbox pre-warm when the user leaves the
+                                            // input without sending. No-op on LangGraph / unwarmed
+                                            // conversations.
+                                            //
+                                            // But clicking the send button blurs the textarea *before*
+                                            // its onClick fires the send — releasing here would cancel
+                                            // the very warm Run the send is about to consume. When focus
+                                            // moves to the send button, skip the release and let the send
+                                            // path consume the warm (it does so without a DELETE).
+                                            const next = e.relatedTarget as HTMLElement | null
+                                            if (next?.closest('[data-attr="max-send-message"]')) {
+                                                return
+                                            }
+                                            releaseSandboxPrewarm()
+                                        }}
                                         onPressEnter={() => {
                                             if (
                                                 hasQuestion &&
@@ -322,13 +419,13 @@ export const QuestionInput = React.forwardRef<HTMLDivElement, QuestionInputProps
                                                 (!threadLoading || queueingEnabled)
                                             ) {
                                                 onSubmit?.()
-                                                askMax(question)
+                                                submit(inputValue)
                                             }
                                         }}
                                         onKeyDown={(event) => {
                                             if (
                                                 event.key === 'ArrowUp' &&
-                                                !question.trim() &&
+                                                !inputValue.trim() &&
                                                 queuedMessages.length > 0 &&
                                                 !editingQueueId
                                             ) {
@@ -351,7 +448,9 @@ export const QuestionInput = React.forwardRef<HTMLDivElement, QuestionInputProps
                                         maxRows={10}
                                         className={cn(
                                             '!border-none !bg-transparent min-h-16 py-2 pl-2 resize-none',
-                                            handsFreeFlagEnabled ? 'pr-20' : 'pr-12'
+                                            handsFreeFlagEnabled ? 'pr-20' : 'pr-12',
+                                            // Hide the native caret so only the enlarged fill-in caret shows.
+                                            showFillInHint && 'caret-transparent'
                                         )}
                                         hideFocus
                                     />
@@ -399,20 +498,20 @@ export const QuestionInput = React.forwardRef<HTMLDivElement, QuestionInputProps
                             isThreadVisible ? 'bottom-[9px] right-[9px]' : 'bottom-[7px] right-[7px]'
                         )}
                     >
-                        <HandsFreeButton tabId={maxTabId} />
+                        <HandsFreeButton panelId={maxPanelId} />
                         {!handsFreeActive && (
                             <AIConsentPopoverWrapper
                                 placement="bottom-end"
                                 showArrow
                                 ignoreDismissal
-                                onApprove={() => askMax(pendingPrompt || question)}
+                                onApprove={() => submit(pendingPrompt || inputValue)}
                                 onDismiss={() => completeThreadGeneration()}
                                 middleware={[
                                     offset((state) => ({
                                         mainAxis: state.placement.includes('top') ? 30 : 1,
                                     })),
                                 ]}
-                                hidden={!isAdmin || (!threadLoading && !pendingPrompt)}
+                                hidden={!threadLoading && !pendingPrompt}
                             >
                                 <LemonButton
                                     data-attr={showStopButton ? 'max-stop-generation' : 'max-send-message'}
@@ -424,7 +523,7 @@ export const QuestionInput = React.forwardRef<HTMLDivElement, QuestionInputProps
                                                     textAreaRef?.current?.focus()
                                                     return
                                                 }
-                                                askMax(question)
+                                                submit(inputValue)
                                                 return
                                             }
                                             stopGeneration()
@@ -434,12 +533,12 @@ export const QuestionInput = React.forwardRef<HTMLDivElement, QuestionInputProps
                                             textAreaRef?.current?.focus()
                                             return
                                         }
-                                        askMax(question)
+                                        submit(inputValue)
                                     }}
                                     tooltip={
-                                        disabledReason ? (
-                                            disabledReason
-                                        ) : showStopButton ? (
+                                        // If there's a disabled reason tooltip shown below, don't show a tooltip here
+                                        // Else, show the tooltip based on the button state
+                                        disabledReason ? undefined : showStopButton ? (
                                             <>
                                                 Let's bail <KeyboardShortcut enter />
                                             </>
@@ -461,7 +560,7 @@ export const QuestionInput = React.forwardRef<HTMLDivElement, QuestionInputProps
                                         showStopButton ? (
                                             <IconStopFilled />
                                         ) : (
-                                            MAX_SLASH_COMMANDS.find((cmd) => cmd.name === question.split(' ', 1)[0])
+                                            MAX_SLASH_COMMANDS.find((cmd) => cmd.name === inputValue.split(' ', 1)[0])
                                                 ?.icon || <IconArrowRight />
                                         )
                                     }

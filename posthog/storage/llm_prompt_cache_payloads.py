@@ -1,7 +1,7 @@
 from datetime import datetime
 from typing import Any
 
-from posthog.models.llm_prompt import LLMPrompt, normalize_prompt_to_string
+from products.ai_observability.backend.models.llm_prompt import LLMPrompt, normalize_prompt_to_string
 
 INTERNAL_FIRST_VERSION_ID_KEY = "_first_version_id"
 

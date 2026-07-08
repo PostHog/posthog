@@ -1,5 +1,7 @@
 import { expectLogic } from 'kea-test-utils'
 
+import { copyToClipboard } from 'lib/utils/copyToClipboard'
+
 import { useMocks } from '~/mocks/jest'
 import { LogMessage } from '~/queries/schema/schema-general'
 import { initKeaTests } from '~/test/init'
@@ -10,6 +12,10 @@ import { logsViewerConfigLogic } from './config/logsViewerConfigLogic'
 import { logsViewerDataLogic } from './data/logsViewerDataLogic'
 import { logsViewerFiltersLogic } from './Filters/logsViewerFiltersLogic'
 import { logsViewerLogic } from './logsViewerLogic'
+
+jest.mock('lib/utils/copyToClipboard', () => ({
+    copyToClipboard: jest.fn().mockResolvedValue(true),
+}))
 
 const createMockRawLog = (uuid: string): LogMessage => ({
     uuid,
@@ -633,6 +639,42 @@ describe('logsViewerLogic', () => {
         })
     })
 
+    describe('typed columns', () => {
+        beforeEach(async () => {
+            ;({ logic } = mountWithLogs())
+            logic.actions.setColumns([
+                { id: 'timestamp', type: 'timestamp' },
+                { id: 'c1', type: 'custom', expression: 'attributes.http.url' },
+                { id: 'message', type: 'message' },
+            ])
+            await expectLogic(logic).toFinishAllListeners()
+        })
+
+        const columnIds = (): string[] => logic.values.columns.map((c) => c.id)
+
+        it.each<['left' | 'right', string, string[]]>([
+            ['left', 'c1', ['c1', 'timestamp', 'message']],
+            ['right', 'c1', ['timestamp', 'message', 'c1']],
+            ['left', 'timestamp', ['timestamp', 'c1', 'message']], // first, no-op
+            ['right', 'message', ['timestamp', 'c1', 'message']], // last, no-op
+            ['left', 'missing', ['timestamp', 'c1', 'message']], // unknown id, no-op
+        ])('moveColumn %s on %s yields %j without losing columns', (direction, id, expected) => {
+            logic.actions.moveColumn(id, direction)
+            expect(columnIds()).toEqual(expected)
+        })
+
+        it('exposes only custom expressions on the customColumns selector', () => {
+            expect(logic.values.customColumns).toEqual(['attributes.http.url'])
+            logic.actions.removeColumn('c1')
+            expect(logic.values.customColumns).toBeUndefined()
+        })
+
+        it('sets width only on the matching column', () => {
+            logic.actions.setColumnWidth('c1', 240)
+            expect(logic.values.columns.map((c) => c.width)).toEqual([undefined, 240, undefined])
+        })
+    })
+
     describe('expansion', () => {
         beforeEach(() => {
             ;({ logic } = mountWithLogs())
@@ -719,6 +761,24 @@ describe('logsViewerLogic', () => {
             await expectLogic(logic).toFinishAllListeners()
 
             expect(logic.values.linkToLogId).toBeNull()
+        })
+    })
+
+    describe('copyLinkToLog', () => {
+        beforeEach(() => {
+            ;({ logic } = mountWithLogs())
+            jest.mocked(copyToClipboard).mockClear()
+        })
+
+        it('copies a link pointing at the viewer tab even when copied from another tab', async () => {
+            window.history.replaceState({}, '', '/project/1/logs?activeTab=services')
+
+            logic.actions.copyLinkToLog('log-2')
+            await expectLogic(logic).toFinishAllListeners()
+
+            const copiedUrl = new URL(jest.mocked(copyToClipboard).mock.calls[0][0])
+            expect(copiedUrl.searchParams.get('activeTab')).toEqual('viewer')
+            expect(copiedUrl.searchParams.get('linkToLogId')).toEqual('log-2')
         })
     })
 

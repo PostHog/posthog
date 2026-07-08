@@ -15,11 +15,14 @@ import { urls } from 'scenes/urls'
 
 import { notebooksModel } from '~/models/notebooksModel'
 
+import { isMarkdownNotebookContent } from './Notebook/markdownNotebookV2'
 import { NotebookLogicProps, notebookLogic } from './Notebook/notebookLogic'
 
 export function NotebookMenu({ shortId }: NotebookLogicProps): JSX.Element {
-    const { notebook, showHistory, isLocalOnly } = useValues(notebookLogic({ shortId }))
-    const { openShareModal, duplicateNotebook, exportJSON, setShowHistory } = useActions(notebookLogic({ shortId }))
+    const { notebook, showHistory, isLocalOnly, content } = useValues(notebookLogic({ shortId }))
+    const { openShareModal, duplicateNotebook, exportJSON, downloadMarkdown, copyMarkdown, setShowHistory } =
+        useActions(notebookLogic({ shortId }))
+    const isMarkdownNotebook = isMarkdownNotebookContent(content)
 
     return (
         <DropdownMenu>
@@ -37,11 +40,26 @@ export function NotebookMenu({ shortId }: NotebookLogicProps): JSX.Element {
                         </ButtonPrimitive>
                     </DropdownMenuItem>
                     <DropdownMenuItem asChild>
-                        <ButtonPrimitive onClick={() => exportJSON()} menuItem>
-                            <IconDownload />
-                            Export JSON
-                        </ButtonPrimitive>
+                        {isMarkdownNotebook ? (
+                            <ButtonPrimitive onClick={() => downloadMarkdown()} menuItem>
+                                <IconDownload />
+                                Download .md
+                            </ButtonPrimitive>
+                        ) : (
+                            <ButtonPrimitive onClick={() => exportJSON()} menuItem>
+                                <IconDownload />
+                                Export JSON
+                            </ButtonPrimitive>
+                        )}
                     </DropdownMenuItem>
+                    {isMarkdownNotebook ? (
+                        <DropdownMenuItem asChild>
+                            <ButtonPrimitive onClick={() => copyMarkdown()} menuItem>
+                                <IconCopy />
+                                Copy markdown
+                            </ButtonPrimitive>
+                        </DropdownMenuItem>
+                    ) : null}
                     <DropdownMenuItem asChild>
                         <ButtonPrimitive onClick={() => setShowHistory(!showHistory)} menuItem>
                             <IconClock />

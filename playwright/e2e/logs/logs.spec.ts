@@ -1,10 +1,18 @@
 import path from 'path'
 
-import { expect, test } from '../../utils/playwright-test-base'
+import { PlaywrightWorkspaceSetupResult, expect, test } from '../../utils/workspace-test-base'
 
 test.describe('Logs', () => {
+    let workspace: PlaywrightWorkspaceSetupResult | null = null
+
+    test.beforeAll(async ({ playwrightSetup }) => {
+        workspace = await playwrightSetup.createWorkspace({ skip_onboarding: true, no_demo_data: true })
+    })
+
     test.describe('UI integration tests (mocked API)', () => {
-        test.beforeEach(async ({ page }) => {
+        test.beforeEach(async ({ page, playwrightSetup }) => {
+            await playwrightSetup.login(page, workspace!)
+
             // Mock APIs BEFORE navigation to avoid race conditions
             await page.route('**/api/environments/*/logs/query/', (route) =>
                 route.fulfill({
@@ -30,11 +38,36 @@ test.describe('Logs', () => {
                 })
             )
 
-            await page.goto('/project/1/logs')
+            // The facet rail populates the Level and Service facets from this endpoint, keyed by the
+            // requested facetField. Return sensible values + non-zero counts for each (a fixed facet
+            // value with a zero count renders disabled and can't be clicked).
+            const facetValuesByField: Record<string, { value: string; count: number }[]> = {
+                service_name: [
+                    { value: 'api-service', count: 42 },
+                    { value: 'web-frontend', count: 17 },
+                ],
+                severity_text: [
+                    { value: 'error', count: 12 },
+                    { value: 'info', count: 8 },
+                ],
+            }
+            await page.route('**/logs/facet_values/', (route) => {
+                const facetField = route.request().postDataJSON()?.query?.facetField
+                const results = facetValuesByField[facetField] ?? []
+                return route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ results }) })
+            })
+
+            // Resource-attribute presence probe — return none so only the Level and Service column
+            // facets render, keeping the rail deterministic.
+            await page.route('**/logs/attributes/', (route) =>
+                route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ results: [] }) })
+            )
+
+            await page.goto(`/project/${workspace!.team_id}/logs`)
             await page.waitForLoadState('networkidle')
         })
 
-        test('service filter passes serviceNames to API', async ({ page }) => {
+        test('service facet passes serviceNames to API', async ({ page }) => {
             // ARRANGE: Set up request interception that only captures requests with serviceNames
             // This ensures we capture the filter-triggered request, not the initial page load
             const requestPromise = page.waitForRequest((req) => {
@@ -49,10 +82,8 @@ test.describe('Logs', () => {
                 }
             })
 
-            // ACT: Click the service filter and select a value
-            await page.getByTestId('logs-service-filter').click()
-            // Wait for dropdown to be visible, then select first option
-            await page.locator('[data-attr^="logs-service-option-"]').first().click()
+            // ACT: Select a value from the Service facet in the rail
+            await page.locator('[data-attr="logs-facet-service-api-service"]').click()
 
             // Wait for the filter-triggered request
             const request = await requestPromise
@@ -63,7 +94,7 @@ test.describe('Logs', () => {
             expect(body.query.serviceNames.length).toBeGreaterThan(0)
         })
 
-        test('severity filter passes severityLevels to API', async ({ page }) => {
+        test('level facet passes severityLevels to API', async ({ page }) => {
             // ARRANGE: Set up request interception that only captures requests with severityLevels
             // This ensures we capture the filter-triggered request, not the initial page load
             const requestPromise = page.waitForRequest((req) => {
@@ -78,12 +109,8 @@ test.describe('Logs', () => {
                 }
             })
 
-            // ACT: Click the severity filter and select "Error"
-            await page.getByTestId('logs-severity-filter').click()
-            // Select "Error" from the dropdown menu
-            await page.locator('[data-attr="logs-severity-option-error"]').click()
-            // Close the menu by pressing Escape
-            await page.keyboard.press('Escape')
+            // ACT: Select "Error" from the Level facet in the rail
+            await page.locator('[data-attr="logs-facet-level-error"]').click()
 
             // Wait for the filter-triggered request
             const request = await requestPromise

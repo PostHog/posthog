@@ -10,13 +10,13 @@ from posthog.schema import MaxExperimentMetricResult
 
 from posthog.clickhouse.query_tagging import Product, tags_context
 from posthog.event_usage import EventSource
-from posthog.hogql_queries.experiments.utils import get_experiment_stats_method
 from posthog.session_recordings.session_recording_api import list_recordings_from_query
 from posthog.session_recordings.utils import filter_from_params_to_query
 from posthog.sync import database_sync_to_async
 
 from products.experiments.backend.experiment_service import ExperimentService
 from products.experiments.backend.experiment_summary_data_service import ExperimentSummaryDataService
+from products.experiments.backend.hogql_queries.utils import get_experiment_stats_method
 from products.experiments.backend.models.experiment import Experiment
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
 
@@ -169,6 +169,8 @@ class CreateExperimentTool(MaxTool):
                 type=type,
                 parameters={
                     "feature_flag_variants": feature_flag_variants,
+                },
+                running_time_calculation={
                     "minimum_detectable_effect": 30,
                 },
                 event_source=EventSource.POSTHOG_AI,
@@ -310,7 +312,7 @@ class ExperimentSummaryTool(MaxTool):
 
     async def _fetch_and_format(self, experiment_id: int) -> tuple[str, dict[str, Any]]:
         """Fetch experiment data from query runners and format it."""
-        data_service = ExperimentSummaryDataService(self._team)
+        data_service = ExperimentSummaryDataService(self._team, self._user)
 
         try:
             summary_context, _last_refresh, pending = await data_service.fetch_experiment_data(experiment_id)

@@ -22,7 +22,6 @@ jobs:
     actionlint:
         runs-on: ubuntu-latest
         timeout-minutes: 5
-        continue-on-error: true
         steps:
             - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
               with:
@@ -33,21 +32,25 @@ jobs:
               run: |
                   set -euo pipefail
                   mkdir -p ./.bin
-                  curl -fsSL "https://raw.githubusercontent.com/rhysd/actionlint/${ACTIONLINT_SCRIPT_REF}/scripts/download-actionlint.bash" \
-                      | bash -s -- "${ACTIONLINT_VERSION}" ./.bin
+                  curl -fsSL -o ./download-actionlint.bash \
+                      "https://raw.githubusercontent.com/rhysd/actionlint/${ACTIONLINT_SCRIPT_REF}/scripts/download-actionlint.bash"
+                  bash ./download-actionlint.bash "${ACTIONLINT_VERSION}" ./.bin
                   ./.bin/actionlint -version
 
             - name: Run actionlint
-              # actionlint exits non-zero when findings exist; capture JSON and keep the step green
-              # so the summarize step still runs. SHELLCHECK_OPTS scopes shellcheck integration to
-              # actual errors — info/warning/style findings on workflow run-blocks are too noisy.
+              # actionlint exits 1 when findings exist, which fails this job — that is the gate.
+              # The JSON output is written before the non-zero exit, so the always()-guarded
+              # summary/upload steps below still run. SHELLCHECK_OPTS scopes the shellcheck
+              # integration to actual errors — info/warning/style findings on workflow run-blocks
+              # are too noisy.
               env:
                   SHELLCHECK_OPTS: --severity=error
               run: |
                   set -euo pipefail
-                  ./.bin/actionlint -format '{{json .}}' > actionlint.json || true
+                  ./.bin/actionlint -format '{{json .}}' > actionlint.json
 
             - name: Summarize findings
+              if: always()
               run: |
                   set -euo pipefail
                   {

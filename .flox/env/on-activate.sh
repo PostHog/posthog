@@ -220,6 +220,10 @@ export GOPATH="$FLOX_ENV_CACHE/go"
 export GOCACHE="$FLOX_ENV_CACHE/go-build"
 export GOMODCACHE="$GOPATH/pkg/mod"
 
+# uv-managed venv location (mirrors the [profile] scripts; not in [vars], which
+# can't expand $FLOX_ENV_CACHE). Used below for uv sync + the hogli symlink.
+export UV_PROJECT_ENVIRONMENT="$FLOX_ENV_CACHE/venv"
+
 # ── Direnv first-time setup (interactive only) ─────────────────────
 if [[ "$_interactive" == true ]] && ! command -v direnv >/dev/null 2>&1 && [[ ! -f "$FLOX_ENV_CACHE/.hush-direnv" ]]; then
   read -p "$(echo -e "${C_BOLD}direnv${C_RESET} recommended for auto-activation. Set up now? (Y/n) ")" -n 1 -r
@@ -302,10 +306,30 @@ _UV_SKIP=0
 _PHROCS_SKIP=0
 [[ -n "$_PHROCS_BAKED" && -n "$_PHROCS_CURRENT" && "$_PHROCS_BAKED" == "$_PHROCS_CURRENT" ]] && _PHROCS_SKIP=1
 
+# Sandbox the automatic installs below by default on macOS (opt out with
+# POSTHOG_DEV_SANDBOX=0). .env.local isn't loaded at flox-activate time, so check
+# it directly — but only when the live env is unset, so shell env keeps precedence.
+# The build scripts that run during install (uv sdist hooks, allowlisted pnpm
+# builds, cargo build.rs) then execute inside the sandbox, like the runtime path.
+# See bin/dev-sandbox.
+_DEV_SANDBOX_INSTALLS=0
+if [[ "$(uname -s)" == "Darwin" && -x "$FLOX_ENV_PROJECT/bin/dev-sandbox" ]]; then
+  _DEV_SANDBOX_INSTALLS=1
+  if [[ "${POSTHOG_DEV_SANDBOX:-}" == "0" ]]; then
+    _DEV_SANDBOX_INSTALLS=0
+  elif [[ -z "${POSTHOG_DEV_SANDBOX:-}" ]] && grep -qE "^[[:space:]]*POSTHOG_DEV_SANDBOX=0[[:space:]]*$" "$FLOX_ENV_PROJECT/.env.local" 2>/dev/null; then
+    _DEV_SANDBOX_INSTALLS=0
+  fi
+fi
+
 if [[ "$_PNPM_SKIP" -eq 0 ]]; then
   _BG_PNPM_LOG=$(mktemp)
   _ACTIVATION_TMPFILES+=("$_BG_PNPM_LOG")
-  ( pnpm install ) >"$_BG_PNPM_LOG" 2>&1 &
+  if [[ "$_DEV_SANDBOX_INSTALLS" -eq 1 ]]; then
+    ( "$FLOX_ENV_PROJECT/bin/dev-sandbox" "pnpm install" ) >"$_BG_PNPM_LOG" 2>&1 &
+  else
+    ( pnpm install ) >"$_BG_PNPM_LOG" 2>&1 &
+  fi
   _BG_PNPM_PID=$!
   _BG_PNPM_START=$(date +%s)
 fi
@@ -321,6 +345,8 @@ fi
 # ── Step 1: Python packages (must run before hogli — it needs Click) ─
 if [[ "$_UV_SKIP" -eq 1 ]]; then
   done_step "Python packages (cached)"
+elif [[ "$_DEV_SANDBOX_INSTALLS" -eq 1 ]]; then
+  run_step "Python packages" "$FLOX_ENV_PROJECT/bin/dev-sandbox" "uv sync"
 else
   run_step "Python packages" uv sync
 fi

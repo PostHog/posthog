@@ -1,4 +1,4 @@
-from datetime import datetime, timedelta
+from datetime import UTC, datetime, timedelta
 from typing import Any, Optional, Union
 
 from django.http import HttpRequest, JsonResponse
@@ -101,7 +101,7 @@ def get_stats_for_timerange(
 @api_view(["GET"])
 def sentry_stats(request: HttpRequest):
     try:
-        current_time = datetime.utcnow()
+        current_time = datetime.now(UTC)
         target_end_date = current_time.strftime("%Y-%m-%dT%H:%M:%S")
         target_start_date = (current_time - timedelta(days=1)).strftime("%Y-%m-%dT%H:%M:%S")
 

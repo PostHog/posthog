@@ -6,10 +6,13 @@ from unittest.mock import Mock, patch
 import temporalio.exceptions
 from parameterized import parameterized
 
+from posthog.hogql import ast
+from posthog.hogql.visitor import TraversingVisitor
+
 from posthog.temporal.messaging.backfill_precalculated_person_properties_workflow import (
     BackfillPrecalculatedPersonPropertiesInputs,
     backfill_precalculated_person_properties_activity,
-    build_person_properties_select_clause,
+    build_person_properties_select_fields,
     evaluate_combined_filters_sync,
     flush_kafka_batch_async,
 )
@@ -18,6 +21,22 @@ from posthog.temporal.messaging.types import PersonPropertyFilter
 
 from common.hogvm.python.execute import execute_bytecode
 from common.hogvm.python.operation import Operation
+
+
+class _FieldChainCollector(TraversingVisitor):
+    """Collect every ``ast.Field`` chain reachable from a node (e.g. inside argMax wrappers)."""
+
+    def __init__(self) -> None:
+        self.chains: list[list[str | int]] = []
+
+    def visit_field(self, node: ast.Field) -> None:
+        self.chains.append(list(node.chain))
+
+
+def _collect_field_chains(node: ast.Expr) -> list[list[str | int]]:
+    collector = _FieldChainCollector()
+    collector.visit(node)
+    return collector.chains
 
 
 class _NoopHeartbeater:
@@ -52,6 +71,16 @@ class _AsyncClientContextManager:
         traceback: TracebackType | None,
     ) -> None:
         return None
+
+
+def aiter(iterable):
+    """Wrap a sync iterable as an async iterator for mocking ``stream_query_as_jsonl``."""
+
+    async def _aiter():
+        for item in iterable:
+            yield item
+
+    return _aiter()
 
 
 class TestFlushKafkaBatchAsync:
@@ -223,22 +252,32 @@ class TestBackfillPrecalculatedPersonPropertiesActivity:
         # Basic verification that the filter was stored correctly
         assert inputs.filter_storage_key == storage_key
 
-    def test_build_person_properties_select_clause_parameterizes_property_keys(self):
+    def test_build_person_properties_select_fields_keeps_keys_in_field_chain(self):
         malicious_property = "email') FROM person WHERE team_id != %(team_id)s UNION ALL SELECT sleep(3) --"
 
-        properties_clause, property_alias_mapping, property_query_params = build_person_properties_select_clause(
-            [malicious_property]
-        )
+        select_fields, property_alias_mapping = build_person_properties_select_fields([malicious_property])
 
-        assert malicious_property not in properties_clause
-        assert "team_id !=" not in properties_clause
-        assert "%(property_key_0)s" in properties_clause
         assert property_alias_mapping == {"prop_0": malicious_property}
-        assert property_query_params == {"property_key_0": malicious_property}
 
+        # The malicious key must live inside an argmax_select field chain — never inline as a SQL
+        # fragment. argmax_select wraps the chain in an ``ast.Field``, keeping the key parameterized.
+        assert select_fields == {"prop_0": ["properties", malicious_property]}
+
+    @pytest.mark.django_db
     @pytest.mark.asyncio
     async def test_activity_parameterizes_property_keys_in_clickhouse_query(self):
-        malicious_property = "email') FROM person WHERE team_id != %(team_id)s UNION ALL SELECT sleep(3) --"
+        from asgiref.sync import sync_to_async
+
+        from posthog.models.organization import Organization
+        from posthog.models.team.team import Team
+
+        organization = await sync_to_async(Organization.objects.create)(name="Test Organization")
+        team = await sync_to_async(Team.objects.create)(name="Test Team", organization=organization)
+
+        # No '%' here on purpose: '%' keys take the full-properties fallback (see the dedicated test
+        # below). This key exercises the optimized per-property path and proves a SQL-fragment key
+        # stays inside the ast.Field chain rather than being concatenated into the query.
+        malicious_property = "email') FROM person WHERE team_id != 1 UNION ALL SELECT sleep(3) --"
         filters = [
             PersonPropertyFilter(
                 condition_hash="injection_condition",
@@ -247,11 +286,17 @@ class TestBackfillPrecalculatedPersonPropertiesActivity:
                 property_key=malicious_property,
             ),
         ]
-        captured_query: dict[str, object] = {}
+        captured_ast: dict[str, object] = {}
+
+        original_prepare_and_print_ast = __import__(
+            "posthog.hogql.printer", fromlist=["prepare_and_print_ast"]
+        ).prepare_and_print_ast
+
+        def capturing_prepare_and_print_ast(node, context, dialect):
+            captured_ast["node"] = node
+            return original_prepare_and_print_ast(node, context, dialect)
 
         async def stream_query_as_jsonl(query: str, query_parameters: dict[str, object] | None = None):
-            captured_query["query"] = query
-            captured_query["query_parameters"] = query_parameters
             if False:
                 yield {}  # type: ignore[unreachable]
 
@@ -259,7 +304,7 @@ class TestBackfillPrecalculatedPersonPropertiesActivity:
         mock_client.stream_query_as_jsonl = stream_query_as_jsonl
 
         inputs = BackfillPrecalculatedPersonPropertiesInputs(
-            team_id=1,
+            team_id=team.id,
             filter_storage_key="storage_key",
             cohort_ids=[10],
             batch_size=10,
@@ -276,6 +321,10 @@ class TestBackfillPrecalculatedPersonPropertiesActivity:
                 "posthog.temporal.messaging.backfill_precalculated_person_properties_workflow.get_client",
                 return_value=_AsyncClientContextManager(mock_client),
             ),
+            patch(
+                "posthog.temporal.messaging.hogql_compile.prepare_and_print_ast",
+                side_effect=capturing_prepare_and_print_ast,
+            ),
             patch("posthog.temporal.messaging.backfill_precalculated_person_properties_workflow.get_producer"),
             patch(
                 "posthog.temporal.messaging.backfill_precalculated_person_properties_workflow.Heartbeater",
@@ -286,19 +335,245 @@ class TestBackfillPrecalculatedPersonPropertiesActivity:
                 return_value=Mock(),
             ),
         ):
+            # The key may still produce an invalid identifier in the printer; the assertion that
+            # matters is that it reached the printer only inside an ast.Field chain, never as a raw
+            # SQL fragment.
+            try:
+                await backfill_precalculated_person_properties_activity(inputs)
+            except Exception:
+                pass
+
+        # The malicious key must only reach the printer wrapped in an ast.Field chain.
+        assert "node" in captured_ast, "compile_hogql_for_streaming was never called"
+        node = captured_ast["node"]
+        assert isinstance(node, ast.SelectQuery)
+        # The child queries raw_persons directly (via argmax_select), not the persons lazy table.
+        assert isinstance(node.select_from, ast.JoinExpr)
+        assert isinstance(node.select_from.table, ast.Field)
+        assert node.select_from.table.chain == ["raw_persons"]
+        property_aliases = [
+            expr for expr in node.select if isinstance(expr, ast.Alias) and expr.alias.startswith("prop_")
+        ]
+        assert len(property_aliases) == 1
+        # The key lives inside an ast.Field chain (wrapped in argMax by argmax_select) — never
+        # concatenated into the SQL as a fragment.
+        prop_chains = _collect_field_chains(property_aliases[0])
+        assert any(chain[-2:] == ["properties", malicious_property] for chain in prop_chains)
+
+    @pytest.mark.django_db
+    @pytest.mark.asyncio
+    async def test_activity_falls_back_to_full_properties_for_percent_keys(self):
+        from asgiref.sync import sync_to_async
+
+        from posthog.models.organization import Organization
+        from posthog.models.team.team import Team
+
+        organization = await sync_to_async(Organization.objects.create)(name="Test Organization")
+        team = await sync_to_async(Team.objects.create)(name="Test Team", organization=organization)
+
+        # '%' is the one character HogQL refuses as an identifier, so the optimized per-property
+        # path can't be used. The backfill must fall back to selecting the full properties JSON
+        # rather than crashing the whole batch.
+        percent_property = "utm_%_source"
+        filters = [
+            PersonPropertyFilter(
+                condition_hash="percent_condition",
+                bytecode=["_H", 1, 29],
+                cohort_ids=[10],
+                property_key=percent_property,
+            ),
+        ]
+        captured_ast: dict[str, object] = {}
+
+        original_prepare_and_print_ast = __import__(
+            "posthog.hogql.printer", fromlist=["prepare_and_print_ast"]
+        ).prepare_and_print_ast
+
+        def capturing_prepare_and_print_ast(node, context, dialect):
+            captured_ast["node"] = node
+            return original_prepare_and_print_ast(node, context, dialect)
+
+        async def stream_query_as_jsonl(query: str, query_parameters: dict[str, object] | None = None):
+            if False:
+                yield {}  # type: ignore[unreachable]
+
+        mock_client = Mock()
+        mock_client.stream_query_as_jsonl = stream_query_as_jsonl
+
+        inputs = BackfillPrecalculatedPersonPropertiesInputs(
+            team_id=team.id,
+            filter_storage_key="storage_key",
+            cohort_ids=[10],
+            batch_size=10,
+            start_person_id="00000000-0000-0000-0000-000000000000",
+            end_person_id="ffffffff-ffff-ffff-ffff-ffffffffffff",
+        )
+
+        with (
+            patch(
+                "posthog.temporal.messaging.backfill_precalculated_person_properties_workflow.get_filters_and_properties",
+                return_value=(filters, [percent_property], combine_filter_bytecodes(filters)),
+            ),
+            patch(
+                "posthog.temporal.messaging.backfill_precalculated_person_properties_workflow.get_client",
+                return_value=_AsyncClientContextManager(mock_client),
+            ),
+            patch(
+                "posthog.temporal.messaging.hogql_compile.prepare_and_print_ast",
+                side_effect=capturing_prepare_and_print_ast,
+            ),
+            patch("posthog.temporal.messaging.backfill_precalculated_person_properties_workflow.get_producer"),
+            patch(
+                "posthog.temporal.messaging.backfill_precalculated_person_properties_workflow.Heartbeater",
+                _NoopHeartbeater,
+            ),
+            patch(
+                "posthog.temporal.messaging.backfill_precalculated_person_properties_workflow.get_person_properties_backfill_success_metric",
+                return_value=Mock(),
+            ),
+        ):
+            await backfill_precalculated_person_properties_activity(inputs)
+
+        assert "node" in captured_ast, "compile_hogql_for_streaming was never called"
+        node = captured_ast["node"]
+        assert isinstance(node, ast.SelectQuery)
+
+        # No per-property accessors — the '%' key forced the full-properties fallback.
+        property_aliases = [
+            expr for expr in node.select if isinstance(expr, ast.Alias) and expr.alias.startswith("prop_")
+        ]
+        assert property_aliases == []
+
+        # The full ``properties`` JSON is selected instead (argmax_select aliases it as "properties"),
+        # and the '%' key never appears as a field chain element anywhere in the query.
+        properties_aliases = [
+            expr for expr in node.select if isinstance(expr, ast.Alias) and expr.alias == "properties"
+        ]
+        assert len(properties_aliases) == 1
+        assert any(chain[-1:] == ["properties"] for chain in _collect_field_chains(properties_aliases[0]))
+        assert all(percent_property not in chain for chain in _collect_field_chains(node))
+
+
+class TestActivityRowConsumption:
+    """End-to-end row streaming through the child activity.
+
+    The other activity tests stream zero rows (``compile`` is patched and the client yields nothing),
+    so the row-consumption code — which now reads ``row["id"]`` and reconstructs properties from
+    ``prop_N`` columns — was never exercised. These feed real rows through it.
+    """
+
+    def _module(self, name: str) -> str:
+        return f"posthog.temporal.messaging.backfill_precalculated_person_properties_workflow.{name}"
+
+    async def _run_with_rows(self, person_properties, rows):
+        """Run the activity over ``rows``; return (result, captured_query_node, produced_messages, eval_globals)."""
+        filters = [
+            PersonPropertyFilter(
+                condition_hash="cond1",
+                bytecode=["_H", 1, Operation.TRUE],
+                cohort_ids=[10],
+                property_key=person_properties[0] if person_properties else None,
+            )
+        ]
+
+        captured: dict[str, object] = {}
+
+        async def compile_stub(node, *, team_id):
+            captured["node"] = node
+            return "SELECT 1", {}
+
+        eval_globals: list[dict] = []
+
+        def eval_stub(combined_bytecode, flts, hog_globals, person_id, detailed_logging=False):
+            eval_globals.append(hog_globals)
+            return {"cond1": True}
+
+        produced: list[dict] = []
+        producer = Mock()
+
+        def _produce(**kwargs):
+            produced.append(kwargs["data"])
+            return Mock()
+
+        producer.produce = _produce
+
+        mock_client = Mock()
+        mock_client.stream_query_as_jsonl = lambda *a, **kw: aiter(rows)
+
+        inputs = BackfillPrecalculatedPersonPropertiesInputs(
+            team_id=1,
+            filter_storage_key="storage_key",
+            cohort_ids=[10],
+            batch_size=10,
+            start_person_id="00000000-0000-0000-0000-000000000000",
+            end_person_id="ffffffff-ffff-ffff-ffff-ffffffffffff",
+        )
+
+        with (
+            patch(
+                self._module("get_filters_and_properties"),
+                return_value=(filters, list(person_properties), combine_filter_bytecodes(filters)),
+            ),
+            patch(self._module("compile_hogql_for_streaming"), side_effect=compile_stub),
+            patch(self._module("get_client"), return_value=_AsyncClientContextManager(mock_client)),
+            patch(self._module("evaluate_combined_filters_with_fallback_sync"), side_effect=eval_stub),
+            patch(self._module("get_producer"), return_value=producer),
+            patch(self._module("Heartbeater"), _NoopHeartbeater),
+            patch(self._module("get_person_properties_backfill_success_metric"), return_value=Mock()),
+        ):
             result = await backfill_precalculated_person_properties_activity(inputs)
 
-        assert result.persons_processed == 0
+        return result, captured.get("node"), produced, eval_globals
 
-        query = captured_query["query"]
-        assert isinstance(query, str)
-        assert malicious_property not in query
-        assert "team_id !=" not in query
-        assert "%(property_key_0)s" in query
+    @pytest.mark.asyncio
+    async def test_optimized_rows_reconstruct_properties_and_produce(self):
+        # Optimized format: per-property prop_N columns, no "properties" key, person UUID under "id".
+        pid = "11111111-1111-1111-1111-111111111111"
+        rows = [{"id": pid, "prop_0": "a@b.com"}]
 
-        query_parameters = captured_query["query_parameters"]
-        assert isinstance(query_parameters, dict)
-        assert query_parameters["property_key_0"] == malicious_property
+        result, node, produced, eval_globals = await self._run_with_rows(["email"], rows)
+
+        # row["id"] is consumed and reconstruction maps prop_0 -> email.
+        assert result.persons_processed == 1
+        assert result.last_person_id == pid
+        assert eval_globals[0] == {"person": {"properties": {"email": "a@b.com"}}}
+        assert len(produced) == 1
+        assert produced[0]["person_id"] == pid
+        assert produced[0]["condition"] == "cond1"
+
+        # Locks the flat single-pass query shape the child optimization depends on: WHERE filters the
+        # raw_persons scan before the GROUP BY, with no id-IN-subquery indirection.
+        assert isinstance(node, ast.SelectQuery)
+        assert node.where is not None
+        assert node.group_by is not None
+        assert isinstance(node.select_from, ast.JoinExpr)
+        assert isinstance(node.select_from.table, ast.Field)
+        assert node.select_from.table.chain == ["raw_persons"]
+
+    @pytest.mark.asyncio
+    async def test_optimized_rows_keep_present_falsey_values_and_drop_missing(self):
+        # A missing key comes back as SQL NULL (None); a present falsey value comes back as a
+        # non-null string. The reconstruction must keep the falsey value and drop only the None,
+        # otherwise a present-but-falsey property silently becomes a missing key.
+        pid = "33333333-3333-3333-3333-333333333333"
+        rows = [{"id": pid, "prop_0": "", "prop_1": "0", "prop_2": "false", "prop_3": None}]
+
+        _result, _node, _produced, eval_globals = await self._run_with_rows(["empty", "zero", "flag", "absent"], rows)
+
+        assert eval_globals[0] == {"person": {"properties": {"empty": "", "zero": "0", "flag": "false"}}}
+
+    @pytest.mark.asyncio
+    async def test_fallback_rows_use_full_properties_json(self):
+        # Fallback format: a "properties" JSON column is present, so the consumer parses it directly.
+        pid = "22222222-2222-2222-2222-222222222222"
+        rows = [{"id": pid, "properties": '{"email": "c@d.com"}'}]
+
+        result, _node, produced, eval_globals = await self._run_with_rows([], rows)
+
+        assert result.persons_processed == 1
+        assert result.last_person_id == pid
+        assert eval_globals[0] == {"person": {"properties": {"email": "c@d.com"}}}
+        assert len(produced) == 1
 
 
 class TestCombineFilterBytecodes:

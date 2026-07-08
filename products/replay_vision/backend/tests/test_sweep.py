@@ -3,7 +3,7 @@ import datetime as dt
 from typing import Any
 
 import pytest
-from unittest.mock import MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 
 from temporalio.exceptions import ApplicationError, WorkflowAlreadyStartedError
 
@@ -15,14 +15,25 @@ from products.replay_vision.backend.temporal import SweepScannerWorkflow
 from products.replay_vision.backend.temporal.activities.advance_scanner_watermark import (
     advance_scanner_watermark_activity,
 )
+from products.replay_vision.backend.temporal.activities.count_in_flight_applies import count_in_flight_applies_activity
 from products.replay_vision.backend.temporal.activities.find_scanner_candidates import find_scanner_candidates_activity
+from products.replay_vision.backend.temporal.activities.refresh_prompt_suggestion import (
+    refresh_prompt_suggestion_activity,
+)
+from products.replay_vision.backend.temporal.constants import (
+    MAX_IN_FLIGHT_APPLIES_PER_SCANNER,
+    build_process_vision_action_workflow_id,
+)
 from products.replay_vision.backend.temporal.sweep_types import (
     AdvanceScannerWatermarkInputs,
     CandidateSessionPayload,
+    CountInFlightAppliesInputs,
     FindScannerCandidatesInputs,
     FindScannerCandidatesOutput,
     SweepScannerInputs,
 )
+from products.replay_vision.backend.temporal.vision_actions.activities import evaluate_due_vision_actions_activity
+from products.replay_vision.backend.temporal.vision_actions.types import DueVisionAction
 
 
 def _make_scanner(**overrides) -> ReplayScanner:
@@ -241,6 +252,12 @@ class _SweepMocks:
 
     async def execute_activity(self, activity_fn: Any, activity_input: Any, **_: Any) -> Any:
         self.activity_calls.append((activity_fn, activity_input))
+        # Default to 0 in-flight (full headroom) unless a test overrides it.
+        if activity_fn is count_in_flight_applies_activity and activity_fn not in self.activity_results:
+            return 0
+        # Default to no due vision actions unless a test overrides it.
+        if activity_fn is evaluate_due_vision_actions_activity and activity_fn not in self.activity_results:
+            return []
         return self.activity_results.get(activity_fn)
 
     async def start_child_workflow(self, *args: Any, **kwargs: Any) -> Any:
@@ -260,9 +277,22 @@ def _sweep_inputs() -> SweepScannerInputs:
 
 
 async def _run_sweep(mocks: _SweepMocks, inputs: SweepScannerInputs | None = None) -> None:
+    # `workflow.logger` reaches into the workflow runtime, which isn't set up here.
+    fake_logger = type(
+        "Logger",
+        (),
+        {
+            "info": staticmethod(lambda *_a, **_kw: None),
+            "warning": staticmethod(lambda *_a, **_kw: None),
+            "exception": staticmethod(lambda *_a, **_kw: None),
+        },
+    )()
     with (
         patch("temporalio.workflow.execute_activity", side_effect=mocks.execute_activity),
         patch("temporalio.workflow.start_child_workflow", side_effect=mocks.start_child_workflow),
+        patch("temporalio.workflow.logger", fake_logger),
+        # `workflow.patched` also needs the runtime; new executions take the patched branch.
+        patch("temporalio.workflow.patched", return_value=True),
     ):
         await SweepScannerWorkflow().run(inputs or _sweep_inputs())
 
@@ -277,7 +307,12 @@ async def test_empty_batch_skips_dispatch_and_advance() -> None:
 
     await _run_sweep(mocks)
 
-    assert [fn for fn, _ in mocks.activity_calls] == [find_scanner_candidates_activity]
+    assert [fn for fn, _ in mocks.activity_calls] == [
+        evaluate_due_vision_actions_activity,
+        refresh_prompt_suggestion_activity,
+        count_in_flight_applies_activity,
+        find_scanner_candidates_activity,
+    ]
     assert mocks.child_calls == []
 
 
@@ -298,6 +333,9 @@ async def test_non_saturated_batch_dispatches_and_clears_tiebreaker() -> None:
 
     assert len(mocks.child_calls) == 2
     assert mocks.child_calls[0]["id"] == f"replay-vision-apply-scanner-{inputs.scanner_id}-sess-a"
+    # Each child is stamped with the scanner id so the in-flight count can find it.
+    child_attrs = mocks.child_calls[0]["kwargs"]["search_attributes"]
+    assert any(p.key.name == "PostHogScannerId" and p.value == str(inputs.scanner_id) for p in child_attrs)
     advance_call = next(call for fn, call in mocks.activity_calls if fn == advance_scanner_watermark_activity)
     assert advance_call.new_last_swept_at == candidates[-1].session_end
     assert advance_call.new_last_seen_session_id == ""
@@ -358,3 +396,149 @@ async def test_child_start_failure_propagates_and_skips_advance() -> None:
         await _run_sweep(mocks, inputs)
 
     assert [call for fn, call in mocks.activity_calls if fn == advance_scanner_watermark_activity] == []
+
+
+@pytest.mark.parametrize(
+    "in_flight, expected_candidate_limit",
+    [
+        (MAX_IN_FLIGHT_APPLIES_PER_SCANNER, None),  # at the cap → throttled
+        (MAX_IN_FLIGHT_APPLIES_PER_SCANNER + 10, None),  # over the cap (negative headroom) → throttled
+        (MAX_IN_FLIGHT_APPLIES_PER_SCANNER - 10, 10),  # partial headroom → fetch is capped to it
+        (0, MAX_IN_FLIGHT_APPLIES_PER_SCANNER),  # idle → full headroom
+    ],
+)
+@pytest.mark.asyncio
+async def test_inflight_cap_gates_the_sweep(in_flight: int, expected_candidate_limit: int | None) -> None:
+    mocks = _SweepMocks(
+        activity_results={
+            count_in_flight_applies_activity: in_flight,
+            find_scanner_candidates_activity: FindScannerCandidatesOutput(candidates=[], saturated=False),
+        },
+    )
+
+    await _run_sweep(mocks)
+
+    find_calls = [inp for fn, inp in mocks.activity_calls if fn == find_scanner_candidates_activity]
+    if expected_candidate_limit is None:
+        # Throttled: vision-action eval still runs (it rides every sweep), but no find, no apply dispatch.
+        assert [fn for fn, _ in mocks.activity_calls] == [
+            evaluate_due_vision_actions_activity,
+            refresh_prompt_suggestion_activity,
+            count_in_flight_applies_activity,
+        ]
+        assert mocks.child_calls == []
+    else:
+        assert find_calls[0].candidate_limit == expected_candidate_limit
+
+
+# SweepScannerWorkflow vision-action dispatch (the "and then…" trigger riding the sweep)
+
+
+@pytest.mark.asyncio
+async def test_sweep_dispatches_a_child_per_due_vision_action() -> None:
+    due = [DueVisionAction(vision_action_id=uuid.uuid4(), team_id=42) for _ in range(2)]
+    mocks = _SweepMocks(
+        activity_results={
+            evaluate_due_vision_actions_activity: due,
+            find_scanner_candidates_activity: FindScannerCandidatesOutput(candidates=[], saturated=False),
+        }
+    )
+
+    await _run_sweep(mocks)
+
+    started = {call["id"] for call in mocks.child_calls}
+    assert started == {build_process_vision_action_workflow_id(d.vision_action_id) for d in due}
+    # Dispatch happens before the session scan, so the children start even with no candidates.
+    assert evaluate_due_vision_actions_activity == mocks.activity_calls[0][0]
+
+
+@pytest.mark.asyncio
+async def test_sweep_one_failed_vision_child_does_not_drop_the_others() -> None:
+    # Each due action is already claimed independently, so one child failing to start must not abort
+    # dispatch of the rest — the others still get fired this sweep.
+    failing = DueVisionAction(vision_action_id=uuid.uuid4(), team_id=42)
+    ok = DueVisionAction(vision_action_id=uuid.uuid4(), team_id=42)
+    mocks = _SweepMocks(
+        activity_results={
+            evaluate_due_vision_actions_activity: [failing, ok],
+            find_scanner_candidates_activity: FindScannerCandidatesOutput(candidates=[], saturated=False),
+        },
+        child_errors_for_ids={
+            build_process_vision_action_workflow_id(failing.vision_action_id): RuntimeError("temporal blip")
+        },
+    )
+
+    await _run_sweep(mocks)
+
+    started = {call["id"] for call in mocks.child_calls}
+    # Both were attempted; the healthy one's start is recorded despite the other failing.
+    assert build_process_vision_action_workflow_id(ok.vision_action_id) in started
+
+
+@pytest.mark.asyncio
+async def test_sweep_vision_action_failure_does_not_block_session_scan() -> None:
+    # A vision-action child that fails to start must not abort the scanner's core duty: the session
+    # scan still runs and advances its watermark.
+    d = DueVisionAction(vision_action_id=uuid.uuid4(), team_id=42)
+    candidate = _build_payload("sess-a", dt.datetime(2026, 5, 1, 10, 0, 0, tzinfo=dt.UTC))
+    mocks = _SweepMocks(
+        activity_results={
+            evaluate_due_vision_actions_activity: [d],
+            find_scanner_candidates_activity: FindScannerCandidatesOutput(candidates=[candidate], saturated=False),
+        },
+        child_errors_for_ids={
+            build_process_vision_action_workflow_id(d.vision_action_id): RuntimeError("temporal down")
+        },
+    )
+
+    await _run_sweep(mocks)
+
+    assert [call for fn, call in mocks.activity_calls if fn == advance_scanner_watermark_activity]
+
+
+@pytest.mark.asyncio
+async def test_sweep_swallows_already_running_vision_action() -> None:
+    d = DueVisionAction(vision_action_id=uuid.uuid4(), team_id=42)
+    vision_child_id = build_process_vision_action_workflow_id(d.vision_action_id)
+    mocks = _SweepMocks(
+        activity_results={
+            evaluate_due_vision_actions_activity: [d],
+            find_scanner_candidates_activity: FindScannerCandidatesOutput(candidates=[], saturated=False),
+        },
+        child_errors_for_ids={
+            vision_child_id: WorkflowAlreadyStartedError(workflow_id=vision_child_id, workflow_type="x")
+        },
+    )
+
+    # An already-running action is skipped, not a failure.
+    await _run_sweep(mocks)
+
+
+# count_in_flight_applies_activity
+
+
+@pytest.mark.asyncio
+async def test_count_in_flight_queries_by_scanner_id_search_attribute() -> None:
+    scanner_id = uuid.uuid4()
+    client = MagicMock()
+    client.count_workflows = AsyncMock(return_value=MagicMock(count=7))
+    with patch(
+        "products.replay_vision.backend.temporal.activities.count_in_flight_applies.async_connect",
+        AsyncMock(return_value=client),
+    ):
+        result = await count_in_flight_applies_activity(CountInFlightAppliesInputs(scanner_id=scanner_id))
+
+    assert result == 7
+    query = client.count_workflows.await_args.args[0]
+    assert f'PostHogScannerId = "{scanner_id}"' in query
+    assert 'ExecutionStatus = "Running"' in query
+
+
+@pytest.mark.asyncio
+async def test_count_in_flight_returns_zero_on_failure() -> None:
+    with patch(
+        "products.replay_vision.backend.temporal.activities.count_in_flight_applies.async_connect",
+        AsyncMock(side_effect=RuntimeError("visibility down")),
+    ):
+        result = await count_in_flight_applies_activity(CountInFlightAppliesInputs(scanner_id=uuid.uuid4()))
+    assert result == 0

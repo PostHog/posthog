@@ -35,6 +35,7 @@ import {
     MARKETING_ANALYTICS_DATA_COLLECTION_NODE_ID,
     marketingAnalyticsTilesLogic,
 } from '../web-analytics/tabs/marketing-analytics/frontend/logic/marketingAnalyticsTilesLogic'
+import { NewMarketingAnalyticsDashboard } from './NewMarketingAnalyticsDashboard'
 import { marketingOnboardingLogic } from './Onboarding/marketingOnboardingLogic'
 import { Onboarding } from './Onboarding/Onboarding'
 
@@ -53,7 +54,7 @@ const QueryTileItem = ({ tile }: { tile: QueryTile }): JSX.Element => {
                 'col-span-1 row-span-1 flex flex-col',
                 layout.colSpanClassName ?? 'md:col-span-6',
                 layout.rowSpanClassName ?? 'md:row-span-1',
-                layout.orderWhenLargeClassName ?? 'xxl:order-12',
+                layout.orderWhenLargeClassName ?? '2xl:order-12',
                 layout.className
             )}
         >
@@ -75,6 +76,34 @@ const QueryTileItem = ({ tile }: { tile: QueryTile }): JSX.Element => {
         </div>
     )
 }
+
+// Loading placeholder that mirrors the real dashboard layout — an overview metric row, a chart card,
+// and a table card — instead of a single thin bar, so the page doesn't visibly reflow when data lands.
+const MarketingAnalyticsDashboardSkeleton = (): JSX.Element => (
+    <div className="mt-4 flex flex-col gap-y-10">
+        <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+            {[0, 1, 2, 3].map((i) => (
+                <div key={i} className="flex flex-col gap-2 p-4 border rounded">
+                    <LemonSkeleton className="h-3 w-20" />
+                    <LemonSkeleton className="h-8 w-24" />
+                </div>
+            ))}
+        </div>
+        <div className="flex flex-col gap-3">
+            <LemonSkeleton className="h-6 w-40" />
+            <div className="border rounded p-4">
+                <LemonSkeleton className="h-64 w-full" />
+            </div>
+        </div>
+        <div className="flex flex-col gap-3">
+            <LemonSkeleton className="h-6 w-40" />
+            <div className="border rounded p-4 flex flex-col gap-3">
+                <LemonSkeleton className="h-8 w-full" />
+                <LemonSkeleton.Row repeat={5} fade className="h-10" />
+            </div>
+        </div>
+    </div>
+)
 
 const MarketingAnalyticsDashboard = (): JSX.Element => {
     const { featureFlags } = useValues(featureFlagLogic)
@@ -116,7 +145,10 @@ const MarketingAnalyticsDashboard = (): JSX.Element => {
     const feedbackBanner = (
         <LemonBanner
             type="info"
-            action={{ children: 'Send feedback', id: 'marketing-analytics-feedback-button' }}
+            action={{
+                children: 'Send feedback',
+                id: 'marketing-analytics-feedback-button',
+            }}
             className="mt-4"
         >
             Marketing analytics is in beta. Please let us know what you'd like to see here and/or report any issues
@@ -140,7 +172,7 @@ const MarketingAnalyticsDashboard = (): JSX.Element => {
         return (
             <>
                 {feedbackBanner}
-                <LemonSkeleton />
+                <MarketingAnalyticsDashboardSkeleton />
             </>
         )
     }
@@ -159,7 +191,7 @@ const MarketingAnalyticsDashboard = (): JSX.Element => {
         <>
             {feedbackBanner}
             <MarketingAnalyticsSourceStatusBanner />
-            <div className="mt-4 grid grid-cols-1 md:grid-cols-2 xxl:grid-cols-3 gap-x-4 gap-y-12">
+            <div className="mt-4 grid grid-cols-1 md:grid-cols-2 2xl:grid-cols-3 gap-x-4 gap-y-12">
                 {marketingTiles?.map((tile, i) => (
                     <QueryTileItem key={i} tile={tile} />
                 ))}
@@ -174,39 +206,37 @@ const MarketingAnalyticsContent = (): JSX.Element => {
     const { activeTab } = useValues(marketingAnalyticsLogic)
     const { setActiveTab } = useActions(marketingAnalyticsLogic)
 
-    const showIntegrationHealth = !!featureFlags[FEATURE_FLAGS.MARKETING_ANALYTICS_UTM_AUDIT]
+    // The redesigned dashboard replaces the current one under the same "Dashboard" tab when its flag is
+    // on, so the eventual cutover is just flipping the flag — no tab rename, no extra tab key to strand.
+    const dashboard = featureFlags[FEATURE_FLAGS.MARKETING_ANALYTICS_NEW_DASHBOARD] ? (
+        <NewMarketingAnalyticsDashboard />
+    ) : (
+        <>
+            <MarketingAnalyticsFilters tabs={<></>} />
+            <MarketingAnalyticsDashboard />
+        </>
+    )
+
+    const tabs = [
+        { key: MarketingAnalyticsTab.DASHBOARD, label: 'Dashboard', content: dashboard },
+        ...(featureFlags[FEATURE_FLAGS.MARKETING_ANALYTICS_UTM_AUDIT]
+            ? [
+                  {
+                      key: MarketingAnalyticsTab.INTEGRATION_HEALTH,
+                      label: 'Integration health',
+                      content: <UtmAuditTab />,
+                  },
+              ]
+            : []),
+    ]
+
+    // Only surface the tab bar once a secondary tab is enabled; otherwise show the dashboard directly.
+    if (tabs.length === 1) {
+        return dashboard
+    }
 
     return (
-        <>
-            {showIntegrationHealth ? (
-                <LemonTabs
-                    activeKey={activeTab}
-                    onChange={(key) => setActiveTab(key as MarketingAnalyticsTab)}
-                    tabs={[
-                        {
-                            key: MarketingAnalyticsTab.DASHBOARD,
-                            label: 'Dashboard',
-                            content: (
-                                <>
-                                    <MarketingAnalyticsFilters tabs={<></>} />
-                                    <MarketingAnalyticsDashboard />
-                                </>
-                            ),
-                        },
-                        {
-                            key: MarketingAnalyticsTab.INTEGRATION_HEALTH,
-                            label: 'Integration health',
-                            content: <UtmAuditTab />,
-                        },
-                    ]}
-                />
-            ) : (
-                <>
-                    <MarketingAnalyticsFilters tabs={<></>} />
-                    <MarketingAnalyticsDashboard />
-                </>
-            )}
-        </>
+        <LemonTabs activeKey={activeTab} onChange={(key) => setActiveTab(key as MarketingAnalyticsTab)} tabs={tabs} />
     )
 }
 

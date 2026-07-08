@@ -3,10 +3,12 @@ import '@testing-library/jest-dom'
 import { cleanup, render, screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { BindLogic } from 'kea'
+import { router } from 'kea-router'
 
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { maxGlobalLogic } from 'scenes/max/maxGlobalLogic'
+import { urls } from 'scenes/urls'
 
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
@@ -87,13 +89,28 @@ describe('EmptyDashboardComponent', () => {
         await userEvent.click(document.querySelector('[data-attr="dashboard-add-dropdown"]')!)
     }
 
+    it('routes Add widget preview to feature previews when flag is disabled', async () => {
+        const pushSpy = jest.spyOn(router.actions, 'push')
+        const { logic } = renderEmptyState()
+
+        await openGetStartedDropdown()
+        await userEvent.click(screen.getByText('Add widget'))
+
+        expect(pushSpy).toHaveBeenCalledWith(urls.featurePreview(FEATURE_FLAGS.DASHBOARD_WIDGETS))
+        expect(logic.values.addWidgetModalOpen).toBe(false)
+
+        pushSpy.mockRestore()
+        logic.unmount()
+    })
+
     it('shows Add text card in Get started dropdown', async () => {
         const { logic } = renderEmptyState()
 
         await openGetStartedDropdown()
 
         expect(screen.getByText('Add text card')).toBeInTheDocument()
-        expect(screen.queryByText('Add widget')).not.toBeInTheDocument()
+        expect(screen.getByText('Add widget')).toBeInTheDocument()
+        expect(screen.getByText('BETA')).toBeInTheDocument()
 
         logic.unmount()
     })

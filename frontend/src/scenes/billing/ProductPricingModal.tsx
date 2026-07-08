@@ -1,6 +1,6 @@
 import { LemonModal } from '@posthog/lemon-ui'
 
-import { capitalizeFirstLetter } from 'lib/utils'
+import { capitalizeFirstLetter } from 'lib/utils/strings'
 
 import { BillingPlanType, BillingProductV2AddonType, BillingProductV2Type } from '~/types'
 

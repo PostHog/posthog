@@ -3,8 +3,9 @@ from unittest.mock import patch
 from parameterized import parameterized
 from rest_framework import status
 
+from products.actions.backend.models.action import Action
 from products.experiments.backend.experiment_saved_metric_service import ExperimentSavedMetricService
-from products.experiments.backend.models.experiment import Experiment, ExperimentToSavedMetric
+from products.experiments.backend.models.experiment import Experiment, ExperimentSavedMetric, ExperimentToSavedMetric
 
 from ee.api.test.base import APILicensedTest
 
@@ -981,3 +982,73 @@ class TestExperimentSavedMetricsCRUD(APILicensedTest):
         ids_page1 = {row["id"] for row in page1["results"]}
         ids_page2 = {row["id"] for row in page2["results"]}
         self.assertEqual(ids_page1 & ids_page2, set())
+
+    def _seed_metrics_for_event_filter(self) -> None:
+        # Created via the ORM so the stored query JSON is exactly what the filter inspects. The action fires
+        # on the "signup" event, so its metric is discoverable by that event — not by the action's label.
+        signup_action = Action.objects.create(team=self.team, name="Completed signup", steps_json=[{"event": "signup"}])
+        for name, source in [
+            ("Pageview mean", {"kind": "EventsNode", "event": "$pageview"}),
+            ("Purchase mean", {"kind": "EventsNode", "event": "purchase"}),
+            ("Signup via action", {"kind": "ActionsNode", "id": signup_action.id, "name": "Completed signup"}),
+        ]:
+            ExperimentSavedMetric.objects.create(
+                team=self.team,
+                created_by=self.user,
+                name=name,
+                query={"kind": "ExperimentMetric", "metric_type": "mean", "source": source},
+            )
+
+    @parameterized.expand(
+        [
+            # `event` matches the events a metric references — directly, or via an action's step events.
+            ("direct_event", "$pageview", {"Pageview mean"}),
+            ("another_direct_event", "purchase", {"Purchase mean"}),
+            ("event_behind_an_action", "signup", {"Signup via action"}),
+            # It matches events, not the action's label, nor query structure/type tokens.
+            ("action_label_not_matched", "Completed signup", set()),
+            ("metric_type_token_not_matched", "mean", set()),
+            ("node_kind_token_not_matched", "EventsNode", set()),
+            ("no_match", "not_an_event", set()),
+        ]
+    )
+    def test_event_filter_matches_referenced_events_only(
+        self, _name: str, event: str, expected_names: set[str]
+    ) -> None:
+        self._seed_metrics_for_event_filter()
+
+        response = self.client.get(f"/api/projects/{self.team.id}/experiment_saved_metrics/", data={"event": event})
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        returned = {row["name"] for row in response.json()["results"]}
+        self.assertEqual(returned, expected_names)
+
+    def test_event_filter_composes_with_search(self) -> None:
+        # `event` (references) and `search` (name/description/tags) apply through different mechanisms;
+        # both must narrow the result set together (AND), not clobber each other.
+        purchase_query = {
+            "kind": "ExperimentMetric",
+            "metric_type": "mean",
+            "source": {"kind": "EventsNode", "event": "purchase"},
+        }
+        for name in ["Alpha purchase", "Beta purchase"]:
+            ExperimentSavedMetric.objects.create(team=self.team, created_by=self.user, name=name, query=purchase_query)
+
+        response = self.client.get(
+            f"/api/projects/{self.team.id}/experiment_saved_metrics/?event=purchase&search=Alpha"
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        returned = {row["name"] for row in response.json()["results"]}
+        self.assertEqual(returned, {"Alpha purchase"})
+
+    def test_event_param_does_not_filter_detail_retrieve(self) -> None:
+        # `event` is a list-only filter; it must never narrow a detail lookup into a 404.
+        metric_id = self._create_saved_metric("Pageview mean")
+
+        response = self.client.get(
+            f"/api/projects/{self.team.id}/experiment_saved_metrics/{metric_id}?event=not_an_event"
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.json()["id"], metric_id)

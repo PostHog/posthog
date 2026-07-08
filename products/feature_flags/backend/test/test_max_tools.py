@@ -1,21 +1,30 @@
 from posthog.test.base import APIBaseTest
+from unittest.mock import patch
 
 from parameterized import parameterized
 
 from posthog.schema import FeatureFlagGroupType, GroupPropertyFilter, PersonPropertyFilter, PropertyOperator
 
-from posthog.models.group_type_mapping import GroupTypeMapping
+from posthog.sync import database_sync_to_async
+from posthog.test.persons import create_group_type_mapping
 
 from products.feature_flags.backend.max_tools import (
     CreateFeatureFlagTool,
     FeatureFlagCreationSchema,
     MultivariateVariant,
 )
+from products.feature_flags.backend.models.evaluation_context import EvaluationContext, TeamDefaultEvaluationContext
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
 
 from ee.hogai.utils.types import AssistantState
 
 ALL_USERS_GROUP = FeatureFlagGroupType(properties=[], rollout_percentage=None)
+
+
+def _enable_gates(*gates: str):
+    """Patch helper so only the named feature gates report enabled, keeping tests honest about what they need."""
+    enabled = set(gates)
+    return lambda key, *args, **kwargs: key in enabled
 
 
 class TestCreateFeatureFlagTool(APIBaseTest):
@@ -173,7 +182,7 @@ class TestCreateFeatureFlagTool(APIBaseTest):
         assert len(flag.filters["groups"][0]["properties"]) == 1
 
     async def test_create_flag_with_group_type(self):
-        await GroupTypeMapping.objects.acreate(
+        await database_sync_to_async(create_group_type_mapping)(
             team=self.team,
             project_id=self.team.project_id,
             group_type="organization",
@@ -200,7 +209,7 @@ class TestCreateFeatureFlagTool(APIBaseTest):
         assert flag.filters["aggregation_group_type_index"] == 0
 
     async def test_create_flag_with_group_and_property(self):
-        await GroupTypeMapping.objects.acreate(
+        await database_sync_to_async(create_group_type_mapping)(
             team=self.team,
             project_id=self.team.project_id,
             group_type="organization",
@@ -383,7 +392,7 @@ class TestCreateFeatureFlagTool(APIBaseTest):
         assert not exists
 
     async def test_create_multivariate_with_property_filters(self):
-        await GroupTypeMapping.objects.acreate(
+        await database_sync_to_async(create_group_type_mapping)(
             team=self.team,
             project_id=self.team.project_id,
             group_type="organization",
@@ -458,6 +467,140 @@ class TestCreateFeatureFlagTool(APIBaseTest):
         result, artifact = await tool._arun_impl(feature_flag=schema)
         assert "Failed to create feature flag" in result
         assert "invalid regex pattern" in result
+
+    async def test_create_flag_with_explicit_evaluation_contexts(self):
+        with patch("posthoganalytics.feature_enabled", side_effect=_enable_gates("flag-evaluation-tags")):
+            tool = self._create_tool()
+
+            schema = FeatureFlagCreationSchema(
+                key="eval-context-flag",
+                name="Eval Context Flag",
+                groups=[ALL_USERS_GROUP],
+                evaluation_contexts=["production", "staging"],
+            )
+
+            result, artifact = await tool._arun_impl(feature_flag=schema)
+
+            assert "Successfully created" in result
+            assert "evaluation contexts: production, staging" in result
+            assert set(artifact["evaluation_contexts"]) == {"production", "staging"}
+
+            flag = await FeatureFlag.objects.aget(key="eval-context-flag", team=self.team)
+            assert await self._get_evaluation_context_names(flag) == {"production", "staging"}
+
+    @parameterized.expand(
+        [
+            ("defaults_applied", True, None, {"production"}),
+            ("explicit_empty_skips_defaults", True, [], set()),
+            ("disabled_skips_defaults", False, None, set()),
+        ]
+    )
+    async def test_create_flag_default_evaluation_contexts(self, name, default_enabled, contexts, expected_names):
+        self.team.default_evaluation_contexts_enabled = default_enabled
+        await database_sync_to_async(self.team.save)()
+        await self._create_default_context("production")
+
+        with patch(
+            "posthoganalytics.feature_enabled",
+            side_effect=_enable_gates("flag-evaluation-tags", "default-evaluation-environments"),
+        ):
+            tool = self._create_tool()
+
+            schema = FeatureFlagCreationSchema(
+                key=f"default-context-flag-{name}",
+                name=f"Default Context Flag {name}",
+                groups=[ALL_USERS_GROUP],
+                evaluation_contexts=contexts,
+            )
+
+            result, _ = await tool._arun_impl(feature_flag=schema)
+
+            assert "Successfully created" in result
+
+            flag = await FeatureFlag.objects.aget(key=f"default-context-flag-{name}", team=self.team)
+            assert await self._get_evaluation_context_names(flag) == expected_names
+
+    async def test_create_flag_satisfies_required_evaluation_contexts(self):
+        # Reproduces the gap where projects requiring an evaluation context rejected every Max-created flag.
+        self.team.require_evaluation_contexts = True
+        await database_sync_to_async(self.team.save)()
+
+        with patch("posthoganalytics.feature_enabled", side_effect=_enable_gates("flag-evaluation-tags")):
+            tool = self._create_tool()
+
+            schema = FeatureFlagCreationSchema(
+                key="required-context-flag",
+                name="Required Context Flag",
+                groups=[ALL_USERS_GROUP],
+                evaluation_contexts=["production"],
+            )
+
+            result, artifact = await tool._arun_impl(feature_flag=schema)
+
+            assert "Successfully created" in result
+            assert artifact.get("error") is None
+
+            flag = await FeatureFlag.objects.aget(key="required-context-flag", team=self.team)
+            assert await self._get_evaluation_context_names(flag) == {"production"}
+
+    async def test_create_flag_required_contexts_satisfied_by_defaults(self):
+        # The primary fix: an enforced project creates successfully when the model omits contexts and
+        # the project has defaults configured — the tool auto-applies them.
+        self.team.require_evaluation_contexts = True
+        self.team.default_evaluation_contexts_enabled = True
+        await database_sync_to_async(self.team.save)()
+        await self._create_default_context("production")
+
+        with patch(
+            "posthoganalytics.feature_enabled",
+            side_effect=_enable_gates("flag-evaluation-tags", "default-evaluation-environments"),
+        ):
+            tool = self._create_tool()
+
+            schema = FeatureFlagCreationSchema(
+                key="required-default-context-flag",
+                name="Required Default Context Flag",
+                groups=[ALL_USERS_GROUP],
+            )
+
+            result, artifact = await tool._arun_impl(feature_flag=schema)
+
+            assert "Successfully created" in result
+            assert artifact.get("error") is None
+
+            flag = await FeatureFlag.objects.aget(key="required-default-context-flag", team=self.team)
+            assert await self._get_evaluation_context_names(flag) == {"production"}
+
+    async def test_create_flag_required_contexts_without_defaults_returns_readable_error(self):
+        # Still-reachable failure: enforced project, no defaults, model omits contexts → the serializer's
+        # ValidationError must surface as a readable message rather than escaping _arun_impl.
+        self.team.require_evaluation_contexts = True
+        await database_sync_to_async(self.team.save)()
+
+        with patch("posthoganalytics.feature_enabled", side_effect=_enable_gates("flag-evaluation-tags")):
+            tool = self._create_tool()
+
+            schema = FeatureFlagCreationSchema(
+                key="required-no-default-context-flag",
+                name="Required No Default Context Flag",
+                groups=[ALL_USERS_GROUP],
+            )
+
+            result, artifact = await tool._arun_impl(feature_flag=schema)
+
+            assert "Failed to create feature flag" in result
+            assert "At least one evaluation context is required" in result
+            assert artifact.get("error") == "validation_error"
+
+    @database_sync_to_async
+    def _create_default_context(self, name: str) -> None:
+        ctx, _ = EvaluationContext.objects.get_or_create(name=name, team=self.team)
+        TeamDefaultEvaluationContext.objects.get_or_create(team=self.team, evaluation_context=ctx)
+
+    @staticmethod
+    @database_sync_to_async
+    def _get_evaluation_context_names(flag: FeatureFlag) -> set[str]:
+        return set(flag.flag_evaluation_contexts.values_list("evaluation_context__name", flat=True))
 
     @staticmethod
     async def _get_tag_names(flag: FeatureFlag) -> list[str]:

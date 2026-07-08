@@ -4,6 +4,7 @@ import { useId } from 'react'
 import { IconBuilding, IconHeartFilled } from '@posthog/icons'
 
 import { FallbackCoverImage } from 'lib/components/FallbackCoverImage/FallbackCoverImage'
+import { LemonTag } from 'lib/lemon-ui/LemonTag'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 
 import { DashboardTemplateType } from '~/types'
@@ -26,7 +27,7 @@ const featuredImageColumnClass =
 export type TemplateItemSize = 'default' | 'large'
 
 export interface DashboardTemplateItemProps {
-    template: Pick<DashboardTemplateType, 'template_name' | 'dashboard_description' | 'image_url' | 'tags'>
+    template: Pick<DashboardTemplateType, 'template_name' | 'dashboard_description' | 'image_url' | 'tags' | 'scope'>
     onClick: () => void
     index: number
     'data-attr': string
@@ -46,6 +47,20 @@ function TemplateItemBuildingGlyph({ size }: { size: 'sm' | 'lg' }): JSX.Element
     )
 }
 
+/** Tag distinguishing org-shared templates from this project's own; team templates are the implicit default and unbadged. */
+function OrganizationScopeBadge({ scope }: { scope?: DashboardTemplateType['scope'] }): JSX.Element | null {
+    if (scope !== 'organization') {
+        return null
+    }
+    return (
+        <Tooltip title="Shared with everyone in your organization">
+            <LemonTag type="muted" size="small" className="shrink-0">
+                Organization
+            </LemonTag>
+        </Tooltip>
+    )
+}
+
 function TemplateItemTitleDescription({
     titleId,
     template,
@@ -54,16 +69,19 @@ function TemplateItemTitleDescription({
     descriptionClassName,
 }: {
     titleId: string
-    template: Pick<DashboardTemplateType, 'template_name' | 'dashboard_description'>
+    template: Pick<DashboardTemplateType, 'template_name' | 'dashboard_description' | 'scope'>
     wrapClassName: string
     titleClassName: string
     descriptionClassName: string
 }): JSX.Element {
     return (
         <div className={wrapClassName}>
-            <h5 id={titleId} className={titleClassName}>
-                {template?.template_name}
-            </h5>
+            <div className="flex items-center gap-2 min-w-0">
+                <h5 id={titleId} className={titleClassName}>
+                    {template?.template_name}
+                </h5>
+                <OrganizationScopeBadge scope={template?.scope} />
+            </div>
             <p className={descriptionClassName}>{template?.dashboard_description ?? ' '}</p>
         </div>
     )

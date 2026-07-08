@@ -14,18 +14,16 @@ from django.db import transaction
 from django.test import override_settings
 
 from posthog.clickhouse.client import sync_execute
-from posthog.demo.matrix.manager import MatrixManager
-from posthog.demo.matrix.taxonomy_inference import infer_taxonomy_for_team
-from posthog.models import GroupTypeMapping, Organization, OrganizationMembership, Team, User
+from posthog.models import Organization, OrganizationMembership, Team, User
 from posthog.models.event.sql import COPY_EVENTS_BETWEEN_TEAMS
 from posthog.models.group.sql import COPY_GROUPS_BETWEEN_TEAMS
 from posthog.models.person.sql import COPY_PERSON_DISTINCT_ID2S_BETWEEN_TEAMS, COPY_PERSONS_BETWEEN_TEAMS
-from posthog.tasks.demo_create_data import HedgeboxMatrix
+from posthog.persons_db import persons_db_connection
 
 from products.dashboards.backend.models import Dashboard, DashboardTile
+from products.demo.backend.facade.api import HedgeboxMatrix, MatrixManager, infer_taxonomy_for_team
+from products.posthog_ai.backend.models.assistant import CoreMemory
 from products.product_analytics.backend.models.insight import Insight
-
-from ee.models.assistant import CoreMemory
 
 logger = logging.getLogger(__name__)
 
@@ -181,15 +179,17 @@ def copy_demo_data_to_new_team(
         sync_execute(COPY_EVENTS_BETWEEN_TEAMS, copy_params)
         sync_execute(COPY_GROUPS_BETWEEN_TEAMS, copy_params)
 
-        GroupTypeMapping.objects.filter(project_id=team.project_id).delete()  # nosemgrep: no-direct-persons-db-orm
-        GroupTypeMapping.objects.bulk_create(  # nosemgrep: no-direct-persons-db-orm
-            GroupTypeMapping(team_id=team.id, project_id=team.project_id, **record)
-            for record in GroupTypeMapping.objects.filter(  # nosemgrep: no-direct-persons-db-orm
-                project_id=master_team.project_id
-            ).values(  # nosemgrep: no-direct-persons-db-orm
-                "group_type", "group_type_index", "name_singular", "name_plural"
+        # Copy the master team's group type mappings onto the isolated eval team, writing through the
+        # off-ORM persons connection so the persons DB stays decoupled from Django.
+        with persons_db_connection(writer=True) as conn, conn.cursor() as cursor:
+            cursor.execute("DELETE FROM posthog_grouptypemapping WHERE project_id = %s", [team.project_id])
+            cursor.execute(
+                "INSERT INTO posthog_grouptypemapping "
+                "(team_id, project_id, group_type, group_type_index, name_singular, name_plural) "
+                "SELECT %s, %s, group_type, group_type_index, name_singular, name_plural "
+                "FROM posthog_grouptypemapping WHERE project_id = %s",
+                [team.id, team.project_id, master_team.project_id],
             )
-        )
 
         MatrixManager._sync_postgres_with_clickhouse_data(master_team_id, team.id)
 

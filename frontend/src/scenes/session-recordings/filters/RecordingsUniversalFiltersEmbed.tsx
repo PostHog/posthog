@@ -77,6 +77,7 @@ import { sessionRecordingEventUsageLogic } from '../sessionRecordingEventUsageLo
 import { CurrentFilterIndicator } from './CurrentFilterIndicator'
 import { DurationFilter } from './DurationFilter'
 import { ProductAnalyticsOverLimitBanner } from './ProductAnalyticsOverLimitBanner'
+import { deriveOperand } from './recordingsQueryConversions'
 import { SavedFilters } from './SavedFilters'
 
 function HideRecordingsMenu(): JSX.Element {
@@ -226,6 +227,11 @@ interface ReplayUniversalFiltersEmbedProps {
     className?: string
     allowReplayHogQLFilters?: boolean
     pinnedFilters?: UniversalFiltersGroup
+    /**
+     * Drop the saved-filter footer (feedback button + "Save as new filter") and surface "Reset filters" inline at
+     * the top instead. Used by embedders that only want ad-hoc filtering, e.g. Replay Vision's Run tab.
+     */
+    compactActions?: boolean
 }
 
 export const RecordingsUniversalFiltersEmbed = ({ ...props }: ReplayUniversalFiltersEmbedProps): JSX.Element => {
@@ -264,14 +270,13 @@ export const RecordingsUniversalFiltersEmbed = ({ ...props }: ReplayUniversalFil
 
     return (
         <div className="relative">
-            <div className="absolute top-0 right-0 z-1">
-                <LemonButton icon={<IconX />} size="small" onClick={() => setIsFiltersExpanded(false)} />
-            </div>
             <LemonTabs
                 activeKey={activeFilterTab}
                 onChange={(activeKey) => setActiveFilterTab(activeKey)}
                 size="small"
                 tabs={tabs}
+                barClassName="sticky top-0 z-10 bg-primary"
+                rightSlot={<LemonButton icon={<IconX />} size="small" onClick={() => setIsFiltersExpanded(false)} />}
             />
         </div>
     )
@@ -494,7 +499,7 @@ function SavedFilterNameEditor({
     )
 }
 
-function RecordingsUniversalFilterAddFilterPopover({
+export function RecordingsUniversalFilterAddFilterPopover({
     categoryDropdownVariant,
     taxonomicGroupTypes,
 }: {
@@ -585,7 +590,7 @@ function RecordingsUniversalFilterAddFilterPopover({
     )
 }
 
-const ReplayFiltersTab = ({
+export const ReplayFiltersTab = ({
     filters,
     setFilters,
     resetFilters,
@@ -593,6 +598,7 @@ const ReplayFiltersTab = ({
     totalFiltersCount,
     allowReplayHogQLFilters = false,
     pinnedFilters,
+    compactActions = false,
 }: ReplayUniversalFiltersEmbedProps): JSX.Element => {
     const [isSaveFiltersModalOpen, setIsSaveFiltersModalOpen] = useState(false)
 
@@ -600,6 +606,7 @@ const ReplayFiltersTab = ({
     const categoryDropdownVariant = resolveCategoryDropdownVariant(
         featureFlags[FEATURE_FLAGS.TAXONOMIC_FILTER_CATEGORY_DROPDOWN]
     )
+    const showFeedbackButton = useFeatureFlag('SHOW_REPLAY_FILTERS_FEEDBACK_BUTTON')
 
     useMountedLogic(cohortsModel)
     useMountedLogic(actionsModel)
@@ -675,6 +682,19 @@ const ReplayFiltersTab = ({
 
     const hasFilterChanges = appliedSavedFilter ? !equal(appliedSavedFilter.filters, filters) : false
 
+    const resetButton = (
+        <LemonButton
+            type="tertiary"
+            size="small"
+            onClick={handleResetFilters}
+            icon={<IconRevert />}
+            tooltip="Remove all filters and reset to defaults"
+            disabledReason={!(resetFilters && (totalFiltersCount ?? 0) > 0) ? 'No filters applied' : undefined}
+        >
+            Reset filters
+        </LemonButton>
+    )
+
     return (
         <div className={clsx('relative bg-surface-primary w-full h-full', className)}>
             <ProductAnalyticsOverLimitBanner />
@@ -729,8 +749,18 @@ const ReplayFiltersTab = ({
             )}
             <div className="flex items-center py-2 justify-between">
                 <AndOrFilterSelect
-                    value={filters.filter_group.type}
+                    // Reflect the effective operand, not just the outer group: legacy saved filters can
+                    // carry the match-any on the inner group while the outer stays AND. Toggling syncs
+                    // both below, so interacting normalizes the structure.
+                    value={deriveOperand(filters.filter_group)}
                     onChange={(type) => {
+                        // Clicking the already-effective operand is a no-op — don't rewrite the
+                        // group or mark the saved filter dirty just because the displayed value
+                        // came from a legacy inner group.
+                        if (type === deriveOperand(filters.filter_group)) {
+                            return
+                        }
+
                         let values = filters.filter_group.values
 
                         // set the type on the nested child when only using a single filter group
@@ -752,15 +782,19 @@ const ReplayFiltersTab = ({
                     size="small"
                 />
                 <div className="mr-2">
-                    <TestAccountFilter
-                        size="small"
-                        filters={filters}
-                        onChange={(testFilters) =>
-                            setFilters({
-                                filter_test_accounts: testFilters.filter_test_accounts,
-                            })
-                        }
-                    />
+                    {compactActions ? (
+                        resetButton
+                    ) : (
+                        <TestAccountFilter
+                            size="small"
+                            filters={filters}
+                            onChange={(testFilters) =>
+                                setFilters({
+                                    filter_test_accounts: testFilters.filter_test_accounts,
+                                })
+                            }
+                        />
+                    )}
                 </div>
             </div>
 
@@ -842,40 +876,37 @@ const ReplayFiltersTab = ({
                 </div>
             </UniversalFilters>
 
-            <LemonDivider className="mt-4" />
+            {!compactActions && (
+                <>
+                    <LemonDivider className="mt-4" />
 
-            <div className="flex items-center py-2 justify-between px-1 gap-2">
-                {useFeatureFlag('SHOW_REPLAY_FILTERS_FEEDBACK_BUTTON') && (
-                    <LemonButton
-                        id="replay-filters-feedback-button"
-                        type="tertiary"
-                        status="danger"
-                        size="small"
-                        data-attr="replay-filters-feedback-button"
-                    >
-                        Unexpected filter results?
-                    </LemonButton>
-                )}
-                <div className="flex gap-2 ml-auto">
-                    <LemonButton
-                        type="tertiary"
-                        size="small"
-                        onClick={handleResetFilters}
-                        icon={<IconRevert />}
-                        tooltip="Remove all filters and reset to defaults"
-                        disabledReason={
-                            !(resetFilters && (totalFiltersCount ?? 0) > 0) ? 'No filters applied' : undefined
-                        }
-                    >
-                        Reset filters
-                    </LemonButton>
-                    <LemonButton type="primary" size="small" onClick={() => setIsSaveFiltersModalOpen(true)}>
-                        Save as new filter
-                    </LemonButton>
-                </div>
-            </div>
+                    <div className="flex items-center py-2 justify-between px-1 gap-2">
+                        {showFeedbackButton && (
+                            <LemonButton
+                                id="replay-filters-feedback-button"
+                                type="tertiary"
+                                status="danger"
+                                size="small"
+                                data-attr="replay-filters-feedback-button"
+                            >
+                                Unexpected filter results?
+                            </LemonButton>
+                        )}
+                        <div className="flex gap-2 ml-auto">
+                            {resetButton}
+                            <LemonButton type="primary" size="small" onClick={() => setIsSaveFiltersModalOpen(true)}>
+                                Save as new filter
+                            </LemonButton>
+                        </div>
+                    </div>
 
-            <SaveFiltersModal isOpen={isSaveFiltersModalOpen} setIsOpen={setIsSaveFiltersModalOpen} filters={filters} />
+                    <SaveFiltersModal
+                        isOpen={isSaveFiltersModalOpen}
+                        setIsOpen={setIsSaveFiltersModalOpen}
+                        filters={filters}
+                    />
+                </>
+            )}
         </div>
     )
 }

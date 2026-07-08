@@ -1,6 +1,6 @@
 import dataclasses
-from collections.abc import Callable, Sequence
-from typing import Any, Literal, Optional, cast
+from collections.abc import Sequence
+from typing import TYPE_CHECKING, Any, Optional, cast
 
 from django.db import models
 from django.db.models import Prefetch, Q, QuerySet, prefetch_related_objects
@@ -11,18 +11,14 @@ from rest_framework.viewsets import GenericViewSet
 
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.utils import action
+from posthog.helpers.impersonation import is_impersonated
 from posthog.models import Tag, TaggedItem
-from posthog.models.activity_logging.activity_log import (
-    ActivityContextBase,
-    Change,
-    Detail,
-    changes_between,
-    log_activity,
-)
-from posthog.models.activity_logging.tag_utils import get_tagged_item_related_object_info
-from posthog.models.signals import model_activity_signal, mutable_receiver
+from posthog.models.activity_logging.activity_log import Change, Detail, LogActivityEntry, bulk_log_activity
 from posthog.models.tag import tagify
 from posthog.rbac.user_access_control import access_level_satisfied_for_resource
+
+if TYPE_CHECKING:
+    from posthog.models.user import User
 
 
 def set_tags_on_object(tags: list[str], obj: Any) -> list[TaggedItem]:
@@ -50,6 +46,104 @@ def set_tags_on_object(tags: list[str], obj: Any) -> list[TaggedItem]:
 def cleanup_orphan_tags(team_id: int) -> None:
     """Remove tags that are no longer referenced by any TaggedItem."""
     Tag.objects.filter(Q(team_id=team_id) & Q(tagged_items__isnull=True)).delete()
+
+
+@dataclasses.dataclass(frozen=True)
+class BulkTagActivityContext:
+    """Context needed to write an activity-log entry for each object mutated in bulk.
+
+    ``scope`` is the resource's ``ActivityScope`` (e.g. ``"FeatureFlag"``) and ``activity`` is the
+    verb its single-object update path uses ("updated" for flags/insights/dashboards, "changed" for
+    event definitions), so a bulk entry matches what that path already writes. Passing this to
+    ``apply_bulk_tag_changes`` makes the bulk path leave the same audit trail; omitting it preserves
+    the old silent behavior.
+    """
+
+    scope: str
+    user: "User"
+    was_impersonated: bool
+    activity: str
+
+
+def apply_bulk_tag_changes(
+    objects: Sequence,
+    tag_action: str,
+    tags: list[str],
+    *,
+    activity_context: Optional[BulkTagActivityContext] = None,
+) -> list[dict[str, Any]]:
+    """Apply an add/remove/set tag mutation to each object and return a per-object result.
+
+    Callers are responsible for team-scoping and access-checking ``objects`` first. When a
+    ``prefetched_tags`` attribute is present it is used to avoid a per-object tag query.
+    Orphaned tags are cleaned up per affected team, since ``objects`` may span multiple teams
+    when the caller scopes by project (e.g. event definitions across environments).
+
+    When ``activity_context`` is provided, an activity-log entry carrying a ``tags`` diff is
+    recorded for every object whose tags actually change, mirroring the single-object update path
+    so the bulk endpoint leaves the same audit trail.
+    """
+    normalized_tags = {tagify(t) for t in tags}
+    updated: list[dict[str, Any]] = []
+    team_ids: set[int] = set()
+    activity_entries: list[LogActivityEntry] = []
+
+    for obj in objects:
+        team_ids.add(obj.team_id)
+        current_tags = {
+            ti.tag.name
+            for ti in (
+                obj.prefetched_tags if hasattr(obj, "prefetched_tags") else obj.tagged_items.select_related("tag").all()
+            )
+        }
+
+        if tag_action == "add":
+            new_tags = current_tags | normalized_tags
+        elif tag_action == "remove":
+            new_tags = current_tags - normalized_tags
+        else:  # set
+            new_tags = set(normalized_tags)
+
+        set_tags_on_object(list(new_tags), obj)
+        updated.append({"id": obj.id, "tags": sorted(new_tags)})
+
+        if activity_context is not None and current_tags != new_tags:
+            activity_entries.append(
+                _bulk_tag_activity_entry(obj, sorted(current_tags), sorted(new_tags), activity_context)
+            )
+
+    for team_id in team_ids:
+        cleanup_orphan_tags(team_id)
+
+    if activity_entries:
+        bulk_log_activity(activity_entries)
+
+    return updated
+
+
+def _bulk_tag_activity_entry(
+    obj: Any, before: list[str], after: list[str], context: BulkTagActivityContext
+) -> LogActivityEntry:
+    """Build an activity-log entry for a single bulk-tagged object.
+
+    ``organization_id`` is left ``None`` (the team is enough to scope the entry, and ``objects``
+    can span teams within a project), matching the single-object update path.
+    """
+    return LogActivityEntry(
+        organization_id=None,
+        team_id=obj.team_id,
+        user=context.user,
+        was_impersonated=context.was_impersonated,
+        item_id=str(obj.id),
+        scope=context.scope,
+        activity=context.activity,
+        detail=Detail(
+            name=getattr(obj, "name", None) or getattr(obj, "key", None),
+            # short_id is how insights are linked in the activity feed; None (and ignored) elsewhere.
+            short_id=getattr(obj, "short_id", None),
+            changes=[Change(type=context.scope, action="changed", field="tags", before=before, after=after)],
+        ),
+    )
 
 
 class TaggedItemSerializerMixin(serializers.Serializer):
@@ -129,6 +223,35 @@ class BulkUpdateTagsResponseSerializer(serializers.Serializer):
     skipped = BulkUpdateTagsErrorSerializer(many=True)
 
 
+class BulkUpdateTagsUUIDRequestSerializer(BulkUpdateTagsRequestSerializer):
+    """Variant of ``BulkUpdateTagsRequestSerializer`` for resources keyed by UUID (e.g. event definitions)."""
+
+    ids = serializers.ListField(
+        child=serializers.UUIDField(),
+        allow_empty=False,
+        max_length=BULK_UPDATE_TAGS_MAX_IDS,
+        help_text="List of object UUIDs to update tags on.",
+    )
+
+
+class BulkUpdateTagsUUIDItemSerializer(serializers.Serializer):
+    id = serializers.UUIDField(help_text="UUID of the object whose tags were updated.")
+    tags = serializers.ListField(
+        child=serializers.CharField(),
+        help_text="The object's full tag list after the update.",
+    )
+
+
+class BulkUpdateTagsUUIDErrorSerializer(serializers.Serializer):
+    id = serializers.UUIDField(help_text="UUID of the object that was skipped.")
+    reason = serializers.CharField(help_text="Why the object was skipped, e.g. 'Not found'.")
+
+
+class BulkUpdateTagsUUIDResponseSerializer(serializers.Serializer):
+    updated = BulkUpdateTagsUUIDItemSerializer(many=True, help_text="Objects whose tags were successfully updated.")
+    skipped = BulkUpdateTagsUUIDErrorSerializer(many=True, help_text="Objects that were skipped, with a reason each.")
+
+
 def _prefetch_tags_for_instances(instances: Sequence) -> None:
     """Manually prefetch tagged_items for a list of model instances.
 
@@ -154,6 +277,22 @@ def _prefetch_tags_for_instances(instances: Sequence) -> None:
 
 
 class TaggedItemViewSetMixin(viewsets.GenericViewSet):
+    # Set to the resource's ActivityScope (e.g. "FeatureFlag") to record an activity-log entry per
+    # object whose tags change via ``bulk_update_tags``. Left ``None`` for resources that don't log
+    # bulk tag edits, which leaves their behavior unchanged.
+    bulk_tag_activity_scope: Optional[str] = None
+
+    def _bulk_tag_activity_context(self) -> Optional[BulkTagActivityContext]:
+        if not self.bulk_tag_activity_scope:
+            return None
+        return BulkTagActivityContext(
+            scope=self.bulk_tag_activity_scope,
+            user=cast("User", self.request.user),
+            was_impersonated=is_impersonated(self.request),
+            # Flags, insights, and dashboards log single-object updates under the "updated" verb.
+            activity="updated",
+        )
+
     def prefetch_tagged_items_if_available(self, queryset: QuerySet | models.query.RawQuerySet) -> QuerySet:
         if isinstance(queryset, models.query.RawQuerySet):
             return queryset  # type: ignore[return-value]  # ty: ignore[invalid-return-type]
@@ -240,38 +379,9 @@ class TaggedItemViewSetMixin(viewsets.GenericViewSet):
             if obj_id not in found_ids:
                 errors.append({"id": obj_id, "reason": "Not found"})
 
-        # Normalize input tags
-        normalized_tags = {tagify(t) for t in tags}
-
-        # Apply tag changes
-        updated: list[dict[str, Any]] = []
-        team_id = None
-
-        for obj in editable_objects:
-            team_id = obj.team_id
-            current_tags = {
-                ti.tag.name
-                for ti in (
-                    obj.prefetched_tags
-                    if hasattr(obj, "prefetched_tags")
-                    else obj.tagged_items.select_related("tag").all()
-                )
-            }
-
-            if tag_action == "add":
-                new_tags = current_tags | normalized_tags
-            elif tag_action == "remove":
-                new_tags = current_tags - normalized_tags
-            else:  # set
-                new_tags = set(normalized_tags)
-
-            set_tags_on_object(list(new_tags), obj)
-            updated.append({"id": obj.id, "tags": sorted(new_tags)})
-
-        # Cleanup orphan tags once at the end
-        if team_id is not None:
-            cleanup_orphan_tags(team_id)
-
+        updated = apply_bulk_tag_changes(
+            editable_objects, tag_action, tags, activity_context=self._bulk_tag_activity_context()
+        )
         return response.Response({"updated": updated, "skipped": errors})
 
 
@@ -288,136 +398,6 @@ class TaggedItemViewSet(TeamAndOrgViewSetMixin, GenericViewSet):
     queryset = Tag.objects.none()
 
     def list(self, request, *args, **kwargs) -> response.Response:
-        return response.Response(Tag.objects.filter(team=self.team).values_list("name", flat=True).distinct())
-
-
-@dataclasses.dataclass(frozen=True)
-class TagContext(ActivityContextBase):
-    team_id: int
-    name: str
-
-
-@dataclasses.dataclass(frozen=True)
-class TaggedItemContext(ActivityContextBase):
-    tag_name: str
-    tag_id: str
-    team_id: int
-    related_object_type: Optional[str] = None
-    related_object_id: Optional[str] = None
-    related_object_name: Optional[str] = None
-
-
-@mutable_receiver(model_activity_signal, sender=Tag)
-def handle_tag_change(sender, scope, before_update, after_update, activity, user, was_impersonated=False, **kwargs):
-    context = TagContext(
-        team_id=after_update.team_id,
-        name=after_update.name,
-    )
-
-    log_activity(
-        organization_id=after_update.team.organization_id if after_update.team else None,
-        team_id=after_update.team_id,
-        user=user,
-        was_impersonated=was_impersonated,
-        item_id=after_update.id,
-        scope=scope,
-        activity=activity,
-        detail=Detail(
-            changes=changes_between(scope, previous=before_update, current=after_update),
-            name=after_update.name,
-            context=context,
-        ),
-    )
-
-
-@dataclasses.dataclass(frozen=True)
-class RelatedObjectActivityLogger:
-    """How to mirror a TaggedItem activity onto a related object's activity stream.
-
-    `scope` is used as both the `log_activity(scope=...)` and `Change.type` value.
-    `resolve_name` derives the display name for the activity row; the default
-    just returns the precomputed `related_object_name`.
-    """
-
-    scope: str
-    resolve_name: Callable[[TaggedItem, Optional[str]], Optional[str]] = lambda tagged_item, default_name: default_name
-
-
-RELATED_OBJECT_ACTIVITY_LOGGERS: dict[str, RelatedObjectActivityLogger] = {
-    "ticket": RelatedObjectActivityLogger(
-        scope="Ticket",
-        resolve_name=lambda tagged_item, default_name: (
-            f"Ticket #{tagged_item.ticket.ticket_number}" if tagged_item.ticket else default_name
-        ),
-    ),
-    "account": RelatedObjectActivityLogger(scope="Account"),
-    "endpoint": RelatedObjectActivityLogger(scope="Endpoint"),
-}
-
-
-@mutable_receiver(model_activity_signal, sender=TaggedItem)
-def handle_tagged_item_change(
-    sender, scope, before_update, after_update, activity, user, was_impersonated=False, **kwargs
-):
-    # Use after_update for create/update, before_update for delete
-    tagged_item = after_update or before_update
-
-    if not tagged_item or not tagged_item.tag:
-        return
-
-    related_object_type, related_object_id, related_object_name = get_tagged_item_related_object_info(tagged_item)
-
-    context = TaggedItemContext(
-        tag_name=tagged_item.tag.name,
-        tag_id=str(tagged_item.tag.id),
-        team_id=tagged_item.tag.team_id,
-        related_object_type=related_object_type,
-        related_object_id=related_object_id,
-        related_object_name=related_object_name,
-    )
-
-    team = tagged_item.tag.team
-    organization_id = team.organization_id if team else None
-    team_id = tagged_item.tag.team_id
-
-    log_activity(
-        organization_id=organization_id,
-        team_id=team_id,
-        user=user,
-        was_impersonated=was_impersonated,
-        item_id=tagged_item.id,
-        scope=scope,
-        activity=activity,
-        detail=Detail(
-            changes=changes_between(scope, previous=before_update, current=after_update),
-            name=tagged_item.tag.name,
-            context=context,
-        ),
-    )
-
-    # Mirror the tag change onto the related object's own activity stream
-    # (e.g. so a tag added to a Ticket shows up on that ticket's timeline).
-    related_logger = RELATED_OBJECT_ACTIVITY_LOGGERS.get(related_object_type or "")
-    if related_logger and related_object_id:
-        tag_action: Literal["created", "deleted"] = "created" if activity == "created" else "deleted"
-        log_activity(
-            organization_id=organization_id,
-            team_id=team_id,
-            user=user,
-            was_impersonated=was_impersonated,
-            item_id=related_object_id,
-            scope=related_logger.scope,
-            activity="updated",
-            detail=Detail(
-                name=related_logger.resolve_name(tagged_item, related_object_name),
-                changes=[
-                    Change(
-                        type=related_logger.scope,
-                        field="tag",
-                        action=tag_action,
-                        after=tagged_item.tag.name if activity == "created" else None,
-                        before=tagged_item.tag.name if activity == "deleted" else None,
-                    )
-                ],
-            ),
+        return response.Response(
+            Tag.objects.filter(team=self.team).values_list("name", flat=True).distinct().order_by("name")
         )

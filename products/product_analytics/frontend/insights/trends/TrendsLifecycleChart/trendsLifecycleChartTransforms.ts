@@ -1,14 +1,22 @@
-import { getBarColorFromStatus } from 'lib/colors'
-import type { Series, TimeSeriesBarChartConfig } from 'lib/hog-charts'
-import { capitalizeFirstLetter } from 'lib/utils'
-
-import type { CurrencyCode, TrendsFilter } from '~/queries/schema/schema-general'
-import type { IntervalType, LifecycleToggle } from '~/types'
+import type {
+    Series,
+    TimeInterval,
+    TimeSeriesBarChartConfig,
+    ValueLabelFormatter,
+    YAxisConfig,
+} from '@posthog/quill-charts'
 
 import { buildTrendsYAxisConfig } from '../shared/trendsAxisFormat'
-import { LIFECYCLE_STATUS_ORDER } from '../shared/trendsSeriesMeta'
+import type { YFormatterFields } from '../shared/trendsChartDisplayOptions'
 
-// Shape both IndexedTrendResult (kea) and lighter fixtures satisfy.
+// Canonical lifecycle status enumeration: new → resurrecting → returning → dormant. Declared here
+// (rather than imported from trendsSeriesMeta, which pulls in `~/` types) so this module stays free
+// of `~/`/`lib/` deps and compiles in the MCP Vite bundle, which only resolves `products/*` and
+// `@posthog/*`. The lifecycle chart renders series in the reverse order (dormant first) to match the
+// legacy chart (`trendsDataLogic.ts:197`).
+const LIFECYCLE_STATUS_ORDER: readonly string[] = ['new', 'resurrecting', 'returning', 'dormant']
+
+// Shape both IndexedTrendResult (kea) and lighter fixtures (e.g. the MCP UI app) satisfy.
 export interface TrendsLifecycleResultLike {
     id?: string | number
     label?: string | null
@@ -19,27 +27,70 @@ export interface TrendsLifecycleResultLike {
 }
 
 function lifecycleStatusOrder(status: string | undefined): number {
-    const i = LIFECYCLE_STATUS_ORDER.indexOf(status as LifecycleToggle)
+    const i = LIFECYCLE_STATUS_ORDER.indexOf(status ?? '')
     return i === -1 ? LIFECYCLE_STATUS_ORDER.length : i
 }
 
-// `dormant` is the only lifecycle status whose values are emitted as negatives,
-// so a diverging stack lays it below the zero baseline. The non-dormant series
-// are pinned to their fixed lifecycle colors regardless of the data-color theme.
-// Unknown statuses fall through to `getBarColorFromStatus`, which throws — we
-// surface the bad data rather than silently miscoloring it as the "new" series.
-function lifecycleColor(status: string | undefined): string {
-    return getBarColorFromStatus((status ?? 'new') as LifecycleToggle)
+export interface LifecycleValueLabelOptions {
+    showValues: boolean
+    showPercentages: boolean
+}
+
+// Positives only — dormant is the lone negative series, so it's excluded from the active total.
+function activeBandTotal(bandValues: number[] | undefined): number {
+    return (bandValues ?? []).reduce((sum, v) => (v > 0 ? sum + v : sum), 0)
+}
+
+// Dormant orgs lapsed from the *previous* period's active pool, so their share divides by that
+// period's total rather than the current one.
+export function buildLifecycleValueLabelFormatter(
+    formatValue: (value: number) => string,
+    { showValues, showPercentages }: LifecycleValueLabelOptions
+): ValueLabelFormatter {
+    return (value, _seriesIndex, _dataIndex, context) => {
+        const valueText = showValues ? formatValue(value) : ''
+        if (!showPercentages || context.isPercent) {
+            return valueText
+        }
+        const isDormant = context.rawValue < 0
+        const denominator = isDormant
+            ? activeBandTotal(context.previousBandValues)
+            : activeBandTotal(context.bandValues)
+        if (denominator === 0) {
+            // Dormant in the first period has no previous band to divide by — show its value rather than blank.
+            return isDormant ? formatValue(value) : valueText
+        }
+        const pct = Math.round((Math.abs(context.rawValue) / denominator) * 100)
+        return showValues ? `${valueText} (${pct}%)` : `${pct}%`
+    }
+}
+
+/** Drops rows whose lifecycle status is toggled off — mirrors the main app's legend toggles, which
+ *  the MCP host honors from the query (the web chart toggles interactively instead). With no toggle
+ *  set every row passes; once a toggle is active, a row without a status is dropped. */
+export function filterToggledLifecycleResults<R extends { status?: string }>(
+    results: R[],
+    toggledLifecycles: readonly string[] | undefined
+): R[] {
+    if (!toggledLifecycles) {
+        return results
+    }
+    return results.filter((r) => !!r.status && toggledLifecycles.includes(r.status))
 }
 
 export interface BuildTrendsLifecycleSeriesOpts<R extends TrendsLifecycleResultLike, M = unknown> {
+    // Injected so the transform stays free of `lib/colors` (the MCP bundle can't resolve it). Web
+    // passes `getBarColorFromStatus`, which throws on unknown statuses — surfacing bad data rather
+    // than silently miscoloring it. `dormant` is the only status emitted as negatives, so a diverging
+    // stack lays it below the zero baseline regardless of color.
+    getColor: (status: string | undefined) => string
     getHidden?: (r: R, index: number) => boolean
     buildMeta?: (r: R, index: number) => M
 }
 
 export function buildTrendsLifecycleSeries<R extends TrendsLifecycleResultLike, M = unknown>(
     results: R[],
-    opts: BuildTrendsLifecycleSeriesOpts<R, M> = {}
+    opts: BuildTrendsLifecycleSeriesOpts<R, M>
 ): Series<M>[] {
     // Stable lifecycle order: dormant → returning → resurrecting → new — matches the
     // legacy lifecycle chart (`trendsDataLogic.ts:197`) so the legend reads top-down the
@@ -59,7 +110,7 @@ export function buildTrendsLifecycleSeries<R extends TrendsLifecycleResultLike, 
             // shortened here so both legend and tooltip pick up the clean form.
             label: shortenLifecycleLabel(r.label),
             data: r.data,
-            color: lifecycleColor(r.status),
+            color: opts.getColor(r.status),
             meta,
             visibility: excluded ? { excluded: true } : undefined,
         }
@@ -67,18 +118,21 @@ export function buildTrendsLifecycleSeries<R extends TrendsLifecycleResultLike, 
 }
 
 export interface BuildTrendsLifecycleConfigOpts {
-    trendsFilter?: TrendsFilter | null
-    baseCurrency?: CurrencyCode
+    trendsFilter?: YFormatterFields | null
+    baseCurrency?: string
     isStacked: boolean
     yAxisScaleType?: string | null
-    interval?: IntervalType | null
+    interval?: TimeInterval | null
     timezone?: string
     allDays?: string[]
     valueLabels?: TimeSeriesBarChartConfig['valueLabels']
     tooltip?: TimeSeriesBarChartConfig['tooltip']
+    legend?: TimeSeriesBarChartConfig['legend']
 }
 
-export function buildTrendsLifecycleConfig(opts: BuildTrendsLifecycleConfigOpts): TimeSeriesBarChartConfig {
+export function buildTrendsLifecycleConfig(
+    opts: BuildTrendsLifecycleConfigOpts
+): TimeSeriesBarChartConfig & { yAxis?: YAxisConfig } {
     const yAxis = buildTrendsYAxisConfig(opts.trendsFilter, false, opts.baseCurrency, {
         yAxisScaleType: opts.yAxisScaleType,
         showGrid: true,
@@ -95,7 +149,45 @@ export function buildTrendsLifecycleConfig(opts: BuildTrendsLifecycleConfigOpts)
         // Only meaningful in stacked layout — dormant stacks below 0.
         divergingStack: opts.isStacked,
         tooltip: opts.tooltip,
+        legend: opts.legend,
     }
+}
+
+export interface BuildLifecycleChartModelOpts<
+    R extends TrendsLifecycleResultLike,
+    M = unknown,
+> extends BuildTrendsLifecycleConfigOpts {
+    /** Final x-axis labels (already formatted by the host — kea dates vs the MCP `formatDate`). */
+    labels: string[]
+    getColor: (status: string | undefined) => string
+    /** Client-side legend toggle state. Omit on hosts that toggle interactively (the web chart). */
+    toggledLifecycles?: readonly string[]
+    getHidden?: (r: R, index: number) => boolean
+    buildMeta?: (r: R, index: number) => M
+}
+
+/** The complete input a host hands to quill's `TimeSeriesBarChart` for a lifecycle chart. */
+export interface LifecycleChartModel<M = unknown> {
+    series: Series<M>[]
+    labels: string[]
+    config: TimeSeriesBarChartConfig
+}
+
+/** Assembles the full lifecycle chart model (filter → series → config) so both the web container and
+ *  the MCP visualizer share one tested path; each injects only host-specific bits (color, labels,
+ *  tooltip, meta, interactivity flags). */
+export function buildLifecycleChartModel<R extends TrendsLifecycleResultLike, M = unknown>(
+    results: R[],
+    opts: BuildLifecycleChartModelOpts<R, M>
+): LifecycleChartModel<M> {
+    const visible = filterToggledLifecycleResults(results, opts.toggledLifecycles)
+    const series = buildTrendsLifecycleSeries<R, M>(visible, {
+        getColor: opts.getColor,
+        getHidden: opts.getHidden,
+        buildMeta: opts.buildMeta,
+    })
+    const config = buildTrendsLifecycleConfig(opts)
+    return { series, labels: opts.labels, config }
 }
 
 /** Lifecycle series labels arrive as "Pageview - new", "Pageview - returning", etc.
@@ -103,5 +195,6 @@ export function buildTrendsLifecycleConfig(opts: BuildTrendsLifecycleConfigOpts)
 export function shortenLifecycleLabel(label: string | null | undefined): string {
     const parts = label?.split(' - ')
     const tail = parts?.[parts.length - 1] ?? label ?? 'None'
-    return capitalizeFirstLetter(tail)
+    // Inlined rather than imported from `lib/utils` so this module stays MCP-bundle-safe.
+    return tail.charAt(0).toUpperCase() + tail.slice(1)
 }

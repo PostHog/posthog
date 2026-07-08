@@ -16,6 +16,12 @@ export const CreateBody = /* @__PURE__ */ zod.object({
     logo_media_id: zod.uuid().nullish(),
     enforce_2fa: zod.boolean().nullish(),
     members_can_invite: zod.boolean().nullish(),
+    members_can_create_projects: zod
+        .boolean()
+        .nullish()
+        .describe(
+            'When True, organization members (below admin) are allowed to create new projects. Admins and owners can always create projects.'
+        ),
     members_can_use_personal_api_keys: zod.boolean().optional(),
     allow_publicly_shared_resources: zod.boolean().optional(),
     is_ai_data_processing_approved: zod.boolean().nullish(),
@@ -50,6 +56,12 @@ export const UpdateBody = /* @__PURE__ */ zod.object({
     logo_media_id: zod.uuid().nullish(),
     enforce_2fa: zod.boolean().nullish(),
     members_can_invite: zod.boolean().nullish(),
+    members_can_create_projects: zod
+        .boolean()
+        .nullish()
+        .describe(
+            'When True, organization members (below admin) are allowed to create new projects. Admins and owners can always create projects.'
+        ),
     members_can_use_personal_api_keys: zod.boolean().optional(),
     allow_publicly_shared_resources: zod.boolean().optional(),
     is_ai_data_processing_approved: zod.boolean().nullish(),
@@ -84,6 +96,12 @@ export const PartialUpdateBody = /* @__PURE__ */ zod.object({
     logo_media_id: zod.uuid().nullish(),
     enforce_2fa: zod.boolean().nullish(),
     members_can_invite: zod.boolean().nullish(),
+    members_can_create_projects: zod
+        .boolean()
+        .nullish()
+        .describe(
+            'When True, organization members (below admin) are allowed to create new projects. Admins and owners can always create projects.'
+        ),
     members_can_use_personal_api_keys: zod.boolean().optional(),
     allow_publicly_shared_resources: zod.boolean().optional(),
     is_ai_data_processing_approved: zod.boolean().nullish(),
@@ -246,13 +264,13 @@ export const ApprovalPoliciesPartialUpdateBody = /* @__PURE__ */ zod.object({
 
 /**
  * Approve a change request.
-If quorum is reached, automatically applies the change immediately.
+ * If quorum is reached, automatically applies the change immediately.
  */
 export const ChangeRequestsApproveCreateBody = /* @__PURE__ */ zod.looseObject({})
 
 /**
  * Cancel a change request.
-Only the requester can cancel their own pending change request.
+ * Only the requester can cancel their own pending change request.
  */
 export const ChangeRequestsCancelCreateBody = /* @__PURE__ */ zod.looseObject({})
 

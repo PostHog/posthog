@@ -15,8 +15,8 @@ pub struct Args {
     #[arg(short, long)]
     pub path: PathBuf,
 
-    /// This is the identifier posthog will use to look up with mapping file, when it's processing your
-    /// stack traces. Must match with the identifier provided to the posthog SDK at runtime, for this build.
+    /// The identifier PostHog uses to look up this mapping file when processing your stack traces.
+    /// Must match the identifier provided to the PostHog SDK at runtime for this build.
     #[arg(short, long)]
     pub map_id: String,
 

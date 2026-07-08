@@ -1,8 +1,6 @@
 from typing import Any, cast
 
-from django.contrib.postgres.search import TrigramWordSimilarity
-from django.db.models import F, Model, Prefetch, Q, QuerySet, Value
-from django.db.models.functions import Coalesce
+from django.db.models import F, Model, Prefetch, QuerySet
 from django.shortcuts import get_object_or_404
 
 from django_otp.plugins.otp_totp.models import TOTPDevice
@@ -26,10 +24,16 @@ from rest_framework.serializers import raise_errors_on_nested_writes
 from social_django.models import UserSocialAuth
 
 from posthog.api.routing import TeamAndOrgViewSetMixin
-from posthog.api.shared import UserBasicSerializer
+from posthog.api.shared import SearchMatchTypeSerializerMixin, UserBasicSerializer
 from posthog.constants import INTERNAL_BOT_EMAIL_SUFFIX
 from posthog.event_usage import groups
-from posthog.helpers.trigram_search import MAX_SEARCH_LENGTH, MIN_NAME_TRIGRAM_SIMILARITY, normalize_search_term
+from posthog.helpers.trigram_search import (
+    MAX_SEARCH_LENGTH,
+    TrigramSearchField,
+    apply_trigram_search,
+    drop_similar_when_exact_exists,
+    normalize_search_term,
+)
 from posthog.models import OrganizationMembership
 from posthog.models.user import User
 from posthog.models.webauthn_credential import WebauthnCredential
@@ -43,6 +47,20 @@ tracer = trace.get_tracer(__name__)
 # full scan + sort and can time out for large organizations.
 ALLOWED_ORDERINGS = frozenset({"joined_at", "-joined_at"})
 DEFAULT_ORDERING = "-joined_at"
+
+
+def organization_members_base_queryset() -> QuerySet:
+    """Active, non-bot organization memberships with their user prefetched.
+
+    Shared base for organization-member listings (core admin view and the
+    customer-analytics account view) so the exclusion and active-user filter
+    stay in one place.
+    """
+    return (
+        OrganizationMembership.objects.exclude(user__email__endswith=INTERNAL_BOT_EMAIL_SUFFIX)
+        .filter(user__is_active=True)
+        .select_related("user")
+    )
 
 
 class OrganizationMemberObjectPermissions(BasePermission):
@@ -65,7 +83,7 @@ class OrganizationMemberObjectPermissions(BasePermission):
         return True
 
 
-class OrganizationMemberSerializer(serializers.ModelSerializer):
+class OrganizationMemberSerializer(SearchMatchTypeSerializerMixin, serializers.ModelSerializer):
     user = UserBasicSerializer(read_only=True)
     is_2fa_enabled = serializers.SerializerMethodField()
     has_social_auth = serializers.SerializerMethodField()
@@ -82,6 +100,7 @@ class OrganizationMemberSerializer(serializers.ModelSerializer):
             "is_2fa_enabled",
             "has_social_auth",
             "last_login",
+            "search_match_type",
         ]
         read_only_fields = ["id", "joined_at", "updated_at"]
 
@@ -112,6 +131,16 @@ class OrganizationMemberSerializer(serializers.ModelSerializer):
         return updated_membership
 
 
+class OrganizationMemberGithubLoginSerializer(serializers.Serializer):
+    github_login = serializers.CharField(
+        allow_null=True,
+        help_text=(
+            "The member's GitHub username (login), resolved from their linked GitHub integration or OAuth "
+            "identity. Null when the member has no GitHub identity linked."
+        ),
+    )
+
+
 @extend_schema(extensions={"x-product": "platform_features"})
 @extend_schema_view(
     list=extend_schema(
@@ -127,7 +156,7 @@ class OrganizationMemberSerializer(serializers.ModelSerializer):
             OpenApiParameter(
                 name="search",
                 type=OpenApiTypes.STR,
-                description="Fuzzy match against member `first_name`, `last_name`, and `email` using Postgres trigram word similarity. Supports typos and prefix-as-you-type. Capped at 200 characters.",
+                description="Match against member `first_name`, `last_name`, and `email`. Returns exact (case-insensitive substring) matches only; if no exact match exists, returns similar (fuzzy trigram — typos, prefix-as-you-type) matches instead. Each result's `search_match_type` is `exact` or `similar`. Capped at 200 characters.",
             ),
         ],
     ),
@@ -143,11 +172,7 @@ class OrganizationMemberViewSet(
     serializer_class = OrganizationMemberSerializer
     permission_classes = [OrganizationMemberObjectPermissions, TimeSensitiveActionPermission]
     queryset = (
-        OrganizationMembership.objects.exclude(user__email__endswith=INTERNAL_BOT_EMAIL_SUFFIX)
-        .filter(
-            user__is_active=True,
-        )
-        .select_related("user")
+        organization_members_base_queryset()
         .prefetch_related(
             Prefetch(
                 "user__totpdevice_set",
@@ -184,30 +209,16 @@ class OrganizationMemberViewSet(
     @staticmethod
     @tracer.start_as_current_span("OrganizationMemberViewSet._apply_search")
     def _apply_search(queryset: QuerySet, search: str) -> QuerySet:
-        search = normalize_search_term(search)
-        span = trace.get_current_span()
-        span.set_attribute("organization_member.search.length", len(search))
-        if not search:
-            return queryset
-
-        zero = Value(0.0)
-        first_name_score = Coalesce(TrigramWordSimilarity(search, "user__first_name"), zero)
-        last_name_score = Coalesce(TrigramWordSimilarity(search, "user__last_name"), zero)
-        email_score = Coalesce(TrigramWordSimilarity(search, "user__email"), zero)
-
-        return (
-            queryset.annotate(
-                _first_name_score=first_name_score,
-                _last_name_score=last_name_score,
-                _email_score=email_score,
-            )
-            .filter(
-                Q(_first_name_score__gt=MIN_NAME_TRIGRAM_SIMILARITY)
-                | Q(_last_name_score__gt=MIN_NAME_TRIGRAM_SIMILARITY)
-                | Q(_email_score__gt=MIN_NAME_TRIGRAM_SIMILARITY)
-            )
-            .annotate(_search_score=F("_first_name_score") + F("_last_name_score") + F("_email_score"))
-            .order_by("-_search_score", "user__first_name")
+        return apply_trigram_search(
+            queryset,
+            search,
+            span_prefix="organization_member.search",
+            fields=(
+                TrigramSearchField("user__first_name"),
+                TrigramSearchField("user__last_name"),
+                TrigramSearchField("user__email"),
+            ),
+            tiebreakers=("user__first_name",),
         )
 
     def safely_get_queryset(self, queryset) -> QuerySet:
@@ -239,6 +250,9 @@ class OrganizationMemberViewSet(
 
         return queryset
 
+    def filter_queryset(self, queryset: QuerySet) -> QuerySet:
+        return drop_similar_when_exact_exists(super().filter_queryset(queryset))
+
     def perform_destroy(self, instance: Model):
         instance = cast(OrganizationMembership, instance)
         requesting_user = cast(User, self.request.user)
@@ -262,6 +276,12 @@ class OrganizationMemberViewSet(
         )
 
         instance.user.leave(organization=instance.organization)
+
+    @extend_schema(responses=OrganizationMemberGithubLoginSerializer)
+    @action(detail=True, methods=["get"], url_path="github_login", required_scopes=["organization_member:read"])
+    def github_login(self, request: Request, *args: Any, **kwargs: Any) -> Response:
+        instance = cast(OrganizationMembership, self.get_object())
+        return Response({"github_login": instance.user.get_github_login()})
 
     @action(detail=True, methods=["get"])
     def scoped_api_keys(self, request, *args, **kwargs):

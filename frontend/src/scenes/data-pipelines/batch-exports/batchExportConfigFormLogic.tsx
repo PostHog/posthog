@@ -6,8 +6,6 @@ import { beforeUnload, router } from 'kea-router'
 import { LemonDialog, lemonToast } from '@posthog/lemon-ui'
 
 import api from 'lib/api'
-import { FEATURE_FLAGS } from 'lib/constants'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { addProductIntent } from 'lib/utils/product-intents'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
@@ -22,59 +20,82 @@ import {
 
 import type { batchExportConfigFormLogicType } from './batchExportConfigFormLogicType'
 import { batchExportDataLogic } from './batchExportDataLogic'
+import { DESTINATIONS } from './destinations'
+import { genericPersonEventFields, isSelectedCompressionOptionValid } from './destinations/common'
 import { humanizeBatchExportName } from './utils'
-
-// Bucket naming rules (supports both S3 and GCS):
-// S3: https://docs.aws.amazon.com/AmazonS3/latest/userguide/bucketnamingrules.html
-// GCS: https://cloud.google.com/storage/docs/buckets#naming
-const BUCKET_NAME_REGEX = /^[a-z0-9][a-z0-9._-]*[a-z0-9]$|^[a-z0-9]$/
-const IP_ADDRESS_REGEX = /^(\d{1,3}\.){3}\d{1,3}$/
-
-function validateBucketName(bucketName: string): string | undefined {
-    if (!bucketName) {
-        return undefined // Let required field validation handle empty values
-    }
-
-    if (/\s/.test(bucketName)) {
-        return 'Bucket name cannot contain whitespace'
-    }
-
-    if (bucketName !== bucketName.toLowerCase()) {
-        return 'Bucket name must be lowercase'
-    }
-
-    if (bucketName.includes('..')) {
-        return 'Bucket name cannot contain consecutive periods'
-    }
-
-    if (IP_ADDRESS_REGEX.test(bucketName)) {
-        return 'Bucket name cannot be formatted as an IP address'
-    }
-
-    if (!BUCKET_NAME_REGEX.test(bucketName)) {
-        return 'Bucket name can only contain lowercase letters, numbers, hyphens, and periods, and must start and end with a letter or number'
-    }
-
-    return undefined
-}
-
-function validateAzureContainerName(name: string): string | undefined {
-    if (!/^[a-z0-9][a-z0-9-]*[a-z0-9]$/.test(name) && name.length > 1) {
-        return 'Must be lowercase letters, numbers, and hyphens; start and end with letter or number'
-    }
-    if (/--/.test(name)) {
-        return 'Cannot contain consecutive hyphens'
-    }
-    return undefined
-}
 
 export interface BatchExportConfigFormLogicProps {
     service: BatchExportService['type'] | null
     id: string | null
 }
 
+// Fields that exist on the form but are not part of destination.config
+const TOP_LEVEL_FORM_FIELDS = new Set([
+    'name',
+    'destination',
+    'interval',
+    'timezone',
+    'offset_day',
+    'offset_hour',
+    'paused',
+    'created_at',
+    'start_at',
+    'end_at',
+    'model',
+    'filters',
+    'integration_id',
+])
+
+const ALLOWED_BASE_CONFIG_KEYS = new Set(['exclude_events', 'include_events'])
+
+function buildDestinationPayload(formValues: Record<string, any>): {
+    type: string
+    config: Record<string, any>
+    integration?: any
+} {
+    const destinationType = formValues.destination as BatchExportService['type']
+    const definition = DESTINATIONS[destinationType]
+    // Apply destination-specific transform first (e.g. Redshift's COPY copy_inputs assembly).
+    // Destinations without a custom serialize get the raw form values passed through.
+    const intermediate = definition?.serialize ? definition.serialize(formValues) : formValues
+    // When a destination declares configKeys, drop any config key outside it (plus the base-export
+    // keys). Mirrors the backend's allowed = destination_fields ∪ base_field_names check, so stale
+    // fields don't survive a deserialize → serialize round-trip and get rejected on save.
+    const allowed = definition?.configKeys ? new Set([...definition.configKeys, ...ALLOWED_BASE_CONFIG_KEYS]) : null
+    // Strip top-level form fields that don't belong in destination.config
+    const config: Record<string, any> = {}
+    for (const [key, value] of Object.entries(intermediate)) {
+        if (TOP_LEVEL_FORM_FIELDS.has(key)) {
+            continue
+        }
+        if (allowed && !allowed.has(key)) {
+            continue
+        }
+        config[key] = value
+    }
+    // A persisted compression value can be invalid for the selected file_format (e.g. an
+    // externally-created JSONLines export still carrying a Parquet-only codec). Drop it on save so
+    // editing an unrelated field doesn't resubmit a combination the backend rejects.
+    if ('compression' in config && !isSelectedCompressionOptionValid(config.file_format, config.compression)) {
+        config.compression = null
+    }
+    const result: { type: string; config: Record<string, any>; integration?: any } = {
+        type: destinationType,
+        config,
+    }
+    if (definition?.usesIntegration) {
+        result.integration = formValues.integration_id
+    }
+    return result
+}
+
 function getConfigurationFromBatchExportConfig(batchExportConfig: BatchExportConfiguration): Record<string, any> {
     const destinationType = batchExportConfig.destination.type
+    const definition = DESTINATIONS[destinationType]
+
+    const flatConfig = definition?.deserialize
+        ? definition.deserialize(batchExportConfig.destination.config)
+        : { ...batchExportConfig.destination.config }
 
     const config: Record<string, any> = {
         name: batchExportConfig.name,
@@ -86,206 +107,82 @@ function getConfigurationFromBatchExportConfig(batchExportConfig: BatchExportCon
         offset_hour: (batchExportConfig as any).offset_hour ?? null,
         model: batchExportConfig.model,
         filters: batchExportConfig.filters,
-        ...batchExportConfig.destination.config,
+        ...flatConfig,
     }
 
-    if (destinationType === 'Databricks' || destinationType === 'AzureBlob' || destinationType === 'BigQuery') {
-        config.integration_id = batchExportConfig.destination.integration
+    if (definition?.usesIntegration) {
+        // Only the integration-backed destinations (Databricks, AzureBlob, BigQuery) carry this field.
+        config.integration_id = (batchExportConfig.destination as { integration?: number }).integration
     }
 
-    let authorizationMode: 'IAMRole' | 'Credentials' = 'IAMRole'
-    let copyInputsFields: Record<string, any> = {}
-
-    if (batchExportConfig.destination.type === 'Redshift' && batchExportConfig.destination.config.copy_inputs) {
-        const copyInputs = batchExportConfig.destination.config.copy_inputs
-
-        copyInputsFields = {
-            redshift_s3_bucket: copyInputs.s3_bucket,
-            redshift_s3_key_prefix: copyInputs.s3_key_prefix,
-            redshift_s3_bucket_region_name: copyInputs.region_name,
-            redshift_s3_bucket_aws_access_key_id: copyInputs.bucket_credentials?.aws_access_key_id,
-            redshift_s3_bucket_aws_secret_access_key: copyInputs.bucket_credentials?.aws_secret_access_key,
-            redshift_iam_role: undefined,
-            redshift_aws_access_key_id: undefined,
-            redshift_aws_secret_access_key: undefined,
-        }
-
-        if (typeof copyInputs.authorization === 'string') {
-            authorizationMode = 'IAMRole'
-            copyInputsFields.redshift_iam_role = copyInputs.authorization
-        } else {
-            authorizationMode = 'Credentials'
-            copyInputsFields.redshift_aws_access_key_id = copyInputs.authorization?.aws_access_key_id
-            copyInputsFields.redshift_aws_secret_access_key = copyInputs.authorization?.aws_secret_access_key
-        }
-    }
-
-    return {
-        ...config,
-        ...copyInputsFields,
-        authorization_mode: authorizationMode,
-    }
+    return config
 }
 
 export function getDefaultConfiguration(service: string): Record<string, any> {
+    const definition = DESTINATIONS[service as BatchExportService['type']]
     return {
         name: humanizeBatchExportName(service as BatchExportService['type']),
         destination: service,
         model: 'events',
         paused: true,
-        ...(service === 'Snowflake' && {
-            authentication_type: 'password',
-        }),
-        ...(service === 'S3' && {
-            file_format: 'Parquet',
-            compression: 'zstd',
-        }),
-        ...(service === 'Redshift' && {
-            mode: 'COPY',
-            authorization_mode: 'IAMRole',
-            properties_data_type: 'SUPER',
-        }),
-        ...(service === 'Databricks' && {
-            use_variant_type: true,
-            // prefill prefix for http path
-            http_path: '/sql/1.0/warehouses/',
-        }),
-        ...(service === 'AzureBlob' && {
-            file_format: 'Parquet',
-            compression: 'zstd',
-        }),
+        ...(definition ? definition.defaults() : {}),
     }
 }
 
+const BASE_EVENT_FIELDS = {
+    uuid: {
+        name: 'uuid',
+        hogql_value: 'toString(uuid)',
+        type: 'string',
+        schema_valid: true,
+    },
+    timestamp: {
+        name: 'timestamp',
+        hogql_value: 'timestamp',
+        type: 'datetime',
+        schema_valid: true,
+    },
+    event: {
+        name: 'event',
+        hogql_value: 'event',
+        type: 'string',
+        schema_valid: true,
+    },
+    distinct_id: {
+        name: 'distinct_id',
+        hogql_value: 'toString(distinct_id)',
+        type: 'string',
+        schema_valid: true,
+    },
+    properties: {
+        name: 'properties',
+        hogql_value: 'properties',
+        type: 'json',
+        schema_valid: true,
+    },
+} as const
+
 function getEventTable(service: BatchExportService['type']): DatabaseSchemaBatchExportTable {
-    const eventsTable: DatabaseSchemaBatchExportTable = {
+    const definition = DESTINATIONS[service]
+    const overrides = definition?.eventTableOverrides ?? {}
+    const includeGeneric = overrides.includeGenericPersonFields !== false
+
+    return {
         type: 'batch_export',
         id: 'Events',
         name: 'events',
         fields: {
-            uuid: {
-                name: 'uuid',
-                hogql_value: 'toString(uuid)',
-                type: 'string',
-                schema_valid: true,
-            },
-            timestamp: {
-                name: 'timestamp',
-                hogql_value: 'timestamp',
-                type: 'datetime',
-                schema_valid: true,
-            },
-            event: {
-                name: 'event',
-                hogql_value: 'event',
-                type: 'string',
-                schema_valid: true,
-            },
-            distinct_id: {
-                name: 'distinct_id',
-                hogql_value: 'toString(distinct_id)',
-                type: 'string',
-                schema_valid: true,
-            },
-            properties: {
-                name: 'properties',
-                hogql_value: 'properties',
-                type: 'json',
-                schema_valid: true,
-            },
-            ...(service == 'S3' && {
-                person_id: {
-                    name: 'person_id',
-                    hogql_value: 'toString(person_id)',
-                    type: 'string',
-                    schema_valid: true,
-                },
-                person_properties: {
-                    name: 'person_properties',
-                    hogql_value: "nullIf(person_properties, '')",
-                    type: 'string',
-                    schema_valid: true,
-                },
-                created_at: {
-                    name: 'created_at',
-                    hogql_value: 'created_at',
-                    type: 'datetime',
-                    schema_valid: true,
-                },
-            }),
-            ...(service == 'Databricks' && {
-                team_id: {
-                    name: 'team_id',
-                    hogql_value: 'team_id',
-                    type: 'integer',
-                    schema_valid: true,
-                },
-                databricks_ingested_timestamp: {
-                    name: 'databricks_ingested_timestamp',
-                    hogql_value: 'NOW64()',
-                    type: 'datetime',
-                    schema_valid: true,
-                },
-            }),
-            ...(service != 'S3' &&
-                service != 'Databricks' && {
-                    team_id: {
-                        name: 'team_id',
-                        hogql_value: service == 'Postgres' || service == 'Redshift' ? 'toInt32(team_id)' : 'team_id',
-                        type: 'integer',
-                        schema_valid: true,
-                    },
-                    set: {
-                        name: service == 'Snowflake' ? 'people_set' : 'set',
-                        hogql_value: "nullIf(JSONExtractString(properties, '$set'), '')",
-                        type: 'string',
-                        schema_valid: true,
-                    },
-                    set_once: {
-                        name: service == 'Snowflake' ? 'people_set_once' : 'set_once',
-                        hogql_value: "nullIf(JSONExtractString(properties, '$set_once'), '')",
-                        type: 'string',
-                        schema_valid: true,
-                    },
-                    site_url: {
-                        name: 'site_url',
-                        hogql_value: "''",
-                        type: 'string',
-                        schema_valid: true,
-                    },
-                    ip: {
-                        name: 'ip',
-                        hogql_value: "nullIf(JSONExtractString(properties, '$ip'), '')",
-                        type: 'string',
-                        schema_valid: true,
-                    },
-                    elements_chain: {
-                        name: 'elements',
-                        hogql_value: 'toJSONString(elements_chain)',
-                        type: 'string',
-                        schema_valid: true,
-                    },
-                }),
-            ...(service == 'BigQuery' && {
-                bq_ingested_timestamp: {
-                    name: 'bq_ingested_timestamp',
-                    hogql_value: 'NOW64()',
-                    type: 'datetime',
-                    schema_valid: true,
-                },
-            }),
-            ...(service == 'Snowflake' && {
-                snowflake_ingested_timestamp: {
-                    name: 'snowflake_ingested_timestamp',
-                    hogql_value: 'NOW64()',
-                    type: 'datetime',
-                    schema_valid: true,
-                },
-            }),
+            ...BASE_EVENT_FIELDS,
+            ...(includeGeneric
+                ? genericPersonEventFields({
+                      teamIdHogql: overrides.teamIdHogql ?? 'team_id',
+                      setName: overrides.setName ?? 'set',
+                      setOnceName: overrides.setOnceName ?? 'set_once',
+                  })
+                : {}),
+            ...definition?.eventTableExtraFields,
         },
     }
-
-    return eventsTable
 }
 
 const personsTable: DatabaseSchemaBatchExportTable = {
@@ -637,6 +534,8 @@ const sessionsTable: DatabaseSchemaBatchExportTable = {
 // Form logic for creating and editing batch export configurations.
 // Owns form state, validation, dirty-checking, test steps, and save/delete actions.
 // Reads the underlying config data from batchExportDataLogic.
+// Per-destination behaviour (defaults, required fields, payload assembly, validation, JSX) lives
+// in the registry under ./destinations/. This file is destination-agnostic.
 export const batchExportConfigFormLogic = kea<batchExportConfigFormLogicType>([
     props({ id: null, service: null } as BatchExportConfigFormLogicProps),
     key(({ service, id }: BatchExportConfigFormLogicProps) => {
@@ -650,8 +549,6 @@ export const batchExportConfigFormLogic = kea<batchExportConfigFormLogicType>([
         values: [
             teamLogic,
             ['timezone as teamTimezone', 'weekStartDay as teamWeekStartDay'],
-            featureFlagLogic,
-            ['featureFlags'],
             batchExportDataLogic({ id: props.id }),
             ['batchExportConfig', 'batchExportConfigLoading'],
         ],
@@ -709,80 +606,19 @@ export const batchExportConfigFormLogic = kea<batchExportConfigFormLogicType>([
                             step.result = null
                         })
                     }
-                    const {
-                        name,
-                        destination,
-                        interval,
-                        timezone,
-                        offset_day,
-                        offset_hour,
-                        paused,
-                        created_at,
-                        start_at,
-                        end_at,
-                        model,
-                        filters,
-                        json_config_file,
-                        integration_id,
-                        // Redshift COPY configuration
-                        mode,
-                        authorization_mode,
-                        redshift_s3_bucket,
-                        redshift_s3_key_prefix,
-                        redshift_s3_bucket_region_name,
-                        redshift_s3_bucket_aws_access_key_id,
-                        redshift_s3_bucket_aws_secret_access_key,
-                        redshift_iam_role,
-                        redshift_aws_access_key_id,
-                        redshift_aws_secret_access_key,
-                        ...config
-                    } = values.configuration
 
-                    if (destination === 'Redshift') {
-                        if (mode === 'COPY') {
-                            const copyInputs: Record<string, any> = {
-                                s3_bucket: redshift_s3_bucket,
-                                s3_key_prefix: redshift_s3_key_prefix,
-                                region_name: redshift_s3_bucket_region_name,
-                            }
-
-                            if (redshift_iam_role) {
-                                copyInputs.authorization = redshift_iam_role
-                            } else if (redshift_aws_access_key_id && redshift_aws_secret_access_key) {
-                                copyInputs.authorization = {
-                                    aws_access_key_id: redshift_aws_access_key_id,
-                                    aws_secret_access_key: redshift_aws_secret_access_key,
-                                }
-                            }
-
-                            if (redshift_s3_bucket_aws_access_key_id && redshift_s3_bucket_aws_secret_access_key) {
-                                copyInputs.bucket_credentials = {
-                                    aws_access_key_id: redshift_s3_bucket_aws_access_key_id,
-                                    aws_secret_access_key: redshift_s3_bucket_aws_secret_access_key,
-                                }
-                            }
-
-                            config.copy_inputs = copyInputs
-                        }
-                        config.mode = mode
-                    }
-
-                    const destinationObj = {
-                        type: destination,
-                        config: config,
-                        integration: integration_id,
-                    }
+                    const formValues = values.configuration
+                    const interval = formValues.interval
                     const data = {
-                        paused,
-                        name,
+                        paused: formValues.paused,
+                        name: formValues.name,
                         interval,
-                        // timezone and offset are only used for day and week intervals
-                        timezone: interval === 'day' || interval === 'week' ? timezone : null,
-                        offset_day: interval === 'week' ? offset_day : null,
-                        offset_hour: interval === 'day' || interval === 'week' ? offset_hour : null,
-                        model,
-                        filters,
-                        destination: destinationObj,
+                        timezone: interval === 'day' || interval === 'week' ? formValues.timezone : null,
+                        offset_day: interval === 'week' ? formValues.offset_day : null,
+                        offset_hour: interval === 'day' || interval === 'week' ? formValues.offset_hour : null,
+                        model: formValues.model,
+                        filters: formValues.filters,
+                        destination: buildDestinationPayload(formValues),
                     } as any
 
                     if (props.id) {
@@ -894,158 +730,35 @@ export const batchExportConfigFormLogic = kea<batchExportConfigFormLogicType>([
                 !!service && ['Postgres', 'Redshift', 'Snowflake', 'Databricks', 'BigQuery'].includes(service),
         ],
         requiredFields: [
-            (s) => [s.service, s.isNew, s.configuration, s.featureFlags],
-            (service, isNew, config, featureFlags): string[] => {
+            (s) => [s.service, s.isNew, s.configuration],
+            (service, isNew, config): string[] => {
                 const generalRequiredFields = ['interval', 'name', 'model']
-                if (service === 'Postgres') {
-                    return [
-                        ...generalRequiredFields,
-                        ...(isNew ? ['user'] : []),
-                        ...(isNew ? ['password'] : []),
-                        'host',
-                        'port',
-                        'database',
-                        'schema',
-                        'table_name',
-                    ]
-                } else if (service === 'Redshift') {
-                    return [
-                        ...generalRequiredFields,
-                        ...(isNew ? ['user'] : []),
-                        ...(isNew ? ['password'] : []),
-                        'host',
-                        'port',
-                        'database',
-                        'schema',
-                        'table_name',
-                    ]
-                } else if (service === 'S3') {
-                    return [
-                        ...generalRequiredFields,
-                        'bucket_name',
-                        'region',
-                        'prefix',
-                        ...(isNew ? ['aws_access_key_id'] : []),
-                        ...(isNew ? ['aws_secret_access_key'] : []),
-                        ...(isNew ? ['file_format'] : []),
-                    ]
-                } else if (service === 'BigQuery') {
-                    return [
-                        ...generalRequiredFields,
-                        ...(isNew && !featureFlags[FEATURE_FLAGS.BATCH_EXPORTS_BIGQUERY_INTEGRATION]
-                            ? ['json_config_file']
-                            : []),
-                        ...(isNew && featureFlags[FEATURE_FLAGS.BATCH_EXPORTS_BIGQUERY_INTEGRATION]
-                            ? ['integration_id']
-                            : []),
-                        'dataset_id',
-                        'table_id',
-                    ]
-                } else if (service === 'HTTP') {
-                    return [...generalRequiredFields, 'url', 'token']
-                } else if (service === 'Snowflake') {
-                    return [
-                        ...generalRequiredFields,
-                        'account',
-                        'database',
-                        'warehouse',
-                        ...(isNew ? ['user'] : []),
-                        ...(isNew && config.authentication_type == 'password' ? ['password'] : []),
-                        ...(isNew && config.authentication_type == 'keypair' ? ['private_key'] : []),
-                        'schema',
-                        'table_name',
-                    ]
-                } else if (service === 'Databricks') {
-                    return [...generalRequiredFields, 'integration_id', 'http_path', 'catalog', 'schema', 'table_name']
-                } else if (service === 'AzureBlob') {
-                    return [
-                        ...generalRequiredFields,
-                        'integration_id',
-                        'container_name',
-                        ...(isNew ? ['file_format'] : []),
-                    ]
+                if (!service) {
+                    return generalRequiredFields
                 }
-                return generalRequiredFields
+                const definition = DESTINATIONS[service as BatchExportService['type']]
+                if (!definition) {
+                    return generalRequiredFields
+                }
+                return [...generalRequiredFields, ...definition.requiredFields({ isNew, formValues: config })]
             },
         ],
     })),
     listeners(({ props, values, actions }) => ({
         updateBatchExportConfig: async ({ formdata }) => {
-            const {
-                name,
-                destination,
-                interval,
-                timezone,
-                offset_day,
-                offset_hour,
-                paused,
-                created_at,
-                start_at,
-                end_at,
-                model,
-                filters,
-                json_config_file,
-                integration_id,
-                // Redshift COPY configuration
-                mode,
-                authorization_mode,
-                redshift_s3_bucket,
-                redshift_s3_key_prefix,
-                redshift_s3_bucket_region_name,
-                redshift_s3_bucket_aws_access_key_id,
-                redshift_s3_bucket_aws_secret_access_key,
-                redshift_iam_role,
-                redshift_aws_access_key_id,
-                redshift_aws_secret_access_key,
-                ...config
-            } = formdata
-
-            if (destination === 'Redshift') {
-                if (mode === 'COPY') {
-                    const copyInputs: Record<string, any> = {
-                        s3_bucket: redshift_s3_bucket,
-                        s3_key_prefix: redshift_s3_key_prefix,
-                        region_name: redshift_s3_bucket_region_name,
-                    }
-
-                    if (redshift_iam_role) {
-                        copyInputs.authorization = redshift_iam_role
-                    } else if (redshift_aws_access_key_id && redshift_aws_secret_access_key) {
-                        copyInputs.authorization = {
-                            aws_access_key_id: redshift_aws_access_key_id,
-                            aws_secret_access_key: redshift_aws_secret_access_key,
-                        }
-                    }
-
-                    if (redshift_s3_bucket_aws_access_key_id && redshift_s3_bucket_aws_secret_access_key) {
-                        copyInputs.bucket_credentials = {
-                            aws_access_key_id: redshift_s3_bucket_aws_access_key_id,
-                            aws_secret_access_key: redshift_s3_bucket_aws_secret_access_key,
-                        }
-                    }
-
-                    config.copy_inputs = copyInputs
-                }
-                config.mode = mode
-            }
-
-            const destinationObj = {
-                type: destination,
-                integration: integration_id,
-                config: config,
-            }
+            const interval = formdata.interval
             const data: Omit<BatchExportConfiguration, 'id' | 'team_id' | 'created_at' | 'start_at' | 'end_at'> = {
-                paused,
-                name,
+                paused: formdata.paused,
+                name: formdata.name,
                 interval,
-                // timezone and offset are only used for day and week intervals
-                timezone: interval === 'day' || interval === 'week' ? timezone : null,
-                offset_day: interval === 'week' ? offset_day : null,
-                offset_hour: interval === 'day' || interval === 'week' ? offset_hour : null,
-                model,
-                filters,
-                destination: destinationObj,
+                timezone: interval === 'day' || interval === 'week' ? formdata.timezone : null,
+                offset_day: interval === 'week' ? formdata.offset_day : null,
+                offset_hour: interval === 'day' || interval === 'week' ? formdata.offset_hour : null,
+                model: formdata.model,
+                filters: formdata.filters,
+                destination: buildDestinationPayload(formdata) as any,
             } as any
+
             if (props.id) {
                 const res = await api.batchExports.update(props.id, data)
                 lemonToast.success('Batch export configuration updated successfully')
@@ -1131,33 +844,32 @@ export const batchExportConfigFormLogic = kea<batchExportConfigFormLogicType>([
             }
             actions.setRunningStep(null)
         },
-        setConfigurationValue: async ({ name, value }) => {
+        setConfigurationValue: ({ name, value }) => {
             const fieldName = Array.isArray(name) ? name[0] : name
-            if (fieldName === 'json_config_file' && value) {
-                try {
-                    const loadedFile: string = await new Promise((resolve, reject) => {
-                        const filereader = new FileReader()
-                        filereader.onload = (e) => resolve(e.target?.result as string)
-                        filereader.onerror = (e) => reject(e)
-                        filereader.readAsText(value[0])
-                    })
-                    const jsonConfig = JSON.parse(loadedFile)
-                    const { json_config_file, ...remainingConfig } = values.configuration
 
-                    actions.setConfigurationValues({
-                        ...remainingConfig,
-                        project_id: jsonConfig.project_id,
-                        private_key: jsonConfig.private_key,
-                        private_key_id: jsonConfig.private_key_id,
-                        client_email: jsonConfig.client_email,
-                        token_uri: jsonConfig.token_uri,
-                    })
-                } catch {
-                    actions.setConfigurationManualErrors({
-                        json_config_file: 'The config file is not valid',
-                    })
+            if (fieldName === 'file_format') {
+                // Pick a compression that's valid for the newly-selected format, in priority order:
+                //   1. keep the current codec if it still fits (e.g. gzip works for both formats);
+                //   2. otherwise, when returning to the format the export was saved with, restore the
+                //      persisted codec — so a Parquet→JSONLines→Parquet round-trip recovers the saved
+                //      compression rather than stranding the export on a default;
+                //   3. otherwise fall back to the format's default (zstd for Parquet, none for JSONLines).
+                const current = values.configuration.compression
+                const saved = values.savedConfiguration
+                let next: string | null
+                if (current !== null && isSelectedCompressionOptionValid(value, current)) {
+                    next = current
+                } else if (value === saved.file_format && isSelectedCompressionOptionValid(value, saved.compression)) {
+                    next = saved.compression
+                } else {
+                    next = value === 'Parquet' ? 'zstd' : null
                 }
-            } else if (fieldName === 'interval') {
+                if (next !== current) {
+                    actions.setConfigurationValue('compression', next)
+                }
+            }
+
+            if (fieldName === 'interval') {
                 // if changing to day or week, set the timezone to the team's timezone if not already set
                 if (value === 'day' || value === 'week') {
                     // if we didn't have a timezone set before, set it to the team's timezone
@@ -1206,27 +918,19 @@ export const batchExportConfigFormLogic = kea<batchExportConfigFormLogicType>([
                     ])
                 )
 
-                // Bucket name validation (S3/GCS compatible)
-                const bucketNameError =
-                    values.service === 'S3'
-                        ? validateBucketName(formdata.bucket_name)
-                        : values.service === 'Redshift' && formdata.mode === 'COPY'
-                          ? validateBucketName(formdata.redshift_s3_bucket)
-                          : undefined
+                const destination = formdata.destination as BatchExportService['type'] | undefined
+                const definition = destination ? DESTINATIONS[destination] : undefined
+                const fieldValidations = definition?.validate?.(formdata) ?? {}
 
-                const containerNameError =
-                    values.service === 'AzureBlob' && formdata.container_name
-                        ? validateAzureContainerName(formdata.container_name as string)
-                        : undefined
-
-                return {
-                    ...requiredFieldErrors,
-                    ...(values.service === 'S3' && bucketNameError ? { bucket_name: bucketNameError } : {}),
-                    ...(values.service === 'Redshift' && formdata.mode === 'COPY' && bucketNameError
-                        ? { redshift_s3_bucket: bucketNameError }
-                        : {}),
-                    ...(containerNameError && { container_name: containerNameError }),
+                // Only apply a field validation when it produced a message — a valid (undefined)
+                // result must not clobber a "required" error from the same empty field.
+                const errors: Record<string, string | undefined> = { ...requiredFieldErrors }
+                for (const [field, message] of Object.entries(fieldValidations)) {
+                    if (message) {
+                        errors[field] = message
+                    }
                 }
+                return errors
             },
             submit: async (formdata) => {
                 // Check if schedule fields have changed and show confirmation modal

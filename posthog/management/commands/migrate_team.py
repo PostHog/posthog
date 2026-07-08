@@ -4,10 +4,16 @@ import datetime as dt
 from django.core.management.base import BaseCommand, CommandError
 from django.db import transaction
 
-from posthog.batch_exports.models import BATCH_EXPORT_INTERVALS
-from posthog.models import BatchExport, BatchExportBackfill, BatchExportDestination, BatchExportRun, Team
+from posthog.models import Team
 from posthog.temporal.common.client import sync_connect
 
+from products.batch_exports.backend.models.batch_export import (
+    BATCH_EXPORT_INTERVALS,
+    BatchExport,
+    BatchExportBackfill,
+    BatchExportDestination,
+    BatchExportRun,
+)
 from products.batch_exports.backend.service import backfill_export, delete_batch_export, sync_batch_export
 
 logger = logging.getLogger(__name__)

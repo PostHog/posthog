@@ -5,7 +5,7 @@ import { IconCheckCircle, IconInfo, IconWarning, IconX } from '@posthog/icons'
 
 import { getIncidentStatus, STATUS_PAGE_BASE } from 'lib/components/HelpMenu/incidentStatusLogic'
 import { isChristmas } from 'lib/holidays'
-import { hashCodeForString } from 'lib/utils'
+import { hashCodeForString } from 'lib/utils/strings'
 
 import { IconErrorOutline, IconGift } from '../icons'
 import { LemonButton } from '../LemonButton'

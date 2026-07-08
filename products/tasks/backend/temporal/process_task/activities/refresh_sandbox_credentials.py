@@ -1,15 +1,20 @@
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 from temporalio import activity
 
 from posthog.temporal.common.logger import get_logger
 from posthog.temporal.common.utils import asyncify
 
+from products.tasks.backend.exceptions import (
+    CredentialUnavailableError,
+    SandboxNotFoundError,
+    SandboxNotRunningError,
+    TaskNotFoundError,
+)
+from products.tasks.backend.logic.services.agent_command import send_refresh_session
+from products.tasks.backend.logic.services.connection_token import create_sandbox_connection_token
+from products.tasks.backend.logic.services.sandbox import Sandbox
 from products.tasks.backend.models import Task, TaskRun
-from products.tasks.backend.services.agent_command import send_refresh_session
-from products.tasks.backend.services.connection_token import create_sandbox_connection_token
-from products.tasks.backend.services.sandbox import Sandbox
-from products.tasks.backend.temporal.exceptions import SandboxNotRunningError, TaskNotFoundError
 from products.tasks.backend.temporal.metrics import increment_credential_refresh
 from products.tasks.backend.temporal.observability import log_activity_execution, track_event
 from products.tasks.backend.temporal.process_task.sandbox_credentials import (
@@ -45,6 +50,7 @@ def _notify_agent_server_of_refresh(ctx: TaskProcessingContext, task: Task, refr
 class RefreshSandboxCredentialsInput:
     context: TaskProcessingContext
     sandbox_id: str
+    exclude_kinds: list[str] = field(default_factory=list)
 
 
 @dataclass
@@ -53,6 +59,10 @@ class RefreshSandboxCredentialsOutput:
     # shortest-lived credential so the loop tracks the tightest TTL.
     next_refresh_seconds: float
     refreshed_kinds: list[str]
+    # Sandbox is gone/stopped and won't refresh again — the loop should stop, not keep skipping.
+    sandbox_gone: bool = False
+    orphaned_kinds: list[str] = field(default_factory=list)
+    no_credentials_left: bool = False
 
 
 @activity.defn
@@ -79,35 +89,75 @@ def refresh_sandbox_credentials(input: RefreshSandboxCredentialsInput) -> Refres
         except Task.DoesNotExist as e:
             raise TaskNotFoundError(f"Task {ctx.task_id} not found", {"task_id": ctx.task_id}, cause=e)
 
-        sandbox = Sandbox.get_by_id(input.sandbox_id)
-
         refreshed_kinds: list[str] = []
+        orphaned_kinds: list[str] = []
         next_refresh = DEFAULT_REFRESH_INTERVAL_SECONDS
         intervals: list[float] = []
-        credentials = build_sandbox_credentials(ctx)
+        credentials = [c for c in build_sandbox_credentials(ctx) if c.kind not in input.exclude_kinds]
+
+        try:
+            sandbox = Sandbox.get_by_id(input.sandbox_id)
+        except SandboxNotFoundError:
+            # Reaped by Modal — gone for good, signal the loop to stop.
+            for credential in credentials:
+                increment_credential_refresh(credential.kind, "skipped")
+            logger.info(
+                "sandbox_credentials_refresh_stopped_sandbox_gone",
+                sandbox_id=input.sandbox_id,
+                run_id=ctx.run_id,
+            )
+            return RefreshSandboxCredentialsOutput(
+                next_refresh_seconds=next_refresh, refreshed_kinds=[], sandbox_gone=True
+            )
 
         if not sandbox.is_running():
             for credential in credentials:
                 increment_credential_refresh(credential.kind, "skipped")
             logger.info(
-                "sandbox_credentials_refresh_skipped_not_running",
+                "sandbox_credentials_refresh_stopped_not_running",
                 sandbox_id=input.sandbox_id,
                 run_id=ctx.run_id,
             )
-            return RefreshSandboxCredentialsOutput(next_refresh_seconds=next_refresh, refreshed_kinds=[])
+            return RefreshSandboxCredentialsOutput(
+                next_refresh_seconds=next_refresh, refreshed_kinds=[], sandbox_gone=True
+            )
 
+        if not credentials:
+            logger.info(
+                "sandbox_credentials_refresh_nothing_left",
+                sandbox_id=input.sandbox_id,
+                run_id=ctx.run_id,
+                exclude_kinds=input.exclude_kinds,
+            )
+            return RefreshSandboxCredentialsOutput(
+                next_refresh_seconds=next_refresh, refreshed_kinds=[], no_credentials_left=True
+            )
+
+        sandbox_gone = False
         for index, credential in enumerate(credentials):
             try:
                 outcome = credential.refresh(sandbox, ctx, task)
             except SandboxNotRunningError:
                 logger.info(
-                    "sandbox_credentials_refresh_skipped_not_running",
+                    "sandbox_credentials_refresh_stopped_not_running",
                     sandbox_id=input.sandbox_id,
                     run_id=ctx.run_id,
                 )
                 for skipped in credentials[index:]:
                     increment_credential_refresh(skipped.kind, "skipped")
+                sandbox_gone = True
                 break
+            except CredentialUnavailableError:
+                logger.warning(
+                    "sandbox_credential_refresh_orphaned",
+                    kind=credential.kind,
+                    sandbox_id=input.sandbox_id,
+                    run_id=ctx.run_id,
+                    exc_info=True,
+                )
+                increment_credential_refresh(credential.kind, "orphaned")
+                orphaned_kinds.append(credential.kind)
+                continue
             except Exception:
                 logger.warning(
                     "sandbox_credential_refresh_failed",
@@ -143,4 +193,10 @@ def refresh_sandbox_credentials(input: RefreshSandboxCredentialsInput) -> Refres
             groups={"organization": ctx.organization_id, "project": ctx.team_uuid},
         )
 
-        return RefreshSandboxCredentialsOutput(next_refresh_seconds=next_refresh, refreshed_kinds=refreshed_kinds)
+        return RefreshSandboxCredentialsOutput(
+            next_refresh_seconds=next_refresh,
+            refreshed_kinds=refreshed_kinds,
+            sandbox_gone=sandbox_gone,
+            orphaned_kinds=orphaned_kinds,
+            no_credentials_left=len(orphaned_kinds) == len(credentials),
+        )

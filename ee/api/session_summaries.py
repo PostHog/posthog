@@ -1,6 +1,7 @@
 import os
 import re
 import json
+import uuid
 import asyncio
 from collections.abc import AsyncGenerator
 from datetime import datetime
@@ -8,13 +9,14 @@ from typing import Any, cast
 
 from django.conf import settings
 from django.contrib.auth.models import AnonymousUser
-from django.db.models import Func, IntegerField, QuerySet
+from django.db.models import Func, IntegerField, QuerySet, Subquery
+from django.db.models.fields.json import KeyTransform
 from django.http import StreamingHttpResponse
 
 import structlog
 from asgiref.sync import async_to_sync
-from drf_spectacular.utils import extend_schema
-from loginas.utils import is_impersonated_session
+from drf_spectacular.types import OpenApiTypes
+from drf_spectacular.utils import OpenApiParameter, extend_schema, extend_schema_field
 from rest_framework import exceptions, serializers, status, viewsets
 from rest_framework.decorators import action
 from rest_framework.permissions import IsAuthenticated
@@ -25,19 +27,31 @@ from rest_framework.viewsets import GenericViewSet
 
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
+from posthog.api.streaming import sse_streaming_response
 from posthog.clickhouse.query_tagging import Product, tag_queries
 from posthog.cloud_utils import is_cloud
 from posthog.event_usage import EventSource, get_event_source
+from posthog.helpers.impersonation import is_impersonated
 from posthog.models import OrganizationMembership, Team, User
 from posthog.models.activity_logging.activity_log import Change, Detail, log_activity
 from posthog.models.team.extensions import get_or_create_team_extension
 from posthog.models.utils import UUID
 from posthog.rate_limit import ClickHouseBurstRateThrottle, ClickHouseSustainedRateThrottle
 from posthog.renderers import ServerSentEventRenderer
+from posthog.session_recordings.models.session_recording import SessionRecording
 from posthog.temporal.session_replay.session_summary.workflow import execute_summarize_session
 from posthog.temporal.session_replay.session_summary_group.types import FailedSessionInfo, SessionSummaryStreamUpdate
 from posthog.temporal.session_replay.session_summary_group.workflow import execute_summarize_session_group
 from posthog.utils import relative_date_parse
+
+from products.replay.backend.models.session_summaries import SessionGroupSummary, SingleSessionSummary
+from products.replay.backend.models.team_session_summaries_config import (
+    CUSTOM_TAG_DESCRIPTION_MAX_LENGTH,
+    CUSTOM_TAG_NAME_MAX_LENGTH,
+    CUSTOM_TAGS_MAX_COUNT,
+    PRODUCT_CONTEXT_MAX_LENGTH,
+    TeamSessionSummariesConfig,
+)
 
 from ee.hogai.session_summaries.session.output_data import SessionSummarySerializer
 from ee.hogai.session_summaries.session.summarize_session import ExtraSummaryContext
@@ -54,14 +68,6 @@ from ee.hogai.session_summaries.tracking import (
 )
 from ee.hogai.session_summaries.utils import logging_session_ids
 from ee.hogai.utils.aio import async_to_sync as async_generator_to_sync
-from ee.models.session_summaries import SessionGroupSummary
-from ee.models.team_session_summaries_config import (
-    CUSTOM_TAG_DESCRIPTION_MAX_LENGTH,
-    CUSTOM_TAG_NAME_MAX_LENGTH,
-    CUSTOM_TAGS_MAX_COUNT,
-    PRODUCT_CONTEXT_MAX_LENGTH,
-    TeamSessionSummariesConfig,
-)
 
 logger = structlog.get_logger(__name__)
 
@@ -81,6 +87,30 @@ class SessionSummariesSerializer(serializers.Serializer):
 _PRODUCT_CONTEXT_WRAPPER_TAG_RE = re.compile(r"</?\s*product_context\b[^>]*>", re.IGNORECASE)
 _CUSTOM_TAG_NAME_RE = re.compile(rf"^[a-z0-9_]{{1,{CUSTOM_TAG_NAME_MAX_LENGTH}}}$")
 _WHITESPACE_RUN_RE = re.compile(r"\s+")
+# Relative-date shorthand accepted by `relative_date_parse` (e.g. `-7d`, `-1dStart`). Its own regex is
+# loose enough that free text like `yesterday` matches on a stray `y` and silently parses to a wrong
+# instant, so the list endpoint validates against this stricter anchored form before parsing.
+_RELATIVE_DATE_RE = re.compile(r"^-?\d+[hdwmqsy](?:Start|End)?$", re.IGNORECASE)
+
+
+def _validate_date_param(field: str, value: str) -> None:
+    """Reject values `relative_date_parse` can't meaningfully parse, so a bad query param is a 400
+    rather than a silently-wrong (or empty) page. Accepts strict relative shorthand or an ISO date."""
+    if _RELATIVE_DATE_RE.match(value):
+        return
+    try:
+        datetime.fromisoformat(value.replace("Z", "+00:00"))
+        return
+    except ValueError:
+        pass
+    try:
+        datetime.strptime(value, "%Y-%m-%d")  # unpadded ISO, e.g. 2021-1-1
+        return
+    except ValueError:
+        pass
+    raise exceptions.ValidationError(
+        {field: f"Invalid date value '{value}'. Use an ISO date (YYYY-MM-DD) or relative shorthand like `-7d`."}
+    )
 
 
 def _sanitize_custom_tag_description(value: str) -> str:
@@ -490,7 +520,7 @@ class SessionSummariesViewSet(TeamAndOrgViewSetMixin, GenericViewSet):
             session_ids=session_ids,
         )
 
-        async def async_stream() -> AsyncGenerator[bytes, None]:
+        async def async_stream() -> AsyncGenerator[bytes]:
             SSE_KEEPALIVE_COMMENT = b": keepalive\n\n"
             SSE_KEEPALIVE_INTERVAL = 15  # seconds — well under typical LB idle timeouts (60s)
 
@@ -570,13 +600,9 @@ class SessionSummariesViewSet(TeamAndOrgViewSetMixin, GenericViewSet):
             done_data = json.dumps({"completed": completed_ids, "failed": failed_ids})
             yield f"event: done\ndata: {done_data}\n\n".encode()
 
-        return StreamingHttpResponse(
-            (async_stream() if settings.SERVER_GATEWAY_INTERFACE == "ASGI" else async_generator_to_sync(async_stream)),
-            content_type="text/event-stream",
-            headers={
-                "Cache-Control": "no-cache",
-                "X-Accel-Buffering": "no",
-            },
+        return sse_streaming_response(
+            async_stream() if settings.SERVER_GATEWAY_INTERFACE == "ASGI" else async_generator_to_sync(async_stream),
+            endpoint="session_summaries",
         )
 
     @extend_schema(
@@ -729,6 +755,413 @@ class SessionGroupSummaryViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             organization_id=self.request.user.current_organization_id,
             team_id=self.team_id,
             user=self.request.user,
-            was_impersonated=is_impersonated_session(self.request),
+            was_impersonated=is_impersonated(self.request),
         )
         super().perform_destroy(instance)
+
+
+@extend_schema_field(OpenApiTypes.OBJECT)
+class SessionSummaryContentField(serializers.JSONField):
+    """Full LLM-generated summary JSON (`SessionSummarySerializer` schema): segments,
+    key_actions, segment_outcomes, session_outcome, optional sentiment."""
+
+
+@extend_schema_field(
+    {
+        "type": "object",
+        "nullable": True,
+        "properties": {
+            "focus_area": {"type": "string"},
+        },
+    }
+)
+class ExtraSummaryContextField(serializers.JSONField):
+    """Optional `ExtraSummaryContext` dict — `focus_area` keyword used when generating the summary."""
+
+
+@extend_schema_field({"type": "object", "nullable": True})
+class RunMetadataField(serializers.JSONField):
+    """`SessionSummaryRunMeta` dict — `model_used`, `visual_confirmation`, and (for video runs)
+    `visual_confirmation_results` plus any `failed_sessions` entries. Null on legacy rows that
+    predate run metadata."""
+
+
+_SESSION_OUTCOME_SCHEMA = {
+    "type": "object",
+    "nullable": True,
+    "properties": {
+        "success": {"type": "boolean"},
+        "description": {"type": "string"},
+    },
+}
+
+_OUTCOME_CHOICES = (
+    ("success", "Session outcome marked successful by the summary"),
+    ("failure", "Session outcome marked unsuccessful by the summary"),
+    ("unknown", "Summary did not record an outcome"),
+)
+
+
+class SingleSessionSummaryMinimalSerializer(serializers.ModelSerializer):
+    """Lightweight projection for list endpoints — omits the full `summary` JSON (~50 KB per row)."""
+
+    created_by = UserBasicSerializer(read_only=True, allow_null=True)
+    session_outcome = serializers.SerializerMethodField(
+        help_text=(
+            "Headline outcome from the summary: `{success: bool, description: string}` or null if the "
+            "summary did not record one. Useful for quickly classifying a session as success/failure."
+        ),
+    )
+    exception_count = serializers.SerializerMethodField(
+        help_text="Number of exception event IDs surfaced by this summary (capped at 100).",
+    )
+    has_exceptions = serializers.SerializerMethodField(
+        help_text="True if the summary surfaced any exception events.",
+    )
+    model_used = serializers.SerializerMethodField(
+        help_text="LLM model identifier that generated this summary, if recorded in run metadata.",
+    )
+    visual_confirmation = serializers.SerializerMethodField(
+        help_text="True if the summary was produced with video-based visual confirmation (the rasterized-recording path).",
+    )
+    extra_summary_context = ExtraSummaryContextField(
+        read_only=True,
+        help_text="Optional context passed to the summary at generation time (e.g. `focus_area`).",
+    )
+
+    class Meta:
+        model = SingleSessionSummary
+        fields = [
+            "id",
+            "session_id",
+            "distinct_id",
+            "session_start_time",
+            "session_duration",
+            "session_outcome",
+            "exception_count",
+            "has_exceptions",
+            "model_used",
+            "visual_confirmation",
+            "extra_summary_context",
+            "created_at",
+            "created_by",
+        ]
+        read_only_fields = fields
+
+    @extend_schema_field(_SESSION_OUTCOME_SCHEMA)
+    def get_session_outcome(self, obj: SingleSessionSummary) -> dict | None:
+        # The list queryset annotates `session_outcome_json` and defers the heavy `summary`
+        # column, so a page of rows never hydrates the full ~50 KB summary JSON just to read
+        # the outcome. Fall back to the in-memory column for any non-list/deferred-free path.
+        outcome = getattr(obj, "session_outcome_json", None)
+        if outcome is None and "summary" not in obj.get_deferred_fields() and isinstance(obj.summary, dict):
+            outcome = obj.summary.get("session_outcome")
+        return outcome if isinstance(outcome, dict) else None
+
+    @extend_schema_field(OpenApiTypes.INT)
+    def get_exception_count(self, obj: SingleSessionSummary) -> int:
+        return len(obj.exception_event_ids or [])
+
+    @extend_schema_field(OpenApiTypes.BOOL)
+    def get_has_exceptions(self, obj: SingleSessionSummary) -> bool:
+        return bool(obj.exception_event_ids)
+
+    @extend_schema_field({"type": "string", "nullable": True})
+    def get_model_used(self, obj: SingleSessionSummary) -> str | None:
+        meta = obj.run_metadata or {}
+        return meta.get("model_used") if isinstance(meta, dict) else None
+
+    @extend_schema_field(OpenApiTypes.BOOL)
+    def get_visual_confirmation(self, obj: SingleSessionSummary) -> bool:
+        meta = obj.run_metadata or {}
+        return bool(meta.get("visual_confirmation")) if isinstance(meta, dict) else False
+
+
+class SingleSessionSummarySerializer(serializers.ModelSerializer):
+    """Full session summary, including the generated `summary` JSON content."""
+
+    created_by = UserBasicSerializer(read_only=True, allow_null=True)
+    summary = SessionSummaryContentField(
+        read_only=True,
+        help_text=(
+            "Full LLM-generated summary JSON. Contains `segments` (chronological journey segments), "
+            "`key_actions` (per-segment events with `abandonment` / `confusion` / `exception` flags — "
+            "the structured source of session-level problems), `segment_outcomes`, and `session_outcome`. "
+            "Video-based runs additionally include a `sentiment` block."
+        ),
+    )
+    exception_event_ids = serializers.ListField(
+        child=serializers.CharField(),
+        read_only=True,
+        help_text="Event IDs (capped at 100) where exceptions occurred during the session — extracted from the summary for searchability.",
+    )
+    extra_summary_context = ExtraSummaryContextField(
+        read_only=True,
+        help_text="Optional context passed to the summary at generation time (e.g. `focus_area`).",
+    )
+    run_metadata = RunMetadataField(
+        read_only=True,
+        help_text="`SessionSummaryRunMeta` — model used, whether video-based visual confirmation was applied, and visual-confirmation event-to-asset mappings.",
+    )
+
+    class Meta:
+        model = SingleSessionSummary
+        fields = [
+            "id",
+            "session_id",
+            "distinct_id",
+            "session_start_time",
+            "session_duration",
+            "summary",
+            "exception_event_ids",
+            "extra_summary_context",
+            "run_metadata",
+            "created_at",
+            "created_by",
+        ]
+        read_only_fields = fields
+
+
+@extend_schema(
+    description=(
+        "Read stored AI-generated session summaries (the `ee_single_session_summary` table). "
+        "Returns whatever was persisted by the summarization workflow — does NOT trigger generation. "
+        "For generating new summaries, see the `/session_summaries/stream_batch/` action."
+    ),
+)
+class SingleSessionSummaryViewSet(TeamAndOrgViewSetMixin, viewsets.ReadOnlyModelViewSet):
+    scope_object = "session_recording"
+    queryset = SingleSessionSummary.objects.all()
+    lookup_field = "session_id"
+    lookup_value_regex = r"[^/]+"  # session IDs are typically UUIDs but allow any non-slash identifier
+
+    def get_serializer_class(self) -> type[BaseSerializer]:
+        return SingleSessionSummaryMinimalSerializer if self.action == "list" else SingleSessionSummarySerializer
+
+    def safely_get_object(self, queryset: QuerySet) -> SingleSessionSummary:
+        """Return the latest stored *default-context* summary for a `session_id`, matching
+        `SingleSessionSummaryManager.get_summary(..., extra_summary_context=None)` — a focused
+        (`focus_area`) summary must not shadow the default one."""
+        obj = (
+            queryset.filter(session_id=self.kwargs[self.lookup_field], extra_summary_context__isnull=True)
+            .order_by("-created_at")
+            .first()
+        )
+        if obj is None:
+            raise exceptions.NotFound("No stored summary found for this session.")
+        # `SingleSessionSummary` is not a mapped access-control resource, so the resource-level
+        # `scope_object` check admits users who only hold object-level grants to *some* recording.
+        # Gate on the underlying recording so summary access mirrors `SessionRecordingViewSet`.
+        recording = SessionRecording.get_or_build(session_id=obj.session_id, team=self.team)
+        if recording.deleted:
+            raise exceptions.NotFound("The recording for this summary has been deleted.")
+        if not self.user_access_control.check_access_level_for_object(recording, required_level="viewer"):
+            raise exceptions.PermissionDenied("You do not have access to this recording.")
+        return obj
+
+    # Ordering is forwarded straight to `.order_by()`, so it must be allowlisted: an arbitrary value
+    # would raise an unhandled `FieldError` (500), and a related-field path would add a silent JOIN.
+    ALLOWED_ORDER_FIELDS = frozenset(
+        f"{prefix}{field}" for field in ("created_at", "session_start_time", "session_duration") for prefix in ("", "-")
+    )
+
+    def safely_get_queryset(self, queryset: QuerySet) -> QuerySet:
+        queryset = queryset.filter(team=self.team).select_related("created_by", "team")
+        if self.action != "list":
+            return queryset
+
+        # Scope filters (which sessions) run *before* the latest-per-session dedupe; state filters
+        # (the latest summary's outcome / exception / visual flags) run *after*, so the list never
+        # surfaces a session whose latest summary no longer matches — keeping list and retrieve in sync.
+        queryset = self._filter_list_request(self.request, queryset)
+        # The latest-per-session subquery has to use `ORDER BY session_id, -created_at` to be valid
+        # with `DISTINCT ON (session_id)`.
+        latest_ids = queryset.order_by("session_id", "-created_at").distinct("session_id").values("id")
+        # Defer the heavy `summary` column and project just `session_outcome` so a page of rows doesn't
+        # pull the full ~50 KB summary JSON per row (see `SingleSessionSummaryMinimalSerializer`).
+        deduped = (
+            SingleSessionSummary.objects.filter(team=self.team, id__in=Subquery(latest_ids))
+            .select_related("created_by", "team")
+            .defer("summary")
+            .annotate(session_outcome_json=KeyTransform("session_outcome", "summary"))
+        )
+        deduped = self._apply_state_filters(self.request, deduped)
+        deduped = self._restrict_to_accessible_recordings(deduped)
+        deduped = self._exclude_deleted_recordings(deduped)
+
+        order = self.request.GET.get("order") or "-created_at"
+        if order not in self.ALLOWED_ORDER_FIELDS:
+            raise exceptions.ValidationError(
+                {"order": f"Invalid order field. Allowed values: {', '.join(sorted(self.ALLOWED_ORDER_FIELDS))}."}
+            )
+        return deduped.order_by(order)
+
+    def _restrict_to_accessible_recordings(self, queryset: QuerySet) -> QuerySet:
+        """Mirror `SessionRecordingViewSet` object-level access for the list path, entirely in SQL.
+
+        Most recordings live only in ClickHouse and have no Postgres `SessionRecording` row, so we must
+        never blanket-restrict to recordings that exist here. Two modes:
+        - no team-wide recording access (admitted via object grants only) → restrict to granted sessions;
+        - team-wide access → keep everything (incl. ClickHouse-only sessions) but drop explicit denies.
+        Filtering uses subqueries so the database applies the predicate before pagination.
+        """
+        uac = self.user_access_control
+        team_recordings = SessionRecording.objects.filter(team=self.team)
+        accessible = uac.filter_queryset_by_access_level(team_recordings)
+        if not uac.check_access_level_for_resource("session_recording", required_level="viewer"):
+            return queryset.filter(session_id__in=Subquery(accessible.values("session_id")))
+        blocked = team_recordings.exclude(id__in=accessible.values("id")).values("session_id")
+        return queryset.exclude(session_id__in=Subquery(blocked))
+
+    def _exclude_deleted_recordings(self, queryset: QuerySet) -> QuerySet:
+        """Don't surface summaries whose recording was soft-deleted in Postgres (e.g. crypto-shredded).
+        ClickHouse-side retention/TTL expiry is not enforced here — that needs the recordings query and
+        is tracked as a follow-up."""
+        deleted = SessionRecording.objects.filter(team=self.team, deleted=True).values("session_id")
+        return queryset.exclude(session_id__in=Subquery(deleted))
+
+    def _filter_list_request(self, request: Request, queryset: QuerySet) -> QuerySet:
+        """Scope filters — narrow *which sessions* are considered, before the latest-per-session dedupe."""
+        params = request.GET
+        # Only the default (null-context) summaries, matching the retrieve path's `get_summary` semantics —
+        # otherwise the list could surface a focused (`focus_area`) row that retrieve doesn't return.
+        queryset = queryset.filter(extra_summary_context__isnull=True)
+        if date_from := params.get("date_from"):
+            _validate_date_param("date_from", date_from)
+            queryset = queryset.filter(created_at__gte=relative_date_parse(date_from, self.team.timezone_info))
+        if date_to := params.get("date_to"):
+            _validate_date_param("date_to", date_to)
+            queryset = queryset.filter(created_at__lte=relative_date_parse(date_to, self.team.timezone_info))
+        if distinct_id := params.get("distinct_id"):
+            queryset = queryset.filter(distinct_id=distinct_id)
+        if created_by := params.get("created_by"):
+            try:
+                uuid.UUID(created_by)
+            except (ValueError, TypeError):
+                raise exceptions.ValidationError({"created_by": "Must be a valid UUID."})
+            queryset = queryset.filter(created_by__uuid=created_by)
+        # Multi-value filter: agents typically arrive with a list of session IDs from `query-session-recordings-list`
+        # and want the persisted summaries for that exact set.
+        session_ids_raw = params.get("session_ids")
+        if session_ids_raw:
+            session_ids = [sid.strip() for sid in session_ids_raw.split(",") if sid.strip()]
+            if session_ids:
+                queryset = queryset.filter(session_id__in=session_ids)
+        return queryset
+
+    def _apply_state_filters(self, request: Request, queryset: QuerySet) -> QuerySet:
+        """State filters — applied to the deduped latest-per-session rows, so a match reflects each
+        session's *latest* summary (consistent with what the retrieve endpoint returns)."""
+        params = request.GET
+        outcome = params.get("outcome")
+        if outcome == "success":
+            queryset = queryset.filter(summary__session_outcome__success=True)
+        elif outcome == "failure":
+            queryset = queryset.filter(summary__session_outcome__success=False)
+        elif outcome == "unknown":
+            queryset = queryset.filter(summary__session_outcome__isnull=True)
+        if (has_exceptions := params.get("has_exceptions")) is not None:
+            if has_exceptions.lower() == "true":
+                queryset = queryset.filter(exception_event_ids__len__gt=0)
+            elif has_exceptions.lower() == "false":
+                queryset = queryset.filter(exception_event_ids__len=0)
+        if (has_visual := params.get("has_visual_confirmation")) is not None:
+            if has_visual.lower() == "true":
+                queryset = queryset.filter(run_metadata__visual_confirmation=True)
+            elif has_visual.lower() == "false":
+                queryset = queryset.exclude(run_metadata__visual_confirmation=True)
+        return queryset
+
+    @extend_schema(
+        operation_id="single_session_summaries_list",
+        extensions={"x-product": "replay"},
+        description=(
+            "List stored AI-generated session summaries for the team, one row per session (latest summary "
+            "kept). Use to discover which sessions have been summarized and to filter for sessions with "
+            "specific problems — `has_exceptions=true`, `outcome=failure`, or a custom `session_ids` "
+            "narrowing. Returns lightweight rows without the full summary JSON; use the retrieve endpoint "
+            "for the per-segment / per-action detail."
+        ),
+        parameters=[
+            OpenApiParameter(
+                name="session_ids",
+                type=str,
+                required=False,
+                description="Comma-separated list of session IDs to restrict the result to (uses the `(team, session_id)` index).",
+            ),
+            OpenApiParameter(
+                name="distinct_id",
+                type=str,
+                required=False,
+                description="Filter to summaries for a single user (the session's `distinct_id`).",
+            ),
+            OpenApiParameter(
+                name="outcome",
+                type=str,
+                required=False,
+                enum=[c[0] for c in _OUTCOME_CHOICES],
+                description=(
+                    "Filter by the summary's recorded `session_outcome.success` field. `success` for true, "
+                    "`failure` for false, `unknown` for summaries without an outcome."
+                ),
+            ),
+            OpenApiParameter(
+                name="has_exceptions",
+                type=bool,
+                required=False,
+                description="When true, only summaries that surfaced one or more exception events; when false, only summaries without exceptions.",
+            ),
+            OpenApiParameter(
+                name="has_visual_confirmation",
+                type=bool,
+                required=False,
+                description="When true, only summaries produced via the video-based visual-confirmation workflow.",
+            ),
+            OpenApiParameter(
+                name="created_by",
+                type=str,
+                required=False,
+                description="Filter to summaries triggered by a specific user, identified by `User.uuid`.",
+            ),
+            OpenApiParameter(
+                name="date_from",
+                type=str,
+                required=False,
+                description="Inclusive lower bound on `created_at`, accepts relative shorthand like `-7d`.",
+            ),
+            OpenApiParameter(
+                name="date_to",
+                type=str,
+                required=False,
+                description="Inclusive upper bound on `created_at`, accepts relative shorthand like `-1d`.",
+            ),
+            OpenApiParameter(
+                name="order",
+                type=str,
+                required=False,
+                enum=sorted(ALLOWED_ORDER_FIELDS),
+                description=(
+                    "Ordering field, defaults to `-created_at` (most recent first). Allowed: "
+                    "`created_at`, `session_start_time`, `session_duration` (prefix with `-` for descending)."
+                ),
+            ),
+        ],
+    )
+    def list(self, request: Request, *args, **kwargs) -> Response:
+        return super().list(request, *args, **kwargs)
+
+    @extend_schema(
+        operation_id="single_session_summaries_retrieve",
+        extensions={"x-product": "replay"},
+        description=(
+            "Get the latest stored AI summary for a single session by `session_id`. Returns the full "
+            "`summary` JSON (segments with named timeline, per-action `abandonment` / `confusion` / "
+            "`exception` flags, segment outcomes, headline `session_outcome`, optional `sentiment`), the "
+            "`exception_event_ids` array, the `extra_summary_context` (e.g. `focus_area`) used at "
+            "generation time, and the `run_metadata` (LLM model used, whether visual confirmation was "
+            "applied). 404 if no summary has been generated for this session yet — to trigger generation, "
+            "use the existing `session-recording-summarize` flow rather than this endpoint."
+        ),
+    )
+    def retrieve(self, request: Request, *args, **kwargs) -> Response:
+        return super().retrieve(request, *args, **kwargs)

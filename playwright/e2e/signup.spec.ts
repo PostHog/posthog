@@ -1,6 +1,6 @@
 import type { APIRequestContext, Page } from '@playwright/test'
 
-import { expect, test } from '../utils/playwright-test-base'
+import { expect, test } from '../utils/workspace-test-base'
 
 const VALID_PASSWORD = 'hedgE-hog-123%'
 
@@ -51,9 +51,8 @@ test.describe('Signup', () => {
             }
             await route.fulfill({ json: response })
         })
-        await page.locator('[data-attr=new-account-menu-button]').click()
-        await page.locator('[data-attr=new-account-menu-logout-button]').click()
-        await expect(page).toHaveURL(/.*\/login/)
+        // Log out via cookies, not the account-menu UI, which flakes on slow/torn-down workers.
+        await page.context().clearCookies()
         await page.goto('/signup')
     })
 
@@ -87,7 +86,7 @@ test.describe('Signup', () => {
         await expect(page.getByText('Must be at least 8 characters long')).not.toBeVisible()
     })
 
-    test.skip('Can create user account with first name, last name and organization name', async ({ page }) => {
+    test('Can create user account with first name, last name and organization name', async ({ page }) => {
         let signupRequestBody: string | null = null
 
         await page.route('/api/signup/', async (route) => {
@@ -214,9 +213,7 @@ test.describe('Signup', () => {
         )
     })
 
-    // TODO un-skip.
-    // Skipping test as it was failing on master, see https://posthog.slack.com/archives/C0113360FFV/p1749742204672659
-    test.skip('Shows redirect notice if redirecting for maintenance', async ({ page }) => {
+    test('Shows redirect notice if redirecting for maintenance', async ({ page }) => {
         // Equivalent to setupFeatureFlags in Playwright
         await page.route('**/flags/*', async (route) => {
             const response = {

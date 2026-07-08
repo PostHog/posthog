@@ -12,9 +12,11 @@ import { SetupTaskId, globalSetupLogic } from 'lib/components/ProductSetup'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
 import { FeatureFlagsSet, featureFlagLogic as enabledFlagLogic } from 'lib/logic/featureFlagLogic'
-import { allOperatorsMapping, hasFormErrors, isObject, objectClean } from 'lib/utils'
 import { deleteWithUndo } from 'lib/utils/deleteWithUndo'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
+import { isObject } from 'lib/utils/guards'
+import { hasFormErrors, objectClean } from 'lib/utils/objects'
+import { allOperatorsMapping } from 'lib/utils/operators'
 import { maxGlobalLogic } from 'scenes/max/maxGlobalLogic'
 import { projectLogic } from 'scenes/projectLogic'
 import { Scene } from 'scenes/sceneTypes'
@@ -597,7 +599,8 @@ export function mergeResponsesByQuestion(
             merged[qid] = { ...openData, totalResponses: agg.totalResponses }
         } else {
             const aggChoice = agg as ChoiceQuestionProcessedResponses
-            merged[qid] = { ...aggChoice, data: [...aggChoice.data, ...openData.data] }
+            const predefinedFromAggregate = aggChoice.data.filter((d) => d.isPredefined)
+            merged[qid] = { ...aggChoice, data: [...predefinedFromAggregate, ...openData.data] }
         }
     }
     return merged
@@ -1155,7 +1158,10 @@ export const surveyLogic = kea<surveyLogicType>([
                 router.actions.replace(urls.survey(survey.id))
                 actions.reportSurveyCreated(survey)
                 globalSetupLogic.findMounted()?.actions.markTaskAsCompleted(SetupTaskId.CreateSurvey)
-                tryShowMCPHint('surveys.create')
+                const surveyType = survey.type ? `${survey.type} ` : ''
+                tryShowMCPHint('surveys.create', {
+                    derivedPrompt: survey.name ? `Create a ${surveyType}survey called ${survey.name}` : undefined,
+                })
             },
             updateSurveySuccess: ({ survey }) => {
                 lemonToast.success(<>Survey {survey.name} updated</>)

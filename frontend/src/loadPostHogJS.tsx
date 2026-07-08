@@ -2,7 +2,8 @@ import posthog, { BeforeSendFn, PostHogInterface, SessionRecordingOptions } from
 import { sampleOnProperty } from 'posthog-js/lib/src/extensions/sampling'
 
 import { FEATURE_FLAGS } from 'lib/constants'
-import { inStorybook, inStorybookTestRunner } from 'lib/utils'
+import { isOAuthMode } from 'lib/oauth/oauthClient'
+import { inStorybook, inStorybookTestRunner } from 'lib/utils/dom'
 
 import { startDetachedElementTracking } from './detachedElementTracker'
 import { startFramerateTracking } from './framerateTracker'
@@ -161,7 +162,10 @@ export function loadPostHogJS(options: LoadPostHogJSOptions = {}): void {
                 ...options.sessionRecording,
             },
             person_profiles: 'always',
-            __add_tracing_headers: ['eu.posthog.com', 'us.posthog.com'],
+            // posthog-js patches fetch to add X-POSTHOG-* tracing headers to these hosts. In OAuth
+            // mode the app's own /api calls go cross-origin to one of them, where the cloud CORS
+            // allowlist rejects those headers — so disable the feature then.
+            tracing_headers: isOAuthMode() ? [] : ['eu.posthog.com', 'us.posthog.com'],
             __preview_disable_xhr_credentials: true,
             capture_performance: {
                 //disabling to investigate if this is associated with memory leak in the posthog app

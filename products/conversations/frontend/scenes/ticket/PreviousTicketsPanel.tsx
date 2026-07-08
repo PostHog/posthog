@@ -1,7 +1,7 @@
 import { LemonCollapse, LemonTag, Link } from '@posthog/lemon-ui'
 
 import { TZLabel } from 'lib/components/TZLabel'
-import { stripMarkdown } from 'lib/utils/stripMarkdown'
+import { stripMarkdown } from 'lib/utils/markdown'
 import { urls } from 'scenes/urls'
 
 import { Ticket } from '../../types'

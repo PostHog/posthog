@@ -1,0 +1,26 @@
+rules:
+    - id: agent-runner-no-process-env
+      message: |
+          Direct `process.env.*` reads aren't allowed in `products/agent_platform/services/agent-runner/src/`
+          (outside `config.ts` + tests). Add the env var to `AgentRunnerConfigSchema`
+          in `products/agent_platform/services/agent-runner/src/config.ts` and read it from the typed
+          `Config` passed into `main()`.
+
+          Why: the agent services share a typed-config-loader pattern.
+          Defaults live in one place, validation runs at boot, and the
+          generated runbook stays in sync.
+
+          Legitimate exceptions:
+          - `NODE_ENV` — universal node convention, fine to read directly.
+          - Tests — already excluded by `paths.exclude` below.
+          Suppress other cases with
+          `// nosemgrep: agent-runner-no-process-env -- <reason>`.
+      languages: [typescript]
+      severity: ERROR
+      pattern: process.env.$X
+      paths:
+          include:
+              - products/agent_platform/services/agent-runner/src/**/*.ts
+          exclude:
+              - products/agent_platform/services/agent-runner/src/config.ts
+              - products/agent_platform/services/agent-runner/src/**/*.test.ts

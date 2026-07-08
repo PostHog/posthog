@@ -127,6 +127,14 @@
                     "minimum": -9007199254740991,
                     "type": "integer"
                 },
+                "pathDropoffKey": {
+                    "description": "Actors drilldown only. Restrict the returned persons to those who **dropped off** at a specific node (reached it but did not continue). Format is `<stepIndex>_<value>`. Mutually exclusive with `pathStartKey` / `pathEndKey`. Ignored by non-actors paths queries.",
+                    "type": "string"
+                },
+                "pathEndKey": {
+                    "description": "Actors drilldown only. Restrict the returned persons to those who **arrived at** a specific node in the path graph. Format is `<stepIndex>_<value>`, e.g. `\"3_https://example.com/checkout\"`. Take the value verbatim from a `target` field of a `query-paths` result row. Combine with `pathStartKey` to pin a single edge. Leave unset to return every actor on the path. Ignored by non-actors paths queries.",
+                    "type": "string"
+                },
                 "pathGroupings": {
                     "default": [],
                     "description": "Glob-like patterns to group multiple path items into a single step. Use `*` as a wildcard. The patterns are auto-escaped, so only `*` has special meaning. For example, `/product/*` to group all product pages into one node.",
@@ -137,6 +145,10 @@
                 },
                 "pathsHogQLExpression": {
                     "description": "A HogQL expression to use as the path item. Required when `hogql` is included in `includeEventTypes`. For example, `properties.$current_url` to use the current URL as the path item.",
+                    "type": "string"
+                },
+                "pathStartKey": {
+                    "description": "Actors drilldown only. Restrict the returned persons to those who **departed from** a specific node in the path graph. Format is `<stepIndex>_<value>`, e.g. `\"2_https://example.com/pricing\"`. Take the value verbatim from a `source` field of a `query-paths` result row. Combine with `pathEndKey` to pin a single edge (source → target). Leave unset to return every actor on the path (constrained only by `startPoint` / `endPoint`). Ignored by non-actors paths queries.",
                     "type": "string"
                 },
                 "startPoint": {

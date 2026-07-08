@@ -2,7 +2,38 @@
     "$schema": "https://json-schema.org/draft/2020-12/schema",
     "properties": {
         "conditions": {
-            "description": "Optional trigger conditions to filter which events are evaluated. OR between condition sets, AND within each."
+            "description": "Trigger conditions that filter which events are evaluated. OR between condition sets, AND within each. Each set is {id, rollout_percentage, properties[]} — `rollout_percentage` (0-100, defaults to 100) is the sampling field the dispatcher reads.",
+            "items": {
+                "description": "A trigger condition set controlling which generations an evaluation runs on.",
+                "properties": {
+                    "id": {
+                        "description": "Stable identifier for this condition set.",
+                        "maxLength": 100,
+                        "type": "string"
+                    },
+                    "properties": {
+                        "description": "Property filters (event or person) that scope which generations match this condition set.",
+                        "items": {
+                            "additionalProperties": {},
+                            "propertyNames": {
+                                "type": "string"
+                            },
+                            "type": "object"
+                        },
+                        "type": "array"
+                    },
+                    "rollout_percentage": {
+                        "default": 100,
+                        "description": "Percentage (0-100) of matching events to sample for this evaluation. Defaults to 100.",
+                        "maximum": 100,
+                        "minimum": 0,
+                        "type": "number"
+                    }
+                },
+                "required": ["id"],
+                "type": "object"
+            },
+            "type": "array"
         },
         "deleted": {
             "description": "Set to true to soft-delete the evaluation.",
@@ -39,13 +70,24 @@
                     },
                     "required": ["source"],
                     "type": "object"
+                },
+                {
+                    "properties": {
+                        "source": {
+                            "default": "user_messages",
+                            "description": "Classify sentiment from user messages in the generation input.",
+                            "enum": ["user_messages"],
+                            "type": "string"
+                        }
+                    },
+                    "type": "object"
                 }
             ],
-            "description": "Configuration dict. For 'llm_judge': {prompt}. For 'hog': {source}."
+            "description": "Configuration dict. For 'llm_judge': {prompt}; for 'hog': {source}; for 'sentiment': {source: 'user_messages'}."
         },
         "evaluation_type": {
-            "description": "'llm_judge' uses an LLM to score outputs against a prompt; 'hog' runs deterministic Hog code.\n\n* `llm_judge` - LLM as a judge\n* `hog` - Hog",
-            "enum": ["llm_judge", "hog"],
+            "description": "'llm_judge' uses an LLM to score outputs against a prompt; 'hog' runs deterministic Hog code; 'sentiment' classifies user-message sentiment.\n\n* `llm_judge` - LLM as a judge\n* `hog` - Hog\n* `sentiment` - Sentiment analysis",
+            "enum": ["llm_judge", "hog", "sentiment"],
             "type": "string"
         },
         "model_configuration": {
@@ -58,7 +100,7 @@
                             "type": "string"
                         },
                         "provider": {
-                            "description": "* `openai` - Openai\n* `anthropic` - Anthropic\n* `gemini` - Gemini\n* `openrouter` - Openrouter\n* `fireworks` - Fireworks\n* `azure_openai` - Azure OpenAI\n* `together_ai` - Together AI",
+                            "description": "* `openai` - Openai\n* `anthropic` - Anthropic\n* `gemini` - Gemini\n* `openrouter` - Openrouter\n* `fireworks` - Fireworks\n* `azure_openai` - Azure OpenAI\n* `together_ai` - Together AI\n* `minimax` - MiniMax",
                             "enum": [
                                 "openai",
                                 "anthropic",
@@ -66,21 +108,21 @@
                                 "openrouter",
                                 "fireworks",
                                 "azure_openai",
-                                "together_ai"
+                                "together_ai",
+                                "minimax"
                             ],
                             "type": "string"
                         },
                         "provider_key_id": {
                             "anyOf": [
                                 {
-                                    "format": "uuid",
-                                    "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$",
                                     "type": "string"
                                 },
                                 {
                                     "type": "null"
                                 }
-                            ]
+                            ],
+                            "description": "Team provider key to run this eval with (same provider as `provider`). Leave null only for brief pre-key testing; real evals should set it."
                         },
                         "provider_key_name": {
                             "anyOf": [
@@ -118,9 +160,27 @@
             "type": "object"
         },
         "output_type": {
-            "description": "Output format. Currently only 'boolean' is supported.\n\n* `boolean` - Boolean (Pass/Fail)",
-            "enum": ["boolean"],
+            "description": "Output format. Use 'boolean' for pass/fail evaluations and 'sentiment' for sentiment analysis.\n\n* `boolean` - Boolean (Pass/Fail)\n* `sentiment` - Sentiment",
+            "enum": ["boolean", "sentiment"],
             "type": "string"
+        },
+        "target": {
+            "description": "What the evaluation runs on. 'generation' evaluates each matching $ai_generation event individually. 'trace' evaluates the whole trace once: the first matching generation schedules a run that waits for the trace to settle, then evaluates all of its events together. Condition filters still match individual generations — a trace is evaluated when any of its generations matches, and sampling applies per trace.\n\n* `generation` - Generation\n* `trace` - Trace",
+            "enum": ["generation", "trace"],
+            "type": "string"
+        },
+        "target_config": {
+            "description": "Target-specific config. For 'trace' target: {window_seconds}. Empty for 'generation'.",
+            "properties": {
+                "window_seconds": {
+                    "default": 1800,
+                    "description": "For 'trace' target: seconds to wait after the first matching generation before evaluating the whole trace. Captured when the run is scheduled — editing it does not change trace runs already in flight.",
+                    "maximum": 7200,
+                    "minimum": 10,
+                    "type": "number"
+                }
+            },
+            "type": "object"
         }
     },
     "required": ["name", "evaluation_type", "output_type"],

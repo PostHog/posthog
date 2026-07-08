@@ -1,5 +1,5 @@
+import { HogFlowAction } from '~/cdp/schema/hogflow'
 import { filterFunctionInstrumented } from '~/cdp/utils/hog-function-filtering'
-import { HogFlowAction } from '~/schema/hogflow'
 
 import { findContinueAction } from '../hogflow-utils'
 import { ActionHandler, ActionHandlerOptions, ActionHandlerResult } from './action.interface'

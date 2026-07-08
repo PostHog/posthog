@@ -1,9 +1,11 @@
 name: Master CI Alerts
 
 # Cron-based rolling-window alert for sustained master failures, posted to
-# #alerts-devex. Only alerts on *sustained* breakage (a workflow failing 5+
-# runs in a row, or 10+ consecutive red commits across gating workflows) so
-# transient flakes that self-heal stay quiet.
+# #alerts-devex. Only alerts on *sustained* breakage — a workflow failing 5+
+# runs in a row OR red for 1+ hour, or 10+ consecutive red commits across
+# gating workflows — so transient flakes that self-heal stay quiet. The
+# wall-clock arm only opens while master is being pushed (ACTIVITY_WINDOW_MINUTES),
+# so a quiet weekend doesn't page.
 #
 # The script owns the whole flow: it recomputes master health from the GitHub
 # API every tick and reconciles a single Slack incident (Slack is the source of
@@ -11,8 +13,15 @@ name: Master CI Alerts
 # state to race or lose). See .github/scripts/ci-alerts-devex.js.
 
 on:
+    # Reconcile ~a minute after master CI finishes; GitHub throttles the cron below to ~hourly under
+    # load. A reconcile reads all gating workflows anyway, so one hook on Backend CI (the long-pole on
+    # ~every push) suffices. branches:[master] skips PR completions; cron stays a backstop.
+    workflow_run:
+        workflows: ['Backend CI']
+        types: [completed]
+        branches: [master]
     schedule:
-        - cron: '*/10 * * * *'
+        - cron: '*/5 * * * *'
     workflow_dispatch: # manual trigger for testing
 
 # Serialize ticks so two runs never reconcile the same incident at once.
@@ -26,16 +35,27 @@ permissions:
 env:
     SLACK_CHANNEL: 'C0AS64N6DJL' # #alerts-devex
     WORKFLOW_FAILURE_STREAK_THRESHOLD: '5'
+    # Wall-clock arm: a workflow red at least this long blocks even before a full failure
+    # streak. ci-backend runs ~28m, so 60m ≈ one red result that stayed red — not a transient flake.
+    WORKFLOW_FAILURE_MINUTES_THRESHOLD: '60'
+    # The wall-clock arm only opens an incident if master saw a push within this window, so a
+    # quiet weekend doesn't page. Keep it well above the typical gap between master pushes.
+    ACTIVITY_WINDOW_MINUTES: '120'
     COMMIT_FAILURE_STREAK_THRESHOLD: '10'
     # The master ruleset's required status checks that run on master push — a failure
     # here means master is genuinely broken. Hand-synced with the ruleset; there is no
     # automated reconciliation, so update this when the required checks change.
     # (container-images-ci and shellcheck are also required but only run on PR/merge_group,
     # so this push-based alerter can't observe them.)
+    # Every workflow listed MUST run on every master push (no path filters) — the script verifies
+    # runs freshness against master's newest commit; one that legitimately lags would wedge resolution.
     GATING_WORKFLOWS: 'ci-python.yml,ci-backend.yml,ci-nodejs.yml,ci-frontend.yml,ci-storybook.yml,ci-security.yaml,ci-dagster.yml,ci-e2e-playwright.yml,ci-rust.yml,ci-mcp.yml,ci-llm-gateway.yml'
 
 jobs:
     check-master:
+        # only reconcile on push completions (branches:[master] already scopes the trigger to master)
+        if: >-
+            github.event_name != 'workflow_run' || github.event.workflow_run.event == 'push'
         runs-on: ubuntu-latest
         timeout-minutes: 5
         steps:
@@ -48,7 +68,7 @@ jobs:
             - name: Reconcile master CI incident with Slack
               uses: actions/github-script@ed597411d8f924073f98dfc5c65a23a2325f34cd # v8.0.0
               env:
-                  SLACK_BOT_TOKEN: ${{ secrets.SLACK_BOT_TOKEN }}
+                  SLACK_BOT_TOKEN: ${{ secrets.SLACK_DEVEX_BOT_TOKEN }}
               with:
                   script: |
                       const script = require('./.github/scripts/ci-alerts-devex.js')

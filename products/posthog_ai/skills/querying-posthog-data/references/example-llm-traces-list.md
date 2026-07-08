@@ -6,6 +6,7 @@ Time ranges are always required. Results can be large — dump to a file if need
 
 This query intentionally omits large content fields (`$ai_input`, `$ai_output_choices`, `$ai_input_state`, `$ai_output_state`).
 Use the [single trace query](./example-llm-trace.md) to retrieve those for a specific trace.
+This content lives only on `posthog.ai_events` (not `events`), retained 30 days by default — read it anchored on `trace_id`. See [AI observability events](./models-ai-observability-events.md) for the column mapping and access patterns.
 
 ## Phase 1 — Find trace IDs
 

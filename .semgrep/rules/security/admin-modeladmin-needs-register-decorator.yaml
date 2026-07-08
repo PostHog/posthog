@@ -1,0 +1,38 @@
+rules:
+    - id: admin-modeladmin-needs-register-decorator
+      patterns:
+          - pattern: |
+                class $X(...):
+                    ...
+          - metavariable-pattern:
+                metavariable: $X
+                pattern-regex: '.*Admin$'
+          - pattern-either:
+                - pattern: |
+                      class $X(admin.ModelAdmin):
+                          ...
+                - pattern: |
+                      class $X(ModelAdmin):
+                          ...
+          - pattern-not: |
+                @admin.register(...)
+                class $X(...):
+                    ...
+      message: |
+          `$X` extends `admin.ModelAdmin` but has no `@admin.register(...)` decorator.
+          Without it, Django's `autodiscover_modules('admin')` won't register it on
+          `admin.site` and the admin page silently won't show up. Add
+          `@admin.register(<Model>)` above the class declaration.
+      languages: [python]
+      severity: ERROR
+      paths:
+          # Only enforce inside admin modules. Other places might subclass
+          # `ModelAdmin` for testing or as abstract scaffolding.
+          include:
+              - '/posthog/admin/admins/*.py'
+              - '/products/*/backend/admin.py'
+              - '/products/*/backend/admin/*.py'
+      metadata:
+          category: correctness
+          technology:
+              - django

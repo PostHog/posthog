@@ -5,11 +5,11 @@ import type { EvaluatedFlags } from '@/lib/posthog/flags'
 import { SessionManager } from '@/lib/SessionManager'
 import { getToolsFromContext } from '@/tools'
 import {
+    getAdvertisedOAuthScopes,
     getToolDefinitions,
     getRequiredFeatureFlags,
     getToolsForFeatures,
     type ToolDefinition,
-    ToolDefinitionSchema,
     toolPassesFlagGate,
 } from '@/tools/toolDefinitions'
 import type { Context } from '@/tools/types'
@@ -187,6 +187,26 @@ describe('Tool Filtering - Tools Allowlist', () => {
             // No flags evaluated at all — also hidden (default behavior is `enable`).
             const toolsWithoutFlags = getToolsForFeatures({})
             expect(toolsWithoutFlags).not.toContain('agent-feedback')
+        })
+
+        it('should hide read-data-warehouse-schema when mcp-sql-schema-discovery is on (disable gate)', () => {
+            // SQL information_schema discovery replaces the tool while the flag is on.
+            const withFlagOn = getToolsForFeatures({
+                tools: ['read-data-warehouse-schema'],
+                featureFlags: { 'mcp-sql-schema-discovery': true },
+            })
+            expect(withFlagOn).not.toContain('read-data-warehouse-schema')
+
+            // Off / unevaluated → the tool stays available (disable default is "show").
+            expect(getToolsForFeatures({ tools: ['read-data-warehouse-schema'] })).toContain(
+                'read-data-warehouse-schema'
+            )
+            expect(
+                getToolsForFeatures({
+                    tools: ['read-data-warehouse-schema'],
+                    featureFlags: { 'mcp-sql-schema-discovery': false },
+                })
+            ).toContain('read-data-warehouse-schema')
         })
 
         it('should union with features (OR) when both are provided', () => {
@@ -368,7 +388,12 @@ describe('OAUTH_SCOPES_SUPPORTED completeness', () => {
     // Minted directly into a server-issued token, never advertised via OAuth metadata
     // (mirrors INTERNAL_API_SCOPE_OBJECTS in posthog/scopes.py). Tools may require them, but
     // they are intentionally absent from OAUTH_SCOPES_SUPPORTED, so exclude them here.
-    const SERVER_MINT_ONLY_SCOPES = new Set(['signal_scout_internal:read', 'signal_scout_internal:write'])
+    const SERVER_MINT_ONLY_SCOPES = new Set([
+        'signal_scout_internal:read',
+        'signal_scout_internal:write',
+        'signal_scout_report:read',
+        'signal_scout_report:write',
+    ])
 
     it('should include every scope referenced in tool definitions', () => {
         const supportedScopes = new Set<string>(OAUTH_SCOPES_SUPPORTED)
@@ -390,6 +415,38 @@ describe('OAUTH_SCOPES_SUPPORTED completeness', () => {
             missing,
             `OAUTH_SCOPES_SUPPORTED is missing scopes used by tool definitions: ${missing.join(', ')}`
         ).toEqual([])
+    })
+})
+
+describe('getAdvertisedOAuthScopes', () => {
+    const supported = new Set<string>(OAUTH_SCOPES_SUPPORTED)
+    const advertised = getAdvertisedOAuthScopes()
+    const advertisedSet = new Set(advertised)
+
+    it('stays a subset of OAUTH_SCOPES_SUPPORTED so nothing is rejected at /authorize', () => {
+        const outside = advertised.filter((s) => !supported.has(s))
+        expect(outside, `advertised scopes not grantable by the AS: ${outside.join(', ')}`).toEqual([])
+    })
+
+    it('keeps the identity scopes that ride every authorize', () => {
+        for (const scope of OAUTH_SCOPES_SUPPORTED.filter((s) => !s.includes(':'))) {
+            expect(advertisedSet.has(scope), `missing identity scope: ${scope}`).toBe(true)
+        }
+    })
+
+    it('covers every grantable scope the tool catalog requires', () => {
+        const required = new Set<string>()
+        for (const def of Object.values(getToolDefinitions())) {
+            for (const scope of def.required_scopes) {
+                required.add(scope)
+            }
+        }
+        const missing = [...required].filter((s) => supported.has(s) && !advertisedSet.has(s)).sort()
+        expect(missing, `tool-required scopes dropped from the advertised list: ${missing.join(', ')}`).toEqual([])
+    })
+
+    it('narrows the full grantable set rather than mirroring it', () => {
+        expect(advertised.length).toBeLessThan(OAUTH_SCOPES_SUPPORTED.length)
     })
 })
 
@@ -699,7 +756,9 @@ describe('Tool Filtering - Feature Flags', () => {
         // Includes the gating flag for agent-feedback alongside the other gated tools.
         expect(flags).toEqual(
             expect.arrayContaining([
+                'agent-platform',
                 'logs-alerting',
+                'logs-patterns-view',
                 'replay-video-based-summarization',
                 'tracing',
                 'visual-review',
@@ -709,10 +768,19 @@ describe('Tool Filtering - Feature Flags', () => {
                 'notebooks-collaboration',
                 'replay-vision',
                 'tasks',
-                'promoted-product',
+                'dashboard-widgets',
+                'heatmaps-mcp',
+                'marketing-analytics-mcp',
+                'product-business-knowledge',
+                'field-notes',
+                'mcp-analytics',
+                'metrics',
+                'mcp-sql-schema-discovery',
+                'endpoints-ai-materialization-fix',
+                'engineering-analytics',
             ])
         )
-        expect(flags).toHaveLength(11)
+        expect(flags).toHaveLength(22)
     })
 
     // Exercise the real predicate (toolPassesFlagGate) over hand-rolled entries
@@ -809,100 +877,6 @@ describe('Tool Filtering - Feature Flags', () => {
             expect(toolsOff).not.toContain('new-tool-v2')
             expect(toolsOff).toContain('old-tool-v1')
             expect(toolsOff).toContain('unrelated-tool')
-        })
-
-        describe('feature_flag_variant matching', () => {
-            const variantToolEntries: [string, ToolDefinition][] = [
-                ['unrelated-tool', { ...baseDef }],
-                [
-                    'variant-gated-tool',
-                    {
-                        ...baseDef,
-                        feature_flag: 'promoted-product',
-                        feature_flag_variant: 'intent_plus',
-                    },
-                ],
-            ]
-
-            it('shows variant-gated tool only when the variant matches', () => {
-                const tools = filterByFeatureFlags(variantToolEntries, { 'promoted-product': 'intent_plus' })
-                expect(tools).toContain('variant-gated-tool')
-                expect(tools).toContain('unrelated-tool')
-            })
-
-            it.each(['control', 'control_b', 'intent', false, true, undefined])(
-                'hides variant-gated tool when flag value is %p',
-                (flagValue) => {
-                    const tools = filterByFeatureFlags(variantToolEntries, { 'promoted-product': flagValue })
-                    expect(tools).not.toContain('variant-gated-tool')
-                    expect(tools).toContain('unrelated-tool')
-                }
-            )
-
-            it('hides variant-gated tool when featureFlags map is omitted entirely', () => {
-                const tools = filterByFeatureFlags(variantToolEntries)
-                expect(tools).not.toContain('variant-gated-tool')
-                expect(tools).toContain('unrelated-tool')
-            })
-
-            it('hides a hand-rolled misconfig tool with feature_flag_variant but no feature_flag', () => {
-                // The Zod `.refine` rejects this at parse time, but a developer
-                // can still construct one in code via cast — the runtime predicate
-                // must treat it as hidden, not ungated.
-                const misconfigEntries: [string, ToolDefinition][] = [
-                    ['orphan-variant', { ...baseDef, feature_flag_variant: 'intent_plus' }],
-                ]
-                expect(filterByFeatureFlags(misconfigEntries, { 'promoted-product': 'intent_plus' })).not.toContain(
-                    'orphan-variant'
-                )
-                expect(filterByFeatureFlags(misconfigEntries)).not.toContain('orphan-variant')
-            })
-        })
-
-        describe('feature_flag_variant schema validation', () => {
-            const baseFields = {
-                description: '',
-                category: 'platform_features',
-                feature: 'platform_features',
-                summary: '',
-                title: '',
-                required_scopes: [],
-                annotations: { destructiveHint: false, idempotentHint: true, openWorldHint: true, readOnlyHint: true },
-            }
-
-            it('rejects feature_flag_variant without feature_flag', () => {
-                const result = ToolDefinitionSchema.safeParse({
-                    ...baseFields,
-                    feature_flag_variant: 'intent_plus',
-                })
-                expect(result.success).toBe(false)
-                if (!result.success) {
-                    expect(result.error.issues[0]?.message).toMatch(/feature_flag_variant.*requires.*feature_flag/i)
-                    expect(result.error.issues[0]?.path).toEqual(['feature_flag_variant'])
-                }
-            })
-
-            it('accepts feature_flag_variant when feature_flag is also set', () => {
-                const result = ToolDefinitionSchema.safeParse({
-                    ...baseFields,
-                    feature_flag: 'promoted-product',
-                    feature_flag_variant: 'intent_plus',
-                })
-                expect(result.success).toBe(true)
-            })
-
-            it('accepts feature_flag alone (no variant)', () => {
-                const result = ToolDefinitionSchema.safeParse({
-                    ...baseFields,
-                    feature_flag: 'promoted-product',
-                })
-                expect(result.success).toBe(true)
-            })
-
-            it('accepts a definition with neither flag field set', () => {
-                const result = ToolDefinitionSchema.safeParse(baseFields)
-                expect(result.success).toBe(true)
-            })
         })
     })
 })

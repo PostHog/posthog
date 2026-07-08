@@ -51,3 +51,12 @@ export const WithLongName: Story = {
         },
     },
 }
+
+export const WithLongUnbrokenName: Story = {
+    args: {
+        series: {
+            ...step,
+            name: 'a_very_long_snake_case_event_name_with_no_spaces_that_would_otherwise_be_clipped_by_the_tooltip',
+        },
+    },
+}

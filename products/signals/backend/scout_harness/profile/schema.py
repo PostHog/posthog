@@ -50,6 +50,10 @@ class ExternalDataSourceEntry(_Section):
     status: str
     prefix: str
     created_at: str | None
+    # `last_run_at` (most recent completed sync) and `latest_error` disambiguate a source stuck
+    # in `Running` that has never synced from a healthy one — `status` alone conflates them.
+    last_run_at: str | None
+    latest_error: str | None
 
 
 class SignalSourceConfigEntry(_Section):
@@ -60,6 +64,24 @@ class SignalSourceConfigEntry(_Section):
 class SignalSourceConfigs(_Section):
     enabled: list[SignalSourceConfigEntry]
     disabled: list[SignalSourceConfigEntry]
+
+
+class EmitEligibility(_Section):
+    """Whether a scout's findings can actually reach the inbox for this team.
+
+    Both the signal channel (`emit_signal`) and the report channel (`emit_report`) pass the
+    same team/org-level preflight gates: the organization must have approved AI data processing
+    and the `signals_scout` signal source must be enabled. When either is off, every emit is
+    silently dropped — so a scout can read this at cold start and quick-close instead of doing
+    throwaway investigation whose output never surfaces. `remediation` is the one-line next step
+    when `can_emit` is False. Per-scout state (the config's dry-run `emit` toggle) is not covered
+    here — this is the team-wide floor, not a single scout's config.
+    """
+
+    ai_processing_approved: bool
+    source_enabled: bool
+    can_emit: bool
+    remediation: str | None
 
 
 class StatusCount(_Section):
@@ -82,6 +104,19 @@ class ScopeActivity(_Section):
 class RecentActivity(_Section):
     window_days: int
     by_scope: list[ScopeActivity]
+
+
+class ReviewerCorrection(_Section):
+    report_id: str
+    report_title: str | None
+    before: list[str]
+    after: list[str]
+    at: str | None
+
+
+class RecentReviewerCorrections(_Section):
+    window_days: int
+    corrections: list[ReviewerCorrection]
 
 
 class DashboardEntry(_Section):
@@ -213,14 +248,34 @@ class RecentActions(_Section):
     recent: list[ActionEntry]
 
 
+class KnowledgeSourceEntry(_Section):
+    id: str
+    name: str
+    source_type: str
+    status: str
+    updated_at: str | None
+
+
+class BusinessKnowledge(_Section):
+    total_count: int
+    ready_count: int
+    document_count: int
+    chunk_count: int
+    recent: list[KnowledgeSourceEntry]
+
+
 class TopEvent(_Section):
+    # `window_days` rides on every row (not the block, since `top_events` is a flat list)
+    # so a scout can't read a `count` without seeing that it's windowed, not lifetime — a
+    # thin count during a capture gap must not read as a genuinely low-volume project.
+    window_days: int
     event: str
     count: int
     distinct_users: int
     recent_24h_count: int
     recent_24h_users: int
-    first_seen: str | None
-    last_seen: str | None
+    first_seen_in_window: str | None
+    last_seen_in_window: str | None
 
 
 class Inventory(_Section):
@@ -237,8 +292,10 @@ class Inventory(_Section):
     integrations: list[IntegrationEntry]
     external_data_sources: list[ExternalDataSourceEntry]
     signal_source_configs: SignalSourceConfigs
+    emit_eligibility: EmitEligibility
     existing_inbox_reports: ExistingInboxReports
     recent_activity: RecentActivity
+    recent_reviewer_corrections: RecentReviewerCorrections
     recent_dashboards: list[DashboardEntry]
     recent_surveys: RecentSurveys
     recent_feature_flags: RecentFeatureFlags
@@ -249,4 +306,5 @@ class Inventory(_Section):
     recent_notebooks: RecentNotebooks
     recent_cohorts: RecentCohorts
     recent_actions: RecentActions
+    business_knowledge: BusinessKnowledge
     top_events: list[TopEvent] | None

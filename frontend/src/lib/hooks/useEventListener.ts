@@ -47,7 +47,7 @@ export function useEventListener(
     useEffect(
         () => {
             // Make sure element supports addEventListener
-            if (!element?.addEventListener) {
+            if (typeof element?.addEventListener !== 'function') {
                 console.warn(
                     `Could not start listening to ${eventName} on ${
                         !element ? element : ((element as Element)?.localName ?? 'window')
@@ -61,7 +61,9 @@ export function useEventListener(
             element.addEventListener(eventName, eventListener)
             // Remove event listener on cleanup
             return () => {
-                element?.removeEventListener(eventName, eventListener)
+                if (typeof element?.removeEventListener === 'function') {
+                    element.removeEventListener(eventName, eventListener)
+                }
             }
         },
 

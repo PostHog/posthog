@@ -115,6 +115,18 @@ pub struct Config {
     /// than this pass through uncompressed.
     #[envconfig(default = "256")]
     pub gzip_min_payload_size: usize,
+
+    /// Maximum response size (bytes) enforced after gzip compression. Applies
+    /// to the final wire size — compressed bytes for gzip responses, raw bytes
+    /// for uncompressed passthrough. 0 = disabled. Default 4 MiB.
+    #[envconfig(default = "4194304")]
+    pub gzip_max_response_size: usize,
+
+    /// When true, responses exceeding `gzip_max_response_size` are rejected
+    /// with a gRPC OUT_OF_RANGE error. When false, the metric fires but the
+    /// response is delivered normally (monitor mode).
+    #[envconfig(default = "false")]
+    pub gzip_max_response_size_enforce: bool,
 }
 
 impl Config {
