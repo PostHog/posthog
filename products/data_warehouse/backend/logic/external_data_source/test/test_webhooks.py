@@ -11,12 +11,8 @@ from products.data_warehouse.backend.logic.external_data_source.webhooks import 
     get_or_create_webhook_hog_function,
     reconcile_webhook_events,
 )
-from products.warehouse_sources.backend.models.external_data_schema import ExternalDataSchema
-from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import (
-    WebhookCreationResult,
-    WebhookSyncResult,
-)
+from products.warehouse_sources.backend.facade.models import ExternalDataSchema, ExternalDataSource
+from products.warehouse_sources.backend.facade.source_management import WebhookCreationResult, WebhookSyncResult
 
 pytestmark = [
     pytest.mark.django_db,

@@ -51,7 +51,7 @@ export function ContextUsageBar(): JSX.Element | null {
     }
 
     return (
-        <div className="flex items-center gap-2 px-3 py-1 text-xs text-muted" data-attr="max-sandbox-context-usage">
+        <div className="flex items-center gap-2 px-2 text-xs text-muted" data-attr="max-sandbox-context-usage">
             {hasRing && (
                 <Tooltip title="Context window usage">
                     <span className="flex items-center gap-1.5">

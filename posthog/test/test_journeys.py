@@ -11,8 +11,10 @@ from posthog.test.base import _create_event, flush_persons_and_events
 from django.utils import timezone
 
 from posthog.clickhouse.client import sync_execute
-from posthog.models import Group, Person, PersonDistinctId, Team
+from posthog.models import Person, Team
 from posthog.models.event.sql import EVENTS_DATA_TABLE
+from posthog.models.group.util import get_group_by_key
+from posthog.models.person.util import get_person_by_distinct_id
 
 
 def journeys_for(
@@ -54,10 +56,9 @@ def journeys_for(
                 distinct_ids=[distinct_id], team_id=team.pk, uuid=derived_uuid
             )
         else:
-            people[distinct_id] = Person.objects.get(
-                persondistinctid__distinct_id=distinct_id,
-                persondistinctid__team_id=team.pk,
-            )
+            existing_person = get_person_by_distinct_id(team.pk, distinct_id)
+            assert existing_person is not None
+            people[distinct_id] = existing_person
 
         for event in events:
             # Populate group properties as well
@@ -65,16 +66,10 @@ def journeys_for(
             for property_key, value in (event.get("properties") or {}).items():
                 if property_key.startswith("$group_"):
                     group_type_index = property_key[-1]
-                    try:
-                        group = Group.objects.get(
-                            team_id=team.pk,
-                            group_type_index=group_type_index,
-                            group_key=value,
-                        )
-                        group_mapping[f"group{group_type_index}"] = group
-
-                    except Group.DoesNotExist:
+                    group = get_group_by_key(team.pk, int(group_type_index), value)
+                    if group is None:
                         continue
+                    group_mapping[f"group{group_type_index}"] = group
 
             if "timestamp" not in event:
                 event["timestamp"] = datetime.now().strftime("%Y-%m-%d %H:%M:%S.%f")
@@ -195,22 +190,18 @@ class InMemoryEvent:
 
 
 def update_or_create_person(distinct_ids: list[str], team_id: int, **kwargs):
-    (person, _) = Person.objects.update_or_create(
-        persondistinctid__distinct_id__in=distinct_ids,
-        persondistinctid__team_id=team_id,
-        defaults={**kwargs, "team_id": team_id},
-    )
-    for distinct_id in distinct_ids:
-        PersonDistinctId.objects.update_or_create(
-            distinct_id=distinct_id,
-            team_id=person.team_id,
-            defaults={
-                "person_id": person.id,
-                "team_id": team_id,
-                "distinct_id": distinct_id,
-            },
-        )
-    from posthog.test.persons import _seed_person_into_fake  # noqa: PLC0415
+    from posthog.test.persons import create_person, update_person  # noqa: PLC0415
 
-    _seed_person_into_fake(person, distinct_ids)
-    return person
+    existing = None
+    for distinct_id in distinct_ids:
+        existing = get_person_by_distinct_id(team_id, distinct_id)
+        if existing is not None:
+            break
+
+    if existing is None:
+        return create_person(team_id=team_id, distinct_ids=distinct_ids, **kwargs)
+
+    for key, value in kwargs.items():
+        setattr(existing, key, value)
+    update_person(existing)
+    return existing

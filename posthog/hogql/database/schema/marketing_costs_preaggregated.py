@@ -1,9 +1,11 @@
 from pydantic import Field
 
+from posthog.hogql import ast
 from posthog.hogql.constants import HogQLQuerySettings
 from posthog.hogql.database.models import (
     DateDatabaseField,
     DateTimeDatabaseField,
+    ExpressionField,
     FieldOrTable,
     FloatDatabaseField,
     IntegerDatabaseField,
@@ -70,6 +72,13 @@ class MarketingCostsPreaggregatedTable(Table):
         ),
         "expires_at": DateDatabaseField(
             name="expires_at", description="Date when this row expires and is dropped via TTL."
+        ),
+        # Virtual `timestamp` lets a TrendsQuery DataWarehouseNode target this native table — the trends
+        # builder references a hardcoded `timestamp` field. cost_date is a Date; expose it as a DateTime.
+        "timestamp": ExpressionField(
+            name="timestamp",
+            expr=ast.Call(name="toDateTime", args=[ast.Field(chain=["cost_date"])]),
+            isolate_scope=True,
         ),
     }
 

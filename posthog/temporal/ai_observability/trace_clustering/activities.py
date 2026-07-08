@@ -16,6 +16,7 @@ import structlog
 from temporalio import activity
 
 from posthog.models.team import Team
+from posthog.temporal.ai_observability.team_discovery import get_min_traces_override
 from posthog.temporal.ai_observability.trace_clustering import constants
 from posthog.temporal.ai_observability.trace_clustering.clustering import (
     calculate_distances_to_cluster_means,
@@ -86,11 +87,14 @@ def _perform_clustering_compute(inputs: ClusteringActivityInputs) -> ClusteringC
         analysis_level=inputs.analysis_level,
     )
 
-    # Need enough items for UMAP (n_neighbors default=15) and meaningful clusters
-    if len(item_ids) < constants.MIN_TRACES_FOR_CLUSTERING:
+    # Need enough items for UMAP (n_neighbors default=15) and meaningful clusters.
+    # A per-team override lets low-volume teams opt below the global minimum.
+    min_traces = get_min_traces_override(inputs.team_id) or constants.MIN_TRACES_FOR_CLUSTERING
+    if len(item_ids) < min_traces:
         logger.warning(
             "Not enough items for clustering",
             item_count=len(item_ids),
+            min_required=min_traces,
             team_id=inputs.team_id,
             analysis_level=inputs.analysis_level,
         )

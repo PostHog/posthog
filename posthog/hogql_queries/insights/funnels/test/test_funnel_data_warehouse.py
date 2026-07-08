@@ -34,7 +34,7 @@ from posthog.test.test_journeys import journeys_for
 from posthog.types import AnyPropertyFilter
 
 from products.data_tools.backend.models.join import DataWarehouseJoin
-from products.data_warehouse.backend.test.utils import create_data_warehouse_table_from_csv
+from products.warehouse_sources.backend.facade.testing import create_data_warehouse_table_from_csv
 
 TEST_BUCKET = "test_storage_bucket-posthog.hogql_queries.insights.funnels.funnel_data_warehouse"
 

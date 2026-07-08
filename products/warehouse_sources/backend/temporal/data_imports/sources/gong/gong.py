@@ -128,6 +128,12 @@ def get_rows(
         if response.status_code == 429 or response.status_code >= 500:
             raise GongRetryableError(f"Gong API error (retryable): status={response.status_code}, url={url}")
 
+        # Gong's `/v2/calls` answers a date window with no processed calls using a 404
+        # ("No calls found corresponding to the provided filters") rather than an empty 200.
+        # Treat it as an empty page so the sync skips the window instead of failing.
+        if config.uses_date_window and response.status_code == 404 and "no calls" in response.text.lower():
+            return {}
+
         if not response.ok:
             logger.error(f"Gong API error: status={response.status_code}, body={response.text}, url={url}")
             response.raise_for_status()

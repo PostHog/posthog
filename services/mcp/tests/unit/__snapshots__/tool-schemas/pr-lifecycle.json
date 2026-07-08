@@ -6,7 +6,7 @@
             "type": "number"
         },
         "repo": {
-            "description": "Optional 'owner/name' repository to disambiguate when the PR number exists in more than one connected repo.",
+            "description": "'owner/name' repository the pull request belongs to.",
             "type": "string"
         },
         "source_id": {
@@ -14,6 +14,6 @@
             "type": "string"
         }
     },
-    "required": ["pr_number"],
+    "required": ["pr_number", "repo"],
     "type": "object"
 }

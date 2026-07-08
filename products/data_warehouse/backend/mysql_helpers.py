@@ -23,18 +23,19 @@ from products.data_warehouse.backend.direct_mysql import (
     hide_direct_mysql_table,
     upsert_direct_mysql_table,
 )
-from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
-from products.warehouse_sources.backend.models.util import mysql_column_to_dwh_column, mysql_columns_to_dwh_columns
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import SourceSchema
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.sql.location import normalize_namespace
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.sql.metadata import (
-    extract_available_column_names,
-    sql_schema_metadata,
+from products.warehouse_sources.backend.facade.models import (
+    ExternalDataSource,
+    mysql_column_to_dwh_column,
+    mysql_columns_to_dwh_columns,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.sql.projection import (
+from products.warehouse_sources.backend.facade.source_management import (
+    SourceSchema,
+    extract_available_column_names,
     filter_columns_by_enabled_columns,
     filter_dwh_columns_by_enabled_columns,
+    normalize_namespace,
     prune_enabled_columns,
+    sql_schema_metadata,
 )
 
 log = structlog.get_logger(__name__)
@@ -133,7 +134,7 @@ def reconcile_mysql_schemas(
 ) -> list[str]:
     """Persist `schema_metadata` on every MySQL row + (direct mode only) upsert its live-query
     `DataWarehouseTable`. Returns stale schema names that got soft-deleted (direct only)."""
-    from products.warehouse_sources.backend.models.external_data_schema import ExternalDataSchema
+    from products.warehouse_sources.backend.facade.models import ExternalDataSchema
 
     is_direct = source.is_direct_query
     source_schema_names = [s.name for s in source_schemas]

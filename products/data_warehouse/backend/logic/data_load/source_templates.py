@@ -4,8 +4,8 @@ from posthog.temporal.common.logger import get_logger
 
 from products.data_tools.backend.models.join import DataWarehouseJoin
 from products.revenue_analytics.backend.joins import ensure_person_join
-from products.warehouse_sources.backend.models.external_data_job import ExternalDataJob
-from products.warehouse_sources.backend.types import ExternalDataSourceType
+from products.warehouse_sources.backend.facade.models import ExternalDataJob
+from products.warehouse_sources.backend.facade.types import ExternalDataSourceType
 
 LOGGER = get_logger(__name__)
 

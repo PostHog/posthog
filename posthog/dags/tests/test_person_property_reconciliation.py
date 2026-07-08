@@ -38,6 +38,11 @@ from posthog.dags.person_property_reconciliation import (
     reconcile_with_concurrent_changes,
     update_person_with_version_check,
 )
+from posthog.dags.tests.conftest import refresh_person_from_persons_db
+
+# Exercises the persons DB directly (raw reads and writes against the persons writer), so it must
+# run against the real persons DB rather than the personhog fake.
+pytestmark = pytest.mark.persons_db_direct
 
 
 class TestClickHouseResultParsing:
@@ -5880,13 +5885,10 @@ class TestBatchCommitsEndToEnd:
         def on_batch_committed(batch_num: int, batch_persons: list[dict]) -> None:
             batch_sizes.append(len(batch_persons))
 
-        # Use Django's database connection for persons DB (shares test transaction)
-        from django.db import connections
+        from posthog.persons_db import persons_db_connection
 
-        from posthog.person_db_router import PERSONS_DB_FOR_WRITE
-
-        connection = connections[PERSONS_DB_FOR_WRITE]
-        with connection.cursor() as cursor:
+        # Non-autocommit: process_persons_in_batches expects a transactional cursor (its commit_fn drives commits).
+        with persons_db_connection(writer=True) as connection, connection.cursor() as cursor:
             # Set up cursor settings
             cursor.execute("SET application_name = 'test_batch_commits'")
 
@@ -5913,7 +5915,7 @@ class TestBatchCommitsEndToEnd:
 
         # Verify Postgres was actually updated with correct properties and metadata
         for i, person in enumerate(persons):
-            person.refresh_from_db()
+            refresh_person_from_persons_db(person)
 
             # Property value should be updated
             assert person.properties["email"] == f"new_{i}@example.com", (
@@ -6064,13 +6066,10 @@ class TestBatchCommitsEndToEnd:
         def on_batch_committed(batch_num: int, batch_persons: list[dict]) -> None:
             batch_sizes.append(len(batch_persons))
 
-        # Use Django's database connection for persons DB (shares test transaction)
-        from django.db import connections
+        from posthog.persons_db import persons_db_connection
 
-        from posthog.person_db_router import PERSONS_DB_FOR_WRITE
-
-        connection = connections[PERSONS_DB_FOR_WRITE]
-        with connection.cursor() as cursor:
+        # Non-autocommit: process_persons_in_batches expects a transactional cursor (its commit_fn drives commits).
+        with persons_db_connection(writer=True) as connection, connection.cursor() as cursor:
             result = process_persons_in_batches(
                 person_property_diffs=person_property_updates,
                 cursor=cursor,
@@ -6090,7 +6089,7 @@ class TestBatchCommitsEndToEnd:
 
         # Verify existing persons were updated with correct properties and metadata
         for i, person in enumerate(persons):
-            person.refresh_from_db()
+            refresh_person_from_persons_db(person)
 
             # Property value should be updated
             assert person.properties["name"] == f"new_name_{i}", (
@@ -6419,15 +6418,10 @@ class TestKafkaClickHouseRoundTrip:
 
         cluster.any_host(insert_person_ch).result()
 
-        # Get a Postgres connection for the job
-        from django.db import connections
+        from posthog.persons_db import persons_db_connection
 
-        from posthog.person_db_router import PERSONS_DB_FOR_WRITE
-
-        persons_conn = connections[PERSONS_DB_FOR_WRITE]
-
-        # Create real Kafka producer
-        with override_settings(TEST=False):
+        # Create real Kafka producer. Non-autocommit: the dagster job drives commit()/rollback() on this resource.
+        with persons_db_connection(writer=True) as persons_conn, override_settings(TEST=False):
             kafka_producer = _KafkaProducer(test=False)
 
             try:
@@ -6471,7 +6465,7 @@ class TestKafkaClickHouseRoundTrip:
                 kafka_producer.close()
 
         # Verify Postgres was updated
-        person.refresh_from_db()
+        refresh_person_from_persons_db(person)
         assert person.properties["email"] == "new@example.com", (
             f"Postgres email not updated. Expected 'new@example.com', got '{person.properties.get('email')}'"
         )
@@ -6695,13 +6689,10 @@ class TestKafkaClickHouseRoundTrip:
         cluster.any_host(insert_persons_ch_team2).result()
 
         # Run the Dagster job
-        from django.db import connections
+        from posthog.persons_db import persons_db_connection
 
-        from posthog.person_db_router import PERSONS_DB_FOR_WRITE
-
-        persons_conn = connections[PERSONS_DB_FOR_WRITE]
-
-        with override_settings(TEST=False):
+        # Non-autocommit: the dagster job drives commit()/rollback() on this resource connection.
+        with persons_db_connection(writer=True) as persons_conn, override_settings(TEST=False):
             kafka_producer = _KafkaProducer(test=False)
 
             try:
@@ -6744,7 +6735,7 @@ class TestKafkaClickHouseRoundTrip:
         # Verify team 1 results in Postgres
         for suffix, _person_ts, _event_ts, should_be_reconciled, prop_name in test_cases_team1:
             person = persons_team1[suffix]
-            person.refresh_from_db()
+            refresh_person_from_persons_db(person)
 
             if should_be_reconciled:
                 assert person.properties[prop_name] == "new_value", (
@@ -6762,7 +6753,7 @@ class TestKafkaClickHouseRoundTrip:
         # Verify team 2 results in Postgres
         for suffix, _person_ts, _event_ts, should_be_reconciled, prop_name in test_cases_team2:
             person = persons_team2[suffix]
-            person.refresh_from_db()
+            refresh_person_from_persons_db(person)
 
             if should_be_reconciled:
                 assert person.properties[prop_name] == "new_value", (

@@ -89,6 +89,8 @@ export const MOCK_DEFAULT_TEAM: TeamType = {
         maskAllInputs: true,
     },
     session_recording_retention_period: '30d',
+    event_retention_months: 84,
+    events_retention_enforced: false,
     session_replay_config: null,
     capture_console_log_opt_in: true,
     capture_performance_opt_in: true,

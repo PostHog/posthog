@@ -57,7 +57,10 @@ from posthog.clickhouse import query_tagging
 from posthog.clickhouse.query_tagging import QueryTags
 from posthog.hogql_queries.insights.trends.display import TrendsDisplay
 from posthog.hogql_queries.insights.trends.series_with_extras import SeriesWithExtras
-from posthog.hogql_queries.insights.trends.trend_validation_rules import ValidateDataWarehouseBreakdown
+from posthog.hogql_queries.insights.trends.trend_validation_rules import (
+    DisallowUnsupportedPropertyMathForHistogramBreakdown,
+    ValidateDataWarehouseBreakdown,
+)
 from posthog.hogql_queries.insights.trends.trends_actors_query_builder import TrendsActorsQueryBuilder
 from posthog.hogql_queries.insights.trends.trends_query_builder import TrendsQueryBuilder
 from posthog.hogql_queries.insights.utils.breakdowns import (
@@ -151,6 +154,7 @@ class TrendsQueryRunner(AnalyticsQueryRunner[TrendsQueryResponse]):
             RequireAtLeastOneSeries(),
             DisallowUnsupportedDataWarehouseSettings(),
             ValidateDataWarehouseBreakdown(),
+            DisallowUnsupportedPropertyMathForHistogramBreakdown(),
         )
 
     def _refresh_frequency(self):
@@ -775,7 +779,9 @@ class TrendsQueryRunner(AnalyticsQueryRunner[TrendsQueryResponse]):
     def _earliest_timestamp(self) -> datetime | None:
         if self.query.dateRange and self.query.dateRange.date_from == "all":
             # Get earliest timestamp across all series in this insight
-            return get_earliest_timestamp_from_series(team=self.team, series=[series.series for series in self.series])
+            return get_earliest_timestamp_from_series(
+                team=self.team, series=[series.series for series in self.series], user=self.user
+            )
 
         return None
 
@@ -1148,9 +1154,9 @@ class TrendsQueryRunner(AnalyticsQueryRunner[TrendsQueryResponse]):
 
             table_or_view = get_view_or_table_by_name(self.team, series.table_name)
 
-            if not table_or_view:
-                raise ValueError(f"Table {series.table_name} not found")
-            if table_or_view.columns is None:
+            # A DataWarehouseNode may target a native HogQL table (e.g. a preaggregated table) that has
+            # no warehouse-catalog entry — it's simply not a boolean breakdown field, so fall through.
+            if not table_or_view or table_or_view.columns is None:
                 return False
 
             breakdown_key = breakdown_value[0] if isinstance(breakdown_value, list) else breakdown_value

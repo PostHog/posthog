@@ -1,24 +1,10 @@
-// Shared building blocks for the CI run/job tables, used by both the PR detail page (a PR's workflow
-// runs, expandable to jobs) and the single workflow-run page (that run's jobs). Keeping them here means
-// the two surfaces read identically — a job row looks the same whether it's expanded under a run or
-// shown on the run's own page.
+// Shared status tags and cost formatters for the CI run/job tables (PR detail and workflow-run pages).
 
-import { ReactNode } from 'react'
+import { LemonTag } from '@posthog/lemon-ui'
 
-import { LemonTable, LemonTableColumns, LemonTag, LemonTagType } from '@posthog/lemon-ui'
-
-import { TZLabel } from 'lib/components/TZLabel'
-import { dayjs } from 'lib/dayjs'
 import { cn } from 'lib/utils/css-classes'
-import { humanFriendlyDuration } from 'lib/utils/durations'
 
-import type { WorkflowJobApi } from '../generated/api.schemas'
-import { jobCacheKey } from '../lib/jobs'
 import { verdictTag } from '../lib/runStatus'
-import { BillableBadge } from './BillableBadge'
-
-// A short item still shows next to a long one (durations span seconds → minutes).
-const MIN_BAR_PCT = 4
 
 const STATUS_DOT: Record<string, string> = {
     success: 'bg-success',
@@ -27,23 +13,15 @@ const STATUS_DOT: Record<string, string> = {
     muted: 'bg-muted',
 }
 
-/** Earliest start → latest finish (running items extend to now) over a set of start/finish pairs. */
-export function timeAxis(items: { startedAt: string | null; finishedAt: string | null }[]): {
-    axisStart: number | null
-    axisEnd: number | null
-} {
-    const starts = items
-        .map((i) => i.startedAt)
-        .filter((at): at is string => !!at)
-        .map((at) => dayjs(at).valueOf())
-    const ends = items
-        .map((i) => i.finishedAt ?? (i.startedAt ? dayjs().toISOString() : null))
-        .filter((at): at is string => !!at)
-        .map((at) => dayjs(at).valueOf())
-    return { axisStart: starts.length ? Math.min(...starts) : null, axisEnd: ends.length ? Math.max(...ends) : null }
+export function RunConclusionTag({ conclusion }: { conclusion: string | null }): JSX.Element {
+    if (conclusion == null) {
+        return <LemonTag type="completion">Running</LemonTag>
+    }
+    const tag = verdictTag(conclusion)
+    return <LemonTag type={tag.type}>{tag.label}</LemonTag>
 }
 
-/** Compact status: a colored dot + label rather than a boxed tag — far less noise down a long list. */
+/** Dot + label status — quieter than a boxed tag down a long list. */
 export function StatusDot({ conclusion }: { conclusion: string | null }): JSX.Element {
     const tag = verdictTag(conclusion)
     return (
@@ -54,306 +32,17 @@ export function StatusDot({ conclusion }: { conclusion: string | null }): JSX.El
     )
 }
 
-/**
- * A Gantt bar anchored to the real start time on a shared axis, sized by duration and colored by
- * verdict (failures tint red, everything else stays calm). A still-running bar extends to "now"; a
- * min width keeps short items visible next to long ones. The duration prints to the right.
- */
-export function GanttBar({
-    startedAt,
-    finishedAt,
-    durationSeconds,
-    conclusion,
-    axisStart,
-    axisEnd,
-}: {
-    startedAt: string | null
-    finishedAt: string | null
-    durationSeconds: number | null
-    conclusion: string | null
-    axisStart: number | null
-    axisEnd: number | null
-}): JSX.Element {
-    if (!startedAt || axisStart == null || axisEnd == null) {
-        return <span className="text-xs text-secondary">—</span>
-    }
-    const start = dayjs(startedAt).valueOf()
-    const end = finishedAt ? dayjs(finishedAt).valueOf() : dayjs().valueOf()
-    const span = Math.max(1, axisEnd - axisStart)
-    const left = Math.max(0, Math.min(100, ((start - axisStart) / span) * 100))
-    const width = Math.max(MIN_BAR_PCT, Math.min(100 - left, ((end - start) / span) * 100))
-    const isFailure = conclusion === 'failure' || conclusion === 'timed_out'
-    return (
-        <div className="flex items-center gap-2">
-            <div className="relative h-1.5 flex-1 overflow-hidden rounded-sm bg-border">
-                <div
-                    className={cn('absolute top-0 h-1.5 rounded-sm', isFailure ? 'bg-danger' : 'bg-muted')}
-                    style={{ left: `${left}%`, width: `${width}%` }}
-                />
-            </div>
-            <span className="w-14 shrink-0 text-right text-xs whitespace-nowrap tabular-nums text-secondary">
-                {durationSeconds == null ? '—' : humanFriendlyDuration(durationSeconds)}
-            </span>
-        </div>
-    )
-}
-
 export function formatCost(usd: number | null): string {
-    return usd == null ? '—' : `$${usd.toFixed(2)}`
+    if (usd == null) {
+        return '—'
+    }
+    // Positives under a cent show as "<$0.01" — "$0.00" would read as free.
+    if (usd > 0 && usd < 0.01) {
+        return '<$0.01'
+    }
+    return `$${usd.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
 }
 
 export function formatMinutes(minutes: number | null): string {
     return minutes == null ? '—' : `${Math.round(minutes).toLocaleString()} min`
-}
-
-// Muted grey for GitHub-hosted (free), blue for billable self-hosted — kept off the green/red verdict
-// palette so a runner badge never reads as a pass/fail status.
-const RUNNER_BADGE: Record<string, { label: string; type: LemonTagType }> = {
-    github_hosted: { label: 'GitHub', type: 'muted' },
-    self_hosted: { label: 'Self-hosted', type: 'primary' },
-    unknown: { label: 'Unknown', type: 'muted' },
-}
-
-/** Runner type badge: GitHub-hosted (free) vs self-hosted (billable), plus the tier (e.g. 16-core). */
-export function RunnerBadge({ provider, label }: { provider: string; label: string }): JSX.Element {
-    const badge = RUNNER_BADGE[provider] ?? RUNNER_BADGE.unknown
-    return (
-        <span className="flex items-center gap-1.5 whitespace-nowrap">
-            <LemonTag type={badge.type} size="small">
-                {badge.label}
-            </LemonTag>
-            {label && provider !== 'unknown' && <span className="font-mono text-xs text-secondary">{label}</span>}
-        </span>
-    )
-}
-
-/** GitHub-hosted runners are free (open source); self-hosted shows the modeled estimate. */
-function jobCostCell(job: WorkflowJobApi): JSX.Element {
-    if (job.runner_provider === 'github_hosted') {
-        return <span className="text-xs text-secondary">Free</span>
-    }
-    return <span className="text-xs tabular-nums">{formatCost(job.estimated_cost_usd)}</span>
-}
-
-/**
- * A workflow run's jobs: runner tier, Gantt timeline on the jobs' own axis, and est. cost. Used both
- * as the expanded-row content under a run in the PR view (`embedded`) and as the main content of the
- * single workflow-run page. ``jobs === undefined`` is the not-loaded state; ``[]`` means the job-level
- * source isn't synced for this team.
- */
-export function RunJobsTable({
-    jobs,
-    loading,
-    embedded = false,
-}: {
-    // null/undefined = not loaded (kea coerces an undefined loader default to null); [] = source unsynced.
-    jobs: WorkflowJobApi[] | null | undefined
-    loading: boolean
-    embedded?: boolean
-}): JSX.Element {
-    if (jobs == null) {
-        return <div className="px-3 py-2 text-xs text-secondary">{loading ? 'Loading jobs…' : 'No job data yet.'}</div>
-    }
-    if (jobs.length === 0) {
-        return (
-            <div className="px-3 py-2 text-xs text-secondary">
-                No job data yet — the job-level source isn't synced for this team.
-            </div>
-        )
-    }
-    // Jobs of one run share the run's window; anchor their bars to the jobs' own start→finish span.
-    const { axisStart, axisEnd } = timeAxis(
-        jobs.map((job) => ({ startedAt: job.started_at, finishedAt: job.completed_at }))
-    )
-    const jobColumns: LemonTableColumns<WorkflowJobApi> = [
-        { title: 'Job', key: 'name', render: (_, job) => <span className="font-medium">{job.name}</span> },
-        {
-            title: 'Status',
-            key: 'status',
-            width: 110,
-            render: (_, job) => <StatusDot conclusion={job.conclusion} />,
-        },
-        {
-            title: 'Runner',
-            key: 'runner',
-            width: 180,
-            render: (_, job) => <RunnerBadge provider={job.runner_provider} label={job.runner_label} />,
-        },
-        {
-            title: 'Timeline',
-            key: 'timeline',
-            width: 200,
-            render: (_, job) => (
-                <GanttBar
-                    startedAt={job.started_at}
-                    finishedAt={job.completed_at}
-                    durationSeconds={job.duration_seconds}
-                    conclusion={job.conclusion}
-                    axisStart={axisStart}
-                    axisEnd={axisEnd}
-                />
-            ),
-        },
-        {
-            title: 'Cost',
-            key: 'cost',
-            width: 90,
-            align: 'right',
-            render: (_, job) => jobCostCell(job),
-        },
-    ]
-    return (
-        <LemonTable
-            embedded={embedded}
-            size="small"
-            columns={jobColumns}
-            dataSource={jobs}
-            rowKey={(job) => job.id}
-            nouns={['job', 'jobs']}
-        />
-    )
-}
-
-// The minimum a run row needs to drive the shared columns + job expansion. Callers add their own lead
-// columns (the PR page leads with the commit; the workflow page leads with run id / branch / PR).
-export interface RunRowBase {
-    runId: number | null
-    runAttempt: number | null
-    conclusion: string | null
-    durationSeconds: number | null
-    startedAt: string | null
-}
-
-export interface RunsTableProps<T extends RunRowBase> {
-    runs: T[]
-    rowKey: (row: T) => string
-    /** Columns shown before the shared Verdict / Duration / Started / Cost columns. */
-    leadColumns: LemonTableColumns<T>
-    loading: boolean
-    // null/undefined per key = that run's jobs aren't loaded yet; lazily fetched on first expand.
-    runJobs: Record<string, WorkflowJobApi[]>
-    runJobsLoading: boolean
-    expandedKeys: string[]
-    setExpanded: (rowKey: string, expanded: boolean, runId: number | null, runAttempt: number | null) => void
-    /** Per-run cost keyed by jobCacheKey; pass with showCost to add the trailing Cost column. */
-    runCostByKey?: Record<string, { minutes: number | null; cost: number | null }>
-    showCost?: boolean
-    defaultSorting?: { columnKey: string; order: 1 | -1 }
-    emptyState?: ReactNode
-    dataAttr?: string
-}
-
-/**
- * A list of workflow runs, each expandable to its jobs (RunJobsTable) — the same row → jobs drill-down
- * on the PR detail page and the single-workflow page. The trailing columns (verdict, duration, started,
- * optional cost) and the expand-to-jobs behavior are shared; only the leading columns differ per caller.
- */
-export function RunsTable<T extends RunRowBase>({
-    runs,
-    rowKey,
-    leadColumns,
-    loading,
-    runJobs,
-    runJobsLoading,
-    expandedKeys,
-    setExpanded,
-    runCostByKey,
-    showCost = false,
-    defaultSorting = { columnKey: 'started', order: 1 },
-    emptyState = 'No CI runs match.',
-    dataAttr = 'engineering-analytics-runs-table',
-}: RunsTableProps<T>): JSX.Element {
-    const columns: LemonTableColumns<T> = [
-        ...leadColumns,
-        {
-            title: 'Verdict',
-            key: 'verdict',
-            width: 110,
-            sorter: (a, b) => verdictTag(a.conclusion).label.localeCompare(verdictTag(b.conclusion).label),
-            render: (_, run) => <StatusDot conclusion={run.conclusion} />,
-        },
-        {
-            title: 'Duration',
-            key: 'duration',
-            width: 90,
-            align: 'right',
-            sorter: (a, b) => (a.durationSeconds ?? -1) - (b.durationSeconds ?? -1),
-            render: (_, run) => (
-                <span className="text-xs tabular-nums whitespace-nowrap">
-                    {run.durationSeconds == null ? '—' : humanFriendlyDuration(run.durationSeconds)}
-                </span>
-            ),
-        },
-        {
-            title: 'Started',
-            key: 'started',
-            width: 130,
-            align: 'right',
-            sorter: (a, b) => (a.startedAt ?? '').localeCompare(b.startedAt ?? ''),
-            render: (_, run) =>
-                run.startedAt ? (
-                    <span className="text-xs whitespace-nowrap">
-                        <TZLabel time={run.startedAt} />
-                    </span>
-                ) : (
-                    <span className="text-xs text-secondary">—</span>
-                ),
-        },
-        // Per-run cost, trailing + right-aligned so it lines up with the job table below it — cost reads in
-        // the same spot at every depth instead of jumping across the row as you drill in.
-        ...((showCost
-            ? [
-                  {
-                      title: 'Cost',
-                      key: 'cost',
-                      width: 110,
-                      align: 'right',
-                      render: (_: unknown, run: T) => {
-                          const cost = run.runId != null ? runCostByKey?.[jobCacheKey(run.runId, run.runAttempt)] : null
-                          return <BillableBadge minutes={cost?.minutes ?? null} costUsd={cost?.cost ?? null} />
-                      },
-                  },
-              ]
-            : []) as LemonTableColumns<T>),
-    ]
-
-    return (
-        <LemonTable
-            data-attr={dataAttr}
-            size="small"
-            columns={columns}
-            dataSource={runs}
-            rowKey={rowKey}
-            loading={loading}
-            useURLForSorting={false}
-            defaultSorting={defaultSorting}
-            // Whole-row click toggles the job breakdown (the logs-viewer pattern); in-row links
-            // stopPropagation so they still navigate.
-            onRow={(run) =>
-                run.runId != null
-                    ? {
-                          className: 'cursor-pointer',
-                          onClick: () =>
-                              setExpanded(rowKey(run), !expandedKeys.includes(rowKey(run)), run.runId, run.runAttempt),
-                      }
-                    : {}
-            }
-            expandable={{
-                // Built-in compact toggle (chevron) + whole-row click. No onRowExpand/onRowCollapse so the
-                // toggle click just bubbles to onRow — one toggle, not two.
-                noIndent: true,
-                rowExpandable: (run) => run.runId != null,
-                isRowExpanded: (run) => expandedKeys.includes(rowKey(run)),
-                expandedRowRender: (run) => (
-                    <RunJobsTable
-                        jobs={run.runId != null ? runJobs[jobCacheKey(run.runId, run.runAttempt)] : undefined}
-                        loading={runJobsLoading}
-                        embedded
-                    />
-                ),
-            }}
-            emptyState={emptyState}
-            nouns={['workflow run', 'workflow runs']}
-        />
-    )
 }

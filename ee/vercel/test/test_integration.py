@@ -20,7 +20,7 @@ from products.experiments.backend.models.experiment import Experiment
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
 
 from ee.api.vercel.types import VercelUserClaims
-from ee.vercel.integration import VercelIntegration
+from ee.vercel.integration import VercelIntegration, _safe_vercel_sync
 
 
 class TestVercelIntegration(TestCase):
@@ -869,6 +869,38 @@ class TestVercelIntegration(TestCase):
         experiment.save()
 
         mock_sync.assert_called_once_with(experiment, False)
+
+    @parameterized.expand(
+        [
+            ("delete_skips_autocreate", True, False, 0),
+            ("sync_autocreates", False, True, 1),
+        ]
+    )
+    def test_safe_vercel_sync_only_autocreates_resource_on_sync(
+        self, _name, is_delete, should_create, expected_sync_calls
+    ):
+        team = Team.objects.create(organization=self.organization, name="No Resource Team")
+        sync_func = Mock()
+
+        _safe_vercel_sync("op", "item_1", team, sync_func, is_delete=is_delete)
+
+        created = Integration.objects.filter(team=team, kind=Integration.IntegrationKind.VERCEL).exists()
+        assert created is should_create
+        assert sync_func.call_count == expected_sync_calls
+
+    @patch("ee.vercel.integration.VercelAPIClient")
+    def test_feature_flag_post_delete_does_not_recreate_vercel_resource(self, _mock_client):
+        # Regression: project deletion looped forever. During the team-deletion cascade the team's Vercel
+        # resource is deleted before its feature flags, so each flag's post_delete auto-created a connectable
+        # Integration row for the team being deleted in the same atomic transaction — orphaning it and failing
+        # COMMIT with an IntegrityError on the team FK. The delete path must never auto-create a resource.
+        team = Team.objects.create(organization=self.organization, name="Doomed Team")
+        flag = FeatureFlag.objects.create(team=team, key="doomed-flag")
+        Integration.objects.filter(team=team, kind=Integration.IntegrationKind.VERCEL).delete()
+
+        flag.delete()
+
+        assert not Integration.objects.filter(team=team, kind=Integration.IntegrationKind.VERCEL).exists()
 
 
 class TestVercelInstallationRegressions(TestCase):

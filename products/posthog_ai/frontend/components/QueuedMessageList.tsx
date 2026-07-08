@@ -5,7 +5,7 @@ import { LemonButton, LemonTextArea } from '@posthog/lemon-ui'
 
 import type { QueuedMessage } from '../logics/runInteractionLogic'
 
-interface QueuedMessageListProps {
+export interface QueuedMessageListProps {
     messages: QueuedMessage[]
     onUpdate: (id: string, content: string) => void
     onRemove: (id: string) => void

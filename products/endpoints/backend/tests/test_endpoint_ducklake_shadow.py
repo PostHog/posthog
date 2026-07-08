@@ -8,8 +8,8 @@ from rest_framework.test import APIRequestFactory
 
 from posthog.ducklake.client import DuckLakeQueryResult
 
-from products.endpoints.backend.services import ducklake_shadow
-from products.endpoints.backend.services.execution import EndpointExecutionService
+from products.endpoints.backend.logic import ducklake_shadow
+from products.endpoints.backend.logic.execution import EndpointExecutionService
 from products.endpoints.backend.tests.conftest import create_endpoint_with_version
 
 pytestmark = [pytest.mark.django_db]
@@ -27,9 +27,9 @@ class TestShadowDispatch(APIBaseTest):
             status=status.HTTP_200_OK,
         )
 
-    @mock.patch("products.endpoints.backend.services.execution.shadow_compare_ducklake_execution")
+    @mock.patch("products.endpoints.backend.logic.execution.shadow_compare_ducklake_execution")
     @mock.patch(
-        "products.endpoints.backend.services.execution.EndpointExecutionService._should_shadow_ducklake",
+        "products.endpoints.backend.logic.execution.EndpointExecutionService._should_shadow_ducklake",
         return_value=True,
     )
     def test_dispatches_shadow_for_inline_execution(self, _mock_should, mock_task):
@@ -39,7 +39,7 @@ class TestShadowDispatch(APIBaseTest):
         version = endpoint.get_version()
 
         with mock.patch(
-            "products.endpoints.backend.services.execution.EndpointExecutionService._execute_inline_endpoint",
+            "products.endpoints.backend.logic.execution.EndpointExecutionService._execute_inline_endpoint",
             return_value=self._inline_response(),
         ):
             response = self.client.get(f"/api/environments/{self.team.id}/endpoints/shadow-inline/run/")
@@ -57,9 +57,9 @@ class TestShadowDispatch(APIBaseTest):
         assert kwargs["limit"] is None
         assert kwargs["offset"] is None
 
-    @mock.patch("products.endpoints.backend.services.execution.shadow_compare_ducklake_execution")
+    @mock.patch("products.endpoints.backend.logic.execution.shadow_compare_ducklake_execution")
     @mock.patch(
-        "products.endpoints.backend.services.execution.EndpointExecutionService._should_shadow_ducklake",
+        "products.endpoints.backend.logic.execution.EndpointExecutionService._should_shadow_ducklake",
         return_value=True,
     )
     def test_no_dispatch_on_cache_hit(self, _mock_should, mock_task):
@@ -70,7 +70,7 @@ class TestShadowDispatch(APIBaseTest):
         )
 
         with mock.patch(
-            "products.endpoints.backend.services.execution.EndpointExecutionService._execute_inline_endpoint",
+            "products.endpoints.backend.logic.execution.EndpointExecutionService._execute_inline_endpoint",
             return_value=cached,
         ):
             response = self.client.get(f"/api/environments/{self.team.id}/endpoints/shadow-cached/run/")
@@ -78,16 +78,16 @@ class TestShadowDispatch(APIBaseTest):
         assert response.status_code == status.HTTP_200_OK
         mock_task.delay.assert_not_called()
 
-    @mock.patch("products.endpoints.backend.services.execution.shadow_compare_ducklake_execution")
+    @mock.patch("products.endpoints.backend.logic.execution.shadow_compare_ducklake_execution")
     @mock.patch(
-        "products.endpoints.backend.services.execution.EndpointExecutionService._should_shadow_ducklake",
+        "products.endpoints.backend.logic.execution.EndpointExecutionService._should_shadow_ducklake",
         return_value=True,
     )
     def test_dispatch_propagates_pagination(self, _mock_should, mock_task):
         create_endpoint_with_version(name="shadow-paged", team=self.team, query=HOGQL_QUERY, created_by=self.user)
 
         with mock.patch(
-            "products.endpoints.backend.services.execution.EndpointExecutionService._execute_inline_endpoint",
+            "products.endpoints.backend.logic.execution.EndpointExecutionService._execute_inline_endpoint",
             return_value=self._inline_response(),
         ):
             response = self.client.post(
@@ -101,16 +101,16 @@ class TestShadowDispatch(APIBaseTest):
         assert kwargs["limit"] == 5
         assert kwargs["offset"] == 2
 
-    @mock.patch("products.endpoints.backend.services.execution.shadow_compare_ducklake_execution")
+    @mock.patch("products.endpoints.backend.logic.execution.shadow_compare_ducklake_execution")
     @mock.patch(
-        "products.endpoints.backend.services.execution.EndpointExecutionService._should_shadow_ducklake",
+        "products.endpoints.backend.logic.execution.EndpointExecutionService._should_shadow_ducklake",
         return_value=False,
     )
     def test_no_dispatch_when_flag_off(self, _mock_should, mock_task):
         create_endpoint_with_version(name="shadow-off", team=self.team, query=HOGQL_QUERY, created_by=self.user)
 
         with mock.patch(
-            "products.endpoints.backend.services.execution.EndpointExecutionService._execute_inline_endpoint",
+            "products.endpoints.backend.logic.execution.EndpointExecutionService._execute_inline_endpoint",
             return_value=self._inline_response(),
         ):
             response = self.client.get(f"/api/environments/{self.team.id}/endpoints/shadow-off/run/")
@@ -148,7 +148,7 @@ class TestShadowComparison(APIBaseTest):
             return_value=DuckLakeQueryResult(
                 columns=["cnt"], types=["20"], results=[[1]], sql="", hogql=None, connect_ms=8.0, query_ms=4.0
             ),
-        ):
+        ) as mock_execute:
             ducklake_shadow.run_ducklake_shadow_comparison(
                 team_id=self.team.pk,
                 endpoint_id=str(endpoint.id),
@@ -162,6 +162,7 @@ class TestShadowComparison(APIBaseTest):
                 offset=None,
             )
 
+        assert mock_execute.call_args.kwargs["bypass_warehouse_access_control"] is True
         assert len(captured) == 1
         assert captured[0]["event"] == ducklake_shadow.SHADOW_EVENT
         props = captured[0]["properties"]
@@ -293,7 +294,7 @@ class TestShouldShadowDucklake(APIBaseTest):
         )
         assert self._service()._should_shadow_ducklake(endpoint, endpoint.get_version()) is False
 
-    @mock.patch("products.endpoints.backend.services.execution.is_dev_mode", return_value=True)
+    @mock.patch("products.endpoints.backend.logic.execution.is_dev_mode", return_value=True)
     def test_shadows_in_local_dev(self, _mock_dev):
         endpoint = create_endpoint_with_version(
             name="should-shadow-dev", team=self.team, query=HOGQL_QUERY, created_by=self.user
@@ -301,7 +302,7 @@ class TestShouldShadowDucklake(APIBaseTest):
         with self.settings(TEST=False):
             assert self._service()._should_shadow_ducklake(endpoint, endpoint.get_version()) is True
 
-    @mock.patch("products.endpoints.backend.services.execution.is_dev_mode", return_value=True)
+    @mock.patch("products.endpoints.backend.logic.execution.is_dev_mode", return_value=True)
     def test_no_shadow_for_non_hogql_query(self, _mock_dev):
         endpoint = create_endpoint_with_version(
             name="should-shadow-trends", team=self.team, query=TRENDS_QUERY, created_by=self.user
@@ -309,8 +310,8 @@ class TestShouldShadowDucklake(APIBaseTest):
         with self.settings(TEST=False):
             assert self._service()._should_shadow_ducklake(endpoint, endpoint.get_version()) is False
 
-    @mock.patch("products.endpoints.backend.services.execution.is_dev_mode", return_value=False)
-    @mock.patch("products.endpoints.backend.services.execution.posthoganalytics.feature_enabled")
+    @mock.patch("products.endpoints.backend.logic.execution.is_dev_mode", return_value=False)
+    @mock.patch("products.endpoints.backend.logic.execution.posthoganalytics.feature_enabled")
     def test_shadows_in_prod_when_flag_enabled(self, mock_flag, _mock_dev):
         endpoint = create_endpoint_with_version(
             name="should-shadow-flag", team=self.team, query=HOGQL_QUERY, created_by=self.user

@@ -19,14 +19,7 @@ import {
 import { initKeaTests } from '~/test/init'
 import { Experiment, MultivariateFlagVariant } from '~/types'
 
-import {
-    ExperimentSavedMetric,
-    ExperimentWarning,
-    classifyError,
-    experimentLogic,
-    extractErrorDetailString,
-    getDisplayOrderedIndices,
-} from './experimentLogic'
+import { ExperimentSavedMetric, ExperimentWarning, experimentLogic, getDisplayOrderedIndices } from './experimentLogic'
 
 jest.mock('lib/lemon-ui/LemonToast/LemonToast', () => ({
     lemonToast: {
@@ -1406,6 +1399,7 @@ describe('experimentLogic', () => {
             expect(createSpy).toHaveBeenCalledWith(expect.stringContaining(`/experiments/${experiment.id}/end`), {
                 conclusion: 'won',
                 conclusion_comment: 'Test variant won clearly',
+                open_cleanup_pr: false,
             })
 
             // Post-condition: experiment is ended
@@ -1500,6 +1494,7 @@ describe('experimentLogic', () => {
                     release_to_everyone: false,
                     conclusion: 'won',
                     conclusion_comment: 'Test variant won clearly',
+                    open_cleanup_pr: false,
                 }
             )
 
@@ -1927,110 +1922,15 @@ describe('experimentLogic', () => {
         })
     })
 
-    describe('classifyError', () => {
-        it.each([
-            // [description, errorDetail, errorMessage, errorCode, statusCode, expected]
-            ['504 gateway timeout', null, null, null, 504, 'timeout'],
-            ['408 request timeout', null, null, null, 408, 'timeout'],
-            ['query timeout body marker', 'Query timed out', null, null, 200, 'timeout'],
-            ['memory-limit error code', null, null, 'memory_limit_exceeded', 500, 'out_of_memory'],
-            ['OOM message pattern', null, 'Memory limit exceeded while running', null, 500, 'out_of_memory'],
-            ['generic 500', null, null, null, 500, 'server_error'],
-            ['503 unavailable', null, null, null, 503, 'server_error'],
-            ['status 0 is network', null, null, null, 0, 'network_error'],
-            ['TypeError: Failed to fetch', null, 'TypeError: Failed to fetch', null, null, 'network_error'],
-            ['TypeError: Load failed', null, 'TypeError: Load failed', null, null, 'network_error'],
-            [
-                "TypeError: Failed to execute 'fetch'",
-                null,
-                "TypeError: Failed to execute 'fetch' on 'Window'",
-                null,
-                null,
-                'network_error',
-            ],
-            ['NetworkError with null status', null, 'NetworkError when fetching', null, null, 'network_error'],
-            ['404 not_found', null, 'Experiment with id 123 not found', 'not_found', 404, 'not_found'],
-            ['401 unauthenticated', null, null, null, 401, 'authentication'],
-            ['403 not_authenticated code', null, null, 'not_authenticated', 403, 'authentication'],
-            ['403 permission_denied', null, null, 'permission_denied', 403, 'authorization'],
-            ['plain 403', null, null, null, 403, 'authorization'],
-            ['400 parse_error', null, null, 'parse_error', 400, 'validation_error'],
-            ['400 invalid_input', null, null, 'invalid_input', 400, 'validation_error'],
-            ['null status, no marker', null, 'Something odd', null, null, 'unknown'],
-            ['418 teapot falls through', null, null, null, 418, 'unknown'],
-        ] as const)('%s', (_desc, errorDetail, errorMessage, errorCode, statusCode, expected) => {
-            expect(classifyError(errorDetail, errorMessage, errorCode, statusCode)).toEqual(expected)
-        })
-
-        it('prefers timeout over 5xx server_error (504 overlap)', () => {
-            expect(classifyError(null, null, null, 504)).toEqual('timeout')
-        })
-
-        it('prefers out_of_memory over generic server_error', () => {
-            expect(classifyError(null, null, 'query_memory_limit_exceeded', 500)).toEqual('out_of_memory')
-        })
-
-        it('does not treat fetch-style messages as network errors when an HTTP status was returned', () => {
-            // A 400 response whose body happens to mention "Failed to fetch" should still classify by status, not network.
-            expect(classifyError(null, 'Failed to fetch remote config', null, 400)).toEqual('validation_error')
-        })
-    })
-
-    describe('extractErrorDetailString', () => {
-        it.each([
-            ['null → null', null, null],
-            ['undefined → null', undefined, null],
-            ['string passes through', 'Experiment with id 79259 not found', 'Experiment with id 79259 not found'],
-            ['DRF {detail: "..."} unwraps the inner string', { detail: 'Not found.' }, 'Not found.'],
-            [
-                'object without string detail falls back to JSON',
-                { 'no-exposures': true, 'no-control-variant': false },
-                '{"no-exposures":true,"no-control-variant":false}',
-            ],
-            [
-                'nested detail that is not a string falls back to JSON',
-                { detail: { nested: 1 } },
-                '{"detail":{"nested":1}}',
-            ],
-            ['array falls back to JSON', [1, 2, 3], '[1,2,3]'],
-        ] as const)('%s', (_desc, input, expected) => {
-            expect(extractErrorDetailString(input)).toEqual(expected)
-        })
-
-        it('returns null for values that cannot be stringified (circular refs)', () => {
-            const circular: Record<string, unknown> = {}
-            circular.self = circular
-            expect(extractErrorDetailString(circular)).toBeNull()
-        })
-    })
-
     describe('excluded variants', () => {
-        it('excludedVariants selector reads the excluded_variants column first', async () => {
+        it('excludedVariants selector reads the excluded_variants column', async () => {
             await expectLogic(logic, () => {
                 logic.actions.setExperiment({
                     ...experiment,
                     excluded_variants: ['test-3'],
-                    parameters: {
-                        ...experiment.parameters,
-                        excluded_variants: ['test-2'],
-                    },
                 })
             }).toMatchValues({
                 excludedVariants: ['test-3'],
-            })
-        })
-
-        it('excludedVariants selector falls back to parameters.excluded_variants', async () => {
-            await expectLogic(logic, () => {
-                logic.actions.setExperiment({
-                    ...experiment,
-                    parameters: {
-                        ...experiment.parameters,
-                        excluded_variants: ['test-2'],
-                    },
-                })
-            }).toMatchValues({
-                excludedVariants: ['test-2'],
             })
         })
 
@@ -2073,10 +1973,7 @@ describe('experimentLogic', () => {
             await expectLogic(logic, () => {
                 logic.actions.setExperiment({
                     ...experiment,
-                    parameters: {
-                        ...experiment.parameters,
-                        excluded_variants: ['test-1', 'test-2'],
-                    },
+                    excluded_variants: ['test-1', 'test-2'],
                 })
             }).toMatchValues({
                 excludedVariants: ['test-1', 'test-2'],

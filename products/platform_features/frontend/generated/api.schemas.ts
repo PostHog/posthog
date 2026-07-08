@@ -316,7 +316,7 @@ export interface OrganizationMemberApi {
     readonly is_2fa_enabled: boolean
     readonly has_social_auth: boolean
     readonly last_login: string
-    /** How this row matched the `search` query parameter: `exact` (the term is a case-insensitive substring of a searched field) or `similar` (a fuzzy trigram match only). Results are ordered exact-first. Null when the list is not filtered by `search`. */
+    /** How this row matched the `search` query parameter: `exact` (the term is a case-insensitive substring of a searched field) or `similar` (a fuzzy trigram match, returned only when no exact match exists). Null when the list is not filtered by `search`. */
     readonly search_match_type: SearchMatchTypeEnumApi | null
 }
 
@@ -338,8 +338,16 @@ export interface PatchedOrganizationMemberApi {
     readonly is_2fa_enabled?: boolean
     readonly has_social_auth?: boolean
     readonly last_login?: string
-    /** How this row matched the `search` query parameter: `exact` (the term is a case-insensitive substring of a searched field) or `similar` (a fuzzy trigram match only). Results are ordered exact-first. Null when the list is not filtered by `search`. */
+    /** How this row matched the `search` query parameter: `exact` (the term is a case-insensitive substring of a searched field) or `similar` (a fuzzy trigram match, returned only when no exact match exists). Null when the list is not filtered by `search`. */
     readonly search_match_type?: SearchMatchTypeEnumApi | null
+}
+
+export interface OrganizationMemberGithubLoginApi {
+    /**
+     * The member's GitHub username (login), resolved from their linked GitHub integration or OAuth identity. Null when the member has no GitHub identity linked.
+     * @nullable
+     */
+    github_login: string | null
 }
 
 export interface OrganizationPersonalAPIKeyOwnerApi {
@@ -864,7 +872,7 @@ export type MembersListParams = {
      */
     order?: string
     /**
-     * Match against member `first_name`, `last_name`, and `email`. Returns case-insensitive substring matches and fuzzy trigram matches (typos, prefix-as-you-type) together, ordered exact-first; each result's `search_match_type` is `exact` or `similar`. Capped at 200 characters.
+     * Match against member `first_name`, `last_name`, and `email`. Returns exact (case-insensitive substring) matches only; if no exact match exists, returns similar (fuzzy trigram — typos, prefix-as-you-type) matches instead. Each result's `search_match_type` is `exact` or `similar`. Capped at 200 characters.
      */
     search?: string
 }
@@ -976,6 +984,7 @@ export type ActivityLogListParams = {
      * * `ExternalDataSchema` - ExternalDataSchema
      * * `Evaluation` - Evaluation
      * * `LLMTrace` - LLMTrace
+     * * `AIGatewayCredit` - AIGatewayCredit
      * * `WebAnalyticsFilterPreset` - WebAnalyticsFilterPreset
      * * `CustomerProfileConfig` - CustomerProfileConfig
      * * `Log` - Log
@@ -985,6 +994,7 @@ export type ActivityLogListParams = {
      * * `ProductTour` - ProductTour
      * * `Ticket` - Ticket
      * * `InstanceSetting` - InstanceSetting
+     * * `SignalReport` - SignalReport
      * * `SignalScoutConfig` - SignalScoutConfig
      * @minLength 1
      */
@@ -1056,6 +1066,7 @@ export const ActivityLogListScope = {
     ExternalDataSchema: 'ExternalDataSchema',
     Evaluation: 'Evaluation',
     LLMTrace: 'LLMTrace',
+    AIGatewayCredit: 'AIGatewayCredit',
     WebAnalyticsFilterPreset: 'WebAnalyticsFilterPreset',
     CustomerProfileConfig: 'CustomerProfileConfig',
     Log: 'Log',
@@ -1065,6 +1076,7 @@ export const ActivityLogListScope = {
     ProductTour: 'ProductTour',
     Ticket: 'Ticket',
     InstanceSetting: 'InstanceSetting',
+    SignalReport: 'SignalReport',
     SignalScoutConfig: 'SignalScoutConfig',
 } as const
 
@@ -1123,6 +1135,7 @@ export const ActivityLogListScope = {
  * * `ExternalDataSchema` - ExternalDataSchema
  * * `Evaluation` - Evaluation
  * * `LLMTrace` - LLMTrace
+ * * `AIGatewayCredit` - AIGatewayCredit
  * * `WebAnalyticsFilterPreset` - WebAnalyticsFilterPreset
  * * `CustomerProfileConfig` - CustomerProfileConfig
  * * `Log` - Log
@@ -1132,6 +1145,7 @@ export const ActivityLogListScope = {
  * * `ProductTour` - ProductTour
  * * `Ticket` - Ticket
  * * `InstanceSetting` - InstanceSetting
+ * * `SignalReport` - SignalReport
  * * `SignalScoutConfig` - SignalScoutConfig
  */
 export type ActivityLogListScopesItem = (typeof ActivityLogListScopesItem)[keyof typeof ActivityLogListScopesItem]
@@ -1191,6 +1205,7 @@ export const ActivityLogListScopesItem = {
     ExternalDataSchema: 'ExternalDataSchema',
     Evaluation: 'Evaluation',
     LLMTrace: 'LLMTrace',
+    AIGatewayCredit: 'AIGatewayCredit',
     WebAnalyticsFilterPreset: 'WebAnalyticsFilterPreset',
     CustomerProfileConfig: 'CustomerProfileConfig',
     Log: 'Log',
@@ -1200,6 +1215,7 @@ export const ActivityLogListScopesItem = {
     ProductTour: 'ProductTour',
     Ticket: 'Ticket',
     InstanceSetting: 'InstanceSetting',
+    SignalReport: 'SignalReport',
     SignalScoutConfig: 'SignalScoutConfig',
 } as const
 

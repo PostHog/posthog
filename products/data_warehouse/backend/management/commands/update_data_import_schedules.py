@@ -7,7 +7,7 @@ from django.core.management.base import BaseCommand, CommandError
 import structlog
 
 from products.data_warehouse.backend.logic.data_load.service import bulk_update_external_data_job_schedules
-from products.warehouse_sources.backend.models.external_data_schema import (
+from products.warehouse_sources.backend.facade.models import (
     ExternalDataSchema,
     sync_frequency_to_sync_frequency_interval,
 )

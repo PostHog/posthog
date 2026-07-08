@@ -26,6 +26,7 @@ import {
     IconHeart,
     IconHeartFilled,
     IconStickiness,
+    IconTrash,
     IconTrends,
     IconUserPaths,
     IconVideoCamera,
@@ -510,6 +511,11 @@ export const QUERY_TYPES_METADATA: Record<NodeKind, InsightTypeMetadata> = {
         icon: IconLlmAnalytics,
         inMenu: false,
     },
+    [NodeKind.SessionQuery]: {
+        name: 'AI observability session',
+        icon: IconLlmAnalytics,
+        inMenu: false,
+    },
     [NodeKind.TraceNeighborsQuery]: {
         name: 'AI observability trace neighbors',
         icon: IconLlmAnalytics,
@@ -630,6 +636,36 @@ export const QUERY_TYPES_METADATA: Record<NodeKind, InsightTypeMetadata> = {
     [NodeKind.MCPHarnessBreakdownQuery]: {
         name: 'MCP harness breakdown',
         description: 'MCP tool-call activity grouped by client harness.',
+        icon: IconPieChart,
+        inMenu: false,
+    },
+    [NodeKind.MCPToolSampleIntentsQuery]: {
+        name: 'MCP tool sample intents',
+        description: 'Recent sampled intents for a single MCP tool.',
+        icon: IconPieChart,
+        inMenu: false,
+    },
+    [NodeKind.MCPToolNeighborsQuery]: {
+        name: 'MCP tool neighbors',
+        description: 'Tools called adjacent to a single MCP tool within a conversation.',
+        icon: IconPieChart,
+        inMenu: false,
+    },
+    [NodeKind.MCPToolStatsQuery]: {
+        name: 'MCP tool stats',
+        description: 'Summary stats for a single MCP tool.',
+        icon: IconPieChart,
+        inMenu: false,
+    },
+    [NodeKind.MCPToolDailyStatsQuery]: {
+        name: 'MCP tool daily stats',
+        description: 'Per-day activity for a single MCP tool.',
+        icon: IconPieChart,
+        inMenu: false,
+    },
+    [NodeKind.MCPToolDescriptionsQuery]: {
+        name: 'MCP tool descriptions',
+        description: 'Reported descriptions for a single MCP tool.',
         icon: IconPieChart,
         inMenu: false,
     },
@@ -788,10 +824,24 @@ export function NewInsightButton(): JSX.Element {
 }
 
 export function SavedInsights(): JSX.Element {
-    const { loadInsights, updateFavoritedInsight, renameInsight, duplicateInsight, setSavedInsightsFilters } =
-        useActions(savedInsightsLogic)
-    const { insights, insightsLoading, filters, sorting, pagination, alertModalId, usingFilters } =
-        useValues(savedInsightsLogic)
+    const {
+        loadInsights,
+        updateFavoritedInsight,
+        renameInsight,
+        duplicateInsight,
+        setSavedInsightsFilters,
+        bulkDeleteInsights,
+    } = useActions(savedInsightsLogic)
+    const {
+        insights,
+        insightsLoading,
+        filters,
+        sorting,
+        pagination,
+        alertModalId,
+        usingFilters,
+        bulkDeleteResponseLoading,
+    } = useValues(savedInsightsLogic)
 
     const { currentProjectId } = useValues(projectLogic)
     const summarizeInsight = useSummarizeInsight()
@@ -1083,14 +1133,44 @@ export function SavedInsights(): JSX.Element {
                                 `Select insight ${insight.name || 'Untitled'}`,
                             headerAriaLabel: 'Select all insights on this page',
                             renderActions: (ctx) => (
-                                <BulkUpdateTagsButton
-                                    resource="insights"
-                                    selectedIds={ctx.selectedKeys}
-                                    onSuccess={() => {
-                                        ctx.clearSelection()
-                                        loadInsights()
-                                    }}
-                                />
+                                <>
+                                    <BulkUpdateTagsButton
+                                        resource="insights"
+                                        selectedIds={ctx.selectedKeys}
+                                        onSuccess={() => {
+                                            ctx.clearSelection()
+                                            loadInsights()
+                                        }}
+                                    />
+                                    <LemonButton
+                                        type="primary"
+                                        status="danger"
+                                        size="small"
+                                        icon={<IconTrash />}
+                                        loading={bulkDeleteResponseLoading}
+                                        onClick={() => {
+                                            const count = ctx.selectedCount
+                                            const noun = count === 1 ? 'insight' : 'insights'
+                                            LemonDialog.open({
+                                                title: `Delete ${count} ${noun}?`,
+                                                description: `Are you sure you want to delete ${count} ${noun}? This action can be undone.`,
+                                                primaryButton: {
+                                                    children: 'Delete',
+                                                    status: 'danger',
+                                                    onClick: () => {
+                                                        bulkDeleteInsights({ ids: [...ctx.selectedKeys] })
+                                                        ctx.clearSelection()
+                                                    },
+                                                },
+                                                secondaryButton: {
+                                                    children: 'Cancel',
+                                                },
+                                            })
+                                        }}
+                                    >
+                                        Delete selected
+                                    </LemonButton>
+                                </>
                             ),
                         }}
                     />

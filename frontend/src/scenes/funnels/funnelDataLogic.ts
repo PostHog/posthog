@@ -50,6 +50,8 @@ import {
     aggregationLabelForHogQL,
     dimPreviousPeriodColor,
     flattenedStepsByBreakdown,
+    flattenedStepsByBreakdownCompare,
+    flattenedStepsByCompare,
     getIncompleteConversionWindowStartDate,
     getLastFilledStep,
     getReferenceStep,
@@ -476,19 +478,14 @@ export const funnelDataLogic = kea<funnelDataLogicType>([
                 isComparedFunnel: boolean,
                 isBreakdownCompareFunnel: boolean
             ): FlattenedFunnelStepByBreakdown[] => {
-                // Pure compare's current/previous bars are not breakdown values — no breakdown table.
-                if (isComparedFunnel && !isBreakdownCompareFunnel) {
-                    return []
-                }
-                // Breakdown + compare: build the table from the current-period bars so each real
-                // breakdown value yields one row (not one row per period).
-                const tableSteps = isBreakdownCompareFunnel
-                    ? steps.map((step) => ({
-                          ...step,
-                          nested_breakdown: step.nested_breakdown?.filter((b) => b.compare_label !== 'previous'),
-                      }))
-                    : steps
-                const breakdowns = flattenedStepsByBreakdown(tableSteps, funnelsFilter?.layout, disableBaseline, true)
+                // Pure compare's current/previous bars are not breakdown values — one baseline row
+                // per period. Breakdown × compare doubles every row into interleaved period pairs.
+                const breakdowns =
+                    isComparedFunnel && !isBreakdownCompareFunnel
+                        ? flattenedStepsByCompare(steps)
+                        : isBreakdownCompareFunnel
+                          ? flattenedStepsByBreakdownCompare(steps, funnelsFilter?.layout, disableBaseline)
+                          : flattenedStepsByBreakdown(steps, funnelsFilter?.layout, disableBaseline, true)
                 if (!breakdownSorting) {
                     return breakdowns
                 }
@@ -531,18 +528,45 @@ export const funnelDataLogic = kea<funnelDataLogicType>([
                 if (isComparedFunnel && !isBreakdownCompareFunnel) {
                     return steps
                 }
-                const isOnlySeries = flattenedBreakdowns.length <= 1
-                // Breakdown + compare: apply hidden-legend filtering by real breakdown value, but keep
-                // the grouped current/previous pairing and the shared per-value orders that drive the
-                // bar colors — don't run the baseline-prepend / order-remap path below.
+                // Count values, not rows — compare doubles rows per period, and a single-value
+                // breakdown × compare funnel must not flip into multi-series hidden-legend filtering.
+                const isOnlySeries = flattenedBreakdowns.filter((b) => b.compare_label !== 'previous').length <= 1
+                // Breakdown + compare: draw the per-period baseline pair (kept in flattenedBreakdowns)
+                // as the leading grouped bars — same as the plain-breakdown path below — and shift every
+                // real value's color position past the baseline's single slot so the chart bar colors
+                // line up with the detailed-results table. Preserve the grouped current/previous pairing
+                // and per-value orders (both periods of a value share one order, hence one color).
                 if (isBreakdownCompareFunnel) {
-                    return steps.map((step) => ({
-                        ...step,
-                        nested_breakdown: step.nested_breakdown?.filter(
-                            (b) =>
-                                isOnlySeries || !hiddenLegendBreakdowns?.includes(getVisibilityKey(b.breakdown_value))
-                        ),
-                    }))
+                    const baselineRows = flattenedBreakdowns.filter((b) => b.isBaseline)
+                    const baselineOffset = baselineRows.length > 0 ? 1 : 0
+                    // Size each baseline bar by its period's share of the larger period (the larger fills,
+                    // the smaller is proportionally shorter) — matching how the value and pure-compare bars
+                    // are scaled, so the previous baseline isn't drawn at full height.
+                    const compareBasis = Math.max(0, ...baselineRows.map((row) => row.steps?.[0]?.count ?? 0))
+                    return steps.map((step, stepIndex) => {
+                        const baselineEntries = baselineRows
+                            .map((row) => row.steps?.[stepIndex])
+                            .filter((s): s is FunnelStepWithConversionMetrics => s != null)
+                            .map((s) => ({
+                                ...s,
+                                order: 0,
+                                conversionRates: {
+                                    ...s.conversionRates,
+                                    fromBasisStep: compareBasis > 0 ? s.count / compareBasis : 0,
+                                },
+                            }))
+                        const valueEntries = (step.nested_breakdown ?? [])
+                            .filter(
+                                (b) =>
+                                    isOnlySeries ||
+                                    !hiddenLegendBreakdowns?.includes(getVisibilityKey(b.breakdown_value))
+                            )
+                            .map((b) => ({ ...b, order: (b.order ?? 0) + baselineOffset }))
+                        return {
+                            ...step,
+                            nested_breakdown: [...baselineEntries, ...valueEntries],
+                        }
+                    })
                 }
                 const baseLineSteps = flattenedBreakdowns.find((b) => b.isBaseline)
 

@@ -115,6 +115,7 @@ class TestSendSlackNotification:
         assert header_block["type"] == "section"
         header_text = header_block["text"]["text"]
         assert "Unsuccessful" in header_text
+        assert "main lane" in header_text
 
     @patch("posthog.temporal.ingestion_acceptance_test.slack.requests.post")
     def test_payload_contains_summary_with_counts(
@@ -204,6 +205,7 @@ class TestSendSlackTimeoutNotification:
         payload = mock_post.call_args[1]["json"]
         header_text = payload["blocks"][0]["text"]["text"]
         assert "Timed Out" in header_text
+        assert "main lane" in header_text
 
     @patch("posthog.temporal.ingestion_acceptance_test.slack.requests.post")
     def test_payload_contains_environment_timeout_and_token_info(self, mock_post: MagicMock, config: Config) -> None:

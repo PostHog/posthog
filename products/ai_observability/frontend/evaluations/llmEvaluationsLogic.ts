@@ -93,6 +93,7 @@ export const llmEvaluationsLogic = kea<llmEvaluationsLogicType>([
                                   // Keep status in sync so the list-column pill updates optimistically.
                                   status: !e.enabled ? 'active' : 'paused',
                                   status_reason: null,
+                                  status_reason_detail: null,
                               }
                             : e
                     ),

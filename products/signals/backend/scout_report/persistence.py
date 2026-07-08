@@ -205,8 +205,14 @@ def create_scout_report(
     # Sequential (not on_commit) so the call is observable and so a Kafka failure surfaces to the
     # caller rather than being swallowed by a commit hook.
     if emit_signals:
+        # Stamp the authoring scout onto every backing signal so the inbox can render "Scout · <name>"
+        # on the evidence card + header, matching the emit_signal path. `run` is the single place the
+        # skill_name is available (bound signals otherwise ship empty extra, see `_build_signals`).
+        skill_name = run.skill_name if run is not None else None
         for signal, document_id in zip(signals, document_ids):
-            _emit_bound_signal(team_id=team_id, report_id=report_id, signal=signal, document_id=document_id)
+            _emit_bound_signal(
+                team_id=team_id, report_id=report_id, signal=signal, document_id=document_id, skill_name=skill_name
+            )
 
     if run is not None:
         _record_report_emit(team_id=team_id, run_id=run.id, report_id=report_id)
@@ -303,6 +309,55 @@ def append_report_note(
     return report_id
 
 
+def set_scout_report_reviewers(
+    *,
+    team_id: int,
+    report_id: str,
+    suggested_reviewers: SuggestedReviewers,
+    attribution: ArtefactAttribution,
+    author: str | None = None,
+) -> bool:
+    """Replace an existing report's `suggested_reviewers` status artefact (latest-wins) — the
+    `edit_report` reviewer path. Returns True when reviewers were written, False when the supplied list
+    is empty (a no-op that leaves any existing reviewers untouched, never silently clears them).
+
+    Team-scoped fail-closed: a `report_id` the team doesn't own raises. `edit_report` can target ANY
+    inbox report (pipeline-authored included), so the change is attributed (to the scout's task) and an
+    audit note is logged, keeping it auditable and distinguishable from pipeline output.
+
+    The append opts out of the model's autostart re-eval hook (`reevaluate_autostart=False`); the caller
+    (`_do_edit_report`) fires `maybe_autostart_from_report_artefacts` after this returns — never in-txn,
+    since it spawns a Task — mirroring `create_scout_report`. Autostart is idempotent, so re-running it
+    for an already-started report no-ops, while a report that lacked a qualifying reviewer can now open a
+    draft PR."""
+    _validate_report_id(report_id)
+    if len(suggested_reviewers.root) == 0:
+        return False
+    logins = [entry.github_login for entry in suggested_reviewers.root]
+    with transaction.atomic():
+        # Existence is the team-scoped gate; the artefact append itself is keyed by report_id.
+        if not SignalReport.objects.filter(team_id=team_id, id=report_id).exists():
+            raise InvalidScoutReportError(f"report {report_id} not found for team {team_id}")
+        SignalReportArtefact.append_status(
+            team_id=team_id,
+            report_id=report_id,
+            content=suggested_reviewers,
+            attribution=attribution,
+            reevaluate_autostart=False,
+        )
+        SignalReportArtefact.add_log(
+            team_id=team_id,
+            report_id=report_id,
+            content=NoteArtefact(note=f"Set suggested reviewers: {', '.join(logins)}", author=author),
+            attribution=attribution,
+        )
+    logger.info(
+        "signals_scout.edit_report: reviewers set",
+        extra={"team_id": team_id, "report_id": report_id, "reviewers": logins},
+    )
+    return True
+
+
 def soft_delete_scout_signal(
     *,
     team_id: int,
@@ -349,12 +404,15 @@ def _emit_bound_signal(
     report_id: str,
     signal: ScoutReportSignal,
     document_id: str,
+    skill_name: str | None = None,
 ) -> None:
     """Write one backing signal row to `document_embeddings`, mirroring `assign_and_emit_signal_activity`
-    minus the matcher. `report_id` in metadata is what binds it to the report on the read side."""
-    metadata = _signal_metadata(
-        report_id=report_id, source_id=signal.source_id, weight=signal.weight, extra=signal.extra
-    )
+    minus the matcher. `report_id` in metadata is what binds it to the report on the read side.
+
+    `skill_name`, when set, is merged into the signal's `extra` so the read side knows which scout
+    authored the finding (the inbox renders it as "Scout · <name>")."""
+    extra = {**signal.extra, "skill_name": skill_name} if skill_name else signal.extra
+    metadata = _signal_metadata(report_id=report_id, source_id=signal.source_id, weight=signal.weight, extra=extra)
     emit_embedding_request(
         content=signal.description,
         team_id=team_id,
@@ -401,6 +459,33 @@ def _record_report_emit(*, team_id: int, run_id: uuid.UUID, report_id: str) -> N
             run.save(update_fields=["emitted_report_ids"])
     except Exception:
         logger.exception("signals_scout.emit_report: failed to record report emit for run %s", run_id)
+
+
+def record_report_edit(*, team_id: int, run_id: uuid.UUID, report_id: str) -> None:
+    """Append `report_id` to the run's `edited_report_ids` tally so "which reports did this run edit?" is a
+    column lookup — the edit-channel counterpart to `_record_report_emit`. Public (unlike its emit
+    counterpart) because the edit channel records from the tool layer: one `edit_report` call is one
+    logical "run edited this report" event, so `_do_edit_report` calls this across the module boundary
+    rather than threading a run through `update_scout_report` / `append_report_note`. Deduped: a run that
+    edits the same report twice records it once (the per-edit detail lives in the report's artefact log).
+    Best-effort
+    and observability only: the edit has already committed by the time this runs, so any failure here is
+    swallowed rather than surfaced as a false edit failure. Runs under `select_for_update` so the
+    read-modify-write on the JSON list is safe, and scopes the lookup to `team_id` via the fail-closed
+    manager so the tally write can never touch a foreign team's run."""
+    try:
+        with transaction.atomic():
+            run = SignalScoutRun.objects.for_team(team_id).select_for_update().filter(pk=run_id).first()
+            if run is None:
+                logger.warning("signals_scout.edit_report: run %s gone, skipping edit tally", run_id)
+                return
+            existing = run.edited_report_ids or []
+            if report_id in existing:
+                return
+            run.edited_report_ids = [*existing, report_id]
+            run.save(update_fields=["edited_report_ids"])
+    except Exception:
+        logger.exception("signals_scout.edit_report: failed to record report edit for run %s", run_id)
 
 
 def _provenance_note_text(run: SignalScoutRun | None) -> str:

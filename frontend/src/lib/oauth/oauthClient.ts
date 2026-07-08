@@ -154,7 +154,7 @@ export async function buildAuthorizeUrl(pending: PendingAuth): Promise<string> {
 /** Exchange the authorization code for tokens and persist the session. */
 export async function exchangeCodeForToken(pending: PendingAuth, code: string, state: string): Promise<OAuthSession> {
     if (pending.state !== state) {
-        throw new Error('OAuth state mismatch — please start the login again.')
+        throw new Error('OAuth state mismatch. Please start the login again.')
     }
     // Trailing slash is required: CORS_URLS_REGEX only grants CORS headers to `/oauth/token/`.
     const response = await fetch(`${pending.backendHost}/oauth/token/`, {

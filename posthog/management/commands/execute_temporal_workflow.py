@@ -24,6 +24,7 @@ from posthog.temporal.session_replay.enforce_max_replay_retention import ENFORCE
 from posthog.temporal.session_replay.rasterize_recording import RASTERIZE_RECORDING_WORKFLOWS
 from posthog.temporal.session_replay.summarization_sweep import SUMMARIZATION_SWEEP_WORKFLOWS
 from posthog.temporal.session_replay.surfacing_scoring_sweep import SURFACING_SCORING_SWEEP_WORKFLOWS
+from posthog.temporal.sync_events_retention import SYNC_EVENTS_RETENTION_WORKFLOWS
 from posthog.temporal.tests.utils.workflow import WORKFLOWS as TEST_WORKFLOWS
 from posthog.temporal.usage_report import WORKFLOWS as USAGE_REPORTS_WORKFLOWS
 from posthog.temporal.weekly_digest import WORKFLOWS as WEEKLY_DIGEST_WORKFLOWS
@@ -146,6 +147,7 @@ class Command(BaseCommand):
             + TEST_WORKFLOWS
             + DELETE_RECORDINGS_WORKFLOWS
             + ENFORCE_MAX_REPLAY_RETENTION_WORKFLOWS
+            + SYNC_EVENTS_RETENTION_WORKFLOWS
             + WEEKLY_DIGEST_WORKFLOWS
             + DATA_MODELING_WORKFLOWS
             + LLM_ANALYTICS_WORKFLOWS

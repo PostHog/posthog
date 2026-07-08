@@ -542,6 +542,51 @@ class TestAnthropicMessagesEndpoint:
             mock_anthropic.assert_not_called()
 
     @patch("llm_gateway.api.anthropic.litellm.anthropic_messages")
+    def test_cf_model_routes_to_cloudflare_without_provider_header(
+        self,
+        mock_anthropic: MagicMock,
+        authenticated_client: TestClient,
+        provider_mock_response: dict,
+    ) -> None:
+        # Real scout case: the harness derives the provider header from the runtime (claude->anthropic)
+        # and never sends "cloudflare", so a claude-runtime scout on GLM arrives as provider="anthropic".
+        # Without id-based routing it would hit the real Anthropic API with a @cf/... model and 404.
+        # Tools are forwarded — the Anthropic->chat/completions adapter translates them (unlike Responses).
+        mock_response = MagicMock()
+        mock_response.model_dump = MagicMock(return_value=provider_mock_response)
+
+        with patch("llm_gateway.api.anthropic.make_cloudflare_anthropic_call") as mock_make_call:
+            mock_make_call.return_value = AsyncMock(return_value=mock_response)
+            with patch(
+                "llm_gateway.api.anthropic.ensure_cloudflare_configured",
+                return_value=("https://api.cloudflare.com/ai/v1", "test-key"),
+            ):
+                response = authenticated_client.post(
+                    "/v1/messages",
+                    json={
+                        "model": "@cf/zai-org/glm-5.2",
+                        "messages": [{"role": "user", "content": "find issues"}],
+                        "tools": [
+                            {
+                                "name": "emit_signal",
+                                "description": "emit a finding",
+                                "input_schema": {"type": "object", "properties": {"title": {"type": "string"}}},
+                            }
+                        ],
+                    },
+                    # No X-PostHog-Provider header -> defaults to anthropic, as a claude-runtime scout sends.
+                    headers={"Authorization": "Bearer phx_test_key"},
+                )
+
+        assert response.status_code == 200
+        mock_make_call.assert_called_once()
+        # Must never reach the real Anthropic path with a `@cf/` model.
+        mock_anthropic.assert_not_called()
+        forwarded = mock_make_call.return_value.call_args.kwargs
+        assert forwarded["model"] == "@cf/zai-org/glm-5.2"
+        assert forwarded["tools"][0]["name"] == "emit_signal"
+
+    @patch("llm_gateway.api.anthropic.litellm.anthropic_messages")
     def test_cloudflare_provider_streams_through_cloudflare(
         self,
         mock_anthropic: MagicMock,
@@ -1169,6 +1214,29 @@ class TestAnthropicCountTokensEndpoint:
         # Just assert it's a positive integer so the Claude Agent SDK gets a usable budget.
         assert isinstance(response.json()["input_tokens"], int)
         assert response.json()["input_tokens"] > 0
+
+    def test_cf_model_approximates_count_without_provider_header(
+        self,
+        authenticated_client: TestClient,
+    ) -> None:
+        # The claude-runtime scout calls count_tokens with provider="anthropic"; CF has no
+        # count_tokens endpoint, so route a @cf/ model by id and approximate rather than POST a
+        # @cf/... id to the real Anthropic count_tokens API (which would 404).
+        with patch("llm_gateway.api.anthropic._anthropic_count_tokens_impl") as mock_real_count:
+            response = authenticated_client.post(
+                "/v1/messages/count_tokens",
+                json={
+                    "model": "@cf/zai-org/glm-5.2",
+                    "messages": [{"role": "user", "content": "Hello"}],
+                },
+                # No X-PostHog-Provider header -> defaults to anthropic, as a claude-runtime scout sends.
+                headers={"Authorization": "Bearer phx_test_key"},
+            )
+
+        assert response.status_code == 200
+        assert isinstance(response.json()["input_tokens"], int)
+        assert response.json()["input_tokens"] > 0
+        mock_real_count.assert_not_called()
 
     def test_cloudflare_provider_rejects_unpriced_model(
         self,

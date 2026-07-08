@@ -40,6 +40,21 @@ TASK_RUN_WORKFLOW_START_TOTAL = Counter(
     ],
 )
 
+TASK_RUN_DISPATCH_CALLBACK_TOTAL = Counter(
+    "posthog_tasks_task_run_dispatch_callback_total",
+    "on_commit workflow-dispatch callback lifecycle: 'scheduled' when registered, 'fired' when it runs. "
+    "scheduled minus fired is the count of lost callbacks that strand a run in QUEUED.",
+    labelnames=[
+        "origin_product",
+        "run_environment",
+        "mode",
+        "run_source",
+        "runtime_adapter",
+        "prewarmed",
+        "phase",
+    ],
+)
+
 PREWARMED_ACTIVATED_TOTAL = Counter(
     "posthog_tasks_prewarmed_activated_total",
     "Pre-warmed Runs that received their first user message (the warm sandbox got used, not reaped)",
@@ -116,6 +131,18 @@ TASK_RUN_STREAM_RESUME_GAP_TOTAL = Counter(
     labelnames=["origin_product"],
 )
 
+TASK_RUN_AGENT_FAILURE_TOTAL = Counter(
+    "posthog_tasks_agent_turn_failed_total",
+    "TaskRun transitions to FAILED via the API facade (agent-server turn failures)",
+    labelnames=["origin_product", "mode", "run_source", "runtime_adapter"],
+)
+
+TASK_RUN_FOLLOWUP_DELIVERY_FAILED_TOTAL = Counter(
+    "posthog_tasks_followup_delivery_failed_total",
+    "Follow-up user message deliveries to a live sandbox that failed",
+    labelnames=["origin_product", "retryable"],
+)
+
 PUSH_DISPATCHER_FAILURES_TOTAL = Counter(
     "posthog_tasks_push_dispatcher_failures_total",
     "Push-notification dispatch attempts that failed and were swallowed by the best-effort dispatcher",
@@ -169,6 +196,10 @@ def _task_run_labels(task_run: "TaskRun | None") -> dict[str, str]:
 
 def observe_task_run_created(task_run: "TaskRun") -> None:
     TASK_RUN_CREATED_TOTAL.labels(**_task_run_labels(task_run)).inc()
+
+
+def observe_task_run_dispatch_callback(task_run: "TaskRun | None", *, phase: Literal["scheduled", "fired"]) -> None:
+    TASK_RUN_DISPATCH_CALLBACK_TOTAL.labels(**_task_run_labels(task_run), phase=phase).inc()
 
 
 def observe_task_run_workflow_start(
@@ -226,4 +257,21 @@ def observe_task_run_failed(properties: dict[str, object]) -> None:
         temporal_activity_type=_failure_metric_label(properties.get("temporal_activity_type")),
         temporal_activity_retry_state=_failure_metric_label(properties.get("temporal_activity_retry_state")),
         cause_error_type=_failure_metric_label(properties.get("cause_error_type")),
+    ).inc()
+
+
+def observe_agent_turn_failed(task_run: "TaskRun") -> None:
+    labels = _task_run_labels(task_run)
+    TASK_RUN_AGENT_FAILURE_TOTAL.labels(
+        origin_product=labels["origin_product"],
+        mode=labels["mode"],
+        run_source=labels["run_source"],
+        runtime_adapter=labels["runtime_adapter"],
+    ).inc()
+
+
+def observe_followup_delivery_failed(task_run: "TaskRun", *, retryable: bool) -> None:
+    TASK_RUN_FOLLOWUP_DELIVERY_FAILED_TOTAL.labels(
+        origin_product=origin_product_label(task_run),
+        retryable="true" if retryable else "false",
     ).inc()

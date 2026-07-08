@@ -46,13 +46,13 @@ from posthog.hogql_queries.insights.retention.test.utils import pad, pluck
 from posthog.hogql_queries.insights.utils.breakdowns import ALL_USERS_COHORT_ID, BREAKDOWN_OTHER_STRING_LABEL
 from posthog.models.group.util import create_group
 from posthog.settings import HOGQL_INCREASED_MAX_EXECUTION_TIME
-from posthog.test.persons import create_person
+from posthog.test.persons import create_person, update_person
 from posthog.test.test_utils import create_group_type_mapping_without_created_at
 
 from products.actions.backend.models.action import Action
 from products.cohorts.backend.models.cohort import Cohort
 from products.data_tools.backend.models.join import DataWarehouseJoin
-from products.data_warehouse.backend.test.utils import create_data_warehouse_table_from_csv
+from products.warehouse_sources.backend.facade.testing import create_data_warehouse_table_from_csv
 
 TEST_BUCKET = "test_storage_bucket-posthog.hogql_queries.insights.retention"
 
@@ -6665,7 +6665,8 @@ class TestClickhouseRetentionGroupAggregation(
 
         # Now update the person to have a country (simulating property being set later)
         person_no_country.properties = {"country": "Taiwan"}
-        person_no_country.save()
+        person_no_country.version = (person_no_country.version or 0) + 1
+        update_person(person_no_country)
 
         # Create more events after the property is set
         _create_events(
@@ -6681,6 +6682,8 @@ class TestClickhouseRetentionGroupAggregation(
         for i in range(20):
             create_person(team=self.team, distinct_ids=[f"person_{i}"], properties={"country": f"Country_{i}"})
             _create_events(self.team, [(f"person_{i}", _date(0)), (f"person_{i}", _date(1))])
+
+        flush_persons_and_events()
 
         query = {
             "dateRange": {"date_from": _date(0), "date_to": _date(10)},
@@ -6737,14 +6740,16 @@ class TestClickhouseRetentionGroupAggregation(
 
         # Update person to have Canada as country
         person_changing.properties = {"country": "Canada"}
-        person_changing.save()
+        person_changing.version = (person_changing.version or 0) + 1
+        update_person(person_changing)
 
         # Day 1: Event with Canada
         _create_events(self.team, [("person_changing", _date(1))])
 
         # Update person to have USA as country (most recent)
         person_changing.properties = {"country": "USA"}
-        person_changing.save()
+        person_changing.version = (person_changing.version or 0) + 1
+        update_person(person_changing)
 
         # Day 2: Event with USA (this should be the canonical value)
         _create_events(self.team, [("person_changing", _date(2))])
@@ -6757,6 +6762,8 @@ class TestClickhouseRetentionGroupAggregation(
         for i in range(15):
             create_person(team=self.team, distinct_ids=[f"other_{i}"], properties={"country": f"Other_{i}"})
             _create_events(self.team, [(f"other_{i}", _date(0))])
+
+        flush_persons_and_events()
 
         query = {
             "dateRange": {"date_from": _date(0), "date_to": _date(10)},

@@ -1,7 +1,8 @@
 from rest_framework.exceptions import ValidationError
 
-from posthog.schema import BreakdownType, MultipleBreakdownType, TrendsQuery
+from posthog.schema import BreakdownType, MultipleBreakdownType, PropertyMathType, TrendsQuery
 
+from posthog.hogql_queries.insights.trends.aggregation_operations import SUPPORTED_PROPERTY_MATH_FOR_HISTOGRAM_BREAKDOWN
 from posthog.hogql_queries.insights.utils.breakdowns import (
     has_breakdown_filter,
     has_multi_breakdown,
@@ -47,3 +48,42 @@ class ValidateDataWarehouseBreakdown:
                 f"Event based breakdowns are not supported for {insight_name} with a data warehouse series.",
                 code=self.code,
             )
+
+
+class DisallowUnsupportedPropertyMathForHistogramBreakdown:
+    """Median and percentile property math can't be merged when rolling up histogram breakdown buckets."""
+
+    code = "property_math_unsupported_with_histogram_breakdown"
+
+    def validate(self, context: QueryValidationContext[TrendsQuery]) -> None:
+        breakdown_filter = context.query.breakdownFilter
+        if not has_breakdown_filter(breakdown_filter):
+            return
+        assert breakdown_filter is not None  # type checking
+
+        if has_multi_breakdown(breakdown_filter):
+            assert breakdown_filter.breakdowns is not None  # type checking
+            has_histogram = any(breakdown.histogram_bin_count is not None for breakdown in breakdown_filter.breakdowns)
+        else:
+            has_histogram = breakdown_filter.breakdown_histogram_bin_count is not None
+        if not has_histogram:
+            return
+
+        unsupported_math_types = sorted(
+            {
+                PropertyMathType(series.math)
+                for series in context.query.series
+                if series.math in set(PropertyMathType)
+                and series.math not in SUPPORTED_PROPERTY_MATH_FOR_HISTOGRAM_BREAKDOWN
+            }
+        )
+        if not unsupported_math_types:
+            return
+
+        names = " and ".join(unsupported_math_types)
+        verb = "is" if len(unsupported_math_types) == 1 else "are"
+        raise ValidationError(
+            f"{names.capitalize()} {verb} not supported when breakdown values are grouped into bins. "
+            "Use average instead, or turn off binning on the breakdown.",
+            code=self.code,
+        )

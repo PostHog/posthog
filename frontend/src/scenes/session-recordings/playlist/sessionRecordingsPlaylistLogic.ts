@@ -170,17 +170,25 @@ export const DEFAULT_RECORDING_FILTERS: RecordingUniversalFilters = {
 
 export const getDefaultFilters = (
     personUUID?: PersonUUID,
-    pinnedFilters?: UniversalFiltersGroup
+    pinnedFilters?: UniversalFiltersGroup,
+    urlFilters?: Partial<RecordingUniversalFilters>
 ): RecordingUniversalFilters => {
     const filterTestAccounts = getDefaultFilterTestAccounts()
+    // Person/group pages (personUUID/pinnedFilters) and deep links with pre-applied filters
+    // (urlFilters, e.g. "View recordings" CTAs) come with a specific session in mind,
+    // where recency is the better default than relevance
+    const hasSpecificIntent = !!personUUID || !!pinnedFilters || !!urlFilters
     const defaults: RecordingUniversalFilters = {
         ...DEFAULT_RECORDING_FILTERS,
         filter_test_accounts: filterTestAccounts,
         date_from: personUUID ? '-30d' : '-3d',
-        // When the surfacing score flag is on, default to sorting by relevance
-        order: posthog.getFeatureFlag(FEATURE_FLAGS.REPLAY_PLAYLIST_SURFACING_SCORE)
-            ? 'surfacing_score'
-            : DEFAULT_RECORDING_FILTERS.order,
+        // Default to sorting by relevance for the surfacing-score rollout or the relevance-sort experiment's test arm
+        order:
+            !hasSpecificIntent &&
+            (posthog.getFeatureFlag(FEATURE_FLAGS.REPLAY_PLAYLIST_SURFACING_SCORE) ||
+                posthog.getFeatureFlag(FEATURE_FLAGS.REPLAY_PLAYLIST_RELEVANCE_SORT_EXPERIMENT) === 'test')
+                ? 'surfacing_score'
+                : DEFAULT_RECORDING_FILTERS.order,
     }
     if (pinnedFilters) {
         defaults.filter_group = mergePinnedFilters(defaults.filter_group, pinnedFilters)
@@ -1543,11 +1551,14 @@ export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogic
             }
 
             if (isReplayURLSearchParams(params)) {
-                const updatedFilters = {
+                const updatedFilters: Partial<RecordingUniversalFilters> = {
                     // layer URL filters onto defaults, not the persisted state, so fields the URL
                     // omits don't inherit stale values
                     ...(params.filters && !equal(params.filters, values.filters)
-                        ? { ...getDefaultFilters(props.personUUID, props.pinnedFilters), ...params.filters }
+                        ? {
+                              ...getDefaultFilters(props.personUUID, props.pinnedFilters, params.filters),
+                              ...params.filters,
+                          }
                         : {}),
                     ...(params.order && !equal(params.order, values.filters.order) ? { order: params.order } : {}),
                     ...(params.order_direction && !equal(params.order_direction, values.filters.order_direction)

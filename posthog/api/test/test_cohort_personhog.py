@@ -6,7 +6,7 @@ from posthog.test.base import APIBaseTest, BaseTest
 from rest_framework import status
 
 from posthog.models.person.util import validate_person_uuids_exist
-from posthog.test.personhog_fake import get_active_fake
+from posthog.personhog_client.fake_client import get_active_fake
 from posthog.test.persons import create_person
 
 from products.cohorts.backend.models.cohort import Cohort

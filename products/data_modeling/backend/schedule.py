@@ -18,18 +18,36 @@ from typing import TYPE_CHECKING
 
 from asgiref.sync import async_to_sync
 from temporalio.client import ScheduleCalendarSpec, ScheduleListActionStartWorkflow, ScheduleRange, ScheduleSpec
+from temporalio.common import SearchAttributePair, TypedSearchAttributes
 
 from posthog.temporal.common.client import async_connect
-from posthog.temporal.common.search_attributes import POSTHOG_DAG_ID_KEY
+from posthog.temporal.common.search_attributes import (
+    POSTHOG_DAG_ID_KEY,
+    POSTHOG_ORG_ID_KEY,
+    POSTHOG_SCHEDULE_TYPE_KEY,
+    POSTHOG_TEAM_ID_KEY,
+)
 
 from products.data_modeling.backend.models import Node
 
 if TYPE_CHECKING:
     from products.data_modeling.backend.models.datawarehouse_saved_query import DataWarehouseSavedQuery
 
-# v2 (DAG-based) schedules run this workflow; their schedule id is the DAG id. The v1 backend
+# v2 (DAG-based) schedules run this workflow; their schedule id is the bare DAG id, or
+# "{dag_id}:{interval_seconds}" for a per-cadence-tier schedule. The v1 backend
 # (`data-modeling-run`, one schedule per saved query) is frozen and being migrated away from.
 DATA_MODELING_EXECUTE_DAG_WORKFLOW = "data-modeling-execute-dag"
+
+
+def dag_schedule_search_attributes(*, team_id: int, organization_id: str, dag_id: str) -> TypedSearchAttributes:
+    return TypedSearchAttributes(
+        search_attributes=[
+            SearchAttributePair(key=POSTHOG_TEAM_ID_KEY, value=team_id),
+            SearchAttributePair(key=POSTHOG_ORG_ID_KEY, value=organization_id),
+            SearchAttributePair(key=POSTHOG_DAG_ID_KEY, value=dag_id),
+            SearchAttributePair(key=POSTHOG_SCHEDULE_TYPE_KEY, value=DATA_MODELING_EXECUTE_DAG_WORKFLOW),
+        ]
+    )
 
 
 @async_to_sync
@@ -43,7 +61,8 @@ async def get_v2_scheduled_dag_ids(candidate_dag_ids: Collection[str] | None = N
     When `candidate_dag_ids` is given, the listing is scoped server-side to those DAGs via the
     `PostHogDagId` search attribute so we never paginate every schedule in the namespace — a
     single unscoped listing per saved-query operation is enough to exhaust the namespace rate
-    limit once the schedule fleet is large. Pass None only for genuine full-namespace sweeps.
+    limit once the schedule fleet is large. The None sweep filters on `PostHogScheduleType`
+    (needs schedules backfilled with the tag).
     """
     if candidate_dag_ids is not None and not candidate_dag_ids:
         return set()
@@ -55,7 +74,9 @@ async def get_v2_scheduled_dag_ids(candidate_dag_ids: Collection[str] | None = N
         quoted = ", ".join(f"'{dag_id}'" for dag_id in candidate_dag_ids)
         schedules = await temporal.list_schedules(query=f"{POSTHOG_DAG_ID_KEY.name} IN ({quoted})")
     else:
-        schedules = await temporal.list_schedules()
+        schedules = await temporal.list_schedules(
+            query=f'{POSTHOG_SCHEDULE_TYPE_KEY.name} = "{DATA_MODELING_EXECUTE_DAG_WORKFLOW}"'
+        )
 
     dag_ids: set[str] = set()
     async for listing in schedules:
@@ -64,7 +85,9 @@ async def get_v2_scheduled_dag_ids(candidate_dag_ids: Collection[str] | None = N
             isinstance(action, ScheduleListActionStartWorkflow)
             and action.workflow == DATA_MODELING_EXECUTE_DAG_WORKFLOW
         ):
-            dag_ids.add(listing.id)
+            # A cadence-tier schedule id is "{dag_id}:{interval_seconds}"; a legacy id is the
+            # bare DAG id (no colon), which rsplit leaves untouched.
+            dag_ids.add(listing.id.rsplit(":", 1)[0])
     return dag_ids
 
 

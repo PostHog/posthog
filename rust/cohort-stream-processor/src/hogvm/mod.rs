@@ -4,5 +4,5 @@
 mod executor;
 mod globals;
 
-pub use executor::{evaluate, evaluate_detailed, EvalOutcome};
+pub use executor::{evaluate, evaluate_detailed, CohortEvaluator, EvalOutcome};
 pub use globals::{build_behavioral_globals, build_person_property_globals, GlobalsError};

@@ -1,5 +1,4 @@
 import { createMockJobQueue } from '../../tests/helpers/mocks/job-queue.mock'
-import { mockProducer } from '../../tests/helpers/mocks/producer.mock'
 import { mockFetch } from '../../tests/helpers/mocks/request.mock'
 
 import { Server } from 'http'
@@ -11,6 +10,7 @@ import { setupExpressApp } from '~/common/api/router'
 import { deleteKeysWithPrefix } from '~/common/redis/_tests/redis'
 import { createRedisV2PoolFromConfig } from '~/common/redis/redis-v2'
 import { closeHub, createHub } from '~/common/utils/db/hub'
+import { parseJSON } from '~/common/utils/json-parse'
 import { UUIDT } from '~/common/utils/utils'
 
 import { createCdpConsumerDeps } from '../../tests/helpers/cdp'
@@ -773,14 +773,8 @@ describe('CDP API', () => {
 
     describe('batch hogflow invocations', () => {
         let batchHogFlow: HogFlow
-        let produceSpy: jest.SpyInstance
 
         beforeEach(async () => {
-            // The batch hogflow route now goes through the outputs registry, which in
-            // tests routes every CDP producer slot at the shared `mockProducer`. Spying
-            // on its `produce` intercepts the produced message without reconstructing
-            // the api.
-            produceSpy = jest.spyOn(mockProducer, 'produce')
             batchHogFlow = await insertHogFlow({
                 id: new UUIDT().toString(),
                 name: 'test batch hog flow',
@@ -803,10 +797,6 @@ describe('CDP API', () => {
                     },
                 },
             })
-        })
-
-        afterEach(() => {
-            produceSpy.mockRestore()
         })
 
         it('errors if missing team', async () => {
@@ -854,60 +844,54 @@ describe('CDP API', () => {
             expect(res.body.error).toEqual('Only batch Workflows are supported for batch jobs')
         })
 
-        it('queues batch job request to kafka', async () => {
-            produceSpy.mockResolvedValue(undefined)
+        it('queues batch job to the cyclotron resolver', async () => {
+            const createJobMock = jest.fn().mockResolvedValue('resolver-job-id')
+            api['batchResolverProducer'] = {
+                createJob: createJobMock,
+                disconnect: jest.fn().mockResolvedValue(undefined),
+            }
 
-            const res = await supertest(app)
-                .post(`/api/projects/${batchHogFlow.team_id}/hog_flows/${batchHogFlow.id}/batch_invocations/job-123`)
-                .send({
+            try {
+                const res = await supertest(app)
+                    .post(
+                        `/api/projects/${batchHogFlow.team_id}/hog_flows/${batchHogFlow.id}/batch_invocations/job-789`
+                    )
+                    .send({
+                        filters: { filter_test_accounts: true },
+                        max_audience_size: 1234,
+                        variables: { foo: 'bar' },
+                    })
+
+                expect(res.status).toEqual(200)
+                expect(res.body).toEqual({ status: 'queued' })
+
+                expect(createJobMock).toHaveBeenCalledTimes(1)
+                const arg = createJobMock.mock.calls[0][0]
+                expect(arg).toMatchObject({
+                    teamId: batchHogFlow.team_id,
+                    queueName: 'hogflow_batch_resolve',
+                    parentRunId: 'job-789',
+                    functionId: batchHogFlow.id,
+                })
+                expect(arg.state).toBeInstanceOf(Buffer)
+                const state = parseJSON((arg.state as Buffer).toString('utf-8')) as Record<string, unknown>
+                expect(state).toMatchObject({
+                    batchJobId: 'job-789',
+                    teamId: batchHogFlow.team_id,
+                    hogFlowId: batchHogFlow.id,
                     filters: {
+                        properties: (batchHogFlow as any).trigger.filters.properties,
                         filter_test_accounts: true,
                     },
+                    maxAudienceSize: 1234,
+                    variables: { foo: 'bar' },
+                    cursor: null,
+                    totalEnqueued: 0,
+                    pagesProcessed: 0,
                 })
-
-            expect(res.status).toEqual(200)
-            expect(res.body).toEqual({ status: 'queued' })
-            expect(produceSpy).toHaveBeenCalledWith({
-                topic: 'cdp_batch_hogflow_requests_test',
-                value: Buffer.from(
-                    JSON.stringify({
-                        teamId: batchHogFlow.team_id,
-                        hogFlowId: batchHogFlow.id,
-                        parentRunId: 'job-123',
-                        filters: {
-                            properties: (batchHogFlow as any).trigger.filters.properties,
-                            filter_test_accounts: true,
-                        },
-                    })
-                ),
-                key: `${batchHogFlow.team_id}_${batchHogFlow.id}`,
-            })
-        })
-
-        it('queues batch job with filters from hog flow config when not provided', async () => {
-            produceSpy.mockResolvedValue(undefined)
-
-            const res = await supertest(app)
-                .post(`/api/projects/${batchHogFlow.team_id}/hog_flows/${batchHogFlow.id}/batch_invocations/job-456`)
-                .send({})
-
-            expect(res.status).toEqual(200)
-            expect(res.body).toEqual({ status: 'queued' })
-            expect(produceSpy).toHaveBeenCalledWith({
-                topic: 'cdp_batch_hogflow_requests_test',
-                value: Buffer.from(
-                    JSON.stringify({
-                        teamId: batchHogFlow.team_id,
-                        hogFlowId: batchHogFlow.id,
-                        parentRunId: 'job-456',
-                        filters: {
-                            properties: (batchHogFlow as any).trigger.filters.properties,
-                            filter_test_accounts: false,
-                        },
-                    })
-                ),
-                key: `${batchHogFlow.team_id}_${batchHogFlow.id}`,
-            })
+            } finally {
+                api['batchResolverProducer'] = null
+            }
         })
     })
 
@@ -1105,6 +1089,7 @@ describe('CDP API', () => {
                         ],
                         capturedPostHogEvents: [],
                         warehouseWebhookPayloads: [],
+                        emailAssets: [],
                     })
                 )
         })

@@ -93,7 +93,8 @@ export function getTicketSummaryData(
             responseMessage?.type === 'ai' &&
             'content' in responseMessage &&
             responseMessage.content &&
-            !responseMessage.content.includes("I'll help you create a support ticket")
+            !responseMessage.content.includes("I'll help you create a support ticket") &&
+            !responseMessage.content.includes('is available for customers on paid plans')
         ) {
             // Check if user continued the conversation (sent another message after the summary)
             // or if a ticket was already created

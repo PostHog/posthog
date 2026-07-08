@@ -7,15 +7,11 @@ from django.test import override_settings
 
 from parameterized import parameterized
 
-from posthog.models.group_type_mapping import (
-    GROUP_TYPES_STALE_CACHE_KEY_PREFIX,
-    GroupTypeMapping,
-    GroupTypesUnavailable,
-)
+from posthog.models.group_type_mapping import GROUP_TYPES_STALE_CACHE_KEY_PREFIX, GroupTypesUnavailable
 from posthog.models.project import Project
 from posthog.models.tag import Tag
 from posthog.models.team.team import Team
-from posthog.test.personhog_fake import get_active_fake
+from posthog.personhog_client.fake_client import get_active_fake
 from posthog.test.persons import _seed_group_type_mapping_into_fake, create_group_type_mapping
 from posthog.test.test_utils import create_group_type_mapping_without_created_at
 from posthog.utils import safe_cache_delete
@@ -358,7 +354,6 @@ class TestUpdateFlagCachesGroupMappingGuards(BaseTest):
     @patch("products.feature_flags.backend.local_evaluation.HYPERCACHE_GROUP_MAPPING_EMPTIED_COUNTER")
     def test_writes_when_genuinely_empty(self, mock_emptied_counter):
         # A team that truly has no group types must still rebuild normally
-        GroupTypeMapping.objects.filter(team_id=self.team.id).delete()
         fake = get_active_fake()
         fake._group_type_mappings_by_project.pop(self.team.project_id, None)
         fake._group_type_mappings_by_team.pop(self.team.id, None)
@@ -1631,7 +1626,7 @@ class TestVerifyFlagDefinitions(BaseTest):
         assert len(cohorts_diff) == 1
 
     def test_verify_returns_mismatch_when_group_type_mapping_changed(self):
-        create_group_type_mapping(
+        mapping = create_group_type_mapping(
             team=self.team,
             project_id=self.team.project_id,
             group_type="company",
@@ -1650,9 +1645,7 @@ class TestVerifyFlagDefinitions(BaseTest):
 
         update_flag_definitions_cache(self.team)
 
-        mapping = GroupTypeMapping.objects.get(team=self.team, group_type_index=0)
         mapping.group_type = "organization"
-        mapping.save()
         _seed_group_type_mapping_into_fake(mapping)
 
         result = verify_team_flag_definitions(self.team, include_cohorts=True, verbose=True)

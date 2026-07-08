@@ -68,9 +68,31 @@ pub struct PartState {
 impl PartState {
     pub fn is_done(&self) -> bool {
         match self.total_size {
-            Some(size) => self.current_offset == size,
+            // `>=` so a part whose stored offset overshot its total (written by a
+            // worker version that kept advancing past the end) still completes on
+            // resume instead of being permanently un-finishable.
+            Some(size) => self.current_offset >= size,
             None => false,
         }
+    }
+}
+
+impl JobState {
+    /// Advance the named part's offset by `consumed` bytes, returning the new offset.
+    /// Returns `None` if no part matches `key`.
+    pub fn advance_part_offset(&mut self, key: &str, consumed: u64) -> Option<u64> {
+        let part = self.parts.iter_mut().find(|p| p.key == key)?;
+        part.current_offset = part.current_offset.saturating_add(consumed);
+        Some(part.current_offset)
+    }
+
+    /// Revert the named part's offset by `consumed` bytes — the inverse of
+    /// [`advance_part_offset`](Self::advance_part_offset), saturating at 0. Returns the new
+    /// offset, or `None` if no part matches `key`.
+    pub fn revert_part_offset(&mut self, key: &str, consumed: u64) -> Option<u64> {
+        let part = self.parts.iter_mut().find(|p| p.key == key)?;
+        part.current_offset = part.current_offset.saturating_sub(consumed);
+        Some(part.current_offset)
     }
 }
 
@@ -156,6 +178,17 @@ impl JobModel {
                 Ok(None)
             }
         }
+    }
+
+    /// Count jobs that still need a worker: everything in `running` status, whether
+    /// queued (unleased) or in-flight (leased). This is the autoscaling signal — one
+    /// worker processes one job, so the count maps directly to the desired replica count.
+    pub async fn count_active_jobs(pool: &PgPool) -> Result<i64, Error> {
+        let count: i64 =
+            sqlx::query_scalar("SELECT count(*) FROM posthog_batchimport WHERE status = 'running'")
+                .fetch_one(pool)
+                .await?;
+        Ok(count)
     }
 
     /// Schedule the job for a future retry by pushing leased_until forward and updating messages.
@@ -462,6 +495,71 @@ mod tests {
             backoff_until: None,
             was_leased: false,
         }
+    }
+
+    fn make_job_state(parts: &[(&str, u64)]) -> JobState {
+        JobState {
+            parts: parts
+                .iter()
+                .map(|(key, offset)| PartState {
+                    key: key.to_string(),
+                    current_offset: *offset,
+                    total_size: None,
+                })
+                .collect(),
+        }
+    }
+
+    #[test]
+    fn test_part_is_done() {
+        // (offset, total, expected). Overshot offsets (recorded by worker versions
+        // that advanced past the end of a part) must still count as done, or the
+        // part can never complete on resume.
+        let cases: [(u64, Option<u64>, bool); 5] = [
+            (0, None, false),
+            (99, Some(100), false),
+            (100, Some(100), true),
+            (101, Some(100), true),
+            (0, Some(0), true),
+        ];
+        for (offset, total, expected) in cases {
+            let part = PartState {
+                key: "k".to_string(),
+                current_offset: offset,
+                total_size: total,
+            };
+            assert_eq!(part.is_done(), expected, "offset {offset}, total {total:?}");
+        }
+    }
+
+    #[test]
+    fn test_advance_part_offset_increments_and_returns_new_offset() {
+        let mut state = make_job_state(&[("a", 100), ("b", 0)]);
+        assert_eq!(state.advance_part_offset("a", 50), Some(150));
+        assert_eq!(state.parts[0].current_offset, 150);
+        assert_eq!(state.parts[1].current_offset, 0, "other parts untouched");
+    }
+
+    #[test]
+    fn test_revert_part_offset_is_inverse_of_advance() {
+        let mut state = make_job_state(&[("a", 100)]);
+        let advanced = state.advance_part_offset("a", 4242).unwrap();
+        assert_eq!(state.revert_part_offset("a", 4242), Some(advanced - 4242));
+        assert_eq!(state.parts[0].current_offset, 100);
+    }
+
+    #[test]
+    fn test_revert_part_offset_saturates_at_zero() {
+        let mut state = make_job_state(&[("a", 10)]);
+        assert_eq!(state.revert_part_offset("a", 999), Some(0));
+        assert_eq!(state.parts[0].current_offset, 0);
+    }
+
+    #[test]
+    fn test_offset_helpers_return_none_for_unknown_key() {
+        let mut state = make_job_state(&[("a", 0)]);
+        assert_eq!(state.advance_part_offset("missing", 1), None);
+        assert_eq!(state.revert_part_offset("missing", 1), None);
     }
 
     #[tokio::test]

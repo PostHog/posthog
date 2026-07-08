@@ -32,7 +32,7 @@ from posthog.models.property.util import parse_prop_grouped_clauses
 from posthog.models.team import Team
 from posthog.queries.person_distinct_id_query import get_team_distinct_ids_query
 from posthog.queries.util import PersonPropertiesMode
-from posthog.test.persons import create_person
+from posthog.test.persons import create_person, delete_person, update_person
 
 from products.actions.backend.models.action import Action
 from products.cohorts.backend.models.cohort import Cohort
@@ -810,7 +810,7 @@ class TestCohort(ClickhouseTestMixin, BaseTest):
         )
 
         self.calculate_cohort_hogql_test_harness(cohort1, 0)
-        p2.delete()
+        delete_person(p2)
         self.calculate_cohort_hogql_test_harness(cohort1, 0)
 
     def test_cohortpeople_prop_changed(self):
@@ -852,7 +852,7 @@ class TestCohort(ClickhouseTestMixin, BaseTest):
         with freeze_time((datetime.now() - timedelta(days=2)).strftime("%Y-%m-%d")):
             p2.version = 1
             p2.properties = {"$some_prop": "another", "$another_prop": "another"}
-            p2.save()
+            update_person(p2)
 
         self.calculate_cohort_hogql_test_harness(cohort1, 1)
 

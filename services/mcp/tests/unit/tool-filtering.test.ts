@@ -189,6 +189,26 @@ describe('Tool Filtering - Tools Allowlist', () => {
             expect(toolsWithoutFlags).not.toContain('agent-feedback')
         })
 
+        it('should hide read-data-warehouse-schema when mcp-sql-schema-discovery is on (disable gate)', () => {
+            // SQL information_schema discovery replaces the tool while the flag is on.
+            const withFlagOn = getToolsForFeatures({
+                tools: ['read-data-warehouse-schema'],
+                featureFlags: { 'mcp-sql-schema-discovery': true },
+            })
+            expect(withFlagOn).not.toContain('read-data-warehouse-schema')
+
+            // Off / unevaluated → the tool stays available (disable default is "show").
+            expect(getToolsForFeatures({ tools: ['read-data-warehouse-schema'] })).toContain(
+                'read-data-warehouse-schema'
+            )
+            expect(
+                getToolsForFeatures({
+                    tools: ['read-data-warehouse-schema'],
+                    featureFlags: { 'mcp-sql-schema-discovery': false },
+                })
+            ).toContain('read-data-warehouse-schema')
+        })
+
         it('should union with features (OR) when both are provided', () => {
             const tools = getToolsForFeatures({ features: ['flags'], tools: ['dashboard-get'] })
 
@@ -738,6 +758,7 @@ describe('Tool Filtering - Feature Flags', () => {
             expect.arrayContaining([
                 'agent-platform',
                 'logs-alerting',
+                'logs-patterns-view',
                 'replay-video-based-summarization',
                 'tracing',
                 'visual-review',
@@ -754,9 +775,11 @@ describe('Tool Filtering - Feature Flags', () => {
                 'field-notes',
                 'mcp-analytics',
                 'metrics',
+                'mcp-sql-schema-discovery',
+                'endpoints-ai-materialization-fix',
             ])
         )
-        expect(flags).toHaveLength(18)
+        expect(flags).toHaveLength(21)
     })
 
     // Exercise the real predicate (toolPassesFlagGate) over hand-rolled entries

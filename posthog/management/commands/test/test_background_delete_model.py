@@ -1,11 +1,16 @@
+from uuid import uuid4
+
 from posthog.test.base import BaseTest
 from unittest.mock import MagicMock, patch
 
 from django.core.management.base import CommandError
 
 from posthog.management.commands.background_delete_model import Command
-from posthog.models.person.person import Person
-from posthog.test.persons import create_person
+from posthog.models import Tag
+
+# Uses a plain main-DB, team-scoped model (Tag) as the deletion target — the command is
+# model-agnostic, so the specific model is incidental. (It deliberately does NOT target persons
+# models: the deletion task runs against the default connection and can't reach the persons DB.)
 
 
 class TestBackgroundDeleteModel(BaseTest):
@@ -52,24 +57,24 @@ class TestBackgroundDeleteModel(BaseTest):
         """Test that valid model with team_id field starts background task"""
         mock_task.delay.return_value = MagicMock(id="test-task-id")
 
-        # Create some test persons
-        create_person(team=self.team, properties={})
-        create_person(team=self.team, properties={})
+        # Create some records to delete
+        Tag.objects.create(team=self.team, name=str(uuid4()))
+        Tag.objects.create(team=self.team, name=str(uuid4()))
 
-        self.command.handle("posthog.Person", team_id=self.team.id)
+        self.command.handle("posthog.Tag", team_id=self.team.id)
 
         # Verify task was called
         mock_task.delay.assert_called_once_with(
-            model_name="posthog.Person", team_id=self.team.id, batch_size=10000, records_to_delete=2
+            model_name="posthog.Tag", team_id=self.team.id, batch_size=10000, records_to_delete=2
         )
 
     @patch("posthog.management.commands.background_delete_model.background_delete_model_task")
     def test_dry_run_does_not_start_task(self, mock_task):
         """Test that dry run shows info but doesn't start task"""
-        # Create some test persons
-        create_person(team=self.team, properties={})
+        # Create some records to delete
+        Tag.objects.create(team=self.team, name=str(uuid4()))
 
-        self.command.handle("posthog.Person", team_id=self.team.id, dry_run=True)
+        self.command.handle("posthog.Tag", team_id=self.team.id, dry_run=True)
 
         # Verify task was not called
         mock_task.delay.assert_not_called()
@@ -104,10 +109,10 @@ class TestBackgroundDeleteModel(BaseTest):
     @patch("builtins.input", return_value="CANCEL")
     def test_confirmation_cancelled(self, mock_input, mock_task):
         """Test that task is not started when confirmation is cancelled"""
-        # Create some test persons
-        create_person(team=self.team, properties={})
+        # Create some records to delete
+        Tag.objects.create(team=self.team, name=str(uuid4()))
 
-        self.command.handle("posthog.Person", team_id=self.team.id)
+        self.command.handle("posthog.Tag", team_id=self.team.id)
 
         # Verify task was not called
         mock_task.delay.assert_not_called()
@@ -141,9 +146,9 @@ class TestBackgroundDeleteModel(BaseTest):
 
     def test_zero_records_exits_early(self):
         """Test that command exits early when no records found"""
-        # Don't create any persons, so count will be 0
+        # Don't create any records, so count will be 0
 
-        self.command.handle("posthog.Person", team_id=self.team.id)
+        self.command.handle("posthog.Tag", team_id=self.team.id)
 
         # No need to mock task since it should never be called
 
@@ -152,32 +157,32 @@ class TestBackgroundDeleteModel(BaseTest):
         with patch("posthog.management.commands.background_delete_model.background_delete_model_task") as mock_task:
             mock_task.delay.return_value = MagicMock(id="test-task-id")
 
-            # Create some test persons
-            create_person(team=self.team, properties={})
-            create_person(team=self.team, properties={})
+            # Create some records to delete
+            Tag.objects.create(team=self.team, name=str(uuid4()))
+            Tag.objects.create(team=self.team, name=str(uuid4()))
 
             # Try to use a batch size larger than the limit
             with patch("builtins.input", return_value="DELETE 2 RECORDS"):
-                self.command.handle("posthog.Person", team_id=self.team.id, batch_size=100000)
+                self.command.handle("posthog.Tag", team_id=self.team.id, batch_size=100000)
 
             # Verify task was called with the limited batch size
             mock_task.delay.assert_called_once_with(
-                model_name="posthog.Person", team_id=self.team.id, batch_size=50000, records_to_delete=2
+                model_name="posthog.Tag", team_id=self.team.id, batch_size=50000, records_to_delete=2
             )
 
     @patch("posthog.management.commands.background_delete_model.background_delete_model_task")
     @patch("builtins.input", return_value="DELETE 2 RECORDS")
     def test_synchronous_execution(self, mock_input, mock_task):
         """Test that synchronous flag runs task directly instead of using .delay()"""
-        # Create some test persons
-        create_person(team=self.team, properties={})
-        create_person(team=self.team, properties={})
+        # Create some records to delete
+        Tag.objects.create(team=self.team, name=str(uuid4()))
+        Tag.objects.create(team=self.team, name=str(uuid4()))
 
-        self.command.handle("posthog.Person", team_id=self.team.id, synchronous=True)
+        self.command.handle("posthog.Tag", team_id=self.team.id, synchronous=True)
 
         # Verify task was called directly (not with .delay())
         mock_task.assert_called_once_with(
-            model_name="posthog.Person", team_id=self.team.id, batch_size=10000, records_to_delete=2
+            model_name="posthog.Tag", team_id=self.team.id, batch_size=10000, records_to_delete=2
         )
         # Verify .delay() was not called
         mock_task.delay.assert_not_called()
@@ -194,27 +199,27 @@ class TestBackgroundDeleteModel(BaseTest):
         team2 = Team.objects.create(organization=self.organization, name="Team 2")
 
         # Create persons across multiple teams
-        create_person(team=self.team, properties={})  # Team 1
-        create_person(team=self.team, properties={})  # Team 1
-        create_person(team=team2, properties={})  # Team 2
-        create_person(team=team2, properties={})  # Team 2
-        create_person(team=team2, properties={})  # Team 2
+        Tag.objects.create(team=self.team, name=str(uuid4()))  # Team 1
+        Tag.objects.create(team=self.team, name=str(uuid4()))  # Team 1
+        Tag.objects.create(team=team2, name=str(uuid4()))  # Team 2
+        Tag.objects.create(team=team2, name=str(uuid4()))  # Team 2
+        Tag.objects.create(team=team2, name=str(uuid4()))  # Team 2
 
         # Verify initial counts
-        self.assertEqual(Person.objects.filter(team=self.team).count(), 2)
-        self.assertEqual(Person.objects.filter(team=team2).count(), 3)
+        self.assertEqual(Tag.objects.filter(team=self.team).count(), 2)
+        self.assertEqual(Tag.objects.filter(team=team2).count(), 3)
 
         # Run command for team 1 only
-        self.command.handle("posthog.Person", team_id=self.team.id)
+        self.command.handle("posthog.Tag", team_id=self.team.id)
 
         # Verify task was called with correct team_id
         mock_task.delay.assert_called_once_with(
-            model_name="posthog.Person", team_id=self.team.id, batch_size=10000, records_to_delete=2
+            model_name="posthog.Tag", team_id=self.team.id, batch_size=10000, records_to_delete=2
         )
 
         # Verify counts haven't changed (since we're just testing the command, not the actual deletion)
-        self.assertEqual(Person.objects.filter(team=self.team).count(), 2)
-        self.assertEqual(Person.objects.filter(team=team2).count(), 3)
+        self.assertEqual(Tag.objects.filter(team=self.team).count(), 2)
+        self.assertEqual(Tag.objects.filter(team=team2).count(), 3)
 
     def test_max_delete_size_limit(self):
         """Test that deletion is limited to max_delete_size when total count exceeds it"""

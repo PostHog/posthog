@@ -179,6 +179,7 @@ export enum NodeKind {
     ActorsPropertyTaxonomyQuery = 'ActorsPropertyTaxonomyQuery',
     TracesQuery = 'TracesQuery',
     TraceQuery = 'TraceQuery',
+    SessionQuery = 'SessionQuery',
     TraceNeighborsQuery = 'TraceNeighborsQuery',
     VectorSearchQuery = 'VectorSearchQuery',
     DocumentSimilarityQuery = 'DocumentSimilarityQuery',
@@ -196,6 +197,11 @@ export enum NodeKind {
     MCPHarnessBreakdownQuery = 'MCPHarnessBreakdownQuery',
     MCPToolTopUsersQuery = 'MCPToolTopUsersQuery',
     MCPToolFailuresQuery = 'MCPToolFailuresQuery',
+    MCPToolStatsQuery = 'MCPToolStatsQuery',
+    MCPToolDailyStatsQuery = 'MCPToolDailyStatsQuery',
+    MCPToolDescriptionsQuery = 'MCPToolDescriptionsQuery',
+    MCPToolSampleIntentsQuery = 'MCPToolSampleIntentsQuery',
+    MCPToolNeighborsQuery = 'MCPToolNeighborsQuery',
 
     // Property values
     PropertyValuesQuery = 'PropertyValuesQuery',
@@ -253,6 +259,7 @@ export type AnyDataNode =
     | RecordingsQuery
     | TracesQuery
     | TraceQuery
+    | SessionQuery
     | TraceNeighborsQuery
     | VectorSearchQuery
     | UsageMetricsQuery
@@ -263,6 +270,11 @@ export type AnyDataNode =
     | MCPHarnessBreakdownQuery
     | MCPToolTopUsersQuery
     | MCPToolFailuresQuery
+    | MCPToolStatsQuery
+    | MCPToolDailyStatsQuery
+    | MCPToolDescriptionsQuery
+    | MCPToolSampleIntentsQuery
+    | MCPToolNeighborsQuery
 
 /**
  * @discriminator kind
@@ -361,6 +373,7 @@ export type QuerySchema =
     | ActorsPropertyTaxonomyQuery
     | TracesQuery
     | TraceQuery
+    | SessionQuery
     | TraceNeighborsQuery
     | VectorSearchQuery
 
@@ -377,6 +390,11 @@ export type QuerySchema =
     | MCPHarnessBreakdownQuery
     | MCPToolTopUsersQuery
     | MCPToolFailuresQuery
+    | MCPToolStatsQuery
+    | MCPToolDailyStatsQuery
+    | MCPToolDescriptionsQuery
+    | MCPToolSampleIntentsQuery
+    | MCPToolNeighborsQuery
 
     // Property values
     | PropertyValuesQuery
@@ -1082,6 +1100,7 @@ export interface DataTableNode
                     | ExperimentFunnelsQuery
                     | ExperimentTrendsQuery
                     | TracesQuery
+                    | SessionQuery
                     | EndpointsUsageTableQuery
                     | AccountsQuery
                 )['response']
@@ -1121,6 +1140,7 @@ export interface DataTableNode
         | ExperimentTrendsQuery
         | TracesQuery
         | TraceQuery
+        | SessionQuery
         | EndpointsUsageTableQuery
         | AccountsQuery
     /** Columns shown in the table, unless the `source` provides them. */
@@ -1225,6 +1245,9 @@ export interface ChartSettings {
     showYAxisBorder?: boolean
     showLegend?: boolean
     showValuesOnSeries?: boolean
+    // Deprecated: superseded by `pie.showTotal`. Retained so pre-existing pie-chart insights still
+    // validate (ChartSettings is `extra="forbid"`). Read as a fallback in the pie chart components.
+    showPieTotal?: boolean
     showTotalRow?: boolean
     showNullsAsZero?: boolean
     heatmap?: HeatmapSettings
@@ -2061,6 +2084,11 @@ export interface EndpointRequest {
     deleted?: boolean
     /** Tag names to associate with this endpoint. Replaces any existing tags. Omit to leave tags untouched. */
     tags?: string[]
+    /**
+     * Breakdown property names that may be omitted on /run. Omitted ones return data aggregated across all values of
+     * that breakdown.
+     */
+    optional_breakdown_properties?: string[]
 }
 
 /**
@@ -2397,8 +2425,9 @@ export interface AccountsQuery extends DataNode<AccountsQueryResponse> {
     metrics?: HogQLExpression[]
     search?: string
     tagNames?: string[]
-    /** Match accounts where any of these user ids is the CSM or the account executive (OR over both roles). Drives the "My accounts" shortcut (the current user's id) and the shareable "Assigned to" filter — the ids are explicit so a shared URL resolves identically for every viewer. */
+    /** Match accounts where any of these user ids actively holds any relationship (CSM, Account executive, or a custom definition). Drives the "My accounts" shortcut (the current user's id) and the shareable "Assigned to" filter — the ids are explicit so a shared URL resolves identically for every viewer. */
     assignedToUserIds?: integer[]
+    /** Match accounts with no active relationship of any definition. */
     allRolesUnassigned?: boolean
     /** Optional HogQL boolean expression AND-ed into the WHERE clause. Used by the overview tile click-to-filter affordance. */
     filterExpression?: HogQLExpression
@@ -2552,6 +2581,8 @@ export interface MCPHarnessBreakdownQuery extends DataNode<MCPHarnessBreakdownQu
     dateRange?: DateRange
     properties?: AnyPropertyFilter[]
     filterTestAccounts?: boolean
+    /** When set, scope to a single effective tool's new-SDK calls (the per-tool "By harness" table). */
+    toolName?: string
 }
 
 export type CachedMCPHarnessBreakdownQueryResponse = CachedQueryResponse<MCPHarnessBreakdownQueryResponse>
@@ -2605,6 +2636,124 @@ export interface MCPToolFailuresQuery extends DataNode<MCPToolFailuresQueryRespo
 }
 
 export type CachedMCPToolFailuresQueryResponse = CachedQueryResponse<MCPToolFailuresQueryResponse>
+
+/** Summary scalars for a single MCP tool: activity, latency, reach, and intent coverage. */
+export interface MCPToolStatsItem {
+    calls: integer
+    errors: integer
+    p50_ms: number | null
+    p95_ms: number | null
+    users: integer
+    conversations: integer
+    /** Calls carrying a non-empty intent payload; the coverage denominator is `calls`. */
+    with_intent: integer
+}
+
+export interface MCPToolStatsQueryResponse extends AnalyticsQueryResponseBase {
+    /** Zero or one row; empty when the tool had no calls in the window. */
+    results: MCPToolStatsItem[]
+}
+
+/** Summary scalars and intent coverage for a single MCP tool over the last 7 days. */
+export interface MCPToolStatsQuery extends DataNode<MCPToolStatsQueryResponse> {
+    kind: NodeKind.MCPToolStatsQuery
+    /** The effective tool name to scope to (matched against the single-exec-resolved tool name). */
+    toolName: string
+    dateRange?: DateRange
+}
+
+export type CachedMCPToolStatsQueryResponse = CachedQueryResponse<MCPToolStatsQueryResponse>
+
+/** One day of activity for a single MCP tool. */
+export interface MCPToolDailyStatItem {
+    day: string
+    calls: integer
+    errors: integer
+    p50: number
+    p95: number
+    users: integer
+    sessions: integer
+}
+
+export interface MCPToolDailyStatsQueryResponse extends AnalyticsQueryResponseBase {
+    results: MCPToolDailyStatItem[]
+}
+
+/** Per-day activity series for a single MCP tool over the last 30 days. */
+export interface MCPToolDailyStatsQuery extends DataNode<MCPToolDailyStatsQueryResponse> {
+    kind: NodeKind.MCPToolDailyStatsQuery
+    /** The effective tool name to scope to (matched against the single-exec-resolved tool name). */
+    toolName: string
+    dateRange?: DateRange
+}
+
+export type CachedMCPToolDailyStatsQueryResponse = CachedQueryResponse<MCPToolDailyStatsQueryResponse>
+
+/** One distinct description seen for a single MCP tool, with the last time it was reported. */
+export interface MCPToolDescriptionItem {
+    description: string
+    last_seen: string
+}
+
+export interface MCPToolDescriptionsQueryResponse extends AnalyticsQueryResponseBase {
+    results: MCPToolDescriptionItem[]
+}
+
+/** Distinct descriptions reported for a single MCP tool over the last 30 days, most recent first. */
+export interface MCPToolDescriptionsQuery extends DataNode<MCPToolDescriptionsQueryResponse> {
+    kind: NodeKind.MCPToolDescriptionsQuery
+    /** The effective tool name to scope to (matched against the single-exec-resolved tool name). */
+    toolName: string
+    dateRange?: DateRange
+}
+
+export type CachedMCPToolDescriptionsQueryResponse = CachedQueryResponse<MCPToolDescriptionsQueryResponse>
+
+/** One sampled call of a single MCP tool that carried a non-empty intent. */
+export interface MCPToolSampleIntentItem {
+    timestamp: string
+    /** JSON-encoded intent payload as reported by the client. */
+    intent: string
+    intent_source: string
+    /** Resolved harness label for the call. */
+    harness: string
+}
+
+export interface MCPToolSampleIntentsQueryResponse extends AnalyticsQueryResponseBase {
+    results: MCPToolSampleIntentItem[]
+}
+
+/** Recent sampled intents for a single MCP tool over the last 7 days, with a resolved harness label. */
+export interface MCPToolSampleIntentsQuery extends DataNode<MCPToolSampleIntentsQueryResponse> {
+    kind: NodeKind.MCPToolSampleIntentsQuery
+    /** The effective tool name to scope to (matched against the single-exec-resolved tool name). */
+    toolName: string
+    dateRange?: DateRange
+}
+
+export type CachedMCPToolSampleIntentsQueryResponse = CachedQueryResponse<MCPToolSampleIntentsQueryResponse>
+
+/** One tool frequently called adjacent to the target tool within the same conversation. */
+export interface MCPToolNeighborItem {
+    neighbor_tool: string
+    co_occurrences: integer
+}
+
+export interface MCPToolNeighborsQueryResponse extends AnalyticsQueryResponseBase {
+    results: MCPToolNeighborItem[]
+}
+
+/** Tools most often called immediately before or after a single MCP tool within a conversation. */
+export interface MCPToolNeighborsQuery extends DataNode<MCPToolNeighborsQueryResponse> {
+    kind: NodeKind.MCPToolNeighborsQuery
+    /** The effective tool name to scope to (matched against the single-exec-resolved tool name). */
+    toolName: string
+    /** Whether to count tools called immediately before or after the target tool. */
+    neighborDirection: 'before' | 'after'
+    dateRange?: DateRange
+}
+
+export type CachedMCPToolNeighborsQueryResponse = CachedQueryResponse<MCPToolNeighborsQueryResponse>
 
 export enum WebStatsBreakdown {
     Page = 'Page',
@@ -3971,11 +4120,20 @@ export interface ExperimentEventExposureConfig extends Node {
 }
 
 // ── Slim API types for experiment create/update ──────────────────────
-// These are intentionally simplified versions of the full query types.
-// The full types (EventsNode, ExperimentMeanMetric, …) pull in
-// AnyPropertyFilter (18-subtype union) which explodes the OpenAPI/MCP
-// schema via inline expansion. These slim types use EventPropertyFilter
-// directly, keeping the generated schema compact.
+// Simplified versions of the full query types: they drop the nested
+// metric/node machinery (EventsNode, ExperimentMeanMetric, …) the
+// create/update payloads never need.
+//
+// Property-filter typing is intentionally asymmetric. AnyPropertyFilter is
+// an 18-subtype union that the OpenAPI/MCP codegen inlines (not $ref's) at
+// every use site, so each use expands the generated schema.
+//  - Exposure config uses AnyPropertyFilter: targeting exposure by
+//    person/group/cohort is a real case the runtime validator already
+//    accepts, and EventPropertyFilter[] silently dropped those filters.
+//  - Metric event sources keep EventPropertyFilter[]: the source is inlined
+//    across every metric field (source, numerator, denominator, start/
+//    completion event) in every experiment tool, so widening it multiplies
+//    the expansion — not worth it until metrics need non-event filters.
 
 /** Slim event/action source for experiment API payloads. */
 export interface ExperimentApiEventSource {
@@ -4071,8 +4229,6 @@ export interface ExperimentParameters {
     minimum_detectable_effect?: number
     /** Overall rollout percentage (0-100). Controls what fraction of all users enter the experiment. Users outside the rollout never see any variant and are excluded from analysis. Default: 100. */
     rollout_percentage?: number
-    /** Variant keys to exclude from metric result calculations. Excluded variants are still served to users but omitted from statistical analysis. */
-    excluded_variants?: string[]
     /** Free-text notes per variant, keyed by variant key. Use to document what each variant does or its reroute URL. */
     variant_notes?: Record<string, string>
 }
@@ -4111,8 +4267,8 @@ export interface ExperimentApiExposureConfig {
     event?: string
     /** Action ID. Required when kind is 'ActionsNode'. */
     id?: integer
-    /** Event property filters. Pass an empty array if no filters needed. */
-    properties: EventPropertyFilter[]
+    /** Property filters (event, person, and other supported types). Pass an empty array if no filters needed. */
+    properties: AnyPropertyFilter[]
 }
 
 /** Exposure criteria for experiment API payloads. */
@@ -4894,6 +5050,10 @@ export interface DashboardFilter {
     properties?: AnyPropertyFilter[] | null
     breakdown_filter?: BreakdownFilter | null
     explicitDate?: boolean
+    /** Time granularity forced onto every insight that supports one. Absent/null = inherit. */
+    interval?: IntervalType | null
+    /** Tri-state test-account override. Null/absent = inherit; true = force on; false = force off. */
+    filterTestAccounts?: boolean | null
 }
 
 export interface TileFilters {
@@ -4902,6 +5062,8 @@ export interface TileFilters {
     properties?: AnyPropertyFilter[] | null | undefined
     breakdown_filter?: BreakdownFilter | null | undefined
     explicitDate?: boolean | undefined
+    interval?: IntervalType | null | undefined
+    filterTestAccounts?: boolean | null | undefined
 }
 
 export interface InsightsThresholdBounds {
@@ -4942,6 +5104,7 @@ export enum AlertState {
 }
 
 export enum AlertCalculationInterval {
+    REAL_TIME = 'real_time',
     EVERY_15_MINUTES = 'every_15_minutes',
     HOURLY = 'hourly',
     DAILY = 'daily',
@@ -4989,6 +5152,8 @@ export interface FunnelsAlertConfig {
     /** Zero-based step index to evaluate. Null = the last step (overall conversion). */
     funnel_step?: integer | null
     metric: FunnelConversionMetric
+    /** When true, evaluate the current (still in-progress) period; by default only completed periods are used. */
+    check_ongoing_interval?: boolean
 }
 
 /** One blocked period for quiet hours: 24-hour HH:MM in the project timezone; interval is half-open [start, end). */
@@ -5474,6 +5639,24 @@ export interface TraceQuery extends DataNode<TraceQueryResponse> {
     properties?: AnyPropertyFilter[]
 }
 
+export interface SessionQueryResponse extends AnalyticsQueryResponseBase {
+    results: LLMTrace[]
+    hasMore?: boolean
+    limit?: integer
+    offset?: integer
+    columns?: string[]
+}
+
+export interface SessionQuery extends DataNode<SessionQueryResponse> {
+    kind: NodeKind.SessionQuery
+    sessionId: string
+    dateRange?: DateRange
+    limit?: integer
+    offset?: integer
+    /** Include stored sentiment evaluation results for returned traces and generation events. */
+    includeSentiment?: boolean
+}
+
 export interface TraceNeighborsQueryResponse {
     /** ID of the newer trace (chronologically after current) */
     newerTraceId?: string
@@ -5504,6 +5687,7 @@ export interface TraceNeighborsQuery extends DataNode<TraceNeighborsQueryRespons
 
 export type CachedTracesQueryResponse = CachedQueryResponse<TracesQueryResponse>
 export type CachedTraceQueryResponse = CachedQueryResponse<TraceQueryResponse>
+export type CachedSessionQueryResponse = CachedQueryResponse<SessionQueryResponse>
 export type CachedTraceNeighborsQueryResponse = CachedQueryResponse<TraceNeighborsQueryResponse>
 
 // NOTE: Keep in sync with posthog/models/exchange_rate/currencies.py
@@ -6751,6 +6935,7 @@ export const externalDataSources = [
     'InforNexus',
     'Insightful',
     'Insightly',
+    'Instantly',
     'Instatus',
     'Intruder',
     'Invoiced',
@@ -7051,6 +7236,16 @@ export const externalDataSources = [
     'Talkwalker',
     'NextdoorAds',
     'AppLovin',
+    'Baserow',
+    'Plunk',
+    'Dub',
+    'AirOps',
+    'Podium',
+    'Loops',
+    'Redis',
+    'Mercury',
+    'Gojiberry',
+    'Teachable',
 ] as const
 
 export type ExternalDataSourceType = (typeof externalDataSources)[number]
@@ -7584,6 +7779,7 @@ export enum ProductKey {
     LOGS = 'logs',
     MARKETING_ANALYTICS = 'marketing_analytics',
     MAX = 'max',
+    MCP_ANALYTICS = 'mcp_analytics',
     MOBILE_REPLAY = 'mobile_replay',
     NOTEBOOKS = 'notebooks',
     PERSONS = 'persons',
@@ -7647,6 +7843,10 @@ export enum ProductIntentContext {
     LLM_DATASET_CREATED = 'llm_dataset_created',
     LLM_EVALUATION_CREATED = 'llm_evaluation_created',
     LLM_PROMPT_CREATED = 'llm_prompt_created',
+
+    // MCP Analytics
+    MCP_ANALYTICS_VIEWED = 'mcp_analytics_viewed',
+    MCP_ANALYTICS_CONNECTED = 'mcp_analytics_connected',
 
     // Logs
     LOGS_DOCS_VIEWED = 'logs_docs_viewed',

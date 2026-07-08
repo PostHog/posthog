@@ -1,8 +1,9 @@
 import { BindLogic, useActions, useValues } from 'kea'
 import { useCallback, useRef } from 'react'
 
+import { HedgehogDirector } from '@posthog/brand/hoggies'
+
 import { EmptyMessage } from 'lib/components/EmptyMessage/EmptyMessage'
-import { FilmCameraHog } from 'lib/components/hedgehogs'
 import { Resizer } from 'lib/components/Resizer/Resizer'
 import { ResizerLogicProps, resizerLogic } from 'lib/components/Resizer/resizerLogic'
 import { useWindowSize } from 'lib/hooks/useWindowSize'
@@ -251,7 +252,7 @@ function PlayerWrapper({
 
                     {/* Centered hedgehog overlay */}
                     <div className="absolute inset-0 flex flex-col items-center justify-center pointer-events-none">
-                        <FilmCameraHog className="w-60 h-60" />
+                        <HedgehogDirector className="w-60 h-60" />
                         <div className="mt-4 flex items-center gap-2">
                             <Spinner textColored />
                             <span className="text-secondary">Loading recordings...</span>

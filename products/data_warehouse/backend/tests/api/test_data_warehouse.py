@@ -11,12 +11,14 @@ from rest_framework import status
 
 from products.dashboards.backend.models.dashboard import Dashboard
 from products.dashboards.backend.models.dashboard_tile import DashboardTile
-from products.data_modeling.backend.models.data_modeling_job import DataModelingJob
+from products.data_modeling.backend.facade.models import DataModelingJob
 from products.data_warehouse.backend.models.team_data_warehouse_config import TeamDataWarehouseConfig
-from products.warehouse_sources.backend.models.external_data_job import ExternalDataJob
-from products.warehouse_sources.backend.models.external_data_schema import ExternalDataSchema
-from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
-from products.warehouse_sources.backend.models.table import DataWarehouseTable
+from products.warehouse_sources.backend.facade.models import (
+    DataWarehouseTable,
+    ExternalDataJob,
+    ExternalDataSchema,
+    ExternalDataSource,
+)
 
 
 class TestDataWarehouseAPI(APIBaseTest):

@@ -5,7 +5,6 @@ import uuid
 import inspect
 import datetime as dt
 import resource
-import functools
 from collections.abc import Callable, Generator, Iterator
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from contextlib import ExitStack, contextmanager
@@ -23,13 +22,7 @@ from django.core.cache import cache
 from django.core.management import call_command
 from django.db import connection, connections
 from django.db.migrations.executor import MigrationExecutor
-from django.test import (
-    Client as DjangoTestClient,
-    SimpleTestCase,
-    TestCase,
-    TransactionTestCase,
-    override_settings,
-)
+from django.test import SimpleTestCase, TestCase, TransactionTestCase, override_settings
 from django.test.utils import CaptureQueriesContext
 
 # we have to import pendulum for the side effect of importing it
@@ -37,10 +30,7 @@ from django.test.utils import CaptureQueriesContext
 import pendulum  # noqa F401
 import sqlparse
 from clickhouse_pool.pool import TooManyConnections
-from rest_framework.test import (
-    APIClient,
-    APITestCase as DRFTestCase,
-)
+from rest_framework.test import APITestCase as DRFTestCase
 from syrupy.extensions.amber import AmberSnapshotExtension
 
 from posthog.hogql import (
@@ -114,7 +104,7 @@ from posthog.models.event.sql import (
     EVENTS_TABLE_SQL,
     TRUNCATE_EVENTS_RECENT_TABLE_SQL,
 )
-from posthog.models.event.util import bulk_create_events
+from posthog.models.event.util import _resolve_person_for_bulk_event, bulk_create_events
 from posthog.models.exchange_rate.sql import (
     DROP_EXCHANGE_RATE_DICTIONARY_SQL,
     DROP_EXCHANGE_RATE_TABLE_SQL,
@@ -662,8 +652,7 @@ class PostHogTestCase(SimpleTestCase):
     # to `False` will set up test data on every test case instead.
     CLASS_DATA_LEVEL_SETUP = True
 
-    # Allow tests to use the persons databases (for Person/PersonDistinctId models)
-    databases = {"default", "persons_db_writer", "persons_db_reader"}
+    databases = {"default"}
 
     # Test data definition stubs
     organization: Organization = cast(Organization, None)
@@ -683,7 +672,7 @@ class PostHogTestCase(SimpleTestCase):
             _setup_test_data(cls)
 
     def setUp(self):
-        get_instance_setting.cache_clear()
+        get_instance_setting.cache_clear()  # type: ignore[attr-defined]
 
         if get_instance_setting("PERSON_ON_EVENTS_ENABLED"):
             from posthog.models.team import util
@@ -895,25 +884,7 @@ class NonAtomicBaseTest(PostHogTestCase, ErrorResponsesMixin, TransactionTestCas
         # Required when models are moved between Django apps, as PostgreSQL
         # needs CASCADE to handle FK constraints across app boundaries.
         for db_name in cast(Any, self)._databases_names(include_mirrors=False):
-            if db_name in ("persons_db_writer", "persons_db_reader"):
-                # Manually truncate persons database tables
-                # Can't use Django's flush because it emits post_migrate signals that try to
-                # create contenttypes/permissions tables that don't exist in persons database
-                conn = connections[db_name]
-                with conn.cursor() as cursor:
-                    cursor.execute("""
-                                   SELECT tablename
-                                   FROM pg_tables
-                                   WHERE schemaname = 'public'
-                                     AND tablename NOT LIKE 'pg_%'
-                                     AND tablename NOT LIKE '_sqlx_%'
-                                     AND tablename NOT LIKE '_persons_migrations'
-                                   """)
-                    tables = [row[0] for row in cursor.fetchall()]
-                    if tables:
-                        cursor.execute(f"TRUNCATE TABLE {', '.join(tables)} RESTART IDENTITY CASCADE")
-            else:
-                call_command("flush", verbosity=0, interactive=False, database=db_name, allow_cascade=True)
+            call_command("flush", verbosity=0, interactive=False, database=db_name, allow_cascade=True)
 
 
 class NonAtomicBaseTestKeepIdentities(PostHogTestCase, ErrorResponsesMixin, TransactionTestCase):
@@ -932,63 +903,16 @@ class NonAtomicBaseTestKeepIdentities(PostHogTestCase, ErrorResponsesMixin, Tran
         for db_name in cast(Any, self)._databases_names(include_mirrors=False):
             conn = connections[db_name]
             with conn.cursor() as cursor:
-                if db_name in ("persons_db_writer", "persons_db_reader"):
-                    cursor.execute("""
-                                   SELECT tablename
-                                   FROM pg_tables
-                                   WHERE schemaname = 'public'
-                                     AND tablename NOT LIKE 'pg_%'
-                                     AND tablename NOT LIKE '_sqlx_%'
-                                     AND tablename NOT LIKE '_persons_migrations'
-                                   """)
-                else:
-                    cursor.execute("""
-                                   SELECT tablename
-                                   FROM pg_tables
-                                   WHERE schemaname = 'public'
-                                     AND tablename NOT LIKE 'pg_%'
-                                     AND tablename NOT LIKE 'django_%'
-                                   """)
+                cursor.execute("""
+                               SELECT tablename
+                               FROM pg_tables
+                               WHERE schemaname = 'public'
+                                 AND tablename NOT LIKE 'pg_%'
+                                 AND tablename NOT LIKE 'django_%'
+                               """)
                 tables = [row[0] for row in cursor.fetchall()]
                 if tables:
                     cursor.execute(f"TRUNCATE TABLE {', '.join(tables)} CASCADE")
-
-
-def _follow_environments_redirect(original_generic):
-    """Make a test client's `generic` follow the /api/environments → /api/projects 307.
-
-    EnvironmentsRedirectMiddleware 307-redirects /api/environments/* requests when the
-    `api-environments-redirect` flag evaluates true — which in tests happens whenever a
-    test mocks posthoganalytics.feature_enabled for its own flag. Real clients re-send
-    the same method and body to the projects path, so test clients do too: tests receive
-    the end response, not the redirect hop. Set `client.follow_environments_redirect =
-    False` to observe the raw 307 (see posthog/api/test/test_environments_redirect.py).
-    """
-
-    @functools.wraps(original_generic)
-    def generic(self, method, path, data="", content_type="application/octet-stream", secure=False, **extra):
-        response = original_generic(self, method, path, data, content_type, secure, **extra)
-        if (
-            getattr(self, "follow_environments_redirect", True)
-            # RequestFactory shares this method but returns requests, not responses
-            and getattr(response, "status_code", None) in (307, 308)
-            and isinstance(path, str)
-            and path.startswith("/api/environments")
-            and response.headers.get("Location", "").startswith("/api/projects")
-        ):
-            response = original_generic(self, method, response.headers["Location"], data, content_type, secure, **extra)
-        return response
-
-    generic._follows_environments_redirect = True  # type: ignore[attr-defined]
-    return generic
-
-
-# Cover every test client, including ones instantiated by hand in product suites —
-# Django's Client inherits `generic` from RequestFactory, so shadow it on the class.
-if not getattr(APIClient.generic, "_follows_environments_redirect", False):
-    APIClient.generic = _follow_environments_redirect(APIClient.generic)  # type: ignore[method-assign]
-if not getattr(DjangoTestClient.generic, "_follows_environments_redirect", False):
-    DjangoTestClient.generic = _follow_environments_redirect(DjangoTestClient.generic)  # type: ignore[method-assign]
 
 
 class APIBaseTest(PostHogTestCase, ErrorResponsesMixin, DRFTestCase):
@@ -1516,11 +1440,9 @@ def _flush_ai_events(events: list[dict[str, Any]], person_mapping: dict) -> None
             team = event.get("team")
             team_id = event.get("team_id") or (team.pk if team else None)
             if team_id:
-                from posthog.models import PersonDistinctId
-
-                pdi = PersonDistinctId.objects.filter(team_id=team_id, distinct_id=distinct_id).first()
-                if pdi:
-                    event["person_id"] = str(pdi.person.uuid)
+                person = _resolve_person_for_bulk_event(team_id, distinct_id)
+                if person is not None:
+                    event["person_id"] = str(person.uuid)
 
     from posthog.models.ai_events.test_util import bulk_create_ai_events
 

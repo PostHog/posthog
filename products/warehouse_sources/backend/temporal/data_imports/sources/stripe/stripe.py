@@ -56,6 +56,17 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.stripe.set
 
 LOGGER = get_logger(__name__)
 DEFAULT_LIMIT = 100
+# Subscriptions are fetched with two levels of `expand` (subscription discounts and per-line-item
+# discounts), so each object is far larger than a typical Stripe resource. A full page of 100 such
+# objects can grow past the size that reliably transfers intact, and the response then arrives
+# truncated mid-stream — the SDK only discovers the bad body while JSON-decoding it, after its retry
+# loop, and re-fetching the identical oversized page just truncates again. A smaller page keeps each
+# response well within transferable size; _is_truncated_stripe_list_response stays as a backstop for
+# genuinely transient cuts.
+SUBSCRIPTION_PAGE_LIMIT = 20
+
+# Small write batch so each chunk (and its durable `earliest` watermark) commits well inside the heartbeat window, letting a large backfill make progress every attempt.
+STRIPE_CHUNK_SIZE = 1000
 
 _JSON_WHITESPACE = frozenset(b" \t\n\r\f\v")
 _OPEN_BRACE = ord("{")
@@ -258,6 +269,27 @@ class StripeResumeConfig:
     starting_after: str
 
 
+def _batch_and_yield(
+    objects: Any,
+    batcher: Batcher,
+    incremental_field_name: Optional[str] = None,
+    stop_at_or_before: Optional[int] = None,
+):
+    """Batch raw Stripe objects into pa.Tables and yield them, stopping early once we reach an object
+    we already have (`stop_at_or_before`). Yielding in small batches lets the pipeline write and
+    persist the incremental watermark frequently, so progress survives a heartbeat timeout or redeploy."""
+    for obj in objects:
+        if stop_at_or_before is not None and incremental_field_name is not None:
+            if obj[incremental_field_name] <= stop_at_or_before:
+                break
+        batcher.batch(obj)
+        while batcher.should_yield():
+            yield batcher.get_table()
+
+    while batcher.should_yield(include_incomplete_chunk=True):
+        yield batcher.get_table()
+
+
 def _build_resources(
     client: StripeClient, logger: Optional[FilteringBoundLogger] = None
 ) -> dict[str, Union[StripeResource, StripeNestedResource]]:
@@ -292,6 +324,9 @@ def _build_resources(
             method=client.subscriptions.list,
             params={
                 "status": "all",
+                # Smaller page than DEFAULT_LIMIT because the expansions below bloat each object; see
+                # SUBSCRIPTION_PAGE_LIMIT. Overrides the default `limit` in the merged params.
+                "limit": SUBSCRIPTION_PAGE_LIMIT,
                 # Expand discount objects so coupon details (amount_off, percent_off, duration) are inline.
                 # Without expansion Stripe returns only discount IDs, which prevents revenue projection.
                 # Key must be "expand" (not "expand[]") for a list value: the SDK encodes it as
@@ -341,7 +376,7 @@ def get_rows(
     default_params = {"limit": DEFAULT_LIMIT}
     resources = _build_resources(client, logger=logger)
 
-    batcher = Batcher(logger=logger)
+    batcher = Batcher(logger=logger, chunk_size=STRIPE_CHUNK_SIZE)
 
     if endpoint in WEBHOOK_ONLY_ENDPOINTS:
         # Webhook-only resources (e.g. Discount) have no Stripe list endpoint — Discount
@@ -402,7 +437,10 @@ def get_rows(
                             }
                         )
 
-                        if batcher.should_yield():
+                        # A single batch can split into several ready chunks, so drain them all
+                        # before batching the next item — otherwise the next batch() trips the
+                        # "table already ready" guard.
+                        while batcher.should_yield():
                             py_table = batcher.get_table()
                             yield py_table
 
@@ -426,14 +464,14 @@ def get_rows(
             for obj in stripe_objects.auto_paging_iter():
                 batcher.batch(obj)
 
-                if batcher.should_yield():
+                while batcher.should_yield():
                     py_table = batcher.get_table()
                     yield py_table
 
                     last_cur = py_table.column("id")[-1].as_py()
                     resumable_source_manager.save_state(StripeResumeConfig(starting_after=last_cur))
 
-        if batcher.should_yield(include_incomplete_chunk=True):
+        while batcher.should_yield(include_incomplete_chunk=True):
             py_table = batcher.get_table()
             yield py_table
 
@@ -460,7 +498,7 @@ def get_rows(
                 f"created[lt]": db_incremental_field_earliest_value,
             },
         )
-        yield from stripe_objects.auto_paging_iter()
+        yield from _batch_and_yield(stripe_objects.auto_paging_iter(), batcher)
 
     # check for any objects more than the maximum object we already have
     if db_incremental_field_last_value is not None:
@@ -474,12 +512,12 @@ def get_rows(
                 f"created[gt]": db_incremental_field_last_value,
             },
         )
-        last_value_cursor = _coerce_incremental_cursor(db_incremental_field_last_value)
-        for obj in stripe_objects.auto_paging_iter():
-            if last_value_cursor is not None and obj[incremental_field_name] <= last_value_cursor:
-                break
-
-            yield obj
+        yield from _batch_and_yield(
+            stripe_objects.auto_paging_iter(),
+            batcher,
+            incremental_field_name=incremental_field_name,
+            stop_at_or_before=_coerce_incremental_cursor(db_incremental_field_last_value),
+        )
 
 
 def _webhook_table_transformer(table: pa.Table) -> pa.Table:

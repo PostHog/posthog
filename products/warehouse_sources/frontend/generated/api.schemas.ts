@@ -116,6 +116,7 @@ export type ExternalDataSchemaApiSource = {
     readonly id?: string
     readonly source_type?: string
     readonly supports_column_selection?: boolean
+    readonly supports_row_filters?: boolean
     /** @nullable */
     readonly user_access_level?: string | null
 } | null
@@ -211,7 +212,7 @@ export interface ExternalDataSchemaApi {
      * @nullable
      */
     row_filters?: ExternalDataSchemaApiRowFiltersItem[] | null
-    /** Source-side column metadata (name, data type, nullable) discovered for this schema. Empty until the source has been refreshed via `refresh_schemas`. */
+    /** Column metadata (name, data type, nullable) for this schema. For SQL sources this is the source-side schema discovered via `refresh_schemas`; for other sources (and once synced) it falls back to the synced table's columns. Empty only before the first successful sync/refresh. */
     readonly available_columns: readonly ExternalDataSchemaApiAvailableColumnsItem[]
     /**
      * Lightweight parent-source summary (id, source_type, column-selection support, the requesting user's access level). Only populated on the single-schema retrieve endpoint — `null` elsewhere — so read-only views can render without fetching the full source and all its schemas.
@@ -256,6 +257,7 @@ export type PatchedExternalDataSchemaApiSource = {
     readonly id?: string
     readonly source_type?: string
     readonly supports_column_selection?: boolean
+    readonly supports_row_filters?: boolean
     /** @nullable */
     readonly user_access_level?: string | null
 } | null
@@ -351,7 +353,7 @@ export interface PatchedExternalDataSchemaApi {
      * @nullable
      */
     row_filters?: PatchedExternalDataSchemaApiRowFiltersItem[] | null
-    /** Source-side column metadata (name, data type, nullable) discovered for this schema. Empty until the source has been refreshed via `refresh_schemas`. */
+    /** Column metadata (name, data type, nullable) for this schema. For SQL sources this is the source-side schema discovered via `refresh_schemas`; for other sources (and once synced) it falls back to the synced table's columns. Empty only before the first successful sync/refresh. */
     readonly available_columns?: readonly PatchedExternalDataSchemaApiAvailableColumnsItem[]
     /**
      * Lightweight parent-source summary (id, source_type, column-selection support, the requesting user's access level). Only populated on the single-schema retrieve endpoint — `null` elsewhere — so read-only views can render without fetching the full source and all its schemas.
@@ -722,6 +724,7 @@ export const CreatedViaEnumApi = {
  * * `InforNexus` - InforNexus
  * * `Insightful` - Insightful
  * * `Insightly` - Insightly
+ * * `Instantly` - Instantly
  * * `Instatus` - Instatus
  * * `Intruder` - Intruder
  * * `Invoiced` - Invoiced
@@ -1022,6 +1025,16 @@ export const CreatedViaEnumApi = {
  * * `Talkwalker` - Talkwalker
  * * `NextdoorAds` - NextdoorAds
  * * `AppLovin` - AppLovin
+ * * `Baserow` - Baserow
+ * * `Plunk` - Plunk
+ * * `Dub` - Dub
+ * * `AirOps` - AirOps
+ * * `Podium` - Podium
+ * * `Loops` - Loops
+ * * `Redis` - Redis
+ * * `Mercury` - Mercury
+ * * `Gojiberry` - Gojiberry
+ * * `Teachable` - Teachable
  */
 export type ExternalDataSourceTypeEnumApi =
     (typeof ExternalDataSourceTypeEnumApi)[keyof typeof ExternalDataSourceTypeEnumApi]
@@ -1375,6 +1388,7 @@ export const ExternalDataSourceTypeEnumApi = {
     InforNexus: 'InforNexus',
     Insightful: 'Insightful',
     Insightly: 'Insightly',
+    Instantly: 'Instantly',
     Instatus: 'Instatus',
     Intruder: 'Intruder',
     Invoiced: 'Invoiced',
@@ -1675,6 +1689,16 @@ export const ExternalDataSourceTypeEnumApi = {
     Talkwalker: 'Talkwalker',
     NextdoorAds: 'NextdoorAds',
     AppLovin: 'AppLovin',
+    Baserow: 'Baserow',
+    Plunk: 'Plunk',
+    Dub: 'Dub',
+    AirOps: 'AirOps',
+    Podium: 'Podium',
+    Loops: 'Loops',
+    Redis: 'Redis',
+    Mercury: 'Mercury',
+    Gojiberry: 'Gojiberry',
+    Teachable: 'Teachable',
 } as const
 
 /**
@@ -1692,6 +1716,7 @@ export const AccessMethodEnumApi = {
  * * `duckdb` - duckdb
  * * `postgres` - postgres
  * * `mysql` - mysql
+ * * `snowflake` - snowflake
  */
 export type EngineEnumApi = (typeof EngineEnumApi)[keyof typeof EngineEnumApi]
 
@@ -1699,6 +1724,7 @@ export const EngineEnumApi = {
     Duckdb: 'duckdb',
     Postgres: 'postgres',
     Mysql: 'mysql',
+    Snowflake: 'snowflake',
 } as const
 
 export interface ExternalDataSourceRevenueAnalyticsConfigApi {
@@ -1745,7 +1771,8 @@ export interface ExternalDataSourceSerializersApi {
      *
      * * `duckdb` - duckdb
      * * `postgres` - postgres
-     * * `mysql` - mysql */
+     * * `mysql` - mysql
+     * * `snowflake` - snowflake */
     readonly engine: EngineEnumApi | null
     /** @nullable */
     readonly last_run_at: string | null
@@ -2127,6 +2154,7 @@ export interface ExternalDataSourceCreateApi {
      * * `InforNexus` - InforNexus
      * * `Insightful` - Insightful
      * * `Insightly` - Insightly
+     * * `Instantly` - Instantly
      * * `Instatus` - Instatus
      * * `Intruder` - Intruder
      * * `Invoiced` - Invoiced
@@ -2426,7 +2454,17 @@ export interface ExternalDataSourceCreateApi {
      * * `Ikas` - Ikas
      * * `Talkwalker` - Talkwalker
      * * `NextdoorAds` - NextdoorAds
-     * * `AppLovin` - AppLovin */
+     * * `AppLovin` - AppLovin
+     * * `Baserow` - Baserow
+     * * `Plunk` - Plunk
+     * * `Dub` - Dub
+     * * `AirOps` - AirOps
+     * * `Podium` - Podium
+     * * `Loops` - Loops
+     * * `Redis` - Redis
+     * * `Mercury` - Mercury
+     * * `Gojiberry` - Gojiberry
+     * * `Teachable` - Teachable */
     source_type: ExternalDataSourceTypeEnumApi
     /** Connection credentials and a 'schemas' array. Keys depend on source_type. */
     payload: ExternalDataSourceCreateApiPayload
@@ -2496,7 +2534,8 @@ export interface PatchedExternalDataSourceSerializersApi {
      *
      * * `duckdb` - duckdb
      * * `postgres` - postgres
-     * * `mysql` - mysql */
+     * * `mysql` - mysql
+     * * `snowflake` - snowflake */
     readonly engine?: EngineEnumApi | null
     /** @nullable */
     readonly last_run_at?: string | null
@@ -2611,7 +2650,8 @@ export interface ExternalDataSourceConnectionOptionApi {
      *
      * * `duckdb` - duckdb
      * * `postgres` - postgres
-     * * `mysql` - mysql */
+     * * `mysql` - mysql
+     * * `snowflake` - snowflake */
     readonly engine: EngineEnumApi | null
 }
 
@@ -2989,6 +3029,7 @@ export interface DatabaseSchemaRequestApi {
      * * `InforNexus` - InforNexus
      * * `Insightful` - Insightful
      * * `Insightly` - Insightly
+     * * `Instantly` - Instantly
      * * `Instatus` - Instatus
      * * `Intruder` - Intruder
      * * `Invoiced` - Invoiced
@@ -3288,8 +3329,63 @@ export interface DatabaseSchemaRequestApi {
      * * `Ikas` - Ikas
      * * `Talkwalker` - Talkwalker
      * * `NextdoorAds` - NextdoorAds
-     * * `AppLovin` - AppLovin */
+     * * `AppLovin` - AppLovin
+     * * `Baserow` - Baserow
+     * * `Plunk` - Plunk
+     * * `Dub` - Dub
+     * * `AirOps` - AirOps
+     * * `Podium` - Podium
+     * * `Loops` - Loops
+     * * `Redis` - Redis
+     * * `Mercury` - Mercury
+     * * `Gojiberry` - Gojiberry
+     * * `Teachable` - Teachable */
     source_type: ExternalDataSourceTypeEnumApi
+}
+
+export interface DraftCustomManifestRequestApi {
+    /** Optional human name of the API being connected (e.g. 'Acme CRM'). Used only to orient the model. */
+    source_name?: string
+    /** URL of the API documentation to read. Provide this or docs_text; fetched server-side via the egress proxy. */
+    docs_url?: string
+    /** Raw API documentation or an OpenAPI/Swagger spec, pasted directly. Provide this or docs_url. */
+    docs_text?: string
+}
+
+/**
+ * * `ok` - ok
+ * * `invalid` - invalid
+ * * `model_error` - model_error
+ */
+export type DraftStatusEnumApi = (typeof DraftStatusEnumApi)[keyof typeof DraftStatusEnumApi]
+
+export const DraftStatusEnumApi = {
+    Ok: 'ok',
+    Invalid: 'invalid',
+    ModelError: 'model_error',
+} as const
+
+export interface DraftCustomManifestResponseApi {
+    /** 'ok' = a manifest validated; 'invalid' = a manifest was drafted but never validated within the budget (see error; manifest_json holds the last attempt to fix by hand); 'model_error' = the model returned no usable JSON.
+     *
+     * * `ok` - ok
+     * * `invalid` - invalid
+     * * `model_error` - model_error */
+    draft_status: DraftStatusEnumApi
+    /**
+     * The drafted RESTAPIConfig manifest as a JSON string (non-secret), or null if none was produced.
+     * @nullable
+     */
+    manifest_json: string | null
+    /** Names of the resources (tables) the validated manifest exposes. Empty unless draft_status is 'ok'. */
+    resource_names: string[]
+    /** How many draft→validate→repair rounds were run. */
+    attempts: number
+    /**
+     * The last validation error when draft_status is not 'ok'; null on success.
+     * @nullable
+     */
+    error: string | null
 }
 
 /**
@@ -3648,6 +3744,7 @@ export interface SourcePreviewRequestApi {
      * * `InforNexus` - InforNexus
      * * `Insightful` - Insightful
      * * `Insightly` - Insightly
+     * * `Instantly` - Instantly
      * * `Instatus` - Instatus
      * * `Intruder` - Intruder
      * * `Invoiced` - Invoiced
@@ -3947,7 +4044,17 @@ export interface SourcePreviewRequestApi {
      * * `Ikas` - Ikas
      * * `Talkwalker` - Talkwalker
      * * `NextdoorAds` - NextdoorAds
-     * * `AppLovin` - AppLovin */
+     * * `AppLovin` - AppLovin
+     * * `Baserow` - Baserow
+     * * `Plunk` - Plunk
+     * * `Dub` - Dub
+     * * `AirOps` - AirOps
+     * * `Podium` - Podium
+     * * `Loops` - Loops
+     * * `Redis` - Redis
+     * * `Mercury` - Mercury
+     * * `Gojiberry` - Gojiberry
+     * * `Teachable` - Teachable */
     source_type: ExternalDataSourceTypeEnumApi
     /** Source config as flat keys. For source_type 'Custom': 'manifest_json' (a stringified RESTAPIConfig describing client.base_url, auth, and resources) plus the credential for the manifest's declared auth type — 'auth_token' (bearer), 'auth_api_key' (api_key), or 'auth_password' (http_basic). Secrets stay in these auth_* keys, never inline in the manifest. */
     payload?: SourcePreviewRequestApiPayload
@@ -4340,6 +4447,7 @@ export interface SourceSetupApi {
      * * `InforNexus` - InforNexus
      * * `Insightful` - Insightful
      * * `Insightly` - Insightly
+     * * `Instantly` - Instantly
      * * `Instatus` - Instatus
      * * `Intruder` - Intruder
      * * `Invoiced` - Invoiced
@@ -4639,7 +4747,17 @@ export interface SourceSetupApi {
      * * `Ikas` - Ikas
      * * `Talkwalker` - Talkwalker
      * * `NextdoorAds` - NextdoorAds
-     * * `AppLovin` - AppLovin */
+     * * `AppLovin` - AppLovin
+     * * `Baserow` - Baserow
+     * * `Plunk` - Plunk
+     * * `Dub` - Dub
+     * * `AirOps` - AirOps
+     * * `Podium` - Podium
+     * * `Loops` - Loops
+     * * `Redis` - Redis
+     * * `Mercury` - Mercury
+     * * `Gojiberry` - Gojiberry
+     * * `Teachable` - Teachable */
     source_type: ExternalDataSourceTypeEnumApi
     /** Connection details as flat keys for the source_type (discover required fields with the wizard tool). Prefer references over raw secrets: pass {'credential_id': <id>} referencing the connection details the user stored via the connect-link page (discover ids with the stored_credentials endpoint) — they are merged in server-side and deleted once consumed. An already-connected OAuth integration can be passed via its id key instead (e.g. {'hubspot_integration_id': 123}). For source_type 'Custom' (a user-defined REST API) the keys are 'manifest_json' (a stringified RESTAPIConfig describing client.base_url, auth, and resources) plus the credential for the auth type the manifest declares — 'auth_token' (bearer), 'auth_api_key' (api_key), or 'auth_password' (http_basic); keep secrets in these auth_* keys, never inline in the manifest. A 'schemas' array is NOT required — all discovered tables are enabled automatically with sensible sync defaults. */
     payload?: SourceSetupApiPayload
@@ -5039,6 +5157,7 @@ export interface SourceCredentialCreateApi {
      * * `InforNexus` - InforNexus
      * * `Insightful` - Insightful
      * * `Insightly` - Insightly
+     * * `Instantly` - Instantly
      * * `Instatus` - Instatus
      * * `Intruder` - Intruder
      * * `Invoiced` - Invoiced
@@ -5338,7 +5457,17 @@ export interface SourceCredentialCreateApi {
      * * `Ikas` - Ikas
      * * `Talkwalker` - Talkwalker
      * * `NextdoorAds` - NextdoorAds
-     * * `AppLovin` - AppLovin */
+     * * `AppLovin` - AppLovin
+     * * `Baserow` - Baserow
+     * * `Plunk` - Plunk
+     * * `Dub` - Dub
+     * * `AirOps` - AirOps
+     * * `Podium` - Podium
+     * * `Loops` - Loops
+     * * `Redis` - Redis
+     * * `Mercury` - Mercury
+     * * `Gojiberry` - Gojiberry
+     * * `Teachable` - Teachable */
     source_type: ExternalDataSourceTypeEnumApi
     /** Connection details as flat keys for the source_type — the same fields the create flow accepts (host, port, password, API key, …). Checked against a live connection before being stored. */
     payload: SourceCredentialCreateApiPayload
@@ -5466,6 +5595,13 @@ export type ExternalDataSourcesStoredCredentialsListParams = {
     search?: string
     /**
      * Only return stored credentials for this source type (e.g. 'Stripe', 'Postgres').
+     */
+    source_type?: string
+}
+
+export type ExternalDataSourcesWizardRetrieveParams = {
+    /**
+     * Comma-separated source type(s) to return config for, e.g. 'Postgres' or 'Postgres,Stripe'. Strongly recommended: the unfiltered response describes every supported source and is very large. Omit only to enumerate the available types.
      */
     source_type?: string
 }
