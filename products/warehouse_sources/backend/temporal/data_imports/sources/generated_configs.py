@@ -2796,7 +2796,7 @@ class RocketChatSourceConfig(config.Config):
 
 @config.config
 class RocketlaneSourceConfig(config.Config):
-    pass
+    api_key: str
 
 
 @config.config
