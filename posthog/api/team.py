@@ -1629,7 +1629,29 @@ class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin
             ),
         )
 
+        self._report_conversations_settings_changes(before_update, updated_team)
+
         return updated_team
+
+    def _report_conversations_settings_changes(self, before_update: dict[str, Any], updated_team: Team) -> None:
+        old_settings = before_update.get("conversations_settings") or {}
+        new_settings = updated_team.conversations_settings or {}
+        changed_keys = sorted(
+            k for k in old_settings.keys() | new_settings.keys() if old_settings.get(k) != new_settings.get(k)
+        )
+        # One event per changed setting so insights can break down by `setting`.
+        for key in changed_keys:
+            new_value = new_settings.get(key)
+            properties: dict[str, Any] = {"setting": key}
+            # Only non-string values are safe to report — the dict holds free text and the widget token.
+            if isinstance(new_value, (bool, int, float, type(None))):
+                properties["value"] = new_value
+            report_user_action(
+                cast(User, self.context["request"].user),
+                "support setting changed",
+                properties,
+                team=updated_team,
+            )
 
     def _update_revenue_analytics_config(self, instance: Team, validated_data: dict[str, Any]) -> Team:
         # Capture old config before saving
