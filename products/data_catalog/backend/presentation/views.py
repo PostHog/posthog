@@ -214,11 +214,11 @@ class CertificationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     def create(self, request: Request, *args, **kwargs) -> Response:
         serializer = CertificationCreateSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
-        cert = api.propose_certification(team=self.team, user=request.user, **serializer.validated_data)
+        cert = api.propose_certification(team=self.team, user=cast(User, request.user), **serializer.validated_data)
         return Response(CertificationSerializer(cert).data, status=status.HTTP_201_CREATED)
 
     def perform_destroy(self, instance: TableCertification) -> None:
-        api.revoke_certification(instance, self.request.user)
+        api.revoke_certification(instance, cast(User, self.request.user))
 
     @action(
         detail=True,
@@ -229,7 +229,7 @@ class CertificationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     )
     def certify(self, request: Request, **kwargs) -> Response:
         """Mark the target as certified (prefer this source)."""
-        cert = api.certify(self.get_object(), request.user)
+        cert = api.certify(self.get_object(), cast(User, request.user))
         return Response(CertificationSerializer(cert).data)
 
     @action(
@@ -241,5 +241,5 @@ class CertificationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     )
     def deprecate(self, request: Request, **kwargs) -> Response:
         """Mark the target as deprecated (avoid this source)."""
-        cert = api.deprecate(self.get_object(), request.user)
+        cert = api.deprecate(self.get_object(), cast(User, request.user))
         return Response(CertificationSerializer(cert).data)
