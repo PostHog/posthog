@@ -311,6 +311,7 @@ the row lists both.
 | simplecast              | HTTP                        | requests                                                        | ✅                          |
 | simplesat               | HTTP                        | requests                                                        | ✅                          |
 | slack                   | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
+| smaily                  | HTTP                        | requests                                                        | ✅                          |
 | smartreach              | HTTP                        | requests                                                        | ✅                          |
 | smartsheet              | HTTP                        | requests                                                        | ✅                          |
 | snapchat_ads            | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
@@ -667,7 +668,6 @@ doesn't conflict with concurrent PRs.
 - simfin
 - simplecast
 - simplesat
-- smaily
 - smartengage
 - smartwaiver
 - solarwinds_service_desk
