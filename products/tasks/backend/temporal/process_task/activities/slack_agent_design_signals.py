@@ -26,9 +26,12 @@ from products.tasks.backend.models import TaskRun as TaskRunModel
 
 from ee.hogai.sandbox import is_turn_complete
 
-# Reuse the ACP event helpers and signal dispatcher from relay_sandbox_events so the SSE relay
-# and this relay derive and emit signals from identical logic. Only the event source differs.
+# Reuse the ACP event helpers, signal dispatcher, and SSE reconnect tuning from relay_sandbox_events
+# so the two relays derive/emit signals and drive their SSE transport from identical logic.
 from .relay_sandbox_events import (
+    MAX_RECONNECT_ATTEMPTS,
+    SSE_CONNECT_TIMEOUT_SECONDS,
+    SSE_READ_TIMEOUT_SECONDS,
     _extract_agent_message_text,
     _extract_tool_call_step,
     _is_session_update,
@@ -38,12 +41,6 @@ from .relay_sandbox_events import (
 logger = structlog.get_logger(__name__)
 
 HEARTBEAT_INTERVAL_SECONDS = 30
-
-# agent-proxy SSE leg tuning. Its ingress route disables Envoy's request-body buffer, so events
-# arrive per-turn — unlike the Django/Redis leg, which fills in a burst at turn-end.
-SSE_CONNECT_TIMEOUT_SECONDS = 30
-SSE_READ_TIMEOUT_SECONDS = 300
-MAX_RECONNECT_ATTEMPTS = 5
 # Terminal SSE frame name emitted when the run's stream is complete (matches the stream endpoints).
 STREAM_END_EVENT_NAME = "stream-end"
 
@@ -162,14 +159,15 @@ async def relay_agent_design_signals(input: RelayAgentDesignSignalsInput) -> Non
     emitter = SlackAgentDesignSignalEmitter(input.slack_thread_context)
 
     # Read the live proxy leg only when a proxy is configured AND the read-via-proxy flag is on for
-    # the run — the same decision the task UI makes — so the flag stays a runtime kill-switch for
-    # both. Otherwise tail the Django-side Redis stream.
-    task_run = await TaskRunModel.objects.select_related("task__created_by", "team").aget(id=input.run_id)
+    # the run — the same decision the task UI makes — so the flag stays a runtime kill-switch. Load
+    # the run only on that path; the Redis fallback doesn't need it. Otherwise tail the Redis stream.
     base_url = _agent_proxy_base_url()
-    if base_url and await asyncio.to_thread(_stream_via_proxy_enabled, task_run):
-        await _relay_from_agent_proxy(base_url, task_run, input, emitter, workflow_handle)
-    else:
-        await _relay_from_redis(input, emitter, workflow_handle)
+    if base_url:
+        task_run = await TaskRunModel.objects.select_related("task__created_by", "team").aget(id=input.run_id)
+        if _stream_via_proxy_enabled(task_run):
+            await _relay_from_agent_proxy(base_url, task_run, input, emitter, workflow_handle)
+            return
+    await _relay_from_redis(input, emitter, workflow_handle)
 
 
 async def _relay_from_agent_proxy(
@@ -231,20 +229,20 @@ async def _relay_from_agent_proxy(
         except (httpx.TransportError, httpx.HTTPStatusError, httpx_sse.SSEError) as e:
             error = e
 
-        # A clean close without a stream-end frame is a proxy stream rotation — reconnect and
-        # resume. Only consecutive no-progress attempts count toward giving up, so a healthy
-        # long-lived stream reconnects indefinitely while a genuinely broken one stops.
+        # A clean close without a stream-end frame is a proxy stream rotation — resume immediately.
+        # Only consecutive no-progress attempts back off and eventually give up, so a healthy
+        # long-lived stream reconnects without delay while a genuinely broken one stops.
         if made_progress:
             reconnect_count = 0
-        else:
-            reconnect_count += 1
-            if reconnect_count > MAX_RECONNECT_ATTEMPTS:
-                logger.warning(
-                    "relay_agent_design_signals_proxy_gave_up",
-                    run_id=input.run_id,
-                    error=str(error) if error else "clean close with no events",
-                )
-                return
+            continue
+        reconnect_count += 1
+        if reconnect_count > MAX_RECONNECT_ATTEMPTS:
+            logger.warning(
+                "relay_agent_design_signals_proxy_gave_up",
+                run_id=input.run_id,
+                error=str(error) if error else "clean close with no events",
+            )
+            return
         await asyncio.sleep(min(2**reconnect_count, 30))
 
 
