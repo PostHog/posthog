@@ -372,7 +372,7 @@ def _json_subcolumn_access(
         keys=keys,
         access_type=access_type,
         value_type=source.json_value_type,
-        type=ast.StringType(nullable=is_nullable),
+        type=_column_constant_type_for_read(source, is_nullable=is_nullable),
     )
 
 
@@ -466,6 +466,8 @@ def _json_subcolumn_value_expr(
             ],
             type=ast.StringType(nullable=True),
         )
+    if as_json and _is_string_array_column(source):
+        return ast.Call(name="toJSONString", args=[value], type=ast.StringType(nullable=False))
     if not _is_string_column(source) or not source.scrub_empty:
         return value
 
@@ -588,6 +590,13 @@ def _const(value: object) -> ast.Constant:
     return ast.Constant(value=value)
 
 
+def _lambda_string_arg(name: str) -> ast.Field:
+    return ast.Field(
+        chain=[name],
+        type=ast.LambdaArgumentType(name=name, constant_type=ast.StringType(nullable=False)),
+    )
+
+
 def _lower(expr: ast.Expr) -> ast.Call:
     """`lower(expr)`, typed non-nullable String so the printer doesn't ifNull-wrap a comparison against it."""
     return ast.Call(name="lower", args=[expr], type=ast.StringType(nullable=False))
@@ -607,10 +616,26 @@ def _column_constant_type(source: MaterializedPropertySource) -> ast.ConstantTyp
     return constant_type_from_runtime_type(parse_sql_runtime_type(source.column_type or "String"))
 
 
+def _column_constant_type_for_read(source: MaterializedPropertySource, *, is_nullable: bool) -> ast.ConstantType:
+    runtime_type = parse_sql_runtime_type(source.column_type or "String")
+    if runtime_type.family in ("array", "map"):
+        return constant_type_from_runtime_type(runtime_type.non_nullable())
+    return constant_type_from_runtime_type(runtime_type.with_nullable(is_nullable))
+
+
 def _is_string_column(source: MaterializedPropertySource) -> bool:
     if _is_dynamic_json_source(source):
         return False
     return isinstance(_column_constant_type(source), ast.StringType)
+
+
+def _is_string_array_column(source: MaterializedPropertySource) -> bool:
+    runtime_type = parse_sql_runtime_type(source.column_type or "String")
+    return (
+        runtime_type.family == "array"
+        and runtime_type.item_type is not None
+        and runtime_type.item_type.family in ("string", "fixed_string", "enum")
+    )
 
 
 def _is_dynamic_json_source(source: MaterializedPropertySource) -> bool:
@@ -921,6 +946,16 @@ class ClickHousePropertyResolver(CloningVisitor):
         if source is None or source.kind != "json_subcolumn":
             return None
 
+        source_type = parse_sql_runtime_type(source.column_type or "String")
+        if (
+            source_type.family == "array"
+            and requested_type.family == "array"
+            and source_type.item_type is not None
+            and requested_type.item_type is not None
+            and source_type.item_type.family == requested_type.item_type.family
+        ):
+            return _json_subcolumn_access(field_type, [property_name], source=source, is_nullable=False)
+
         json_value = _json_subcolumn_value_expr(
             field_type,
             [property_name],
@@ -996,6 +1031,8 @@ class ClickHousePropertyResolver(CloningVisitor):
             )
         if source.is_nullable or _is_dynamic_json_source(source):
             return _call("isNotNull", [subcolumn])
+        if _is_string_array_column(source):
+            return _call("notEmpty", [subcolumn])
         if _is_string_column(source):
             return ast.Call(
                 name="notEquals",
@@ -1010,6 +1047,9 @@ class ClickHousePropertyResolver(CloningVisitor):
         # printer — it optimizes a real column, not a property.)
         optimized = (
             self._optimize_property_group_compare(node)
+            or self._optimize_materialized_array_compare(node)
+            or self._optimize_materialized_array_ilike(node)
+            or self._optimize_materialized_array_multisearch(node)
             or self._optimize_materialized_equals(node)
             or self._optimize_materialized_range(node)
             or self._optimize_materialized_ilike(node)
@@ -1079,6 +1119,25 @@ class ClickHousePropertyResolver(CloningVisitor):
             or source.kind not in ("materialized_column", "dmat", "json_subcolumn")
             or not _is_string_column(source)
         ):
+            return None
+        return _OptimizableProperty(
+            field_type=field_type,
+            key=property_name,
+            source=source,
+        )
+
+    def _materialized_string_array_property(
+        self, expr: ast.Expr, *, allow_to_string: bool = False
+    ) -> _OptimizableProperty | None:
+        if allow_to_string and isinstance(expr, ast.Call) and expr.name == "toString" and len(expr.args) == 1:
+            expr = expr.args[0]
+
+        single = self._single_key_property(expr)
+        if single is None:
+            return None
+        field_type, property_name = single
+        source = resolve_materialized_property_source(field_type, property_name, self.context)
+        if source is None or source.kind != "json_subcolumn" or not _is_string_array_column(source):
             return None
         return _OptimizableProperty(
             field_type=field_type,
@@ -1223,6 +1282,81 @@ class ClickHousePropertyResolver(CloningVisitor):
         return _call("and", [prop.group_has(), in_expr])
 
     # --- individually-materialized-column optimizers ---
+
+    def _optimize_materialized_array_compare(self, node: ast.CompareOperation) -> ast.Expr | None:
+        if node.op in (ast.CompareOperationOp.Eq, ast.CompareOperationOp.NotEq):
+            prop: _OptimizableProperty | None = None
+            constant_expr: ast.Constant | None = None
+            if (p := self._materialized_string_array_property(node.left)) and isinstance(node.right, ast.Constant):
+                prop, constant_expr = p, node.right
+            elif (p := self._materialized_string_array_property(node.right)) and isinstance(node.left, ast.Constant):
+                prop, constant_expr = p, node.left
+            if prop is None or constant_expr is None:
+                return None
+
+            if constant_expr.value is None:
+                is_set = _call("notEmpty", [prop.bare_column()])
+                return is_set if node.op == ast.CompareOperationOp.NotEq else _call("empty", [prop.bare_column()])
+            if not isinstance(constant_expr.value, str):
+                return None
+            contains = _call("has", [prop.bare_column(), _const(constant_expr.value)])
+            return contains if node.op == ast.CompareOperationOp.Eq else _call("not", [contains])
+
+        if node.op not in (ast.CompareOperationOp.In, ast.CompareOperationOp.NotIn):
+            return None
+        prop = self._materialized_string_array_property(node.left)
+        if prop is None:
+            return None
+        values = self._extract_string_constants(node.right)
+        if values is None:
+            return None
+        contains_any = _call("hasAny", [prop.bare_column(), ast.Array(exprs=[_const(v) for v in values])])
+        return contains_any if node.op == ast.CompareOperationOp.In else _call("not", [contains_any])
+
+    def _optimize_materialized_array_ilike(self, node: ast.CompareOperation) -> ast.Expr | None:
+        if node.op not in (ast.CompareOperationOp.ILike, ast.CompareOperationOp.NotILike):
+            return None
+        prop = self._materialized_string_array_property(node.left, allow_to_string=True)
+        pattern = _string_pattern_constant(node.right)
+        if prop is None or pattern is None:
+            return None
+
+        contains = _call(
+            "arrayExists",
+            [
+                ast.Lambda(args=["v"], expr=_call("ilike", [_lambda_string_arg("v"), _const(pattern.value)])),
+                prop.bare_column(),
+            ],
+        )
+        return contains if node.op == ast.CompareOperationOp.ILike else _call("not", [contains])
+
+    def _optimize_materialized_array_multisearch(self, node: ast.CompareOperation) -> ast.Expr | None:
+        if node.op not in (ast.CompareOperationOp.Gt, ast.CompareOperationOp.Eq):
+            return None
+        if not isinstance(node.right, ast.Constant) or node.right.value != 0:
+            return None
+        if not isinstance(node.left, ast.Call) or node.left.name != "multiSearchAnyCaseInsensitive":
+            return None
+        if len(node.left.args) != 2:
+            return None
+
+        prop = self._materialized_string_array_property(node.left.args[0], allow_to_string=True)
+        values = self._extract_string_constants(node.left.args[1])
+        if prop is None or values is None:
+            return None
+
+        search = _call(
+            "multiSearchAnyCaseInsensitive",
+            [_lambda_string_arg("v"), ast.Array(exprs=[_const(v) for v in values])],
+        )
+        contains = _call(
+            "arrayExists",
+            [
+                ast.Lambda(args=["v"], expr=_call("greater", [search, _const(0)])),
+                prop.bare_column(),
+            ],
+        )
+        return contains if node.op == ast.CompareOperationOp.Gt else _call("not", [contains])
 
     def _optimize_materialized_equals(self, node: ast.CompareOperation) -> ast.Expr | None:
         if node.op not in (ast.CompareOperationOp.Eq, ast.CompareOperationOp.NotEq):

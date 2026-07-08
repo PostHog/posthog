@@ -30,7 +30,11 @@ from posthog.clickhouse.materialized_columns import (
     get_materialized_column_for_property,
 )
 from posthog.clickhouse.property_groups import property_groups
-from posthog.models.event.sql import EVENTS_JSON_INDEXED_PROPERTY_NAMES
+from posthog.models.event.sql import (
+    EVENTS_JSON_INDEXED_PROPERTY_NAMES,
+    EVENTS_PROPERTIES_JSON_SUBCOLUMNS,
+    PERSON_PROPERTIES_JSON_SUBCOLUMNS,
+)
 from posthog.models.property import PropertyName, TableColumn
 from posthog.schema_enums import PropertyGroupsMode
 
@@ -372,18 +376,39 @@ def _json_source_plan(
 ) -> PropertySourcePlan:
     has_minmax_index = _json_source_has_index(table_name, field_name, property_name, "minmax", context)
     has_bloom_filter_index = _json_source_has_index(table_name, field_name, property_name, "bloom_filter", context)
+    physical_type = _json_source_physical_type(table_name, field_name, property_name, context)
 
     return PropertySourcePlan(
         kind=PropertySourceKind.JSON,
         table_name=table_name,
         field_name=field_name,
         column_name=field_name,
-        physical_type=ast.StringType(nullable=True),
-        is_nullable=True,
+        physical_type=physical_type,
+        is_nullable=physical_type.nullable,
         has_minmax_index=has_minmax_index,
         has_bloom_filter_index=has_bloom_filter_index,
         restricted=restricted,
     )
+
+
+def _json_source_physical_type(
+    table_name: str | None,
+    field_name: str | None,
+    property_name: str | None,
+    context: HogQLContext | None,
+) -> ast.ConstantType:
+    if context is None or not context.uses_new_events_schema():
+        return ast.StringType(nullable=True)
+    if table_name != "events" or property_name is None:
+        return ast.StringType(nullable=True)
+
+    subcolumns = {
+        "properties": EVENTS_PROPERTIES_JSON_SUBCOLUMNS,
+        "person_properties": PERSON_PROPERTIES_JSON_SUBCOLUMNS,
+    }.get(field_name)
+    if subcolumns is None or property_name not in subcolumns:
+        return ast.StringType(nullable=True)
+    return constant_type_from_runtime_type(parse_sql_runtime_type(subcolumns[property_name]))
 
 
 def _json_source_has_index(

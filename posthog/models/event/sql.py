@@ -60,19 +60,26 @@ DISTRIBUTED_EVENTS_JSON_TABLE = "events_json"
 KAFKA_EVENTS_NATIVE_JSON_TABLE = "kafka_events_json_native_json"
 
 
+def _json_subcolumn_type_supports_nullable(column_type: str) -> bool:
+    return not column_type.startswith(("Array(", "Map("))
+
+
 def _nullable_json_subcolumn_types(subcolumns: dict[str, str]) -> dict[str, str]:
     return {
-        path: column_type if column_type.startswith("Nullable(") else f"Nullable({column_type})"
+        path: column_type
+        if column_type.startswith("Nullable(") or not _json_subcolumn_type_supports_nullable(column_type)
+        else f"Nullable({column_type})"
         for path, column_type in subcolumns.items()
     }
 
 
 # The declared (pre-wrap) types carry mat-column parity semantics: a plain "String" property reads
 # like a non-nullable materialized column ('' scrubs to NULL), while a declared "Nullable(...)"
-# property reads bare (NULL means missing, '' is a real value). The physical JSON subcolumns are all
-# Nullable regardless — see _nullable_json_subcolumn_types.
+# property reads bare (NULL means missing, '' is a real value). Scalar JSON subcolumns are wrapped as
+# Nullable in _nullable_json_subcolumn_types; arrays and maps stay non-nullable because ClickHouse does not support
+# Nullable(Array(...)) or Nullable(Map(...)).
 EVENTS_PROPERTIES_JSON_SUBCOLUMN_DECLARED_TYPES: dict[str, str] = {
-    "$active_feature_flags": "String",
+    "$active_feature_flags": "Array(String)",
     "$ai_experiment_id": "Nullable(String)",
     "$ai_http_status": "Nullable(String)",
     "$ai_is_error": "Nullable(String)",
@@ -98,11 +105,11 @@ EVENTS_PROPERTIES_JSON_SUBCOLUMN_DECLARED_TYPES: dict[str, str] = {
     "$el_text": "String",
     "$event_type": "String",
     "$exception_fingerprint": "Nullable(String)",
-    "$exception_functions": "Nullable(String)",
+    "$exception_functions": "Array(String)",
     "$exception_issue_id": "Nullable(String)",
-    "$exception_sources": "Nullable(String)",
-    "$exception_types": "Nullable(String)",
-    "$exception_values": "Nullable(String)",
+    "$exception_sources": "Array(String)",
+    "$exception_types": "Array(String)",
+    "$exception_values": "Array(String)",
     "$feature_flag": "String",
     "$feature_flag_payloads": "String",
     "$feature_flag_response": "String",
@@ -222,6 +229,8 @@ def json_property_presence_expr(column: str, prop: str) -> str:
     path_sql = ".".join(_escape_clickhouse_identifier(part) for part in parts)
     scalar = f"{column_sql}.{path_sql}"
     if len(parts) == 1 and prop in subcolumns:
+        if not _json_subcolumn_type_supports_nullable(subcolumns[prop]):
+            return f"notEmpty({scalar})"
         return f"isNotNull({scalar})"
     if parts[0] in subcolumns:
         # Typed subcolumns are scalar; nothing can be nested beneath them.
@@ -480,6 +489,7 @@ def EVENTS_JSON_DATA_TABLE_INDEXES() -> str:
         "INDEX `minmax_mat_$feature_flag_payloads` properties.`$feature_flag_payloads` TYPE minmax GRANULARITY 1",
         "INDEX `minmax_mat_$groups` properties.`$groups` TYPE minmax GRANULARITY 1",
         "INDEX `minmax_mat_$feature_flag` properties.`$feature_flag` TYPE minmax GRANULARITY 1",
+        "INDEX bf_active_feature_flags properties.`$active_feature_flags` TYPE bloom_filter(0.01) GRANULARITY 1",
         "INDEX `minmax_mat_$device_id` properties.`$device_id` TYPE minmax GRANULARITY 1",
         "INDEX `minmax_mat_pp_$geoip_continent_name` person_properties.`$geoip_continent_name` TYPE minmax GRANULARITY 1",
         "INDEX `minmax_mat_$feature_flag_response` properties.`$feature_flag_response` TYPE minmax GRANULARITY 1",
@@ -505,10 +515,6 @@ def EVENTS_JSON_DATA_TABLE_INDEXES() -> str:
         "INDEX `minmax_mat_$ai_parent_id` properties.`$ai_parent_id` TYPE minmax GRANULARITY 1",
         "INDEX `minmax_mat_$ai_span_id` properties.`$ai_span_id` TYPE minmax GRANULARITY 1",
         "INDEX `minmax_mat_$ai_http_status` properties.`$ai_http_status` TYPE minmax GRANULARITY 1",
-        "INDEX `minmax_mat_$exception_types` properties.`$exception_types` TYPE minmax GRANULARITY 1",
-        "INDEX `minmax_mat_$exception_values` properties.`$exception_values` TYPE minmax GRANULARITY 1",
-        "INDEX `minmax_mat_$exception_sources` properties.`$exception_sources` TYPE minmax GRANULARITY 1",
-        "INDEX `minmax_mat_$exception_functions` properties.`$exception_functions` TYPE minmax GRANULARITY 1",
         "INDEX `minmax_mat_$process_person_profile` properties.`$process_person_profile` TYPE minmax GRANULARITY 1",
         "INDEX `minmax_mat_$app_version` properties.`$app_version` TYPE minmax GRANULARITY 1",
         "INDEX `bloom_mat_$is_identified` properties.`$is_identified` TYPE bloom_filter GRANULARITY 1",

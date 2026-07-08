@@ -15,7 +15,7 @@ from posthog.test.base import (
 from unittest.mock import patch
 
 from django.conf import settings
-from django.test import override_settings
+from django.test import SimpleTestCase, override_settings
 
 from parameterized import parameterized
 
@@ -36,10 +36,10 @@ from posthog.hogql.property_planner import (
 from posthog.hogql.query import execute_hogql_query
 from posthog.hogql.resolver import resolve_types
 from posthog.hogql.test.utils import pretty_print_in_tests
-from posthog.hogql.transforms.property_types import build_property_swapper
+from posthog.hogql.transforms.property_types import PropertySwapper, build_property_swapper
 from posthog.hogql.type_system import ComparisonCompatibility
 
-from posthog.models import PropertyDefinition
+from posthog.models import PropertyDefinition, Team
 from posthog.models.group.util import create_group
 from posthog.test.test_utils import create_group_type_mapping_without_created_at
 
@@ -60,6 +60,123 @@ class FakeMaterializedColumn:
 
 def _normalize_snapshot_sql(sql: str) -> str:
     return "\n".join(line.rstrip() for line in sql.splitlines())
+
+
+class TestNewEventsSchemaArraySubcolumns(SimpleTestCase):
+    def _context(self) -> HogQLContext:
+        team = Team(id=1, project_id=1)
+        context = HogQLContext(team_id=team.id, team=team, enable_select_queries=True)
+        context.database = Database()
+        context.restricted_properties = set()
+        context.property_swapper = PropertySwapper("UTC", {}, {}, {}, context, True)
+        return context
+
+    def _print_select(self, select: str) -> str:
+        expr = parse_select(select)
+        context = self._context()
+        with patch("posthog.hogql.printer.utils.build_property_swapper"):
+            query, _ = prepare_and_print_ast(
+                expr,
+                context,
+                "clickhouse",
+            )
+        return pretty_print_in_tests(query, 1)
+
+    def _plan_where_comparison(self, select: str) -> PropertyComparisonPlan:
+        expr = parse_select(select)
+        context = self._context()
+        resolved = cast(ast.SelectQuery, resolve_types(expr, context, dialect="clickhouse"))
+        comparison = cast(ast.CompareOperation, resolved.where)
+        plan = plan_property_comparison(comparison, context)
+        assert plan is not None
+        return plan
+
+    @parameterized.expand(
+        [
+            ("$active_feature_flags", "beta-feature", True),
+            ("$exception_types", "TypeError", False),
+        ]
+    )
+    @override_settings(CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA=True)
+    def test_property_comparison_planner_uses_json_array_subcolumn_type(
+        self, property_name: str, value: str, has_bloom_filter_index: bool
+    ) -> None:
+        plan = self._plan_where_comparison(f"select count() from events where properties.{property_name} = '{value}'")
+
+        assert plan.access.source.kind == PropertySourceKind.JSON
+        assert plan.access.source.is_nullable is False
+        assert isinstance(plan.access.source.physical_type, ast.ArrayType)
+        assert isinstance(plan.access.source.physical_type.item_type, ast.StringType)
+        assert plan.access.source.has_bloom_filter_index is has_bloom_filter_index
+
+    @parameterized.expand(
+        [
+            ("json_has", "select count() from events where JSONHas(properties, '$active_feature_flags')", "notEmpty"),
+            (
+                "is_set",
+                "select count() from events where properties.$active_feature_flags != null",
+                "notEmpty",
+            ),
+            (
+                "is_not_set",
+                "select count() from events where properties.$active_feature_flags = null",
+                "empty",
+            ),
+            (
+                "exact",
+                "select count() from events where properties.$active_feature_flags = 'beta-feature'",
+                "has",
+            ),
+            (
+                "in",
+                "select count() from events where properties.$active_feature_flags in ('alpha', 'beta')",
+                "hasAny",
+            ),
+            (
+                "icontains",
+                "select count() from events where toString(properties.$active_feature_flags) ILIKE '%beta%'",
+                "arrayExists",
+            ),
+            (
+                "icontains_multi",
+                "select count() from events where multiSearchAnyCaseInsensitive(toString(properties.$active_feature_flags), ['alpha', 'beta']) > 0",
+                "arrayExists",
+            ),
+        ]
+    )
+    @override_settings(CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA=True)
+    def test_active_feature_flags_use_array_subcolumn(self, _name: str, query: str, expected_function: str) -> None:
+        printed = self._print_select(query)
+
+        assert expected_function in printed, printed
+        assert "events.properties.`$active_feature_flags`" in printed, printed
+        assert "toString(events.properties.`$active_feature_flags`)" not in printed, printed
+        assert "JSONHas(events.properties" not in printed, printed
+
+    @override_settings(CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA=True)
+    def test_exception_types_use_array_subcolumn(self) -> None:
+        printed = self._print_select("select count() from events where properties.$exception_types = 'TypeError'")
+
+        assert "has(" in printed, printed
+        assert "events.properties.`$exception_types`" in printed, printed
+        assert "toString(events.properties.`$exception_types`)" not in printed, printed
+        assert "JSONExtract" not in printed, printed
+
+    @parameterized.expand(
+        [
+            ("$active_feature_flags", "[]"),
+            ("$exception_types", ""),
+        ]
+    )
+    @override_settings(CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA=True)
+    def test_jsonextract_string_arrays_read_array_subcolumn(self, property_name: str, default_value: str) -> None:
+        printed = self._print_select(
+            f"select JSONExtract(ifNull(properties.{property_name}, '{default_value}'), 'Array(String)') from events"
+        )
+
+        assert f"events.properties.`{property_name}`" in printed, printed
+        assert "JSONExtract" not in printed, printed
+        assert f"toJSONString(events.properties.`{property_name}`)" not in printed, printed
 
 
 class TestPropertyTypes(BaseTest):
