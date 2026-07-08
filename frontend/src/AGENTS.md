@@ -44,12 +44,6 @@ When touching `lib/api`, `api.get<`, `api.create<`, or any handwritten API inter
 
 Covered by the root `AGENTS.md` (Code Style → Frontend). The discovery hint for this tree: if a scene/component has a `*Logic.ts`, that's where actions/reducers/selectors/listeners belong. See `/writing-kea-logics` and `/using-kea-disposables`.
 
-## Rule 4 — Persist durable state to the backend, not `localStorage`
-
-`localStorage` is the path of least resistance — one line, no model/migration/serializer/endpoint — so agents reach for it by default. It's the **right** choice for device-local ephemeral UI state (collapsed panels, dismissed hints, view toggles; often via kea's `persist`). It's the **wrong** choice for anything a user expects to follow their account.
-
-Before persisting to `localStorage`, ask: should this survive a device switch, or be authoritative/shared? If yes — user settings, saved configs, preferences, anything a user would be upset to lose when they open PostHog on another machine — persist it to the backend (model + API), even though it's more work. Don't default to `localStorage` just because this tree is frontend-heavy; the repo has a database. When the backend route is the right call, that means a Django model, serializer, and endpoint — see the root `AGENTS.md` and `/improving-drf-endpoints`.
-
 ## Typecheck & typegen cadence (don't over-run these)
 
 These are slow; run them at the right moment, not after every edit.
