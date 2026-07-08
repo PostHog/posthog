@@ -15,6 +15,7 @@ import type {
     AccountRelationshipApi,
     AccountRelationshipDefinitionApi,
     AccountRelationshipDefinitionsListParams,
+    AccountRelationshipWriteApi,
     AccountsListParams,
     AccountsNotebooksListParams,
     AccountsRelationshipsListParams,
@@ -400,6 +401,40 @@ export const accountsRelationshipsList = async (
     return apiMutator<AccountRelationshipApi[]>(getAccountsRelationshipsListUrl(projectId, accountId, params), {
         ...options,
         method: 'GET',
+    })
+}
+
+export const getAccountsRelationshipsCreateUrl = (projectId: string, accountId: string) => {
+    return `/api/projects/${projectId}/accounts/${accountId}/relationships/`
+}
+
+export const accountsRelationshipsCreate = async (
+    projectId: string,
+    accountId: string,
+    accountRelationshipWriteApi: AccountRelationshipWriteApi,
+    options?: RequestInit
+): Promise<AccountRelationshipApi> => {
+    return apiMutator<AccountRelationshipApi>(getAccountsRelationshipsCreateUrl(projectId, accountId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(accountRelationshipWriteApi),
+    })
+}
+
+export const getAccountsRelationshipsEndCreateUrl = (projectId: string, accountId: string, id: string) => {
+    return `/api/projects/${projectId}/accounts/${accountId}/relationships/${id}/end/`
+}
+
+export const accountsRelationshipsEndCreate = async (
+    projectId: string,
+    accountId: string,
+    id: string,
+    options?: RequestInit
+): Promise<AccountRelationshipApi> => {
+    return apiMutator<AccountRelationshipApi>(getAccountsRelationshipsEndCreateUrl(projectId, accountId, id), {
+        ...options,
+        method: 'POST',
     })
 }
 

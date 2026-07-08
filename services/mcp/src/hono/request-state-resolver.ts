@@ -1,3 +1,5 @@
+import type { GroupType } from '@/api/client'
+import { hasScope } from '@/lib/api'
 import { MCPClientProfile } from '@/lib/client-detection'
 import { isLocalApi } from '@/lib/constants'
 import { buildMCPAnalyticsGroups } from '@/lib/posthog/analytics'
@@ -39,6 +41,12 @@ export interface ResolvedState {
     scopeGatedTools: ScopeGatedTool[]
     distinctId: string
     renderUiEnabled: boolean
+    // Active project/user environment prompt and group types. Rendered into the
+    // `instructions` payload, and (for clients that don't surface instructions to
+    // the model like Codex, or ignore it like Claude web/desktop) the exec command
+    // reference. Resolved once here so every render path reads the same source.
+    metadata: string | undefined
+    groupTypes: GroupType[] | undefined
 }
 
 // ─── Pure helpers ───
@@ -193,6 +201,13 @@ export class RequestStateResolver {
         // only exists in single-exec mode — skip the extra scan otherwise.
         const scopeGatedTools = useSingleExec ? getScopeGatedTools(apiKeyScopes, filterOptions) : []
 
+        const [groupTypes, metadata] = await Promise.all([
+            cachedProjectId && hasScope(apiKeyScopes, 'group:read')
+                ? context.stateManager.getOrFetchGroupTypes(cachedProjectId).catch(() => undefined)
+                : undefined,
+            context.stateManager.getEnvironmentPrompt(),
+        ])
+
         return {
             reqCtx,
             context,
@@ -206,6 +221,8 @@ export class RequestStateResolver {
             scopeGatedTools,
             distinctId,
             renderUiEnabled,
+            metadata,
+            groupTypes,
         }
     }
 

@@ -19,7 +19,7 @@ from django.utils.text import slugify
 from drf_spectacular.utils import OpenApiParameter, OpenApiResponse, extend_schema, extend_schema_view
 from opentelemetry import trace
 from rest_framework import serializers, viewsets
-from rest_framework.exceptions import ValidationError
+from rest_framework.exceptions import PermissionDenied, ValidationError
 from rest_framework.request import Request
 from rest_framework.response import Response
 
@@ -59,6 +59,7 @@ from products.experiments.backend.presentation.serializers import (
     ExperimentBasicSerializer,
     ExperimentMetricsRecalculationSerializer,
     ExperimentSerializer,
+    ExperimentWriteSerializer,
     RecalculateMetricsRequestSerializer,
     RunningTimeCalculationInputSerializer,
     RunningTimeCalculationResultSerializer,
@@ -88,6 +89,7 @@ from products.feature_flags.backend.models.evaluation_context import FeatureFlag
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
 from products.product_tours.backend.models import ProductTour
 from products.surveys.backend.models import Survey
+from products.tasks.backend.facade.access import has_tasks_access
 
 from ee.clickhouse.queries.experiments.utils import requires_flag_warning
 
@@ -186,12 +188,18 @@ def _slugify_feature_flag_key(name: str, *, team_id: int) -> str:
 @extend_schema_view(
     # PATCH /experiments/{id}/
     # DRF mixin calls implementation at ExperimentSerializer.update
+    # request=ExperimentWriteSerializer is schema-only: it adds the writable feature_flag input
+    # to the OpenAPI request body; runtime validation stays on ExperimentSerializer.
     partial_update=extend_schema(
-        description="Update an experiment. Use this to modify experiment properties such as name, description, metrics, variants, and configuration. Metrics can be added, changed and removed at any time.",
+        description="Update an experiment. Use this to modify experiment properties such as name, description, metrics, variants, and configuration. Metrics can be added, changed and removed at any time. Feature-flag config (variants, rollout, payloads) is sent via the feature_flag object.",
+        request=ExperimentWriteSerializer,
     ),
+    # PUT /experiments/{id}/, same request shape as PATCH
+    update=extend_schema(request=ExperimentWriteSerializer),
     # POST /experiments/ — DRF mixin calls ExperimentSerializer.create
     create=extend_schema(
         description="Create a new experiment in draft status with optional metrics.",
+        request=ExperimentWriteSerializer,
     ),
     # GET /experiments/{id}/ — DRF mixin, read-only serialization via ExperimentSerializer
     retrieve=extend_schema(
@@ -369,6 +377,13 @@ class EnterpriseExperimentsViewSet(
             return scopes
         return None
 
+    def _check_cleanup_pr_access(self, request: Request) -> None:
+        """Opening a cleanup PR starts a Code task on the user's behalf. The task:write
+        scope only gates token auth (see dangerously_get_required_scopes); session auth
+        has no scopes, so gate every caller on PostHog Code product access instead."""
+        if not has_tasks_access(cast(User, request.user)):
+            raise PermissionDenied("Opening a flag cleanup PR requires access to PostHog Code.")
+
     def _token_can_write_feature_flag(self, request: Request) -> bool:
         """Whether the request's token carries feature_flag:write.
 
@@ -507,6 +522,8 @@ class EnterpriseExperimentsViewSet(
         experiment: Experiment = self.get_object()
         request_serializer = EndExperimentSerializer(data=request.data)
         request_serializer.is_valid(raise_exception=True)
+        if request_serializer.validated_data["open_cleanup_pr"]:
+            self._check_cleanup_pr_access(request)
         service = ExperimentService(team=self.team, user=request.user)
         ended_experiment = service.end_experiment(
             experiment,
@@ -550,6 +567,8 @@ class EnterpriseExperimentsViewSet(
         experiment: Experiment = self.get_object()
         request_serializer = ShipVariantSerializer(data=request.data)
         request_serializer.is_valid(raise_exception=True)
+        if request_serializer.validated_data["open_cleanup_pr"]:
+            self._check_cleanup_pr_access(request)
         service = ExperimentService(team=self.team, user=request.user)
         shipped_experiment = service.ship_variant(
             experiment,

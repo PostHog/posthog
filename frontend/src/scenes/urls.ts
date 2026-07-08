@@ -57,6 +57,7 @@ export const urls = {
     event: (id: string, timestamp: string): string =>
         `/events/${encodeURIComponent(id)}/${encodeURIComponent(timestamp)}`,
     ingestionWarnings: (): string => '/data-management/ingestion-warnings',
+    ingestionWarningsV2: (): string => '/data-management/ingestion-warnings-v2',
     revenueSettings: (): string => '/data-management/revenue',
     coreEvents: (): string => '/data-management/core-events',
     marketingAnalyticsApp: (): string => '/marketing',
@@ -325,10 +326,6 @@ export const urls = {
     pipelineStatus: (): string => '/health/pipeline-status',
     sdkHealth: (): string => '/health/sdk-health',
     exports: (): string => '/exports',
-    subscriptions: (): string => '/subscriptions',
-    subscription: (id: string | number): string => `/subscriptions/${id}`,
-    subscriptionNew: (): string => '/subscriptions/new',
-    subscriptionEdit: (id: string | number): string => `/subscriptions/${id}/edit`,
 }
 
 export interface UrlMatcher {

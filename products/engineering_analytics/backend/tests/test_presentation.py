@@ -403,3 +403,12 @@ class TestEngineeringAnalyticsAPI(APIBaseTest):
         response = self.client.get(self._url(action))
 
         assert response.status_code in (status.HTTP_401_UNAUTHORIZED, status.HTTP_403_FORBIDDEN)
+
+    def test_requires_rollout_feature_flag(self) -> None:
+        # The whole viewset is gated on the engineering-analytics rollout flag (which the
+        # conftest fixture enables); with the flag off, every endpoint must 403.
+        with mock.patch("posthoganalytics.feature_enabled", return_value=False):
+            response = self.client.get(self._url("sources"))
+
+        assert response.status_code == status.HTTP_403_FORBIDDEN
+        assert "engineering-analytics" in response.json()["detail"]

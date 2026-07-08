@@ -72,6 +72,14 @@ class TestCheckProductAccess:
             ("signals", "oauth_access_token", "any-app-id", "claude-haiku-4-5", False, "not authorized"),
             ("signals", "oauth_access_token", POSTHOG_CODE_US_APP_ID, "claude-haiku-4-5", True, None),
             ("signals", "oauth_access_token", POSTHOG_CODE_EU_APP_ID, "claude-sonnet-4-5", True, None),
+            # conversations: utility prompts (API key) and support-reply sandbox (array OAuth app)
+            ("conversations", "personal_api_key", None, "claude-haiku-4-5", True, None),
+            ("conversations", "personal_api_key", None, "claude-sonnet-4-6", True, None),
+            ("conversations", "personal_api_key", None, "claude-sonnet-5", True, None),
+            ("conversations", "personal_api_key", None, "claude-opus-4-8", False, "not allowed"),
+            ("conversations", "oauth_access_token", "any-app-id", "claude-sonnet-5", False, "not authorized"),
+            ("conversations", "oauth_access_token", POSTHOG_CODE_US_APP_ID, "claude-sonnet-5", True, None),
+            ("conversations", "oauth_access_token", POSTHOG_CODE_EU_APP_ID, "claude-sonnet-4-6", True, None),
             # posthog_ai allows API keys with any model and OAuth from the PostHog AI app.
             ("posthog_ai", "personal_api_key", None, "claude-sonnet-4-5", True, None),
             ("posthog_ai", "personal_api_key", None, "gpt-5.3-codex", True, None),

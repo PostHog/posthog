@@ -89,8 +89,19 @@ export const DELAYED_INGESTION_LANES = ['historical', 'async'] as const
 
 export type IngestionLane = (typeof REALTIME_INGESTION_LANES)[number] | (typeof DELAYED_INGESTION_LANES)[number]
 
+/**
+ * How a consumer participates in overflow handling. Explicit and independent of
+ * the lane name:
+ *   - `redirect`  redirect hot partitions to the overflow topic (main lane).
+ *   - `consume`   drain the overflow topic and refresh its stateful TTLs (overflow lane).
+ *   - `disabled`  no overflow handling.
+ */
+export const INGESTION_OVERFLOW_MODES = ['redirect', 'consume', 'disabled'] as const
+export type IngestionOverflowMode = (typeof INGESTION_OVERFLOW_MODES)[number]
+
 export type IngestionConsumerConfig = {
     INGESTION_LANE: IngestionLane | null
+    INGESTION_OVERFLOW_MODE: IngestionOverflowMode
 
     // Kafka consumer config
     INGESTION_CONSUMER_GROUP_ID: string
@@ -146,7 +157,6 @@ export type IngestionConsumerConfig = {
     EVENT_OVERFLOW_BUCKET_REPLENISH_RATE: number
 
     // Stateful overflow config
-    INGESTION_STATEFUL_OVERFLOW_ENABLED: boolean
     INGESTION_STATEFUL_OVERFLOW_REDIS_TTL_SECONDS: number
     INGESTION_STATEFUL_OVERFLOW_LOCAL_CACHE_TTL_SECONDS: number
 
@@ -210,6 +220,7 @@ export type IngestionConsumerConfig = {
 export function getDefaultIngestionConsumerConfig(): IngestionConsumerConfig {
     return {
         INGESTION_LANE: null,
+        INGESTION_OVERFLOW_MODE: 'disabled',
 
         // Kafka consumer config
         INGESTION_CONSUMER_GROUP_ID: 'events-ingestion-consumer',
@@ -258,7 +269,6 @@ export function getDefaultIngestionConsumerConfig(): IngestionConsumerConfig {
         EVENT_OVERFLOW_BUCKET_REPLENISH_RATE: 1.0,
 
         // Stateful overflow config
-        INGESTION_STATEFUL_OVERFLOW_ENABLED: false,
         INGESTION_STATEFUL_OVERFLOW_REDIS_TTL_SECONDS: 300,
         INGESTION_STATEFUL_OVERFLOW_LOCAL_CACHE_TTL_SECONDS: 60,
 

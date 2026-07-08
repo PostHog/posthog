@@ -39,6 +39,7 @@ depends_on = [
     "products.actions",
     "products.alerts",
     "products.cdp",
+    "products.conversations",
     "products.customer_analytics",
     "products.dashboards",
     "products.data_modeling",
@@ -366,6 +367,7 @@ layer = "modules"
 [[modules]]
 path = "products.growth"
 depends_on = [
+    "ee",
     "posthog",
 ]
 layer = "modules"
@@ -712,6 +714,7 @@ depends_on = [
     "products.actions",
     "products.analytics_platform",
     "products.notifications",
+    "products.replay_vision",
 ]
 layer = "modules"
 

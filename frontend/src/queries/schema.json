@@ -26,10 +26,11 @@
             "additionalProperties": false,
             "properties": {
                 "allRolesUnassigned": {
+                    "description": "Match accounts with no active relationship of any definition.",
                     "type": "boolean"
                 },
                 "assignedToUserIds": {
-                    "description": "Match accounts where any of these user ids is the CSM or the account executive (OR over both roles). Drives the \"My accounts\" shortcut (the current user's id) and the shareable \"Assigned to\" filter — the ids are explicit so a shared URL resolves identically for every viewer.",
+                    "description": "Match accounts where any of these user ids actively holds any relationship (CSM, Account executive, or a custom definition). Drives the \"My accounts\" shortcut (the current user's id) and the shareable \"Assigned to\" filter — the ids are explicit so a shared URL resolves identically for every viewer.",
                     "items": {
                         "$ref": "#/definitions/integer"
                     },
@@ -3985,6 +3986,7 @@
                 "diagnose_proxy",
                 "web_analytics_doctor",
                 "assess_heatmap",
+                "summarize_website_interactions",
                 "marketing_diagnose_setup",
                 "marketing_explain_conversion_goal",
                 "marketing_list_conversion_goals",
@@ -17342,6 +17344,13 @@
                 "name": {
                     "type": "string"
                 },
+                "optional_breakdown_properties": {
+                    "description": "Breakdown property names that may be omitted on /run. Omitted ones return data aggregated across all values of that breakdown.",
+                    "items": {
+                        "type": "string"
+                    },
+                    "type": "array"
+                },
                 "query": {
                     "anyOf": [
                         {
@@ -22247,7 +22256,10 @@
                 "Redis",
                 "Mercury",
                 "Gojiberry",
-                "Teachable"
+                "Teachable",
+                "PeecAI",
+                "Healthchecks",
+                "Impact"
             ],
             "type": "string"
         },
@@ -25782,7 +25794,7 @@
             "type": "string"
         },
         "IntervalType": {
-            "enum": ["second", "minute", "hour", "day", "week", "month"],
+            "enum": ["second", "minute", "hour", "day", "week", "month", "quarter", "year"],
             "type": "string"
         },
         "IsolationForestDetectorConfig": {
@@ -26837,6 +26849,13 @@
                 "after": {
                     "description": "Cursor for fetching the next page of results",
                     "type": "string"
+                },
+                "customColumns": {
+                    "description": "Custom column expressions evaluated per log row. Each entry is either a source-prefixed shorthand (`attributes.<key>`, `resource_attributes.<key>`, `body.<json.path>`) or a scalar HogQL expression (`upper(level)`, `coalesce(attributes['a'], attributes['b'])`). Values come back on each result row keyed by the aliases in `LogsQueryResponse.columns`.",
+                    "items": {
+                        "type": "string"
+                    },
+                    "type": "array"
                 },
                 "dateRange": {
                     "$ref": "#/definitions/DateRange"
@@ -45130,6 +45149,9 @@
                 },
                 "response": {
                     "$ref": "#/definitions/TracesQueryResponse"
+                },
+                "searchTerm": {
+                    "type": "string"
                 },
                 "showColumnConfigurator": {
                     "type": "boolean"
