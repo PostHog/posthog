@@ -42,13 +42,14 @@ export function lazyHoggie(name: HoggieName): ComponentType<AssetSvgProps> {
     if (cached) {
         return cached
     }
-    const LazyComponent = lazy(() =>
-        import('@posthog/brand/hoggies')
-            .then((hoggies) => ({ default: hoggies[name] }))
-            .catch((e) => {
-                console.error('Failed to load hoggies chunk', e)
-                return { default: () => null }
-            })
+    const LazyComponent = lazy(
+        (): Promise<{ default: ComponentType<AssetSvgProps> }> =>
+            import('@posthog/brand/hoggies')
+                .then((hoggies) => ({ default: hoggies[name] }))
+                .catch((e) => {
+                    console.error('Failed to load hoggies chunk', e)
+                    return { default: () => null }
+                })
     )
     const LazyHoggie = function LazyHoggie(props: AssetSvgProps): JSX.Element {
         return (

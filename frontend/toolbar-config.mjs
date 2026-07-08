@@ -25,6 +25,9 @@ const shimmedModules = {
     'scenes/sceneLogic': 'src/toolbar/shims/sceneLogic.ts',
     'scenes/teamLogic': 'src/toolbar/shims/teamLogic.ts',
     'lib/logic/featureFlagLogic': 'src/toolbar/shims/featureFlagLogic.ts',
+    // The real lazyHoggie dynamically imports the whole hoggie barrel; the toolbar's IIFE
+    // build inlines dynamic imports, so without this shim every hoggie SVG lands in the bundle.
+    'lib/brand/hoggies': 'src/toolbar/shims/hoggies.tsx',
 }
 
 // Modules replaced with an inert proxy that logs access in debug mode
