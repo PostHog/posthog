@@ -167,10 +167,25 @@ The kernel's `requests` client follows redirects by default and drops the `Autho
 redirects, so the existing executor works nearly unchanged and the presigned URL needs no auth.
 Keep the Redis path as fallback when object storage is unconfigured (dev parity, degraded mode).
 
-**Phase 2 — let ClickHouse do the writing.**
+**Phase 2 — let ClickHouse do the writing (only if the data says so).**
 Replace the worker-streamed upload with `INSERT INTO FUNCTION s3(...'ArrowStream')` (batch-exports recipe):
 the worker's job shrinks to issuing one statement; zero result bytes transit PostHog Python.
 Add partitioned files + a manifest for very large frames, and Range-based resume in the executor.
+
+Why phase 1 streams from the worker instead of starting here:
+
+- **Security path.** Phase 1 keeps the whole HogQL runner path (team scoping, property access controls applied
+  at print time) untouched — new code only handles the result. The CH-side write must print the guarded SQL
+  and splice it into a raw `INSERT ... SELECT` executed outside the runner; batch exports does this safely,
+  but over its own known tables, not arbitrary user HogQL. That seam deserves its own review, not a ride-along.
+- **Credentials.** Workers already hold object-storage credentials; the CH-side write needs the cluster's IAM
+  role extended to the notebooks prefix (see open questions) and local CH → SeaweedFS config.
+- **Load placement.** Worker streaming actually puts _less_ work on ClickHouse — CH only executes and streams
+  blocks, while Arrow encoding and S3 PUTs burn worker CPU/NIC instead of CH-node resources. The worker's
+  drain pace is set by an in-region worker→S3 leg, so CH's result-hold time is near-identical either way.
+- **What A buys.** Worker economics at scale (a slot held seconds instead of the stream duration) and no
+  double transfer for very large frames. With per-team concurrency ~1 and frames in the tens-to-hundreds of
+  MB, neither matters yet — escalate on query-log evidence, and phase 2 may never be needed.
 
 **Phase 3 — reuse and convergence.**
 Serve repeat materializations of an unchanged upstream query straight from the existing object
