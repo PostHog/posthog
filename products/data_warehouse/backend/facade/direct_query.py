@@ -8,6 +8,9 @@ modules it pulls stay off the ``django.setup()`` path; consumers import it
 function-locally.
 """
 
-from products.data_warehouse.backend.direct_virtual_tables import build_direct_table_for_schema
+from products.data_warehouse.backend.direct_virtual_tables import (
+    build_direct_table_for_schema,
+    eligible_direct_query_schemas,
+)
 
-__all__ = ["build_direct_table_for_schema"]
+__all__ = ["build_direct_table_for_schema", "eligible_direct_query_schemas"]

@@ -1019,16 +1019,13 @@ class Database(BaseModel):
                     prefix=dual_source.prefix or "",
                     last_synced_at=str(latest_completed_job.created_at) if latest_completed_job else None,
                 )
-                schema_rows = (
-                    ExternalDataSchema.objects.filter(
-                        team_id=context.team_id, source_id=connection_id, should_sync=True
-                    )
-                    .exclude(deleted=True)
-                    .order_by("name")
+                # Same selection as the build path (eligible_direct_query_schemas), so the catalog
+                # and the built tables can't drift.
+                from products.data_warehouse.backend.facade.direct_query import (  # noqa: PLC0415
+                    eligible_direct_query_schemas,
                 )
-                for schema_row in schema_rows:
-                    if not schema_row.schema_metadata:
-                        continue
+
+                for schema_row in eligible_direct_query_schemas(context.team_id, connection_id):
                     table_key = schema_row.name
                     if include_only and table_key not in include_only:
                         continue
@@ -1230,11 +1227,13 @@ class Database(BaseModel):
                     .defer("job_inputs")
                     .first()
                 )
-                if direct_source is not None:
-                    if direct_source.access_method == ExternalDataSource.AccessMethod.DIRECT:
-                        direct_connection_metadata = direct_source.connection_metadata
-                    elif is_direct_capable(direct_source):
-                        direct_connection_metadata = direct_source.connection_metadata
+                if direct_source is not None and (
+                    direct_source.access_method == ExternalDataSource.AccessMethod.DIRECT
+                    or is_direct_capable(direct_source)
+                ):
+                    direct_connection_metadata = direct_source.connection_metadata
+                    # A capable non-DIRECT (synced) source drives the dual-mode virtual-table path.
+                    if direct_source.access_method != ExternalDataSource.AccessMethod.DIRECT:
                         virtual_source = direct_source
 
         with timings.measure("filter_system_tables_for_user", emit_span=True):
@@ -1327,19 +1326,12 @@ class Database(BaseModel):
                 # build phase stays query-free.
                 _ = virtual_source.job_inputs
                 with timings.measure("select_virtual_schemas", emit_span=True):
-                    virtual_schemas = [
-                        schema_row
-                        for schema_row in ExternalDataSchema.objects.filter(
-                            team_id=team.pk,
-                            source_id=connection_id,
-                            should_sync=True,
-                        )
-                        .exclude(deleted=True)
-                        # `table` is the synced S3 row backing the warehouse access-control check.
-                        .select_related("table")
-                        .order_by("name")
-                        if schema_row.schema_metadata
-                    ]
+                    # Function-local: keeps the direct-SQL driver imports off the django.setup() path.
+                    from products.data_warehouse.backend.facade.direct_query import (  # noqa: PLC0415
+                        eligible_direct_query_schemas,
+                    )
+
+                    virtual_schemas = eligible_direct_query_schemas(team.pk, cast(str, connection_id))
             else:
                 with timings.measure("select", emit_span=True):
                     tables_query = (

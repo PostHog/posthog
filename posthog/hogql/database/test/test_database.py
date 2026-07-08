@@ -1152,6 +1152,23 @@ class TestDatabase(BaseTest, QueryMatchingTest):
         assert not database.has_table("public.users")
         assert database.get_warehouse_table_names() == []
 
+    def test_dual_mode_database_excludes_row_filtered_schemas(self):
+        # A synced schema's row_filters restrict which rows sync; the live direct query can't
+        # reproduce that filter, so exposing the table would let a user read unsynced rows. It
+        # must be absent from both the build catalog and the serialized schema.
+        source = self._create_dual_mode_postgres_source()
+        self._create_dual_mode_schema_row(source, "public.users")
+        filtered = self._create_dual_mode_schema_row(source, "public.orders")
+        filtered.row_filters = [{"field": "status", "operator": "exact", "value": "shipped"}]
+        filtered.save(update_fields=["row_filters"])
+
+        database = Database.create_for(team=self.team, connection_id=str(source.id))
+
+        assert database.has_table("public.users")
+        assert not database.has_table("public.orders")
+        serialized = database.serialize(HogQLContext(team_id=self.team.pk, database=database))
+        assert set(serialized.keys()) == {"public.users"}
+
     def test_dual_mode_database_builds_mysql_virtual_tables(self):
         source = ExternalDataSource.objects.create(
             team=self.team,
