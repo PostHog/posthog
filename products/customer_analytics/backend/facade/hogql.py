@@ -442,6 +442,7 @@ account_relationship_definitions: PostgresTable = PostgresTable(
             name="is_single_holder",
             expr=ast.Call(name="toInt", args=[ast.Field(chain=["_is_single_holder"])]),
             description="1 if only one user can hold this relationship per account at a time, 0 otherwise.",
+            isolate_scope=True,
         ),
         "created_by_id": IntegerDatabaseField(
             name="created_by_id", nullable=True, description="PostHog user who created the definition."
@@ -580,6 +581,7 @@ custom_property_definitions: PostgresTable = PostgresTable(
             name="is_big_number",
             expr=ast.Call(name="toInt", args=[ast.Field(chain=["_is_big_number"])]),
             description="1 if large numeric values are abbreviated (e.g. 10,000 -> 10K), 0 otherwise.",
+            isolate_scope=True,
         ),
         "created_by_id": IntegerDatabaseField(
             name="created_by_id", nullable=True, description="User who created the definition."

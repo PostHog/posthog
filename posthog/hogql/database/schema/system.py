@@ -116,9 +116,12 @@ batch_exports: PostgresTable = PostgresTable(
             name="paused",
             expr=ast.Call(name="toInt", args=[ast.Field(chain=["_paused"])]),
             description="1 if the export is paused, 0 if active.",
+            isolate_scope=True,
         ),
         "_deleted": BooleanDatabaseField(name="deleted", hidden=True),
-        "deleted": ExpressionField(name="deleted", expr=ast.Call(name="toInt", args=[ast.Field(chain=["_deleted"])])),
+        "deleted": ExpressionField(
+            name="deleted", expr=ast.Call(name="toInt", args=[ast.Field(chain=["_deleted"])]), isolate_scope=True
+        ),
         "destination_id": StringDatabaseField(
             name="destination_id", description="Identifier of the destination config the export writes to."
         ),
@@ -224,6 +227,7 @@ cohorts: PostgresTable = PostgresTable(
             name="deleted",
             expr=ast.Call(name="toInt", args=[ast.Field(chain=["_deleted"])]),
             description="1 if the cohort has been deleted, 0 otherwise.",
+            isolate_scope=True,
         ),
         "filters": StringJSONDatabaseField(
             name="filters", description="JSON definition of the cohort's membership filters."
@@ -245,6 +249,7 @@ cohorts: PostgresTable = PostgresTable(
             name="is_static",
             expr=ast.Call(name="toInt", args=[ast.Field(chain=["_is_static"])]),
             description="1 if the cohort is a fixed static list, 0 if dynamically calculated from filters.",
+            isolate_scope=True,
         ),
     },
 )
@@ -265,6 +270,7 @@ dashboards: PostgresTable = PostgresTable(
             name="deleted",
             expr=ast.Call(name="toInt", args=[ast.Field(chain=["_deleted"])]),
             description="1 if the dashboard has been deleted, 0 otherwise.",
+            isolate_scope=True,
         ),
         "filters": StringJSONDatabaseField(
             name="filters", description="JSON dashboard-level filters applied to all tiles."
@@ -316,6 +322,7 @@ dashboard_tiles: PostgresTable = PostgresTable(
         "deleted": ExpressionField(
             name="deleted",
             expr=ast.Call(name="ifNull", args=[ast.Field(chain=["_deleted"]), ast.Constant(value=False)]),
+            isolate_scope=True,
         ),
     },
 )
@@ -343,18 +350,21 @@ insights: PostgresTable = PostgresTable(
             name="deleted",
             expr=ast.Call(name="toInt", args=[ast.Field(chain=["_deleted"])]),
             description="1 if the insight has been deleted, 0 otherwise.",
+            isolate_scope=True,
         ),
         "_saved": BooleanDatabaseField(name="saved", hidden=True),
         "saved": ExpressionField(
             name="saved",
             expr=ast.Call(name="toInt", args=[ast.Field(chain=["_saved"])]),
             description="1 if explicitly saved by a user, 0 if a transient/auto-created insight.",
+            isolate_scope=True,
         ),
         "_favorited": BooleanDatabaseField(name="favorited", hidden=True),
         "favorited": ExpressionField(
             name="favorited",
             expr=ast.Call(name="toInt", args=[ast.Field(chain=["_favorited"])]),
             description="1 if the insight is marked as a favorite, 0 otherwise.",
+            isolate_scope=True,
         ),
         "created_at": DateTimeDatabaseField(name="created_at", description="When the insight was created."),
         "created_by_id": IntegerDatabaseField(
@@ -403,6 +413,7 @@ experiments: PostgresTable = PostgresTable(
             name="archived",
             expr=ast.Call(name="toInt", args=[ast.Field(chain=["_archived"])]),
             description="1 if the experiment is archived, 0 otherwise.",
+            isolate_scope=True,
         ),
         "feature_flag_id": IntegerDatabaseField(
             name="feature_flag_id",
@@ -432,6 +443,7 @@ data_warehouse_sources: PostgresTable = PostgresTable(
             name="deleted",
             expr=ast.Call(name="toInt", args=[ast.Field(chain=["_deleted"])]),
             description="1 if the source has been deleted, 0 otherwise.",
+            isolate_scope=True,
         ),
         "deleted_at": DateTimeDatabaseField(
             name="deleted_at", description="When the source was deleted; NULL if not deleted."
@@ -460,12 +472,14 @@ data_modeling_views: PostgresTable = PostgresTable(
             name="is_materialized",
             expr=ast.Call(name="toInt", args=[ast.Field(chain=["_is_materialized"])]),
             description="1 if the view is materialized to a backing table, 0 if computed on the fly.",
+            isolate_scope=True,
         ),
         "_deleted": BooleanDatabaseField(name="deleted", hidden=True),
         "deleted": ExpressionField(
             name="deleted",
             expr=ast.Call(name="toInt", args=[ast.Field(chain=["_deleted"])]),
             description="1 if the view has been deleted, 0 otherwise.",
+            isolate_scope=True,
         ),
         "deleted_at": DateTimeDatabaseField(
             name="deleted_at", description="When the view was deleted; NULL if not deleted."
@@ -496,6 +510,7 @@ data_warehouse_tables: PostgresTable = PostgresTable(
             name="deleted",
             expr=ast.Call(name="toInt", args=[ast.Field(chain=["_deleted"])]),
             description="1 if the table has been deleted, 0 otherwise.",
+            isolate_scope=True,
         ),
         "deleted_at": DateTimeDatabaseField(
             name="deleted_at", description="When the table was deleted; NULL if not deleted."
@@ -540,6 +555,7 @@ source_schemas: PostgresTable = PostgresTable(
             name="deleted",
             expr=ast.Call(name="toInt", args=[ast.Field(chain=["_deleted"])]),
             description="1 if the schema config has been deleted, 0 otherwise.",
+            isolate_scope=True,
         ),
         "deleted_at": DateTimeDatabaseField(name="deleted_at", description="When it was deleted; NULL if not deleted."),
     },
@@ -598,6 +614,7 @@ endpoint_versions: PostgresTable = PostgresTable(
             name="is_active",
             expr=ast.Call(name="toInt", args=[ast.Field(chain=["_is_active"])]),
             description="1 if this is the currently served version, 0 otherwise.",
+            isolate_scope=True,
         ),
         "columns": StringJSONDatabaseField(name="columns", description="JSON schema of the version's output columns."),
     },
@@ -618,6 +635,7 @@ endpoints: PostgresTable = PostgresTable(
             name="is_active",
             expr=ast.Call(name="toInt", args=[ast.Field(chain=["_is_active"])]),
             description="1 if the endpoint is active and callable, 0 otherwise.",
+            isolate_scope=True,
         ),
         "current_version": IntegerDatabaseField(
             name="current_version",
@@ -632,7 +650,9 @@ endpoints: PostgresTable = PostgresTable(
             name="last_executed_at", description="When the endpoint was last called/executed."
         ),
         "_deleted": BooleanDatabaseField(name="deleted", hidden=True),
-        "deleted": ExpressionField(name="deleted", expr=ast.Call(name="toInt", args=[ast.Field(chain=["_deleted"])])),
+        "deleted": ExpressionField(
+            name="deleted", expr=ast.Call(name="toInt", args=[ast.Field(chain=["_deleted"])]), isolate_scope=True
+        ),
     },
 )
 
@@ -659,6 +679,7 @@ feature_flags: PostgresTable = PostgresTable(
             name="deleted",
             expr=ast.Call(name="toInt", args=[ast.Field(chain=["_deleted"])]),
             description="1 if the flag has been deleted, 0 otherwise.",
+            isolate_scope=True,
         ),
     },
 )
@@ -802,12 +823,14 @@ session_recording_playlists: PostgresTable = PostgresTable(
             name="pinned",
             expr=ast.Call(name="toInt", args=[ast.Field(chain=["_pinned"])]),
             description="1 if the playlist is pinned, 0 otherwise.",
+            isolate_scope=True,
         ),
         "_deleted": BooleanDatabaseField(name="deleted", hidden=True),
         "deleted": ExpressionField(
             name="deleted",
             expr=ast.Call(name="toInt", args=[ast.Field(chain=["_deleted"])]),
             description="1 if the playlist has been deleted, 0 otherwise.",
+            isolate_scope=True,
         ),
         "filters": StringJSONDatabaseField(
             name="filters", description="JSON filters defining which recordings are in the playlist."
@@ -865,6 +888,7 @@ session_recordings: PostgresTable = PostgresTable(
             name="deleted",
             expr=ast.Call(name="toInt", args=[ast.Field(chain=["_deleted"])]),
             description="1 if the recording has been deleted, 0 otherwise.",
+            isolate_scope=True,
         ),
         "created_at": DateTimeDatabaseField(
             name="created_at", description="When the recording metadata row was created."
@@ -1002,6 +1026,7 @@ actions: PostgresTable = PostgresTable(
             name="deleted",
             expr=ast.Call(name="toInt", args=[ast.Field(chain=["_deleted"])]),
             description="1 if the action has been deleted, 0 otherwise.",
+            isolate_scope=True,
         ),
         "created_at": DateTimeDatabaseField(name="created_at", description="When the action was created."),
         "updated_at": DateTimeDatabaseField(name="updated_at", description="When the action was last updated."),
@@ -1034,6 +1059,7 @@ annotations: PostgresTable = PostgresTable(
             name="deleted",
             expr=ast.Call(name="toInt", args=[ast.Field(chain=["_deleted"])]),
             description="1 if the annotation has been deleted, 0 otherwise.",
+            isolate_scope=True,
         ),
         "dashboard_item_id": IntegerDatabaseField(
             name="dashboard_item_id",
@@ -1098,12 +1124,14 @@ hog_functions: PostgresTable = PostgresTable(
             name="enabled",
             expr=ast.Call(name="toInt", args=[ast.Field(chain=["_enabled"])]),
             description="1 if the function is enabled, 0 otherwise.",
+            isolate_scope=True,
         ),
         "_deleted": BooleanDatabaseField(name="deleted", hidden=True),
         "deleted": ExpressionField(
             name="deleted",
             expr=ast.Call(name="toInt", args=[ast.Field(chain=["_deleted"])]),
             description="1 if the function has been deleted, 0 otherwise.",
+            isolate_scope=True,
         ),
         "icon_url": StringDatabaseField(name="icon_url", description="URL of the function's icon."),
         "template_id": StringDatabaseField(
@@ -1190,6 +1218,7 @@ notebooks: PostgresTable = PostgresTable(
             name="deleted",
             expr=ast.Call(name="toInt", args=[ast.Field(chain=["_deleted"])]),
             description="1 if the notebook has been deleted, 0 otherwise.",
+            isolate_scope=True,
         ),
         "visibility": StringDatabaseField(
             name="visibility", description="Visibility setting, e.g. 'private' or shared."
@@ -1418,6 +1447,7 @@ logs_views: PostgresTable = PostgresTable(
             name="pinned",
             expr=ast.Call(name="toInt", args=[ast.Field(chain=["_pinned"])]),
             description="1 if the view is pinned, 0 otherwise.",
+            isolate_scope=True,
         ),
         "created_at": DateTimeDatabaseField(name="created_at", description="When the view was created."),
         "updated_at": DateTimeDatabaseField(name="updated_at", description="When the view was last updated."),
@@ -1438,6 +1468,7 @@ logs_alerts: PostgresTable = PostgresTable(
             name="enabled",
             expr=ast.Call(name="toInt", args=[ast.Field(chain=["_enabled"])]),
             description="1 if the alert is enabled, 0 otherwise.",
+            isolate_scope=True,
         ),
         "filters": StringJSONDatabaseField(
             name="filters", description="JSON log filters defining which logs the alert counts."
@@ -1516,6 +1547,7 @@ support_tickets: PostgresTable = PostgresTable(
             name="ai_resolved",
             expr=ast.Call(name="toInt", args=[ast.Field(chain=["_ai_resolved"])]),
             description="1 if the ticket was resolved by AI without human escalation, 0 otherwise.",
+            isolate_scope=True,
         ),
         "escalation_reason": StringDatabaseField(
             name="escalation_reason", nullable=True, description="Why the ticket was escalated to a human, if it was."
@@ -1576,6 +1608,7 @@ review_queues: PostgresTable = PostgresTable(
             name="deleted",
             expr=ast.Call(name="toInt", args=[ast.Field(chain=["_deleted"])]),
             description="1 if the queue has been deleted, 0 otherwise.",
+            isolate_scope=True,
         ),
         "deleted_at": DateTimeDatabaseField(
             name="deleted_at", nullable=True, description="When the queue was deleted; NULL if not deleted."
@@ -1607,6 +1640,7 @@ review_queue_items: PostgresTable = PostgresTable(
             name="deleted",
             expr=ast.Call(name="toInt", args=[ast.Field(chain=["_deleted"])]),
             description="1 if the item has been deleted, 0 otherwise.",
+            isolate_scope=True,
         ),
         "deleted_at": DateTimeDatabaseField(
             name="deleted_at", nullable=True, description="When the item was deleted; NULL if not deleted."
@@ -1639,6 +1673,7 @@ trace_reviews: PostgresTable = PostgresTable(
             name="deleted",
             expr=ast.Call(name="toInt", args=[ast.Field(chain=["_deleted"])]),
             description="1 if the review has been deleted, 0 otherwise.",
+            isolate_scope=True,
         ),
         "deleted_at": DateTimeDatabaseField(
             name="deleted_at", nullable=True, description="When the review was deleted; NULL if not deleted."
@@ -1804,6 +1839,7 @@ tasks: PostgresTable = PostgresTable(
             name="title_manually_set",
             expr=ast.Call(name="toInt", args=[ast.Field(chain=["_title_manually_set"])]),
             description="1 if the title was set by a user rather than auto-generated, 0 otherwise.",
+            isolate_scope=True,
         ),
         "description": StringDatabaseField(name="description", description="Task description/prompt."),
         "origin_product": StringDatabaseField(name="origin_product", description="Product the task originated from."),
@@ -1818,12 +1854,14 @@ tasks: PostgresTable = PostgresTable(
             name="internal",
             expr=ast.Call(name="toInt", args=[ast.Field(chain=["_internal"])]),
             description="1 for internal pipeline tasks, 0 for user tasks (always 0 here due to the table filter).",
+            isolate_scope=True,
         ),
         "_deleted": BooleanDatabaseField(name="deleted", hidden=True),
         "deleted": ExpressionField(
             name="deleted",
             expr=ast.Call(name="toInt", args=[ast.Field(chain=["_deleted"])]),
             description="1 if the task has been deleted, 0 otherwise.",
+            isolate_scope=True,
         ),
         "deleted_at": DateTimeDatabaseField(
             name="deleted_at", nullable=True, description="When the task was deleted; NULL if not deleted."
@@ -1890,6 +1928,7 @@ sandbox_environments: PostgresTable = PostgresTable(
             name="include_default_domains",
             expr=ast.Call(name="toInt", args=[ast.Field(chain=["_include_default_domains"])]),
             description="1 if the platform default allow-list is merged with allowed_domains, 0 otherwise.",
+            isolate_scope=True,
         ),
         "repositories": StringArrayDatabaseField(
             name="repositories", description="Repositories the environment may check out."
@@ -1899,12 +1938,14 @@ sandbox_environments: PostgresTable = PostgresTable(
             name="private",
             expr=ast.Call(name="toInt", args=[ast.Field(chain=["_private"])]),
             description="1 if private to its creator, 0 if shared (always 0 here due to the table filter).",
+            isolate_scope=True,
         ),
         "_internal": BooleanDatabaseField(name="internal", hidden=True),
         "internal": ExpressionField(
             name="internal",
             expr=ast.Call(name="toInt", args=[ast.Field(chain=["_internal"])]),
             description="1 for internal environments, 0 for user environments (always 0 here due to the table filter).",
+            isolate_scope=True,
         ),
         "created_at": DateTimeDatabaseField(name="created_at", description="When the environment was created."),
         "updated_at": DateTimeDatabaseField(name="updated_at", description="When the environment was last updated."),
