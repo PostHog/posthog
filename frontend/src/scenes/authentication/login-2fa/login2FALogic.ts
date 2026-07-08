@@ -35,6 +35,12 @@ export interface LoginTokenResponse {
     success: boolean
 }
 
+export interface TwoFactorResetRequestResponse {
+    success: boolean
+    error?: string
+    requires_login?: boolean
+}
+
 export const login2FALogic = kea<login2FALogicType>([
     path(['scenes', 'authentication', 'login-2fa', 'login2FALogic']),
     connect(() => ({
@@ -109,6 +115,28 @@ export const login2FALogic = kea<login2FALogicType>([
                         }
                         actions.setGeneralError('passkey_error', getPasskeyErrorMessage(e))
                         throw e
+                    }
+                },
+            },
+        ],
+        twoFactorResetRequest: [
+            null as TwoFactorResetRequestResponse | null,
+            {
+                requestTwoFactorReset: async () => {
+                    try {
+                        return await api.create<TwoFactorResetRequestResponse>('api/reset_2fa/request/')
+                    } catch (e: unknown) {
+                        if (e instanceof ApiError) {
+                            return {
+                                success: false,
+                                error:
+                                    e.data?.error ||
+                                    e.detail ||
+                                    'Could not send a reset email. Please try again later.',
+                                requires_login: e.data?.requires_login === true,
+                            }
+                        }
+                        return { success: false, error: 'Could not send a reset email. Please try again later.' }
                     }
                 },
             },

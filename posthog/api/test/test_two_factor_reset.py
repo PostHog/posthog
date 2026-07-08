@@ -267,6 +267,45 @@ class TestTwoFactorReset(APIBaseTest):
         self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
         self.assertEqual(response.json()["error"], "This reset link is for a different account.")
 
+    # Self-service reset request tests
+
+    @patch("posthog.tasks.email.send_two_factor_reset_email.delay")
+    def test_can_request_self_service_reset_email(self, mock_send_email):
+        """A half-authed user stuck at the 2FA step can email themselves a reset link."""
+        self._setup_half_auth_session()
+
+        response = self.client.post("/api/reset_2fa/request/")
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response.content)
+        self.assertTrue(response.json()["success"])
+
+        # A fresh reset timestamp is set (invalidating any prior tokens) and the email is queued.
+        self.user.refresh_from_db()
+        self.assertIsNotNone(self.user.requested_2fa_reset_at)
+        self.assertEqual(mock_send_email.call_count, 1)
+        self.assertEqual(mock_send_email.call_args[0][0], self.user.pk)
+
+    @patch("posthog.tasks.email.send_two_factor_reset_email.delay")
+    def test_cannot_request_reset_without_half_auth_session(self, mock_send_email):
+        """Without first proving credentials, no reset email is sent — guards against unsolicited resets."""
+        response = self.client.post("/api/reset_2fa/request/")
+
+        self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED)
+        self.assertTrue(response.json()["requires_login"])
+        mock_send_email.assert_not_called()
+
+    @patch("posthog.tasks.email.send_two_factor_reset_email.delay")
+    def test_cannot_request_reset_without_2fa_configured(self, mock_send_email):
+        """No reset email is sent when the account has no 2FA to reset."""
+        TOTPDevice.objects.filter(user=self.user).delete()
+        StaticDevice.objects.filter(user=self.user).delete()
+        self._setup_half_auth_session()
+
+        response = self.client.post("/api/reset_2fa/request/")
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        mock_send_email.assert_not_called()
+
     def test_new_reset_request_invalidates_old_token(self):
         """Test that requesting a new reset invalidates the old token."""
         # Get first token at time T
