@@ -5,7 +5,7 @@ package can take the inputs dataclass as their typed signature without
 creating an import cycle with the workflow modules.
 """
 
-from dataclasses import dataclass, fields
+from dataclasses import dataclass, field, fields
 from typing import Any, Literal
 
 
@@ -62,6 +62,21 @@ def coerce_mention_workflow_inputs(inputs: object) -> PostHogCodeSlackMentionWor
         f"Unexpected activity inputs type {type(inputs).__name__}; "
         "expected PostHogCodeSlackMentionWorkflowInputs or dict"
     )
+
+
+@dataclass
+class SlackAppMentionWorkflowInputs:
+    """Conversation-level inputs for the per-thread queue workflow.
+
+    One workflow instance covers one Slack conversation (channel thread or DM
+    thread), identified entirely by its workflow ID; individual messages
+    arrive as ``new_message`` signals carrying
+    ``PostHogCodeSlackMentionWorkflowInputs``. These fields exist only to
+    carry state across ``continue_as_new`` — fresh starts leave them empty.
+    """
+
+    pending_messages: list[PostHogCodeSlackMentionWorkflowInputs] = field(default_factory=list)
+    processed_event_keys: list[str] = field(default_factory=list)
 
 
 @dataclass
