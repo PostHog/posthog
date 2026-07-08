@@ -1607,12 +1607,19 @@ export const LlmPromptsCreateParams = /* @__PURE__ */ zod.object({
 
 export const llmPromptsCreateBodyNameMax = 255
 
+export const llmPromptsCreateBodyVersionDescriptionMax = 400
+
 export const LlmPromptsCreateBody = /* @__PURE__ */ zod.object({
     name: zod
         .string()
         .max(llmPromptsCreateBodyNameMax)
         .describe('Unique prompt name using letters, numbers, hyphens, and underscores only.'),
     prompt: zod.unknown().describe('Prompt payload as JSON or string data.'),
+    version_description: zod
+        .string()
+        .max(llmPromptsCreateBodyVersionDescriptionMax)
+        .nullish()
+        .describe('Optional note describing what changed in this version. Set when the version is published.'),
 })
 
 export const llmPromptsNameRetrievePathPromptNameRegExp = new RegExp('^[^/]+$')
@@ -1653,6 +1660,8 @@ export const LlmPromptsNamePartialUpdateParams = /* @__PURE__ */ zod.object({
     prompt_name: zod.string().regex(llmPromptsNamePartialUpdatePathPromptNameRegExp),
 })
 
+export const llmPromptsNamePartialUpdateBodyVersionDescriptionMax = 400
+
 export const LlmPromptsNamePartialUpdateBody = /* @__PURE__ */ zod.object({
     prompt: zod
         .unknown()
@@ -1674,6 +1683,11 @@ export const LlmPromptsNamePartialUpdateBody = /* @__PURE__ */ zod.object({
         .min(1)
         .optional()
         .describe('Latest version you are editing from. Used for optimistic concurrency checks.'),
+    version_description: zod
+        .string()
+        .max(llmPromptsNamePartialUpdateBodyVersionDescriptionMax)
+        .optional()
+        .describe('Optional note describing what changed in this version. Shown in the version history.'),
 })
 
 export const llmPromptsNameDuplicateCreatePathPromptNameRegExp = new RegExp('^[^/]+$')

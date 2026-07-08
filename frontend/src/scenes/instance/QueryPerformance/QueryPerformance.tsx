@@ -22,6 +22,7 @@ import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 
 import { CacheHealth } from './CacheHealth'
+import { PrecomputeOverview } from './PrecomputeOverview'
 import { PrecomputationTeam, queryPerformanceLogic, SlowestQuery } from './queryPerformanceLogic'
 
 export const scene: SceneExport = {
@@ -679,6 +680,11 @@ export function QueryPerformance(): JSX.Element {
                                                 />
                                             </>
                                         ),
+                                    },
+                                    {
+                                        key: 'precompute_overview',
+                                        label: 'Precompute overview',
+                                        content: <PrecomputeOverview />,
                                     },
                                     {
                                         key: 'cache_health',

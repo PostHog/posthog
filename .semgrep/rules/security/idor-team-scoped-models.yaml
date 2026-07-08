@@ -146,6 +146,7 @@ rules:
                               |ExportedRecording
                               |ExternalDataJob
                               |ExternalDataSchema
+                              |ExternalDataSchemaOOMEvent
                               |ExternalDataSource
                               |FeatureFlag
                               |TeamExperimentsConfig
@@ -211,7 +212,9 @@ rules:
                               |QuickFilter
                               |QuickFilterContext
                               |ReplayObservation
+                              |ReplayObservationLabel
                               |ReplayScanner
+                              |ReplayScannerPromptSuggestion
                               |Repo
                               |RepoRoutingRule
                               |SandboxEnvironment
@@ -427,6 +430,7 @@ rules:
                         |ExportedRecording
                         |ExternalDataJob
                         |ExternalDataSchema
+                        |ExternalDataSchemaOOMEvent
                         |ExternalDataSource
                         |FeatureFlag
                         |TeamExperimentsConfig
@@ -488,7 +492,9 @@ rules:
                         |QuickFilter
                         |QuickFilterContext
                         |ReplayObservation
+                        |ReplayObservationLabel
                         |ReplayScanner
+                        |ReplayScannerPromptSuggestion
                         |Repo
                         |RepoRoutingRule
                         |SandboxEnvironment
