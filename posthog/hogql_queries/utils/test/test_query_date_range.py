@@ -99,6 +99,21 @@ class TestQueryDateRange(APIBaseTest):
             ],
         )
 
+    @parameterized.expand(
+        [
+            ("quarter", IntervalType.QUARTER, "-7m", ["2021-01-01", "2021-04-01", "2021-07-01"]),
+            ("year", IntervalType.YEAR, "-2y", ["2019-01-01", "2020-01-01", "2021-01-01"]),
+        ]
+    )
+    def test_all_values_quarter_year(self, _name, interval, date_from, expected_starts):
+        now = parser.isoparse("2021-08-25T00:00:00.000Z")
+        self.assertEqual(
+            QueryDateRange(
+                team=self.team, date_range=DateRange(date_from=date_from), interval=interval, now=now
+            ).all_values(),
+            [parser.isoparse(f"{start}T00:00:00Z") for start in expected_starts],
+        )
+
     def test_date_to_explicit(self):
         now = parser.isoparse("2021-08-25T00:00:00.000Z")
         date_range = DateRange(

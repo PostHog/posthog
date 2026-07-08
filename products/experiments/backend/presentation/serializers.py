@@ -61,47 +61,53 @@ class ExperimentMetricsField(serializers.JSONField):
     pass
 
 
+def _with_split_percent(variants: list) -> list:
+    # Add split_percent to outside representation for each variant to simplify frontend logic. The internal representation only uses rollout_percentage to avoid redundancy, but the frontend needs split_percent to display the variant splits in the UI and to support editing the splits in a user-friendly way (editing rollout_percentage directly would be more complex since it's not variant-specific and needs to be inferred from the variants' split_percent values).
+    return [
+        {**variant, "split_percent": variant["rollout_percentage"]}
+        if isinstance(variant, dict) and "rollout_percentage" in variant
+        else variant
+        for variant in variants
+    ]
+
+
+def _normalized_flag_variants(variants: list) -> list:
+    """Returns a new list, leaving the caller's input (e.g. request.data) untouched."""
+    variants = deepcopy(variants)
+    # Normalize a case-insensitive 'control' key (e.g. 'Control', 'CONTROL') down
+    # to lowercase 'control'. The downstream validator and runtime treat 'control'
+    # as a special key, so a typo in casing was the leading cause of the
+    # "Feature flag variants must contain a control variant" error in MCP traces —
+    # most often from LLM-generated payloads. Only rewrite when no exact 'control'
+    # match already exists, so we never collapse two distinct keys into a duplicate.
+    existing_keys = {v.get("key") for v in variants if isinstance(v, dict)}
+    if "control" not in existing_keys:
+        for variant in variants:
+            if not isinstance(variant, dict):
+                continue
+            key = variant.get("key")
+            if isinstance(key, str) and key != "control" and key.lower() == "control":
+                variant["key"] = "control"
+                break
+    for variant in variants:
+        if isinstance(variant, dict) and "split_percent" in variant:
+            # split_percent wins in case both keys present, as rollout_percentage deprecated
+            variant["rollout_percentage"] = variant.pop("split_percent")
+    return variants
+
+
 @extend_schema_field(ExperimentParameters)  # type: ignore[arg-type]
 class ExperimentParametersField(serializers.JSONField):
     def to_representation(self, value: Any) -> Any:
-        from copy import deepcopy
-
-        # Add split_percent to outside representation for each variant to simplify frontend logic. The internal representation only uses rollout_percentage to avoid redundancy, but the frontend needs split_percent to display the variant splits in the UI and to support editing the splits in a user-friendly way (editing rollout_percentage directly would be more complex since it's not variant-specific and needs to be inferred from the variants' split_percent values).
-        # Deep copy to avoid mutating the model instance's in-memory parameters dict
-        data: Any = deepcopy(super().to_representation(value))
-        if isinstance(data, dict) and "feature_flag_variants" in data:
-            for variant in data["feature_flag_variants"]:
-                if isinstance(variant, dict) and "rollout_percentage" in variant:
-                    variant["split_percent"] = variant["rollout_percentage"]
+        data: Any = super().to_representation(value)
+        if isinstance(data, dict) and isinstance(data.get("feature_flag_variants"), list):
+            # New dicts throughout, to avoid mutating the model instance's in-memory parameters
+            data = {**data, "feature_flag_variants": _with_split_percent(data["feature_flag_variants"])}
         return data
 
     def to_internal_value(self, data: Any) -> Any:
-        from copy import deepcopy
-
-        # Deep copy to avoid mutating the caller's dict (e.g. serializer.initial_data / request.data)
-        if isinstance(data, dict) and "feature_flag_variants" in data:
-            data = deepcopy(data)
-            variants = data["feature_flag_variants"]
-            if isinstance(variants, list):
-                # Normalize a case-insensitive 'control' key (e.g. 'Control', 'CONTROL') down
-                # to lowercase 'control'. The downstream validator and runtime treat 'control'
-                # as a special key, so a typo in casing was the leading cause of the
-                # "Feature flag variants must contain a control variant" error in MCP traces —
-                # most often from LLM-generated payloads. Only rewrite when no exact 'control'
-                # match already exists, so we never collapse two distinct keys into a duplicate.
-                existing_keys = {v.get("key") for v in variants if isinstance(v, dict)}
-                if "control" not in existing_keys:
-                    for variant in variants:
-                        if not isinstance(variant, dict):
-                            continue
-                        key = variant.get("key")
-                        if isinstance(key, str) and key != "control" and key.lower() == "control":
-                            variant["key"] = "control"
-                            break
-                for variant in variants:
-                    if isinstance(variant, dict) and "split_percent" in variant:
-                        # split_percent wins in case both keys present, as rollout_percentage deprecated
-                        variant["rollout_percentage"] = variant.pop("split_percent")
+        if isinstance(data, dict) and isinstance(data.get("feature_flag_variants"), list):
+            data = {**data, "feature_flag_variants": _normalized_flag_variants(data["feature_flag_variants"])}
         return super().to_internal_value(data)
 
 
@@ -152,9 +158,11 @@ class ExperimentBaseSerializer(UserAccessControlSerializerMixin, serializers.Mod
         allow_null=True,
         help_text=(
             "Experiment parameters JSON. Supported keys include "
-            "`feature_flag_variants`, `rollout_percentage`, "
-            "`custom_exposure_filter`, and `variant_notes` "
+            "`custom_exposure_filter` and `variant_notes` "
             "(free-text notes per variant, keyed by variant key). "
+            "Flag config keys (`feature_flag_variants`, `rollout_percentage`) are a deprecated "
+            "input surface kept for compatibility — the linked feature flag is the source of "
+            "truth, and reads project its current config into this field. "
             "Excluded variants live on the top-level `excluded_variants` field, not here."
         ),
     )
@@ -244,27 +252,24 @@ class ExperimentBaseSerializer(UserAccessControlSerializerMixin, serializers.Mod
     def _project_feature_flag_config(data: dict[str, Any], flag: FeatureFlag | None) -> None:
         """Source feature-flag config in the deprecated `parameters` projection from the linked flag.
 
-        The flag is the source of truth for variants/rollout/aggregation group type — `parameters`
+        The flag is the source of truth for every key in ``FEATURE_FLAG_CONFIG_KEYS`` — `parameters`
         is a deprecated compatibility surface (see the experiment model's `parameters` comment).
         Reading these keys from the flag instead of the stored column lets us stop persisting the
-        `parameters` mirror without changing the API response. The linked flag is already serialized
-        into `data["feature_flag"]`, so this adds no queries.
+        `parameters` mirror without changing the API response. It also keeps read-modify-write
+        echoes safe: legacy rows still carry stale copies in the column until the backfill strips
+        them, and a client that spreads a GET response into a save must echo the flag's live
+        config, not stale values the update path would then sync onto the flag. The linked flag is
+        already serialized into `data["feature_flag"]`, so this adds no queries.
         """
         if flag is None:
             return
         parameters = dict(data.get("parameters") or {})
 
-        variants = deepcopy(flag.variants)
-        for variant in variants:
-            # Mirror ExperimentParametersField.to_representation: the UI edits splits via split_percent.
-            if isinstance(variant, dict) and "rollout_percentage" in variant:
-                variant["split_percent"] = variant["rollout_percentage"]
-        parameters["feature_flag_variants"] = variants
+        parameters["feature_flag_variants"] = _with_split_percent(flag.variants)
 
         filters = flag.get_filters()
-        aggregation_group_type_index = filters.get("aggregation_group_type_index")
-        if aggregation_group_type_index is not None:
-            parameters["aggregation_group_type_index"] = aggregation_group_type_index
+        if flag.aggregation_group_type_index is not None:
+            parameters["aggregation_group_type_index"] = flag.aggregation_group_type_index
         else:
             parameters.pop("aggregation_group_type_index", None)
 
@@ -273,6 +278,17 @@ class ExperimentBaseSerializer(UserAccessControlSerializerMixin, serializers.Mod
             parameters["rollout_percentage"] = groups[0]["rollout_percentage"]
         else:
             parameters.pop("rollout_percentage", None)
+
+        payloads = filters.get("payloads")
+        if payloads:
+            parameters["feature_flag_payloads"] = payloads
+        else:
+            parameters.pop("feature_flag_payloads", None)
+
+        if flag.ensure_experience_continuity is not None:
+            parameters["ensure_experience_continuity"] = flag.ensure_experience_continuity
+        else:
+            parameters.pop("ensure_experience_continuity", None)
 
         data["parameters"] = parameters
 
@@ -472,7 +488,76 @@ class ExperimentSerializer(ExperimentBaseSerializer):
 
     def validate(self, data):
         ExperimentService.validate_experiment_date_range(data.get("start_date"), data.get("end_date"))
+        data = self._normalize_feature_flag_input(data)
         return super().validate(data)
+
+    def _normalize_feature_flag_input(self, data: dict) -> dict:
+        """Accept feature-flag config (variants/rollout/aggregation/payloads/continuity) via a
+        ``feature_flag`` object on create/update, folding it into the internal ``parameters`` input
+        the service still consumes to build/sync the flag. The explicit ``feature_flag`` object wins
+        over the legacy ``parameters`` keys.
+
+        Read from ``initial_data`` because the serializer's ``feature_flag`` field is read-only output
+        (the linked flag). This is its write counterpart during the window where ``parameters`` is
+        still the internal input shape; callers can stop sending flag config under ``parameters``.
+
+        The write contract is a config-only object (``filters``, ``ensure_experience_continuity``).
+        An object carrying a non-null ``id`` is the serialized linked flag echoed back by a
+        read-modify-write client (the GET response's ``feature_flag``, which the frontend spreads
+        into saves); treating that echo as intent would override the client's actual ``parameters``
+        edits with the flag's pre-edit state, so it is ignored — the pre-existing behavior for the
+        read-only field. An object with no config keys at all (e.g. a ``{"key": ...}`` stub) is
+        likewise ignored rather than rejected, so clients that have always included such stubs in
+        write bodies keep working.
+        """
+        feature_flag_input = (getattr(self, "initial_data", None) or {}).get("feature_flag")
+        if not isinstance(feature_flag_input, dict) or feature_flag_input.get("id") is not None:
+            return data
+        if not any(key in feature_flag_input for key in ("filters", "ensure_experience_continuity")):
+            return data
+        if self.instance is None:
+            # The service links an existing flag as-is (it may already serve traffic), so explicit
+            # config here would be applied nowhere — reject instead of silently dropping it.
+            flag_key = data.get("get_feature_flag_key")
+            if flag_key and FeatureFlag.objects.filter(key=flag_key, team_id=self.context["team_id"]).exists():
+                raise serializers.ValidationError(
+                    {
+                        "feature_flag": f"A feature flag with key '{flag_key}' already exists; the experiment "
+                        "links to it as-is, so its config cannot be set here. Omit feature_flag to reuse "
+                        "the existing flag, or edit the flag directly."
+                    }
+                )
+        # On a running experiment the service only syncs flag config when the caller opts in;
+        # without the opt-in the config would be applied nowhere and silently dropped.
+        if self.instance is not None and not self.instance.is_draft and not data.get("update_feature_flag_params"):
+            raise serializers.ValidationError(
+                {
+                    "feature_flag": "This experiment is running. To change its flag config, "
+                    "send update_feature_flag_params=true (or edit the feature flag directly)."
+                }
+            )
+        # On a partial update that omits ``parameters``, DRF drops it from ``data``. Seed the merge
+        # from the instance so non-flag params (minimum_detectable_effect, variant_notes, ...) survive.
+        # Strip flag-config keys a legacy row may still have persisted in the column: patch semantics
+        # must backfill omitted config from the linked flag's live state, never from stale mirrors.
+        if "parameters" in data:
+            base_parameters = data.get("parameters")
+        elif self.instance is not None:
+            base_parameters = ExperimentService._strip_feature_flag_config(self.instance.parameters)
+        else:
+            base_parameters = None
+        merged = ExperimentService.feature_flag_config_to_parameters(
+            feature_flag_input,
+            base_parameters,
+            flag=self.instance.feature_flag if self.instance is not None else None,
+        )
+        if isinstance(merged.get("feature_flag_variants"), list):
+            # Same normalization the legacy ``parameters`` field applies (case-insensitive
+            # 'control', split_percent translation) — both input surfaces must behave alike.
+            merged["feature_flag_variants"] = _normalized_flag_variants(merged["feature_flag_variants"])
+        ExperimentService.validate_experiment_parameters(merged)
+        data["parameters"] = merged
+        return data
 
     def validate_parameters(self, value):
         ExperimentService.validate_experiment_parameters(value)
@@ -686,7 +771,8 @@ class EndExperimentSerializer(serializers.Serializer):
         default=False,
         help_text=(
             "When true, open a draft pull request that removes the experiment's feature-flag code "
-            "from the linked repository. Only acts for allowlisted teams; ignored otherwise."
+            "from the linked repository. Requires the requesting user to have access to PostHog Code "
+            "(403 otherwise). Only acts for allowlisted teams; ignored otherwise."
         ),
     )
 
@@ -914,6 +1000,40 @@ class ExperimentMetricsRecalculationSerializer(serializers.Serializer):
         read_only=True,
         required=False,
         help_text="Per-metric results computed by this run, scoped by the run's recalc fingerprint",
+    )
+    # Live ClickHouse progress, present only on the GET poll path while the run is in_progress (read from
+    # system.processes by query_id prefix; see get_live_query_progress). build_job_payload omits these keys
+    # entirely for terminal or just-created runs, so they are genuinely optional in the response — NOT
+    # read_only=True, which drf-spectacular would force into the schema's `required` list (making the generated
+    # TypeScript `number | null` instead of the honest `number | null | undefined`). The serializer is
+    # output-only (never .is_valid()), so omitting read_only costs no input-validation safety.
+    running_metrics = serializers.IntegerField(
+        required=False,
+        allow_null=True,
+        help_text="Count of metric queries currently running in ClickHouse (bounded by worker-pool concurrency)",
+    )
+    rows_read = serializers.IntegerField(
+        required=False,
+        allow_null=True,
+        help_text="Rows read so far by the currently-running metric queries (monotonic; the live progress signal)",
+    )
+    estimated_rows_total = serializers.IntegerField(
+        required=False,
+        allow_null=True,
+        help_text=(
+            "ClickHouse's total_rows_approx across running queries. A soft ceiling ClickHouse revises upward "
+            "mid-scan, so it can exceed or trail rows_read; treat rows_read as the reliable signal"
+        ),
+    )
+    bytes_read = serializers.IntegerField(
+        required=False,
+        allow_null=True,
+        help_text="Bytes read so far by the currently-running metric queries",
+    )
+    active_cpu_time = serializers.IntegerField(
+        required=False,
+        allow_null=True,
+        help_text="Active CPU time (microseconds) consumed by the currently-running metric queries",
     )
 
 

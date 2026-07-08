@@ -12,7 +12,42 @@ import type {
     IdentityMatchingLinksListParams,
     IdentityMatchingLinksResponseApi,
     IdentityMatchingRunsResponseApi,
+    ProductPushCampaignActiveRetrieveParams,
+    ProductPushCampaignApi,
 } from './api.schemas'
+
+export const getProductPushCampaignActiveRetrieveUrl = (
+    organizationId: string,
+    params?: ProductPushCampaignActiveRetrieveParams
+) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/organizations/${organizationId}/product_push_campaign/active/?${stringifiedParams}`
+        : `/api/organizations/${organizationId}/product_push_campaign/active/`
+}
+
+/**
+ * The organization's currently active product push campaign. 204 when no campaign is active, or when the given project already uses the campaign's product.
+ */
+export const productPushCampaignActiveRetrieve = async (
+    organizationId: string,
+    params?: ProductPushCampaignActiveRetrieveParams,
+    options?: RequestInit
+): Promise<ProductPushCampaignApi | void> => {
+    return apiMutator<ProductPushCampaignApi | void>(getProductPushCampaignActiveRetrieveUrl(organizationId, params), {
+        ...options,
+        method: 'GET',
+    })
+}
 
 export const getIdentityMatchingLinksListUrl = (projectId: string, params?: IdentityMatchingLinksListParams) => {
     const normalizedParams = new URLSearchParams()
