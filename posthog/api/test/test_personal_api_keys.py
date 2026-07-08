@@ -27,11 +27,12 @@ ErrorTrackingIssue = apps.get_model("error_tracking", "ErrorTrackingIssue")
 class TestPersonalAPIKeysAPI(APIBaseTest):
     def test_create_personal_api_key(self):
         label = "Test key uno"
+        description = "Test description"
         response = self.client.post(
             "/api/personal_api_keys",
             {
                 "label": label,
-                "description": "Powers the weekly reports bot",
+                "description": description,
                 "scopes": ["insight:read"],
                 "scoped_organizations": [],
                 "scoped_teams": [],
@@ -45,7 +46,7 @@ class TestPersonalAPIKeysAPI(APIBaseTest):
         assert response.json() == {
             "id": key.id,
             "label": label,
-            "description": "Powers the weekly reports bot",
+            "description": description,
             "created_at": data["created_at"],
             "last_used_at": None,
             "last_rolled_at": None,

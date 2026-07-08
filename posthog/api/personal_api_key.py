@@ -79,7 +79,7 @@ class PersonalAPIKeySerializer(serializers.ModelSerializer):
         allow_blank=True,
         allow_null=True,
         max_length=1000,
-        help_text="Optional description of what the key is used for and where, e.g. a link to the integration that uses it.",
+        help_text="Optional description of what the key is used for and where",
     )
     scopes = serializers.ListField(child=serializers.CharField(required=True), allow_empty=False)
     scoped_teams = serializers.ListField(child=serializers.IntegerField(required=False))
