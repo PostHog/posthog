@@ -4,12 +4,26 @@ Facade API for mcp_store.
 This is the ONLY module other apps are allowed to import.
 """
 
+import uuid
+
 import structlog
 
 from products.mcp_store.backend.facade.contracts import ActiveInstallationInfo
 from products.mcp_store.backend.models import MCPServerInstallation
 
 logger = structlog.get_logger(__name__)
+
+
+def _valid_uuid_strings(installation_ids: list[str]) -> list[str]:
+    valid: list[str] = []
+    for item in installation_ids:
+        try:
+            uuid.UUID(item)
+        except (ValueError, AttributeError, TypeError):
+            logger.warning("Skipping malformed MCP installation id", installation_id=repr(item))
+            continue
+        valid.append(item)
+    return valid
 
 
 def _resolve_name(installation: MCPServerInstallation) -> str:
@@ -42,15 +56,20 @@ def get_active_installations(
     Filters out disabled installations and OAuth installations that
     need reauthorization or are still pending token exchange.
     """
-    if installation_ids is not None and not installation_ids:
-        return []
+    if installation_ids is not None:
+        # Drop malformed ids instead of letting the UUID cast blow up the whole launch —
+        # a bad selection should degrade to "that install isn't mounted", not a hard failure.
+        installation_ids = _valid_uuid_strings(installation_ids)
+        if not installation_ids:
+            return []
 
     try:
-        installations = MCPServerInstallation.objects.filter(
+        installations_qs = MCPServerInstallation.objects.filter(
             team_id=team_id, user_id=user_id, is_enabled=True
         ).select_related("template")
         if installation_ids is not None:
-            installations = installations.filter(id__in=installation_ids)
+            installations_qs = installations_qs.filter(id__in=installation_ids)
+        installations = list(installations_qs)
     except Exception as e:
         logger.warning("Error fetching MCP installations", error=str(e), team_id=team_id)
         return []

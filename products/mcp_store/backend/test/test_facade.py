@@ -134,6 +134,14 @@ class TestGetActiveInstallations(BaseTest):
 
         assert len(get_active_installations(self.team.id, self.user.id, installation_ids=None)) == 1
 
+    def test_malformed_installation_ids_are_dropped_not_fatal(self) -> None:
+        first = self._create_installation(display_name="First")
+
+        results = get_active_installations(self.team.id, self.user.id, installation_ids=["not-a-uuid", str(first.id)])
+
+        assert [r.id for r in results] == [str(first.id)]
+        assert get_active_installations(self.team.id, self.user.id, installation_ids=["not-a-uuid"]) == []
+
     @parameterized.expand(
         [
             ("enabled_api_key", True, "api_key", {}, True),
