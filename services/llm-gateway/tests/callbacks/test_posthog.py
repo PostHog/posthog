@@ -225,6 +225,32 @@ class TestPostHogCallback:
             assert "$ai_effort" not in props
 
     @pytest.mark.asyncio
+    async def test_on_failure_drops_caller_effort_when_gateway_has_none(
+        self, callback: PostHogCallback, auth_user: AuthenticatedUser, mock_posthog_client: tuple
+    ) -> None:
+        # Same spoof-prevention as the success path applies to error events.
+        _, mock_client = mock_posthog_client
+        kwargs = {
+            "standard_logging_object": {
+                "model": "claude-3-opus",
+                "custom_llm_provider": "anthropic",
+                "error_str": "boom",
+            },
+            "litellm_params": {},
+        }
+
+        with (
+            patch("llm_gateway.callbacks.posthog.get_auth_user", return_value=auth_user),
+            patch("llm_gateway.callbacks.posthog.get_product", return_value="posthog_code"),
+            patch("llm_gateway.callbacks.posthog.get_effort", return_value=None),
+            patch("llm_gateway.callbacks.posthog.get_posthog_properties", return_value={"$ai_effort": "spoofed"}),
+        ):
+            await callback._on_failure(kwargs, None, 0.0, 1.0, end_user_id=None)
+
+            props = mock_client.capture.call_args.kwargs["properties"]
+            assert "$ai_effort" not in props
+
+    @pytest.mark.asyncio
     async def test_on_success_header_team_id_overrides_auth_user_team(
         self,
         callback: PostHogCallback,
