@@ -142,6 +142,13 @@ export const VisionScannersCreateBody = /* @__PURE__ */ zod.object({
         .describe(
             '0..1 random downsample applied after the query matches. Defaults to 1.0 (no downsampling). Use exactly 0 to pause scanning; non-zero rates below 0.0001 (0.01%) are rejected as below the sampling precision.'
         ),
+    sampling_mode: zod
+        .enum(['focused', 'balanced', 'comprehensive'])
+        .describe('* `focused` - Focused\n* `balanced` - Balanced\n* `comprehensive` - Comprehensive')
+        .optional()
+        .describe(
+            'Quality pre-filter applied before random sampling. focused = top sessions only, balanced = drops the lowest-quality, comprehensive = no filter (default).\n\n* `focused` - Focused\n* `balanced` - Balanced\n* `comprehensive` - Comprehensive'
+        ),
     provider: zod
         .enum(['google'])
         .describe('* `google` - Google')
@@ -238,6 +245,13 @@ export const VisionScannersPartialUpdateBody = /* @__PURE__ */ zod.object({
         .describe(
             '0..1 random downsample applied after the query matches. Defaults to 1.0 (no downsampling). Use exactly 0 to pause scanning; non-zero rates below 0.0001 (0.01%) are rejected as below the sampling precision.'
         ),
+    sampling_mode: zod
+        .enum(['focused', 'balanced', 'comprehensive'])
+        .describe('* `focused` - Focused\n* `balanced` - Balanced\n* `comprehensive` - Comprehensive')
+        .optional()
+        .describe(
+            'Quality pre-filter applied before random sampling. focused = top sessions only, balanced = drops the lowest-quality, comprehensive = no filter (default).\n\n* `focused` - Focused\n* `balanced` - Balanced\n* `comprehensive` - Comprehensive'
+        ),
     provider: zod
         .enum(['google'])
         .describe('* `google` - Google')
@@ -312,6 +326,12 @@ export const VisionScannersObservationsListParams = /* @__PURE__ */ zod.object({
 })
 
 export const VisionScannersObservationsListQueryParams = /* @__PURE__ */ zod.object({
+    labeled: zod
+        .boolean()
+        .optional()
+        .describe(
+            'When true, return only observations that have a shared label (thumbs up or down); when false, only unlabeled observations.'
+        ),
     limit: zod.number().optional().describe('Number of results to return per page.'),
     offset: zod.number().optional().describe('The initial index from which to return the results.'),
     order_by: zod
@@ -373,6 +393,8 @@ export const visionScannersEstimateCreateBodySamplingRateDefault = 1
 export const visionScannersEstimateCreateBodySamplingRateMin = 0
 export const visionScannersEstimateCreateBodySamplingRateMax = 1
 
+export const visionScannersEstimateCreateBodySamplingModeDefault = `comprehensive`
+
 export const VisionScannersEstimateCreateBody = /* @__PURE__ */ zod
     .object({
         query: zod
@@ -387,6 +409,13 @@ export const VisionScannersEstimateCreateBody = /* @__PURE__ */ zod
             .max(visionScannersEstimateCreateBodySamplingRateMax)
             .default(visionScannersEstimateCreateBodySamplingRateDefault)
             .describe('0..1 downsample applied to matched sessions. Defaults to 1.0 (no downsampling).'),
+        sampling_mode: zod
+            .enum(['focused', 'balanced', 'comprehensive'])
+            .describe('* `focused` - Focused\n* `balanced` - Balanced\n* `comprehensive` - Comprehensive')
+            .default(visionScannersEstimateCreateBodySamplingModeDefault)
+            .describe(
+                "Quality pre-filter applied to the matched-session count, mirroring the sweep's candidate query. Defaults to comprehensive (no filter).\n\n* `focused` - Focused\n* `balanced` - Balanced\n* `comprehensive` - Comprehensive"
+            ),
         scanner_id: zod
             .string()
             .nullish()

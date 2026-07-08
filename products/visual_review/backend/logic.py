@@ -34,7 +34,12 @@ if TYPE_CHECKING:
     from posthog.models.integration import GitHubIntegration
 
 from posthog.egress.github.transport import GitHubRateLimitError
-from posthog.helpers.trigram_search import TrigramSearchField, apply_trigram_search, normalize_search_term
+from posthog.helpers.trigram_search import (
+    TrigramSearchField,
+    apply_trigram_search,
+    drop_similar_when_exact_exists,
+    normalize_search_term,
+)
 from posthog.models.github_integration_base import GitHubIntegrationError
 
 from .classifier import SnapshotClassifier
@@ -303,13 +308,15 @@ def list_runs_for_team(
         extra_exact_q = Q(commit_sha__istartswith=term)
         if term.isdigit():
             extra_exact_q |= Q(pr_number=int(term))
-        return apply_trigram_search(
-            qs,
-            term,
-            span_prefix="visual_review.runs.search",
-            fields=RUN_SEARCH_FIELDS,
-            extra_exact_q=extra_exact_q,
-            tiebreakers=("-created_at",),
+        return drop_similar_when_exact_exists(
+            apply_trigram_search(
+                qs,
+                term,
+                span_prefix="visual_review.runs.search",
+                fields=RUN_SEARCH_FIELDS,
+                extra_exact_q=extra_exact_q,
+                tiebreakers=("-created_at",),
+            )
         )
     return qs.order_by("-created_at")
 

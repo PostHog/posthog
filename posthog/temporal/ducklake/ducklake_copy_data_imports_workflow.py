@@ -51,9 +51,7 @@ from posthog.temporal.ducklake.metrics import (
 )
 
 from products.warehouse_sources.backend.facade.models import ExternalDataSchema
-from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.duckgres.enablement import (
-    DUCKGRES_BATCH_SINK_FLAG,
-)
+from products.warehouse_sources.backend.facade.pipelines import DUCKGRES_BATCH_SINK_FLAG
 
 LOGGER = get_logger(__name__)
 DATA_IMPORTS_DUCKLAKE_WORKFLOW_PREFIX = "data_imports"
@@ -216,7 +214,7 @@ async def prepare_data_imports_ducklake_metadata_activity(
     # "sink" never disagree on who owns a source (and both fail to "copy owns it").
     # Lazy import: create_job_model pulls in temporalio.activity + the data_warehouse
     # facade, which we don't want on this module's import path.
-    from products.warehouse_sources.backend.temporal.data_imports.workflow_activities.create_job_model import (  # noqa: PLC0415 — keeps the heavy temporal/facade deps off the import path
+    from products.warehouse_sources.backend.facade.pipelines import (  # noqa: PLC0415 — keeps the heavy temporal/facade deps off the import path
         is_pipeline_v3_enabled,
     )
 

@@ -12,7 +12,9 @@ from .get_task_processing_context import TaskProcessingContext, get_task_process
 from .post_slack_update import PostSlackUpdateInput, post_slack_update
 from .provision_sandbox import (
     CheckoutBranchInSandboxInput,
+    CheckoutBranchInSandboxOutput,
     CloneRepositoryInSandboxInput,
+    CloneRepositoryInSandboxOutput,
     CreateSandboxForRepositoryInput,
     CreateSandboxForRepositoryOutput,
     InjectFreshTokensOnResumeInput,
@@ -35,6 +37,7 @@ from .refresh_sandbox_credentials import (
 from .relay_sandbox_events import RelaySandboxEventsInput, relay_sandbox_events
 from .run_wizard import RunWizardInput, run_wizard
 from .send_followup_to_sandbox import SendFollowupToSandboxInput, send_followup_to_sandbox
+from .slack_agent_design_signals import RelayAgentDesignSignalsInput, relay_agent_design_signals
 from .start_agent_server import (
     MarkRepoReadyInput,
     StartAgentServerInput,
@@ -57,7 +60,9 @@ __all__ = [
     "GetSandboxForRepositoryInput",
     "GetSandboxForRepositoryOutput",
     "CheckoutBranchInSandboxInput",
+    "CheckoutBranchInSandboxOutput",
     "CloneRepositoryInSandboxInput",
+    "CloneRepositoryInSandboxOutput",
     "CreateSandboxForRepositoryInput",
     "CreateSandboxForRepositoryOutput",
     "InjectFreshTokensOnResumeInput",
@@ -75,6 +80,7 @@ __all__ = [
     "TaskProcessingContext",
     "TrackWorkflowEventInput",
     "UpdateTaskRunStatusInput",
+    "RelayAgentDesignSignalsInput",
     "RelaySandboxEventsInput",
     "SendFollowupToSandboxInput",
     "cleanup_sandbox",
@@ -83,6 +89,7 @@ __all__ = [
     "emit_progress_activity",
     "execute_task_in_sandbox",
     "forward_pending_user_message",
+    "relay_agent_design_signals",
     "relay_sandbox_events",
     "send_followup_to_sandbox",
     "get_sandbox_for_repository",

@@ -23,6 +23,7 @@ from posthog.api.routing import TeamAndOrgViewSetMixin
 
 from products.engineering_analytics.backend.facade import api
 from products.engineering_analytics.backend.facade.contracts import (
+    FLAKY_TEST_SIGNAL_CAVEAT,
     GitHubSourceNotConnectedError,
     QuarantineRequest,
     QuarantineWriteError,
@@ -30,6 +31,7 @@ from products.engineering_analytics.backend.facade.contracts import (
 from products.engineering_analytics.backend.presentation.serializers import (
     CICardSummarySerializer,
     CIFailureLogsSerializer,
+    FlakyTestListSerializer,
     GitHubSourceSerializer,
     MasterFailureGroupSerializer,
     PRCostSummarySerializer,
@@ -40,6 +42,7 @@ from products.engineering_analytics.backend.presentation.serializers import (
     QuarantineRequestSerializer,
     RepoOverviewSerializer,
     RunFailureLogsSerializer,
+    WorkflowCostSerializer,
     WorkflowHealthItemSerializer,
     WorkflowJobAggregateSerializer,
     WorkflowJobSerializer,
@@ -140,8 +143,11 @@ class EngineeringAnalyticsViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSe
         "workflow_runs",
         "workflow_run_activity",
         "workflow_runner_costs",
+        "author_workflow_costs",
         "workflow_jobs",
+        "flaky_tests",
         "repo_overview",
+        "repo_run_activity",
         "master_failures",
         "run_failure_logs",
         "job_aggregates",
@@ -664,6 +670,48 @@ class EngineeringAnalyticsViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSe
         return Response(WorkflowRunnerCostSerializer(instance=costs, many=True).data)
 
     @extend_schema(
+        operation_id="engineering_analytics_author_workflow_costs",
+        parameters=[
+            OpenApiParameter(
+                name="author",
+                type=OpenApiTypes.STR,
+                location=OpenApiParameter.QUERY,
+                required=True,
+                description="GitHub handle whose CI spend to break down.",
+            ),
+            _DATE_FROM,
+            _DATE_TO,
+            _SOURCE_ID,
+        ],
+        responses={
+            200: WorkflowCostSerializer(many=True),
+            400: OpenApiResponse(description="Missing author, or invalid date or source_id."),
+        },
+        description=(
+            "One author's estimated CI cost split by workflow over a window (date_from default -30d), "
+            "highest spend first. Runs are attributed to the author through their pull requests (attribution "
+            "is by PR number). Returns an empty list when the job-level source isn't synced."
+        ),
+    )
+    @action(detail=False, methods=["get"], pagination_class=None)
+    def author_workflow_costs(self, request: Request, **kwargs) -> Response:
+        author = request.query_params.get("author")
+        if not author:
+            return Response({"detail": "author is required"}, status=status.HTTP_400_BAD_REQUEST)
+        try:
+            costs = api.list_author_workflow_costs(
+                team=self.team,
+                author=author,
+                date_from=request.query_params.get("date_from") or None,
+                date_to=request.query_params.get("date_to") or None,
+                source_id=request.query_params.get("source_id") or None,
+                user_access_control=self.user_access_control,
+            )
+        except ValueError as exc:
+            return _bad_request(exc, fallback="Invalid author, date, or source_id")
+        return Response(WorkflowCostSerializer(instance=costs, many=True).data)
+
+    @extend_schema(
         operation_id="engineering_analytics_workflow_jobs",
         parameters=[
             OpenApiParameter(
@@ -708,6 +756,72 @@ class EngineeringAnalyticsViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSe
         return Response(WorkflowJobSerializer(instance=jobs, many=True).data)
 
     @extend_schema(
+        operation_id="engineering_analytics_flaky_tests",
+        parameters=[
+            OpenApiParameter(
+                name="date_from",
+                type=OpenApiTypes.STR,
+                location=OpenApiParameter.QUERY,
+                required=False,
+                description="Window start: relative ('-7d', '-30d') or ISO8601. Defaults to -7d; the window "
+                "may span at most 30 days.",
+            ),
+            _DATE_TO,
+            OpenApiParameter(
+                name="min_rerun_passes",
+                type=OpenApiTypes.INT,
+                location=OpenApiParameter.QUERY,
+                required=False,
+                description="A test qualifies once it passed on retry at least this many times in the window "
+                "(OR-ed with min_failed_prs). Minimum 1. Defaults to 1.",
+            ),
+            OpenApiParameter(
+                name="min_failed_prs",
+                type=OpenApiTypes.INT,
+                location=OpenApiParameter.QUERY,
+                required=False,
+                description="A test qualifies once it failed on at least this many distinct pull requests in "
+                "the window (OR-ed with min_rerun_passes). Minimum 1. Defaults to 3.",
+            ),
+            OpenApiParameter(
+                name="limit",
+                type=OpenApiTypes.INT,
+                location=OpenApiParameter.QUERY,
+                required=False,
+                description="Maximum number of tests to return (1-200). Defaults to 50.",
+            ),
+            _SOURCE_ID,
+        ],
+        responses={
+            200: FlakyTestListSerializer,
+            400: OpenApiResponse(
+                description="Invalid date, threshold, limit, or source_id, or a window longer than 30 days."
+            ),
+        },
+        description=(
+            "The flaky-test leaderboard: backend tests ranked by flakiness signal from the per-test CI spans, "
+            "over a window (default -7d, maximum 30 days). A test qualifies by passing on retry at least "
+            "min_rerun_passes times OR failing on at least min_failed_prs distinct PRs. " + FLAKY_TEST_SIGNAL_CAVEAT
+        ),
+    )
+    @action(detail=False, methods=["get"], pagination_class=None)
+    def flaky_tests(self, request: Request, **kwargs) -> Response:
+        try:
+            result = api.list_flaky_tests(
+                team=self.team,
+                date_from=request.query_params.get("date_from") or None,
+                date_to=request.query_params.get("date_to") or None,
+                min_rerun_passes=_optional_int_param(request, "min_rerun_passes"),
+                min_failed_prs=_optional_int_param(request, "min_failed_prs"),
+                limit=_optional_int_param(request, "limit"),
+                source_id=request.query_params.get("source_id") or None,
+                user_access_control=self.user_access_control,
+            )
+        except ValueError as exc:
+            return _bad_request(exc, fallback="Invalid date, threshold, limit, or source_id")
+        return Response(FlakyTestListSerializer(instance=result).data)
+
+    @extend_schema(
         operation_id="engineering_analytics_repo_overview",
         parameters=[_DATE_FROM, _DATE_TO, _SOURCE_ID],
         responses={
@@ -735,6 +849,52 @@ class EngineeringAnalyticsViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSe
         except ValueError as exc:
             return _bad_request(exc, fallback="Invalid date_from, date_to, or source_id")
         return Response(RepoOverviewSerializer(instance=result).data)
+
+    @extend_schema(
+        operation_id="engineering_analytics_repo_run_activity",
+        parameters=[
+            _DATE_FROM,
+            _DATE_TO,
+            # This endpoint never aggregates across branches, so the shared _BRANCH "omit to aggregate"
+            # wording would misdescribe the omit behavior in every generated client.
+            OpenApiParameter(
+                name="branch",
+                type=OpenApiTypes.STR,
+                location=OpenApiParameter.QUERY,
+                required=False,
+                description="Optional exact git branch (head_branch) to chart, e.g. 'main'. "
+                "Omit or leave blank to use the repo's detected default branch.",
+            ),
+            _SOURCE_ID,
+        ],
+        responses={
+            200: WorkflowRunActivitySerializer,
+            400: OpenApiResponse(description="Invalid date_from, date_to, or source_id, or a window over 366 days."),
+        },
+        description=(
+            "Default-branch health as compact chart points over a window (default -30d), newest first, for the "
+            "repo-hub run-activity chart. All of a commit's workflow runs are collapsed into ONE point per commit "
+            "(head SHA): its earliest workflow start, wall-clock duration until the last workflow settled (null "
+            "while any is still running), and an overall conclusion that is 'failure' if any workflow decisively "
+            "failed, else 'success' when at least one passed, else 'neutral'. `branch` overrides the detected "
+            "default branch. `truncated` is true when more commits matched than the cap, so the chart covers only "
+            "the most recent commits."
+        ),
+    )
+    @action(detail=False, methods=["get"], pagination_class=None)
+    def repo_run_activity(self, request: Request, **kwargs) -> Response:
+        try:
+            result = api.get_repo_run_activity(
+                team=self.team,
+                date_from=request.query_params.get("date_from") or None,
+                date_to=request.query_params.get("date_to") or None,
+                branch=request.query_params.get("branch") or None,
+                source_id=request.query_params.get("source_id") or None,
+                user_access_control=self.user_access_control,
+            )
+        except ValueError as exc:
+            return _bad_request(exc, fallback="Invalid date_from, date_to, or source_id")
+        return Response(WorkflowRunActivitySerializer(instance=result).data)
 
     @extend_schema(
         operation_id="engineering_analytics_master_failures",

@@ -1,6 +1,9 @@
 #!/usr/bin/env python3
 # /// script
 # requires-python = ">=3.11"
+# dependencies = [
+#     "pyyaml",
+# ]
 # ///
 # ruff: noqa: T201
 """Decide what to do with Stamphog's prior approval after a push.

@@ -36,6 +36,7 @@ from products.exports.backend.temporal.subscriptions.ai_subscription.spec_genera
     DEFAULT_PLANNER_MODEL,
     DEFAULT_SYNTHESIS_MODEL,
     PromptRejectedError,
+    ReportWindow,
     build_enriched_prompt,
 )
 
@@ -88,6 +89,30 @@ _RETRYABLE_QUERY_ERRORS: tuple[type[BaseException], ...] = (
 )
 
 
+def _all_queries_failed_notice(total_steps: int) -> str:
+    noun = "the query" if total_steps == 1 else f"all {total_steps} queries"
+    return (
+        f"> ⚠️ This report could not be generated — {noun} the assistant wrote failed to run. "
+        "Use the Manage subscription link to review the generated queries and the errors they hit.\n\n"
+    )
+
+
+def _safe_error_message(exc: BaseException) -> Optional[str]:
+    # HogQL/ClickHouse error text can echo team-scoped identifiers, so only the query-structure error
+    # classes (which describe the field/property the planner referenced) are safe to surface to the
+    # subscription owner — the same trust boundary the HogQL repair loop uses when forwarding to the
+    # fixer. Everything else stays type-only. Executors often wrap a resolution/exposed error in a
+    # generic Exception, so walk the __cause__/__context__ chain and surface the wrapped safe message.
+    seen: set[int] = set()
+    current: Optional[BaseException] = exc
+    while current is not None and id(current) not in seen:
+        if isinstance(current, (ExposedHogQLError, ResolutionError)):
+            return str(current)
+        seen.add(id(current))
+        current = current.__cause__ or current.__context__
+    return None
+
+
 class ReportStage(StrEnum):
     PLANNER = "planner"
     QUERY = "query"
@@ -111,12 +136,16 @@ class QueryStepDiagnostic:
     hogql: str
     ok: bool
     error_type: Optional[str]
+    # Safe-to-surface failure reason; set only for query-structure errors (see _safe_error_message), else None.
+    human_readable_error: Optional[str] = None
 
 
 @dataclass(frozen=True)
 class AiReportResult:
     markdown: str
     diagnostics: tuple[QueryStepDiagnostic, ...]
+    # The window's end as a UTC ISO instant — persisted so the next run can anchor exactly here.
+    window_end_utc: str
 
 
 async def generate_ai_report(
@@ -124,7 +153,7 @@ async def generate_ai_report(
     team: Team,
     user: Optional[User],
     prompt: Optional[str],
-    window_days: int,
+    window: ReportWindow,
     trace_correlation_id: Optional[Union[int, str]] = None,
 ) -> AiReportResult:
     if user is None:
@@ -138,12 +167,10 @@ async def generate_ai_report(
             team_id=team.id,
             resource_id=str(trace_correlation_id) if trace_correlation_id is not None else None,
         ),
-        properties={"window_days": window_days},
+        properties={"window_start": window.start_literal, "window_end": window.end_literal},
     ) as slo:
         try:
-            spec = await _plan(
-                team=team, user=user, prompt=prompt, window_days=window_days, trace_id=trace_correlation_id
-            )
+            spec = await _plan(team=team, user=user, prompt=prompt, window=window, trace_id=trace_correlation_id)
             rendered_results, failed_count, diagnostics = await _execute_plan(spec, team, user, trace_correlation_id)
             report = await _synthesize(spec, rendered_results, team, user, trace_correlation_id)
         except PromptRejectedError:
@@ -168,18 +195,27 @@ async def generate_ai_report(
                 failed_steps=failed_count,
                 total_steps=total_steps,
             )
-        return AiReportResult(markdown=report, diagnostics=tuple(diagnostics))
+        if total_steps and failed_count == total_steps:
+            # Every query failed, so the body is all "could not be computed" placeholders. Lead with a
+            # deterministic notice (not left to the synthesis LLM) so the recipient gets a clear signal
+            # instead of a confident-looking but empty report.
+            report = _all_queries_failed_notice(total_steps) + report
+        return AiReportResult(
+            markdown=report,
+            diagnostics=tuple(diagnostics),
+            window_end_utc=window.end.astimezone(UTC).isoformat(),
+        )
 
 
 async def _plan(
-    *, team: Team, user: User, prompt: Optional[str], window_days: int, trace_id: Optional[Union[int, str]]
+    *, team: Team, user: User, prompt: Optional[str], window: ReportWindow, trace_id: Optional[Union[int, str]]
 ) -> EnrichedPromptSpec:
     try:
         return await database_sync_to_async(build_enriched_prompt, thread_sensitive=False)(
             team=team,
             user=user,
             prompt=prompt,
-            window_days=window_days,
+            window=window,
             trace_correlation_id=trace_id,
         )
     except PromptRejectedError:
@@ -307,14 +343,9 @@ async def _run_steps(
                 )
                 fixed = await _arequest_hogql_fix(
                     original_hogql=current_hogql,
-                    # Forward the message for exposed errors and ResolutionError. ResolutionError messages
-                    # describe query structure — usually the field/property the planner itself referenced
-                    # (e.g. "Unable to resolve field 'operaton'"), which is what the fixer needs. A few raise
-                    # sites wrap a nested exception, but those describe query shape, not cluster topology, so
-                    # the leak risk stays low. Other internal errors (parsing/impossible-AST) stay type-only.
-                    error_message=(
-                        str(exc) if isinstance(exc, (ExposedHogQLError, ResolutionError)) else type(exc).__name__
-                    ),
+                    # Forward the safe message (exposed/resolution errors describe the field/property the
+                    # planner referenced, which is what the fixer needs); fall back to the type name.
+                    error_message=_safe_error_message(exc) or type(exc).__name__,
                     step_description=safe_description,
                     team=team,
                     user=user,
@@ -338,7 +369,13 @@ async def _run_steps(
         # metric as "could not be computed" instead of paraphrasing the failure into "no data".
         return (
             f"### {safe_description}\n\n_{QUERY_FAILED_PREFIX} ({type_name}) — metric not computed, not empty data._",
-            QueryStepDiagnostic(description=safe_description, hogql=current_hogql, ok=False, error_type=type_name),
+            QueryStepDiagnostic(
+                description=safe_description,
+                hogql=current_hogql,
+                ok=False,
+                error_type=type_name,
+                human_readable_error=_safe_error_message(last_exc) if last_exc is not None else None,
+            ),
         )
 
     async def run_step_bounded(step: QueryPlanStep) -> tuple[str, QueryStepDiagnostic]:

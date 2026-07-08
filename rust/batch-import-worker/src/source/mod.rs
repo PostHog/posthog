@@ -1,17 +1,162 @@
-use anyhow::Error;
-use async_trait::async_trait;
 use std::collections::HashMap;
+use std::future::Future;
 use std::path::PathBuf;
 use std::sync::Arc;
-use tokio::sync::Mutex;
+use std::time::Duration;
 
-use crate::extractor::StreamingReader;
+use anyhow::Error;
+use async_trait::async_trait;
+use tokio::sync::Mutex;
+use tracing::{debug, info, warn};
+
+use crate::extractor::{ExtractorType, StreamingReader};
+use crate::staging::{open_plaintext_stream, PlaintextStream, StagingBackend};
 
 pub mod date_range_export;
 pub mod folder;
 pub mod s3;
 pub mod s3_gzip;
 pub mod url_list;
+
+/// Remote (temp-bucket) staging for a compressed source, selected by
+/// `STAGING_BACKEND=temp_bucket`. Bundles the backend with how this source's parts
+/// decompress, so a downloaded `.raw` can be ingested in one call.
+///
+/// When present, a source stages each part's decompressed plaintext in the backend and
+/// serves `size`/`get_chunk`/`cleanup_key` from it, bypassing the local
+/// [`PreparedPart`]/[`StreamingReader`] machinery. When absent (`local_disk`, the
+/// default), the local streaming path below is used unchanged.
+#[derive(Clone)]
+pub struct RemoteStaging {
+    pub backend: Arc<dyn StagingBackend>,
+    pub extractor_type: ExtractorType,
+    /// Per-part decompressed-byte ceiling forwarded to the pipeline (0 = disabled).
+    pub max_plaintext_bytes: u64,
+}
+
+/// Read retries against the staging backend, mirroring the local prepared-chunk
+/// retry behavior both compressed sources have always used.
+const REMOTE_READ_RETRIES: usize = 3;
+
+impl RemoteStaging {
+    /// `DataSource::prepare_key` delegation for a compressed source: attach if the
+    /// part is already staged (cached size, or `head` on a cold process — multipart
+    /// atomicity guarantees no torn part is ever visible), otherwise run the source's
+    /// download and ingest the result. Idempotent, matching the job loop's
+    /// call-every-iteration contract.
+    pub(crate) async fn prepare_key<F, Fut>(&self, key: &str, download: F) -> Result<(), Error>
+    where
+        F: FnOnce() -> Fut,
+        Fut: Future<Output = Result<Option<(PathBuf, u64)>, Error>>,
+    {
+        // Guarantee a public-facing message on the staging legs of this path (attach
+        // check + ingest) without shadowing more specific ones (ceiling breach, rate
+        // limits). Download errors keep their own source-specific messages.
+        let staging_user_msg = || {
+            format!(
+                "Preparing import data for part {key} failed. The job retries temporary \
+                 storage errors automatically; if it stays paused, resume it to retry, \
+                 and if it keeps failing the source file may be corrupt — re-export it \
+                 or split it and run the remainder as a separate job."
+            )
+        };
+        match self.backend.size(key).await {
+            Ok(Some(_)) => {
+                debug!("Key already staged remotely: {}", key);
+                return Ok(());
+            }
+            Ok(None) => {}
+            Err(e) => return Err(crate::error::ensure_user_message(e, staging_user_msg())),
+        }
+        let downloaded = download().await?;
+        let size = self
+            .stage_downloaded(key, downloaded.map(|(path, _)| path))
+            .await
+            .map_err(|e| crate::error::ensure_user_message(e, staging_user_msg()))?;
+        info!(key, size, "Staged key remotely (decompressed bytes)");
+        Ok(())
+    }
+
+    /// `DataSource::get_chunk` delegation: a ranged, side-effect-free read with the
+    /// same small retry loop the sources use for local prepared-chunk reads (the
+    /// backend's S3 client retries transient failures internally as well).
+    pub(crate) async fn read_chunk(
+        &self,
+        key: &str,
+        offset: u64,
+        size: u64,
+    ) -> Result<Vec<u8>, Error> {
+        let mut retries = REMOTE_READ_RETRIES;
+        loop {
+            match self.backend.read(key, offset, size).await {
+                Ok(chunk) => return Ok(chunk),
+                Err(e) => {
+                    if retries == 0 {
+                        return Err(crate::error::ensure_user_message(
+                            e,
+                            format!(
+                                "Reading staged import data for part {key} failed. The job \
+                                 retries temporary storage errors automatically; if it stays \
+                                 paused, resume it to continue from where it left off."
+                            ),
+                        ));
+                    }
+                    warn!(
+                        key,
+                        offset, "Error reading staged chunk: {e:?}, remaining retries: {retries}"
+                    );
+                    tokio::time::sleep(Duration::from_secs(1)).await;
+                    retries -= 1;
+                }
+            }
+        }
+    }
+
+    /// `DataSource::cleanup_after_job` delegation: sweep this job's staged objects,
+    /// best-effort (the bucket TTL is the final backstop).
+    pub(crate) async fn sweep_job(&self) {
+        if let Err(e) = self.backend.cleanup_job().await {
+            warn!("Failed to clean up remote staging after job: {e:#}");
+        }
+    }
+
+    /// Ingest a downloaded part into the backend and return its decompressed size.
+    /// `raw_file_path: None` means an empty part (404 / zero-byte object): an empty
+    /// object is staged so `size()` reports `Some(0)` and resume skips re-download.
+    /// The `.raw` is deleted after a successful stage (its bytes now live remotely).
+    pub(crate) async fn stage_downloaded(
+        &self,
+        key: &str,
+        raw_file_path: Option<PathBuf>,
+    ) -> Result<u64, Error> {
+        match raw_file_path {
+            None => {
+                self.backend
+                    .stage_part(
+                        key,
+                        PlaintextStream::from_chunks(Vec::<bytes::Bytes>::new()),
+                    )
+                    .await
+            }
+            Some(raw) => {
+                let stream = open_plaintext_stream(
+                    raw.clone(),
+                    self.extractor_type.clone(),
+                    self.max_plaintext_bytes,
+                );
+                let result = self.backend.stage_part(key, stream).await;
+                // The `.raw` is single-use: on success its bytes now live remotely; on
+                // failure the retry re-downloads from origin (the backend has no object,
+                // so prepare_key won't attach). Remove it either way so a failed or paused
+                // job doesn't hold staging disk or trip the staging guard on resume.
+                if let Err(e) = tokio::fs::remove_file(&raw).await {
+                    warn!("Failed to remove staged raw file {}: {e}", raw.display());
+                }
+                result
+            }
+        }
+    }
+}
 
 /// Per-key state for sources that download a compressed `.raw` file and
 /// stream-decompress it on demand (see [`crate::extractor::StreamingReader`]).
@@ -142,8 +287,23 @@ pub trait DataSource: Sync + Send {
     async fn prepare_for_job(&self) -> Result<(), Error> {
         Ok(())
     }
+
+    /// Terminal cleanup: reclaim everything, including durable remote staging.
+    /// Called when the job completes, and on source-side pauses — a human may fix
+    /// the source file in place before resuming, so the resume must re-download a
+    /// clean copy rather than attach to a stale staged one.
     async fn cleanup_after_job(&self) -> Result<(), Error> {
         Ok(())
+    }
+
+    /// Transient-interruption cleanup: release per-process resources (local temp
+    /// files, in-memory state) but keep durable remote staging, so a resumed job
+    /// re-attaches to staged parts instead of re-hitting the origin. Called on
+    /// transient backoff, sink commit rollback (the retried chunk then re-reads
+    /// byte-identical staged data), and graceful shutdown (the re-claiming pod
+    /// attaches). Defaults to full cleanup for sources with no remote staging.
+    async fn release_job_resources(&self) -> Result<(), Error> {
+        self.cleanup_after_job().await
     }
 
     fn get_date_range_for_key(&self, _key: &str) -> Option<String> {
