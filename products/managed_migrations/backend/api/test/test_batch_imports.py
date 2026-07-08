@@ -812,6 +812,12 @@ class TestBatchImportAPI(APIBaseTest):
         statement = trust_policy["Statement"][0]
         self.assertEqual(statement["Principal"]["AWS"], posthog_role_arn)
         self.assertEqual(statement["Condition"]["StringEquals"]["sts:ExternalId"], first["external_id"])
+        permission_policy = json.loads(first["permission_policy_template"])
+        list_statement, get_statement = permission_policy["Statement"]
+        self.assertEqual(list_statement["Action"], ["s3:ListBucket"])
+        self.assertEqual(list_statement["Condition"]["StringLike"]["s3:prefix"], ["YOUR_PREFIX*"])
+        self.assertEqual(get_statement["Action"], ["s3:GetObject"])
+        self.assertEqual(get_statement["Resource"], "arn:aws:s3:::YOUR_BUCKET/YOUR_PREFIX*")
 
     def test_aws_iam_setup_unavailable_without_role_arn_setting(self):
         with self.settings(MANAGED_MIGRATIONS_IMPORT_ROLE_ARN=""):

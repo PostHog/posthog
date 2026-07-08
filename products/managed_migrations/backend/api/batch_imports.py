@@ -694,6 +694,10 @@ class BatchImportViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                         "Effect": "Allow",
                         "Action": ["s3:ListBucket"],
                         "Resource": "arn:aws:s3:::YOUR_BUCKET",
+                        # Mirrors the session policy the import worker pins on every
+                        # assumed-role session; ListBucket is bucket-level, so the prefix
+                        # restriction has to be a condition, not part of the resource
+                        "Condition": {"StringLike": {"s3:prefix": ["YOUR_PREFIX*"]}},
                     },
                     {
                         "Effect": "Allow",
