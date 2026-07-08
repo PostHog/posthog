@@ -354,10 +354,12 @@ def _select_relevant_events(
     # Returns RAW event names (the EventProperty lookup is keyed on them).
     recent_names = _recent_event_names(team, PINNED_EVENT_SCAN_LIMIT)
     candidates = _candidate_event_names(recent_names[:CANDIDATE_EVENTS_LIMIT])
-    if not candidates:
-        return []
-
     pinned = _pinned_event_names(prompt, recent_names)
+    if not candidates:
+        # No candidate vocabulary for the LLM pass, but explicit pins still count — the pin scan
+        # covers the full recent-names window, not just the candidate slice.
+        return pinned
+
     llm_selected = _llm_selected_events(team, user, prompt, candidates, trace_correlation_id)
 
     # Pins lead so the cap can only ever drop LLM picks — an explicitly named event is never truncated.

@@ -229,6 +229,16 @@ class TestSelectRelevantEvents(APIBaseTest):
 
         assert _select_relevant_events(self.team, self.user, "what about `rare_event`?") == ["rare_event"]
 
+    @patch(f"{_SG}.CANDIDATE_EVENTS_LIMIT", 0)
+    @patch(f"{_SG}.MaxChatOpenAI")
+    def test_pins_survive_when_candidate_slice_is_empty(self, mock_chat: MagicMock) -> None:
+        # An empty candidate slice skips the LLM pass but must not drop explicit pins — the pin scan
+        # covers the full recent-names window, not just the candidate slice.
+        EventDefinition.objects.create(team=self.team, name="export created")
+
+        assert _select_relevant_events(self.team, self.user, "how is `export created`?") == ["export created"]
+        mock_chat.assert_not_called()
+
 
 class TestExtractQuotedEventTokens:
     @parameterized.expand(
