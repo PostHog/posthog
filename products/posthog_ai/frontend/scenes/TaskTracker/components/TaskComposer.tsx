@@ -12,14 +12,19 @@ import {
 import { resolveEffortForModel } from 'products/posthog_ai/frontend/utils/composerModels'
 
 import { ComposerModelEffortPickers } from '../../../components/composer/ComposerModelEffortPickers'
+import { useDebouncedDraft } from '../../../components/composer/useDebouncedDraft'
 import { taskTrackerSceneLogic } from '../taskTrackerSceneLogic'
 import { RepositorySelector } from './RepositorySelector'
 
 export function TaskComposer(): JSX.Element {
     const { submitNewTask, setNewTaskData, setActiveSuggestionGroup, applySuggestion } =
         useActions(taskTrackerSceneLogic)
-    const { newTaskData, isSubmittingTask, activeSuggestionGroup, headline, sendDisabledReason } =
-        useValues(taskTrackerSceneLogic)
+    const { newTaskData, isSubmittingTask, activeSuggestionGroup, headline } = useValues(taskTrackerSceneLogic)
+
+    // Buffer the description locally and debounce the write to kea so each keystroke is a cheap, isolated
+    // re-render instead of a store dispatch. The disabled reason is driven off the fresh local value (not the
+    // logic's debounced `sendDisabledReason`) so send never stays wrongly blocked while the sync is pending.
+    const draft = useDebouncedDraft(newTaskData.description, (value) => setNewTaskData({ description: value }))
 
     const textAreaRef = useRef<HTMLTextAreaElement>(null)
 
@@ -48,11 +53,11 @@ export function TaskComposer(): JSX.Element {
                             onChange={(config) => setNewTaskData({ repositoryConfig: config })}
                         />
                         <Composer.Root
-                            value={newTaskData.description}
-                            onChange={(value) => setNewTaskData({ description: value })}
-                            onSubmit={submitNewTask}
+                            value={draft.value}
+                            onChange={draft.onChange}
+                            onSubmit={() => draft.submit(submitNewTask)}
                             loading={isSubmittingTask}
-                            disabledReason={sendDisabledReason}
+                            disabledReason={draft.value.trim() ? undefined : 'Describe the task first'}
                             textAreaRef={textAreaRef}
                         >
                             <Composer.Frame>
