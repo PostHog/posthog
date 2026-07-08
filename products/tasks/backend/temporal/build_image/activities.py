@@ -203,9 +203,9 @@ def _attach_repo_warm_layer(image: "modal.Image", spec: SandboxImageSpec):
 
 
 def _compose_modal_image(spec: SandboxImageSpec, *, repository: str, team_id: int) -> "tuple[modal.Image, modal.App]":
-    from products.tasks.backend.logic.services.modal_sandbox import (  # type: ignore[attr-defined]  # noqa: PLC0415
+    from products.tasks.backend.logic.services.modal_sandbox import (  # noqa: PLC0415
         ModalSandbox,
-        get_template_base_image,
+        resolve_template_base_image,
     )
     from products.tasks.backend.logic.services.sandbox import SandboxTemplate, get_sandbox_class  # noqa: PLC0415
 
@@ -214,7 +214,7 @@ def _compose_modal_image(spec: SandboxImageSpec, *, repository: str, team_id: in
         raise RuntimeError("Custom image builds require the Modal sandbox provider")
 
     app = sandbox_cls._get_app_for_template(SandboxTemplate.VM_BASE)
-    image = get_template_base_image(SandboxTemplate.VM_BASE)
+    image = resolve_template_base_image(SandboxTemplate.VM_BASE)
 
     # Clone the linked repo with the token FIRST, on the trusted base, before any spec-authored
     # layer can tamper with git to capture it. The warm step runs later, token-free.
