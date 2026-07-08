@@ -1762,7 +1762,7 @@ if settings.TEST:
         _clickhouse_pool_checkouts += 1
         return _original_chpool_get_client(self, *args, **kwargs)
 
-    ChPool.get_client = _counting_chpool_get_client  # type: ignore[method-assign]
+    ChPool.get_client = _counting_chpool_get_client
 
 
 def reset_clickhouse_database() -> None:
