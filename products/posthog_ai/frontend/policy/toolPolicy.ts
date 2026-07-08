@@ -1,6 +1,6 @@
 import { isPostHogExecTool } from '../components/tool/posthogExecDisplay'
-import { resolveToolCall } from '../components/tool/toolResolver'
 import type { PermissionRequestRecord } from '../types/streamTypes'
+import { resolveToolCall } from '../utils/toolResolver'
 
 // Re-exported so existing importers (and tests) keep resolving the exec-tool check from here.
 export { isPostHogExecTool } from '../components/tool/posthogExecDisplay'

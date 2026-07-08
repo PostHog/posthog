@@ -37,12 +37,23 @@ export { contextPickerLogic, taxonomicItemToAttachedContext, PICKER_PROVIDER_ID 
 export type { PickableTaxonomicItem } from '../logics/contextPickerLogic'
 
 // --- Tool-stream event bus + subscription hook (headless) ---
-// `runStreamLogic` publishes tool-call lifecycle events (resolved names); subscribe to react when the
-// agent invokes a specific tool. `useToolStreamListener` registers a subscription for a mount's life.
+// `runStreamLogic` publishes tool-call lifecycle events (resolved names) plus turn-complete and
+// run-terminal events; subscribe to react when the agent invokes a specific tool.
+// `useToolStreamListener` registers a subscription for a mount's life.
 export { toolStreamEventsLogic } from '../logics/toolStreamEventsLogic'
 export type { ToolStreamSubscription } from '../logics/toolStreamEventsLogic'
 export { useToolStreamListener } from '../hooks/useToolStream'
 export type { UseToolStreamListenerOptions } from '../hooks/useToolStream'
+
+// --- Foreground stream registry + MCP tool apply-back (headless) ---
+// `foregroundStreamLogic` marks the single stream rendered in the side panel the user is watching; a
+// surface registers via `useForegroundStream`. `useMcpToolApplyBack` reacts to that foreground run's
+// MCP tool calls (foreground-gated, replay-excluded) so a scene can apply a generated query back when
+// its tool completes or at the end of the turn.
+export { foregroundStreamLogic } from '../logics/foregroundStreamLogic'
+export { useForegroundStream } from '../hooks/useForegroundStream'
+export { useMcpToolApplyBack } from '../hooks/useMcpToolApplyBack'
+export type { ApplyOn, McpToolApplyContext, UseMcpToolApplyBackOptions } from '../hooks/useMcpToolApplyBack'
 
 // --- Panel view state (headless) ---
 // Panel-level view state (active run vs. history vs. composer) for hosts that render chrome — e.g. a

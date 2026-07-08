@@ -5,6 +5,7 @@ import { LemonButton, LemonDivider } from '@posthog/lemon-ui'
 
 import { RunSurface } from 'products/posthog_ai/frontend/api/runSurface'
 
+import { useForegroundStream } from '../../../hooks/useForegroundStream'
 import { taskTrackerSceneLogic } from '../taskTrackerSceneLogic'
 import { TaskComposer } from './TaskComposer'
 import { TaskHistoryList, TaskHistoryPreview } from './TaskHistory'
@@ -33,6 +34,12 @@ export function SidePanelRunnerImpl({ panelId }: SidePanelRunnerImplProps): JSX.
 function SidePanelRunnerContent(): JSX.Element {
     const { activeCreation, historyExpanded } = useValues(taskTrackerSceneLogic)
     const { toggleHistory, updateActiveCreationRun } = useActions(taskTrackerSceneLogic)
+
+    // This compact surface renders only in Max's side panel, so the run it shows IS the foreground
+    // stream. Register its `streamKey` (cleared when the panel drops back to the composer/history, and
+    // re-pointed when it switches runs). The `/tasks` full-page scene and `EmbeddedRunner` render the
+    // run through their own components, never this one, so they never register.
+    useForegroundStream(activeCreation?.streamKey ?? null)
 
     if (!activeCreation && historyExpanded) {
         return (

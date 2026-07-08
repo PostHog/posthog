@@ -1,6 +1,7 @@
 import { initKeaTests } from '~/test/init'
 
 import type { ToolStreamEvent } from '../types/streamTypes'
+import { foregroundStreamLogic } from './foregroundStreamLogic'
 import { toolStreamEventsLogic } from './toolStreamEventsLogic'
 
 function event(overrides: Partial<ToolStreamEvent> = {}): ToolStreamEvent {
@@ -55,6 +56,51 @@ describe('toolStreamEventsLogic', () => {
 
         expect(liveOnly).not.toHaveBeenCalled()
         expect(withReplay).toHaveBeenCalledTimes(1)
+    })
+
+    it('foregroundOnly delivers only events whose streamKey is the current foreground stream', () => {
+        const cb = jest.fn()
+        logic.actions.registerToolListener('fg', { tools: '*', foregroundOnly: true, onEvent: cb })
+
+        // No foreground registered → an event for any stream is withheld.
+        logic.actions.emitToolEvent(event({ streamKey: 'run-2' }))
+        expect(cb).not.toHaveBeenCalled()
+
+        // A different stream is foreground → still withheld.
+        foregroundStreamLogic.actions.setForegroundStream('run-1')
+        logic.actions.emitToolEvent(event({ streamKey: 'run-2' }))
+        expect(cb).not.toHaveBeenCalled()
+
+        // The event's own stream becomes foreground → the same event is now delivered.
+        foregroundStreamLogic.actions.setForegroundStream('run-2')
+        logic.actions.emitToolEvent(event({ streamKey: 'run-2' }))
+        expect(cb).toHaveBeenCalledTimes(1)
+    })
+
+    it('notifies onForegroundChange only when the foreground key actually changes', () => {
+        const onChange = jest.fn()
+        logic.actions.registerToolListener('fg-change', {
+            tools: '*',
+            onEvent: jest.fn(),
+            onForegroundChange: onChange,
+        })
+
+        // A registration renewal with the same key is not a change.
+        foregroundStreamLogic.actions.setForegroundStream('run-1')
+        foregroundStreamLogic.actions.setForegroundStream('run-1')
+        expect(onChange).toHaveBeenCalledTimes(1)
+        expect(onChange).toHaveBeenLastCalledWith('run-1')
+
+        // A key-checked clear for a stale key leaves the value untouched, so no notification.
+        foregroundStreamLogic.actions.clearForegroundStream('run-0')
+        expect(onChange).toHaveBeenCalledTimes(1)
+
+        foregroundStreamLogic.actions.setForegroundStream('run-2')
+        expect(onChange).toHaveBeenLastCalledWith('run-2')
+
+        foregroundStreamLogic.actions.clearForegroundStream('run-2')
+        expect(onChange).toHaveBeenLastCalledWith(null)
+        expect(onChange).toHaveBeenCalledTimes(3)
     })
 
     it('stops delivering after deregister', () => {
