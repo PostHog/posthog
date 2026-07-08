@@ -196,7 +196,7 @@ def _cheapen_freezegun_module_hash() -> None:
         return f"{id(module)}-{keys_hash}"
 
     _fast_module_attributes_hash.__wrapped__ = api._get_module_attributes_hash  # type: ignore[attr-defined]
-    api._get_module_attributes_hash = _fast_module_attributes_hash
+    api._get_module_attributes_hash = _fast_module_attributes_hash  # ty: ignore[invalid-assignment]
 
 
 def pytest_configure(config) -> None:
