@@ -109,6 +109,7 @@ class TestSubscriptionTemporal(APILicensedTest):
             "resource_name": data["resource_name"],
             "dashboard_export_insights": [],
             "prompt": None,
+            "ai_prompt_config": {},
             "target_type": "email",
             "target_value": "test@posthog.com",
             "frequency": "weekly",
@@ -2801,3 +2802,80 @@ class TestAISubscriptionAPI(APILicensedTest):
         )
         assert patch_resp.status_code == status.HTTP_400_BAD_REQUEST, patch_resp.json()
         assert "prompt" in str(patch_resp.json()).lower(), patch_resp.json()
+
+    @parameterized.expand(
+        [
+            ("last_n_days_missing_start", {"mode": "last_n_days"}, "start_days_ago"),
+            ("range_missing_end", {"mode": "days_ago_range", "start_days_ago": 10}, "end_days_ago"),
+            (
+                "range_end_not_before_start",
+                {"mode": "days_ago_range", "start_days_ago": 3, "end_days_ago": 5},
+                "end_days_ago",
+            ),
+            ("start_out_of_bounds", {"mode": "last_n_days", "start_days_ago": 400}, "start_days_ago"),
+            ("unknown_mode", {"mode": "calendar_week"}, "mode"),
+        ]
+    )
+    def test_invalid_ai_window_config_is_rejected(
+        self, mock_is_cloud, mock_flag, mock_sync, _name, window, expected_error_field
+    ):
+        self._enable_ai()
+        self._mock_temporal(mock_sync)
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/subscriptions",
+            self._make_ai_payload(ai_prompt_config={"window": window}),
+        )
+        assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
+        assert expected_error_field in str(response.json()), response.json()
+
+    def test_ai_window_round_trips_and_mode_switch_clears_day_bounds(self, mock_is_cloud, mock_flag, mock_sync):
+        # Stale day bounds surviving a switch back to since_last_sent would silently pin the window
+        # to old day values if the row is ever read without mode dispatch.
+        self._enable_ai()
+        self._mock_temporal(mock_sync)
+        create_resp = self.client.post(
+            f"/api/projects/{self.team.id}/subscriptions",
+            self._make_ai_payload(ai_prompt_config={"window": {"mode": "last_n_days", "start_days_ago": 14}}),
+        )
+        assert create_resp.status_code == status.HTTP_201_CREATED, create_resp.json()
+        created = create_resp.json()
+        assert created["ai_prompt_config"]["window"]["mode"] == "last_n_days"
+        assert created["ai_prompt_config"]["window"]["start_days_ago"] == 14
+
+        patch_resp = self.client.patch(
+            f"/api/projects/{self.team.id}/subscriptions/{created['id']}",
+            {"ai_prompt_config": {"window": {"mode": "since_last_sent"}}},
+        )
+        assert patch_resp.status_code == status.HTTP_200_OK, patch_resp.json()
+        window = patch_resp.json()["ai_prompt_config"]["window"]
+        assert window["mode"] == "since_last_sent"
+        assert window["start_days_ago"] is None
+
+    def test_garbage_ai_prompt_config_still_serializes_on_read(self, mock_is_cloud, mock_flag, mock_sync):
+        # The read path routes through the fail-soft normalizer; without it, DRF's
+        # IntegerField.to_representation (int(value)) 500s the detail GET and the team's whole
+        # subscription list on an out-of-band row. Guards against removing the override.
+        self._enable_ai()
+        self._mock_temporal(mock_sync)
+        create_resp = self.client.post(f"/api/projects/{self.team.id}/subscriptions", self._make_ai_payload())
+        sub_id = create_resp.json()["id"]
+        Subscription.objects.filter(pk=sub_id).update(
+            ai_prompt_config={"window": {"mode": "bogus", "start_days_ago": "seven", "end_days_ago": True}}
+        )
+
+        response = self.client.get(f"/api/projects/{self.team.id}/subscriptions/{sub_id}")
+
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        assert response.json()["ai_prompt_config"]["window"] == {
+            "mode": "since_last_sent",
+            "start_days_ago": None,
+            "end_days_ago": None,
+        }
+
+    def test_ai_prompt_config_rejected_on_insight_subscription(self, mock_is_cloud, mock_flag, mock_sync):
+        self._mock_temporal(mock_sync)
+        payload = self._insight_payload()
+        payload["ai_prompt_config"] = {"window": {"mode": "last_n_days", "start_days_ago": 7}}
+        response = self.client.post(f"/api/projects/{self.team.id}/subscriptions", payload)
+        assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
+        assert "ai_prompt_config" in str(response.json()), response.json()

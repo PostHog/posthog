@@ -746,6 +746,9 @@ const llmaPromptCreate = (): ToolBase<typeof LlmaPromptCreateSchema, Schemas.LLM
         if (params.prompt !== undefined) {
             body['prompt'] = params.prompt
         }
+        if (params.version_description !== undefined) {
+            body['version_description'] = params.version_description
+        }
         const result = await context.api.request<Schemas.LLMPrompt>({
             method: 'POST',
             path: `/api/projects/${encodeURIComponent(String(projectId))}/llm_prompts/`,
@@ -842,6 +845,9 @@ const llmaPromptUpdate = (): ToolBase<typeof LlmaPromptUpdateSchema, Schemas.LLM
         }
         if (params.base_version !== undefined) {
             body['base_version'] = params.base_version
+        }
+        if (params.version_description !== undefined) {
+            body['version_description'] = params.version_description
         }
         const result = await context.api.request<Schemas.LLMPrompt>({
             method: 'PATCH',

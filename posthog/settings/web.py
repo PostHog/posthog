@@ -517,6 +517,7 @@ SPECTACULAR_SETTINGS = {
         "TicketStatusEnum": "products.conversations.backend.models.constants.Status",
         "HealthIssueStatusEnum": "posthog.models.health_issue.HealthIssue.Status",
         "HealthIssueSeverityEnum": "posthog.models.health_issue.HealthIssue.Severity",
+        "IngestionWarningSeverityEnum": "posthog.api.ingestion_warnings_v2.INGESTION_WARNING_SEVERITIES",
         # Disambiguates from the same-valued inline enum on the signals LogsAlertStateChangeSignalExtra contract.
         "LogsAlertThresholdOperatorEnum": "products.logs.backend.models.LogsAlertConfiguration.ThresholdOperator",
         "LLMProviderEnum": "products.ai_observability.backend.models.provider_keys.LLMProvider",
@@ -713,6 +714,10 @@ SPECTACULAR_SETTINGS = {
         "RuntimeAdapterEnum": ["claude", "codex"],
         "ClaudeRuntimeAdapterEnum": ["claude"],
         "CodexRuntimeAdapterEnum": ["codex"],
+        # StaffCacheEntryResponse.source and StaffCacheEntryStatus.source share the same
+        # redis/miss choice set. Pin to a stable name so the collision doesn't auto-resolve
+        # to a hash name.
+        "StaffCacheSourceEnum": ["redis", "miss"],
     },
 }
 

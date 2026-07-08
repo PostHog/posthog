@@ -154,7 +154,7 @@ export function InsightsTable({
 
     columns.push({
         title: (
-            <div className="flex items-center gap-4">
+            <div className="flex items-center gap-4 min-w-0">
                 {hasCheckboxes && (
                     <SeriesCheckColumnTitle
                         indexedResults={indexedResults}

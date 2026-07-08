@@ -25,7 +25,7 @@ WHERE ranked_reports.row_number > 1
 
 class Migration(migrations.Migration):
     dependencies = [
-        ("ai_observability", "0014_validate_model_config_only_on_llm_judge"),
+        ("ai_observability", "0015_llmprompt_version_description"),
     ]
 
     operations = [

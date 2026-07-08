@@ -17,10 +17,24 @@ export const ActionsListParams = /* @__PURE__ */ zod.object({
 })
 
 export const ActionsListQueryParams = /* @__PURE__ */ zod.object({
+    created_by: zod
+        .string()
+        .optional()
+        .describe('Comma-separated list of creator user ids. Returns only actions created by these users.'),
     format: zod.enum(['csv', 'json']).optional(),
     limit: zod.number().optional().describe('Maximum number of actions to return. Omit to return all.'),
     offset: zod.number().optional().describe('Number of actions to skip before returning results.'),
+    ordering: zod
+        .string()
+        .optional()
+        .describe("Field to order by (name, created_at, pinned_at, created_by). Prefix with '-' for descending."),
     search: zod.string().optional().describe('Case-insensitive substring match on the action name.'),
+    tags: zod
+        .string()
+        .optional()
+        .describe(
+            'JSON-encoded array of tag names, e.g. ["billing","beta"]. Returns actions having any of these tags.'
+        ),
 })
 
 export const ActionsCreateParams = /* @__PURE__ */ zod.object({
