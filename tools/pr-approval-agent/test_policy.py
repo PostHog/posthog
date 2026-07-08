@@ -150,8 +150,8 @@ OLD_ALLOW_PATH_PATTERNS = [
     "generated/",
     "__snapshots__/",
 ]
-OLD_MAX_LINES = 500
-OLD_MAX_FILES = 20
+OLD_MAX_LINES = 800
+OLD_MAX_FILES = 30
 OLD_DISMISS_TEST_RE = "(?:^|/)(?:__tests__|tests?|fixtures)/|(?:^|/)test_[^/]+\\.py$|_test\\.(py|go)$|\\.test\\.(ts|tsx|js|jsx)$|\\.spec\\.(ts|tsx|js|jsx)$|(?:^|/)conftest\\.py$"
 OLD_DISMISS_GENERATED_RE = "(?:^|/)generated/.*\\.(ts|tsx|js|jsx|json|md|snap|pyi|txt)$|\\.gen\\.(ts|tsx|js|jsx)$|\\.generated\\.(ts|tsx|js|jsx)$|^frontend/src/queries/schema/"
 

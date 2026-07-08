@@ -38,7 +38,7 @@ import { TeamService } from '~/ingestion/pipelines/sessionreplay/shared/teams/te
 import { KeyStore, RecordingEncryptor } from '~/ingestion/pipelines/sessionreplay/shared/types'
 import { HealthCheckResult, PluginServerService, RedisPool, ValueMatcher } from '~/types'
 
-import { SessionRecordingApiConfig, SessionRecordingConfig, SessionReplayOutputsConfig } from './config'
+import { SessionRecordingApiConfig, SessionRecordingConfig } from './config'
 import { KafkaOffsetManager } from './kafka/offset-manager'
 import { SessionRecordingIngesterMetrics } from './metrics'
 import { BlackholeSessionBatchFileStorage } from './sessions/blackhole-session-batch-writer'
@@ -55,12 +55,10 @@ import { SessionTracker } from './sessions/session-tracker'
  */
 export type SessionRecordingIngesterConfig = SessionRecordingConfig &
     SessionRecordingApiConfig &
-    // The consumer reads its overflow output topic to decide whether overflow is enabled.
-    Pick<SessionReplayOutputsConfig, 'INGESTION_SESSIONREPLAY_OUTPUT_OVERFLOW_TOPIC'> &
     Pick<
         IngestionConsumerConfig,
-        // For TopHog metrics
-        'INGESTION_PIPELINE' | 'INGESTION_LANE'
+        // INGESTION_OVERFLOW_MODE drives force-overflow routing; the rest are for TopHog metrics.
+        'INGESTION_OVERFLOW_MODE' | 'INGESTION_PIPELINE' | 'INGESTION_LANE'
     >
 
 /** Builds the session replay pipeline for a deployment (default or ML mirror). */
@@ -322,7 +320,7 @@ export class SessionRecordingIngester {
         this.sessionReplayPipeline = this.createPipeline({
             outputs: this.outputs,
             eventIngestionRestrictionManager: this.eventIngestionRestrictionManager,
-            overflowEnabled: this.overflowEnabled(),
+            overflowMode: this.config.INGESTION_OVERFLOW_MODE,
             promiseScheduler: this.promiseScheduler,
             teamService: this.teamService,
             retentionService: this.retentionService,
@@ -434,12 +432,5 @@ export class SessionRecordingIngester {
             this.kafkaConsumer.offsetsStore(offsets)
             return Promise.resolve()
         })
-    }
-
-    private overflowEnabled(): boolean {
-        return (
-            !!this.config.INGESTION_SESSIONREPLAY_OUTPUT_OVERFLOW_TOPIC &&
-            this.config.INGESTION_SESSIONREPLAY_OUTPUT_OVERFLOW_TOPIC !== this.topic
-        )
     }
 }
