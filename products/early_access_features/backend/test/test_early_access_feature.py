@@ -1638,6 +1638,73 @@ class TestComingSoonWaitlistSurvey(APIBaseTest):
         assert ensure_waitlist_survey_for_feature(feature) is None
         assert Survey.objects.filter(team=self.team).count() == 0
 
+    def test_ensure_appends_flag_key_when_waitlist_name_is_taken(self):
+        from posthog.tasks.early_access_feature import ensure_waitlist_survey_for_feature
+
+        from products.surveys.backend.models import Survey
+
+        Survey.objects.create(
+            team=self.team, name="Sloppy joes waitlist", type=Survey.SurveyType.POPOVER, created_by=self.user
+        )
+        feature = self._concept_feature(name="Sloppy joes")
+
+        survey = ensure_waitlist_survey_for_feature(feature)
+
+        assert survey is not None
+        assert survey.name == "Sloppy joes waitlist (sloppy-joes)"
+        assert survey.linked_flag_id == feature.feature_flag_id
+
+    def test_ensure_adopts_survey_created_by_concurrent_task(self):
+        from django.db import IntegrityError
+
+        from posthog.tasks.early_access_feature import ensure_waitlist_survey_for_feature
+
+        from products.surveys.backend.models import Survey
+
+        feature = self._concept_feature(name="Racy")
+        real_create = Survey.objects.create
+
+        def concurrent_create(**kwargs):
+            # Simulate another worker winning the race: its survey exists by the time our
+            # insert fails on the (team, name) unique constraint.
+            real_create(**kwargs)
+            raise IntegrityError("duplicate key value violates unique constraint")
+
+        with (
+            # Neutralize the savepoint so the concurrently created survey outlives the error.
+            patch("posthog.tasks.early_access_feature.transaction"),
+            patch.object(Survey.objects, "create", side_effect=concurrent_create),
+        ):
+            survey = ensure_waitlist_survey_for_feature(feature)
+
+        assert survey is not None
+        assert Survey.objects.filter(team=self.team, linked_flag=feature.feature_flag).count() == 1
+        feature.refresh_from_db()
+        assert feature.payload["survey_id"] == str(survey.id)
+
+    @patch("posthog.tasks.early_access_feature.create_waitlist_survey_for_concept_feature.delay")
+    def test_post_save_enqueues_task_for_concept_feature(self, mock_delay):
+        with self.captureOnCommitCallbacks(execute=True):
+            feature = self._concept_feature(name="Signal me")
+
+        mock_delay.assert_called_once_with(str(feature.id))
+
+    @parameterized.expand(
+        [
+            ("beta_stage", EarlyAccessFeature.Stage.BETA, {}),
+            ("already_has_survey", EarlyAccessFeature.Stage.CONCEPT, {"survey_id": "some-survey-id"}),
+        ]
+    )
+    @patch("posthog.tasks.early_access_feature.create_waitlist_survey_for_concept_feature.delay")
+    def test_post_save_does_not_enqueue_task(self, _name, stage, payload, mock_delay):
+        flag = FeatureFlag.objects.create(team=self.team, key=f"no-enqueue-{_name}", created_by=self.user)
+        with self.captureOnCommitCallbacks(execute=True):
+            EarlyAccessFeature.objects.create(
+                team=self.team, name=f"No enqueue {_name}", stage=stage, feature_flag=flag, payload=payload
+            )
+
+        mock_delay.assert_not_called()
+
     @patch("posthog.tasks.early_access_feature.coming_soon_waitlist_surveys_enabled", return_value=False)
     def test_task_does_nothing_when_flag_disabled(self, _mock_enabled):
         from posthog.tasks.early_access_feature import create_waitlist_survey_for_concept_feature

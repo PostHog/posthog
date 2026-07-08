@@ -171,14 +171,14 @@ function ConceptPreview({ feature }: { feature: EnrichedEarlyAccessFeature }): J
 
     // When the gate is on and the feature has a linked waitlist survey, collect an email
     // (recorded as a survey response) instead of the one-click, login-tied enrollment.
-    const surveyId = (feature.payload as Record<string, any> | undefined)?.survey_id
-    const useSurvey = waitlistSurveysEnabled && !!surveyId
+    const surveyId = feature.payload?.survey_id
+    const hasWaitlistSurvey = waitlistSurveysEnabled && !!surveyId
     // `enabled` covers users who registered interest before the survey era — the
     // migration command moves them into the survey, so don't ask them again.
     const surveySubmitted = !!conceptSurveySubmissions[flagKey] || enabled
 
     let actions: JSX.Element
-    if (useSurvey) {
+    if (hasWaitlistSurvey) {
         actions = surveySubmitted ? (
             <span className="flex items-center gap-1 text-success font-medium">
                 <IconCheck /> Thanks — we'll email you when it's ready.
@@ -198,6 +198,8 @@ function ConceptPreview({ feature }: { feature: EnrichedEarlyAccessFeature }): J
                     value={email}
                     onChange={setEmail}
                     placeholder="email@yourcompany.com"
+                    aria-label="Email address"
+                    autoComplete="email"
                     size="small"
                 />
                 <LemonButton
@@ -245,7 +247,7 @@ function ConceptPreview({ feature }: { feature: EnrichedEarlyAccessFeature }): J
                     {description || <span className="text-tertiary">No description</span>}
                 </p>
             }
-            actions={<div className="flex flex-col gap-2">{actions}</div>}
+            actions={actions}
         />
     )
 }

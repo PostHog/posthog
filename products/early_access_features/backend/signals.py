@@ -12,6 +12,11 @@ def create_waitlist_survey_on_concept_stage(sender, instance: EarlyAccessFeature
     have a linked waitlist survey, enqueue a task to create one. The task is gated by the
     `coming-soon-waitlist-surveys` feature flag and is idempotent.
 
+    A signal (rather than a dispatch next to the serializer's stage-change task in api.py)
+    is deliberate: it catches every save path — API, Django admin, shell — not just the
+    API update flow, so a concept feature can't miss its survey depending on how it was
+    edited.
+
     We enqueue (rather than create inline) because the gate check calls out over the
     network, and we run it `on_commit` so the feature row is durable before the task loads it.
     """

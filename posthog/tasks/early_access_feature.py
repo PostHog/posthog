@@ -1,5 +1,6 @@
 from typing import Any, Optional
 
+from django.db import IntegrityError, transaction
 from django.utils import timezone
 
 import structlog
@@ -45,8 +46,9 @@ def ensure_waitlist_survey_for_feature(instance: EarlyAccessFeature) -> Optional
     Idempotently ensure a concept-stage Early Access Feature has a linked `api` waitlist
     survey, and record its id (+ first question id) on the feature's payload so posthog-js
     consumers (posthog.com/roadmap and the in-app Feature Previews) know where to send the
-    email. Returns the survey, or None if not applicable. Does NOT check the gating flag —
-    callers decide that.
+    email. Returns the survey, or None if not applicable (wrong stage, survey already
+    linked, or no flag — callers only need "nothing to do", so the reasons are deliberately
+    not distinguished). Does NOT check the gating flag — callers decide that.
     """
     if instance.stage != EarlyAccessFeature.Stage.CONCEPT:
         return None
@@ -63,21 +65,34 @@ def ensure_waitlist_survey_for_feature(instance: EarlyAccessFeature) -> Optional
         name = f"{instance.name} waitlist"[:380]
         if Survey.objects.filter(team=instance.team, name=name).exists():
             name = f"{name} ({feature_flag.key})"[:400]
-        survey = Survey.objects.create(
-            team=instance.team,
-            name=name,
-            description=f"Waitlist sign-ups for the upcoming {instance.name} feature.",
-            type=Survey.SurveyType.API,
-            linked_flag=feature_flag,
-            questions=[
-                {
-                    "type": "open",
-                    "question": f"Enter your email and we'll let you know when {instance.name} is ready.",
-                    "optional": False,
-                }
-            ],
-            start_date=timezone.now(),
-        )
+        try:
+            # A concurrent task (e.g. the signal firing on create and again on an immediate
+            # edit) can create the survey between the linked-survey check above and this
+            # insert; the (team, name) unique constraint turns that into an IntegrityError.
+            # The savepoint keeps the surrounding transaction usable so we can adopt the
+            # winner's survey instead of failing the task.
+            with transaction.atomic():
+                survey = Survey.objects.create(
+                    team=instance.team,
+                    name=name,
+                    description=f"Waitlist sign-ups for the upcoming {instance.name} feature.",
+                    type=Survey.SurveyType.API,
+                    linked_flag=feature_flag,
+                    questions=[
+                        {
+                            "type": "open",
+                            "question": f"Enter your email and we'll let you know when {instance.name} is ready.",
+                            "optional": False,
+                        }
+                    ],
+                    start_date=timezone.now(),
+                )
+        except IntegrityError:
+            survey = Survey.objects.filter(
+                team=instance.team, linked_flag=feature_flag, type=Survey.SurveyType.API
+            ).first()
+            if survey is None:
+                raise
 
     # `ensure_question_ids` (pre_save) guarantees the question has an id.
     question_id = (survey.questions or [{}])[0].get("id")

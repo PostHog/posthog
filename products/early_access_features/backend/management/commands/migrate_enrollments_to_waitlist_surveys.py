@@ -1,11 +1,7 @@
 from django.core.management.base import BaseCommand
 
-import structlog
-
 from products.early_access_features.backend.models import EarlyAccessFeature
 from products.surveys.backend.models import Survey
-
-logger = structlog.get_logger(__name__)
 
 
 class Command(BaseCommand):

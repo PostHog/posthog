@@ -44,6 +44,9 @@ export const featurePreviewsLogic = kea<featurePreviewsLogicType>([
         // Coming Soon (concept) waitlist: submit an email to the feature's linked survey
         // instead of the one-click enrollment.
         submitConceptSurvey: (flagKey: string, email: string) => ({ flagKey, email }),
+        // Fired by the submitConceptSurvey listener once the response has actually been
+        // captured, so the "thanks" state can't show when submission failed.
+        conceptSurveySubmitted: (flagKey: string) => ({ flagKey }),
     }),
     loaders(({ values }) => ({
         rawEarlyAccessFeatures: [
@@ -109,7 +112,7 @@ export const featurePreviewsLogic = kea<featurePreviewsLogicType>([
         conceptSurveySubmissions: [
             {} as Record<string, boolean>,
             {
-                submitConceptSurvey: (state, { flagKey }) => ({ ...state, [flagKey]: true }),
+                conceptSurveySubmitted: (state, { flagKey }) => ({ ...state, [flagKey]: true }),
             },
         ],
     }),
@@ -150,6 +153,13 @@ export const featurePreviewsLogic = kea<featurePreviewsLogicType>([
             void copyToClipboard(urls.absolute(`/settings/user-feature-previews#${flagKey}`))
         },
         submitConceptSurvey: ({ flagKey, email }) => {
+            // Keep the survey response and the enrollment person property in sync — the
+            // enrollment listener below refuses impersonated sessions, so bail before
+            // capturing anything.
+            if (window.IMPERSONATED_SESSION) {
+                lemonToast.error('Cannot sign up for a waitlist while impersonating a user')
+                return
+            }
             const feature = values.rawEarlyAccessFeatures.find((f) => f.flagKey === flagKey)
             const payload = (feature as any)?.payload as Record<string, any> | undefined
             const surveyId = payload?.survey_id
@@ -163,6 +173,7 @@ export const featurePreviewsLogic = kea<featurePreviewsLogicType>([
                 properties[`$survey_response_${surveyQuestionId}`] = email
             }
             posthog.capture('survey sent', properties)
+            actions.conceptSurveySubmitted(flagKey)
             // Also record the enrollment so the "registered" state persists across
             // reloads (person property), matching the pre-survey behavior.
             actions.updateEarlyAccessFeatureEnrollment(flagKey, true, 'concept')
