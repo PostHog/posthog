@@ -474,7 +474,7 @@ def parse_conventional_commit(subject: str) -> dict:
 
 
 _TEST_FILE_RE = re.compile(
-    r"(?:^|/)(?:__tests__|tests?)/|[_.](?:test|spec)\.[^/]+$|_test\.py$",
+    r"(?:^|/)(?:__tests__|tests?|[^/]*_tests?)/|(?:^|/)test_[^/]+\.py$|[_.](?:test|spec)\.[^/]+$|_test\.py$",
     re.IGNORECASE,
 )
 
@@ -653,9 +653,9 @@ MAX_LINES = POLICY.size_gate.max_lines
 MAX_FILES = POLICY.size_gate.max_files
 
 # Files that inflate a diff without raising auto-approval risk: prose docs,
-# regenerated artifacts, test snapshots, and tests (which cannot break
-# production; counting them punished exactly the well-tested PRs the review
-# philosophy waves through). The size ceiling counts only the substantive
+# regenerated artifacts, test snapshots, and tests (which cannot change
+# production runtime behavior; counting them punished exactly the well-tested
+# PRs the review philosophy waves through). The size ceiling counts only the substantive
 # remainder, so a 2000-line docs rewrite, a type regen, or a fix arriving with
 # extensive tests isn't auto-denied. Exempt files still count toward
 # tier/subclass classification (which calibrates LLM scrutiny) and still

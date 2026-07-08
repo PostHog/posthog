@@ -370,7 +370,11 @@ def test_dwh_source_mixed_still_denies() -> None:
         pytest.param("docs/generate_sidebar.py", False, id="docs-dir-executable-py"),
         pytest.param("posthog/api/test/test_insight.py", True, id="test-dir-exempt"),
         pytest.param("frontend/src/scenes/insights/Insight.test.tsx", True, id="dot-test-exempt"),
+        pytest.param("posthog/personhog_client/test_interceptor.py", True, id="bare-pytest-file-exempt"),
+        pytest.param("common/ingestion/acceptance_tests/test_basic_capture.py", True, id="suffixed-test-dir-exempt"),
+        pytest.param("nodejs/src/cdp/_tests/helpers.ts", True, id="underscore-tests-dir-exempt"),
         pytest.param("posthog/tasks/protest.py", False, id="test-suffix-substring-counted"),
+        pytest.param("posthog/latest/models.py", False, id="latest-dir-counted"),
     ],
 )
 def test_is_size_exempt(path: str, exempt: bool) -> None:
