@@ -1,7 +1,15 @@
 import { useActions, useMountedLogic, useValues } from 'kea'
 import { useCallback, useEffect, useMemo } from 'react'
 
-import { LemonInputSelect, LemonSegmentedButton, LemonSelect, LemonSwitch, SpinnerOverlay } from '@posthog/lemon-ui'
+import { IconPlusSmall, IconX } from '@posthog/icons'
+import {
+    LemonButton,
+    LemonInput,
+    LemonSegmentedButton,
+    LemonSelect,
+    LemonSwitch,
+    SpinnerOverlay,
+} from '@posthog/lemon-ui'
 
 import { DateFilter } from 'lib/components/DateFilter/DateFilter'
 import { CUSTOM_OPTION_KEY } from 'lib/components/DateFilter/types'
@@ -12,17 +20,11 @@ import { DATE_TIME_FORMAT, formatDateRange } from 'lib/utils/datetime'
 
 import { DateMappingOption } from '~/types'
 
-import { MetricNameFilter } from './MetricNameFilter'
 import { metricNamePickerLogic } from './metricNamePickerLogic'
 import { MetricsChartLegend } from './MetricsChartLegend'
+import { MetricsClauseRow } from './MetricsClauseRow'
 import { MetricStatPanel } from './MetricStatPanel'
-import {
-    LIVE_REFRESH_MS,
-    MetricAggregation,
-    metricsViewerLogic,
-    MetricsViewMode,
-    RECOMMENDED_AGGREGATION_BY_TYPE,
-} from './metricsViewerLogic'
+import { LIVE_REFRESH_MS, MAX_CLAUSES, metricsViewerLogic, MetricsViewMode } from './metricsViewerLogic'
 
 const VIEW_MODE_OPTIONS: { value: MetricsViewMode; label: string }[] = [
     { value: 'chart', label: 'Chart' },
@@ -34,15 +36,6 @@ const SUMMARY_OPTIONS: { value: MetricSummary; label: string }[] = [
     { value: 'latest', label: 'Latest' },
     { value: 'average', label: 'Average' },
     { value: 'total', label: 'Total' },
-]
-
-const AGGREGATION_OPTIONS: { value: MetricAggregation; label: string }[] = [
-    { value: 'sum', label: 'Sum' },
-    { value: 'avg', label: 'Average' },
-    { value: 'count', label: 'Count' },
-    { value: 'p95', label: 'p95' },
-    { value: 'rate', label: 'Rate (/s)' },
-    { value: 'increase', label: 'Increase' },
 ]
 
 // Mirrors the curated set used by `LogsViewer/Filters/DateRangeFilter`.
@@ -84,16 +77,21 @@ export const MetricsViewer = (): JSX.Element => {
     const logic = metricsViewerLogic()
     // Keep the picker logic mounted alongside the viewer so the chosen metric's
     // metric_type stays available for the aggregation hint after the dropdown closes.
-    const pickerLogic = useMountedLogic(metricNamePickerLogic())
+    useMountedLogic(metricNamePickerLogic())
     const {
         metricName,
         aggregation,
+        clauses,
+        clauseLabels,
+        formula,
+        formulaEnabled,
+        isSimpleMode,
+        effectiveViewMode,
+        querySelection,
         dateFrom,
         dateTo,
         viewMode,
         statSummary,
-        groupByKeys,
-        filterStrings,
         chartSeries,
         sparklineValues,
         sparklineLabels,
@@ -102,42 +100,35 @@ export const MetricsViewer = (): JSX.Element => {
         liveRefresh,
         queryResultsLoading,
         hasMetricName,
+        filterStrings,
     } = useValues(logic)
     const {
-        setMetricName,
-        setAggregation,
+        addClause,
+        setFormula,
+        setFormulaEnabled,
         setDateFrom,
         setDateTo,
         setViewMode,
         setStatSummary,
-        setGroupByKeys,
-        setFilterStrings,
         setLiveRefresh,
         fetchQueryResults,
         fetchAnomaly,
         clearAnomaly,
     } = useActions(logic)
-    const { items: pickerItems } = useValues(pickerLogic)
 
     // Refetch the chart whenever any filter changes — the loader breakpoint debounces input.
     useEffect(() => {
         fetchQueryResults({})
-    }, [metricName, aggregation, dateFrom, dateTo, groupByKeys, filterStrings]) // eslint-disable-line react-hooks/exhaustive-deps
+    }, [querySelection, dateFrom, dateTo]) // eslint-disable-line react-hooks/exhaustive-deps
 
     // Characterize the recent window only while the stat card is visible — the badge is stat-mode only.
     useEffect(() => {
-        if (viewMode === 'stat' && hasMetricName) {
+        if (effectiveViewMode === 'stat' && hasMetricName) {
             fetchAnomaly({})
         } else {
             clearAnomaly()
         }
-    }, [metricName, aggregation, dateFrom, dateTo, viewMode, hasMetricName, filterStrings]) // eslint-disable-line react-hooks/exhaustive-deps
-
-    const selectedMetricType = useMemo(
-        () => pickerItems.find((item) => item.name === metricName)?.metric_type,
-        [pickerItems, metricName]
-    )
-    const recommendedAggregation = selectedMetricType ? RECOMMENDED_AGGREGATION_BY_TYPE[selectedMetricType] : undefined
+    }, [metricName, aggregation, dateFrom, dateTo, effectiveViewMode, hasMetricName, filterStrings]) // eslint-disable-line react-hooks/exhaustive-deps
 
     // Mirrors the format/timeUnit ladder LogsSparkline uses so the X-axis density
     // matches the selected range.
@@ -185,83 +176,92 @@ export const MetricsViewer = (): JSX.Element => {
 
     return (
         <div className="flex flex-col gap-3">
-            <div className="flex flex-wrap items-end gap-2">
-                <div className="flex flex-col gap-1">
-                    <MetricNameFilter value={metricName} onChange={setMetricName} />
-                    {selectedMetricType && recommendedAggregation && aggregation !== recommendedAggregation && (
-                        <span className="text-xs text-secondary">
-                            {selectedMetricType} — {recommendedAggregation} recommended
-                        </span>
-                    )}
-                </div>
-                <LemonSelect
-                    size="small"
-                    value={aggregation}
-                    options={AGGREGATION_OPTIONS}
-                    onChange={(value) => setAggregation(value as MetricAggregation)}
-                />
-                <LemonInputSelect
-                    mode="multiple"
-                    size="small"
-                    allowCustomValues
-                    value={groupByKeys}
-                    onChange={setGroupByKeys}
-                    options={[]}
-                    placeholder="Group by attribute…"
-                    className="min-w-[12rem]"
-                />
-                <LemonInputSelect
-                    mode="multiple"
-                    size="small"
-                    allowCustomValues
-                    value={filterStrings}
-                    onChange={setFilterStrings}
-                    options={[]}
-                    placeholder="Filter attribute=value…"
-                    className="min-w-[14rem]"
-                />
-                <DateFilter
-                    size="small"
-                    dateFrom={dateFrom}
-                    dateTo={dateTo}
-                    dateOptions={DATE_OPTIONS}
-                    onChange={(changedDateFrom, changedDateTo) => {
-                        setDateFrom(changedDateFrom)
-                        setDateTo(changedDateTo)
-                    }}
-                    allowTimePrecision
-                    allowFixedRangeWithTime
-                    allowedRollingDateOptions={['minutes', 'hours', 'days', 'weeks']}
-                    use24HourFormat
-                />
-                <LemonSegmentedButton
-                    size="small"
-                    value={viewMode}
-                    options={VIEW_MODE_OPTIONS}
-                    onChange={(value) => setViewMode(value)}
-                />
-                {viewMode === 'stat' && (
-                    <LemonSelect
+            <div className="flex flex-col gap-2">
+                {clauses.map((_, index) => (
+                    <MetricsClauseRow key={index} index={index} />
+                ))}
+                <div className="flex flex-wrap items-end gap-2">
+                    <LemonButton
                         size="small"
-                        value={statSummary}
-                        options={SUMMARY_OPTIONS}
-                        onChange={(value) => setStatSummary(value)}
+                        type="secondary"
+                        icon={<IconPlusSmall />}
+                        onClick={addClause}
+                        disabledReason={
+                            clauses.length >= MAX_CLAUSES ? `Maximum ${MAX_CLAUSES} metrics per query` : undefined
+                        }
+                    >
+                        Add metric
+                    </LemonButton>
+                    {formulaEnabled ? (
+                        <div className="flex items-end gap-1">
+                            <LemonInput
+                                size="small"
+                                value={formula}
+                                onChange={setFormula}
+                                placeholder={
+                                    clauseLabels.length > 1
+                                        ? `Formula, e.g. (${clauseLabels[0]} - ${clauseLabels[1]}) / ${clauseLabels[0]}`
+                                        : 'Formula, e.g. a * 100'
+                                }
+                                className="min-w-[14rem] font-mono"
+                            />
+                            <LemonButton
+                                size="small"
+                                icon={<IconX />}
+                                onClick={() => setFormulaEnabled(false)}
+                                tooltip="Remove formula"
+                            />
+                        </div>
+                    ) : (
+                        <LemonButton size="small" type="secondary" onClick={() => setFormulaEnabled(true)}>
+                            Enable formula
+                        </LemonButton>
+                    )}
+                    <DateFilter
+                        size="small"
+                        dateFrom={dateFrom}
+                        dateTo={dateTo}
+                        dateOptions={DATE_OPTIONS}
+                        onChange={(changedDateFrom, changedDateTo) => {
+                            setDateFrom(changedDateFrom)
+                            setDateTo(changedDateTo)
+                        }}
+                        allowTimePrecision
+                        allowFixedRangeWithTime
+                        allowedRollingDateOptions={['minutes', 'hours', 'days', 'weeks']}
+                        use24HourFormat
                     />
-                )}
-                <LemonSwitch
-                    label="Live"
-                    checked={liveRefresh}
-                    onChange={setLiveRefresh}
-                    tooltip={`Auto-refresh every ${LIVE_REFRESH_MS / 1000}s`}
-                    bordered
-                />
+                    {isSimpleMode && (
+                        <LemonSegmentedButton
+                            size="small"
+                            value={viewMode}
+                            options={VIEW_MODE_OPTIONS}
+                            onChange={(value) => setViewMode(value)}
+                        />
+                    )}
+                    {effectiveViewMode === 'stat' && (
+                        <LemonSelect
+                            size="small"
+                            value={statSummary}
+                            options={SUMMARY_OPTIONS}
+                            onChange={(value) => setStatSummary(value)}
+                        />
+                    )}
+                    <LemonSwitch
+                        label="Live"
+                        checked={liveRefresh}
+                        onChange={setLiveRefresh}
+                        tooltip={`Auto-refresh every ${LIVE_REFRESH_MS / 1000}s`}
+                        bordered
+                    />
+                </div>
             </div>
             <div className="relative h-[360px] border rounded p-3">
                 {!hasMetricName ? (
                     <div className="h-full flex items-center justify-center text-secondary text-sm">
                         Pick a metric to see its time series.
                     </div>
-                ) : hasResults && viewMode === 'stat' ? (
+                ) : hasResults && effectiveViewMode === 'stat' ? (
                     <MetricStatPanel
                         title={metricName}
                         summary={statSummary}
@@ -287,7 +287,7 @@ export const MetricsViewer = (): JSX.Element => {
                 ) : null}
                 {queryResultsLoading && <SpinnerOverlay />}
             </div>
-            {viewMode === 'chart' && hasResults && <MetricsChartLegend series={chartSeries} />}
+            {effectiveViewMode === 'chart' && hasResults && <MetricsChartLegend series={chartSeries} />}
         </div>
     )
 }

@@ -7,10 +7,14 @@ export const seriesColor = (index: number): string => `data-color-${(index % SER
 
 // Human-readable series name from its label map (e.g. "service.name=checkout, env=prod"),
 // falling back to the metric name then a provided default for ungrouped/unlabelled series.
-export const formatSeriesName = (series: _MetricSeriesApi, fallback: string): string => {
+export const formatSeriesName = (series: _MetricSeriesApi, fallback: string, withClausePrefix = false): string => {
     const entries = Object.entries(series.labels ?? {})
-    if (entries.length > 0) {
-        return entries.map(([key, value]) => `${key}=${value}`).join(', ')
+    const base =
+        entries.length > 0
+            ? entries.map(([key, value]) => `${key}=${value}`).join(', ')
+            : (series.metric_name ?? fallback)
+    if (withClausePrefix && series.clause && series.clause !== 'formula') {
+        return `${series.clause}. ${base}`
     }
-    return series.metric_name ?? fallback
+    return base
 }
