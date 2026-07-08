@@ -1,7 +1,7 @@
 import { useActions, useValues } from 'kea'
 
 import { IconArrowRight } from '@posthog/icons'
-import { LemonBanner, LemonButton, LemonCheckbox, LemonSelect, LemonSwitch, LemonTag } from '@posthog/lemon-ui'
+import { LemonBanner, LemonButton, LemonCheckbox, LemonSelect, LemonTag } from '@posthog/lemon-ui'
 
 import { OrganizationMembershipLevel } from 'lib/constants'
 import { useOnMountEffect } from 'lib/hooks/useOnMountEffect'
@@ -19,6 +19,7 @@ import { CohortType, FeatureFlagType, OrganizationFeatureFlag, OrganizationType 
 import { organizationLogic } from '../organizationLogic'
 import { featureFlagLogic } from './featureFlagLogic'
 import { groupFilters } from './FeatureFlags'
+import { FlagActiveToggleTag } from './FlagActiveToggleTag'
 import { confirmFlagActiveToggleInProject } from './updateFlagActiveInProject'
 
 function checkHasStaticCohort(featureFlag: FeatureFlagType, cohorts: CohortType[]): boolean {
@@ -95,33 +96,15 @@ const getColumns = ({
             title: 'Status',
             dataIndex: 'active',
             render: (_, record) => {
-                const toggling =
-                    record.team_id !== null &&
-                    record.flag_id !== null &&
-                    projectFlagsToggling[`${record.team_id}:${record.flag_id}`]
+                const canToggle = record.team_id !== null && record.flag_id !== null
+                const toggling = canToggle && !!projectFlagsToggling[`${record.team_id}:${record.flag_id}`]
                 return (
-                    <div className="flex items-center gap-2">
-                        {record.team_id !== null && record.flag_id !== null && (
-                            <LemonSwitch
-                                checked={record.active}
-                                onChange={(active) => onToggleFlagActive(record, active)}
-                                size="small"
-                                loading={!!toggling}
-                                disabledReason={toggling ? 'Updating…' : undefined}
-                                aria-label={`${record.active ? 'Disable' : 'Enable'} feature flag in this project`}
-                                data-attr="feature-flag-projects-toggle"
-                            />
-                        )}
-                        {record.active ? (
-                            <LemonTag type="success" className="uppercase">
-                                Enabled
-                            </LemonTag>
-                        ) : (
-                            <LemonTag type="default" className="uppercase">
-                                Disabled
-                            </LemonTag>
-                        )}
-                    </div>
+                    <FlagActiveToggleTag
+                        active={record.active}
+                        toggling={toggling}
+                        onToggle={canToggle ? (active) => onToggleFlagActive(record, active) : undefined}
+                        data-attr="feature-flag-projects-toggle"
+                    />
                 )
             },
         },

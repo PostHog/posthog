@@ -1,11 +1,10 @@
 import { IconLock } from '@posthog/icons'
-import { LemonSkeleton, LemonSwitch, LemonTag, Tooltip } from '@posthog/lemon-ui'
-
-import { LemonTableLink } from 'lib/lemon-ui/LemonTable/LemonTableLink'
+import { LemonSkeleton, LemonTag, Link, Tooltip } from '@posthog/lemon-ui'
 
 import { OrganizationFeatureFlag } from '~/types'
 
 import { groupFilters } from '../FeatureFlags'
+import { FlagActiveToggleTag } from '../FlagActiveToggleTag'
 
 export type CellState =
     | { kind: 'loading' }
@@ -52,31 +51,22 @@ export function ProjectsGridCell({
     const evals = typeof sibling.evaluations_7d === 'number' ? sibling.evaluations_7d.toLocaleString() : '—'
 
     return (
-        <div className="flex items-center gap-2">
-            {onToggle && sibling.flag_id !== null && (
-                <LemonSwitch
-                    checked={sibling.active}
-                    onChange={onToggle}
-                    size="small"
-                    loading={toggling}
-                    disabledReason={toggling ? 'Updating…' : undefined}
-                    aria-label={`${sibling.active ? 'Disable' : 'Enable'} feature flag in this project`}
-                    data-attr="projects-grid-cell-toggle"
-                />
-            )}
-            <LemonTableLink
-                to={`/project/${sibling.team_id}/feature_flags/${sibling.flag_id}`}
-                title={
-                    <LemonTag type={sibling.active ? 'success' : 'default'} className="uppercase">
-                        {sibling.active ? 'Enabled' : 'Disabled'}
-                    </LemonTag>
-                }
-                description={
-                    <span data-attr="projects-grid-cell-present">
-                        {rollout} · {evals} evals · 7d
-                    </span>
-                }
+        <div className="flex flex-col items-start py-1">
+            <FlagActiveToggleTag
+                active={sibling.active}
+                toggling={toggling}
+                onToggle={sibling.flag_id !== null ? onToggle : undefined}
+                data-attr="projects-grid-cell-toggle"
             />
+            <Link
+                subtle
+                to={`/project/${sibling.team_id}/feature_flags/${sibling.flag_id}`}
+                className="text-xs text-tertiary mt-1"
+            >
+                <span data-attr="projects-grid-cell-present">
+                    {rollout} · {evals} evals · 7d
+                </span>
+            </Link>
         </div>
     )
 }
