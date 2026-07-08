@@ -5,6 +5,7 @@ from dataclasses import dataclass
 from django.conf import settings
 
 from temporalio import activity
+from temporalio.exceptions import ApplicationError, ApplicationErrorCategory
 
 from posthog.temporal.common.utils import asyncify
 from posthog.utils import get_instance_region
@@ -42,6 +43,11 @@ WIZARD_OUTPUT_LOG_PATH = f"{WIZARD_OUTPUT_DIR}/wizard-output.log"
 # hit). Fixed path inside the wizard (its src/utils/paths.ts: WIZARD_LOG_FILE). Lives only in the
 # sandbox filesystem, so it's lost once the sandbox is torn down — we surface it in DEBUG below.
 WIZARD_VERBOSE_LOG_PATH = "/tmp/posthog-wizard.log"
+
+# Marker the wizard prints to stdout when it can't classify the repo's framework. This is a
+# user-input condition (the repo isn't one of the frameworks the wizard supports), not a system
+# defect — we detect it below to fail the run cleanly instead of reporting it to error tracking.
+WIZARD_FRAMEWORK_NOT_DETECTED_MARKER = "Could not auto-detect your framework"
 
 
 @dataclass
@@ -142,6 +148,23 @@ def run_wizard(input: RunWizardInput) -> None:
             emit_agent_log(ctx.run_id, "error", f"PostHog setup wizard timed out after {minutes} minutes")
             raise RuntimeError(f"PostHog setup wizard timed out after {minutes} minutes")
         if result.exit_code != 0:
+            if WIZARD_FRAMEWORK_NOT_DETECTED_MARKER in (result.stdout or ""):
+                # Expected user-input failure: the wizard can't classify this repo's framework, so it
+                # can't set PostHog up automatically. Surface a clear reason and raise a benign,
+                # non-retryable ApplicationError — the Temporal interceptor skips BENIGN errors, keeping
+                # this out of error tracking (see posthog/temporal/common/posthog_client.py).
+                message = (
+                    "PostHog setup wizard couldn't auto-detect this repository's framework, so it can't "
+                    "complete setup automatically. This usually means the repo isn't one of the "
+                    "frameworks the wizard supports."
+                )
+                emit_agent_log(ctx.run_id, "warning", message)
+                raise ApplicationError(
+                    message,
+                    type="WizardFrameworkNotDetected",
+                    non_retryable=True,
+                    category=ApplicationErrorCategory.BENIGN,
+                )
             # The wizard prints its fatal error to stdout (e.g. "Something went wrong: ..."); stderr is
             # mostly npm noise. Prefer the stdout tail so the real cause shows at error level.
             detail = (result.stdout or "").strip()[-2000:] or (result.stderr or "").strip()[-2000:]
