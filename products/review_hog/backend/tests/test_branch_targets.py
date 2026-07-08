@@ -94,10 +94,10 @@ class TestFetchBranchTarget(BaseTest):
             )
         )
 
-    @patch(f"{_MODULE}._installation_auth", return_value=("tok", None))
+    @patch(f"{_MODULE}._installation_auth", return_value=("tok", "9876543"))
     @patch(f"{_MODULE}.fetch_branch_compare")
     @patch(f"{_MODULE}.find_open_pr_for_branch", return_value=None)
-    def test_branch_with_no_pr_stores_branch_keyed_and_flags_an_empty_diff(self, _find, mock_compare, _tok) -> None:
+    def test_branch_with_no_pr_stores_branch_keyed_and_flags_an_empty_diff(self, _find, mock_compare, _auth) -> None:
         # No open PR and nothing reviewable in the compare: the report row is branch-keyed
         # (pr_number NULL) and the meta tells the workflow to self-skip before any sandbox spend.
         mock_compare.return_value = (_pr_metadata(0), [], [], "")
@@ -107,15 +107,20 @@ class TestFetchBranchTarget(BaseTest):
         assert meta.pr_number is None
         assert meta.pr_url is None
         assert meta.empty_diff is True
+        # The resolved installation id must reach the compare fetch — dropping it silently turns the
+        # calls identity-blind (no egress budget accounting).
+        mock_compare.assert_called_once_with(
+            token="tok", repository="o/r", head_branch="feat", installation_id="9876543"
+        )
         row = ReviewReport.objects.for_team(self.team.id).get(id=meta.report_id)
         assert row.pr_number is None
         assert row.head_branch == "feat"
 
-    @patch(f"{_MODULE}._installation_auth", return_value=("tok", None))
+    @patch(f"{_MODULE}._installation_auth", return_value=("tok", "9876543"))
     @patch(f"{_MODULE}.PRFetcher")
     @patch(f"{_MODULE}.find_open_pr_for_branch", return_value=(9, "https://github.com/o/r/pull/9"))
     def test_branch_with_an_open_pr_reviews_via_the_pr_path_and_upgrades_the_stored_row(
-        self, _find, mock_fetcher, _tok
+        self, _find, mock_fetcher, _auth
     ) -> None:
         # The publishable-turn upgrade: a branch target whose PR now exists must reuse the stored
         # branch-keyed report (watermarks and prior findings carry over), backfill its number/url,
@@ -130,7 +135,7 @@ class TestFetchBranchTarget(BaseTest):
         assert meta.pr_number == 9
         assert meta.pr_url == "https://github.com/o/r/pull/9"
         assert meta.empty_diff is False
-        mock_fetcher.assert_called_once_with(owner="o", repo="r", pr_number=9, token="tok", installation_id=None)
+        mock_fetcher.assert_called_once_with(owner="o", repo="r", pr_number=9, token="tok", installation_id="9876543")
         row = ReviewReport.objects.for_team(self.team.id).get(id=stored_id)
         assert row.pr_number == 9
         assert row.pr_url == "https://github.com/o/r/pull/9"

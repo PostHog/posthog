@@ -65,6 +65,7 @@ class TestPublishReviewCommand(BaseTest):
         report_id = self._report(run_count=2, head_sha="sha7")
         integration = MagicMock()
         integration.get_access_token.return_value = "tok"
+        integration.github_installation_id = "9876543"
 
         with patch(_INTEGRATION, return_value=integration):
             call_command("publish_review", pr_url=_URL, team_id=self.team.id)
@@ -74,3 +75,5 @@ class TestPublishReviewCommand(BaseTest):
         assert kwargs["report_id"] == report_id
         assert kwargs["run_index"] == 2
         assert kwargs["head_sha"] == "sha7"
+        # The installation id rides along so the publish calls are metered against the right budget.
+        assert kwargs["installation_id"] == "9876543"

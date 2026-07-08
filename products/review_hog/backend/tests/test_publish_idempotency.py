@@ -110,13 +110,16 @@ class TestPublishIdempotency(BaseTest):
 
     @patch(_PUBLISH)
     @patch(_SNAPSHOT, return_value=None)
-    @patch(_AUTH, return_value=("tok", None))
+    @patch(_AUTH, return_value=("tok", "9876543"))
     def test_first_publish_posts_promo_and_records_watermark(self, _auth, _snapshot, mock_publish) -> None:
         mock_publish.return_value = PublishOutcome(posted=True)
         report_id = self._report()
         _publish(self.team.id, report_id, "sha1", 1, "PostHog", "posthog", 1, "should_fix")
         assert mock_publish.call_count == 1
         assert mock_publish.call_args.kwargs["post_promo"] is True
+        # The resolved installation id must reach the GitHub calls — dropping it silently turns the
+        # publish identity-blind (no egress budget accounting).
+        assert mock_publish.call_args.kwargs["installation_id"] == "9876543"
         assert ReviewReport.objects.for_team(self.team.id).get(id=report_id).published_head_sha == "sha1"
 
     @patch(_PUBLISH)
