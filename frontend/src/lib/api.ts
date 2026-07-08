@@ -7103,6 +7103,13 @@ const api = {
                 .withAction('bulk_update_status')
                 .create({ data: { ids, status: ticketStatus } })
         },
+
+        async submitAiFeedback(
+            ticketId: string,
+            data: { message_id: string; rating: 'good' | 'bad'; feedback_text?: string }
+        ): Promise<void> {
+            await new ApiRequest().conversationsTicket(ticketId).withAction('ai_feedback').create({ data })
+        },
     },
 
     llmPrompts: {
