@@ -5,7 +5,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 from django.test import TestCase
 
-from temporalio.exceptions import ApplicationError
+from temporalio.exceptions import ActivityError, ApplicationError
 
 from posthog.temporal.salesforce_enrichment.usage_workflow import (
     EnrichPageResult,
@@ -139,6 +139,24 @@ class TestWorkflowParseInputs(TestCase):
 
 
 WORKFLOW_MODULE = "posthog.temporal.salesforce_enrichment.usage_workflow"
+
+
+def _cache_missing_activity_error() -> ActivityError:
+    error = ActivityError(
+        "enrich page failed",
+        scheduled_event_id=1,
+        started_event_id=1,
+        identity="",
+        activity_type="enrich_org_page_activity",
+        activity_id="1",
+        retry_state=None,
+    )
+    error.__cause__ = ApplicationError(
+        "Org mappings cache is missing or unreadable",
+        type=ORG_MAPPINGS_CACHE_MISSING_ERROR_TYPE,
+        non_retryable=True,
+    )
+    return error
 
 
 class TestCacheOrgMappingsActivity(TestCase):
@@ -371,6 +389,66 @@ class TestProductionModeContinueAsNew(TestCase):
         assert mock_workflow.execute_activity.call_count == 1
         assert result["total_orgs_processed"] == 0
         assert result["total_orgs_updated"] == 0
+
+    @pytest.mark.asyncio
+    @patch(f"{WORKFLOW_MODULE}.workflow")
+    async def test_recaches_and_retries_page_when_cache_expires_mid_run(self, mock_workflow):
+        mock_workflow.execute_activity = AsyncMock(
+            side_effect=[
+                _cache_missing_activity_error(),
+                {"success": True, "total_mappings": 15000},
+                EnrichPageResult(page_size=5000, processed=5000, updated=4800, errors=[]),
+            ]
+        )
+        mock_workflow.continue_as_new = MagicMock()
+
+        wf = SalesforceUsageEnrichmentWorkflow()
+        state = UsageEnrichmentState(page_offset=10000, total_processed=10000, total_updated=9500)
+        result = await wf._run_production_mode(UsageEnrichmentInputs(batch_size=100, state=state))
+
+        assert mock_workflow.execute_activity.call_count == 3
+        # The retried page must target the same offset and page size as the failed one.
+        retried_call = mock_workflow.execute_activity.call_args_list[2]
+        assert retried_call.kwargs["args"] == [10000, 10000, 100]
+        assert result["total_orgs_processed"] == 15000
+        assert result["total_orgs_updated"] == 14300
+
+    @pytest.mark.asyncio
+    @patch(f"{WORKFLOW_MODULE}.workflow")
+    async def test_returns_gracefully_when_recache_finds_no_mappings(self, mock_workflow):
+        mock_workflow.execute_activity = AsyncMock(
+            side_effect=[
+                _cache_missing_activity_error(),
+                {"success": True, "total_mappings": 0},
+            ]
+        )
+        mock_workflow.continue_as_new = MagicMock()
+
+        wf = SalesforceUsageEnrichmentWorkflow()
+        state = UsageEnrichmentState(page_offset=10000, total_processed=10000, total_updated=9500)
+        result = await wf._run_production_mode(UsageEnrichmentInputs(batch_size=100, state=state))
+
+        assert mock_workflow.execute_activity.call_count == 2
+        assert result["total_orgs_processed"] == 10000
+        assert result["total_orgs_updated"] == 9500
+
+    @pytest.mark.asyncio
+    @patch(f"{WORKFLOW_MODULE}.workflow")
+    async def test_second_cache_miss_after_recache_propagates(self, mock_workflow):
+        mock_workflow.execute_activity = AsyncMock(
+            side_effect=[
+                _cache_missing_activity_error(),
+                {"success": True, "total_mappings": 15000},
+                _cache_missing_activity_error(),
+            ]
+        )
+        mock_workflow.continue_as_new = MagicMock()
+
+        wf = SalesforceUsageEnrichmentWorkflow()
+        state = UsageEnrichmentState(page_offset=10000)
+
+        with pytest.raises(ActivityError):
+            await wf._run_production_mode(UsageEnrichmentInputs(batch_size=100, state=state))
 
     @pytest.mark.asyncio
     @patch(f"{WORKFLOW_MODULE}.workflow")

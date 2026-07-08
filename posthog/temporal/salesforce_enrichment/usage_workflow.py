@@ -12,7 +12,7 @@ from django.db import close_old_connections
 
 from temporalio import activity, workflow
 from temporalio.common import RetryPolicy
-from temporalio.exceptions import ApplicationError
+from temporalio.exceptions import ActivityError, ApplicationError
 
 from posthog.temporal.common.base import PostHogWorkflow
 from posthog.temporal.common.heartbeat import Heartbeater
@@ -308,23 +308,25 @@ class SalesforceUsageEnrichmentWorkflow(PostHogWorkflow):
 
         # Cache org mappings in Redis on the first execution only
         if state.page_offset == 0:
-            cache_result = await workflow.execute_activity(
-                cache_org_mappings_activity,
-                start_to_close_timeout=dt.timedelta(minutes=10),
-                retry_policy=RetryPolicy(maximum_attempts=2),
-            )
+            cache_result = await self._warm_org_mappings_cache()
             if not cache_result.get("total_mappings"):
                 logger.info("no_salesforce_accounts_found")
                 return self._build_result(state)
 
         # Enrich one page: reads from Redis, aggregates signals, updates Salesforce
-        page_result = await workflow.execute_activity(
-            enrich_org_page_activity,
-            args=[state.page_offset, page_size, inputs.batch_size],
-            start_to_close_timeout=dt.timedelta(minutes=30),
-            retry_policy=RetryPolicy(initial_interval=dt.timedelta(seconds=10), maximum_attempts=3),
-            heartbeat_timeout=dt.timedelta(minutes=5),
-        )
+        try:
+            page_result = await self._run_enrich_page(state.page_offset, page_size, inputs.batch_size)
+        except ActivityError as e:
+            if not (isinstance(e.cause, ApplicationError) and e.cause.type == ORG_MAPPINGS_CACHE_MISSING_ERROR_TYPE):
+                raise
+            # The org mappings cache can expire mid-run; rebuild it once and retry the
+            # page instead of failing the enrichment. A second miss propagates.
+            logger.warning("org_mappings_cache_missing_rebuilding", page_offset=state.page_offset)
+            cache_result = await self._warm_org_mappings_cache()
+            if not cache_result.get("total_mappings"):
+                logger.info("no_salesforce_accounts_found")
+                return self._build_result(state)
+            page_result = await self._run_enrich_page(state.page_offset, page_size, inputs.batch_size)
 
         state.total_processed += page_result.processed
         state.total_updated += page_result.updated
@@ -350,6 +352,24 @@ class SalesforceUsageEnrichmentWorkflow(PostHogWorkflow):
                 max_orgs=inputs.max_orgs,
                 state=state,
             )
+        )
+
+    @staticmethod
+    async def _warm_org_mappings_cache() -> dict[str, Any]:
+        return await workflow.execute_activity(
+            cache_org_mappings_activity,
+            start_to_close_timeout=dt.timedelta(minutes=10),
+            retry_policy=RetryPolicy(maximum_attempts=2),
+        )
+
+    @staticmethod
+    async def _run_enrich_page(offset: int, page_size: int, batch_size: int) -> EnrichPageResult:
+        return await workflow.execute_activity(
+            enrich_org_page_activity,
+            args=[offset, page_size, batch_size],
+            start_to_close_timeout=dt.timedelta(minutes=30),
+            retry_policy=RetryPolicy(initial_interval=dt.timedelta(seconds=10), maximum_attempts=3),
+            heartbeat_timeout=dt.timedelta(minutes=5),
         )
 
     @staticmethod
