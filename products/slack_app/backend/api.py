@@ -58,7 +58,7 @@ from products.slack_app.backend.feature_flags import (
     is_slack_app_untagged_thread_followups_enabled,
 )
 from products.slack_app.backend.models import SlackChannel, SlackThreadTaskMapping
-from products.slack_app.backend.services import inbox_interactivity
+from products.slack_app.backend.services import inbox_interactivity, slack_search
 from products.slack_app.backend.services.agent_permissions import (
     SLACK_PERMISSION_ACTION_APPROVE,
     SLACK_PERMISSION_ACTION_DENY,
@@ -1611,6 +1611,13 @@ def _route_assistant_event(
     # Kill-switch first: stay fully dark (no user resolution, no Slack reply) when the flag is off.
     if not is_slack_app_assistant_enabled(probe.team):
         return ROUTE_HANDLED_LOCALLY
+
+    # Cached region-locally (post region resolution) so persona onboarding's workspace search
+    # finds the token in the region that will consume it. Message events are the only assistant
+    # events Slack attaches search action tokens to. Gated behind the kill-switch so disabled
+    # workspaces don't take a Redis write for a token nothing reads.
+    if event_type == "message":
+        slack_search.cache_action_token_from_event(slack_team_id, event)
 
     # Share the mention path's user resolution + access filter, so the DM only ever sees and runs
     # against projects the resolved PostHog user can actually access (no cross-org metadata leak).
