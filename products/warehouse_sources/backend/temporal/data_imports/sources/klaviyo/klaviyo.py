@@ -235,26 +235,21 @@ def _get_list_profile_rows(
     batcher: Batcher,
     resumable_source_manager: ResumableSourceManager[KlaviyoResumeConfig],
     config: KlaviyoEndpointConfig,
-    should_use_incremental_field: bool = False,
-    db_incremental_field_last_value: Any = None,
-    incremental_field: str | None = None,
+    params: dict[str, Any],
 ) -> Iterator[Any]:
     """Fan out over every list, materializing membership as {list_id, profile_id, joined_group_at} rows.
 
-    Incremental runs filter each list on `joined_group_at` (minus the config lookback, so joins that
-    landed in already-fetched lists mid-run get re-pulled; merge dedupes on the [list_id, profile_id]
-    primary key). Klaviyo updates `joined_group_at` on re-join, so re-joins are picked up too — but
-    there is no removal timestamp, so profiles removed from a list only disappear on a full refresh.
+    `params` carries any incremental filter on `joined_group_at` (minus the config lookback, so joins
+    that landed in already-fetched lists mid-run get re-pulled; merge dedupes on the
+    [list_id, profile_id] primary key). Klaviyo updates `joined_group_at` on re-join, so re-joins are
+    picked up too — but there is no removal timestamp, so profiles removed from a list only disappear
+    on a full refresh.
 
-    The endpoint declares sort_mode="desc", so the pipeline persists the watermark only after every
-    list completes: a crash whose resume state expires restarts from the old watermark instead of
-    skipping never-fetched lists. A crash + resume can also finalize an under-advanced watermark
-    (the resumed attempt's running max only sees post-resume batches) — safe direction, the next run
-    just re-fetches a wider window that merge dedupes.
+    The endpoint declares sort_mode="desc" (see the config comment in settings.py), so the watermark
+    persists only after every list completes. A crash + resume can also finalize an under-advanced
+    watermark (the resumed attempt's running max only sees post-resume batches) — safe direction, the
+    next run just re-fetches a wider window that merge dedupes.
     """
-    params = _build_initial_params(
-        config, should_use_incremental_field, db_incremental_field_last_value, incremental_field
-    )
     list_ids = list(_iter_list_ids(session, headers, logger))
 
     # Resolve the saved list-ID bookmark to the slice of lists still to process. If the bookmarked list
@@ -327,25 +322,15 @@ def get_rows(
     # connection alive instead of re-handshaking per request.
     session = make_tracked_session()
 
-    if config.fan_out_over_lists:
-        yield from _get_list_profile_rows(
-            session,
-            headers,
-            logger,
-            batcher,
-            resumable_source_manager,
-            config,
-            should_use_incremental_field=should_use_incremental_field,
-            db_incremental_field_last_value=db_incremental_field_last_value,
-            incremental_field=incremental_field,
-        )
-        if batcher.should_yield(include_incomplete_chunk=True):
-            yield batcher.get_table()
-        return
-
     params = _build_initial_params(
         config, should_use_incremental_field, db_incremental_field_last_value, incremental_field
     )
+
+    if config.fan_out_over_lists:
+        yield from _get_list_profile_rows(session, headers, logger, batcher, resumable_source_manager, config, params)
+        if batcher.should_yield(include_incomplete_chunk=True):
+            yield batcher.get_table()
+        return
 
     # Check for resume state
     resume_config = resumable_source_manager.load_state() if resumable_source_manager.can_resume() else None

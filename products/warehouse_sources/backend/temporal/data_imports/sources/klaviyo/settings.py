@@ -24,12 +24,11 @@ class KlaviyoEndpointConfig:
     # Extra query params merged into every request, e.g. a fields[...] sparse fieldset.
     extra_params: dict[str, str] = field(default_factory=dict)
     # Passed to SourceResponse. "desc" defers persisting the incremental watermark to successful job
-    # end instead of after every batch — required when a partial run doesn't imply "everything below
-    # the max seen value was fetched" (e.g. the list fan-out).
+    # end instead of after every batch.
     sort_mode: SortMode = "asc"
     # Safety overlap subtracted from the incremental watermark on every run, re-pulling a window of
-    # rows that merge dedupes on the primary key. Covers rows whose incremental value landed below
-    # the end-of-run watermark (e.g. joins to already-fetched lists mid-run).
+    # rows that merge dedupes on the primary key. Composes additively with the per-schema
+    # incremental_field_lookback_seconds the framework applies before the value reaches the source.
     incremental_lookback: Optional[timedelta] = None
     # Fan out over every synced list, following the per-list profiles endpoint to materialize the
     # otherwise-unqueryable many-to-many list<->profile membership as one row per member.
