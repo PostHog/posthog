@@ -14412,6 +14412,64 @@ export namespace Schemas {
     }
 
     /**
+     * * `pending` - Pending
+     * * `applied` - Applied
+     * * `dismissed` - Dismissed
+     * * `superseded` - Superseded
+     * * `no_change` - No change
+     */
+    export type ReplayScannerPromptSuggestionStatusEnum = typeof ReplayScannerPromptSuggestionStatusEnum[keyof typeof ReplayScannerPromptSuggestionStatusEnum];
+
+
+    export const ReplayScannerPromptSuggestionStatusEnum = {
+      Pending: 'pending',
+      Applied: 'applied',
+      Dismissed: 'dismissed',
+      Superseded: 'superseded',
+      NoChange: 'no_change',
+    } as const;
+
+    export interface ReplayScannerPromptSuggestion {
+      readonly id: string;
+      /** pending (current), applied, dismissed, or superseded by a newer suggestion.
+       *
+       * * `pending` - Pending
+       * * `applied` - Applied
+       * * `dismissed` - Dismissed
+       * * `superseded` - Superseded
+       * * `no_change` - No change */
+      readonly status: ReplayScannerPromptSuggestionStatusEnum;
+      /** The full rewritten prompt, ready to apply to the scanner. */
+      readonly suggested_prompt: string;
+      /** The scanner prompt this suggestion was generated against, for diffing. */
+      readonly base_prompt: string;
+      /** What the rewrite changed and why, grounded in the ratings. */
+      readonly rationale: string;
+      /** Thumbs-up ratings the suggestion was based on. */
+      readonly based_on_up: number;
+      /** Thumbs-down ratings the suggestion was based on. */
+      readonly based_on_down: number;
+      /** The scanner version whose prompt this suggestion was generated against. */
+      readonly scanner_version: number;
+      readonly created_at: string;
+      /** User who requested this suggestion; null for automatic refreshes. */
+      readonly created_by: UserBasic | null;
+      /** @nullable */
+      readonly applied_at: string | null;
+      /** User who applied this suggestion to the scanner; null unless applied. */
+      readonly applied_by: UserBasic | null;
+    }
+
+    export interface CurrentPromptSuggestion {
+      /** The newest suggestion for this scanner, or null when none has been generated yet. */
+      suggestion: ReplayScannerPromptSuggestion | null;
+      /** True when the team's ratings changed since the newest suggestion was generated. */
+      stale: boolean;
+      /** Number of rated (thumbs up or down) succeeded observations available to generate from. */
+      rated_count: number;
+    }
+
+    /**
      * * `text` - text
      * * `number` - number
      * * `currency` - currency
@@ -31180,6 +31238,41 @@ export namespace Schemas {
       event_definition_id?: string | null;
     }
 
+    export interface ObservationLabelDayCount {
+      /** Day (UTC) the observed sessions were scanned. */
+      date: string;
+      /** Observations scanned this day labeled correct (thumbs up). */
+      up: number;
+      /** Observations scanned this day labeled incorrect (thumbs down). */
+      down: number;
+    }
+
+    export interface ObservationVersionMarker {
+      /** First day (UTC) this prompt version produced observations. */
+      date: string;
+      /** The scanner (prompt) version number. */
+      version: number;
+      /** The prompt text this version ran with, taken from the observation run snapshots. */
+      prompt: string;
+      /** Thumbs-up ratings on this version's observations. */
+      up: number;
+      /** Thumbs-down ratings on this version's observations. */
+      down: number;
+    }
+
+    export interface ObservationLabelStats {
+      /** Observations in the filtered set labeled correct (thumbs up). */
+      up_total: number;
+      /** Observations in the filtered set labeled incorrect (thumbs down). */
+      down_total: number;
+      /** Daily label counts over the last `recent_days` days, bucketed by the day the session was scanned so the series tracks scanner quality over time. Days without labels are omitted. */
+      by_day: ObservationLabelDayCount[];
+      /** Daily label counts over the last `recent_days` days, bucketed by the day the rating was last set or changed: the team's rating activity. Days without rating changes are omitted. */
+      by_rating_day: ObservationLabelDayCount[];
+      /** Each scanner (prompt) version that produced observations (all-time), with its first day, prompt, and rating counts, for chart markers and the prompt version history. */
+      version_markers: ObservationVersionMarker[];
+    }
+
     export interface ObservationStatusCounts {
       /** Total observations in the filtered set. */
       total: number;
@@ -31234,6 +31327,8 @@ export namespace Schemas {
       status_counts: ObservationStatusCounts;
       /** Session-level scanner coverage. */
       coverage: CoverageStats;
+      /** Team label (thumbs up/down) aggregates over the filtered set. */
+      labels: ObservationLabelStats;
       /** All distinct tags (fixed + freeform) emitted by succeeded observations in the filtered set. */
       available_tags: string[];
       /** Monitor-type aggregates; null when the scanner is not a monitor. */
@@ -33546,6 +33641,19 @@ export namespace Schemas {
       signals_count: number;
     }
 
+    /**
+     * The team's shared judgement on whether the scanner scored this session correctly.
+     */
+    export interface ReplayObservationLabel {
+      /** True if the scanner scored this session correctly, false if not. */
+      is_correct: boolean;
+      /**
+         * Optional written context on the rating, for thumbs-up and thumbs-down alike: what the scanner got right or wrong, or what it should have concluded.
+         * @maxLength 5000
+         */
+      feedback?: string;
+    }
+
     export interface ReplayObservation {
       readonly id: string;
       /** The scanner that produced this observation. */
@@ -33595,6 +33703,8 @@ export namespace Schemas {
          * @nullable
          */
       readonly next_observation_id: string | null;
+      /** The team's shared label on this observation (correct/incorrect + feedback), or null if unlabeled. */
+      readonly label: ReplayObservationLabel | null;
       /** @nullable */
       started_at?: string | null;
       /** @nullable */
@@ -33703,6 +33813,15 @@ export namespace Schemas {
       /** @nullable */
       previous?: string | null;
       results: ReplayScanner[];
+    }
+
+    export interface PaginatedReplayScannerPromptSuggestionList {
+      count: number;
+      /** @nullable */
+      next?: string | null;
+      /** @nullable */
+      previous?: string | null;
+      results: ReplayScannerPromptSuggestion[];
     }
 
     export type RepoBaselineFilePaths = {[key: string]: string};
@@ -61616,6 +61735,10 @@ export namespace Schemas {
 
     export type EnvironmentsVisionScannersObservationsListParams = {
     /**
+     * When true, return only observations that have a shared label (thumbs up or down); when false, only unlabeled observations.
+     */
+    labeled?: boolean;
+    /**
      * Number of results to return per page.
      */
     limit?: number;
@@ -61655,6 +61778,10 @@ export namespace Schemas {
 
     export type EnvironmentsVisionScannersObservationsStatsRetrieveParams = {
     /**
+     * When true, return only observations that have a shared label (thumbs up or down); when false, only unlabeled observations.
+     */
+    labeled?: string;
+    /**
      * Window size in days for the coverage `recent_sessions` count. Clamped to [1, 365]. Defaults to 14 when omitted.
      */
     recent_days?: number;
@@ -61682,6 +61809,17 @@ export namespace Schemas {
      * Filter monitor observations by verdict. Accepts a comma-separated list (e.g. `yes,inconclusive`).
      */
     verdict?: string;
+    };
+
+    export type EnvironmentsVisionScannersPromptSuggestionsListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number;
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number;
     };
 
     export type EnvironmentsWarehouseSavedQueriesListParams = {
@@ -69598,6 +69736,10 @@ export namespace Schemas {
 
     export type VisionScannersObservationsListParams = {
     /**
+     * When true, return only observations that have a shared label (thumbs up or down); when false, only unlabeled observations.
+     */
+    labeled?: boolean;
+    /**
      * Number of results to return per page.
      */
     limit?: number;
@@ -69637,6 +69779,10 @@ export namespace Schemas {
 
     export type VisionScannersObservationsStatsRetrieveParams = {
     /**
+     * When true, return only observations that have a shared label (thumbs up or down); when false, only unlabeled observations.
+     */
+    labeled?: string;
+    /**
      * Window size in days for the coverage `recent_sessions` count. Clamped to [1, 365]. Defaults to 14 when omitted.
      */
     recent_days?: number;
@@ -69664,6 +69810,17 @@ export namespace Schemas {
      * Filter monitor observations by verdict. Accepts a comma-separated list (e.g. `yes,inconclusive`).
      */
     verdict?: string;
+    };
+
+    export type VisionScannersPromptSuggestionsListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number;
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number;
     };
 
     export type VisualReviewReposListParams = {
