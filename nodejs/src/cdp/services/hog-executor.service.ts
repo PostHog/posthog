@@ -801,7 +801,13 @@ export class HogExecutorService {
 
         if (Object.keys(integrationInputs).length > 0) {
             for (const [key, value] of Object.entries(integrationInputs)) {
-                const accessToken: string = value.value?.access_token_raw
+                const inputValue = value.value
+                // integration_multi inputs resolve to an array of integrations (e.g. push channels)
+                // and don't participate in the single access-token placeholder substitution below.
+                if (Array.isArray(inputValue) || !inputValue) {
+                    continue
+                }
+                const accessToken: string = inputValue.access_token_raw
                 if (!accessToken) {
                     continue
                 }
