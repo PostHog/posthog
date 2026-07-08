@@ -1392,6 +1392,27 @@ def test_bigquery_table_not_found_key_does_not_match_unrelated_errors(other_erro
     assert not any(key in other_error for key in non_retryable_errors)
 
 
+def test_bigquery_project_not_found_during_sync_is_non_retryable():
+    """A source referencing a deleted or mistyped GCP project surfaces from `get_table()` at sync time
+    as a google NotFound whose str() is "... Project <id> is not found. Make sure it references valid
+    GCP project that hasn't been deleted." — distinct from the table/dataset "Not found" wording. It
+    must be recognised as non-retryable instead of retrying a project that can't reappear within the run."""
+    error = NotFound(
+        "GET https://bigquery.googleapis.com/bigquery/v2/projects/my-proj/datasets/my_dataset/"
+        "tables/my_table?prettyPrint=false: Project my-proj is not found. Make sure it references "
+        "valid GCP project that hasn't been deleted.; Project id: my-proj"
+    )
+
+    error_msg = str(error)
+    non_retryable_errors = BigQuerySource().get_non_retryable_errors()
+    matching = [key for key in non_retryable_errors if key in error_msg]
+
+    assert matching, "a project-not-found 404 during sync should be recognised as non-retryable"
+    assert all(non_retryable_errors[key] is not None for key in matching)
+    assert "Not found: Table" not in error_msg
+    assert "was not found in location" not in error_msg
+
+
 def test_bigquery_storage_read_client_disables_grpc_message_size_limit():
     """Regression: the Storage Read API streams Arrow ReadRowsResponse messages that can
     exceed gRPC's default 4 MiB client receive limit (wide rows / large string columns like
