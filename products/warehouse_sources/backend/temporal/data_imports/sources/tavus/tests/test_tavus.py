@@ -1,7 +1,7 @@
 from typing import Any, Optional
 
 import pytest
-from unittest.mock import MagicMock
+from unittest.mock import MagicMock, patch
 
 import requests
 from parameterized import parameterized
@@ -170,23 +170,23 @@ class TestCheckAccess:
         monkeypatch.setattr(tavus, "make_tracked_session", lambda **kwargs: session)
         return session
 
-    @pytest.mark.parametrize(
-        "status, ok, expected_status, expected_message",
+    @parameterized.expand(
         [
             (200, True, 200, None),
             (401, False, 401, None),
             (403, False, 403, None),
             (500, False, 500, "Tavus returned HTTP 500"),
-        ],
+        ]
     )
-    def test_status_mapping(
-        self, status: int, ok: bool, expected_status: int, expected_message: str | None, monkeypatch: Any
-    ) -> None:
+    def test_status_mapping(self, status: int, ok: bool, expected_status: int, expected_message: str | None) -> None:
         response = MagicMock()
         response.status_code = status
         response.ok = ok
-        self._patch_session(monkeypatch, response)
-        assert check_access("tavus-key") == (expected_status, expected_message)
+        session = MagicMock()
+        session.get.return_value = response
+        # parameterized.expand can't receive pytest fixtures, so patch directly instead of monkeypatch.
+        with patch.object(tavus, "make_tracked_session", lambda **kwargs: session):
+            assert check_access("tavus-key") == (expected_status, expected_message)
 
     def test_connection_error_maps_to_zero(self, monkeypatch: Any) -> None:
         self._patch_session(monkeypatch, requests.ConnectionError("boom"))
