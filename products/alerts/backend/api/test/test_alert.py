@@ -867,6 +867,27 @@ class TestAlert(APIBaseTest, QueryMatchingTest):
                 },
                 "absolute value alerts require an absolute threshold",
             ),
+            (
+                "name_too_long",
+                {
+                    "condition": {"type": AlertConditionType.ABSOLUTE_VALUE},
+                    "config": {"type": "TrendsAlertConfig", "series_index": 0},
+                    "name": "a" * 256,
+                },
+                "no more than 255 characters",
+            ),
+            (
+                "threshold_name_too_long",
+                {
+                    "condition": {"type": AlertConditionType.ABSOLUTE_VALUE},
+                    "config": {"type": "TrendsAlertConfig", "series_index": 0},
+                    "threshold": {
+                        "configuration": {"type": InsightThresholdType.ABSOLUTE, "bounds": {"upper": 100}},
+                        "name": "a" * 256,
+                    },
+                },
+                "no more than 255 characters",
+            ),
         ]
     )
     def test_create_alert_rejects_invalid_config(self, _name, overrides, expected_error_fragment):
