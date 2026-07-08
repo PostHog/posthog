@@ -28,3 +28,17 @@ class PostHogDatabaseConnectionError(Exception):
     "Name or service not known"), and must stay retryable rather than be misclassified as
     non-retryable and stop a healthy sync.
     """
+
+
+class ForeignServerUnreachableError(Exception):
+    """Raised when a setup query touched a postgres_fdw foreign table whose foreign server failed.
+
+    postgres_fdw/dblink report a failure to connect to a *foreign* server with SQLSTATE 08001
+    (`SqlclientUnableToEstablishSqlconnection`), embedding the downstream libpq error verbatim —
+    e.g. "... failed: Connection refused". That English wording collides with the connect-time
+    substrings in `PostgresSource.get_non_retryable_errors` (which target the *direct* connection to
+    the customer's database), so a foreign server that's briefly down (failover, restart) would be
+    misclassified as a permanent misconfiguration and stop a healthy sync. The server-side sibling of
+    `PostHogDatabaseConnectionError`: its message intentionally avoids those substrings so a transient
+    foreign-server outage stays retryable.
+    """

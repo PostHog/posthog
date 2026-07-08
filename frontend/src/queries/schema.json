@@ -22255,7 +22255,10 @@
                 "Redis",
                 "Mercury",
                 "Gojiberry",
-                "Teachable"
+                "Teachable",
+                "PeecAI",
+                "Healthchecks",
+                "Impact"
             ],
             "type": "string"
         },
@@ -25790,7 +25793,7 @@
             "type": "string"
         },
         "IntervalType": {
-            "enum": ["second", "minute", "hour", "day", "week", "month"],
+            "enum": ["second", "minute", "hour", "day", "week", "month", "quarter", "year"],
             "type": "string"
         },
         "IsolationForestDetectorConfig": {
@@ -26845,6 +26848,13 @@
                 "after": {
                     "description": "Cursor for fetching the next page of results",
                     "type": "string"
+                },
+                "customColumns": {
+                    "description": "Custom column expressions evaluated per log row. Each entry is either a source-prefixed shorthand (`attributes.<key>`, `resource_attributes.<key>`, `body.<json.path>`) or a scalar HogQL expression (`upper(level)`, `coalesce(attributes['a'], attributes['b'])`). Values come back on each result row keyed by the aliases in `LogsQueryResponse.columns`.",
+                    "items": {
+                        "type": "string"
+                    },
+                    "type": "array"
                 },
                 "dateRange": {
                     "$ref": "#/definitions/DateRange"
@@ -45138,6 +45148,9 @@
                 },
                 "response": {
                     "$ref": "#/definitions/TracesQueryResponse"
+                },
+                "searchTerm": {
+                    "type": "string"
                 },
                 "showColumnConfigurator": {
                     "type": "boolean"

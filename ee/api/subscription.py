@@ -128,6 +128,73 @@ class DashboardExportInsightsField(serializers.Field):
         return data
 
 
+class AIWindowConfigSerializer(serializers.Serializer):
+    mode = serializers.ChoiceField(
+        choices=Subscription.AIWindowMode.choices,
+        default=Subscription.AIWindowMode.SINCE_LAST_SENT,
+        help_text=(
+            "What the report analyzes each run:\n"
+            "* `since_last_sent` (default) — everything since the previous successful scheduled delivery (gap-free; test/manual sends don't move the anchor)\n"
+            "* `last_n_days` — a fixed trailing window of start_days_ago days\n"
+            "* `days_ago_range` — the explicit range from start_days_ago to end_days_ago days ago"
+        ),
+    )
+    start_days_ago = serializers.IntegerField(
+        required=False,
+        allow_null=True,
+        min_value=1,
+        max_value=365,
+        help_text=(
+            "Lower bound of the analysis window, in days before the run. Required for 'last_n_days' "
+            "(the N) and 'days_ago_range'; ignored for 'since_last_sent'. 1-365."
+        ),
+    )
+    end_days_ago = serializers.IntegerField(
+        required=False,
+        allow_null=True,
+        min_value=0,
+        max_value=365,
+        help_text=(
+            "Upper bound of the analysis window, in days before the run (0 = now). Required for "
+            "'days_ago_range' and must be less than start_days_ago; ignored for other modes. 0-365."
+        ),
+    )
+
+    def to_representation(self, instance: Any) -> dict:
+        return Subscription.normalize_ai_window(instance)
+
+    def validate(self, attrs: dict) -> dict:
+        mode = attrs.get("mode") or Subscription.AIWindowMode.SINCE_LAST_SENT
+        start = attrs.get("start_days_ago")
+        end = attrs.get("end_days_ago")
+
+        if mode == Subscription.AIWindowMode.SINCE_LAST_SENT:
+            # Day bounds are meaningless here; normalise them away so a later mode switch starts clean.
+            attrs["start_days_ago"] = None
+            attrs["end_days_ago"] = None
+            return attrs
+        if not start:
+            raise ValidationError({"start_days_ago": [f"Required when mode is '{mode}'."]})
+        if mode == Subscription.AIWindowMode.LAST_N_DAYS:
+            attrs["end_days_ago"] = None
+            return attrs
+        # DAYS_AGO_RANGE
+        if end is None:
+            raise ValidationError({"end_days_ago": [f"Required when mode is '{mode}'."]})
+        if end >= start:
+            raise ValidationError(
+                {"end_days_ago": ["Must be less than start_days_ago (the window must end after it starts)."]}
+            )
+        return attrs
+
+
+class AIPromptConfigSerializer(serializers.Serializer):
+    window = AIWindowConfigSerializer(
+        required=False,
+        help_text="Analysis window for the report. Omitted = 'since_last_sent' (everything since the previous scheduled delivery).",
+    )
+
+
 class SubscriptionSerializer(serializers.ModelSerializer):
     """Standard Subscription serializer."""
 
@@ -157,6 +224,13 @@ class SubscriptionSerializer(serializers.ModelSerializer):
         required=False,
         help_text="List of insight IDs from the dashboard to include. Required for dashboard subscriptions, max 6.",
     )
+    ai_prompt_config = AIPromptConfigSerializer(
+        required=False,
+        help_text=(
+            "Configuration for AI report subscriptions (analysis window, future knobs). Only valid "
+            "when resource_type is 'ai_prompt'. Replaced wholesale on writes."
+        ),
+    )
     insight_short_id = serializers.SerializerMethodField()
     resource_name = serializers.SerializerMethodField()
     resource_type = serializers.ChoiceField(
@@ -181,6 +255,7 @@ class SubscriptionSerializer(serializers.ModelSerializer):
             "resource_name",
             "dashboard_export_insights",
             "prompt",
+            "ai_prompt_config",
             "target_type",
             "target_value",
             "frequency",
@@ -357,6 +432,8 @@ class SubscriptionSerializer(serializers.ModelSerializer):
         # diagnosable, an unhandled KeyError surfaces as a 500.
         if validate_for_resource_type is None:
             raise ValidationError({"resource_type": [f"Unsupported resource_type: {resource_type}."]})
+        if resource_type != Subscription.ResourceType.AI_PROMPT and attrs.get("ai_prompt_config"):
+            raise ValidationError({"ai_prompt_config": ["AI report settings only apply to AI subscriptions."]})
         validate_for_resource_type(attrs, existing)
 
         self._validate_dashboard_export_subscription(attrs)

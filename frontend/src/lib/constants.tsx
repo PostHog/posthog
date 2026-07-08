@@ -298,6 +298,7 @@ export const FEATURE_FLAGS = {
     DWH_SOURCE_METRICS: 'dwh-source-metrics', // owner: #team-warehouse-sources
     EDITOR_DRAFTS: 'editor-drafts', // owner: @EDsCODE #team-data-tools
     ENDPOINTS: 'embedded-analytics', // owner: @sakce #team-clickhouse
+    ENDPOINTS_AI_MATERIALIZATION_FIX: 'endpoints-ai-materialization-fix', // owner: @sakce #team-data-modeling, gates the AI materialization rewrite (UI button + API action + MCP tools)
     ENGINEERING_ANALYTICS: 'engineering-analytics', // owner: #team-devex
     ERROR_TRACKING_ISSUE_CORRELATION: 'error-tracking-issue-correlation', // owner: @david #team-error-tracking
     ERROR_TRACKING_ISSUE_SPLITTING: 'error-tracking-issue-splitting', // owner: @david #team-error-tracking
@@ -352,6 +353,7 @@ export const FEATURE_FLAGS = {
     LLM_ANALYTICS_TRACE_NAVIGATION: 'llm-analytics-trace-navigation', // owner: #team-ai-observability
     LLM_ANALYTICS_USER_FEEDBACK: 'llm-analytics-user-feedback', // owner: @adboio #team-surveys
     LLM_OBSERVABILITY_SHOW_INPUT_OUTPUT: 'llm-observability-show-input-output', // owner: #team-ai-observability
+    LLM_OBSERVABILITY_TRACE_SEARCH: 'llm-observability-trace-search', // owner: #team-ai-observability
     LOGS: 'logs', // owner: #team-logs
     LOGS_ALERTING: 'logs-alerting', // owner: #team-logs
     LOGS_GROUP_BY: 'logs-group-by', // owner: #team-logs
@@ -428,6 +430,7 @@ export const FEATURE_FLAGS = {
     PRODUCT_ANALYTICS_INSIGHT_HORIZONTAL_CONTROLS: 'insight-horizontal-controls', // owner: #team-product-analytics
     PRODUCT_ANALYTICS_INSIGHTS_TOOLTIPS: 'product-analytics-insights-tooltips', // owner: #team-product-analytics, gates the unified quill DefaultTooltip for trends/retention/stickiness insight charts
     PRODUCT_ANALYTICS_PATHS_V2: 'paths-v2', // owner: @thmsobrmlr #team-product-analytics
+    PRODUCT_ANALYTICS_QUARTER_YEAR_INTERVALS: 'product-analytics-quarter-year-intervals', // owner: @sampennington #team-product-analytics, gates quarter/year interval selection on insights
     PRODUCT_ANALYTICS_QUILL_LEGEND: 'product-analytics-quill-legend', // owner: #team-product-analytics, gates the in-chart quill legend replacing the legacy side InsightLegend
     PRODUCT_ANALYTICS_QUILL_SQL_CHARTS: 'product-analytics-quill-sql-charts', // owner: #team-data-tools, gates rendering DataVisualization line/area charts via @posthog/quill-charts
     PRODUCT_ANALYTICS_RETENTION_AGGREGATION: 'retention-aggregation', // owner: @anirudhpillai #team-product-analytics

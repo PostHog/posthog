@@ -16,7 +16,13 @@ from collections.abc import Iterable
 from typing import TYPE_CHECKING, Any
 from uuid import UUID
 
+from asgiref.sync import sync_to_async
+
 from .. import logic, markdown_migration
+
+# NotebookCreationSource is re-exported here so cross-product callers can label their create
+# source (e.g. notebooks.NotebookCreationSource.TEMPORAL_AGENT) without importing internals.
+from ..analytics import NotebookCreationSource, capture_notebook_created, notebook_node_count
 from ..models import Notebook, ResourceNotebook
 from . import contracts
 
@@ -129,6 +135,9 @@ async def aupsert_notebook(
     title: str,
     content: dict[str, Any],
     text_content: str | None = None,
+    creation_source: str = NotebookCreationSource.MAX_AI,
+    conversation_id: str | None = None,
+    topic: str | None = None,
 ) -> tuple[contracts.NotebookData, bool]:
     notebook, created = await logic.aupsert_notebook(
         team_id,
@@ -139,6 +148,17 @@ async def aupsert_notebook(
         content=content,
         text_content=text_content,
     )
+    if created:
+        await sync_to_async(capture_notebook_created)(
+            short_id=notebook.short_id,
+            creation_source=creation_source,
+            team_id=team_id,
+            created_by_id=created_by_id,
+            conversation_id=conversation_id,
+            topic=topic,
+            visibility=notebook.visibility,
+            node_count=notebook_node_count(notebook.content),
+        )
     return _to_notebook_data(notebook), created
 
 
@@ -151,6 +171,7 @@ def create_notebook(
     created_by_id: int | None = None,
     last_modified_by_id: int | None = None,
     visibility: str = Notebook.Visibility.DEFAULT,
+    creation_source: str = NotebookCreationSource.SERVER,
 ) -> contracts.NotebookData:
     notebook = logic.create_notebook(
         team_id,
@@ -160,6 +181,14 @@ def create_notebook(
         created_by_id=created_by_id,
         last_modified_by_id=last_modified_by_id,
         visibility=visibility,
+    )
+    capture_notebook_created(
+        short_id=notebook.short_id,
+        creation_source=creation_source,
+        team_id=team_id,
+        created_by_id=created_by_id,
+        visibility=notebook.visibility,
+        node_count=notebook_node_count(notebook.content),
     )
     return _to_notebook_data(notebook)
 
@@ -193,7 +222,15 @@ def group_has_notebook(group_id: int) -> bool:
 
 
 def create_group_notebook(team_id: int, group_id: int, *, title: str | None, content: Any) -> contracts.NotebookData:
-    return _to_notebook_data(logic.create_group_notebook(team_id, group_id, title=title, content=content))
+    notebook = logic.create_group_notebook(team_id, group_id, title=title, content=content)
+    capture_notebook_created(
+        short_id=notebook.short_id,
+        creation_source=NotebookCreationSource.GROUP,
+        team_id=team_id,
+        visibility=notebook.visibility,
+        node_count=notebook_node_count(notebook.content),
+    )
+    return _to_notebook_data(notebook)
 
 
 def create_account_notebook(
