@@ -51,8 +51,13 @@ class TemplateOAuthCredentials(TypedDict, total=False):
     client_secret: str
 
 
-InstallSource = Literal["posthog", "twig", "posthog-code"]
-INSTALL_SOURCE_CHOICES = [("posthog", "posthog"), ("twig", "twig"), ("posthog-code", "posthog-code")]
+InstallSource = Literal["posthog", "twig", "posthog-code", "slack"]
+INSTALL_SOURCE_CHOICES = [
+    ("posthog", "posthog"),
+    ("twig", "twig"),
+    ("posthog-code", "posthog-code"),
+    ("slack", "slack"),
+]
 
 
 def normalize_mcp_template_icon_key(value: str) -> str:

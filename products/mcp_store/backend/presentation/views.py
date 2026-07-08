@@ -116,9 +116,14 @@ def _is_https(url: str) -> bool:
 
 
 def _is_valid_posthog_code_callback_url(url: str) -> bool:
-    """Validate that a PostHog Code callback URL is safe to redirect to (prevents open redirect)."""
+    """Validate that a post-OAuth callback URL is safe to redirect to (prevents open redirect):
+    a first-party desktop deep link, or a same-origin URL (the Slack flow returns through a
+    PostHog endpoint that bounces the user back into Slack)."""
     parsed = urlparse(url)
     if parsed.scheme in ("array", "posthog-code"):
+        return True
+    site = urlparse(settings.SITE_URL)
+    if parsed.scheme == site.scheme and parsed.netloc and parsed.netloc == site.netloc:
         return True
     if is_dev_mode() and parsed.scheme == "http" and parsed.hostname == "localhost":
         return True
@@ -155,6 +160,14 @@ def _template_uses_dcr(template: MCPServerTemplate) -> bool:
         return False
     credentials = template.oauth_credentials or {}
     return not credentials.get("client_id")
+
+
+class TemplateOAuthSetupError(Exception):
+    """User-facing failure while preparing a template's OAuth client (discovery or DCR)."""
+
+    def __init__(self, detail: str) -> None:
+        self.detail = detail
+        super().__init__(detail)
 
 
 class MCPServerTemplateSerializer(serializers.ModelSerializer):
@@ -295,10 +308,20 @@ class InstallTemplateSerializer(serializers.Serializer):
 
 class AuthorizeQuerySerializer(serializers.Serializer):
     # Exactly one of template_id / installation_id must be provided.
-    template_id = serializers.UUIDField(required=False)
-    installation_id = serializers.UUIDField(required=False)
-    install_source = serializers.ChoiceField(choices=["posthog", "posthog-code"], required=False, default="posthog")
-    posthog_code_callback_url = serializers.CharField(required=False, allow_blank=True, default="")
+    template_id = serializers.UUIDField(required=False, help_text="Catalog template to (re)connect.")
+    installation_id = serializers.UUIDField(required=False, help_text="Existing installation to reconnect.")
+    install_source = serializers.ChoiceField(
+        choices=["posthog", "posthog-code", "slack"],
+        required=False,
+        default="posthog",
+        help_text="Surface the connect flow started from; decides where the user lands after OAuth.",
+    )
+    posthog_code_callback_url = serializers.CharField(
+        required=False,
+        allow_blank=True,
+        default="",
+        help_text="Post-OAuth return URL for posthog-code (deep link) or slack (same-origin) flows.",
+    )
 
     def validate(self, attrs: dict) -> dict:
         if bool(attrs.get("template_id")) == bool(attrs.get("installation_id")):
@@ -505,6 +528,54 @@ class MCPServerInstallationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet
 
         return proxy_mcp_request(request, installation)
 
+    def _register_dcr_for_installation(
+        self, template: MCPServerTemplate, installation: MCPServerInstallation
+    ) -> tuple[dict, str]:
+        """Discover OAuth metadata and mint a per-user DCR client for a template install,
+        caching both on the installation so reconnect/refresh can reuse them. Never written
+        back to the template — a first-installer can't poison template state for other users.
+        Raises ``TemplateOAuthSetupError`` with a user-facing detail on failure."""
+        try:
+            metadata = discover_oauth_metadata(template.url)
+        except Exception as e:
+            logger.exception(
+                "OAuth discovery failed for DCR template",
+                template_id=str(template.id),
+                server_url=template.url,
+                error=str(e),
+            )
+            raise TemplateOAuthSetupError("OAuth discovery failed.") from e
+
+        try:
+            client_id, dcr_client_secret, token_endpoint_auth_method = self._register_dcr_client_or_raise(
+                metadata,
+                _get_oauth_redirect_uri(),
+                server_url=template.url,
+            )
+        except DCRNotSupportedError as e:
+            raise TemplateOAuthSetupError("This MCP server does not support Dynamic Client Registration (DCR).") from e
+        except DCRRegistrationFailedError as e:
+            raise TemplateOAuthSetupError("OAuth registration failed.") from e
+
+        sensitive = dict(installation.sensitive_configuration or {})
+        sensitive["dcr_client_id"] = client_id
+        sensitive["dcr_is_user_provided"] = False
+        sensitive["dcr_token_endpoint_auth_method"] = token_endpoint_auth_method
+        if dcr_client_secret:
+            sensitive["dcr_client_secret"] = dcr_client_secret
+        else:
+            sensitive.pop("dcr_client_secret", None)
+        installation.oauth_metadata = metadata
+        installation.sensitive_configuration = sensitive
+        installation.save(update_fields=["oauth_metadata", "sensitive_configuration", "updated_at"])
+        logger.info(
+            "DCR client registered for template install",
+            installation_id=str(installation.id),
+            template_id=str(template.id),
+            team_id=self.team_id,
+        )
+        return metadata, client_id
+
     @validated_request(
         InstallTemplateSerializer,
         responses={
@@ -579,62 +650,15 @@ class MCPServerInstallationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet
         # Shared-creds templates require admin-seeded metadata and a shared
         # client_id. DCR templates require neither: we discover metadata
         # fresh at install time (same as custom installs) and mint a per-user
-        # client against the provider. Never written back to the template —
-        # the install-flow discovery result lives only on this installation,
-        # so a first-installer can't poison template state for other users.
+        # client against the provider.
         redirect_uri = _get_oauth_redirect_uri()
         if _template_uses_dcr(template):
             try:
-                metadata = discover_oauth_metadata(template.url)
-            except Exception as e:
-                logger.exception(
-                    "OAuth discovery failed for DCR template",
-                    template_id=str(template.id),
-                    server_url=template.url,
-                    error=str(e),
-                )
+                metadata, client_id = self._register_dcr_for_installation(template, installation)
+            except TemplateOAuthSetupError as exc:
                 if created:
                     installation.delete()
-                return Response({"detail": "OAuth discovery failed."}, status=status.HTTP_400_BAD_REQUEST)
-
-            try:
-                client_id, dcr_client_secret, token_endpoint_auth_method = self._register_dcr_client_or_raise(
-                    metadata,
-                    redirect_uri,
-                    server_url=template.url,
-                )
-            except DCRNotSupportedError:
-                if created:
-                    installation.delete()
-                return Response(
-                    {"detail": "This MCP server does not support Dynamic Client Registration (DCR)."},
-                    status=status.HTTP_400_BAD_REQUEST,
-                )
-            except DCRRegistrationFailedError:
-                if created:
-                    installation.delete()
-                return Response({"detail": "OAuth registration failed."}, status=status.HTTP_400_BAD_REQUEST)
-
-            # Cache the discovered metadata and minted per-user client on the
-            # installation so reconnect/refresh can reuse them. Nothing is
-            # written back to the template.
-            sensitive = dict(installation.sensitive_configuration or {})
-            sensitive["dcr_client_id"] = client_id
-            sensitive["dcr_is_user_provided"] = False
-            sensitive["dcr_token_endpoint_auth_method"] = token_endpoint_auth_method
-            if dcr_client_secret:
-                sensitive["dcr_client_secret"] = dcr_client_secret
-            else:
-                sensitive.pop("dcr_client_secret", None)
-            installation.oauth_metadata = metadata
-            installation.sensitive_configuration = sensitive
-            installation.save(update_fields=["oauth_metadata", "sensitive_configuration", "updated_at"])
-            logger.info(
-                "DCR client registered for template install",
-                installation_id=str(installation.id),
-                template_id=str(template.id),
-                team_id=self.team_id,
-            )
+                return Response({"detail": exc.detail}, status=status.HTTP_400_BAD_REQUEST)
         else:
             # Shared-creds template: admin-seeded metadata + shared client_id.
             if not template.oauth_metadata:
@@ -974,7 +998,7 @@ class MCPServerInstallationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet
         except MCPServerTemplate.DoesNotExist:
             return Response({"detail": "Template not found"}, status=status.HTTP_404_NOT_FOUND)
 
-        installation, _ = MCPServerInstallation.objects.get_or_create(
+        installation, created = MCPServerInstallation.objects.get_or_create(
             team_id=self.team_id,
             user=cast(User, request.user),
             url=template.url,
@@ -991,19 +1015,22 @@ class MCPServerInstallationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet
 
         # Resolve the metadata + client_id the authorize URL needs.
         # Shared-creds templates: admin-seeded template fields.
-        # DCR templates: per-installation state cached during install. If it's
-        # missing (rare — implies an install was interrupted), discover fresh
-        # from the MCP server URL rather than making the user reinstall.
+        # DCR templates: per-installation state cached during install. A fresh install (no
+        # per-user client yet — e.g. a Connect button arriving as a bare browser GET) runs
+        # the same discovery + registration as the install flow; a reconnect missing only
+        # metadata rediscovers it rather than making the user reinstall.
         if _template_uses_dcr(template):
             sensitive = installation.sensitive_configuration or {}
             client_id = sensitive.get("dcr_client_id", "")
-            if not client_id:
-                return Response(
-                    {"detail": "Installation is missing OAuth state — reinstall the server"},
-                    status=status.HTTP_400_BAD_REQUEST,
-                )
             metadata = installation.oauth_metadata or {}
-            if not metadata:
+            if not client_id:
+                try:
+                    metadata, client_id = self._register_dcr_for_installation(template, installation)
+                except TemplateOAuthSetupError as exc:
+                    if created:
+                        installation.delete()
+                    return Response({"detail": exc.detail}, status=status.HTTP_400_BAD_REQUEST)
+            elif not metadata:
                 try:
                     metadata = discover_oauth_metadata(template.url)
                 except Exception as e:
@@ -1399,7 +1426,7 @@ class MCPOAuthRedirectViewSet(viewsets.ViewSet):
         error: str | None = None,
         posthog_code_callback_url: str = "",
     ) -> HttpResponse:
-        if install_source == "posthog-code" and posthog_code_callback_url:
+        if install_source in ("posthog-code", "slack") and posthog_code_callback_url:
             params = {"status": "error", "error": error} if error else {"status": "success"}
             separator = "&" if "?" in posthog_code_callback_url else "?"
             redirect_url = f"{posthog_code_callback_url}{separator}{urlencode(params)}"

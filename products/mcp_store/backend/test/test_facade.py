@@ -2,7 +2,7 @@ from posthog.test.base import BaseTest
 
 from parameterized import parameterized
 
-from products.mcp_store.backend.facade.api import get_active_installations
+from products.mcp_store.backend.facade.api import get_active_installations, list_active_templates
 from products.mcp_store.backend.facade.contracts import ActiveInstallationInfo
 from products.mcp_store.backend.models import MCPServerInstallation, MCPServerTemplate
 
@@ -83,6 +83,9 @@ class TestGetActiveInstallations(BaseTest):
         results = get_active_installations(self.team.id, self.user.id)
 
         assert results[0].name == "Custom Template"
+        # Consumers match installations to catalog entries by template name even when the
+        # user renamed the install, so it must be carried alongside the display name.
+        assert results[0].template_name == "Custom Template"
 
     def test_name_falls_back_to_url(self) -> None:
         self._create_installation(display_name="", url="https://mcp.notion.com/mcp")
@@ -134,3 +137,54 @@ class TestGetActiveInstallations(BaseTest):
         results = get_active_installations(self.team.id, self.user.id)
 
         assert (len(results) == 1) == expected_included
+
+
+class TestListActiveTemplates(BaseTest):
+    _OAUTH_METADATA = {
+        "issuer": "https://auth.example.com",
+        "authorization_endpoint": "https://auth.example.com/authorize",
+        "token_endpoint": "https://auth.example.com/token",
+    }
+
+    def _create_template(self, name: str, **kwargs) -> MCPServerTemplate:
+        defaults: dict = {
+            "name": name,
+            "url": f"https://mcp.{name.lower()}.example.com/mcp",
+            "auth_type": "oauth",
+            "is_active": True,
+        }
+        defaults.update(kwargs)
+        return MCPServerTemplate.objects.create(**defaults)
+
+    def test_inactive_templates_are_excluded(self) -> None:
+        self._create_template("Hidden", is_active=False)
+        self._create_template("Visible", oauth_credentials={"client_id": "c"}, oauth_metadata=self._OAUTH_METADATA)
+
+        assert [template.name for template in list_active_templates()] == ["Visible"]
+
+    # connect_via_redirect decides whether a Slack Connect button can finish the install from a
+    # bare browser GET; misclassifying api-key templates sends users into a 400 dead end, while
+    # misclassifying OAuth ones bounces them through the store UI for no reason.
+    @parameterized.expand(
+        [
+            ("shared_creds_oauth", "oauth", {"client_id": "c"}, True, True),
+            ("dcr_registers_at_connect_time", "oauth", {}, True, True),
+            ("dcr_discovers_metadata_at_connect_time", "oauth", {}, False, True),
+            ("shared_creds_missing_metadata", "oauth", {"client_id": "c"}, False, False),
+            ("api_key", "api_key", {}, False, False),
+        ]
+    )
+    def test_connect_via_redirect_classification(
+        self, _name, auth_type, oauth_credentials, with_metadata, expected
+    ) -> None:
+        self._create_template(
+            "Server",
+            auth_type=auth_type,
+            oauth_credentials=oauth_credentials,
+            oauth_metadata=self._OAUTH_METADATA if with_metadata else {},
+        )
+
+        templates = list_active_templates()
+
+        assert len(templates) == 1
+        assert templates[0].connect_via_redirect is expected

@@ -6,8 +6,8 @@ This is the ONLY module other apps are allowed to import.
 
 import structlog
 
-from products.mcp_store.backend.facade.contracts import ActiveInstallationInfo
-from products.mcp_store.backend.models import MCPServerInstallation
+from products.mcp_store.backend.facade.contracts import ActiveInstallationInfo, TemplateInfo
+from products.mcp_store.backend.models import MCPServerInstallation, MCPServerTemplate
 
 logger = structlog.get_logger(__name__)
 
@@ -59,8 +59,37 @@ def get_active_installations(team_id: int, user_id: int) -> list[ActiveInstallat
                 id=str(installation.id),
                 name=_resolve_name(installation),
                 proxy_path=f"/api/environments/{team_id}/mcp_server_installations/{installation.id}/proxy/",
+                template_name=installation.template.name if installation.template else None,
             )
         )
 
     logger.debug("Found active MCP installations", count=len(results), team_id=team_id)
     return results
+
+
+def list_active_templates() -> list[TemplateInfo]:
+    """Return the installable server templates from the store catalog."""
+    try:
+        templates = MCPServerTemplate.objects.filter(is_active=True).order_by("name")
+    except Exception as e:
+        logger.warning("Error fetching MCP templates", error=str(e))
+        return []
+
+    return [
+        TemplateInfo(
+            id=str(template.id),
+            name=template.name,
+            auth_type=template.auth_type,
+            icon_key=template.icon_key,
+            connect_via_redirect=(
+                template.auth_type == "oauth"
+                and (
+                    # DCR templates (no shared client) discover metadata and register a
+                    # per-user client at connect time; shared-creds templates need their
+                    # admin-seeded metadata present.
+                    not (template.oauth_credentials or {}).get("client_id") or bool(template.oauth_metadata)
+                )
+            ),
+        )
+        for template in templates
+    ]

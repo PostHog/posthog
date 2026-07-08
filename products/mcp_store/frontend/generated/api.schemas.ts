@@ -218,13 +218,25 @@ export type McpServerInstallationsListParams = {
 
 export type McpServerInstallationsAuthorizeRetrieveParams = {
     /**
+     * Surface the connect flow started from; decides where the user lands after OAuth.
+     *
      * * `posthog` - posthog
      * * `posthog-code` - posthog-code
+     * * `slack` - slack
      * @minLength 1
      */
     install_source?: McpServerInstallationsAuthorizeRetrieveInstallSource
+    /**
+     * Existing installation to reconnect.
+     */
     installation_id?: string
+    /**
+     * Post-OAuth return URL for posthog-code (deep link) or slack (same-origin) flows.
+     */
     posthog_code_callback_url?: string
+    /**
+     * Catalog template to (re)connect.
+     */
     template_id?: string
 }
 
@@ -234,6 +246,7 @@ export type McpServerInstallationsAuthorizeRetrieveInstallSource =
 export const McpServerInstallationsAuthorizeRetrieveInstallSource = {
     Posthog: 'posthog',
     PosthogCode: 'posthog-code',
+    Slack: 'slack',
 } as const
 
 export type McpServersListParams = {
