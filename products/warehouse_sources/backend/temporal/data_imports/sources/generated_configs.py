@@ -3671,7 +3671,8 @@ class ZohoInvoiceSourceConfig(config.Config):
 
 @config.config
 class ZonkaFeedbackSourceConfig(config.Config):
-    pass
+    auth_token: str
+    data_center: Literal["us1", "e", "in"] = config.value(default="us1")
 
 
 @config.config
