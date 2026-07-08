@@ -31,11 +31,6 @@ const JUSTIFY_CLASS = {
     end: 'justify-end',
 } as const
 
-// A crowded horizontal legend gets a per-label cap so one long label can't crush the rest across the
-// row. A lone horizontal series (or a vertical legend, which is already bounded by its slot) doesn't
-// need it — see the truncation logic below.
-const HORIZONTAL_LABEL_MAX_WIDTH = 180
-
 export function Legend({
     items,
     orientation = 'horizontal',
@@ -56,18 +51,17 @@ export function Legend({
     const layout = isVertical
         ? 'flex-col gap-1 justify-start'
         : `flex-row flex-wrap gap-x-3 gap-y-1 ${JUSTIFY_CLASS[align]}`
-    // Only clip a label when space is genuinely tight. A vertical legend fills its width-bounded slot
-    // (max-w-[45%] in ChartLegendLayout) and truncates at that edge — no fixed cap, so it uses whatever
-    // room it has. A horizontal legend has no such bound, so a crowded one caps each label; but a lone
-    // series owns the full width, so it stays unclipped.
-    const capHorizontalLabel = !isVertical && items.length > 1
+    // No fixed max width — truncation is driven purely by the space actually available. Each row is bounded
+    // to the legend's width (the full column when vertical, capped at the slot when horizontal) and the label
+    // is the only shrinkable part, so a label ellipsizes only when its own row can't fit. A short label keeps
+    // its natural width; a horizontal legend wraps rows before shrinking any of them, so a lone series stays
+    // full and rows crowd only when the wrapped line itself runs out of room.
+    const rowWidth = isVertical ? 'flex w-full' : 'inline-flex max-w-full'
     return (
         <div className={`flex ${layout} ${className ?? ''}`} data-attr={dataAttr}>
             {items.map((item) => {
                 const dimmed = hidden?.has(item.key) ? ' opacity-40' : ''
-                // A vertical row fills its column so the label can truncate to the slot edge; a horizontal
-                // row is inline so rows sit side by side and wrap.
-                const rowClass = `${isVertical ? 'flex w-full min-w-0' : 'inline-flex'} items-center gap-1.5 text-xs leading-none${dimmed}`
+                const rowClass = `${rowWidth} min-w-0 items-center gap-1.5 text-xs leading-none${dimmed}`
                 const inner = (
                     <>
                         <span
@@ -75,11 +69,7 @@ export function Legend({
                             className="inline-block w-2.5 h-2.5 rounded-sm shrink-0"
                             style={{ backgroundColor: item.color }}
                         />
-                        <span
-                            className={`truncate${isVertical ? ' min-w-0 flex-1' : ''}`}
-                            style={capHorizontalLabel ? { maxWidth: HORIZONTAL_LABEL_MAX_WIDTH } : undefined}
-                            title={item.label}
-                        >
+                        <span className="truncate min-w-0" title={item.label}>
                             {item.label}
                         </span>
                         {item.secondaryLabel != null && item.secondaryLabel !== '' && (
