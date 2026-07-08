@@ -255,6 +255,7 @@ export const llmPromptLogic = kea<llmPromptLogicType>([
             {
                 setVersionDescription: (_, { versionDescription }) => versionDescription,
                 submitPromptFormSuccess: () => '',
+                closePublishReview: () => '',
                 setMode: () => '',
             },
         ],

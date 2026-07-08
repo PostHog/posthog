@@ -729,7 +729,10 @@ export function PromptVersionSidebar({
                                     )}
                                 </div>
                                 {versionPrompt.version_description ? (
-                                    <div className="mb-1 text-xs" title={versionPrompt.version_description}>
+                                    <div
+                                        className="mb-1 line-clamp-2 text-xs"
+                                        title={versionPrompt.version_description}
+                                    >
                                         {versionPrompt.version_description}
                                     </div>
                                 ) : null}
