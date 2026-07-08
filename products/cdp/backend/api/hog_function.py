@@ -477,6 +477,12 @@ class HogFunctionInvocationSerializer(serializers.Serializer):
     )
     status = serializers.CharField(read_only=True, help_text="Invocation result status.")
     logs = serializers.ListField(read_only=True, help_text="Execution logs from the test invocation.")
+    errors = serializers.ListField(
+        child=serializers.CharField(),
+        read_only=True,
+        required=False,
+        help_text="Error messages surfaced from the plugin server when the test invocation fails.",
+    )
     invocation_id = serializers.CharField(
         required=False, allow_null=True, help_text="Optional invocation ID for correlation."
     )
@@ -661,7 +667,18 @@ class HogFunctionViewSet(
         )
 
         if res.status_code != 200:
-            return Response({"status": "error"}, status=res.status_code)
+            # Surface the plugin server's error detail so callers can tell a malformed
+            # configuration apart from a broken /invocations/ backend, rather than a bare 500.
+            errors: list[str] = []
+            try:
+                body = res.json()
+            except ValueError:
+                body = None
+            if isinstance(body, dict) and isinstance(body.get("errors"), list):
+                errors = [str(error) for error in body["errors"]]
+            elif res.text:
+                errors = [res.text]
+            return Response({"status": "error", "errors": errors}, status=res.status_code)
 
         return Response(res.json())
 

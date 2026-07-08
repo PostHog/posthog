@@ -1761,6 +1761,33 @@ class TestHogFunctionAPI(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
 
     @parameterized.expand(
         [
+            ("json_errors_body", lambda: {"errors": ["Invalid input at 'url'"]}, "text", ["Invalid input at 'url'"]),
+            ("plain_text_body", ValueError, "Bad Gateway", ["Bad Gateway"]),
+            ("empty_body", ValueError, "", []),
+        ]
+    )
+    def test_test_invocation_surfaces_plugin_server_error(self, _name, json_side_effect, text, expected_errors):
+        with patch(
+            "products.cdp.backend.api.hog_function.create_hog_invocation_test"
+        ) as mock_create_hog_invocation_test:
+            res = MagicMock(status_code=500, text=text)
+            res.json.side_effect = json_side_effect
+            mock_create_hog_invocation_test.return_value = res
+
+            response = self.client.post(
+                f"/api/projects/{self.team.id}/hog_functions/new/invocations/",
+                data={
+                    "configuration": {
+                        **EXAMPLE_FULL,
+                    },
+                },
+            )
+
+            assert response.status_code == status.HTTP_500_INTERNAL_SERVER_ERROR, response.json()
+            assert response.json() == {"status": "error", "errors": expected_errors}
+
+    @parameterized.expand(
+        [
             (
                 "exact match wins over partial matches",
                 ["Ad Sales", "Email Sales", "Sales", "Sales Funnel", "Weekly Sales", "Unrelated"],
