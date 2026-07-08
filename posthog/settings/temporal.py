@@ -39,6 +39,13 @@ TEMPORAL_COMBINED_METRICS_SERVER_ENABLED: bool = get_from_env(
 TEMPORAL_LOG_LEVEL: str = os.getenv("TEMPORAL_LOG_LEVEL", "INFO")
 TEMPORAL_OTEL_PLUGIN_ENABLED: bool = get_from_env("TEMPORAL_OTEL_PLUGIN_ENABLED", False, type_cast=str_to_bool)
 TEMPORAL_OTEL_LIBRARIES_TO_INSTRUMENT: list[str] = get_list(os.getenv("TEMPORAL_OTEL_LIBRARIES_TO_INSTRUMENT", ""))
+# Comma-separated workflow ID prefixes whose traces are always sampled, on top of the
+# OTEL_TRACES_SAMPLER / OTEL_TRACES_SAMPLER_ARG ratio applied to everything else. Batch export
+# workflow IDs are prefixed with the batch export UUID, so listing a batch export ID here
+# captures all of its runs (scheduled and backfills).
+TEMPORAL_OTEL_ALWAYS_SAMPLE_WORKFLOW_ID_PREFIXES: list[str] = get_list(
+    os.getenv("TEMPORAL_OTEL_ALWAYS_SAMPLE_WORKFLOW_ID_PREFIXES", "")
+)
 
 SANDBOX_PROVIDER: str | None = get_from_env(
     "SANDBOX_PROVIDER", None, optional=True
