@@ -35,6 +35,7 @@ import { TrendsAlertOverlays } from '../shared/TrendsAlertOverlays'
 import { buildTrendsSeriesMeta, resolveGroupTypeLabel, type TrendsSeriesMeta } from '../shared/trendsSeriesMeta'
 import { TrendsTooltip as TrendsTooltipLegacy } from '../shared/TrendsTooltip'
 import { useInsightsLegendConfig } from '../shared/useInsightsLegendConfig'
+import { useTrendsDateRangeZoom } from '../shared/useTrendsDateRangeZoom'
 import { buildTrendsLineTimeSeriesConfig, buildTrendsSeries } from './trendsChartTransforms'
 
 interface TrendsLineChartProps {
@@ -165,6 +166,8 @@ export function TrendsLineChart({ context, inSharedMode = false }: TrendsLineCha
         },
         [clickDeps]
     )
+
+    const onDateRangeZoom = useTrendsDateRangeZoom(context, currentPeriodResult?.days)
 
     const renderTooltip = useCallback(
         (ctx: TooltipContext<TrendsSeriesMeta>) => {
@@ -316,6 +319,7 @@ export function TrendsLineChart({ context, inSharedMode = false }: TrendsLineCha
             config={config}
             tooltip={renderTooltip}
             onPointClick={canHandleClick ? onPointClick : undefined}
+            onDateRangeZoom={onDateRangeZoom}
             className="LineGraph"
             dataAttr="trend-line-graph"
             onError={handleChartError}

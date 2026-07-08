@@ -2,9 +2,14 @@ import '@testing-library/jest-dom'
 
 import { cleanup, configure, fireEvent, screen, waitFor } from '@testing-library/react'
 
-import { setupJsdom, setupSyncRaf } from '@posthog/quill-charts/testing'
+import { dragSelection, setupJsdom, setupSyncRaf } from '@posthog/quill-charts/testing'
 
-import { ChartSettings, ChartSettingsFormatting, DataVisualizationNode } from '~/queries/schema/schema-general'
+import {
+    ChartSettings,
+    ChartSettingsFormatting,
+    DataVisualizationNode,
+    NodeKind,
+} from '~/queries/schema/schema-general'
 import {
     type DataVizFixture,
     buildDataVisualizationQuery,
@@ -471,6 +476,86 @@ describe('SqlLineGraph', () => {
 
             await waitFor(() => expect(legendText()).toContain('Monthly revenue'))
             expect(legendText()).not.toContain('mrr_usd')
+        })
+    })
+
+    describe('drag-to-zoom', () => {
+        const zoomableQuery = (sql: string, display = ChartDisplayType.ActionsLineGraph): DataVisualizationNode =>
+            buildDataVisualizationQuery({
+                source: { kind: NodeKind.HogQLQuery, query: sql },
+                display,
+                chartSettings: { xAxis: { column: 'month' }, yAxis: [{ column: 'pageviews' }] },
+            })
+        const fixture = (): DataVizFixture => lineFixture([{ name: 'pageviews', valueAt: (i) => (i + 1) * 100 }])
+
+        async function dragAcrossChart(): Promise<void> {
+            const canvas = await screen.findByLabelText(/chart with/i)
+            dragSelection(canvas.parentElement!, 1, 3, MONTHS.length)
+        }
+
+        it.each([
+            ['line', ChartDisplayType.ActionsLineGraph],
+            ['bar', ChartDisplayType.ActionsBar],
+        ])(
+            '%s: writes the dragged x values to filters.dateRange when the SQL consumes {filters}',
+            async (_, display) => {
+                const setQuery = jest.fn()
+                renderDataVisualization({
+                    query: zoomableQuery('SELECT month, pageviews FROM events WHERE {filters} GROUP BY month', display),
+                    response: fixture(),
+                    readOnly: false,
+                    setQuery,
+                })
+
+                await dragAcrossChart()
+
+                await waitFor(() => {
+                    expect(setQuery).toHaveBeenCalledWith(
+                        expect.objectContaining({
+                            source: expect.objectContaining({
+                                filters: expect.objectContaining({
+                                    dateRange: { date_from: MONTHS[1], date_to: MONTHS[3] },
+                                }),
+                            }),
+                        })
+                    )
+                })
+            }
+        )
+
+        it('routes the drag through context.onDateRangeZoom on read-only views', async () => {
+            const onDateRangeZoom = jest.fn()
+            renderDataVisualization({
+                query: zoomableQuery('SELECT month, pageviews FROM events WHERE {filters} GROUP BY month'),
+                response: fixture(),
+                readOnly: true,
+                context: { onDateRangeZoom },
+            })
+
+            await dragAcrossChart()
+
+            await waitFor(() => {
+                expect(onDateRangeZoom).toHaveBeenCalledWith(MONTHS[1], MONTHS[3])
+            })
+        })
+
+        it('ignores drags when the SQL does not reference {filters}', async () => {
+            const setQuery = jest.fn()
+            renderDataVisualization({
+                query: zoomableQuery('SELECT month, pageviews FROM events GROUP BY month'),
+                response: fixture(),
+                readOnly: false,
+                setQuery,
+            })
+
+            await dragAcrossChart()
+
+            // filters.dateRange would silently not apply, so the gesture must not write it.
+            // (setQuery does fire on mount for unrelated settings syncing — inspect the payloads.)
+            const dateRangeWrites = setQuery.mock.calls.filter(
+                ([q]) => (q as DataVisualizationNode).source.filters?.dateRange
+            )
+            expect(dateRangeWrites).toEqual([])
         })
     })
 

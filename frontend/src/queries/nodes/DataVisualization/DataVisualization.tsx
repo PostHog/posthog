@@ -215,6 +215,34 @@ function InternalDataTableVisualization(props: DataTableVisualizationProps): JSX
         [props.setQuery, props.query] // oxlint-disable-line react-hooks/exhaustive-deps
     )
 
+    // Drag-to-zoom rewrites filters.dateRange, so it needs the SQL to consume {filters} and a
+    // host where the query is editable — either an edit surface, or a read-only view whose host
+    // opted in with context.onDateRangeZoom (the insight scene's view mode).
+    const contextZoom = props.context?.onDateRangeZoom
+    const canZoomDateRange =
+        (!readOnly || !!contextZoom) &&
+        !dashboardId &&
+        sourceFeatures.has(QueryFeature.dateRangePicker) &&
+        query.source.query.includes('{filters}') &&
+        !router.values.location.pathname.includes(urls.sqlEditor())
+
+    const onDateRangeZoom = useCallback(
+        (dateFrom: string, dateTo: string) => {
+            if (contextZoom) {
+                contextZoom(dateFrom, dateTo)
+                return
+            }
+            setQuerySource({
+                ...query.source,
+                filters: {
+                    ...query.source.filters,
+                    dateRange: { date_from: dateFrom, date_to: dateTo },
+                },
+            })
+        },
+        [contextZoom, query.source, setQuerySource]
+    )
+
     let component: JSX.Element | null = null
 
     if (responseError) {
@@ -268,6 +296,7 @@ function InternalDataTableVisualization(props: DataTableVisualizationProps): JSX
                 dashboardId={dashboardId}
                 goalLines={[...alertThresholdLines, ...goalLines]}
                 presetChartHeight={presetChartHeight}
+                onDateRangeZoom={canZoomDateRange ? onDateRangeZoom : undefined}
             />
         )
     } else if (effectiveVisualizationType === ChartDisplayType.ActionsPie) {

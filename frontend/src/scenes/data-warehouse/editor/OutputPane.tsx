@@ -74,6 +74,7 @@ import {
 } from '../../../queries/nodes/DataTable/clipboardUtils'
 import { FixErrorButton } from './components/FixErrorButton'
 import { OutputTab, outputPaneLogic } from './outputPaneLogic'
+import { queryUsesFiltersPlaceholder } from './sql-utils'
 import { sqlEditorLogic } from './sqlEditorLogic'
 import { trimRedundantTail } from './syncWarnings'
 import TabScroller from './TabScroller'
@@ -906,6 +907,31 @@ function InternalDataTableVisualization(
     const { seriesBreakdownData } = useValues(seriesBreakdownLogic({ key: dataVisualizationProps.key }))
     const { goalLines } = useValues(displayLogic)
 
+    const { queryInput } = useValues(sqlEditorLogic)
+    const { runQuery } = useActions(sqlEditorLogic)
+
+    // Drag-to-zoom rewrites filters.dateRange, which only applies when the SQL consumes {filters}.
+    const canZoomDateRange =
+        !props.embedded && queryUsesFiltersPlaceholder(queryInput ?? props.query.source.query ?? null)
+
+    const propsQuery = props.query
+    const propsSetQuery = props.setQuery
+    const onDateRangeZoom = useCallback(
+        (dateFrom: string, dateTo: string) => {
+            const source = propsQuery.source
+            propsSetQuery?.({
+                ...propsQuery,
+                source: {
+                    ...source,
+                    filters: { ...source.filters, dateRange: { date_from: dateFrom, date_to: dateTo } },
+                },
+            })
+            // Same pattern as QueryFiltersMenu: filter edits re-run against the current editor text.
+            runQuery(queryInput ?? source.query)
+        },
+        [propsQuery, propsSetQuery, queryInput, runQuery]
+    )
+
     let component: JSX.Element | null = null
 
     // TODO(@Gilbert09): Better loading support for all components - e.g. using the `loading` param of `Table`
@@ -943,6 +969,7 @@ function InternalDataTableVisualization(
                 dashboardId={dashboardId}
                 goalLines={goalLines}
                 presetChartHeight={presetChartHeight}
+                onDateRangeZoom={canZoomDateRange ? onDateRangeZoom : undefined}
             />
         )
     } else if (effectiveVisualizationType === ChartDisplayType.ActionsPie) {

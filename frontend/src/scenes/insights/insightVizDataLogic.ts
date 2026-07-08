@@ -951,7 +951,13 @@ const handleQuerySourceUpdateSideEffects = (
             const monthDiff = parsedTo.diff(parsedFrom, 'month')
             // 3 years in months; quarter auto-interval kicks in beyond this threshold
             const QUARTER_AUTO_INTERVAL_THRESHOLD_MONTHS = 36
-            if (parsedTo.diff(parsedFrom, 'day') <= 3) {
+            // A bare date pair like 2024-06-10..2024-06-10 means "that whole day", so only ranges
+            // that carry a time component (e.g. drag-to-zoom on an hourly chart) can go sub-hour.
+            const hasTimeComponent = String(date_from).length > 10 || String(date_to).length > 10
+            if (isTrendsQuery(currentState) && hasTimeComponent && parsedTo.diff(parsedFrom, 'hour', true) <= 12) {
+                // Mirrors the is12HoursOrLess rule for relative ranges below.
+                ;(mergedUpdate as TrendsQuery).interval = 'minute'
+            } else if (parsedTo.diff(parsedFrom, 'day') <= 3) {
                 ;(mergedUpdate as TrendsQuery).interval = 'hour'
             } else if (monthDiff <= 3) {
                 ;(mergedUpdate as TrendsQuery).interval = 'day'

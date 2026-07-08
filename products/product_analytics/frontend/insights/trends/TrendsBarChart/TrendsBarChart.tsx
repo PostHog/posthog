@@ -45,6 +45,7 @@ import { trendsFilterToYFormatterConfig } from '../shared/trendsAxisFormat'
 import { buildTrendsSeriesMeta, type TrendsSeriesMeta } from '../shared/trendsSeriesMeta'
 import { TrendsTooltip } from '../shared/TrendsTooltip'
 import { useInsightsLegendConfig } from '../shared/useInsightsLegendConfig'
+import { useTrendsDateRangeZoom } from '../shared/useTrendsDateRangeZoom'
 import { getAggregatedDisplayLabel as getAggregatedDisplayLabelFn } from './getAggregatedDisplayLabel'
 import { handleTrendsBarAggregatedChartClick } from './handleTrendsBarAggregatedChartClick'
 import {
@@ -362,6 +363,9 @@ export function TrendsBarChart({
         [isAggregated, clickDeps]
     )
 
+    // Time-series layouts only — the aggregated bar-value layout has categorical labels, not dates.
+    const onDateRangeZoom = useTrendsDateRangeZoom(context, currentPeriodResult?.days)
+
     const renderTooltip = useCallback(
         (ctx: TooltipContext<TrendsSeriesMeta>) => {
             // BarTooltip already put the cursor-visible segment at seriesData[0] — keep just that.
@@ -483,6 +487,7 @@ export function TrendsBarChart({
             theme={theme}
             tooltip={renderTooltip}
             onPointClick={canHandleClick ? onPointClick : undefined}
+            onDateRangeZoom={onDateRangeZoom}
             className="BarGraph"
             dataAttr="trend-bar-graph"
             onError={handleChartError}

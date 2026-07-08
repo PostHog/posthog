@@ -411,6 +411,21 @@ describe('insightVizDataLogic', () => {
                     },
                 })
         })
+
+        it.each([
+            // Sub-day span with a time component (drag-to-zoom on an hourly chart) goes minute
+            ['2024-06-10 08:00:00', '2024-06-10 14:00:00', 'minute'],
+            // A bare same-day pair means "that whole day" and must stay hourly, not 1440 minute buckets
+            ['2024-06-10', '2024-06-10', 'hour'],
+            ['2024-06-10', '2024-06-12', 'hour'],
+            ['2024-06-01', '2024-07-15', 'day'],
+        ])('auto-adjusts interval for absolute range %s..%s to %s', async (dateFrom, dateTo, expectedInterval) => {
+            await expectLogic(builtInsightDataLogic, () => {
+                builtInsightVizDataLogic.actions.updateDateRange({ date_from: dateFrom, date_to: dateTo }, true)
+            }).toFinishAllListeners()
+
+            expect((builtInsightVizDataLogic.values.querySource as TrendsQuery).interval).toBe(expectedInterval)
+        })
     })
 
     describe('updateBreakdownFilter', () => {

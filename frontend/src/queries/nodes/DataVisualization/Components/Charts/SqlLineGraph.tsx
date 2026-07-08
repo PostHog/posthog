@@ -7,7 +7,7 @@ import { makeChartErrorHandler } from 'products/product_analytics/frontend/insig
 
 import { LineGraphProps } from './LineGraph'
 import { SqlLineSeriesMeta, buildLineChartConfig, formatSqlSeriesValue } from './sqlLineGraphAdapter'
-import { useSqlChartModel } from './useSqlChartModel'
+import { useSqlChartModel, useSqlDateRangeZoom } from './useSqlChartModel'
 
 const handleChartError = makeChartErrorHandler('sql-line-chart')
 
@@ -20,6 +20,7 @@ const handleChartError = makeChartErrorHandler('sql-line-chart')
 export const SqlLineGraph = (props: LineGraphProps): JSX.Element => {
     const { onPointClick: onPointClickProp } = props
     const model = useSqlChartModel(props, buildLineChartConfig)
+    const onDateRangeZoom = useSqlDateRangeZoom(props)
 
     const onPointClick = useCallback(
         (data: PointClickData<SqlLineSeriesMeta>) => {
@@ -72,6 +73,7 @@ export const SqlLineGraph = (props: LineGraphProps): JSX.Element => {
                     config={model.config}
                     tooltip={onPointClickProp ? renderTooltip : undefined}
                     onPointClick={onPointClickProp ? onPointClick : undefined}
+                    onDateRangeZoom={onDateRangeZoom}
                     onError={handleChartError}
                 />
             )}

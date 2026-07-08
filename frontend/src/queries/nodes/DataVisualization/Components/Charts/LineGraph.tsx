@@ -145,6 +145,9 @@ export type LineGraphProps = {
     /** Called when the user clicks a data point. Receives the series key, x-axis index, and label.
      *  When provided, the SQL chart shows a "click to inspect" hint in the tooltip. */
     onPointClick?: (seriesKey: string, dataIndex: number, label: string) => void
+    /** Enables x-axis drag-to-zoom on the quill line chart when the x-axis is a date column.
+     *  Receives the dragged range's x values. */
+    onDateRangeZoom?: (dateFrom: string, dateTo: string) => void
 }
 
 const LegacyLineGraph = ({

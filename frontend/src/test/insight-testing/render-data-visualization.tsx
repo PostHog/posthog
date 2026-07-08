@@ -56,6 +56,8 @@ export interface RenderDataVisualizationProps {
     readOnly?: boolean
     embedded?: boolean
     context?: QueryContext<DataVisualizationNode>
+    /** Observe query updates the visualization applies (e.g. drag-to-zoom writing filters). */
+    setQuery?: (query: DataVisualizationNode) => void
 }
 
 /** Mount a SQL insight (`DataVisualizationNode`) the way the real scene does — through
@@ -78,7 +80,7 @@ export function renderDataVisualization(props: RenderDataVisualizationProps): Re
         <DataTableVisualization
             uniqueKey={DATA_VIZ_TEST_KEY}
             query={props.query ?? buildDataVisualizationQuery()}
-            setQuery={() => {}}
+            setQuery={props.setQuery ?? (() => {})}
             cachedResults={cachedResults}
             context={props.context}
             readOnly={props.readOnly ?? true}
