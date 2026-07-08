@@ -2693,10 +2693,8 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
 
     @parameterized.expand(
         [
-            # Templates authored in the repository inline the button fields with an explicit type.
             ("explicit_type", {"type": "BUTTON", "url": "/replay/home", "text": "Watch replays", "layouts": {}}),
-            # Templates saved from an existing dashboard nest the fields under `button_tile` and omit `type`,
-            # which used to raise KeyError: 'type' and leave a half-populated dashboard behind.
+            # Nested shape with no `type` - used to raise KeyError: 'type' mid-creation.
             (
                 "nested_button_tile_shape",
                 {"button_tile": {"url": "/replay/home", "text": "Watch replays"}, "layouts": {}},

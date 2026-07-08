@@ -493,13 +493,8 @@ def dashboard_template_from_creation_payload(template: dict[str, Any]) -> Dashbo
 
 
 def _resolve_template_tile_type(template_tile: dict[str, Any]) -> Optional[str]:
-    """Determine a template tile's type.
-
-    Tiles authored in the template repository carry an explicit ``type`` (``INSIGHT``/``TEXT``/
-    ``BUTTON``/``WIDGET``). Tiles serialized from an existing dashboard (save-as-template) can instead
-    mirror the model relationship and omit ``type`` — a button tile arrives as ``{"button_tile": {...}}``.
-    Infer the type from the populated relation so those tiles don't raise ``KeyError`` mid-creation.
-    """
+    # Tiles saved from an existing dashboard omit `type` and nest their fields under `button_tile`,
+    # so infer the type rather than indexing `["type"]` (which used to KeyError mid-creation).
     explicit_type = template_tile.get("type")
     if explicit_type:
         return explicit_type
@@ -520,8 +515,7 @@ def create_from_template(
     dashboard.filters = template.dashboard_filters
     dashboard.description = template.dashboard_description or ""
 
-    # Create the dashboard and all of its tiles atomically. A tile that fails partway through
-    # (e.g. an unexpected shape or a DB error) must not leave a saved-but-half-populated dashboard.
+    # All-or-nothing: a tile that fails partway through must not leave a half-populated dashboard.
     with transaction.atomic():
         for template_tag in template.tags or []:
             tag, _ = Tag.objects.get_or_create(
@@ -554,8 +548,6 @@ def create_from_template(
                     transparent_background=template_tile.get("transparent_background"),
                 )
             elif tile_type == "BUTTON":
-                # Tiles saved from an existing dashboard nest the button fields under `button_tile`
-                # instead of inlining them, so fall back to that shape.
                 button = template_tile.get("button_tile") or {}
                 _create_tile_for_button(
                     dashboard,
