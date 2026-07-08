@@ -1698,7 +1698,9 @@ describe('dashboardLogic', () => {
             expect(logic.values.textTiles).toEqual([])
         })
 
-        it('optimistically shows a new text tile before the save resolves', async () => {
+        it('optimistically shows a new text tile before the save resolves, alongside existing tiles', async () => {
+            const idsBeforeAdd = logic.values.tiles.map((t) => t.id)
+
             await expectLogic(logic, () => {
                 dashboardsModel.actions.updateDashboard({
                     id: 5,
@@ -1706,15 +1708,19 @@ describe('dashboardLogic', () => {
                 })
             }).toDispatchActions([logic.actionTypes.addOptimisticTiles])
 
-            // the tile is in state (with a temporary negative id) without waiting for the server
+            // the tile is in state (with a temporary negative id) without waiting for the server,
+            // and the reducer appended it rather than replacing the existing tiles
             const optimistic = logic.values.tiles.find((t) => t.text?.body === 'brand new')
             expect(optimistic).not.toBeUndefined()
             expect(optimistic!.id).toBeLessThan(0)
+            expect(logic.values.tiles.map((t) => t.id)).toEqual(expect.arrayContaining(idsBeforeAdd))
         })
 
-        it('rolls the optimistic tile back if the save fails', async () => {
+        it('rolls the optimistic tile back if the save fails, without touching persisted tiles', async () => {
             silenceKeaLoadersErrors()
             jest.spyOn(api, 'update').mockRejectedValueOnce(new Error('boom'))
+
+            const idsBeforeAdd = logic.values.tiles.map((t) => t.id)
 
             await expectLogic(logic, () => {
                 dashboardsModel.actions.updateDashboard({
@@ -1728,6 +1734,8 @@ describe('dashboardLogic', () => {
             ])
 
             expect(logic.values.tiles.some((t) => t.text?.body === 'doomed')).toBe(false)
+            // the rollback removed only the optimistic tile, not the tiles that were already there
+            expect(logic.values.tiles.map((t) => t.id)).toEqual(idsBeforeAdd)
             resumeKeaLoadersErrors()
         })
 
