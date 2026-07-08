@@ -377,10 +377,16 @@ describe('llmPromptLogic', () => {
         expect(logic.values.isPublishReviewOpen).toBe(true)
         expect(updateSpy).not.toHaveBeenCalled()
 
-        // Confirming from the review publishes and closes it
+        // Confirming from the review publishes with the typed description and closes it
+        logic.actions.setVersionDescription('Tightened the refusal criteria')
         logic.actions.submitPromptForm()
         await expectLogic(logic).toDispatchActions(['submitPromptFormSuccess'])
         expect(updateSpy).toHaveBeenCalledTimes(1)
+        expect(updateSpy).toHaveBeenCalledWith('my-test-prompt', {
+            prompt: 'My edited prompt.',
+            base_version: 2,
+            version_description: 'Tightened the refusal criteria',
+        })
         expect(logic.values.isPublishReviewOpen).toBe(false)
 
         logic.unmount()

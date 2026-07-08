@@ -14,10 +14,6 @@ Reach for `execute-sql` only when no `query-*` tool can express the question:
 
 If a `query-*` tool fits, use it. Default to `query-*`; SQL is the escape hatch, not the starting point.
 
-### Always consult the `querying-posthog-data` skill
-
-Before writing any SQL, read the PostHog `querying-posthog-data` skill. It is the source of truth for up-to-date HogQL patterns, system table schemas (`system.insights`, `system.dashboards`, `system.cohorts`, etc.), and function references. Do not rely on training data — table and column names drift.
-
 {schema_discovery}
 
 ### Format SQL for readability

@@ -502,6 +502,7 @@ def create_from_template(
         dashboard.name = template.template_name
     dashboard.filters = template.dashboard_filters
     dashboard.description = template.dashboard_description or ""
+
     for template_tag in template.tags or []:
         tag, _ = Tag.objects.get_or_create(
             name=template_tag,
@@ -512,7 +513,8 @@ def create_from_template(
     dashboard.save()
 
     for template_tile in template.tiles or []:
-        if template_tile["type"] == "INSIGHT":
+        tile_type = template_tile.get("type")
+        if tile_type == "INSIGHT":
             query = template_tile.get("query", None)
             _create_tile_for_insight(
                 dashboard,
@@ -523,7 +525,7 @@ def create_from_template(
                 layouts=template_tile.get("layouts"),
                 user=user,
             )
-        elif template_tile["type"] == "TEXT":
+        elif tile_type == "TEXT":
             _create_tile_for_text(
                 dashboard,
                 color=template_tile.get("color"),
@@ -531,18 +533,19 @@ def create_from_template(
                 body=template_tile.get("body"),
                 transparent_background=template_tile.get("transparent_background"),
             )
-        elif template_tile["type"] == "BUTTON":
+        elif tile_type == "BUTTON":
+            button = {**template_tile, **(template_tile.get("button_tile") or {})}
             _create_tile_for_button(
                 dashboard,
                 color=template_tile.get("color"),
                 layouts=template_tile.get("layouts"),
-                url=template_tile.get("url", ""),
-                text=template_tile.get("text", ""),
-                placement=template_tile.get("placement", "left"),
-                style=template_tile.get("style", "primary"),
+                url=button.get("url", ""),
+                text=button.get("text", ""),
+                placement=button.get("placement", "left"),
+                style=button.get("style", "primary"),
                 transparent_background=template_tile.get("transparent_background"),
             )
-        elif template_tile["type"] == "WIDGET":
+        elif tile_type == "WIDGET":
             _create_tile_for_widget(
                 dashboard,
                 widget_type=template_tile.get("widget_type", ""),
