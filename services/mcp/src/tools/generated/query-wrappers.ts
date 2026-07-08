@@ -400,7 +400,7 @@ const AssistantTrendsEventsNode = z.object({
     math_hogql: z
         .string()
         .describe(
-            'Custom HogQL expression for aggregation. Use when the predefined `math` types are not sufficient. When set, `math` must be set to `hogql`.\n\nExamples:\n- Sum a numeric property: `sum(toFloat(properties.$revenue))`\n- Average of a property: `avg(toFloat(properties.load_time))`\n- Count distinct values: `count(distinct properties.$session_id)`\n- Conditional count: `countIf(toFloat(properties.duration) > 30)`\n- Percentile: `quantile(0.95)(toFloat(properties.response_time))`'
+            'Custom HogQL expression for aggregation. Use when the predefined `math` types are not sufficient. When set, `math` must be set to `hogql`.\n\nExamples:\n- Sum a numeric property: `sum(toFloat(properties.$revenue))`\n- Average of a property: `avg(toFloat(properties.load_time))`\n- Count distinct values: `count(distinct properties.$session_id)`\n- Conditional count: `countIf(toFloat(properties.duration) > 30)`\n- Percentile: `quantile(0.95)(toFloat(properties.response_time))`\n\nDo NOT bake display/unit conversion into this expression (e.g. `sum(ceil(toFloat(properties.foo_seconds)/60))` to show minutes). Aggregate the raw property (`sum(toFloat(properties.foo_seconds))`) and handle presentation with the axis format (e.g. `aggregationAxisFormat: duration`) instead.'
         )
         .optional(),
     math_multiplier: z.coerce.number().optional(),
@@ -421,7 +421,7 @@ const AssistantTrendsActionsNode = z.object({
     math_hogql: z
         .string()
         .describe(
-            'Custom HogQL expression for aggregation. Use when the predefined `math` types are not sufficient. When set, `math` must be set to `hogql`.\n\nExamples:\n- Sum a numeric property: `sum(toFloat(properties.$revenue))`\n- Average of a property: `avg(toFloat(properties.load_time))`\n- Count distinct values: `count(distinct properties.$session_id)`\n- Conditional count: `countIf(toFloat(properties.duration) > 30)`\n- Percentile: `quantile(0.95)(toFloat(properties.response_time))`'
+            'Custom HogQL expression for aggregation. Use when the predefined `math` types are not sufficient. When set, `math` must be set to `hogql`.\n\nExamples:\n- Sum a numeric property: `sum(toFloat(properties.$revenue))`\n- Average of a property: `avg(toFloat(properties.load_time))`\n- Count distinct values: `count(distinct properties.$session_id)`\n- Conditional count: `countIf(toFloat(properties.duration) > 30)`\n- Percentile: `quantile(0.95)(toFloat(properties.response_time))`\n\nDo NOT bake display/unit conversion into this expression (e.g. `sum(ceil(toFloat(properties.foo_seconds)/60))` to show minutes). Aggregate the raw property (`sum(toFloat(properties.foo_seconds))`) and handle presentation with the axis format (e.g. `aggregationAxisFormat: duration`) instead.'
         )
         .optional(),
     math_multiplier: z.coerce.number().optional(),
@@ -471,7 +471,7 @@ const TrendsFormulaNode = z.object({
 
 const AssistantTrendsFilter = z.object({
     aggregationAxisFormat: AggregationAxisFormat.describe(
-        'Formats the trends value axis. Do not use the formatting unless you are absolutely sure that formatting will match the data. `numeric` - no formatting. Prefer this option by default. `duration` - formats the value in seconds to a human-readable duration, e.g., `132` becomes `2 minutes 12 seconds`. Use this option only if you are sure that the values are in seconds. `duration_ms` - formats the value in miliseconds to a human-readable duration, e.g., `1050` becomes `1 second 50 milliseconds`. Use this option only if you are sure that the values are in miliseconds. `percentage` - adds a percentage sign to the value, e.g., `50` becomes `50%`. `percentage_scaled` - formats the value as a percentage scaled to 0-100, e.g., `0.5` becomes `50%`. `currency` - formats the value as a currency, e.g., `1000` becomes `$1,000`.'
+        'Formats the trends value axis. Do not use the formatting unless you are absolutely sure that formatting will match the data. `numeric` - no formatting. Prefer this option by default. `duration` - formats the value in seconds to a human-readable duration, e.g., `132` becomes `2 minutes 12 seconds`. Use this option only if you are sure that the values are in seconds. `duration_ms` - formats the value in miliseconds to a human-readable duration, e.g., `1050` becomes `1 second 50 milliseconds`. Use this option only if you are sure that the values are in miliseconds. When a property holds a duration in seconds (or milliseconds) and the user wants it shown in minutes/hours, aggregate the raw property directly (e.g. `math: sum` with `math_property` set to that property) and set this to `duration` (or `duration_ms`). Do NOT convert the units inside a `math_hogql` expression (e.g. `sum(ceil(toFloat(properties.foo_seconds)/60))`) and add a ` mins` postfix - let this formatting handle the display. `percentage` - adds a percentage sign to the value, e.g., `50` becomes `50%`. `percentage_scaled` - formats the value as a percentage scaled to 0-100, e.g., `0.5` becomes `50%`. `currency` - formats the value as a currency, e.g., `1000` becomes `$1,000`.'
     )
         .default('numeric')
         .optional(),
@@ -926,7 +926,7 @@ const AssistantStickinessEventsNode = z.object({
     math_hogql: z
         .string()
         .describe(
-            'Custom HogQL expression for aggregation. Use when the predefined `math` types are not sufficient. When set, `math` must be set to `hogql`.\n\nExamples:\n- Sum a numeric property: `sum(toFloat(properties.$revenue))`\n- Average of a property: `avg(toFloat(properties.load_time))`\n- Count distinct values: `count(distinct properties.$session_id)`\n- Conditional count: `countIf(toFloat(properties.duration) > 30)`\n- Percentile: `quantile(0.95)(toFloat(properties.response_time))`'
+            'Custom HogQL expression for aggregation. Use when the predefined `math` types are not sufficient. When set, `math` must be set to `hogql`.\n\nExamples:\n- Sum a numeric property: `sum(toFloat(properties.$revenue))`\n- Average of a property: `avg(toFloat(properties.load_time))`\n- Count distinct values: `count(distinct properties.$session_id)`\n- Conditional count: `countIf(toFloat(properties.duration) > 30)`\n- Percentile: `quantile(0.95)(toFloat(properties.response_time))`\n\nDo NOT bake display/unit conversion into this expression (e.g. `sum(ceil(toFloat(properties.foo_seconds)/60))` to show minutes). Aggregate the raw property (`sum(toFloat(properties.foo_seconds))`) and handle presentation with the axis format (e.g. `aggregationAxisFormat: duration`) instead.'
         )
         .optional(),
     math_multiplier: z.coerce.number().optional(),
@@ -945,7 +945,7 @@ const AssistantStickinessActionsNode = z.object({
     math_hogql: z
         .string()
         .describe(
-            'Custom HogQL expression for aggregation. Use when the predefined `math` types are not sufficient. When set, `math` must be set to `hogql`.\n\nExamples:\n- Sum a numeric property: `sum(toFloat(properties.$revenue))`\n- Average of a property: `avg(toFloat(properties.load_time))`\n- Count distinct values: `count(distinct properties.$session_id)`\n- Conditional count: `countIf(toFloat(properties.duration) > 30)`\n- Percentile: `quantile(0.95)(toFloat(properties.response_time))`'
+            'Custom HogQL expression for aggregation. Use when the predefined `math` types are not sufficient. When set, `math` must be set to `hogql`.\n\nExamples:\n- Sum a numeric property: `sum(toFloat(properties.$revenue))`\n- Average of a property: `avg(toFloat(properties.load_time))`\n- Count distinct values: `count(distinct properties.$session_id)`\n- Conditional count: `countIf(toFloat(properties.duration) > 30)`\n- Percentile: `quantile(0.95)(toFloat(properties.response_time))`\n\nDo NOT bake display/unit conversion into this expression (e.g. `sum(ceil(toFloat(properties.foo_seconds)/60))` to show minutes). Aggregate the raw property (`sum(toFloat(properties.foo_seconds))`) and handle presentation with the axis format (e.g. `aggregationAxisFormat: duration`) instead.'
         )
         .optional(),
     math_multiplier: z.coerce.number().optional(),

@@ -68,9 +68,9 @@ const AssistantDataVisualizationAxisFormatting = z.object({
     decimalPlaces: z.coerce.number().describe('Number of decimal places to display.').optional(),
     prefix: z.string().describe('Text prepended to each value (e.g. `$`).').optional(),
     style: z
-        .enum(['none', 'number', 'short', 'percent'])
+        .enum(['none', 'number', 'short', 'percent', 'duration', 'duration_ms'])
         .describe(
-            'Number formatting style.\n- `none` — no formatting.\n- `number` — thousands separators (e.g. `1,234`).\n- `short` — abbreviated large numbers (e.g. `1.2k`, `3.4M`).\n- `percent` — render the value as a percentage.'
+            'Number formatting style.\n- `none` — no formatting.\n- `number` — thousands separators (e.g. `1,234`).\n- `short` — abbreviated large numbers (e.g. `1.2k`, `3.4M`).\n- `percent` — render the value as a percentage.\n- `duration` — render a value in seconds as a human-readable duration (e.g. `132` becomes `2m 12s`).\n- `duration_ms` — render a value in milliseconds as a human-readable duration.\n\nFor time values, prefer selecting the raw seconds/milliseconds column and setting `duration`/`duration_ms` here, rather than converting units inside the SQL (e.g. `.../60`) and appending a manual `suffix` like ` mins`.'
         )
         .optional(),
     suffix: z.string().describe('Text appended to each value (e.g. `%` or ` ms`).').optional(),

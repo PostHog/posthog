@@ -7217,11 +7217,14 @@ export const StyleApi = {
     Number: 'number',
     Short: 'short',
     Percent: 'percent',
+    Duration: 'duration',
+    DurationMs: 'duration_ms',
 } as const
 
 export interface ChartSettingsFormattingApi {
     decimalPlaces?: number | null
     prefix?: string | null
+    /** `duration` renders a value in seconds as a human-readable duration (e.g. `132` becomes `2m 12s`); `duration_ms` does the same for a value in milliseconds. Use these instead of converting units inside the query and appending a manual suffix. */
     style?: StyleApi | null
     suffix?: string | null
 }
