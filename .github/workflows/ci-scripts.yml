@@ -62,3 +62,6 @@ jobs:
 
             - name: PR title labeler tests (Node)
               run: node --test .github/scripts/label-pr-from-title.test.js
+
+            - name: Auto-assign reviewers tests (Node)
+              run: node --test .github/scripts/assign-reviewers.test.js
