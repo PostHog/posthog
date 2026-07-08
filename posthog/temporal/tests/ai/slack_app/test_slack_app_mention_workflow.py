@@ -16,6 +16,7 @@ from posthog.temporal.ai.slack_app.types import (
     PostHogCodeRepoCascadeOutcome,
     PostHogCodeSlackMentionWorkflowInputs,
     SlackAppMentionWorkflowInputs,
+    SlackAppMessageReactionInput,
     SlackRepoSelectionOutcome,
 )
 
@@ -40,6 +41,10 @@ class _Recorder:
     def __init__(self) -> None:
         # (ts, repository) per create-task call, in execution order.
         self.created: list[tuple[str, str | None]] = []
+        # ts per hourglass reaction (message queued behind another), in execution order.
+        self.queued_marked: list[str] = []
+        # ts per hourglass->eyes reaction swap, in execution order.
+        self.processing_marked: list[str] = []
         # ts per forwarded followup, in execution order.
         self.forwarded: list[str] = []
         # ts -> forward result; missing means False (no existing task, fall through to new-task path).
@@ -190,7 +195,17 @@ def _fake_activities(rec: _Recorder) -> list:
     ) -> int | None:
         return 42
 
+    @activity.defn(name="mark_slack_app_message_processing_activity")
+    async def mark_processing(input: SlackAppMessageReactionInput) -> None:
+        rec.processing_marked.append(input.message_ts)
+
+    @activity.defn(name="mark_slack_app_message_queued_activity")
+    async def mark_queued(input: SlackAppMessageReactionInput) -> None:
+        rec.queued_marked.append(input.message_ts)
+
     return [
+        mark_processing,
+        mark_queued,
         quota,
         classify_followup,
         forward,
@@ -277,6 +292,11 @@ async def test_queued_messages_process_serially_in_arrival_order():
         await asyncio.wait_for(handle.result(), timeout=30)
 
     assert rec.created == [("1.1", "org/auto-repo"), ("1.2", "org/auto-repo"), ("1.3", "org/auto-repo")]
+    # Only the messages that waited behind another get the hourglass; the
+    # first one went straight to processing.
+    assert rec.queued_marked == ["1.2", "1.3"]
+    # Every mention gets eyes as it leaves the queue.
+    assert rec.processing_marked == ["1.1", "1.2", "1.3"]
 
 
 @pytest.mark.asyncio
@@ -315,7 +335,7 @@ async def test_duplicate_slack_event_id_is_processed_once():
 
 
 @pytest.mark.asyncio
-async def test_untagged_followup_forwards_without_task_creation():
+async def test_untagged_followup_forwards_without_task_creation_or_reactions():
     rec = _Recorder()
     rec.forward_results["1.1"] = True
 
@@ -325,6 +345,9 @@ async def test_untagged_followup_forwards_without_task_creation():
 
     assert rec.forwarded == ["1.1"]
     assert rec.created == []
+    # Untagged followups were never addressed to the bot: no reactions.
+    assert rec.queued_marked == []
+    assert rec.processing_marked == []
 
 
 @pytest.mark.asyncio
@@ -342,6 +365,9 @@ async def test_idle_exit_then_signal_with_start_processes_in_fresh_run():
         assert handle_two.result_run_id != handle.result_run_id
 
     assert rec.created == [("1.1", "org/auto-repo"), ("2.1", "org/auto-repo")]
+    # Both messages opened their own idle conversation and processed
+    # immediately — neither ever waited, so neither got the hourglass.
+    assert rec.queued_marked == []
 
 
 @pytest.mark.asyncio

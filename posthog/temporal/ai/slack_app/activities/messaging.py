@@ -4,7 +4,11 @@ from typing import TYPE_CHECKING, Any
 import structlog
 from temporalio import activity
 
-from posthog.temporal.ai.slack_app.types import PostHogCodeSlackMentionWorkflowInputs, coerce_mention_workflow_inputs
+from posthog.temporal.ai.slack_app.types import (
+    PostHogCodeSlackMentionWorkflowInputs,
+    SlackAppMessageReactionInput,
+    coerce_mention_workflow_inputs,
+)
 from posthog.temporal.common.utils import close_db_connections
 
 if TYPE_CHECKING:
@@ -428,3 +432,64 @@ def post_posthog_code_internal_error_activity(
         thread_ts=thread_ts,
         text="Sorry, I hit an internal error while processing that request. Please try again.",
     )
+
+
+@activity.defn
+@close_db_connections
+def mark_slack_app_message_processing_activity(input: SlackAppMessageReactionInput) -> None:
+    """Swap the queued :hourglass: reaction for :eyes: when the conversation
+    queue starts processing a message.
+
+    Purely cosmetic UX feedback: never raises, so a Slack hiccup can't stall
+    the conversation queue behind retries of a reaction.
+    """
+    from posthog.models.integration import Integration, SlackIntegration
+    from posthog.temporal.ai.slack_app.helpers import swap_reaction
+    from posthog.temporal.ai.slack_app.types import SLACK_APP_PROCESSING_REACTION, SLACK_APP_QUEUED_REACTION
+
+    try:
+        integration = Integration.objects.get(
+            id=input.integration_id,
+            kind="slack",
+            integration_id=input.slack_team_id,
+        )
+        slack = SlackIntegration(integration)
+        swap_reaction(
+            slack.client, input.channel, input.message_ts, SLACK_APP_QUEUED_REACTION, SLACK_APP_PROCESSING_REACTION
+        )
+    except Exception as e:
+        logger.warning(
+            "slack_app_processing_reaction_failed",
+            channel=input.channel,
+            message_ts=input.message_ts,
+            error=str(e),
+        )
+
+
+@activity.defn
+@close_db_connections
+def mark_slack_app_message_queued_activity(input: SlackAppMessageReactionInput) -> None:
+    """React :hourglass: on a message that entered the conversation queue
+    behind another message. Messages processed immediately never get it.
+
+    Best-effort like the processing swap above: never raises.
+    """
+    from posthog.models.integration import Integration, SlackIntegration
+    from posthog.temporal.ai.slack_app.helpers import safe_react
+    from posthog.temporal.ai.slack_app.types import SLACK_APP_QUEUED_REACTION
+
+    try:
+        integration = Integration.objects.get(
+            id=input.integration_id,
+            kind="slack",
+            integration_id=input.slack_team_id,
+        )
+        slack = SlackIntegration(integration)
+        safe_react(slack.client, input.channel, input.message_ts, SLACK_APP_QUEUED_REACTION)
+    except Exception as e:
+        logger.warning(
+            "slack_app_queued_reaction_failed",
+            channel=input.channel,
+            message_ts=input.message_ts,
+            error=str(e),
+        )

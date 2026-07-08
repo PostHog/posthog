@@ -1,15 +1,25 @@
 # Workflows in this module run on the max-ai temporal task queue.
 import json
 from datetime import timedelta
+from typing import Any
 
-from temporalio import workflow
+from temporalio import exceptions, workflow
+from temporalio.common import RetryPolicy
 
-from posthog.temporal.ai.slack_app import derive_mention_workflow_id
+from posthog.temporal.ai.slack_app import (
+    derive_mention_workflow_id,
+    mark_slack_app_message_processing_activity,
+    mark_slack_app_message_queued_activity,
+)
 from posthog.temporal.ai.slack_app.helpers.process_mention_message import (
     MentionSignalHandlersMixin,
     process_mention_message,
 )
-from posthog.temporal.ai.slack_app.types import PostHogCodeSlackMentionWorkflowInputs, SlackAppMentionWorkflowInputs
+from posthog.temporal.ai.slack_app.types import (
+    PostHogCodeSlackMentionWorkflowInputs,
+    SlackAppMentionWorkflowInputs,
+    SlackAppMessageReactionInput,
+)
 from posthog.temporal.common.base import PostHogWorkflow
 
 SLACK_APP_MENTION_IDLE_TIMEOUT_SECONDS = 30
@@ -59,6 +69,7 @@ class SlackAppMentionWorkflow(MentionSignalHandlersMixin, PostHogWorkflow):
     def __init__(self) -> None:
         super().__init__()
         self._queue: list[PostHogCodeSlackMentionWorkflowInputs] = []
+        self._processing = False
         # Dedup for Slack event redeliveries: signals have no server-side
         # dedup the way per-message workflow IDs did. A dict, not a set, so
         # iteration order stays deterministic for the continue_as_new carry-over.
@@ -72,7 +83,11 @@ class SlackAppMentionWorkflow(MentionSignalHandlersMixin, PostHogWorkflow):
         if key in self._seen_keys:
             return
         self._seen_keys[key] = None
+        # Only a message that waits behind another gets the queued reaction.
+        will_wait = self._processing or bool(self._queue)
         self._queue.append(message)
+        if will_wait:
+            await self._react(message, mark_slack_app_message_queued_activity)
 
     @staticmethod
     def parse_inputs(inputs: list[str]) -> SlackAppMentionWorkflowInputs:
@@ -81,6 +96,32 @@ class SlackAppMentionWorkflow(MentionSignalHandlersMixin, PostHogWorkflow):
             PostHogCodeSlackMentionWorkflowInputs(**message) for message in loaded.get("pending_messages", [])
         ]
         return SlackAppMentionWorkflowInputs(**loaded)
+
+    async def _react(self, message: PostHogCodeSlackMentionWorkflowInputs, reaction_activity: Any) -> None:
+        """Run one of the reaction activities for a mention or DM. Untagged
+        thread followups get no reactions — they were never addressed to the
+        bot, and most are dropped by the chitchat classifier.
+        """
+        channel = message.event.get("channel")
+        message_ts = message.event.get("ts")
+        if message.untagged_followup or not channel or not message_ts:
+            return
+        try:
+            await workflow.execute_activity(
+                reaction_activity,
+                SlackAppMessageReactionInput(
+                    integration_id=message.integration_id,
+                    slack_team_id=message.slack_team_id,
+                    channel=channel,
+                    message_ts=message_ts,
+                ),
+                start_to_close_timeout=timedelta(seconds=10),
+                retry_policy=RetryPolicy(maximum_attempts=1),
+            )
+        except exceptions.ActivityError:
+            # The activity swallows Slack errors itself; this only fires on a
+            # timeout. Cosmetic either way — never stall the queue for it.
+            workflow.logger.warning("slack_app_reaction_activity_failed")
 
     @workflow.run
     async def run(self, inputs: SlackAppMentionWorkflowInputs) -> None:
@@ -110,9 +151,12 @@ class SlackAppMentionWorkflow(MentionSignalHandlersMixin, PostHogWorkflow):
 
             message = self._queue.pop(0)
             self._signals.reset()
+            self._processing = True
+            await self._react(message, mark_slack_app_message_processing_activity)
             # Never raises: internal errors are posted back to the thread, so
             # one poisoned message can't wedge the conversation's queue.
             await process_mention_message(message, self._signals)
+            self._processing = False
 
             # A long-lived conversation would eventually hit Temporal's history
             # cap, so restart the run with fresh history, carrying over the
