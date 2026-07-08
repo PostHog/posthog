@@ -262,6 +262,7 @@ the row lists both.
 | pagerduty               | HTTP                        | requests                                                        | ✅                          |
 | pandadoc                | HTTP                        | requests                                                        | ✅                          |
 | papersign               | HTTP                        | requests                                                        | ✅                          |
+| partnerize              | HTTP                        | requests                                                        | ✅                          |
 | partnerstack            | HTTP                        | requests                                                        | ✅                          |
 | paystack                | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
 | pendo                   | HTTP                        | requests                                                        | ✅                          |
@@ -589,7 +590,6 @@ doesn't conflict with concurrent PRs.
 - pagerduty
 - paperform
 - pardot
-- partnerize
 - payfit
 - paylocity
 - paypal
