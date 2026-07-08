@@ -120,6 +120,40 @@ def _is_truncated_stripe_list_response(body: Any) -> bool:
     return b'"object": "list"' in head or b'"object":"list"' in head
 
 
+def _is_non_list_stripe_response(body: Any) -> bool:
+    """True when ``body`` is a *complete* JSON object that is not a Stripe ``list``.
+
+    Every bulk read we make is an idempotent ``.list()`` call, whose body is always
+    ``{"object": "list", ...}``. A 2xx whose body parses cleanly but omits that marker is a
+    corrupted/misrouted response (e.g. a proxy returning a different object). Stripe's SDK doesn't
+    validate the shape — it builds a plain ``StripeObject`` and ``auto_paging_iter`` then blows up
+    on the missing ``is_empty`` property (``KeyError: 'is_empty'``) straight out of ``get_rows``,
+    failing the whole import instead of surfacing a retryable error.
+
+    Distinct from ``_is_truncated_stripe_list_response`` (an unclosed list body): here the object
+    is closed, so we require a trailing ``}``. Callers must gate this on GET requests so a
+    single-object write response is never mistaken for a corrupt list read.
+    """
+    if isinstance(body, str):
+        raw: bytes = body.encode("utf-8", "ignore")
+    elif isinstance(body, bytes):
+        raw = body
+    else:
+        return False
+    start = 0
+    end = len(raw) - 1
+    while start <= end and raw[start] in _JSON_WHITESPACE:
+        start += 1
+    while end >= start and raw[end] in _JSON_WHITESPACE:
+        end -= 1
+    # A complete JSON object opens with `{` and closes with `}`; anything else is a truncation
+    # (handled above) or a non-object body (which fails JSON decode in the SDK, not here).
+    if start > end or raw[start] != _OPEN_BRACE or raw[end] != _CLOSE_BRACE:
+        return False
+    head = raw[start : start + 64]
+    return b'"object": "list"' not in head and b'"object":"list"' not in head
+
+
 class _RateLimitRetryingRequestsClient(RequestsClient):
     """Stripe's SDK retries 409/5xx (and whatever ``Stripe-Should-Retry`` advises) but never
     retries 429s on its own — ``_should_retry`` excludes them. A rate limit during a large sync,
@@ -129,10 +163,25 @@ class _RateLimitRetryingRequestsClient(RequestsClient):
     Opt 429 into the SDK's existing ``Retry-After``-aware exponential backoff so transient rate
     limits are absorbed in-process (bounded by ``max_network_retries``) instead of crashing the
     run. We also retry a connection reset that drops the response mid-body (the SDK declines it,
-    see ``_is_retryable_connection_reset``) and a 2xx whose list body was truncated mid-stream —
-    Stripe surfaces the latter as a JSON decode failure (``Invalid response body from API``) only
-    after the SDK's retry loop, too late for it to recover on its own. Our Stripe reads are
+    see ``_is_retryable_connection_reset``), a 2xx whose list body was truncated mid-stream (Stripe
+    surfaces the latter as a JSON decode failure only after the SDK's retry loop), and a 2xx GET
+    whose body parses cleanly but isn't a Stripe list — the SDK builds a plain ``StripeObject`` and
+    ``auto_paging_iter`` then crashes on the missing ``is_empty`` property. Our Stripe reads are
     list/GET calls, so retrying them is idempotent."""
+
+    # Records the method of the in-flight request so `_should_retry` (whose signature omits it) can
+    # scope the non-list-body retry to reads, never a single-object write response.
+    _last_request_method: str = ""
+
+    def request(
+        self,
+        method: str,
+        url: str,
+        headers: Optional[Mapping[str, str]],
+        post_data: Any = None,
+    ) -> tuple[bytes, int, Mapping[str, str]]:
+        self._last_request_method = (method or "").lower()
+        return super().request(method, url, headers, post_data)
 
     def _should_retry(
         self,
@@ -144,9 +193,10 @@ class _RateLimitRetryingRequestsClient(RequestsClient):
         if super()._should_retry(response, api_connection_error, num_retries, max_network_retries):
             return True
         # The base logic already enforced the retry budget and declined; the cases it leaves on the
-        # table are a 429 (the SDK omits it), a 2xx with a truncated list body (the SDK only fails
-        # on it later, while parsing), and a connection reset that drops the response mid-body —
-        # all safe to retry on our idempotent list/GET calls.
+        # table are a 429 (the SDK omits it), a 2xx with a truncated or non-list body (the SDK only
+        # fails on either later — while parsing, or on `.is_empty` during pagination), and a
+        # connection reset that drops the response mid-body — all safe to retry on our idempotent
+        # list/GET calls.
         if num_retries >= (max_network_retries or 0):
             return False
         if response is None:
@@ -154,7 +204,13 @@ class _RateLimitRetryingRequestsClient(RequestsClient):
         body, status_code, _ = response
         if status_code == 429:
             return True
-        return 200 <= status_code < 300 and _is_truncated_stripe_list_response(body)
+        if not (200 <= status_code < 300):
+            return False
+        if _is_truncated_stripe_list_response(body):
+            return True
+        # A complete but non-list body identifies a corrupt list read only for a GET — a write
+        # (webhook create/update/delete) legitimately returns a single object, so gate on method.
+        return self._last_request_method == "get" and _is_non_list_stripe_response(body)
 
 
 def _tracked_stripe_http_client() -> RequestsClient:

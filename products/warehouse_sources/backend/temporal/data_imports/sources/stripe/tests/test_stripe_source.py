@@ -28,6 +28,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.stripe.str
     StripeResource,
     _all_known_webhook_events,
     _coerce_incremental_cursor,
+    _is_non_list_stripe_response,
     _is_truncated_stripe_list_response,
     _RateLimitRetryingRequestsClient,
     get_rows,
@@ -45,6 +46,9 @@ _TRUNCATED_WEBHOOK_BODY = b'{\n  "object": "webhook_endpoint",\n  "id": "we_1",\
 _TRUNCATED_NON_LIST_WITH_LIST_TOKEN = (
     b'{\n  "object": "event",\n  "type": "list.updated",\n  "data": {\n    "id": "evt_1'
 )
+# A complete 2xx body returned where a list read expected `{"object": "list", ...}` — the SDK
+# builds a plain StripeObject and auto_paging_iter crashes on the missing `is_empty` property.
+_COMPLETE_NON_LIST_BODY = b'{\n  "object": "customer",\n  "id": "cus_1"\n}'
 
 
 def _list_object(items):
@@ -258,6 +262,45 @@ class TestStripeSource:
     def test_rate_limit_client_should_retry(self, response, num_retries, expected):
         client = _RateLimitRetryingRequestsClient()
         assert client._should_retry(response, None, num_retries=num_retries, max_network_retries=2) is expected
+
+    @pytest.mark.parametrize(
+        "body,expected",
+        [
+            (_COMPLETE_NON_LIST_BODY, True),
+            (_COMPLETE_NON_LIST_BODY.decode(), True),  # str bodies behave the same as bytes
+            (b"{}", True),  # a bare object with no marker is still not a list
+            (_COMPLETE_LIST_BODY, False),  # a genuine list carries "object": "list"
+            (_TRUNCATED_LIST_BODY, False),  # unclosed — handled by the truncation check instead
+            (_TRUNCATED_WEBHOOK_BODY, False),  # unclosed single object, not a complete body
+            (b"", False),
+            (None, False),
+        ],
+    )
+    def test_is_non_list_stripe_response(self, body, expected):
+        assert _is_non_list_stripe_response(body) is expected
+
+    @pytest.mark.parametrize(
+        "method,num_retries,expected",
+        [
+            # A GET (list read) that returns a complete non-list body is retried while budget remains.
+            ("get", 0, True),
+            # ...but not once the network-retry budget is exhausted.
+            ("get", 2, False),
+            # A write's single-object response must never be retried on shape alone.
+            ("post", 0, False),
+        ],
+    )
+    def test_rate_limit_client_retries_non_list_read_only_for_gets(self, method, num_retries, expected):
+        client = _RateLimitRetryingRequestsClient()
+        client._last_request_method = method
+        response = (_COMPLETE_NON_LIST_BODY, 200, {})
+        assert client._should_retry(response, None, num_retries=num_retries, max_network_retries=2) is expected
+
+    def test_request_records_method_for_scoping(self):
+        client = _RateLimitRetryingRequestsClient()
+        with patch.object(stripe_lib.RequestsClient, "request", return_value=(b"{}", 200, {})):
+            client.request("GET", "https://api.stripe.com/v1/customers", {})
+        assert client._last_request_method == "get"
 
 
 def _run_nested_get_rows(nested_method, parent_objects=None, parent_has_nested=None):
