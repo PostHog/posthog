@@ -387,8 +387,7 @@ _RUN_REASON_LABELS = {
 class RunObservationSerializer(serializers.Serializer):
     """One recording an action run included in its summary — the 'recordings included' list on the run detail view."""
 
-    index = serializers.IntegerField(
-        read_only=True,
+    index = serializers.SerializerMethodField(
         help_text=(
             "1-based position of this observation in the summary, stable across deletions. The synthesized "
             "report cites observations by this number (e.g. `[obs 3]`), so consumers use it to resolve a "
@@ -415,6 +414,12 @@ class RunObservationSerializer(serializers.Serializer):
         read_only=True,
         help_text="When the observation was produced.",
     )
+
+    @extend_schema_field(serializers.IntegerField())
+    def get_index(self, obs: ReplayObservation) -> int:
+        # Position is supplied by the parent (`get_observations`) via context, keyed by observation id — it
+        # depends on the run's `observation_ids` order, which a single observation can't know on its own.
+        return int(self.context["observation_index_by_id"][str(obs.id)])
 
     @extend_schema_field(serializers.CharField(allow_null=True))
     def get_title(self, obs: ReplayObservation) -> str | None:
@@ -502,15 +507,18 @@ class VisionActionRunSerializer(VisionActionRunListSerializer):
         # in the stored list can never resolve — ReplayObservation isn't fail-closed.
         by_id = {str(o.id): o for o in ReplayObservation.objects.filter(team_id=run.team_id, id__in=ids)}
         # Number by original position in `observation_ids` (what the summary's `[obs N]` markers reference),
-        # then drop any deleted ones — so a deletion leaves a gap rather than renumbering the survivors.
+        # then drop any deleted ones — so a deletion leaves a gap rather than renumbering the survivors. The
+        # position rides to the serializer via context (keyed by id) rather than a transient attr on the model.
         ordered = []
+        index_by_id: dict[str, int] = {}
         for position, i in enumerate(ids, start=1):
             obs = by_id.get(i)
             if obs is None:
                 continue
-            obs.index = position
+            index_by_id[str(obs.id)] = position
             ordered.append(obs)
-        return cast(list[dict[str, Any]], RunObservationSerializer(ordered, many=True, context=self.context).data)
+        context = {**self.context, "observation_index_by_id": index_by_id}
+        return cast(list[dict[str, Any]], RunObservationSerializer(ordered, many=True, context=context).data)
 
 
 class VisionActionRunViewSet(
