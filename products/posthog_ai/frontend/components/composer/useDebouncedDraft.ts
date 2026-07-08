@@ -19,11 +19,7 @@ export interface DebouncedDraft {
  * flushed synchronously before submit so the send never races the debounce, and any pending draft is flushed
  * on unmount. Mirrors the fix in `scenes/max/components/QuestionInput.tsx` for the same problem.
  */
-export function useDebouncedDraft(
-    externalValue: string,
-    sync: (value: string) => void,
-    delayMs = 150
-): DebouncedDraft {
+export function useDebouncedDraft(externalValue: string, sync: (value: string) => void, delayMs = 150): DebouncedDraft {
     const [value, setValue] = useState(externalValue)
     const debouncedSync = useDebouncedCallback(sync, delayMs)
 
