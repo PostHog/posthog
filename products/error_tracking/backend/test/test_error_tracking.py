@@ -1,5 +1,5 @@
 from concurrent.futures import ThreadPoolExecutor
-from datetime import datetime, timedelta
+from datetime import UTC, datetime, timedelta
 from threading import Barrier
 from uuid import UUID
 
@@ -273,6 +273,48 @@ class TestErrorTracking(ErrorTrackingIssueTestMixin, BaseTest):
 
         issue = ErrorTrackingIssue.objects.with_first_seen().get(id=issue.id)
         assert issue.first_seen == fingerprint.first_seen
+
+    def test_list_issues_created_since_filters_and_orders(self):
+        from products.error_tracking.backend.facade import api
+
+        with freeze_time("2020-01-01T00:00:00Z"):
+            ErrorTrackingIssue.objects.create(team=self.team, name="old")
+        with freeze_time("2026-01-02T00:00:00Z"):
+            recent_a = ErrorTrackingIssue.objects.create(team=self.team, name="a")
+        with freeze_time("2026-01-03T00:00:00Z"):
+            recent_b = ErrorTrackingIssue.objects.create(team=self.team, name="b")
+
+        previews = api.list_issues_created_since(team_id=self.team.id, since=datetime(2026, 1, 1, tzinfo=UTC), limit=10)
+
+        # newest first, the 2020 issue excluded
+        assert [p.id for p in previews] == [recent_b.id, recent_a.id]
+
+    def test_list_issues_created_since_respects_limit(self):
+        from products.error_tracking.backend.facade import api
+
+        with freeze_time("2026-01-02T00:00:00Z"):
+            for index in range(3):
+                ErrorTrackingIssue.objects.create(team=self.team, name=f"issue_{index}")
+
+        previews = api.list_issues_created_since(team_id=self.team.id, since=datetime(2026, 1, 1, tzinfo=UTC), limit=2)
+        assert len(previews) == 2
+
+    def test_list_first_fingerprints_returns_earliest_per_issue(self):
+        from products.error_tracking.backend.facade import api
+
+        with freeze_time("2026-01-02T00:00:00Z"):
+            issue_one = self.create_issue(["fp_one_later"])
+        with freeze_time("2026-01-01T00:00:00Z"):
+            ErrorTrackingIssueFingerprintV2.objects.create(team=self.team, issue=issue_one, fingerprint="fp_one_early")
+        issue_two = self.create_issue(["fp_two"])
+        self.create_issue(["fp_other"])
+
+        fingerprints = api.list_first_fingerprints(team_id=self.team.id, issue_ids=[issue_one.id, issue_two.id])
+
+        assert {f.issue_id: f.fingerprint for f in fingerprints} == {
+            issue_one.id: "fp_one_early",
+            issue_two.id: "fp_two",
+        }
 
     def test_symbol_set_delete_calls_object_storage_delete(self):
         # Create a symbol set with a storage pointer
