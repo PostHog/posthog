@@ -70,6 +70,7 @@ export const SqlLineGraph = (props: LineGraphProps): JSX.Element => {
                     labels={model.labels}
                     theme={model.theme}
                     config={model.config}
+                    dataAttr="sql-line-graph"
                     tooltip={onPointClickProp ? renderTooltip : undefined}
                     onPointClick={onPointClickProp ? onPointClick : undefined}
                     onError={handleChartError}

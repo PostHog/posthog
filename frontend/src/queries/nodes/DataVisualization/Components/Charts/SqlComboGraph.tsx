@@ -33,6 +33,7 @@ export const SqlComboGraph = (props: LineGraphProps): JSX.Element => {
                     labels={model.labels}
                     theme={model.theme}
                     config={model.config}
+                    dataAttr="sql-combo-graph"
                     onError={handleChartError}
                 />
             )}
