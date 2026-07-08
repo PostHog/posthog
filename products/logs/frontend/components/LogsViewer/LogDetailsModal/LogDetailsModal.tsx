@@ -7,11 +7,10 @@ import { JSONViewer } from 'lib/components/JSONViewer'
 import { TZLabel } from 'lib/components/TZLabel'
 import ViewRecordingButton, { RecordingPlayerType } from 'lib/components/ViewRecordingButton/ViewRecordingButton'
 import { IconLink } from 'lib/lemon-ui/icons'
-import { copyToClipboard } from 'lib/utils/copyToClipboard'
 
 import { PropertyFilterType, PropertyOperator } from '~/types'
 
-import { CopyLogButton } from 'products/logs/frontend/components/LogsViewer/CopyLogButton'
+import { CopyLogButton, copyLogRaw } from 'products/logs/frontend/components/LogsViewer/CopyLogButton'
 import { LogContextSelector } from 'products/logs/frontend/components/LogsViewer/LogContextSelector/LogContextSelector'
 import { LogDetailsTabContent } from 'products/logs/frontend/components/LogsViewer/LogDetailsModal/Tabs/Details/LogDetailsTab'
 
@@ -172,12 +171,7 @@ export function LogDetailsModal({ timezone }: LogDetailsModalProps): JSX.Element
                                                 size="xsmall"
                                                 type="secondary"
                                                 icon={<IconCopy />}
-                                                onClick={() =>
-                                                    void copyToClipboard(
-                                                        JSON.stringify(displayData, null, 2),
-                                                        'raw log'
-                                                    )
-                                                }
+                                                onClick={() => copyLogRaw(selectedLog)}
                                                 data-attr="logs-viewer-copy-raw"
                                             >
                                                 Copy raw

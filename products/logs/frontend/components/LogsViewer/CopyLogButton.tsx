@@ -12,7 +12,7 @@ import { copyToClipboard } from 'lib/utils/copyToClipboard'
 
 import { ParsedLogMessage } from 'products/logs/frontend/types'
 
-function copyLogRaw(log: ParsedLogMessage): void {
+export function copyLogRaw(log: ParsedLogMessage): void {
     void copyToClipboard(JSON.stringify(log.originalLog, null, 2), 'raw log')
 }
 
@@ -39,7 +39,7 @@ export function CopyLogButton({ log, size = 'xsmall', noPadding, className }: Co
                     tooltip="Copy log"
                     aria-label="Copy log"
                     className={className}
-                    data-attr="logs-viewer-copy-message"
+                    data-attr="logs-viewer-copy-menu-open"
                 />
             </DropdownMenuTrigger>
             <DropdownMenuContent align="end">
