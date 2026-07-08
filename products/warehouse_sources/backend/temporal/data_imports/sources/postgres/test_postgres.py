@@ -18,6 +18,7 @@ from django.db import (
 import psycopg
 import pyarrow as pa
 import structlog
+from parameterized import parameterized
 from psycopg import sql
 
 import products.warehouse_sources.backend.temporal.data_imports.sources.postgres.partitioned_tables as partitioned_tables_pkg
@@ -33,6 +34,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.sql
     ValidatedRowFilter,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.postgres.exceptions import (
+    ForeignServerUnreachableError,
     PostHogDatabaseConnectionError,
     XminUnsupportedError,
 )
@@ -283,6 +285,58 @@ class TestPostgresSourceMetadataConnectionErrors:
         error_msg = str(exc_info.value)
         is_non_retryable = any(pattern in error_msg for pattern in non_retryable.keys())
         assert not is_non_retryable, f"A PostHog-side DB connection failure must stay retryable: {error_msg}"
+
+
+class TestPostgresSourceForeignServerConnectionError:
+    def test_foreign_server_connection_failure_stays_retryable(self):
+        # A setup query touched a postgres_fdw foreign table and the foreign server it points at
+        # refused the connection (SQLSTATE 08001). libpq embeds "... Connection refused" verbatim,
+        # which would collide with the connect-time "Connection refused" non-retryable rule meant for
+        # the direct connection — so a transient foreign-server outage must be re-raised clear of that
+        # substring to stay retryable instead of disabling a healthy sync.
+        source = PostgresSource()
+        schema_model = mock.MagicMock()
+        schema_model.is_cdc = False
+        schema_model.cdc_mode = None
+        schema_model.schema_metadata = {"source_schema": "public", "source_table_name": "orders"}
+        schema_model.initial_sync_complete = True
+
+        inputs = mock.MagicMock(
+            schema_id="00000000-0000-0000-0000-000000000000",
+            schema_name="orders",
+            team_id=1,
+        )
+        config = mock.MagicMock(user="u", password="p", database="db", schema="public")
+
+        fdw_error = psycopg.errors.SqlclientUnableToEstablishSqlconnection(
+            'could not connect to server "some_fdw_server"\n'
+            'DETAIL:  connection to server at "10.0.0.5", port 5432 failed: Connection refused\n'
+            "\tIs the server running on that host and accepting TCP/IP connections?"
+        )
+
+        with (
+            mock.patch(
+                "products.warehouse_sources.backend.models.external_data_schema.ExternalDataSchema.objects"
+            ) as objects_mock,
+            mock.patch(
+                "products.warehouse_sources.backend.temporal.data_imports.sources.postgres.source.postgres_source",
+                side_effect=fdw_error,
+            ),
+            mock.patch(
+                "products.warehouse_sources.backend.temporal.data_imports.sources.postgres.source.source_requires_ssl",
+                return_value=False,
+            ),
+            mock.patch.object(source, "make_ssh_tunnel_func", return_value=lambda: None),
+        ):
+            objects_mock.select_related.return_value.get.return_value = schema_model
+            with pytest.raises(ForeignServerUnreachableError) as exc_info:
+                source.source_for_pipeline(config, inputs)
+
+        error_msg = str(exc_info.value)
+        non_retryable = source.get_non_retryable_errors()
+        is_non_retryable = any(pattern in error_msg for pattern in non_retryable.keys())
+        assert not is_non_retryable, f"A foreign-server connection failure must stay retryable: {error_msg}"
+        assert "Connection refused" not in error_msg
 
 
 class TestPostgresSourceNonRetryableErrors:
@@ -1232,6 +1286,13 @@ class TestIsConnectionLimitError:
             psycopg.OperationalError(
                 'connection failed: connection to server at "10.0.0.1", port 5432 failed: '
                 "FATAL:  (EMAXCONNSESSION) max clients reached in session mode - max clients are limited to pool_size: 15"
+            ),
+            # A pooler (PgBouncer-style) that caches an upstream login failure reveals the limit on
+            # the first query as a ProtocolViolation, not an OperationalError — it must still be
+            # recognised so the discovery retry recovers instead of surfacing it as captured noise.
+            psycopg.errors.ProtocolViolation(
+                "server login has been failing, cached error: remaining connection slots are "
+                "reserved for roles with the SUPERUSER attribute (server_login_retry)"
             ),
         ],
     )
@@ -2857,6 +2918,82 @@ class TestPostgresSchemaDiscovery:
         assert connect_mock.call_count == 2
         assert set(schemas.keys()) == {"public.users"}
         dropped_connection.close.assert_called_once()
+        good_connection.close.assert_called_once()
+
+    def test_get_schemas_retries_pooler_connection_limit_on_discovery_query(self):
+        # A pooler can accept the connect and then reveal, on the first discovery query, that the
+        # customer database is out of connection slots — caching the upstream login failure as a
+        # ProtocolViolation ("server login has been failing, cached error: remaining connection slots
+        # are reserved ..."). It's a transient capacity condition (a slot frees as connections close),
+        # so discovery must retry on a fresh connection. Before the fix the SET-timeout `except` rolled
+        # the refused connection back — raising a misleading "the connection is lost" — and the
+        # discovery retry didn't cover connection-limit refusals, so it surfaced as captured noise.
+        refusal = psycopg.errors.ProtocolViolation(
+            "server login has been failing, cached error: remaining connection slots are reserved "
+            "for roles with the SUPERUSER attribute (server_login_retry)"
+        )
+        refused_connection = self._drop_on_execute_connection(refusal)
+        good_connection = self._mock_connection(
+            [("public", "users")],
+            [("public", "users", "id", "integer", "NO", 1)],
+        )
+
+        with mock.patch(
+            "products.warehouse_sources.backend.temporal.data_imports.sources.postgres.postgres.psycopg.connect",
+            side_effect=[refused_connection, good_connection],
+        ) as connect_mock:
+            with mock.patch(
+                "products.warehouse_sources.backend.temporal.data_imports.sources.postgres.postgres.time.sleep"
+            ):
+                schemas = get_schemas(
+                    host="localhost",
+                    port=5432,
+                    database="postgres",
+                    user="postgres",
+                    password="postgres",
+                    schema="",
+                )
+
+        assert connect_mock.call_count == 2
+        assert set(schemas.keys()) == {"public.users"}
+        refused_connection.close.assert_called_once()
+        good_connection.close.assert_called_once()
+        # The refused connection was never rolled back — that's what masked the real cause before.
+        refused_connection.rollback.assert_not_called()
+
+    def test_get_schemas_retries_connection_limit_refused_on_connect(self):
+        # The customer database can refuse the discovery connect outright once it's out of slots
+        # ("remaining connection slots are reserved for roles with the SUPERUSER attribute"). It's the
+        # same transient capacity class as a dropped connection, so discovery must retry on a fresh
+        # connect rather than fail the activity on the first blip — before the fix the discovery retry
+        # only covered drops, so a connection-limit refusal escaped on the first attempt.
+        refusal = psycopg.OperationalError(
+            'connection failed: connection to server at "10.0.0.1", port 5432 failed: '
+            "FATAL:  remaining connection slots are reserved for roles with the SUPERUSER attribute"
+        )
+        good_connection = self._mock_connection(
+            [("public", "users")],
+            [("public", "users", "id", "integer", "NO", 1)],
+        )
+
+        with mock.patch(
+            "products.warehouse_sources.backend.temporal.data_imports.sources.postgres.postgres.psycopg.connect",
+            side_effect=[refusal, good_connection],
+        ) as connect_mock:
+            with mock.patch(
+                "products.warehouse_sources.backend.temporal.data_imports.sources.postgres.postgres.time.sleep"
+            ):
+                schemas = get_schemas(
+                    host="localhost",
+                    port=5432,
+                    database="postgres",
+                    user="postgres",
+                    password="postgres",
+                    schema="",
+                )
+
+        assert connect_mock.call_count == 2
+        assert set(schemas.keys()) == {"public.users"}
         good_connection.close.assert_called_once()
 
     def test_get_schemas_does_not_retry_non_drop_error_during_discovery_query(self):
@@ -4908,21 +5045,39 @@ class TestHasDuplicatePrimaryKeys:
             result = _has_duplicate_primary_keys(cast(Any, dj_cursor), "public", "test_dup_table", ["id"], logger)
             assert result is True
 
-    def test_reraises_connection_errors_without_capturing(self):
+    @parameterized.expand(
+        [
+            # postgres_fdw surfaces a saturated foreign server while executing the probe query: the
+            # remote connection couldn't be established, so the probe never ran. Transient, stays
+            # retryable — re-raised as its OperationalError base.
+            (
+                "connection_error",
+                psycopg.errors.SqlclientUnableToEstablishSqlconnection(
+                    'could not connect to server "posthog_fdw_payment"\n'
+                    'DETAIL:  connection to server at "10.0.0.1", port 5432 failed: '
+                    'FATAL:  too many connections for role "posthog_fdw_reader"'
+                ),
+                psycopg.OperationalError,
+            ),
+            # The sync role lacks SELECT on the table (SQLSTATE 42501). Already non-retryable via
+            # get_non_retryable_errors, so the probe must propagate it rather than capture it.
+            (
+                "permission_denied",
+                psycopg.errors.InsufficientPrivilege("permission denied for table orders"),
+                psycopg.errors.InsufficientPrivilege,
+            ),
+        ]
+    )
+    def test_reraises_without_capturing(self, _name, side_effect, expected_exception):
+        # A probe failure that means the query never ran, or that is already non-retryable, must
+        # propagate — not be swallowed as "no duplicate keys" and captured as error-tracking noise.
         logger = structlog.get_logger()
         cursor = MagicMock()
-        # postgres_fdw surfaces a saturated foreign server while executing the probe query: the
-        # remote connection couldn't be established, so the probe never ran. This must propagate
-        # (transient, stays retryable), not be swallowed as "no duplicate keys" + captured as noise.
-        cursor.execute.side_effect = psycopg.errors.SqlclientUnableToEstablishSqlconnection(
-            'could not connect to server "posthog_fdw_payment"\n'
-            'DETAIL:  connection to server at "10.0.0.1", port 5432 failed: '
-            'FATAL:  too many connections for role "posthog_fdw_reader"'
-        )
+        cursor.execute.side_effect = side_effect
         with patch(
             "products.warehouse_sources.backend.temporal.data_imports.sources.postgres.postgres.capture_exception"
         ) as mock_capture:
-            with pytest.raises(psycopg.OperationalError):
+            with pytest.raises(expected_exception):
                 _has_duplicate_primary_keys(cast(Any, cursor), "public", "orders", ["id"], logger)
         mock_capture.assert_not_called()
 

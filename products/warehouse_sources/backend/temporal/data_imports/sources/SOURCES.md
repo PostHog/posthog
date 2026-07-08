@@ -230,6 +230,7 @@ the row lists both.
 | mongodb                 | DB protocol                 | pymongo                                                         | ➖                          |
 | mssql                   | DB protocol                 | pyodbc / pymssql                                                | ➖                          |
 | mux                     | HTTP                        | requests                                                        | ✅                          |
+| my_hours                | HTTP                        | requests                                                        | ✅                          |
 | mysql                   | DB protocol                 | pymysql                                                         | ➖                          |
 | n8n                     | HTTP                        | requests                                                        | ✅                          |
 | new_york_times          | HTTP                        | requests                                                        | ✅                          |
@@ -536,7 +537,6 @@ doesn't conflict with concurrent PRs.
 - miro
 - missive
 - mode
-- my_hours
 - nasa
 - navan
 - nebius_ai
