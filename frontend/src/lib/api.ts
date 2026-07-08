@@ -6184,15 +6184,18 @@ const api = {
         },
         async list({
             insightId,
+            insightIds,
             dashboardId,
             resourceType,
         }: {
             insightId?: number
+            insightIds?: number[]
             dashboardId?: number
             resourceType?: SubscriptionType['resource_type']
         }): Promise<PaginatedResponse<SubscriptionType>> {
             const params = [
                 insightId ? `insight=${insightId}` : null,
+                insightIds?.length ? `insights=${insightIds.join(',')}` : null,
                 dashboardId ? `dashboard=${dashboardId}` : null,
                 resourceType ? `resource_type=${resourceType}` : null,
             ].filter(Boolean)

@@ -733,10 +733,21 @@ class SubscriptionSerializer(serializers.ModelSerializer):
         if dashboard_export_insight_ids:
             instance.dashboard_export_insights.set(dashboard_export_insight_ids)
 
+        # The immediate confirmation delivery (TARGET_CHANGE below) is separate from the
+        # recurring schedule, which the scheduler drives off next_delivery_date. Creators
+        # can opt out of that first send via send_test_now; the schedule is unaffected.
+        raw_send_test_now = request.data.get("send_test_now", True)
+        send_test_now = (
+            raw_send_test_now.strip().lower() not in ("false", "0")
+            if isinstance(raw_send_test_now, str)
+            else bool(raw_send_test_now)
+        )
+
         # Skip the workflow trigger when the new subscription is created in a disabled
         # state — mirrors the equivalent guard in `update()`. Avoids firing a delivery
-        # for a subscription that won't fire on its schedule either.
-        if not instance.enabled:
+        # for a subscription that won't fire on its schedule either. Also skip it when the
+        # creator opted out of the immediate confirmation send.
+        if not instance.enabled or not send_test_now:
             return instance
 
         with slo_operation(
@@ -1042,6 +1053,11 @@ class SubscriptionViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.M
         for key in request_params:
             if key == "insight":
                 queryset = queryset.filter(insight_id=request_params["insight"])
+            elif key == "insights":
+                # Comma-separated insight IDs. The dashboard overview uses this to list
+                # subscriptions across a dashboard's insight tiles in a single query.
+                insight_ids = [int(i) for i in request_params["insights"].split(",") if i.strip().isdigit()]
+                queryset = queryset.filter(insight_id__in=insight_ids)
             elif key == "dashboard":
                 queryset = queryset.filter(dashboard_id=request_params["dashboard"])
             elif key == "deleted":

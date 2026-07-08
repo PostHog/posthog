@@ -17,6 +17,11 @@ export interface SubscriptionBaseProps {
     insightShortId?: InsightShortId
 }
 
+export interface SubscriptionsLogicProps extends SubscriptionBaseProps {
+    /** Numeric IDs of the insights tiled on a dashboard, used to populate the Insights tab. */
+    dashboardInsightIds?: number[]
+}
+
 export const urlForSubscriptions = ({ dashboardId, insightShortId }: SubscriptionBaseProps): string => {
     if (insightShortId) {
         return urls.insightSubcriptions(insightShortId)

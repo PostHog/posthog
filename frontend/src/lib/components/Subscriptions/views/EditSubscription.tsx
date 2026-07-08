@@ -835,6 +835,29 @@ function EditSubscriptionForm({
                                 </div>
                             </div>
                         )}
+                        {id === 'new' && subscription?.enabled !== false && (
+                            <div>
+                                <LemonField name="send_test_now">
+                                    {({ value, onChange }) => (
+                                        <LemonSwitch
+                                            checked={value !== false}
+                                            onChange={onChange}
+                                            bordered
+                                            fullWidth
+                                            label="Send a test run now"
+                                        />
+                                    )}
+                                </LemonField>
+                                <p className="text-xs text-secondary mt-1 mb-0">
+                                    On save we send this report once to the destination above, so you can confirm it
+                                    looks right. Turn this off to wait for the first scheduled delivery
+                                    {nextDeliveryDate
+                                        ? ` (${dayjs(nextDeliveryDate).format('ddd, MMM D [at] HH:mm')})`
+                                        : ''}
+                                    .
+                                </p>
+                            </div>
+                        )}
                     </>
                 )}
             </LemonModal.Content>
