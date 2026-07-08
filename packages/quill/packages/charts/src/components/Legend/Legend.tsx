@@ -1,4 +1,4 @@
-/* eslint-disable react/forbid-dom-props -- swatch background-color is dynamic per item */
+/* eslint-disable react/forbid-dom-props -- swatch color and the per-count row cap are dynamic values */
 import React from 'react'
 
 export interface LegendItem {
@@ -51,16 +51,20 @@ export function Legend({
     const layout = isVertical
         ? 'flex-col gap-1 justify-start'
         : `flex-row flex-wrap gap-x-3 gap-y-1 ${JUSTIFY_CLASS[align]}`
-    // No fixed max width — truncation is driven purely by the space actually available. Each row is bounded
-    // to the legend's width (the full column when vertical, capped at the slot when horizontal) and the label
-    // is the only shrinkable part, so a label ellipsizes only when its own row can't fit. Flexbox wraps rows
-    // before shrinking them, so a multi-item horizontal legend additionally caps each row at half the line
-    // (minus half the gap-x-3) — long labels pack at least two per line instead of one full-width row each.
-    // A lone series keeps the full line and stays unclipped whenever it fits.
-    const horizontalRowWidth = items.length > 1 ? 'inline-flex max-w-[calc(50%-0.375rem)]' : 'inline-flex max-w-full'
-    const rowWidth = isVertical ? 'flex w-full' : horizontalRowWidth
+    // Truncation is driven by the space actually available, not a fixed max width — but flexbox wraps rows
+    // before shrinking them, so a long label would take a whole line instead of clipping. Each horizontal
+    // row is therefore capped at an equal share of the line, floored at 180px: with many series the floor
+    // wins and long labels pack into tidy 180px columns; with few series and room to spare each row can use
+    // its full share, so labels show unclipped whenever they fit (a lone series gets the whole line).
+    const gapRem = (items.length - 1) * 0.75
+    const horizontalRowMax = `max(180px, calc((100% - ${gapRem}rem) / ${items.length}))`
+    const rowWidth = isVertical ? 'flex w-full' : 'inline-flex max-w-(--legend-row-max)'
     return (
-        <div className={`flex ${layout} ${className ?? ''}`} data-attr={dataAttr}>
+        <div
+            className={`flex ${layout} ${className ?? ''}`}
+            style={isVertical ? undefined : ({ '--legend-row-max': horizontalRowMax } as React.CSSProperties)}
+            data-attr={dataAttr}
+        >
             {items.map((item) => {
                 const dimmed = hidden?.has(item.key) ? ' opacity-40' : ''
                 const rowClass = `${rowWidth} min-w-0 items-center gap-1.5 text-xs leading-none${dimmed}`
