@@ -2765,7 +2765,7 @@ class RepairshoprSourceConfig(config.Config):
 
 @config.config
 class ReplyIoSourceConfig(config.Config):
-    pass
+    api_key: str
 
 
 @config.config
