@@ -53,10 +53,12 @@ export function Legend({
         : `flex-row flex-wrap gap-x-3 gap-y-1 ${JUSTIFY_CLASS[align]}`
     // No fixed max width — truncation is driven purely by the space actually available. Each row is bounded
     // to the legend's width (the full column when vertical, capped at the slot when horizontal) and the label
-    // is the only shrinkable part, so a label ellipsizes only when its own row can't fit. A short label keeps
-    // its natural width; a horizontal legend wraps rows before shrinking any of them, so a lone series stays
-    // full and rows crowd only when the wrapped line itself runs out of room.
-    const rowWidth = isVertical ? 'flex w-full' : 'inline-flex max-w-full'
+    // is the only shrinkable part, so a label ellipsizes only when its own row can't fit. Flexbox wraps rows
+    // before shrinking them, so a multi-item horizontal legend additionally caps each row at half the line
+    // (minus half the gap-x-3) — long labels pack at least two per line instead of one full-width row each.
+    // A lone series keeps the full line and stays unclipped whenever it fits.
+    const horizontalRowWidth = items.length > 1 ? 'inline-flex max-w-[calc(50%-0.375rem)]' : 'inline-flex max-w-full'
+    const rowWidth = isVertical ? 'flex w-full' : horizontalRowWidth
     return (
         <div className={`flex ${layout} ${className ?? ''}`} data-attr={dataAttr}>
             {items.map((item) => {
