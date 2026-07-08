@@ -2299,7 +2299,6 @@ export const dashboardLogic = kea<dashboardLogicType>([
         [dashboardsModel.actionTypes.updateDashboardSuccess]: ({ dashboard }) => {
             // Text/button (via updateDashboard) and widget (client-merged) tiles arrive through here.
             if (dashboard?.id === props.id) {
-                // The server response already replaced any optimistic tiles with their saved equivalents.
                 actions.applyPendingInsertion()
             }
         },
