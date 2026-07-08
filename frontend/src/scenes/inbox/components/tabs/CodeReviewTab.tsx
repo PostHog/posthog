@@ -590,25 +590,36 @@ function DrawerFindingsSkeleton(): JSX.Element {
     )
 }
 
-/** The "Published" tab: only the findings that crossed the urgency threshold onto the PR. */
+/** The "Published" tab: the findings that crossed the urgency threshold, caveated while unpublished. */
 function DrawerPublishedTab(): JSX.Element {
-    const { reviewFindingsSplit } = useValues(reviewHogSettingsLogic)
+    const { reviewFindingsSplit, reviewDetail } = useValues(reviewHogSettingsLogic)
 
     if (!reviewFindingsSplit) {
         return <DrawerFindingsSkeleton />
     }
+    const isPublished = reviewDetail?.published ?? false
     if (!reviewFindingsSplit.published.length) {
         return (
             <div className="text-sm text-secondary">
-                Nothing crossed your urgency threshold — no comments were posted to the pull request.
+                {isPublished
+                    ? 'Nothing crossed your urgency threshold — no comments were posted to the pull request.'
+                    : "Nothing crossed your urgency threshold, and this review hasn't been published to the pull request."}
             </div>
         )
     }
     return (
-        <div className="flex flex-col divide-y divide-primary">
-            {reviewFindingsSplit.published.map((finding, i) => (
-                <FindingCard key={i} finding={finding} />
-            ))}
+        <div className="flex flex-col gap-2">
+            {!isPublished && (
+                <p className="m-0 text-xs text-secondary">
+                    This review hasn't been published to the pull request yet — these findings crossed your urgency
+                    threshold, but no comments have been posted.
+                </p>
+            )}
+            <div className="flex flex-col divide-y divide-primary">
+                {reviewFindingsSplit.published.map((finding, i) => (
+                    <FindingCard key={i} finding={finding} />
+                ))}
+            </div>
         </div>
     )
 }
