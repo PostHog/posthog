@@ -6,11 +6,13 @@ from django.contrib import admin
 from django.contrib.admin import AdminSite
 from django.test import RequestFactory
 
+from parameterized import parameterized
+
 from posthog.admin import _OAUTH_ADMIN_MODEL_NAMES, install_admin_app_list_overrides, register_all_admin
 from posthog.admin.admins.event_ingestion_restriction_config import EventIngestionRestrictionConfigAdmin
 from posthog.admin.admins.user_admin import UserAdmin, UserChangeForm
 from posthog.admin.inlines.organization_member_inline import OrganizationMemberForUserInline, OrganizationMemberInline
-from posthog.models import User
+from posthog.models import Organization, User
 from posthog.models.event_ingestion_restriction_config import EventIngestionRestrictionConfig
 
 from products.alerts.backend.models.alert import AlertConfiguration
@@ -231,3 +233,10 @@ class TestOrganizationMemberInlineConfig(BaseTest):
         assert "invited_by" in OrganizationMemberInline.readonly_fields
         assert "invited_by" in OrganizationMemberForUserInline.fields
         assert "invited_by" in OrganizationMemberForUserInline.readonly_fields
+
+    @parameterized.expand([(OrganizationMemberInline,), (OrganizationMemberForUserInline,)])
+    def test_adding_members_is_disabled(self, inline_cls):
+        # Regression guard: user/invited_by are readonly, so Django strips them from POSTed new rows
+        # and the insert would violate the non-nullable user FK (NotNullViolation). Adding must stay off.
+        inline = inline_cls(Organization, AdminSite())
+        assert inline.has_add_permission(RequestFactory().get("/")) is False
