@@ -26,7 +26,7 @@ import {
     Tooltip,
 } from '@posthog/lemon-ui'
 
-import { Logomark } from 'lib/brand/Logomark'
+import { Logomark } from 'lib/brand'
 import { CopyToClipboardInline } from 'lib/components/CopyToClipboard'
 import { TZLabel } from 'lib/components/TZLabel'
 import { LemonCard } from 'lib/lemon-ui/LemonCard'
