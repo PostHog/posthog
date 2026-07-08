@@ -22,6 +22,7 @@ from products.customer_analytics.backend.logic.custom_property_values import (
     CustomPropertyValueConflict,
     InvalidCustomPropertyValue,
     list_active_custom_property_values,
+    list_custom_property_value_suggestions,
     set_account_custom_properties_by_id,
     set_custom_property_value,
 )
@@ -268,6 +269,58 @@ class TestSetAccountCustomPropertiesById(BaseTest):
                 team_id=self.team.id, account_id=self.account.id, properties={str(seats.id): "not a number"}
             )
         assert exc_info.value.field == str(seats.id)
+
+
+class TestListCustomPropertyValueSuggestions(BaseTest):
+    def setUp(self):
+        super().setUp()
+        self.account = create_account(team_id=self.team.id)
+
+    def _set(self, definition: CustomPropertyDefinition, value: object, account: Account | None = None) -> None:
+        set_custom_property_value(
+            team_id=self.team.id,
+            account_id=(account or self.account).id,
+            definition_id=definition.id,
+            value=value,
+        )
+
+    def _suggestions(self, definition_id: object, search: str | None = None) -> list[str]:
+        return list_custom_property_value_suggestions(team_id=self.team.id, definition_id=definition_id, search=search)
+
+    def test_select_returns_option_labels_filtered_by_search(self):
+        definition = create_custom_property_definition(
+            team_id=self.team.id, name="Tier", display_type=DisplayType.SELECT, options=SELECT_OPTIONS
+        )
+        assert self._suggestions(definition.id) == ["Enterprise", "Startup"]
+        assert self._suggestions(definition.id, search="ENT") == ["Enterprise"]
+
+    def test_text_returns_distinct_active_values_only(self):
+        definition = create_custom_property_definition(team_id=self.team.id, name="Region")
+        other_account = create_account(team_id=self.team.id, name="Other", external_id="other-ext")
+        self._set(definition, "emea")
+        self._set(definition, "apac")  # supersedes "emea" — the soft-deleted row must not suggest
+        self._set(definition, "amer", account=other_account)
+        assert self._suggestions(definition.id) == ["amer", "apac"]
+        assert self._suggestions(definition.id, search="ap") == ["apac"]
+
+    def test_boolean_suggests_true_false(self):
+        definition = create_custom_property_definition(
+            team_id=self.team.id, name="Active", display_type=DisplayType.BOOLEAN
+        )
+        assert self._suggestions(definition.id) == ["true", "false"]
+
+    def test_numeric_values_render_like_clickhouse_tostring(self):
+        definition = create_custom_property_definition(
+            team_id=self.team.id, name="Seats", display_type=DisplayType.NUMBER
+        )
+        other_account = create_account(team_id=self.team.id, name="Other2", external_id="other-ext-2")
+        self._set(definition, 10.0)
+        self._set(definition, 2.5, account=other_account)
+        assert self._suggestions(definition.id) == ["2.5", "10"]
+
+    @parameterized.expand([("unknown_uuid", str(uuid4())), ("malformed", "not-a-uuid")])
+    def test_unknown_definition_returns_empty(self, _name, definition_id):
+        assert self._suggestions(definition_id) == []
 
 
 class TestCustomPropertyValueFacade(BaseTest):

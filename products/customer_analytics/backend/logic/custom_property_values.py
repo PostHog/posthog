@@ -169,6 +169,50 @@ def list_active_custom_property_values(*, team_id: int, account_id: str | UUID) 
     )
 
 
+VALUE_SUGGESTIONS_LIMIT = 50
+
+
+def list_custom_property_value_suggestions(*, team_id: int, definition_id: str | UUID, search: str | None) -> list[str]:
+    """Suggested filter values for a custom property: a select's option labels, a boolean's
+    true/false, otherwise distinct active values across the team's accounts. Empty when the
+    definition doesn't exist — suggestions are best-effort, not an error surface."""
+    try:
+        definition = CustomPropertyDefinition.objects.for_team(team_id).get(id=definition_id)
+    except (CustomPropertyDefinition.DoesNotExist, ValidationError, ValueError):
+        return []
+
+    needle = (search or "").strip().lower()
+
+    if definition.display_type == DisplayType.SELECT:
+        labels = [str(option.get("label") or "") for option in definition.options or []]
+        return [label for label in labels if needle in label.lower()][:VALUE_SUGGESTIONS_LIMIT]
+    if definition.data_type == DataType.BOOLEAN:
+        return [value for value in ("true", "false") if needle in value]
+    if definition.data_type == DataType.DATETIME:
+        # Date filters render a date picker, not text suggestions.
+        return []
+
+    column = "value_num" if definition.data_type == DataType.NUMERIC else "value_str"
+    queryset = CustomPropertyValue.objects.for_team(team_id).filter(definition_id=definition.id, is_deleted=False)
+    if needle and column == "value_str":
+        queryset = queryset.filter(value_str__icontains=needle)
+    values = (
+        queryset.exclude(**{f"{column}__isnull": True})
+        .values_list(column, flat=True)
+        .distinct()
+        .order_by(column)[:VALUE_SUGGESTIONS_LIMIT]
+    )
+    if column == "value_num":
+        formatted = [_format_numeric_suggestion(value) for value in values]
+        return [value for value in formatted if needle in value] if needle else formatted
+    return list(values)
+
+
+def _format_numeric_suggestion(value: float) -> str:
+    # Match ClickHouse toString(Float64), which renders integral floats without a trailing ".0".
+    return str(int(value)) if value == int(value) else str(value)
+
+
 def _assert_account_in_team(*, team_id: int, account_id: str | UUID) -> None:
     if not Account.objects.for_team(team_id).filter(id=account_id).exists():
         raise Account.DoesNotExist(f"Account {account_id} not found for team {team_id}")
