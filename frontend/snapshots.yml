@@ -6023,7 +6023,7 @@ snapshots:
     scenes-app-insights-trendsslopegraph--trends-slope-graph--dark:
         hash: v1.k794b7964.7b6bb33aaba2c334ded0898f97b7e316248e1639144c49e2039c880a16672ce3.RFWxmLTjalbL8Nszbl4hySEvS8xYi28uZJp2_E9EtxQ
     scenes-app-insights-trendsslopegraph--trends-slope-graph--light:
-        hash: v1.k794b7964.4e8dfdda6a2ff4ec36b24b1498e150b34d935ed34006feb0bedd0d1865b0b029.HqV7Rdk_En7fs9BFZSGFnqCDP27_jjZlJ8SNQYRtT0A
+        hash: v1.k794b7964.435ec6cacedc635d128f46c84567002eae11aa76758c130c39ff877197a75542.B6jsuSizg7bPm8wDE8N62O1k-C5CPomtRNXHXkSzwK8
     scenes-app-insights-trendsslopegraph--trends-slope-graph-edit--dark:
         hash: v1.k794b7964.a79e9f9b09872c1379566cac070987db5158b3f47129fe653ff1a4ec94e51ce5.WmkWzqWIPX_nHjS0tiGL8wPflEpxIM0itFt1G_ULgFM
     scenes-app-insights-trendsslopegraph--trends-slope-graph-edit--light:
@@ -6077,9 +6077,9 @@ snapshots:
     scenes-app-insights-trendsvalue--trends-table-edit--light:
         hash: v1.k794b7964.11f5d26d2e154d830a64750ea97714230574604cdc71f62afb087303d48b2c5d.nS5B8LoRJrHn6trtCDVBFRg81P0wewpWl5LIimTT6PQ
     scenes-app-insights-trendsvalue--trends-value--dark:
-        hash: v1.k794b7964.60aaa2b69df11c4d10d0977fb1ffcf4e9c6034118e8ea933e66c96349cf415b7.TF2oPw_7DetWi0jI_KNBPiiNYai3i9OfA6ta8iGtgMM
+        hash: v1.k794b7964.d782e01a1e443c31cd99f08d55621dbd39a848faf0bd87119abcbad04a9fffa1.FL_rdrYD0IOMullBER_dpmu-HcaIYxndjtkikkSLI08
     scenes-app-insights-trendsvalue--trends-value--light:
-        hash: v1.k794b7964.c3c96277b269a610b8b38db89e9f64190ead964b0ae6325eedba55c21f3b4b6c.qIF7_RMru-e9Xwjg5HI33OsPRr8vmlWhQPPnZ88IyE4
+        hash: v1.k794b7964.0e1870fa7a60031d6037f10e43a01381b8ad1500d4ef2227216ec8fb03249603.Jy3H15MG08pGB1NJed2sIqcsWrre7sspN660rvLf0-s
     scenes-app-insights-trendsvalue--trends-value-breakdown--dark:
         hash: v1.k794b7964.a64a39497ca66134891338e6584026623461224be2287bb01cf7c8d6a0f5134a.PhrCp9FmhICSYUerB623A2grcjdpkPKrw7TQlMPY4Jk
     scenes-app-insights-trendsvalue--trends-value-breakdown--light:
