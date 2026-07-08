@@ -77,8 +77,9 @@ def _apply_owned_event_properties(properties: dict[str, Any], product: str, team
     `ai_product`, `$ai_billable`, and `$ai_effort` are derived by the gateway and must NOT be
     overridable by callers — a typo would silently mis-bill or misattribute the generation, so we
     re-assert them on top of whatever the headers set. `$ai_effort` is resolved from the request
-    body (see handler._extract_effort); a caller can't spoof it via `x-posthog-property-$ai_effort`
-    because we overwrite it here, and drop any header-supplied value when the gateway found none.
+    body per provider (see `ProviderConfig.extract_effort`); a caller can't spoof it via
+    `x-posthog-property-$ai_effort` because we overwrite it here, and drop any header-supplied
+    value when the gateway found none.
     `team_id`, in contrast, is a deliberate caller override (a shared-key caller such as signals
     sets it to the customer team); we only fall back to the authenticated key owner's team when no
     override was supplied.
