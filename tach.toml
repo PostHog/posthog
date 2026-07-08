@@ -39,6 +39,7 @@ depends_on = [
     "products.actions",
     "products.alerts",
     "products.cdp",
+    "products.conversations",
     "products.customer_analytics",
     "products.dashboards",
     "products.data_modeling",
