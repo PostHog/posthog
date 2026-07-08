@@ -287,6 +287,7 @@ the row lists both.
 | rippling                | HTTP                        | requests                                                        | ✅                          |
 | rollbar                 | HTTP                        | requests                                                        | ✅                          |
 | rootly                  | HTTP                        | requests                                                        | ✅                          |
+| ruddr                   | HTTP                        | requests                                                        | ✅                          |
 | salesforce              | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
 | salesloft               | HTTP                        | requests                                                        | ✅                          |
 | secoda                  | HTTP                        | requests                                                        | ✅                          |
@@ -627,7 +628,6 @@ doesn't conflict with concurrent PRs.
 - rocket_chat
 - rocketlane
 - rss
-- ruddr
 - safetyculture
 - sage_hr
 - sage_intacct
