@@ -11,23 +11,26 @@ from datetime import UTC, datetime, timedelta, tzinfo
 from typing import TYPE_CHECKING, Any, NamedTuple
 from zoneinfo import ZoneInfo
 
+from django.conf import settings
+from django.db.models import Q, QuerySet
+
 import structlog
-from google.genai import types
-from posthoganalytics.ai.gemini import genai
+import posthoganalytics
+from posthoganalytics.ai.openai import OpenAI
 from temporalio import activity
 
+from posthog.event_usage import groups
 from posthog.helpers.markdown_safety import strip_external_links_markdown
 from posthog.models.team import Team
 from posthog.rbac.user_access_control import UserAccessControl
 from posthog.sync import database_sync_to_async
 
 from products.replay_vision.backend.models.replay_observation import ObservationStatus, ReplayObservation
-from products.replay_vision.backend.models.replay_scanner import ReplayScanner, ScannerModel
+from products.replay_vision.backend.models.replay_scanner import ReplayScanner
 from products.replay_vision.backend.models.vision_action import VisionAction, VisionActionRun, VisionActionRunStatus
 from products.replay_vision.backend.observation_formatting import EVENT_ID_CITATION_RE, describe_output
 from products.replay_vision.backend.temporal.constants import replay_vision_distinct_id
 from products.replay_vision.backend.temporal.decorators import track_activity
-from products.replay_vision.backend.temporal.gemini import gemini_api_key
 from products.replay_vision.backend.temporal.vision_actions.types import (
     SynthesisStatus,
     SynthesizeGroupSummaryInputs,
@@ -42,10 +45,10 @@ if TYPE_CHECKING:
 
 logger = structlog.get_logger(__name__)
 
-# Track the scanners' default Gemini model so synthesis and scanning move together. Runs through the
-# PostHog-instrumented client so the generation lands in LLM analytics attributed to Replay Vision
+# Matches how insight AI summaries synthesize: PostHog AI through the LLM gateway
+# (settings.OPENAI_BASE_URL), billed to the team's AI credits via the $ai_billable generation event
 # (see `_run_synthesis`).
-SYNTHESIS_MODEL = ScannerModel.GEMINI_3_FLASH.value
+SYNTHESIS_MODEL = "gpt-4.1-mini"
 # Cap how many observations feed one group summary — bounds context size and cost.
 MAX_OBSERVATIONS = 100
 # Upper bound on how many ids the sampling path pulls into memory. A very busy window (the case the
@@ -164,6 +167,43 @@ def _window_end(run: VisionActionRun) -> datetime:
     return run.scheduled_at or datetime.now(UTC)
 
 
+def apply_observation_predicate(
+    queryset: "QuerySet[ReplayObservation]", selection: dict[str, Any]
+) -> "QuerySet[ReplayObservation]":
+    """Narrow an observation queryset to the action's targeting predicate ("run this on…").
+
+    Filters on the persisted `scanner_result["model_output"]` JSON: monitor verdicts, classifier tags
+    (fixed or freeform, any-of), and scorer score bounds. Empty or absent keys are ignored, so a
+    default `selection` matches everything. Verdict/score filters implicitly exclude observations of
+    other scanner types (the JSON key is absent there), which is what targeting means.
+    """
+    verdicts = selection.get("verdict") or []
+    if isinstance(verdicts, str):  # tolerate a legacy single-string row
+        verdicts = [verdicts]
+    if verdicts:
+        queryset = queryset.filter(scanner_result__model_output__verdict__in=verdicts)
+
+    tags = selection.get("tags") or []
+    if tags:
+        # `__contains` on a JSONB array uses `@>`: matches when the stored array contains the element.
+        tag_q = Q()
+        for tag in tags:
+            tag_q |= Q(scanner_result__model_output__tags__contains=[tag])
+            tag_q |= Q(scanner_result__model_output__tags_freeform__contains=[tag])
+        queryset = queryset.filter(tag_q)
+
+    # jsonb comparison is numeric for JSON numbers, so these bounds work for int and float scores.
+    # bool is rejected explicitly (it's an int subclass but a nonsensical bound).
+    min_score = selection.get("min_score")
+    if isinstance(min_score, int | float) and not isinstance(min_score, bool):
+        queryset = queryset.filter(scanner_result__model_output__score__gte=min_score)
+    max_score = selection.get("max_score")
+    if isinstance(max_score, int | float) and not isinstance(max_score, bool):
+        queryset = queryset.filter(scanner_result__model_output__score__lte=max_score)
+
+    return queryset
+
+
 class _ObservationBatch(NamedTuple):
     # Formatted summary lines fed to the LLM, and the ids of the observations they came from, in the
     # same order — so the run persists exactly which observations its summary included. window_start is
@@ -239,6 +279,9 @@ def _fetch_observations(team: Team, action: VisionAction, run: VisionActionRun) 
         created_at__gte=window_start,
         created_at__lt=_window_end(run),
     )
+    # Targeting ("run this on…") narrows the window BEFORE the count/cap/sampling below, so the header's
+    # totals and the sampled batch reflect only the observations the action targets.
+    observations_qs = apply_observation_predicate(observations_qs, selection)
 
     # Count the whole window so the header can say when the summary is only a sample of it (see cap below).
     window_total = observations_qs.count()
@@ -336,19 +379,33 @@ def _run_synthesis(team: Team, action: VisionAction, lines: list[str]) -> str:
     # thing the model reads — nothing instruction-shaped trails it for injected text to blend into.
     human = prompt_guide + as_untrusted_data("observations", lines)
 
-    # Same PostHog-instrumented Gemini client + Replay Vision tagging the scanners use, so the
-    # generation is captured in LLM analytics attributed to Replay Vision. The enclosing activity's
-    # start-to-close timeout bounds the call.
-    client = genai.Client(api_key=gemini_api_key())
-    response = client.models.generate_content(
-        model=f"models/{SYNTHESIS_MODEL}",
-        contents=human,
-        config=types.GenerateContentConfig(system_instruction=_SYSTEM_PROMPT),
-        posthog_distinct_id=replay_vision_distinct_id(team.id),
-        posthog_groups={"project": str(team.id)},
-        posthog_properties={"ai_product": "replay_vision", "feature": "vision_action_group_summary"},
+    # PostHog AI, matching insight AI summaries: the PostHog-instrumented OpenAI client pointed at
+    # the LLM gateway (settings.OPENAI_BASE_URL), so the generation lands in LLM analytics tagged to
+    # Replay Vision AND bills the team's AI credits ($ai_billable) — the same budget
+    # is_team_over_ai_credit_budget gates on above.
+    client = OpenAI(posthog_client=posthoganalytics, base_url=settings.OPENAI_BASE_URL, max_retries=3)  # type: ignore[arg-type]
+    distinct_id = replay_vision_distinct_id(team.id)
+    response = client.chat.completions.create(  # type: ignore[call-overload]
+        model=SYNTHESIS_MODEL,
+        temperature=0.3,
+        timeout=120,
+        messages=[
+            {"role": "system", "content": _SYSTEM_PROMPT},
+            {"role": "user", "content": human},
+        ],
+        user=distinct_id,
+        posthog_distinct_id=distinct_id,
+        posthog_properties={
+            "ai_product": "replay_vision",
+            "feature": "vision_action_group_summary",
+            "$ai_billable": True,
+            "team_id": team.id,
+        },
+        posthog_groups={**groups(team=team), "project": str(team.id)},
     )
-    return (response.text or "").strip()
+    if not response.choices:
+        return ""
+    return (response.choices[0].message.content or "").strip()
 
 
 def _markdown_to_slack(markdown: str) -> str:
