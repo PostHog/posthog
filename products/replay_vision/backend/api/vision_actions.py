@@ -128,6 +128,13 @@ class VisionActionSerializer(serializers.ModelSerializer):
         required=False,
         help_text="When false, the scheduler skips this action.",
     )
+    is_scanner_digest = serializers.BooleanField(
+        required=False,
+        help_text=(
+            "Marks this action as the scanner's built-in daily digest, the one summary surfaced on the "
+            "scanner overview. At most one digest per scanner."
+        ),
+    )
     trigger_type = serializers.ChoiceField(
         choices=TriggerType.choices,
         required=False,
@@ -184,6 +191,7 @@ class VisionActionSerializer(serializers.ModelSerializer):
             "name",
             "scanner",
             "enabled",
+            "is_scanner_digest",
             "trigger_type",
             "mode",
             "trigger_config",
@@ -233,6 +241,7 @@ class VisionActionSerializer(serializers.ModelSerializer):
     def validate(self, attrs: dict[str, Any]) -> dict[str, Any]:
         self._validate_schedule(attrs)
         self._validate_unique_name(attrs)
+        self._validate_unique_digest(attrs)
         return attrs
 
     def _validate_schedule(self, attrs: dict[str, Any]) -> None:
@@ -264,6 +273,20 @@ class VisionActionSerializer(serializers.ModelSerializer):
         if duplicates.exists():
             raise serializers.ValidationError({"name": "An action with this name already exists in this team."})
 
+    def _validate_unique_digest(self, attrs: dict[str, Any]) -> None:
+        # Surface the one-digest-per-scanner constraint as a 400 instead of letting the DB raise 500.
+        if not attrs.get("is_scanner_digest"):
+            return
+        scanner = attrs.get("scanner") or getattr(self.instance, "scanner", None)
+        if scanner is None:
+            return
+        team = self.context["get_team"]()
+        duplicates = VisionAction.objects.for_team(team.id).filter(scanner=scanner, is_scanner_digest=True)
+        if self.instance is not None:
+            duplicates = duplicates.exclude(pk=self.instance.pk)
+        if duplicates.exists():
+            raise serializers.ValidationError({"is_scanner_digest": "This scanner already has a daily digest."})
+
     def create(self, validated_data: dict[str, Any]) -> VisionAction:
         team = self.context["get_team"]()
         user = cast(User, self.context["request"].user)
@@ -271,18 +294,20 @@ class VisionActionSerializer(serializers.ModelSerializer):
             # for_team()'s filter doesn't propagate into create(), so team is still passed explicitly.
             return VisionAction.objects.for_team(team.id).create(team=team, created_by=user, **validated_data)
         except IntegrityError as e:
-            self._reraise_unique_name_violation(e)
+            self._reraise_unique_violation(e)
 
     def update(self, instance: VisionAction, validated_data: dict[str, Any]) -> VisionAction:
         try:
             return super().update(instance, validated_data)
         except IntegrityError as e:
-            self._reraise_unique_name_violation(e)
+            self._reraise_unique_violation(e)
 
     @staticmethod
-    def _reraise_unique_name_violation(error: IntegrityError) -> NoReturn:
+    def _reraise_unique_violation(error: IntegrityError) -> NoReturn:
         if "vision_action_unique_team_name" in str(error):
             raise serializers.ValidationError({"name": "An action with this name already exists in this team."})
+        if "vision_action_unique_scanner_digest" in str(error):
+            raise serializers.ValidationError({"is_scanner_digest": "This scanner already has a daily digest."})
         raise error
 
 
@@ -374,8 +399,9 @@ class VisionActionViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
 _RUN_REASON_LABELS = {
     "skipped_empty": "No new observations in this window to summarize.",
     "skipped_over_budget": "The team is over its AI-credit budget.",
+    # Legacy: the engine no longer skips actions with no delivery_config (digest runs are in-app only).
+    # Keep both keys so historical run rows still display a readable reason rather than the raw enum.
     "no_delivery": "No delivery destination is configured for this action.",
-    # Alias: runs recorded before #66892 stored the old "no_delivery_flow" enum; map it to the same copy.
     "no_delivery_flow": "No delivery destination is configured for this action.",
     "disabled": "The action was disabled when this run was due.",
     "not_found": "The action no longer exists.",

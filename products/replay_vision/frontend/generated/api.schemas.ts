@@ -169,6 +169,8 @@ export interface VisionActionApi {
     scanner: string
     /** When false, the scheduler skips this action. */
     enabled?: boolean
+    /** Marks this action as the scanner's built-in daily digest, the one summary surfaced on the scanner overview. At most one digest per scanner. */
+    is_scanner_digest?: boolean
     /** What fires the action. MVP supports 'schedule' only.
      *
      * * `schedule` - Schedule
@@ -228,6 +230,8 @@ export interface PatchedVisionActionApi {
     scanner?: string
     /** When false, the scheduler skips this action. */
     enabled?: boolean
+    /** Marks this action as the scanner's built-in daily digest, the one summary surfaced on the scanner overview. At most one digest per scanner. */
+    is_scanner_digest?: boolean
     /** What fires the action. MVP supports 'schedule' only.
      *
      * * `schedule` - Schedule
