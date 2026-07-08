@@ -61,7 +61,14 @@ class StreamlitBridgeIPThrottle(PersonalApiKeyRateThrottle):
 
 
 def _authenticate_bearer(auth_header: str) -> tuple[int | None, str | None, str | None]:
-    """Returns (team_id, user_distinct_id, error)."""
+    """Validate a bridge bearer token; returns (team_id, user_distinct_id, error).
+
+    Kept as an in-view helper rather than a DRF BaseAuthentication class on purpose:
+    this is a single first-party endpoint with bespoke checks (single-team scope,
+    iframe-vs-bridge discriminator, org-membership re-check), so a shared auth class
+    would be premature. If another product (e.g. Notebooks) grows the same
+    sandbox→bridge shape, extract a shared authenticator then.
+    """
     from posthog.models.oauth import find_oauth_access_token
 
     from products.streamlit_apps.backend.logic.oauth import get_streamlit_oauth_app

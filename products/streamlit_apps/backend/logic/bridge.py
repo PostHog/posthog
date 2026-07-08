@@ -40,8 +40,10 @@ def execute_bridge_query(query: str, team_id: int, client_query_id: str | None =
     else:
         payload = response.dict(exclude_none=True)
 
-    # TODO: Why are we reinventing the wheel here?
-    # Allow-list the response shape so user code never sees internal fields.
+    # Deliberate allow-list, not a serializer: the HogQL response also carries
+    # internal fields (generated SQL, the ClickHouse query, timings, explain) that
+    # sandbox user code must never see. A broader query-response serializer would
+    # leak them, so we hand back only the three presentation fields.
     return {
         "columns": payload.get("columns") or [],
         "results": payload.get("results") or [],
