@@ -4,6 +4,7 @@ import express, { Request, Response } from 'ultimate-express'
 import { corsMiddleware } from '~/common/api/middleware/cors'
 import { httpMetricsMiddleware } from '~/common/api/middleware/http-metrics'
 import { createInternalApiAuthMiddleware } from '~/common/api/middleware/internal-api-auth'
+import { startInternalMetricsExporterFromEnv } from '~/common/internal-metrics-exporter'
 import { logger } from '~/common/utils/logger'
 import { HealthCheckResultError, PluginServerService } from '~/types'
 
@@ -39,6 +40,10 @@ export function setupCommonRoutes(
     app.get('/_ready', buildGetHealth(services))
     app.get('/_metrics', getMetrics)
     app.get('/metrics', getMetrics)
+
+    // Dogfooding: mirror this process's prometheus metrics into the PostHog
+    // Metrics product. No-op unless POSTHOG_INTERNAL_METRICS_TOKEN is set.
+    startInternalMetricsExporterFromEnv()
 
     return app
 }
