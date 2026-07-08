@@ -15,20 +15,18 @@ Backend request-context events go through `report_user_action` (which merges req
 Emitted from `temporal/activities.py` when a brief generation run persists its output (any terminal status).
 Skipped when the brief has no creating user (no distinct id to attribute to).
 
-| Property                     | Type       | Meaning                                                                                                                                                                           |
-| ---------------------------- | ---------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `brief_id`                   | str (UUID) | The generated brief.                                                                                                                                                              |
-| `status`                     | str        | Terminal status: `ready`, `quiet`, or `failed`.                                                                                                                                   |
-| `trigger`                    | str        | `on_demand` or `scheduled`.                                                                                                                                                       |
-| `period_days`                | int        | Days the brief covers.                                                                                                                                                            |
-| `has_config`                 | bool       | Whether the brief was generated for a saved config.                                                                                                                               |
-| `has_goal`                   | bool       | Whether the config has a non-blank goal (goal-conditioned run).                                                                                                                   |
-| `new_opportunity_count`      | int        | Opportunities persisted by this run (post-dedup).                                                                                                                                 |
-| `investigation_step_count`   | int        | Goal-investigation steps executed (0 for goal-less briefs).                                                                                                                       |
-| `investigation_failed_count` | int        | Investigation steps that failed.                                                                                                                                                  |
-| `emit_failed_count`          | int        | Opportunity→signals emits that failed in this run. Carried here (instead of a dedicated event) because the failures are already counted in the emit loop and only matter per run. |
+| Property                | Type       | Meaning                                                                                                                                                                           |
+| ----------------------- | ---------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `brief_id`              | str (UUID) | The generated brief.                                                                                                                                                              |
+| `status`                | str        | Terminal status: `ready`, `quiet`, or `failed`.                                                                                                                                   |
+| `trigger`               | str        | `on_demand` or `scheduled`.                                                                                                                                                       |
+| `period_days`           | int        | Days the brief covers.                                                                                                                                                            |
+| `has_config`            | bool       | Whether the brief was generated for a saved config.                                                                                                                               |
+| `has_goal`              | bool       | Whether the config has a non-blank goal (goal-conditioned run).                                                                                                                   |
+| `new_opportunity_count` | int        | Opportunities persisted by this run (post-dedup).                                                                                                                                 |
+| `emit_failed_count`     | int        | Opportunity→signals emits that failed in this run. Carried here (instead of a dedicated event) because the failures are already counted in the emit loop and only matter per run. |
 
-Dashboard panels: Brief generation volume (`status`, `trigger`), Opportunity action rate (`new_opportunity_count`), Investigation step survival + distribution (`investigation_step_count`, `investigation_failed_count`), Signal emit failure rate (`new_opportunity_count`, `emit_failed_count`).
+Dashboard panels: Brief generation volume (`status`, `trigger`), Opportunity action rate (`new_opportunity_count`), Signal emit failure rate (`new_opportunity_count`, `emit_failed_count`).
 Future tuning loop — not yet charted: goal adoption (`has_goal`), period mix (`period_days`), `has_config` split.
 
 ## Attention
@@ -72,15 +70,14 @@ The context properties on these two events ARE the tuning signal — they let th
 
 Emitted from `api/brief.py` on every feedback POST — votes, revotes, and clears alike.
 
-| Property            | Type         | Meaning                                                                                  |
-| ------------------- | ------------ | ---------------------------------------------------------------------------------------- |
-| `brief_id`          | str (UUID)   | The voted brief.                                                                         |
-| `helpful`           | bool \| null | `true` = helpful, `false` = not helpful, `null` = the user cleared their vote.           |
-| `status`            | str          | Brief status at vote time.                                                               |
-| `trigger`           | str          | `on_demand` or `scheduled`.                                                              |
-| `has_goal`          | bool         | Whether the brief was goal-conditioned.                                                  |
-| `section_kinds`     | list[str]    | Sorted unique kinds of the brief's sections (e.g. `["goal_progress", "what_happened"]`). |
-| `has_investigation` | bool         | Whether the brief carries goal-investigation findings.                                   |
+| Property        | Type         | Meaning                                                                                  |
+| --------------- | ------------ | ---------------------------------------------------------------------------------------- |
+| `brief_id`      | str (UUID)   | The voted brief.                                                                         |
+| `helpful`       | bool \| null | `true` = helpful, `false` = not helpful, `null` = the user cleared their vote.           |
+| `status`        | str          | Brief status at vote time.                                                               |
+| `trigger`       | str          | `on_demand` or `scheduled`.                                                              |
+| `has_goal`      | bool         | Whether the brief was goal-conditioned.                                                  |
+| `section_kinds` | list[str]    | Sorted unique kinds of the brief's sections (e.g. `["goal_progress", "what_happened"]`). |
 
 ### `opportunity_feedback`
 
@@ -96,10 +93,17 @@ Emitted from `api/opportunity.py` on every feedback POST — votes, revotes, and
 | `has_proposed_experiment` | bool         | Whether goal-conditioned synthesis attached an experiment proposal.            |
 
 Dashboard panels: Brief helpfulness (`helpful`, `has_goal`), Opportunity helpfulness (`helpful`, `kind`).
-Future tuning loop — not yet charted: section-mix helpfulness (`section_kinds`), investigation split (`has_investigation`), proposed-experiment split (`has_proposed_experiment`), status splits.
+Future tuning loop — not yet charted: section-mix helpfulness (`section_kinds`), proposed-experiment split (`has_proposed_experiment`), status splits.
 
 Rate math: rate panels must exclude `helpful = null` (clears are engagement, not sentiment).
 Event-based ratios measure vote actions, not current stance — revotes emit again; for point-in-time stance use latest-event-per-user-per-target.
+
+## Future (parked)
+
+These properties arrive with the goal-investigation stage and are documented here so the panel design survives the parking — they are NOT emitted today:
+
+- `product_brief_generated`: `investigation_step_count` (goal-investigation steps executed, 0 for goal-less briefs) and `investigation_failed_count` (steps that failed), feeding an "Investigation step survival + distribution" dashboard panel.
+- `product_brief_feedback`: `has_investigation` (whether the brief carries goal-investigation findings), feeding an investigation split in the tuning loop.
 
 ## Non-events (deliberate)
 
