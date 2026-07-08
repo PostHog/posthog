@@ -28,7 +28,12 @@ describe('captureIngestionWarning()', () => {
         await captureIngestionWarning(kafkaProducer, 2, {
             type: 'some_type',
             // severity inside details must lose to the structured field below
-            details: { foo: 'bar', distinctId: 'user-1', severity: 'from-details' },
+            details: {
+                foo: 'bar',
+                distinctId: 'user-1',
+                personId: '019831c9-6491-7000-8000-000000000000',
+                severity: 'from-details',
+            },
             category: 'size',
             severity: 'error',
             pipelineStep: 'emit-event',
@@ -61,7 +66,10 @@ describe('captureIngestionWarning()', () => {
                     severity: string
                     pipeline_step: string
                     distinct_id: string | null
-                }>('SELECT team_id, type, category, severity, pipeline_step, distinct_id FROM ingestion_warnings_v2')
+                    person_id: string | null
+                }>(
+                    'SELECT team_id, type, category, severity, pipeline_step, distinct_id, person_id FROM ingestion_warnings_v2'
+                )
         )
 
         expect(v2Warnings).toEqual([
@@ -72,6 +80,7 @@ describe('captureIngestionWarning()', () => {
                 severity: 'error',
                 pipeline_step: 'emit-event',
                 distinct_id: 'user-1',
+                person_id: '019831c9-6491-7000-8000-000000000000',
             },
         ])
     })

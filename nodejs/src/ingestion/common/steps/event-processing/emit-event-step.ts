@@ -95,6 +95,7 @@ export function createEmitEventStep<O extends string, T extends EmitEventStepInp
                             details: {
                                 eventUuid: serialized.uuid,
                                 distinctId: serialized.distinct_id,
+                                personId: serialized.person_id,
                             },
                             category: 'size',
                             severity: 'error',

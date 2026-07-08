@@ -295,7 +295,7 @@ describe('flush-batch-stores-step', () => {
             expect(emitIngestionWarning).toHaveBeenCalledWith(mockOutputs, 1, {
                 type: 'message_size_too_large',
                 details: {
-                    eventUuid: 'uuid1',
+                    personId: 'uuid1',
                     distinctId: 'user1',
                     step: 'flushBatchStoresStep',
                 },

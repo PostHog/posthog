@@ -727,7 +727,7 @@ describe('BatchWritingPersonStore', () => {
         expect(emitIngestionWarning).toHaveBeenCalledWith(mockIngestionWarningsOutputs, teamId, {
             type: 'person_upsert_message_size_too_large',
             details: {
-                personId: person.id,
+                personId: person.uuid,
                 distinctId: 'test',
             },
             category: 'size',
@@ -912,7 +912,7 @@ describe('BatchWritingPersonStore', () => {
                 expect(emitIngestionWarning).toHaveBeenCalledWith(mockIngestionWarningsOutputs, teamId, {
                     type: 'person_upsert_message_size_too_large',
                     details: {
-                        personId: person.id,
+                        personId: person.uuid,
                         distinctId: 'test',
                     },
                     category: 'size',

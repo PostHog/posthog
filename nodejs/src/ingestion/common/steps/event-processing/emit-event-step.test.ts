@@ -134,6 +134,7 @@ describe('emit-event-step', () => {
                 details: {
                     eventUuid: 'test-uuid',
                     distinctId: 'test-distinct-id',
+                    personId: 'person-uuid',
                 },
                 category: 'size',
                 severity: 'error',

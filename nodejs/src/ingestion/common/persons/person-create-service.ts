@@ -89,7 +89,8 @@ export class PersonCreateService {
                 await emitIngestionWarning(this.context.outputs, teamId, {
                     type: 'person_properties_size_violation',
                     details: {
-                        personId: error.personId,
+                        // uuid of the person we tried to create; error.personId is a DB row id
+                        personId: uuid,
                         distinctId: primaryDistinctId.distinctId,
                         teamId: teamId,
                         eventUuid: creatorEventUuid,

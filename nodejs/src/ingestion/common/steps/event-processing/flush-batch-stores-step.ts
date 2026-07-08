@@ -152,7 +152,8 @@ function createProducePromises(personsStoreMessages: FlushResult[], outputs: Per
                         return emitIngestionWarning(outputs, record.teamId, {
                             type: 'message_size_too_large',
                             details: {
-                                eventUuid: record.uuid,
+                                // FlushResult.uuid is the person uuid, not the event uuid
+                                personId: record.uuid,
                                 distinctId: record.distinctId,
                                 step: 'flushBatchStoresStep',
                             },

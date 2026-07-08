@@ -791,7 +791,7 @@ export class BatchWritingPersonsStore implements PersonsStore, BatchWritingStore
                     await emitIngestionWarning(this.ingestionWarningsOutputs, update.team_id, {
                         type: 'person_properties_size_violation',
                         details: {
-                            personId: update.id,
+                            personId: update.uuid,
                             distinctId: update.distinct_id,
                             teamId: update.team_id,
                             message: 'Person properties exceeds size limit and was rejected',
@@ -1003,7 +1003,7 @@ export class BatchWritingPersonsStore implements PersonsStore, BatchWritingStore
             await emitIngestionWarning(this.ingestionWarningsOutputs, update.team_id, {
                 type: 'person_upsert_message_size_too_large',
                 details: {
-                    personId: update.id,
+                    personId: update.uuid,
                     distinctId: update.distinct_id,
                 },
                 category: 'size',
@@ -1022,7 +1022,7 @@ export class BatchWritingPersonsStore implements PersonsStore, BatchWritingStore
             await emitIngestionWarning(this.ingestionWarningsOutputs, update.team_id, {
                 type: 'person_properties_size_violation',
                 details: {
-                    personId: update.id,
+                    personId: update.uuid,
                     distinctId: update.distinct_id,
                     teamId: update.team_id,
                     message: 'Person properties exceeds size limit and was rejected',

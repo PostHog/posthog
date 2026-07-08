@@ -139,7 +139,8 @@ describe('PersonCreateService', () => {
             expect(mockEmitIngestionWarning).toHaveBeenCalledWith(mockOutputs, teamId, {
                 type: 'person_properties_size_violation',
                 details: {
-                    personId: 'test-person-id',
+                    // uuidFromDistinctId(teamId, 'test-distinct-id')
+                    personId: 'f75d0be1-213b-5c13-8aec-acd632d76425',
                     distinctId: 'test-distinct-id',
                     eventUuid: creatorEventUuid,
                     teamId: teamId,
