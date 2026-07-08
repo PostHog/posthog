@@ -662,3 +662,28 @@ class PreviewProxyInvokeRequestSerializer(serializers.Serializer):
         required=False,
         help_text="Target session id for `send` — the running session to append the message to. Omit for `run` (a fresh session is created).",
     )
+
+
+class AgentInvokeRequestSerializer(serializers.Serializer):
+    """Body for `agent-applications-invoke` — start a new session on the agent's live (promoted) revision."""
+
+    message = serializers.CharField(
+        trim_whitespace=False,
+        help_text="The user message that starts the session. Required, non-empty.",
+    )
+    external_key = serializers.CharField(
+        required=False,
+        help_text="Optional idempotency / threading key. A repeat invoke with the same external_key resumes the existing session instead of starting a new one.",
+    )
+
+
+class AgentSendRequestSerializer(serializers.Serializer):
+    """Body for `agent-applications-send` — append a message to an existing live session."""
+
+    session_id = serializers.UUIDField(
+        help_text="The session to append to (returned by agent-applications-invoke). Must belong to this agent.",
+    )
+    message = serializers.CharField(
+        trim_whitespace=False,
+        help_text="The user message to append. Required, non-empty.",
+    )
