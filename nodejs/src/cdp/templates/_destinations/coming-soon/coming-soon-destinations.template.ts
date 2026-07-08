@@ -75,12 +75,6 @@ const destinationDefinitions: DestinationConfig[] = [
         category: ['Advertising'],
     },
     {
-        name: 'Bing Ads',
-        id: 'coming-soon-bing-ads',
-        icon_url: '/static/coming-soon-destinations/Bing_Ads.svg',
-        category: ['Advertising'],
-    },
-    {
         name: 'Criteo',
         id: 'coming-soon-criteo',
         icon_url: '/static/coming-soon-destinations/Criteo.svg',
@@ -973,6 +967,32 @@ const destinationDefinitions: DestinationConfig[] = [
         category: ['Productivity'],
     },
 
+    // SIEM
+    {
+        name: 'Datadog SIEM',
+        id: 'coming-soon-datadog-siem',
+        icon_url: '/static/coming-soon-destinations/Datadog.svg',
+        category: ['SIEM'],
+    },
+    {
+        name: 'Elastic Security',
+        id: 'coming-soon-elastic-security',
+        icon_url: '/static/coming-soon-destinations/Elastic_Security.svg',
+        category: ['SIEM'],
+    },
+    {
+        name: 'Microsoft Sentinel',
+        id: 'coming-soon-microsoft-sentinel',
+        icon_url: '/static/coming-soon-destinations/Microsoft_Sentinel.svg',
+        category: ['SIEM'],
+    },
+    {
+        name: 'Splunk',
+        id: 'coming-soon-splunk',
+        icon_url: '/static/coming-soon-destinations/Splunk.svg',
+        category: ['SIEM'],
+    },
+
     // Serverless
     {
         name: 'AWS Lambda',
@@ -1016,12 +1036,6 @@ const destinationDefinitions: DestinationConfig[] = [
     },
 
     // User Engagement Platforms
-    {
-        name: 'Appcues',
-        id: 'coming-soon-appcues',
-        icon_url: '/static/coming-soon-destinations/Appcues.svg',
-        category: ['User Engagement Platforms'],
-    },
     {
         name: 'Leanplum',
         id: 'coming-soon-leanplum',

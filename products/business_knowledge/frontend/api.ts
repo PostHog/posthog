@@ -15,6 +15,7 @@ export type { KnowledgeSourceApi as KnowledgeSourceDTOApi }
 
 // TODO: replace with generated types once the backend exposes URL source serializers
 export type RefreshIntervalValue = 'manual' | '1h' | '6h' | '24h' | '7d'
+export type RefreshIntervalOption = { value: RefreshIntervalValue; label: string }
 
 export interface CreateUrlSourcePayload {
     name: string
@@ -26,6 +27,7 @@ export interface CreateUrlSourcePayload {
     max_pages?: number
     max_depth?: number
     refresh_interval?: RefreshIntervalValue
+    always_include?: boolean
 }
 
 export interface UpdateSourcePayload {
@@ -38,6 +40,7 @@ export interface UpdateSourcePayload {
     max_pages?: number
     max_depth?: number
     refresh_interval?: RefreshIntervalValue
+    always_include?: boolean
 }
 
 export async function listSources(): Promise<KnowledgeSourceApi[]> {
@@ -50,8 +53,12 @@ export async function getSourceText(id: string): Promise<{ id: string; text: str
     return { id, text: response.text ?? '' }
 }
 
-export async function createTextSource(name: string, text: string): Promise<KnowledgeSourceApi> {
-    return await businessKnowledgeSourcesCreate(String(getCurrentTeamId()), { name, text })
+export async function createTextSource(
+    name: string,
+    text: string,
+    always_include: boolean = false
+): Promise<KnowledgeSourceApi> {
+    return await businessKnowledgeSourcesCreate(String(getCurrentTeamId()), { name, text, always_include })
 }
 
 export async function createUrlSource(payload: CreateUrlSourcePayload): Promise<KnowledgeSourceApi> {

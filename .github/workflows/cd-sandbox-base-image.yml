@@ -4,14 +4,20 @@ on:
     push:
         branches:
             - master
+    # paths mirror the changes job's dorny filter, which still gates push events.
     pull_request:
+        paths:
+            - '.github/workflows/cd-sandbox-base-image.yml'
+            - 'products/tasks/backend/sandbox/images/**'
+            - 'products/*/skills/**'
+            - 'products/posthog_ai/scripts/**'
     workflow_dispatch:
 
 jobs:
     changes:
         runs-on: ubuntu-24.04
         timeout-minutes: 5
-        if: github.repository == 'PostHog/posthog'
+        if: github.repository_owner == 'PostHog'
         name: Determine if sandbox image needs to be built
         permissions:
             contents: read
@@ -31,6 +37,7 @@ jobs:
               id: filter
               with:
                   token: ${{ steps.app-token.outputs.token || github.token }}
+                  # Keep in sync with the trigger-level pull_request paths above.
                   filters: |
                       sandbox_image:
                         - '.github/workflows/cd-sandbox-base-image.yml'
@@ -42,7 +49,7 @@ jobs:
         needs: changes
         name: Build agent skills from source
         if: |
-            github.repository == 'PostHog/posthog' && (
+            github.repository_owner == 'PostHog' && (
                 needs.changes.outputs.sandbox_image == 'true' ||
                 github.event_name == 'workflow_dispatch' ||
                 contains(github.event.pull_request.labels.*.name, 'build-tasks-sandbox-image')
@@ -60,21 +67,11 @@ jobs:
                   COMPOSE_FILE: docker-compose.dev.yml:docker-compose.profiles.yml
               run: bin/ci-wait-for-docker launch
 
-            - name: Mint setup-action GitHub token
-              id: setup-gh-token
-              if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
-              continue-on-error: true
-              uses: actions/create-github-app-token@1b10c78c7865c340bc4f6099eb2f838309f1e8c3 # v3.1.1
-              with:
-                  client-id: ${{ secrets.GH_APP_POSTHOG_DEVEX_GENERAL_APP_ID }}
-                  private-key: ${{ secrets.GH_APP_POSTHOG_DEVEX_GENERAL_PRIVATE_KEY }}
-                  skip-token-revoke: true
-
             - name: Set up Python
               uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6.2.0
               with:
                   python-version-file: 'pyproject.toml'
-                  token: ${{ steps.setup-gh-token.outputs.token || github.token }}
+                  token: ${{ github.token }}
 
             - name: Install uv
               uses: astral-sh/setup-uv@37802adc94f370d6bfd71619e3f0bf239e1f3b78 # v7.6.0
@@ -166,7 +163,7 @@ jobs:
         needs: [changes, build_skills]
         name: Build and push Tasks Sandbox container image
         if: |
-            github.repository == 'PostHog/posthog' && (
+            github.repository_owner == 'PostHog' && (
                 needs.changes.outputs.sandbox_image == 'true' ||
                 github.event_name == 'workflow_dispatch' ||
                 contains(github.event.pull_request.labels.*.name, 'build-tasks-sandbox-image')
@@ -214,7 +211,7 @@ jobs:
                   context: . # use local checkout (includes downloaded artifact)
                   file: ./products/tasks/backend/sandbox/images/Dockerfile.sandbox-base
                   buildx-fallback: false # the fallback is so slow it's better to just fail
-                  push: true
+                  push: ${{ github.event_name == 'pull_request' || vars.CD_DEPLOY_ENABLED == 'true' }}
                   tags: ${{ github.ref == 'refs/heads/master' && format('ghcr.io/posthog/posthog-sandbox-base:master,ghcr.io/posthog/posthog-sandbox-base:{0}', github.sha) || format('ghcr.io/posthog/posthog-sandbox-base:{0}', github.sha) }}
                   platforms: linux/arm64,linux/amd64
                   build-args: COMMIT_HASH=${{ github.sha }}
@@ -226,7 +223,7 @@ jobs:
                   context: . # use local checkout (includes downloaded artifact)
                   file: ./products/tasks/backend/sandbox/images/Dockerfile.sandbox-notebook
                   buildx-fallback: false # the fallback is so slow it's better to just fail
-                  push: true
+                  push: ${{ github.event_name == 'pull_request' || vars.CD_DEPLOY_ENABLED == 'true' }}
                   tags: ${{ github.ref == 'refs/heads/master' && format('ghcr.io/posthog/posthog-sandbox-notebook:master,ghcr.io/posthog/posthog-sandbox-notebook:{0}', github.sha) || format('ghcr.io/posthog/posthog-sandbox-notebook:{0}', github.sha) }}
                   platforms: linux/arm64,linux/amd64
                   build-args: COMMIT_HASH=${{ github.sha }}
@@ -238,14 +235,31 @@ jobs:
                   context: . # use local checkout (includes downloaded artifact)
                   file: ./products/tasks/backend/sandbox/images/Dockerfile.sandbox-pi
                   buildx-fallback: false # the fallback is so slow it's better to just fail
-                  push: true
+                  push: ${{ github.event_name == 'pull_request' || vars.CD_DEPLOY_ENABLED == 'true' }}
                   tags: ${{ github.ref == 'refs/heads/master' && format('ghcr.io/posthog/posthog-sandbox-pi:master,ghcr.io/posthog/posthog-sandbox-pi:{0}', github.sha) || format('ghcr.io/posthog/posthog-sandbox-pi:{0}', github.sha) }}
+                  platforms: linux/arm64,linux/amd64
+                  build-args: |
+                      BASE_IMAGE=ghcr.io/posthog/posthog-sandbox-base:${{ github.sha }}
+
+            - name: Build and push container image (vm)
+              id: build-vm
+              uses: depot/build-push-action@5f3b3c2e5a00f0093de47f657aeaefcedff27d18 # v1.17.0
+              with:
+                  context: . # use local checkout (includes downloaded artifact)
+                  file: ./products/tasks/backend/sandbox/images/Dockerfile.sandbox-vm
+                  buildx-fallback: false # the fallback is so slow it's better to just fail
+                  push: true
+                  tags: ${{ github.ref == 'refs/heads/master' && format('ghcr.io/posthog/posthog-sandbox-vm:master,ghcr.io/posthog/posthog-sandbox-vm:{0}', github.sha) || format('ghcr.io/posthog/posthog-sandbox-vm:{0}', github.sha) }}
                   platforms: linux/arm64,linux/amd64
                   build-args: |
                       BASE_IMAGE=ghcr.io/posthog/posthog-sandbox-base:${{ github.sha }}
 
     # Single required status check for branch protection. Add future sandbox
     # image jobs to `needs` here rather than reconfiguring GitHub.
+    # NOT registered as required yet: the trigger-level pull_request paths
+    # filter means this check never reports on PRs that don't touch sandbox
+    # paths, and a required check that never reports blocks merging forever.
+    # Before registering it in the ruleset, remove that paths filter.
     sandbox_base_image_check:
         needs: [changes, build_skills, sandbox_base_build]
         name: Sandbox Base Image Pass

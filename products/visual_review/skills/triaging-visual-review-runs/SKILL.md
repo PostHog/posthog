@@ -39,16 +39,16 @@ is faster — direct them there. This skill is for everything around the diff: s
 
 Read tools (safe to call freely):
 
-| Tool                                               | Purpose                                                                                                            |
-| -------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------ |
-| `posthog:visual-review-runs-list`                  | List runs, filter by `pr_number` / `commit_sha` / `branch` / `review_state`. Start here.                           |
-| `posthog:visual-review-runs-retrieve`              | Full detail for a single run (status, summary counts, supersession).                                               |
-| `posthog:visual-review-runs-snapshots-list`        | Per-snapshot results inside a run: identifier, `result`, diff %, classification, baseline + current artifact URLs. |
-| `posthog:visual-review-runs-snapshot-history-list` | A single story's last N runs across master/PRs — the flake check.                                                  |
-| `posthog:visual-review-runs-counts-retrieve`       | Aggregate counts for queue triage (how many runs in `needs_review`, etc.).                                         |
-| `posthog:visual-review-runs-tolerated-hashes-list` | Hashes the team has explicitly accepted as "known flake / acceptable variation".                                   |
-| `posthog:visual-review-repos-list`                 | Repos (one per GitHub repo) — usually only one matters; useful for filtering.                                      |
-| `posthog:visual-review-repos-retrieve`             | Repo metadata: baseline file paths, PR-comment configuration.                                                      |
+| Tool                                               | Purpose                                                                                                                                                                                                                                  |
+| -------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `posthog:visual-review-runs-list`                  | List runs, filter by `pr_number` / `commit_sha` / `branch` / `review_state`. Start here.                                                                                                                                                 |
+| `posthog:visual-review-runs-retrieve`              | Full detail for a single run (status, summary counts, supersession).                                                                                                                                                                     |
+| `posthog:visual-review-runs-snapshots-list`        | Per-snapshot results inside a run: identifier, `result`, diff %, classification, baseline + current artifact URLs. Quarantined snapshots are excluded by default (see `quarantined_count`); pass `include_quarantined=true` to see them. |
+| `posthog:visual-review-runs-snapshot-history-list` | A single story's last N runs across master/PRs — the flake check.                                                                                                                                                                        |
+| `posthog:visual-review-runs-counts-retrieve`       | Aggregate counts for queue triage (how many runs in `needs_review`, etc.).                                                                                                                                                               |
+| `posthog:visual-review-runs-tolerated-hashes-list` | Hashes the team has explicitly accepted as "known flake / acceptable variation".                                                                                                                                                         |
+| `posthog:visual-review-repos-list`                 | Repos (one per GitHub repo) — usually only one matters; useful for filtering.                                                                                                                                                            |
+| `posthog:visual-review-repos-retrieve`             | Repo metadata: baseline file paths, PR-comment configuration.                                                                                                                                                                            |
 
 Triage tools (reversible, DB-only — they record a review decision but do NOT change the baseline or the gate):
 

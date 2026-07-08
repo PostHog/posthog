@@ -2,28 +2,25 @@ import { actions, connect, kea, listeners, path, props, reducers, selectors } fr
 
 import api from 'lib/api'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
-import { FEATURE_FLAGS } from 'lib/constants'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 
 import { groupsModel } from '~/models/groupsModel'
 import { DataTableNode, LLMTrace, NodeKind, TraceQuery } from '~/queries/schema/schema-general'
 
 import { SortDirection, SortState, aiObservabilitySharedLogic } from '../aiObservabilitySharedLogic'
 import { buildAiObservabilityStorageConfig } from '../preferenceStorage'
+import { GENERATION_SENTIMENT_SELECT } from '../sentimentResults'
 import type { aiObservabilityGenerationsLogicType } from './aiObservabilityGenerationsLogicType'
 
-export interface AIObservabilityGenerationsLogicProps {
-    tabId?: string
-}
+export type AIObservabilityGenerationsLogicProps = Record<string, never>
 
-export function getDefaultGenerationsColumns(showSentiment: boolean = false, showTools: boolean = false): string[] {
+export function getDefaultGenerationsColumns(): string[] {
     return [
         'uuid',
         'properties.$ai_trace_id',
         'person',
-        ...(showSentiment ? ["'' -- Sentiment"] : []),
+        GENERATION_SENTIMENT_SELECT,
         "f'{properties.$ai_model}' -- Model",
-        ...(showTools ? ['properties.$ai_tools_called'] : []),
+        'properties.$ai_tools_called',
         "if(properties.$ai_is_error = 'true', '❌', '') -- Error",
         "f'{round(toFloat(properties.$ai_latency), 2)} s' -- Latency",
         "f'{properties.$ai_input_tokens} → {properties.$ai_output_tokens} (∑ {toInt(properties.$ai_input_tokens) + toInt(properties.$ai_output_tokens)})' -- Token usage",
@@ -34,21 +31,18 @@ export function getDefaultGenerationsColumns(showSentiment: boolean = false, sho
 
 export const aiObservabilityGenerationsLogic = kea<aiObservabilityGenerationsLogicType>([
     path(['products', 'ai_observability', 'frontend', 'tabs', 'aiObservabilityGenerationsLogic']),
-    // Intentionally not keyed by tabId: the in-app multi-tab feature was removed, so tabId is now a
-    // fresh random id per page load. Keying by it would make the persisted column selection's
-    // localStorage key change on every refresh, losing the user's choice.
+    // Singleton (unkeyed): the persisted column selection lives in a single localStorage key
+    // for the scene, so a stable key keeps the user's choice across refreshes.
     props({} as AIObservabilityGenerationsLogicProps),
-    connect((props: AIObservabilityGenerationsLogicProps) => ({
+    connect(() => ({
         values: [
-            aiObservabilitySharedLogic({ tabId: props.tabId }),
+            aiObservabilitySharedLogic,
             ['dateFilter', 'shouldFilterTestAccounts', 'propertyFilters'],
             groupsModel,
             ['groupsTaxonomicTypes'],
-            featureFlagLogic,
-            ['featureFlags'],
         ],
         actions: [
-            aiObservabilitySharedLogic({ tabId: props.tabId }),
+            aiObservabilitySharedLogic,
             ['setDates', 'setPropertyFilters', 'setShouldFilterTestAccounts', 'applyUrlState'],
         ],
     })),
@@ -72,7 +66,7 @@ export const aiObservabilityGenerationsLogic = kea<aiObservabilityGenerationsLog
 
         generationsColumns: [
             null as string[] | null,
-            buildAiObservabilityStorageConfig('generations.columns'),
+            buildAiObservabilityStorageConfig('generations.columns.v4'),
             {
                 setGenerationsColumns: (_, { columns }) => columns,
             },
@@ -134,6 +128,7 @@ export const aiObservabilityGenerationsLogic = kea<aiObservabilityGenerationsLog
                 const traceQuery: TraceQuery = {
                     kind: NodeKind.TraceQuery,
                     traceId,
+                    includeSentiment: true,
                     dateRange: {
                         date_from: dateFrom,
                         date_to: dateTo,
@@ -167,7 +162,6 @@ export const aiObservabilityGenerationsLogic = kea<aiObservabilityGenerationsLog
                 s.generationsColumns,
                 s.generationsSort,
                 s.groupsTaxonomicTypes,
-                s.featureFlags,
             ],
             (
                 dateFilter,
@@ -175,19 +169,13 @@ export const aiObservabilityGenerationsLogic = kea<aiObservabilityGenerationsLog
                 propertyFilters,
                 generationsColumns,
                 generationsSort,
-                groupsTaxonomicTypes,
-                featureFlags
+                groupsTaxonomicTypes
             ): DataTableNode => ({
                 kind: NodeKind.DataTableNode,
                 source: {
                     kind: NodeKind.EventsQuery,
                     limit: 100,
-                    select:
-                        generationsColumns ||
-                        getDefaultGenerationsColumns(
-                            !!featureFlags[FEATURE_FLAGS.LLM_ANALYTICS_SENTIMENT],
-                            !!featureFlags[FEATURE_FLAGS.LLM_ANALYTICS_TOOLS_TAB]
-                        ),
+                    select: generationsColumns || getDefaultGenerationsColumns(),
                     orderBy: [`${generationsSort.column} ${generationsSort.direction}`],
                     after: dateFilter.dateFrom || undefined,
                     before: dateFilter.dateTo || undefined,

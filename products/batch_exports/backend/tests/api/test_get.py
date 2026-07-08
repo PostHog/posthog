@@ -7,6 +7,7 @@ from rest_framework import status
 from posthog.api.test.test_team import create_team
 from posthog.api.test.test_user import create_user
 
+from products.batch_exports.backend.models.batch_export import BatchExport, BatchExportDestination
 from products.batch_exports.backend.tests.api.fixtures import create_organization
 from products.batch_exports.backend.tests.api.operations import create_batch_export_ok, get_batch_export
 
@@ -30,7 +31,7 @@ def test_can_get_exports_for_your_organizations(
     client: HttpClient, temporal, organization, team, user, interval, timezone, offset_day, offset_hour
 ):
     destination_data = {
-        "type": "S3",
+        "type": "AwsS3",
         "config": {
             "bucket_name": "my-production-s3-bucket",
             "region": "us-east-1",
@@ -86,7 +87,7 @@ def test_can_get_exports_for_your_organizations(
 
 def test_cannot_get_exports_for_other_organizations(client: HttpClient, temporal, organization, team, user):
     destination_data = {
-        "type": "S3",
+        "type": "AwsS3",
         "config": {
             "bucket_name": "my-production-s3-bucket",
             "region": "us-east-1",
@@ -123,7 +124,7 @@ def test_batch_exports_are_partitioned_by_team(client: HttpClient, temporal, org
     doesn't belong to.
     """
     destination_data = {
-        "type": "S3",
+        "type": "AwsS3",
         "config": {
             "bucket_name": "my-production-s3-bucket",
             "region": "us-east-1",
@@ -160,3 +161,50 @@ def test_batch_exports_are_partitioned_by_team(client: HttpClient, temporal, org
 
     response = get_batch_export(client, team.pk, batch_export["id"])
     assert response.status_code == status.HTTP_404_NOT_FOUND, response.json()
+
+
+def test_serialization_of_destination_config(client: HttpClient, temporal, organization, team, user):
+    """Test that the destination config is serialized correctly.
+
+    Our destination config is encrypted using EncryptedJSONField, which decrypts most data types
+    (including booleans) into strings. Therefore, we want to ensure these are serialized to their
+    correct JSON types in the response.
+    """
+    destination_data = {
+        "type": "Postgres",
+        "config": {
+            "host": "127.0.0.1",
+            "port": 5432,
+            "user": "test",
+            "password": "test",
+            "schema": "public",
+            "database": "test",
+            "table_name": "batch_export_events",
+            "has_self_signed_cert": False,
+        },
+    }
+
+    # Created via the ORM to exercise an inline-credential (legacy) Postgres export, which can no
+    # longer be created through the API now that new Postgres exports require an integration.
+    destination = BatchExportDestination.objects.create(
+        type=BatchExportDestination.Destination.POSTGRES,
+        config=destination_data["config"],
+    )
+    batch_export = BatchExport.objects.create(name="my-export", team=team, destination=destination, interval="day")
+
+    client.force_login(user)
+    response = get_batch_export(client, team.pk, batch_export.id)
+    assert response.status_code == status.HTTP_200_OK, response.json()
+
+    batch_export = response.json()
+
+    # Check that the destination config is returned with correct JSON types, except for user and
+    # password, which are sensitive
+    assert batch_export["destination"]["config"] == {
+        "host": "127.0.0.1",
+        "port": 5432,
+        "schema": "public",
+        "database": "test",
+        "table_name": "batch_export_events",
+        "has_self_signed_cert": False,
+    }

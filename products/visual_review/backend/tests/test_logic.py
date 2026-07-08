@@ -7,7 +7,7 @@ import pytest
 from django.utils import timezone
 
 from products.visual_review.backend import logic
-from products.visual_review.backend.facade.enums import ReviewState, RunStatus, RunType, SnapshotResult
+from products.visual_review.backend.facade.enums import ReviewDecision, ReviewState, RunStatus, RunType, SnapshotResult
 from products.visual_review.backend.models import Repo, Run, RunSnapshot
 from products.visual_review.backend.tests.conftest import PRODUCT_DATABASES
 
@@ -351,6 +351,57 @@ class TestRunOperations:
         removed = run.snapshots.get(identifier="deleted")
         assert removed.result == SnapshotResult.REMOVED
 
+    def test_complete_run_partial_skips_removals_off_default_branch(self, repo, mocker):
+        run, _ = logic.create_run(
+            repo_id=repo.id,
+            team_id=repo.team_id,
+            run_type=RunType.STORYBOOK,
+            commit_sha="abc",
+            branch="feature-x",
+            pr_number=7,
+            snapshots=[{"identifier": "kept", "content_hash": "h1"}],
+            is_partial=True,
+        )
+
+        mocker.patch(
+            "products.visual_review.backend.logic._resolve_baselines_with_merge_base",
+            return_value=({"kept": "h1", "deleted": "h2"}, 0),
+        )
+        mocker.patch("products.visual_review.backend.logic._run_is_on_default_branch", return_value=False)
+
+        completed = logic.complete_run(run.id)
+
+        assert completed.removed_count == 0
+        assert not run.snapshots.filter(identifier="deleted").exists()
+
+    def test_complete_run_partial_ignored_on_default_branch(self, repo, mocker):
+        run, _ = logic.create_run(
+            repo_id=repo.id,
+            team_id=repo.team_id,
+            run_type=RunType.STORYBOOK,
+            commit_sha="abc",
+            branch="master",
+            pr_number=None,
+            snapshots=[{"identifier": "kept", "content_hash": "h1"}],
+            is_partial=True,
+        )
+
+        mocker.patch(
+            "products.visual_review.backend.logic._resolve_baselines_with_merge_base",
+            return_value=({"kept": "h1", "deleted": "h2"}, 0),
+        )
+        mocker.patch("products.visual_review.backend.logic._run_is_on_default_branch", return_value=True)
+
+        completed = logic.complete_run(run.id)
+
+        # is_partial must not suppress removal detection on the default branch.
+        assert completed.removed_count == 1
+        removed = run.snapshots.get(identifier="deleted")
+        assert removed.result == SnapshotResult.REMOVED
+        # The default-branch correction is persisted, so the run is no longer
+        # treated as partial anywhere downstream (status context, UI).
+        assert completed.is_partial is False
+
     def test_complete_run_passes_commit_sha_to_baseline_resolution(self, repo, mocker):
         """complete_run passes run.commit_sha so default-branch baselines are pinned."""
         run, _ = logic.create_run(
@@ -632,6 +683,26 @@ class TestApproveRun:
         assert again.approved is True
         assert again.approved_at == approved_at  # unchanged — the second call did no work
 
+    @pytest.mark.parametrize("add_images", [True, False])
+    def test_finalize_always_comments_and_forwards_add_images(self, repo, user, mocker, add_images):
+        # The PR comment is always dispatched on finalize; add_images_to_comment_on_pr only
+        # controls whether the snapshot images are embedded — forwarded to the task.
+        run = self._completed_two_change_run(repo, mocker)
+        mocker.patch.object(logic, "_post_commit_status")
+        mocker.patch.object(logic.transaction, "on_commit", side_effect=lambda fn, *args, **kwargs: fn())
+        delay = mocker.patch("products.visual_review.backend.tasks.tasks.post_approval_comment.delay")
+
+        logic.finalize_run(
+            run_id=run.id,
+            user_id=user.id,
+            approve_all=True,
+            commit_to_github=True,
+            add_images_to_comment_on_pr=add_images,
+        )
+
+        assert delay.called is True
+        assert delay.call_args.args[2] is add_images
+
 
 @pytest.mark.django_db(databases=PRODUCT_DATABASES)
 class TestApproveSnapshots:
@@ -899,7 +970,40 @@ class TestCommitStatusChecks:
 
         statuses = mock_github_api.status_checks
         assert statuses[-1]["state"] == "success"
-        assert "No visual changes" in statuses[-1]["description"]
+        assert statuses[-1]["description"] == "No visual changes"
+        # A full run posts to the gating context that branch protection evaluates.
+        assert statuses[-1]["context"] == "PostHog Visual Review / storybook"
+
+    def test_complete_run_partial_annotates_posted_status(self, github_repo, mock_github_api, mocker):
+        run, _ = logic.create_run(
+            repo_id=github_repo.id,
+            team_id=github_repo.team_id,
+            run_type=RunType.STORYBOOK,
+            commit_sha="abc123",
+            branch="feature-x",
+            pr_number=7,
+            snapshots=[{"identifier": "snap", "content_hash": "same"}],
+            baseline_hashes={"snap": "same"},
+            is_partial=True,
+        )
+
+        mocker.patch(
+            "products.visual_review.backend.logic._resolve_baselines_with_merge_base",
+            return_value=({"snap": "same", "deleted": "h2"}, 0),
+        )
+        mocker.patch("products.visual_review.backend.logic._run_is_on_default_branch", return_value=False)
+        logic.complete_run(run.id)
+
+        # A partial run suppresses removal detection, so it must never satisfy
+        # the gating status context branch protection evaluates. It posts to a
+        # separate "(partial)" context instead, and the description discloses it.
+        statuses = mock_github_api.status_checks
+        assert statuses[-1]["state"] == "success"
+        assert statuses[-1]["description"] == "No visual changes (partial run)"
+        assert statuses[-1]["context"] == "PostHog Visual Review / storybook (partial)"
+        # The gating context is never posted green by a partial run.
+        gating_context = "PostHog Visual Review / storybook"
+        assert all(s["context"] != gating_context for s in statuses)
 
     def test_complete_run_posts_comment_when_changes_detected(self, github_repo, mock_github_api, mocker):
         github_repo.enable_pr_comments = True
@@ -1052,6 +1156,69 @@ class TestCommitStatusChecks:
         assert statuses[-1]["state"] == "error"
         assert "failed" in statuses[-1]["description"].lower()
         assert len(mock_github_api.issue_comments) == 0
+
+    def test_observe_run_with_changes_posts_green_tracking_status(self, github_repo, mock_github_api, mocker):
+        # Default-branch (observe) runs are tracking-only: a visual change posts a green,
+        # informational status — never a blocking failure — and no review-prompt comment.
+        github_repo.enable_pr_comments = True
+        github_repo.save(update_fields=["enable_pr_comments"])
+
+        run, _ = logic.create_run(
+            repo_id=github_repo.id,
+            team_id=github_repo.team_id,
+            run_type=RunType.STORYBOOK,
+            commit_sha="abc123",
+            branch="master",
+            pr_number=None,
+            snapshots=[
+                {"identifier": "changed", "content_hash": "new_h"},
+                {"identifier": "added", "content_hash": "brand_new"},
+            ],
+            baseline_hashes={"changed": "old_h"},
+            purpose="observe",
+        )
+
+        mocker.patch(
+            "products.visual_review.backend.logic._resolve_baselines_with_merge_base",
+            return_value=({"changed": "old_h"}, 0),
+        )
+        mocker.patch("products.visual_review.backend.tasks.tasks.process_run_diffs.delay")
+        logic.complete_run(run.id)
+        logic.finish_processing(run.id)
+
+        statuses = mock_github_api.status_checks
+        assert statuses[-1]["state"] == "success"
+        assert statuses[-1]["description"] == "Tracking only: 1 changed, 1 new recorded"
+        # Observe runs post to a separate, non-gating context. purpose is client-supplied,
+        # so greening the gating context would let an observe run bypass branch protection
+        # on a PR head SHA — the gating context must never be touched by an observe run.
+        assert statuses[-1]["context"] == "PostHog Visual Review / storybook (tracking)"
+        assert all(s["context"] != "PostHog Visual Review / storybook" for s in statuses)
+        assert len(mock_github_api.issue_comments) == 0
+
+    def test_observe_run_without_changes_posts_green_tracking_status(self, github_repo, mock_github_api, mocker):
+        run, _ = logic.create_run(
+            repo_id=github_repo.id,
+            team_id=github_repo.team_id,
+            run_type=RunType.STORYBOOK,
+            commit_sha="abc123",
+            branch="master",
+            pr_number=None,
+            snapshots=[{"identifier": "snap", "content_hash": "same"}],
+            baseline_hashes={"snap": "same"},
+            purpose="observe",
+        )
+
+        mocker.patch(
+            "products.visual_review.backend.logic._resolve_baselines_with_merge_base",
+            return_value=({"snap": "same"}, 0),
+        )
+        logic.complete_run(run.id)
+
+        statuses = mock_github_api.status_checks
+        assert statuses[-1]["state"] == "success"
+        assert statuses[-1]["description"] == "Tracking only: no visual changes"
+        assert statuses[-1]["context"] == "PostHog Visual Review / storybook (tracking)"
 
     def test_approve_run_posts_success(self, github_repo, mock_github_api, user):
         logic.get_or_create_artifact(repo_id=github_repo.id, content_hash="new_h", storage_path="p/new")
@@ -1761,6 +1928,34 @@ class TestRerunGithubJob:
 
 
 @pytest.mark.django_db(databases=PRODUCT_DATABASES)
+class TestRunIsOnDefaultBranch:
+    @pytest.fixture
+    def repo(self, team):
+        return logic.create_repo(team_id=team.id, repo_external_id=1234, repo_full_name="org/test-repo")
+
+    def _mock_github(self, mocker, default_branch="master"):
+        mock_github = mocker.MagicMock()
+        mock_github.access_token_expired.return_value = False
+        mocker.patch("products.visual_review.backend.logic.get_github_integration_for_repo", return_value=mock_github)
+        mocker.patch("products.visual_review.backend.logic._get_default_branch", return_value=default_branch)
+
+    def test_true_when_branch_matches_default(self, repo, mocker):
+        self._mock_github(mocker, default_branch="main")
+        assert logic._run_is_on_default_branch(repo, "main") is True
+
+    def test_false_when_branch_differs(self, repo, mocker):
+        self._mock_github(mocker, default_branch="main")
+        assert logic._run_is_on_default_branch(repo, "feature-x") is False
+
+    def test_false_when_no_github_integration(self, repo, mocker):
+        mocker.patch(
+            "products.visual_review.backend.logic.get_github_integration_for_repo",
+            side_effect=logic.GitHubIntegrationNotFoundError("none"),
+        )
+        assert logic._run_is_on_default_branch(repo, "master") is False
+
+
+@pytest.mark.django_db(databases=PRODUCT_DATABASES)
 class TestMergeBaseBaselineHealing:
     """Tests for _resolve_baselines_with_merge_base healing rebase-corrupted baselines."""
 
@@ -2408,6 +2603,70 @@ class TestApprovalComment:
         assert "changed" not in body
         assert "new" not in body
         assert "removed" not in body
+        # A genuinely empty run stays silent — the suppressed-only note must not fire
+        assert "quarantined or tolerated" not in body
+
+    def test_build_approval_comment_body_excludes_quarantined_and_tolerated(self, repo):
+        run = Run.objects.create(
+            team_id=repo.team_id,
+            repo=repo,
+            commit_sha="mixed",
+            branch="feature",
+            pr_number=42,
+            review_decision=ReviewDecision.HUMAN_APPROVED,
+        )
+        RunSnapshot.objects.create(
+            team_id=repo.team_id, run=run, identifier="Real/Change", result=SnapshotResult.CHANGED
+        )
+        RunSnapshot.objects.create(
+            team_id=repo.team_id,
+            run=run,
+            identifier="Flaky/Quarantined",
+            result=SnapshotResult.CHANGED,
+            is_quarantined=True,
+        )
+        RunSnapshot.objects.create(
+            team_id=repo.team_id,
+            run=run,
+            identifier="Known/Tolerated",
+            result=SnapshotResult.NEW,
+            review_state=ReviewState.TOLERATED,
+        )
+
+        body = logic._build_approval_comment_body(run, repo, logic._Approver(label="bob", is_github_login=True))
+
+        assert "1 changed." in body
+        assert "new" not in body
+        assert "quarantined or tolerated" not in body
+
+    def test_build_approval_comment_body_notes_when_only_quarantined_and_tolerated(self, repo):
+        run = Run.objects.create(
+            team_id=repo.team_id,
+            repo=repo,
+            commit_sha="suppressed",
+            branch="feature",
+            pr_number=42,
+            review_decision=ReviewDecision.HUMAN_APPROVED,
+        )
+        RunSnapshot.objects.create(
+            team_id=repo.team_id,
+            run=run,
+            identifier="Flaky/Quarantined",
+            result=SnapshotResult.CHANGED,
+            is_quarantined=True,
+        )
+        RunSnapshot.objects.create(
+            team_id=repo.team_id,
+            run=run,
+            identifier="Known/Tolerated",
+            result=SnapshotResult.NEW,
+            review_state=ReviewState.TOLERATED,
+        )
+
+        body = logic._build_approval_comment_body(run, repo, logic._Approver(label="bob", is_github_login=True))
+
+        assert "All visual changes in this run were quarantined or tolerated." in body
+        assert "1 changed" not in body
 
     def test_post_approval_comment_skips_when_pr_comments_disabled(self, repo, run_with_snapshots, mocker):
         repo.enable_pr_comments = False
@@ -2489,3 +2748,253 @@ class TestApprovalComment:
         mocker.patch.object(logic, "_github_api_request", side_effect=RuntimeError("boom"))
         # Must not raise
         logic._post_approval_comment(run_with_snapshots, repo)
+
+    @staticmethod
+    def _mk_artifact(repo, content_hash, *, with_thumbnail=None):
+        from products.visual_review.backend.models import Artifact
+
+        artifact = Artifact.objects.create(
+            repo=repo,
+            team_id=repo.team_id,
+            content_hash=content_hash,
+            storage_path=f"path/{content_hash}",
+            width=320,
+            height=200,
+        )
+        if with_thumbnail:
+            thumb = Artifact.objects.create(
+                repo=repo,
+                team_id=repo.team_id,
+                content_hash=with_thumbnail,
+                storage_path=f"thumb/{with_thumbnail}",
+            )
+            artifact.thumbnail = thumb
+            artifact.save(update_fields=["thumbnail"])
+        return artifact
+
+    @staticmethod
+    def _fake_storage(returns_url=True):
+        class _FakeStorage:
+            def __init__(self, repo_id):
+                self.repo_id = repo_id
+
+            def get_presigned_download_url(self, content_hash, expiration=3600):
+                return f"https://cdn.example/{content_hash}?exp={expiration}" if returns_url else None
+
+        return _FakeStorage
+
+    @pytest.fixture
+    def run_with_artifacts(self, repo):
+        run = Run.objects.create(
+            team_id=repo.team_id,
+            repo=repo,
+            commit_sha="cafef00d",
+            branch="feature",
+            pr_number=42,
+            review_decision=ReviewDecision.HUMAN_APPROVED,
+            metadata={"github_comment_id": 9001},
+        )
+        RunSnapshot.objects.create(
+            team_id=repo.team_id,
+            run=run,
+            identifier="Login/Form",
+            result=SnapshotResult.CHANGED,
+            baseline_artifact=self._mk_artifact(repo, "base_a", with_thumbnail="thumb_a"),
+            current_artifact=self._mk_artifact(repo, "curr_a"),
+        )
+        RunSnapshot.objects.create(
+            team_id=repo.team_id,
+            run=run,
+            identifier="Settings/Tab",
+            result=SnapshotResult.NEW,
+            current_artifact=self._mk_artifact(repo, "curr_b"),
+        )
+        RunSnapshot.objects.create(
+            team_id=repo.team_id,
+            run=run,
+            identifier="Old/Component",
+            result=SnapshotResult.REMOVED,
+            baseline_artifact=self._mk_artifact(repo, "base_c"),
+        )
+        return run
+
+    def test_build_approval_comment_body_includes_before_after_tables(self, repo, run_with_artifacts, mocker):
+        mocker.patch.object(logic, "ArtifactStorage", self._fake_storage())
+
+        body = logic._build_approval_comment_body(run_with_artifacts, repo, None, add_images=True)
+
+        # Changed table: baseline before, current after — full-resolution originals,
+        # not thumbnails, so clicking opens the image at full size
+        assert "**Changed**" in body
+        assert "| Snapshot | Before | After |" in body
+        assert "https://cdn.example/base_a" in body  # full-res original, not thumb_a
+        assert "https://cdn.example/thumb_a" not in body
+        assert "https://cdn.example/curr_a" in body
+        # Removed snapshot lives in the changed table with an empty after cell
+        assert "_(removed)_" in body
+        assert "https://cdn.example/base_c" in body
+        # New table: empty before cell, current after
+        assert "**New**" in body
+        assert "https://cdn.example/curr_b" in body
+        assert "_(none)_" in body
+        # Long-lived URL so GitHub's image proxy can still fetch it later
+        assert f"exp={logic._COMMENT_IMAGE_URL_EXPIRATION}" in body
+
+    def test_build_snapshot_image_tables_excludes_quarantined_and_tolerated(self, repo, run_with_artifacts, mocker):
+        mocker.patch.object(logic, "ArtifactStorage", self._fake_storage())
+        RunSnapshot.objects.create(
+            team_id=repo.team_id,
+            run=run_with_artifacts,
+            identifier="Flaky/Quarantined",
+            result=SnapshotResult.CHANGED,
+            is_quarantined=True,
+            baseline_artifact=self._mk_artifact(repo, "base_q"),
+            current_artifact=self._mk_artifact(repo, "curr_q"),
+        )
+        RunSnapshot.objects.create(
+            team_id=repo.team_id,
+            run=run_with_artifacts,
+            identifier="Known/Tolerated",
+            result=SnapshotResult.CHANGED,
+            review_state=ReviewState.TOLERATED,
+            baseline_artifact=self._mk_artifact(repo, "base_t"),
+            current_artifact=self._mk_artifact(repo, "curr_t"),
+        )
+
+        body = logic._build_snapshot_image_tables(run_with_artifacts, repo)
+
+        assert "Flaky/Quarantined" not in body
+        assert "Known/Tolerated" not in body
+        assert "curr_q" not in body
+        assert "curr_t" not in body
+        assert "Login/Form" in body
+
+    def test_build_approval_comment_body_deep_links_each_snapshot(self, repo, run_with_artifacts, mocker):
+        mocker.patch.object(logic, "ArtifactStorage", self._fake_storage())
+
+        body = logic._build_approval_comment_body(run_with_artifacts, repo, None, add_images=True)
+
+        # Each snapshot name links straight to its deep link on the run page
+        changed = run_with_artifacts.snapshots.get(identifier="Login/Form")
+        assert f"[`Login/Form`]({logic._run_url(run_with_artifacts, repo)}?snapshot={changed.id})" in body
+
+    def test_build_approval_comment_body_caps_at_eight_and_links_out(self, repo, mocker):
+        mocker.patch.object(logic, "ArtifactStorage", self._fake_storage())
+
+        run = Run.objects.create(
+            team_id=repo.team_id,
+            repo=repo,
+            commit_sha="manysnaps",
+            branch="feature",
+            pr_number=42,
+            review_decision=ReviewDecision.HUMAN_APPROVED,
+        )
+        for i in range(11):
+            RunSnapshot.objects.create(
+                team_id=repo.team_id,
+                run=run,
+                identifier=f"Story/{i:02d}",
+                result=SnapshotResult.CHANGED,
+                baseline_artifact=self._mk_artifact(repo, f"base_{i}"),
+                current_artifact=self._mk_artifact(repo, f"curr_{i}"),
+            )
+
+        body = logic._build_approval_comment_body(run, repo, None, add_images=True)
+
+        # 8 of 11 rows rendered, the rest linked out
+        assert body.count("<img") == 8 * 2  # before + after per shown row
+        assert "…and 3 more" in body
+        assert f"/visual_review/runs/{run.id})" in body
+
+    def test_build_approval_comment_body_falls_back_to_text_without_storage(self, repo, run_with_artifacts, mocker):
+        # Images requested, but storage yields no URL — fall back to the text summary.
+        mocker.patch.object(logic, "ArtifactStorage", self._fake_storage(returns_url=False))
+
+        body = logic._build_approval_comment_body(run_with_artifacts, repo, None, add_images=True)
+
+        assert "<img" not in body
+        assert "**Changed**" not in body
+        # Still carries the textual summary
+        assert "1 changed, 1 new, 1 removed." in body
+
+    def test_build_approval_comment_body_omits_images_unless_opted_in(self, repo, run_with_artifacts, mocker):
+        # add_images defaults false: the comment is always posted but stays a text summary.
+        mocker.patch.object(logic, "ArtifactStorage", self._fake_storage())
+
+        body = logic._build_approval_comment_body(run_with_artifacts, repo, None)
+
+        assert "<img" not in body
+        assert "**Changed**" not in body
+        # The comment still summarizes what changed and links to the run
+        assert "1 changed, 1 new, 1 removed." in body
+        assert f"/visual_review/runs/{run_with_artifacts.id}" in body
+
+    def test_image_cell_escapes_alt_and_src(self):
+        # Both attributes are escaped so a quote in either can't break out of the tag
+        cell = logic._image_cell('https://cdn.example/x?a="b', 'a"b')
+        assert 'alt="a&quot;b"' in cell
+        assert 'src="https://cdn.example/x?a=&quot;b"' in cell
+
+    def test_image_cell_constrains_width_but_serves_full_resolution(self):
+        # The cell shows a width-constrained image whose src is the full-resolution
+        # original, so GitHub opens it at full size when clicked — no <a> wrapper needed.
+        cell = logic._image_cell("https://cdn.example/full", "after")
+        assert cell == f'<img src="https://cdn.example/full" width="{logic._COMMENT_IMAGE_WIDTH}" alt="after">'
+
+    @pytest.mark.parametrize(
+        "identifier,expected",
+        [
+            ("a|b", "`a\\|b`"),  # pipes escaped so the cell stays intact
+            ("a`b", "`ab`"),  # backticks stripped so the code span isn't closed early
+        ],
+    )
+    def test_snapshot_name_cell_escapes_markdown(self, identifier, expected):
+        assert logic._snapshot_name_cell(identifier) == expected
+
+    def test_snapshot_name_cell_collapses_control_characters(self):
+        # Newlines/tabs/carriage returns would otherwise break out of the table row
+        cell = logic._snapshot_name_cell("a\nb\tc\rd")
+        assert "\n" not in cell
+        assert "\r" not in cell
+        assert "\t" not in cell
+        assert cell == "`a b c d`"
+
+    def test_snapshot_name_cell_newline_cannot_inject_table_rows(self):
+        # A pipe-laden payload across a newline stays a single escaped cell
+        cell = logic._snapshot_name_cell("x\n| --- |")
+        assert "\n" not in cell
+        assert cell == "`x \\| --- \\|`"
+
+    def test_comment_image_url_requests_seven_day_expiry(self, repo, mocker):
+        # The 7-day expiry is load-bearing: GitHub's image proxy may fetch the URL
+        # long after the comment is posted, so lock the behaviour with a test.
+        captured = {}
+
+        class _RecordingStorage:
+            def __init__(self, repo_id):
+                pass
+
+            def get_presigned_download_url(self, content_hash, expiration=3600):
+                captured["content_hash"] = content_hash
+                captured["expiration"] = expiration
+                return "https://cdn.example/x"
+
+        mocker.patch.object(logic, "ArtifactStorage", _RecordingStorage)
+
+        artifact = self._mk_artifact(repo, "h1")
+        url = logic._comment_image_url(repo, artifact)
+
+        assert url == "https://cdn.example/x"
+        assert captured["content_hash"] == "h1"
+        assert captured["expiration"] == 60 * 60 * 24 * 7 == 604800
+
+    def test_comment_image_url_serves_full_resolution_not_thumbnail(self, repo, mocker):
+        # Serve the original artifact, not the thumbnail, so clicking opens it full-size
+        mocker.patch.object(logic, "ArtifactStorage", self._fake_storage())
+
+        artifact = self._mk_artifact(repo, "full_h", with_thumbnail="thumb_h")
+        url = logic._comment_image_url(repo, artifact)
+
+        assert url is not None
+        assert "full_h" in url
+        assert "thumb_h" not in url

@@ -5,6 +5,7 @@ import { useEffect, useState } from 'react'
 import { IconInfo } from '@posthog/icons'
 import {
     LemonButton,
+    LemonCollapse,
     LemonDialog,
     LemonInput,
     LemonSelect,
@@ -23,13 +24,19 @@ import { More } from 'lib/lemon-ui/LemonButton/More'
 import { LemonMenu } from 'lib/lemon-ui/LemonMenu'
 import { LemonTableLink } from 'lib/lemon-ui/LemonTable/LemonTableLink'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { pluralize } from 'lib/utils'
+import { pluralize } from 'lib/utils/strings'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
 import { ExternalDataSourceType, ProductIntentContext, ProductKey } from '~/queries/schema/schema-general'
-import { DataWarehouseSyncInterval, ExternalDataSource, ExternalDataSourceSchema } from '~/types'
+import {
+    DataWarehouseSyncInterval,
+    ExternalDataSchemaStatus,
+    ExternalDataSource,
+    ExternalDataSourceSchema,
+} from '~/types'
 
+import { splitQualifiedTableName } from 'products/data_warehouse/frontend/shared/components/forms/schemaGroupingUtils'
 import { DATA_WAREHOUSE_APP_SOURCE } from 'products/data_warehouse/frontend/shared/components/metrics/DataWarehouseMetrics'
 import {
     SourceEditorAction,
@@ -83,6 +90,7 @@ function ManagedSchemasTab({ id }: { id: string }): JSX.Element {
         source,
         sourceLoading,
         filteredSchemas,
+        groupedFilteredSchemas,
         showEnabledSchemasOnly,
         schemaNameFilter,
         statusFilter,
@@ -105,9 +113,18 @@ function ManagedSchemasTab({ id }: { id: string }): JSX.Element {
         resyncSchema,
         cancelSchema,
         deleteTable,
+        loadJobs,
     } = useActions(sourceSettingsLogic)
     const { addProductIntentForCrossSell } = useActions(teamLogic)
     const { featureFlags } = useValues(featureFlagLogic)
+
+    // Load (and poll) jobs so the Rows synced column can show live progress for in-progress
+    // syncs, before the warehouse table exists. loadJobsSuccess reschedules itself.
+    useEffect(() => {
+        if (source && source.access_method !== 'direct') {
+            loadJobs()
+        }
+    }, [loadJobs, source])
 
     const showMetrics = !!featureFlags[FEATURE_FLAGS.DWH_SOURCE_METRICS]
     // `id` is the cleaned source id; URLs use the `managed-` prefix
@@ -115,8 +132,8 @@ function ManagedSchemasTab({ id }: { id: string }): JSX.Element {
 
     return (
         <>
-            <div className="flex items-center justify-between gap-2 mb-2">
-                <div className="flex items-center gap-3">
+            <div className="flex items-start justify-between gap-2 mb-2">
+                <div className="flex flex-wrap items-center gap-3 min-w-0">
                     <LemonSwitch
                         checked={showEnabledSchemasOnly}
                         onChange={setShowEnabledSchemasOnly}
@@ -167,7 +184,7 @@ function ManagedSchemasTab({ id }: { id: string }): JSX.Element {
                     />
                     <span className="text-muted text-sm">{pluralize(filteredSchemas.length, 'schema', 'schemas')}</span>
                 </div>
-                <div className="flex items-center gap-2">
+                <div className="flex items-center gap-2 shrink-0">
                     <SourceEditorAction source={source}>
                         <LemonButton
                             type="secondary"
@@ -214,19 +231,57 @@ function ManagedSchemasTab({ id }: { id: string }): JSX.Element {
                     </SourceEditorAction>
                 </div>
             </div>
-            <ManagedSchemaTable
-                schemas={filteredSchemas}
-                isLoading={sourceLoading}
-                source={source}
-                sourceId={id}
-                prefixedSourceId={prefixedSourceId}
-                updateSchema={updateSchema}
-                reloadSchema={reloadSchema}
-                resyncSchema={resyncSchema}
-                cancelSchema={cancelSchema}
-                deleteTable={deleteTable}
-                showMetrics={showMetrics}
-            />
+            {groupedFilteredSchemas.length > 1 ? (
+                <div className="border rounded bg-bg-light">
+                    <LemonCollapse
+                        multiple
+                        embedded
+                        defaultActiveKeys={groupedFilteredSchemas.map((group) => group.schemaName)}
+                        panels={groupedFilteredSchemas.map(({ schemaName, tables }) => ({
+                            key: schemaName,
+                            header: (
+                                <div className="flex items-center justify-between gap-3 w-full">
+                                    <span className="font-semibold truncate">{schemaName}</span>
+                                    <span className="text-xs text-muted-alt whitespace-nowrap">
+                                        {tables.filter((schema) => schema.should_sync).length} of {tables.length}{' '}
+                                        enabled
+                                    </span>
+                                </div>
+                            ),
+                            content: (
+                                <ManagedSchemaTable
+                                    schemas={tables}
+                                    inSchemaGroup
+                                    isLoading={sourceLoading}
+                                    source={source}
+                                    sourceId={id}
+                                    prefixedSourceId={prefixedSourceId}
+                                    updateSchema={updateSchema}
+                                    reloadSchema={reloadSchema}
+                                    resyncSchema={resyncSchema}
+                                    cancelSchema={cancelSchema}
+                                    deleteTable={deleteTable}
+                                    showMetrics={showMetrics}
+                                />
+                            ),
+                        }))}
+                    />
+                </div>
+            ) : (
+                <ManagedSchemaTable
+                    schemas={filteredSchemas}
+                    isLoading={sourceLoading}
+                    source={source}
+                    sourceId={id}
+                    prefixedSourceId={prefixedSourceId}
+                    updateSchema={updateSchema}
+                    reloadSchema={reloadSchema}
+                    resyncSchema={resyncSchema}
+                    cancelSchema={cancelSchema}
+                    deleteTable={deleteTable}
+                    showMetrics={showMetrics}
+                />
+            )}
             {source?.source_type &&
                 REVENUE_ENABLED_SOURCES.includes(source.source_type) &&
                 featureFlags[FEATURE_FLAGS.REVENUE_ANALYTICS] && (
@@ -267,6 +322,8 @@ interface ManagedSchemaTableProps {
     cancelSchema: (schema: ExternalDataSourceSchema) => void
     deleteTable: (schema: ExternalDataSourceSchema) => void
     showMetrics: boolean
+    /** Rendered inside a namespace group — the group header already shows the namespace, so strip it from row names. */
+    inSchemaGroup?: boolean
 }
 
 function ManagedSchemaTable({
@@ -281,8 +338,10 @@ function ManagedSchemaTable({
     cancelSchema,
     deleteTable,
     showMetrics,
+    inSchemaGroup = false,
 }: ManagedSchemaTableProps): JSX.Element {
     const { schemaReloadingById } = useValues(sourceManagementLogic)
+    const { inProgressRowsBySchema } = useValues(sourceSettingsLogic)
     const { setSelectedSchemas } = useActions(sourceSettingsLogic)
     const { disabledReason: editDisabledReason } = useSourceEditorAccess(source)
     const [initialLoad, setInitialLoad] = useState(true)
@@ -314,7 +373,8 @@ function ManagedSchemaTable({
                     key: 'name',
                     sorter: (a, b) => (a.label ?? a.name).localeCompare(b.label ?? b.name),
                     render: function RenderName(_, schema) {
-                        const name = schema.label ?? schema.name
+                        const fullName = schema.label ?? schema.name
+                        const name = inSchemaGroup ? splitQualifiedTableName(fullName).tableName : fullName
                         return (
                             <LemonTableLink
                                 to={urls.dataWarehouseSourceSchema(prefixedSourceId, schema.id)}
@@ -328,7 +388,10 @@ function ManagedSchemaTable({
                                         )}
                                     </div>
                                 }
-                                description={schema.table?.name ? <code>{schema.table.name}</code> : undefined}
+                                description={((): JSX.Element | undefined => {
+                                    const tableName = schema.table?.hogql_name ?? schema.table?.name
+                                    return tableName ? <code>{tableName}</code> : undefined
+                                })()}
                             />
                         )
                     },
@@ -405,7 +468,17 @@ function ManagedSchemaTable({
                         if (schema.table) {
                             return schema.table.row_count?.toLocaleString() ?? 0
                         }
-                        if (schema.status === 'Completed') {
+                        // No table yet during the first sync — fall back to the running job's live count.
+                        if (schema.status === ExternalDataSchemaStatus.Running) {
+                            const rows = inProgressRowsBySchema[schema.id] ?? 0
+                            return (
+                                <span className="flex items-center justify-end gap-1">
+                                    <Spinner textColored className="text-sm" />
+                                    {rows.toLocaleString()}
+                                </span>
+                            )
+                        }
+                        if (schema.status === ExternalDataSchemaStatus.Completed) {
                             return 0
                         }
                         return <span className="text-muted">—</span>
@@ -700,7 +773,13 @@ function SchemaRowMore({
                                     size="xsmall"
                                     fullWidth
                                     onClick={() => reloadSchema(schema)}
-                                    disabledReason={!schema.sync_type ? 'Set up the sync method first' : undefined}
+                                    disabledReason={
+                                        !schema.sync_type
+                                            ? 'Set up the sync method first'
+                                            : schema.status === 'Running'
+                                              ? 'A sync is already running'
+                                              : undefined
+                                    }
                                 >
                                     {schema.sync_type === 'cdc' ? 'Sync CDC now' : 'Sync now'}
                                 </LemonButton>

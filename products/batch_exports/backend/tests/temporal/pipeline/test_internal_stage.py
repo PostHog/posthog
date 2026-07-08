@@ -6,22 +6,32 @@ import datetime as dt
 from collections.abc import AsyncGenerator
 
 import pytest
-from unittest.mock import patch
+from unittest.mock import AsyncMock, patch
 
 from django.conf import settings
 from django.test.utils import override_settings
 
 import pyarrow as pa
 import pytest_asyncio
+from structlog.testing import capture_logs
 from temporalio.testing import ActivityEnvironment
 
-from posthog.temporal.common.clickhouse import ClickHouseClient
+from posthog.models.scoping import team_scope
+from posthog.temporal.common.clickhouse import ClickHouseClient, ClickHouseClientTimeoutError, ClickHouseQueryStatus
 
-from products.batch_exports.backend.service import BackfillDetails, BatchExportModel
+from products.batch_exports.backend.models.batch_export import (
+    BatchExport,
+    BatchExportDestination,
+    BatchExportOnDemand,
+    BatchExportRun,
+)
+from products.batch_exports.backend.service import BackfillDetails, BatchExportModel, afetch_last_run_records_completed
 from products.batch_exports.backend.temporal.pipeline.internal_stage import (
     BatchExportInsertIntoInternalStageInputs,
     DataIntervalEndInFutureError,
+    _execute_query,
     _write_batch_export_record_batches_to_internal_stage,
+    compute_num_partitions,
     insert_into_internal_stage_activity,
 )
 from products.batch_exports.backend.temporal.pipeline.producer import Producer
@@ -219,7 +229,7 @@ async def minio_client():
 
 async def _generate_record_batches_from_internal_stage(
     batch_export_id: str, data_interval_start: dt.datetime, data_interval_end: dt.datetime, stage_folder: str
-) -> AsyncGenerator[pa.RecordBatch, None]:
+) -> AsyncGenerator[pa.RecordBatch]:
     """Generate record batches from the internal stage."""
     queue = RecordBatchQueue()
     producer = Producer()
@@ -270,7 +280,8 @@ async def _run_activity(
         destination_default_fields=None,
     )
 
-    stage_folder = await activity_environment.run(insert_into_internal_stage_activity, insert_inputs)
+    stage_result = await activity_environment.run(insert_into_internal_stage_activity, insert_inputs)
+    stage_folder = stage_result.stage_folder
     await assert_files_in_s3(
         minio_client,
         bucket_name=settings.BATCH_EXPORT_INTERNAL_STAGING_BUCKET,
@@ -326,6 +337,56 @@ async def test_insert_into_stage_activity_for_events_model(
     events_to_export_created = generate_test_data[0]
 
     assert len(records_exported) == len(events_to_export_created)
+
+
+@pytest.mark.parametrize("interval", ["day"], indirect=True)
+@pytest.mark.parametrize(
+    "model",
+    [
+        BatchExportModel(name="events", schema=None),
+    ],
+)
+@pytest.mark.parametrize("data_interval_end", [TEST_DATA_INTERVAL_END])
+async def test_insert_into_stage_activity_reports_records_total_for_events_model(
+    generate_test_data,
+    interval,
+    activity_environment,
+    data_interval_start,
+    minio_client,
+    data_interval_end,
+    ateam,
+    model: BatchExportModel,
+):
+    """The activity reports the number of rows written to the stage, from ClickHouse's query summary."""
+
+    with capture_logs() as cap_logs:
+        records_exported = await _run_activity(
+            activity_environment=activity_environment,
+            minio_client=minio_client,
+            team_id=ateam.pk,
+            data_interval_start=data_interval_start,
+            data_interval_end=data_interval_end,
+            model=model,
+        )
+
+    events_to_export_created = generate_test_data[0]
+    completed_logs = [log for log in cap_logs if log["event"] == "Staging data completed successfully"]
+    assert len(completed_logs) == 1
+    assert completed_logs[0]["records_total"] == len(events_to_export_created) == len(records_exported)
+
+
+@pytest.mark.parametrize("query_log_written_rows", [4242, None])
+async def test_execute_query_recovers_written_rows_from_query_log_on_timeout(query_log_written_rows):
+    """When the insert times out client-side, the row count is recovered from the query log."""
+    client = AsyncMock()
+    client.execute_query_with_summary.side_effect = ClickHouseClientTimeoutError("INSERT ...", "test-query-id")
+    client.acheck_query.return_value = ClickHouseQueryStatus.FINISHED
+    client.aget_written_rows_from_query_log.return_value = query_log_written_rows
+
+    result = await _execute_query(client, "INSERT INTO FUNCTION s3(...) SELECT ...", {})
+
+    assert result == query_log_written_rows
+    client.aget_written_rows_from_query_log.assert_awaited_once()
 
 
 class PersonToExport(t.TypedDict):
@@ -581,3 +642,418 @@ async def test_insert_into_stage_activity_for_persons_model(
             model=model,
         )
     assert_exported_rows_match_persons_to_export(records_exported, new_persons_to_export)
+
+
+_FETCHER_PATH = "products.batch_exports.backend.temporal.pipeline.internal_stage.afetch_last_run_records_completed"
+_INTERVAL_END = dt.datetime(2024, 1, 1, tzinfo=dt.UTC)
+_INTERVAL_START = _INTERVAL_END - dt.timedelta(hours=1)
+
+
+@pytest.mark.parametrize(
+    "estimate_rows, target, min_partitions, max_partitions, static_default, expected",
+    [
+        (None, 1_000_000, 1, 50, 10, 10),  # no estimate -> static default
+        (0, 1_000_000, 1, 50, 10, 10),  # zero -> static default
+        (-5, 1_000_000, 1, 50, 10, 10),  # negative -> static default
+        (1, 1_000_000, 1, 50, 10, 1),  # tiny -> min
+        (1_000_000, 1_000_000, 1, 50, 10, 1),  # exactly target -> 1
+        (1_000_001, 1_000_000, 1, 50, 10, 2),  # just over -> ceil to 2
+        (5_000_000, 1_000_000, 1, 50, 10, 5),
+        (10_000_000_000, 1_000_000, 1, 50, 10, 50),  # huge -> max
+        (5_000_000, 1_000_000, 10, 50, 10, 10),  # ceil(5) below min floor -> min
+        (100, 1_000_000, 5, 3, 10, 5),  # max < min misconfig -> guarded, clamps to min
+        (5_000_000, 0, 1, 50, 10, 50),  # target of 0 misconfig -> guarded (no ZeroDivisionError), clamps to max
+    ],
+)
+async def test_compute_num_partitions(estimate_rows, target, min_partitions, max_partitions, static_default, expected):
+    with (
+        override_settings(
+            BATCH_EXPORT_CLICKHOUSE_S3_PARTITIONS=static_default,
+            BATCH_EXPORT_CLICKHOUSE_S3_TARGET_ROWS_PER_PARTITION=target,
+            BATCH_EXPORT_CLICKHOUSE_S3_MIN_PARTITIONS=min_partitions,
+            BATCH_EXPORT_CLICKHOUSE_S3_MAX_PARTITIONS=max_partitions,
+        ),
+        patch(_FETCHER_PATH, new=AsyncMock(return_value=estimate_rows)),
+    ):
+        result = await compute_num_partitions(
+            batch_export_id=str(uuid.uuid4()), data_interval_start=_INTERVAL_START, data_interval_end=_INTERVAL_END
+        )
+    assert result == expected
+
+
+async def test_compute_num_partitions_db_error_falls_back_to_static_default():
+    with (
+        override_settings(BATCH_EXPORT_CLICKHOUSE_S3_PARTITIONS=10),
+        patch(_FETCHER_PATH, new=AsyncMock(side_effect=Exception("db unavailable"))),
+    ):
+        result = await compute_num_partitions(
+            batch_export_id=str(uuid.uuid4()), data_interval_start=_INTERVAL_START, data_interval_end=_INTERVAL_END
+        )
+    assert result == 10
+
+
+async def test_compute_num_partitions_disabled_uses_static_default():
+    with (
+        override_settings(
+            BATCH_EXPORT_DYNAMIC_PARTITIONING_ENABLED=False,
+            BATCH_EXPORT_CLICKHOUSE_S3_PARTITIONS=10,
+        ),
+        patch(_FETCHER_PATH, new=AsyncMock(return_value=5_000_000)) as mock_fetch,
+    ):
+        result = await compute_num_partitions(
+            batch_export_id=str(uuid.uuid4()), data_interval_start=_INTERVAL_START, data_interval_end=_INTERVAL_END
+        )
+    assert result == 10
+    mock_fetch.assert_not_called()
+
+
+async def test_compute_num_partitions_without_interval_start_falls_back_to_static_default():
+    """An unbounded interval (no start) gives no frequency to match, so we don't risk an estimate."""
+    with (
+        override_settings(BATCH_EXPORT_CLICKHOUSE_S3_PARTITIONS=10),
+        patch(_FETCHER_PATH, new=AsyncMock(return_value=5_000_000)) as mock_fetch,
+    ):
+        result = await compute_num_partitions(
+            batch_export_id=str(uuid.uuid4()), data_interval_start=None, data_interval_end=_INTERVAL_END
+        )
+    assert result == 10
+    mock_fetch.assert_not_called()
+
+
+async def test_compute_num_partitions_fetches_estimate_relative_to_interval():
+    with (
+        override_settings(
+            BATCH_EXPORT_CLICKHOUSE_S3_TARGET_ROWS_PER_PARTITION=1_000_000,
+            BATCH_EXPORT_CLICKHOUSE_S3_MIN_PARTITIONS=1,
+            BATCH_EXPORT_CLICKHOUSE_S3_MAX_PARTITIONS=50,
+        ),
+        patch(_FETCHER_PATH, new=AsyncMock(return_value=4_500_000)) as mock_fetch,
+    ):
+        result = await compute_num_partitions(
+            batch_export_id=str(uuid.uuid4()), data_interval_start=_INTERVAL_START, data_interval_end=_INTERVAL_END
+        )
+    assert result == 5  # ceil(4_500_000 / 1_000_000)
+    # The estimate is fetched relative to the interval being processed, and only from runs of the same
+    # frequency (interval duration) within the lookback window.
+    kwargs = mock_fetch.call_args.kwargs
+    assert kwargs["before_or_at_interval_end"] == _INTERVAL_END
+    assert kwargs["matching_interval_duration"] == _INTERVAL_END - _INTERVAL_START
+    assert kwargs["not_older_than"] < _INTERVAL_END
+
+
+async def _acreate_batch_export_for_test(team_id: int, interval: str = "hour") -> BatchExport:
+    """Create a minimal BatchExport via the ORM (no Temporal schedule) for FK-backed run rows."""
+    destination = await BatchExportDestination.objects.acreate(
+        type="S3",
+        config={"bucket_name": "test-bucket", "region": "us-east-1", "prefix": "test"},
+    )
+    return await BatchExport.objects.acreate(
+        team_id=team_id,
+        name="test-dynamic-partitions",
+        destination=destination,
+        interval=interval,
+        model="events",
+    )
+
+
+async def test_afetch_last_run_records_completed(ateam):
+    batch_export = await _acreate_batch_export_for_test(ateam.pk)
+    base = dt.datetime(2024, 1, 1, tzinfo=dt.UTC)
+
+    # An older completed run.
+    await BatchExportRun.objects.acreate(
+        batch_export_id=batch_export.id,
+        data_interval_start=base,
+        data_interval_end=base + dt.timedelta(hours=1),
+        status=BatchExportRun.Status.COMPLETED,
+        records_completed=100,
+    )
+    # The most recent completed run with a recorded count -> should win.
+    await BatchExportRun.objects.acreate(
+        batch_export_id=batch_export.id,
+        data_interval_start=base + dt.timedelta(hours=1),
+        data_interval_end=base + dt.timedelta(hours=2),
+        status=BatchExportRun.Status.COMPLETED,
+        records_completed=250,
+    )
+    # A newer run, but FAILED -> ignored.
+    await BatchExportRun.objects.acreate(
+        batch_export_id=batch_export.id,
+        data_interval_start=base + dt.timedelta(hours=2),
+        data_interval_end=base + dt.timedelta(hours=3),
+        status=BatchExportRun.Status.FAILED,
+        records_completed=9999,
+    )
+    # The newest completed run, but with no recorded count -> ignored.
+    await BatchExportRun.objects.acreate(
+        batch_export_id=batch_export.id,
+        data_interval_start=base + dt.timedelta(hours=3),
+        data_interval_end=base + dt.timedelta(hours=4),
+        status=BatchExportRun.Status.COMPLETED,
+        records_completed=None,
+    )
+
+    assert (
+        await afetch_last_run_records_completed(
+            batch_export.id, matching_interval_duration=batch_export.interval_time_delta
+        )
+        == 250
+    )
+
+
+async def test_afetch_last_run_records_completed_no_runs(ateam):
+    batch_export = await _acreate_batch_export_for_test(ateam.pk)
+    assert (
+        await afetch_last_run_records_completed(
+            batch_export.id, matching_interval_duration=batch_export.interval_time_delta
+        )
+        is None
+    )
+
+
+async def test_afetch_last_run_records_completed_for_on_demand_export(ateam):
+    destination = await BatchExportDestination.objects.acreate(
+        type="S3", config={"bucket_name": "test-bucket", "region": "us-east-1", "prefix": "test"}
+    )
+    with team_scope(team_id=ateam.pk, canonical=True):
+        on_demand = await BatchExportOnDemand.objects.acreate(team_id=ateam.pk, destination=destination, model="events")
+    base = dt.datetime(2024, 1, 1, tzinfo=dt.UTC)
+    await BatchExportRun.objects.acreate(
+        batch_export_on_demand_id=on_demand.id,
+        data_interval_start=base,
+        data_interval_end=base + dt.timedelta(hours=1),
+        status=BatchExportRun.Status.COMPLETED,
+        records_completed=321,
+    )
+
+    assert (
+        await afetch_last_run_records_completed(on_demand.id, matching_interval_duration=dt.timedelta(hours=1)) == 321
+    )
+
+
+async def test_afetch_last_run_records_completed_none_duration_skips_frequency_check(ateam):
+    """Passing None opts out of the frequency check: the latest run is returned whatever its interval."""
+    batch_export = await _acreate_batch_export_for_test(ateam.pk)
+    base = dt.datetime(2024, 1, 1, tzinfo=dt.UTC)
+    await BatchExportRun.objects.acreate(
+        batch_export_id=batch_export.id,
+        data_interval_start=base,
+        data_interval_end=base + dt.timedelta(days=1),
+        status=BatchExportRun.Status.COMPLETED,
+        records_completed=100,
+    )
+
+    assert await afetch_last_run_records_completed(batch_export.id, matching_interval_duration=None) == 100
+
+
+async def test_afetch_last_run_records_completed_relative_to_interval(ateam):
+    """The estimate is taken from the interval next to the one being processed, not the globally latest run."""
+    batch_export = await _acreate_batch_export_for_test(ateam.pk, interval="day")
+    base = dt.datetime(2024, 1, 1, tzinfo=dt.UTC)
+
+    # A small historical interval (e.g. an old backfill day).
+    await BatchExportRun.objects.acreate(
+        batch_export_id=batch_export.id,
+        data_interval_start=base,
+        data_interval_end=base + dt.timedelta(days=1),
+        status=BatchExportRun.Status.COMPLETED,
+        records_completed=100,
+    )
+    # A much larger interval far in the future (e.g. today's live run).
+    await BatchExportRun.objects.acreate(
+        batch_export_id=batch_export.id,
+        data_interval_start=base + dt.timedelta(days=400),
+        data_interval_end=base + dt.timedelta(days=401),
+        status=BatchExportRun.Status.COMPLETED,
+        records_completed=10_000_000,
+    )
+
+    # Processing an interval just after the historical one -> sized off the small neighbour, not today's run.
+    assert (
+        await afetch_last_run_records_completed(
+            batch_export.id,
+            matching_interval_duration=batch_export.interval_time_delta,
+            before_or_at_interval_end=base + dt.timedelta(days=2),
+        )
+        == 100
+    )
+    # Without the bound we'd pick the globally latest (much larger) run.
+    assert (
+        await afetch_last_run_records_completed(
+            batch_export.id, matching_interval_duration=batch_export.interval_time_delta
+        )
+        == 10_000_000
+    )
+
+
+async def test_afetch_last_run_records_completed_matching_interval_duration(ateam):
+    """Only the latest run is considered; if its interval differs from the requested duration -> None."""
+    batch_export = await _acreate_batch_export_for_test(ateam.pk)
+    base = dt.datetime(2024, 1, 1, tzinfo=dt.UTC)
+
+    # An older daily run (1-day interval).
+    await BatchExportRun.objects.acreate(
+        batch_export_id=batch_export.id,
+        data_interval_start=base,
+        data_interval_end=base + dt.timedelta(days=1),
+        status=BatchExportRun.Status.COMPLETED,
+        records_completed=9000,
+    )
+    # The most recent run is hourly (e.g. the export's frequency just changed to hourly).
+    await BatchExportRun.objects.acreate(
+        batch_export_id=batch_export.id,
+        data_interval_start=base + dt.timedelta(days=30),
+        data_interval_end=base + dt.timedelta(days=30, hours=1),
+        status=BatchExportRun.Status.COMPLETED,
+        records_completed=50,
+    )
+
+    # Current interval matches the export's (hourly) -> latest run matches -> use it.
+    assert (
+        await afetch_last_run_records_completed(
+            batch_export.id, matching_interval_duration=batch_export.interval_time_delta
+        )
+        == 50
+    )
+    # Current interval is daily -> latest run (hourly) doesn't match -> None, even though an older daily
+    # run exists: we don't search past the latest run; the next daily run will re-adjust.
+    assert (
+        await afetch_last_run_records_completed(batch_export.id, matching_interval_duration=dt.timedelta(days=1))
+        is None
+    )
+
+
+async def test_afetch_last_run_records_completed_ignores_runs_older_than(ateam):
+    batch_export = await _acreate_batch_export_for_test(ateam.pk)
+    base = dt.datetime(2024, 1, 1, tzinfo=dt.UTC)
+    await BatchExportRun.objects.acreate(
+        batch_export_id=batch_export.id,
+        data_interval_start=base,
+        data_interval_end=base + dt.timedelta(hours=1),
+        status=BatchExportRun.Status.COMPLETED,
+        records_completed=100,
+    )
+
+    assert (
+        await afetch_last_run_records_completed(
+            batch_export.id,
+            matching_interval_duration=batch_export.interval_time_delta,
+            not_older_than=base - dt.timedelta(days=1),
+        )
+        == 100
+    )
+    assert (
+        await afetch_last_run_records_completed(
+            batch_export.id,
+            matching_interval_duration=batch_export.interval_time_delta,
+            not_older_than=base + dt.timedelta(days=1),
+        )
+        is None
+    )
+
+
+@pytest.mark.parametrize("interval", ["day"], indirect=True)
+@pytest.mark.parametrize("model", [BatchExportModel(name="events", schema=None)])
+@pytest.mark.parametrize("data_interval_end", [TEST_DATA_INTERVAL_END])
+async def test_insert_into_stage_activity_writes_dynamic_number_of_files(
+    generate_test_data,
+    interval,
+    activity_environment,
+    data_interval_start,
+    minio_client,
+    data_interval_end,
+    ateam,
+    model: BatchExportModel,
+):
+    """A previous run's row count drives how many staging files the activity writes."""
+    batch_export = await _acreate_batch_export_for_test(ateam.pk)
+    # The preceding interval (one day earlier) is what should be used as the estimate.
+    await BatchExportRun.objects.acreate(
+        batch_export_id=batch_export.id,
+        data_interval_start=data_interval_start - dt.timedelta(days=1),
+        data_interval_end=data_interval_end - dt.timedelta(days=1),
+        status=BatchExportRun.Status.COMPLETED,
+        records_completed=12,
+    )
+
+    insert_inputs = BatchExportInsertIntoInternalStageInputs(
+        team_id=ateam.pk,
+        batch_export_id=str(batch_export.id),
+        data_interval_start=data_interval_start.isoformat(),
+        data_interval_end=data_interval_end.isoformat(),
+        exclude_events=None,
+        include_events=None,
+        run_id=None,
+        batch_export_schema=None,
+        batch_export_model=model,
+        backfill_details=None,
+        destination_default_fields=None,
+    )
+
+    # 12 rows at 2 rows/file -> ceil(12 / 2) = 6 partitions (within [1, 50]).
+    with override_settings(
+        BATCH_EXPORT_CLICKHOUSE_S3_TARGET_ROWS_PER_PARTITION=2,
+        BATCH_EXPORT_CLICKHOUSE_S3_MIN_PARTITIONS=1,
+        BATCH_EXPORT_CLICKHOUSE_S3_MAX_PARTITIONS=50,
+    ):
+        stage_result = await activity_environment.run(insert_into_internal_stage_activity, insert_inputs)
+        stage_folder = stage_result.stage_folder
+
+    _, keys = await assert_files_in_s3(
+        minio_client,
+        bucket_name=settings.BATCH_EXPORT_INTERNAL_STAGING_BUCKET,
+        key_prefix=stage_folder,
+        file_format="Arrow",
+        compression=None,
+        json_columns=None,
+    )
+    # The interval has ~1000 events, so every one of the 6 random partitions receives rows.
+    assert len(keys) == 6
+
+
+@pytest.mark.parametrize("interval", ["day"], indirect=True)
+@pytest.mark.parametrize("model", [BatchExportModel(name="events", schema=None)])
+@pytest.mark.parametrize("data_interval_end", [TEST_DATA_INTERVAL_END])
+async def test_insert_into_stage_activity_uses_static_default_without_previous_run(
+    generate_test_data,
+    interval,
+    activity_environment,
+    data_interval_start,
+    minio_client,
+    data_interval_end,
+    ateam,
+    model: BatchExportModel,
+):
+    """With no previous run to estimate from, the activity writes the static-default number of files."""
+    insert_inputs = BatchExportInsertIntoInternalStageInputs(
+        team_id=ateam.pk,
+        batch_export_id=str(uuid.uuid4()),  # no BatchExportRun exists for this id
+        data_interval_start=data_interval_start.isoformat(),
+        data_interval_end=data_interval_end.isoformat(),
+        exclude_events=None,
+        include_events=None,
+        run_id=None,
+        batch_export_schema=None,
+        batch_export_model=model,
+        backfill_details=None,
+        destination_default_fields=None,
+    )
+
+    with override_settings(
+        BATCH_EXPORT_CLICKHOUSE_S3_PARTITIONS=4,
+        BATCH_EXPORT_CLICKHOUSE_S3_TARGET_ROWS_PER_PARTITION=2,
+        BATCH_EXPORT_CLICKHOUSE_S3_MIN_PARTITIONS=1,
+        BATCH_EXPORT_CLICKHOUSE_S3_MAX_PARTITIONS=50,
+    ):
+        stage_result = await activity_environment.run(insert_into_internal_stage_activity, insert_inputs)
+        stage_folder = stage_result.stage_folder
+
+    _, keys = await assert_files_in_s3(
+        minio_client,
+        bucket_name=settings.BATCH_EXPORT_INTERNAL_STAGING_BUCKET,
+        key_prefix=stage_folder,
+        file_format="Arrow",
+        compression=None,
+        json_columns=None,
+    )
+    assert len(keys) == 4

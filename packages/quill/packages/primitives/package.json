@@ -1,6 +1,6 @@
 {
     "name": "@posthog/quill-primitives",
-    "version": "0.3.0-beta.14",
+    "version": "0.3.0-beta.15",
     "private": true,
     "description": "Internal workspace package (private, not published). The lowest layer of the quill design system — unstyled Base UI primitives wrapped with quill's Tailwind classes (Button, Card, Dialog, Input, Popover, Combobox, etc.). Bundled into @posthog/quill at build time; consumers should import from @posthog/quill instead.",
     "license": "MIT",
@@ -35,6 +35,7 @@
     "dependencies": {
         "@base-ui/react": "catalog:",
         "@posthog/quill-tokens": "workspace:^",
+        "@shadcn/react": "^0.1.0",
         "class-variance-authority": "^0.7.1",
         "clsx": "^2.1.1",
         "lucide-react": "^0.577.0",

@@ -8,18 +8,25 @@ import { LemonModal } from 'lib/lemon-ui/LemonModal'
 import { LemonSelect } from 'lib/lemon-ui/LemonSelect'
 
 import { getDashboardWidgetGroupLabel } from '../../widget_types/catalog'
-import { WIDGET_DATE_RANGE_SELECT_OPTIONS } from '../../widget_types/configSchemas'
-import { EditWidgetModalFiltersSection } from '../EditWidgetModalFiltersSection'
+import { WIDGET_LIST_ORDER_DIRECTION_OPTIONS } from '../constants'
+import { EditWidgetModalFiltersSubsection } from '../EditWidgetModalFiltersSection'
 import { EditWidgetModalTileDetailsSection } from '../EditWidgetModalTileDetailsSection'
 import type { DashboardWidgetEditModalProps } from '../registry'
 import { editSessionReplayWidgetModalLogic } from './editSessionReplayWidgetModalLogic'
-import { SESSION_REPLAY_WIDGET_ORDER_BY_OPTIONS } from './utils'
+
+export const SESSION_REPLAY_WIDGET_ORDER_BY_OPTIONS = [
+    { value: 'start_time', label: 'Start time' },
+    { value: 'activity_score', label: 'Activity score' },
+    { value: 'recording_duration', label: 'Duration' },
+    { value: 'click_count', label: 'Clicks' },
+    { value: 'console_error_count', label: 'Console errors' },
+] as const
 
 function EditSessionReplayWidgetModalContents(): JSX.Element {
     const {
         limit,
         orderBy,
-        dateFrom,
+        orderDirection,
         tileName,
         tileDescription,
         filterTestAccounts,
@@ -32,7 +39,7 @@ function EditSessionReplayWidgetModalContents(): JSX.Element {
     const {
         setLimit,
         setOrderBy,
-        setDateFrom,
+        setOrderDirection,
         setTileName,
         setTileDescription,
         setFilterTestAccounts,
@@ -78,63 +85,65 @@ function EditSessionReplayWidgetModalContents(): JSX.Element {
                     />
                 ) : null}
                 {showTileDetails ? <LemonDivider className="my-0" /> : null}
-                <EditWidgetModalFiltersSection
-                    filterTestAccounts={filterTestAccounts}
-                    saving={saving}
-                    setFilterTestAccounts={setFilterTestAccounts}
-                />
-                <LemonDivider className="my-0" />
                 <section className="flex flex-col gap-3">
                     <h5 className="text-sm font-semibold m-0">{getDashboardWidgetGroupLabel('session_replay')}</h5>
-                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                        <LemonField.Pure
-                            label="Date range"
-                            help="Only include recordings started in this period."
-                            error={activeFieldErrors.dateFrom}
+                    <div className="flex flex-col gap-4">
+                        <EditWidgetModalFiltersSubsection
+                            title="Recording filters"
+                            filterTestAccounts={filterTestAccounts}
+                            saving={saving}
+                            setFilterTestAccounts={setFilterTestAccounts}
                         >
-                            <LemonSelect
-                                fullWidth
-                                value={dateFrom}
-                                onChange={(value) => {
-                                    setDateFrom(value)
-                                    clearFieldError('dateFrom')
-                                }}
-                                options={WIDGET_DATE_RANGE_SELECT_OPTIONS}
-                            />
-                        </LemonField.Pure>
-                        <LemonField.Pure
-                            label="Number of recordings"
-                            help="Show up to 25 recordings on the tile."
-                            error={activeFieldErrors.limit}
-                        >
-                            <LemonInput
-                                type="number"
-                                min={1}
-                                max={25}
-                                fullWidth
-                                value={limit}
-                                onChange={(value) => {
-                                    setLimit(Number(value))
-                                    clearFieldError('limit')
-                                }}
-                            />
-                        </LemonField.Pure>
-                        <LemonField.Pure
-                            className="sm:col-span-2"
-                            label="Sort by"
-                            help="Order recordings by this metric within the date range."
-                            error={activeFieldErrors.orderBy}
-                        >
-                            <LemonSelect
-                                fullWidth
-                                value={orderBy}
-                                onChange={(value) => {
-                                    setOrderBy(value)
-                                    clearFieldError('orderBy')
-                                }}
-                                options={[...SESSION_REPLAY_WIDGET_ORDER_BY_OPTIONS]}
-                            />
-                        </LemonField.Pure>
+                            <p className="text-sm text-muted m-0 sm:col-span-2">
+                                Date range, property filters, and saved filters are on the tile filter bar (collapsible
+                                on the tile). Use this modal for test-account filtering, list size, and sort.
+                            </p>
+                            <LemonField.Pure
+                                label="Number of recordings"
+                                help="Show up to 25 recordings on the tile."
+                                error={activeFieldErrors.limit}
+                            >
+                                <LemonInput
+                                    type="number"
+                                    min={1}
+                                    max={25}
+                                    fullWidth
+                                    value={limit}
+                                    onChange={(value) => {
+                                        setLimit(Number(value))
+                                        clearFieldError('limit')
+                                    }}
+                                />
+                            </LemonField.Pure>
+                        </EditWidgetModalFiltersSubsection>
+                        <div className="flex flex-col gap-3">
+                            <h6 className="text-xs font-semibold text-muted m-0">Sorting</h6>
+                            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                                <LemonField.Pure label="Sort direction" help="Ascending or descending sort.">
+                                    <LemonSelect
+                                        fullWidth
+                                        value={orderDirection}
+                                        onChange={(value) => setOrderDirection(value)}
+                                        options={[...WIDGET_LIST_ORDER_DIRECTION_OPTIONS]}
+                                    />
+                                </LemonField.Pure>
+                                <LemonField.Pure
+                                    label="Sort by"
+                                    help="Order recordings by this metric within the date range."
+                                    error={activeFieldErrors.orderBy}
+                                >
+                                    <LemonSelect
+                                        fullWidth
+                                        value={orderBy}
+                                        onChange={(value) => {
+                                            setOrderBy(value)
+                                            clearFieldError('orderBy')
+                                        }}
+                                        options={[...SESSION_REPLAY_WIDGET_ORDER_BY_OPTIONS]}
+                                    />
+                                </LemonField.Pure>
+                            </div>
+                        </div>
                     </div>
                 </section>
             </div>

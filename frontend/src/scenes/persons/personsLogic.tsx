@@ -1,6 +1,6 @@
 import { actions, connect, events, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
-import { decodeParams, router } from 'kea-router'
+import { decodeParams, router, urlToAction } from 'kea-router'
 import posthog from 'posthog-js'
 
 import api, { CountedPaginatedResponse } from 'lib/api'
@@ -9,10 +9,11 @@ import { convertPropertyGroupToProperties, isValidPropertyFilter } from 'lib/com
 import { FEATURE_FLAGS, PERSON_DISPLAY_NAME_COLUMN_NAME } from 'lib/constants'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { tabAwareActionToUrl } from 'lib/logic/scenes/tabAwareActionToUrl'
-import { tabAwareUrlToAction } from 'lib/logic/scenes/tabAwareUrlToAction'
-import { isAbortedRequest, objectsEqual, toParams } from 'lib/utils'
+import { trackedActionToUrl } from 'lib/logic/scenes/trackedActionToUrl'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
+import { objectsEqual } from 'lib/utils/objects'
+import { isAbortedRequest } from 'lib/utils/requests'
+import { toParams } from 'lib/utils/url'
 import { sceneConfigurations } from 'scenes/scenes'
 import { Scene } from 'scenes/sceneTypes'
 import { teamLogic } from 'scenes/teamLogic'
@@ -40,7 +41,7 @@ import {
     coercePropertyValue,
     getHogqlQueryStringForPersonId,
     parsePersonFromHogQLRow,
-    scoreDistinctId,
+    pickBestPersonDistinctId,
 } from './person-utils'
 import type { personsLogicType } from './personsLogicType'
 
@@ -49,7 +50,6 @@ export interface PersonsLogicProps {
     syncWithUrl?: boolean
     urlId?: string
     fixedProperties?: PersonPropertyFilter[]
-    tabId?: string
 }
 
 export const PERSON_EVENTS_CONTEXT_KEY = 'person-profile-events'
@@ -107,10 +107,8 @@ function createInitialSurveyResponsesPayload(personId: string): DataTableNode {
 export const personsLogic = kea<personsLogicType>([
     props({} as PersonsLogicProps),
     key((props) => {
-        const tabKey = props.tabId ? `tab_${props.tabId}_` : ''
-
         if (props.urlId) {
-            return `${tabKey}url_${props.urlId}`
+            return `url_${props.urlId}`
         }
 
         if (props.fixedProperties) {
@@ -417,12 +415,7 @@ export const personsLogic = kea<personsLogicType>([
         feedEnabled: [(s) => [s.featureFlags], (featureFlags) => !!featureFlags[FEATURE_FLAGS.CUSTOMER_ANALYTICS]],
         primaryDistinctId: [
             (s) => [s.person],
-            (person): string | null => {
-                if (!person?.distinct_ids.length) {
-                    return null
-                }
-                return person.distinct_ids.slice().sort((a, b) => scoreDistinctId(b) - scoreDistinctId(a))[0]
-            },
+            (person): string | null => pickBestPersonDistinctId(person?.distinct_ids) ?? null,
         ],
         eventsQueryIsDirty: [
             (s) => [s.eventsQuery, s.person],
@@ -497,7 +490,7 @@ export const personsLogic = kea<personsLogicType>([
             router.actions.push(urls.cohort(cohort.id))
         },
     })),
-    tabAwareActionToUrl(({ values, props }) => ({
+    trackedActionToUrl(({ values, props }) => ({
         setListFilters: () => {
             if (props.syncWithUrl && router.values.location.pathname.indexOf('/persons') > -1) {
                 return ['/persons', values.listFilters, undefined, { replace: true }]
@@ -527,7 +520,7 @@ export const personsLogic = kea<personsLogicType>([
             }
         },
     })),
-    tabAwareUrlToAction(({ actions, values, props }) => ({
+    urlToAction(({ actions, values, props }) => ({
         '/person/*': ({ _: rawPersonDistinctId }, { sessionRecordingId }, { activeTab }) => {
             if (props.syncWithUrl) {
                 if (sessionRecordingId && values.activeTab !== PersonsTabType.SESSION_RECORDINGS) {

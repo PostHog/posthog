@@ -1,7 +1,8 @@
 from posthog.api.routing import RouterRegistry
 
-from products.error_tracking.backend.api import (
+from products.error_tracking.backend.presentation.views import (
     ErrorTrackingAssignmentRuleViewSet,
+    ErrorTrackingBypassRuleViewSet,
     ErrorTrackingExternalReferenceViewSet,
     ErrorTrackingFingerprintViewSet,
     ErrorTrackingGroupingRuleViewSet,
@@ -56,6 +57,14 @@ def register_routes(routers: RouterRegistry) -> None:
         r"error_tracking/suppression_rules",
         ErrorTrackingSuppressionRuleViewSet,
         "project_error_tracking_suppression_rule",
+        ["team_id"],
+    )
+    # Dual-route (env + project) to match the other rule types: the shared frontend rule API
+    # helper targets the /api/environments/.../error_tracking/<rule_type> path.
+    routers.register_legacy_dual_route(
+        r"error_tracking/bypass_rules",
+        ErrorTrackingBypassRuleViewSet,
+        "project_error_tracking_bypass_rule",
         ["team_id"],
     )
     routers.register_legacy_dual_route(

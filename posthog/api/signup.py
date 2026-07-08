@@ -29,8 +29,6 @@ from posthog.api.webauthn import (
     WEBAUTHN_SIGNUP_EMAIL_KEY,
     WEBAUTHN_SIGNUP_USER_UUID_KEY,
 )
-from posthog.demo.matrix import MatrixManager
-from posthog.demo.products.hedgebox import HedgeboxMatrix
 from posthog.email import is_email_available
 from posthog.event_usage import alias_invite_id, report_user_joined_organization, report_user_signed_up
 from posthog.exceptions_capture import capture_exception
@@ -42,6 +40,8 @@ from posthog.permissions import CanCreateOrg
 from posthog.rate_limit import SignupEmailPrecheckThrottle, SignupIPThrottle, SignupResendInviteThrottle
 from posthog.utils import get_can_create_org, is_relative_url
 from posthog.workos_radar import RadarAction, RadarAuthMethod, evaluate_auth_attempt
+
+from products.demo.backend.facade.api import HedgeboxMatrix, MatrixManager
 
 logger = structlog.get_logger(__name__)
 
@@ -186,7 +186,10 @@ class SignupSerializer(serializers.Serializer):
         return value
 
     def is_email_auto_verified(self):
-        return self.is_social_signup
+        if self.is_social_signup:
+            return True
+        domain = self.validated_data.get("email", "").split("@")[-1].lower()
+        return domain in settings.EMAIL_VERIFICATION_SKIP_FOR_DOMAINS
 
     def create(self, validated_data, **kwargs):
         if settings.DEMO:
@@ -256,6 +259,11 @@ class SignupSerializer(serializers.Serializer):
                         verified=True,
                         label="Passkey",
                     )
+                    # Self-created during signup, so it counts as already-acknowledged for the
+                    # credential review interstitial. Otherwise the user would be asked to revoke
+                    # the only credential they just minted to log in with.
+                    self._user.credentials_reviewed_at = timezone.now()
+                    self._user.save(update_fields=["credentials_reviewed_at"])
 
         except IntegrityError as e:
             # This can happen if:
@@ -610,6 +618,10 @@ class InviteSignupSerializer(serializers.Serializer):
                 if invite.organization.enforce_2fa and not user.passkeys_enabled_for_2fa:
                     user.passkeys_enabled_for_2fa = True
                     user.save(update_fields=["passkeys_enabled_for_2fa"])
+                # Self-created during invite signup; treat as already-acknowledged so the
+                # credential review interstitial doesn't ask the user to revoke their own passkey.
+                user.credentials_reviewed_at = timezone.now()
+                user.save(update_fields=["credentials_reviewed_at"])
 
         if is_new_user:
             verify_email_or_login(self.context["request"], user)
@@ -841,7 +853,7 @@ def process_social_domain_jit_provisioning_signup(
             domain=domain,
             is_verified=domain_instance.is_verified,
             jit_provisioning_enabled=domain_instance.jit_provisioning_enabled,
-            scim_enabled=domain_instance.scim_enabled,
+            scim_enabled=domain_instance.idp_config.scim_enabled,
         )
         if domain_instance.is_verified and domain_instance.jit_provisioning_enabled:
             if not user:
@@ -892,7 +904,7 @@ def process_social_domain_jit_provisioning_signup(
                     domain=domain,
                     user=user.email,
                     organization=domain_instance.organization_id,
-                    scim_enabled=domain_instance.scim_enabled,
+                    scim_enabled=domain_instance.idp_config.scim_enabled,
                 )
 
     return user

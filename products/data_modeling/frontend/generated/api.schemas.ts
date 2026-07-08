@@ -91,9 +91,9 @@ export interface PatchedEdgeApi {
 
 /**
  * * `table` - Table
- * `view` - View
- * `matview` - Mat View
- * `endpoint` - Endpoint
+ * * `view` - View
+ * * `matview` - Mat View
+ * * `endpoint` - Endpoint
  */
 export type NodeTypeEnumApi = (typeof NodeTypeEnumApi)[keyof typeof NodeTypeEnumApi]
 
@@ -196,4 +196,15 @@ export type DataModelingNodesListParams = {
      * A search term.
      */
     search?: string
+}
+
+export type DataModelingNodesLineageRetrieveParams = {
+    /**
+     * Node to build lineage for.
+     */
+    node_id?: string
+    /**
+     * Saved query to build lineage for, resolved to its node. Alternative to node_id.
+     */
+    saved_query_id?: string
 }

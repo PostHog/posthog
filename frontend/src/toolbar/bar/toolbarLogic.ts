@@ -12,6 +12,7 @@ import { elementsLogic } from '~/toolbar/elements/elementsLogic'
 import { heatmapToolbarMenuLogic } from '~/toolbar/elements/heatmapToolbarMenuLogic'
 import { experimentsLogic } from '~/toolbar/experiments/experimentsLogic'
 import { experimentsTabLogic } from '~/toolbar/experiments/experimentsTabLogic'
+import { fieldNotesLogic } from '~/toolbar/field-notes/fieldNotesLogic'
 import { flagsToolbarLogic } from '~/toolbar/flags/flagsToolbarLogic'
 import { productToursLogic } from '~/toolbar/product-tours/productToursLogic'
 import { surveysToolbarLogic } from '~/toolbar/surveys/surveysToolbarLogic'
@@ -41,6 +42,7 @@ export type MenuState =
     | 'web-vitals'
     | 'product-tours'
     | 'surveys'
+    | 'field-notes'
 
 export type ToolbarPositionType =
     | 'top-left'
@@ -93,6 +95,8 @@ export const toolbarLogic = kea<toolbarLogicType>([
             ['enableInspect', 'disableInspect', 'createAction'],
             productToursLogic,
             ['showButtonProductTours', 'hideButtonProductTours'],
+            fieldNotesLogic,
+            ['showButtonFieldNotes', 'hideButtonFieldNotes'],
             surveysToolbarLogic,
             ['showButtonSurveys', 'hideButtonSurveys'],
             heatmapToolbarMenuLogic,
@@ -134,7 +138,8 @@ export const toolbarLogic = kea<toolbarLogicType>([
     })),
     windowValues(() => ({
         windowHeight: (window: Window) => window.innerHeight,
-        windowWidth: (window: Window) => Math.min(window.innerWidth, window.document.body.clientWidth),
+        windowWidth: (window: Window) =>
+            Math.min(window.innerWidth, window.document.body?.clientWidth ?? window.innerWidth),
     })),
     reducers(() => ({
         element: [
@@ -464,6 +469,7 @@ export const toolbarLogic = kea<toolbarLogicType>([
             actions.disableHeatmap()
             actions.hideButtonActions()
             actions.hideButtonProductTours()
+            actions.hideButtonFieldNotes()
             actions.hideButtonSurveys()
 
             if (visibleMenu === 'heatmap') {
@@ -478,6 +484,8 @@ export const toolbarLogic = kea<toolbarLogicType>([
                 actions.enableInspect()
             } else if (visibleMenu === 'product-tours') {
                 actions.showButtonProductTours()
+            } else if (visibleMenu === 'field-notes') {
+                actions.showButtonFieldNotes()
             } else if (visibleMenu === 'surveys') {
                 actions.showButtonSurveys()
             }
@@ -733,17 +741,27 @@ export const toolbarLogic = kea<toolbarLogicType>([
                     }
 
                     switch (type) {
-                        case PostHogAppToolbarEvent.PH_APP_INIT:
+                        case PostHogAppToolbarEvent.PH_APP_INIT: {
+                            const payload = e.data.payload
                             actions.setIsEmbeddedInApp(true)
-                            actions.patchHeatmapFilters(e.data.payload.filters)
-                            actions.setHeatmapColorPalette(e.data.payload.colorPalette)
-                            actions.setHeatmapFixedPositionMode(e.data.payload.fixedPositionMode)
-                            actions.setCommonFilters(e.data.payload.commonFilters)
                             actions.toggleClickmapsEnabled(false)
+                            if (payload?.filters != null) {
+                                actions.patchHeatmapFilters(payload.filters)
+                            }
+                            if (payload?.colorPalette != null) {
+                                actions.setHeatmapColorPalette(payload.colorPalette)
+                            }
+                            if (payload?.fixedPositionMode != null) {
+                                actions.setHeatmapFixedPositionMode(payload.fixedPositionMode)
+                            }
+                            if (payload?.commonFilters != null) {
+                                actions.setCommonFilters(payload.commonFilters)
+                            }
                             // it's ok to use we use a wildcard for the origin bc data isn't sensitive
                             // nosemgrep: javascript.browser.security.wildcard-postmessage-configuration.wildcard-postmessage-configuration
                             window.parent.postMessage({ type: PostHogAppToolbarEvent.PH_TOOLBAR_READY }, '*')
                             return
+                        }
                         case PostHogAppToolbarEvent.PH_ELEMENT_SELECTOR:
                             if (e.data.payload.enabled) {
                                 actions.enableInspect()

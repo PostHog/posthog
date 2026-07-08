@@ -145,7 +145,7 @@ def _raise_quota_lookup_error(*args, **kwargs):
 
 
 @pytest.mark.parametrize(
-    "name,is_team_limited_impl,expect_summary_generated,expect_skipped_over_budget",
+    "name,is_over_budget_impl,expect_summary_generated,expect_skipped_over_budget",
     [
         # Over budget: skip the summary entirely (generate is never called) and flag it so
         # the delivered report can show a notice.
@@ -157,7 +157,7 @@ def _raise_quota_lookup_error(*args, **kwargs):
     ],
 )
 async def test_summary_generation_respects_ai_credit_budget(
-    team, user, monkeypatch, name, is_team_limited_impl, expect_summary_generated, expect_skipped_over_budget
+    team, user, monkeypatch, name, is_over_budget_impl, expect_summary_generated, expect_skipped_over_budget
 ):
     subscription = await _create_subscription(team, user)
     await _set_ai_consent(subscription, approved=True)
@@ -182,8 +182,8 @@ async def test_summary_generation_respects_ai_credit_budget(
         return summary_text
 
     monkeypatch.setattr(
-        "products.exports.backend.temporal.subscriptions.snapshot_activities.is_team_limited",
-        is_team_limited_impl,
+        "products.exports.backend.temporal.subscriptions.snapshot_activities.is_team_over_ai_credit_budget",
+        is_over_budget_impl,
     )
     monkeypatch.setattr(
         "products.exports.backend.temporal.subscriptions.snapshot_activities.generate_change_summary",

@@ -19,17 +19,20 @@ from posthog.hogql.direct_connection import INVALID_CONNECTION_ID_ERROR
 from posthog.hogql.metadata import get_hogql_metadata
 from posthog.hogql.parser import parse_select
 
-from posthog.models import Cohort, EventDefinition, PropertyDefinition
+from posthog.models import EventDefinition, PropertyDefinition
 
-from products.data_warehouse.backend.types import ExternalDataSourceType
+from products.cohorts.backend.models.cohort import Cohort
 from products.product_analytics.backend.models.insight_variable import InsightVariable
-from products.warehouse_sources.backend.models.external_data_schema import ExternalDataSchema
-from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
-from products.warehouse_sources.backend.models.table import DataWarehouseTable
+from products.warehouse_sources.backend.facade.models import DataWarehouseTable, ExternalDataSchema, ExternalDataSource
+from products.warehouse_sources.backend.facade.types import ExternalDataSourceType
 
 
 class TestMetadata(ClickhouseTestMixin, APIBaseTest):
     maxDiff = None
+    # No test here writes per-team ClickHouse data, so the per-test team isolation
+    # that ClickhouseTestMixin defaults to (CLASS_DATA_LEVEL_SETUP = False) only adds
+    # ~100ms of org/team/user creation to every test.
+    CLASS_DATA_LEVEL_SETUP = True
 
     def _expr(self, query: str, table: str = "events", debug=True) -> HogQLMetadataResponse:
         return get_hogql_metadata(

@@ -15,8 +15,8 @@ import {
 import { AccessControlAction } from 'lib/components/AccessControlAction'
 import { TZLabel } from 'lib/components/TZLabel'
 import { IconArrowUp } from 'lib/lemon-ui/icons'
-import { isObject } from 'lib/utils'
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
+import { isObject } from 'lib/utils/guards'
 import { urls } from 'scenes/urls'
 
 import {

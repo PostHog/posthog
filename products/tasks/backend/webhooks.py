@@ -2,6 +2,7 @@ import hmac
 import uuid
 import hashlib
 
+from django.db import transaction
 from django.http import HttpResponse
 
 import structlog
@@ -116,14 +117,80 @@ def handle_pull_request_event(payload: dict) -> HttpResponse:
         run_id=str(task_run.id) if task_run else None,
     )
 
+    # Backstop the agent-side PR detector: when we matched the run (by branch+repo)
+    # but its output carries no PR URL yet, persist it so the inbox-notification
+    # gate, CI follow-up loop, and later webhook lookups can resolve the PR.
+    # Only trust the match when the PR originates from a branch in the installed
+    # repo itself — never a fork. For fork PRs, head.ref is attacker-controlled
+    # while repository.full_name stays the base repo, so a branch+repo match could
+    # otherwise bind an unrelated PR to the run.
+    head_repo_full_name = ((pull_request.get("head") or {}).get("repo") or {}).get("full_name")
+    is_internal_branch = (
+        head_repo_full_name is not None
+        and repository_full_name is not None
+        and head_repo_full_name.strip().lower() == repository_full_name.strip().lower()
+    )
+    if task_run is not None and is_internal_branch:
+        _record_run_pr_url(task_run, pr_url)
+
     # Deterministic UUID dedupes duplicate webhook deliveries of the same PR action.
     event_uuid = str(uuid.uuid5(uuid.NAMESPACE_URL, f"{pr_url}:{analytics_event}"))
     _capture_pr_event(payload, task_run, analytics_event, event_uuid)
 
     if task_run and action == "closed" and merged:
+        # Only trust the merge for the run that actually claims this PR URL. The pr_url backstop
+        # above already covers branch-matched internal PRs, so requiring equality here keeps a
+        # same-branch webhook for a different PR from marking this run's PR as merged.
+        run_output = task_run.output if isinstance(task_run.output, dict) else {}
+        if run_output.get("pr_url") == pr_url:
+            _record_run_pr_merged(task_run)
         _resolve_signal_reports_for_task(task_run.task_id, pr_url)
 
     return HttpResponse(status=200)
+
+
+def _record_run_pr_url(task_run: TaskRun, pr_url: str) -> None:
+    """Persist ``output.pr_url`` for a webhook-matched run when it isn't set yet.
+
+    The agent server normally records the PR URL when it observes the agent open
+    the PR. When that detection misses, a branch+repo webhook match is the
+    backstop — without this the run is recognized for analytics but its
+    ``output.pr_url`` stays empty, so inbox notifications, the CI follow-up loop,
+    and later webhook lookups never resolve the PR.
+    """
+    _record_run_output_field(task_run, "pr_url", pr_url, "github_pr_webhook_record_pr_url_failed")
+
+
+def _record_run_pr_merged(task_run: TaskRun) -> None:
+    """Persist ``output.pr_merged`` when the run's PR is merged.
+
+    Surfaces that gate on merge state (e.g. the pre-ingestion sample-data placeholder pointing at
+    the wizard's setup PR) read it off the run's ``output``, which is the only PR state the task
+    APIs expose.
+    """
+    _record_run_output_field(task_run, "pr_merged", True, "github_pr_webhook_record_pr_merged_failed")
+
+
+def _record_run_output_field(task_run: TaskRun, key: str, value: str | bool, failure_log_event: str) -> None:
+    """Idempotently merge ``{key: value}`` into a run's ``output`` JSON under a row lock.
+
+    Tolerant: a failure here must not fail the webhook (GitHub retries 5xx, and the event is
+    already handled).
+    """
+    if isinstance(task_run.output, dict) and task_run.output.get(key):
+        return
+    try:
+        with transaction.atomic():
+            locked = TaskRun.objects.select_for_update().get(id=task_run.id)
+            output = locked.output if isinstance(locked.output, dict) else {}
+            if output.get(key):
+                return
+            locked.output = {**output, key: value}
+            locked.save(update_fields=["output", "updated_at"])
+        # Keep the in-memory instance consistent for the rest of this request.
+        task_run.output = locked.output
+    except Exception:
+        logger.warning(failure_log_event, run_id=str(task_run.id), exc_info=True)
 
 
 # Nulled on external PRs so their schema matches task-originated PR events.
@@ -138,6 +205,10 @@ def _pr_payload_properties(payload: dict) -> dict:
         "pr_author": (pull_request.get("user") or {}).get("login"),
         "pr_base_ref": (pull_request.get("base") or {}).get("ref"),
         "pr_head_ref": (pull_request.get("head") or {}).get("ref"),
+        "pr_additions": pull_request.get("additions"),
+        "pr_deletions": pull_request.get("deletions"),
+        "pr_changed_files": pull_request.get("changed_files"),
+        "pr_commits": pull_request.get("commits"),
     }
 
 
@@ -196,7 +267,7 @@ def _resolve_signal_reports_for_task(task_id: uuid.UUID, pr_url: str) -> None:
     since GitHub retries 5xx responses and we've already acknowledged the PR event.
     """
     reports = (
-        SignalReport.objects.filter(report_tasks__task_id=task_id)
+        SignalReport.objects.filter(SignalReport.reports_for_task_filter(task_id))
         .exclude(
             status__in=[
                 SignalReport.Status.RESOLVED,

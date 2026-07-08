@@ -5,12 +5,12 @@ import { useActions, useValues } from 'kea'
 
 import { LemonSelect, LemonSelectOption, Link } from '@posthog/lemon-ui'
 
-import { Logo } from 'lib/brand/Logo'
+import { Logo } from 'lib/brand'
 import { CopyToClipboardInline } from 'lib/components/CopyToClipboard'
 import { useResizeBreakpoints } from 'lib/hooks/useResizeObserver'
 import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
-import { isObject } from 'lib/utils'
+import { isObject } from 'lib/utils/guards'
 import { DraggableToNotebook } from 'scenes/notebooks/AddToNotebook/DraggableToNotebook'
 import { IconWindow } from 'scenes/session-recordings/player/icons'
 import { PlayerMetaLinks } from 'scenes/session-recordings/player/player-meta/PlayerMetaLinks'
@@ -154,7 +154,7 @@ export function PlayerMeta(): JSX.Element {
                             </Link>
                         ) : (
                             <Link to="https://posthog.com" className="flex items-center" target="blank">
-                                <Logo />
+                                <Logo size="md" />
                             </Link>
                         )}
                     </Tooltip>

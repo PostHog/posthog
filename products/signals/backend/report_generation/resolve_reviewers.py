@@ -8,19 +8,20 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass
 from typing import Any, Literal
 
-from django.db.models import Expression, Prefetch, QuerySet, Subquery
+from django.db.models import Expression, Prefetch, Q, QuerySet, Subquery, Value
 from django.db.models.fields.json import KeyTextTransform, KeyTransform
-from django.db.models.functions import Lower
+from django.db.models.functions import Concat, Lower
 
 from social_django.models import UserSocialAuth
 
-from posthog.schema import RelevantCommit
-
+from posthog.egress.github.transport import GitHubRateLimitError
 from posthog.models.integration import GitHubIntegration, Integration
 from posthog.models.organization import OrganizationMembership
 from posthog.models.team.team import Team
 from posthog.models.user import User
 from posthog.models.user_integration import UserIntegration
+
+from products.signals.backend.contracts import RelevantCommit
 
 from ..models import SignalReportArtefact
 
@@ -122,7 +123,12 @@ def resolve_suggested_reviewers(
     if not commit_hashes_with_reasons or not repository:
         return []
 
-    github = GitHubIntegration.first_for_team_repository(team_id, repository)
+    try:
+        github = GitHubIntegration.first_for_team_repository(team_id, repository)
+    except GitHubRateLimitError:
+        # Suggested reviewers are an optional artefact — omit them rather than failing the report.
+        logger.info("GitHub rate limited while probing %s, skipping reviewer resolution", repository)
+        return []
     if github is None:
         logger.info(
             "No GitHub integration for team %d can access %s, cannot resolve reviewers",
@@ -142,7 +148,11 @@ def resolve_suggested_reviewers(
             pool.submit(github.get_commit_author_info, repository, sha): i for i, (sha, _reason) in enumerate(items)
         }
         for future in as_completed(future_to_idx):
-            author_results[future_to_idx[future]] = future.result()
+            try:
+                author_results[future_to_idx[future]] = future.result()
+            except GitHubRateLimitError:
+                # Best-effort: score reviewers from whatever lookups landed before the limit.
+                logger.info("GitHub rate limited during commit author lookups for %s", repository)
 
     # Weight earlier commits more heavily (position-based weighting)
     login_weights: Counter[str] = Counter()
@@ -236,6 +246,59 @@ def get_org_member_github_logins_by_user_uuid(team_id: int, user_uuids: list[str
             user_uuid_to_login[str(user.uuid)] = login.lower()
 
     return user_uuid_to_login
+
+
+MAX_PROJECT_MEMBERS = 200
+
+
+@dataclass
+class ProjectMemberIdentity:
+    """One project member's routing identity — enough for a scout to pick a `suggested_reviewers` entry."""
+
+    user_uuid: str
+    email: str
+    first_name: str
+    last_name: str
+    github_login: str | None
+
+
+def list_project_members(
+    team: Team, *, search: str | None = None, limit: int = MAX_PROJECT_MEMBERS
+) -> list[ProjectMemberIdentity]:
+    """Members with access to ``team`` — their UUID/email/name and resolved GitHub login.
+
+    Backs the `signals-scout-members-list` tool: the cold-start reviewer-routing path for a scout
+    that can't read an owner off a fetched entity's ``created_by`` and has no cached
+    ``reviewer:<area>`` memory or inbox precedent. Scoped via ``Team.all_users_with_access()`` so
+    private-project access control is honored — a scout on a private project sees only the people who
+    can actually act on it, not the whole org roster — and inactive users are excluded.
+    ``get_github_login`` reads the same prefetched relations the reviewer resolver uses, so a member
+    with no linked GitHub identity gets a null login rather than dropping out. ``search``
+    (case-insensitive, over email + name) narrows the roster; the result is capped at ``limit`` so a
+    large org can't push its whole directory into the scout's context in one call.
+    """
+    users = team.all_users_with_access()
+    if search:
+        # Match the search against email, each name part, AND the concatenated full name, so a
+        # display-name query like "Jane Doe" still finds a member stored as first_name="Jane",
+        # last_name="Doe" — not just one whose email happens to contain the whole phrase.
+        users = users.annotate(_full_name=Concat("first_name", Value(" "), "last_name")).filter(
+            Q(email__icontains=search)
+            | Q(first_name__icontains=search)
+            | Q(last_name__icontains=search)
+            | Q(_full_name__icontains=search)
+        )
+    users = users.prefetch_related(*_github_identity_prefetches()).order_by("id")[:limit]
+    return [
+        ProjectMemberIdentity(
+            user_uuid=str(user.uuid),
+            email=user.email,
+            first_name=user.first_name,
+            last_name=user.last_name,
+            github_login=(login.lower() if (login := user.get_github_login()) else None),
+        )
+        for user in users
+    ]
 
 
 def resolve_org_github_login_to_users(team_id: int, github_logins: Iterable[str]) -> dict[str, User]:

@@ -1,8 +1,10 @@
+import { parseMarkdownToTipTap } from 'lib/utils/parseMarkdownToTipTap'
+
 import {
     detectMarkdown,
     detectTabularFormat,
     isTabularData,
-    parseMarkdownToTipTap,
+    parseMarkdownPasteContent,
     parseTabularDataToTipTapTable,
 } from './DropAndPasteHandlerExtension'
 
@@ -228,6 +230,58 @@ describe('DropAndPasteHandlerExtension', () => {
             expect(headerRow?.content?.[0].content?.[0].content?.[0].text).toBe('a')
             const lastRow = result[0].content?.[2]
             expect(lastRow?.content?.[1].content?.[0].content?.[0].text).toBe('4')
+        })
+
+        it('parses an AI-formatted flattened table whose rows are glued with no whitespace', () => {
+            const result = parseMarkdownToTipTap('| Month | Boost ||-------|-------|| Jul 2025 | 54 || Aug 2025 | 59 |')
+
+            expect(result[0].type).toBe('table')
+            expect(result[0].content).toHaveLength(3)
+            const headerRow = result[0].content?.[0]
+            expect(headerRow?.content?.[0].type).toBe('tableHeader')
+            expect(headerRow?.content?.[0].content?.[0].content?.[0].text).toBe('Month')
+            const lastRow = result[0].content?.[2]
+            expect(lastRow?.content?.[0].content?.[0].content?.[0].text).toBe('Aug 2025')
+            expect(lastRow?.content?.[1].content?.[0].content?.[0].text).toBe('59')
+        })
+    })
+
+    describe('parseMarkdownPasteContent', () => {
+        // A flattened markdown table glued with no whitespace, as AI responses / rendered docs
+        // put it on the clipboard. The matching HTML carries it as plain pipe-text, not a
+        // real <table>, so without the table exception it would be lost on paste.
+        const FLATTENED_TABLE =
+            '| Month | Boost | Scale | Teams | Total ||-------|-------|-------|-------|-------|| Jul 2025 | 54 | 20 | — | 74 || Aug 2025 | 59 | 26 | — | 85 |'
+
+        it('parses a flattened table even when an HTML representation is present', () => {
+            const result = parseMarkdownPasteContent(FLATTENED_TABLE, '<meta charset="utf-8"><span>| Month |...</span>')
+
+            expect(result).not.toBeNull()
+            expect(result![0].type).toBe('table')
+            expect(result![0].content).toHaveLength(3)
+        })
+
+        it('parses a flattened table when there is no HTML representation', () => {
+            const result = parseMarkdownPasteContent(FLATTENED_TABLE, undefined)
+
+            expect(result).not.toBeNull()
+            expect(result![0].type).toBe('table')
+        })
+
+        it('defers to the default paste for non-table markdown when HTML is present', () => {
+            expect(parseMarkdownPasteContent('# Title\n\n- one\n- two', '<h1>Title</h1>')).toBeNull()
+        })
+
+        it('parses non-table markdown when there is no HTML representation', () => {
+            const result = parseMarkdownPasteContent('# Title', undefined)
+
+            expect(result).not.toBeNull()
+            expect(result![0].type).toBe('heading')
+        })
+
+        it('returns null for plain text that is not markdown', () => {
+            expect(parseMarkdownPasteContent('just some plain text', undefined)).toBeNull()
+            expect(parseMarkdownPasteContent('', undefined)).toBeNull()
         })
     })
 })

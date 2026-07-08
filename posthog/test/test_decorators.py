@@ -6,12 +6,14 @@ from posthog.test.base import APIBaseTest, BaseTest
 from unittest.mock import patch
 
 from django.core.cache import cache
+from django.test import override_settings
+from django.urls import include, path
 
 from rest_framework.decorators import action
 from rest_framework.response import Response
 from rest_framework.viewsets import GenericViewSet
 
-from posthog.api import router
+from posthog.api.routing import DefaultRouterPlusPlus
 from posthog.decorators import cached_by_filters, disallow_if_impersonated, is_stale_filter
 from posthog.models.filters.filter import Filter
 from posthog.models.filters.path_filter import PathFilter
@@ -37,9 +39,7 @@ class DummyViewSet(*((TeamAndOrgViewSetMixin, GenericViewSet) if TYPE_CHECKING e
         return {"result": "bla"}
 
 
-router.register(r"dummy", DummyViewSet, "dummy")
-
-
+@override_settings(ROOT_URLCONF="posthog.test.test_decorators")
 class TestCachedByFiltersDecorator(APIBaseTest):
     def setUp(self) -> None:
         DummyViewSet.team = self.team  # Simulating TeamAndOrgViewSetMixin
@@ -274,9 +274,20 @@ class ImpersonationTestViewSet(GenericViewSet):
         return Response({"status": "success", "method": request.method})
 
 
-router.register(r"impersonation-test", ImpersonationTestViewSet, "impersonation-test")
+# A dedicated test URLconf instead of registering on the live application router: the live
+# router's URL set is frozen the first time anything imports posthog.urls, so module-scope
+# registrations only worked when this file happened to be collected before that — shard
+# composition changes kept flipping the order. override_settings(ROOT_URLCONF=...) makes the
+# routes exist exactly for these tests, in any order, and stops them leaking into the real
+# URL space of every other test in the process.
+_test_router = DefaultRouterPlusPlus()
+_test_router.register(r"dummy", DummyViewSet, "dummy")
+_test_router.register(r"impersonation-test", ImpersonationTestViewSet, "impersonation-test")
+
+urlpatterns = [path("api/", include(_test_router.urls))]
 
 
+@override_settings(ROOT_URLCONF="posthog.test.test_decorators")
 class TestDisallowIfImpersonatedDecorator(APIBaseTest):
     @patch("posthog.decorators.is_impersonated_session")
     def test_allows_non_impersonated_session(self, mock_is_impersonated):

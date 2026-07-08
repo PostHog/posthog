@@ -357,7 +357,8 @@ export function filterToMetricSource(
     if (events?.[0]) {
         return {
             kind: NodeKind.EventsNode,
-            event: events[0].id,
+            // Fall back to `name` when taxonomic selection leaves `id` empty/null.
+            event: events[0].id || events[0].name,
             name: events[0].name,
             math: events[0].math || ExperimentMetricMathType.TotalCount,
             math_property: events[0].math_property,

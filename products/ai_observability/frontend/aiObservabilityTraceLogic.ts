@@ -1,6 +1,6 @@
-import { actions, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
+import { actions, connect, kea, listeners, path, props, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
-import { combineUrl, router } from 'kea-router'
+import { combineUrl, router, urlToAction } from 'kea-router'
 import { subscriptions } from 'kea-subscriptions'
 
 import api from 'lib/api'
@@ -8,15 +8,14 @@ import { SetupTaskId, globalSetupLogic } from 'lib/components/ProductSetup'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { tabAwareActionToUrl } from 'lib/logic/scenes/tabAwareActionToUrl'
-import { tabAwareUrlToAction } from 'lib/logic/scenes/tabAwareUrlToAction'
+import { trackedActionToUrl } from 'lib/logic/scenes/trackedActionToUrl'
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
 import { addProductIntent } from 'lib/utils/product-intents'
 import { urls } from 'scenes/urls'
 
 import { SIDE_PANEL_CONTEXT_KEY, SidePanelSceneContext } from '~/layout/navigation-3000/sidepanel/types'
 import { DataNodeLogicProps } from '~/queries/nodes/DataNode/dataNodeLogic'
-import { insightVizDataNodeKey } from '~/queries/nodes/InsightViz/InsightViz'
+import { insightVizDataNodeKey } from '~/queries/nodes/InsightViz/insightVizKeys'
 import {
     AnyResponseType,
     DataTableNode,
@@ -77,20 +76,17 @@ export function getDataNodeLogicProps({
     return dataNodeLogicProps
 }
 
-export interface AIObservabilityTraceLogicProps {
-    tabId?: string
-}
+export type AIObservabilityTraceLogicProps = Record<string, never>
 
 export const aiObservabilityTraceLogic = kea<aiObservabilityTraceLogicType>([
     path(['scenes', 'ai-observability', 'aiObservabilityTraceLogic']),
     props({} as AIObservabilityTraceLogicProps),
-    key((props) => props.tabId ?? 'default'),
 
-    connect((props: AIObservabilityTraceLogicProps) => ({
+    connect(() => ({
         values: [
             featureFlagLogic,
             ['featureFlags'],
-            aiObservabilitySharedLogic({ tabId: props.tabId }),
+            aiObservabilitySharedLogic,
             ['dateFilter', 'propertyFilters', 'shouldFilterTestAccounts', 'shouldFilterSupportTraces'],
         ],
     })),
@@ -190,8 +186,8 @@ export const aiObservabilityTraceLogic = kea<aiObservabilityTraceLogicType>([
             {
                 initializeMessageStates: (_, { inputCount, outputCount }) => {
                     // Will be initialized based on display option in listener
-                    const inputStates = new Array(inputCount).fill(false)
-                    const outputStates = new Array(outputCount).fill(true)
+                    const inputStates = Array.from({ length: inputCount }, () => false)
+                    const outputStates = Array.from({ length: outputCount }, () => true)
                     return { input: inputStates, output: outputStates }
                 },
                 toggleMessage: (state, { type, index }) => {
@@ -255,13 +251,7 @@ export const aiObservabilityTraceLogic = kea<aiObservabilityTraceLogicType>([
             0,
             {
                 loadCommentCount: async (_, breakpoint) => {
-                    if (
-                        !values.traceId ||
-                        !(
-                            values.featureFlags?.[FEATURE_FLAGS.LLM_ANALYTICS_DISCUSSIONS] ||
-                            values.featureFlags?.[FEATURE_FLAGS.LLM_ANALYTICS_EARLY_ADOPTERS]
-                        )
-                    ) {
+                    if (!values.traceId) {
                         return 0
                     }
 
@@ -334,6 +324,7 @@ export const aiObservabilityTraceLogic = kea<aiObservabilityTraceLogicType>([
                 const traceQuery: TraceQuery = {
                     kind: NodeKind.TraceQuery,
                     traceId,
+                    includeSentiment: true,
                     dateRange: dateRange?.dateFrom
                         ? // dateFrom is a minimum timestamp of an event for a trace.
                           {
@@ -389,16 +380,13 @@ export const aiObservabilityTraceLogic = kea<aiObservabilityTraceLogicType>([
         olderTraceId: [(s) => [s.neighbors], (neighbors) => neighbors?.olderTraceId ?? null],
         olderTimestamp: [(s) => [s.neighbors], (neighbors) => neighbors?.olderTimestamp ?? null],
         [SIDE_PANEL_CONTEXT_KEY]: [
-            (s) => [s.traceId, s.featureFlags],
-            (traceId, featureFlags): SidePanelSceneContext => {
+            (s) => [s.traceId],
+            (traceId): SidePanelSceneContext => {
                 // Discussions are always at the trace level, accessible from anywhere in the trace
                 return {
                     activity_scope: ActivityScope.LLM_TRACE,
                     activity_item_id: traceId || '',
-                    discussions_disabled: !(
-                        featureFlags?.[FEATURE_FLAGS.LLM_ANALYTICS_DISCUSSIONS] ||
-                        featureFlags?.[FEATURE_FLAGS.LLM_ANALYTICS_EARLY_ADOPTERS]
-                    ),
+                    discussions_disabled: false,
                     activity_item_context: { trace_id: traceId || '' },
                 }
             },
@@ -409,14 +397,14 @@ export const aiObservabilityTraceLogic = kea<aiObservabilityTraceLogicType>([
         initializeMessageStates: ({ inputCount, outputCount }) => {
             // Apply display option when initializing
             const displayOption = values.displayOption
-            const inputStates = new Array(inputCount).fill(false).map((_, i) => {
+            const inputStates = Array.from({ length: inputCount }, (_, i) => {
                 if (displayOption === DisplayOption.ExpandAll) {
                     return true
                 }
                 // For collapse except output and last input, only show last input
                 return i === inputCount - 1
             })
-            const outputStates = new Array(outputCount).fill(true)
+            const outputStates = Array.from({ length: outputCount }, () => true)
 
             // Update the states directly
             actions.applySearchResults(inputStates, outputStates)
@@ -475,7 +463,7 @@ export const aiObservabilityTraceLogic = kea<aiObservabilityTraceLogicType>([
         },
     })),
 
-    tabAwareUrlToAction(({ actions }) => ({
+    urlToAction(({ actions }) => ({
         [urls.aiObservabilityTrace(':id')]: ({ id }, { event, timestamp, exception_ts, search, line, tab, msg }) => {
             actions.setTraceId(id ?? '')
             void addProductIntent({
@@ -503,7 +491,7 @@ export const aiObservabilityTraceLogic = kea<aiObservabilityTraceLogicType>([
         },
     })),
 
-    tabAwareActionToUrl(({ values }) => {
+    trackedActionToUrl(({ values }) => {
         const buildUrl = (): string | undefined => {
             if (!values.traceId) {
                 return undefined

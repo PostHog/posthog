@@ -18,8 +18,9 @@ import { FEATURE_FLAGS } from 'lib/constants'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonDialog } from 'lib/lemon-ui/LemonDialog'
 import { SpinnerOverlay } from 'lib/lemon-ui/Spinner/Spinner'
-import { getPrimaryPropertyForEvent } from 'lib/utils/primaryEventProperty'
+import { getPrimaryPropertyForEvent } from 'lib/utils/events'
 import { DefinitionLogicProps, definitionLogic } from 'scenes/data-management/definition/definitionLogic'
+import { EventDefinitionExperiments } from 'scenes/data-management/events/EventDefinitionExperiments'
 import { EventDefinitionInsights } from 'scenes/data-management/events/EventDefinitionInsights'
 import { EventDefinitionProperties } from 'scenes/data-management/events/EventDefinitionProperties'
 import { EventDefinitionSchema } from 'scenes/data-management/events/EventDefinitionSchema'
@@ -402,6 +403,8 @@ export function DefinitionView(props: DefinitionLogicProps): JSX.Element {
                     <EventDefinitionProperties definition={definition} />
                     <SceneDivider />
                     <EventDefinitionInsights definition={definition} />
+                    <SceneDivider />
+                    <EventDefinitionExperiments definition={definition} />
                     <SceneDivider />
                     <SceneSection
                         title="Connected destinations"

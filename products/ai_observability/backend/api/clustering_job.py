@@ -10,7 +10,8 @@ from rest_framework.response import Response
 from posthog.api.monitoring import monitor
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.event_usage import report_user_action
-from posthog.models.cohort import Cohort
+
+from products.cohorts.backend.models.cohort import Cohort
 
 from ..models.clustering_job import ClusteringJob
 from .metrics import llma_track_latency
@@ -76,7 +77,7 @@ class ClusteringJobSerializer(serializers.ModelSerializer):
 
 
 class ClusteringJobViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
-    """CRUD for clustering job configurations (max 5 per team)."""
+    """CRUD for clustering job configurations (max 10 per team)."""
 
     scope_object = "llm_analytics"
     permission_classes = [IsAuthenticated]

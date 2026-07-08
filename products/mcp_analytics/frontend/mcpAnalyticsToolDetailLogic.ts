@@ -2,9 +2,19 @@ import { afterMount, kea, key, path, props, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 
 import api from 'lib/api'
+import { dayjs } from 'lib/dayjs'
 
-import { DataTableNode, HogQLQueryResponse, InsightVizNode, NodeKind } from '~/queries/schema/schema-general'
-import { BaseMathType, ChartDisplayType, PropertyFilterType, PropertyMathType } from '~/types'
+import {
+    MCPHarnessBreakdownItem,
+    MCPToolDailyStatItem,
+    MCPToolDescriptionItem,
+    MCPToolFailureItem,
+    MCPToolNeighborItem,
+    MCPToolSampleIntentItem,
+    MCPToolStatsItem,
+    MCPToolTopUserItem,
+    NodeKind,
+} from '~/queries/schema/schema-general'
 
 import type { mcpAnalyticsToolDetailLogicType } from './mcpAnalyticsToolDetailLogicType'
 
@@ -15,8 +25,6 @@ export interface ToolSummary {
     p95_ms: number | null
     users: number
     conversations: number
-    calls_prev: number
-    errors_prev: number
 }
 
 export interface DescriptionRevision {
@@ -29,24 +37,82 @@ export interface IntentCoverage {
     total: number
 }
 
+export interface DailyToolStat {
+    day: string
+    calls: number
+    errors: number
+    p50: number
+    p95: number
+    users: number
+    sessions: number
+}
+
+export interface DailyChartData {
+    labels: string[]
+    calls: number[]
+    errors: number[]
+    p50: number[]
+    p95: number[]
+    users: number[]
+    sessions: number[]
+}
+
+const EMPTY_CHART_DATA: DailyChartData = {
+    labels: [],
+    calls: [],
+    errors: [],
+    p50: [],
+    p95: [],
+    users: [],
+    sessions: [],
+}
+
+export type ResultRows = unknown[][]
+
+// Gap-fill the per-day rows into a continuous day axis (ClickHouse only returns days with data).
+// Counts fill with 0; latency fills with NaN so the chart skips the point instead of dipping to 0.
+export function buildDailyChartData(rows: DailyToolStat[]): DailyChartData {
+    if (rows.length === 0) {
+        return EMPTY_CHART_DATA
+    }
+    const byDay = new Map(rows.map((r) => [r.day, r]))
+    const end = dayjs(rows[rows.length - 1].day)
+    const labels: string[] = []
+    for (let day = dayjs(rows[0].day); !day.isAfter(end); day = day.add(1, 'day')) {
+        labels.push(day.format('YYYY-MM-DD'))
+    }
+    const at = labels.map((day) => byDay.get(day))
+    return {
+        labels,
+        calls: at.map((r) => r?.calls ?? 0),
+        errors: at.map((r) => r?.errors ?? 0),
+        p50: at.map((r) => (r ? r.p50 : NaN)),
+        p95: at.map((r) => (r ? r.p95 : NaN)),
+        users: at.map((r) => r?.users ?? 0),
+        sessions: at.map((r) => r?.sessions ?? 0),
+    }
+}
+
 export interface MCPAnalyticsToolDetailLogicProps {
     toolName: string
 }
 
-const NEW_SDK_SOURCE = 'posthog_mcp_analytics'
+// Absolute from/to for an exact N*24h window. A relative '-Nd' would be rounded to the start
+// of the day by the backend's QueryDateRange, widening the window and letting per-section
+// counts drift apart after midnight; the sections must share one window to stay consistent.
+function windowDays(days: number): { date_from: string; date_to: string } {
+    return { date_from: dayjs().subtract(days, 'day').toISOString(), date_to: dayjs().toISOString() }
+}
 
-const DATE_FROM_CURRENT = '-7d'
-
-// HogQL expression that resolves to the *effective* tool name for new-SDK events:
-// the inner tool when the call went through the single-exec wrapper, otherwise
-// the directly-registered tool name. Use anywhere we need to filter/group by tool.
-const EFFECTIVE_TOOL_HOGQL =
-    "coalesce(nullIf(toString(properties.$mcp_exec_tool_call_name), ''), toString(properties.$mcp_tool_name))"
-
-const NEW_SDK_FILTER = `properties.$mcp_source = '${NEW_SDK_SOURCE}'`
-
-function escapeHogQLString(value: string): string {
-    return value.replace(/\\/g, '\\\\').replace(/'/g, "\\'")
+// Tools most often called immediately before/after this one within the same conversation.
+async function neighborRows(toolName: string, direction: 'before' | 'after'): Promise<ResultRows> {
+    const response = (await api.query({
+        kind: NodeKind.MCPToolNeighborsQuery,
+        toolName,
+        neighborDirection: direction,
+        dateRange: windowDays(7),
+    })) as { results?: MCPToolNeighborItem[] }
+    return (response?.results ?? []).map((r) => [r.neighbor_tool, r.co_occurrences])
 }
 
 export const mcpAnalyticsToolDetailLogic = kea<mcpAnalyticsToolDetailLogicType>([
@@ -59,38 +125,22 @@ export const mcpAnalyticsToolDetailLogic = kea<mcpAnalyticsToolDetailLogicType>(
             null as ToolSummary | null,
             {
                 loadSummary: async (): Promise<ToolSummary | null> => {
-                    const toolFilter = `${EFFECTIVE_TOOL_HOGQL} = '${escapeHogQLString(props.toolName)}' AND ${NEW_SDK_FILTER}`
                     const response = (await api.query({
-                        kind: NodeKind.HogQLQuery,
-                        query: `
-SELECT
-    countIf(timestamp >= now() - INTERVAL 7 DAY) AS calls,
-    countIf(timestamp >= now() - INTERVAL 7 DAY AND toBool(properties.$mcp_is_error)) AS errors,
-    round(quantileIf(0.5)(toFloat(properties.$mcp_duration_ms), timestamp >= now() - INTERVAL 7 DAY)) AS p50_ms,
-    round(quantileIf(0.95)(toFloat(properties.$mcp_duration_ms), timestamp >= now() - INTERVAL 7 DAY)) AS p95_ms,
-    uniqIf(distinct_id, timestamp >= now() - INTERVAL 7 DAY) AS users,
-    uniqIf(coalesce(nullIf(toString(properties.$mcp_session_id), ''), toString(properties.$session_id)), timestamp >= now() - INTERVAL 7 DAY) AS conversations,
-    countIf(timestamp >= now() - INTERVAL 14 DAY AND timestamp < now() - INTERVAL 7 DAY) AS calls_prev,
-    countIf(timestamp >= now() - INTERVAL 14 DAY AND timestamp < now() - INTERVAL 7 DAY AND toBool(properties.$mcp_is_error)) AS errors_prev
-FROM events
-WHERE event = 'mcp_tool_call'
-    AND timestamp >= now() - INTERVAL 14 DAY
-    AND ${toolFilter}
-`,
-                    })) as HogQLQueryResponse
-                    const row = (response.results ?? [])[0]
+                        kind: NodeKind.MCPToolStatsQuery,
+                        toolName: props.toolName,
+                        dateRange: windowDays(7),
+                    })) as { results?: MCPToolStatsItem[] }
+                    const row = response?.results?.[0]
                     if (!row) {
                         return null
                     }
                     return {
-                        calls: Number(row[0]) || 0,
-                        errors: Number(row[1]) || 0,
-                        p50_ms: row[2] == null ? null : Number(row[2]),
-                        p95_ms: row[3] == null ? null : Number(row[3]),
-                        users: Number(row[4]) || 0,
-                        conversations: Number(row[5]) || 0,
-                        calls_prev: Number(row[6]) || 0,
-                        errors_prev: Number(row[7]) || 0,
+                        calls: row.calls,
+                        errors: row.errors,
+                        p50_ms: row.p50_ms,
+                        p95_ms: row.p95_ms,
+                        users: row.users,
+                        conversations: row.conversations,
                     }
                 },
             },
@@ -99,26 +149,14 @@ WHERE event = 'mcp_tool_call'
             [] as DescriptionRevision[],
             {
                 loadDescriptions: async (): Promise<DescriptionRevision[]> => {
-                    const toolFilter = `${EFFECTIVE_TOOL_HOGQL} = '${escapeHogQLString(props.toolName)}' AND ${NEW_SDK_FILTER}`
                     const response = (await api.query({
-                        kind: NodeKind.HogQLQuery,
-                        query: `
-SELECT
-    toString(properties.$mcp_tool_description) AS description,
-    toString(max(timestamp)) AS last_seen
-FROM events
-WHERE event = 'mcp_tool_call'
-    AND timestamp >= now() - INTERVAL 30 DAY
-    AND ${toolFilter}
-    AND notEmpty(toString(properties.$mcp_tool_description))
-GROUP BY description
-ORDER BY last_seen DESC
-LIMIT 5
-`,
-                    })) as HogQLQueryResponse
-                    return (response.results ?? []).map((row) => ({
-                        description: String(row[0] ?? ''),
-                        last_seen: String(row[1] ?? ''),
+                        kind: NodeKind.MCPToolDescriptionsQuery,
+                        toolName: props.toolName,
+                        dateRange: windowDays(30),
+                    })) as { results?: MCPToolDescriptionItem[] }
+                    return (response?.results ?? []).map((r) => ({
+                        description: r.description,
+                        last_seen: r.last_seen,
                     }))
                 },
             },
@@ -126,25 +164,119 @@ LIMIT 5
         intentCoverage: [
             null as IntentCoverage | null,
             {
+                // Reads the same MCPToolStatsQuery as `summary`; the coverage denominator is the call count.
                 loadIntentCoverage: async (): Promise<IntentCoverage | null> => {
-                    const toolFilter = `${EFFECTIVE_TOOL_HOGQL} = '${escapeHogQLString(props.toolName)}' AND ${NEW_SDK_FILTER}`
                     const response = (await api.query({
-                        kind: NodeKind.HogQLQuery,
-                        query: `
-SELECT
-    countIf(notEmpty(toString(properties.$mcp_intent)) AND toString(properties.$mcp_intent) != '{}') AS with_intent,
-    count() AS total
-FROM events
-WHERE event = 'mcp_tool_call'
-    AND timestamp >= now() - INTERVAL 7 DAY
-    AND ${toolFilter}
-`,
-                    })) as HogQLQueryResponse
-                    const row = (response.results ?? [])[0]
+                        kind: NodeKind.MCPToolStatsQuery,
+                        toolName: props.toolName,
+                        dateRange: windowDays(7),
+                    })) as { results?: MCPToolStatsItem[] }
+                    const row = response?.results?.[0]
                     if (!row) {
                         return null
                     }
-                    return { with_intent: Number(row[0]) || 0, total: Number(row[1]) || 0 }
+                    return { with_intent: row.with_intent, total: row.calls }
+                },
+            },
+        ],
+        dailyStats: [
+            [] as DailyToolStat[],
+            {
+                loadDailyStats: async (): Promise<DailyToolStat[]> => {
+                    const response = (await api.query({
+                        kind: NodeKind.MCPToolDailyStatsQuery,
+                        toolName: props.toolName,
+                        dateRange: windowDays(30),
+                    })) as { results?: MCPToolDailyStatItem[] }
+                    return (response?.results ?? []).map((r) => ({
+                        day: r.day,
+                        calls: r.calls,
+                        errors: r.errors,
+                        p50: r.p50,
+                        p95: r.p95,
+                        users: r.users,
+                        sessions: r.sessions,
+                    }))
+                },
+            },
+        ],
+        failureRows: [
+            [] as ResultRows,
+            {
+                loadFailureRows: async (): Promise<ResultRows> => {
+                    const response = (await api.query({
+                        kind: NodeKind.MCPToolFailuresQuery,
+                        toolName: props.toolName,
+                        dateRange: windowDays(7),
+                    })) as { results?: MCPToolFailureItem[] }
+                    return (response?.results ?? []).map((r) => [r.message, r.occurrences, r.last_seen, r.harnesses])
+                },
+            },
+        ],
+        sampleIntentRows: [
+            [] as ResultRows,
+            {
+                loadSampleIntentRows: async (): Promise<ResultRows> => {
+                    const response = (await api.query({
+                        kind: NodeKind.MCPToolSampleIntentsQuery,
+                        toolName: props.toolName,
+                        dateRange: windowDays(7),
+                    })) as { results?: MCPToolSampleIntentItem[] }
+                    return (response?.results ?? []).map((r) => [r.timestamp, r.intent, r.intent_source, r.harness])
+                },
+            },
+        ],
+        neighborsBeforeRows: [
+            [] as ResultRows,
+            {
+                loadNeighborsBeforeRows: async (): Promise<ResultRows> => neighborRows(props.toolName, 'before'),
+            },
+        ],
+        neighborsAfterRows: [
+            [] as ResultRows,
+            {
+                loadNeighborsAfterRows: async (): Promise<ResultRows> => neighborRows(props.toolName, 'after'),
+            },
+        ],
+        byHarnessRows: [
+            [] as ResultRows,
+            {
+                // Server-resolved harness labels via the same runner as the dashboard (scoped to this
+                // tool's new-SDK calls by toolName), so the pill matches the dashboard's bucketing exactly.
+                loadByHarnessRows: async (): Promise<ResultRows> => {
+                    const response = (await api.query({
+                        kind: NodeKind.MCPHarnessBreakdownQuery,
+                        toolName: props.toolName,
+                        dateRange: windowDays(7),
+                    })) as { results?: MCPHarnessBreakdownItem[] }
+                    return (response?.results ?? []).map((r) => [
+                        r.harness,
+                        r.total_calls,
+                        r.errors,
+                        r.error_rate_pct,
+                        r.sessions,
+                    ])
+                },
+            },
+        ],
+        topUserRows: [
+            [] as ResultRows,
+            {
+                // The person tuple is rebuilt into the [distinct_id, _, properties] shape renderPersonCell expects.
+                loadTopUserRows: async (): Promise<ResultRows> => {
+                    const response = (await api.query({
+                        kind: NodeKind.MCPToolTopUsersQuery,
+                        toolName: props.toolName,
+                        dateRange: windowDays(7),
+                    })) as { results?: MCPToolTopUserItem[] }
+                    return (response?.results ?? []).map((r) => [
+                        [r.distinct_id, '', r.person_properties],
+                        r.calls,
+                        r.errors,
+                        r.error_rate_pct,
+                        r.harnesses,
+                        r.last_seen,
+                    ])
                 },
             },
         ],
@@ -153,287 +285,9 @@ WHERE event = 'mcp_tool_call'
     selectors({
         toolName: [() => [(_, props) => props.toolName], (toolName: string) => toolName],
 
-        toolFilterClause: [
-            (s) => [s.toolName],
-            (toolName: string) => `${EFFECTIVE_TOOL_HOGQL} = '${escapeHogQLString(toolName)}' AND ${NEW_SDK_FILTER}`,
-        ],
-
-        callsTrendQuery: [
-            (s) => [s.toolName],
-            (toolName: string): InsightVizNode => ({
-                kind: NodeKind.InsightVizNode,
-                source: {
-                    kind: NodeKind.TrendsQuery,
-                    series: [
-                        {
-                            kind: NodeKind.EventsNode,
-                            event: 'mcp_tool_call',
-                            name: 'Calls',
-                            math: BaseMathType.TotalCount,
-                            properties: [
-                                {
-                                    type: PropertyFilterType.HogQL,
-                                    key: `${EFFECTIVE_TOOL_HOGQL} = '${escapeHogQLString(toolName)}'`,
-                                },
-                                {
-                                    type: PropertyFilterType.HogQL,
-                                    key: NEW_SDK_FILTER,
-                                },
-                            ],
-                        },
-                    ],
-                    breakdownFilter: {
-                        breakdown_type: 'event',
-                        breakdown: '$mcp_is_error',
-                    },
-                    trendsFilter: {
-                        display: ChartDisplayType.ActionsLineGraph,
-                    },
-                    dateRange: { date_from: DATE_FROM_CURRENT, date_to: null },
-                },
-            }),
-        ],
-
-        latencyTrendQuery: [
-            (s) => [s.toolName],
-            (toolName: string): InsightVizNode => ({
-                kind: NodeKind.InsightVizNode,
-                source: {
-                    kind: NodeKind.TrendsQuery,
-                    series: [
-                        {
-                            kind: NodeKind.EventsNode,
-                            event: 'mcp_tool_call',
-                            name: 'p95 duration (ms)',
-                            math: PropertyMathType.P95,
-                            math_property: '$mcp_duration_ms',
-                            properties: [
-                                {
-                                    type: PropertyFilterType.HogQL,
-                                    key: `${EFFECTIVE_TOOL_HOGQL} = '${escapeHogQLString(toolName)}'`,
-                                },
-                                { type: PropertyFilterType.HogQL, key: NEW_SDK_FILTER },
-                            ],
-                        },
-                        {
-                            kind: NodeKind.EventsNode,
-                            event: 'mcp_tool_call',
-                            name: 'p50 duration (ms)',
-                            math: PropertyMathType.Median,
-                            math_property: '$mcp_duration_ms',
-                            properties: [
-                                {
-                                    type: PropertyFilterType.HogQL,
-                                    key: `${EFFECTIVE_TOOL_HOGQL} = '${escapeHogQLString(toolName)}'`,
-                                },
-                                { type: PropertyFilterType.HogQL, key: NEW_SDK_FILTER },
-                            ],
-                        },
-                    ],
-                    trendsFilter: { display: ChartDisplayType.ActionsLineGraph },
-                    dateRange: { date_from: DATE_FROM_CURRENT, date_to: null },
-                },
-            }),
-        ],
-
-        failuresQuery: [
-            (s) => [s.toolName],
-            (toolName: string): DataTableNode => ({
-                kind: NodeKind.DataTableNode,
-                source: {
-                    kind: NodeKind.HogQLQuery,
-                    query: `
-SELECT
-    substring(toString(properties.$exception_message), 1, 200) AS message,
-    count() AS occurrences,
-    max(timestamp) AS last_seen,
-    arrayStringConcat(arraySort(arrayDistinct(groupArray(toString(properties.$mcp_client_name)))), ', ') AS harnesses
-FROM events
-WHERE event = '$exception'
-    AND timestamp >= now() - INTERVAL 7 DAY
-    AND toString(properties.$mcp_tool_name) = '${escapeHogQLString(toolName)}'
-    AND notEmpty(toString(properties.$exception_message))
-GROUP BY message
-ORDER BY occurrences DESC
-LIMIT 20
-`,
-                },
-                columns: ['message', 'occurrences', 'last_seen', 'harnesses'],
-                showSearch: false,
-                showOpenEditorButton: true,
-            }),
-        ],
-
-        sampleIntentsQuery: [
-            (s) => [s.toolFilterClause],
-            (toolFilter): DataTableNode => ({
-                kind: NodeKind.DataTableNode,
-                source: {
-                    kind: NodeKind.HogQLQuery,
-                    query: `
-SELECT
-    timestamp,
-    toString(properties.$mcp_intent) AS intent,
-    toString(properties.$mcp_intent_source) AS source,
-    toString(properties.$mcp_client_name) AS harness
-FROM events
-WHERE event = 'mcp_tool_call'
-    AND timestamp >= now() - INTERVAL 7 DAY
-    AND ${toolFilter}
-    AND notEmpty(toString(properties.$mcp_intent))
-    AND toString(properties.$mcp_intent) != '{}'
-ORDER BY timestamp DESC
-LIMIT 5
-`,
-                },
-                columns: ['timestamp', 'intent', 'source', 'harness'],
-                showSearch: false,
-                showOpenEditorButton: true,
-            }),
-        ],
-
-        neighborsBeforeQuery: [
-            (s) => [s.toolName],
-            (toolName: string): DataTableNode => ({
-                kind: NodeKind.DataTableNode,
-                source: {
-                    kind: NodeKind.HogQLQuery,
-                    query: `
-WITH tool_calls AS (
-    SELECT
-        coalesce(nullIf(toString(properties.$mcp_session_id), ''), toString(properties.$session_id)) AS conv_id,
-        timestamp,
-        ${EFFECTIVE_TOOL_HOGQL} AS tool
-    FROM events
-    WHERE event = 'mcp_tool_call'
-        AND timestamp >= now() - INTERVAL 7 DAY
-        AND ${NEW_SDK_FILTER}
-        AND notEmpty(coalesce(nullIf(toString(properties.$mcp_session_id), ''), toString(properties.$session_id)))
-)
-SELECT
-    prev_tool AS tool,
-    count() AS co_occurrences
-FROM (
-    SELECT
-        conv_id,
-        tool,
-        lagInFrame(tool) OVER (PARTITION BY conv_id ORDER BY timestamp ROWS BETWEEN UNBOUNDED PRECEDING AND UNBOUNDED FOLLOWING) AS prev_tool
-    FROM tool_calls
-)
-WHERE tool = '${escapeHogQLString(toolName)}'
-    AND prev_tool IS NOT NULL
-    AND prev_tool != ''
-    AND prev_tool != tool
-GROUP BY prev_tool
-ORDER BY co_occurrences DESC
-LIMIT 5
-`,
-                },
-                columns: ['tool', 'co_occurrences'],
-                showSearch: false,
-                showOpenEditorButton: true,
-            }),
-        ],
-
-        neighborsAfterQuery: [
-            (s) => [s.toolName],
-            (toolName: string): DataTableNode => ({
-                kind: NodeKind.DataTableNode,
-                source: {
-                    kind: NodeKind.HogQLQuery,
-                    query: `
-WITH tool_calls AS (
-    SELECT
-        coalesce(nullIf(toString(properties.$mcp_session_id), ''), toString(properties.$session_id)) AS conv_id,
-        timestamp,
-        ${EFFECTIVE_TOOL_HOGQL} AS tool
-    FROM events
-    WHERE event = 'mcp_tool_call'
-        AND timestamp >= now() - INTERVAL 7 DAY
-        AND ${NEW_SDK_FILTER}
-        AND notEmpty(coalesce(nullIf(toString(properties.$mcp_session_id), ''), toString(properties.$session_id)))
-)
-SELECT
-    next_tool AS tool,
-    count() AS co_occurrences
-FROM (
-    SELECT
-        conv_id,
-        tool,
-        leadInFrame(tool) OVER (PARTITION BY conv_id ORDER BY timestamp ROWS BETWEEN UNBOUNDED PRECEDING AND UNBOUNDED FOLLOWING) AS next_tool
-    FROM tool_calls
-)
-WHERE tool = '${escapeHogQLString(toolName)}'
-    AND next_tool IS NOT NULL
-    AND next_tool != ''
-    AND next_tool != tool
-GROUP BY next_tool
-ORDER BY co_occurrences DESC
-LIMIT 5
-`,
-                },
-                columns: ['tool', 'co_occurrences'],
-                showSearch: false,
-                showOpenEditorButton: true,
-            }),
-        ],
-
-        byHarnessQuery: [
-            (s) => [s.toolFilterClause],
-            (toolFilter): DataTableNode => ({
-                kind: NodeKind.DataTableNode,
-                source: {
-                    kind: NodeKind.HogQLQuery,
-                    query: `
-SELECT
-    toString(properties.$mcp_client_name) AS harness,
-    count() AS calls,
-    countIf(toBool(properties.$mcp_is_error)) AS errors,
-    round(countIf(toBool(properties.$mcp_is_error)) * 100.0 / count(), 1) AS error_rate_pct,
-    uniq(distinct_id) AS users
-FROM events
-WHERE event = 'mcp_tool_call'
-    AND timestamp >= now() - INTERVAL 7 DAY
-    AND ${toolFilter}
-    AND notEmpty(toString(properties.$mcp_client_name))
-GROUP BY harness
-ORDER BY calls DESC
-LIMIT 10
-`,
-                },
-                columns: ['harness', 'calls', 'errors', 'error_rate_pct', 'users'],
-                showSearch: false,
-                showOpenEditorButton: true,
-            }),
-        ],
-
-        topUsersQuery: [
-            (s) => [s.toolFilterClause],
-            (toolFilter): DataTableNode => ({
-                kind: NodeKind.DataTableNode,
-                source: {
-                    kind: NodeKind.HogQLQuery,
-                    query: `
-SELECT
-    argMax(tuple(distinct_id, person.created_at, person.properties), timestamp) AS person,
-    count() AS calls,
-    countIf(toBool(properties.$mcp_is_error)) AS errors,
-    round(countIf(toBool(properties.$mcp_is_error)) * 100.0 / count(), 1) AS error_rate_pct,
-    arrayStringConcat(arraySort(arrayDistinct(groupArray(toString(properties.$mcp_client_name)))), ', ') AS harnesses,
-    max(timestamp) AS last_seen
-FROM events
-WHERE event = 'mcp_tool_call'
-    AND timestamp >= now() - INTERVAL 7 DAY
-    AND ${toolFilter}
-GROUP BY distinct_id
-ORDER BY calls DESC
-LIMIT 10
-`,
-                },
-                columns: ['person', 'calls', 'errors', 'error_rate_pct', 'harnesses', 'last_seen'],
-                showSearch: false,
-                showOpenEditorButton: true,
-            }),
+        dailyChartData: [
+            (s) => [s.dailyStats],
+            (dailyStats: DailyToolStat[]): DailyChartData => buildDailyChartData(dailyStats),
         ],
     }),
 
@@ -441,5 +295,12 @@ LIMIT 10
         actions.loadSummary()
         actions.loadDescriptions()
         actions.loadIntentCoverage()
+        actions.loadDailyStats()
+        actions.loadFailureRows()
+        actions.loadSampleIntentRows()
+        actions.loadNeighborsBeforeRows()
+        actions.loadNeighborsAfterRows()
+        actions.loadByHarnessRows()
+        actions.loadTopUserRows()
     }),
 ])

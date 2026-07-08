@@ -14,7 +14,6 @@ HEATMAPS_DATA_TABLE = lambda: "sharded_heatmaps"
 
 
 """
-We intend to send specific $heatmap events to build a heatmap instead of building from autocapture like the click map
 We'll be storing individual clicks per url/team/session
 And we'll be querying for those clicks at day level of granularity
 And we'll be querying by URL exact or wildcard match
@@ -166,15 +165,15 @@ DISTRIBUTED_HEATMAPS_TABLE_SQL = lambda: HEATMAPS_TABLE_BASE_SQL.format(
     ),
 )
 
-DROP_HEATMAPS_TABLE_SQL = lambda: (f"DROP TABLE IF EXISTS {HEATMAPS_DATA_TABLE()}")
+DROP_HEATMAPS_TABLE_SQL = lambda: f"DROP TABLE IF EXISTS {HEATMAPS_DATA_TABLE()}"
 
-DROP_WRITABLE_HEATMAPS_TABLE_SQL = lambda: (f"DROP TABLE IF EXISTS {HEATMAPS_WRITABLE_TABLE}")
+DROP_WRITABLE_HEATMAPS_TABLE_SQL = lambda: f"DROP TABLE IF EXISTS {HEATMAPS_WRITABLE_TABLE}"
 
-DROP_HEATMAPS_TABLE_MV_SQL = lambda: (f"DROP TABLE IF EXISTS heatmaps_mv")
+DROP_HEATMAPS_TABLE_MV_SQL = lambda: f"DROP TABLE IF EXISTS heatmaps_mv"
 
-DROP_KAFKA_HEATMAPS_TABLE_SQL = lambda: (f"DROP TABLE IF EXISTS kafka_heatmaps")
+DROP_KAFKA_HEATMAPS_TABLE_SQL = lambda: f"DROP TABLE IF EXISTS kafka_heatmaps"
 
-TRUNCATE_HEATMAPS_TABLE_SQL = lambda: (f"TRUNCATE TABLE IF EXISTS {HEATMAPS_DATA_TABLE()}")
+TRUNCATE_HEATMAPS_TABLE_SQL = lambda: f"TRUNCATE TABLE IF EXISTS {HEATMAPS_DATA_TABLE()}"
 
 ALTER_TABLE_ADD_TTL_PERIOD = lambda: (
     f"ALTER TABLE {HEATMAPS_DATA_TABLE()} MODIFY {ttl_period('timestamp', 90, unit='DAY')}"

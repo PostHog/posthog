@@ -18,7 +18,10 @@ export function navigateToNewFlag(
     intent?: FlagIntent
 ): void {
     const params: Record<string, any> = { ...searchParams }
-    if (template && template !== 'blank') {
+    if (template === 'remote-config') {
+        // Remote config is a distinct flag type, not a targeting preset — route via the type param.
+        params.type = 'remote_config'
+    } else if (template && template !== 'blank') {
         params.template = template
     }
     if (intent) {
@@ -54,7 +57,8 @@ export const featureFlagTemplatesSceneLogic = kea<featureFlagTemplatesSceneLogic
         selectTemplate: ({ template }) => {
             posthog.capture('feature flag template selected', { template_key: template })
 
-            if (values.intentsEnabled) {
+            // Remote config skips the intent step — its evaluation warnings only apply to client-side flags.
+            if (values.intentsEnabled && template !== 'remote-config') {
                 actions.setSelectedTemplate(template)
             } else {
                 navigateToNewFlag(router.values.searchParams, template)

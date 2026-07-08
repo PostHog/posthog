@@ -1,4 +1,4 @@
-import { actions, afterMount, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
+import { actions, afterMount, connect, kea, listeners, path, props, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 
 import api, { ApiError } from 'lib/api'
@@ -37,18 +37,15 @@ function normalizePromptsToAvailableModels(
     })
 }
 
-export interface LLMPlaygroundModelLogicProps {
-    tabId?: string
-}
+export type LLMPlaygroundModelLogicProps = Record<string, never>
 
 export const llmPlaygroundModelLogic = kea<llmPlaygroundModelLogicType>([
     path(['products', 'ai_observability', 'frontend', 'playground', 'llmPlaygroundModelLogic']),
     props({} as LLMPlaygroundModelLogicProps),
-    key((props) => props.tabId ?? 'default'),
 
-    connect(({ tabId }: LLMPlaygroundModelLogicProps) => ({
+    connect(() => ({
         values: [
-            llmPlaygroundPromptsLogic({ tabId }),
+            llmPlaygroundPromptsLogic,
             [
                 'promptConfigs',
                 'activePromptConfig',
@@ -69,7 +66,7 @@ export const llmPlaygroundModelLogic = kea<llmPlaygroundModelLogicType>([
             ['providerKeys', 'providerKeysLoading'],
         ],
         actions: [
-            llmPlaygroundPromptsLogic({ tabId }),
+            llmPlaygroundPromptsLogic,
             ['setupPlaygroundFromEvent', 'setModel', 'setPromptConfigs', 'clearPendingTargetModel'],
             modelPickerLogic,
             ['loadByokModelsSuccess', 'loadByokModelsFailure', 'loadTrialModelsSuccess', 'loadTrialModelsFailure'],
@@ -191,6 +188,33 @@ export const llmPlaygroundModelLogic = kea<llmPlaygroundModelLogicType>([
             actions.clearPendingTargetModel()
         }
 
+        // Resolve a pending target model once provider keys, BYOK models, and trial models have
+        // all settled — whichever of those loads last drives the resolution. Previously this only
+        // ran from the trial/BYOK success handlers, so a pending model was silently dropped when
+        // trial models loaded before provider keys settled and there were no BYOK keys to fire
+        // loadByokModelsSuccess (the resolution would bail on the settled-gate and never retry).
+        const resolvePendingTarget = (): void => {
+            const pendingTargetModel = values.pendingTargetModel
+            if (!pendingTargetModel) {
+                return
+            }
+            if (!values.providerKeysSettled || !values.byokModelsSettled || !values.trialModelsSettled) {
+                return
+            }
+            if (values.pendingTargetIsTrace) {
+                applyPendingTraceSelection(pendingTargetModel)
+                return
+            }
+            const normalizedPromptsWithTarget = normalizePromptsToAvailableModels(
+                values.promptConfigs,
+                pendingTargetModel,
+                values.effectiveModelOptions,
+                values.providerKeys
+            )
+            actions.setPromptConfigs(normalizedPromptsWithTarget)
+            actions.clearPendingTargetModel()
+        }
+
         return {
             loadEvaluationConfigSuccess: ({
                 evaluationConfig,
@@ -231,30 +255,16 @@ export const llmPlaygroundModelLogic = kea<llmPlaygroundModelLogicType>([
                     actions.setPromptConfigs(normalizedPrompts)
                 }
 
-                // Handle pending target model
-                if (!pendingTargetModel) {
-                    return
-                }
-
-                if (!values.providerKeysSettled || !values.byokModelsSettled) {
-                    return
-                }
-
-                if (values.pendingTargetIsTrace) {
-                    applyPendingTraceSelection(pendingTargetModel)
-                    return
-                }
-
-                const normalizedPromptsWithTarget = normalizePromptsToAvailableModels(
-                    values.promptConfigs,
-                    pendingTargetModel,
-                    values.effectiveModelOptions,
-                    values.providerKeys
-                )
-
-                actions.setPromptConfigs(normalizedPromptsWithTarget)
-                actions.clearPendingTargetModel()
+                resolvePendingTarget()
             },
+            loadProviderKeysSuccess: () => {
+                // If trial models loaded before provider keys settled, the trial handler couldn't
+                // resolve the pending target yet. Retry now that keys (and the BYOK-settled flag) are in.
+                resolvePendingTarget()
+            },
+            loadProviderKeysFailure: () => resolvePendingTarget(),
+            loadTrialModelsFailure: () => resolvePendingTarget(),
+            loadByokModelsFailure: () => resolvePendingTarget(),
             loadByokModelsSuccess: ({ byokModels }: { byokModels: ModelOption[] }) => {
                 if (byokModels.length === 0) {
                     return

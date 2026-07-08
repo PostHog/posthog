@@ -1,20 +1,17 @@
 """
-SDK Doctor health assessment.
+SDK Health health assessment.
 
 The single source of truth for SDK outdatedness detection. Consumed by:
   - the `sdk_outdated` Temporal health check (alerts / HealthIssue rows),
-  - the SDK Doctor report endpoint (posthog/api/sdk_doctor.py), which the SDK Doctor UI and the
-    SDK Doctor MCP tool both read.
+  - the SDK Health report endpoint (posthog/api/sdk_health.py), which the SDK Health UI and the
+    SDK Health MCP tool both read.
 
 The frontend renders these pre-computed values.
 """
 
 from dataclasses import dataclass, field
-from datetime import UTC, datetime, timedelta
-from json import (
-    dumps as json_dumps,
-    loads as json_loads,
-)
+from datetime import UTC, datetime
+from json import dumps as json_dumps
 from math import ceil
 from re import (
     Pattern,
@@ -24,12 +21,6 @@ from typing import Any, Literal, Optional
 from urllib.parse import quote
 
 import humanize
-from redis.exceptions import RedisError
-
-from posthog.cache_utils import cache_for
-from posthog.redis import get_client
-
-from products.growth.backend.constants import SDK_TYPES, github_sdk_versions_key
 
 # --- SDK classification --------------------
 
@@ -258,48 +249,6 @@ def _calculate_version_age_days(release_date_iso: str, now: Optional[datetime] =
     return int(seconds // 86400)
 
 
-def _decode_redis_json(raw: bytes | str) -> dict:
-    return json_loads(raw.decode("utf-8") if isinstance(raw, bytes) else raw)
-
-
-def _load_github_sdk_data() -> dict[str, dict]:
-    """Load latest SDK versions from Redis for all known SDK types."""
-    redis_client = get_client()
-    keys = [github_sdk_versions_key(sdk_type) for sdk_type in SDK_TYPES]
-    values = redis_client.mget(keys)
-
-    data: dict[str, dict] = {}
-    for sdk_type, raw in zip(SDK_TYPES, values):
-        if not raw:
-            continue
-        parsed = _decode_redis_json(raw)
-        if "latestVersion" in parsed:
-            data[sdk_type] = parsed
-    return data
-
-
-SDK_FRESHNESS_GRACE_PERIOD_DAYS = 7
-
-
-@cache_for(timedelta(seconds=60))
-def sdks_within_freshness_grace_period() -> set[str]:
-    """Return SDK names whose latest published version is younger than the grace period."""
-    try:
-        github_data = _load_github_sdk_data()
-    except (RedisError, ValueError, TypeError):
-        return set()
-
-    fresh: set[str] = set()
-    for sdk_type, data in github_data.items():
-        try:
-            release_date = (data.get("releaseDates") or {}).get(data["latestVersion"])
-            if release_date and _calculate_version_age_days(release_date) < SDK_FRESHNESS_GRACE_PERIOD_DAYS:
-                fresh.add(sdk_type)
-        except (ValueError, TypeError, AttributeError):
-            continue
-    return fresh
-
-
 def _device_context(sdk_type: str) -> Literal["mobile", "desktop", "mixed"]:
     if sdk_type in MOBILE_SDKS:
         return "mobile"
@@ -332,7 +281,7 @@ def _released_ago(release_date_iso: Optional[str], now: Optional[datetime] = Non
 
 # --- UI-facing string/URL builders ---------
 #
-# The SDK Doctor UI (frontend/src/scenes/onboarding/sdks/) renders these strings/URLs verbatim
+# The SDK Health UI (frontend/src/scenes/onboarding/sdks/) renders these strings/URLs verbatim
 # from the report endpoint, so this is the single place the copy and Activity/SQL links are built.
 
 
@@ -368,7 +317,7 @@ def _is_safe_for_interpolation(value: str) -> bool:
 
 def _build_sql_query(sdk_type: str, version: str) -> str:
     """
-    SQL drill-in for an SDK version, rendered as-is by the SDK Doctor UI and MCP tool.
+    SQL drill-in for an SDK version, rendered as-is by the SDK Health UI and MCP tool.
 
     Returns an empty string when either `sdk_type` or `version` fails validation —
     the skill instructs agents to surface the unexpected empty value rather than retry
@@ -390,7 +339,7 @@ def _build_sql_query(sdk_type: str, version: str) -> str:
 
 def _build_activity_page_url(project_id: Optional[int], sdk_type: str, version: str) -> str:
     """
-    Activity > Explore drill-in URL for an SDK version, rendered as-is by the SDK Doctor UI and MCP tool.
+    Activity > Explore drill-in URL for an SDK version, rendered as-is by the SDK Health UI and MCP tool.
 
     Returns a relative path (no host) including /project/<id>/ prefix so MCP agents
     can combine it with the user's known PostHog host (e.g. us.posthog.com).
@@ -473,7 +422,7 @@ def _build_activity_page_url(project_id: Optional[int], sdk_type: str, version: 
 
 def _build_banner(sdk_type: str, alert: OutdatedTrafficAlert) -> str:
     """
-    Top-level alert text mirroring SdkDoctorScene.tsx's "Time for an update!" banner:
+    Top-level alert text mirroring SdkHealthScene.tsx's "Time for an update!" banner:
     "Version {ver} of the {Readable} SDK has captured more than {N}% of events in the last 7 days."
 
     Version is routed through `_safe_version_display` as defense in depth — the primary
@@ -644,7 +593,7 @@ def _build_reason(
     The single source of truth for "why is this flagged?": it always names the current
     in-use version and, when older versions still taking significant traffic are what drove
     the alert, the specific versions that triggered it. This keeps the string self-contained
-    for every consumer (SDK Doctor UI, MCP agents, alert destinations) — including the case
+    for every consumer (SDK Health UI, MCP agents, alert destinations) — including the case
     where the latest in-use version already matches latest but an older one is still served.
     """
     name = SDK_READABLE_NAME.get(sdk_type, sdk_type)
@@ -751,7 +700,7 @@ def compute_sdk_health(
 ) -> SdkHealthReport:
     """
     Top-level entry point. Takes the combined data structure returned by the existing
-    /api/sdk_doctor/ view:
+    /api/sdk_health/ view:
 
         {
           "web": {

@@ -94,8 +94,8 @@ describe('addToDashboardModalLogic', () => {
                 },
             },
             patch: {
-                '/api/environments/:team_id/insights/:id': async (req) => {
-                    const payload = await req.json()
+                '/api/environments/:team_id/insights/:id': async ({ request }) => {
+                    const payload = (await request.json()) as Record<string, any>
                     return [200, { ...MOCK_INSIGHT, ...payload }]
                 },
             },
@@ -139,6 +139,8 @@ describe('addToDashboardModalLogic', () => {
             .toMatchValues({
                 _dashboardToNavigateTo: 99,
             })
+            // Let updateInsight settle before afterEach unmounts the logics it touches
+            .toFinishAllListeners()
     })
 
     it('orders dashboards: on insight first, then mine, then others pinned, then the rest', async () => {
@@ -162,8 +164,8 @@ describe('addToDashboardModalLogic', () => {
                 },
             },
             patch: {
-                '/api/environments/:team_id/insights/:id': async (req) => {
-                    const payload = await req.json()
+                '/api/environments/:team_id/insights/:id': async ({ request }) => {
+                    const payload = (await request.json()) as Record<string, any>
                     return [200, { ...insightOnlyOnDash2, ...payload }]
                 },
             },
@@ -215,8 +217,8 @@ describe('addToDashboardModalLogic', () => {
                 },
             },
             patch: {
-                '/api/environments/:team_id/insights/:id': async (req) => {
-                    const payload = await req.json()
+                '/api/environments/:team_id/insights/:id': async ({ request }) => {
+                    const payload = (await request.json()) as Record<string, any>
                     return [200, { ...insightOnlyOnDash2, ...payload }]
                 },
             },
@@ -267,8 +269,8 @@ describe('addToDashboardModalLogic', () => {
                 },
             },
             patch: {
-                '/api/environments/:team_id/insights/:id': async (req) => {
-                    const payload = await req.json()
+                '/api/environments/:team_id/insights/:id': async ({ request }) => {
+                    const payload = (await request.json()) as Record<string, any>
                     return [200, { ...insightOnlyOnDash2, ...payload }]
                 },
             },

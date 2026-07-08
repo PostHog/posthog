@@ -76,11 +76,16 @@ class AnthropicCircuitBreaker:
             pipe.hincrby(key, field, 1)
             pipe.expire(key, self.window_seconds + BUCKET_WIDTH_SECONDS)
             await asyncio.wait_for(pipe.execute(), timeout=REDIS_OP_TIMEOUT_SECONDS)
-        except Exception:
+        except Exception as exc:
             from llm_gateway.metrics.prometheus import ANTHROPIC_CIRCUIT_BREAKER_REDIS_ERRORS
 
             ANTHROPIC_CIRCUIT_BREAKER_REDIS_ERRORS.labels(op="record").inc()
-            logger.exception("circuit_breaker_record_failed", success=success)
+            logger.exception(
+                "circuit_breaker_record_failed",
+                success=success,
+                error_type=type(exc).__name__,
+                error_message=str(exc),
+            )
 
     async def _get_stats(self) -> tuple[int, int]:
         if not self.enabled or self.redis is None:

@@ -3,7 +3,7 @@ from textwrap import dedent
 
 import pytest
 
-from products.data_modeling.backend.services.gitsync.config_parser import (
+from products.data_modeling.backend.logic.gitsync.config_parser import (
     TomlFormat,
     YamlFormat,
     format_for_path,

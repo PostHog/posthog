@@ -3,7 +3,6 @@ import { router } from 'kea-router'
 
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { tabAwareScene } from 'lib/logic/scenes/tabAwareScene'
 import { sceneConfigurations } from 'scenes/scenes'
 import { Scene } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
@@ -20,7 +19,6 @@ const THIRTY_DAYS_MS = 30 * 24 * 60 * 60 * 1000
 
 export const pipelineStatusSceneLogic = kea<pipelineStatusSceneLogicType>([
     path(['scenes', 'health', 'pipelineStatus', 'pipelineStatusSceneLogic']),
-    tabAwareScene(),
     connect({
         values: [pipelineHealthLogic, ['issues'], featureFlagLogic, ['featureFlags']],
     }),

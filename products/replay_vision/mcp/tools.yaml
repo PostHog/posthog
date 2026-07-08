@@ -9,6 +9,33 @@ feature: replay_vision
 url_prefix: /replay-vision
 ui_apps: {}
 tools:
+    vision-actions-create:
+        operation: vision_actions_create
+        enabled: false
+    vision-actions-destroy:
+        operation: vision_actions_destroy
+        enabled: false
+    vision-actions-list:
+        operation: vision_actions_list
+        enabled: false
+    vision-actions-partial-update:
+        operation: vision_actions_partial_update
+        enabled: false
+    vision-actions-retrieve:
+        operation: vision_actions_retrieve
+        enabled: false
+    vision-actions-runs-list:
+        operation: vision_actions_runs_list
+        enabled: false
+    vision-actions-runs-retrieve:
+        operation: vision_actions_runs_retrieve
+        enabled: false
+    vision-observations-label-create:
+        operation: vision_observations_label_create
+        enabled: false
+    vision-observations-label-destroy:
+        operation: vision_observations_label_destroy
+        enabled: false
     vision-observations-list:
         operation: vision_observations_list
         enabled: true
@@ -46,6 +73,9 @@ tools:
             `scanner_snapshot` (the scanner's configuration at run time) and `scanner_result` (the LLM output, with any
             event citations). Use `vision-observations-list` to find observation IDs for a session first.
         feature_flag: replay-vision
+    vision-observations-retry-create:
+        operation: vision_observations_retry_create
+        enabled: false
     vision-quota-retrieve:
         operation: environment_vision_quota_retrieve
         enabled: true
@@ -187,6 +217,12 @@ tools:
             Pair with the session-recording MCP tools or the investigating-replay skill to inspect the underlying
             recording.
         feature_flag: replay-vision
+    vision-scanners-observations-label-create:
+        operation: vision_scanners_observations_label_create
+        enabled: false
+    vision-scanners-observations-label-destroy:
+        operation: vision_scanners_observations_label_destroy
+        enabled: false
     vision-scanners-observations-list:
         operation: vision_scanners_observations_list
         enabled: true
@@ -208,11 +244,29 @@ tools:
             scanner_type), and the `session_id` of the recording it analysed. Use this to inspect what a scanner has
             found over time; to see every scanner's observations for one session, use `vision-observations-list`.
         feature_flag: replay-vision
+    vision-scanners-observations-retry-create:
+        operation: vision_scanners_observations_retry_create
+        enabled: false
     vision-scanners-observations-stats-retrieve:
         operation: vision_scanners_observations_stats_retrieve
         enabled: false
     vision-scanners-partial-update:
         operation: vision_scanners_partial_update
+        enabled: false
+    vision-scanners-prompt-suggestions-apply-create:
+        operation: vision_scanners_prompt_suggestions_apply_create
+        enabled: false
+    vision-scanners-prompt-suggestions-current-retrieve:
+        operation: vision_scanners_prompt_suggestions_current_retrieve
+        enabled: false
+    vision-scanners-prompt-suggestions-dismiss-create:
+        operation: vision_scanners_prompt_suggestions_dismiss_create
+        enabled: false
+    vision-scanners-prompt-suggestions-generate-create:
+        operation: vision_scanners_prompt_suggestions_generate_create
+        enabled: false
+    vision-scanners-prompt-suggestions-list:
+        operation: vision_scanners_prompt_suggestions_list
         enabled: false
     vision-scanners-scan-session:
         operation: vision_scanners_observe_create
@@ -237,6 +291,9 @@ tools:
         feature_flag: replay-vision
     vision-scanners-stats-retrieve:
         operation: vision_scanners_stats_retrieve
+        enabled: false
+    vision-scanners-suggest-tags-create:
+        operation: vision_scanners_suggest_tags_create
         enabled: false
     vision-scanners-update:
         operation: vision_scanners_partial_update

@@ -1,4 +1,4 @@
-import { actions, afterMount, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
+import { actions, afterMount, connect, kea, listeners, path, props, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 
 import api from 'lib/api'
@@ -22,17 +22,14 @@ export interface TagSummaryMetrics {
     unique_tags_applied: number
 }
 
-export interface TagMetricsLogicProps {
-    tabId?: string
-}
+export type TagMetricsLogicProps = Record<string, never>
 
 export const tagMetricsLogic = kea<tagMetricsLogicType>([
     path(['products', 'ai_observability', 'frontend', 'tags', 'tagMetricsLogic']),
     props({} as TagMetricsLogicProps),
-    key((props) => props.tabId ?? 'default'),
 
-    connect((props: TagMetricsLogicProps) => ({
-        values: [llmTaggersLogic({ tabId: props.tabId }), ['taggers']],
+    connect(() => ({
+        values: [llmTaggersLogic, ['taggers']],
     })),
 
     actions({

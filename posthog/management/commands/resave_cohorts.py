@@ -7,9 +7,10 @@ from django.core.management.base import BaseCommand, CommandParser
 import structlog
 
 from posthog.api.cohort import validate_filters_and_compute_realtime_support
-from posthog.models.cohort.cohort import Cohort
-from posthog.models.cohort.util import get_all_cohort_dependencies, sort_cohorts_topologically
 from posthog.models.team.team import Team
+
+from products.cohorts.backend.models.cohort import Cohort
+from products.cohorts.backend.models.util import get_all_cohort_dependencies, sort_cohorts_topologically
 
 logger = structlog.get_logger(__name__)
 

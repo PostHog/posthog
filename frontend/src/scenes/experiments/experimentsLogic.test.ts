@@ -7,6 +7,7 @@ import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { NEW_FLAG } from 'scenes/feature-flags/featureFlagLogic'
 import { urls } from 'scenes/urls'
 
+import { resumeKeaLoadersErrors, silenceKeaLoadersErrors } from '~/initKea'
 import { initKeaTests } from '~/test/init'
 import { Experiment, ExperimentStatus, ExperimentsTabs, FeatureFlagType } from '~/types'
 
@@ -51,6 +52,7 @@ const mockDraftExperiment = createMockExperiment({
 const mkFlag = (id: number, key: string): FeatureFlagType => ({ ...NEW_FLAG, id, key })
 
 describe('experimentsLogic', () => {
+    afterEach(resumeKeaLoadersErrors)
     let logic: ReturnType<typeof experimentsLogic.build>
 
     beforeEach(() => {
@@ -273,6 +275,35 @@ describe('experimentsLogic', () => {
             expect(api.get).toHaveBeenCalledWith(expect.stringContaining('archived=true'))
         })
 
+        it('discards a stale search response that resolves after a newer one', async () => {
+            api.get.mockClear()
+
+            const staleExperiment = createMockExperiment({ id: 10, name: 'wat' })
+            const freshExperiment = createMockExperiment({ id: 20, name: 'watermark' })
+
+            let resolveStale: (value: unknown) => void = () => {}
+            api.get.mockImplementationOnce(
+                () =>
+                    new Promise((resolve) => {
+                        resolveStale = resolve
+                    })
+            )
+            api.get.mockResolvedValueOnce({ results: [freshExperiment], count: 1 })
+
+            await expectLogic(logic, () => {
+                logic.actions.loadExperiments() // slow request, e.g. search for "wat"
+                logic.actions.loadExperiments() // fast request, e.g. search for "watermark"
+            }).toDispatchActions(['loadExperimentsSuccess'])
+
+            expect(logic.values.experiments.results).toEqual([freshExperiment])
+
+            // The slow, stale response arrives after the newer one — it must be discarded
+            resolveStale({ results: [staleExperiment], count: 1 })
+            await expectLogic(logic).toFinishAllListeners()
+
+            expect(logic.values.experiments.results).toEqual([freshExperiment])
+        })
+
         it('constructs correct params from filters', () => {
             logic.actions.setExperimentsFilters({
                 search: 'test',
@@ -303,7 +334,7 @@ describe('experimentsLogic', () => {
             api.create.mockResolvedValue({})
 
             await expectLogic(logic, () => {
-                logic.actions.archiveExperiment(mockExperiment.id as number)
+                logic.actions.archiveExperiment({ id: mockExperiment.id as number, disableFeatureFlag: false })
             })
                 .toFinishAllListeners()
                 .toMatchValues({
@@ -314,7 +345,8 @@ describe('experimentsLogic', () => {
                 })
 
             expect(api.create).toHaveBeenCalledWith(
-                expect.stringContaining(`/experiments/${mockExperiment.id}/archive`)
+                expect.stringContaining(`/experiments/${mockExperiment.id}/archive`),
+                { disable_feature_flag: false }
             )
         })
 
@@ -397,6 +429,7 @@ describe('experimentsLogic', () => {
         })
 
         it('does not run the copy success callback when the copy fails', async () => {
+            silenceKeaLoadersErrors()
             const onSuccess = jest.fn()
             api.create.mockRejectedValue(new Error('Permission denied'))
 

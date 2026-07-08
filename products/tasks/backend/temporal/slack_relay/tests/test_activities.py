@@ -18,7 +18,10 @@ from products.tasks.backend.temporal.slack_relay.activities import (
     SLACK_MESSAGE_TEXT_LIMIT,
     RelaySlackMessageInput,
     _markdown_to_slack_mrkdwn,
+    _neutralize_approx_tildes,
+    _repair_link_trailing_markers,
     _split_markdown_for_slack,
+    _wrap_bare_urls_in_emphasis,
     relay_slack_message,
 )
 
@@ -107,6 +110,41 @@ class TestRelaySlackMessage(TestCase):
         self.task_run.refresh_from_db()
         assert relay_id in self.task_run.state.get("slack_sent_relay_ids", [])
 
+    @parameterized.expand(
+        [
+            # ``mentioning_slack_user_id`` is the immutable thread creator;
+            # ``latest_actor_slack_user_id`` is set by the follow-up handler
+            # when someone else (or the creator themselves) replies. The bot
+            # tags the latest actor when present, otherwise the creator.
+            ("no_actor_falls_back_to_mentioner", None, "<@U123> "),
+            ("actor_overrides_mentioner", "UBOB", "<@UBOB> "),
+        ]
+    )
+    @patch("products.slack_app.backend.slack_thread.SlackThreadHandler.update_reaction")
+    @patch("products.slack_app.backend.slack_thread.SlackThreadHandler.post_thread_message")
+    @patch("products.slack_app.backend.slack_thread.SlackThreadHandler.delete_progress")
+    def test_mention_prefix_uses_latest_actor_then_mentioner(
+        self,
+        _name,
+        latest_actor,
+        expected_prefix,
+        _mock_delete_progress,
+        mock_post,
+        _mock_update,
+    ):
+        SlackThreadTaskMapping.objects.filter(task_run=self.task_run).update(latest_actor_slack_user_id=latest_actor)
+
+        relay_slack_message(
+            RelaySlackMessageInput(
+                run_id=str(self.task_run.id),
+                relay_id=f"relay-mention-{_name}",
+                text="agent reply",
+            )
+        )
+
+        mock_post.assert_called_once()
+        assert mock_post.call_args.args[0].startswith(expected_prefix)
+
 
 class TestMarkdownToSlackMrkdwn(unittest.TestCase):
     @parameterized.expand(
@@ -116,6 +154,14 @@ class TestMarkdownToSlackMrkdwn(unittest.TestCase):
             ("italic_underscore", "_italic_", "_italic_"),
             ("bold_italic", "***boldit***", "*_boldit_*"),
             ("strikethrough", "~~removed~~", "~removed~"),
+            # "Approximately" tildes in front of a quantity would otherwise pair up as
+            # Slack strikethrough delimiters and strike through the text between them.
+            # The tilde operator (∼) looks the same but carries no formatting meaning.
+            (
+                "approx_tildes_do_not_strike_through",
+                "**~$36.0k**, averaging **~$5.1k/day** by ~2pm",
+                "*∼$36.0k*, averaging *∼$5.1k/day* by ∼2pm",
+            ),
             ("link", "[Click here](https://example.com)", "<https://example.com|Click here>"),
             ("h1", "# Title", "*Title*"),
             ("h3", "### Section", "*Section*"),
@@ -125,6 +171,39 @@ class TestMarkdownToSlackMrkdwn(unittest.TestCase):
             ("horizontal_rule", "---", "──────────"),
             ("blockquote_preserved", "> quote", "> quote"),
             ("nested_bold_in_dash_list", "- **MIT** is permissive", "• *MIT* is permissive"),
+            (
+                "bold_markdown_link",
+                "**[pr-shepherd](https://us.posthog.com/project/2/llm-analytics/skills/pr-shepherd)**",
+                "*<https://us.posthog.com/project/2/llm-analytics/skills/pr-shepherd|pr-shepherd>*",
+            ),
+            # Agent emits double-asterisk closing markers inside the angle brackets
+            # (`**<url**>`). Without the repair pass the converter would halve those
+            # asterisks in place and produce `*<url*>`, which Slack renders as
+            # literal text with no link and no bold.
+            (
+                "agent_typo_double_asterisk_autolink",
+                "**<https://us.posthog.com/project/2/llm-analytics/skills/pr-shepherd**>",
+                "*<https://us.posthog.com/project/2/llm-analytics/skills/pr-shepherd>*",
+            ),
+            (
+                "agent_typo_double_asterisk_labeled_link",
+                "**<https://us.posthog.com/project/2/llm-analytics/skills/pr-shepherd|pr-shepherd**>",
+                "*<https://us.posthog.com/project/2/llm-analytics/skills/pr-shepherd|pr-shepherd>*",
+            ),
+            # Bare URL wrapped directly in markdown bold. Without the pre-wrap pass the
+            # converter halves the markers in place and emits ``*https://x.com*``, which
+            # Slack renders as literal asterisks around an auto-linked URL — the exact
+            # papercut on the PR-completion message that prompted this repair.
+            (
+                "agent_typo_bare_url_in_bold",
+                "Draft PR opened: **https://github.com/PostHog/posthog.com/pull/17450**",
+                "Draft PR opened: *<https://github.com/PostHog/posthog.com/pull/17450>*",
+            ),
+            (
+                "agent_typo_bare_url_in_italic_asterisk",
+                "see *https://example.com*",
+                "see _<https://example.com>_",
+            ),
             ("plain_text_unchanged", "Hello world", "Hello world"),
             ("inline_code_preserved", "Use `git commit`", "Use `git commit`"),
         ]
@@ -156,6 +235,114 @@ class TestMarkdownToSlackMrkdwn(unittest.TestCase):
         md = "| a | b |\n| c | d |"
         result = _markdown_to_slack_mrkdwn(md)
         assert "```" not in result
+
+
+class TestRepairLinkTrailingMarkers(unittest.TestCase):
+    @parameterized.expand(
+        [
+            ("autolink_double_asterisk", "**<https://x.com**>", "**<https://x.com>**"),
+            ("autolink_single_asterisk", "*<https://x.com*>", "*<https://x.com>*"),
+            ("autolink_underscore", "_<https://x.com_>", "_<https://x.com>_"),
+            ("autolink_strikethrough", "~<https://x.com~>", "~<https://x.com>~"),
+            (
+                "labeled_link_double_asterisk",
+                "**<https://x.com|label**>",
+                "**<https://x.com|label>**",
+            ),
+            (
+                "two_broken_links_in_one_line",
+                "**<https://a.com**> and **<https://b.com**>",
+                "**<https://a.com>** and **<https://b.com>**",
+            ),
+            ("well_formed_autolink_unchanged", "**<https://x.com>**", "**<https://x.com>**"),
+            ("plain_text_unchanged", "Hello world", "Hello world"),
+            # Mismatched openers/closers shouldn't be rewritten — leave alone so we
+            # don't silently corrupt content that looks vaguely link-shaped.
+            ("mismatched_markers_unchanged", "**<https://x.com*>", "**<https://x.com*>"),
+        ]
+    )
+    def test_repair(self, _name, text, expected):
+        assert _repair_link_trailing_markers(text) == expected
+
+
+class TestWrapBareUrlsInEmphasis(unittest.TestCase):
+    @parameterized.expand(
+        [
+            ("bold_bare_url", "**https://x.com**", "**<https://x.com>**"),
+            ("italic_bare_url", "*https://x.com*", "*<https://x.com>*"),
+            ("underscore_bare_url", "_https://x.com_", "_<https://x.com>_"),
+            ("strike_bare_url", "~~https://x.com~~", "~~<https://x.com>~~"),
+            (
+                "url_with_path_and_query",
+                "**https://github.com/PostHog/posthog.com/pull/17450?foo=bar**",
+                "**<https://github.com/PostHog/posthog.com/pull/17450?foo=bar>**",
+            ),
+            (
+                "two_bare_urls_in_one_line",
+                "**https://a.com** and *https://b.com*",
+                "**<https://a.com>** and *<https://b.com>*",
+            ),
+            # Surrounded by sentence text — only the wrapped URL should be touched.
+            (
+                "url_inside_sentence",
+                "Draft PR opened: **https://x.com/pr/1**",
+                "Draft PR opened: **<https://x.com/pr/1>**",
+            ),
+            # Already bracketed — leave alone so we don't double-wrap.
+            ("autolink_already_bracketed", "**<https://x.com>**", "**<https://x.com>**"),
+            # Standard markdown link — handled correctly by the converter as-is.
+            ("markdown_link_in_bold_unchanged", "**[label](https://x.com)**", "**[label](https://x.com)**"),
+            # Non-URL bold spans must not be rewritten.
+            ("plain_bold_unchanged", "**hello world**", "**hello world**"),
+            ("plain_text_unchanged", "Visit https://x.com without bolding", "Visit https://x.com without bolding"),
+            # A bare URL not directly adjacent to the marker shouldn't be wrapped — the
+            # surrounding text means the emphasis already flanks whitespace and Slack
+            # renders it correctly without help.
+            (
+                "url_inside_bold_span_with_surrounding_text",
+                "**check https://x.com later**",
+                "**check https://x.com later**",
+            ),
+        ]
+    )
+    def test_wrap(self, _name, text, expected):
+        assert _wrap_bare_urls_in_emphasis(text) == expected
+
+
+class TestNeutralizeApproxTildes(unittest.TestCase):
+    @parameterized.expand(
+        [
+            ("dollar", "~$36.0k", "∼$36.0k"),
+            ("bare_number", "~5.1k/day", "∼5.1k/day"),
+            ("time", "roughly ~2pm PT", "roughly ∼2pm PT"),
+            ("percent", "up ~10% MoM", "up ∼10% MoM"),
+            ("euro", "~€40", "∼€40"),
+            ("multiple_on_one_line", "~$5k then ~$9k", "∼$5k then ∼$9k"),
+            # A genuine ``~~strikethrough~~`` run must survive untouched — its tildes are
+            # adjacent to each other, not to a quantity.
+            ("strikethrough_run_preserved", "~~$5 off~~", "~~$5 off~~"),
+            # A tilde glued to a preceding word is a git ref or range, not "approximately".
+            ("git_ref_left_alone", "rebase onto HEAD~2", "rebase onto HEAD~2"),
+            ("numeric_range_left_alone", "5~10 items", "5~10 items"),
+            # Paths, standalone tildes, and non-quantity tildes are literal characters that
+            # never form an accidental strikethrough, so they are left alone.
+            ("path_left_alone", "see ~/notes/report.md", "see ~/notes/report.md"),
+            ("tilde_before_letter_left_alone", "~foo", "~foo"),
+            ("tilde_before_space_left_alone", "~ $5", "~ $5"),
+            ("plain_text_unchanged", "no tildes here", "no tildes here"),
+            # Code spans/fences hold literal content Slack never strikes through, so a tilde
+            # there stays ASCII even when it looks like an approximation.
+            ("inline_code_left_alone", "run `git reset HEAD~1` and `~$5`", "run `git reset HEAD~1` and `~$5`"),
+            (
+                "fenced_block_left_alone",
+                "```\ninstall foo@~1.2.0\ncost ~$5\n```",
+                "```\ninstall foo@~1.2.0\ncost ~$5\n```",
+            ),
+            ("approx_outside_code_still_converted", "about ~$5 for `~$9`", "about ∼$5 for `~$9`"),
+        ]
+    )
+    def test_neutralize(self, _name, text, expected):
+        assert _neutralize_approx_tildes(text) == expected
 
 
 class TestSplitTextForSlack(TestCase):

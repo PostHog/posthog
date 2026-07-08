@@ -5,8 +5,8 @@ This document describes the Dagster jobs and sensors for backfilling ClickHouse 
 ## Architecture
 
 ```text
-DuckLakeCatalog (Django model)
-    │ lookup by team_id
+DuckgresServer + DuckgresServerTeam (Django models)
+    │ team_id → org's DuckgresServer (connection + bucket); DuckgresServerTeam gates enablement
     ▼
 ClickHouse (events/person tables)
     │ export via s3() - bucket policy allows ClickHouse EC2 role
@@ -108,16 +108,19 @@ class DucklingBackfillConfig:
 
 ## Adding a New Duckling
 
-1. Create a `DuckLakeCatalog` entry in Django admin:
-   - `team_id`: The team to backfill
-   - `bucket`: S3 bucket name
-   - `bucket_region`: AWS region
-   - `db_host`: RDS endpoint
-   - `db_name`: Database name
-   - `cross_account_role_arn`: IAM role for Dagster to assume
-   - `cross_account_external_id`: External ID for role assumption
+1. Provision (or create) the org's `DuckgresServer` (typically via the Django admin
+   "Provision managed warehouse" action, which also records the team's
+   `DuckgresServerTeam`). The relevant fields are:
+   - `organization`: the org that owns the warehouse
+   - `bucket` / `bucket_region`: S3 bucket name and AWS region
+   - `catalog_host` / `catalog_database` / `catalog_username` / `catalog_password`: the
+     DuckLake catalog RDS connection
 
-2. The discovery sensor will automatically pick up the new team on its next run
+   Ensure the runtime IAM role can read from and write to the configured S3 bucket.
+
+2. Enable the team's backfill by creating its `DuckgresServerTeam` row with
+   `backfill_enabled=True` (the provision / enable-backfill admin actions do this). The
+   discovery sensor will then pick up the team on its next run.
 
 3. To trigger immediate historical backfill, reset the full backfill sensor cursor
 
@@ -137,7 +140,7 @@ The job logs warnings if the duckling table schema differs from expected columns
 
 ### Orphaned files in S3
 
-Failed runs may leave orphaned Parquet files in S3. These files are harmless - each run writes to a unique path based on the run ID, and the `cleanup_existing_partition_data` option ensures DuckLake data is cleaned up via DELETE before re-processing. Do NOT delete S3 files that may have been registered with DuckLake, as this causes catalog corruption.
+Failed or re-run partitions may leave orphaned Parquet files in S3. These files are harmless - each run writes its files under a unique `{run_id}_` prefix, registration globs only that run's files, and the `cleanup_existing_partition_data` option clears the partition's DuckLake rows via DELETE before re-registering. A re-run therefore registers exactly its own fan-out (no duplicates, none missed); a prior run's physical files are simply no longer in the catalog. Do NOT delete S3 files that may have been registered with DuckLake, as this causes catalog corruption.
 
 ### Table creation race condition
 
@@ -148,11 +151,21 @@ If multiple partitions for the same team run concurrently, they may race to crea
 - **Job definition**: `posthog/dags/events_backfill_to_duckling.py`
 - **Tests**: `posthog/dags/test_events_backfill_to_duckling.py`
 - **Dagster registration**: `posthog/dags/locations/data_stack.py`
-- **DuckLakeCatalog model**: `posthog/ducklake/models.py`
+- **DuckgresServer / DuckgresServerTeam models**: `posthog/ducklake/models.py`
 
 ## S3 Path Structure
 
+Each export fans a partition out across many right-sized Parquet files (one per
+ClickHouse `PARTITION BY` bucket) instead of one giant per-day object, so reads get
+parallelism and per-file scans stay cheap. The fan-out is **computed per export** from
+a cheap `count()` estimate — `ceil(row_count / target_rows_per_file)`, clamped to
+`[1, max_s3_file_fanout]` — so a tens-of-millions-of-rows team-day spreads across many
+~GB-scale files while a tiny team-day stays a single file. Both knobs are tunable per
+run via `DucklingBackfillConfig` (`target_rows_per_file`, `max_s3_file_fanout`). The
+`{_partition_id}` is the bucket id (`0 … fanout-1`); registration globs
+`{run_id}_*.parquet` to enumerate every file a run produced.
+
 ```text
-s3://{bucket}/backfill/events/{team_id}/{year}/{month}/{day}/{run_id}.parquet
-s3://{bucket}/backfill/persons/{team_id}/{year}/{month}/{day}/{run_id}.parquet
+s3://{bucket}/backfill/events/{team_id}/year={year}/month={month}/day={day}/{run_id}_{_partition_id}.parquet
+s3://{bucket}/backfill/persons/{team_id}/year={year}/month={month}/{run_id}_{_partition_id}.parquet
 ```

@@ -7,8 +7,6 @@ on:
             - master
 
 env:
-    DOCKERHUB_USERNAME: ${{ secrets.DOCKERHUB_USERNAME }}
-    DOCKERHUB_TOKEN: ${{ secrets.DOCKERHUB_TOKEN }}
     OBJECT_STORAGE_ENABLED: true
     OBJECT_STORAGE_ENDPOINT: 'http://localhost:19000'
     OBJECT_STORAGE_ACCESS_KEY_ID: 'object_storage_root_user'
@@ -17,6 +15,7 @@ env:
     OBJECT_STORAGE_BUCKET: 'posthog'
     # set the max buffer size small enough that the functional tests behave the same in CI as when running locally
     SESSION_RECORDING_MAX_BUFFER_SIZE_KB: 1024
+    RUNS_ON_INTERNAL_PR: ${{ github.event_name != 'pull_request' || github.event.pull_request.head.repo.fork == false }}
 
 concurrency:
     group: ${{ github.workflow }}-${{ github.head_ref || github.ref }}
@@ -27,19 +26,21 @@ jobs:
     # See https://github.com/dorny/paths-filter#conditional-execution for more details
     changes:
         runs-on: ubuntu-latest
-        timeout-minutes: 5
+        timeout-minutes: 10
         name: Determine need to run Node.js checks
         permissions:
             contents: read
             pull-requests: read
         outputs:
-            nodejs: ${{ steps.filter.outputs.nodejs || 'true' }}
+            nodejs: ${{ steps.nodejs-changes.outputs.nodejs || 'true' }}
         steps:
             # For pull requests it's not necessary to checkout the code, but we
             # also want this to run on master so we need to checkout
             - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
               with:
                   clean: false
+                  filter: blob:none
+                  fetch-depth: 0
 
             - uses: actions/create-github-app-token@1b10c78c7865c340bc4f6099eb2f838309f1e8c3 # v3.1.1
               id: app-token
@@ -55,7 +56,12 @@ jobs:
                   filters: |
                       nodejs:
                         - .github/workflows/ci-nodejs.yml
+                        # Node DB setup builds sqlx-cli via this composite; changes to it must exercise these jobs.
+                        - '.github/actions/setup-sqlx-cli/**'
                         - 'nodejs/**'
+                        # The Jest shared-fixtures suite pins the native replay anonymizer against
+                        # its Rust tests; a rust-side change (incl. the shared fixtures) must run it.
+                        - 'rust/replay-anonymizer-node/**'
                         - 'posthog/clickhouse/**'
                         - 'ee/migrations/**'
                         - 'posthog/management/commands/setup_test_environment.py'
@@ -63,6 +69,59 @@ jobs:
                         - 'posthog/plugins/**'
                         - 'docker*.yml'
                         - '*Dockerfile'
+                      rust:
+                        - 'rust/**'
+                        - 'proto/**'
+                        - '.github/rust-images.yml'
+                        - '.github/actions/rust-compute-affected/**'
+
+            - name: Install rust for affected-crate detection
+              if: github.event_name != 'push' && steps.filter.outputs.rust == 'true'
+              uses: dtolnay/rust-toolchain@3c5f7ea28cd621ae0bf5283f0e981fb97b8a7af9
+              with:
+                  toolchain: 1.91.1
+
+            - name: Compute affected Rust crates
+              id: rust-affected
+              if: github.event_name != 'push' && steps.filter.outputs.rust == 'true'
+              uses: ./.github/actions/rust-compute-affected
+              with:
+                  event-name: ${{ github.event_name }}
+                  pr-base-sha: ${{ github.event.pull_request.base.sha || github.event.merge_group.base_sha }}
+                  push-before-sha: ${{ github.event.before }}
+
+            - name: Decide whether Node.js checks should run
+              id: nodejs-changes
+              env:
+                  NODEJS_CHANGED: ${{ steps.filter.outputs.nodejs }}
+                  RUST_CHANGED: ${{ steps.filter.outputs.rust }}
+                  RUST_REBUILD_ALL: ${{ steps.rust-affected.outputs.rebuild-all }}
+                  RUST_AFFECTED_CRATES: ${{ steps.rust-affected.outputs.crates }}
+                  RUST_NODE_E2E_CRATES: '["ingestion-consumer"]'
+              run: |
+                  if [ "${{ github.event_name }}" = "push" ]; then
+                    echo "nodejs=true" >> "$GITHUB_OUTPUT"
+                    exit 0
+                  fi
+
+                  if [ "$NODEJS_CHANGED" = "true" ]; then
+                    echo "nodejs=true" >> "$GITHUB_OUTPUT"
+                    exit 0
+                  fi
+
+                  if [ "$RUST_CHANGED" = "true" ]; then
+                    if [ "$RUST_REBUILD_ALL" = "true" ]; then
+                      echo "nodejs=true" >> "$GITHUB_OUTPUT"
+                      exit 0
+                    fi
+
+                    if echo "${RUST_AFFECTED_CRATES:-[]}" | jq -e --argjson e2e_crates "$RUST_NODE_E2E_CRATES" '. as $affected | any($e2e_crates[]; . as $crate | $affected | index($crate) != null)' >/dev/null; then
+                      echo "nodejs=true" >> "$GITHUB_OUTPUT"
+                      exit 0
+                    fi
+                  fi
+
+                  echo "nodejs=false" >> "$GITHUB_OUTPUT"
 
     lint:
         if: needs.changes.outputs.nodejs == 'true'
@@ -75,43 +134,29 @@ jobs:
               with:
                   clean: false
 
-            - name: Install pnpm
-              uses: pnpm/action-setup@0e279bb959325dab635dd2c09392533439d90093 # v6.0.8
-
-            - name: Mint setup-action GitHub token
-              id: setup-gh-token
-              if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
-              continue-on-error: true
-              uses: actions/create-github-app-token@1b10c78c7865c340bc4f6099eb2f838309f1e8c3 # v3.1.1
+            - name: Install pnpm dependencies
+              uses: ./.github/actions/pnpm-install
               with:
-                  client-id: ${{ secrets.GH_APP_POSTHOG_DEVEX_GENERAL_APP_ID }}
-                  private-key: ${{ secrets.GH_APP_POSTHOG_DEVEX_GENERAL_PRIVATE_KEY }}
-                  skip-token-revoke: true
+                  install-command: pnpm --filter=@posthog/nodejs... install --frozen-lockfile
 
-            - name: Set up Node.js
-              uses: actions/setup-node@6044e13b5dc448c55e2357c09f80417699197238 # v6.2.0
-              with:
-                  node-version-file: .nvmrc
-                  cache: pnpm
-                  cache-dependency-path: |
-                      pnpm-lock.yaml
-                      .github/workflows/ci-nodejs.yml
-                  token: ${{ steps.setup-gh-token.outputs.token || github.token }}
-
-            - name: Install package.json dependencies with pnpm
-              env:
-                  npm_config_fetch_retries: 3
-                  npm_config_fetch_retry_mintimeout: 10000
-                  npm_config_fetch_retry_maxtimeout: 60000
-              run: |
-                  pnpm --filter=@posthog/nodejs... install --frozen-lockfile
-                  bin/turbo --filter=@posthog/nodejs prepare
+            - name: Prepare Node.js workspace
+              run: bin/turbo --filter=@posthog/nodejs prepare
 
             - name: Check formatting with prettier
               run: pnpm --filter=@posthog/nodejs format:check
 
             - name: Lint with ESLint
               run: pnpm --filter=@posthog/nodejs lint
+
+            # Guards the cdp/ingestion separation: fails on new lane->lane or shared->lane
+            # imports. Presence-checked so branches without the guard yet are unaffected.
+            - name: Check ingestion boundaries
+              run: |
+                  if [ -f nodejs/bin/check-ingestion-boundaries.mjs ]; then
+                      node nodejs/bin/check-ingestion-boundaries.mjs
+                  else
+                      echo "Ingestion boundary guard not present on this branch; skipping."
+                  fi
 
     build:
         if: needs.changes.outputs.nodejs == 'true'
@@ -124,37 +169,13 @@ jobs:
               with:
                   clean: false
 
-            - name: Install pnpm
-              uses: pnpm/action-setup@0e279bb959325dab635dd2c09392533439d90093 # v6.0.8
-
-            - name: Mint setup-action GitHub token
-              id: setup-gh-token
-              if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
-              continue-on-error: true
-              uses: actions/create-github-app-token@1b10c78c7865c340bc4f6099eb2f838309f1e8c3 # v3.1.1
+            - name: Install pnpm dependencies
+              uses: ./.github/actions/pnpm-install
               with:
-                  client-id: ${{ secrets.GH_APP_POSTHOG_DEVEX_GENERAL_APP_ID }}
-                  private-key: ${{ secrets.GH_APP_POSTHOG_DEVEX_GENERAL_PRIVATE_KEY }}
-                  skip-token-revoke: true
+                  install-command: pnpm --filter=@posthog/nodejs... install --frozen-lockfile
 
-            - name: Set up Node.js
-              uses: actions/setup-node@6044e13b5dc448c55e2357c09f80417699197238 # v6.2.0
-              with:
-                  node-version-file: .nvmrc
-                  cache: pnpm
-                  cache-dependency-path: |
-                      pnpm-lock.yaml
-                      .github/workflows/ci-nodejs.yml
-                  token: ${{ steps.setup-gh-token.outputs.token || github.token }}
-
-            - name: Install package.json dependencies with pnpm
-              env:
-                  npm_config_fetch_retries: 3
-                  npm_config_fetch_retry_mintimeout: 10000
-                  npm_config_fetch_retry_maxtimeout: 60000
-              run: |
-                  pnpm --filter=@posthog/nodejs... install --frozen-lockfile
-                  bin/turbo --filter=@posthog/nodejs prepare
+            - name: Prepare Node.js workspace
+              run: bin/turbo --filter=@posthog/nodejs prepare
 
             - name: Check builds correctly
               run: pnpm --filter=@posthog/nodejs build
@@ -181,6 +202,8 @@ jobs:
             matrix:
                 shard: [1, 2, 3]
         env:
+            DOCKERHUB_USERNAME: ${{ vars.DOCKERHUB_USER }}
+            DOCKERHUB_TOKEN: ${{ secrets.DOCKERHUB_TOKEN }}
             REDIS_URL: 'redis://localhost'
             CLICKHOUSE_HOST: 'localhost'
             CLICKHOUSE_DATABASE: 'posthog_test'
@@ -201,7 +224,7 @@ jobs:
               if: ${{ env.DOCKERHUB_USERNAME != '' && env.DOCKERHUB_TOKEN != '' }}
               uses: docker/login-action@4907a6ddec9925e35a0a9e82d7399ccc52663121 # v4.1.0
               with:
-                  username: ${{ secrets.DOCKERHUB_USERNAME }}
+                  username: ${{ vars.DOCKERHUB_USER }}
                   password: ${{ secrets.DOCKERHUB_TOKEN }}
 
             - name: Stop/Start stack with Docker Compose
@@ -222,21 +245,11 @@ jobs:
             - name: Add service hostnames to /etc/hosts
               run: echo "127.0.0.1 db redis7 kafka clickhouse clickhouse-coordinator objectstorage seaweedfs temporal" | sudo tee -a /etc/hosts
 
-            - name: Mint setup-action GitHub token
-              id: setup-gh-token
-              if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
-              continue-on-error: true
-              uses: actions/create-github-app-token@1b10c78c7865c340bc4f6099eb2f838309f1e8c3 # v3.1.1
-              with:
-                  client-id: ${{ secrets.GH_APP_POSTHOG_DEVEX_GENERAL_APP_ID }}
-                  private-key: ${{ secrets.GH_APP_POSTHOG_DEVEX_GENERAL_PRIVATE_KEY }}
-                  skip-token-revoke: true
-
             - name: Set up Python
               uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6.2.0
               with:
                   python-version-file: 'pyproject.toml'
-                  token: ${{ steps.setup-gh-token.outputs.token || github.token }}
+                  token: ${{ github.token }}
 
             - name: Install uv
               id: setup-uv
@@ -252,16 +265,8 @@ jobs:
               with:
                   toolchain: 1.91.1
 
-            - name: Cache Rust dependencies
-              uses: Swatinem/rust-cache@c19371144df3bb44fab255c43d04cbc2ab54d1c4 # v2.9.1
-              with:
-                  shared-key: 'v2-rust-backend'
-                  workspaces: rust
-                  save-if: ${{ github.ref == 'refs/heads/master' }}
-
             - name: Install sqlx-cli
-              working-directory: rust
-              run: cargo install sqlx-cli@0.8.0 --locked --no-default-features --features native-tls,postgres
+              uses: ./.github/actions/setup-sqlx-cli
 
             - name: Install SAML (python3-saml) dependencies
               if: steps.setup-uv.outputs.cache-hit != 'true'
@@ -273,32 +278,20 @@ jobs:
               run: |
                   UV_PROJECT_ENVIRONMENT=$pythonLocation uv sync --frozen --dev
 
-            - name: Install pnpm
-              uses: pnpm/action-setup@0e279bb959325dab635dd2c09392533439d90093 # v6.0.8
-
-            - name: Set up Node.js
-              uses: actions/setup-node@6044e13b5dc448c55e2357c09f80417699197238 # v6.2.0
-              with:
-                  node-version-file: .nvmrc
-                  cache: pnpm
-                  cache-dependency-path: |
-                      pnpm-lock.yaml
-                      .github/workflows/ci-nodejs.yml
-                  token: ${{ steps.setup-gh-token.outputs.token || github.token }}
-
             - name: Download MaxMind Database
               run: |
                   ./bin/download-mmdb
 
-            - name: Install package.json dependencies with pnpm
-              env:
-                  npm_config_fetch_retries: 3
-                  npm_config_fetch_retry_mintimeout: 10000
-                  npm_config_fetch_retry_maxtimeout: 60000
-              run: pnpm --filter=@posthog/nodejs... install --frozen-lockfile
+            - name: Install pnpm dependencies
+              uses: ./.github/actions/pnpm-install
+              with:
+                  install-command: pnpm --filter=@posthog/nodejs... install --frozen-lockfile
 
             - name: Wait for Clickhouse, Redis, Kafka, Localstack
               run: docker compose -f docker-compose.dev.yml up kafka redis7 clickhouse maildev localstack -d --wait
+
+            - name: Create Kafka topics
+              run: docker compose -f docker-compose.dev.yml up kafka-init
 
             - name: Fetch base branch for diff
               if: github.event_name == 'pull_request'
@@ -374,6 +367,13 @@ jobs:
                   LOG_LEVEL: info
                   # Enable localstack integration tests for DynamoDB/KMS
                   LOCALSTACK_ENABLED: '1'
+                  # Emit JUnit XML for the Trunk upload below (turbo passes JEST_JUNIT_* through).
+                  JEST_JUNIT_OUTPUT_DIR: ${{ github.workspace }}/junit-results
+                  JEST_JUNIT_OUTPUT_NAME: junit-nodejs-${{ matrix.shard }}.xml
+                  # Trunk attributes flakes by test file; jest-junit's default suite name is the
+                  # describe block, so make it the file path instead.
+                  JEST_JUNIT_SUITE_NAME: '{filepath}'
+                  JEST_JUNIT_ADD_FILE_ATTRIBUTE: 'true'
               run: bin/turbo run test --filter=@posthog/nodejs
 
             - name: Test postgres-parity (isolated DB)
@@ -386,7 +386,209 @@ jobs:
                   REDIS_URL: 'redis://localhost'
                   NODE_OPTIONS: '--max_old_space_size=4096'
                   LOG_LEVEL: info
+                  JEST_JUNIT_OUTPUT_DIR: ${{ github.workspace }}/junit-results
+                  JEST_JUNIT_OUTPUT_NAME: junit-nodejs-postgres-parity.xml
+                  JEST_JUNIT_SUITE_NAME: '{filepath}'
+                  JEST_JUNIT_ADD_FILE_ATTRIBUTE: 'true'
               run: cd nodejs && pnpm run test:postgres-parity
+
+            # Upload results to Trunk for flaky-test detection. Non-gating (continue-on-error),
+            # so a Trunk outage never fails the job. Runs the token only on internal PRs,
+            # master, and the merge queue — never on fork PRs or Dependabot, which have no secret.
+            - name: Upload test results to Trunk
+              if: ${{ !cancelled() && env.RUNS_ON_INTERNAL_PR == 'true' && github.repository == 'PostHog/posthog' && github.actor != 'dependabot[bot]' }}
+              continue-on-error: true
+              uses: trunk-io/analytics-uploader@385f1ccdf345b4532dc4b6c665dd432b702b8e28 # v2.1.2
+              with:
+                  junit-paths: junit-results/junit-*.xml
+                  org-slug: posthog-inc
+                  token: ${{ secrets.TRUNK_API_TOKEN }}
+
+            - name: Output logs on failure
+              if: failure()
+              run: |
+                  docker compose -f docker-compose.dev.yml logs clickhouse
+                  # Echo out the logs stored in the container
+                  docker compose -f docker-compose.dev.yml exec clickhouse cat /var/log/clickhouse-server/clickhouse-server.err.log
+
+    rust_ingestion_e2e:
+        if: needs.changes.outputs.nodejs == 'true'
+        name: Rust ingestion consumer Node API e2e (depot-ubuntu-latest-4)
+        needs: changes
+        runs-on: depot-ubuntu-latest-4
+        timeout-minutes: 30
+        env:
+            DOCKERHUB_USERNAME: ${{ vars.DOCKERHUB_USER }}
+            DOCKERHUB_TOKEN: ${{ secrets.DOCKERHUB_TOKEN }}
+            REDIS_URL: 'redis://localhost'
+            CLICKHOUSE_HOST: 'localhost'
+            CLICKHOUSE_DATABASE: 'posthog_test'
+            KAFKA_HOSTS: 'kafka:9092'
+        steps:
+            - name: Code check out
+              uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+              with:
+                  clean: false
+
+            - name: Clean up data directories with container permissions
+              run: |
+                  # Use docker to clean up files created by containers
+                  [ -d "data" ] && docker run --rm -v "$(pwd)/data:/data" alpine sh -c "rm -rf /data/seaweedfs /data/minio" || true
+              continue-on-error: true
+
+            - name: Log in to Docker Hub
+              if: ${{ env.DOCKERHUB_USERNAME != '' && env.DOCKERHUB_TOKEN != '' }}
+              uses: docker/login-action@4907a6ddec9925e35a0a9e82d7399ccc52663121 # v4.1.0
+              with:
+                  username: ${{ vars.DOCKERHUB_USER }}
+                  password: ${{ secrets.DOCKERHUB_TOKEN }}
+
+            - name: Stop/Start stack with Docker Compose
+              env:
+                  COMPOSE_FILE: docker-compose.dev.yml:docker-compose.profiles.yml
+                  COMPOSE_PROFILES: dev_tools,localstack
+                  WAIT_FOR_DOCKER_LAUNCH_RETRIES: 3
+                  WAIT_FOR_DOCKER_LAUNCH_RETRY_DELAY: 5
+              run: |
+                  bin/ci-wait-for-docker launch --down
+
+            - name: Wait for Docker services
+              env:
+                  COMPOSE_FILE: docker-compose.dev.yml:docker-compose.profiles.yml
+                  COMPOSE_PROFILES: dev_tools,localstack
+              run: bin/ci-wait-for-docker wait
+
+            - name: Add service hostnames to /etc/hosts
+              run: echo "127.0.0.1 db redis7 kafka clickhouse clickhouse-coordinator objectstorage seaweedfs temporal" | sudo tee -a /etc/hosts
+
+            - name: Set up Python
+              uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6.2.0
+              with:
+                  python-version-file: 'pyproject.toml'
+                  token: ${{ github.token }}
+
+            - name: Install uv
+              id: setup-uv
+              uses: astral-sh/setup-uv@37802adc94f370d6bfd71619e3f0bf239e1f3b78 # v7.6.0
+              with:
+                  version: '0.11.14' # pinned: unpinned setup-uv calls GH API on every job, exhausts rate limit
+                  enable-cache: true
+                  cache-dependency-glob: uv.lock
+                  save-cache: ${{ github.ref == 'refs/heads/master' }}
+
+            - name: Install rust
+              uses: dtolnay/rust-toolchain@3c5f7ea28cd621ae0bf5283f0e981fb97b8a7af9
+              with:
+                  toolchain: 1.91.1
+
+            - name: Install sqlx-cli
+              uses: ./.github/actions/setup-sqlx-cli
+
+            - name: Install SAML (python3-saml) dependencies
+              if: steps.setup-uv.outputs.cache-hit != 'true'
+              run: |
+                  sudo apt-get update
+                  sudo apt-get install libxml2-dev libxmlsec1-dev libxmlsec1-openssl
+
+            - name: Install python dependencies
+              run: |
+                  UV_PROJECT_ENVIRONMENT=$pythonLocation uv sync --frozen --dev
+
+            - name: Download MaxMind Database
+              run: |
+                  ./bin/download-mmdb
+
+            - name: Install pnpm dependencies
+              uses: ./.github/actions/pnpm-install
+              with:
+                  install-command: pnpm --filter=@posthog/nodejs... install --frozen-lockfile
+
+            - name: Wait for Clickhouse, Redis, Kafka, Localstack
+              run: docker compose -f docker-compose.dev.yml up kafka redis7 clickhouse maildev localstack -d --wait
+
+            - name: Create Kafka topics
+              run: docker compose -f docker-compose.dev.yml up kafka-init
+
+            - name: Fetch base branch for diff
+              if: github.event_name == 'pull_request'
+              env:
+                  BASE_REF: ${{ github.base_ref }}
+              run: git fetch origin "$BASE_REF" --depth=1
+
+            - name: Check for migrations in this PR
+              id: check_migrations
+              if: github.event_name == 'pull_request'
+              env:
+                  BASE_REF: ${{ github.base_ref }}
+              run: |
+                  if git diff --name-only "origin/$BASE_REF..HEAD" | grep -E '(migrations/|rust/.*migrate)'; then
+                    echo "has_migrations=true" >> $GITHUB_OUTPUT
+                  else
+                    echo "has_migrations=false" >> $GITHUB_OUTPUT
+                  fi
+
+            - name: Set up databases (fast path - restore schema)
+              if: github.event_name == 'pull_request' && steps.check_migrations.outputs.has_migrations == 'false'
+              env:
+                  TEST: 'true'
+                  SECRET_KEY: 'abcdef' # unsafe - for testing only
+                  DATABASE_URL: 'postgres://posthog:posthog@localhost:5432/posthog'
+                  BEHAVIORAL_COHORTS_DATABASE_URL: 'postgres://posthog:posthog@localhost:5432/test_behavioral_cohorts'
+                  GH_TOKEN: ${{ github.token }}
+              run: |
+                  # Download pre-migrated schema from CI
+                  ./bin/hogli db:download-schema
+
+                  # Create test databases
+                  docker compose -f docker-compose.dev.yml exec -T db psql -U posthog -c "DROP DATABASE IF EXISTS test_posthog;"
+                  docker compose -f docker-compose.dev.yml exec -T db psql -U posthog -c "CREATE DATABASE test_posthog;"
+
+                  # Restore schema to test database
+                  echo "Restoring schema to test_posthog database..."
+                  gunzip -c .postgres-backups/schema-latest.sql.gz | docker compose -f docker-compose.dev.yml exec -T db psql -q -U posthog test_posthog
+                  echo "✅ Schema restored"
+
+                  # Run Rust migrations for test databases
+                  cd nodejs && pnpm run setup:test:rust
+
+                  # Set up ClickHouse test database and schema
+                  cd .. && TEST=1 SECRET_KEY='abcdef' python manage.py setup_test_environment --only-clickhouse
+
+            - name: Set up databases (slow path - run migrations)
+              if: github.event_name != 'pull_request' || steps.check_migrations.outputs.has_migrations == 'true'
+              env:
+                  TEST: 'true'
+                  SECRET_KEY: 'abcdef' # unsafe - for testing only
+                  DATABASE_URL: 'postgres://posthog:posthog@localhost:5432/posthog'
+                  BEHAVIORAL_COHORTS_DATABASE_URL: 'postgres://posthog:posthog@localhost:5432/test_behavioral_cohorts'
+              run: pnpm --filter=@posthog/nodejs setup:test
+
+            # The Node ingestion API worker runs as a real subprocess (tsx src/index.ts), so it
+            # needs the compiled workspace dependencies (e.g. @posthog/hogvm/dist) on disk. The
+            # regular Jest job gets these via `bin/turbo run test` (^build); here we build them
+            # explicitly since we invoke the test directly.
+            - name: Build Node.js workspace dependencies
+              run: bin/turbo --filter=@posthog/nodejs prepare
+
+            - name: Pre-build Rust ingestion consumer
+              working-directory: rust
+              run: cargo build -p ingestion-consumer
+
+            - name: Test Rust ingestion consumer with Node ingestion API
+              env:
+                  DATABASE_URL: 'postgres://posthog:posthog@localhost:5432/test_posthog'
+                  BEHAVIORAL_COHORTS_DATABASE_URL: 'postgres://posthog:posthog@localhost:5432/test_behavioral_cohorts'
+                  PERSONS_DATABASE_URL: 'postgres://posthog:posthog@localhost:5432/test_persons'
+                  PERSONS_READONLY_DATABASE_URL: 'postgres://posthog:posthog@localhost:5432/test_persons'
+                  REDIS_URL: 'redis://localhost'
+                  NODE_OPTIONS: '--max_old_space_size=4096'
+                  LOG_LEVEL: info
+              run: |
+                  if [ -f nodejs/tests/service-e2e/rust-ingestion-consumer.test.ts ]; then
+                    cd nodejs && pnpm run test:rust-ingestion-e2e
+                  else
+                    echo "Rust ingestion service e2e test is not present on this branch; skipping."
+                  fi
 
             - name: Output logs on failure
               if: failure()
@@ -396,7 +598,7 @@ jobs:
                   docker compose -f docker-compose.dev.yml exec clickhouse cat /var/log/clickhouse-server/clickhouse-server.err.log
 
     node_tests:
-        needs: [tests, build, lint]
+        needs: [tests, rust_ingestion_e2e, build, lint]
         name: Node.js Tests Pass
         runs-on: ubuntu-latest
         timeout-minutes: 5
@@ -410,6 +612,11 @@ jobs:
                     exit 1
                   fi
                   echo "All jobs in the Node.js test matrix passed."
+                  if [[ "${{ needs.rust_ingestion_e2e.result }}" != "success" && "${{ needs.rust_ingestion_e2e.result }}" != "skipped" ]]; then
+                    echo "Rust ingestion consumer Node API e2e failed."
+                    exit 1
+                  fi
+                  echo "Rust ingestion consumer Node API e2e passed."
                   if [[ "${{ needs.build.result }}" != "success" && "${{ needs.build.result }}" != "skipped" ]]; then
                     echo "Node.js build failed."
                     exit 1

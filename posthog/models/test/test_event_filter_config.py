@@ -156,8 +156,10 @@ class TestPruneFilterTree(SimpleTestCase):
         self.assertIsNone(prune_filter_tree({"type": "and", "children": []}))
 
     def test_collapses_single_child_group(self):
+        # Nested single-child groups collapse; the root stays a group (see
+        # TestPruneFilterTreePreservesGroupRoot).
         cond = _cond()
-        self.assertEqual(prune_filter_tree(_and(cond)), cond)
+        self.assertEqual(prune_filter_tree(_and(_or(cond), _cond(value="keep"))), _and(cond, _cond(value="keep")))
 
     def test_removes_not_with_empty_child(self):
         self.assertIsNone(prune_filter_tree(_not({"type": "or", "children": []})))
@@ -167,9 +169,40 @@ class TestPruneFilterTree(SimpleTestCase):
         self.assertEqual(prune_filter_tree(tree), tree)
 
     def test_collapses_nested_single_child_groups(self):
+        # Deeply nested single-child groups collapse down to one group at the root.
         cond = _cond()
-        tree = _or(_and(cond))
-        self.assertEqual(prune_filter_tree(tree), cond)
+        self.assertEqual(prune_filter_tree(_or(_and(_or(cond)))), _or(cond))
+
+
+class TestPruneFilterTreePreservesGroupRoot(SimpleTestCase):
+    """
+    Regression: pruning must never leave a non-group (condition or NOT) at the
+    root. The tree editor can only add conditions/groups inside an and/or node,
+    so a bare-condition root strands the user with no "Add condition" button.
+    """
+
+    @parameterized.expand(
+        [
+            ("root_or_single_condition", _or(_cond()), [_cond()]),
+            ("root_and_single_condition", _and(_cond()), [_cond()]),
+            ("bare_condition_root", _cond("distinct_id", "contains", "bot"), [_cond("distinct_id", "contains", "bot")]),
+            ("bare_not_root", _not(_cond()), [_not(_cond())]),
+            ("nested_single_child_collapses", _or(_and(_cond())), [_cond()]),
+        ]
+    )
+    def test_root_is_a_group_wrapping_children(self, _name: str, tree: dict, expected_children: list[dict]):
+        pruned = prune_filter_tree(tree)
+        assert pruned is not None
+        self.assertIn(pruned["type"], ("and", "or"))
+        self.assertEqual(pruned["children"], expected_children)
+
+    def test_root_collapses_to_inner_group(self):
+        # The lone child is itself a group, so collapsing keeps a group root.
+        inner = _and(_cond(value="a"), _cond(value="b"))
+        self.assertEqual(prune_filter_tree(_or(inner)), inner)
+
+    def test_empty_root_group_still_returns_none(self):
+        self.assertIsNone(prune_filter_tree(_or()))
 
 
 class TestEvaluateFilterTree(SimpleTestCase):
@@ -359,13 +392,38 @@ class TestEventFilterConfigModel(BaseTest):
         self.assertIsNone(retrieved.filter_tree)
 
     def test_save_prunes_filter_tree(self):
-        tree = _and(_cond("event_name", "exact", "pageview"))
+        # Empty and single-child nested groups are pruned, but the root stays a group.
+        tree = _or(_and(_cond("event_name", "exact", "pageview")), {"type": "and", "children": []})
         config = EventFilterConfig.objects.create(
             team=self.team,
             mode=EventFilterMode.LIVE,
             filter_tree=tree,
         )
-        self.assertEqual(config.filter_tree, _cond("event_name", "exact", "pageview"))
+        self.assertEqual(config.filter_tree, _or(_cond("event_name", "exact", "pageview")))
+
+    def test_save_keeps_group_root_for_single_condition(self):
+        # Regression: a one-condition filter must round-trip as a group so the
+        # editor can still add conditions after reload.
+        config = EventFilterConfig.objects.create(
+            team=self.team,
+            mode=EventFilterMode.LIVE,
+            filter_tree=_or(_cond("distinct_id", "contains", "bot")),
+        )
+        assert config.filter_tree is not None
+        self.assertIn(config.filter_tree["type"], ("and", "or"))
+        self.assertEqual(config.filter_tree, _or(_cond("distinct_id", "contains", "bot")))
+
+    def test_save_wraps_bare_condition_root(self):
+        # Heals the production bug: a filter stored as a bare condition gets a
+        # group root the next time it is saved.
+        config = EventFilterConfig.objects.create(
+            team=self.team,
+            mode=EventFilterMode.LIVE,
+            filter_tree=_cond("distinct_id", "contains", "bot"),
+        )
+        assert config.filter_tree is not None
+        self.assertIn(config.filter_tree["type"], ("and", "or"))
+        self.assertEqual(config.filter_tree["children"], [_cond("distinct_id", "contains", "bot")])
 
     def test_save_rejects_invalid_filter_tree(self):
         with self.assertRaises(ValidationError):

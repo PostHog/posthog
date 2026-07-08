@@ -2,8 +2,16 @@ import { actions, afterMount, connect, kea, listeners, path, reducers, selectors
 import { actionToUrl, router, urlToAction } from 'kea-router'
 import posthog from 'posthog-js'
 
+import { FEATURE_FLAGS } from 'lib/constants'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { tabUiStateLogic } from 'lib/logic/tabUiStateLogic'
 import { handsFreeLogic } from 'scenes/max/handsFreeLogic'
+import {
+    Capability,
+    CapabilityGrouping,
+    capabilitiesForGrouping,
+    capabilityGroupingFromVariant,
+} from 'scenes/max/maxCapabilities'
 import { maxLogic } from 'scenes/max/maxLogic'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
@@ -76,7 +84,7 @@ export const aiFirstHomepageLogic = kea<aiFirstHomepageLogicType>([
 
     connect(() => ({
         values: [
-            maxLogic({ tabId: HOMEPAGE_TAB_ID }),
+            maxLogic({ panelId: HOMEPAGE_TAB_ID }),
             ['threadLogicKey', 'conversationId'],
             teamLogic,
             ['currentTeam'],
@@ -90,11 +98,13 @@ export const aiFirstHomepageLogic = kea<aiFirstHomepageLogicType>([
             ['shortcutData as cachedStarred', 'shortcutDataHasLoaded'],
             tabUiStateLogic,
             ['chatDraftFor'],
+            featureFlagLogic,
+            ['featureFlags'],
         ],
         actions: [
-            maxLogic({ tabId: HOMEPAGE_TAB_ID }),
+            maxLogic({ panelId: HOMEPAGE_TAB_ID }),
             ['openConversation', 'startNewConversation', 'setQuestion'],
-            handsFreeLogic({ tabId: HOMEPAGE_TAB_ID }),
+            handsFreeLogic({ panelId: HOMEPAGE_TAB_ID }),
             ['enterHandsFree'],
             sceneLogic,
             ['setHomepage'],
@@ -112,6 +122,9 @@ export const aiFirstHomepageLogic = kea<aiFirstHomepageLogicType>([
         returnToIdle: true,
         setPreviousHomepage: (tab: SceneTab | null) => ({ tab }),
         revertToPreviousHomepage: true,
+        setSelectedCapability: (key: string | null) => ({ key }),
+        // Postfix hint shown after a fill-in suggestion's typed-in prefix (e.g. "insert feature name").
+        setFillInHint: (hint: string | null) => ({ hint }),
     }),
 
     reducers({
@@ -159,6 +172,23 @@ export const aiFirstHomepageLogic = kea<aiFirstHomepageLogicType>([
                 setPreviousHomepage: (_, { tab }) => tab,
             },
         ],
+        selectedCapability: [
+            null as string | null,
+            {
+                setSelectedCapability: (_, { key }) => key,
+                submitQuery: () => null,
+                returnToIdle: () => null,
+            },
+        ],
+        fillInHint: [
+            null as string | null,
+            {
+                setFillInHint: (_, { hint }) => hint,
+                setSelectedCapability: () => null,
+                submitQuery: () => null,
+                returnToIdle: () => null,
+            },
+        ],
     }),
 
     selectors({
@@ -177,6 +207,16 @@ export const aiFirstHomepageLogic = kea<aiFirstHomepageLogicType>([
         ],
         mode: [(s) => [s.layoutState], (layoutState): HomepageMode => layoutState.mode],
         animationPhase: [(s) => [s.layoutState], (layoutState): AnimationPhase => layoutState.animationPhase],
+        capabilityGrouping: [
+            (s) => [s.featureFlags],
+            (featureFlags): CapabilityGrouping | null =>
+                capabilityGroupingFromVariant(featureFlags[FEATURE_FLAGS.MAX_HOMEPAGE_CAPABILITIES]),
+        ],
+        capabilities: [
+            (s) => [s.capabilityGrouping],
+            (capabilityGrouping): Capability[] =>
+                capabilityGrouping ? capabilitiesForGrouping(capabilityGrouping) : [],
+        ],
         pinnedDashboardItems: [
             (s) => [s.pinnedDashboards],
             (pinnedDashboards): HomepageGridItem[] =>
@@ -348,8 +388,6 @@ export const aiFirstHomepageLogic = kea<aiFirstHomepageLogicType>([
                         hash: '',
                         title: 'Default dashboard',
                         iconType: 'dashboard',
-                        active: false,
-                        pinned: true,
                         sceneId: Scene.Dashboard,
                         sceneKey: `dashboard-${dashboardId}`,
                         sceneParams: emptySceneParams,

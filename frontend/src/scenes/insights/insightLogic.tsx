@@ -7,26 +7,17 @@ import { LemonDialog, LemonInput } from '@posthog/lemon-ui'
 
 import { ApiError } from 'lib/api'
 import { insightAlertsLogic } from 'lib/components/Alerts/insightAlertsLogic'
-import {
-    canToggleAnnotationsInInsightQuery,
-    getAnnotationsToggleText,
-} from 'lib/components/Cards/InsightCard/annotationsToggle'
-import {
-    canToggleDisplayLabelsInInsightQuery,
-    getDisplayLabelsToggleText,
-    isDisplayLabelsEnabledInInsightQuery,
-} from 'lib/components/Cards/InsightCard/displayLabelsToggle'
-import { canToggleLegendInInsightQuery, getLegendToggleText } from 'lib/components/Cards/InsightCard/legendToggle'
 import { tryShowMCPHint } from 'lib/components/MCPHint/mcpHintLogic'
 import { SetupTaskId, globalSetupLogic } from 'lib/components/ProductSetup'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { isEmptyObject, isObject, objectsEqual } from 'lib/utils'
 import { accessLevelSatisfied } from 'lib/utils/accessControlUtils'
 import { deleteInsightWithUndo } from 'lib/utils/deleteWithUndo'
 import { InsightEventSource, eventUsageLogic } from 'lib/utils/eventUsageLogic'
+import { isEmptyObject, isObject } from 'lib/utils/guards'
+import { objectsEqual } from 'lib/utils/objects'
 import { isDashboardFilterEmpty } from 'scenes/dashboard/dashboardFilterEmpty'
 import { DashboardLoadAction, dashboardLogic } from 'scenes/dashboard/dashboardLogic'
 import { insightSceneLogic } from 'scenes/insights/insightSceneLogic'
@@ -61,6 +52,8 @@ import {
 import {
     AccessControlLevel,
     AccessControlResourceType,
+    DashboardTile,
+    DashboardType,
     InsightLogicProps,
     InsightShortId,
     ItemMode,
@@ -69,7 +62,7 @@ import {
 } from '~/types'
 
 import { teamLogic } from '../teamLogic'
-import { insightDataLogic } from './insightDataLogic'
+import { insightDataLogic, isInsightSceneInstance } from './insightDataLogic'
 import type { insightLogicType } from './insightLogicType'
 import { getInsightId } from './utils'
 import { insightsApi } from './utils/api'
@@ -314,8 +307,12 @@ export const insightLogic: LogicWrapper<insightLogicType> = kea<insightLogicType
             // Note: setInsightMetadata state updates are handled by the loader
             setInsightMetadataLocal: (state, { metadataUpdate }) => ({ ...state, ...metadataUpdate }),
             [dashboardsModel.actionTypes.updateDashboardInsight]: (
-                state,
-                { insight, extraDashboardIds, sourceDashboardId }
+                state: Partial<QueryBasedInsightModel>,
+                {
+                    insight,
+                    extraDashboardIds,
+                    sourceDashboardId,
+                }: { insight: QueryBasedInsightModel; extraDashboardIds?: number[]; sourceDashboardId?: number }
             ) => {
                 // Dashboard refresh responses merge that dashboard's filters into `query`; only the embedded
                 // insight for that dashboard (`props.dashboardId`) should apply them. Other dashboards or
@@ -337,25 +334,40 @@ export const insightLogic: LogicWrapper<insightLogicType> = kea<insightLogicType
             },
             [insightsModel.actionTypes.renameInsightSuccess]: (state, { item }) => {
                 if (item.id === state.id) {
-                    return { ...state, name: item.name, description: item.description }
+                    // Also sync query (display-option saves); preserve result — bare PATCHes return result: null.
+                    return {
+                        ...state,
+                        name: item.name,
+                        description: item.description,
+                        query: (item.query ?? state.query) as QueryBasedInsightModel['query'],
+                    }
                 }
                 return state
             },
-            [insightsModel.actionTypes.insightsAddedToDashboard]: (state, { dashboardId, insightIds }) => {
-                if (insightIds.includes(state.id)) {
+            [insightsModel.actionTypes.insightsAddedToDashboard]: (
+                state: Partial<QueryBasedInsightModel>,
+                { dashboardId, insightIds }: { dashboardId: number; insightIds: number[] }
+            ) => {
+                if (state.id != null && insightIds.includes(state.id)) {
                     return { ...state, dashboards: [...(state.dashboards || []), dashboardId] }
                 }
                 return state
             },
-            [dashboardsModel.actionTypes.tileRemovedFromDashboard]: (state, { tile, dashboardId }) => {
-                if (tile.insight?.id === state.id) {
-                    return { ...state, dashboards: state.dashboards?.filter((d) => d !== dashboardId) }
+            [dashboardsModel.actionTypes.tileRemovedFromDashboard]: (
+                state: Partial<QueryBasedInsightModel>,
+                { tile, dashboardId }: { tile?: DashboardTile<QueryBasedInsightModel>; dashboardId?: number }
+            ) => {
+                if (tile?.insight?.id === state.id) {
+                    return { ...state, dashboards: state.dashboards?.filter((d: number) => d !== dashboardId) }
                 }
                 return state
             },
-            [dashboardsModel.actionTypes.deleteDashboardSuccess]: (state, { dashboard }) => {
+            [dashboardsModel.actionTypes.deleteDashboardSuccess]: (
+                state: Partial<QueryBasedInsightModel>,
+                { dashboard }: { dashboard: DashboardType<QueryBasedInsightModel> }
+            ) => {
                 const { id } = dashboard
-                return { ...state, dashboards: state.dashboards?.filter((d) => d !== id) }
+                return { ...state, dashboards: state.dashboards?.filter((d: number) => d !== id) }
             },
         },
         accessDeniedToInsight: [false, { setAccessDeniedToInsight: () => true }],
@@ -380,6 +392,10 @@ export const insightLogic: LogicWrapper<insightLogicType> = kea<insightLogicType
                     tags: insight.tags,
                     favorited: insight.favorited,
                 }),
+                [insightsModel.actionTypes.renameInsightSuccess]: (state, { item }) =>
+                    item.id === state.id
+                        ? { ...state, name: item.name, description: item.description, query: item.query ?? state.query }
+                        : state,
             },
         ],
         insightLoading: [
@@ -469,28 +485,6 @@ export const insightLogic: LogicWrapper<insightLogicType> = kea<insightLogicType
                           AccessControlLevel.Editor
                       )
                     : true,
-        ],
-        canToggleDisplayLabelsForInsight: [
-            (s) => [s.query],
-            (query) => !!query && canToggleDisplayLabelsInInsightQuery(query),
-        ],
-        canToggleLegendForInsight: [(s) => [s.query], (query) => !!query && canToggleLegendInInsightQuery(query)],
-        canToggleAnnotationsForInsight: [
-            (s) => [s.query],
-            (query) => !!query && canToggleAnnotationsInInsightQuery(query),
-        ],
-        displayLabelsShownForInsight: [
-            (s) => [s.query],
-            (query) => !!query && isDisplayLabelsEnabledInInsightQuery(query),
-        ],
-        displayLabelsToggleTextForInsight: [
-            (s) => [s.query],
-            (query) => (query ? getDisplayLabelsToggleText(query) : 'Show values on series'),
-        ],
-        legendToggleTextForInsight: [(s) => [s.query], (query) => (query ? getLegendToggleText(query) : 'Show legend')],
-        annotationsToggleTextForInsight: [
-            (s) => [s.query],
-            (query) => (query ? getAnnotationsToggleText(query) : 'Hide annotations'),
         ],
         insightChanged: [
             (s) => [s.insight, s.savedInsight],
@@ -662,12 +656,10 @@ export const insightLogic: LogicWrapper<insightLogicType> = kea<insightLogicType
                     // redirect new insights added to dashboard to the dashboard
                     router.actions.push(urls.dashboard(dashboards[0], savedInsight.short_id))
                 } else if (insightNumericId) {
-                    if (props.tabId) {
-                        const mountedInsightSceneLogic = insightSceneLogic.findMounted({ tabId: props.tabId })
-                        mountedInsightSceneLogic?.actions.setInsightMode(
-                            ItemMode.View,
-                            InsightEventSource.InsightHeader
-                        )
+                    if (isInsightSceneInstance(props)) {
+                        insightSceneLogic
+                            .findMounted()
+                            ?.actions.setInsightMode(ItemMode.View, InsightEventSource.InsightHeader)
                     }
                 } else {
                     router.actions.push(urls.insightView(savedInsight.short_id))

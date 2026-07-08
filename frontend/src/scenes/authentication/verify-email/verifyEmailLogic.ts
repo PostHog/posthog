@@ -4,7 +4,7 @@ import { router, urlToAction } from 'kea-router'
 
 import api from 'lib/api'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
-import { getRelativeNextPath } from 'lib/utils'
+import { getRelativeNextPath } from 'lib/utils/url'
 import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
 

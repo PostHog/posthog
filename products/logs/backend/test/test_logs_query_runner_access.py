@@ -5,6 +5,8 @@ from rest_framework import status
 
 from posthog.schema import DateRange, FilterLogicalOperator, LogsQuery, PropertyGroupFilter
 
+from posthog.hogql.constants import LimitContext
+
 from posthog.rbac.user_access_control import UserAccessControlError
 
 from products.logs.backend.logs_query_runner import LogsQueryRunner
@@ -19,7 +21,7 @@ def _minimal_query_data() -> dict:
     }
 
 
-def _build_runner(team) -> LogsQueryRunner:
+def _build_runner(team, limit_context: LimitContext | None = None) -> LogsQueryRunner:
     return LogsQueryRunner(
         team=team,
         query=LogsQuery(
@@ -29,15 +31,32 @@ def _build_runner(team) -> LogsQueryRunner:
             serviceNames=[],
             kind="LogsQuery",
         ),
+        limit_context=limit_context,
     )
 
 
 class TestLogsQueryRunnerAccess(APIBaseTest):
-    def test_validate_query_runner_access_always_blocks_with_user(self):
+    def test_validate_query_runner_access_blocks_user_initiated_query(self):
         runner = _build_runner(self.team)
 
         with self.assertRaises(UserAccessControlError):
             runner.validate_query_runner_access(self.user)
+
+    def test_validate_query_runner_access_allows_export_context(self):
+        """Server-side CSV export attributes the read to the export owner — must be allowed."""
+        runner = _build_runner(self.team, limit_context=LimitContext.EXPORT)
+
+        assert runner.validate_query_runner_access(self.user) is True
+
+    def test_run_with_user_in_export_context_skips_block(self):
+        runner = _build_runner(self.team, limit_context=LimitContext.EXPORT)
+
+        with patch.object(runner, "_calculate") as mock_calculate:
+            from posthog.schema import LogsQueryResponse
+
+            mock_calculate.return_value = LogsQueryResponse(results=[], hasMore=False)
+            response = runner.run(user=self.user)
+            assert response is not None
 
     def test_run_without_user_skips_access_check(self):
         """Celery export tasks call run() without a user — access check must be skipped."""

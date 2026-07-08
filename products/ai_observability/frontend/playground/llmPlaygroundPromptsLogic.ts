@@ -1,19 +1,20 @@
-import { actions, afterMount, kea, key, listeners, path, props, reducers, selectors } from 'kea'
+import { actions, afterMount, kea, listeners, path, props, reducers, selectors } from 'kea'
 import { combineUrl, router, urlToAction } from 'kea-router'
 import posthog from 'posthog-js'
 
 import { lemonToast } from '@posthog/lemon-ui'
 
 import api from 'lib/api'
-import { isObject, uuid } from 'lib/utils'
-import { sceneLogic } from 'scenes/sceneLogic'
+import { uuid } from 'lib/utils/dom'
+import { isObject } from 'lib/utils/guards'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
 import { llmEvaluationLogic } from '../evaluations/llmEvaluationLogic'
 import type { EvaluationConfig } from '../evaluations/types'
 import { normalizeMessage } from '../messageNormalization'
-import { getApiErrorDetail, llmPromptLogic } from '../prompts/llmPromptLogic'
+import { llmPromptLogic } from '../prompts/llmPromptLogic'
+import { getApiErrorDetail } from '../prompts/utils'
 import { normalizeLLMProvider } from '../settings/llmProviderKeysLogic'
 import { isOTelPartsMessage, normalizeRole, safeStringify } from '../utils'
 import type { llmPlaygroundPromptsLogicType } from './llmPlaygroundPromptsLogicType'
@@ -75,10 +76,10 @@ export const DEFAULT_SYSTEM_PROMPT = 'You are a helpful AI assistant.'
 
 /**
  * Module-level store for a pending playground setup payload. External callers (trace scene,
- * conversation display) write here before navigating to the playground, so the tab-keyed
- * instance can pick it up in urlToAction and run setupPlaygroundFromEvent on itself.
+ * conversation display) write here before navigating to the playground, so the playground
+ * instance can pick it up in urlToAction/afterMount and run setupPlaygroundFromEvent on itself.
  *
- * This avoids the fragile "transfer from default instance" pattern, which breaks when the
+ * This avoids the fragile "transfer state between instances" pattern, which breaks when the
  * source component unmounts before the playground's urlToAction fires.
  */
 let pendingPlaygroundSetup: PlaygroundSetupPayload | null = null
@@ -438,14 +439,11 @@ function appendRawMessage(conversation: Message[], raw: RawMessage): void {
     conversation.push(extracted)
 }
 
-export interface LLMPlaygroundPromptsLogicProps {
-    tabId?: string
-}
+export type LLMPlaygroundPromptsLogicProps = Record<string, never>
 
 export const llmPlaygroundPromptsLogic = kea<llmPlaygroundPromptsLogicType>([
     path(['products', 'ai_observability', 'frontend', 'playground', 'llmPlaygroundPromptsLogic']),
     props({} as LLMPlaygroundPromptsLogicProps),
-    key((props) => props.tabId ?? 'default'),
 
     actions({
         addPromptConfig: (sourcePromptId?: string) => ({ sourcePromptId, newPromptId: uuid() }),
@@ -847,17 +845,12 @@ export const llmPlaygroundPromptsLogic = kea<llmPlaygroundPromptsLogicType>([
         ],
     }),
 
-    listeners(({ actions, values, props }) => ({
+    listeners(({ actions, values }) => ({
         resetPlayground: () => {
             posthog.capture('llma playground reset')
-            const activeTabId = sceneLogic.findMounted()?.values.activeTabId
-            const isActiveTab = !activeTabId || activeTabId === props.tabId
-            if (isActiveTab) {
-                router.actions.replace(
-                    combineUrl(urls.aiObservabilityPlayground(), cleanSourceSearchParams(router.values.searchParams))
-                        .url
-                )
-            }
+            router.actions.replace(
+                combineUrl(urls.aiObservabilityPlayground(), cleanSourceSearchParams(router.values.searchParams)).url
+            )
         },
         addPromptConfig: () => {
             // New total after adding — listeners run post-reducer
@@ -1259,26 +1252,13 @@ export const llmPlaygroundPromptsLogic = kea<llmPlaygroundPromptsLogicType>([
         },
     })),
 
-    urlToAction(({ actions, values, props }) => ({
+    urlToAction(({ actions, values }) => ({
         [urls.aiObservabilityPlayground()]: (_, searchParams) => {
-            // Consume a pending setup payload before the active-tab guard. The payload
-            // is one-shot (set by openInPlayground) and at this point sceneLogic hasn't
-            // updated activeTabId yet, so the guard below would incorrectly reject it.
-            if (props.tabId) {
-                const pending = consumePendingPlaygroundSetup()
-                if (pending) {
-                    actions.setupPlaygroundFromEvent(pending)
-                    return
-                }
-            }
-
-            // urlToAction fires on ALL mounted instances for the matching URL — including the
-            // unkeyed `'default'` instance kept alive for backwards compatibility. Only the active
-            // tab instance should run the URL-driven setup; otherwise multiple instances each
-            // dispatch `setupPlaygroundFromEvent`, and any subsequent URL update (e.g. from
-            // `finishSourceSetup`) re-enters this handler on every instance, producing a pageview
-            // and API-fetch loop.
-            if (!props.tabId || sceneLogic.findMounted()?.values.activeTabId !== props.tabId) {
+            // Consume a pending setup payload (set by openInPlayground) before reading source
+            // params from the URL. The payload is one-shot, so this consumes it exactly once.
+            const pending = consumePendingPlaygroundSetup()
+            if (pending) {
+                actions.setupPlaygroundFromEvent(pending)
                 return
             }
 
@@ -1319,13 +1299,10 @@ export const llmPlaygroundPromptsLogic = kea<llmPlaygroundPromptsLogicType>([
         },
     })),
 
-    // afterMount runs synchronously during logic.mount(), before sceneLogic updates
-    // activeTabId. This ensures the pending payload is consumed even when urlToAction
-    // fires too early (before the active-tab check would pass).
-    afterMount(({ actions, props }) => {
-        if (!props.tabId) {
-            return
-        }
+    // afterMount runs synchronously during logic.mount(). Consuming the pending payload here
+    // covers the case where openInPlayground queued it just before navigation and urlToAction
+    // hasn't fired yet. The consume is one-shot, so only the first of afterMount/urlToAction dispatches.
+    afterMount(({ actions }) => {
         const pending = consumePendingPlaygroundSetup()
         if (pending) {
             actions.setupPlaygroundFromEvent(pending)

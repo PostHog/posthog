@@ -52,8 +52,8 @@ const ARCHIVED_OPTIONS: { label: string; value: '' | 'false' | 'true' }[] = [
     { label: 'Archived only', value: 'true' },
 ]
 
-export function AIObservabilityScoreDefinitions({ tabId }: { tabId?: string }): JSX.Element {
-    const logic = useMountedLogic(aiObservabilityScoreDefinitionsLogic({ tabId }))
+export function AIObservabilityScoreDefinitions(): JSX.Element {
+    const logic = useMountedLogic(aiObservabilityScoreDefinitionsLogic())
     const { setFilters, openModal, closeModal, toggleArchive } = useActions(logic)
     const {
         scoreDefinitions,
@@ -237,7 +237,6 @@ export function AIObservabilityScoreDefinitions({ tabId }: { tabId?: string }): 
 
             {modalProps && (
                 <ScoreDefinitionModal
-                    tabId={tabId}
                     mode={modalProps.mode}
                     scoreDefinition={modalProps.scoreDefinition}
                     onClose={closeModal}
@@ -248,17 +247,15 @@ export function AIObservabilityScoreDefinitions({ tabId }: { tabId?: string }): 
 }
 
 function ScoreDefinitionModal({
-    tabId,
     mode,
     scoreDefinition,
     onClose,
 }: {
-    tabId?: string
     mode: ScoreDefinitionModalMode
     scoreDefinition: ScoreDefinition | null
     onClose: () => void
 }): JSX.Element {
-    const logic = useMountedLogic(scoreDefinitionModalLogic({ tabId, mode, scoreDefinition }))
+    const logic = useMountedLogic(scoreDefinitionModalLogic({ mode, scoreDefinition }))
     const { submit, setDraftField, updateOptionLabel, addOption, removeOption } = useActions(logic)
     const { draft, isCreateMode, isMetadataMode, isConfigMode, title, submitting } = useValues(logic)
 

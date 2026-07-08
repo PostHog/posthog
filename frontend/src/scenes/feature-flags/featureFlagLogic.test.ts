@@ -6,9 +6,11 @@ import { expectLogic, partial } from 'kea-test-utils'
 import { dayjs } from 'lib/dayjs'
 import { urls } from 'scenes/urls'
 
+import { resumeKeaLoadersErrors, silenceKeaLoadersErrors } from '~/initKea'
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
 import {
+    FeatureFlagGroupType,
     FeatureFlagType,
     PropertyFilterType,
     PropertyOperator,
@@ -20,6 +22,12 @@ import { FeatureFlagFilters } from '~/types'
 
 import { TemplateKey } from 'products/feature_flags/frontend/featureFlagTemplateConstants'
 
+import * as defaultReleaseConditionsModule from './defaultReleaseConditionsLogic'
+import {
+    DefaultReleaseConditionsResponse,
+    defaultReleaseConditionsLogic,
+    resolveDefaultReleaseConditions,
+} from './defaultReleaseConditionsLogic'
 import { detectFeatureFlagChanges } from './featureFlagConfirmationLogic'
 import {
     NEW_FLAG,
@@ -166,10 +174,6 @@ describe('featureFlagLogic', () => {
     let logic: ReturnType<typeof featureFlagLogic.build>
 
     beforeEach(async () => {
-        initKeaTests()
-        logic = featureFlagLogic({ id: 1 })
-        logic.mount()
-
         useMocks({
             get: {
                 [`/api/projects/${MOCK_DEFAULT_PROJECT.id}/feature_flags/${MOCK_FEATURE_FLAG.id}/`]: () => [
@@ -182,6 +186,10 @@ describe('featureFlagLogic', () => {
                 ],
             },
         })
+
+        initKeaTests()
+        logic = featureFlagLogic({ id: 1 })
+        logic.mount()
 
         await expectLogic(logic).toFinishAllListeners()
     })
@@ -347,6 +355,24 @@ describe('featureFlagLogic', () => {
             }
         )
 
+        it('prepends org default groups ahead of template groups when default conditions are enabled', async () => {
+            const DEFAULT_GROUP = { properties: [], rollout_percentage: 10, variant: null }
+            // The shared singleton is warmed to a disabled value on mount, so seed its cache with
+            // enabled defaults before applyTemplate reads it.
+            defaultReleaseConditionsLogic.actions.loadDefaultReleaseConditionsSuccess({
+                enabled: true,
+                default_groups: [DEFAULT_GROUP],
+            })
+
+            await expectLogic(logic, () => {
+                logic.actions.applyTemplate('targeted')
+            }).toDispatchActions(['applyTemplate', 'setFeatureFlag'])
+
+            const groups = logic.values.featureFlag.filters.groups
+            expect(groups[0]).toMatchObject(DEFAULT_GROUP)
+            expect(groups.length).toBeGreaterThan(1)
+        })
+
         it('preserves variant payloads when applying a template to a non-encrypted flag', async () => {
             const MOCK_NON_ENCRYPTED_FLAG: FeatureFlagType = {
                 ...logic.values.featureFlag,
@@ -375,6 +401,42 @@ describe('featureFlagLogic', () => {
                         }),
                     }),
                 })
+        })
+
+        it('does not access the store after unmounting mid-apply', async () => {
+            // applyTemplate awaits release conditions before reading values again. Unmounting during
+            // that await (navigating away, or the auto-apply from a ?template= param racing a fast
+            // unmount) must not touch a store path that no longer exists — that used to throw
+            // "Can not find path ... in the store" and surface as an unhandled rejection.
+            let resolveRelease: (value: DefaultReleaseConditionsResponse | null) => void = () => {}
+            const pendingRelease = new Promise<DefaultReleaseConditionsResponse | null>((resolve) => {
+                resolveRelease = resolve
+            })
+            const spy = jest
+                .spyOn(defaultReleaseConditionsModule, 'resolveDefaultReleaseConditions')
+                .mockReturnValue(pendingRelease)
+
+            const rejections: unknown[] = []
+            const onRejection = (error: unknown): void => {
+                rejections.push(error)
+            }
+            process.on('unhandledRejection', onRejection)
+
+            try {
+                // Listener parks on the pending release conditions, then we navigate away.
+                logic.actions.applyTemplate('targeted')
+                logic.unmount()
+
+                // Resuming after unmount must bail instead of reading values.featureFlag.
+                resolveRelease(null)
+                await pendingRelease
+                await new Promise((resolve) => setTimeout(resolve, 0))
+            } finally {
+                process.off('unhandledRejection', onRejection)
+                spy.mockRestore()
+            }
+
+            expect(rejections).toEqual([])
         })
     })
 
@@ -444,6 +506,58 @@ describe('featureFlagLogic', () => {
         })
     })
 
+    describe('setFeatureFlagFilters', () => {
+        it.each([
+            ['an empty payload snapshot', {}],
+            ['a stale payload snapshot', { true: '{"enabled":false}' }],
+        ])('preserves boolean payloads when release conditions update from %s', async (_, incomingPayloads) => {
+            const payload = '{"enabled":true}'
+
+            await expectLogic(logic, () => {
+                logic.actions.setFeatureFlagValue('filters', {
+                    ...logic.values.featureFlag.filters,
+                    payloads: { true: payload },
+                })
+            }).toMatchValues({
+                featureFlag: partial({
+                    filters: partial({
+                        payloads: { true: payload },
+                    }),
+                }),
+            })
+
+            const updatedConditionFilters: FeatureFlagFilters = {
+                ...logic.values.featureFlag.filters,
+                groups: [
+                    {
+                        properties: [
+                            {
+                                key: '$browser',
+                                value: 'Chrome',
+                                type: PropertyFilterType.Person,
+                                operator: PropertyOperator.Exact,
+                            },
+                        ],
+                        rollout_percentage: 42,
+                        variant: null,
+                    },
+                ],
+                payloads: incomingPayloads,
+            }
+
+            await expectLogic(logic, () => {
+                logic.actions.setFeatureFlagFilters(updatedConditionFilters, {})
+            }).toMatchValues({
+                featureFlag: partial({
+                    filters: partial({
+                        groups: updatedConditionFilters.groups,
+                        payloads: { true: payload },
+                    }),
+                }),
+            })
+        })
+    })
+
     describe('change detection', () => {
         it('detects active status changes', () => {
             const originalFlag = { ...MOCK_FEATURE_FLAG, active: false }
@@ -469,6 +583,29 @@ describe('featureFlagLogic', () => {
 
             const changes = detectFeatureFlagChanges(originalFlag, changedFlag)
             expect(changes).toContain('Release condition rollout percentage changed')
+        })
+
+        it('does not throw and detects changes when a filter value is a bigint', () => {
+            // Property values can be bigint (PropertyFilterBaseValue); raw JSON.stringify throws on them.
+            const filtersWithBigIntId = (value: bigint): FeatureFlagFilters => ({
+                groups: [
+                    {
+                        properties: [
+                            { key: 'id', value, type: PropertyFilterType.Person, operator: PropertyOperator.Exact },
+                        ],
+                        rollout_percentage: 100,
+                        variant: null,
+                    },
+                ],
+            })
+            const originalFlag = { ...MOCK_FEATURE_FLAG, filters: filtersWithBigIntId(BigInt('9007199254740993')) }
+            const changedFlag = { ...MOCK_FEATURE_FLAG, filters: filtersWithBigIntId(BigInt('9007199254740994')) }
+
+            let changes: string[] = []
+            expect(() => {
+                changes = detectFeatureFlagChanges(originalFlag, changedFlag)
+            }).not.toThrow()
+            expect(changes).toContain('Release conditions changed')
         })
 
         it('returns no changes for new flags', () => {
@@ -618,17 +755,64 @@ describe('featureFlagLogic', () => {
         })
     })
 
+    describe('default release conditions on new flags', () => {
+        const groupDefault: FeatureFlagGroupType = {
+            properties: [
+                {
+                    key: 'is_dev',
+                    type: PropertyFilterType.Group,
+                    value: ['true'],
+                    operator: PropertyOperator.Exact,
+                    group_type_index: 1,
+                },
+            ],
+            rollout_percentage: 100,
+            variant: null,
+            aggregation_group_type_index: 1,
+        }
+
+        async function mountNewFlag(defaultConditions: {
+            enabled: boolean
+            default_groups: FeatureFlagGroupType[]
+        }): Promise<ReturnType<typeof featureFlagLogic.build>> {
+            // Seed the shared singleton's cache before the new-flag loader reads it; useMocks lands
+            // too late since the logic is warmed to a disabled value on mount in beforeEach.
+            defaultReleaseConditionsLogic.actions.loadDefaultReleaseConditionsSuccess(defaultConditions)
+            // Park at a non-matching path so the `new`-keyed logic doesn't prefetch off stale params.
+            router.actions.push('/')
+            const newLogic = featureFlagLogic({ id: 'new' })
+            newLogic.mount()
+            await expectLogic(newLogic).toFinishAllListeners()
+            return newLogic
+        }
+
+        it('applies an enabled group-targeted default and mirrors the aggregation onto the new flag', async () => {
+            const newLogic = await mountNewFlag({ enabled: true, default_groups: [groupDefault] })
+
+            expect(newLogic.values.featureFlag.filters.groups).toEqual([groupDefault])
+            expect(newLogic.values.featureFlag.filters.aggregation_group_type_index).toBe(1)
+            newLogic.unmount()
+        })
+
+        it('leaves a new flag on user targeting when the default config is disabled', async () => {
+            const newLogic = await mountNewFlag({ enabled: false, default_groups: [groupDefault] })
+
+            expect(newLogic.values.featureFlag.filters.groups).toEqual([
+                { properties: [], rollout_percentage: 0, variant: null },
+            ])
+            expect(newLogic.values.featureFlag.filters.aggregation_group_type_index).toBeUndefined()
+            newLogic.unmount()
+        })
+    })
+
     describe('experiment loading', () => {
         it('loads experiment data when feature flag has an experiment linked', async () => {
             const flagWithExperiment = {
                 ...MOCK_FEATURE_FLAG,
                 id: 2,
                 experiment_set: [MOCK_EXPERIMENT.id],
-                experiment_set_metadata: [{ id: MOCK_EXPERIMENT.id, name: MOCK_EXPERIMENT.name }],
+                experiment_set_metadata: [{ id: MOCK_EXPERIMENT.id, name: MOCK_EXPERIMENT.name, is_running: true }],
             }
-
-            const experimentLogic = featureFlagLogic({ id: 2 })
-            experimentLogic.mount()
 
             useMocks({
                 get: {
@@ -647,10 +831,13 @@ describe('featureFlagLogic', () => {
                 },
             })
 
-            await expectLogic(experimentLogic, () => {
-                experimentLogic.actions.loadFeatureFlag()
-            })
-                .toDispatchActions(['loadFeatureFlagSuccess', 'loadExperimentSuccess'])
+            const experimentLogic = featureFlagLogic({ id: 2 })
+            experimentLogic.mount()
+
+            // The loader awaits the experiment inline before returning the flag,
+            // so loadExperimentSuccess lands before loadFeatureFlagSuccess.
+            await expectLogic(experimentLogic)
+                .toDispatchActions(['loadFeatureFlag', 'loadExperimentSuccess', 'loadFeatureFlagSuccess'])
                 .toMatchValues({
                     featureFlag: partial({
                         id: flagWithExperiment.id,
@@ -670,9 +857,6 @@ describe('featureFlagLogic', () => {
                 experiment_set_metadata: null,
             }
 
-            const noExperimentLogic = featureFlagLogic({ id: 3 })
-            noExperimentLogic.mount()
-
             useMocks({
                 get: {
                     [`/api/projects/${MOCK_DEFAULT_PROJECT.id}/feature_flags/${flagWithoutExperiment.id}/`]: () => [
@@ -683,6 +867,9 @@ describe('featureFlagLogic', () => {
                         () => [200, MOCK_FEATURE_FLAG_STATUS],
                 },
             })
+
+            const noExperimentLogic = featureFlagLogic({ id: 3 })
+            noExperimentLogic.mount()
 
             await expectLogic(noExperimentLogic, () => {
                 noExperimentLogic.actions.loadFeatureFlag()
@@ -706,7 +893,6 @@ describe('featureFlagLogic', () => {
             const flag = { ...MOCK_FEATURE_FLAG, id: 6, active: true }
 
             const testLogic = featureFlagLogic({ id: 6 })
-            testLogic.mount()
 
             useMocks({
                 get: {
@@ -721,6 +907,8 @@ describe('featureFlagLogic', () => {
                     ],
                 },
             })
+
+            testLogic.mount()
 
             await expectLogic(testLogic, () => {
                 testLogic.actions.loadFeatureFlag()
@@ -738,7 +926,6 @@ describe('featureFlagLogic', () => {
             const flag = { ...MOCK_FEATURE_FLAG, id: 4 }
 
             const testLogic = featureFlagLogic({ id: 4 })
-            testLogic.mount()
 
             useMocks({
                 get: {
@@ -754,6 +941,8 @@ describe('featureFlagLogic', () => {
                 },
             })
 
+            testLogic.mount()
+
             await expectLogic(testLogic, () => {
                 testLogic.actions.loadFeatureFlag()
             })
@@ -767,7 +956,6 @@ describe('featureFlagLogic', () => {
             const flag = { ...MOCK_FEATURE_FLAG, id: 5 }
 
             const testLogic = featureFlagLogic({ id: 5 })
-            testLogic.mount()
 
             useMocks({
                 get: {
@@ -783,6 +971,8 @@ describe('featureFlagLogic', () => {
                 },
             })
 
+            testLogic.mount()
+
             await expectLogic(testLogic, () => {
                 testLogic.actions.loadFeatureFlag()
             })
@@ -793,10 +983,10 @@ describe('featureFlagLogic', () => {
         })
 
         it('handles API failure gracefully and returns empty array', async () => {
+            silenceKeaLoadersErrors()
             const flag = { ...MOCK_FEATURE_FLAG, id: 14 }
 
             const testLogic = featureFlagLogic({ id: 14 })
-            testLogic.mount()
 
             useMocks({
                 get: {
@@ -812,6 +1002,8 @@ describe('featureFlagLogic', () => {
                 },
             })
 
+            testLogic.mount()
+
             await expectLogic(testLogic, () => {
                 testLogic.actions.loadFeatureFlag()
             })
@@ -819,6 +1011,7 @@ describe('featureFlagLogic', () => {
                 .toMatchValues({ dependentFlags: [], dependentFlagsLoading: false })
 
             testLogic.unmount()
+            resumeKeaLoadersErrors()
         })
     })
 
@@ -953,6 +1146,62 @@ describe('featureFlagLogic', () => {
 
             await expectLogic(logic).toMatchValues({
                 completedSchedules: [partial({ id: 1 }), partial({ id: 2 })],
+            })
+        })
+    })
+
+    describe('default release conditions', () => {
+        const conditionsUrl = `/api/environments/${MOCK_DEFAULT_PROJECT.id}/default_release_conditions/`
+
+        it('applies org default groups to a new flag when default conditions are enabled', async () => {
+            const DEFAULT_GROUP = { properties: [], rollout_percentage: 30, variant: null }
+            // Seed the shared singleton's cache with enabled defaults before the new-flag loader reads it
+            // (it's warmed to a disabled value on mount).
+            defaultReleaseConditionsLogic.actions.loadDefaultReleaseConditionsSuccess({
+                enabled: true,
+                default_groups: [DEFAULT_GROUP],
+            })
+
+            const newLogic = featureFlagLogic({ id: 'new' })
+            newLogic.mount()
+            await expectLogic(newLogic).toDispatchActions(['loadFeatureFlagSuccess'])
+
+            const groups = newLogic.values.featureFlag.filters.groups
+            expect(groups[0]).toMatchObject(DEFAULT_GROUP)
+            expect(groups.length).toBe(1)
+
+            newLogic.unmount()
+        })
+
+        describe('resolveDefaultReleaseConditions', () => {
+            it('returns the cached value without fetching when one is already loaded', async () => {
+                const cached = {
+                    enabled: true,
+                    default_groups: [{ properties: [], rollout_percentage: 25, variant: null }],
+                }
+                // toBe asserts the same object reference, so a fetched copy would fail the assertion.
+                await expect(resolveDefaultReleaseConditions(cached, MOCK_DEFAULT_PROJECT.id)).resolves.toBe(cached)
+            })
+
+            it('fetches directly when the cache is empty', async () => {
+                const fetched = {
+                    enabled: true,
+                    default_groups: [{ properties: [], rollout_percentage: 10, variant: null }],
+                }
+                useMocks({ get: { [conditionsUrl]: () => [200, fetched] } })
+                await expect(resolveDefaultReleaseConditions(null, MOCK_DEFAULT_PROJECT.id)).resolves.toEqual(fetched)
+            })
+
+            it('returns null without fetching when no team is available', async () => {
+                await expect(resolveDefaultReleaseConditions(null, undefined)).resolves.toBeNull()
+            })
+
+            it('returns null when the fetch fails so new flag creation is not blocked', async () => {
+                // The graceful-failure path warns to the console by design.
+                const warnSpy = jest.spyOn(console, 'warn').mockImplementation(() => {})
+                useMocks({ get: { [conditionsUrl]: () => [500, {}] } })
+                await expect(resolveDefaultReleaseConditions(null, MOCK_DEFAULT_PROJECT.id)).resolves.toBeNull()
+                warnSpy.mockRestore()
             })
         })
     })
@@ -1141,6 +1390,18 @@ describe('variant reordering', () => {
     let logic: ReturnType<typeof featureFlagLogic.build>
 
     beforeEach(() => {
+        useMocks({
+            get: {
+                [`/api/projects/${MOCK_DEFAULT_PROJECT.id}/feature_flags/${MOCK_FEATURE_FLAG.id}/`]: () => [
+                    200,
+                    MOCK_FEATURE_FLAG,
+                ],
+                [`/api/projects/${MOCK_DEFAULT_PROJECT.id}/feature_flags/${MOCK_FEATURE_FLAG.id}/status`]: () => [
+                    200,
+                    MOCK_FEATURE_FLAG_STATUS,
+                ],
+            },
+        })
         initKeaTests()
         logic = featureFlagLogic({ id: 1 })
         logic.mount()

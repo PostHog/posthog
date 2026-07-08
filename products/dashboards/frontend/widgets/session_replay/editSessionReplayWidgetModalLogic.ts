@@ -2,19 +2,17 @@ import { actions, connect, defaults, kea, listeners, path, props, reducers, sele
 
 import { filterTestAccountsDefaultsLogic } from 'scenes/settings/environment/filterTestAccountDefaultsLogic'
 
+import type { SessionReplayWidgetConfig } from '../../generated/widget-configs.zod'
 import { isWidgetConfigValidationError } from '../../utils'
-import {
-    resolveWidgetFilterTestAccounts,
-    type SessionReplayWidgetConfig,
-    type WidgetDateFromValue,
-} from '../../widget_types/configSchemas'
+import { resolveWidgetFilterTestAccounts } from '../../widget_types/widgetConfigShared'
 import {
     widgetEditModalFilterTestAccountsActions,
     widgetEditModalListFieldActions,
     widgetEditModalPropSelectors,
     widgetEditModalTileActions,
+    buildWidgetTileMetadataPatch,
+    getWidgetEditModalTileDefaults,
 } from '../editWidgetModalBuilders'
-import { buildWidgetTileMetadataPatch, getWidgetEditModalTileDefaults } from '../editWidgetModalTileUtils'
 import type { DashboardWidgetEditModalProps } from '../registry'
 import type { editSessionReplayWidgetModalLogicType } from './editSessionReplayWidgetModalLogicType'
 import {
@@ -37,12 +35,13 @@ export const editSessionReplayWidgetModalLogic = kea<editSessionReplayWidgetModa
         description: '',
     } as EditSessionReplayWidgetModalLogicProps),
 
-    connect({
+    connect(() => ({
         values: [filterTestAccountsDefaultsLogic, ['filterTestAccountsDefault']],
-    }),
+    })),
 
     actions({
         setOrderBy: (orderBy: string) => ({ orderBy }),
+        setOrderDirection: (orderDirection: SessionReplayWidgetConfig['orderDirection']) => ({ orderDirection }),
         ...widgetEditModalListFieldActions,
         ...widgetEditModalTileActions,
         ...widgetEditModalFilterTestAccountsActions,
@@ -63,17 +62,19 @@ export const editSessionReplayWidgetModalLogic = kea<editSessionReplayWidgetModa
                 ): SessionReplayWidgetConfig['orderBy'] => orderBy as SessionReplayWidgetConfig['orderBy'],
             },
         ],
+        orderDirection: [
+            'DESC' as SessionReplayWidgetConfig['orderDirection'],
+            {
+                setOrderDirection: (
+                    _: SessionReplayWidgetConfig['orderDirection'],
+                    { orderDirection }: { orderDirection: SessionReplayWidgetConfig['orderDirection'] }
+                ): SessionReplayWidgetConfig['orderDirection'] => orderDirection,
+            },
+        ],
         limit: [
             10,
             {
                 setLimit: (_: number, { limit }: { limit: number }) => limit,
-            },
-        ],
-        dateFrom: [
-            '-7d',
-            {
-                setDateFrom: (_: WidgetDateFromValue, { dateFrom }: { dateFrom: string }): WidgetDateFromValue =>
-                    dateFrom as WidgetDateFromValue,
             },
         ],
         tileName: [
@@ -132,12 +133,12 @@ export const editSessionReplayWidgetModalLogic = kea<editSessionReplayWidgetModa
         ],
         ...widgetEditModalPropSelectors,
         validation: [
-            (s) => [s.limit, s.orderBy, s.dateFrom, s.filterTestAccounts, s.widgetConfig],
-            (limit, orderBy, dateFrom, filterTestAccounts, widgetConfig) =>
+            (s) => [s.limit, s.orderBy, s.orderDirection, s.filterTestAccounts, s.widgetConfig],
+            (limit, orderBy, orderDirection, filterTestAccounts, widgetConfig) =>
                 validateSessionReplayWidgetConfigInput({
                     limit,
                     orderBy,
-                    dateFrom,
+                    orderDirection,
                     filterTestAccounts,
                     baseConfig: widgetConfig,
                 }),
@@ -171,7 +172,7 @@ export const editSessionReplayWidgetModalLogic = kea<editSessionReplayWidgetModa
         return {
             limit: baseConfig.limit,
             orderBy: baseConfig.orderBy,
-            dateFrom: baseConfig.dateRange?.date_from ?? '-7d',
+            orderDirection: baseConfig.orderDirection,
             ...getWidgetEditModalTileDefaults(props),
             filterTestAccounts: resolveWidgetFilterTestAccounts(
                 baseConfig.filterTestAccounts,
@@ -184,13 +185,7 @@ export const editSessionReplayWidgetModalLogic = kea<editSessionReplayWidgetModa
 
     listeners(({ actions, props, values }) => ({
         submit: async () => {
-            const result = validateSessionReplayWidgetConfigInput({
-                limit: values.limit,
-                orderBy: values.orderBy,
-                dateFrom: values.dateFrom,
-                filterTestAccounts: values.filterTestAccounts,
-                baseConfig: values.widgetConfig,
-            })
+            const result = values.validation
 
             if (!result.success) {
                 actions.setFieldErrors(result.fieldErrors)

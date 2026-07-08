@@ -1,1 +1,1 @@
-0002_subscription_prompt
+0006_subscription_ai_query_plan

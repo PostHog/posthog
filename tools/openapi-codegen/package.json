@@ -11,9 +11,9 @@
         "test": "vitest run"
     },
     "dependencies": {
-        "orval": "8.9.1"
+        "orval": "8.14.0"
     },
     "devDependencies": {
-        "vitest": "^3.0.0"
+        "vitest": "^4.1.0"
     }
 }

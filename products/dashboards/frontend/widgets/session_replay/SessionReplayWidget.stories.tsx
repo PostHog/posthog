@@ -8,14 +8,18 @@ import { WidgetCardBody } from '../../components/WidgetCard/WidgetCardBody'
 import { WidgetCardHeader, widgetCardShouldHideMoreButton } from '../../components/WidgetCard/WidgetCardHeader'
 import {
     mockMoreOverlay,
+    widgetStorybookParameters,
     widgetTileFrameDecorator,
     withSessionReplayProjectState,
 } from '../../components/WidgetCard/widgetCardStoryFixtures'
 import { sessionReplaySampleRecordings } from '../../components/WidgetCard/widgetOverviewStoryFixtures'
 import { WidgetRuntimeAvailabilityGuard } from '../../components/WidgetRuntimeAvailabilityGuard/WidgetRuntimeAvailabilityGuard'
 import { getDashboardWidgetCatalogEntry, getDashboardWidgetGroupLabel } from '../../widget_types/catalog'
+import { useWidgetAvailability } from '../../widget_types/widgetAvailability'
+import { DASHBOARD_WIDGET_TILE_FILTERS_READONLY_REASON } from '../constants'
 import type { DashboardWidgetComponentProps } from '../registry'
 import { SessionReplayWidget } from './SessionReplayWidget'
+import { SessionReplayWidgetTileFilters } from './SessionReplayWidgetTileFilters'
 
 const SESSION_REPLAY_CATALOG = getDashboardWidgetCatalogEntry('session_replay_list')!
 const DEFAULT_CONFIG = SESSION_REPLAY_CATALOG.defaultConfig as Record<string, unknown>
@@ -25,6 +29,9 @@ type SessionReplayWidgetTileStoryProps = DashboardWidgetComponentProps & {
     description?: string
     showDescription?: boolean
     body?: ReactNode
+    filterBar?: ReactNode
+    /** When true, tile filter bar matches view-only dashboard access (no edit permissions). */
+    tileFiltersReadOnly?: boolean
 }
 
 function SessionReplayWidgetTileStory({
@@ -32,10 +39,13 @@ function SessionReplayWidgetTileStory({
     description = 'Recent session recordings you can open in the replay player.',
     showDescription = true,
     body,
+    filterBar,
+    tileFiltersReadOnly = false,
     ...widgetProps
 }: SessionReplayWidgetTileStoryProps): JSX.Element {
     const widgetTypeLabel = getDashboardWidgetGroupLabel(SESSION_REPLAY_CATALOG.groupId)
     const defaultTitle = SESSION_REPLAY_CATALOG.headerTitle ?? SESSION_REPLAY_CATALOG.label
+    const { isAvailable: showTileFilters } = useWidgetAvailability(SESSION_REPLAY_CATALOG.availability)
 
     return (
         <WidgetCard className="h-full">
@@ -53,6 +63,18 @@ function SessionReplayWidgetTileStory({
                 shouldHideMoreButton={widgetCardShouldHideMoreButton(DashboardPlacement.Dashboard, false)}
                 moreButtonOverlay={mockMoreOverlay}
             />
+            {showTileFilters
+                ? (filterBar ?? (
+                      <SessionReplayWidgetTileFilters
+                          tileId={widgetProps.tileId ?? 1}
+                          config={widgetProps.config}
+                          onUpdateConfig={tileFiltersReadOnly ? undefined : widgetProps.onUpdateConfig}
+                          disabledReason={
+                              tileFiltersReadOnly ? DASHBOARD_WIDGET_TILE_FILTERS_READONLY_REASON : undefined
+                          }
+                      />
+                  ))
+                : null}
             <WidgetCardBody>{body ?? <SessionReplayWidget {...widgetProps} />}</WidgetCardBody>
         </WidgetCard>
     )
@@ -63,6 +85,7 @@ const meta: Meta<typeof SessionReplayWidgetTileStory> = {
     component: SessionReplayWidgetTileStory,
     parameters: {
         layout: 'padded',
+        ...widgetStorybookParameters,
     },
     decorators: [...widgetTileFrameDecorator],
     args: {
@@ -79,7 +102,7 @@ export default meta
 
 type Story = StoryObj<typeof SessionReplayWidgetTileStory>
 
-export const Populated: Story = {
+export const Default: Story = {
     decorators: [withSessionReplayProjectState(true)],
     args: {
         title: 'Recent recordings',
@@ -89,6 +112,44 @@ export const Populated: Story = {
             results: sessionReplaySampleRecordings,
             hasMore: true,
             limit: 10,
+            totalCount: 25,
+            totalCountCapped: true,
+        },
+    },
+}
+
+export const TileFiltersReadOnly: Story = {
+    decorators: [withSessionReplayProjectState(true)],
+    args: {
+        title: 'Recent recordings',
+        config: {
+            ...DEFAULT_CONFIG,
+            dateRange: { date_from: '-30d' },
+            widgetFilters: {
+                'qf-browser': {
+                    filterId: 'qf-browser',
+                    propertyName: '$browser',
+                    optionId: 'opt-chrome',
+                    operator: 'exact',
+                    value: 'Chrome',
+                },
+            },
+        },
+        tileFiltersReadOnly: true,
+        loading: false,
+        result: {
+            results: sessionReplaySampleRecordings,
+            hasMore: true,
+            limit: 10,
+            totalCount: 25,
+            totalCountCapped: true,
+        },
+    },
+    parameters: {
+        docs: {
+            description: {
+                story: 'Tile filter bar when the viewer lacks dashboard edit access — date range and property filters are disabled.',
+            },
         },
     },
 }

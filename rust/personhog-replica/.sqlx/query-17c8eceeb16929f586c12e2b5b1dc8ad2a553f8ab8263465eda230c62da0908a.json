@@ -1,0 +1,23 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n            SELECT cohort_id::bigint AS \"cohort_id!\"\n            FROM posthog_cohortpeople\n            WHERE person_id = $1 AND cohort_id = ANY($2::bigint[])\n            ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "cohort_id!",
+        "type_info": "Int8"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Int8",
+        "Int8Array"
+      ]
+    },
+    "nullable": [
+      null
+    ]
+  },
+  "hash": "17c8eceeb16929f586c12e2b5b1dc8ad2a553f8ab8263465eda230c62da0908a"
+}

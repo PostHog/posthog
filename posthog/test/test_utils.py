@@ -1,7 +1,9 @@
+import os
 import json
 import base64
+import tempfile
 from datetime import datetime, timedelta
-from typing import Any, cast
+from typing import TYPE_CHECKING, Any, cast
 from zoneinfo import ZoneInfo
 
 import pytest
@@ -12,17 +14,27 @@ from unittest.mock import call, patch
 from django.core.cache import cache
 from django.core.handlers.wsgi import WSGIRequest
 from django.http import HttpRequest
-from django.test import TestCase
+from django.test import SimpleTestCase, TestCase, override_settings
 from django.test.client import RequestFactory
+from django.utils.timezone import now
 
 from parameterized import parameterized
 from rest_framework.request import Request
 
 from posthog.exceptions import RequestParsingError, UnspecifiedCompressionFallbackParsingError
-from posthog.models import EventDefinition, GroupTypeMapping
+from posthog.models import EventDefinition, Organization, PropertyDefinition, Team, User
 from posthog.settings.utils import get_from_env
+
+if TYPE_CHECKING:
+    from posthog.models.group_type_mapping import GroupTypeMapping
+
 from posthog.utils import (
+    HAS_PERSON_EMAIL_ABSENT_TTL_SECONDS,
+    HAS_PERSON_EMAIL_ABSENT_YOUNG_PROJECT_TTL_SECONDS,
+    HAS_PERSON_EMAIL_PRESENT_TTL_SECONDS,
     PotentialSecurityProblemException,
+    _build_flag_provider,
+    _read_preload_manifest,
     absolute_uri,
     base64_decode,
     filters_override_requested_by_client,
@@ -32,12 +44,17 @@ from posthog.utils import (
     get_compare_period_dates,
     get_default_event_info,
     get_default_event_name,
+    get_dogfood_flags_team_id,
+    get_has_person_email,
     get_ip_address,
     get_js_url,
+    get_self_capture_team_id,
     get_short_user_agent,
     load_data_from_request,
     refresh_requested_by_client,
     relative_date_parse,
+    resolve_dogfood_flags_team,
+    resolve_self_capture_team,
     str_to_int_set,
     tile_filters_override_requested_by_client,
     variables_override_requested_by_client,
@@ -366,6 +383,32 @@ class TestRelativeDateParse(TestCase):
             "2019-11-30",
         )
 
+    @parameterized.expand(
+        [
+            ("minus_one", "-1q", "2019-10-31"),
+            ("minus_two", "-2q", "2019-07-31"),
+            ("current_start", "qStart", "2020-01-01"),
+            ("current_end", "qEnd", "2020-03-31"),
+            ("minus_one_start", "-1qStart", "2019-10-01"),
+            ("minus_two_start", "-2qStart", "2019-07-01"),
+            ("minus_one_end", "-1qEnd", "2019-12-31"),
+            ("minus_two_end", "-2qEnd", "2019-09-30"),
+        ]
+    )
+    @freeze_time("2020-01-31")
+    def test_quarter(self, _name, input, expected_date):
+        self.assertEqual(
+            relative_date_parse(input, ZoneInfo("UTC")).strftime("%Y-%m-%d"),
+            expected_date,
+        )
+
+    @freeze_time("2020-01-31")
+    def test_quarter_human_friendly_comparison_periods_keeps_week_alignment(self):
+        self.assertEqual(
+            relative_date_parse("-1q", ZoneInfo("UTC"), human_friendly_comparison_periods=True).strftime("%Y-%m-%d"),
+            "2019-11-01",
+        )
+
     @freeze_time("2020-01-31")
     def test_year(self):
         self.assertEqual(
@@ -551,6 +594,83 @@ class TestDefaultEventName(BaseTest):
         EventDefinition.objects.create(name="custom_event", team=self.team)
         with self.assertNumQueries(0):
             get_default_event_info(self.team)
+
+    @parameterized.expand(
+        [
+            ("person_email_present", "email", PropertyDefinition.Type.PERSON, True),
+            ("dollar_email_ignored", "$email", PropertyDefinition.Type.PERSON, False),
+            ("event_email_ignored", "email", PropertyDefinition.Type.EVENT, False),
+            ("other_person_property_ignored", "name", PropertyDefinition.Type.PERSON, False),
+        ]
+    )
+    def test_get_has_person_email(self, _name, prop_name, prop_type, expected):
+        PropertyDefinition.objects.create(name=prop_name, type=prop_type, team=self.team)
+        assert get_has_person_email(self.team) is expected
+
+    def test_has_person_email_is_project_scoped_not_team_scoped(self):
+        other_team = Team.objects.create(organization=self.organization, project=self.team.project)
+        PropertyDefinition.objects.create(
+            name="email", type=PropertyDefinition.Type.PERSON, team=other_team, project=self.team.project
+        )
+        assert get_has_person_email(self.team) is True
+
+    @parameterized.expand(
+        [
+            ("present_young_project", True, 0, HAS_PERSON_EMAIL_PRESENT_TTL_SECONDS),
+            ("present_old_project", True, 30, HAS_PERSON_EMAIL_PRESENT_TTL_SECONDS),
+            ("absent_young_project", False, 0, HAS_PERSON_EMAIL_ABSENT_YOUNG_PROJECT_TTL_SECONDS),
+            ("absent_old_project", False, 30, HAS_PERSON_EMAIL_ABSENT_TTL_SECONDS),
+        ]
+    )
+    def test_has_person_email_cache_ttl_depends_on_presence_and_project_age(
+        self, _name, create_email, project_age_days, expected_ttl
+    ):
+        if create_email:
+            PropertyDefinition.objects.create(name="email", type=PropertyDefinition.Type.PERSON, team=self.team)
+        self.team.project.created_at = now() - timedelta(days=project_age_days)
+        self.team.project.save()
+        with patch("posthog.utils.safe_cache_set") as mock_set:
+            get_has_person_email(self.team)
+        mock_set.assert_called_once()
+        _, kwargs = mock_set.call_args
+        assert kwargs["timeout"] == expected_ttl
+
+    @parameterized.expand([("present", True), ("absent", False)])
+    def test_has_person_email_result_is_cached(self, _name, create_email):
+        if create_email:
+            PropertyDefinition.objects.create(name="email", type=PropertyDefinition.Type.PERSON, team=self.team)
+        assert self.team.project is not None
+        with self.assertNumQueries(1):
+            assert get_has_person_email(self.team) is create_email
+        with self.assertNumQueries(0):
+            assert get_has_person_email(self.team) is create_email
+
+    def test_has_person_email_cache_invalidated_when_email_property_created(self):
+        assert get_has_person_email(self.team) is False
+        with self.assertNumQueries(0):
+            assert get_has_person_email(self.team) is False
+
+        with self.captureOnCommitCallbacks(execute=True):
+            PropertyDefinition.objects.create(name="email", type=PropertyDefinition.Type.PERSON, team=self.team)
+        assert get_has_person_email(self.team) is True
+
+    def test_delete_does_not_invalidate_so_cascade_fast_delete_stays_enabled(self):
+        pd = PropertyDefinition.objects.create(name="email", type=PropertyDefinition.Type.PERSON, team=self.team)
+        assert get_has_person_email(self.team) is True
+
+        with self.captureOnCommitCallbacks(execute=True):
+            pd.delete()
+        with self.assertNumQueries(0):
+            assert get_has_person_email(self.team) is True
+
+    def test_has_person_email_cache_not_invalidated_when_unrelated_property_created(self):
+        PropertyDefinition.objects.create(name="email", type=PropertyDefinition.Type.PERSON, team=self.team)
+        assert get_has_person_email(self.team) is True
+
+        with self.captureOnCommitCallbacks(execute=True):
+            PropertyDefinition.objects.create(name="plan", type=PropertyDefinition.Type.PERSON, team=self.team)
+        with self.assertNumQueries(0):
+            assert get_has_person_email(self.team) is True
 
 
 class TestLoadDataFromRequest(TestCase):
@@ -845,9 +965,21 @@ class TestFlatten(TestCase):
 
 
 def create_group_type_mapping_without_created_at(**kwargs) -> "GroupTypeMapping":
-    instance = GroupTypeMapping.objects.create(**kwargs)
-    GroupTypeMapping.objects.filter(id=instance.id).update(created_at=None)
-    instance.refresh_from_db()
+    from posthog.personhog_client.fake_client import personhog_fake_active  # noqa: PLC0415
+    from posthog.test.persons import _seed_group_type_mapping_into_fake, create_group_type_mapping  # noqa: PLC0415
+
+    instance = create_group_type_mapping(**kwargs)
+    instance.created_at = None
+    # Mirror create_group_type_mapping's own branch: when the fake is off (persons-DB-direct tests),
+    # it wrote a real row whose created_at defaulted to now(). Null the column with a direct UPDATE
+    # over off-Django psycopg so the persons DB genuinely holds a null created_at — making this
+    # helper's name true to form for the fake-off path too.
+    if not personhog_fake_active():
+        from posthog.persons_db import persons_db_connection  # noqa: PLC0415
+
+        with persons_db_connection(writer=True, autocommit=True) as conn, conn.cursor() as cursor:
+            cursor.execute("UPDATE posthog_grouptypemapping SET created_at = NULL WHERE id = %s", (instance.pk,))
+    _seed_group_type_mapping_into_fake(instance)
     return instance
 
 
@@ -1059,3 +1191,194 @@ class TestTemplateContextHistogram(TestCase):
             get_context_for_template("index.html", request)
 
         assert self._count_for_labels("index.html", expected_label) == before + 1
+
+
+class TestResolveSelfCaptureTeam(TestCase):
+    PASSWORD = "testpassword12345"
+
+    def setUp(self):
+        super().setUp()
+        # resolve_self_capture_team() reads the whole users/teams tables, so each test must
+        # control global state. Clear any rows left in the reused test DB; deleting an
+        # organization cascades to its projects and teams, and these deletes roll back with
+        # the test transaction.
+        User.objects.all().delete()
+        Organization.objects.all().delete()
+
+    def test_prefers_most_recently_logged_in_users_current_team(self):
+        organization = Organization.objects.create(name="Org")
+        first_team = Team.objects.create(organization=organization, name="First")
+        recent_team = Team.objects.create(organization=organization, name="Recent")
+
+        older_user = User.objects.create_and_join(organization, "older@posthog.com", self.PASSWORD)
+        older_user.current_team = first_team
+        older_user.last_login = datetime(2026, 1, 1, tzinfo=ZoneInfo("UTC"))
+        older_user.save()
+
+        recent_user = User.objects.create_and_join(organization, "recent@posthog.com", self.PASSWORD)
+        recent_user.current_team = recent_team
+        recent_user.last_login = datetime(2026, 1, 2, tzinfo=ZoneInfo("UTC"))
+        recent_user.save()
+
+        assert resolve_self_capture_team() == recent_team
+        assert get_self_capture_team_id() == recent_team.id
+
+    def test_falls_back_to_first_team_when_no_qualifying_user(self):
+        organization = Organization.objects.create(name="Org")
+        first_team = Team.objects.create(organization=organization, name="First")
+        second_team = Team.objects.create(organization=organization, name="Second")
+
+        # A user that has never logged in (last_login is None) must not qualify,
+        # even though its current_team points at the second team.
+        never_logged_in = User.objects.create_and_join(organization, "never@posthog.com", self.PASSWORD)
+        never_logged_in.current_team = second_team
+        never_logged_in.last_login = None
+        never_logged_in.save()
+
+        assert resolve_self_capture_team() == first_team
+        assert get_self_capture_team_id() == first_team.id
+
+    def test_falls_back_to_first_team_when_logged_in_user_has_no_current_team(self):
+        organization = Organization.objects.create(name="Org")
+        first_team = Team.objects.create(organization=organization, name="First")
+        Team.objects.create(organization=organization, name="Second")
+
+        # A logged-in user whose current_team is None still falls back to the first team.
+        user = User.objects.create_and_join(organization, "user@posthog.com", self.PASSWORD)
+        user.current_team = None
+        user.last_login = datetime(2026, 1, 1, tzinfo=ZoneInfo("UTC"))
+        user.save()
+
+        assert resolve_self_capture_team() == first_team
+        assert get_self_capture_team_id() == first_team.id
+
+    def test_returns_none_when_there_are_no_teams(self):
+        assert resolve_self_capture_team() is None
+        assert get_self_capture_team_id() is None
+
+
+class TestResolveDogfoodFlagsTeam(TestCase):
+    PASSWORD = "testpassword12345"
+
+    def setUp(self):
+        super().setUp()
+        # resolve_dogfood_flags_team() reads the whole teams table, so each test must control
+        # global state. Deleting an organization cascades to its projects and teams, and these
+        # deletes roll back with the test transaction.
+        User.objects.all().delete()
+        Organization.objects.all().delete()
+
+    def test_returns_first_team_not_current_team(self):
+        # The dogfood-flags team is the first/oldest team (the sync write target), even when the
+        # most-recently-logged-in user's current_team is a different team. The two resolvers
+        # intentionally diverge: self-capture follows current_team, dogfood-flags follows first team.
+        organization = Organization.objects.create(name="Org")
+        first_team = Team.objects.create(organization=organization, name="First")
+        recent_team = Team.objects.create(organization=organization, name="Recent")
+
+        recent_user = User.objects.create_and_join(organization, "recent@posthog.com", self.PASSWORD)
+        recent_user.current_team = recent_team
+        recent_user.last_login = datetime(2026, 1, 2, tzinfo=ZoneInfo("UTC"))
+        recent_user.save()
+
+        assert resolve_dogfood_flags_team() == first_team
+        assert get_dogfood_flags_team_id() == first_team.id
+        # Same instance state, the two resolvers point at different teams.
+        assert get_self_capture_team_id() == recent_team.id
+
+    def test_returns_none_when_there_are_no_teams(self):
+        assert resolve_dogfood_flags_team() is None
+        assert get_dogfood_flags_team_id() is None
+
+
+class TestBuildFlagProvider(TestCase):
+    def setUp(self):
+        super().setUp()
+        # The dogfood branch reads the whole teams table; clear ambient rows so the team we
+        # create is the first one. Cascade deletes roll back with the test transaction.
+        User.objects.all().delete()
+        Organization.objects.all().delete()
+
+    @patch.dict(os.environ, {"POSTHOG_SELF_TEAM_ID": "5"}, clear=False)
+    @override_settings(SELF_CAPTURE=True, E2E_TESTING=False)
+    def test_explicit_env_team_id_wins_over_self_capture(self):
+        assert _build_flag_provider()._resolve_team_id() == 5
+
+    @patch.dict(os.environ, {}, clear=False)
+    @override_settings(SELF_CAPTURE=True, E2E_TESTING=False)
+    def test_self_capture_routes_to_dogfood_first_team(self):
+        os.environ.pop("POSTHOG_SELF_TEAM_ID", None)
+        organization = Organization.objects.create(name="Org")
+        first_team = Team.objects.create(organization=organization, name="First")
+
+        assert _build_flag_provider()._resolve_team_id() == first_team.id
+
+    @patch.dict(os.environ, {}, clear=False)
+    @override_settings(SELF_CAPTURE=False, E2E_TESTING=False)
+    def test_falls_back_to_team_2_off_self_capture(self):
+        os.environ.pop("POSTHOG_SELF_TEAM_ID", None)
+
+        assert _build_flag_provider()._resolve_team_id() == 2
+
+    @patch.dict(os.environ, {}, clear=False)
+    @override_settings(SELF_CAPTURE=True, E2E_TESTING=True)
+    def test_e2e_overrides_self_capture_to_team_2(self):
+        os.environ.pop("POSTHOG_SELF_TEAM_ID", None)
+
+        assert _build_flag_provider()._resolve_team_id() == 2
+
+
+VALID_PRELOAD_MANIFEST = {
+    "css": "static/index-ABC123.css",
+    "font": "static/assets/Inter-DEF456.woff2",
+    "js": ["static/index-GHI789.js", "static/chunk-APP111.js"],
+    "authenticatedJs": ["static/chunk-SHELL222.js", "static/chunk-APP111.js"],
+}
+
+
+class TestReadPreloadManifest(SimpleTestCase):
+    def setUp(self):
+        super().setUp()
+        tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(tmp.cleanup)
+        self.tmp_dir = tmp.name
+
+    def _write_manifest(self, content: str) -> str:
+        path = os.path.join(self.tmp_dir, "preload-manifest.json")
+        with open(path, "w") as f:
+            f.write(content)
+        return path
+
+    def test_resolves_unauthenticated_urls_as_written_by_the_build(self):
+        path = self._write_manifest(json.dumps(VALID_PRELOAD_MANIFEST))
+
+        assert _read_preload_manifest(path, include_authenticated_shell=False) == (
+            "static/index-ABC123.css",
+            ("static/index-GHI789.js", "static/chunk-APP111.js"),
+            "static/assets/Inter-DEF456.woff2",
+        )
+
+    def test_appends_authenticated_chunks_deduplicated(self):
+        path = self._write_manifest(json.dumps(VALID_PRELOAD_MANIFEST))
+
+        _, js_urls, _ = _read_preload_manifest(path, include_authenticated_shell=True)
+
+        assert js_urls == ("static/index-GHI789.js", "static/chunk-APP111.js", "static/chunk-SHELL222.js")
+
+    def test_missing_manifest_resolves_empty(self):
+        missing = os.path.join(self.tmp_dir, "missing.json")
+
+        assert _read_preload_manifest(missing, include_authenticated_shell=True) == ("", (), "")
+
+    @parameterized.expand(
+        [
+            ("corrupt_json", '{"css": "static/index.css", "js": ['),
+            ("js_not_a_list", json.dumps({**VALID_PRELOAD_MANIFEST, "js": "static/index.js"})),
+            ("js_entry_not_a_string", json.dumps({**VALID_PRELOAD_MANIFEST, "js": [{"file": "chunk.js"}]})),
+            ("css_not_a_string", json.dumps({**VALID_PRELOAD_MANIFEST, "css": ["static/index.css"]})),
+        ]
+    )
+    def test_malformed_manifest_resolves_empty_instead_of_garbage(self, _name: str, content: str) -> None:
+        path = self._write_manifest(content)
+
+        assert _read_preload_manifest(path, include_authenticated_shell=True) == ("", (), "")

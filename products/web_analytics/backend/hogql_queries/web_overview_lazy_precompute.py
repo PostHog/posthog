@@ -16,7 +16,6 @@ from posthog.clickhouse.query_tagging import Feature, Product, tag_queries
 from products.analytics_platform.backend.lazy_computation.lazy_computation_executor import (
     LazyComputationResult,
     LazyComputationTable,
-    ensure_precomputed,
 )
 from products.web_analytics.backend.hogql_queries.web_analytics_lazy_precompute import (
     LAZY_TTL_SECONDS,
@@ -31,6 +30,7 @@ from products.web_analytics.backend.hogql_queries.web_analytics_lazy_precompute 
     test_account_filter_expr,
     user_filter_expr,
 )
+from products.web_analytics.backend.hogql_queries.web_lazy_precompute_common import web_ensure_precomputed
 
 _FAMILY = "web_overview"
 
@@ -116,7 +116,7 @@ def ensure_web_overview_precomputed(
         "pad_minutes": ast.Constant(value=SESSION_FORWARD_PAD_MINUTES),
     }
 
-    return ensure_precomputed(
+    return web_ensure_precomputed(
         team=runner.team,
         insert_query=INSERT_QUERY_TEMPLATE,
         time_range_start=time_range_start,
@@ -148,8 +148,9 @@ WHERE team_id = %(team_id)s AND job_id IN %(job_ids)s
 _READ_SETTINGS = {
     # Approach E from `products/analytics_platform/backend/lazy_computation/CONSISTENCY.md`:
     # both INSERT (via `_get_insert_settings`) and SELECT use `in_order` so they
-    # deterministically prefer the same replica. Combined with the global
-    # `distributed_foreground_insert=1`, the SELECT sees data the INSERT just wrote.
+    # deterministically prefer the same replica. Combined with the synchronous distributed
+    # insert (`insert_distributed_sync=1`, also set per-insert in `_get_insert_settings` so we
+    # don't depend on the cluster's global default), the SELECT sees data the INSERT just wrote.
     #
     # `select_sequential_consistency=1` was tried here and is documented broken in
     # CONSISTENCY.md when combined with `insert_quorum_parallel=1` (the default).

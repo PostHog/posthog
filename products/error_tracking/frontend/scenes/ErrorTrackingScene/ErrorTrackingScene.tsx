@@ -1,7 +1,7 @@
 import { BindLogic, useActions, useValues } from 'kea'
 import posthog from 'posthog-js'
 
-import { LemonBanner, LemonButton, LemonTab, LemonTabs, Link } from '@posthog/lemon-ui'
+import { LemonBadge, LemonBanner, LemonButton, LemonTab, LemonTabs, Link, Spinner } from '@posthog/lemon-ui'
 
 import api from 'lib/api'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
@@ -34,6 +34,7 @@ import { IssuesFilters } from './tabs/issues/IssuesFilters'
 import { IssuesList } from './tabs/issues/IssuesList'
 import { SourceMapsBanner } from './tabs/issues/SourceMapsBanner'
 import { RecommendationsTab } from './tabs/recommendations/RecommendationsTab'
+import { recommendationsTabLogic } from './tabs/recommendations/recommendationsTabLogic'
 
 const ERROR_TRACKING_ALERT_FILTER_GROUPS: CyclotronJobFiltersType[] = [
     { events: [{ id: '$error_tracking_issue_created', type: 'events' }] },
@@ -94,7 +95,7 @@ export function ErrorTrackingScene(): JSX.Element {
             ? [
                   {
                       key: 'recommendations' as const,
-                      label: 'Recommendations',
+                      label: <RecommendationsTabLabel />,
                       content: <RecommendationsTab />,
                   },
               ]
@@ -127,6 +128,21 @@ export function ErrorTrackingScene(): JSX.Element {
                 </BindLogic>
             </BindLogic>
         </StyleVariables>
+    )
+}
+
+const RecommendationsTabLabel = (): JSX.Element => {
+    const { activeRecommendations, recommendationsLoading } = useValues(recommendationsTabLogic)
+
+    return (
+        <span className="flex items-center gap-1.5">
+            Recommendations
+            {recommendationsLoading ? (
+                <LemonBadge size="small" content={<Spinner textColored />} />
+            ) : (
+                <LemonBadge.Number count={activeRecommendations.length} size="small" showZero />
+            )}
+        </span>
     )
 }
 

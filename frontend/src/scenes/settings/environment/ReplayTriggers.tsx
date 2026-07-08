@@ -1,6 +1,6 @@
 import { useActions, useValues } from 'kea'
 
-import { LemonBanner, LemonCollapse, LemonLabel, LemonTab, LemonTabs, Tooltip } from '@posthog/lemon-ui'
+import { LemonBanner, LemonCollapse, LemonDivider, LemonLabel, LemonTab, LemonTabs, Tooltip } from '@posthog/lemon-ui'
 
 import IngestionControls from 'lib/components/IngestionControls'
 import { IngestionControlsSummary } from 'lib/components/IngestionControls/Summary'
@@ -9,14 +9,19 @@ import { FeatureFlagTrigger, Trigger, TriggerType } from 'lib/components/Ingesti
 import { PayGateMini } from 'lib/components/PayGateMini/PayGateMini'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { pluralize } from 'lib/utils'
-import { ReplayPlatform, replayTriggersLogic } from 'scenes/settings/environment/replayTriggersLogic'
+import { humanFriendlyNumber } from 'lib/utils/numbers'
+import { pluralize } from 'lib/utils/strings'
+import {
+    ReplayPlatform,
+    replayTriggersLogic,
+    TRIGGER_GROUPS_MIN_SDK_VERSION,
+} from 'scenes/settings/environment/replayTriggersLogic'
 import { Since } from 'scenes/settings/environment/SessionRecordingSettings'
 import { teamLogic } from 'scenes/teamLogic'
 
 import { AccessControlResourceType, AvailableFeature, TeamPublicType, TeamType } from '~/types'
 
-export const TRIGGER_GROUPS_MIN_SDK_VERSION = '1.369.0'
+export { TRIGGER_GROUPS_MIN_SDK_VERSION }
 
 /** Convert the stored sample-rate string (decimal 0–1) to a display percentage (0–100). */
 function toDisplaySampleRate(rate: string | null | undefined): number {
@@ -33,13 +38,14 @@ function AnyWith100SamplingWarning({
     const { urlTriggerConfig, eventTriggerConfig } = useValues(replayTriggersLogic)
 
     const matchType = currentTeam?.session_recording_trigger_match_type_config || 'all'
-    const sampleRate = toDisplaySampleRate(currentTeam?.session_recording_sample_rate)
+    const storedSampleRate = currentTeam?.session_recording_sample_rate
+    const sampleRate = toDisplaySampleRate(storedSampleRate)
     const hasOtherCondition =
         (urlTriggerConfig?.length ?? 0) > 0 ||
         (eventTriggerConfig?.length ?? 0) > 0 ||
         !!currentTeam?.session_recording_linked_flag
 
-    if (matchType !== 'any' || sampleRate !== 100 || !hasOtherCondition) {
+    if (matchType !== 'any' || sampleRate !== 100 || storedSampleRate == null || !hasOtherCondition) {
         return null
     }
 
@@ -238,6 +244,8 @@ function Sampling(): JSX.Element {
     const { updateCurrentTeam } = useActions(teamLogic)
     const { currentTeam } = useValues(teamLogic)
 
+    const storedSampleRate = currentTeam?.session_recording_sample_rate
+
     return (
         <PayGateMini feature={AvailableFeature.SESSION_REPLAY_SAMPLING}>
             <div className="flex flex-col gap-2">
@@ -250,9 +258,10 @@ function Sampling(): JSX.Element {
                             ios={{ version: '3.42.0' }}
                             reactNative={{ version: '4.37.0' }}
                         />
+                        {storedSampleRate == null && <span className="text-muted font-normal"> (default)</span>}
                     </LemonLabel>
                     <IngestionControls.SamplingTrigger
-                        initialSampleRate={toDisplaySampleRate(currentTeam?.session_recording_sample_rate)}
+                        initialSampleRate={toDisplaySampleRate(storedSampleRate)}
                         onChange={(v) => updateCurrentTeam({ session_recording_sample_rate: v.toString() })}
                     />
                 </div>
@@ -265,7 +274,8 @@ function Sampling(): JSX.Element {
 function MobileSampling(): JSX.Element {
     const { currentTeam } = useValues(teamLogic)
 
-    const sampleRate = toDisplaySampleRate(currentTeam?.session_recording_sample_rate)
+    const storedSampleRate = currentTeam?.session_recording_sample_rate
+    const sampleRate = toDisplaySampleRate(storedSampleRate)
 
     return (
         <div className="flex flex-col gap-2">
@@ -279,11 +289,44 @@ function MobileSampling(): JSX.Element {
                     />
                 </LemonLabel>
                 <Tooltip title="Sample rate is shared across web and mobile. Change it on the Web tab.">
-                    <span className="text-muted font-semibold">{sampleRate}%</span>
+                    <span className="text-muted font-semibold">
+                        {sampleRate}%{storedSampleRate == null && <span className="font-normal"> (default)</span>}
+                    </span>
                 </Tooltip>
             </div>
             <p className="text-muted-alt">
                 Sample rate is shared across all platforms.{' '}
+                <span className="font-semibold">Change this setting on the Web tab.</span>
+            </p>
+        </div>
+    )
+}
+
+function MobileEventTriggers(): JSX.Element {
+    const { eventTriggerConfig } = useValues(replayTriggersLogic)
+
+    const eventCount = eventTriggerConfig?.length ?? 0
+
+    return (
+        <div className="flex flex-col gap-2">
+            <div className="flex flex-row items-center gap-2">
+                <LemonLabel className="text-base">
+                    Event emitted{' '}
+                    <Since
+                        ios={{ version: '3.48.0' }}
+                        android={{ version: '3.40.1' }}
+                        reactNative={{ version: '4.52.0' }}
+                        flutter={{ version: '5.25.0' }}
+                    />
+                </LemonLabel>
+                <Tooltip title="Event triggers are shared across web and mobile. Change them on the Web tab.">
+                    <span className="text-muted font-semibold">
+                        {eventCount > 0 ? pluralize(eventCount, 'event') : 'Not configured'}
+                    </span>
+                </Tooltip>
+            </div>
+            <p className="text-muted-alt">
+                Event triggers are shared across Web and Mobile.{' '}
                 <span className="font-semibold">Change this setting on the Web tab.</span>
             </p>
         </div>
@@ -304,6 +347,7 @@ function MobileMinimumDuration(): JSX.Element {
                     <Since
                         ios={{ version: '3.53.0' }}
                         android={{ version: '3.44.0' }}
+                        reactNative={{ version: '4.52.0' }}
                         flutter={{ version: '5.24.3' }}
                     />
                 </LemonLabel>
@@ -314,7 +358,7 @@ function MobileMinimumDuration(): JSX.Element {
                 </Tooltip>
             </div>
             <p className="text-muted-alt">
-                Minimum duration is shared across Web, iOS, Android, and Flutter.{' '}
+                Minimum duration is shared across Web and Mobile.{' '}
                 <span className="font-semibold">Change this setting on the Web tab.</span>
             </p>
         </div>
@@ -377,13 +421,137 @@ function useHeaderStatuses(currentTeam: TeamType | TeamPublicType | null): {
     }
 }
 
-export function ReplayTriggers(): JSX.Element {
+function LegacyRecordingConditions(): JSX.Element {
     const { selectedPlatform } = useValues(replayTriggersLogic)
+    const { currentTeam } = useValues(teamLogic)
+    const { featureFlags } = useValues(featureFlagLogic)
+    const statuses = useHeaderStatuses(currentTeam)
+
+    const isV2TriggersEnabled = featureFlags[FEATURE_FLAGS.REPLAY_TRIGGERS_V2]
+
+    return (
+        <>
+            {currentTeam && <RecordingTriggersSummary currentTeam={currentTeam} selectedPlatform={selectedPlatform} />}
+
+            <IngestionControls.MatchTypeSelect />
+
+            <AnyWith100SamplingWarning currentTeam={currentTeam} isV2TriggersEnabled={!!isV2TriggersEnabled} />
+
+            <div>
+                <h3 className="text-sm font-semibold mb-2">Recording conditions</h3>
+                <LemonCollapse
+                    multiple
+                    panels={[
+                        {
+                            key: 'url',
+                            header: <TriggerPanelHeader title="URL matches" status={statuses.urlStatus} showMatchTag />,
+                            content: <UrlTriggerOptions />,
+                        },
+                        {
+                            key: 'event',
+                            header: (
+                                <TriggerPanelHeader title="Event emitted" status={statuses.eventStatus} showMatchTag />
+                            ),
+                            content: <EventTriggerOptions />,
+                        },
+                        {
+                            key: 'flag',
+                            header: (
+                                <TriggerPanelHeader title="Feature flag" status={statuses.flagStatus} showMatchTag />
+                            ),
+                            content: <LinkedFlagSelector />,
+                        },
+                    ]}
+                />
+            </div>
+
+            <div>
+                <h3 className="text-sm font-semibold mb-2">Recording limits</h3>
+                <LemonCollapse
+                    multiple
+                    panels={[
+                        {
+                            key: 'sampling',
+                            header: (
+                                <TriggerPanelHeader title="Sampling" status={statuses.samplingStatus} showMatchTag />
+                            ),
+                            content: <Sampling />,
+                        },
+                        {
+                            key: 'min-duration',
+                            header: <TriggerPanelHeader title="Minimum duration" status={statuses.minDurationStatus} />,
+                            content: <MinimumDurationSetting />,
+                        },
+                    ]}
+                />
+            </div>
+
+            <div>
+                <h3 className="text-base font-semibold mb-2">
+                    Recording exclusions <Since web={{ version: '1.171.0' }} />
+                </h3>
+                <LemonCollapse
+                    multiple
+                    panels={[
+                        {
+                            key: 'blocklist',
+                            header: <TriggerPanelHeader title="URL blocklist" status={statuses.blocklistStatus} />,
+                            content: <UrlBlocklistOptions />,
+                        },
+                    ]}
+                />
+            </div>
+        </>
+    )
+}
+
+function SdkCompatibilityBanner(): JSX.Element {
+    const { shouldMinimizeLegacyConditions, hasOutdatedWebSdk, outdatedWebTraffic } = useValues(replayTriggersLogic)
+
+    if (shouldMinimizeLegacyConditions) {
+        return (
+            <LemonBanner type="success">
+                Your recent web SDK traffic is effectively all on v{TRIGGER_GROUPS_MIN_SDK_VERSION}+, so trigger groups
+                apply to essentially every session. The legacy recording conditions below are kept only as a fallback
+                for older SDKs.
+            </LemonBanner>
+        )
+    }
+
+    if (hasOutdatedWebSdk) {
+        const pct = outdatedWebTraffic.share < 0.01 ? '<1' : Math.round(outdatedWebTraffic.share * 100).toString()
+        return (
+            <LemonBanner type="info">
+                About <strong>{pct}%</strong> of recent web traffic (
+                {humanFriendlyNumber(outdatedWebTraffic.outdatedCount)}{' '}
+                {pluralize(outdatedWebTraffic.outdatedCount, 'event', 'events', false)}) is on a posthog-js before v
+                {TRIGGER_GROUPS_MIN_SDK_VERSION}. Those sessions still record using the legacy recording conditions
+                below — upgrade to v{TRIGGER_GROUPS_MIN_SDK_VERSION}+ for full trigger-group coverage. Both
+                configurations are sent meanwhile, so nothing is lost.
+            </LemonBanner>
+        )
+    }
+
+    return (
+        <LemonBanner type="warning">
+            <strong>JavaScript SDK version compatibility</strong>
+            <ul className="list-disc ml-4 mt-2 space-y-1">
+                <li>
+                    SDK versions &gt;= v{TRIGGER_GROUPS_MIN_SDK_VERSION} use trigger groups if configured, otherwise
+                    fall back to the legacy recording conditions
+                </li>
+                <li>Both configurations are sent to ensure backward compatibility with all JavaScript SDK versions</li>
+            </ul>
+        </LemonBanner>
+    )
+}
+
+export function ReplayTriggers(): JSX.Element {
+    const { selectedPlatform, shouldMinimizeLegacyConditions } = useValues(replayTriggersLogic)
     const { selectPlatform } = useActions(replayTriggersLogic)
     const { updateCurrentTeam } = useActions(teamLogic)
     const { currentTeam } = useValues(teamLogic)
     const { featureFlags } = useValues(featureFlagLogic)
-    const statuses = useHeaderStatuses(currentTeam)
 
     const isV2TriggersEnabled = featureFlags[FEATURE_FLAGS.REPLAY_TRIGGERS_V2]
 
@@ -395,127 +563,49 @@ export function ReplayTriggers(): JSX.Element {
                 <div className="flex flex-col gap-y-4">
                     {isV2TriggersEnabled && (
                         <>
-                            <LemonBanner type="warning">
-                                <strong>JavaScript SDK version compatibility</strong>
-                                <ul className="list-disc ml-4 mt-2 space-y-1">
-                                    <li>
-                                        SDK versions &gt;= v{TRIGGER_GROUPS_MIN_SDK_VERSION} use trigger groups if
-                                        configured, otherwise fall back to the legacy recording conditions
-                                    </li>
-                                    <li>
-                                        Both configurations are sent to ensure backward compatibility with all
-                                        JavaScript SDK versions
-                                    </li>
-                                </ul>
-                            </LemonBanner>
+                            <SdkCompatibilityBanner />
 
                             <TriggerGroupsEditor />
-
-                            <h3 className="text-base font-semibold">Legacy recording conditions</h3>
-                            <LemonBanner type="warning">
-                                Used by SDK versions &lt; v{TRIGGER_GROUPS_MIN_SDK_VERSION} and as fallback for newer
-                                versions if trigger groups are not configured.
-                            </LemonBanner>
                         </>
                     )}
 
-                    {currentTeam && (
-                        <RecordingTriggersSummary currentTeam={currentTeam} selectedPlatform={selectedPlatform} />
+                    {isV2TriggersEnabled && (
+                        <div className="mt-2">
+                            <LemonDivider className="mb-4" />
+                            <h3 className="text-base font-semibold mb-1">Legacy recording conditions</h3>
+                        </div>
                     )}
 
-                    <IngestionControls.MatchTypeSelect />
-
-                    <AnyWith100SamplingWarning currentTeam={currentTeam} isV2TriggersEnabled={!!isV2TriggersEnabled} />
-
-                    <div>
-                        <h3 className="text-sm font-semibold mb-2">Recording conditions</h3>
+                    {isV2TriggersEnabled && shouldMinimizeLegacyConditions ? (
                         <LemonCollapse
-                            multiple
                             panels={[
                                 {
-                                    key: 'url',
+                                    key: 'legacy-recording-conditions',
                                     header: (
-                                        <TriggerPanelHeader
-                                            title="URL matches"
-                                            status={statuses.urlStatus}
-                                            showMatchTag
-                                        />
+                                        <span className="text-muted text-sm font-normal">
+                                            Hidden because your web SDKs (v{TRIGGER_GROUPS_MIN_SDK_VERSION}+) use
+                                            trigger groups. Expand to configure fallbacks for older SDK versions.
+                                        </span>
                                     ),
-                                    content: <UrlTriggerOptions />,
-                                },
-                                {
-                                    key: 'event',
-                                    header: (
-                                        <TriggerPanelHeader
-                                            title="Event emitted"
-                                            status={statuses.eventStatus}
-                                            showMatchTag
-                                        />
+                                    content: (
+                                        <div className="flex flex-col gap-y-4 pt-2">
+                                            <LegacyRecordingConditions />
+                                        </div>
                                     ),
-                                    content: <EventTriggerOptions />,
-                                },
-                                {
-                                    key: 'flag',
-                                    header: (
-                                        <TriggerPanelHeader
-                                            title="Feature flag"
-                                            status={statuses.flagStatus}
-                                            showMatchTag
-                                        />
-                                    ),
-                                    content: <LinkedFlagSelector />,
                                 },
                             ]}
                         />
-                    </div>
-
-                    <div>
-                        <h3 className="text-sm font-semibold mb-2">Recording limits</h3>
-                        <LemonCollapse
-                            multiple
-                            panels={[
-                                {
-                                    key: 'sampling',
-                                    header: (
-                                        <TriggerPanelHeader
-                                            title="Sampling"
-                                            status={statuses.samplingStatus}
-                                            showMatchTag
-                                        />
-                                    ),
-                                    content: <Sampling />,
-                                },
-                                {
-                                    key: 'min-duration',
-                                    header: (
-                                        <TriggerPanelHeader
-                                            title="Minimum duration"
-                                            status={statuses.minDurationStatus}
-                                        />
-                                    ),
-                                    content: <MinimumDurationSetting />,
-                                },
-                            ]}
-                        />
-                    </div>
-
-                    <div>
-                        <h3 className="text-base font-semibold mb-2">
-                            Recording exclusions <Since web={{ version: '1.171.0' }} />
-                        </h3>
-                        <LemonCollapse
-                            multiple
-                            panels={[
-                                {
-                                    key: 'blocklist',
-                                    header: (
-                                        <TriggerPanelHeader title="URL blocklist" status={statuses.blocklistStatus} />
-                                    ),
-                                    content: <UrlBlocklistOptions />,
-                                },
-                            ]}
-                        />
-                    </div>
+                    ) : (
+                        <>
+                            {isV2TriggersEnabled && (
+                                <LemonBanner type="warning">
+                                    Used by SDK versions &lt; v{TRIGGER_GROUPS_MIN_SDK_VERSION} and as fallback for
+                                    newer versions if trigger groups are not configured.
+                                </LemonBanner>
+                            )}
+                            <LegacyRecordingConditions />
+                        </>
+                    )}
                 </div>
             ),
         },
@@ -528,6 +618,7 @@ export function ReplayTriggers(): JSX.Element {
                         <RecordingTriggersSummary currentTeam={currentTeam} selectedPlatform={selectedPlatform} />
                     )}
                     <IngestionControls.MatchTypeSelect lockedToAllReason="Mobile only supports trigger matching of type 'all'." />
+                    <MobileEventTriggers />
                     <LinkedFlagSelector />
                     <MobileSampling />
                     <MobileMinimumDuration />
@@ -632,6 +723,11 @@ const useTriggers = (currentTeam: TeamType | TeamPublicType, selectedPlatform: '
     }
 
     return [
+        {
+            type: TriggerType.EVENT,
+            enabled: hasEventTriggers,
+            events: eventTriggerConfig,
+        },
         flagTrigger,
         {
             type: TriggerType.SAMPLING,

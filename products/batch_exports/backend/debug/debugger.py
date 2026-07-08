@@ -291,7 +291,7 @@ class BatchExportsDebugger:
         order_by: str = "last_updated_at",
         descending: bool = True,
         offset: int = 0,
-    ) -> collections.abc.Generator[BatchExportRun, None, None]:
+    ) -> collections.abc.Generator[BatchExportRun]:
         """Iterate over batch export runs."""
         batch_export = self.batch_export
         sign = "-" if descending else ""
@@ -341,7 +341,7 @@ class BatchExportsDebugger:
 
     def iter_run_record_batches_from_s3(
         self, batch_export_run: BatchExportRun
-    ) -> collections.abc.Generator[pa.RecordBatch, None, None]:
+    ) -> collections.abc.Generator[pa.RecordBatch]:
         folder = get_base_s3_staging_folder(
             batch_export_run.parent.id,
             batch_export_run.data_interval_start.isoformat() if batch_export_run.data_interval_start else None,
@@ -389,7 +389,7 @@ class BatchExportsDebugger:
     def iter_run_record_batches_from_clickhouse(
         self,
         batch_export_run: BatchExportRun,
-    ) -> collections.abc.Generator[pa.RecordBatch, None, None]:
+    ) -> collections.abc.Generator[pa.RecordBatch]:
         team_id = batch_export_run.parent.team.id
         full_range = (batch_export_run.data_interval_start, batch_export_run.data_interval_end)
         parameters = {"team_id": team_id, "interval_end": full_range[1].strftime("%Y-%m-%d %H:%M:%S.%f")}

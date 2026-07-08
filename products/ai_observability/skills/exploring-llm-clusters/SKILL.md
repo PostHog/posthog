@@ -21,16 +21,17 @@ comparing cluster behavior, and drilling into individual clusters.
 
 ## How clustering works
 
-PostHog clusters LLM traces (or individual generations) by embedding similarity.
+PostHog clusters LLM traces, individual generations, or evaluation events by embedding similarity.
 A Temporal workflow runs periodically or on-demand, producing cluster events stored as
-`$ai_trace_clusters` (trace-level) or `$ai_generation_clusters` (generation-level).
+`$ai_trace_clusters` (trace-level), `$ai_generation_clusters` (generation-level), or
+`$ai_evaluation_clusters` (evaluation-level).
 
 Each cluster event contains:
 
 - `$ai_clustering_run_id` — unique run identifier (format: `<team_id>_<level>_<YYYYMMDD>_<HHMMSS>[_<job_id>]`)
-- `$ai_clustering_level` — `"trace"` or `"generation"`
+- `$ai_clustering_level` — `"trace"`, `"generation"`, or `"evaluation"`
 - `$ai_window_start` / `$ai_window_end` — time window analyzed
-- `$ai_total_items_analyzed` — number of traces/generations processed
+- `$ai_total_items_analyzed` — number of traces, generations, or evaluations processed
 - `$ai_clusters` — JSON array of cluster objects
 - `$ai_clustering_params` — algorithm parameters used
 
@@ -59,20 +60,20 @@ Each cluster event contains:
 ```
 
 - `cluster_id: -1` is the **noise/outlier** cluster (items that didn't fit any cluster)
-- Items in `traces` are keyed by trace ID (trace-level) or generation event UUID (generation-level)
+- Items in `traces` are keyed by trace ID (trace-level), generation event UUID (generation-level), or evaluation event UUID (evaluation-level)
 - `rank` orders items by proximity to centroid (0 = closest)
 - `x`, `y` are 2D coordinates for visualization (UMAP/PCA/t-SNE reduced)
 
 ## Clustering jobs
 
-Each team can have up to 5 clustering jobs. A job defines:
+Each team can have up to 10 clustering jobs. A job defines:
 
 - **name** — human-readable label
-- **analysis_level** — `"trace"` or `"generation"`
-- **event_filters** — property filters scoping which traces are included
+- **analysis_level** — `"trace"`, `"generation"`, or `"evaluation"`
+- **event_filters** — property filters scoping which items are included
 - **enabled** — whether the job runs on schedule
 
-Default jobs named `"Default - trace"` and `"Default - generation"` are auto-created
+Default jobs named `"Default - traces"`, `"Default - generations"`, and `"Default - evaluations"` are auto-created
 and disabled when a custom job is created for the same level.
 
 ## Workflow: explore clusters
@@ -82,15 +83,17 @@ and disabled when a custom job is created for the same level.
 ```sql
 posthog:execute-sql
 SELECT
-    JSONExtractString(properties, '$ai_clustering_run_id') as run_id,
-    JSONExtractString(properties, '$ai_clustering_level') as level,
-    JSONExtractString(properties, '$ai_window_start') as window_start,
-    JSONExtractString(properties, '$ai_window_end') as window_end,
-    JSONExtractInt(properties, '$ai_total_items_analyzed') as total_items,
+    toString(properties.$ai_clustering_run_id) AS run_id,
+    toString(properties.$ai_clustering_level) AS level,
+    toString(properties.$ai_clustering_job_id) AS job_id,
+    toString(properties.$ai_clustering_job_name) AS job_name,
+    toString(properties.$ai_window_start) AS window_start,
+    toString(properties.$ai_window_end) AS window_end,
+    toFloat64OrNull(toString(properties.$ai_total_items_analyzed)) AS total_items,
     timestamp
 FROM events
-WHERE event IN ('$ai_trace_clusters', '$ai_generation_clusters')
-    AND timestamp >= now() - INTERVAL 7 DAY
+WHERE event IN ('$ai_trace_clusters', '$ai_generation_clusters', '$ai_evaluation_clusters')
+    AND timestamp >= now() - INTERVAL 14 DAY
 ORDER BY timestamp DESC
 LIMIT 10
 ```
@@ -100,24 +103,28 @@ LIMIT 10
 ```sql
 posthog:execute-sql
 SELECT
-    JSONExtractString(properties, '$ai_clustering_run_id') as run_id,
-    JSONExtractString(properties, '$ai_clustering_level') as level,
-    JSONExtractString(properties, '$ai_clustering_job_id') as job_id,
-    JSONExtractString(properties, '$ai_clustering_job_name') as job_name,
-    JSONExtractString(properties, '$ai_window_start') as window_start,
-    JSONExtractString(properties, '$ai_window_end') as window_end,
-    JSONExtractInt(properties, '$ai_total_items_analyzed') as total_items,
-    JSONExtractRaw(properties, '$ai_clusters') as clusters,
-    JSONExtractRaw(properties, '$ai_clustering_params') as params
+    toString(properties.$ai_clustering_run_id) AS run_id,
+    toString(properties.$ai_clustering_level) AS level,
+    toString(properties.$ai_clustering_job_id) AS job_id,
+    toString(properties.$ai_clustering_job_name) AS job_name,
+    toString(properties.$ai_window_start) AS window_start,
+    toString(properties.$ai_window_end) AS window_end,
+    toFloat64OrNull(toString(properties.$ai_total_items_analyzed)) AS total_items,
+    properties.$ai_clusters AS clusters,
+    properties.$ai_clustering_params AS params,
+    timestamp
 FROM events
-WHERE event IN ('$ai_trace_clusters', '$ai_generation_clusters')
-    AND JSONExtractString(properties, '$ai_clustering_run_id') = '<run_id>'
+WHERE event IN ('$ai_trace_clusters', '$ai_generation_clusters', '$ai_evaluation_clusters')
+    AND timestamp >= parseDateTimeBestEffort('<window_start>')
+    AND timestamp <= parseDateTimeBestEffort('<window_end>')
+    AND toString(properties.$ai_clustering_run_id) = '<run_id>'
+ORDER BY timestamp DESC
 LIMIT 1
 ```
 
-The `clusters` field is a JSON array. Parse it to see cluster titles, sizes, and descriptions.
+The `clusters` field is a JSON array. Parse it to see cluster titles, sizes, descriptions, optional `metrics`, and each cluster's `traces` map.
 
-**Important:** The clusters JSON can be very large (thousands of trace IDs with coordinates).
+**Important:** The clusters JSON can be very large (thousands of trace, generation, or evaluation IDs with coordinates).
 When the result is too large for inline display, it auto-persists to a file.
 Use `print_clusters.py` from [scripts/](./scripts/) to get a readable summary.
 
@@ -128,7 +135,7 @@ For trace-level clusters, compute cost/latency/token metrics:
 ```sql
 posthog:execute-sql
 SELECT
-    JSONExtractString(properties, '$ai_trace_id') as trace_id,
+    properties.$ai_trace_id as trace_id,
     sum(toFloat(properties.$ai_total_cost_usd)) as total_cost,
     max(toFloat(properties.$ai_latency)) as latency,
     sum(toInt(properties.$ai_input_tokens)) as input_tokens,
@@ -138,7 +145,7 @@ FROM events
 WHERE event IN ('$ai_generation', '$ai_embedding', '$ai_span')
     AND timestamp >= parseDateTimeBestEffort('<window_start>')
     AND timestamp <= parseDateTimeBestEffort('<window_end>')
-    AND JSONExtractString(properties, '$ai_trace_id') IN ('<trace_id_1>', '<trace_id_2>', ...)
+    AND properties.$ai_trace_id IN ('<trace_id_1>', '<trace_id_2>', ...)
 GROUP BY trace_id
 ```
 
@@ -157,7 +164,27 @@ FROM events
 WHERE event = '$ai_generation'
     AND timestamp >= parseDateTimeBestEffort('<window_start>')
     AND timestamp <= parseDateTimeBestEffort('<window_end>')
-    AND toString(uuid) IN ('<gen_uuid_1>', '<gen_uuid_2>', ...)
+    AND uuid IN ('<gen_uuid_1>', '<gen_uuid_2>', ...)
+```
+
+For evaluation-level clusters, first check each cluster's `metrics` field from `$ai_clusters` (for example pass rate, N/A rate, dominant evaluator name, and average judge cost). When you need individual evaluation rows, match by event UUID:
+
+```sql
+posthog:execute-sql
+SELECT
+    toString(uuid) AS evaluation_id,
+    toString(properties.$ai_trace_id) AS trace_id,
+    toString(properties.$ai_target_event_id) AS generation_id,
+    toString(properties.$ai_evaluation_name) AS evaluation_name,
+    toString(properties.$ai_evaluation_result) AS evaluation_result,
+    toString(properties.$ai_evaluation_reasoning) AS evaluation_reasoning,
+    toFloatOrNull(toString(properties.$ai_total_cost_usd)) AS judge_cost,
+    timestamp
+FROM events
+WHERE event = '$ai_evaluation'
+    AND timestamp >= parseDateTimeBestEffort('<window_start>')
+    AND timestamp <= parseDateTimeBestEffort('<window_end>')
+    AND uuid IN ('<eval_uuid_1>', '<eval_uuid_2>', ...)
 ```
 
 ### Step 4 — Drill into specific traces
@@ -171,6 +198,33 @@ posthog:query-llm-trace
   "dateRange": {"date_from": "<window_start>", "date_to": "<window_end>"}
 }
 ```
+
+### When you need message content
+
+Use `events` for cluster events, IDs, cost/latency/token metrics, and evaluation rows.
+Do **not** query `events.properties.$ai_input`, `$ai_output`, or `$ai_output_choices` when you need user messages or full model inputs/outputs —
+those heavy fields live on `posthog.ai_events`.
+
+For a few representative examples, prefer `query-llm-trace`; it reads `posthog.ai_events` for you and returns the full event tree.
+For batch extraction, first get the trace IDs from the cluster, then query `posthog.ai_events` anchored on `trace_id`:
+
+```sql
+posthog:execute-sql
+SELECT
+    trace_id,
+    timestamp,
+    span_id,
+    event,
+    model,
+    input,
+    output_choices
+FROM posthog.ai_events
+WHERE trace_id IN ('<trace_id_1>', '<trace_id_2>', ...)
+ORDER BY trace_id, timestamp
+```
+
+`posthog.ai_events` has a shorter retention window than `events`; older clusters may still have metadata and metrics but no message content.
+For more detail, use the exploring LLM traces skill's [event reference](../exploring-llm-traces/references/events-and-properties.md).
 
 ## Investigation patterns
 
@@ -226,4 +280,5 @@ Always surface these links so the user can verify visually in the PostHog UI.
 - The noise cluster (`cluster_id: -1`) contains outliers that didn't fit any pattern
 - Use `llma-clustering-job-list` to understand what clustering configs are active
 - Trace IDs in clusters can be used directly with `query-llm-trace` for deep inspection
+- Message content lives on `posthog.ai_events`, not `events.properties`; use `query-llm-trace` unless you need custom batch SQL
 - For large clusters, inspect the top-ranked traces (closest to centroid) for representative examples

@@ -7,9 +7,9 @@ import pytest
 import modal
 from asgiref.sync import async_to_sync
 
-from products.tasks.backend.services.sandbox import Sandbox, SandboxConfig, SandboxTemplate
-from products.tasks.backend.stream.redis_stream import TaskRunRedisStream, get_task_run_stream_key
-from products.tasks.backend.temporal.exceptions import SandboxNotFoundError
+from products.tasks.backend.exceptions import SandboxNotFoundError
+from products.tasks.backend.logic.services.sandbox import Sandbox, SandboxConfig, SandboxTemplate
+from products.tasks.backend.logic.stream.redis_stream import TaskRunRedisStream, get_task_run_stream_key
 from products.tasks.backend.temporal.process_task.activities.cleanup_sandbox import CleanupSandboxInput, cleanup_sandbox
 
 
@@ -82,7 +82,7 @@ def test_cleanup_sandbox_completes_stream_when_requested(activity_environment, m
 
     sandbox.execute.assert_not_called()
     sandbox.destroy.assert_called_once_with()
-    publish_complete.assert_called_once_with("run-123")
+    publish_complete.assert_called_once_with("run-123", False)
 
 
 @pytest.mark.django_db
@@ -134,7 +134,7 @@ def test_cleanup_sandbox_completes_stream_when_sandbox_is_already_gone(activity_
         ),
     )
 
-    publish_complete.assert_called_once_with("run-123")
+    publish_complete.assert_called_once_with("run-123", False)
 
 
 @pytest.mark.skipif(

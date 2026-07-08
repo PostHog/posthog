@@ -15,6 +15,7 @@ import {
     buildLogsAlertFilterConfig,
     groupLogsAlertDestinations,
     LOGS_ALERT_NOTIFICATION_TYPE_SLACK,
+    LOGS_ALERT_NOTIFICATION_TYPE_TEAMS,
     LOGS_ALERT_NOTIFICATION_TYPE_WEBHOOK,
     LogsAlertDestinationGroup,
     LogsAlertNotificationType,
@@ -23,6 +24,7 @@ import {
 
 export const LOGS_ALERT_NOTIFICATION_TYPE_OPTIONS = [
     { label: 'Slack', value: LOGS_ALERT_NOTIFICATION_TYPE_SLACK },
+    { label: 'Microsoft Teams', value: LOGS_ALERT_NOTIFICATION_TYPE_TEAMS },
     { label: 'Webhook', value: LOGS_ALERT_NOTIFICATION_TYPE_WEBHOOK },
 ]
 
@@ -162,7 +164,7 @@ export const logsAlertNotificationLogic = kea<logsAlertNotificationLogicType>([
                                   slack_channel_name: notification.slackChannelName,
                               }
                             : {
-                                  type: LOGS_ALERT_NOTIFICATION_TYPE_WEBHOOK,
+                                  type: notification.type,
                                   webhook_url: notification.webhookUrl,
                               }
                     return logsAlertsDestinationsCreate(projectId, alertId, payload)

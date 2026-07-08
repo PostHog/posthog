@@ -71,7 +71,7 @@ export function NotebookCompactTable({ result, metric }: NotebookCompactTablePro
     ]
 
     const dataSource: TableRow[] = [
-        ...(result.baseline ? [{ ...result.baseline, key: 'control', isBaseline: true } as TableRow] : []),
+        ...(result.baseline ? [{ ...result.baseline, isBaseline: true } as TableRow] : []),
         ...(result.variant_results?.map((v) => ({ ...v, isBaseline: false }) as TableRow) || []),
     ]
 

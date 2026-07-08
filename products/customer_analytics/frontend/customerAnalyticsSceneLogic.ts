@@ -1,11 +1,10 @@
 import { actions, connect, kea, path, reducers, selectors } from 'kea'
-import { router } from 'kea-router'
+import { router, urlToAction } from 'kea-router'
 
 import { FunnelLayout } from 'lib/constants'
-import { tabAwareActionToUrl } from 'lib/logic/scenes/tabAwareActionToUrl'
-import { tabAwareScene } from 'lib/logic/scenes/tabAwareScene'
-import { tabAwareUrlToAction } from 'lib/logic/scenes/tabAwareUrlToAction'
-import { capitalizeFirstLetter, getDefaultInterval, wordPluralize } from 'lib/utils'
+import { trackedActionToUrl } from 'lib/logic/scenes/trackedActionToUrl'
+import { getDefaultInterval } from 'lib/utils/dateFilters'
+import { capitalizeFirstLetter, wordPluralize } from 'lib/utils/strings'
 import { sceneConfigurations } from 'scenes/scenes'
 import { Scene } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
@@ -41,10 +40,6 @@ import { customerAnalyticsConfigLogic } from './customerAnalyticsConfigLogic'
 import type { customerAnalyticsSceneLogicType } from './customerAnalyticsSceneLogicType'
 
 export type BusinessType = 'b2c' | 'b2b'
-
-export interface CustomerAnalyticsSceneLogicProps {
-    tabId: string
-}
 
 export interface InsightDefinition {
     name: string
@@ -84,7 +79,6 @@ const setQueryParams = (params: Record<string, string>): string => {
 
 export const customerAnalyticsSceneLogic = kea<customerAnalyticsSceneLogicType>([
     path(['scenes', 'customerAnalytics', 'customerAnalyticsScene']),
-    tabAwareScene(),
     connect(() => ({
         values: [
             customerAnalyticsConfigLogic,
@@ -107,6 +101,10 @@ export const customerAnalyticsSceneLogic = kea<customerAnalyticsSceneLogicType>(
         setBusinessType: (businessType: BusinessType) => ({ businessType }),
         setSelectedGroupType: (selectedGroupType: number) => ({ selectedGroupType }),
         setFilterTestAccounts: (filterTestAccounts: boolean) => ({ filterTestAccounts }),
+        // Shared "My accounts" (assigned-to-me) toggle backing the checkbox on both the
+        // Accounts and Notes tabs. Held here (not per-tab) so the choice persists as the
+        // user switches between them.
+        setMineOnly: (mineOnly: boolean) => ({ mineOnly }),
     }),
     reducers(() => ({
         dateFilter: [
@@ -141,20 +139,26 @@ export const customerAnalyticsSceneLogic = kea<customerAnalyticsSceneLogicType>(
                 setFilterTestAccounts: (_, { filterTestAccounts }) => filterTestAccounts,
             },
         ],
+        mineOnly: [
+            false,
+            persistConfig,
+            {
+                setMineOnly: (_, { mineOnly }) => mineOnly,
+            },
+        ],
     })),
     selectors({
-        tabId: [
-            () => [(_, props: CustomerAnalyticsSceneLogicProps) => props.tabId],
-            (tabIdProp: string): string => tabIdProp,
-        ],
         activeTab: [
             (s) => [s.sceneKey],
-            (sceneKey): 'dashboard' | 'journeys' | 'accounts' => {
+            (sceneKey): 'dashboard' | 'journeys' | 'accounts' | 'notes' => {
                 if (sceneKey === 'customerAnalyticsJourneys') {
                     return 'journeys'
                 }
                 if (sceneKey === 'customerAnalyticsAccounts') {
                     return 'accounts'
+                }
+                if (sceneKey === 'customerAnalyticsNotes') {
+                    return 'notes'
                 }
                 return 'dashboard'
             },
@@ -904,13 +908,13 @@ export const customerAnalyticsSceneLogic = kea<customerAnalyticsSceneLogicType>(
             ],
         ],
     }),
-    tabAwareActionToUrl(() => ({
+    trackedActionToUrl(() => ({
         setDates: ({ dateFrom, dateTo }): string =>
             setQueryParams({ date_from: dateFrom ?? '', date_to: dateTo ?? '' }),
         setFilterTestAccounts: ({ filterTestAccounts }): string =>
             setQueryParams({ filter_test_accounts: String(filterTestAccounts) }),
     })),
-    tabAwareUrlToAction(({ actions, values }) => ({
+    urlToAction(({ actions, values }) => ({
         '*': (_, { date_from, date_to, filter_test_accounts }) => {
             if (
                 (date_from && date_from !== values.dateFilter.dateFrom) ||

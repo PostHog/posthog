@@ -26,4 +26,4 @@ def init_callbacks() -> None:
     callbacks.append(RateLimitCallback())
     callbacks.append(PrometheusCallback())
 
-    litellm.callbacks = callbacks  # ty: ignore[invalid-assignment]
+    litellm.callbacks = callbacks

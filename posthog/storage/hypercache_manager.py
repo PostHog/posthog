@@ -57,7 +57,7 @@ CACHE_SIZE_SAMPLE_LIMIT = 1000
 HYPERCACHE_SIGNAL_UPDATE_COUNTER = Counter(
     "posthog_hypercache_signal_updates",
     "Cache updates triggered by Django signals",
-    labelnames=["namespace", "operation", "result"],
+    labelnames=["namespace", "cache_name", "operation", "result"],
 )
 
 
@@ -201,6 +201,19 @@ class HyperCacheManagementConfig:
     # Takes a list of team IDs, returns a set of team IDs that should skip fixes.
     # Called once per batch for efficiency (avoids N+1 queries).
     get_team_ids_to_skip_fix_fn: Callable[[list[int]], set[int]] | None = None
+
+    # When True, a full cache_miss is repaired even for a team in the grace period.
+    # Only set for caches with no read-through DB fallback, where a miss is a hard
+    # user-facing failure (the Rust /flags/definitions endpoint 503s). Read-through
+    # caches (flags, team_metadata) cold-load on miss, so they keep the grace-period
+    # skip as an optimization and leave this False.
+    repair_miss_during_grace_period: bool = False
+
+    # Optional write guard: given (key, payload), returns True to skip the write. Used
+    # to veto caching an emptied group_type_mapping over populated data when personhog
+    # lags. Applied by the verifier's direct db_data write and the self-heal drain; a
+    # veto is neither a fix nor a failure. `update_fn` paths already guard internally.
+    should_skip_write: Callable[[Any, dict], bool] | None = None
 
     # Derived properties (computed from required properties using conventions)
     @property

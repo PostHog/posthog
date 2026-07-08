@@ -19,13 +19,13 @@ from __future__ import annotations
 import re
 import json
 import textwrap
+import warnings
 import subprocess
 from dataclasses import dataclass, field
 from pathlib import Path
 
 from .ast_helpers import (
     find_direct_orm_queries,
-    get_cross_product_internal_imports,
     get_frozen_dataclass_names,
     get_model_names,
     get_orm_bound_serializer_names,
@@ -33,6 +33,13 @@ from .ast_helpers import (
     has_any_function_defs,
     imports_any,
     view_facade_usage,
+)
+from .isolation import (
+    IsolationStatus,
+    compute_isolation_status,
+    has_legacy_interface_leaks,
+    has_tach_interface,
+    presentation_bypass_entries,
 )
 from .paths import PRODUCTS_DIR, REPO_ROOT, TACH_TOML, find_views_path, get_tach_block
 from .product_yaml import load_all_product_yamls, load_product_yaml
@@ -111,6 +118,8 @@ class ProductScore:
     display_name: str = ""
     owners: list[str] = field(default_factory=list)
     dimensions: list[DimensionScore] = field(default_factory=list)
+    # External-vs-internal seal synthesis. None for products with no backend.
+    isolation: IsolationStatus | None = None
 
     @property
     def overall(self) -> int | None:
@@ -369,7 +378,24 @@ def score_facade(backend_dir: Path) -> DimensionScore:
 # ---------------------------------------------------------------------------
 
 
-def score_presentation(backend_dir: Path) -> DimensionScore:
+def _format_bypass(entry: str) -> str:
+    """Make an import-linter ignore_imports entry readable as a per-view worklist item.
+
+    "products.x.backend.presentation.views.external -> products.x.backend.models"
+    becomes "presentation.views.external → backend.models".
+    """
+    sides = entry.split(" -> ")
+    if len(sides) != 2:
+        return entry
+
+    def strip(side: str) -> str:
+        m = re.match(r"products\.[^.]+\.backend\.(.+)", side.strip())
+        return m.group(1) if m else side.strip()
+
+    return f"{strip(sides[0])} → backend.{strip(sides[1])}"
+
+
+def score_presentation(name: str, backend_dir: Path, pyproject_text: str | None = None) -> DimensionScore:
     """Views through facade, serializers on contracts.
 
     Points breakdown (100 total):
@@ -377,6 +403,11 @@ def score_presentation(backend_dir: Path) -> DimensionScore:
       views use facade:                           25
       no direct ORM in views:                     25
       serializers not ORM-bound:                  25
+
+    The "views use facade" 25 is decided by import-linter ground truth when the
+    product is isolated: any open presentation-wave bypass means presentation still
+    reaches internals directly, so the points are withheld regardless of what the
+    AST heuristic sees. The deferral list doubles as the per-view worklist.
     """
     views_path, correct_location = find_views_path(backend_dir)
 
@@ -419,7 +450,19 @@ def score_presentation(backend_dir: Path) -> DimensionScore:
     facade_api = backend_dir / "facade" / "api.py"
     real_facade = facade_api.exists() and has_any_function_defs(facade_api)
 
-    if uses_facade and real_facade:
+    # Ground truth wins over the AST heuristic: each open import-linter deferral is a
+    # view that still bypasses the facade, so the product is not internally sealed.
+    bypass_entries = presentation_bypass_entries(name, pyproject_text)
+
+    if bypass_entries:
+        parts.append(f"{len(bypass_entries)} facade bypass(es)")
+        next_steps.append(
+            "Presentation still reaches internals directly. Thin each view below to "
+            "parse → facade → serialize, then delete its line from the import-linter "
+            "ignore_imports TODO section in pyproject.toml — that empties the internal seal."
+        )
+        evidence.append(("facade bypasses (import-linter deferrals)", [_format_bypass(e) for e in bypass_entries]))
+    elif uses_facade and real_facade:
         score += 25
         parts.append("uses facade")
     elif uses_facade:
@@ -483,13 +526,18 @@ def score_presentation(backend_dir: Path) -> DimensionScore:
 # ---------------------------------------------------------------------------
 
 
-def _build_inbound_violation_map() -> dict[str, list[str]] | None:
-    """Build a map of product_name -> inbound violation locations for ALL products.
+def _build_cross_import_maps() -> tuple[dict[str, list[str]], dict[str, list[str]]] | None:
+    """One rg pass over the repo, distributed into inbound and outbound maps.
 
-    Single rg pass across the repo, then distributes results. Much faster than
-    running rg per-product. Each value is a list of `relpath:line module` strings
-    so callers can show concrete evidence. Returns None if the scan fails (rg
-    missing or timeout).
+    Both halves care about the same thing — `import products.<x>.backend.<…>` lines —
+    so they share a single scan instead of re-walking every product's files per product.
+
+      inbound[target]  = external code (core or another product) importing that product's
+                         non-facade internals — the real isolation failure.
+      outbound[source] = that product's own files importing ANOTHER product's internals.
+
+    Each value is a list of `relpath:line  module` strings for evidence. Returns None if
+    rg is unavailable or times out.
     """
     try:
         result = subprocess.run(
@@ -501,7 +549,8 @@ def _build_inbound_violation_map() -> dict[str, list[str]] | None:
     except (subprocess.TimeoutExpired, FileNotFoundError):
         return None
 
-    locations: dict[str, list[str]] = {}
+    inbound: dict[str, list[str]] = {}
+    outbound: dict[str, list[str]] = {}
     for line in result.stdout.strip().split("\n"):
         if not line:
             continue
@@ -516,47 +565,53 @@ def _build_inbound_violation_map() -> dict[str, list[str]] | None:
         line_num = line[colon_idx + 1 : colon2_idx]
         import_text = line[colon2_idx + 1 :].strip()
 
-        # Extract which product is being imported (handles both from/import style)
+        # Which product is being imported? (handles both from/import style)
         match = re.search(r"products\.(\w+)\.backend\.\w+", import_text)
         if not match:
             continue
-        product_name = match.group(1)
-
-        # Skip files inside the product itself
-        if f"products/{product_name}/" in file_path:
-            continue
-        if "/migrations/" in file_path:
-            continue
-        # Django admin's project-wide registry has to import each product's
-        # admin classes and the models they reference — there's no facade
-        # equivalent for `admin.site.register`.
-        if "/posthog/admin/" in file_path or file_path.startswith("posthog/admin/"):
-            continue
-        if ".backend.facade" in import_text:
-            continue
-        if ".backend.presentation" in import_text:
-            continue
+        imported = match.group(1)
+        module = match.group(0)
 
         try:
             rel_path = str(Path(file_path).relative_to(REPO_ROOT))
         except ValueError:
             rel_path = file_path
-        locations.setdefault(product_name, []).append(f"{rel_path}:{line_num}  {match.group(0)}")
+        evidence = f"{rel_path}:{line_num}  {module}"
 
-    return locations
+        # Which product owns the importing file? Empty when it lives in core (ee/, posthog/).
+        src = re.match(r"products/(\w+)/", rel_path)
+        source = src.group(1) if src else ""
+
+        is_facade = ".backend.facade" in import_text
+        is_presentation = ".backend.presentation" in import_text
+
+        # inbound: someone outside `imported` reaching past its facade/presentation surface.
+        # Django admin's project-wide registry must import each product's admin classes and
+        # the models they reference — there's no facade equivalent for `admin.site.register`.
+        in_admin = "/posthog/admin/" in file_path or rel_path.startswith("posthog/admin/")
+        if (
+            source != imported
+            and not is_facade
+            and not is_presentation
+            and "/migrations/" not in file_path
+            and not in_admin
+        ):
+            inbound.setdefault(imported, []).append(evidence)
+
+        # outbound: `source` reaching into another product's non-facade internals.
+        if source and source != imported and not is_facade:
+            outbound.setdefault(source, []).append(evidence)
+
+    return inbound, outbound
 
 
-def _inbound_violations(name: str, inbound_map: dict[str, list[str]] | None = None) -> list[str] | None:
-    """Return inbound violation locations for a single product. None means scan failed."""
-    if inbound_map is not None:
-        return inbound_map.get(name, [])
-    built = _build_inbound_violation_map()
-    if built is None:
-        return None
-    return built.get(name, [])
-
-
-def score_boundaries(name: str, product_dir: Path, inbound_map: dict[str, list[str]] | None = None) -> DimensionScore:
+def score_boundaries(
+    name: str,
+    product_dir: Path,
+    inbound_map: dict[str, list[str]] | None = None,
+    outbound_map: dict[str, list[str]] | None = None,
+    tach_content: str | None = None,
+) -> DimensionScore:
     """Tach interfaces + cross-product import hygiene.
 
     Points breakdown (100 total):
@@ -569,6 +624,8 @@ def score_boundaries(name: str, product_dir: Path, inbound_map: dict[str, list[s
     if not _has_python_files(product_dir):
         return DimensionScore("boundaries", 0, "no Python files", applicable=False)
 
+    content = tach_content if tach_content is not None else (TACH_TOML.read_text() if TACH_TOML.exists() else "")
+
     score = 0
     parts = []
     next_steps: list[str] = []
@@ -579,18 +636,7 @@ def score_boundaries(name: str, product_dir: Path, inbound_map: dict[str, list[s
     block = get_tach_block(module_path)
 
     if block:
-        has_inline_interfaces = "interfaces" in block and "interfaces = []" not in block
-        has_global_interfaces = False
-        if not has_inline_interfaces:
-            tach_content = TACH_TOML.read_text() if TACH_TOML.exists() else ""
-            has_global_interfaces = bool(
-                re.search(
-                    rf"\[\[interfaces\]\].*?from\s*=\s*\[.*?{re.escape(name)}",
-                    tach_content,
-                    re.DOTALL,
-                )
-            )
-        if has_inline_interfaces or has_global_interfaces:
+        if has_tach_interface(name, content):
             score += 10
             parts.append("tach + interfaces")
         else:
@@ -624,8 +670,14 @@ def score_boundaries(name: str, product_dir: Path, inbound_map: dict[str, list[s
         )
 
     # Outbound: this product importing other products' internals
-    outbound = get_cross_product_internal_imports(product_dir, name)
-    if not outbound:
+    outbound = outbound_map.get(name, []) if outbound_map is not None else None
+    if outbound is None:
+        parts.append("outbound scan failed")
+        next_steps.append(
+            "Outbound scan failed — `rg` is missing or timed out. Install ripgrep and re-run "
+            "`hogli product:maturity` for an accurate outbound count."
+        )
+    elif not outbound:
         score += 15
         parts.append("outbound clean")
     else:
@@ -635,10 +687,10 @@ def score_boundaries(name: str, product_dir: Path, inbound_map: dict[str, list[s
             f"Replace the {len(outbound)} outbound import(s) of other products' internals listed "
             f"below with calls to those products' facades."
         )
-        evidence.append(("outbound violations", outbound))
+        evidence.append(("outbound violations", _cap(outbound, 25)))
 
     # Inbound: other code importing this product's non-facade internals
-    inbound = _inbound_violations(name, inbound_map)
+    inbound = inbound_map.get(name, []) if inbound_map is not None else None
     if inbound is None:
         parts.append("inbound scan failed")
         next_steps.append(
@@ -659,6 +711,19 @@ def score_boundaries(name: str, product_dir: Path, inbound_map: dict[str, list[s
         )
         # Cap evidence so the report doesn't explode for products with hundreds of violations
         evidence.append(("inbound violations", _cap(inbound, 25)))
+
+    # A declared legacy-leak interface (e.g. backend.admin exposed to core) is an external
+    # bypass the inbound scan deliberately exempts. Without docking it here, a leaky product
+    # still scores a near-perfect boundary while the seal capstone says the boundary is open.
+    if has_legacy_interface_leaks(content, module_path):
+        score -= min(score, 30)
+        parts.append("legacy interface leak")
+        next_steps.append(
+            "A dedicated legacy-leak [[interfaces]] block exposes non-facade internals to core "
+            "(e.g. backend.admin). The external boundary stays open until that coupling is removed "
+            "or accepted as permanent; contract-check stays off either way."
+        )
+        evidence.append(("legacy interface leak", [f"{module_path}: non-facade surface exposed to core in tach.toml"]))
 
     skills = ["/isolating-product-facade-contracts"] if next_steps else []
     return DimensionScore(
@@ -747,11 +812,28 @@ def score_product(
     *,
     assigned_counts: dict[str, int] | None = None,
     inbound_map: dict[str, list[str]] | None = None,
+    outbound_map: dict[str, list[str]] | None = None,
+    maps_resolved: bool = False,
+    tach_content: str | None = None,
+    pyproject_text: str | None = None,
     product_yamls: dict[str, dict] | None = None,
 ) -> ProductScore:
-    """Compute all dimension scores for a single product."""
+    """Compute all dimension scores for a single product.
+
+    `tach_content`/`pyproject_text` let the --all caller read those repo files once and
+    thread them in; a single-product run leaves them None and the helpers read on demand.
+
+    The --all caller scans cross-product imports once and passes the maps with
+    `maps_resolved=True` (a map may be None, meaning the scan failed — boundaries scoring
+    then shows "scan failed" rather than awarding clean points). A single-product run
+    leaves it False, so the scan runs once here.
+    """
     if assigned_counts is None:
         assigned_counts = _load_model_assignments()
+
+    if not maps_resolved:
+        built = _build_cross_import_maps()
+        inbound_map, outbound_map = built if built is not None else (None, None)
 
     meta = (product_yamls or {}).get(name) or load_product_yaml(name)
     product_dir = PRODUCTS_DIR / name
@@ -768,10 +850,14 @@ def score_product(
     ps.dimensions = [
         score_models(name, backend_dir, assigned_counts),
         score_facade(backend_dir),
-        score_presentation(backend_dir),
-        score_boundaries(name, product_dir, inbound_map),
+        score_presentation(name, backend_dir, pyproject_text),
+        score_boundaries(name, product_dir, inbound_map, outbound_map, tach_content),
         score_codegen(product_dir),
     ]
+    if backend_dir.exists():
+        ps.isolation = compute_isolation_status(
+            name, product_dir, backend_dir, tach_content=tach_content, pyproject_text=pyproject_text
+        )
     return ps
 
 
@@ -785,15 +871,29 @@ def score_all_products() -> list[ProductScore]:
 
     assigned_counts = _load_model_assignments()
     product_yamls = load_all_product_yamls()
-    inbound_map = _build_inbound_violation_map()
-    if inbound_map is None:
-        import warnings
-
-        warnings.warn("inbound violation scan failed (rg unavailable or timeout)", stacklevel=2)
-        inbound_map = {}
+    # Read the two repo-level files once and thread them through, instead of letting each
+    # of the ~65 products re-read and re-parse them inside the per-product scorers.
+    tach_content = TACH_TOML.read_text() if TACH_TOML.exists() else ""
+    pyproject_path = REPO_ROOT / "pyproject.toml"
+    pyproject_text = pyproject_path.read_text() if pyproject_path.exists() else ""
+    maps = _build_cross_import_maps()
+    if maps is None:
+        warnings.warn("cross-product import scan failed (rg unavailable or timeout)", stacklevel=2)
+    # On failure both maps stay None, so boundaries scoring reports "scan failed" instead of
+    # awarding clean points — and the scan is not re-run per product.
+    inbound_map, outbound_map = maps if maps is not None else (None, None)
 
     scores = [
-        score_product(name, assigned_counts=assigned_counts, inbound_map=inbound_map, product_yamls=product_yamls)
+        score_product(
+            name,
+            assigned_counts=assigned_counts,
+            inbound_map=inbound_map,
+            outbound_map=outbound_map,
+            maps_resolved=True,
+            tach_content=tach_content,
+            pyproject_text=pyproject_text,
+            product_yamls=product_yamls,
+        )
         for name in product_dirs
     ]
     scores.sort(key=lambda s: s.overall or -1, reverse=True)
@@ -837,6 +937,89 @@ def _dim_line(dim: DimensionScore, connector: str = "\u251c\u2500") -> str:
     return f"  {connector} {dim.name:14s}  {dim.score:3d}  {_bar(dim.score)}  {dim.detail}"
 
 
+def _isolated_tests_state(status: IsolationStatus) -> tuple[str, str]:
+    """(state, reason) for the isolated-tests certificate \u2014 the contract-check skip."""
+    if status.isolated_tests_enabled:
+        return "ON", "contract-check skip live \u2014 Django suite stays off unrelated CI shards"
+    # Eligibility deliberately excludes the tach interface (see IsolationStatus), but the skip
+    # is unsound without the external boundary, so READY also requires it.
+    if status.eligible_for_isolated_tests and status.externally_sealed:
+        missing = []
+        if not status.has_contract_check_script:
+            missing.append("add backend:contract-check")
+        if not status.has_narrowed_turbo:
+            missing.append("narrow turbo.json inputs")
+        return "READY", f"{' + '.join(missing)} to turn the skip on"
+    blockers: list[str] = []
+    if not status.is_isolated:
+        blockers.append("add a facade (contracts.py + api.py)")
+    elif not status.has_real_facade:
+        blockers.append("make facade/api.py real (define functions, not re-exports)")
+    if status.has_legacy_leaks:
+        blockers.append("remove the legacy interface leak block from tach.toml")
+    if status.deferred_count > 0:
+        blockers.append(f"empty the {status.deferred_count} presentation bypass(es)")
+    if not status.has_tach_interface:
+        blockers.append("add the tach [[interfaces]] block")
+    return "OFF", "; ".join(blockers) if blockers else "prerequisites incomplete"
+
+
+def _isolation_capstone(status: IsolationStatus) -> list[str]:
+    """Render the external-vs-internal seal synthesis: the headline an agent acts on.
+
+    Maps the two seals onto the isolated-tests certificate. The boundary protects
+    external consumers (tach); the seal stops the product's own presentation bypassing
+    its facade (import-linter). Both done + a real facade earns the contract-check skip.
+    """
+    if status.externally_sealed:
+        ext_state, ext_detail = "sealed", "tach [[interfaces]] on, no legacy leaks"
+    elif not status.has_tach_interface:
+        ext_state, ext_detail = "open", "no tach [[interfaces]] block \u2014 external code can reach internals"
+    else:
+        ext_state, ext_detail = "open", "legacy interface leak block present \u2014 core still imports internals"
+
+    if not status.is_isolated:
+        int_state, int_detail = "n/a", "no facade yet \u2014 product not isolated"
+    elif status.internally_sealed:
+        int_state, int_detail = "sealed", "presentation reaches internals only through the facade"
+    else:
+        int_state, int_detail = (
+            f"{status.deferred_count} open",
+            "presentation still reaches internals directly (see presentation dimension)",
+        )
+
+    tests_state, tests_detail = _isolated_tests_state(status)
+
+    rows = [
+        ("external boundary", ext_state, ext_detail),
+        ("internal seal", int_state, int_detail),
+        ("isolated tests", tests_state, tests_detail),
+    ]
+    lines = ["  isolation seal"]
+    for label, state, detail in rows:
+        lines.append(f"    {label:18s}  {state:10s}  {detail}")
+    return lines
+
+
+SEAL_LEGEND = "seal: on=tests live  ready=eligible, not wired  int:N=N internal bypasses open  ext\u2717=external boundary open  \u2014=not isolated"
+
+
+def _seal_token(status: IsolationStatus | None) -> str:
+    """Compact seal state for the --all grid. Each token names the remaining blocker."""
+    if status is None or not status.is_isolated:
+        return "\u2014"
+    if status.isolated_tests_enabled:
+        return "on"
+    if not status.externally_sealed:
+        return "ext\u2717"
+    if status.deferred_count > 0:
+        # externally sealed but internally unsealed \u2014 looks done, isn't
+        return f"int:{status.deferred_count}"
+    if status.eligible_for_isolated_tests:
+        return "ready"
+    return "partial"
+
+
 def generate_report(scores: list[ProductScore]) -> str:
     """Generate a heatmap grid report for all products."""
     lines: list[str] = []
@@ -863,15 +1046,17 @@ def generate_report(scores: list[ProductScore]) -> str:
     name_w = max(max_name, 20)
 
     # Header
+    lines.append(SEAL_LEGEND)
+    lines.append("")
     dim_header = "  ".join(f"{_DIM_SHORT[d]:>{_MINI_WIDTH}s}" for d in _DIM_ORDER)
-    lines.append(f"{'':>{name_w}s}  score  {dim_header}")
+    lines.append(f"{'':>{name_w}s}  score  {dim_header}  seal")
     lines.append("")
 
     # Rows
     for ps in scored:
         dim_map = ps.dimension_map
         mini_bars = "  ".join(_mini_bar(dim_map[d]) if d in dim_map else "\u00b7" * _MINI_WIDTH for d in _DIM_ORDER)
-        lines.append(f"{ps.product:>{name_w}s}  {ps.overall:>3d}    {mini_bars}")
+        lines.append(f"{ps.product:>{name_w}s}  {ps.overall:>3d}    {mini_bars}  {_seal_token(ps.isolation)}")
 
     # Owner rollup
     owner_scores: dict[str, list[int]] = {}
@@ -906,6 +1091,10 @@ def generate_detail(ps: ProductScore) -> str:
     owner_str = f" ({', '.join(ps.owners)})" if ps.owners else ""
     lines.append(f"{name}{owner_str}  {score_str}")
     lines.append("")
+
+    if ps.isolation is not None:
+        lines.extend(_isolation_capstone(ps.isolation))
+        lines.append("")
 
     applicable = list(ps.dimensions)
     target_line_width = 100

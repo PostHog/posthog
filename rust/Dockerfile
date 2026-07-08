@@ -17,7 +17,17 @@ FROM base AS builder
 WORKDIR /app
 ARG BIN
 ARG BUILD_FEATURES=""
-ENV PROTO_ROOT=../proto
+ARG SCCACHE_WEBDAV_KEY_PREFIX
+# Extra compiler flags for specific images, set per-image in
+# .github/rust-images.yml. Cymbal opts into frame pointers and unwind tables so
+# the profiler can walk Rust and native dependency stacks on aarch64.
+# Guarded RUSTFLAGS exports below because the RUSTFLAGS env var replaces
+# [build].rustflags from .cargo/config.toml entirely (no merging): when extra
+# flags are set the export re-adds --cfg tokio_unstable, and when unset
+# RUSTFLAGS stays unset so .cargo/config.toml keeps applying.
+ARG EXTRA_RUSTFLAGS=""
+ARG EXTRA_CFLAGS=""
+ENV PROTO_ROOT=../proto SCCACHE_WEBDAV_KEY_PREFIX=${SCCACHE_WEBDAV_KEY_PREFIX}
 
 # Ensure working C compile setup (not installed by default in arm64 images)
 # libclang-dev is required for bindgen (used by librocksdb-sys)
@@ -29,6 +39,8 @@ RUN --mount=type=cache,target=/usr/local/cargo/registry,sharing=locked \
     --mount=type=cache,target=/usr/local/cargo/git,sharing=locked \
     --mount=type=cache,target=$SCCACHE_DIR,sharing=locked \
     SCCACHE_NO_DAEMON=1 SCCACHE_START_SERVER=1 sccache 2>&1 & \
+    if [ -n "$EXTRA_RUSTFLAGS" ]; then export RUSTFLAGS="--cfg tokio_unstable $EXTRA_RUSTFLAGS"; fi && \
+    if [ -n "$EXTRA_CFLAGS" ]; then export CFLAGS="$EXTRA_CFLAGS" CXXFLAGS="$EXTRA_CFLAGS" AWS_LC_SYS_CFLAGS="$EXTRA_CFLAGS"; fi && \
     cargo chef cook --release --recipe-path recipe.json --bin $BIN ${BUILD_FEATURES:+--features $BUILD_FEATURES} && \
     sccache --show-stats
 
@@ -43,6 +55,8 @@ RUN --mount=type=secret,id=SCCACHE_WEBDAV_ENDPOINT,required=false \
         export SCCACHE_WEBDAV_TOKEN=$(cat /run/secrets/SCCACHE_WEBDAV_TOKEN); \
     fi && \
     SCCACHE_NO_DAEMON=1 SCCACHE_START_SERVER=1 sccache 2>&1 & \
+    if [ -n "$EXTRA_RUSTFLAGS" ]; then export RUSTFLAGS="--cfg tokio_unstable $EXTRA_RUSTFLAGS"; fi && \
+    if [ -n "$EXTRA_CFLAGS" ]; then export CFLAGS="$EXTRA_CFLAGS" CXXFLAGS="$EXTRA_CFLAGS" AWS_LC_SYS_CFLAGS="$EXTRA_CFLAGS"; fi && \
     cargo build --release --bin $BIN ${BUILD_FEATURES:+--features $BUILD_FEATURES} && \
     sccache --show-stats
 

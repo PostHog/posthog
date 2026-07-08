@@ -9,13 +9,13 @@
  */
 /**
  * * `engineering` - Engineering
- * `data` - Data
- * `product` - Product Management
- * `founder` - Founder
- * `leadership` - Leadership
- * `marketing` - Marketing
- * `sales` - Sales / Success
- * `other` - Other
+ * * `data` - Data
+ * * `product` - Product Management
+ * * `founder` - Founder
+ * * `leadership` - Leadership
+ * * `marketing` - Marketing
+ * * `sales` - Sales / Success
+ * * `other` - Other
  */
 export type RoleAtOrganizationEnumApi = (typeof RoleAtOrganizationEnumApi)[keyof typeof RoleAtOrganizationEnumApi]
 
@@ -176,6 +176,8 @@ export interface EndpointResponseApi {
     columns: EndpointColumnApi[]
     /** Tag names associated with this endpoint. */
     tags: string[]
+    /** Breakdown property names that may be omitted on /run. Omitted ones return data aggregated across all values of that breakdown. */
+    optional_breakdown_properties: string[]
 }
 
 export interface PaginatedEndpointResponseListApi {
@@ -249,6 +251,11 @@ export interface EndpointRequestApi {
      * @nullable
      */
     tags?: string[] | null
+    /**
+     * Breakdown property names that may be omitted on /run. Omitted ones return data aggregated across all values of that breakdown. Defaults to [] — every breakdown variable is required.
+     * @nullable
+     */
+    optional_breakdown_properties?: string[] | null
 }
 
 /**
@@ -326,6 +333,8 @@ export interface EndpointVersionResponseApi {
     columns: EndpointColumnApi[]
     /** Tag names associated with this endpoint. */
     tags: string[]
+    /** Breakdown property names that may be omitted on /run. Omitted ones return data aggregated across all values of that breakdown. */
+    optional_breakdown_properties: string[]
     /** Version number. */
     version: number
     /** Version unique identifier (UUID). */
@@ -405,6 +414,11 @@ export interface PatchedEndpointRequestApi {
      * @nullable
      */
     tags?: string[] | null
+    /**
+     * Breakdown property names that may be omitted on /run. Omitted ones return data aggregated across all values of that breakdown. Defaults to [] — every breakdown variable is required.
+     * @nullable
+     */
+    optional_breakdown_properties?: string[] | null
 }
 
 /**
@@ -423,11 +437,71 @@ export interface MaterializationPreviewRequestApi {
 }
 
 /**
+ * Request body for the AI materialization-fix suggestion action.
+ */
+export interface EndpointMaterializationSuggestionRequestApi {
+    /**
+     * Endpoint version to suggest a fix for. Defaults to the latest version.
+     * @nullable
+     */
+    version?: number | null
+}
+
+/**
+ * * `ok` - ok
+ * * `cannot_fix` - cannot_fix
+ * * `invalid` - invalid
+ * * `model_error` - model_error
+ */
+export type SuggestionStatusEnumApi = (typeof SuggestionStatusEnumApi)[keyof typeof SuggestionStatusEnumApi]
+
+export const SuggestionStatusEnumApi = {
+    Ok: 'ok',
+    CannotFix: 'cannot_fix',
+    Invalid: 'invalid',
+    ModelError: 'model_error',
+} as const
+
+/**
+ * AI-suggested query rewrite that would make the endpoint materializable.
+ */
+export interface EndpointMaterializationSuggestionApi {
+    /** Outcome of the suggestion run: 'ok' — the suggested query passes the live materialization checks; 'cannot_fix' — no semantically equivalent rewrite exists; 'invalid' — a suggestion was produced but never passed validation (suggested_query carries the last attempt); 'model_error' — the model returned no usable response.
+     *
+     * * `ok` - ok
+     * * `cannot_fix` - cannot_fix
+     * * `invalid` - invalid
+     * * `model_error` - model_error */
+    suggestion_status: SuggestionStatusEnumApi
+    /**
+     * The complete rewritten SQL query, or null when no rewrite was produced.
+     * @nullable
+     */
+    suggested_query: string | null
+    /**
+     * User-facing explanation of what was changed and why, or why no fix exists.
+     * @nullable
+     */
+    explanation: string | null
+    /** How many suggest→validate rounds were used. */
+    attempts: number
+    /**
+     * Last validation failure when the suggestion did not pass the checks.
+     * @nullable
+     */
+    error: string | null
+    /** The materialization blocker that triggered the suggestion. */
+    original_reason: string
+}
+
+/**
  * Response from executing an endpoint query.
  */
 export interface EndpointRunResponseApi {
     /** URL-safe endpoint name that was executed. */
     name: string
+    /** Unique identifier for this execution. Use it to find the matching entry in the endpoint's logs. */
+    execution_id?: string
     /** Query result rows. Each row is a list of values matching the columns order. */
     results?: unknown[]
     /** Column names from the query SELECT clause. */
@@ -440,14 +514,14 @@ export interface EndpointRunResponseApi {
 
 /**
  * Variables to parameterize the endpoint query. The key is the variable name and the value is the variable value.
-
-For HogQL endpoints:   Keys must match a variable `code_name` defined in the query (referenced as `{variables.code_name}`).   Example: `{"event_name": "$pageview"}`
-
-For non-materialized insight endpoints (e.g. TrendsQuery):   - `date_from` and `date_to` are built-in variables that filter the date range.     Example: `{"date_from": "2024-01-01", "date_to": "2024-01-31"}`
-
-For materialized insight endpoints:   - Use the breakdown property name as the key to filter by breakdown value.     Example: `{"$browser": "Chrome"}`   - `date_from`/`date_to` are not supported on materialized insight endpoints.
-
-Unknown variable names will return a 400 error.
+ *
+ * For HogQL endpoints:   Keys must match a variable `code_name` defined in the query (referenced as `{variables.code_name}`).   Example: `{"event_name": "$pageview"}`
+ *
+ * For non-materialized insight endpoints (e.g. TrendsQuery):   - `date_from` and `date_to` are built-in variables that filter the date range.     Example: `{"date_from": "2024-01-01", "date_to": "2024-01-31"}`
+ *
+ * For materialized insight endpoints:   - Use the breakdown property name as the key to filter by breakdown value.     Example: `{"$browser": "Chrome"}`   - `date_from`/`date_to` are not supported on materialized insight endpoints.
+ *
+ * Unknown variable names will return a 400 error.
  */
 export type EndpointRunRequestApiVariables = { [key: string]: unknown } | null
 
@@ -500,6 +574,19 @@ export interface BreakdownFilterApi {
     breakdown_type?: BreakdownTypeApi | null
     breakdowns?: BreakdownApi[] | null
 }
+
+export type IntervalTypeApi = (typeof IntervalTypeApi)[keyof typeof IntervalTypeApi]
+
+export const IntervalTypeApi = {
+    Second: 'second',
+    Minute: 'minute',
+    Hour: 'hour',
+    Day: 'day',
+    Week: 'week',
+    Month: 'month',
+    Quarter: 'quarter',
+    Year: 'year',
+} as const
 
 export type PropertyOperatorApi = (typeof PropertyOperatorApi)[keyof typeof PropertyOperatorApi]
 
@@ -555,6 +642,15 @@ export interface PersonPropertyFilterApi {
     operator: PropertyOperatorApi
     /** Person properties */
     type?: 'person'
+    value?: (string | number | boolean)[] | string | number | boolean | null
+}
+
+export interface PersonMetadataPropertyFilterApi {
+    key: string
+    label?: string | null
+    operator: PropertyOperatorApi
+    /** Top-level columns on the persons table (e.g. created_at), not properties JSON */
+    type?: 'person_metadata'
     value?: (string | number | boolean)[] | string | number | boolean | null
 }
 
@@ -746,10 +842,15 @@ export interface DashboardFilterApi {
     date_from?: string | null
     date_to?: string | null
     explicitDate?: boolean | null
+    /** Tri-state test-account override. Null/absent = inherit; true = force on; false = force off. */
+    filterTestAccounts?: boolean | null
+    /** Time granularity forced onto every insight that supports one. Absent/null = inherit. */
+    interval?: IntervalTypeApi | null
     properties?:
         | (
               | EventPropertyFilterApi
               | PersonPropertyFilterApi
+              | PersonMetadataPropertyFilterApi
               | ElementPropertyFilterApi
               | EventMetadataPropertyFilterApi
               | SessionPropertyFilterApi
@@ -792,14 +893,14 @@ export interface EndpointRunRequestApi {
     offset?: number | null
     refresh?: EndpointRefreshModeApi | null
     /** Variables to parameterize the endpoint query. The key is the variable name and the value is the variable value.
-
-  For HogQL endpoints:   Keys must match a variable `code_name` defined in the query (referenced as `{variables.code_name}`).   Example: `{"event_name": "$pageview"}`
-
-  For non-materialized insight endpoints (e.g. TrendsQuery):   - `date_from` and `date_to` are built-in variables that filter the date range.     Example: `{"date_from": "2024-01-01", "date_to": "2024-01-31"}`
-
-  For materialized insight endpoints:   - Use the breakdown property name as the key to filter by breakdown value.     Example: `{"$browser": "Chrome"}`   - `date_from`/`date_to` are not supported on materialized insight endpoints.
-
-  Unknown variable names will return a 400 error. */
+     *
+     * For HogQL endpoints:   Keys must match a variable `code_name` defined in the query (referenced as `{variables.code_name}`).   Example: `{"event_name": "$pageview"}`
+     *
+     * For non-materialized insight endpoints (e.g. TrendsQuery):   - `date_from` and `date_to` are built-in variables that filter the date range.     Example: `{"date_from": "2024-01-01", "date_to": "2024-01-31"}`
+     *
+     * For materialized insight endpoints:   - Use the breakdown property name as the key to filter by breakdown value.     Example: `{"$browser": "Chrome"}`   - `date_from`/`date_to` are not supported on materialized insight endpoints.
+     *
+     * Unknown variable names will return a 400 error. */
     variables?: EndpointRunRequestApiVariables
     /** Specific endpoint version to execute. If not provided, the latest version is used. */
     version?: number | null
@@ -855,6 +956,16 @@ export interface QueryStatusResponseApi {
     query_status: QueryStatusApi
 }
 
+/**
+ * The live materialization rules, for agents that want to rewrite a rejected query themselves.
+ */
+export interface EndpointMaterializationConditionsApi {
+    /** Python source code of the checks that decide whether an endpoint query can be materialized, read from the running system — always matches what this instance enforces. Reason from it to rewrite a rejected query into a form that passes every check. */
+    conditions_source: string
+    /** Hard rules a rewrite must obey so it stays semantically equivalent to the original query (same results for all variable values, keep every variable placeholder unchanged). */
+    rewrite_contract: string
+}
+
 export type EndpointsListParams = {
     created_by?: number
     is_active?: boolean
@@ -866,6 +977,38 @@ export type EndpointsListParams = {
      * The initial index from which to return the results.
      */
     offset?: number
+}
+
+export type EndpointsLogsRetrieveParams = {
+    /**
+     * Only return entries after this ISO 8601 timestamp.
+     */
+    after?: string
+    /**
+     * Only return entries before this ISO 8601 timestamp.
+     */
+    before?: string
+    /**
+     * Filter logs to a specific execution instance.
+     * @minLength 1
+     */
+    instance_id?: string
+    /**
+     * Comma-separated log levels to include, e.g. 'WARN,ERROR'. Valid levels: DEBUG, LOG, INFO, WARN, ERROR.
+     * @minLength 1
+     */
+    level?: string
+    /**
+     * Maximum number of log entries to return (1-500, default 50).
+     * @minimum 1
+     * @maximum 500
+     */
+    limit?: number
+    /**
+     * Case-insensitive substring search across log messages.
+     * @minLength 1
+     */
+    search?: string
 }
 
 export type EndpointsOpenapiSpecRetrieveParams = {

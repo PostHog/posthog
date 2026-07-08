@@ -1,15 +1,15 @@
-import { actions, afterMount, kea, key, listeners, path, props, reducers, selectors } from 'kea'
+import { actions, afterMount, kea, listeners, path, props, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
-import { router } from 'kea-router'
+import { router, urlToAction } from 'kea-router'
 
 import { Sorting } from 'lib/lemon-ui/LemonTable'
+import { objectsEqual } from 'lib/utils/objects'
+import { pluralize } from 'lib/utils/strings'
 
 import { ApiConfig } from '~/lib/api'
 import { lemonToast } from '~/lib/lemon-ui/LemonToast/LemonToast'
 import { PaginationManual } from '~/lib/lemon-ui/PaginationControl'
-import { tabAwareActionToUrl } from '~/lib/logic/scenes/tabAwareActionToUrl'
-import { tabAwareUrlToAction } from '~/lib/logic/scenes/tabAwareUrlToAction'
-import { objectsEqual, pluralize } from '~/lib/utils'
+import { trackedActionToUrl } from '~/lib/logic/scenes/trackedActionToUrl'
 import { urls } from '~/scenes/urls'
 
 import {
@@ -83,14 +83,11 @@ function getUrlFilters(filters: ScoreDefinitionFilters): Record<string, unknown>
     }
 }
 
-export interface AIObservabilityScoreDefinitionsLogicProps {
-    tabId?: string
-}
+export type AIObservabilityScoreDefinitionsLogicProps = Record<string, never>
 
 export const aiObservabilityScoreDefinitionsLogic = kea<aiObservabilityScoreDefinitionsLogicType>([
     path(['products', 'ai_observability', 'frontend', 'scoreDefinitions', 'aiObservabilityScoreDefinitionsLogic']),
     props({} as AIObservabilityScoreDefinitionsLogicProps),
-    key((props) => props.tabId ?? 'default'),
 
     actions({
         setFilters: (filters: Partial<ScoreDefinitionFilters>, merge: boolean = true, debounce: boolean = true) => ({
@@ -270,7 +267,7 @@ export const aiObservabilityScoreDefinitionsLogic = kea<aiObservabilityScoreDefi
         },
     })),
 
-    tabAwareActionToUrl(({ values }) => ({
+    trackedActionToUrl(({ values }) => ({
         setFilters: () => {
             const nextValues = { ...getUrlFilters(values.filters), human_reviews_tab: 'scorers' }
             const urlValues = {
@@ -279,12 +276,19 @@ export const aiObservabilityScoreDefinitionsLogic = kea<aiObservabilityScoreDefi
             }
 
             if (!objectsEqual(nextValues, urlValues)) {
-                return [urls.aiObservabilityReviews(), nextValues, {}, { replace: true }]
+                // This logic owns the bare params (search, page, ...) — pass everyone
+                // else's through (review_*, queue_*, shared filters) instead of stripping them.
+                return [
+                    urls.aiObservabilityReviews(),
+                    { ...router.values.searchParams, ...nextValues },
+                    {},
+                    { replace: true },
+                ]
             }
         },
     })),
 
-    tabAwareUrlToAction(({ actions, values }) => ({
+    urlToAction(({ actions, values }) => ({
         [urls.aiObservabilityReviews()]: (_, searchParams, __, { method }) => {
             const newFilters = cleanFilters(searchParams)
 

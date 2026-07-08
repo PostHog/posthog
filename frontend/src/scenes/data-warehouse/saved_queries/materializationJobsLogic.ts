@@ -1,10 +1,11 @@
-import { actions, afterMount, kea, key, listeners, path, props, propsChanged, reducers, selectors } from 'kea'
+import { actions, afterMount, connect, kea, key, listeners, path, props, propsChanged, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 
 import api, { PaginatedResponse } from 'lib/api'
 
 import { DataModelingJob, DataWarehouseSavedQuery } from '~/types'
 
+import { dataWarehouseViewsLogic } from './dataWarehouseViewsLogic'
 import type { materializationJobsLogicType } from './materializationJobsLogicType'
 
 const REFRESH_INTERVAL = 10000
@@ -18,6 +19,9 @@ export const materializationJobsLogic = kea<materializationJobsLogicType>([
     path(['scenes', 'data-warehouse', 'saved_queries', 'materializationJobsLogic']),
     props({} as MaterializationJobsLogicProps),
     key((props) => props.viewId),
+    connect(() => ({
+        actions: [dataWarehouseViewsLogic, ['updateDataWarehouseSavedQuerySuccess']],
+    })),
     actions({
         setStartingMaterialization: (starting: boolean) => ({ starting }),
     }),
@@ -96,7 +100,15 @@ export const materializationJobsLogic = kea<materializationJobsLogicType>([
             actions.loadSavedQuery()
         }
     }),
-    listeners(({ actions, cache }) => ({
+    listeners(({ actions, cache, props }) => ({
+        updateDataWarehouseSavedQuerySuccess: ({ payload }) => {
+            // The sync frequency dropdown mutates this saved query through dataWarehouseViewsLogic, which
+            // doesn't own our `savedQuery`. Reload it so the displayed frequency reflects the new value
+            // immediately instead of reverting until the next poll.
+            if (payload?.id === props.viewId) {
+                actions.loadSavedQuery()
+            }
+        },
         loadDataModelingJobsSuccess: () => {
             // Refresh saved query alongside jobs so latest_error / status / sync_frequency stay in sync.
             actions.loadSavedQuery()

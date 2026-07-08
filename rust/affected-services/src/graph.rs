@@ -45,18 +45,21 @@ struct TempWorktree {
 }
 
 impl TempWorktree {
-    fn create(base_ref: &str) -> Result<Self> {
+    fn create(base_ref: &str, sparse_paths: &[&str]) -> Result<Self> {
         let path = tempfile::Builder::new()
             .prefix("affected-services-")
             .tempdir()
             .context("failed to create temp directory")?
             .keep();
+        let path_s = path.to_string_lossy();
+
         let out = Command::new("git")
             .args([
                 "worktree",
                 "add",
                 "--detach",
-                &path.to_string_lossy(),
+                "--no-checkout",
+                path_s.as_ref(),
                 base_ref,
             ])
             .output()
@@ -66,6 +69,32 @@ impl TempWorktree {
             "git worktree add failed: {}",
             String::from_utf8_lossy(&out.stderr).trim()
         );
+
+        // Configure sparse checkout on the worktree so we only materialize
+        // the paths needed for cargo metadata, not the entire repo.
+        let mut sparse_args = vec!["sparse-checkout", "set", "--no-cone"];
+        sparse_args.extend_from_slice(sparse_paths);
+        let sparse_out = Command::new("git")
+            .args(["-C", path_s.as_ref()])
+            .args(&sparse_args)
+            .output()
+            .context("failed to configure sparse checkout on worktree")?;
+        anyhow::ensure!(
+            sparse_out.status.success(),
+            "git sparse-checkout set failed: {}",
+            String::from_utf8_lossy(&sparse_out.stderr).trim()
+        );
+
+        let checkout_out = Command::new("git")
+            .args(["-C", path_s.as_ref(), "checkout"])
+            .output()
+            .context("failed to checkout worktree")?;
+        anyhow::ensure!(
+            checkout_out.status.success(),
+            "git checkout in worktree failed: {}",
+            String::from_utf8_lossy(&checkout_out.stderr).trim()
+        );
+
         Ok(Self { path })
     }
 
@@ -88,7 +117,7 @@ impl Drop for TempWorktree {
 }
 
 pub fn build_old_package_graph(base_ref: &str, workspace_subdir: &str) -> Option<PackageGraph> {
-    let worktree = match TempWorktree::create(base_ref) {
+    let worktree = match TempWorktree::create(base_ref, &[workspace_subdir]) {
         Ok(w) => w,
         Err(e) => {
             eprintln!("warning: could not create worktree at {base_ref}: {e}");

@@ -35,7 +35,9 @@ procs:
             capability: pinned
 
     backend:
+        sandbox: true
         shell: 'bin/wait-for-docker && ./bin/start-backend'
+        autorestart: true
         ready_pattern: 'Listening at'
         groups:
             layer: Application
@@ -43,7 +45,9 @@ procs:
         # no capability: always_required via intent-map.yaml
 
     celery-worker:
+        sandbox: true
         shell: 'bin/wait-for-docker && ./bin/start-celery worker'
+        autorestart: true
         capability: celery_workers
         ready_pattern: 'celery@'
         groups:
@@ -51,7 +55,9 @@ procs:
             tech: Python
 
     celery-beat:
+        sandbox: true
         shell: 'bin/wait-for-docker && ./bin/start-celery beat'
+        autorestart: true
         capability: celery_scheduler
         ready_pattern: 'celery beat'
         groups:
@@ -59,6 +65,7 @@ procs:
             tech: Python
 
     nodejs:
+        sandbox: true
         shell: 'bin/wait-for-docker && ./bin/posthog-node'
         capability: event_ingestion
         ready_pattern: 'All systems go'
@@ -71,6 +78,7 @@ procs:
         # Example: NODEJS_CAPABILITY_GROUPS=cdp_workflows,session_replay
 
     ingestion-errortracking:
+        sandbox: true
         shell: 'bin/wait-for-docker && PLUGIN_SERVER_MODE=ingestion-errortracking HTTP_SERVER_PORT=6742 ./bin/posthog-node'
         capability: nodejs_error_tracking
         ready_pattern: 'All systems go'
@@ -79,6 +87,7 @@ procs:
             tech: Node
 
     ingestion-logs:
+        sandbox: true
         shell: 'bin/wait-for-docker && PLUGIN_SERVER_MODE=ingestion-logs HTTP_SERVER_PORT=6743 ./bin/posthog-node'
         capability: nodejs_logs
         ready_pattern: 'All systems go'
@@ -87,11 +96,16 @@ procs:
             tech: Node
 
     ingestion-metrics:
+        sandbox: true
         shell: 'bin/wait-for-docker && PLUGIN_SERVER_MODE=ingestion-metrics HTTP_SERVER_PORT=6744 ./bin/posthog-node'
         capability: nodejs_metrics
         ready_pattern: 'All systems go'
+        groups:
+            layer: Ingestion pipeline
+            tech: Node
 
     ingestion-traces:
+        sandbox: true
         shell: 'bin/wait-for-docker && PLUGIN_SERVER_MODE=ingestion-traces HTTP_SERVER_PORT=6745 ./bin/posthog-node'
         capability: nodejs_traces
         ready_pattern: 'All systems go'
@@ -100,6 +114,7 @@ procs:
             tech: Node
 
     ingestion:
+        sandbox: true
         shell: 'bin/wait-for-docker && PLUGIN_SERVER_MODE=ingestion-v2-combined HTTP_SERVER_PORT=6739 ./bin/posthog-node'
         capability: event_ingestion
         ready_pattern: 'All systems go'
@@ -108,6 +123,7 @@ procs:
             tech: Node
 
     ingestion-sessionreplay:
+        sandbox: true
         shell: 'bin/wait-for-docker && PLUGIN_SERVER_MODE=recordings-blob-ingestion-v2 HTTP_SERVER_PORT=6740 ./bin/posthog-node'
         capability: nodejs_session_replay
         ready_pattern: 'All systems go'
@@ -116,6 +132,7 @@ procs:
             tech: Node
 
     recording-api:
+        sandbox: true
         shell: 'bin/wait-for-docker && PLUGIN_SERVER_MODE=recording-api HTTP_SERVER_PORT=6741 ./bin/posthog-node'
         capability: nodejs_session_replay
         ready_pattern: 'All systems go'
@@ -124,6 +141,7 @@ procs:
             tech: Node
 
     frontend:
+        sandbox: true
         shell: './bin/start-frontend'
         autorestart: true
         ready_pattern: 'VITE.*ready in'
@@ -133,6 +151,7 @@ procs:
         # no capability: always_required via intent-map.yaml
 
     typegen:
+        sandbox: true
         shell: 'cd frontend && pnpm run typegen:watch'
         autostart: false
         ask_skip: true # wizard asks if user wants to skip this
@@ -142,6 +161,7 @@ procs:
             tech: Frontend
 
     temporal-worker:
+        sandbox: true
         shell: |-
             bin/wait-for-docker temporal && \
             bin/check_ducklake_up && \
@@ -157,6 +177,7 @@ procs:
             tech: Python
 
     webhook-s3-sink:
+        sandbox: true
         shell: |-
             bin/wait-for-docker && \
             python manage.py run_webhook_s3_sink --consumer-group dwh-webhook-sink-dev --health-port 8091
@@ -167,6 +188,7 @@ procs:
             tech: Python
 
     stripe-mock:
+        sandbox: true
         shell: 'bin/start-stripe-mock'
         capability: stripe_mock
         ready_pattern: 'Application startup complete'
@@ -184,13 +206,14 @@ procs:
             layer: Product services
             tech: Other
         env:
-            VIDEO_EXPORT_OBJECT_STORAGE_ENDPOINT: 'http://localhost:19000'
+            VIDEO_EXPORT_OBJECT_STORAGE_ENDPOINT: 'http://127.0.0.1:19000'
             VIDEO_EXPORT_OBJECT_STORAGE_REGION: 'us-east-1'
             AWS_ACCESS_KEY_ID: 'object_storage_root_user'
             AWS_SECRET_ACCESS_KEY: 'object_storage_root_password'
             SECRET_KEY: '<randomly generated secret key>'
 
     dagster:
+        sandbox: true
         shell: |-
             bin/wait-for-docker && \
             bin/check_ducklake_up && \
@@ -219,6 +242,53 @@ procs:
             layer: Processing
             tech: Rust
 
+    agent-ingress:
+        # Sources .env.local on restart for AGENT_INGRESS_PUBLIC_URL (bin/agent-tunnel
+        # writes it post-start); skips 1Password op:// refs.
+        shell: |-
+            bin/wait-for-docker && \
+            if [ -f .env.local ] && ! grep -q 'op://' .env.local; then \
+                set -a; . ./.env.local; set +a; \
+            fi && \
+            pnpm --filter @posthog/agent-ingress start:dev
+        capability: agent_runtime
+        ready_pattern: 'listening'
+        groups:
+            layer: Product services
+            tech: Node
+        # Dev: tee JSON logs to a tmp file a local agent can read. See
+        # products/agent_platform/AGENTS.md.
+        env:
+            AGENT_LOG_FILE: '/tmp/posthog-agent-logs/agent-ingress.log'
+
+    agent-runner:
+        shell: 'bin/wait-for-docker && pnpm --filter @posthog/agent-runner start:dev'
+        capability: agent_runtime
+        ready_pattern: 'starting worker loop'
+        groups:
+            layer: Processing
+            tech: Node
+        env:
+            AGENT_LOG_FILE: '/tmp/posthog-agent-logs/agent-runner.log'
+
+    agent-janitor:
+        shell: 'bin/wait-for-docker && pnpm --filter @posthog/agent-janitor start:dev'
+        capability: agent_runtime
+        ready_pattern: 'listening'
+        groups:
+            layer: Processing
+            tech: Node
+        env:
+            AGENT_LOG_FILE: '/tmp/posthog-agent-logs/agent-janitor.log'
+
+    ai-gateway:
+        shell: 'bin/wait-for-docker && bin/start-ai-gateway'
+        capability: ai_gateway
+        ready_pattern: 'listening on'
+        groups:
+            layer: Product services
+            tech: Go
+
     cymbal:
         shell: |-
             bin/wait-for-docker && \
@@ -235,6 +305,16 @@ procs:
             bin/start-rust-service cymbal-resolution
         capability: error_symbolication
         ready_pattern: 'gRPC server listening on *'
+        groups:
+            layer: Product services
+            tech: Rust
+
+    cymbal-notifications:
+        shell: |-
+            bin/wait-for-docker && \
+            bin/start-rust-service cymbal-notifications
+        capability: error_notifications
+        ready_pattern: 'Starting cymbal-notifications consumer'
         groups:
             layer: Product services
             tech: Rust
@@ -274,7 +354,7 @@ procs:
         shell: |-
             bin/wait-for-docker && \
             bin/start-rust-service hypercache-server
-        capability: hypercache
+        # no capability: always_required via intent-map.yaml
         ready_pattern: 'listening on *'
         groups:
             layer: Product services
@@ -345,6 +425,9 @@ procs:
             bin/wait-for-docker && \
             bin/start-rust-service capture-logs
         capability: logs_ingestion
+        groups:
+            layer: Ingestion pipeline
+            tech: Rust
 
     batch-import-worker:
         shell: |-
@@ -383,6 +466,9 @@ procs:
         capability: personhog
         ready_pattern: 'etcd init complete'
         autostart: true
+        groups:
+            layer: Product services
+            tech: Rust
 
     personhog-router-leader:
         shell: |-
@@ -390,6 +476,9 @@ procs:
             bin/start-rust-service personhog-router-leader
         capability: personhog
         ready_pattern: 'Metrics server listening on *'
+        groups:
+            layer: Product services
+            tech: Rust
 
     personhog-leader:
         shell: |-
@@ -407,21 +496,57 @@ procs:
             bin/start-rust-service personhog-writer
         capability: personhog
         ready_pattern: 'Metrics server listening on *'
+        groups:
+            layer: Product services
+            tech: Rust
+
+    # Behavioral Cohorts stream rebuild (Rust). The shuffler keys clickhouse_events_json into
+    # cohort_stream_events; the processor consumes that and emits membership changes. Opt-in
+    # (autostart: false).
+    cohort-event-shuffler:
+        shell: |-
+            bin/wait-for-docker && \
+            bin/start-rust-service cohort-event-shuffler
+        autostart: false
+        ready_pattern: 'observability server starting'
+        groups:
+            layer: Product services
+            tech: Rust
+
+    cohort-stream-processor:
+        shell: |-
+            bin/wait-for-docker && \
+            bin/start-rust-service cohort-stream-processor
+        autostart: false
+        ready_pattern: 'observability server starting'
+        groups:
+            layer: Product services
+            tech: Rust
 
     llm-gateway:
+        sandbox: true
         shell: 'bin/wait-for-docker && bin/start-llm-gateway'
         capability: llm_gateway
         ready_pattern: 'Application startup complete'
         groups:
             layer: Product services
-            tech: Python
+            tech: Go
         env:
             LLM_GATEWAY_DEBUG: 'true'
             LLM_GATEWAY_TEAM_RATE_LIMIT_MULTIPLIERS: '{"1": 10}'
             LLM_GATEWAY_POSTHOG_PROJECT_TOKEN: 'phc_localposthogprojecttoken'
             LLM_GATEWAY_POSTHOG_HOST: 'http://localhost:8010'
 
+    agent-proxy:
+        shell: 'bin/wait-for-docker --only redis7 && pnpm --filter @posthog/agent-proxy dev'
+        capability: agent_proxy
+        ready_pattern: 'server:started'
+        groups:
+            layer: Product services
+            tech: Node
+
     mcp:
+        sandbox: true
         shell: 'bin/start-mcp-server'
         capability: mcp_server
         ready_pattern: 'Server started on'
@@ -430,6 +555,7 @@ procs:
             tech: Node
 
     mcp-ui-apps:
+        sandbox: true
         shell: 'cd services/mcp && pnpm run build:ui-apps -- --watch'
         capability: mcp_server
         ready_pattern: 'Initial build complete'
@@ -438,6 +564,7 @@ procs:
             tech: Frontend
 
     mcp-inspector:
+        sandbox: true
         shell: 'cd services/mcp && pnpm run inspector'
         capability: mcp_server
         autostart: false
@@ -447,6 +574,7 @@ procs:
             tech: Frontend
 
     stripe-app:
+        sandbox: true
         shell: 'bin/start-stripe-app'
         capability: stripe_app
         groups:
@@ -460,6 +588,20 @@ procs:
         groups:
             layer: Infrastructure
             tech: Migrations
+
+    ensure-local-setup:
+        # Idempotent local-dev bootstrap (feature flags, dev API key, wizard OAuth app). phrocs has no
+        # depends_on, so wait for the tables it touches before running (same approach as
+        # migrate-clickhouse waiting on posthog_instancesetting).
+        shell: 'bin/wait-for-docker && bin/wait-for-postgres-tables posthog_featureflag posthog_personalapikey posthog_oauthapplication && bin/ensure-local-setup'
+        capability: core_infra
+        ready_pattern: 'Local setup complete'
+        # Unlike the other Tools-layer entries (manual `autostart: false` utilities), this one
+        # must run automatically every startup to keep local dev bootstrapped.
+        autostart: true
+        groups:
+            layer: Tools
+            tech: Setup
 
     migrate-clickhouse:
         # Wait on posthog_instancesetting because Django queries that table at
@@ -481,6 +623,10 @@ procs:
         groups:
             layer: Infrastructure
             tech: Migrations
+
+    # agent_platform schema is now Django-owned in its product DB, migrated by
+    # the main `migrate` process (migrate_product_databases). The old node-side
+    # migrate-agent-runtime process was removed.
 
     migrate-persons-db:
         shell: 'bin/wait-for-docker && bin/migrate --scope=persons'
@@ -508,6 +654,7 @@ procs:
         # no capability - optional migration
 
     generate-demo-data:
+        sandbox: true
         shell: |-
             bin/wait-for-docker && \
             ./manage.py generate_demo_data
@@ -519,6 +666,7 @@ procs:
         # no capability - manual start
 
     sync-feature-flags:
+        sandbox: true
         shell: |-
             bin/wait-for-docker && \
             ./manage.py sync_feature_flags
@@ -530,6 +678,7 @@ procs:
         # no capability - manual start
 
     sync-hog-function-templates:
+        sandbox: true
         shell: |-
             bin/wait-for-docker && \
             ./manage.py sync_hog_function_templates
@@ -541,7 +690,10 @@ procs:
         # no capability - manual start
 
     storybook:
-        shell: 'pnpm --filter=@posthog/storybook install && pnpm run storybook'
+        sandbox: true
+        # dev-open-when-ready is peeled out to run unsandboxed (it opens the browser
+        # once :6006 is up — a path the sandbox denies); the rest stays sandboxed.
+        shell: 'bin/dev-open-when-ready http://localhost:6006 && pnpm --filter=@posthog/storybook install && pnpm run storybook'
         autostart: false
         ready_pattern: 'Storybook *'
         groups:
@@ -550,6 +702,7 @@ procs:
         # no capability - manual start
 
     hedgebox-dummy:
+        sandbox: true
         shell: 'bin/wait-for-docker && cd tools/hedgebox-dummy && pnpm install && pnpm run dev'
         autostart: false
         ready_pattern: 'Ready in *'
@@ -559,6 +712,7 @@ procs:
         # no capability - manual start
 
     warehouse-sources-load:
+        sandbox: true
         shell: |-
             bin/wait-for-docker && \
             python manage.py run_warehouse_sources_load
@@ -568,6 +722,20 @@ procs:
             layer: Tools
             tech: Python
         # no capability - manual start
+
+    warehouse-sources-duckgres-load:
+        shell: |-
+            bin/wait-for-docker && \
+            python manage.py run_warehouse_sources_duckgres_load --health-port 8092
+        autostart: false
+        ready_pattern: 'duckgres_batch_consumer_started'
+        groups:
+            layer: Tools
+            tech: Python
+        # no capability - manual start
+
+# Grouping dimension the sidebar starts grouped by (press `g` to cycle/disable).
+default_group: layer
 
 group_order:
     layer: [Application, Processing, Ingestion pipeline, Infrastructure, Product services, Tools]

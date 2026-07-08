@@ -109,9 +109,9 @@ export const ProductToursGenerateCreateBody = /* @__PURE__ */ zod.object({
 
 /**
  * Commit draft to live tour. Runs full validation and triggers side effects.
-
-Accepts an optional body payload. If provided, merges it into the draft
-before publishing so the caller can save + publish in a single request.
+ *
+ * Accepts an optional body payload. If provided, merges it into the draft
+ * before publishing so the caller can save + publish in a single request.
  */
 export const productToursPublishDraftCreateBodyNameMax = 400
 

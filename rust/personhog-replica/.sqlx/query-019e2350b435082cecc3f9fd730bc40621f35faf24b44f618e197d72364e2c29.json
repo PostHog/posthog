@@ -1,0 +1,90 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n                        SELECT p.id, p.uuid as \"uuid!\", p.team_id::bigint as \"team_id!\",\n                               CASE WHEN $3::boolean THEN p.properties::text ELSE NULL END as \"properties?\",\n                               CASE WHEN $3::boolean THEN p.properties_last_updated_at::text ELSE NULL END as \"properties_last_updated_at?\",\n                               CASE WHEN $3::boolean THEN p.properties_last_operation::text ELSE NULL END as \"properties_last_operation?\",\n                               p.created_at as \"created_at!\", p.version, p.is_identified as \"is_identified!\",\n                               CASE WHEN p.is_user_id IS NULL THEN NULL ELSE (p.is_user_id != 0) END as is_user_id,\n                               p.last_seen_at,\n                               d.distinct_id as \"distinct_id!\"\n                        FROM UNNEST($2::text[]) AS batch(distinct_id)\n                        INNER JOIN posthog_persondistinctid d\n                            ON d.team_id = $1 AND d.distinct_id = batch.distinct_id\n                        INNER JOIN posthog_person p\n                            ON p.id = d.person_id AND p.team_id = d.team_id\n                        ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 1,
+        "name": "uuid!",
+        "type_info": "Uuid"
+      },
+      {
+        "ordinal": 2,
+        "name": "team_id!",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 3,
+        "name": "properties?",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 4,
+        "name": "properties_last_updated_at?",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 5,
+        "name": "properties_last_operation?",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 6,
+        "name": "created_at!",
+        "type_info": "Timestamptz"
+      },
+      {
+        "ordinal": 7,
+        "name": "version",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 8,
+        "name": "is_identified!",
+        "type_info": "Bool"
+      },
+      {
+        "ordinal": 9,
+        "name": "is_user_id",
+        "type_info": "Bool"
+      },
+      {
+        "ordinal": 10,
+        "name": "last_seen_at",
+        "type_info": "Timestamptz"
+      },
+      {
+        "ordinal": 11,
+        "name": "distinct_id!",
+        "type_info": "Varchar"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Int4",
+        "TextArray",
+        "Bool"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      null,
+      null,
+      null,
+      null,
+      false,
+      true,
+      false,
+      null,
+      true,
+      false
+    ]
+  },
+  "hash": "019e2350b435082cecc3f9fd730bc40621f35faf24b44f618e197d72364e2c29"
+}

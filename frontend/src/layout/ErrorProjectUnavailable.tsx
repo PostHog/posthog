@@ -44,23 +44,29 @@ export function ErrorProjectUnavailable(): JSX.Element {
         </>
     )
 
+    if (!user?.organization) {
+        return <CreateOrganizationModal isVisible inline />
+    }
+
+    const accessRemoved =
+        (user?.team && !user.organization?.teams.some((team) => team.id === user?.team?.id || user.team)) ||
+        currentTeam?.user_access_level === 'none'
+
     return (
-        <div>
-            {!user?.organization ? (
-                <CreateOrganizationModal isVisible inline />
-            ) : (user?.team && !user.organization?.teams.some((team) => team.id === user?.team?.id || user.team)) ||
-              currentTeam?.user_access_level === 'none' ? (
+        <div className="flex flex-col items-center max-w-2xl p-4 mx-auto my-24 text-center">
+            {accessRemoved ? (
                 <>
-                    <h1>Project access has been removed</h1>
-                    <p>
-                        Someone in your organization has removed your access to this project. You can
-                        {listOptions()}.
+                    <h1 className="text-3xl font-bold mt-4 mb-0">Project access has been removed</h1>
+                    <p className="text-sm mt-3 mb-0">
+                        Someone in your organization has removed your access to this project. You can{listOptions()}.
                     </p>
                 </>
             ) : (
                 <>
-                    <h1>Welcome to {user?.organization?.name} on PostHog</h1>
-                    <p>You do not have access to any projects in this organization. You can {listOptions()}.</p>
+                    <h1 className="text-3xl font-bold mt-4 mb-0">Welcome to {user?.organization?.name} on PostHog</h1>
+                    <p className="text-sm mt-3 mb-0">
+                        You do not have access to any projects in this organization. You can{listOptions()}.
+                    </p>
                 </>
             )}
         </div>

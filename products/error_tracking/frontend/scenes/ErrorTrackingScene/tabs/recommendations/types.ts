@@ -1,7 +1,7 @@
 import { ErrorTrackingIssue } from '~/queries/schema/schema-general'
 import { HogFunctionSubTemplateIdType } from '~/types'
 
-export type ErrorTrackingRecommendationType = 'alerts' | 'long_running_issues' | 'source_maps'
+export type ErrorTrackingRecommendationType = 'alerts' | 'long_running_issues' | 'rate_limits' | 'source_maps'
 
 export type ErrorTrackingRecommendationStatus = 'ready' | 'computing'
 
@@ -45,6 +45,35 @@ export const ALERT_RECOMMENDATION_INFO: Record<string, AlertRecommendationInfo> 
     'error-tracking-issue-spiking': {
         name: 'Issue spiking',
         reason: 'Get notified when an issue starts occurring more frequently than usual.',
+    },
+}
+
+export type RateLimitRecommendationKey = 'project' | 'per_issue'
+
+export interface RateLimitRecommendationItem {
+    key: RateLimitRecommendationKey
+    enabled: boolean
+}
+
+export interface RateLimitsRecommendationMeta extends Record<string, unknown> {
+    rate_limits: RateLimitRecommendationItem[]
+}
+
+export type RateLimitsRecommendation = ErrorTrackingRecommendation<RateLimitsRecommendationMeta>
+
+export interface RateLimitRecommendationInfo {
+    name: string
+    reason: string
+}
+
+export const RATE_LIMIT_RECOMMENDATION_INFO: Record<RateLimitRecommendationKey, RateLimitRecommendationInfo> = {
+    project: {
+        name: 'Project-wide rate limit',
+        reason: 'Cap exception volume across the whole project to control ingestion.',
+    },
+    per_issue: {
+        name: 'Per-issue rate limit',
+        reason: 'Stop a single noisy issue from dominating your ingestion.',
     },
 }
 

@@ -27,6 +27,13 @@ class SlackThreadTaskMapping(UUIDModel):
         related_name="slack_thread_mappings",
     )
     mentioning_slack_user_id = models.CharField(max_length=64)
+    latest_actor_slack_user_id = models.CharField(max_length=64, null=True, blank=True)
+    # Slack `ts` of the most recent message we've already shown to the agent (either
+    # in the original `<slack_thread_context>` block at task creation, or in a follow-up
+    # `<slack_thread_context_update>` diff). On each follow-up, anything in the thread
+    # with a strictly larger `ts` (and smaller than the just-arrived message's `ts`) is
+    # rendered as a diff so the agent catches up on messages it never saw.
+    last_forwarded_ts = models.CharField(max_length=64, null=True, blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
@@ -51,6 +58,7 @@ class SlackUserProfileCache(UUIDModel):
     real_name = models.CharField(max_length=255, blank=True, default="")
     is_admin = models.BooleanField(default=False, db_default=False)
     is_owner = models.BooleanField(default=False, db_default=False)
+    is_bot = models.BooleanField(default=False, db_default=False)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
     # Null is treated as stale (rows predating this field).
@@ -84,13 +92,19 @@ class SlackSettings(UUIDModel):
     resolution time.
     """
 
+    # Nullable so a personal row can carry AI preferences while inheriting the
+    # workspace routing default.
     default_integration = models.ForeignKey(
         "posthog.Integration",
         on_delete=models.CASCADE,
         related_name="slack_settings_as_default",
+        null=True,
+        blank=True,
     )
     slack_workspace_id = models.CharField(max_length=64)
     slack_user_id = models.CharField(max_length=64, null=True, blank=True)
+    # Keys mirror the task-run request serializer.
+    ai_preferences = models.JSONField(blank=True, null=True)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
@@ -112,7 +126,20 @@ class SlackSettings(UUIDModel):
 
     def __str__(self) -> str:
         who = self.slack_user_id or "(workspace default)"
-        return f"{self.slack_workspace_id} / {who} → integration {self.default_integration_id}"
+        target = self.default_integration_id if self.default_integration_id else "(inherit)"
+        return f"{self.slack_workspace_id} / {who} → integration {target}"
+
+    @property
+    def runtime_adapter(self) -> str | None:
+        return (self.ai_preferences or {}).get("runtime_adapter")
+
+    @property
+    def model(self) -> str | None:
+        return (self.ai_preferences or {}).get("model")
+
+    @property
+    def reasoning_effort(self) -> str | None:
+        return (self.ai_preferences or {}).get("reasoning_effort")
 
 
 class SlackChannel(UUIDModel):

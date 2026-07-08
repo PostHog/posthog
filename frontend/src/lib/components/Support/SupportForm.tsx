@@ -17,6 +17,7 @@ import { useUploadFiles } from 'lib/hooks/useUploadFiles'
 import { IconFeedback } from 'lib/lemon-ui/icons'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { LemonFileInput } from 'lib/lemon-ui/LemonFileInput/LemonFileInput'
+import { LemonInputSelect } from 'lib/lemon-ui/LemonInputSelect/LemonInputSelect'
 import { LemonSelect } from 'lib/lemon-ui/LemonSelect/LemonSelect'
 import { LemonTextArea } from 'lib/lemon-ui/LemonTextArea/LemonTextArea'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
@@ -26,7 +27,7 @@ import {
     SEVERITY_LEVEL_TO_NAME,
     SUPPORT_TICKET_TEMPLATES,
     SupportTicketKind,
-    TARGET_AREA_TO_NAME,
+    TARGET_AREA_OPTIONS,
     supportLogic,
 } from './supportLogic'
 
@@ -140,15 +141,28 @@ export function SupportForm(): JSX.Element | null {
                     </Link>
                 </div>
                 <LemonField name="target_area">
-                    <LemonSelect
-                        disabledReason={
-                            !user
-                                ? 'Please login to your account before opening a ticket unrelated to authentication issues.'
-                                : null
-                        }
-                        fullWidth
-                        options={TARGET_AREA_TO_NAME}
-                    />
+                    {({ value, onChange }) => (
+                        <Tooltip
+                            title={
+                                !user
+                                    ? 'Please login to your account before opening a ticket unrelated to authentication issues.'
+                                    : undefined
+                            }
+                        >
+                            <span className="block">
+                                <LemonInputSelect
+                                    mode="single"
+                                    fullWidth
+                                    disabled={!user}
+                                    placeholder="Search for a topic"
+                                    data-attr="support-form-target-area"
+                                    options={TARGET_AREA_OPTIONS}
+                                    value={value ? [value] : []}
+                                    onChange={([newValue]) => onChange(newValue ?? null)}
+                                />
+                            </span>
+                        </Tooltip>
+                    )}
                 </LemonField>
             </div>
             {sendSupportRequest.target_area === 'error_tracking' && (

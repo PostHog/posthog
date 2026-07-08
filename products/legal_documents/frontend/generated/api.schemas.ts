@@ -36,7 +36,7 @@ export interface PaginatedLegalDocumentDTOListApi {
 
 /**
  * * `BAA` - BAA
- * `DPA` - DPA
+ * * `DPA` - DPA
  */
 export type CreateLegalDocumentDocumentTypeEnumApi =
     (typeof CreateLegalDocumentDocumentTypeEnumApi)[keyof typeof CreateLegalDocumentDocumentTypeEnumApi]
@@ -48,14 +48,14 @@ export const CreateLegalDocumentDocumentTypeEnumApi = {
 
 /**
  * Input serializer for POST. Mirrors the submittable fields on the model plus
-cross-field rules (BAA addon, DPA mode, uniqueness). The view supplies the
-organization and submitting user.
+ * cross-field rules (BAA addon, DPA mode, uniqueness). The view supplies the
+ * organization and submitting user.
  */
 export interface CreateLegalDocumentApi {
     /** Either 'BAA' or 'DPA'.
-
-  * `BAA` - BAA
-  * `DPA` - DPA */
+     *
+     * * `BAA` - BAA
+     * * `DPA` - DPA */
     document_type: CreateLegalDocumentDocumentTypeEnumApi
     /**
      * The customer legal entity entering the agreement (PandaDoc's Client.Company).

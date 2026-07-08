@@ -1,3 +1,4 @@
+import json
 from copy import deepcopy
 from datetime import timedelta
 from decimal import Decimal
@@ -12,16 +13,18 @@ from django.utils import timezone
 
 import pydantic
 from parameterized import parameterized
-from rest_framework.exceptions import ValidationError
+from rest_framework.exceptions import PermissionDenied, ValidationError
 from rest_framework.test import APIRequestFactory
 
 from posthog.schema import EventsNode, ExperimentMetric
 
-from posthog.models import Team
-from posthog.models.cohort import Cohort
+from posthog.constants import AvailableFeature
+from posthog.event_usage import EventSource
+from posthog.models import OrganizationMembership, Team, User
 from posthog.models.team.extensions import get_or_create_team_extension
 
 from products.actions.backend.models.action import Action
+from products.cohorts.backend.models.cohort import Cohort
 from products.event_definitions.backend.models.event_definition import EventDefinition
 from products.experiments.backend.experiment_service import ExperimentService
 from products.experiments.backend.models.experiment import (
@@ -35,6 +38,9 @@ from products.experiments.backend.models.team_experiments_config import TeamExpe
 from products.feature_flags.backend.api.feature_flag import FeatureFlagSerializer
 from products.feature_flags.backend.models.evaluation_context import EvaluationContext, FeatureFlagEvaluationContext
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
+from products.warehouse_sources.backend.facade.models import DataWarehouseCredential, DataWarehouseTable
+
+from ee.models.rbac.access_control import AccessControl
 
 
 # Note that we use allow_unknown_events here since allowing it was the behavior before validating it
@@ -100,6 +106,45 @@ class TestExperimentService(APIBaseTest):
         assert experiment.stats_config["method"] == "bayesian"
         assert experiment.exposure_criteria == {"filterTestAccounts": True}
 
+    @patch("products.experiments.backend.experiment_service.report_user_action")
+    def test_create_experiment_defers_analytics_until_after_commit(self, mock_report_user_action):
+        # The capture must be deferred to on_commit, not run inside the transaction.
+        service = self._service()
+
+        registered_callbacks: list[Any] = []
+        with patch("django.db.transaction.on_commit", side_effect=registered_callbacks.append):
+            service.create_experiment(
+                name="Deferred Analytics",
+                feature_flag_key="deferred-flag",
+                event_source=EventSource.API,
+            )
+
+        # Nothing captured yet — it's deferred, not run inside the transaction.
+        mock_report_user_action.assert_not_called()
+        assert registered_callbacks, "expected create_experiment to register an on_commit callback"
+
+        for callback in registered_callbacks:
+            callback()
+
+        mock_report_user_action.assert_called_once()
+        assert mock_report_user_action.call_args.args[1] == "experiment created"
+
+    @patch("products.experiments.backend.experiment_service.report_user_action")
+    def test_create_experiment_survives_post_commit_analytics_failure(self, mock_report_user_action):
+        # A post-commit capture failure must not roll back or fail the create — experiment still exists.
+        mock_report_user_action.side_effect = RuntimeError("analytics down")
+        service = self._service()
+
+        with patch("django.db.transaction.on_commit", side_effect=lambda func: func()):
+            experiment = service.create_experiment(
+                name="Resilient Analytics",
+                feature_flag_key="resilient-flag",
+                event_source=EventSource.API,
+            )
+
+        mock_report_user_action.assert_called_once()
+        assert Experiment.objects.filter(pk=experiment.pk).exists()
+
     def test_create_experiment_creates_new_flag(self):
         service = self._service()
 
@@ -136,15 +181,6 @@ class TestExperimentService(APIBaseTest):
     # ------------------------------------------------------------------
     # Stats config defaults
     # ------------------------------------------------------------------
-
-    def test_stats_config_defaults_bayesian(self):
-        self._create_flag(key="stats-test")
-        service = self._service()
-
-        experiment = service.create_experiment(name="Stats Test", feature_flag_key="stats-test")
-
-        assert experiment.stats_config is not None
-        assert experiment.stats_config["method"] == "bayesian"
 
     def test_stats_config_defaults_from_team(self):
         config = get_or_create_team_extension(self.team, TeamExperimentsConfig)
@@ -257,14 +293,6 @@ class TestExperimentService(APIBaseTest):
         assert "fingerprint" in experiment.metrics[0]
         assert isinstance(experiment.metrics[0]["fingerprint"], str)
         assert len(experiment.metrics[0]["fingerprint"]) == 64  # SHA256 hex
-
-    def test_no_fingerprints_when_no_metrics(self):
-        self._create_flag(key="no-metrics")
-        service = self._service()
-
-        experiment = service.create_experiment(name="No Metrics", feature_flag_key="no-metrics")
-
-        assert experiment.metrics == []
 
     # ------------------------------------------------------------------
     # Metric ordering
@@ -652,6 +680,103 @@ class TestExperimentService(APIBaseTest):
         )
 
     # ------------------------------------------------------------------
+    # validate_experiment_metrics — threshold / math-type compatibility
+    # ------------------------------------------------------------------
+
+    @parameterized.expand(
+        [
+            ("threshold_on_sum", "sum"),
+            ("threshold_on_total_count", "total"),
+        ]
+    )
+    def test_validate_experiment_metrics_accepts_threshold_on_summed_math(self, _: str, math: str) -> None:
+        ExperimentService.validate_experiment_metrics(
+            [
+                {
+                    "kind": "ExperimentMetric",
+                    "metric_type": "mean",
+                    "source": {"kind": "EventsNode", "event": "$pageview", "math": math, "math_property": "amount"},
+                    "threshold": 100,
+                }
+            ]
+        )
+
+    @parameterized.expand(
+        [
+            ("threshold_on_unique_session", "unique_session"),
+            ("threshold_on_dau", "dau"),
+            ("threshold_on_hogql", "hogql"),
+        ]
+    )
+    def test_validate_experiment_metrics_rejects_threshold_on_unsupported_math(self, _: str, math: str) -> None:
+        with self.assertRaises(ValidationError) as ctx:
+            ExperimentService.validate_experiment_metrics(
+                [
+                    {
+                        "kind": "ExperimentMetric",
+                        "metric_type": "mean",
+                        "source": {"kind": "EventsNode", "event": "$pageview", "math": math},
+                        "threshold": 100,
+                    }
+                ]
+            )
+        assert "threshold" in str(ctx.exception), f"Expected 'threshold' in error: {ctx.exception}"
+
+    @parameterized.expand(
+        [
+            ("zero", 0),
+            ("negative", -5),
+        ]
+    )
+    def test_validate_experiment_metrics_rejects_non_positive_threshold(self, _: str, threshold: int) -> None:
+        # A non-positive threshold is always satisfied, yielding a meaningless 100% proportion.
+        with self.assertRaises(ValidationError) as ctx:
+            ExperimentService.validate_experiment_metrics(
+                [
+                    {
+                        "kind": "ExperimentMetric",
+                        "metric_type": "mean",
+                        "source": {
+                            "kind": "EventsNode",
+                            "event": "$pageview",
+                            "math": "sum",
+                            "math_property": "amount",
+                        },
+                        "threshold": threshold,
+                    }
+                ]
+            )
+        assert "threshold" in str(ctx.exception), f"Expected 'threshold' in error: {ctx.exception}"
+
+    @parameterized.expand(
+        [
+            ("lower_bound", {"lower_bound_percentile": 0.01}),
+            ("upper_bound", {"upper_bound_percentile": 0.99}),
+        ]
+    )
+    def test_validate_experiment_metrics_rejects_threshold_with_winsorization(self, _: str, bounds: dict) -> None:
+        # Winsorization caps continuous outliers, which is meaningless once the metric
+        # collapses to a binary threshold outcome — reject the combination.
+        with self.assertRaises(ValidationError) as ctx:
+            ExperimentService.validate_experiment_metrics(
+                [
+                    {
+                        "kind": "ExperimentMetric",
+                        "metric_type": "mean",
+                        "source": {
+                            "kind": "EventsNode",
+                            "event": "$pageview",
+                            "math": "sum",
+                            "math_property": "amount",
+                        },
+                        "threshold": 100,
+                        **bounds,
+                    }
+                ]
+            )
+        assert "threshold" in str(ctx.exception), f"Expected 'threshold' in error: {ctx.exception}"
+
+    # ------------------------------------------------------------------
     # validate_experiment_metrics — improved pydantic error messages
     # ------------------------------------------------------------------
 
@@ -821,40 +946,6 @@ class TestExperimentService(APIBaseTest):
     # ------------------------------------------------------------------
     # Service contract fields
     # ------------------------------------------------------------------
-
-    def test_description_and_type_passed_through(self):
-        self._create_flag(key="passthrough")
-        service = self._service()
-
-        experiment = service.create_experiment(
-            name="Passthrough Test",
-            feature_flag_key="passthrough",
-            description="A description",
-            type="web",
-        )
-
-        assert experiment.description == "A description"
-        assert experiment.type == "web"
-
-    def test_parameters_passed_through(self):
-        self._create_flag(key="params-test")
-        service = self._service()
-
-        params = {
-            "feature_flag_variants": [
-                {"key": "control", "name": "Control", "rollout_percentage": 50},
-                {"key": "test", "name": "Test", "rollout_percentage": 50},
-            ],
-            "minimum_detectable_effect": 30,
-        }
-
-        experiment = service.create_experiment(
-            name="Params Test",
-            feature_flag_key="params-test",
-            parameters=params,
-        )
-
-        assert experiment.parameters == params
 
     def test_create_experiment_with_all_fields(self):
         service = self._service()
@@ -1047,19 +1138,6 @@ class TestExperimentService(APIBaseTest):
         experiment.refresh_from_db()
         assert experiment.status == "running"
 
-    def test_create_experiment_with_unknown_field_raises_type_error(self):
-        self._create_flag(key="unknown-key-flag")
-        service = self._service()
-
-        with self.assertRaises(TypeError) as ctx:
-            service.create_experiment(
-                name="Unknown Key",
-                feature_flag_key="unknown-key-flag",
-                unknown_field="boom",  # type: ignore[call-arg]
-            )
-
-        assert "unexpected keyword argument 'unknown_field'" in str(ctx.exception)
-
     # ------------------------------------------------------------------
     # Update experiment
     # ------------------------------------------------------------------
@@ -1120,6 +1198,19 @@ class TestExperimentService(APIBaseTest):
 
         assert updated.name == "Same Key OK"
         assert updated.get_feature_flag_key() == experiment.feature_flag.key
+
+    def test_get_feature_flag_key_strips_tombstone_for_deleted_flag(self):
+        experiment = self._create_draft_experiment(flag_key="tombstone-key-flag")
+        flag = experiment.feature_flag
+
+        flag.deleted = True
+        flag.key = flag.tombstoned_key()
+        flag.save()
+        experiment.refresh_from_db()
+
+        # The serializer (feature_flag_key) and analytics read through this method, so it
+        # must surface the original key rather than leaking the ":deleted:<id>" tombstone.
+        assert experiment.get_feature_flag_key() == "tombstone-key-flag"
 
     def test_update_experiment_rejects_different_feature_flag_key(self):
         experiment = self._create_draft_experiment()
@@ -1652,6 +1743,193 @@ class TestExperimentService(APIBaseTest):
         assert second_link is not None
         assert second_link.saved_metric_id == sm2.id
 
+    def _updated_events(self, mock_report_user_action):
+        return [c for c in mock_report_user_action.call_args_list if c.args[1] == "experiment updated"]
+
+    def _changed_fields(self, mock_report_user_action):
+        events = self._updated_events(mock_report_user_action)
+        assert len(events) == 1, f"expected exactly one 'experiment updated' event, got {len(events)}"
+        return events[0].args[2]["changed_fields"]
+
+    def _make_saved_metric(self, name: str, event: str = "$pageview") -> ExperimentSavedMetric:
+        return ExperimentSavedMetric.objects.create(
+            team=self.team,
+            name=name,
+            query={"kind": "ExperimentMetric", "metric_type": "mean", "source": {"kind": "EventsNode", "event": event}},
+        )
+
+    @patch("products.experiments.backend.experiment_service.report_user_action")
+    def test_update_reports_updated_with_metric_composition(self, mock_report_user_action):
+        experiment = self._create_draft_experiment()
+        saved_metric = self._make_saved_metric("Shared SM")
+        service = self._service()
+        service.update_experiment(
+            experiment,
+            {"saved_metrics_ids": [{"id": saved_metric.id, "metadata": {"type": "primary"}}]},
+            serializer_context=service._build_serializer_context(),
+        )
+
+        metadata = self._updated_events(mock_report_user_action)[0].args[2]
+        assert metadata["saved_metrics_count"] == 1
+        # _create_draft_experiment seeds one inline primary metric and no secondary
+        assert metadata["metrics_count"] == 1
+        assert metadata["secondary_metrics_count"] == 0
+        assert "saved_metrics" in metadata["changed_fields"]
+        assert mock_report_user_action.call_args_list[-1].kwargs["team"] == self.team
+        assert mock_report_user_action.call_args_list[-1].kwargs["request"] is not None
+
+    @parameterized.expand(
+        [
+            ("name", {"name": "Renamed experiment"}, "name"),
+            ("description", {"description": "A brand new hypothesis"}, "description"),
+        ]
+    )
+    @patch("products.experiments.backend.experiment_service.report_user_action")
+    def test_update_changed_fields_scalar_edit(self, _name, update_data, expected_field, mock_report_user_action):
+        experiment = self._create_draft_experiment()
+        service = self._service()
+        service.update_experiment(experiment, update_data, serializer_context=service._build_serializer_context())
+
+        changed = self._changed_fields(mock_report_user_action)
+        assert expected_field in changed
+        # A scalar edit must not falsely report metric (re)configuration even though the
+        # update pipeline internally re-touches existing inline metrics.
+        assert "metrics" not in changed
+        assert "saved_metrics" not in changed
+
+    @parameterized.expand(
+        [
+            (
+                "primary",
+                {
+                    "metrics": [
+                        {
+                            "kind": "ExperimentMetric",
+                            "metric_type": "mean",
+                            "uuid": "m-new",
+                            "source": {"kind": "EventsNode", "event": "checkout_completed"},
+                        }
+                    ]
+                },
+                "metrics",
+            ),
+            (
+                "secondary",
+                {
+                    "metrics_secondary": [
+                        {
+                            "kind": "ExperimentMetric",
+                            "metric_type": "funnel",
+                            "uuid": "s-new",
+                            "series": [
+                                {"kind": "EventsNode", "event": "$pageview"},
+                                {"kind": "EventsNode", "event": "signed_up"},
+                            ],
+                        }
+                    ]
+                },
+                "metrics_secondary",
+            ),
+        ]
+    )
+    @patch("products.experiments.backend.experiment_service.report_user_action")
+    def test_update_changed_fields_inline_metric(self, _name, update_data, expected_field, mock_report_user_action):
+        experiment = self._create_draft_experiment()
+        service = self._service()
+        service.update_experiment(
+            experiment, update_data, serializer_context=service._build_serializer_context(), allow_unknown_events=True
+        )
+
+        changed = self._changed_fields(mock_report_user_action)
+        assert expected_field in changed
+        assert "saved_metrics" not in changed
+
+    @parameterized.expand(
+        [
+            # (initial role attached, role sent in the measured update, expect a real change)
+            ("attach", None, "primary", True),
+            ("detach", "primary", None, True),
+            ("retype", "primary", "secondary", True),
+            ("resend_identical", "primary", "primary", False),
+        ]
+    )
+    @patch("products.experiments.backend.experiment_service.report_user_action")
+    def test_saved_metric_change_detection(self, _name, initial_type, new_type, expect_change, mock_report_user_action):
+        experiment = self._create_draft_experiment()
+        saved_metric = self._make_saved_metric("Reusable conversion")
+        service = self._service()
+        ctx = service._build_serializer_context()
+
+        # fresh payload per call — update_experiment mutates update_data in place
+        def attach(metric_type: str) -> dict:
+            return {"saved_metrics_ids": [{"id": saved_metric.id, "metadata": {"type": metric_type}}]}
+
+        if initial_type is not None:
+            service.update_experiment(experiment, attach(initial_type), serializer_context=ctx)
+        mock_report_user_action.reset_mock()
+
+        update_data = {"saved_metrics_ids": []} if new_type is None else attach(new_type)
+        service.update_experiment(experiment, update_data, serializer_context=ctx)
+
+        if expect_change:
+            changed = self._changed_fields(mock_report_user_action)
+            assert "saved_metrics" in changed
+            # the write-side payload key must not leak; inline metrics were untouched
+            assert "saved_metrics_ids" not in changed
+            assert "metrics" not in changed
+        else:
+            assert self._updated_events(mock_report_user_action) == []
+
+    @patch("products.experiments.backend.experiment_service.report_user_action")
+    def test_update_with_no_real_change_does_not_report(self, mock_report_user_action):
+        experiment = self._create_draft_experiment(name="Stable name")
+        service = self._service()
+        service.update_experiment(
+            experiment, {"name": "Stable name"}, serializer_context=service._build_serializer_context()
+        )
+
+        assert self._updated_events(mock_report_user_action) == []
+
+    @patch("products.experiments.backend.experiment_service.report_user_action")
+    def test_update_changed_fields_multiple_at_once(self, mock_report_user_action):
+        experiment = self._create_draft_experiment()
+        saved_metric = self._make_saved_metric("Reusable conversion")
+        service = self._service()
+        service.update_experiment(
+            experiment,
+            {
+                "name": "Renamed and remetered",
+                "saved_metrics_ids": [{"id": saved_metric.id, "metadata": {"type": "primary"}}],
+            },
+            serializer_context=service._build_serializer_context(),
+        )
+
+        changed = self._changed_fields(mock_report_user_action)
+        assert "name" in changed
+        assert "saved_metrics" in changed
+
+    @patch("products.experiments.backend.experiment_service.report_user_action")
+    def test_update_with_event_source_and_no_request_reports_with_source(self, mock_report_user_action):
+        # Parity with create_experiment: a non-HTTP caller (e.g. an AI/Max tool) that passes
+        # event_source must still emit, attributed to that channel, even without a request.
+        experiment = self._create_draft_experiment()
+        service = self._service()
+        service.update_experiment(experiment, {"name": "Renamed by AI"}, event_source=EventSource.POSTHOG_AI)
+
+        event = self._updated_events(mock_report_user_action)[0]
+        assert event.args[2]["source"] == EventSource.POSTHOG_AI
+        assert "name" in event.args[2]["changed_fields"]
+        assert event.kwargs["request"] is None
+
+    @patch("products.experiments.backend.experiment_service.report_user_action")
+    def test_update_without_request_or_event_source_is_silent(self, mock_report_user_action):
+        # Internal callers that supply neither a request nor an event_source stay invisible.
+        experiment = self._create_draft_experiment()
+        service = self._service()
+        service.update_experiment(experiment, {"name": "Renamed internally"})
+
+        assert self._updated_events(mock_report_user_action) == []
+
     def test_update_experiment_rolls_back_saved_metric_changes_on_validation_error(self):
         self._create_flag(key="rollback-update")
         sm1 = ExperimentSavedMetric.objects.create(
@@ -1844,13 +2122,16 @@ class TestExperimentService(APIBaseTest):
         flag_variants = dup.feature_flag.filters["multivariate"]["variants"]
         assert len(flag_variants) == 3
 
-    def test_duplicate_experiment_revalidates_source_parameters(self):
-        self._create_flag(key="dup-invalid-source")
+    def test_duplicate_experiment_uses_flag_variants_over_stale_parameters(self):
+        self._create_flag(key="dup-stale-source")
         service = self._service()
         source = service.create_experiment(
-            name="Invalid Source",
-            feature_flag_key="dup-invalid-source",
+            name="Stale Source",
+            feature_flag_key="dup-stale-source",
         )
+        # Drift the stored parameters to an invalid single-variant set. The linked flag
+        # stays the source of truth (control + test), so duplication must ignore the stale
+        # copy and build the new flag from the flag's variants rather than revalidate them.
         Experiment.objects.filter(id=source.id).update(
             parameters={
                 "feature_flag_variants": [
@@ -1860,10 +2141,10 @@ class TestExperimentService(APIBaseTest):
         )
         source.refresh_from_db()
 
-        with self.assertRaises(ValidationError) as ctx:
-            service.duplicate_experiment(source)
+        dup = service.duplicate_experiment(source, feature_flag_key="dup-stale-target")
 
-        assert "at least 2 variants" in str(ctx.exception)
+        assert dup.feature_flag.key == "dup-stale-target"
+        assert [v["key"] for v in dup.feature_flag.variants] == ["control", "test"]
 
     def test_duplicate_experiment_copies_saved_metrics(self):
         self._create_flag(key="dup-saved")
@@ -2101,6 +2382,258 @@ class TestExperimentService(APIBaseTest):
 
         assert archived.archived is True
         assert archived.status == Experiment.Status.STOPPED
+
+    def test_archive_experiment_archives_disabled_flag(self):
+        experiment = self._create_ended_experiment(name="Archive Flag", feature_flag_key="archive-linked-flag")
+        experiment.feature_flag.active = False
+        experiment.feature_flag.save()
+
+        self._service().archive_experiment(experiment)
+
+        experiment.feature_flag.refresh_from_db()
+        assert experiment.feature_flag.archived is True
+
+    def test_archive_experiment_keeps_enabled_flag_unarchived(self):
+        # An enabled flag may still be serving traffic (e.g. rolling out the winning
+        # variant), so archiving the experiment must not archive it.
+        experiment = self._create_ended_experiment(name="Archive Active Flag", feature_flag_key="still-active-flag")
+        assert experiment.feature_flag.active is True
+
+        self._service().archive_experiment(experiment)
+
+        experiment.feature_flag.refresh_from_db()
+        assert experiment.feature_flag.archived is False
+
+    def test_archive_experiment_disables_and_archives_enabled_flag_when_opted_in(self):
+        experiment = self._create_ended_experiment(name="Disable On Archive", feature_flag_key="disable-on-archive")
+        assert experiment.feature_flag.active is True
+
+        self._service().archive_experiment(experiment, disable_feature_flag=True)
+
+        experiment.refresh_from_db()
+        flag = FeatureFlag.objects.get(pk=experiment.feature_flag_id)
+        assert flag.active is False
+        assert flag.archived is True
+        assert experiment.feature_flag_auto_archived is True
+
+    def test_archive_experiment_denies_disabling_flag_without_editor_access(self):
+        # A user who can archive the experiment but lacks editor access to the flag must not
+        # be able to disable it via disable_feature_flag — and the experiment archive rolls back.
+        experiment = self._create_ended_experiment(name="No Flag Access", feature_flag_key="no-flag-access")
+        service = self._service()
+
+        with patch.object(service, "_user_can_edit_flag", return_value=False):
+            with self.assertRaises(PermissionDenied):
+                service.archive_experiment(experiment, disable_feature_flag=True)
+
+        experiment.refresh_from_db()
+        assert experiment.archived is False
+        flag = FeatureFlag.objects.get(pk=experiment.feature_flag_id)
+        assert flag.active is True
+        assert flag.archived is False
+
+    def test_archive_experiment_denies_disabling_flag_for_user_without_real_access(self):
+        # Exercises the real _user_can_edit_flag check (no patching): a user with no access to
+        # the flag is refused, so an inverted/broken access check would fail this test.
+        experiment = self._create_ended_experiment(name="Real No Access", feature_flag_key="real-no-access-flag")
+        outsider = User.objects.create_user("outsider@example.com", None, "Outsider")
+        service = ExperimentService(team=self.team, user=outsider)
+
+        with self.assertRaises(PermissionDenied):
+            service.archive_experiment(experiment, disable_feature_flag=True)
+
+        experiment.refresh_from_db()
+        assert experiment.archived is False
+        flag = FeatureFlag.objects.get(pk=experiment.feature_flag_id)
+        assert flag.active is True
+        assert flag.archived is False
+
+    def test_archive_experiment_denies_disabling_active_flag_without_feature_flag_write_scope(self):
+        # An experiment-only token must not be able to disable an active flag via disable_feature_flag.
+        experiment = self._create_ended_experiment(
+            name="No FF Scope Active", feature_flag_key="no-ff-scope-active-flag"
+        )
+
+        with self.assertRaises(PermissionDenied):
+            self._service().archive_experiment(experiment, disable_feature_flag=True, can_write_feature_flag=False)
+
+        experiment.refresh_from_db()
+        assert experiment.archived is False
+        flag = FeatureFlag.objects.get(pk=experiment.feature_flag_id)
+        assert flag.active is True
+        assert flag.archived is False
+
+    def test_archive_experiment_skips_flag_cleanup_without_feature_flag_write_scope(self):
+        # A token scoped only to experiments must not archive the linked flag as a side effect.
+        experiment = self._create_ended_experiment(name="No FF Scope", feature_flag_key="no-ff-scope-flag")
+        experiment.feature_flag.active = False
+        experiment.feature_flag.save()
+
+        self._service().archive_experiment(experiment, can_write_feature_flag=False)
+
+        experiment.refresh_from_db()
+        assert experiment.archived is True
+        flag = FeatureFlag.objects.get(pk=experiment.feature_flag_id)
+        assert flag.archived is False
+        assert experiment.feature_flag_auto_archived is False
+
+    def test_unarchive_experiment_skips_flag_without_feature_flag_write_scope(self):
+        # Unarchiving the flag is a feature_flag write — skipped (flag stays archived, bookkeeping
+        # intact) for an experiment-only token, recoverable on a later unarchive with the scope.
+        experiment = self._create_ended_experiment(name="Unarchive No Scope", feature_flag_key="unarchive-no-scope")
+        experiment.feature_flag.active = False
+        experiment.feature_flag.save()
+        service = self._service()
+        service.archive_experiment(experiment)
+        experiment.refresh_from_db()
+        assert experiment.feature_flag_auto_archived is True
+
+        service.unarchive_experiment(experiment, can_write_feature_flag=False)
+
+        experiment.refresh_from_db()
+        assert experiment.archived is False
+        flag = FeatureFlag.objects.get(pk=experiment.feature_flag_id)
+        assert flag.archived is True
+        assert experiment.feature_flag_auto_archived is True
+
+    def test_archive_experiment_denies_disabling_flag_when_approval_required(self):
+        experiment = self._create_ended_experiment(name="Approval Gated", feature_flag_key="approval-gated-flag")
+        service = self._service()
+
+        with (
+            patch.object(service, "_user_can_edit_flag", return_value=True),
+            patch.object(service, "_flag_disable_requires_approval", return_value=True),
+        ):
+            with self.assertRaises(PermissionDenied):
+                service.archive_experiment(experiment, disable_feature_flag=True)
+
+        experiment.refresh_from_db()
+        assert experiment.archived is False
+        flag = FeatureFlag.objects.get(pk=experiment.feature_flag_id)
+        assert flag.active is True
+        assert flag.archived is False
+
+    def test_archive_experiment_denies_disabling_flag_with_dependents(self):
+        # Mirror the feature flag API: disabling a flag other active flags depend on is rejected.
+        experiment = self._create_ended_experiment(name="Has Dependents", feature_flag_key="depended-on-flag")
+        FeatureFlag.objects.create(
+            team=self.team,
+            created_by=self.user,
+            key="dependent-flag",
+            active=True,
+            filters={
+                "groups": [{"properties": [{"type": "flag", "key": str(experiment.feature_flag_id), "value": "true"}]}]
+            },
+        )
+
+        with self.assertRaises(ValidationError):
+            self._service().archive_experiment(experiment, disable_feature_flag=True)
+
+        experiment.refresh_from_db()
+        assert experiment.archived is False
+        flag = FeatureFlag.objects.get(pk=experiment.feature_flag_id)
+        assert flag.active is True
+        assert flag.archived is False
+
+    def test_archive_experiment_skips_flag_cleanup_without_editor_access(self):
+        # The implicit archive-only cleanup of an already-disabled flag is skipped (not an error)
+        # when the caller can't edit the flag — the experiment still archives.
+        experiment = self._create_ended_experiment(name="Skip Cleanup", feature_flag_key="skip-cleanup-flag")
+        experiment.feature_flag.active = False
+        experiment.feature_flag.save()
+        service = self._service()
+
+        with patch.object(service, "_user_can_edit_flag", return_value=False):
+            service.archive_experiment(experiment)
+
+        experiment.refresh_from_db()
+        assert experiment.archived is True
+        flag = FeatureFlag.objects.get(pk=experiment.feature_flag_id)
+        assert flag.archived is False
+        assert experiment.feature_flag_auto_archived is False
+
+    def test_archive_experiment_keeps_flag_shared_with_live_experiment(self):
+        experiment = self._create_ended_experiment(name="Shared Flag", feature_flag_key="shared-flag")
+        experiment.feature_flag.active = False
+        experiment.feature_flag.save()
+        Experiment.objects.create(
+            team=self.team,
+            created_by=self.user,
+            name="Other experiment on same flag",
+            feature_flag=experiment.feature_flag,
+        )
+
+        self._service().archive_experiment(experiment)
+
+        experiment.feature_flag.refresh_from_db()
+        assert experiment.feature_flag.archived is False
+
+    def test_archive_experiment_keeps_shared_flag_even_when_opted_in(self):
+        # Opting in to disable the flag must still never touch a flag a live experiment relies on.
+        experiment = self._create_ended_experiment(name="Shared Opt In", feature_flag_key="shared-opt-in-flag")
+        Experiment.objects.create(
+            team=self.team,
+            created_by=self.user,
+            name="Other experiment on same flag",
+            feature_flag=experiment.feature_flag,
+        )
+
+        self._service().archive_experiment(experiment, disable_feature_flag=True)
+
+        experiment.feature_flag.refresh_from_db()
+        assert experiment.feature_flag.active is True
+        assert experiment.feature_flag.archived is False
+
+    def test_unarchive_experiment_keeps_opted_in_flag_disabled(self):
+        # When archiving disabled an enabled flag, unarchiving un-archives it but leaves it
+        # disabled — re-enabling stays an explicit user decision.
+        experiment = self._create_ended_experiment(name="Unarchive Opt In", feature_flag_key="unarchive-opt-in-flag")
+        service = self._service()
+        service.archive_experiment(experiment, disable_feature_flag=True)
+        experiment.feature_flag.refresh_from_db()
+        assert experiment.feature_flag.archived is True
+
+        service.unarchive_experiment(experiment)
+
+        experiment.refresh_from_db()
+        flag = FeatureFlag.objects.get(pk=experiment.feature_flag_id)
+        assert flag.archived is False
+        assert flag.active is False
+        assert experiment.feature_flag_auto_archived is False
+
+    def test_unarchive_experiment_unarchives_flag(self):
+        experiment = self._create_ended_experiment(name="Unarchive Flag", feature_flag_key="unarchive-linked-flag")
+        experiment.feature_flag.active = False
+        experiment.feature_flag.save()
+        service = self._service()
+        service.archive_experiment(experiment)
+        experiment.feature_flag.refresh_from_db()
+        assert experiment.feature_flag.archived is True
+        assert experiment.feature_flag_auto_archived is True
+
+        service.unarchive_experiment(experiment)
+
+        refreshed = Experiment.objects.get(pk=experiment.id)
+        flag = FeatureFlag.objects.get(pk=experiment.feature_flag_id)
+        assert flag.archived is False
+        assert refreshed.feature_flag_auto_archived is False
+        # The flag stays disabled — re-enabling is an explicit user decision
+        assert flag.active is False
+
+    def test_unarchive_experiment_keeps_manually_archived_flag(self):
+        # The user archived the flag themselves, so unarchiving the experiment must not undo it.
+        experiment = self._create_ended_experiment(name="Manual Archive", feature_flag_key="manually-archived-flag")
+        experiment.feature_flag.active = False
+        experiment.feature_flag.archived = True
+        experiment.feature_flag.save()
+        service = self._service()
+        service.archive_experiment(experiment)
+        assert experiment.feature_flag_auto_archived is False
+
+        service.unarchive_experiment(experiment)
+
+        experiment.feature_flag.refresh_from_db()
+        assert experiment.feature_flag.archived is True
 
     def test_archive_experiment_already_archived_raises(self):
         experiment = self._create_ended_experiment(name="Already Archived", feature_flag_key="already-archived-flag")
@@ -3004,7 +3537,7 @@ class TestExperimentService(APIBaseTest):
         assert "does not have a start date" in str(ctx.exception)
 
     def test_create_exposure_cohort_duplicate_raises(self):
-        from posthog.models.cohort import Cohort
+        from products.cohorts.backend.models.cohort import Cohort
 
         self._create_flag(key="cohort-dup")
         service = self._service()
@@ -3387,6 +3920,41 @@ class TestExperimentService(APIBaseTest):
             query_params=query_params,
         )
 
+        assert set(queryset.values_list("name", flat=True)) == expected_names
+
+    @parameterized.expand(
+        [
+            # (name, format_filter, expected_names)
+            ("json_list", lambda ids: json.dumps([ids[0], ids[1]]), {"Creator self", "Creator other"}),
+            ("comma_separated", lambda ids: f"{ids[0]},{ids[2]}", {"Creator self", "Creator third"}),
+            ("single_id", lambda ids: str(ids[1]), {"Creator other"}),
+            ("no_match", lambda ids: json.dumps([ids[3]]), set()),
+        ]
+    )
+    def test_filter_experiments_queryset_filters_by_multiple_created_by_ids(
+        self, _name, format_filter, expected_names
+    ) -> None:
+        service = self._service()
+        other_user = self._create_user("other-user@example.com")
+        third_user = self._create_user("third-user@example.com")
+        unrelated_user = self._create_user("unrelated-user@example.com")
+
+        service.create_experiment(name="Creator self", feature_flag_key="created-by-self")
+        ExperimentService(team=self.team, user=other_user).create_experiment(
+            name="Creator other",
+            feature_flag_key="created-by-other",
+        )
+        ExperimentService(team=self.team, user=third_user).create_experiment(
+            name="Creator third",
+            feature_flag_key="created-by-third",
+        )
+
+        ids = [self.user.id, other_user.id, third_user.id, unrelated_user.id]
+        queryset = service.filter_experiments_queryset(
+            Experiment.objects.filter(team=self.team),
+            action="list",
+            query_params={"created_by_id": format_filter(ids)},
+        )
         assert set(queryset.values_list("name", flat=True)) == expected_names
 
     @parameterized.expand(
@@ -4263,6 +4831,26 @@ class TestExperimentService(APIBaseTest):
             service.launch_experiment(experiment)
         assert "deleted" in str(ctx.exception.detail).lower()
 
+    def test_update_experiment_launch_via_start_date_with_deleted_flag_raises(self):
+        """Launching a draft by PATCHing start_date must reject a deleted flag, like the launch action."""
+        experiment = self._create_launchable_experiment(
+            name="PATCH Launch Deleted Flag",
+            feature_flag_key="patch-launch-deleted-flag",
+        )
+        experiment.feature_flag.deleted = True
+        experiment.feature_flag.save()
+
+        service = self._service()
+        with self.assertRaises(ValidationError) as ctx:
+            service.update_experiment(experiment, {"start_date": timezone.now()})
+        assert "deleted" in str(ctx.exception.detail).lower()
+
+        # The flag must not have been activated, and the experiment must stay a draft
+        experiment.refresh_from_db()
+        experiment.feature_flag.refresh_from_db()
+        assert experiment.start_date is None
+        assert experiment.feature_flag.active is False
+
     @parameterized.expand(
         [
             ("empty_string", {"method": ""}),
@@ -4899,48 +5487,244 @@ class TestExperimentService(APIBaseTest):
                 },
             )
 
+    VARIANT_KEYS = ["control", "test"]
 
-class TestValidateExperimentParametersExcludedVariants:
-    def _base_params(self) -> dict[str, Any]:
+    @parameterized.expand(
+        [
+            ("valid_baseline_control", {"baseline_variant_key": "control"}, VARIANT_KEYS, False),
+            ("valid_baseline_test", {"baseline_variant_key": "test"}, VARIANT_KEYS, False),
+            ("unknown_baseline", {"baseline_variant_key": "nonexistent"}, VARIANT_KEYS, True),
+            ("baseline_absent", {"method": "bayesian"}, VARIANT_KEYS, False),
+            ("none_stats_config", None, VARIANT_KEYS, False),
+            ("empty_stats_config", {}, VARIANT_KEYS, False),
+            ("unknown_baseline_no_variant_keys", {"baseline_variant_key": "nonexistent"}, None, False),
+            ("unknown_baseline_empty_variant_keys", {"baseline_variant_key": "nonexistent"}, [], False),
+        ]
+    )
+    def test_validate_stats_config_baseline_variant_key(
+        self,
+        _name: str,
+        stats_config: dict | None,
+        variant_keys: list[str] | None,
+        expect_error: bool,
+    ) -> None:
+        if expect_error:
+            with self.assertRaises(ValidationError):
+                ExperimentService.validate_stats_config(stats_config, variant_keys)
+        else:
+            ExperimentService.validate_stats_config(stats_config, variant_keys)
+
+    def test_create_experiment_validates_baseline_against_resolved_default_variants(self) -> None:
+        service = self._service()
+
+        # No parameters.feature_flag_variants supplied: the new flag falls back to
+        # DEFAULT_VARIANTS (control/test), so a baseline that isn't one must be rejected.
+        with self.assertRaises(ValidationError):
+            service.create_experiment(
+                name="Bad baseline new flag",
+                feature_flag_key="baseline-default-variants",
+                stats_config={"baseline_variant_key": "nonexistent"},
+            )
+        assert not FeatureFlag.objects.filter(key="baseline-default-variants", team_id=self.team.id).exists()
+
+    def test_create_experiment_validates_baseline_against_existing_flag_variants(self) -> None:
+        self._create_flag(
+            key="baseline-existing-flag",
+            variants=[
+                {"key": "control", "name": "Control", "rollout_percentage": 50},
+                {"key": "variant-a", "name": "Variant A", "rollout_percentage": 50},
+            ],
+        )
+        service = self._service()
+
+        experiment = service.create_experiment(
+            name="Existing flag baseline",
+            feature_flag_key="baseline-existing-flag",
+            stats_config={"baseline_variant_key": "variant-a"},
+        )
+        assert experiment.stats_config is not None
+        assert experiment.stats_config["baseline_variant_key"] == "variant-a"
+
+        with self.assertRaises(ValidationError):
+            service.create_experiment(
+                name="Existing flag bad baseline",
+                feature_flag_key="baseline-existing-flag",
+                stats_config={"baseline_variant_key": "test"},
+            )
+
+    def test_update_experiment_revalidates_baseline_when_variants_change(self) -> None:
+        self._create_flag(
+            key="baseline-update-flag",
+            variants=[
+                {"key": "control", "name": "Control", "rollout_percentage": 50},
+                {"key": "test", "name": "Test", "rollout_percentage": 50},
+            ],
+        )
+        service = self._service()
+        experiment = service.create_experiment(
+            name="Update baseline experiment",
+            feature_flag_key="baseline-update-flag",
+            stats_config={"baseline_variant_key": "test"},
+        )
+
+        # A variants-only edit that removes the current baseline ("test") must be rejected,
+        # even though stats_config is absent from the update payload.
+        with self.assertRaises(ValidationError):
+            service.update_experiment(
+                experiment,
+                {
+                    "parameters": {
+                        "feature_flag_variants": [
+                            {"key": "control", "rollout_percentage": 50},
+                            {"key": "variant-b", "rollout_percentage": 50},
+                        ]
+                    }
+                },
+            )
+
+
+class TestValidateExcludedVariantKeys:
+    _VARIANT_KEYS = {"control", "test-1", "test-2"}
+
+    @pytest.mark.parametrize(
+        "excluded_variants,baseline_key",
+        [
+            ([], "control"),
+            (["test-2"], "control"),
+            (["test-2", "test-2"], "control"),
+        ],
+    )
+    def test_valid_excluded_variants(self, excluded_variants: list[str], baseline_key: str):
+        ExperimentService._validate_excluded_variant_keys(excluded_variants, self._VARIANT_KEYS, baseline_key)
+
+    @pytest.mark.parametrize(
+        "excluded_variants,baseline_key,match",
+        [
+            (["does-not-exist"], "control", "unknown variants"),
+            (["control"], "control", "baseline variant cannot be excluded"),
+            (["holdout-42"], "control", "cannot exclude holdout"),
+            (["test-1", "test-2"], "control", "at least one test variant"),
+            (["test-1"], "test-1", "baseline variant cannot be excluded"),
+        ],
+    )
+    def test_invalid_excluded_variants_raises(self, excluded_variants: list[str], baseline_key: str, match: str):
+        with pytest.raises(ValidationError, match=match):
+            ExperimentService._validate_excluded_variant_keys(excluded_variants, self._VARIANT_KEYS, baseline_key)
+
+
+class TestValidateExcludedVariants:
+    @pytest.mark.parametrize(
+        "value",
+        [
+            None,
+            [],
+            ["test-2"],
+            ["test-1", "test-2"],
+        ],
+    )
+    def test_valid(self, value):
+        ExperimentService.validate_excluded_variants(value)
+
+    @pytest.mark.parametrize(
+        "value",
+        [
+            "test-2",
+            [123],
+        ],
+    )
+    def test_invalid_raises(self, value):
+        with pytest.raises(ValidationError, match="must be a list of strings"):
+            ExperimentService.validate_excluded_variants(value)
+
+
+@patch("posthoganalytics.feature_enabled", new=MagicMock(return_value=True))
+class TestExperimentServiceWarehouseMetricAccess(APIBaseTest):
+    def setUp(self):
+        super().setUp()
+        self.organization.available_product_features = [
+            {"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL},
+            {"key": AvailableFeature.ROLE_BASED_ACCESS, "name": AvailableFeature.ROLE_BASED_ACCESS},
+        ]
+        self.organization.save()
+
+        self.membership = OrganizationMembership.objects.get(user=self.user, organization=self.organization)
+        self.membership.level = OrganizationMembership.Level.MEMBER
+        self.membership.save()
+
+        credential = DataWarehouseCredential.objects.create(access_key="x", access_secret="x", team=self.team)
+        self.table = DataWarehouseTable.objects.create(
+            name="restricted_revenue",
+            format=DataWarehouseTable.TableFormat.Parquet,
+            team=self.team,
+            credential=credential,
+            url_pattern="s3://bucket/restricted/*",
+            columns={"id": "String"},
+        )
+        # Deny this member every warehouse object (warehouse_table inherits the warehouse_objects resource).
+        AccessControl.objects.create(team=self.team, resource="warehouse_objects", access_level="none")
+
+    def _dw_metric(self) -> dict:
         return {
-            "feature_flag_variants": [
-                {"key": "control", "rollout_percentage": 50},
-                {"key": "test-1", "rollout_percentage": 25},
-                {"key": "test-2", "rollout_percentage": 25},
-            ]
+            "kind": "ExperimentMetric",
+            "metric_type": "mean",
+            "source": {
+                "kind": "ExperimentDataWarehouseNode",
+                "table_name": self.table.name,
+                "events_join_key": "distinct_id",
+                "data_warehouse_join_key": "id",
+                "timestamp_field": "ds",
+                "math": "total",
+            },
         }
 
-    @pytest.mark.parametrize(
-        "extra_params",
-        [
-            {},
-            {"excluded_variants": []},
-            {"excluded_variants": ["test-2"]},
-            {"excluded_variants": ["test-2", "test-2"]},
-        ],
-    )
-    def test_valid_excluded_variants(self, extra_params: dict[str, Any]):
-        ExperimentService.validate_experiment_parameters({**self._base_params(), **extra_params})
+    def test_create_experiment_with_restricted_warehouse_metric_is_denied(self):
+        service = ExperimentService(team=self.team, user=self.user)
+        with pytest.raises(PermissionDenied):
+            service.create_experiment(
+                name="DW experiment",
+                feature_flag_key="dw-create",
+                metrics=[self._dw_metric()],
+                allow_unknown_events=True,
+            )
 
-    @pytest.mark.parametrize(
-        "extra_params,match",
-        [
-            ({"excluded_variants": ["does-not-exist"]}, "unknown variants"),
-            ({"excluded_variants": ["control"]}, "baseline variant cannot be excluded"),
-            ({"excluded_variants": ["holdout-42"]}, "cannot exclude holdout"),
-            ({"excluded_variants": ["test-1", "test-2"]}, "at least one test variant"),
-            ({"excluded_variants": "test-2"}, "must be a list of strings"),
-            ({"excluded_variants": [123]}, "must be a list of strings"),
-            (
-                {"stats_config": {"baseline_variant_key": "test-1"}, "excluded_variants": ["test-1"]},
-                "baseline variant cannot be excluded",
-            ),
-        ],
-    )
-    def test_invalid_excluded_variants_raises(self, extra_params: dict[str, Any], match: str):
-        with pytest.raises(ValidationError, match=match):
-            ExperimentService.validate_experiment_parameters({**self._base_params(), **extra_params})
+    def test_update_experiment_with_restricted_warehouse_metric_is_denied(self):
+        flag = FeatureFlag.objects.create(
+            team=self.team,
+            created_by=self.user,
+            key="dw-update",
+            filters={"groups": [{"properties": [], "rollout_percentage": 100}]},
+        )
+        experiment = Experiment.objects.create(team=self.team, created_by=self.user, name="E", feature_flag=flag)
+        service = ExperimentService(team=self.team, user=self.user)
+        with pytest.raises(PermissionDenied):
+            service.update_experiment(experiment, {"metrics": [self._dw_metric()]})
 
-    def test_excluded_variants_without_feature_flag_variants_raises(self):
-        with pytest.raises(ValidationError, match="requires feature_flag_variants in the same request"):
-            ExperimentService.validate_experiment_parameters({"excluded_variants": ["test-1"]})
+    def test_org_admin_can_author_restricted_warehouse_metric(self):
+        self.membership.level = OrganizationMembership.Level.ADMIN
+        self.membership.save()
+        service = ExperimentService(team=self.team, user=self.user)
+        experiment = service.create_experiment(
+            name="DW experiment allowed",
+            feature_flag_key="dw-allowed",
+            metrics=[self._dw_metric()],
+            allow_unknown_events=True,
+        )
+        assert experiment.metrics is not None
+        assert len(experiment.metrics) == 1
+
+    def test_attaching_saved_metric_on_restricted_table_is_denied(self):
+        # A saved metric on the denied table (authored by someone with access) can't be smuggled in
+        # by attaching it via saved_metrics_ids.
+        saved_metric = ExperimentSavedMetric.objects.create(
+            team=self.team,
+            created_by=self.user,
+            name="DW saved metric",
+            query=self._dw_metric(),
+        )
+        service = ExperimentService(team=self.team, user=self.user)
+        with pytest.raises(PermissionDenied):
+            service.create_experiment(
+                name="DW via saved metric",
+                feature_flag_key="dw-saved",
+                saved_metrics_ids=[{"id": saved_metric.id, "metadata": {"type": "primary"}}],
+            )

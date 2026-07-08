@@ -16,10 +16,6 @@ import type { EndpointVersionType } from '~/types'
 import { endpointLogic } from '../endpointLogic'
 import { EndpointTab, endpointSceneLogic } from '../endpointSceneLogic'
 
-interface EndpointVersionsProps {
-    tabId: string
-}
-
 function getStatusTagType(status: string | undefined): 'success' | 'danger' | 'warning' | 'default' {
     if (!status) {
         return 'warning'
@@ -36,10 +32,10 @@ function getStatusTagType(status: string | undefined): 'success' | 'danger' | 'w
     }
 }
 
-export function EndpointVersions({ tabId }: EndpointVersionsProps): JSX.Element {
-    const { endpoint, versions, versionsLoading } = useValues(endpointLogic({ tabId }))
-    const { updateEndpoint } = useActions(endpointLogic({ tabId }))
-    const { viewingVersion } = useValues(endpointSceneLogic({ tabId }))
+export function EndpointVersions(): JSX.Element {
+    const { endpoint, versions, versionsLoading } = useValues(endpointLogic)
+    const { updateEndpoint } = useActions(endpointLogic)
+    const { viewingVersion } = useValues(endpointSceneLogic)
 
     if (!endpoint) {
         return <></>

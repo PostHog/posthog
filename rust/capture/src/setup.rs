@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -8,7 +8,7 @@ use common_redis::RedisClient;
 use tracing::{info, warn};
 
 use crate::ai_s3::AiBlobStorage;
-use crate::config::{CaptureMode, Config};
+use crate::config::{AiRouting, AiSinkMode, CaptureMode, Config, KafkaConfig};
 use crate::event_restrictions::{EventRestrictionService, Pipeline, RedisRestrictionsRepository};
 use crate::global_rate_limiter::GlobalRateLimiter;
 use crate::quota_limiters::{
@@ -22,6 +22,7 @@ use crate::sinks::kafka::KafkaSink;
 use crate::sinks::noop::NoOpSink;
 use crate::sinks::print::PrintSink;
 use crate::sinks::s3::S3Sink;
+use crate::sinks::split::SplitKafkaSink;
 use crate::sinks::Event;
 use limiters::overflow::OverflowLimiter;
 use limiters::redis::{QuotaResource, RedisLimiter, ServiceName, OVERFLOW_LIMITER_CACHE_KEY};
@@ -38,6 +39,18 @@ pub struct LifecycleHandles {
 }
 
 pub fn register_components(manager: &mut lifecycle::Manager, config: &Config) -> LifecycleHandles {
+    // S3 fallback and AI secondary routing both contend for the single gating
+    // sink handle, and only one can own it. Enabling both leaves one cluster's
+    // producer unmonitored while the pod's liveness gates on an idle sink — refuse
+    // to start rather than silently watch the wrong cluster.
+    let ai_secondary_routing =
+        config.capture_mode == CaptureMode::Ai && config.ai_sink_mode != AiSinkMode::Primary;
+    assert!(
+        !(config.s3_fallback_enabled && ai_secondary_routing),
+        "invalid configuration: S3_FALLBACK_ENABLED cannot be combined with AI secondary routing (AI_SINK_MODE={:?}); enable at most one",
+        config.ai_sink_mode,
+    );
+
     let server = manager.register(
         "server",
         lifecycle::ComponentOptions::new().with_graceful_shutdown(Duration::from_secs(60)),
@@ -229,11 +242,57 @@ pub async fn build_components(
         _ => None,
     };
 
-    let sink: Arc<dyn Event + Send + Sync> = Arc::from(
-        create_sink(&config, sink_handle, advisory_handle)
+    // The capture sink is a single lifecycle component: `register_components`
+    // mints exactly one gating sink handle. When AI secondary routing is on we
+    // wrap the primary in a `SplitKafkaSink` that diverts events (all, or an
+    // allowlisted subset) to a second producer pointing at the secondary cluster
+    // (e.g. WarpStream). The KafkaSink layer is unchanged, so overflow/DLQ/redirect
+    // stamping applies on either cluster.
+    let build_secondary =
+        config.capture_mode == CaptureMode::Ai && config.ai_sink_mode != AiSinkMode::Primary;
+
+    // Decide which producer carries the single gating handle so the right
+    // cluster's health gates the pod: the secondary when it is the sole
+    // destination (full `Secondary` cutover), the primary otherwise. The
+    // non-gating producer is built with no handle — it still produces and emits
+    // metrics, it just doesn't drive a manager component. S3 fallback keeps the
+    // handle on the primary path (it owns its own advisory wiring).
+    let secondary_owns_liveness = build_secondary
+        && config.ai_sink_mode == AiSinkMode::Secondary
+        && !config.s3_fallback_enabled;
+    let (primary_handle, secondary_handle) = if secondary_owns_liveness {
+        (None, sink_handle)
+    } else {
+        (sink_handle, None)
+    };
+
+    let primary_sink: Arc<dyn Event + Send + Sync> = Arc::from(
+        create_sink(&config, primary_handle, advisory_handle)
             .await
             .expect("failed to create sink"),
     );
+
+    let sink: Arc<dyn Event + Send + Sync> = if build_secondary {
+        let secondary: Arc<dyn Event + Send + Sync> = Arc::new(
+            KafkaSink::new(build_ai_secondary_kafka_config(&config), secondary_handle)
+                .await
+                .expect("failed to start AI secondary Kafka sink"),
+        );
+        let routing = if config.ai_sink_mode == AiSinkMode::SecondaryAllowlist {
+            let allowlist = config
+                .ai_secondary_allowlist_tokens
+                .as_deref()
+                .map(parse_token_allowlist)
+                .unwrap_or_default();
+            AiRouting::SecondaryAllowlist(allowlist)
+        } else {
+            AiRouting::Secondary
+        };
+        info!(mode = ?config.ai_sink_mode, "AI secondary sink enabled");
+        Arc::new(SplitKafkaSink::new(primary_sink, secondary, routing))
+    } else {
+        primary_sink
+    };
     let sink_for_flush = sink.clone();
 
     // Create AI blob storage if S3 is configured
@@ -319,7 +378,6 @@ pub async fn build_components(
         config.verbose_sample_percent,
         config.ai_max_sum_of_parts_bytes,
         ai_blob_storage,
-        config.request_timeout_seconds,
         config.body_chunk_read_timeout_ms,
         config.body_read_chunk_size_kb,
         config.capture_v1_max_compressed_body_bytes,
@@ -327,6 +385,8 @@ pub async fn build_components(
         overflow_limiter,
         replay_overflow_limiter,
         v1_sink_router.clone(),
+        config.capture_v1_scatter_gather_min_batch,
+        config.ai_gateway_signing_secret.clone(),
     );
 
     info!(
@@ -341,6 +401,40 @@ pub async fn build_components(
         v1_sink_router,
         http1_header_read_timeout_ms: config.http1_header_read_timeout_ms,
     }
+}
+
+/// Build the secondary AI Kafka config by inheriting all producer tuning from
+/// the primary `kafka` config and overriding only the destination cluster and
+/// main topic. Panics with a clear message if the required secondary
+/// connection settings are missing — callers only invoke this when the AI sink
+/// mode requires a secondary, so missing config is a fatal misconfiguration.
+fn build_ai_secondary_kafka_config(config: &Config) -> KafkaConfig {
+    let mut kafka = config.kafka.clone();
+    kafka.kafka_hosts = config
+        .ai_secondary_kafka_hosts
+        .clone()
+        .filter(|h| !h.is_empty())
+        .expect("AI_SECONDARY_KAFKA_HOSTS is required when AI_SINK_MODE != primary");
+    kafka.kafka_topic = config
+        .ai_secondary_kafka_topic
+        .clone()
+        .filter(|t| !t.is_empty())
+        .expect("AI_SECONDARY_KAFKA_TOPIC is required when AI_SINK_MODE != primary");
+    kafka.kafka_tls = config.ai_secondary_kafka_tls;
+    if !config.ai_secondary_kafka_client_id.is_empty() {
+        kafka.kafka_client_id = config.ai_secondary_kafka_client_id.clone();
+    }
+    kafka
+}
+
+/// Parse a comma-separated token allowlist into a set, trimming whitespace and
+/// dropping empty entries.
+fn parse_token_allowlist(csv: &str) -> HashSet<String> {
+    csv.split(',')
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+        .map(String::from)
+        .collect()
 }
 
 fn create_v1_sink_router(
@@ -399,42 +493,39 @@ async fn create_sink(
     } else if config.noop_sink {
         info!("NoOpSink enabled, events will be silently dropped");
         Ok(Box::new(NoOpSink::new()))
-    } else {
-        let sink_handle = sink_handle.expect("sink lifecycle handle required for Kafka/S3 sinks");
+    } else if config.s3_fallback_enabled {
+        let s3_handle = sink_handle.expect("sink lifecycle handle required for S3 fallback");
+        let kafka_handle = advisory_handle.expect("kafka advisory handle required for fallback");
 
-        if config.s3_fallback_enabled {
-            let kafka_handle =
-                advisory_handle.expect("kafka advisory handle required for fallback");
-            let s3_handle = sink_handle;
-
-            let kafka_sink = KafkaSink::new(config.kafka.clone(), kafka_handle.clone())
-                .await
-                .expect("failed to start Kafka sink");
-
-            let s3_sink = S3Sink::new(
-                config
-                    .s3_fallback_bucket
-                    .clone()
-                    .expect("S3 bucket required when fallback enabled"),
-                config.s3_fallback_prefix.clone(),
-                config.s3_fallback_endpoint.clone(),
-                s3_handle,
-            )
+        let kafka_sink = KafkaSink::new(config.kafka.clone(), Some(kafka_handle.clone()))
             .await
-            .expect("failed to create S3 sink");
+            .expect("failed to start Kafka sink");
 
-            Ok(Box::new(FallbackSink::new_with_advisory(
-                kafka_sink,
-                s3_sink,
-                kafka_handle,
-            )))
-        } else {
-            let kafka_sink = KafkaSink::new(config.kafka.clone(), sink_handle)
-                .await
-                .expect("failed to start Kafka sink");
+        let s3_sink = S3Sink::new(
+            config
+                .s3_fallback_bucket
+                .clone()
+                .expect("S3 bucket required when fallback enabled"),
+            config.s3_fallback_prefix.clone(),
+            config.s3_fallback_endpoint.clone(),
+            s3_handle,
+        )
+        .await
+        .expect("failed to create S3 sink");
 
-            Ok(Box::new(kafka_sink))
-        }
+        Ok(Box::new(FallbackSink::new_with_advisory(
+            kafka_sink,
+            s3_sink,
+            kafka_handle,
+        )))
+    } else {
+        // `sink_handle` is `None` for a primary that must not gate the pod (a
+        // full `Secondary` cutover hands the gating handle to the secondary).
+        let kafka_sink = KafkaSink::new(config.kafka.clone(), sink_handle)
+            .await
+            .expect("failed to start Kafka sink");
+
+        Ok(Box::new(kafka_sink))
     }
 }
 
@@ -551,5 +642,43 @@ mod tests {
             msg.contains("msk"),
             "error should name the failing sink: {msg}"
         );
+    }
+
+    #[test]
+    #[should_panic(expected = "S3_FALLBACK_ENABLED cannot be combined with AI secondary routing")]
+    fn register_components_rejects_s3_fallback_with_ai_secondary() {
+        let cfg_env: HashMap<String, String> = [
+            ("REDIS_URL", "redis://localhost:6379/"),
+            ("CAPTURE_MODE", "ai"),
+            ("KAFKA_HOSTS", "localhost:9092"),
+            ("KAFKA_TOPIC", "events_plugin_ingestion"),
+            ("S3_FALLBACK_ENABLED", "true"),
+            ("AI_SINK_MODE", "secondary"),
+        ]
+        .into_iter()
+        .map(|(k, v)| (k.to_string(), v.to_string()))
+        .collect();
+        let config: Config =
+            envconfig::Envconfig::init_from_hashmap(&cfg_env).expect("test config");
+
+        let mut manager = lifecycle::Manager::builder("test")
+            .with_trap_signals(false)
+            .with_prestop_check(false)
+            .build();
+        register_components(&mut manager, &config);
+    }
+
+    #[test]
+    fn parse_token_allowlist_trims_and_drops_empties() {
+        // A stray space or trailing/double comma in AI_SECONDARY_ALLOWLIST_TOKENS
+        // must not produce a mismatched or empty token that breaks routing.
+        let set = super::parse_token_allowlist(" tok_a , tok_b ,,tok_c, ");
+        assert_eq!(set.len(), 3);
+        assert!(set.contains("tok_a"));
+        assert!(set.contains("tok_b"));
+        assert!(set.contains("tok_c"));
+        assert!(!set.contains(""));
+
+        assert!(super::parse_token_allowlist("  ,  , ").is_empty());
     }
 }

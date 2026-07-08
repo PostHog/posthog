@@ -1,6 +1,7 @@
 import string
 import secrets
 from datetime import timedelta
+from typing import TYPE_CHECKING, Optional
 
 from django.db import IntegrityError, models
 from django.utils import timezone
@@ -8,6 +9,9 @@ from django.utils import timezone
 from posthog.models.team.team import Team
 from posthog.models.user import User
 from posthog.models.utils import CreatedMetaFields, DeletedMetaFields, UpdatedMetaFields, UUIDModel, UUIDTModel
+
+if TYPE_CHECKING:
+    from products.tasks.backend.models import TaskRun
 
 
 def generate_short_id() -> str:
@@ -35,6 +39,10 @@ class Conversation(UUIDTModel, DeletedMetaFields):
         ]
         db_table = "ee_conversation"
 
+    class AgentRuntime(models.TextChoices):
+        LANGGRAPH = "langgraph", "LangGraph"
+        SANDBOX = "sandbox", "Sandbox"
+
     class Status(models.TextChoices):
         IDLE = "idle", "Idle"
         IN_PROGRESS = "in_progress", "In progress"
@@ -45,6 +53,19 @@ class Conversation(UUIDTModel, DeletedMetaFields):
         TOOL_CALL = "tool_call", "Tool call"
         DEEP_RESEARCH = "deep_research", "Deep research"
         SLACK = "slack", "Slack"
+
+    class Topic(models.TextChoices):
+        """Product domain a conversation is about, classified from the first question (see title generator)."""
+
+        WEB_ANALYTICS = "web_analytics", "Web analytics"
+        PRODUCT_ANALYTICS = "product_analytics", "Product analytics"
+        SESSION_REPLAY = "session_replay", "Session replay"
+        SURVEYS = "surveys", "Surveys"
+        FEATURE_FLAGS = "feature_flags", "Feature flags"
+        EXPERIMENTS = "experiments", "Experiments"
+        ERROR_TRACKING = "error_tracking", "Error tracking"
+        DATA_WAREHOUSE = "data_warehouse", "Data warehouse"
+        OTHER = "other", "Other"
 
     user = models.ForeignKey(User, on_delete=models.CASCADE)
     team = models.ForeignKey(Team, on_delete=models.CASCADE)
@@ -57,6 +78,13 @@ class Conversation(UUIDTModel, DeletedMetaFields):
         blank=True,
         help_text="Title of the conversation.",
         max_length=TITLE_MAX_LENGTH,
+    )
+    topic = models.CharField(
+        null=True,
+        blank=True,
+        choices=Topic,
+        max_length=64,
+        help_text="Product domain the conversation is about, classified from the first question.",
     )
     is_internal = models.BooleanField(
         null=True,
@@ -86,16 +114,42 @@ class Conversation(UUIDTModel, DeletedMetaFields):
         default=None,
         help_text="Stored messages for non-LangGraph modes (e.g., sandbox).",
     )
+    # Deprecated: legacy Redis-flow columns (migration 0039). Nothing reads or writes
+    # them on the sandbox path anymore — the `task` FK supersedes `sandbox_task_id`, and
+    # the current Run is derived (see `current_run`). Retained until a cleanup migration.
     sandbox_task_id = models.UUIDField(
         null=True,
         blank=True,
-        help_text="Permanent link to Task for sandbox conversations.",
+        help_text="Deprecated. Permanent link to Task for sandbox conversations.",
     )
     sandbox_run_id = models.UUIDField(
         null=True,
         blank=True,
-        help_text="Permanent link to current TaskRun for sandbox conversations.",
+        help_text="Deprecated. Permanent link to current TaskRun for sandbox conversations.",
     )
+    agent_runtime = models.CharField(
+        max_length=16,
+        choices=AgentRuntime.choices,
+        default=AgentRuntime.LANGGRAPH,
+        db_index=True,
+        help_text="Runtime that owns this conversation for its whole life. Stamped at create time from the phai-sandbox-mode flag; never re-evaluated.",
+    )
+    task = models.ForeignKey(
+        "tasks.Task",
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
+        related_name="+",
+        db_index=True,
+        help_text="The products/tasks Task backing a sandbox conversation. One Task per conversation for its whole life.",
+    )
+
+    @property
+    def current_run(self) -> Optional["TaskRun"]:
+        task = self.task
+        if task is None:
+            return None
+        return task.latest_run
 
 
 class ConversationCheckpoint(UUIDTModel):

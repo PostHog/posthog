@@ -16,6 +16,10 @@ ui_apps:
         type: custom
         app_name: Query Results
         description: Interactive visualization for PostHog query results
+    render-ui:
+        type: custom
+        app_name: PostHog Render UI
+        description: Renders the visualization for a PostHog MCP tool result
 tools:
     activity-retrieve:
         operation: organizations_projects_activity_retrieve
@@ -56,6 +60,38 @@ tools:
     delete-secret-token-backup-partial-update:
         operation: organizations_projects_delete_secret_token_backup_partial_update
         enabled: false
+    desktop-file-system-canvas-partial-update:
+        operation: desktop_file_system_canvas_partial_update
+        enabled: true
+        scopes:
+            - file_system:write
+        annotations:
+            readOnly: false
+            destructive: false
+            idempotent: false
+        title: Update canvas code
+        description: >
+            Publish the React source for a freeform canvas (a "dashboard" item on the desktop surface). The `id` is the
+            canvas/dashboard id. Pass the COMPLETE single-file React source in `code` — each call replaces the live code
+            and appends a new version to the canvas's history. This is how a canvas-generation task saves its result; do
+            not write a local file.
+        param_overrides:
+            id:
+                description: ID of the canvas (desktop "dashboard" item) whose code to publish.
+            code:
+                description: |
+                    The complete single-file React source for the canvas. Replaces the current code wholesale.
+                required: true
+            name:
+                description: |
+                    Optional new display name for the canvas. When set, renames the canvas (the leaf of its path)
+                    in place. Omit to leave the name unchanged.
+    desktop-file-system-context-generation-retrieve:
+        operation: desktop_file_system_context_generation_retrieve
+        enabled: false
+    desktop-file-system-context-generation-update:
+        operation: desktop_file_system_context_generation_update
+        enabled: false
     desktop-file-system-count-by-path-create:
         operation: desktop_file_system_count_by_path_create
         enabled: false
@@ -64,16 +100,90 @@ tools:
         enabled: false
     desktop-file-system-create:
         operation: desktop_file_system_create
-        enabled: false
+        enabled: true
+        scopes:
+            - file_system:write
+        annotations:
+            readOnly: false
+            destructive: false
+            idempotent: false
+        title: Create desktop channel
+        description: >
+            Create a new channel (folder) on the desktop surface. Pass a slash-delimited `path` (parent folders are
+            created automatically) and `type: folder`. A blank instruction set is created for the channel automatically;
+            use the desktop-file-system-instructions-partial-update tool to fill it in.
+        param_overrides:
+            path:
+                description: >
+                    Slash-delimited location of the channel, e.g. "Marketing/Q1 Campaigns". Intermediate folders are
+                    created automatically.
+            type:
+                description: Use "folder" to create a channel.
     desktop-file-system-destroy:
         operation: desktop_file_system_destroy
+        enabled: false
+    desktop-file-system-instructions-destroy:
+        operation: desktop_file_system_instructions_destroy
+        enabled: false
+    desktop-file-system-instructions-partial-update:
+        operation: desktop_file_system_instructions_partial_update
+        enabled: true
+        scopes:
+            - file_system:write
+        annotations:
+            readOnly: false
+            destructive: false
+            idempotent: false
+        title: Update channel instructions
+        description: >
+            Publish a new version of a channel's markdown instructions, describing what the channel contains. The `id`
+            is the channel (folder) id. Each call creates a new version. To erase a channel's instructions, publish
+            empty `content` — this clears the text while keeping the instruction set in place (the instruction set
+            itself cannot be deleted).
+        param_overrides:
+            id:
+                description: ID of the channel (desktop folder) whose instructions to update.
+            content:
+                description: >
+                    Full markdown instructions to publish. Pass an empty string to erase the channel's instructions
+                    while keeping the instruction set.
+    desktop-file-system-instructions-retrieve:
+        operation: desktop_file_system_instructions_retrieve
+        enabled: true
+        scopes:
+            - file_system:read
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        title: Get channel instructions
+        description: |
+            Get the latest markdown instructions for a channel (desktop folder).
+        param_overrides:
+            id:
+                description: ID of the channel (desktop folder) whose instructions to fetch.
+    desktop-file-system-instructions-update:
+        operation: desktop_file_system_instructions_update
+        enabled: false
+    desktop-file-system-instructions-versions-list:
+        operation: desktop_file_system_instructions_versions_list
         enabled: false
     desktop-file-system-link-create:
         operation: desktop_file_system_link_create
         enabled: false
     desktop-file-system-list:
         operation: desktop_file_system_list
-        enabled: false
+        enabled: true
+        scopes:
+            - file_system:read
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        title: List desktop channels
+        description: >
+            List channels and items on the desktop surface. Filter with query params such as `type` (e.g. "folder"),
+            `parent`, `path`, `depth`, or `search`.
     desktop-file-system-log-view-create:
         operation: desktop_file_system_log_view_create
         enabled: false
@@ -88,7 +198,16 @@ tools:
         enabled: false
     desktop-file-system-retrieve:
         operation: desktop_file_system_retrieve
-        enabled: false
+        enabled: true
+        scopes:
+            - file_system:read
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        title: Get desktop channel
+        description: |
+            Retrieve a single channel or item on the desktop surface by id.
     desktop-file-system-shortcut-create:
         operation: desktop_file_system_shortcut_create
         enabled: false
@@ -118,24 +237,6 @@ tools:
         enabled: false
     desktop-file-system-update:
         operation: desktop_file_system_update
-        enabled: false
-    desktop-persisted-folder-create:
-        operation: desktop_persisted_folder_create
-        enabled: false
-    desktop-persisted-folder-destroy:
-        operation: desktop_persisted_folder_destroy
-        enabled: false
-    desktop-persisted-folder-list:
-        operation: desktop_persisted_folder_list
-        enabled: false
-    desktop-persisted-folder-partial-update:
-        operation: desktop_persisted_folder_partial_update
-        enabled: false
-    desktop-persisted-folder-retrieve:
-        operation: desktop_persisted_folder_retrieve
-        enabled: false
-    desktop-persisted-folder-update:
-        operation: desktop_persisted_folder_update
         enabled: false
     domains-create:
         operation: domains_create
@@ -242,6 +343,27 @@ tools:
     generate-conversations-public-token-create:
         operation: organizations_projects_generate_conversations_public_token_create
         enabled: false
+    identity-provider-configs-create:
+        operation: identity_provider_configs_create
+        enabled: false
+    identity-provider-configs-destroy:
+        operation: identity_provider_configs_destroy
+        enabled: false
+    identity-provider-configs-list:
+        operation: identity_provider_configs_list
+        enabled: false
+    identity-provider-configs-partial-update:
+        operation: identity_provider_configs_partial_update
+        enabled: false
+    identity-provider-configs-retrieve:
+        operation: identity_provider_configs_retrieve
+        enabled: false
+    identity-provider-configs-scim-token-create:
+        operation: identity_provider_configs_scim_token_create
+        enabled: false
+    identity-provider-configs-update:
+        operation: identity_provider_configs_update
+        enabled: false
     insights-sharing-list:
         operation: insights_sharing_list
         enabled: false
@@ -287,32 +409,41 @@ tools:
     oauth-applications-list:
         operation: oauth_applications_list
         enabled: false
+    organizations-projects-default-evaluation-contexts-create:
+        operation: organizations_projects_default_evaluation_contexts_create
+        enabled: false
+    organizations-projects-default-evaluation-contexts-destroy:
+        operation: organizations_projects_default_evaluation_contexts_destroy
+        enabled: false
+    organizations-projects-default-evaluation-contexts-retrieve:
+        operation: organizations_projects_default_evaluation_contexts_retrieve
+        enabled: false
+    organizations-projects-default-release-conditions-retrieve:
+        operation: organizations_projects_default_release_conditions_retrieve
+        enabled: false
+    organizations-projects-default-release-conditions-update:
+        operation: organizations_projects_default_release_conditions_update
+        enabled: false
+    organizations-projects-event-ingestion-restrictions-retrieve:
+        operation: organizations_projects_event_ingestion_restrictions_retrieve
+        enabled: false
+    organizations-projects-experiments-config-partial-update:
+        operation: organizations_projects_experiments_config_partial_update
+        enabled: false
+    organizations-projects-experiments-config-retrieve:
+        operation: organizations_projects_experiments_config_retrieve
+        enabled: false
     organizations-projects-logs-config-partial-update:
         operation: organizations_projects_logs_config_partial_update
         enabled: false
     organizations-projects-logs-config-retrieve:
         operation: organizations_projects_logs_config_retrieve
         enabled: false
-    organizations-projects-promoted-product-intent-retrieve:
-        operation: organizations_projects_promoted_product_intent_retrieve
+    organizations-projects-settings-as-of-retrieve:
+        operation: organizations_projects_settings_as_of_retrieve
         enabled: false
-    persisted-folder-create:
-        operation: persisted_folder_create
-        enabled: false
-    persisted-folder-destroy:
-        operation: persisted_folder_destroy
-        enabled: false
-    persisted-folder-list:
-        operation: persisted_folder_list
-        enabled: false
-    persisted-folder-partial-update:
-        operation: persisted_folder_partial_update
-        enabled: false
-    persisted-folder-retrieve:
-        operation: persisted_folder_retrieve
-        enabled: false
-    persisted-folder-update:
-        operation: persisted_folder_update
+    product-enablement-create:
+        operation: product_enablement_create
         enabled: false
     project-get:
         operation: organizations_projects_retrieve
@@ -325,10 +456,12 @@ tools:
             idempotent: true
         title: Get project
         description: |
-            Retrieve a project and its settings. Pass `@current` as the ID to fetch the caller's active project.
+            Retrieve a project and its settings. Omit the ID to get the caller's active project.
         param_overrides:
             id:
-                description: Project ID, or `@current` to fetch the caller's active project.
+                description: Project ID. If omitted, returns the caller's active project.
+                optional: true
+                fallback: projectId
                 cast: string-int
         response:
             exclude:
@@ -443,147 +576,6 @@ tools:
     session-recordings-sharing-refresh-create:
         operation: session_recordings_sharing_refresh_create
         enabled: false
-    subscriptions-create:
-        operation: subscriptions_create
-        enabled: true
-        scopes:
-            - subscription:write
-        annotations:
-            readOnly: false
-            destructive: false
-            idempotent: false
-        title: Create subscription
-        description: >
-            Create a new subscription to receive scheduled deliveries of an insight or dashboard. Requires either an
-            insight ID or dashboard ID. Set target_type to email, slack, or webhook and target_value to the
-            recipient(s). For email: comma-separated addresses. For slack: requires an integration_id for a connected
-            Slack workspace plus a channel name in target_value. For webhook: a URL. Set frequency (daily, weekly,
-            monthly, yearly) and interval (the multiplier, e.g. 2 with weekly means every 2 weeks; required, minimum 1 —
-            use 1 for no multiplier). byweekday, start_date, and until_date are optional. Dashboard subscriptions also
-            require dashboard_export_insights (list of insight IDs from that dashboard, max 6).
-        exclude_params:
-            - created_by
-            - next_delivery_date
-            - summary
-            - insight_short_id
-            - resource_name
-    subscriptions-deliveries-list:
-        operation: subscriptions_deliveries_list
-        enabled: true
-        scopes:
-            - subscription:read
-        annotations:
-            readOnly: true
-            destructive: false
-            idempotent: true
-        list: true
-        title: List subscription deliveries
-        description: >
-            List delivery history for a subscription — one row per send attempt. Each entry includes status (starting,
-            completed, failed, skipped), trigger_type (scheduled, manual, target_change), and timestamps (created_at,
-            finished_at). Filter with status=failed to quickly surface failed deliveries. Results are cursor-paginated
-            newest first. content_snapshot, recipient_results, and error are excluded to match what the web UI exposes
-            and to avoid leaking recipient identifiers or upstream response bodies that may contain tokens / PII.
-        response:
-            exclude:
-                - content_snapshot
-                - recipient_results
-                - error
-    subscriptions-deliveries-retrieve:
-        operation: subscriptions_deliveries_retrieve
-        enabled: true
-        scopes:
-            - subscription:read
-        annotations:
-            readOnly: true
-            destructive: false
-            idempotent: true
-        title: Get subscription delivery
-        description: >
-            Fetch a single subscription delivery attempt by id. Returns status, trigger_type, target_type, target_value,
-            timestamps, workflow/idempotency metadata, and exported_asset_ids. content_snapshot (the frozen
-            dashboard/insight state at send time) is not returned — use the insight/dashboard tools for current state.
-            recipient_results and error are also excluded to match what the web UI exposes and to avoid leaking
-            recipient identifiers or upstream response bodies that may contain tokens / PII.
-        response:
-            exclude:
-                - content_snapshot
-                - recipient_results
-                - error
-    subscriptions-destroy:
-        operation: subscriptions_destroy
-        enabled: false
-    subscriptions-list:
-        operation: subscriptions_list
-        enabled: true
-        scopes:
-            - subscription:read
-        annotations:
-            readOnly: true
-            destructive: false
-            idempotent: true
-        list: true
-        title: List subscriptions
-        description: >
-            List subscriptions for the project. Returns scheduled email, Slack, or webhook deliveries of insight or
-            dashboard snapshots. Each subscription includes its schedule (frequency, interval, byweekday),
-            next_delivery_date, and a human-readable summary.
-    subscriptions-partial-update:
-        operation: subscriptions_partial_update
-        enabled: true
-        scopes:
-            - subscription:write
-        annotations:
-            readOnly: false
-            destructive: true
-            idempotent: true
-        title: Update subscription
-        description: >
-            Update an existing subscription by ID. Can change target_type, target_value, frequency, interval, byweekday,
-            start_date, until_date, title, or deleted status. Set deleted to true to deactivate a subscription
-            (subscriptions are soft-deleted). Changing target_value triggers notifications to new recipients.
-        exclude_params:
-            - created_by
-            - next_delivery_date
-            - summary
-            - insight_short_id
-            - resource_name
-    subscriptions-retrieve:
-        operation: subscriptions_retrieve
-        enabled: true
-        scopes:
-            - subscription:read
-        annotations:
-            readOnly: true
-            destructive: false
-            idempotent: true
-        title: Get subscription
-        description: >
-            Get a specific subscription by ID. Returns the full subscription configuration including target type and
-            value, schedule details, next delivery date, and associated insight or dashboard.
-    subscriptions-summary-quota-retrieve:
-        operation: subscriptions_summary_quota_retrieve
-        enabled: false
-    subscriptions-test-delivery-create:
-        operation: subscriptions_test_delivery_create
-        enabled: true
-        scopes:
-            - subscription:write
-        annotations:
-            readOnly: false
-            destructive: true
-            idempotent: false
-        title: Send test delivery
-        description: >
-            Trigger an immediate test delivery of a subscription to its configured target(s) (email, Slack, or webhook).
-            Runs the same pipeline as a scheduled delivery but with trigger_type=manual, producing a real delivery
-            record you can inspect via subscriptions-deliveries-list / subscriptions-deliveries-retrieve. Returns 202
-            Accepted once the delivery workflow is queued; poll subscriptions-deliveries-list (newest first) or
-            subscriptions-deliveries-retrieve for the outcome. Returns 409 if a test delivery for the same subscription
-            is already in flight.
-    subscriptions-update:
-        operation: subscriptions_update
-        enabled: false
     user-get:
         operation: users_retrieve
         enabled: true
@@ -595,17 +587,51 @@ tools:
             idempotent: true
         title: Get user
         description: >
-            Retrieve a user's profile and settings. Pass `@me` as the UUID to fetch the authenticated user — non-staff
-            callers may only access their own account.
+            Retrieve the authenticated user's own profile and settings — identity (id, uuid, distinct_id, email, name),
+            security/auth state, preferences, and notification settings. Pass `@me` as the UUID to fetch the
+            authenticated user; non-staff callers may only access their own account. This tool deliberately does NOT
+            return organization or project configuration: the nested `organization`, `team`, and `organizations` objects
+            are trimmed to just `id` and `name` (no API tokens, members, available features, or project settings). Use
+            `project-get` for full project details, and the organization-scoped tools for organization details.
         param_overrides:
             uuid:
                 description: User UUID, or `@me` to target the authenticated user.
         response:
-            exclude:
-                - is_impersonated
-                - is_impersonated_until
-                - is_impersonated_read_only
-                - sensitive_session_expires_at
+            include:
+                - id
+                - uuid
+                - distinct_id
+                - email
+                - pending_email
+                - is_email_verified
+                - first_name
+                - last_name
+                - date_joined
+                - is_staff
+                - has_password
+                - is_2fa_enabled
+                - has_social_auth
+                - has_sso_enforcement
+                - passkeys_enabled_for_2fa
+                - allow_impersonation
+                - notification_settings
+                - anonymize_data
+                - toolbar_mode
+                - events_column_config
+                - theme_mode
+                - hedgehog_config
+                - allow_sidebar_suggestions
+                - shortcut_position
+                - role_at_organization
+                - hide_mcp_hints
+                - scene_personalisation
+                - pending_invites
+                - organization.id
+                - organization.name
+                - team.id
+                - team.name
+                - organizations.*.id
+                - organizations.*.name
     user-settings-update:
         operation: users_partial_update
         enabled: true
@@ -669,6 +695,9 @@ tools:
     users-integrations-github-destroy:
         operation: users_integrations_github_destroy
         enabled: false
+    users-integrations-github-prepare-callback-create:
+        operation: users_integrations_github_prepare_callback_create
+        enabled: false
     users-integrations-github-repos-refresh-create:
         operation: users_integrations_github_repos_refresh_create
         enabled: false
@@ -681,8 +710,26 @@ tools:
     users-integrations-list:
         operation: users_integrations_list
         enabled: false
+    users-integrations-slack-destroy:
+        operation: users_integrations_slack_destroy
+        enabled: false
+    users-integrations-slack-linkable-workspaces-retrieve:
+        operation: users_integrations_slack_linkable_workspaces_retrieve
+        enabled: false
+    users-integrations-slack-start-create:
+        operation: users_integrations_slack_start_create
+        enabled: false
     users-list:
         operation: users_list
+        enabled: false
+    users-login-sessions-destroy:
+        operation: users_login_sessions_destroy
+        enabled: false
+    users-login-sessions-list:
+        operation: users_login_sessions_list
+        enabled: false
+    users-login-sessions-revoke-others-create:
+        operation: users_login_sessions_revoke_others_create
         enabled: false
     users-onboarding-skip-create:
         operation: users_onboarding_skip_create

@@ -23,7 +23,7 @@ class Command(BaseCommand):
         parser.add_argument(
             "--status",
             type=str,
-            help="Filter by status (potential, candidate, in_progress, ready, pending_input, failed)",
+            help="Filter by status (potential, candidate, in_progress, pending_input, ready, resolved, failed, suppressed)",
         )
         parser.add_argument("--report-id", type=str, help="Show a specific report")
         parser.add_argument("--signals", action="store_true", help="Include full signal details from ClickHouse")

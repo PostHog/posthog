@@ -8,7 +8,7 @@ import {
     operatorToHumanName,
     propertyValueToHumanName,
 } from 'lib/components/DefinitionPopover/utils'
-import { pluralize } from 'lib/utils'
+import { pluralize } from 'lib/utils/strings'
 import { BEHAVIORAL_TYPE_TO_LABEL } from 'scenes/cohorts/CohortFilters/constants'
 import {
     COHORT_MATCHING_DAYS,

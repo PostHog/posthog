@@ -13,11 +13,11 @@ from rest_framework.test import APIRequestFactory
 from posthog.api.file_system.file_system import DELETE_PREVIEW_ENTRY_LIMIT
 from posthog.models import Project, Team, User
 from posthog.models.activity_logging.activity_log import ActivityLog
-from posthog.models.cohort import Cohort
 from posthog.models.file_system.file_system import FileSystem
 from posthog.session_recordings.models.session_recording_playlist import SessionRecordingPlaylist
 
 from products.cdp.backend.models.hog_functions.hog_function import HogFunction, HogFunctionType
+from products.cohorts.backend.models.cohort import Cohort
 from products.dashboards.backend.models.dashboard import Dashboard
 from products.early_access_features.backend.models import EarlyAccessFeature
 from products.experiments.backend.models.experiment import Experiment
@@ -179,6 +179,24 @@ class TestFileSystemAPI(APIBaseTest):
         self.assertFalse(FileSystem.objects.filter(pk=folder_obj.pk).exists())
         self.assertFalse(FileSystem.objects.filter(pk=file1_obj.pk).exists())
         self.assertFalse(FileSystem.objects.filter(pk=file2_obj.pk).exists())
+
+    def test_delete_ref_less_registered_row_refused_on_web_surface(self):
+        """
+        On the default (web) surface every registered-type row points at a real object via `ref`.
+        A ref-less registered row is a data-integrity error, so deletion is refused, not silently applied.
+        """
+        file_obj = FileSystem.objects.create(
+            team=self.team,
+            path="DeleteMe/RefLessDashboard",
+            type="dashboard",
+            created_by=self.user,
+        )
+
+        delete_response = self.client.delete(f"/api/projects/{self.team.id}/file_system/{file_obj.pk}/")
+
+        self.assertEqual(delete_response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(delete_response.json()["detail"], "Cannot delete type 'dashboard' without a reference.")
+        self.assertTrue(FileSystem.objects.filter(pk=file_obj.pk).exists())
 
     def test_unfiled_endpoint_no_content(self):
         """

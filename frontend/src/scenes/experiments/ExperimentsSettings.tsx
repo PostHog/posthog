@@ -1,6 +1,5 @@
 import { useValues } from 'kea'
 
-import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { LemonLabel } from 'lib/lemon-ui/LemonLabel'
 import { SpinnerOverlay } from 'lib/lemon-ui/Spinner'
 import { MAX_LOOKBACK_DAYS, MIN_LOOKBACK_DAYS } from 'scenes/experiments/constants'
@@ -22,7 +21,6 @@ import { DefaultMinimumDetectableEffect } from './DefaultMinimumDetectableEffect
  */
 export function ExperimentsSettings(): JSX.Element {
     const { experimentsConfig, experimentsConfigLoading } = useValues(experimentsConfigLogic)
-    const showCupedOption = useFeatureFlag('EXPERIMENT_CUPED')
 
     if (experimentsConfigLoading && !experimentsConfig) {
         return <SpinnerOverlay sceneLevel />
@@ -70,26 +68,22 @@ export function ExperimentsSettings(): JSX.Element {
                 </p>
                 <DefaultOnlyCountMaturedUsers />
             </div>
-            {showCupedOption && (
-                <>
-                    <div>
-                        <LemonLabel className="text-base">Default CUPED variance reduction</LemonLabel>
-                        <p className="text-secondary mt-2">
-                            When enabled, experiments will use CUPED variance reduction. CUPED uses pre-experiment data
-                            to detect significant effects faster on supported metrics. Can be overridden per experiment.
-                        </p>
-                        <DefaultCupedEnabled />
-                    </div>
-                    <div>
-                        <LemonLabel className="text-base">Default CUPED lookback window</LemonLabel>
-                        <p className="text-secondary mt-2">
-                            Number of days before the experiment start to use as the pre-experiment window. Must be
-                            between {MIN_LOOKBACK_DAYS} and {MAX_LOOKBACK_DAYS} days. Can be overridden per experiment.
-                        </p>
-                        <DefaultCupedLookbackDays />
-                    </div>
-                </>
-            )}
+            <div>
+                <LemonLabel className="text-base">Default CUPED variance reduction</LemonLabel>
+                <p className="text-secondary mt-2">
+                    When enabled, experiments will use CUPED variance reduction. CUPED uses pre-experiment data to
+                    detect significant effects faster on supported metrics. Can be overridden per experiment.
+                </p>
+                <DefaultCupedEnabled />
+            </div>
+            <div>
+                <LemonLabel className="text-base">Default CUPED lookback window</LemonLabel>
+                <p className="text-secondary mt-2">
+                    Number of days before the experiment start to use as the pre-experiment window. Must be between{' '}
+                    {MIN_LOOKBACK_DAYS} and {MAX_LOOKBACK_DAYS} days. Can be overridden per experiment.
+                </p>
+                <DefaultCupedLookbackDays />
+            </div>
             <div>
                 <LemonLabel className="text-base">Default sequential testing</LemonLabel>
                 <p className="text-secondary mt-2">

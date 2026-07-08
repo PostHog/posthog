@@ -10,12 +10,11 @@ from .evaluations import EvaluationViewSet
 from .models import LLMModelsViewSet
 from .offline_evaluations import AIObservabilityOfflineEvaluationsViewSet
 from .parser_recipes import ParserRecipeViewSet
-from .personal_spend import PersonalSpendViewSet
+from .personal_spend import PersonalSpendInternalViewSet, PersonalSpendViewSet
 from .provider_keys import LLMProviderKeyValidationViewSet, LLMProviderKeyViewSet
 from .proxy import SUPPORTED_MODELS_WITH_THINKING, LLMProxyViewSet
 from .review_queues import ReviewQueueItemViewSet, ReviewQueueViewSet
 from .score_definitions import ScoreDefinitionViewSet
-from .sentiment import AIObservabilitySentimentViewSet
 from .summarization import AIObservabilitySummarizationViewSet
 from .taggers import TaggerViewSet
 from .text_repr import AIObservabilityTextReprViewSet
@@ -44,8 +43,8 @@ __all__ = [
     "ReviewQueueViewSet",
     "ReviewQueueItemViewSet",
     "ScoreDefinitionViewSet",
-    "AIObservabilitySentimentViewSet",
     "AIObservabilityOfflineEvaluationsViewSet",
+    "PersonalSpendInternalViewSet",
     "PersonalSpendViewSet",
     "TaggerViewSet",
     "TraceReviewViewSet",

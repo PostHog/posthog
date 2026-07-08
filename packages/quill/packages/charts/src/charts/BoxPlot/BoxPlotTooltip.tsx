@@ -1,12 +1,9 @@
 import React from 'react'
 
-import { useChartLayout } from '../../core/chart-context'
 import type { TooltipContext } from '../../core/types'
+import { TooltipSurface, TooltipSwatch } from '../../overlays/TooltipSurface'
 import type { BoxPlotAdaptedMeta } from './BoxPlot'
-import type { BoxPlotDatum } from './computeBoxLayout'
-
-const DEFAULT_TOOLTIP_BG = '#1d2330'
-const DEFAULT_TOOLTIP_COLOR = '#ffffff'
+import type { BoxPlotDatum } from './types'
 
 /** Rows shown per box, in the same order the legacy BoxPlotChart used. */
 const ROWS: { label: string; key: keyof BoxPlotDatum }[] = [
@@ -38,8 +35,6 @@ export function BoxPlotTooltip<Meta = unknown>({
     userTooltip,
     grouped,
 }: BoxPlotTooltipProps<Meta>): React.ReactElement | null {
-    const { theme } = useChartLayout()
-
     if (userTooltip) {
         return <>{userTooltip(ctx)}</>
     }
@@ -65,25 +60,13 @@ export function BoxPlotTooltip<Meta = unknown>({
     }
 
     return (
-        <div
-            className="px-3 py-2 rounded-lg shadow-lg text-[13px]"
-            // eslint-disable-next-line react/forbid-dom-props
-            style={{
-                backgroundColor: theme.tooltipBackground ?? DEFAULT_TOOLTIP_BG,
-                color: theme.tooltipColor ?? DEFAULT_TOOLTIP_COLOR,
-            }}
-            data-attr="hog-chart-boxplot-tooltip"
-        >
+        <TooltipSurface data-attr="hog-chart-boxplot-tooltip">
             <div className="font-semibold mb-1">{ctx.label}</div>
             {entries.map((entry, i) => (
                 <div key={entry.key} className={i > 0 ? 'mt-2' : undefined}>
                     {grouped && (
                         <div className="flex items-center gap-2 mb-1">
-                            <span
-                                className="inline-block size-2 rounded-full"
-                                // eslint-disable-next-line react/forbid-dom-props
-                                style={{ backgroundColor: entry.color }}
-                            />
+                            <TooltipSwatch color={entry.color} />
                             <span className="font-semibold">{entry.label}</span>
                         </div>
                     )}
@@ -101,6 +84,6 @@ export function BoxPlotTooltip<Meta = unknown>({
                     </table>
                 </div>
             ))}
-        </div>
+        </TooltipSurface>
     )
 }

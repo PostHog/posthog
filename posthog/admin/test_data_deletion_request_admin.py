@@ -6,6 +6,7 @@ from unittest.mock import patch
 
 from django.contrib.admin.sites import AdminSite
 from django.contrib.auth.models import Group
+from django.contrib.messages import get_messages
 from django.contrib.messages.storage.fallback import FallbackStorage
 from django.test import RequestFactory, override_settings
 
@@ -554,8 +555,12 @@ class TestDataDeletionRequestAdminEditLock(BaseTest):
     def test_editable_statuses_keep_fields_editable(self, _name, status):
         obj = self._make_request(status)
         readonly = self._readonly_fields(obj)
+        # team_id is immutable once the request exists, so it stays readonly even when editable.
         for field in EDITABLE_FIELDS:
-            self.assertNotIn(field, readonly)
+            if field == "team_id":
+                self.assertIn(field, readonly)
+            else:
+                self.assertNotIn(field, readonly)
 
     def test_add_view_fields_editable(self):
         readonly = self._readonly_fields(None)
@@ -685,11 +690,11 @@ class TestDataDeletionRequestAdminStatsViewRedirects(BaseTest):
         http_request.user = user or self.user
         _attach_messages(http_request)
         with patch("posthog.admin.admins.data_deletion_request_admin.reverse", side_effect=_fake_reverse):
-            return view(http_request, str(request.pk))
+            return view(http_request, str(request.pk)), http_request
 
     def test_fetch_stats_redirects_to_change_page(self):
         request = self._person_request()
-        response = self._call(self.admin.fetch_stats_view, request)
+        response, _ = self._call(self.admin.fetch_stats_view, request)
         self.assertEqual(response.status_code, 302)
         self.assertIn("posthog_datadeletionrequest_change", response.url)
         request.refresh_from_db()
@@ -697,13 +702,168 @@ class TestDataDeletionRequestAdminStatsViewRedirects(BaseTest):
 
     def test_preview_stats_redirects_to_change_page(self):
         request = self._person_request()
-        response = self._call(self.admin.preview_stats_view, request)
+        response, _ = self._call(self.admin.preview_stats_view, request)
         self.assertEqual(response.status_code, 302)
         self.assertIn("posthog_datadeletionrequest_change", response.url)
 
     def test_preview_stats_rejects_non_clickhouse_team(self):
         request = self._person_request()
         self.user.groups.clear()
-        response = self._call(self.admin.preview_stats_view, request)
+
+        response, http_request = self._call(self.admin.preview_stats_view, request)
+
         self.assertEqual(response.status_code, 302)
         self.assertIn("posthog_datadeletionrequest_change", response.url)
+        # The guard must short-circuit before any preview is computed or stashed in the session, and
+        # surface the rejection — otherwise removing the authz check would still pass this test.
+        self.assertNotIn("data_deletion_preview_stats", http_request.session)
+        self.assertIn("Only ClickHouse Team members can preview stats.", [str(m) for m in get_messages(http_request)])
+
+
+@override_settings(STORAGES={"staticfiles": {"BACKEND": "django.contrib.staticfiles.storage.StaticFilesStorage"}})
+class TestDataDeletionRequestAdminVerify(BaseTest):
+    def setUp(self):
+        super().setUp()
+        self.user.is_staff = True
+        self.user.save()
+        clickhouse_team, _ = Group.objects.get_or_create(name="ClickHouse Team")
+        self.user.groups.add(clickhouse_team)
+
+        self.factory = RequestFactory()
+        self.admin = DataDeletionRequestAdmin(DataDeletionRequest, AdminSite())
+
+    def _queued_request(self):
+        return DataDeletionRequest.objects.create(
+            team_id=self.team.id,
+            request_type=RequestType.EVENT_REMOVAL,
+            events=["$pageview"],
+            start_time=datetime.now() - timedelta(days=7),
+            end_time=datetime.now(),
+            status=RequestStatus.QUEUED,
+            execution_mode=ExecutionMode.DEFERRED,
+        )
+
+    def _call_verify(self, request, user=None):
+        path = f"/admin/posthog/datadeletionrequest/{request.pk}/verify/"
+        http_request = self.factory.post(path)
+        http_request.user = user or self.user
+        _attach_messages(http_request)
+        with patch("posthog.admin.admins.data_deletion_request_admin.reverse", side_effect=_fake_reverse):
+            return self.admin.verify_view(http_request, str(request.pk))
+
+    def test_verify_view_promotes_when_events_gone(self):
+        request = self._queued_request()
+        with patch("posthog.models.data_deletion_request.count_remaining_matching_events", return_value=0):
+            response = self._call_verify(request)
+        self.assertEqual(response.status_code, 302)
+        request.refresh_from_db()
+        self.assertEqual(request.status, RequestStatus.COMPLETED)
+
+    def test_verify_view_keeps_queued_when_events_remain(self):
+        request = self._queued_request()
+        with patch("posthog.models.data_deletion_request.count_remaining_matching_events", return_value=5):
+            response = self._call_verify(request)
+        self.assertEqual(response.status_code, 302)
+        request.refresh_from_db()
+        self.assertEqual(request.status, RequestStatus.QUEUED)
+
+    def test_verify_view_rejects_non_verifiable_status(self):
+        request = self._queued_request()
+        request.status = RequestStatus.APPROVED
+        request.save(update_fields=["status"])
+        self._call_verify(request)
+        request.refresh_from_db()
+        self.assertEqual(request.status, RequestStatus.APPROVED)
+
+    def test_verify_view_promotes_failed_when_events_gone(self):
+        request = self._queued_request()
+        request.status = RequestStatus.FAILED
+        request.save(update_fields=["status"])
+        with patch("posthog.models.data_deletion_request.count_remaining_matching_events", return_value=0):
+            self._call_verify(request)
+        request.refresh_from_db()
+        self.assertEqual(request.status, RequestStatus.COMPLETED)
+
+    def test_verify_view_keeps_failed_when_events_remain(self):
+        request = self._queued_request()
+        request.status = RequestStatus.FAILED
+        request.save(update_fields=["status"])
+        with patch("posthog.models.data_deletion_request.count_remaining_matching_events", return_value=3):
+            self._call_verify(request)
+        request.refresh_from_db()
+        self.assertEqual(request.status, RequestStatus.FAILED)
+
+    def test_verify_view_rejects_non_event_removal(self):
+        request = self._queued_request()
+        request.request_type = RequestType.PROPERTY_REMOVAL
+        request.status = RequestStatus.FAILED
+        request.save(update_fields=["request_type", "status"])
+        with patch("posthog.models.data_deletion_request.count_remaining_matching_events", return_value=0) as counted:
+            self._call_verify(request)
+        counted.assert_not_called()
+        request.refresh_from_db()
+        self.assertEqual(request.status, RequestStatus.FAILED)
+
+    def test_verify_view_rejects_non_clickhouse_team(self):
+        request = self._queued_request()
+        self.user.groups.clear()
+        self._call_verify(request)
+        request.refresh_from_db()
+        self.assertEqual(request.status, RequestStatus.QUEUED)
+
+
+@override_settings(STORAGES={"staticfiles": {"BACKEND": "django.contrib.staticfiles.storage.StaticFilesStorage"}})
+class TestDataDeletionRequestAdminDuplicate(BaseTest):
+    def setUp(self):
+        super().setUp()
+        self.user.is_staff = True
+        self.user.save()
+        self.factory = RequestFactory()
+        self.admin = DataDeletionRequestAdmin(DataDeletionRequest, AdminSite())
+
+    def _call_duplicate(self, queryset):
+        http_request = self.factory.post("/admin/posthog/datadeletionrequest/")
+        http_request.user = self.user
+        _attach_messages(http_request)
+        with patch("posthog.admin.admins.data_deletion_request_admin.reverse", side_effect=_fake_reverse):
+            self.admin.duplicate_requests(http_request, queryset)
+
+    @parameterized.expand(
+        [
+            ("with_notes", "please be careful"),
+            ("without_notes", ""),
+        ]
+    )
+    @freeze_time("2026-01-15")
+    def test_duplicate_copies_criteria_into_a_fresh_draft_with_link_note(self, _name, original_notes):
+        original = DataDeletionRequest.objects.create(
+            team_id=self.team.id,
+            request_type=RequestType.EVENT_REMOVAL,
+            events=["$pageview"],
+            start_time=datetime.now() - timedelta(days=7),
+            end_time=datetime.now(),
+            notes=original_notes,
+            status=RequestStatus.COMPLETED,
+            count=42,
+            approved=True,
+            approved_at=datetime.now(),
+            attempt_count=3,
+        )
+
+        self._call_duplicate(DataDeletionRequest.objects.filter(pk=original.pk))
+
+        copy = DataDeletionRequest.objects.exclude(pk=original.pk).get()
+        self.assertEqual(copy.team_id, original.team_id)
+        self.assertEqual(copy.events, ["$pageview"])
+        self.assertEqual(copy.status, RequestStatus.DRAFT)
+        self.assertIsNone(copy.count)
+        self.assertFalse(copy.approved)
+        self.assertEqual(copy.attempt_count, 0)
+        self.assertEqual(copy.created_by, self.user)
+        self.assertIn(str(original.pk), copy.notes)
+        self.assertIn("Copy of data deletion request", copy.notes)
+        if original_notes:
+            self.assertIn(original_notes, copy.notes)
+        else:
+            # No original notes — the copy note stands alone, no trailing separator.
+            self.assertFalse(copy.notes.endswith("\n"))

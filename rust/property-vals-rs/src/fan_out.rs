@@ -142,8 +142,6 @@ mod tests {
     use proptest::prelude::*;
     use serde_json::{Map, Value};
 
-    // Mirrors the production envconfig defaults; the arb generators below
-    // straddle these boundaries on purpose.
     const TEST_CAPS: LengthCaps = LengthCaps {
         max_property_key_len: 400,
         max_property_value_len: 255,

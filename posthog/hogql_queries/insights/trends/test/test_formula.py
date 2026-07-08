@@ -21,10 +21,11 @@ from posthog.hogql.errors import ExposedHogQLError
 
 from posthog.constants import TRENDS_BOLD_NUMBER, TRENDS_CUMULATIVE, TRENDS_PIE
 from posthog.hogql_queries.insights.trends.trends_query_runner import TrendsQueryRunner
-from posthog.models import Cohort
 from posthog.models.group.util import create_group
 from posthog.models.utils import uuid7
 from posthog.test.test_utils import create_group_type_mapping_without_created_at
+
+from products.cohorts.backend.models.cohort import Cohort
 
 
 @override_settings(IN_UNIT_TESTING=True)

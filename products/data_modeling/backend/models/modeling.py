@@ -26,7 +26,7 @@ from posthog.models.user import User
 from posthog.models.utils import CreatedMetaFields, UpdatedMetaFields, UUIDTModel
 
 from products.data_modeling.backend.models.datawarehouse_saved_query import DataWarehouseSavedQuery
-from products.warehouse_sources.backend.models.table import DataWarehouseTable
+from products.warehouse_sources.backend.facade.models import DataWarehouseTable
 
 LabelPath = list[str]
 
@@ -378,10 +378,13 @@ def get_parents_from_model_query(team: Team, model_name: str, model_query: str) 
         enable_select_queries=True,
     )
     if context.database is None:
+        # Internal DAG parsing (no user); bypass warehouse HogQL access control so parent-table
+        # resolution sees every referenced table/view.
         context.database = Database.create_for(
             context.team_id,
             modifiers=context.modifiers,
             team=context.team,
+            bypass_warehouse_access_control=True,
         )
 
     resolver = BoundedResolver(context=context, dialect="hogql", initial_view_name=model_name)
@@ -665,7 +668,8 @@ class DataWarehouseModelPathManager(models.Manager["DataWarehouseModelPath"]):
 
     def get_hogql_database(self, team: Team) -> Database:
         """Get the HogQL database for given team."""
-        return Database.create_for(team=team)
+        # Internal model-path resolution (no user); bypass warehouse HogQL access control.
+        return Database.create_for(team=team, bypass_warehouse_access_control=True)
 
     def get_or_create_root_path_for_data_warehouse_table(
         self, data_warehouse_table: DataWarehouseTable
@@ -779,7 +783,12 @@ class DataWarehouseModelPathManager(models.Manager["DataWarehouseModelPath"]):
         the transaction and clean them up.
         """
         parents = get_parents_from_model_query(team, model_name, model_query)
-        posthog_table_names = self.get_hogql_database(team).get_posthog_table_names()
+        # include_hidden surfaces `posthog.*`-namespaced tables (e.g. posthog.ai_events) so they
+        # resolve as parents here too — matching the create path's get_table()-based resolution.
+        database = self.get_hogql_database(team)
+        posthog_table_names = set(database.get_posthog_table_names()) | set(
+            database.get_posthog_table_names(include_hidden=True)
+        )
 
         base_params = {
             "team_id": team.pk,

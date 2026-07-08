@@ -18,6 +18,9 @@ POSTHOG_SCHEDULE_TYPE_KEY = SearchAttributeKey.for_keyword("PostHogScheduleType"
 # compare to the freshly-computed hash to detect drift after UI config edits.
 POSTHOG_SCHEDULE_FINGERPRINT_KEY = SearchAttributeKey.for_keyword("PostHogScheduleFingerprint")
 POSTHOG_SESSION_RECORDING_ID_KEY = SearchAttributeKey.for_keyword("PostHogSessionRecordingId")
+# Replay Vision scanner UUID, stamped on every apply-scanner workflow so the sweep can count a
+# single scanner's in-flight applies and enforce a hard per-scanner concurrency cap.
+POSTHOG_SCANNER_ID_KEY = SearchAttributeKey.for_keyword("PostHogScannerId")
 
 # Registry of all custom search attributes PostHog registers in Temporal.
 # This is the single source of truth — the register_temporal_search_attributes
@@ -29,4 +32,5 @@ POSTHOG_SEARCH_ATTRIBUTES: list[SearchAttributeKey] = [
     POSTHOG_SCHEDULE_TYPE_KEY,
     POSTHOG_SCHEDULE_FINGERPRINT_KEY,
     POSTHOG_SESSION_RECORDING_ID_KEY,
+    POSTHOG_SCANNER_ID_KEY,
 ]

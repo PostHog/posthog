@@ -1,14 +1,12 @@
 import equal from 'fast-deep-equal'
-import { actions, connect, kea, listeners, path, props, reducers, selectors } from 'kea'
-import { router } from 'kea-router'
+import { actions, connect, kea, listeners, path, reducers } from 'kea'
+import { router, urlToAction } from 'kea-router'
 
 import { syncSearchParams, updateSearchParams } from '@posthog/products-error-tracking/frontend/utils'
 
 import { DEFAULT_UNIVERSAL_GROUP_FILTER } from 'lib/components/UniversalFilters/universalFiltersLogic'
-import { tabAwareActionToUrl } from 'lib/logic/scenes/tabAwareActionToUrl'
-import { tabAwareScene } from 'lib/logic/scenes/tabAwareScene'
-import { tabAwareUrlToAction } from 'lib/logic/scenes/tabAwareUrlToAction'
-import { parseTagsFilter } from 'lib/utils'
+import { trackedActionToUrl } from 'lib/logic/scenes/trackedActionToUrl'
+import { parseTagsFilter } from 'lib/utils/url'
 import { sqlEditorLogic } from 'scenes/data-warehouse/editor/sqlEditorLogic'
 import { SQLEditorMode } from 'scenes/data-warehouse/editor/sqlEditorModes'
 import { Params } from 'scenes/sceneTypes'
@@ -22,6 +20,7 @@ import {
     DEFAULT_INITIAL_LOGS_LIMIT,
     logsViewerDataLogic,
 } from 'products/logs/frontend/components/LogsViewer/data/logsViewerDataLogic'
+import { facetRailLogic } from 'products/logs/frontend/components/LogsViewer/FacetRail/facetRailLogic'
 import { logsFilterHistoryLogic } from 'products/logs/frontend/components/LogsViewer/Filters/logsFilterHistoryLogic'
 import {
     DEFAULT_DATE_RANGE,
@@ -37,6 +36,10 @@ import type { logsSceneLogicType } from './logsSceneLogicType'
 
 export const getLogsSqlEditorTabId = (id: string): string => `logs-sql-editor-${id}`
 
+// Scope the viewer id (and so its persisted state: pinned logs, filters, config) per project.
+// A static id would persist across projects in the same browser, leaking one project's pinned log payloads into another.
+export const LOGS_SCENE_VIEWER_ID = `logs-scene-${window.POSTHOG_APP_CONTEXT?.current_team?.id ?? 'unknown'}`
+
 export type LogsSceneActiveTab = 'viewer' | 'services' | 'alerts' | 'sql' | 'configuration'
 const VALID_ACTIVE_TABS: LogsSceneActiveTab[] = ['viewer', 'services', 'alerts', 'sql', 'configuration']
 export const DEFAULT_ACTIVE_TAB: LogsSceneActiveTab = 'viewer'
@@ -51,41 +54,39 @@ const resolveActiveTabFromParams = (params: Params): LogsSceneActiveTab | null =
     return null
 }
 
-export interface LogsLogicProps {
-    tabId: string
-}
-
 export const logsSceneLogic = kea<logsSceneLogicType>([
-    props({} as LogsLogicProps),
     path(['products', 'logs', 'frontend', 'logsSceneLogic']),
-    tabAwareScene(),
-    connect((props: LogsLogicProps) => ({
+    connect(() => ({
         actions: [
-            logsViewerFiltersLogic({ id: props.tabId }),
+            logsViewerFiltersLogic({ id: LOGS_SCENE_VIEWER_ID }),
             ['setFilters'],
-            logsFilterHistoryLogic({ id: props.tabId }),
+            logsFilterHistoryLogic({ id: LOGS_SCENE_VIEWER_ID }),
             ['pushToFilterHistory'],
-            logsViewerConfigLogic({ id: props.tabId }),
+            logsViewerConfigLogic({ id: LOGS_SCENE_VIEWER_ID }),
             ['setOrderBy'],
-            logsViewerDataLogic({ id: props.tabId }),
+            logsViewerDataLogic({ id: LOGS_SCENE_VIEWER_ID }),
             ['setInitialLogsLimit', 'fetchLogsSuccess', 'handleQueryChange'],
-            logsViewerLogic({ id: props.tabId }),
+            logsViewerLogic({ id: LOGS_SCENE_VIEWER_ID }),
             ['setLinkToLogId', 'clearLinkToLogId'],
-            logDetailsModalLogic({ id: props.tabId }),
+            logDetailsModalLogic({ id: LOGS_SCENE_VIEWER_ID }),
             ['closeLogDetails'],
+            facetRailLogic({ id: LOGS_SCENE_VIEWER_ID }),
+            ['setFacetNameSearch'],
         ],
         values: [
-            logsViewerFiltersLogic({ id: props.tabId }),
+            logsViewerFiltersLogic({ id: LOGS_SCENE_VIEWER_ID }),
             ['filters', 'utcDateRange'],
-            logsViewerConfigLogic({ id: props.tabId }),
+            logsViewerConfigLogic({ id: LOGS_SCENE_VIEWER_ID }),
             ['orderBy'],
-            logsViewerDataLogic({ id: props.tabId }),
+            logsViewerDataLogic({ id: LOGS_SCENE_VIEWER_ID }),
             ['initialLogsLimit'],
-            logsViewerLogic({ id: props.tabId }),
+            logsViewerLogic({ id: LOGS_SCENE_VIEWER_ID }),
             ['linkToLogId'],
+            facetRailLogic({ id: LOGS_SCENE_VIEWER_ID }),
+            ['facetNameSearch'],
         ],
     })),
-    tabAwareUrlToAction(({ actions, values, cache }) => {
+    urlToAction(({ actions, values, cache }) => {
         const urlToAction = (_: any, params: Params): void => {
             if (cache.isSyncingUrl) {
                 return
@@ -168,13 +169,32 @@ export const logsSceneLogic = kea<logsSceneLogicType>([
             if (linkToLogId && linkToLogId !== values.linkToLogId) {
                 actions.setLinkToLogId(linkToLogId)
             }
+
+            // Facet-name search: a plain string param. Absent param resets the field to empty.
+            const facetNameSearch = typeof params.facetNameSearch === 'string' ? params.facetNameSearch : ''
+            if (facetNameSearch !== values.facetNameSearch) {
+                actions.setFacetNameSearch(facetNameSearch)
+            }
         }
         return {
             '*': urlToAction,
         }
     }),
 
-    tabAwareActionToUrl(({ values, cache }) => {
+    trackedActionToUrl(({ values, cache }) => {
+        // Guard to prevent infinite loops between actionToUrl and urlToAction.
+        // Uses setTimeout (macrotask) so the flag stays set until the router has
+        // fully processed the URL change, even in test environments with
+        // synchronously-resolving mocks.
+        const withUrlSyncGuard = <T,>(fn: () => T): T => {
+            cache.isSyncingUrl = true
+            const result = fn()
+            setTimeout(() => {
+                cache.isSyncingUrl = false
+            }, 0)
+            return result
+        }
+
         const syncUrl = (): [
             string,
             Params,
@@ -183,27 +203,32 @@ export const logsSceneLogic = kea<logsSceneLogicType>([
                 replace: boolean
             },
         ] => {
-            cache.isSyncingUrl = true // to prevent an infinite loop between actionToUrl and urlToAction
-            const result = syncSearchParams(router, (params: Params) => {
-                updateSearchParams(params, 'searchTerm', values.filters.searchTerm, '')
-                updateSearchParams(params, 'filterGroup', values.filters.filterGroup, DEFAULT_UNIVERSAL_GROUP_FILTER)
-                updateSearchParams(params, 'dateRange', values.filters.dateRange, DEFAULT_DATE_RANGE)
-                updateSearchParams(params, 'severityLevels', values.filters.severityLevels, DEFAULT_SEVERITY_LEVELS)
-                updateSearchParams(params, 'serviceNames', values.filters.serviceNames, DEFAULT_SERVICE_NAMES)
-                updateSearchParams(params, 'orderBy', values.orderBy, DEFAULT_ORDER_BY)
-                return params
-            })
-            queueMicrotask(() => {
-                cache.isSyncingUrl = false
-            })
-            return result
+            return withUrlSyncGuard(() =>
+                syncSearchParams(router, (params: Params) => {
+                    updateSearchParams(params, 'searchTerm', values.filters.searchTerm, '')
+                    updateSearchParams(
+                        params,
+                        'filterGroup',
+                        values.filters.filterGroup,
+                        DEFAULT_UNIVERSAL_GROUP_FILTER
+                    )
+                    updateSearchParams(params, 'dateRange', values.filters.dateRange, DEFAULT_DATE_RANGE)
+                    updateSearchParams(params, 'severityLevels', values.filters.severityLevels, DEFAULT_SEVERITY_LEVELS)
+                    updateSearchParams(params, 'serviceNames', values.filters.serviceNames, DEFAULT_SERVICE_NAMES)
+                    updateSearchParams(params, 'orderBy', values.orderBy, DEFAULT_ORDER_BY)
+                    updateSearchParams(params, 'facetNameSearch', values.facetNameSearch, '')
+                    return params
+                })
+            )
         }
 
         const clearLinkToLogId = (): ReturnType<typeof syncSearchParams> => {
-            return syncSearchParams(router, (params: Params) => {
-                delete params.linkToLogId
-                return params
-            })
+            return withUrlSyncGuard(() =>
+                syncSearchParams(router, (params: Params) => {
+                    delete params.linkToLogId
+                    return params
+                })
+            )
         }
 
         const clearInitialLogsLimit = (): [
@@ -214,17 +239,21 @@ export const logsSceneLogic = kea<logsSceneLogicType>([
                 replace: boolean
             },
         ] => {
-            return syncSearchParams(router, (params: Params) => {
-                updateSearchParams(params, 'initialLogsLimit', null, DEFAULT_INITIAL_LOGS_LIMIT)
-                return params
-            })
+            return withUrlSyncGuard(() =>
+                syncSearchParams(router, (params: Params) => {
+                    updateSearchParams(params, 'initialLogsLimit', null, DEFAULT_INITIAL_LOGS_LIMIT)
+                    return params
+                })
+            )
         }
 
         const syncActiveTab = (): ReturnType<typeof syncSearchParams> => {
-            return syncSearchParams(router, (params: Params) => {
-                updateSearchParams(params, 'activeTab', values.activeTab, DEFAULT_ACTIVE_TAB)
-                return params
-            })
+            return withUrlSyncGuard(() =>
+                syncSearchParams(router, (params: Params) => {
+                    updateSearchParams(params, 'activeTab', values.activeTab, DEFAULT_ACTIVE_TAB)
+                    return params
+                })
+            )
         }
 
         return {
@@ -262,10 +291,6 @@ export const logsSceneLogic = kea<logsSceneLogicType>([
         ],
     }),
 
-    selectors({
-        tabId: [(_, p) => [p.tabId], (tabId: string) => tabId],
-    }),
-
     listeners(({ values, actions, cache }) => ({
         toggleAttributeBreakdown: ({ key }) => {
             const breakdowns = [...values.expandedAttributeBreaksdowns]
@@ -278,6 +303,9 @@ export const logsSceneLogic = kea<logsSceneLogicType>([
             actions.syncUrl()
         },
         setOrderBy: () => {
+            actions.syncUrl()
+        },
+        setFacetNameSearch: () => {
             actions.syncUrl()
         },
         keepSqlEditorMounted: ({ editorTabId }) => {

@@ -534,7 +534,7 @@ def _run_jetbrains_child(idea_script: Path, data_dir_name: str) -> None:
             <application>
               <component name="ProjectJdkTable">
                 <jdk version="2">
-                  <name value="Python 3.12 (sandbox)" />
+                  <name value="Python 3.13 (sandbox)" />
                   <type value="Python SDK" />
                   <homePath value="/cache/python/bin/python3" />
                   <roots>
@@ -567,7 +567,7 @@ def _run_jetbrains_child(idea_script: Path, data_dir_name: str) -> None:
         dedent("""\
             <?xml version="1.0" encoding="UTF-8"?>
             <project version="4">
-              <component name="ProjectRootManager" version="2" project-jdk-name="Python 3.12 (sandbox)" project-jdk-type="Python SDK" />
+              <component name="ProjectRootManager" version="2" project-jdk-name="Python 3.13 (sandbox)" project-jdk-type="Python SDK" />
               <component name="TestRunnerService">
                 <option name="PROJECT_TEST_RUNNER" value="py.test" />
               </component>

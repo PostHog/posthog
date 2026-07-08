@@ -1,12 +1,14 @@
-import { MCP_DOCS_URL, OAUTH_SCOPES_SUPPORTED, getAuthorizationServerUrl } from '@/lib/constants'
+import { resolveEffectiveClientName } from '@/lib/client-detection'
+import { MCP_DOCS_URL, getAuthorizationServerUrl } from '@/lib/constants'
 import { isIdJagAccessToken } from '@/lib/id-jag'
 import { RequestLogger, withLogging } from '@/lib/logging'
 import { extractClientInfoFromBody } from '@/lib/mcp-client-info'
+import { RequestProperties } from '@/lib/request-properties'
 import { buildRedirectUrl, matchAuthServerRedirect } from '@/lib/routing'
-import { hash, parseMcpMode, sanitizeHeaderValue } from '@/lib/utils'
+import { extractBearerToken, hash, parseMcpMode, sanitizeHeaderValue } from '@/lib/utils'
+import { getAdvertisedOAuthScopes } from '@/tools/toolDefinitions'
 import type { CloudRegion } from '@/tools/types'
 
-import { RequestProperties } from './mcp'
 import { proxyToHono, resolveProxyRegion } from './proxy'
 
 // Helper to get the public-facing URL, respecting reverse proxy headers
@@ -167,7 +169,7 @@ const handleRequest = async (
             JSON.stringify({
                 resource: resourceUrl.toString().replace(/\/$/, ''),
                 authorization_servers: [authorizationServer],
-                scopes_supported: OAUTH_SCOPES_SUPPORTED,
+                scopes_supported: getAdvertisedOAuthScopes(),
                 bearer_methods_supported: ['header'],
             }),
             {
@@ -179,7 +181,7 @@ const handleRequest = async (
         )
     }
 
-    const token = request.headers.get('Authorization')?.split(' ')[1]
+    const token = extractBearerToken(request)
     const sessionId = url.searchParams.get('sessionId')
 
     if (!token) {
@@ -268,7 +270,7 @@ const handleRequest = async (
         projectId,
         clientUserAgent,
         mcpConsumer,
-        mcpClientName: clientInfo.clientName,
+        mcpClientName: resolveEffectiveClientName(clientInfo.clientName, mcpVendorClient),
         mcpClientVersion: clientInfo.clientVersion,
         mcpProtocolVersion: clientInfo.protocolVersion,
         mcpVendorClient,
@@ -327,9 +329,6 @@ const handleRequest = async (
     log.extend({ error: 'route_not_found' })
     return new Response('Not found', { status: 404 })
 }
-
-// Durable Object class export - required for Wrangler to find the class for the MCP_OBJECT binding
-export { MCP } from './mcp'
 
 // Worker entry point
 export default {

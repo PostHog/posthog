@@ -14,9 +14,10 @@ import {
     LemonTableColumns,
 } from '@posthog/lemon-ui'
 
+import { AccessControlAction } from 'lib/components/AccessControlAction'
 import { LemonSlider } from 'lib/lemon-ui/LemonSlider'
 
-import { ExperimentHoldoutType } from '~/types'
+import { AccessControlLevel, AccessControlResourceType, ExperimentHoldoutType } from '~/types'
 
 import { NEW_HOLDOUT, holdoutsLogic } from './holdoutsLogic'
 
@@ -85,41 +86,53 @@ export function Holdouts(): JSX.Element {
             key: 'actions',
             render: (_: any, record: ExperimentHoldoutType) => (
                 <div className="flex gap-2">
-                    <LemonButton
-                        type="secondary"
-                        size="xsmall"
-                        icon={<IconPencil />}
-                        onClick={() => openEditModal(record)}
-                    />
-                    <LemonButton
-                        type="secondary"
-                        icon={<IconTrash />}
-                        size="xsmall"
-                        status="danger"
-                        onClick={() => {
-                            LemonDialog.open({
-                                title: 'Delete this holdout?',
-                                content: (
-                                    <div className="text-sm">
-                                        Are you sure you want to delete the holdout <b>"{record.name}"</b>? This action
-                                        cannot be undone.
-                                    </div>
-                                ),
-                                primaryButton: {
-                                    children: 'Delete',
-                                    type: 'primary',
-                                    status: 'danger',
-                                    onClick: () => deleteHoldout(record.id),
-                                    size: 'small',
-                                },
-                                secondaryButton: {
-                                    children: 'Cancel',
-                                    type: 'tertiary',
-                                    size: 'small',
-                                },
-                            })
-                        }}
-                    />
+                    <AccessControlAction
+                        resourceType={AccessControlResourceType.ExperimentHoldout}
+                        minAccessLevel={AccessControlLevel.Editor}
+                        userAccessLevel={record.user_access_level}
+                    >
+                        <LemonButton
+                            type="secondary"
+                            size="xsmall"
+                            icon={<IconPencil />}
+                            onClick={() => openEditModal(record)}
+                        />
+                    </AccessControlAction>
+                    <AccessControlAction
+                        resourceType={AccessControlResourceType.ExperimentHoldout}
+                        minAccessLevel={AccessControlLevel.Editor}
+                        userAccessLevel={record.user_access_level}
+                    >
+                        <LemonButton
+                            type="secondary"
+                            icon={<IconTrash />}
+                            size="xsmall"
+                            status="danger"
+                            onClick={() => {
+                                LemonDialog.open({
+                                    title: 'Delete this holdout?',
+                                    content: (
+                                        <div className="text-sm">
+                                            Are you sure you want to delete the holdout <b>"{record.name}"</b>? This
+                                            action cannot be undone.
+                                        </div>
+                                    ),
+                                    primaryButton: {
+                                        children: 'Delete',
+                                        type: 'primary',
+                                        status: 'danger',
+                                        onClick: () => deleteHoldout(record.id),
+                                        size: 'small',
+                                    },
+                                    secondaryButton: {
+                                        children: 'Cancel',
+                                        type: 'tertiary',
+                                        size: 'small',
+                                    },
+                                })
+                            }}
+                        />
+                    </AccessControlAction>
                 </div>
             ),
         },

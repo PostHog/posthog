@@ -76,6 +76,10 @@ export function MapComponent({ center, markers, className }: MapProps): JSX.Elem
                 marker.addTo(map.current)
             }
         }
+        return () => {
+            map.current?.remove()
+            map.current = null
+        }
     }, [isDarkModeOn]) // oxlint-disable-line react-hooks/exhaustive-deps
 
     useResizeObserver({

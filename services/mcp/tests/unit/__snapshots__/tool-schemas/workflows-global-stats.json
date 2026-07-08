@@ -1,0 +1,17 @@
+{
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "properties": {
+        "after": {
+            "default": "-7d",
+            "description": "Start of the window, matched on metric time. Relative ('-7d', '-24h') or ISO 8601. Defaults to -7d.",
+            "minLength": 1,
+            "type": "string"
+        },
+        "before": {
+            "description": "End of the window. Same format as 'after'. Defaults to now.",
+            "minLength": 1,
+            "type": "string"
+        }
+    },
+    "type": "object"
+}

@@ -24,9 +24,9 @@ from posthog.schema import ActorsQuery, EventsNode, ExperimentActorsQuery, Exper
 from posthog.hogql.context import HogQLContext
 
 from posthog.hogql_queries.actors_query_runner import ActorsQueryRunner
-from posthog.models.cohort import Cohort
-from posthog.models.cohort.util import print_cohort_hogql_query
 
+from products.cohorts.backend.models.cohort import Cohort
+from products.cohorts.backend.models.util import print_cohort_hogql_query
 from products.experiments.backend.hogql_queries.test.experiment_query_runner.base import ExperimentQueryRunnerBaseTest
 
 

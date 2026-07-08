@@ -10,6 +10,13 @@
 import * as zod from 'zod'
 
 /**
+ * Create a new managed migration/batch import.
+ */
+export const ManagedMigrationsCreateBody = /* @__PURE__ */ zod
+    .looseObject({})
+    .describe('Serializer for BatchImport model')
+
+/**
  * Viewset for BatchImport model
  */
 export const ManagedMigrationsUpdateBody = /* @__PURE__ */ zod

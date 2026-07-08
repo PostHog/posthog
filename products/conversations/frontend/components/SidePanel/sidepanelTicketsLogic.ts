@@ -177,7 +177,7 @@ export const sidepanelTicketsLogic = kea<sidepanelTicketsLogicType>([
                 }
             } catch (e) {
                 console.error('Failed to load tickets:', e)
-                lemonToast.error('Failed to load tickets. Please try again.')
+                lemonToast.error('Failed to load tickets.')
             } finally {
                 actions.setTicketsLoading(false)
             }

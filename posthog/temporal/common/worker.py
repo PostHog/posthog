@@ -9,9 +9,10 @@ from dataclasses import dataclass
 from django.conf import settings
 
 from prometheus_client import REGISTRY
+from temporalio.client import Plugin
 from temporalio.contrib.opentelemetry import OpenTelemetryPlugin
 from temporalio.runtime import PrometheusConfig, Runtime, TelemetryConfig
-from temporalio.worker import Plugin, ResourceBasedSlotConfig, UnsandboxedWorkflowRunner, Worker, WorkerTuner
+from temporalio.worker import ResourceBasedSlotConfig, UnsandboxedWorkflowRunner, Worker, WorkerTuner
 
 from posthog.temporal.ai_observability.eval_reports.metrics import (
     EVAL_REPORTS_LATENCY_HISTOGRAM_BUCKETS,
@@ -19,11 +20,6 @@ from posthog.temporal.ai_observability.eval_reports.metrics import (
     EvalReportsMetricsInterceptor,
 )
 from posthog.temporal.ai_observability.metrics import EvalsMetricsInterceptor
-from posthog.temporal.ai_observability.sentiment.metrics import (
-    SENTIMENT_LATENCY_HISTOGRAM_BUCKETS,
-    SENTIMENT_LATENCY_HISTOGRAM_METRICS,
-    SentimentMetricsInterceptor,
-)
 from posthog.temporal.ai_observability.trace_clustering.metrics import (
     CLUSTERING_LATENCY_HISTOGRAM_BUCKETS,
     CLUSTERING_LATENCY_HISTOGRAM_METRICS,
@@ -51,16 +47,32 @@ from posthog.temporal.session_replay.delete_recordings.metrics import (
     DELETE_RECORDINGS_LATENCY_HISTOGRAM_METRICS,
     DeleteRecordingsMetricsInterceptor,
 )
+from posthog.temporal.session_replay.surfacing_scoring_sweep.metrics import (
+    SURFACING_SCORING_LATENCY_HISTOGRAM_BUCKETS,
+    SURFACING_SCORING_LATENCY_HISTOGRAM_METRICS,
+    SurfacingScoringMetricsInterceptor,
+)
+from posthog.temporal.usage_report.metrics import (
+    USAGE_REPORTS_LATENCY_HISTOGRAM_BUCKETS,
+    USAGE_REPORTS_LATENCY_HISTOGRAM_METRICS,
+)
 
 from products.batch_exports.backend.temporal.metrics import BatchExportsMetricsInterceptor
-from products.logs.backend.temporal.metrics import (
+from products.experiments.backend.temporal.recalculation_metrics import (
+    EXPERIMENT_METRICS_RECALCULATION_ATTEMPT_HISTOGRAM_BUCKETS,
+    EXPERIMENT_METRICS_RECALCULATION_ATTEMPT_HISTOGRAM_METRICS,
+    EXPERIMENT_METRICS_RECALCULATION_LATENCY_HISTOGRAM_BUCKETS,
+    EXPERIMENT_METRICS_RECALCULATION_LATENCY_HISTOGRAM_METRICS,
+    ExperimentsRecalculationMetricsInterceptor,
+)
+from products.logs.backend.facade.temporal import (
     LOGS_ALERTING_COUNT_HISTOGRAM_BUCKETS,
     LOGS_ALERTING_COUNT_HISTOGRAM_METRICS,
     LOGS_ALERTING_LATENCY_HISTOGRAM_BUCKETS,
     LOGS_ALERTING_LATENCY_HISTOGRAM_METRICS,
     LogsAlertingMetricsInterceptor,
 )
-from products.tasks.backend.temporal.metrics import TASKS_LATENCY_HISTOGRAM_BUCKETS, TASKS_LATENCY_HISTOGRAM_METRICS
+from products.tasks.backend.facade.temporal import TASKS_LATENCY_HISTOGRAM_BUCKETS, TASKS_LATENCY_HISTOGRAM_METRICS
 
 logger = get_write_only_logger()
 
@@ -70,6 +82,7 @@ BATCH_EXPORTS_LATENCY_HISTOGRAM_METRICS = (
     "batch_exports_activity_interval_execution_latency",
     "batch_exports_workflow_interval_execution_latency",
 )
+# Unit: ms
 BATCH_EXPORTS_LATENCY_HISTOGRAM_BUCKETS = [
     1_000.0,
     30_000.0,  # 30 seconds
@@ -81,6 +94,23 @@ BATCH_EXPORTS_LATENCY_HISTOGRAM_BUCKETS = [
     21_600_000.0,  # 6 hours
     43_200_000.0,  # 12 hours
     86_400_000.0,  # 24 hours
+]
+
+BATCH_EXPORTS_FAST_LATENCY_HISTOGRAM_METRICS = ("batch_exports_queue_wait_time",)
+# Unit: ns
+BATCH_EXPORTS_FAST_LATENCY_HISTOGRAM_BUCKETS = [
+    1_000_000.0,  # 1 ms
+    5_000_000.0,  # 5 ms
+    10_000_000.0,  # 10 ms
+    100_000_000.0,  # 100 ms
+    500_000_000.0,  # 500 ms
+    1_000_000_000.0,  # 1 s
+    5_000_000_000.0,  # 5 s
+    10_000_000_000.0,  # 10 s
+    30_000_000_000.0,  # 30 s
+    60_000_000_000.0,  # 1 min
+    300_000_000_000.0,  # 5 min
+    600_000_000_000.0,  # 10 min
 ]
 
 EVALS_LATENCY_HISTOGRAM_METRICS = (
@@ -127,13 +157,14 @@ ALL_INTERCEPTOR_CLASSES = [
     SloInterceptor,
     BatchExportsMetricsInterceptor,
     DeleteRecordingsMetricsInterceptor,
+    SurfacingScoringMetricsInterceptor,
     EvalsMetricsInterceptor,
     SummarizationMetricsInterceptor,
     ClusteringMetricsInterceptor,
     MCPAClusteringMetricsInterceptor,
-    SentimentMetricsInterceptor,
     EvalReportsMetricsInterceptor,
     LogsAlertingMetricsInterceptor,
+    ExperimentsRecalculationMetricsInterceptor,
 ]
 
 
@@ -208,6 +239,7 @@ async def create_worker(
             Defaults to 1.0. Only takes effect if target_memory_usage is set.
         enable_combined_metrics_server: Whether to start the combined metrics server. Defaults to True.
             Set to False to disable the metrics server (useful when it causes GIL contention issues).
+        enable_open_telemetry_plugin: Whether to trace execution with OTel spans. Requires initialize_otel.
     """
 
     metrics_server: CombinedMetricsServer | None = None
@@ -227,16 +259,17 @@ async def create_worker(
         # Expose Temporal SDK metrics directly on the public metrics port.
         temporal_metrics_bind_address = f"0.0.0.0:{metrics_port}"
 
-    if enable_open_telemetry_plugin:
-        plugins: collections.abc.Sequence[Plugin] = (OpenTelemetryPlugin(add_temporal_spans=True),)
-    else:
-        plugins = ()
-
     histogram_bucket_overrides: dict[str, list[float]] = (
         dict(
             zip(
                 BATCH_EXPORTS_LATENCY_HISTOGRAM_METRICS,
                 itertools.repeat(BATCH_EXPORTS_LATENCY_HISTOGRAM_BUCKETS),
+            )
+        )
+        | dict(
+            zip(
+                BATCH_EXPORTS_FAST_LATENCY_HISTOGRAM_METRICS,
+                itertools.repeat(BATCH_EXPORTS_FAST_LATENCY_HISTOGRAM_BUCKETS),
             )
         )
         | dict(zip(EVALS_LATENCY_HISTOGRAM_METRICS, itertools.repeat(EVALS_LATENCY_HISTOGRAM_BUCKETS)))
@@ -249,7 +282,6 @@ async def create_worker(
             )
         )
         | dict(zip(TASKS_LATENCY_HISTOGRAM_METRICS, itertools.repeat(TASKS_LATENCY_HISTOGRAM_BUCKETS)))
-        | dict(zip(SENTIMENT_LATENCY_HISTOGRAM_METRICS, itertools.repeat(SENTIMENT_LATENCY_HISTOGRAM_BUCKETS)))
         | dict(
             zip(
                 EVAL_REPORTS_LATENCY_HISTOGRAM_METRICS,
@@ -262,8 +294,27 @@ async def create_worker(
                 itertools.repeat(DELETE_RECORDINGS_LATENCY_HISTOGRAM_BUCKETS),
             )
         )
+        | dict(
+            zip(
+                SURFACING_SCORING_LATENCY_HISTOGRAM_METRICS,
+                itertools.repeat(SURFACING_SCORING_LATENCY_HISTOGRAM_BUCKETS),
+            )
+        )
         | dict(zip(LOGS_ALERTING_LATENCY_HISTOGRAM_METRICS, itertools.repeat(LOGS_ALERTING_LATENCY_HISTOGRAM_BUCKETS)))
         | dict(zip(LOGS_ALERTING_COUNT_HISTOGRAM_METRICS, itertools.repeat(LOGS_ALERTING_COUNT_HISTOGRAM_BUCKETS)))
+        | dict(zip(USAGE_REPORTS_LATENCY_HISTOGRAM_METRICS, itertools.repeat(USAGE_REPORTS_LATENCY_HISTOGRAM_BUCKETS)))
+        | dict(
+            zip(
+                EXPERIMENT_METRICS_RECALCULATION_LATENCY_HISTOGRAM_METRICS,
+                itertools.repeat(EXPERIMENT_METRICS_RECALCULATION_LATENCY_HISTOGRAM_BUCKETS),
+            )
+        )
+        | dict(
+            zip(
+                EXPERIMENT_METRICS_RECALCULATION_ATTEMPT_HISTOGRAM_METRICS,
+                itertools.repeat(EXPERIMENT_METRICS_RECALCULATION_ATTEMPT_HISTOGRAM_BUCKETS),
+            )
+        )
         | {"batch_exports_activity_attempt": [1.0, 5.0, 10.0, 100.0]}
     )
     if task_queue == settings.DATA_MODELING_TASK_QUEUE:
@@ -287,6 +338,12 @@ async def create_worker(
             ),
         )
     )
+    # Register the OpenTelemetryPlugin on the client, not the worker, following the SDK's guidance
+    # (temporalio/contrib/opentelemetry/README.md).
+    plugins: collections.abc.Sequence[Plugin] = (
+        (OpenTelemetryPlugin(add_temporal_spans=True),) if enable_open_telemetry_plugin else ()
+    )
+
     client = await connect(
         host,
         port,
@@ -296,6 +353,11 @@ async def create_worker(
         client_key=client_key,
         runtime=runtime,
         use_pydantic_converter=use_pydantic_converter,
+        # This worker traces activity/workflow execution through the OpenTelemetryPlugin above.
+        # Keeping the client-level TracingInterceptor as well would emit a second, duplicate span
+        # for every activity and workflow, so drop it here.
+        add_otel_tracing_interceptor=False,
+        plugins=plugins,
     )
     supported_interceptors = [
         interceptor() for interceptor in ALL_INTERCEPTOR_CLASSES if is_task_queue_supported(task_queue, interceptor)
@@ -320,7 +382,6 @@ async def create_worker(
             # Worker will flush heartbeats every
             # min(heartbeat_timeout * 0.8, max_heartbeat_throttle_interval).
             max_heartbeat_throttle_interval=dt.timedelta(seconds=5),
-            plugins=plugins,
         )
     else:
         worker = Worker(
@@ -337,7 +398,6 @@ async def create_worker(
             # Worker will flush heartbeats every
             # min(heartbeat_timeout * 0.8, max_heartbeat_throttle_interval).
             max_heartbeat_throttle_interval=dt.timedelta(seconds=5),
-            plugins=plugins,
         )
 
     return ManagedWorker(worker=worker, metrics_server=metrics_server)

@@ -3,7 +3,7 @@ import { useActions, useValues } from 'kea'
 import { Fragment, useEffect, useMemo } from 'react'
 
 import { IconBadge, IconEye, IconHide, IconInfo } from '@posthog/icons'
-import { LemonButton, LemonDivider, LemonSegmentedButton, LemonSelect, LemonTag } from '@posthog/lemon-ui'
+import { LemonButton, LemonDivider, LemonInputSelect, LemonSegmentedButton, LemonTag } from '@posthog/lemon-ui'
 
 import { ActionPopoverInfo } from 'lib/components/DefinitionPopover/ActionPopoverInfo'
 import { CohortPopoverInfo } from 'lib/components/DefinitionPopover/CohortPopoverInfo'
@@ -23,8 +23,8 @@ import { IconOpenInNew } from 'lib/lemon-ui/icons'
 import { LemonTextArea } from 'lib/lemon-ui/LemonTextArea/LemonTextArea'
 import { Popover } from 'lib/lemon-ui/Popover'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
-import { isKeyOf } from 'lib/utils'
 import { cn } from 'lib/utils/css-classes'
+import { isKeyOf } from 'lib/utils/guards'
 
 import { getCoreFilterDefinition, getFilterLabel, isCoreFilter } from '~/taxonomy/helpers'
 import {
@@ -520,16 +520,31 @@ function DefinitionView({ group }: { group: TaxonomicFilterGroup }): JSX.Element
                                             )}
                                         </label>
                                         {!hogQLOnly && (
-                                            <LemonSelect
+                                            <LemonInputSelect
+                                                mode="single"
                                                 fullWidth
-                                                allowClear={!!optional}
-                                                value={isHogQL ? '' : fieldValue}
+                                                placeholder="Select a column"
+                                                value={isHogQL ? [''] : fieldValue != null ? [fieldValue] : null}
                                                 options={[
-                                                    ...columnOptions.filter((col) => !type || col.type === type),
-                                                    ...(allowHogQL ? [hogqlOption] : []),
+                                                    ...columnOptions
+                                                        .filter((col) => !type || col.type === type)
+                                                        .map((col) => ({
+                                                            key: col.value,
+                                                            label: col.label,
+                                                            value: col.value,
+                                                        })),
+                                                    ...(allowHogQL
+                                                        ? [
+                                                              {
+                                                                  key: hogqlOption.value,
+                                                                  label: hogqlOption.label,
+                                                                  value: hogqlOption.value,
+                                                              },
+                                                          ]
+                                                        : []),
                                                 ]}
-                                                onChange={(value: string | null) =>
-                                                    setLocalDefinition({ [key]: value })
+                                                onChange={(value) =>
+                                                    setLocalDefinition({ [key]: value.length > 0 ? value[0] : null })
                                                 }
                                             />
                                         )}
@@ -648,7 +663,7 @@ function DefinitionEdit(): JSX.Element {
                 )}
                 <LemonDivider className="DefinitionPopover mt-0" />
                 <div className="flex items-center justify-between gap-2 click-outside-block">
-                    {!hideView && isViewable && type !== TaxonomicFilterGroupType.Events ? (
+                    {!hideView && isViewable && viewFullDetailUrl && type !== TaxonomicFilterGroupType.Events ? (
                         <LemonButton
                             sideIcon={<IconOpenInNew style={{ marginLeft: 4, fontSize: '1rem' }} />}
                             disabledReason={definitionLoading ? 'Loading…' : undefined}

@@ -1,13 +1,12 @@
-import { actions, connect, kea, key, path, props, reducers, selectors } from 'kea'
-import { router } from 'kea-router'
+import { actions, connect, kea, path, props, reducers, selectors } from 'kea'
+import { router, urlToAction } from 'kea-router'
 
-import { tabAwareUrlToAction } from 'lib/logic/scenes/tabAwareUrlToAction'
 import { urls } from 'scenes/urls'
 
 import { DataNodeLogicProps } from '~/queries/nodes/DataNode/dataNodeLogic'
-import { insightVizDataNodeKey } from '~/queries/nodes/InsightViz/InsightViz'
-import { AnyResponseType, DataTableNode, NodeKind, TracesQuery } from '~/queries/schema/schema-general'
-import { Breadcrumb, InsightLogicProps, PropertyFilterType } from '~/types'
+import { insightVizDataNodeKey } from '~/queries/nodes/InsightViz/insightVizKeys'
+import { AnyResponseType, DataTableNode, NodeKind, SessionQuery } from '~/queries/schema/schema-general'
+import { Breadcrumb, InsightLogicProps } from '~/types'
 
 import type { aiObservabilitySessionLogicType } from './aiObservabilitySessionLogicType'
 import { aiObservabilitySharedLogic } from './aiObservabilitySharedLogic'
@@ -37,17 +36,14 @@ export function getDataNodeLogicProps({
     return dataNodeLogicProps
 }
 
-export interface AIObservabilitySessionLogicProps {
-    tabId?: string
-}
+export type AIObservabilitySessionLogicProps = Record<string, never>
 
 export const aiObservabilitySessionLogic = kea<aiObservabilitySessionLogicType>([
     path(['scenes', 'ai-observability', 'aiObservabilitySessionLogic']),
     props({} as AIObservabilitySessionLogicProps),
-    key((props) => props.tabId ?? 'default'),
 
-    connect((props: AIObservabilitySessionLogicProps) => ({
-        values: [aiObservabilitySharedLogic({ tabId: props.tabId }), ['dateFilter']],
+    connect(() => ({
+        values: [aiObservabilitySharedLogic, ['dateFilter']],
     })),
 
     actions({
@@ -75,27 +71,21 @@ export const aiObservabilitySessionLogic = kea<aiObservabilitySessionLogicType>(
                 sessionId: string,
                 dateRange: { dateFrom: string | null; dateTo: string | null } | null
             ): DataTableNode => {
-                const tracesQuery: TracesQuery = {
-                    kind: NodeKind.TracesQuery,
+                const sessionQuery: SessionQuery = {
+                    kind: NodeKind.SessionQuery,
+                    sessionId,
+                    includeSentiment: true,
                     dateRange: dateRange?.dateFrom
                         ? {
                               date_from: dateRange.dateFrom,
                               date_to: dateRange?.dateTo || undefined,
                           }
                         : undefined,
-                    properties: [
-                        {
-                            type: PropertyFilterType.Event,
-                            key: '$ai_session_id',
-                            operator: 'exact' as any,
-                            value: sessionId,
-                        },
-                    ],
                 }
 
                 return {
                     kind: NodeKind.DataTableNode,
-                    source: tracesQuery,
+                    source: sessionQuery,
                 }
             },
         ],
@@ -136,7 +126,7 @@ export const aiObservabilitySessionLogic = kea<aiObservabilitySessionLogicType>(
         ],
     }),
 
-    tabAwareUrlToAction(({ actions, values }) => ({
+    urlToAction(({ actions, values }) => ({
         [urls.aiObservabilitySession(':id')]: ({ id }, { timestamp, date_from, date_to }) => {
             actions.setSessionId(id ?? '')
             if (timestamp) {

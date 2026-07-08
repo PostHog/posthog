@@ -1,12 +1,19 @@
 import { LoginPage } from '../page-models/loginPage'
-import { expect, test } from '../utils/playwright-test-base'
+import { randomString } from '../utils'
+import { PlaywrightWorkspaceSetupResult, expect, test } from '../utils/workspace-test-base'
 
 const VALID_PASSWORD = 'hedgE-hog-123%'
 
 test.describe('Password Reset', () => {
     let loginPage: LoginPage
+    let workspace: PlaywrightWorkspaceSetupResult | null = null
 
-    test.beforeEach(async ({ page }) => {
+    test.beforeAll(async ({ playwrightSetup }) => {
+        workspace = await playwrightSetup.createWorkspace({ skip_onboarding: true, no_demo_data: true })
+    })
+
+    test.beforeEach(async ({ page, playwrightSetup }) => {
+        await playwrightSetup.loginAndNavigateToTeam(page, workspace!)
         await page.click('[data-attr=new-account-menu-button]')
         await page.click('[data-attr=new-account-menu-logout-button]')
         await expect(page).toHaveURL('/login')
@@ -19,10 +26,12 @@ test.describe('Password Reset', () => {
         await expect(page.locator('[data-attr=forgot-password]')).toBeVisible({ timeout: 5000 })
         await page.click('[data-attr="forgot-password"]')
         await expect(page).toHaveURL('/reset?email=fake%40posthog.com')
-        await page.fill('[data-attr="reset-email"]', 'test@posthog.com')
+        // Use a unique email so the per-email reset throttle (6/day) doesn't trip under repeated runs
+        const resetEmail = `${randomString('reset')}@posthog.com`
+        await page.fill('[data-attr="reset-email"]', resetEmail)
         await page.click('button[type=submit]')
         await expect(page.getByText('Request received successfully!')).toBeVisible()
-        await expect(page.getByText('test@posthog.com')).toBeVisible()
+        await expect(page.getByText(resetEmail)).toBeVisible()
     })
 
     test('Cannot reset with invalid token', async ({ page }) => {

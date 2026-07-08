@@ -2,9 +2,6 @@ import './Dashboard.scss'
 
 import { BindLogic, useActions, useMountedLogic, useValues } from 'kea'
 
-import { IconThumbsDown, IconThumbsUp } from '@posthog/icons'
-import { LemonBanner, LemonButton } from '@posthog/lemon-ui'
-
 import { AccessDenied } from 'lib/components/AccessDenied'
 import { NotFound } from 'lib/components/NotFound'
 import { useFileSystemLogView } from 'lib/hooks/useFileSystemLogView'
@@ -20,7 +17,7 @@ import { SceneExport } from 'scenes/sceneTypes'
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneStickyBar } from '~/layout/scenes/components/SceneStickyBar'
 import { ProductKey } from '~/queries/schema/schema-general'
-import { DashboardMode, DashboardPlacement, DashboardType, DataColorThemeModel, QueryBasedInsightModel } from '~/types'
+import { DashboardPlacement, DashboardType, DataColorThemeModel, QueryBasedInsightModel } from '~/types'
 
 import { teamLogic } from '../teamLogic'
 import { AddInsightToDashboardModal } from './addInsightToDashboardModal/AddInsightToDashboardModal'
@@ -72,16 +69,13 @@ function DashboardScene({ backTo }: { backTo?: { url: string; name: string } }):
         canEditDashboard,
         tiles,
         itemsLoading,
-        dashboardMode,
+        layoutEditMode,
         dashboardFailedToLoad,
         accessDeniedToDashboard,
-        refreshAnalysisResult,
-        analysisRating,
     } = useValues(dashboardLogic)
     const { layoutZoom } = useValues(dashboardLogic)
     const { currentTeamId } = useValues(teamLogic)
-    const { reportDashboardViewed, abortAnyRunningQuery, setRefreshAnalysisResult, setAnalysisRating, setLayoutZoom } =
-        useActions(dashboardLogic)
+    const { reportDashboardViewed, abortAnyRunningQuery, setLayoutZoom } = useActions(dashboardLogic)
     const { addInsightToDashboardModalVisible } = useValues(addInsightToDashboardLogic)
 
     useFileSystemLogView({
@@ -123,40 +117,9 @@ function DashboardScene({ backTo }: { backTo?: { url: string; name: string } }):
                 >
                     <DashboardOverridesBanner />
 
-                    {refreshAnalysisResult && (
-                        <LemonBanner
-                            type="info"
-                            onClose={() => setRefreshAnalysisResult(null)}
-                            className="mb-4 [&>.flex]:items-start"
-                            hideIcon
-                        >
-                            <div className="whitespace-pre-wrap">{refreshAnalysisResult}</div>
-                            <div className="flex items-center gap-0.5 mt-2">
-                                {analysisRating ? (
-                                    <span className="text-muted text-xs">Thanks for the feedback!</span>
-                                ) : (
-                                    <>
-                                        <LemonButton
-                                            size="xsmall"
-                                            icon={<IconThumbsUp />}
-                                            tooltip="Helpful"
-                                            onClick={() => setAnalysisRating('up')}
-                                        />
-                                        <LemonButton
-                                            size="xsmall"
-                                            icon={<IconThumbsDown />}
-                                            tooltip="Not helpful"
-                                            onClick={() => setAnalysisRating('down')}
-                                        />
-                                    </>
-                                )}
-                            </div>
-                        </LemonBanner>
-                    )}
-
                     <SceneStickyBar showBorderBottom={false} className="flex gap-2 space-y-0">
                         <DashboardFilterBar backTo={backTo} />
-                        {dashboardMode === DashboardMode.Edit &&
+                        {layoutEditMode &&
                             canEditDashboard &&
                             [
                                 DashboardPlacement.Dashboard,

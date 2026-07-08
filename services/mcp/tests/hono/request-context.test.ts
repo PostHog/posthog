@@ -2,9 +2,11 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 
 const { mockMe, mockApiClientCtor } = vi.hoisted(() => {
     const mockMe = vi.fn()
-    const mockApiClientCtor = vi.fn().mockImplementation(() => ({
-        users: () => ({ me: mockMe }),
-    }))
+    const mockApiClientCtor = vi.fn().mockImplementation(function () {
+        return {
+            users: () => ({ me: mockMe }),
+        }
+    })
     return { mockMe, mockApiClientCtor }
 })
 
@@ -169,6 +171,25 @@ describe('RequestContext', () => {
 
             expect(a).not.toBe(b)
         })
+    })
+
+    describe('getEffectiveSessionUuid', () => {
+        it.each([
+            { sessionId: 'sess-1', mcpSessionId: 'mcp-1', expectedKey: 'sess-1' },
+            { sessionId: undefined, mcpSessionId: 'mcp-1', expectedKey: 'mcp-1' },
+            { sessionId: undefined, mcpSessionId: undefined, expectedKey: undefined },
+        ])(
+            'sessionId=$sessionId mcpSessionId=$mcpSessionId → resolves via expectedKey=$expectedKey',
+            async ({ sessionId, mcpSessionId, expectedKey }) => {
+                const ctx = new RequestContext(fakeRedis(), env, makeProps())
+                const effective = await ctx.getEffectiveSessionUuid({ sessionId, mcpSessionId } as any)
+
+                expect(effective).toBe(expectedKey ? await ctx.getSessionUuid(expectedKey) : undefined)
+                if (expectedKey) {
+                    expect(effective).toMatch(/^[0-9a-f-]{36}$/)
+                }
+            }
+        )
     })
 
     describe('buildClientProperties', () => {

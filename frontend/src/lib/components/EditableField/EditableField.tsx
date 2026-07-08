@@ -12,7 +12,7 @@ import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { RawInputAutosize } from 'lib/lemon-ui/LemonInput/RawInputAutosize'
 import { LemonMarkdown } from 'lib/lemon-ui/LemonMarkdown'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
-import { pluralize } from 'lib/utils'
+import { pluralize } from 'lib/utils/strings'
 
 import { AvailableFeature } from '~/types'
 

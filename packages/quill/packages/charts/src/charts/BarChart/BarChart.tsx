@@ -1,39 +1,26 @@
-import { color as d3Color } from 'd3-color'
 import React, { useCallback, useMemo, useRef } from 'react'
 
-import { type BarChartPrivate, computeBarTrackRect, computeSeriesBars } from '../../core/bar-layout'
-import {
-    BAR_TRACK_HOVER_ALPHA,
-    type BarRect,
-    type BarRoundedCorners,
-    type BarShadow,
-    clipToRoundedRects,
-    drawBarHighlight,
-    drawBars,
-    drawBarTracks,
-    drawGrid,
-    type DrawContext,
-} from '../../core/canvas-renderer'
+import { ChartLegend } from '../../components/Legend/ChartLegend'
+import { useChartLegend } from '../../components/Legend/useChartLegend'
+import { bandCenter, type BarChartPrivate, groupedBarCenter } from '../../core/bar-layout'
 import { Chart } from '../../core/Chart'
 import { ChartErrorBoundary } from '../../core/ChartErrorBoundary'
-import { barColorAt } from '../../core/color-utils'
-import { DEFAULT_MARGINS, X_AXIS_TITLE_MARGIN } from '../../core/hooks/useChartMargins'
 import { useLatest } from '../../core/hooks/useLatest'
 import {
     buildSegmentResolveValue,
+    buildStackedBottomValue,
     buildStackedPositionValue,
-    type BarScaleSet,
     computeDivergingStackData,
     computePercentStackData,
     computeStackData,
+    computeTopStackedKeyByAxis,
     createBarScales,
-    groupedBandSlot,
     type StackedBand,
+    toYAxisScales,
     yTickCountForHeight,
 } from '../../core/scales'
 import type {
     BarChartConfig,
-    BarsConfig,
     ChartDimensions,
     ChartDrawArgs,
     ChartScales,
@@ -45,31 +32,13 @@ import type {
     Series,
     TooltipContext,
 } from '../../core/types'
-import { DEFAULT_Y_AXIS_ID } from '../../core/types'
-import { computeVisibleXLabels } from '../../overlays/AxisLabels'
+import { resolveAxisLines } from '../../core/types'
 import { BarTooltip } from './BarTooltip'
-import {
-    type BarLayout,
-    barContainsPointOnBandAxis,
-    cursorOutsideBarFillExtent,
-    findVisibleStackedSegment,
-    groupedBandSlotAtCursor,
-    isStackedLayout,
-    iterBarsAtCursor,
-} from './utils/bars-under-cursor'
-
-function bandCenter(scales: BarChartPrivate['__barChart'], label: string): number | undefined {
-    const start = scales.band(label)
-    return start == null ? undefined : start + scales.band.bandwidth() / 2
-}
-
-/** Center of a specific series's bar within a band. Used by overlays (e.g. annotations)
- *  to anchor on the current-period bar in compare-against-previous grouped layouts.
- *  Returns undefined when the layout isn't grouped or the series isn't in the group scale. */
-function groupedBarCenter(scales: BarChartPrivate['__barChart'], label: string, seriesKey: string): number | undefined {
-    const slot = groupedBandSlot(scales, label, seriesKey)
-    return slot && slot.x + slot.width / 2
-}
+import { computeWrapperMinHeight, HORIZONTAL_MIN_BAND_SIZE_DEFAULT } from './utils/bar-config'
+import { cursorInInertTrackGap, groupedBandSlotAtCursor } from './utils/bars-under-cursor'
+import { drawBarChartStatic, drawBarHoverItems } from './utils/draw-bar-chart'
+import { resolveBarHoverItems } from './utils/resolve-bar-hover'
+import { resolveClickedBarSeries } from './utils/resolve-clicked-bar-series'
 
 export interface BarChartProps<Meta = unknown> {
     series: Series<Meta>[]
@@ -83,55 +52,6 @@ export interface BarChartProps<Meta = unknown> {
     dataAttr?: string
     children?: React.ReactNode
     onError?: (error: Error, info: React.ErrorInfo) => void
-}
-
-// Negative offsetY casts the shadow upward onto the visible track above the bar.
-const DEFAULT_BAR_SHADOW: BarShadow = { color: 'rgba(0,0,0,0.30)', blur: 12, offsetY: -4 }
-
-// Horizontal floor: each row gets at least this much px so tick labels don't crush; wrapper scrolls.
-const HORIZONTAL_MIN_BAND_SIZE_DEFAULT = 24
-// Reserve room for chart-edge margins + worst-case x-axis title margin (matches useChartMargins).
-const HORIZONTAL_CHART_MARGIN_PX = DEFAULT_MARGINS.top + DEFAULT_MARGINS.bottom + X_AXIS_TITLE_MARGIN
-
-const ALL_CORNERS: BarRoundedCorners = { topLeft: true, topRight: true, bottomLeft: true, bottomRight: true }
-
-/** One fully-rounded rect per band, spanning the union of that band's stacked segments — the
- *  pill the bar layer is clipped to for `roundStackEnds`. Bars in the same band share a band-axis
- *  slot (same `dataIndex`), so we group by it and extend along the value axis. */
-function stackPillRects(bars: BarRect[], isHorizontal: boolean): BarRect[] {
-    const byBand = new Map<number, BarRect>()
-    for (const bar of bars) {
-        if (bar.width <= 0 || bar.height <= 0) {
-            continue
-        }
-        const existing = byBand.get(bar.dataIndex)
-        if (!existing) {
-            byBand.set(bar.dataIndex, { ...bar, corners: ALL_CORNERS })
-            continue
-        }
-        if (isHorizontal) {
-            const left = Math.min(existing.x, bar.x)
-            const right = Math.max(existing.x + existing.width, bar.x + bar.width)
-            existing.x = left
-            existing.width = right - left
-        } else {
-            const top = Math.min(existing.y, bar.y)
-            const bottom = Math.max(existing.y + existing.height, bar.y + bar.height)
-            existing.y = top
-            existing.height = bottom - top
-        }
-    }
-    return [...byBand.values()]
-}
-
-function resolveBarShadow(barShadow: BarsConfig['shadow']): BarShadow | undefined {
-    if (barShadow === true) {
-        return DEFAULT_BAR_SHADOW
-    }
-    if (barShadow === false || barShadow == null) {
-        return undefined
-    }
-    return barShadow
 }
 
 export function BarChart<Meta = unknown>({ onError, ...rest }: BarChartProps<Meta>): React.ReactElement {
@@ -156,13 +76,17 @@ function BarChartInner<Meta = unknown>({
     const {
         yScaleType = 'linear',
         showGrid = false,
+        showAxisLines = false,
         barLayout = 'stacked',
         axisOrientation = 'vertical',
         xTickFormatter,
+        barCornerRadius = 0,
+        yAxes: configYAxes,
     } = config ?? {}
+    const { x: xAxisLine, y: yAxisLine } = resolveAxisLines(showAxisLines)
+    const axisLines = useMemo(() => ({ x: xAxisLine, y: yAxisLine }), [xAxisLine, yAxisLine])
     const {
-        cornerRadius: barCornerRadius = 0,
-        track: barTrack = false,
+        track: trackConfig = false,
         shadow: barShadow,
         divergingStack = false,
         maxBandRange,
@@ -170,51 +94,47 @@ function BarChartInner<Meta = unknown>({
         minBandSize,
         fitToHeight = false,
         valueDomain,
+        valuePadding,
         roundStackEnds = false,
+        fillStyle: barFillStyle = 'flat',
     } = config?.bars ?? {}
     const isHorizontal = axisOrientation === 'horizontal'
+    const barTrack = trackConfig !== false
+    const barTrackHover = trackConfig === true || (typeof trackConfig === 'object' && trackConfig.hover !== false)
+
+    const { visibleSeries, legendProps } = useChartLegend(series, theme, config?.legend)
 
     const resolvedMinBandSize = minBandSize ?? (isHorizontal ? HORIZONTAL_MIN_BAND_SIZE_DEFAULT : 0)
-    // Fit-to-height drops overflow rows instead of growing the container, so it never sets a
-    // wrapper floor — the chart fills whatever height the tile gives it.
-    const wrapperMinHeight = useMemo(() => {
-        if (!isHorizontal || fitToHeight || resolvedMinBandSize <= 0) {
-            return undefined
-        }
-        const uniqueBands = new Set(labels).size
-        if (uniqueBands === 0) {
-            return undefined
-        }
-        return uniqueBands * resolvedMinBandSize + HORIZONTAL_CHART_MARGIN_PX
-    }, [isHorizontal, fitToHeight, resolvedMinBandSize, labels])
+    const wrapperMinHeight = useMemo(
+        () =>
+            computeWrapperMinHeight({
+                isHorizontal,
+                fitToHeight,
+                resolvedMinBandSize,
+                labels,
+            }),
+        [isHorizontal, fitToHeight, resolvedMinBandSize, labels]
+    )
 
     const stackedData = useMemo((): Map<string, StackedBand> | undefined => {
         if (barLayout === 'percent') {
-            return computePercentStackData(series, labels)
+            return computePercentStackData(visibleSeries, labels)
         }
         if (barLayout === 'stacked') {
-            return divergingStack ? computeDivergingStackData(series, labels) : computeStackData(series, labels)
+            return divergingStack
+                ? computeDivergingStackData(visibleSeries, labels)
+                : computeStackData(visibleSeries, labels)
         }
         return undefined
-    }, [barLayout, series, labels, divergingStack])
+    }, [barLayout, visibleSeries, labels, divergingStack])
 
     // Cap rounding is per-axis: buildStackData stacks each yAxisId independently, so each
     // axis has its own topmost visible series. Iteration order matches d3.stack's key order,
     // so the last write per axis is that axis's top layer.
-    const topStackedKeyByAxis = useMemo<Map<string, string>>(() => {
-        const m = new Map<string, string>()
-        if (barLayout === 'grouped') {
-            return m
-        }
-        for (const s of series) {
-            if (s.visibility?.excluded) {
-                continue
-            }
-            const axisId = s.yAxisId ?? DEFAULT_Y_AXIS_ID
-            m.set(axisId, s.key)
-        }
-        return m
-    }, [barLayout, series])
+    const topStackedKeyByAxis = useMemo<Map<string, string>>(
+        () => (barLayout === 'grouped' ? new Map() : computeTopStackedKeyByAxis(visibleSeries)),
+        [barLayout, visibleSeries]
+    )
 
     const chartConfig = useMemo<BarChartConfig>(() => {
         const base = { ...config, isPercent: barLayout === 'percent' }
@@ -244,7 +164,11 @@ function BarChartInner<Meta = unknown>({
                     if (divergingStack) {
                         return [
                             { ...s, data: band.top },
-                            { ...s, key: `${s.key}__bottom`, data: band.bottom },
+                            {
+                                ...s,
+                                key: `${s.key}__bottom`,
+                                data: band.bottom,
+                            },
                         ]
                     }
                     return [{ ...s, data: band.top }]
@@ -261,10 +185,16 @@ function BarChartInner<Meta = unknown>({
                 fitToHeight,
                 minBandSize: resolvedMinBandSize,
                 valueDomain,
+                valuePadding,
+                axes: configYAxes,
             })
 
             const tickAxisLength = isHorizontal ? dimensions.plotWidth : dimensions.plotHeight
             const yTickCount = yTickCountForHeight(tickAxisLength)
+
+            // Expose per-axis scales so AxisLabels renders the right-hand axis and the tooltip /
+            // value-label overlays resolve each series against its own axis.
+            const yAxes = d3Scales.yAxes ? toYAxisScales(d3Scales.yAxes, yTickCount) : undefined
 
             // Stash the raw d3 scales in the private slot so drawStatic/drawHover/click routing
             // can read them from the committed ChartScales — every render gets a self-contained
@@ -286,6 +216,7 @@ function BarChartInner<Meta = unknown>({
                 },
                 y: (value: number) => d3Scales.value(value),
                 yTicks: () => d3Scales.value.ticks?.(yTickCount) ?? [],
+                yAxes,
                 // Width of the rendered bar content within the band. In grouped mode the
                 // bars sit inside group outer padding, so `band.bandwidth()` overshoots
                 // the rightmost bar's right edge and anchors the tooltip in empty space.
@@ -328,116 +259,30 @@ function BarChartInner<Meta = unknown>({
             fitToHeight,
             resolvedMinBandSize,
             valueDomain,
+            valuePadding,
+            configYAxes,
         ]
     )
 
     const drawStatic = useCallback(
-        ({ ctx, dimensions, scales, series: coloredSeries, labels: drawLabels, theme }: ChartDrawArgs) => {
-            const d3Scales = (scales._private as BarChartPrivate | undefined)?.__barChart
-            if (!d3Scales) {
-                return
-            }
-
-            const baseDrawCtx: DrawContext = {
-                ctx,
-                dimensions,
-                xScale: (label: string) => bandCenter(d3Scales, label),
-                yScale: d3Scales.value,
-                labels: drawLabels,
-            }
-
-            if (showGrid) {
-                // Align cross-axis grid with visible category labels, not every band.
-                let categoryTicks: number[] = []
-                if (isHorizontal) {
-                    for (const label of drawLabels) {
-                        const coord = bandCenter(d3Scales, label)
-                        if (coord != null && isFinite(coord)) {
-                            categoryTicks.push(coord)
-                        }
-                    }
-                } else {
-                    categoryTicks = computeVisibleXLabels(
-                        drawLabels,
-                        (label) => bandCenter(d3Scales, label),
-                        xTickFormatter
-                    ).map((entry) => entry.x)
-                }
-                drawGrid(baseDrawCtx, {
-                    gridColor: theme.gridColor,
-                    orientation: isHorizontal ? 'horizontal' : 'vertical',
-                    categoryTicks,
-                })
-            }
-
-            const seriesBars = coloredSeries
-                .filter((s) => !s.visibility?.excluded)
-                .map((s) => {
-                    const axisId = s.yAxisId ?? DEFAULT_Y_AXIS_ID
-                    const bars = computeSeriesBars({
-                        series: s,
-                        labels: drawLabels,
-                        scales: d3Scales,
-                        layout: barLayout,
-                        isHorizontal,
-                        stackedBand: stackedData?.get(s.key),
-                        isTopOfStack: topStackedKeyByAxis.get(axisId) === s.key,
-                    }).filter((b): b is BarRect => b !== null)
-                    return { series: s, bars }
-                })
-
-            // `roundStackEnds`: round both outer ends of the whole stack into a pill by clipping
-            // the bar layer to a rounded rect spanning each band's full extent, then drawing the
-            // segments square. The clip rounds the outer corners at the full radius even when the
-            // edge segment is a thin sliver (e.g. the last breakdown of a near-100% step), which
-            // per-segment rounding can't — it would clamp the radius to the sliver's half-width.
-            const stackPills = roundStackEnds
-                ? stackPillRects(
-                      seriesBars.flatMap((sb) => sb.bars),
-                      isHorizontal
-                  )
-                : []
-
-            // Tracks are a separate pass so a later series' full-height track can't paint
-            // over an earlier series' bar. Track is "share of a whole" semantics — only
-            // meaningful for grouped layouts; in stacked/percent every layer would paint
-            // a full-height track over the same band with the wrong corners.
-            if (barTrack && barLayout === 'grouped') {
-                const [axisStart = 0, axisEnd = 0] = d3Scales.value.range()
-                for (const { series: s, bars } of seriesBars) {
-                    const tracks = bars.map((b) => computeBarTrackRect(b, axisStart, axisEnd, isHorizontal))
-                    drawBarTracks(baseDrawCtx, s, tracks, barCornerRadius)
-                }
-            }
-
-            const resolvedShadow = resolveBarShadow(barShadow)
-            // Clip to plot area so a 100% bar's upward shadow doesn't bleed past the chart edge.
-            if (resolvedShadow) {
-                ctx.save()
-                ctx.beginPath()
-                ctx.rect(dimensions.plotLeft, dimensions.plotTop, dimensions.plotWidth, dimensions.plotHeight)
-                ctx.clip()
-                ctx.shadowColor = resolvedShadow.color
-                ctx.shadowBlur = resolvedShadow.blur
-                ctx.shadowOffsetX = resolvedShadow.offsetX ?? 0
-                ctx.shadowOffsetY = resolvedShadow.offsetY ?? 0
-            }
-            if (stackPills.length > 0) {
-                ctx.save()
-                clipToRoundedRects(ctx, stackPills, barCornerRadius)
-            }
-            for (const { series: s, bars } of seriesBars) {
-                drawBars(baseDrawCtx, s, bars, stackPills.length > 0 ? 0 : barCornerRadius)
-            }
-            if (stackPills.length > 0) {
-                ctx.restore()
-            }
-            if (resolvedShadow) {
-                ctx.restore()
-            }
-        },
+        (args: ChartDrawArgs) =>
+            drawBarChartStatic(args, {
+                barLayout,
+                isHorizontal,
+                showGrid,
+                axisLines,
+                xTickFormatter,
+                stackedData,
+                topStackedKeyByAxis,
+                roundStackEnds,
+                barCornerRadius,
+                barTrack,
+                barShadow,
+                barFillStyle,
+            }),
         [
             showGrid,
+            axisLines,
             stackedData,
             barLayout,
             isHorizontal,
@@ -447,6 +292,7 @@ function BarChartInner<Meta = unknown>({
             barTrack,
             xTickFormatter,
             barShadow,
+            barFillStyle,
         ]
     )
 
@@ -454,148 +300,60 @@ function BarChartInner<Meta = unknown>({
     const lastHoverKeyRef = useRef<string | null>(null)
 
     const drawHover = useCallback(
-        ({
-            ctx,
-            scales,
-            series: coloredSeries,
-            labels: drawLabels,
-            hoverIndex,
-            hoverPosition,
-            hoverProgress,
-            resetHoverFade,
-        }: ChartDrawArgs): DrawHoverResult => {
+        (args: ChartDrawArgs): DrawHoverResult => {
+            const { ctx, scales, hoverIndex, hoverProgress, resetHoverFade } = args
             const d3Scales = (scales._private as BarChartPrivate | undefined)?.__barChart
             if (!d3Scales || hoverIndex < 0) {
                 lastHoverKeyRef.current = null
                 return false
             }
-            const hoveredLabel = drawLabels[hoverIndex]
-            const [trackAxisStart = 0, trackAxisEnd = 0] = barTrack ? d3Scales.value.range() : []
-            // Key includes bar-vs-track per series so bar → track moves at the same
-            // hoverIndex still trigger a fade restart.
-            type DrawItem = { series: ResolvedSeries; bar: BarRect; isTrackHighlight: boolean }
-            const items: DrawItem[] = []
-            let composition = ''
-            // Stacked: clip the highlight to the visible slice so hover only changes shade,
-            // never z-order. Grouped keeps band-axis containment for cursor-above-bar.
-            const stackedHighlight = isStackedLayout(barLayout)
-            if (stackedHighlight && hoverPosition) {
-                const visible = findVisibleStackedSegment({
-                    series: coloredSeries,
-                    labels: drawLabels,
-                    hoveredLabel,
-                    cursor: hoverPosition,
-                    scales: d3Scales,
-                    layout: barLayout,
-                    isHorizontal,
-                    stackedData,
-                    topStackedKeyByAxis,
-                })
-                if (visible) {
-                    const visibleExtent = isHorizontal ? visible.bar.width : visible.bar.height
-                    const { nextSmallerExtent } = visible
-                    const baselinePx = isHorizontal ? visible.bar.x : visible.bar.y + visible.bar.height
-                    const clippedExtent = Math.max(0, visibleExtent - nextSmallerExtent)
-                    const clipped: BarRect = isHorizontal
-                        ? { ...visible.bar, x: baselinePx + nextSmallerExtent, width: clippedExtent }
-                        : { ...visible.bar, y: baselinePx - visibleExtent, height: clippedExtent }
-                    items.push({ series: visible.series, bar: clipped, isTrackHighlight: false })
-                    composition += 'b'
-                }
-            } else {
-                for (const { series: s, bar } of iterBarsAtCursor<ResolvedSeries>({
-                    series: coloredSeries,
-                    label: hoveredLabel,
-                    dataIndex: hoverIndex,
-                    scales: d3Scales,
-                    layout: barLayout,
-                    isHorizontal,
-                    stackedData,
-                    topStackedKeyByAxis,
-                })) {
-                    if (hoverPosition && !barContainsPointOnBandAxis(bar, hoverPosition, isHorizontal)) {
-                        continue
-                    }
-                    const isTrackHighlight =
-                        barTrack === true &&
-                        barLayout === 'grouped' &&
-                        hoverPosition != null &&
-                        cursorOutsideBarFillExtent(bar, hoverPosition, isHorizontal)
-                    items.push({ series: s, bar, isTrackHighlight })
-                    composition += isTrackHighlight ? 't' : 'b'
-                }
-            }
-            if (items.length === 0) {
+            const resolved = resolveBarHoverItems(args, d3Scales, {
+                barLayout,
+                isHorizontal,
+                stackedData,
+                topStackedKeyByAxis,
+                roundStackEnds,
+                barTrackHover,
+            })
+            if (!resolved) {
                 lastHoverKeyRef.current = null
                 return false
             }
-            const currentKey = `${hoverIndex}:${composition}`
+            // Key on the bar-vs-track composition so a bar → track move at the same hoverIndex
+            // still restarts the fade.
+            const currentKey = `${hoverIndex}:${resolved.composition}`
             let alpha = hoverProgress
             if (currentKey !== lastHoverKeyRef.current) {
                 alpha = resetHoverFade()
                 lastHoverKeyRef.current = currentKey
             }
-            // Match the resting bar's pill clip so the darker highlight rounds at the stack's outer
-            // ends instead of poking square corners past them.
-            const hoveredBandPills = roundStackEnds
-                ? stackPillRects(
-                      [
-                          ...iterBarsAtCursor<ResolvedSeries>({
-                              series: coloredSeries,
-                              label: hoveredLabel,
-                              dataIndex: hoverIndex,
-                              scales: d3Scales,
-                              layout: barLayout,
-                              isHorizontal,
-                              stackedData,
-                              topStackedKeyByAxis,
-                          }),
-                      ].map(({ bar }) => bar),
-                      isHorizontal
-                  )
-                : []
-            const highlightRadius = hoveredBandPills.length > 0 ? 0 : barCornerRadius
-            ctx.save()
-            ctx.globalAlpha = alpha
-            if (hoveredBandPills.length > 0) {
-                clipToRoundedRects(ctx, hoveredBandPills, barCornerRadius)
-            }
-            for (const { series: s, bar, isTrackHighlight } of items) {
-                if (isTrackHighlight) {
-                    const parsed = d3Color(barColorAt(s, bar.dataIndex))
-                    // Always translucent — the bar color direct would paint an opaque full-height
-                    // block if d3 can't parse the color.
-                    let trackColor: string
-                    if (parsed) {
-                        parsed.opacity = BAR_TRACK_HOVER_ALPHA
-                        trackColor = parsed.toString()
-                    } else {
-                        trackColor = `rgba(0,0,0,${BAR_TRACK_HOVER_ALPHA})`
-                    }
-                    drawBarHighlight(
-                        ctx,
-                        computeBarTrackRect(bar, trackAxisStart, trackAxisEnd, isHorizontal),
-                        trackColor,
-                        highlightRadius
-                    )
-                } else {
-                    const barColor = barColorAt(s, bar.dataIndex)
-                    const highlightColor = d3Color(barColor)?.darker(0.6).toString() ?? barColor
-                    drawBarHighlight(ctx, bar, highlightColor, highlightRadius)
-                }
-            }
-            ctx.restore()
+            drawBarHoverItems(ctx, d3Scales, resolved, {
+                alpha,
+                barCornerRadius,
+                barTrack,
+                isHorizontal,
+            })
             return true
         },
-        [stackedData, barLayout, isHorizontal, topStackedKeyByAxis, roundStackEnds, barCornerRadius, barTrack]
+        [
+            stackedData,
+            barLayout,
+            isHorizontal,
+            topStackedKeyByAxis,
+            roundStackEnds,
+            barCornerRadius,
+            barTrack,
+            barTrackHover,
+        ]
     )
 
     // Show each series's own segment value (resolveValue) but anchor the tooltip/value labels
     // at the stacked top (resolvePositionValue) so a stacked bar doesn't read as a running total.
     const resolveValue = useMemo(() => buildSegmentResolveValue(stackedData), [stackedData])
     const resolvePositionValue = useMemo(() => buildStackedPositionValue(stackedData), [stackedData])
+    const resolveBottomValue = useMemo(() => buildStackedBottomValue(stackedData), [stackedData])
 
-    const seriesRef = useLatest(series)
+    const seriesRef = useLatest(visibleSeries)
     const labelsRef = useLatest(labels)
 
     // Bars sharing a band slot — rewrite the click payload to the series actually under the
@@ -609,7 +367,7 @@ function BarChartInner<Meta = unknown>({
             return (
                 resolveClickedBarSeries({
                     clickData,
-                    d3Scales,
+                    scales: d3Scales,
                     barLayout,
                     isHorizontal,
                     stackedData,
@@ -622,9 +380,38 @@ function BarChartInner<Meta = unknown>({
         [barLayout, isHorizontal, stackedData, topStackedKeyByAxis, seriesRef, labelsRef]
     )
 
+    // A capped track's blank volume gap (funnel compare) is inert: veto the hover there so the tooltip,
+    // pointer cursor, highlight, and click are all suppressed. Only wired when a series declares a
+    // `trackData` ceiling — with or without a drawn track (stacked funnel bars cap their interactive
+    // extent without one).
+    const seriesHasTrackCeiling = useMemo(() => visibleSeries.some((s) => Array.isArray(s.trackData)), [visibleSeries])
+
+    const resolveHoverIndex = useCallback(
+        (index: number, cursor: { x: number; y: number }, scales: ChartScales): number => {
+            const d3Scales = (scales._private as BarChartPrivate | undefined)?.__barChart
+            if (!d3Scales) {
+                return index
+            }
+            return cursorInInertTrackGap({
+                series: seriesRef.current,
+                label: labelsRef.current[index],
+                dataIndex: index,
+                scales: d3Scales,
+                layout: barLayout,
+                isHorizontal,
+                stackedData,
+                topStackedKeyByAxis,
+                cursor,
+            })
+                ? -1
+                : index
+        },
+        [barLayout, isHorizontal, stackedData, topStackedKeyByAxis, seriesRef, labelsRef]
+    )
+
     const chart = (
         <Chart
-            series={series}
+            series={visibleSeries}
             labels={labels}
             config={chartConfig}
             theme={theme}
@@ -635,19 +422,22 @@ function BarChartInner<Meta = unknown>({
                 <BarTooltip<Meta>
                     ctx={ctx}
                     userTooltip={tooltip}
-                    allSeries={series}
+                    allSeries={visibleSeries}
                     stackedData={stackedData}
                     topStackedKeyByAxis={topStackedKeyByAxis}
                     layout={barLayout}
                     isHorizontal={isHorizontal}
+                    tooltipConfig={config?.tooltip}
                 />
             )}
             onPointClick={onPointClick}
             wrapClickData={onPointClick ? wrapClickData : undefined}
+            resolveHoverIndex={seriesHasTrackCeiling ? resolveHoverIndex : undefined}
             className={className}
             dataAttr={dataAttr}
             resolveValue={resolveValue}
             resolvePositionValue={resolvePositionValue}
+            resolveBottomValue={resolveBottomValue}
         >
             {children}
         </Chart>
@@ -655,95 +445,10 @@ function BarChartInner<Meta = unknown>({
 
     // Always wrap — switching shape (axisOrientation, empty labels) would otherwise remount Chart.
     return (
-        <div className="flex flex-col flex-1" style={{ minHeight: wrapperMinHeight }}>
-            {chart}
-        </div>
+        <ChartLegend {...legendProps} legendDataAttr="hog-chart-bar-legend">
+            <div className="flex flex-col flex-1" style={{ minHeight: wrapperMinHeight }}>
+                {chart}
+            </div>
+        </ChartLegend>
     )
-}
-
-/** Rewrites the click payload to the bar series actually under the cursor. The base payload
- *  always points at the first series in the band; this picks the right one per layout:
- *   - grouped: the series whose sub-band column the cursor is over — band axis only, so a
- *     click above a short bar (or on its track) still resolves to that column.
- *   - stacked/percent: the segment whose rect contains the cursor on the value axis, walking
- *     every dataIndex in the band so sparse-overlap segments route correctly, and re-reading
- *     the value at that segment's own dataIndex.
- *  Pure so the routing is unit-testable; returns `null` to pass `clickData` through unchanged. */
-export function resolveClickedBarSeries<Meta>({
-    clickData,
-    d3Scales,
-    barLayout,
-    isHorizontal,
-    stackedData,
-    topStackedKeyByAxis,
-    series,
-    labels,
-}: {
-    clickData: PointClickData<Meta>
-    d3Scales: BarScaleSet
-    barLayout: BarLayout
-    isHorizontal: boolean
-    stackedData: Map<string, StackedBand> | undefined
-    topStackedKeyByAxis: Map<string, string>
-    series: Series<Meta>[]
-    labels: readonly string[]
-}): PointClickData<Meta> | null {
-    const { cursor, label, dataIndex, crossSeriesData } = clickData
-    if (!cursor) {
-        return null
-    }
-    const rewrite = (hitSeries: Series<Meta>, value: number, hitDataIndex: number): PointClickData<Meta> => ({
-        ...clickData,
-        dataIndex: hitDataIndex,
-        series: hitSeries,
-        value,
-        seriesIndex: series.findIndex((s) => s.key === hitSeries.key),
-    })
-
-    if (barLayout === 'grouped') {
-        for (const { series: s, bar } of iterBarsAtCursor({
-            series: crossSeriesData.map((d) => d.series),
-            label,
-            dataIndex,
-            scales: d3Scales,
-            layout: barLayout,
-            isHorizontal,
-            topStackedKeyByAxis,
-        })) {
-            if (!barContainsPointOnBandAxis(bar, cursor, isHorizontal)) {
-                continue
-            }
-            const hit = crossSeriesData.find((d) => d.series.key === s.key)
-            if (!hit) {
-                return null
-            }
-            const inTrackArea = cursorOutsideBarFillExtent(bar, cursor, isHorizontal)
-            return { ...rewrite(hit.series, hit.value, dataIndex), inTrackArea }
-        }
-        return null
-    }
-
-    const visible = findVisibleStackedSegment({
-        series: crossSeriesData.map((d) => d.series),
-        labels,
-        hoveredLabel: label,
-        cursor,
-        scales: d3Scales,
-        layout: barLayout,
-        isHorizontal,
-        stackedData,
-        topStackedKeyByAxis,
-    })
-    if (!visible) {
-        return null
-    }
-    const hit = crossSeriesData.find((d) => d.series.key === visible.series.key)
-    if (!hit) {
-        return null
-    }
-    // Re-read value at the visible segment's own dataIndex — `hit.value` was resolved at the
-    // band's dataIndex, which is a sparse-zero cell for the visible series.
-    const raw = hit.series.data[visible.dataIndex]
-    const resolvedValue = typeof raw === 'number' && Number.isFinite(raw) ? raw : hit.value
-    return rewrite(hit.series, resolvedValue, visible.dataIndex)
 }

@@ -23,7 +23,7 @@ const mockList = llmAnalyticsParserRecipesList as jest.MockedFunction<typeof llm
 const mockCreate = llmAnalyticsParserRecipesCreate as jest.MockedFunction<typeof llmAnalyticsParserRecipesCreate>
 const mockDestroy = llmAnalyticsParserRecipesDestroy as jest.MockedFunction<typeof llmAnalyticsParserRecipesDestroy>
 
-const FLAG = FEATURE_FLAGS.LLM_ANALYTICS_RECIPE_NORMALIZER
+const FLAG = FEATURE_FLAGS.LLM_ANALYTICS_CUSTOM_PARSERS
 
 describe('parserRecipesLogic', () => {
     let logic: ReturnType<typeof parserRecipesLogic.build>
@@ -58,6 +58,18 @@ describe('parserRecipesLogic', () => {
         expect(mockList).toHaveBeenCalled()
         expect(logic.values.customItems).toEqual([{ id: 'r1', name: 'First', source: 'rules: []\n' }])
         expect(logic.values.storedForMerge).toEqual([{ id: 'r1', source: 'rules: []\n' }])
+    })
+
+    it('bumps recipesVersion every time loaded recipes are applied to the normalizer', async () => {
+        enableFlag()
+        logic = parserRecipesLogic()
+        logic.mount()
+        await expectLogic(logic).toDispatchActions(['loadRecipesSuccess', 'recipesApplied'])
+        expect(logic.values.recipesVersion).toBe(1)
+
+        logic.actions.loadRecipes()
+        await expectLogic(logic).toDispatchActions(['loadRecipesSuccess', 'recipesApplied'])
+        expect(logic.values.recipesVersion).toBe(2)
     })
 
     it('surfaces a compile error for invalid editor source and clears it on close', () => {

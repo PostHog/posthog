@@ -6,7 +6,9 @@ from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict
 
-type ConstantDataType = Literal["int", "float", "str", "bool", "array", "tuple", "date", "datetime", "uuid", "unknown"]
+type ConstantDataType = Literal[
+    "int", "float", "str", "bool", "array", "tuple", "map", "date", "datetime", "uuid", "unknown"
+]
 type ConstantSupportedPrimitive = int | float | str | bool | date | datetime | UUID | None
 type ConstantSupportedData = (
     ConstantSupportedPrimitive | list[ConstantSupportedPrimitive] | tuple[ConstantSupportedPrimitive, ...]
@@ -46,9 +48,14 @@ BREAKDOWN_VALUES_LIMIT = 25
 BREAKDOWN_VALUES_LIMIT_FOR_COUNTRIES = 300
 BREAKDOWN_VALUE_MAX_LENGTH = 400
 
-type HogQLDialect = Literal["hogql", "clickhouse", "postgres", "duckdb"]
+type HogQLDialect = Literal["hogql", "clickhouse", "postgres", "duckdb", "mysql", "snowflake"]
 
-type HogQLParserBackend = Literal["python", "cpp-json", "rust-json", "rust-py"]
+# All dialects that compile to an external SQL database queried directly (as opposed to
+# ClickHouse / HogQL). MySQL shares the standard-SQL keyword surface (CURRENT_DATE & co.)
+# but not Postgres-specific features like PIVOT/UNPIVOT, TRY_CAST, or positional references.
+SQL_TARGET_DIALECTS: frozenset[HogQLDialect] = frozenset({"postgres", "duckdb", "mysql"})
+
+type HogQLParserBackend = Literal["cpp-json", "rust-json", "rust-py"]
 
 
 class LimitContext(StrEnum):
@@ -131,6 +138,10 @@ class HogQLGlobalSettings(HogQLQuerySettings):
     model_config = ConfigDict(extra="forbid")
     readonly: Optional[int] = 2
     max_execution_time: Optional[int] = 60
+    # None inherits the cluster profile's overflow behavior. Set "throw" when a partial
+    # result is worse than an error (e.g. sampling queries whose output feeds further
+    # computation), or "break" to accept partial results on timeout.
+    timeout_overflow_mode: Optional[str] = None
     max_memory_usage: Optional[int] = None  # default value coming from cloud config
     max_threads: Optional[int] = None
     allow_experimental_object_type: Optional[bool] = True
@@ -145,6 +156,21 @@ class HogQLGlobalSettings(HogQLQuerySettings):
     # There are only columns: if(nullIn(__table1.event, __set_String_14734461331367945596_10185115430245904968), 1_UInt8, 0_UInt8)
     # https://github.com/ClickHouse/ClickHouse/issues/64487
     optimize_min_equality_disjunction_chain_length: Optional[int] = 4294967295
+    # A bugfix workaround for a distributed-planner crash under the new analyzer. ClickHouse rewrites
+    # `max(if(cond, <const>, NULL))` into `maxIf(<const>, cond)` (and similar for sum/avg/min, count(DISTINCT ...)),
+    # but the constant in the non-NULL branch is constant-folded to a different type on the initiator
+    # (`_CAST(1_UInt8, 'Nullable(UInt8)')`) than on the shards (`_CAST(1_Nullable(UInt8), 'Nullable(UInt8)')`),
+    # so distributed column matching fails with `Cannot find column maxIf(...)` (THERE_IS_NO_COLUMN).
+    # Disabling the rewrite avoids it with no perf cost (the rewrite benchmarks ~3-4% slower anyway).
+    # https://github.com/ClickHouse/ClickHouse/issues/82941
+    optimize_rewrite_aggregate_function_with_if: Optional[bool] = False
+    # The mirror image of the setting above, for `and(event != '1', event != '2', event != '3')` being optimized into
+    # `event NOT IN ('1', '2', '3')`. With transform_null_in=1 the new analyzer rewrites the synthesized notIn to
+    # notNullIn inconsistently between the shard (producing) and initiator (consuming) headers of a distributed query,
+    # so column matching fails with `Cannot find column minIf(..., notIn(...)) in source stream, there are only columns:
+    # [minIf(..., notNullIn(...))]` (THERE_IS_NO_COLUMN). Same bug class as #64487; disabling the rewrite avoids it
+    # without touching NULL semantics (unlike transform_null_in).
+    optimize_min_inequality_conjunction_chain_length: Optional[int] = 4294967295
     # experimental support for nonequal joins
     allow_experimental_join_condition: Optional[bool] = True
     preferred_block_size_bytes: Optional[int] = None

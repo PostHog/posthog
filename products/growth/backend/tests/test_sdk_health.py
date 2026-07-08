@@ -479,8 +479,7 @@ class TestUiParityStrings(SimpleTestCase):
 
     def test_sql_query_matches_ui_template_exact(self):
         # Exact-string match (not substring containment) so any whitespace / punctuation
-        # drift against queryForSdkVersion() in SdkDoctorComponents.tsx breaks this test.
-        # If you change one side, change the other — the comment in the TS file points here.
+        # drift in the generated SQL is caught. The SDK Health UI renders this string as-is.
         sql = _build_sql_query("posthog-node", "1.230.1")
         expected = (
             "SELECT * FROM events WHERE timestamp >= NOW() - INTERVAL 7 DAY "

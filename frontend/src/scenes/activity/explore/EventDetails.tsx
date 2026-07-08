@@ -11,6 +11,8 @@ import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonTableProps } from 'lib/lemon-ui/LemonTable'
 import { Link } from 'lib/lemon-ui/Link'
+import { ReplayCaptureDiagnosticsModalButton } from 'scenes/session-recordings/components/ReplayCaptureDiagnosticsModalButton'
+import { hasReplayDiagnosticSignals } from 'scenes/session-recordings/utils/replayCaptureDiagnostics'
 import { urls } from 'scenes/urls'
 
 import { KNOWN_PROMOTED_PROPERTY_PARENTS } from '~/taxonomy/taxonomy'
@@ -157,7 +159,7 @@ export function EventDetails({ event, tableProps }: EventDetailsProps): JSX.Elem
                             <div className="mx-3 -mt-4">
                                 <p>
                                     "Set once" person properties sent with this event. Will replace any property value
-                                    that have never been set on this person profile before now.{' '}
+                                    that has never been set on this person profile before now.{' '}
                                     <Link to="https://posthog.com/docs/getting-started/person-properties">
                                         Learn more
                                     </Link>
@@ -186,6 +188,11 @@ export function EventDetails({ event, tableProps }: EventDetailsProps): JSX.Elem
                     default:
                         return (
                             <div className="mx-3">
+                                {tabKey === 'debug_properties' && hasReplayDiagnosticSignals(properties) && (
+                                    <div className="mb-2">
+                                        <ReplayCaptureDiagnosticsModalButton eventProperties={properties} />
+                                    </div>
+                                )}
                                 <PropertiesTable
                                     type={PropertyDefinitionType.Event}
                                     properties={properties}

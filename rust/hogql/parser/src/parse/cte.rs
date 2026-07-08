@@ -22,8 +22,8 @@ impl<'a, E: Emitter + Clone> Parser<'a, E> {
         // that terminates the CTE list; mirror that. A bare `LPAREN`
         // following the comma can ALSO be the leading `(` of the next
         // CTE element (column-form `(SELECT 1) AS x` / `(a + b) AS y`),
-        // so peek past the matching `)` to see if an `AS identifier`
-        // pattern follows before terminating the loop.
+        // so peek past the paren group's expression to see if an
+        // `AS identifier` alias follows before terminating the loop.
         let mut out = Vec::new();
         loop {
             out.push(self.parse_with_expr()?);
@@ -33,48 +33,64 @@ impl<'a, E: Emitter + Clone> Parser<'a, E> {
             if matches!(self.peek(), TokenKind::Keyword(Kw::Select)) {
                 break;
             }
-            if self.peek() == TokenKind::LParen && !self.paren_group_followed_by_as_identifier() {
+            if self.peek() == TokenKind::LParen && !self.paren_led_column_cte_follows() {
                 break;
             }
         }
         Ok(out)
     }
 
-    /// `self.peek()` is `(`. Probe whether the matching `)` is followed
-    /// by an `AS identifier` pattern — the shape that marks the paren
-    /// group as the head of the next column-form CTE
-    /// (`(SELECT 1) AS x`, `(a + b) AS y`) rather than the leading
-    /// paren of the enclosing SELECT statement.
-    fn paren_group_followed_by_as_identifier(&self) -> bool {
+    /// `self.peek()` is `(`. Probe whether this paren group heads a
+    /// column-form CTE — i.e. a top-level `AS identifier` alias follows
+    /// the expression it begins — rather than being the leading paren of
+    /// the enclosing SELECT statement.
+    ///
+    /// The paren group can be the whole expression (`(a + b) AS y`,
+    /// `(SELECT 1) AS x`) or just its head, with an operator tail
+    /// before the alias (`(a - b) * 10 AS y`, `(SELECT n) + 1 AS y`).
+    /// Either way the distinguishing mark is a depth-0 `AS <ident>`:
+    /// the alias of a column-form CTE. We scan forward and return true
+    /// on the first depth-0 `AS <ident>`. A trailing-comma main query
+    /// (`WITH a AS 1, (SELECT 2)`) has no such alias, so we stop at
+    /// EOF, a depth-0 comma, or a `)` that closes past the leading
+    /// paren (the enclosing query's own paren).
+    fn paren_led_column_cte_follows(&self) -> bool {
         let mut probe = Lexer::with_pos(self.src, self.peek0.end);
+        // Depth starts at 1: the leading `(` has been consumed by the
+        // caller's `peek`. `AS`/`,` inside the paren group (tuple
+        // commas, `CAST(x AS t)`, nested subqueries) sit at depth >= 1
+        // and are skipped; only a depth-0 `AS` is the CTE alias.
         let mut depth: i32 = 1;
-        while depth > 0 {
-            let tok = match probe.next_token() {
-                Ok(t) => t,
-                Err(_) => return false,
+        loop {
+            let Ok(tok) = probe.next_token() else {
+                return false;
             };
             match tok.kind {
                 TokenKind::LParen | TokenKind::LBracket | TokenKind::LBrace => depth += 1,
-                TokenKind::RParen | TokenKind::RBracket | TokenKind::RBrace => depth -= 1,
+                TokenKind::RParen | TokenKind::RBracket | TokenKind::RBrace => {
+                    depth -= 1;
+                    // Closed past the leading paren group's container —
+                    // the enclosing query's `)`. Not a CTE head.
+                    if depth < 0 {
+                        return false;
+                    }
+                }
                 TokenKind::Eof => return false,
+                // A depth-0 comma ends this list element without an
+                // alias: it is not a column-form CTE.
+                TokenKind::Comma if depth == 0 => return false,
+                TokenKind::Keyword(Kw::As) if depth == 0 => {
+                    let Ok(ident) = probe.next_token() else {
+                        return false;
+                    };
+                    return matches!(
+                        ident.kind,
+                        TokenKind::Ident | TokenKind::QuotedIdent | TokenKind::Keyword(_)
+                    );
+                }
                 _ => {}
             }
         }
-        let after = match probe.next_token() {
-            Ok(t) => t,
-            Err(_) => return false,
-        };
-        if after.kind != TokenKind::Keyword(Kw::As) {
-            return false;
-        }
-        let ident = match probe.next_token() {
-            Ok(t) => t,
-            Err(_) => return false,
-        };
-        matches!(
-            ident.kind,
-            TokenKind::Ident | TokenKind::QuotedIdent | TokenKind::Keyword(_)
-        )
     }
 
     fn parse_with_expr(&mut self) -> Result<E::Value, ParseError> {

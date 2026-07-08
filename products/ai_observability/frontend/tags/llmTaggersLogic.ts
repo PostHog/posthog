@@ -1,4 +1,4 @@
-import { actions, afterMount, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
+import { actions, afterMount, connect, kea, listeners, path, props, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 
 import api from 'lib/api'
@@ -9,13 +9,12 @@ import { HogQLQuery, NodeKind, TrendsQuery } from '~/queries/schema/schema-gener
 import { ChartDisplayType } from '~/types'
 
 import { aiObservabilitySharedLogic } from '../aiObservabilitySharedLogic'
+import { llmProviderKeysLogic } from '../settings/llmProviderKeysLogic'
 import type { llmTaggersLogicType } from './llmTaggersLogicType'
 import { defaultTaggerTemplates } from './templates'
 import { getIntervalFromDateRange, Tagger } from './types'
 
-export interface LLMTaggersLogicProps {
-    tabId?: string
-}
+export type LLMTaggersLogicProps = Record<string, never>
 
 export interface TaggerRunStats {
     tagger_id: string
@@ -34,10 +33,16 @@ type RawTagCountRow = [tagger_id: string, tag_name: string, count: number]
 export const llmTaggersLogic = kea<llmTaggersLogicType>([
     path(['products', 'ai_observability', 'taggers', 'llmTaggersLogic']),
     props({} as LLMTaggersLogicProps),
-    key((props) => props.tabId ?? 'default'),
     connect(() => ({
         values: [featureFlagLogic, ['featureFlags'], aiObservabilitySharedLogic, ['dateFilter']],
-        actions: [teamLogic, ['addProductIntent'], aiObservabilitySharedLogic, ['setDates']],
+        actions: [
+            teamLogic,
+            ['addProductIntent'],
+            aiObservabilitySharedLogic,
+            ['setDates'],
+            llmProviderKeysLogic,
+            ['loadProviderKeys'],
+        ],
     })),
 
     actions({
@@ -298,5 +303,6 @@ export const llmTaggersLogic = kea<llmTaggersLogicType>([
             actions.setDates('-24h', null)
         }
         actions.loadTaggers()
+        actions.loadProviderKeys()
     }),
 ])

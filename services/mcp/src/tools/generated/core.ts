@@ -3,33 +3,211 @@ import { z } from 'zod'
 
 import type { Schemas } from '@/api/generated'
 import {
+    DesktopFileSystemCanvasPartialUpdateBody,
+    DesktopFileSystemCanvasPartialUpdateParams,
+    DesktopFileSystemCreateBody,
+    DesktopFileSystemInstructionsPartialUpdateBody,
+    DesktopFileSystemInstructionsPartialUpdateParams,
+    DesktopFileSystemInstructionsRetrieveParams,
+    DesktopFileSystemListQueryParams,
+    DesktopFileSystemRetrieveParams,
     OrganizationsProjectsPartialUpdateBody,
     OrganizationsProjectsPartialUpdateParams,
     OrganizationsProjectsRetrieveParams,
-    SubscriptionsCreateBody,
-    SubscriptionsDeliveriesListParams,
-    SubscriptionsDeliveriesListQueryParams,
-    SubscriptionsDeliveriesRetrieveParams,
-    SubscriptionsListQueryParams,
-    SubscriptionsPartialUpdateBody,
-    SubscriptionsPartialUpdateParams,
-    SubscriptionsRetrieveParams,
-    SubscriptionsTestDeliveryCreateParams,
     UsersPartialUpdateBody,
     UsersPartialUpdateParams,
     UsersRetrieveParams,
 } from '@/generated/core/api'
 import { castStringToInt } from '@/tools/cast-helpers'
-import { withPostHogUrl, omitResponseFields, type WithPostHogUrl } from '@/tools/tool-utils'
+import { omitResponseFields, pickResponseFields } from '@/tools/tool-utils'
 import type { Context, ToolBase, ZodObjectAny } from '@/tools/types'
 
-const ProjectGetSchema = OrganizationsProjectsRetrieveParams.omit({ organization_id: true }).extend({
-    id: z.preprocess(
-        castStringToInt,
-        OrganizationsProjectsRetrieveParams.shape['id'].describe(
-            "Project ID, or `@current` to fetch the caller's active project."
-        )
+const DesktopFileSystemCanvasPartialUpdateSchema = DesktopFileSystemCanvasPartialUpdateParams.omit({ project_id: true })
+    .extend(DesktopFileSystemCanvasPartialUpdateBody.shape)
+    .extend({
+        id: DesktopFileSystemCanvasPartialUpdateParams.shape['id'].describe(
+            'ID of the canvas (desktop "dashboard" item) whose code to publish.'
+        ),
+        code: DesktopFileSystemCanvasPartialUpdateBody.shape['code']
+            .unwrap()
+            .describe('The complete single-file React source for the canvas. Replaces the current code wholesale.'),
+        name: DesktopFileSystemCanvasPartialUpdateBody.shape['name'].describe(
+            'Optional new display name for the canvas. When set, renames the canvas (the leaf of its path) in place. Omit to leave the name unchanged.'
+        ),
+    })
+
+const desktopFileSystemCanvasPartialUpdate = (): ToolBase<
+    typeof DesktopFileSystemCanvasPartialUpdateSchema,
+    Schemas.FileSystem
+> => ({
+    name: 'desktop-file-system-canvas-partial-update',
+    schema: DesktopFileSystemCanvasPartialUpdateSchema,
+    handler: async (context: Context, params: z.infer<typeof DesktopFileSystemCanvasPartialUpdateSchema>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const body: Record<string, unknown> = {}
+        if (params.code !== undefined) {
+            body['code'] = params.code
+        }
+        if (params.prompt !== undefined) {
+            body['prompt'] = params.prompt
+        }
+        if (params.name !== undefined) {
+            body['name'] = params.name
+        }
+        const result = await context.api.request<Schemas.FileSystem>({
+            method: 'PATCH',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/desktop_file_system/${encodeURIComponent(String(params.id))}/canvas/`,
+            body,
+        })
+        return result
+    },
+})
+
+const DesktopFileSystemCreateSchema = DesktopFileSystemCreateBody.extend({
+    path: DesktopFileSystemCreateBody.shape['path'].describe(
+        'Slash-delimited location of the channel, e.g. "Marketing/Q1 Campaigns". Intermediate folders are created automatically.'
     ),
+    type: DesktopFileSystemCreateBody.shape['type'].describe('Use "folder" to create a channel.'),
+})
+
+const desktopFileSystemCreate = (): ToolBase<typeof DesktopFileSystemCreateSchema, Schemas.FileSystem> => ({
+    name: 'desktop-file-system-create',
+    schema: DesktopFileSystemCreateSchema,
+    handler: async (context: Context, params: z.infer<typeof DesktopFileSystemCreateSchema>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const body: Record<string, unknown> = {}
+        if (params.path !== undefined) {
+            body['path'] = params.path
+        }
+        if (params.type !== undefined) {
+            body['type'] = params.type
+        }
+        if (params.ref !== undefined) {
+            body['ref'] = params.ref
+        }
+        if (params.href !== undefined) {
+            body['href'] = params.href
+        }
+        if (params.meta !== undefined) {
+            body['meta'] = params.meta
+        }
+        if (params.shortcut !== undefined) {
+            body['shortcut'] = params.shortcut
+        }
+        const result = await context.api.request<Schemas.FileSystem>({
+            method: 'POST',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/desktop_file_system/`,
+            body,
+        })
+        return result
+    },
+})
+
+const DesktopFileSystemInstructionsPartialUpdateSchema = DesktopFileSystemInstructionsPartialUpdateParams.omit({
+    project_id: true,
+})
+    .extend(DesktopFileSystemInstructionsPartialUpdateBody.shape)
+    .extend({
+        id: DesktopFileSystemInstructionsPartialUpdateParams.shape['id'].describe(
+            'ID of the channel (desktop folder) whose instructions to update.'
+        ),
+        content: DesktopFileSystemInstructionsPartialUpdateBody.shape['content'].describe(
+            "Full markdown instructions to publish. Pass an empty string to erase the channel's instructions while keeping the instruction set."
+        ),
+    })
+
+const desktopFileSystemInstructionsPartialUpdate = (): ToolBase<
+    typeof DesktopFileSystemInstructionsPartialUpdateSchema,
+    Schemas.FolderInstructions
+> => ({
+    name: 'desktop-file-system-instructions-partial-update',
+    schema: DesktopFileSystemInstructionsPartialUpdateSchema,
+    handler: async (context: Context, params: z.infer<typeof DesktopFileSystemInstructionsPartialUpdateSchema>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const body: Record<string, unknown> = {}
+        if (params.content !== undefined) {
+            body['content'] = params.content
+        }
+        if (params.base_version !== undefined) {
+            body['base_version'] = params.base_version
+        }
+        const result = await context.api.request<Schemas.FolderInstructions>({
+            method: 'PATCH',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/desktop_file_system/${encodeURIComponent(String(params.id))}/instructions/`,
+            body,
+        })
+        return result
+    },
+})
+
+const DesktopFileSystemInstructionsRetrieveSchema = DesktopFileSystemInstructionsRetrieveParams.omit({
+    project_id: true,
+}).extend({
+    id: DesktopFileSystemInstructionsRetrieveParams.shape['id'].describe(
+        'ID of the channel (desktop folder) whose instructions to fetch.'
+    ),
+})
+
+const desktopFileSystemInstructionsRetrieve = (): ToolBase<
+    typeof DesktopFileSystemInstructionsRetrieveSchema,
+    Schemas.FolderInstructions
+> => ({
+    name: 'desktop-file-system-instructions-retrieve',
+    schema: DesktopFileSystemInstructionsRetrieveSchema,
+    handler: async (context: Context, params: z.infer<typeof DesktopFileSystemInstructionsRetrieveSchema>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const result = await context.api.request<Schemas.FolderInstructions>({
+            method: 'GET',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/desktop_file_system/${encodeURIComponent(String(params.id))}/instructions/`,
+        })
+        return result
+    },
+})
+
+const DesktopFileSystemListSchema = DesktopFileSystemListQueryParams
+
+const desktopFileSystemList = (): ToolBase<typeof DesktopFileSystemListSchema, Schemas.PaginatedFileSystemList> => ({
+    name: 'desktop-file-system-list',
+    schema: DesktopFileSystemListSchema,
+    handler: async (context: Context, params: z.infer<typeof DesktopFileSystemListSchema>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const result = await context.api.request<Schemas.PaginatedFileSystemList>({
+            method: 'GET',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/desktop_file_system/`,
+            query: {
+                limit: params.limit,
+                offset: params.offset,
+                search: params.search,
+            },
+        })
+        return result
+    },
+})
+
+const DesktopFileSystemRetrieveSchema = DesktopFileSystemRetrieveParams.omit({ project_id: true })
+
+const desktopFileSystemRetrieve = (): ToolBase<typeof DesktopFileSystemRetrieveSchema, Schemas.FileSystem> => ({
+    name: 'desktop-file-system-retrieve',
+    schema: DesktopFileSystemRetrieveSchema,
+    handler: async (context: Context, params: z.infer<typeof DesktopFileSystemRetrieveSchema>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const result = await context.api.request<Schemas.FileSystem>({
+            method: 'GET',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/desktop_file_system/${encodeURIComponent(String(params.id))}/`,
+        })
+        return result
+    },
+})
+
+const ProjectGetSchema = OrganizationsProjectsRetrieveParams.omit({ organization_id: true }).extend({
+    id: z
+        .preprocess(
+            castStringToInt,
+            OrganizationsProjectsRetrieveParams.shape['id']
+                .describe("Project ID. If omitted, returns the caller's active project.")
+                .optional()
+        )
+        .optional(),
 })
 
 const projectGet = (): ToolBase<typeof ProjectGetSchema, Schemas.ProjectBackwardCompat> => ({
@@ -37,9 +215,13 @@ const projectGet = (): ToolBase<typeof ProjectGetSchema, Schemas.ProjectBackward
     schema: ProjectGetSchema,
     handler: async (context: Context, params: z.infer<typeof ProjectGetSchema>) => {
         const orgId = await context.stateManager.getOrgID()
+        const id = params.id ?? (await context.stateManager.getProjectId())
+        if (!id) {
+            throw new Error('id is required. Provide it explicitly or set an active project first.')
+        }
         const result = await context.api.request<Schemas.ProjectBackwardCompat>({
             method: 'GET',
-            path: `/api/organizations/${encodeURIComponent(String(orgId))}/projects/${encodeURIComponent(String(params.id))}/`,
+            path: `/api/organizations/${encodeURIComponent(String(orgId))}/projects/${encodeURIComponent(String(id))}/`,
         })
         const filtered = omitResponseFields(result, [
             'secret_api_token',
@@ -226,268 +408,55 @@ const projectSettingsUpdate = (): ToolBase<typeof ProjectSettingsUpdateSchema, S
         if (params.proactive_tasks_enabled !== undefined) {
             body['proactive_tasks_enabled'] = params.proactive_tasks_enabled
         }
+        if (params.revenue_analytics_config !== undefined) {
+            body['revenue_analytics_config'] = params.revenue_analytics_config
+        }
+        if (params.marketing_analytics_config !== undefined) {
+            body['marketing_analytics_config'] = params.marketing_analytics_config
+        }
+        if (params.customer_analytics_config !== undefined) {
+            body['customer_analytics_config'] = params.customer_analytics_config
+        }
+        if (params.workflows_config !== undefined) {
+            body['workflows_config'] = params.workflows_config
+        }
+        if (params.base_currency !== undefined) {
+            body['base_currency'] = params.base_currency
+        }
+        if (params.capture_dead_clicks !== undefined) {
+            body['capture_dead_clicks'] = params.capture_dead_clicks
+        }
+        if (params.cookieless_server_hash_mode !== undefined) {
+            body['cookieless_server_hash_mode'] = params.cookieless_server_hash_mode
+        }
+        if (params.human_friendly_comparison_periods !== undefined) {
+            body['human_friendly_comparison_periods'] = params.human_friendly_comparison_periods
+        }
+        if (params.feature_flag_confirmation_enabled !== undefined) {
+            body['feature_flag_confirmation_enabled'] = params.feature_flag_confirmation_enabled
+        }
+        if (params.feature_flag_confirmation_message !== undefined) {
+            body['feature_flag_confirmation_message'] = params.feature_flag_confirmation_message
+        }
+        if (params.default_evaluation_contexts_enabled !== undefined) {
+            body['default_evaluation_contexts_enabled'] = params.default_evaluation_contexts_enabled
+        }
+        if (params.require_evaluation_contexts !== undefined) {
+            body['require_evaluation_contexts'] = params.require_evaluation_contexts
+        }
+        if (params.default_data_theme !== undefined) {
+            body['default_data_theme'] = params.default_data_theme
+        }
+        if (params.onboarding_tasks !== undefined) {
+            body['onboarding_tasks'] = params.onboarding_tasks
+        }
+        if (params.web_analytics_pre_aggregated_tables_enabled !== undefined) {
+            body['web_analytics_pre_aggregated_tables_enabled'] = params.web_analytics_pre_aggregated_tables_enabled
+        }
         const result = await context.api.request<Schemas.ProjectBackwardCompat>({
             method: 'PATCH',
             path: `/api/organizations/${encodeURIComponent(String(orgId))}/projects/${encodeURIComponent(String(params.id))}/`,
             body,
-        })
-        return result
-    },
-})
-
-const SubscriptionsCreateSchema = SubscriptionsCreateBody
-
-const subscriptionsCreate = (): ToolBase<typeof SubscriptionsCreateSchema, Schemas.Subscription> => ({
-    name: 'subscriptions-create',
-    schema: SubscriptionsCreateSchema,
-    handler: async (context: Context, params: z.infer<typeof SubscriptionsCreateSchema>) => {
-        const projectId = await context.stateManager.getProjectId()
-        const body: Record<string, unknown> = {}
-        if (params.dashboard !== undefined) {
-            body['dashboard'] = params.dashboard
-        }
-        if (params.insight !== undefined) {
-            body['insight'] = params.insight
-        }
-        if (params.dashboard_export_insights !== undefined) {
-            body['dashboard_export_insights'] = params.dashboard_export_insights
-        }
-        if (params.target_type !== undefined) {
-            body['target_type'] = params.target_type
-        }
-        if (params.target_value !== undefined) {
-            body['target_value'] = params.target_value
-        }
-        if (params.frequency !== undefined) {
-            body['frequency'] = params.frequency
-        }
-        if (params.interval !== undefined) {
-            body['interval'] = params.interval
-        }
-        if (params.byweekday !== undefined) {
-            body['byweekday'] = params.byweekday
-        }
-        if (params.bysetpos !== undefined) {
-            body['bysetpos'] = params.bysetpos
-        }
-        if (params.count !== undefined) {
-            body['count'] = params.count
-        }
-        if (params.start_date !== undefined) {
-            body['start_date'] = params.start_date
-        }
-        if (params.until_date !== undefined) {
-            body['until_date'] = params.until_date
-        }
-        if (params.deleted !== undefined) {
-            body['deleted'] = params.deleted
-        }
-        if (params.enabled !== undefined) {
-            body['enabled'] = params.enabled
-        }
-        if (params.title !== undefined) {
-            body['title'] = params.title
-        }
-        if (params.integration_id !== undefined) {
-            body['integration_id'] = params.integration_id
-        }
-        if (params.invite_message !== undefined) {
-            body['invite_message'] = params.invite_message
-        }
-        if (params.summary_enabled !== undefined) {
-            body['summary_enabled'] = params.summary_enabled
-        }
-        if (params.summary_prompt_guide !== undefined) {
-            body['summary_prompt_guide'] = params.summary_prompt_guide
-        }
-        const result = await context.api.request<Schemas.Subscription>({
-            method: 'POST',
-            path: `/api/projects/${encodeURIComponent(String(projectId))}/subscriptions/`,
-            body,
-        })
-        return result
-    },
-})
-
-const SubscriptionsDeliveriesListSchema = SubscriptionsDeliveriesListParams.omit({ project_id: true }).extend(
-    SubscriptionsDeliveriesListQueryParams.shape
-)
-
-const subscriptionsDeliveriesList = (): ToolBase<
-    typeof SubscriptionsDeliveriesListSchema,
-    WithPostHogUrl<Schemas.PaginatedSubscriptionDeliveryList>
-> => ({
-    name: 'subscriptions-deliveries-list',
-    schema: SubscriptionsDeliveriesListSchema,
-    handler: async (context: Context, params: z.infer<typeof SubscriptionsDeliveriesListSchema>) => {
-        const projectId = await context.stateManager.getProjectId()
-        const result = await context.api.request<Schemas.PaginatedSubscriptionDeliveryList>({
-            method: 'GET',
-            path: `/api/environments/${encodeURIComponent(String(projectId))}/subscriptions/${encodeURIComponent(String(params.subscription_id))}/deliveries/`,
-            query: {
-                cursor: params.cursor,
-                status: params.status,
-            },
-        })
-        const filtered = {
-            ...result,
-            results: (result.results ?? []).map((item: any) =>
-                omitResponseFields(item, ['content_snapshot', 'recipient_results', 'error'])
-            ),
-        } as typeof result
-        return await withPostHogUrl(context, filtered, '/')
-    },
-})
-
-const SubscriptionsDeliveriesRetrieveSchema = SubscriptionsDeliveriesRetrieveParams.omit({ project_id: true })
-
-const subscriptionsDeliveriesRetrieve = (): ToolBase<
-    typeof SubscriptionsDeliveriesRetrieveSchema,
-    Schemas.SubscriptionDelivery
-> => ({
-    name: 'subscriptions-deliveries-retrieve',
-    schema: SubscriptionsDeliveriesRetrieveSchema,
-    handler: async (context: Context, params: z.infer<typeof SubscriptionsDeliveriesRetrieveSchema>) => {
-        const projectId = await context.stateManager.getProjectId()
-        const result = await context.api.request<Schemas.SubscriptionDelivery>({
-            method: 'GET',
-            path: `/api/environments/${encodeURIComponent(String(projectId))}/subscriptions/${encodeURIComponent(String(params.subscription_id))}/deliveries/${encodeURIComponent(String(params.id))}/`,
-        })
-        const filtered = omitResponseFields(result, ['content_snapshot', 'recipient_results', 'error']) as typeof result
-        return filtered
-    },
-})
-
-const SubscriptionsListSchema = SubscriptionsListQueryParams
-
-const subscriptionsList = (): ToolBase<
-    typeof SubscriptionsListSchema,
-    WithPostHogUrl<Schemas.PaginatedSubscriptionList>
-> => ({
-    name: 'subscriptions-list',
-    schema: SubscriptionsListSchema,
-    handler: async (context: Context, params: z.infer<typeof SubscriptionsListSchema>) => {
-        const projectId = await context.stateManager.getProjectId()
-        const result = await context.api.request<Schemas.PaginatedSubscriptionList>({
-            method: 'GET',
-            path: `/api/projects/${encodeURIComponent(String(projectId))}/subscriptions/`,
-            query: {
-                created_by: params.created_by,
-                dashboard: params.dashboard,
-                insight: params.insight,
-                limit: params.limit,
-                offset: params.offset,
-                ordering: params.ordering,
-                resource_type: params.resource_type,
-                search: params.search,
-                target_type: params.target_type,
-            },
-        })
-        return await withPostHogUrl(context, result, '/')
-    },
-})
-
-const SubscriptionsPartialUpdateSchema = SubscriptionsPartialUpdateParams.omit({ project_id: true }).extend(
-    SubscriptionsPartialUpdateBody.shape
-)
-
-const subscriptionsPartialUpdate = (): ToolBase<typeof SubscriptionsPartialUpdateSchema, Schemas.Subscription> => ({
-    name: 'subscriptions-partial-update',
-    schema: SubscriptionsPartialUpdateSchema,
-    handler: async (context: Context, params: z.infer<typeof SubscriptionsPartialUpdateSchema>) => {
-        const projectId = await context.stateManager.getProjectId()
-        const body: Record<string, unknown> = {}
-        if (params.dashboard !== undefined) {
-            body['dashboard'] = params.dashboard
-        }
-        if (params.insight !== undefined) {
-            body['insight'] = params.insight
-        }
-        if (params.dashboard_export_insights !== undefined) {
-            body['dashboard_export_insights'] = params.dashboard_export_insights
-        }
-        if (params.target_type !== undefined) {
-            body['target_type'] = params.target_type
-        }
-        if (params.target_value !== undefined) {
-            body['target_value'] = params.target_value
-        }
-        if (params.frequency !== undefined) {
-            body['frequency'] = params.frequency
-        }
-        if (params.interval !== undefined) {
-            body['interval'] = params.interval
-        }
-        if (params.byweekday !== undefined) {
-            body['byweekday'] = params.byweekday
-        }
-        if (params.bysetpos !== undefined) {
-            body['bysetpos'] = params.bysetpos
-        }
-        if (params.count !== undefined) {
-            body['count'] = params.count
-        }
-        if (params.start_date !== undefined) {
-            body['start_date'] = params.start_date
-        }
-        if (params.until_date !== undefined) {
-            body['until_date'] = params.until_date
-        }
-        if (params.deleted !== undefined) {
-            body['deleted'] = params.deleted
-        }
-        if (params.enabled !== undefined) {
-            body['enabled'] = params.enabled
-        }
-        if (params.title !== undefined) {
-            body['title'] = params.title
-        }
-        if (params.integration_id !== undefined) {
-            body['integration_id'] = params.integration_id
-        }
-        if (params.invite_message !== undefined) {
-            body['invite_message'] = params.invite_message
-        }
-        if (params.summary_enabled !== undefined) {
-            body['summary_enabled'] = params.summary_enabled
-        }
-        if (params.summary_prompt_guide !== undefined) {
-            body['summary_prompt_guide'] = params.summary_prompt_guide
-        }
-        const result = await context.api.request<Schemas.Subscription>({
-            method: 'PATCH',
-            path: `/api/projects/${encodeURIComponent(String(projectId))}/subscriptions/${encodeURIComponent(String(params.id))}/`,
-            body,
-        })
-        return result
-    },
-})
-
-const SubscriptionsRetrieveSchema = SubscriptionsRetrieveParams.omit({ project_id: true })
-
-const subscriptionsRetrieve = (): ToolBase<typeof SubscriptionsRetrieveSchema, Schemas.Subscription> => ({
-    name: 'subscriptions-retrieve',
-    schema: SubscriptionsRetrieveSchema,
-    handler: async (context: Context, params: z.infer<typeof SubscriptionsRetrieveSchema>) => {
-        const projectId = await context.stateManager.getProjectId()
-        const result = await context.api.request<Schemas.Subscription>({
-            method: 'GET',
-            path: `/api/projects/${encodeURIComponent(String(projectId))}/subscriptions/${encodeURIComponent(String(params.id))}/`,
-        })
-        return result
-    },
-})
-
-const SubscriptionsTestDeliveryCreateSchema = SubscriptionsTestDeliveryCreateParams.omit({ project_id: true })
-
-const subscriptionsTestDeliveryCreate = (): ToolBase<typeof SubscriptionsTestDeliveryCreateSchema, unknown> => ({
-    name: 'subscriptions-test-delivery-create',
-    schema: SubscriptionsTestDeliveryCreateSchema,
-    handler: async (context: Context, params: z.infer<typeof SubscriptionsTestDeliveryCreateSchema>) => {
-        const projectId = await context.stateManager.getProjectId()
-        const result = await context.api.request<unknown>({
-            method: 'POST',
-            path: `/api/projects/${encodeURIComponent(String(projectId))}/subscriptions/${encodeURIComponent(String(params.id))}/test-delivery/`,
         })
         return result
     },
@@ -505,11 +474,41 @@ const userGet = (): ToolBase<typeof UserGetSchema, Schemas.User> => ({
             method: 'GET',
             path: `/api/users/${encodeURIComponent(String(params.uuid))}/`,
         })
-        const filtered = omitResponseFields(result, [
-            'is_impersonated',
-            'is_impersonated_until',
-            'is_impersonated_read_only',
-            'sensitive_session_expires_at',
+        const filtered = pickResponseFields(result, [
+            'id',
+            'uuid',
+            'distinct_id',
+            'email',
+            'pending_email',
+            'is_email_verified',
+            'first_name',
+            'last_name',
+            'date_joined',
+            'is_staff',
+            'has_password',
+            'is_2fa_enabled',
+            'has_social_auth',
+            'has_sso_enforcement',
+            'passkeys_enabled_for_2fa',
+            'allow_impersonation',
+            'notification_settings',
+            'anonymize_data',
+            'toolbar_mode',
+            'events_column_config',
+            'theme_mode',
+            'hedgehog_config',
+            'allow_sidebar_suggestions',
+            'shortcut_position',
+            'role_at_organization',
+            'hide_mcp_hints',
+            'scene_personalisation',
+            'pending_invites',
+            'organization.id',
+            'organization.name',
+            'team.id',
+            'team.name',
+            'organizations.*.id',
+            'organizations.*.name',
         ]) as typeof result
         return filtered
     },
@@ -594,15 +593,14 @@ const userSettingsUpdate = (): ToolBase<typeof UserSettingsUpdateSchema, Schemas
 })
 
 export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
+    'desktop-file-system-canvas-partial-update': desktopFileSystemCanvasPartialUpdate,
+    'desktop-file-system-create': desktopFileSystemCreate,
+    'desktop-file-system-instructions-partial-update': desktopFileSystemInstructionsPartialUpdate,
+    'desktop-file-system-instructions-retrieve': desktopFileSystemInstructionsRetrieve,
+    'desktop-file-system-list': desktopFileSystemList,
+    'desktop-file-system-retrieve': desktopFileSystemRetrieve,
     'project-get': projectGet,
     'project-settings-update': projectSettingsUpdate,
-    'subscriptions-create': subscriptionsCreate,
-    'subscriptions-deliveries-list': subscriptionsDeliveriesList,
-    'subscriptions-deliveries-retrieve': subscriptionsDeliveriesRetrieve,
-    'subscriptions-list': subscriptionsList,
-    'subscriptions-partial-update': subscriptionsPartialUpdate,
-    'subscriptions-retrieve': subscriptionsRetrieve,
-    'subscriptions-test-delivery-create': subscriptionsTestDeliveryCreate,
     'user-get': userGet,
     'user-settings-update': userSettingsUpdate,
 }

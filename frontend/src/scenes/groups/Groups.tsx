@@ -7,7 +7,7 @@ import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { groupsAccessLogic } from 'lib/introductions/groupsAccessLogic'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { Link } from 'lib/lemon-ui/Link'
-import { capitalizeFirstLetter } from 'lib/utils'
+import { capitalizeFirstLetter } from 'lib/utils/strings'
 import { GroupsIntroduction } from 'scenes/groups/GroupsIntroduction'
 import { PersonsManagementSceneTabs } from 'scenes/persons-management/PersonsManagementSceneTabs'
 import { SceneExport } from 'scenes/sceneTypes'
@@ -32,10 +32,7 @@ export const scene: SceneExport = {
     productKey: ProductKey.GROUP_ANALYTICS,
 }
 
-export function GroupsScene({ tabId }: { tabId?: string } = {}): JSX.Element {
-    if (!tabId) {
-        throw new Error('GroupsScene rendered with no tabId')
-    }
+export function GroupsScene(): JSX.Element {
     const { groupTypeIndex, groupTypeName, groupTypeNamePlural } = useValues(groupsSceneLogic)
 
     const mountedGroupsListLogic = groupsListLogic({ groupTypeIndex })
@@ -102,8 +99,8 @@ export function GroupsScene({ tabId }: { tabId?: string } = {}): JSX.Element {
             />
 
             <Query
-                uniqueKey={`groups-query-${tabId}`}
-                attachTo={groupsSceneLogic({ tabId })}
+                uniqueKey="groups-query"
+                attachTo={groupsSceneLogic()}
                 query={{ ...query, showCount: true, showTableViews: true }}
                 setQuery={setQuery}
                 context={{

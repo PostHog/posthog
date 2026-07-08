@@ -6,7 +6,7 @@ import { LemonButton, LemonInput, LemonLabel, LemonModal, LemonSelect, LemonText
 
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { LemonTable } from 'lib/lemon-ui/LemonTable'
-import { uuid } from 'lib/utils'
+import { uuid } from 'lib/utils/dom'
 import { ActionFilter as ActionFilterComponent } from 'scenes/insights/filters/ActionFilter/ActionFilter'
 import { MathAvailability } from 'scenes/insights/filters/ActionFilter/ActionFilterRow/ActionFilterRow'
 

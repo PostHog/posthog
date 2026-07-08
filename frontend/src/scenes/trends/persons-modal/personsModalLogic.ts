@@ -1,12 +1,12 @@
 import { actions, afterMount, connect, kea, listeners, path, props, propsChanged, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
-import { router, urlToAction } from 'kea-router'
+import { combineUrl, router, urlToAction } from 'kea-router'
 
 import { lemonToast } from '@posthog/lemon-ui'
 
 import api from 'lib/api'
-import { assignField, isGroupType, isSessionType } from 'lib/utils'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
+import { assignField, isGroupType, isSessionType } from 'lib/utils/guards'
 import { cleanFilters } from 'scenes/insights/utils/cleanFilters'
 import { sceneLogic } from 'scenes/sceneLogic'
 import { teamLogic } from 'scenes/teamLogic'
@@ -31,6 +31,7 @@ import {
 } from '~/queries/schema/schema-general'
 import { setLatestVersionsOnQuery } from '~/queries/utils'
 import {
+    ActivityTab,
     ActorType,
     BreakdownType,
     ChartDisplayType,
@@ -157,9 +158,9 @@ export const personsModalLogic = kea<personsModalLogicType>([
             offset,
         }),
         loadNextActors: true,
-        updateQuery: (query: InsightActorsQuery) => ({ query }),
-        updateActorsQuery: (query: Partial<InsightActorsQuery>) => ({ query }),
-        loadActorsQueryOptions: (query: InsightActorsQuery) => ({ query }),
+        updateQuery: (query: InsightActorsQuery | FunnelsActorsQuery) => ({ query }),
+        updateActorsQuery: (query: Partial<InsightActorsQuery> | Partial<FunnelsActorsQuery>) => ({ query }),
+        loadActorsQueryOptions: (query: InsightActorsQuery | FunnelsActorsQuery) => ({ query }),
     }),
     connect(() => ({
         values: [groupsModel, ['groupTypes', 'aggregationLabel'], teamLogic, ['currentTeamId']],
@@ -299,7 +300,7 @@ export const personsModalLogic = kea<personsModalLogicType>([
 
     reducers(({ props }) => ({
         query: [
-            props.query as InsightActorsQuery | null,
+            props.query as InsightActorsQuery | FunnelsActorsQuery | null,
             {
                 updateQuery: (_, { query }) => query,
             },
@@ -393,7 +394,8 @@ export const personsModalLogic = kea<personsModalLogicType>([
         },
         updateActorsQuery: ({ query: q }) => {
             if (q && values.query) {
-                actions.updateQuery({ ...values.query, ...q })
+                // The partial always targets the current query's kind; the spread can't express that.
+                actions.updateQuery({ ...values.query, ...q } as InsightActorsQuery | FunnelsActorsQuery)
                 actions.loadActors({ offset: 0, clear: true })
             }
         },
@@ -529,7 +531,11 @@ export const personsModalLogic = kea<personsModalLogicType>([
                     full: true,
                 }
 
-                return urls.insightNew({ query })
+                // Route to the dedicated events explorer rather than /insights/new. The explorer reads the
+                // query synchronously from the `#q=` hash and renders the events table directly, whereas the
+                // insight scene round-trips this drill-down through an async query upgrade that can drop it and
+                // fall back to a default Trends insight.
+                return combineUrl(urls.activity(ActivityTab.ExploreEvents), {}, { q: query }).url
             },
         ],
         sessionIdsFromLoadedActors: [
@@ -565,6 +571,21 @@ export const personsModalLogic = kea<personsModalLogicType>([
                 // Scope recordings to the selected funnel breakdown value (e.g. country = "NL").
                 const funnelBreakdownFilter = buildFunnelBreakdownFilter(source)
 
+                // The actual insight query (with series, properties, etc.) is nested at source.source
+                let insightQuery = source
+                if ('source' in source && source.source) {
+                    insightQuery = source.source as any
+                }
+
+                let date_from = propertiesTimelineFilter?.date_from
+                let date_to = propertiesTimelineFilter?.date_to
+
+                if ('dateRange' in insightQuery && insightQuery.dateRange) {
+                    const dateRange = insightQuery.dateRange as any
+                    date_from = dateRange.date_from || date_from
+                    date_to = dateRange.date_to || date_to
+                }
+
                 // If we have session IDs from matched_recordings, use them directly for efficient lookup
                 if (sessionIds.length > 0) {
                     return {
@@ -579,35 +600,49 @@ export const personsModalLogic = kea<personsModalLogicType>([
                             ],
                         },
                         duration: [],
+                        date_from,
+                        date_to,
                     }
                 }
 
                 // For non-funnel queries or funnels without session IDs, use filter-based approach
                 const filters: UniversalFilterValue[] = []
 
-                // The actual insight query (with series, properties, etc.) is nested at source.source
-                let insightQuery = source
-                if ('source' in source && source.source) {
-                    insightQuery = source.source as any
-                }
-
                 // Extract events from the insight query series
                 if ('series' in insightQuery && Array.isArray(insightQuery.series)) {
-                    insightQuery.series.forEach((series) => {
+                    // drop-off actors (negative funnelStep) only completed the steps before the
+                    // drop-off, so only those can be required as event filters
+                    let seriesToFilterOn: any[] = insightQuery.series
+                    if (source.kind === NodeKind.FunnelsActorsQuery && typeof source.funnelStep === 'number') {
+                        const completedStepCount =
+                            source.funnelStep > 0 ? source.funnelStep : Math.abs(source.funnelStep) - 1
+                        seriesToFilterOn = insightQuery.series.slice(0, completedStepCount)
+                    }
+                    seriesToFilterOn.forEach((series) => {
+                        let entityFilter: any = null
                         if ('event' in series && series.event) {
-                            const eventFilter: any = {
+                            entityFilter = {
                                 id: series.event,
                                 name: series.event,
                                 type: 'events',
                             }
+                        } else if (series.kind === NodeKind.ActionsNode && series.id != null) {
+                            // action steps have an action id, not an event name
+                            entityFilter = {
+                                id: series.id,
+                                name: series.name,
+                                type: 'actions',
+                            }
+                        }
+                        if (entityFilter) {
                             if (
                                 'properties' in series &&
                                 Array.isArray(series.properties) &&
                                 series.properties.length > 0
                             ) {
-                                eventFilter.properties = series.properties
+                                entityFilter.properties = series.properties
                             }
-                            filters.push(eventFilter)
+                            filters.push(entityFilter)
                         }
                     })
                 }
@@ -635,16 +670,6 @@ export const personsModalLogic = kea<personsModalLogicType>([
                     insightQuery.properties.length > 0
                 ) {
                     filters.push(...insightQuery.properties)
-                }
-
-                // Extract date range from insight query
-                let date_from = propertiesTimelineFilter?.date_from
-                let date_to = propertiesTimelineFilter?.date_to
-
-                if ('dateRange' in insightQuery && insightQuery.dateRange) {
-                    const dateRange = insightQuery.dateRange as any
-                    date_from = dateRange.date_from || date_from
-                    date_to = dateRange.date_to || date_to
                 }
 
                 // Build the result for non-funnel or fallback cases

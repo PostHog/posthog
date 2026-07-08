@@ -10,8 +10,8 @@ import { iconForType } from '~/layout/panel-layout/ProjectTree/defaultTree'
 import { replayScannerLogic } from '../replayScannerLogic'
 
 /** PostHog AI entry point for summarizer scanners — lets the user chat about / digest the per-session summaries. */
-export function SummarizerMaxChat({ scannerId, tabId }: { scannerId: string; tabId: string }): JSX.Element | null {
-    const { scanner } = useValues(replayScannerLogic({ id: scannerId, tabId }))
+export function SummarizerMaxChat({ scannerId }: { scannerId: string }): JSX.Element | null {
+    const { scanner } = useValues(replayScannerLogic({ id: scannerId }))
     const isSummarizer = scanner?.scanner_type === 'summarizer'
 
     const { openMax } = useMaxTool({
@@ -36,7 +36,13 @@ export function SummarizerMaxChat({ scannerId, tabId }: { scannerId: string; tab
                     Ask PostHog AI to find themes and patterns across this scanner's session summaries.
                 </p>
             </div>
-            <LemonButton type="primary" icon={<IconAI />} onClick={() => openMax()} className="shrink-0">
+            <LemonButton
+                type="primary"
+                icon={<IconAI />}
+                onClick={() => openMax()}
+                className="shrink-0"
+                data-attr="vision-scanner-ask-ai"
+            >
                 Ask PostHog AI
             </LemonButton>
         </div>

@@ -1,8 +1,8 @@
 import { Browser, Page } from 'puppeteer'
 
-import { BrowserPool } from '../capture/browser-pool'
+import { BrowserPool } from '~/session-replay/recording-rasterizer/capture/browser-pool'
 
-jest.mock('../logger', () => {
+jest.mock('~/session-replay/recording-rasterizer/logger', () => {
     const info = jest.fn()
     return {
         __mockLogInfo: info,
@@ -73,6 +73,7 @@ describe('BrowserPool', () => {
         expect(pool.stats).toEqual({ usageCount: 1, activePages: 1 })
         const launchArgs = puppeteerCapture.launch.mock.calls[0][0].args as string[]
         expect(launchArgs.some((a) => a.startsWith('--proxy-server'))).toBe(false)
+        expect(launchArgs).toContain('--crash-dumps-dir=/tmp/chrome-crash-dumps')
     })
 
     it('launches separate browsers for concurrent pages', async () => {

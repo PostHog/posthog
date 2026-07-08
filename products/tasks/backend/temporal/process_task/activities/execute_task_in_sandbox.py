@@ -5,9 +5,9 @@ from temporalio import activity
 from posthog.temporal.common.logger import get_logger
 from posthog.temporal.common.utils import asyncify
 
+from products.tasks.backend.exceptions import SandboxExecutionError, TaskExecutionFailedError
+from products.tasks.backend.logic.services.sandbox import Sandbox
 from products.tasks.backend.models import TaskRun
-from products.tasks.backend.services.sandbox import Sandbox
-from products.tasks.backend.temporal.exceptions import SandboxExecutionError, TaskExecutionFailedError
 from products.tasks.backend.temporal.observability import emit_agent_log, log_activity_execution
 
 from .get_task_processing_context import TaskProcessingContext

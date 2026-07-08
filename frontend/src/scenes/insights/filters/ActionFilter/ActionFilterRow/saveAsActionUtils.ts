@@ -1,4 +1,4 @@
-import { truncate } from 'lib/utils'
+import { truncate } from 'lib/utils/strings'
 
 import {
     ActionStepStringMatching,

@@ -48,7 +48,10 @@ runs:
           run: cargo build -p affected-services --release --locked
 
         - name: Save binary to cache
-          if: steps.cache.outputs.cache-hit != 'true'
+          # Save only on master — a PR ref's cache is scoped to that PR alone and
+          # just evicts the shared one. PRs restore master's binary; PRs that touch
+          # affected-services rebuild without saving. Matches setup-sccache/sqlx-cli.
+          if: steps.cache.outputs.cache-hit != 'true' && github.ref == 'refs/heads/master'
           uses: actions/cache/save@9255dc7a253b0ccc959486e2bca901246202afeb # v5.0.1
           with:
               path: rust/target/release/affected-services
@@ -71,7 +74,26 @@ runs:
                   if [ "$EVENT_NAME" = "push" ]; then
                       base_ref="$PUSH_BEFORE_SHA"
                   else
-                      base_ref="$PR_BASE_SHA"
+                      # Try to resolve the base branch name from the input or
+                      # the GitHub event payload so we diff against the current
+                      # tip rather than the potentially stale PR base SHA.
+                      base_branch=""
+                      if [ -f "$GITHUB_EVENT_PATH" ]; then
+                          base_branch=$(jq -r '.pull_request.base.ref // empty' "$GITHUB_EVENT_PATH" 2>/dev/null || true)
+                      fi
+
+                      if [ -n "$base_branch" ]; then
+                          git fetch --no-tags origin "$base_branch"
+                          base_ref=$(git merge-base FETCH_HEAD HEAD || true)
+                          if [ -n "$base_ref" ]; then
+                              echo "Using merge-base of origin/$base_branch and HEAD: $base_ref"
+                          else
+                              echo "merge-base empty; falling back to PR base SHA"
+                              base_ref="$PR_BASE_SHA"
+                          fi
+                      else
+                          base_ref="$PR_BASE_SHA"
+                      fi
                   fi
 
                   if [ -z "$base_ref" ] || echo "$base_ref" | grep -qE '^0+$'; then

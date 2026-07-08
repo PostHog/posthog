@@ -1,4 +1,5 @@
 import sys
+import math
 import uuid
 import socket
 import typing
@@ -12,6 +13,7 @@ from django.conf import settings
 import aioboto3
 from aiobotocore.config import AioConfig
 from aiobotocore.httpsession import AIOHTTPSession as BaseAIOHTTPSession
+from opentelemetry import trace
 from temporalio import activity
 
 from posthog.clickhouse import query_tagging
@@ -42,6 +44,7 @@ from products.batch_exports.backend.service import (
     BatchExportField,
     BatchExportModel,
     BatchExportSchema,
+    afetch_last_run_records_completed,
 )
 from products.batch_exports.backend.temporal.batch_exports import default_fields
 from products.batch_exports.backend.temporal.metrics import log_query_duration
@@ -68,6 +71,7 @@ from products.batch_exports.backend.temporal.sql import (
 from products.batch_exports.backend.temporal.utils import set_status_to_running_task
 
 LOGGER = get_write_only_logger()
+TRACER = trace.get_tracer(__name__)
 
 
 class DataIntervalEndInFutureError(Exception):
@@ -186,6 +190,15 @@ class S3StagingFolder:
 
 
 @dataclass
+class InternalStageResult:
+    """Result of staging a batch export run's data in the internal S3 area."""
+
+    stage_folder: str
+    # Total rows written to the stage (from ClickHouse's query summary), or None if unknown.
+    records_total: int | None = None
+
+
+@dataclass
 class BatchExportInsertIntoInternalStageInputs:
     """Base dataclass for batch export insert inputs containing common fields."""
 
@@ -198,7 +211,6 @@ class BatchExportInsertIntoInternalStageInputs:
     run_id: str | None = None
     backfill_details: BackfillDetails | None = None
     batch_export_model: BatchExportModel | None = None
-    num_partitions: int | None = None
     is_workflows: bool = False
     # TODO: Remove after updating existing batch exports
     batch_export_schema: BatchExportSchema | None = None
@@ -215,7 +227,6 @@ class BatchExportInsertIntoInternalStageInputs:
             "exclude_events": self.exclude_events,
             "include_events": self.include_events,
             "run_id": self.run_id,
-            "num_partitions": self.num_partitions,
             "backfill_details": self.backfill_details,
             "batch_export_model": self.batch_export_model,
             "batch_export_schema": self.batch_export_schema,
@@ -224,11 +235,13 @@ class BatchExportInsertIntoInternalStageInputs:
 
 
 @activity.defn
-async def insert_into_internal_stage_activity(inputs: BatchExportInsertIntoInternalStageInputs) -> str:
+async def insert_into_internal_stage_activity(
+    inputs: BatchExportInsertIntoInternalStageInputs,
+) -> InternalStageResult:
     """Write record batches to our own internal S3 staging area.
 
     Returns:
-        The S3 staging folder where the data was written to.
+        The S3 staging folder where the data was written to, and the total number of rows staged.
     """
     bind_contextvars(
         team_id=inputs.team_id,
@@ -260,6 +273,13 @@ async def insert_into_internal_stage_activity(inputs: BatchExportInsertIntoInter
             attempt_number=attempt_number,
         )
 
+        num_partitions = await compute_num_partitions(
+            batch_export_id=inputs.batch_export_id,
+            data_interval_start=data_interval_start,
+            data_interval_end=data_interval_end,
+        )
+        logger.info("Computed staging partitions", num_partitions=num_partitions)
+
         if record_batch_model is not None:
             query_or_model = record_batch_model
             query_parameters = {}
@@ -279,12 +299,12 @@ async def insert_into_internal_stage_activity(inputs: BatchExportInsertIntoInter
                 exclude_events=inputs.exclude_events,
                 include_events=inputs.include_events,
                 extra_query_parameters=extra_query_parameters,
-                num_partitions=inputs.num_partitions,
+                num_partitions=num_partitions,
                 is_workflows=inputs.is_workflows,
             )
             query_or_model = query
 
-        await _write_batch_export_record_batches_to_internal_stage(
+        records_total = await _write_batch_export_record_batches_to_internal_stage(
             query_or_model=query_or_model,
             full_range=full_range,
             query_parameters=query_parameters,
@@ -293,10 +313,63 @@ async def insert_into_internal_stage_activity(inputs: BatchExportInsertIntoInter
             data_interval_start=inputs.data_interval_start,
             data_interval_end=inputs.data_interval_end,
             s3_staging_folder_url=s3_staging_folder.url,
-            num_partitions=inputs.num_partitions,
+            num_partitions=num_partitions,
         )
-    logger.info("Staging data completed successfully")
-    return s3_staging_folder.folder
+    logger.info("Staging data completed successfully", records_total=records_total)
+    return InternalStageResult(stage_folder=s3_staging_folder.folder, records_total=records_total)
+
+
+async def compute_num_partitions(
+    batch_export_id: str, data_interval_start: dt.datetime | None, data_interval_end: dt.datetime
+) -> int:
+    """Choose how many staging files (partitions) to write for this run.
+
+    We estimate the export size from the most recent completed run at or before the interval being
+    processed, then pick a partition count targeting a roughly-constant number of rows per staging
+    Arrow file, clamped to [MIN, MAX].
+
+    Sizing relative to the current interval keeps backfills of old intervals from being sized off
+    today's (potentially much larger) live runs. We size off the most recent run only if its interval
+    length matches this one's, so a change in export frequency doesn't size off a differently-sized
+    interval (we fall back and let the next run, which has a same-frequency predecessor, re-adjust).
+
+    We fall back to the static default when there is no usable estimate (first run, frequency
+    change, or a run with no recorded count), if the fetch fails, or if dynamic partitioning is
+    disabled entirely via BATCH_EXPORT_DYNAMIC_PARTITIONING_ENABLED.
+    """
+    logger = LOGGER.bind()
+    static_default = settings.BATCH_EXPORT_CLICKHOUSE_S3_PARTITIONS
+
+    if not settings.BATCH_EXPORT_DYNAMIC_PARTITIONING_ENABLED:
+        return static_default
+
+    # Without the current interval's bounds we can't match the previous run's frequency, so don't risk
+    # sizing off a differently-sized interval (e.g. an unbounded backfill) -> fall back to the default.
+    if data_interval_start is None:
+        return static_default
+    interval_duration = data_interval_end - data_interval_start
+
+    estimate_rows: int | None = None
+    try:
+        estimate_rows = await afetch_last_run_records_completed(
+            uuid.UUID(batch_export_id),
+            before_or_at_interval_end=data_interval_end,
+            # ignore stale runs from a long-paused export
+            not_older_than=data_interval_end - dt.timedelta(days=365),
+            matching_interval_duration=interval_duration,
+        )
+    except Exception:
+        logger.warning("Failed to fetch last run records completed; falling back to static default", exc_info=True)
+    if not estimate_rows or estimate_rows <= 0:
+        return static_default
+
+    min_partitions = settings.BATCH_EXPORT_CLICKHOUSE_S3_MIN_PARTITIONS
+    # guard against misconfiguration where max is set below min
+    max_partitions = max(settings.BATCH_EXPORT_CLICKHOUSE_S3_MAX_PARTITIONS, min_partitions)
+    # guard against misconfiguration where the target is set to 0
+    target_rows = max(settings.BATCH_EXPORT_CLICKHOUSE_S3_TARGET_ROWS_PER_PARTITION, 1)
+    n = math.ceil(estimate_rows / target_rows)
+    return max(min_partitions, min(n, max_partitions))
 
 
 async def _get_query(
@@ -482,8 +555,12 @@ async def _write_batch_export_record_batches_to_internal_stage(
     data_interval_end: str,
     s3_staging_folder_url: str,
     num_partitions: int | None = None,
-):
-    """Write record batches to our own internal S3 staging area."""
+) -> int | None:
+    """Write record batches to our own internal S3 staging area.
+
+    Returns the total number of rows written to the stage, or None if the count couldn't be
+    determined.
+    """
     logger = LOGGER.bind()
 
     clickhouse_url = None
@@ -504,13 +581,27 @@ async def _write_batch_export_record_batches_to_internal_stage(
         # Some tests create data in the future, so we do not check this.
         raise DataIntervalEndInFutureError(end_at)
 
-    await wait_for_delta_past_data_interval_end(end_at, delta)
+    with TRACER.start_as_current_span("batch_export.stage.wait_for_delta"):
+        await wait_for_delta_past_data_interval_end(end_at, delta)
 
     done_ranges: list[tuple[dt.datetime, dt.datetime]] = []
-    async with get_client(team_id=team_id, clickhouse_url=clickhouse_url) as client:
+    async with get_client(
+        team_id=team_id,
+        clickhouse_url=clickhouse_url,
+        # TODO: Strict limits are available in ClickHouse 26.4
+        # We should uncomment all of these here to let max_insert_block_size_bytes dictate the size
+        # once clickhouse is upgraded.
+        # use_strict_insert_block_limits=1,
+        # max_insert_block_size_rows=0,
+        # max_insert_block_size_bytes=settings.BATCH_EXPORTS_CLICKHOUSE_MAX_INSERT_BLOCK_SIZE_BYTES,
+        min_insert_block_size_bytes=settings.BATCH_EXPORTS_CLICKHOUSE_MAX_INSERT_BLOCK_SIZE_BYTES,
+        # Disable all of these so only the bytes limits counts.
+        min_insert_block_size_rows=0,
+    ) as client:
         if not await client.is_alive():
             raise ConnectionError("Cannot establish connection to ClickHouse")
 
+        total_written_rows: int | None = 0
         # TODO - in future we might want to catch any ClickHouse memory usage errors and break down the interval into
         # sub-intervals to reduce memory usage
         for interval_start, interval_end in generate_query_ranges(full_range, done_ranges):
@@ -541,9 +632,10 @@ async def _write_batch_export_record_batches_to_internal_stage(
             # however, since we only make use of the most recent attempt, we can save on storage space by deleting the
             # files here.
             try:
-                await _delete_all_from_bucket_with_prefix(
-                    bucket_name=settings.BATCH_EXPORT_INTERNAL_STAGING_BUCKET, key_prefix=base_s3_staging_folder
-                )
+                with TRACER.start_as_current_span("batch_export.stage.delete_existing_objects"):
+                    await _delete_all_from_bucket_with_prefix(
+                        bucket_name=settings.BATCH_EXPORT_INTERNAL_STAGING_BUCKET, key_prefix=base_s3_staging_folder
+                    )
             except Exception:
                 logger.exception(
                     "Unexpected error occurred while deleting existing objects from internal S3 staging bucket",
@@ -551,32 +643,64 @@ async def _write_batch_export_record_batches_to_internal_stage(
                 raise
 
             try:
-                await _execute_query(client, query, query_parameters)
+                with TRACER.start_as_current_span("batch_export.stage.clickhouse_query") as query_span:
+                    written_rows = await _execute_query(client, query, query_parameters)
+                    if written_rows is not None:
+                        query_span.set_attribute("batch_export.stage.written_rows", written_rows)
             except ClickHouseError:
                 logger.exception(
                     "ClickHouse error occurred while writing record batches to internal S3 staging bucket",
                 )
                 raise
 
+            # if any query fails to return written rows then set total to None so that we don't
+            # return a partial result
+            if written_rows is None:
+                total_written_rows = None
+            elif total_written_rows is not None:
+                total_written_rows += written_rows
 
-async def _execute_query(client: ClickHouseClient, query: str, query_parameters: dict[str, typing.Any]) -> None:
+    return total_written_rows
+
+
+def _written_rows_from_summary(summary: dict[str, typing.Any] | None) -> int | None:
+    """Extract `written_rows` from a ClickHouse query summary (its values are strings)."""
+    if not summary or "written_rows" not in summary:
+        return None
+    try:
+        return int(summary["written_rows"])
+    except (TypeError, ValueError):
+        return None
+
+
+async def _execute_query(client: ClickHouseClient, query: str, query_parameters: dict[str, typing.Any]) -> int | None:
     """Execute the batch exports query and wait for it to complete.
 
     If the query takes longer than 300 seconds, we time out and wait for the query to complete by checking the query log
     and process list.
     If the query fails, we will raise an error.
+
+    Returns the number of rows the query wrote to the stage, or None if it couldn't be
+    determined. On the happy path this comes from ClickHouse's response summary; on the
+    timeout path (where the summary is lost) we recover it from the query log.
     """
     query_id = str(uuid.uuid4())
     logger = LOGGER.bind(query_id=query_id)
     with log_query_duration(logger=logger, query_id=query_id, query_type="insert_into_internal_stage"):
         try:
-            await client.execute_query(query, query_parameters=query_parameters, query_id=query_id, timeout=300)
+            summary = await client.execute_query_with_summary(
+                query, query_parameters=query_parameters, query_id=query_id, timeout=300
+            )
         except ClickHouseClientTimeoutError:
             logger.warning(
                 "Timed-out waiting for insert into S3. Will attempt to check query status and wait for completion",
                 timeout=300,
             )
             await _wait_for_query_completion(client, query_id)
+            # The summary is gone with the timed-out response, but the query has finished, so
+            # recover the written-row count from its query log entry.
+            return await client.aget_written_rows_from_query_log(query_id)
+    return _written_rows_from_summary(summary)
 
 
 async def _wait_for_query_completion(client: ClickHouseClient, query_id: str) -> None:

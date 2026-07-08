@@ -13,7 +13,9 @@
         "kea-test-utils": "catalog:"
     },
     "peerDependencies": {
-        "@posthog/icons": "*",
+        "@posthog/brand": "catalog:",
+        "@posthog/icons": "catalog:",
+        "@testing-library/react": "*",
         "@types/react": "*",
         "clsx": "*",
         "fast-deep-equal": "*",

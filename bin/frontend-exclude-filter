@@ -1,0 +1,59 @@
+#!/usr/bin/env node
+/**
+ * Emit a paths-filter filter (YAML on stdout) that excludes the Node-only
+ * product workspaces from frontend / storybook CI gating.
+ *
+ * Why: the frontend and storybook gates match all product code with a broad
+ * `products/**\/*.ts(x)` rule (correctly — product frontend doesn't always live
+ * under `frontend/`; see products/games, products/data_warehouse,
+ * products/ai_observability/shared). That broad rule also matches product dirs
+ * that are their own Node services (e.g. products/agent_platform/services) — they
+ * have their own CI (ci-agents.yml), no stories, and nothing in the bundle, so a
+ * PR touching only them should skip frontend/storybook CI.
+ *
+ * Those Node dirs are exactly the product paths that declare nested pnpm
+ * workspaces in pnpm-workspace.yaml — `products/<...>/*` entries deeper than the
+ * bare `products/*` that covers the product packages themselves. Deriving the
+ * exclusion from there means a new product's services/ are excluded automatically
+ * once added to the workspace file — no product names hardcoded in the workflows.
+ *
+ * Output — an exclude-only filter that is true only when some changed file lives
+ * OUTSIDE every excluded dir. ci-storybook.yml feeds it to the vendored
+ * .github/actions/paths-filter (include-exclude matching); ci-frontend.yml still
+ * feeds it to dorny/paths-filter with `predicate-quantifier: every`. Both regimes
+ * are equivalent for an exclude-only filter; they would diverge if a positive
+ * include were ever added here:
+ *   outside_node_product_workspaces:
+ *     - '!products/agent_platform/packages/**'
+ *     - '!products/agent_platform/services/**'
+ */
+
+const fs = require('fs')
+const path = require('path')
+
+const REPO_ROOT = path.resolve(__dirname, '..')
+const raw = fs.readFileSync(path.join(REPO_ROOT, 'pnpm-workspace.yaml'), 'utf-8')
+
+// Match `- products/<dir>/*` workspace globs that are deeper than the bare
+// `products/*` (which covers the product packages, i.e. their frontend). The
+// captured dir is the Node workspace root to exclude.
+const dirs = new Set()
+for (const line of raw.split('\n')) {
+    const m = line.match(/^\s*-\s*['"]?(products\/[^'"\s]+)\/\*\s*['"]?\s*$/)
+    if (m) {
+        dirs.add(m[1])
+    }
+}
+
+const sorted = [...dirs].sort()
+let out = 'outside_node_product_workspaces:\n'
+if (sorted.length === 0) {
+    // No nested product workspaces — nothing to exclude; match everything so the
+    // filter is always true and never skips frontend CI.
+    out += "  - '**'\n"
+} else {
+    for (const dir of sorted) {
+        out += `  - '!${dir}/**'\n`
+    }
+}
+process.stdout.write(out)

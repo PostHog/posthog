@@ -8,8 +8,8 @@ import {
     RETENTION_MEAN_NONE,
     ShownAsValue,
 } from 'lib/constants'
-import { clamp } from 'lib/utils'
 import { getDefaultEventName } from 'lib/utils/getAppContext'
+import { clamp } from 'lib/utils/numbers'
 import { isURLNormalizeable } from 'scenes/insights/filters/BreakdownFilter/taxonomicBreakdownFilterUtils'
 import {
     isFunnelsFilter,

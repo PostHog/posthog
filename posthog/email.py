@@ -1,8 +1,6 @@
-# ruff: noqa: T201 allow print statements
-
-import sys
 import html
 import uuid
+import smtplib
 import datetime
 import dataclasses
 from decimal import Decimal
@@ -20,24 +18,32 @@ from django.utils import timezone
 from django.utils.module_loading import import_string
 
 import requests
+import structlog
 import css_inline
 import posthoganalytics
 from celery import shared_task
 from lxml import html as lxml_html
+from prometheus_client import Counter
 
+from posthog.celery_queues import CeleryQueue
 from posthog.exceptions_capture import capture_exception
 from posthog.helpers.email_utils import sanitize_email_string
 from posthog.models.instance_setting import get_instance_setting
 from posthog.models.messaging import MessagingRecord
-from posthog.tasks.utils import CeleryQueue
+
+logger = structlog.get_logger(__name__)
 
 
 def inline_css(value: str) -> str:
     """
     Returns an HTML document with inline CSS.
     Forked from getsentry/sentry
+
+    `keep_at_rules=True` preserves at-rules that can't be inlined onto elements — chiefly the
+    `@media` responsive block. Without it, css_inline drops every `<style>` block after
+    inlining and media queries never apply.
     """
-    inlined = css_inline.inline(value)
+    inlined = css_inline.inline(value, keep_at_rules=True)
     tree = lxml_html.document_fromstring(inlined)
     # CSS media query support is inconsistent when the DOCTYPE declaration is
     # missing, so we force it to HTML5 here.
@@ -89,6 +95,24 @@ EMAIL_TASK_KWARGS = {
     "retry_backoff": True,
 }
 
+# Failure rate as an alertable time series. Labelled only by outcome+transport to bound
+# cardinality (per-team volume lives in MessagingRecord); scraped via prometheus multiprocess.
+EMAIL_SEND_COUNTER = Counter(
+    "posthog_email_send_total",
+    "Email send attempts by outcome (sent|failed) and transport (smtp|http).",
+    labelnames=["outcome", "transport"],
+)
+
+# Retryable connection/network errors only. NOT bare OSError: every smtplib exception subclasses
+# it, so OSError would also retry auth/recipient failures and re-hammer the relay's per-IP limit.
+_TRANSIENT_SMTP_ERRORS = (
+    smtplib.SMTPServerDisconnected,
+    smtplib.SMTPConnectError,
+    smtplib.SMTPHeloError,
+    TimeoutError,  # socket timeouts
+    ConnectionError,  # reset / refused / aborted
+)
+
 CUSTOMER_IO_TEMPLATE_ID_MAP = {
     # Set up in customer.io
     "2fa_enabled": "31",
@@ -122,6 +146,8 @@ CUSTOMER_IO_TEMPLATE_ID_MAP = {
     "delegation_invite": "66",
     "provisioning_welcome": "67",
     "baa_signed_ai_disabled": "68",
+    "integration_access_requested": "70",
+    "posthog_ai_access_requested": "72",
 }
 
 
@@ -152,6 +178,8 @@ def _send_via_http(
         "Authorization": f"Bearer {customerio_api_key}",
     }
 
+    sent_count = 0
+    already_sent_count = 0  # delivered in a prior run — not a failure if the batch later aborts
     try:
         for dest in to:
             with transaction.atomic():
@@ -161,6 +189,7 @@ def _send_via_http(
 
                 record = MessagingRecord.objects.select_for_update().get(pk=record.pk)
                 if record.sent_at:
+                    already_sent_count += 1
                     continue
 
                 identifiers: dict[str, str] = {"email": dest["raw_email"]}
@@ -195,9 +224,14 @@ def _send_via_http(
                 record.sent_at = timezone.now()
                 record.save()
 
+                EMAIL_SEND_COUNTER.labels(outcome="sent", transport="http").inc()
+                sent_count += 1
+
     except Exception as err:
-        print("Could not send email via http:", err, file=sys.stderr)
-        capture_exception(err)
+        capture_exception(err)  # already logs the traceback via logger.exception
+        # Count every recipient that did not get through (the failing one + any not yet attempted),
+        # so `failed` shares the per-recipient unit with `sent` instead of registering once per batch.
+        EMAIL_SEND_COUNTER.labels(outcome="failed", transport="http").inc(len(to) - already_sent_count - sent_count)
 
 
 def _send_via_smtp(
@@ -210,63 +244,85 @@ def _send_via_smtp(
     reply_to: Optional[str] = None,
 ) -> None:
     """Sends emails using SMTP"""
-    messages: list = []
-    records: list = []
+    connection = None
+    try:
+        klass = import_string(settings.EMAIL_BACKEND) if settings.EMAIL_BACKEND else EmailBackend
+        connection = klass(
+            host=get_instance_setting("EMAIL_HOST"),
+            port=get_instance_setting("EMAIL_PORT"),
+            username=get_instance_setting("EMAIL_HOST_USER"),
+            password=get_instance_setting("EMAIL_HOST_PASSWORD"),
+            use_tls=get_instance_setting("EMAIL_USE_TLS"),
+            use_ssl=get_instance_setting("EMAIL_USE_SSL"),
+            # Bound the socket so a relay that goes silent mid-conversation raises TimeoutError
+            # (retried below) instead of pinning the worker forever — the silent-hang case.
+            timeout=get_instance_setting("EMAIL_TIMEOUT"),
+        )
+        connection.open()
 
-    with transaction.atomic():
         for dest in to:
-            record, _ = MessagingRecord.objects.get_or_create(raw_email=dest["raw_email"], campaign_key=campaign_key)
+            # Per-recipient transaction so each delivery's `sent_at` commits before the next send.
+            # A transient mid-batch failure re-raises into autoretry; the `if record.sent_at` guard
+            # then skips the recipients already accepted on retry, instead of re-sending (and
+            # duplicating) the whole batch.
+            with transaction.atomic():
+                record, _ = MessagingRecord.objects.get_or_create(
+                    raw_email=dest["raw_email"], campaign_key=campaign_key
+                )
+                record = MessagingRecord.objects.select_for_update().get(pk=record.pk)
+                if record.sent_at:
+                    continue
 
-            record = MessagingRecord.objects.select_for_update().get(pk=record.pk)
-            if record.sent_at:
-                record.save()
-                continue
+                effective_reply_to = reply_to or get_instance_setting("EMAIL_REPLY_TO")
+                email_message = mail.EmailMultiAlternatives(
+                    subject=subject,
+                    body=txt_body,
+                    from_email=get_instance_setting("EMAIL_DEFAULT_FROM"),
+                    to=[dest["recipient"]],
+                    headers=headers,
+                    reply_to=[effective_reply_to] if effective_reply_to else None,
+                )
+                email_message.attach_alternative(html_body, "text/html")
 
-            records.append(record)
-            reply_to = reply_to or get_instance_setting("EMAIL_REPLY_TO")
+                connection.send_messages([email_message])
 
-            email_message = mail.EmailMultiAlternatives(
-                subject=subject,
-                body=txt_body,
-                from_email=get_instance_setting("EMAIL_DEFAULT_FROM"),
-                to=[dest["recipient"]],
-                headers=headers,
-                reply_to=[reply_to] if reply_to else None,
-            )
-
-            email_message.attach_alternative(html_body, "text/html")
-            messages.append(email_message)
-
-        connection = None
-        try:
-            klass = import_string(settings.EMAIL_BACKEND) if settings.EMAIL_BACKEND else EmailBackend
-            connection = klass(
-                host=get_instance_setting("EMAIL_HOST"),
-                port=get_instance_setting("EMAIL_PORT"),
-                username=get_instance_setting("EMAIL_HOST_USER"),
-                password=get_instance_setting("EMAIL_HOST_PASSWORD"),
-                use_tls=get_instance_setting("EMAIL_USE_TLS"),
-                use_ssl=get_instance_setting("EMAIL_USE_SSL"),
-            )
-            connection.open()
-            connection.send_messages(messages)
-
-            for record in records:
                 record.sent_at = timezone.now()
                 record.save()
-
-        except Exception as err:
-            print("Could not send email:", err, file=sys.stderr)
-            capture_exception(err)
-        finally:
+                EMAIL_SEND_COUNTER.labels(outcome="sent", transport="smtp").inc()
+    except _TRANSIENT_SMTP_ERRORS as err:
+        # Re-raise so the task's autoretry (3x + backoff) retries instead of dropping the email.
+        # warning, not capture_exception: expected + auto-retried, capturing each attempt is noise.
+        logger.warning("email_send_smtp_transient_error", error=str(err))
+        EMAIL_SEND_COUNTER.labels(outcome="failed", transport="smtp").inc()
+        raise
+    except smtplib.SMTPRecipientsRefused as err:
+        # Per-recipient codes live in .recipients ({addr: (code, msg)}), not a top-level smtp_code.
+        # A 4xx (greylisting) is "try again later" → retry; 5xx (bad mailbox) is permanent.
+        EMAIL_SEND_COUNTER.labels(outcome="failed", transport="smtp").inc()
+        if any(400 <= code < 500 for code, _ in err.recipients.values()):
+            logger.warning("email_send_smtp_transient_error", error=str(err))
+            raise
+        capture_exception(err)
+    except smtplib.SMTPResponseException as err:
+        # Send-path response codes (raised by sendmail): 4xx greylisting (450/451) and overloaded-relay
+        # 421 are retryable; 5xx and auth (535) are permanent → swallow so we don't retry-storm the relay.
+        EMAIL_SEND_COUNTER.labels(outcome="failed", transport="smtp").inc()
+        if err.smtp_code is not None and 400 <= err.smtp_code < 500:
+            logger.warning("email_send_smtp_transient_error", error=str(err))
+            raise
+        capture_exception(err)
+    except Exception as err:
+        capture_exception(err)  # already logs the traceback via logger.exception
+        EMAIL_SEND_COUNTER.labels(outcome="failed", transport="smtp").inc()
+    finally:
+        # Guard against a backend-construction failure (bad EMAIL_BACKEND, or TLS+SSL both set):
+        # connection is still None there, and an unguarded None.close() would log a misleading
+        # email_connection_close_failed over the real error already captured above.
+        if connection is not None:
             try:
-                connection.close()  # type: ignore
+                connection.close()
             except Exception as err:
-                print(
-                    "Could not close email connection (this can be ignored):",
-                    err,
-                    file=sys.stderr,
-                )
+                logger.warning("email_connection_close_failed", error=str(err))
 
 
 # `utm_tags` carries hardcoded query-string fragments (`a=1&b=2`) and is never

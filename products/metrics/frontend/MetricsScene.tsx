@@ -37,7 +37,7 @@ export function MetricsScene(): JSX.Element {
 }
 
 const MetricsSceneContent = (): JSX.Element => {
-    const { tabId, activeTab } = useValues(metricsSceneLogic)
+    const { activeTab } = useValues(metricsSceneLogic)
     const { setActiveTab } = useActions(metricsSceneLogic)
     const { teamHasMetricsCheckFailed } = useValues(metricsIngestionLogic)
 
@@ -66,8 +66,8 @@ const MetricsSceneContent = (): JSX.Element => {
             <LemonTabs<MetricsSceneActiveTab> activeKey={activeTab} onChange={setActiveTab} tabs={TABS} sceneInset />
             <MetricsSetupPrompt>
                 <div className="flex flex-col gap-2 py-2 flex-1 min-h-0">
-                    {activeTab === 'viewer' && <MetricsViewer id={tabId} />}
-                    {activeTab === 'sql' && <MetricsSqlEditor id={tabId} />}
+                    {activeTab === 'viewer' && <MetricsViewer />}
+                    {activeTab === 'sql' && <MetricsSqlEditor />}
                 </div>
             </MetricsSetupPrompt>
         </>

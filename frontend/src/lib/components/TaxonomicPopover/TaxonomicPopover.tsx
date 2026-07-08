@@ -1,6 +1,6 @@
 import { Placement } from '@floating-ui/react'
 import { useValues } from 'kea'
-import { Ref, forwardRef, useEffect, useState } from 'react'
+import { Ref, forwardRef, useEffect, useId, useState } from 'react'
 
 import { IconX } from '@posthog/icons'
 
@@ -113,6 +113,8 @@ export const TaxonomicPopover = forwardRef(function TaxonomicPopover_<
     const { useNewMenu } = useValues(taxonomicMenuPreferenceLogic)
     const menuRebuildEnabled = !!featureFlags[FEATURE_FLAGS.TAXONOMIC_FILTER_MENU_REBUILD]
 
+    const generatedKey = useId()
+    const taxonomicFilterLogicKey = `taxonomic-popover-${generatedKey}`
     const [localValue, setLocalValue] = useState<ValueType>(value || ('' as ValueType))
     const [visible, setVisible] = useState(false)
 
@@ -142,6 +144,7 @@ export const TaxonomicPopover = forwardRef(function TaxonomicPopover_<
         <LemonDropdown
             overlay={
                 <TaxonomicFilter
+                    taxonomicFilterLogicKey={taxonomicFilterLogicKey}
                     groupType={groupType}
                     value={value}
                     filter={filter}

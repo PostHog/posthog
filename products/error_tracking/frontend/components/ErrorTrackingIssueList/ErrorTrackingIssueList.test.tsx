@@ -39,15 +39,27 @@ describe('ErrorTrackingIssueListRow', () => {
         cleanup()
     })
 
-    it('links to the error tracking issue page with last_seen timestamp', () => {
+    it('renders read-only status and assignee when canMutateIssues is false', () => {
+        render(
+            <Provider>
+                <ErrorTrackingIssueListRow issue={ISSUE} canMutateIssues={false} />
+            </Provider>
+        )
+
+        expect(screen.getByText(/Unassigned/i).closest('button, [role="button"]')).toBeNull()
+        expect(screen.getAllByRole('link')).toHaveLength(1)
+    })
+
+    it('links only the issue title to the error tracking issue page with last_seen timestamp', () => {
         render(
             <Provider>
                 <ErrorTrackingIssueListRow issue={ISSUE} />
             </Provider>
         )
 
-        const link = screen.getByRole('link', { name: /TypeError: undefined is not a function/i })
-        expect(link.getAttribute('href')).toMatch(
+        expect(screen.getAllByRole('link')).toHaveLength(1)
+        const link = screen.getByText(/TypeError: undefined is not a function/i).closest('a')
+        expect(link?.getAttribute('href')).toMatch(
             /\/error_tracking\/issue-abc\?timestamp=2026-05-26T08%3A00%3A00\.000Z$/
         )
     })
@@ -78,6 +90,6 @@ describe('ErrorTrackingIssueList', () => {
             </Provider>
         )
 
-        expect(screen.getByRole('link', { name: /TypeError: undefined is not a function/i })).toBeInTheDocument()
+        expect(screen.getByText(/TypeError: undefined is not a function/i).closest('a')).toBeInTheDocument()
     })
 })

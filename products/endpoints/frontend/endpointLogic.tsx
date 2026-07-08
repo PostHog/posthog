@@ -1,4 +1,4 @@
-import { actions, connect, kea, key, listeners, path, props, reducers } from 'kea'
+import { actions, connect, kea, listeners, path, reducers } from 'kea'
 import { loaders } from 'kea-loaders'
 import { router } from 'kea-router'
 
@@ -6,8 +6,9 @@ import api from 'lib/api'
 import { SetupTaskId, globalSetupLogic } from 'lib/components/ProductSetup'
 import { LemonDialog } from 'lib/lemon-ui/LemonDialog'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
-import { debounce, slugify } from 'lib/utils'
+import { debounce } from 'lib/utils/async'
 import { permanentlyMount } from 'lib/utils/kea-logic-builders'
+import { slugify } from 'lib/utils/strings'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
@@ -21,14 +22,8 @@ import { insightPickerEndpointModalLogic } from './insightPickerEndpointModalLog
 
 export type CodeExampleTab = 'terminal' | 'python' | 'nodejs'
 
-export interface EndpointLogicProps {
-    tabId: string
-}
-
 export const endpointLogic = kea<endpointLogicType>([
     path(['products', 'endpoints', 'frontend', 'endpointLogic']),
-    props({} as EndpointLogicProps),
-    key((props) => props.tabId),
     connect(() => ({
         actions: [
             endpointsLogic,
@@ -115,6 +110,14 @@ export const endpointLogic = kea<endpointLogicType>([
             {
                 setDuplicateEndpoint: (_, { endpoint }) => endpoint,
                 createEndpointSuccess: () => null,
+            },
+        ],
+        updatingEndpoint: [
+            false,
+            {
+                updateEndpoint: () => true,
+                updateEndpointSuccess: () => false,
+                updateEndpointFailure: () => false,
             },
         ],
         // Clear stale endpoint data immediately when loading a new endpoint

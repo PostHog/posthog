@@ -28,45 +28,17 @@ from rest_framework.views import APIView
 from posthog.exceptions_capture import capture_exception
 from posthog.models.oauth import OAuthApplication
 from posthog.rate_limit import IPThrottle
-from posthog.scopes import UNPRIVILEGED_SCOPES
+from posthog.scopes import filter_to_unprivileged_scopes
+
+from .client_name import sanitize_client_name, validate_client_name
 
 logger = structlog.get_logger(__name__)
 
-# Blocked words in client names to prevent confusion attacks
-# These prevent malicious apps from impersonating official PostHog applications
-BLOCKED_CLIENT_NAME_PREFIXES = ["posthog"]  # Block names starting with these
-BLOCKED_CLIENT_NAME_WORDS = ["official", "verified", "trusted"]  # Block names containing these
-
 
 def filter_dcr_scopes(scope: str) -> list[str]:
-    """Parse an RFC 7591 space-delimited `scope` string into a deduped list,
-    keeping only scopes in `UNPRIVILEGED_SCOPES`. Order is preserved so the
-    response echo matches what the client kept.
-
-    Allow-list, not deny-list: a self-serve DCR client may only register safe
-    scopes. `UNPRIVILEGED_SCOPES` excludes privileged (`llm_gateway:*`), internal
-    (`signal_scout_internal`, ...), hidden (`metrics`, `wizard_session`), and any
-    unknown/junk string — none of which may reach the per-app ceiling, since
-    `/authorize` would otherwise grant them on a user-consented token."""
-    seen: set[str] = set()
-    result: list[str] = []
-    for token in scope.split():
-        if token not in UNPRIVILEGED_SCOPES or token in seen:
-            continue
-        seen.add(token)
-        result.append(token)
-    return result
-
-
-def validate_client_name(value: str) -> None:
-    """Validate that client name doesn't impersonate official apps."""
-    lower_value = value.lower()
-    for prefix in BLOCKED_CLIENT_NAME_PREFIXES:
-        if lower_value.startswith(prefix):
-            raise serializers.ValidationError(f"Client name cannot start with '{prefix}'")
-    for word in BLOCKED_CLIENT_NAME_WORDS:
-        if word in lower_value:
-            raise serializers.ValidationError(f"Client name cannot contain '{word}'")
+    """Parse an RFC 7591 space-delimited `scope` string into the deduped, allow-listed
+    scopes a DCR client may register. See `filter_to_unprivileged_scopes` for the rule."""
+    return filter_to_unprivileged_scopes(scope.split())
 
 
 class DCRBurstThrottle(IPThrottle):
@@ -157,6 +129,7 @@ class DynamicClientRegistrationView(APIView):
         data = serializer.validated_data
         now = timezone.now()
 
+        client_name = sanitize_client_name(data["client_name"]) if data.get("client_name") else "MCP Client"
         is_confidential = data.get("token_endpoint_auth_method") == "client_secret_post"
         client_type = AbstractApplication.CLIENT_CONFIDENTIAL if is_confidential else AbstractApplication.CLIENT_PUBLIC
 
@@ -187,7 +160,7 @@ class DynamicClientRegistrationView(APIView):
 
         try:
             app = OAuthApplication.objects.create(
-                name=data.get("client_name", "MCP Client"),
+                name=client_name,
                 redirect_uris=" ".join(data["redirect_uris"]),
                 client_type=client_type,
                 client_secret=plaintext_secret,
@@ -237,7 +210,7 @@ class DynamicClientRegistrationView(APIView):
             distinct_id=str(app.client_id),
             event="dcr_application_created",
             properties={
-                "client_name": data.get("client_name", "MCP Client"),
+                "client_name": client_name,
                 "app_id": str(app.pk),
                 "client_type": "confidential" if is_confidential else "public",
                 "redirect_uris_count": len(data["redirect_uris"]),
@@ -261,7 +234,7 @@ class DynamicClientRegistrationView(APIView):
             response_data["client_secret_expires_at"] = 0  # 0 = never expires per RFC 7591
 
         if data.get("client_name"):
-            response_data["client_name"] = data["client_name"]
+            response_data["client_name"] = client_name
 
         # RFC 7591 Section 3.2.1: when the server modifies requested scopes, it
         # returns the registered `scope` so the client sees the privileged-strip.

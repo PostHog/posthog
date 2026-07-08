@@ -1,6 +1,7 @@
 import z from 'zod'
 
 import { hasScope, hasScopes } from '@/lib/api'
+import { OAUTH_SCOPES_SUPPORTED } from '@/lib/oauth-scopes.generated'
 import type { EvaluatedFlags } from '@/lib/posthog/flags'
 
 import generatedToolDefinitionsJson from '../../schema/generated-tool-definitions.json'
@@ -67,6 +68,30 @@ export function getToolDefinitions(): ToolDefinitions {
     return { ..._toolDefinitions, ...generated }
 }
 
+let _advertisedOAuthScopes: readonly string[] | undefined = undefined
+
+/**
+ * Scopes published as `scopes_supported` in the MCP protected-resource
+ * metadata: every grantable scope the tool catalog requires, plus identity
+ * scopes (no `:`) that ride every authorize. Narrower than
+ * `OAUTH_SCOPES_SUPPORTED` (the authorization server's full grantable set) so
+ * clients are not asked to consent to write access no tool exercises. Filtering
+ * `OAUTH_SCOPES_SUPPORTED` keeps the result a subset of the AS, so no advertised
+ * scope is rejected at `/authorize`.
+ */
+export function getAdvertisedOAuthScopes(): readonly string[] {
+    if (!_advertisedOAuthScopes) {
+        const required = new Set<string>()
+        for (const definition of Object.values(getToolDefinitions())) {
+            for (const scope of definition.required_scopes ?? []) {
+                required.add(scope)
+            }
+        }
+        _advertisedOAuthScopes = OAUTH_SCOPES_SUPPORTED.filter((scope) => !scope.includes(':') || required.has(scope))
+    }
+    return _advertisedOAuthScopes
+}
+
 export function getToolDefinition(toolName: string): ToolDefinition {
     const toolDefinitions = getToolDefinitions()
 
@@ -77,6 +102,16 @@ export function getToolDefinition(toolName: string): ToolDefinition {
     }
 
     return definition
+}
+
+/**
+ * The product category a tool belongs to (e.g. "Logs", "Tracing"), or undefined
+ * for tools without a catalogued definition (e.g. the `exec` wrapper). Unlike
+ * {@link getToolDefinition} this never throws, so it is safe to call from the
+ * analytics hot path where a missing definition must not break the request.
+ */
+export function getToolCategory(toolName: string): string | undefined {
+    return getToolDefinitions()[toolName]?.category
 }
 
 export interface ToolFilterOptions {

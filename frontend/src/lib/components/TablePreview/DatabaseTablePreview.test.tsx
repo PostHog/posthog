@@ -148,8 +148,8 @@ describe('DatabaseTablePreview', () => {
 
             useMocks({
                 post: {
-                    '/api/environments/:team/query/:kind': (req) => {
-                        const queryString = queryStringFromRequestBody(req.body)
+                    '/api/environments/:team/query/:kind': async ({ request }) => {
+                        const queryString = queryStringFromRequestBody(await request.json())
                         executedQueries.push(queryString)
 
                         const label = responseIndex === 0 ? 'first result' : 'second result'
@@ -188,7 +188,7 @@ describe('DatabaseTablePreview', () => {
                 </Provider>
             )
 
-            expect(await screen.findByText('second result')).toBeInTheDocument()
+            expect(await screen.findByText('second result', {}, { timeout: 3000 })).toBeInTheDocument()
             expect(screen.queryByText('first result')).not.toBeInTheDocument()
             expect(executedQueries).toHaveLength(2)
             expect(executedQueries[1]).toContain(expectedQueryContains)
@@ -200,8 +200,8 @@ describe('DatabaseTablePreview', () => {
 
         useMocks({
             post: {
-                '/api/environments/:team/query/:kind': (req) => {
-                    const queryString = queryStringFromRequestBody(req.body)
+                '/api/environments/:team/query/:kind': async ({ request }) => {
+                    const queryString = queryStringFromRequestBody(await request.json())
                     executedQueries.push(queryString)
 
                     return [

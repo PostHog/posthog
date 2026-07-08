@@ -20,9 +20,12 @@ from posthog.hogql.database.models import (
 from posthog.exceptions_capture import capture_exception
 from posthog.models.utils import CreatedMetaFields, UpdatedMetaFields, UUIDTModel, sane_repr
 
+from products.data_modeling.backend.logic.saved_query_dag_sync import sync_saved_query_to_dag
+from products.data_modeling.backend.models.dag import DAG
 from products.data_modeling.backend.models.datawarehouse_saved_query import DataWarehouseSavedQuery
-from products.data_warehouse.backend.types import DataWarehouseManagedViewSetKind
+from products.data_modeling.backend.models.node import Node
 from products.revenue_analytics.backend.views.schemas import SCHEMAS as REVENUE_ANALYTICS_SCHEMAS
+from products.warehouse_sources.backend.facade.types import DataWarehouseManagedViewSetKind
 
 logger = structlog.get_logger(__name__)
 
@@ -84,7 +87,8 @@ class DataWarehouseManagedViewSet(CreatedMetaFields, UpdatedMetaFields, UUIDTMod
         # Build the database once and reuse it for all views.
         from posthog.hogql.database.database import Database
 
-        database = Database.create_for(self.team.pk)
+        # Internal managed-view construction (no user); bypass warehouse HogQL access control.
+        database = Database.create_for(self.team.pk, bypass_warehouse_access_control=True)
         external_tables_by_view: dict[str, list] = {}
         for view in expected_views:
             temp_sq = DataWarehouseSavedQuery(
@@ -159,6 +163,35 @@ class DataWarehouseManagedViewSet(CreatedMetaFields, UpdatedMetaFields, UUIDTMod
             orphaned_views_to_revert = list(
                 self.saved_queries.exclude(name__in=expected_view_names).exclude(deleted=True)
             )
+
+        # Managed views get their own DAG (Revenue Analytics runs on a single 12h schedule), kept
+        # separate from the team's Default DAG so each DAG has exactly one sync frequency. Maintained
+        # on every sync — create, update, and resync. saved_queries_to_schedule is in expected_views
+        # order (dependencies first), so edges resolve in a single pass.
+        #
+        # No cross-call advisory lock here on purpose: a SESSION-level pg_advisory_lock acquired and
+        # released across separate autocommit statements leaks under transaction-mode PgBouncer — the
+        # unlock can be routed to a different backend than the one that holds the lock, stranding it
+        # and eventually exhausting the connection pool. Concurrent sync_views for the same team+kind
+        # can therefore race on node/edge placement; that is tolerated for now, pending a pooling-safe
+        # guard. The transaction-scoped lock above still serializes the saved-query writes.
+        managed_dag = DAG.get_or_create_revenue_analytics(self.team)
+        for saved_query in saved_queries_to_schedule:
+            try:
+                sync_saved_query_to_dag(saved_query, dag=managed_dag, allow_managed=True)
+                # Drop any stale node left in another DAG (e.g. a legacy Default-DAG placement),
+                # unless something there still depends on it (don't orphan a dependent).
+                for stale in Node.objects.filter(team=self.team, saved_query=saved_query).exclude(dag=managed_dag):
+                    if not stale.outgoing_edges.exists():
+                        stale.delete()
+            except Exception as e:
+                capture_exception(e, {"managed_viewset_id": self.id, "view_name": saved_query.name})
+                logger.warning(
+                    "failed_to_sync_managed_view_to_dag",
+                    team_id=self.team_id,
+                    view_name=saved_query.name,
+                    error=str(e),
+                )
 
         for saved_query in saved_queries_to_schedule:
             try:

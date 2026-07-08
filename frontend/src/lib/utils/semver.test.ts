@@ -1,4 +1,4 @@
-import { createVersionChecker, highestVersion, lowestVersion, parseVersion, versionToString } from './semver'
+import { createVersionChecker, parseVersion } from './semver'
 
 describe('semver', () => {
     describe('parseVersion', () => {
@@ -17,41 +17,6 @@ describe('semver', () => {
         })
     })
 
-    describe('lowerVersion', () => {
-        it('should return the lower version', () => {
-            expect(lowestVersion(['1.0.0', '1.0.1', '1.0.2'])).toEqual({ major: 1, minor: 0, patch: 0 })
-            expect(lowestVersion(['1.0.0', '1.0', '1'])).toEqual({ major: 1, minor: 0, patch: 0 })
-            expect(lowestVersion(['1.10', '1.2'])).toEqual({ major: 1, minor: 2 })
-            expect(lowestVersion(['1.2.3', '1.2.3-alpha'])).toEqual({ major: 1, minor: 2, patch: 3, extra: 'alpha' })
-            expect(lowestVersion(['1.2.3-alpha1', '1.2.3-alpha2'])).toEqual({
-                major: 1,
-                minor: 2,
-                patch: 3,
-                extra: 'alpha1',
-            })
-        })
-    })
-    describe('higherVersion', () => {
-        it('should return the higher version', () => {
-            expect(highestVersion(['1.0.0', '1.0.1', '1.0.2'])).toEqual({ major: 1, minor: 0, patch: 2 })
-            expect(highestVersion(['1.0.0', '1.0', '1'])).toEqual({ major: 1 })
-            expect(highestVersion(['1.10', '1.2'])).toEqual({ major: 1, minor: 10 })
-            expect(highestVersion(['1.2.3', '1.2.3-alpha'])).toEqual({ major: 1, minor: 2, patch: 3 })
-            expect(highestVersion(['1.2.3-alpha1', '1.2.3-alpha2'])).toEqual({
-                major: 1,
-                minor: 2,
-                patch: 3,
-                extra: 'alpha2',
-            })
-        })
-    })
-    describe('versionToString', () => {
-        it('should convert version to string', () => {
-            expect(versionToString({ major: 1, minor: 2, patch: 3 })).toEqual('1.2.3')
-            expect(versionToString({ major: 1, minor: 2 })).toEqual('1.2')
-            expect(versionToString({ major: 1 })).toEqual('1')
-        })
-    })
     describe('createVersionChecker', () => {
         it('should create a version checker that checks that a version is above or equal to a specified version', () => {
             const isSupportedVersion = createVersionChecker('4.5.6')

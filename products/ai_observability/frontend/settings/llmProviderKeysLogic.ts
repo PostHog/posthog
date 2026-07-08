@@ -16,6 +16,7 @@ export type LLMProvider =
     | 'fireworks'
     | 'azure_openai'
     | 'together_ai'
+    | 'minimax'
 
 /** Default Azure OpenAI API version — keep in sync with backend DEFAULT_API_VERSION. */
 export const DEFAULT_AZURE_API_VERSION = '2024-10-21'
@@ -28,6 +29,7 @@ export const LLM_PROVIDER_LABELS: Record<LLMProvider, string> = {
     fireworks: 'Fireworks',
     azure_openai: 'Azure OpenAI',
     together_ai: 'Together AI',
+    minimax: 'MiniMax',
 }
 
 const LLM_PROVIDERS = new Set<string>(Object.keys(LLM_PROVIDER_LABELS))
@@ -69,6 +71,9 @@ export function normalizeLLMProvider(provider: string | undefined): LLMProvider 
     }
     if (normalized === 'together' || normalized === 'together ai' || normalized === 'together-ai') {
         return 'together_ai'
+    }
+    if (normalized === 'mini max' || normalized === 'mini-max') {
+        return 'minimax'
     }
 
     return normalized in LLM_PROVIDER_LABELS ? (normalized as LLMProvider) : null
@@ -114,7 +119,7 @@ export function sortProviderKeys(keys: LLMProviderKey[]): LLMProviderKey[] {
 
 export function sortedUsableProviderKeyIds(keys: LLMProviderKey[]): string[] {
     return sortProviderKeys(keys)
-        .filter((key) => key.state !== 'invalid')
+        .filter((key) => key.state === 'ok')
         .map((key) => key.id)
 }
 
@@ -127,15 +132,15 @@ export function firstUsableProviderKeyIdForProvider(
         return null
     }
 
-    return (
-        sortProviderKeys(keys).find((key) => key.state !== 'invalid' && key.provider === normalizedProvider)?.id ?? null
-    )
+    return sortProviderKeys(keys).find((key) => key.state === 'ok' && key.provider === normalizedProvider)?.id ?? null
 }
 
-export interface EvaluationConfig {
+export interface EvaluationTrialConfig {
     trial_eval_limit: number
     trial_evals_used: number
     trial_evals_remaining: number
+    trial_grandfathered: boolean
+    trial_deprecation_date: string
     active_provider_key: LLMProviderKey | null
     created_at: string
     updated_at: string
@@ -332,9 +337,9 @@ export const llmProviderKeysLogic = kea<llmProviderKeysLogicType>([
             },
         ],
         evaluationConfig: [
-            null as EvaluationConfig | null,
+            null as EvaluationTrialConfig | null,
             {
-                loadEvaluationConfig: async (): Promise<EvaluationConfig | null> => {
+                loadEvaluationConfig: async (): Promise<EvaluationTrialConfig | null> => {
                     const teamId = teamLogic.values.currentTeamId
                     if (!teamId) {
                         return null
@@ -428,7 +433,9 @@ export const llmProviderKeysLogic = kea<llmProviderKeysLogicType>([
                         `/api/environments/${teamId}/llm_analytics/provider_keys/${id}/validate/`,
                         {}
                     )
-                    if (response.state !== 'ok') {
+                    if (response.state === 'ok') {
+                        lemonToast.success('Key validated successfully')
+                    } else {
                         lemonToast.error(`Key validation failed: ${response.error_message || 'Unknown error'}`)
                     }
                     return values.providerKeys.map((key: LLMProviderKey) => (key.id === id ? response : key))
@@ -440,22 +447,27 @@ export const llmProviderKeysLogic = kea<llmProviderKeysLogicType>([
     selectors({
         trialEvalsUsed: [
             (s) => [s.evaluationConfig],
-            (evaluationConfig: EvaluationConfig | null) => evaluationConfig?.trial_evals_used ?? 0,
+            (evaluationConfig: EvaluationTrialConfig | null) => evaluationConfig?.trial_evals_used ?? 0,
         ],
         trialEvalLimit: [
             (s) => [s.evaluationConfig],
-            (evaluationConfig: EvaluationConfig | null) => evaluationConfig?.trial_eval_limit ?? 100,
+            (evaluationConfig: EvaluationTrialConfig | null) => evaluationConfig?.trial_eval_limit ?? 100,
         ],
         trialEvalsRemaining: [
             (s) => [s.evaluationConfig],
-            (evaluationConfig: EvaluationConfig | null) => evaluationConfig?.trial_evals_remaining ?? 0,
+            (evaluationConfig: EvaluationTrialConfig | null) => evaluationConfig?.trial_evals_remaining ?? 0,
         ],
-        isTrialLimitReached: [
+        isTrialGrandfathered: [
             (s) => [s.evaluationConfig],
-            (evaluationConfig: EvaluationConfig | null) =>
+            (evaluationConfig: EvaluationTrialConfig | null) => evaluationConfig?.trial_grandfathered ?? false,
+        ],
+        // Terminal state: no active key and not grandfathered — the team must bring its own provider key.
+        requiresProviderKey: [
+            (s) => [s.evaluationConfig],
+            (evaluationConfig: EvaluationTrialConfig | null) =>
                 evaluationConfig !== null &&
                 evaluationConfig.active_provider_key === null &&
-                evaluationConfig.trial_evals_remaining <= 0,
+                !evaluationConfig.trial_grandfathered,
         ],
     }),
 

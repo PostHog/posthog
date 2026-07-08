@@ -4,7 +4,7 @@ import { loaders } from 'kea-loaders'
 import { createFuse } from 'lib/utils/fuseSearch'
 import { permanentlyMount } from 'lib/utils/kea-logic-builders'
 
-import { toolbarConfigLogic, toolbarFetch } from '~/toolbar/toolbarConfigLogic'
+import { toolbarApi } from '~/toolbar/toolbarApi'
 import { WebExperiment } from '~/toolbar/types'
 
 import type { experimentsLogicType } from './experimentsLogicType'
@@ -20,21 +20,18 @@ export const experimentsLogic = kea<experimentsLogicType>([
             {
                 // oxlint-disable-next-line @typescript-eslint/no-unused-vars
                 getExperiments: async (_ = null, breakpoint: () => void) => {
-                    const response = await toolbarFetch('/api/projects/@current/web_experiments/')
-                    const results = await response.json()
-
-                    if (response.status === 403) {
-                        toolbarConfigLogic.actions.authenticate()
-                        return []
-                    }
-
+                    const result = await toolbarApi.webExperiments.list({
+                        context: 'load_experiments',
+                        reauthenticateOnForbidden: true,
+                    })
                     breakpoint()
 
-                    if (!Array.isArray(results?.results)) {
-                        throw new Error('Error loading experiments!')
+                    // Any failure (unauthenticated, server error, malformed body) soft-fails to
+                    // the existing list — toolbarApi has already logged/reported it as needed.
+                    if (!result.ok || !Array.isArray(result.data.results)) {
+                        return values.allExperiments
                     }
-
-                    return results.results
+                    return result.data.results
                 },
                 updateExperiment: ({ experiment }: { experiment: WebExperiment }) => {
                     return values.allExperiments.filter((r) => r.id !== experiment.id).concat([experiment])

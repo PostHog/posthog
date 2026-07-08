@@ -1,12 +1,6 @@
-import random
-
 import pytest
 from unittest.mock import patch
 
-import pytest_asyncio
-from asgiref.sync import sync_to_async
-
-from posthog.models import Organization, Team
 from posthog.sync import database_sync_to_async
 
 from products.signals.backend.models import SignalReport
@@ -22,27 +16,9 @@ from products.signals.backend.temporal.summary import (
     mark_report_ready_activity,
     reset_report_to_potential_activity,
 )
+from products.signals.backend.temporal.types import RERESEARCH_MAX_SIGNALS
 
 PIPELINE_MODULE_PATH = "products.signals.backend.temporal.summary"
-
-
-@pytest_asyncio.fixture
-async def aorganization():
-    organization = await sync_to_async(Organization.objects.create)(
-        name=f"SignalsTelemetryOrg-{random.randint(1, 99999)}",
-    )
-    yield organization
-    await sync_to_async(organization.delete)()
-
-
-@pytest_asyncio.fixture
-async def ateam(aorganization):
-    team = await sync_to_async(Team.objects.create)(
-        organization=aorganization,
-        name=f"SignalsTelemetryTeam-{random.randint(1, 99999)}",
-    )
-    yield team
-    await sync_to_async(team.delete)()
 
 
 @pytest.mark.asyncio
@@ -286,3 +262,62 @@ async def test_reset_to_potential_is_idempotent_when_already_potential(ateam):
     assert refreshed.status == SignalReport.Status.POTENTIAL
     assert refreshed.error == "Original reset reason"
     assert refreshed.total_weight == 0.0
+
+
+@pytest.mark.asyncio
+@pytest.mark.django_db
+async def test_ready_loops_when_new_signals_within_cap(ateam):
+    """New signals arrived mid-run and the report is within the cap: re-promote to CANDIDATE and loop."""
+    report = await database_sync_to_async(SignalReport.objects.create)(
+        team=ateam,
+        status=SignalReport.Status.IN_PROGRESS,
+        signal_count=RERESEARCH_MAX_SIGNALS,
+        total_weight=2.0,
+    )
+    report_id = str(report.id)
+
+    with patch(f"{PIPELINE_MODULE_PATH}.posthoganalytics.capture"):
+        has_new_signals = await mark_report_ready_activity(
+            MarkReportReadyInput(
+                team_id=ateam.id,
+                report_id=report_id,
+                title="title",
+                summary="summary",
+                processed_signal_count=1,
+                source_products=["zendesk"],
+            )
+        )
+
+    assert has_new_signals is True
+    refreshed = await database_sync_to_async(SignalReport.objects.get)(id=report_id)
+    assert refreshed.status == SignalReport.Status.CANDIDATE
+
+
+@pytest.mark.asyncio
+@pytest.mark.django_db
+async def test_ready_does_not_loop_when_new_signals_past_cap(ateam):
+    """New signals arrived mid-run but the report is past the cap: stay READY rather than looping
+    into another full research run."""
+    report = await database_sync_to_async(SignalReport.objects.create)(
+        team=ateam,
+        status=SignalReport.Status.IN_PROGRESS,
+        signal_count=RERESEARCH_MAX_SIGNALS + 5,
+        total_weight=2.0,
+    )
+    report_id = str(report.id)
+
+    with patch(f"{PIPELINE_MODULE_PATH}.posthoganalytics.capture"):
+        has_new_signals = await mark_report_ready_activity(
+            MarkReportReadyInput(
+                team_id=ateam.id,
+                report_id=report_id,
+                title="title",
+                summary="summary",
+                processed_signal_count=RERESEARCH_MAX_SIGNALS,
+                source_products=["zendesk"],
+            )
+        )
+
+    assert has_new_signals is False
+    refreshed = await database_sync_to_async(SignalReport.objects.get)(id=report_id)
+    assert refreshed.status == SignalReport.Status.READY

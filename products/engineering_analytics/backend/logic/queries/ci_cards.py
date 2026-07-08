@@ -5,10 +5,8 @@ is a fixed rule (open, non-draft, non-bot, older than 7 days), so there is no
 window parameter.
 """
 
-from posthog.models.team import Team
-
 from products.engineering_analytics.backend.facade.contracts import CICardSummary
-from products.engineering_analytics.backend.logic.queries import _curated
+from products.engineering_analytics.backend.logic.queries._curated import CuratedGitHubSource
 
 _EMPTY = CICardSummary(open_prs=0, repos=0, stuck=0, failing_ci=0)
 
@@ -25,9 +23,8 @@ _SELECT = """
 """
 
 
-def query_ci_cards(*, team: Team) -> CICardSummary:
-    sql = f"WITH {_curated.ci_rollup_cte()} {_SELECT}".replace("__PR_SOURCE__", _curated.pr_source())
-    response = _curated.run_query(sql, team=team, query_type="engineering_analytics.ci_cards")
+def query_ci_cards(*, curated: CuratedGitHubSource) -> CICardSummary:
+    response = curated.run(curated.pr_rollup_query(_SELECT), query_type="engineering_analytics.ci_cards")
     if not response.results:
         return _EMPTY
     open_prs, repos, stuck, failing_ci = response.results[0]

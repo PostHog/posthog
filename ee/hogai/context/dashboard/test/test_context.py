@@ -1,5 +1,7 @@
+import asyncio
+
 from posthog.test.base import BaseTest
-from unittest.mock import patch
+from unittest.mock import AsyncMock, patch
 
 from posthog.schema import EventsNode, TrendsQuery
 
@@ -12,6 +14,7 @@ class TestDashboardContext(BaseTest):
         dashboard_ctx = DashboardContext(
             team=self.team,
             insights_data=[],
+            user=self.user,
             name="Empty Dashboard",
             description="A dashboard with no insights",
             dashboard_id="123",
@@ -40,6 +43,7 @@ class TestDashboardContext(BaseTest):
         dashboard_ctx = DashboardContext(
             team=self.team,
             insights_data=insights_data,
+            user=self.user,
             name="Test Dashboard",
             description="Dashboard description",
             dashboard_id="456",
@@ -75,6 +79,7 @@ class TestDashboardContext(BaseTest):
         dashboard_ctx = DashboardContext(
             team=self.team,
             insights_data=insights_data,
+            user=self.user,
             name="Multi-Insight Dashboard",
             dashboard_id="789",
         )
@@ -111,6 +116,7 @@ class TestDashboardContext(BaseTest):
         dashboard_ctx = DashboardContext(
             team=self.team,
             insights_data=insights_data,
+            user=self.user,
             name="Partially Failed Dashboard",
             dashboard_id="101",
         )
@@ -128,6 +134,7 @@ class TestDashboardContext(BaseTest):
         dashboard_ctx = DashboardContext(
             team=self.team,
             insights_data=[],
+            user=self.user,
             name="Schema Dashboard",
             description="Dashboard for schema test",
             dashboard_id="202",
@@ -158,6 +165,7 @@ class TestDashboardContext(BaseTest):
         dashboard_ctx = DashboardContext(
             team=self.team,
             insights_data=insights_data,
+            user=self.user,
             name="Schema Dashboard",
             dashboard_id="303",
         )
@@ -173,37 +181,39 @@ class TestDashboardContext(BaseTest):
         # Should NOT include results
         self.assertNotIn("Results:", result)
 
-    @patch("ee.hogai.context.insight.context.InsightContext.format_schema")
-    async def test_format_schema_handles_exceptions(self, mock_format_schema):
-        """Test that format_schema propagates exceptions in insight schema formatting"""
-        mock_format_schema.side_effect = Exception("Schema error")
+    @patch("ee.hogai.context.dashboard.context.capture_exception")
+    @patch("ee.hogai.context.insight.context.InsightContext.format_schema", new_callable=AsyncMock)
+    async def test_format_schema_propagates_cancellation(self, mock_format_schema, mock_capture):
+        # Cancellation must propagate through the schema path too, never degrade or get captured.
+        mock_format_schema.side_effect = asyncio.CancelledError()
 
         insights_data: list[DashboardInsightContext] = [
             DashboardInsightContext(
                 query=TrendsQuery(series=[EventsNode(event="pageview")]),
-                name="Failing Insight",
-                insight_id="fail",
+                name="Cancelled Insight",
+                short_id="insight-1",
             )
         ]
 
         dashboard_ctx = DashboardContext(
             team=self.team,
             insights_data=insights_data,
+            user=self.user,
             name="Error Dashboard",
             dashboard_id="404",
         )
 
-        # Exception should propagate
-        with self.assertRaises(Exception) as context:
+        with self.assertRaises(asyncio.CancelledError):
             await dashboard_ctx.format_schema()
 
-        self.assertIn("Schema error", str(context.exception))
+        mock_capture.assert_not_called()
 
     async def test_dashboard_without_id(self):
         """Test that dashboard works without an ID"""
         dashboard_ctx = DashboardContext(
             team=self.team,
             insights_data=[],
+            user=self.user,
             name="No ID Dashboard",
         )
 
@@ -218,6 +228,7 @@ class TestDashboardContext(BaseTest):
         dashboard_ctx = DashboardContext(
             team=self.team,
             insights_data=[],
+            user=self.user,
             dashboard_id="606",
         )
 
@@ -231,6 +242,7 @@ class TestDashboardContext(BaseTest):
         dashboard_ctx = DashboardContext(
             team=self.team,
             insights_data=[],
+            user=self.user,
             name="URL Test Dashboard",
             dashboard_id="12345",
         )
@@ -254,6 +266,7 @@ class TestDashboardContext(BaseTest):
         dashboard_ctx = DashboardContext(
             team=self.team,
             insights_data=insights_data,
+            user=self.user,
             name="URL Test Dashboard",
             dashboard_id="67890",
         )
@@ -279,6 +292,7 @@ class TestDashboardContext(BaseTest):
         dashboard_ctx = DashboardContext(
             team=self.team,
             insights_data=insights_data,
+            user=self.user,
             name="Concurrent Dashboard",
             dashboard_id="707",
             max_concurrent_queries=5,
@@ -308,6 +322,7 @@ class TestDashboardContext(BaseTest):
         dashboard_ctx = DashboardContext(
             team=self.team,
             insights_data=insights_data,
+            user=self.user,
             name="Custom Template Dashboard",
             dashboard_id="808",
         )
@@ -317,3 +332,107 @@ class TestDashboardContext(BaseTest):
 
         self.assertIn("Custom: Custom Template Dashboard", result)
         self.assertIn("Custom template result", result)
+
+    @patch("ee.hogai.context.dashboard.context.capture_exception")
+    @patch("ee.hogai.context.insight.context.InsightContext.execute_and_format", new_callable=AsyncMock)
+    async def test_one_failing_insight_does_not_drop_whole_dashboard(self, mock_execute_and_format, mock_capture):
+        """A single insight raising (e.g. a query-prep error outside InsightContext's own
+        try/except) must NOT drop the entire dashboard from context — the dashboard, its
+        surviving insights, and an error placeholder for the failed one should all remain."""
+        mock_execute_and_format.side_effect = [ValueError("boom"), "Insight results: 200 users"]
+
+        insights_data: list[DashboardInsightContext] = [
+            DashboardInsightContext(
+                query=TrendsQuery(series=[EventsNode(event="pageview")]),
+                name="Broken Insight",
+                short_id="insight-1",
+            ),
+            DashboardInsightContext(
+                query=TrendsQuery(series=[EventsNode(event="signup")]),
+                name="Working Insight",
+                short_id="insight-2",
+            ),
+        ]
+
+        dashboard_ctx = DashboardContext(
+            team=self.team,
+            insights_data=insights_data,
+            user=self.user,
+            name="Mixed Dashboard",
+            dashboard_id="789",
+        )
+
+        result = await dashboard_ctx.execute_and_format()
+
+        # The dashboard itself and the working insight survive.
+        self.assertIn("Dashboard name: Mixed Dashboard", result)
+        self.assertIn("Insight results: 200 users", result)
+        # The failed insight degrades to a placeholder instead of taking down the dashboard.
+        self.assertIn("Broken Insight", result)
+        self.assertIn("Error preparing insight context", result)
+        # The failure is surfaced, not silently swallowed.
+        mock_capture.assert_called_once()
+
+    @patch("ee.hogai.context.dashboard.context.capture_exception")
+    @patch("ee.hogai.context.insight.context.InsightContext.execute_and_format", new_callable=AsyncMock)
+    async def test_cancelled_insight_propagates_and_is_not_captured(self, mock_execute_and_format, mock_capture):
+        # CancelledError must propagate (cooperative cancellation), never degrade to a placeholder
+        # or get captured — otherwise a cancelled task is silently turned into "an error occurred".
+        mock_execute_and_format.side_effect = asyncio.CancelledError()
+
+        insights_data: list[DashboardInsightContext] = [
+            DashboardInsightContext(
+                query=TrendsQuery(series=[EventsNode(event="pageview")]),
+                name="Cancelled Insight",
+                short_id="insight-1",
+            ),
+        ]
+
+        dashboard_ctx = DashboardContext(
+            team=self.team,
+            insights_data=insights_data,
+            user=self.user,
+            name="Cancelled Dashboard",
+            dashboard_id="790",
+        )
+
+        with self.assertRaises(asyncio.CancelledError):
+            await dashboard_ctx.execute_and_format()
+
+        mock_capture.assert_not_called()
+
+    @patch("ee.hogai.context.dashboard.context.capture_exception")
+    @patch("ee.hogai.context.insight.context.InsightContext.format_schema", new_callable=AsyncMock)
+    async def test_one_failing_insight_schema_does_not_drop_whole_dashboard(self, mock_format_schema, mock_capture):
+        # format_schema shares the same degrade-or-reraise path as execute_and_format, so one
+        # failing schema must degrade to a placeholder rather than drop the whole dashboard.
+        mock_format_schema.side_effect = [ValueError("boom"), "Schema: signups by day"]
+
+        insights_data: list[DashboardInsightContext] = [
+            DashboardInsightContext(
+                query=TrendsQuery(series=[EventsNode(event="pageview")]),
+                name="Broken Insight",
+                short_id="insight-1",
+            ),
+            DashboardInsightContext(
+                query=TrendsQuery(series=[EventsNode(event="signup")]),
+                name="Working Insight",
+                short_id="insight-2",
+            ),
+        ]
+
+        dashboard_ctx = DashboardContext(
+            team=self.team,
+            insights_data=insights_data,
+            user=self.user,
+            name="Mixed Dashboard",
+            dashboard_id="791",
+        )
+
+        result = await dashboard_ctx.format_schema()
+
+        self.assertIn("Mixed Dashboard", result)
+        self.assertIn("Schema: signups by day", result)
+        self.assertIn("Broken Insight", result)
+        self.assertIn("Error preparing insight schema", result)
+        mock_capture.assert_called_once()

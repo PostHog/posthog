@@ -1,5 +1,22 @@
 # End-to-End Testing
 
+## Where tests live
+
+Playwright tests are discovered from two locations (configured in `playwright.config.ts`):
+
+- `playwright/e2e/**/*.spec.ts` — cross-cutting and platform-level tests (auth, signup, shared dashboards, etc.) and any tests that don't have an obvious single-product owner.
+- `products/<product>/frontend/e2e/**/*.spec.ts` — tests owned by a specific product, co-located with that product's code.
+
+Shared fixtures, page models, and helpers live under `playwright/utils/`, `playwright/page-models/`, and `playwright/mocks/`. Import them from anywhere via TypeScript path aliases:
+
+```ts
+import { expect, test } from '@playwright-utils/workspace-test-base'
+import { randomString } from '@playwright-utils'
+import { InsightPage } from '@playwright-pages/insightPage'
+```
+
+When you add a new test for a feature owned by a specific product, prefer co-locating it under `products/<product>/frontend/e2e/` rather than adding it to `playwright/e2e/`.
+
 ## Running tests
 
 Spin up a full local E2E environment (backend, frontend, docker services, Playwright UI):

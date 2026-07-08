@@ -1,5 +1,7 @@
 import { hasScopes } from '@/lib/api'
 
+// Agent platform (hand-written — CRUD is codegen in generated/agent_platform.ts)
+import resolveResource from './agentPlatform/resolveResource'
 // AI observability
 import getLLMCosts from './aiObservability/getLLMCosts'
 // Debug
@@ -13,15 +15,19 @@ import submitFeedback from './feedback/submit'
 import { GENERATED_TOOL_MAP } from './generated'
 // Insights
 import queryInsight from './insights/query'
+// Links (utility — builds canonical app URLs from the frontend's route table)
+import generateAppUrl from './links/generate-app-url'
 // Notebooks (edit is hand-written — generated CRUD lives in generated/notebooks.ts)
 import notebookEdit from './notebooks/edit'
 // Organizations
 import setActiveOrganization from './organizations/setActive'
 // PostHog AI tools
 import {
+    EXECUTE_SQL_TOOL_NAME,
     executeSql,
     externalDataSourcesDbSchema,
     externalDataSourcesJobs,
+    externalDataSourcesPreview,
     externalDataSyncLogs,
     readDataSchema,
     readDataWarehouseSchema,
@@ -32,6 +38,8 @@ import setActiveProject from './projects/setActive'
 import updateEventDefinition from './projects/updateEventDefinition'
 // Replay
 import sessionRecordingSummarize from './replay/sessionRecordingSummarize'
+// Skills (deprecation aliases for the llma-skill-* → skill-* rename)
+import { SKILL_DEPRECATED_ALIASES } from './skills/deprecatedAliases'
 // Misc
 import {
     type ToolFilterOptions,
@@ -64,6 +72,9 @@ export const TOOL_MAP: Record<string, () => ToolBase<ZodObjectAny>> = {
     // Insights
     'insight-query': queryInsight,
 
+    // Links (utility — canonical app URLs so the model never hand-builds/mis-slugs entity links)
+    'generate-app-url': generateAppUrl,
+
     // AI observability
     'get-llm-total-costs-for-project': getLLMCosts,
 
@@ -76,8 +87,11 @@ export const TOOL_MAP: Record<string, () => ToolBase<ZodObjectAny>> = {
     // Feedback
     'agent-feedback': submitFeedback,
 
+    // Agent platform (read-only playbook resolver — CRUD lives in generated/agent_platform.ts)
+    'agent-resolve-resource': resolveResource,
+
     // PostHog AI tools
-    'execute-sql': executeSql,
+    [EXECUTE_SQL_TOOL_NAME]: executeSql,
     'read-data-schema': readDataSchema,
     'read-data-warehouse-schema': readDataWarehouseSchema,
 
@@ -86,6 +100,7 @@ export const TOOL_MAP: Record<string, () => ToolBase<ZodObjectAny>> = {
 
     // Data warehouse (custom handlers for non-standard request shapes)
     'external-data-sources-db-schema': externalDataSourcesDbSchema,
+    'external-data-sources-preview-resource': externalDataSourcesPreview,
     'external-data-sources-jobs': externalDataSourcesJobs,
     'external-data-sync-logs': externalDataSyncLogs,
 
@@ -99,6 +114,9 @@ export const TOOL_MAP: Record<string, () => ToolBase<ZodObjectAny>> = {
     'workflows-blast-radius': workflowsBlastRadius,
     'workflows-run-batch': workflowsRunBatch,
     'workflows-schedule-create': workflowsScheduleCreate,
+
+    // Skills — deprecated llma-skill-* aliases forwarding to the renamed skill-* tools.
+    ...SKILL_DEPRECATED_ALIASES,
 }
 
 export const getToolsFromContext = async (

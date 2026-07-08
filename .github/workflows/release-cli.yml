@@ -46,22 +46,89 @@ jobs:
 
     notify-approval-needed:
         name: Notify Slack - Approval Needed
-        needs: check-changesets
+        needs: [check-changesets, cli-release-preview]
         if: needs.check-changesets.outputs.has-changesets == 'true'
-        uses: posthog/.github/.github/workflows/notify-approval-needed.yml@5fc4680761e8ac29a61b212756230eba0e276d8c
+        uses: posthog/.github/.github/workflows/notify-approval-needed.yml@03565438486849ac0d19543de36c248a27d32a2f
         with:
+            checkout_repository: false
             slack_channel_id: ${{ vars.SLACK_APPROVALS_CLIENT_LIBRARIES_CHANNEL_ID }}
             slack_user_group_id: ${{ vars.GROUP_CLIENT_LIBRARIES_SLACK_GROUP_ID }}
+            tag_pattern: posthog-cli/v*
+            tag_sort: version
         secrets:
             slack_bot_token: ${{ secrets.SLACK_CLIENT_LIBRARIES_BOT_TOKEN }}
             posthog_project_api_key: ${{ secrets.POSTHOG_PROJECT_API_KEY }}
 
+    cli-release-preview:
+        name: Generate CLI release preview
+        needs: check-changesets
+        if: needs.check-changesets.outputs.has-changesets == 'true'
+        runs-on: ubuntu-latest
+        timeout-minutes: 5
+        steps:
+            - name: Write CLI diff summary
+              env:
+                  REPOSITORY: ${{ github.repository }}
+              run: |
+                  set -euo pipefail
+
+                  repo_url="https://github.com/$REPOSITORY.git"
+                  base_tag=$(
+                    git ls-remote --tags --refs --sort=-version:refname "$repo_url" 'refs/tags/posthog-cli/v*' |
+                      awk -F 'refs/tags/' 'NR == 1 { print $2 }'
+                  )
+
+                  if [ -z "$base_tag" ]; then
+                    echo "::error::No posthog-cli release tags found"
+                    exit 1
+                  fi
+
+                  mkdir release-preview
+                  cd release-preview
+                  git init -q
+                  git remote add origin "$repo_url"
+
+                  # Fetch the exact tag and branch instead of using actions/checkout,
+                  # which would fetch every branch/tag in this large monorepo.
+                  git fetch --depth=1 --filter=blob:none --no-tags origin \
+                    "refs/tags/$base_tag:refs/tags/$base_tag" \
+                    "refs/heads/master:refs/remotes/origin/master"
+
+                  {
+                    echo "## posthog-cli release preview"
+                    echo
+                    echo "- Base: \`$base_tag\`"
+                    echo "- Head: \`master\`"
+                    echo
+                    echo "### CLI diff"
+                    echo
+                    echo "\`\`\`text"
+                    git diff --shortstat "$base_tag..origin/master" -- cli cli/.sampo
+                    echo "\`\`\`"
+                    echo
+                    echo "<details>"
+                    echo "<summary>Changed CLI files</summary>"
+                    echo
+                    echo "\`\`\`text"
+                    git diff --stat "$base_tag..origin/master" -- cli cli/.sampo
+                    echo "\`\`\`"
+                    echo "</details>"
+                    echo
+                    echo "<details>"
+                    echo "<summary>Pending CLI changesets</summary>"
+                    echo
+                    echo "\`\`\`text"
+                    git diff --name-only "$base_tag..origin/master" -- ':(glob)cli/.sampo/changesets/*.md'
+                    echo "\`\`\`"
+                    echo "</details>"
+                  } >> "$GITHUB_STEP_SUMMARY"
+
     release:
         name: Prepare CLI release
-        needs: [check-changesets, notify-approval-needed]
+        needs: [check-changesets, cli-release-preview, notify-approval-needed]
         runs-on: ubuntu-latest
         timeout-minutes: 30
-        if: always() && needs.check-changesets.outputs.has-changesets == 'true'
+        if: always() && needs.check-changesets.outputs.has-changesets == 'true' && needs.cli-release-preview.result == 'success'
         environment: Release SDK
         permissions:
             contents: write
@@ -72,7 +139,7 @@ jobs:
         steps:
             - name: Notify Slack - Approved
               if: needs.notify-approval-needed.outputs.slack_ts != ''
-              uses: posthog/.github/.github/actions/slack-thread-reply@5fc4680761e8ac29a61b212756230eba0e276d8c
+              uses: posthog/.github/.github/actions/slack-thread-reply@03565438486849ac0d19543de36c248a27d32a2f
               with:
                   slack_bot_token: ${{ secrets.SLACK_CLIENT_LIBRARIES_BOT_TOKEN }}
                   slack_channel_id: ${{ vars.SLACK_APPROVALS_CLIENT_LIBRARIES_CHANNEL_ID }}
@@ -94,6 +161,9 @@ jobs:
                   fetch-depth: 0
                   filter: blob:none
                   token: ${{ steps.app-token.outputs.token }}
+
+            - name: Update to latest master before preparing release
+              run: git pull --ff-only origin master
 
             - name: Install Rust
               uses: dtolnay/rust-toolchain@3c5f7ea28cd621ae0bf5283f0e981fb97b8a7af9
@@ -162,6 +232,14 @@ jobs:
 
                   echo "committed=true" >> "$GITHUB_OUTPUT"
 
+            - name: Ensure master did not advance during release prep
+              run: |
+                  git fetch origin master
+                  if [ "$(git rev-parse HEAD)" != "$(git rev-parse FETCH_HEAD)" ]; then
+                      echo "::error::master advanced while preparing the CLI release. Re-run the workflow so the release includes the latest changesets."
+                      exit 1
+                  fi
+
             - name: Commit release changes
               id: commit-release
               if: steps.check-changes.outputs.committed == 'true'
@@ -206,7 +284,7 @@ jobs:
 
             - name: Notify Slack - Failed
               if: failure() && needs.notify-approval-needed.outputs.slack_ts != ''
-              uses: posthog/.github/.github/actions/slack-thread-reply@5fc4680761e8ac29a61b212756230eba0e276d8c
+              uses: posthog/.github/.github/actions/slack-thread-reply@03565438486849ac0d19543de36c248a27d32a2f
               with:
                   slack_bot_token: ${{ secrets.SLACK_CLIENT_LIBRARIES_BOT_TOKEN }}
                   slack_channel_id: ${{ vars.SLACK_APPROVALS_CLIENT_LIBRARIES_CHANNEL_ID }}
@@ -356,11 +434,45 @@ jobs:
             - name: Install dependencies
               run: |
                   ${{ matrix.packages_install }}
+            - name: Setup pnpm
+              uses: pnpm/action-setup@0e279bb959325dab635dd2c09392533439d90093 # v6.0.8
+            - name: Fix node-gyp permissions
+              # This job also runs on the Windows runner, where the default
+              # shell is PowerShell and `find` resolves to Windows FIND.exe.
+              # Force bash (git-bash) so find/chmod are the Unix tools.
+              shell: bash
+              run: find ~/setup-pnpm -name gyp_main.py -exec chmod +x {} +
+            - name: Setup Node.js
+              uses: actions/setup-node@6044e13b5dc448c55e2357c09f80417699197238 # v6.2.0
+              with:
+                  node-version-file: .nvmrc
+            - name: Install API CLI dependencies
+              run: pnpm --filter '@posthog/mcp...' install --frozen-lockfile
+            - name: Build API CLI release bundle
+              run: pnpm --dir services/mcp run build:cli:release
+            - name: Verify API CLI release bundle
+              run: |
+                  node -e "const { existsSync, statSync } = require('node:fs'); const path = 'cli/lib/posthog-api-cli.mjs'; if (!existsSync(path) || statSync(path).size <= 0) { console.error('::error::API CLI bundle is missing or empty: ' + path); process.exit(1); }"
             - name: Build artifacts
               run: |
                   # Actually do builds and make zips and whatnot
                   dist build ${{ needs.plan-release.outputs.tag-flag }} --print=linkage --output-format=json ${{ matrix.dist_args }} > dist-manifest.json
                   echo "dist ran successfully"
+            - name: Verify API CLI bundle in local artifacts
+              shell: bash
+              run: |
+                  shopt -s nullglob
+                  bundles=(target/distrib/posthog-cli-*/lib/posthog-api-cli.mjs)
+                  if [ "${#bundles[@]}" -eq 0 ]; then
+                      echo "::error::No API CLI bundle found in cargo-dist local artifacts"
+                      exit 1
+                  fi
+                  for bundle in "${bundles[@]}"; do
+                      if [ ! -s "$bundle" ]; then
+                          echo "::error::API CLI bundle is empty: $bundle"
+                          exit 1
+                      fi
+                  done
             - id: cargo-dist
               name: Post-build
               # We force bash here just because github makes it really hard to get values up
@@ -413,6 +525,21 @@ jobs:
                   pattern: artifacts-*
                   path: target/distrib/
                   merge-multiple: true
+            - name: Setup pnpm
+              uses: pnpm/action-setup@0e279bb959325dab635dd2c09392533439d90093 # v6.0.8
+            - name: Fix node-gyp permissions
+              run: find ~/setup-pnpm -name gyp_main.py -exec chmod +x {} +
+            - name: Setup Node.js
+              uses: actions/setup-node@6044e13b5dc448c55e2357c09f80417699197238 # v6.2.0
+              with:
+                  node-version-file: .nvmrc
+            - name: Install API CLI dependencies
+              run: pnpm --filter '@posthog/mcp...' install --frozen-lockfile
+            - name: Build API CLI release bundle
+              run: pnpm --dir services/mcp run build:cli:release
+            - name: Verify API CLI release bundle
+              run: |
+                  node -e "const { existsSync, statSync } = require('node:fs'); const path = 'cli/lib/posthog-api-cli.mjs'; if (!existsSync(path) || statSync(path).size <= 0) { console.error('::error::API CLI bundle is missing or empty: ' + path); process.exit(1); }"
             - id: cargo-dist
               shell: bash
               run: |
@@ -497,16 +624,48 @@ jobs:
                   # Remove the granular manifests
                   rm -f artifacts/*-dist-manifest.json
             - name: Create GitHub Release
+              shell: bash
               env:
                   PRERELEASE_FLAG: "${{ fromJson(steps.host.outputs.manifest).announcement_is_prerelease && '--prerelease' || '' }}"
                   ANNOUNCEMENT_TITLE: '${{ fromJson(steps.host.outputs.manifest).announcement_title }}'
                   ANNOUNCEMENT_BODY: '${{ fromJson(steps.host.outputs.manifest).announcement_github_body }}'
                   RELEASE_COMMIT: '${{ needs.release.outputs.release-commit }}'
+                  LATEST_RELEASE_TAG: posthog-cli-latest
                   GH_TOKEN: ${{ steps.app-token.outputs.token }}
               run: |
                   # Write and read notes from a file to avoid quoting breaking things
-                  echo "$ANNOUNCEMENT_BODY" > $RUNNER_TEMP/notes.txt
-                  gh release create "${{ needs.plan-release.outputs.tag }}" --target "$RELEASE_COMMIT" $PRERELEASE_FLAG --title "$ANNOUNCEMENT_TITLE" --notes-file "$RUNNER_TEMP/notes.txt" artifacts/*
+                  echo "$ANNOUNCEMENT_BODY" > "$RUNNER_TEMP/notes.txt"
+                  release_args=()
+                  if [ -n "$PRERELEASE_FLAG" ]; then
+                      release_args+=("$PRERELEASE_FLAG")
+                  fi
+
+                  gh release create "${{ needs.plan-release.outputs.tag }}" --target "$RELEASE_COMMIT" "${release_args[@]}" --title "$ANNOUNCEMENT_TITLE" --notes-file "$RUNNER_TEMP/notes.txt" artifacts/*
+
+                  if [ -z "$PRERELEASE_FLAG" ]; then
+                      STAGED_RELEASE_TAG="$LATEST_RELEASE_TAG-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
+
+                      gh release delete "$STAGED_RELEASE_TAG" --yes --cleanup-tag || true
+                      gh release create "$STAGED_RELEASE_TAG" \
+                          --target "$RELEASE_COMMIT" \
+                          --title "posthog-cli latest (staged)" \
+                          --notes "Staged replacement for $LATEST_RELEASE_TAG; same as ${{ needs.plan-release.outputs.tag }}" \
+                          --latest=false \
+                          artifacts/*
+
+                      gh release view "$STAGED_RELEASE_TAG" --json assets --jq '.assets[].name' | grep -qx 'posthog-cli-installer.sh'
+
+                      gh release delete "$LATEST_RELEASE_TAG" --yes --cleanup-tag || true
+                      gh release edit "$STAGED_RELEASE_TAG" \
+                          --tag "$LATEST_RELEASE_TAG" \
+                          --target "$RELEASE_COMMIT" \
+                          --title "posthog-cli latest" \
+                          --notes "Same as ${{ needs.plan-release.outputs.tag }}" \
+                          --latest=false
+                      git push origin ":refs/tags/$STAGED_RELEASE_TAG" || true
+                  else
+                      echo "Skipping $LATEST_RELEASE_TAG update for prerelease ${{ needs.plan-release.outputs.tag }}"
+                  fi
 
     publish-npm:
         needs:
@@ -556,7 +715,7 @@ jobs:
         if: always() && needs.host-release.result == 'success' && (needs.publish-npm.result == 'success' || needs.publish-npm.result == 'skipped') && needs.notify-approval-needed.outputs.slack_ts != ''
         steps:
             - name: Notify Slack - Release Published
-              uses: posthog/.github/.github/actions/slack-thread-reply@5fc4680761e8ac29a61b212756230eba0e276d8c
+              uses: posthog/.github/.github/actions/slack-thread-reply@03565438486849ac0d19543de36c248a27d32a2f
               with:
                   slack_bot_token: ${{ secrets.SLACK_CLIENT_LIBRARIES_BOT_TOKEN }}
                   slack_channel_id: ${{ vars.SLACK_APPROVALS_CLIENT_LIBRARIES_CHANNEL_ID }}

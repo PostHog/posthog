@@ -109,10 +109,12 @@ tools:
         list: true
         title: Get all actions
         description: >
-            Get all actions in the project. Actions are reusable event definitions that can combine multiple trigger
+            Get actions in the project. Actions are reusable event definitions that can combine multiple trigger
             conditions (page views, clicks, form submissions) into a single trackable event for use in insights and
-            funnels. Supports pagination with limit and offset parameters. Note: Search/filtering by name is not
-            supported on this endpoint.
+            funnels. Supports pagination with `limit` and `offset`, case-insensitive name filtering with `search`,
+            filtering by creator with `created_by` (comma-separated user ids), filtering by tag with `tags` (a
+            JSON-encoded array of tag names), and sorting with `ordering`. Projects can have thousands of actions, so
+            pass `limit` plus the relevant filters rather than fetching every action at once.
         ui_app: action-list
     actions-references-list:
         operation: actions_references_list

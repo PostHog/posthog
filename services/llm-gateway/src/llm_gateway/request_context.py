@@ -20,6 +20,8 @@ POSTHOG_FLAG_PREFIX = "x-posthog-flag-"
 POSTHOG_PROVIDER_HEADER = "x-posthog-provider"
 POSTHOG_USE_BEDROCK_FALLBACK_HEADER = "x-posthog-use-bedrock-fallback"
 
+_VALID_PROVIDERS = ("anthropic", "bedrock", "cloudflare")
+
 
 @dataclass
 class RequestContext:
@@ -34,6 +36,7 @@ throttle_runner_var: ContextVar[ThrottleRunner | None] = ContextVar("throttle_ru
 throttle_context_var: ContextVar[ThrottleContext | None] = ContextVar("throttle_context", default=None)
 auth_user_var: ContextVar[AuthenticatedUser | None] = ContextVar("auth_user", default=None)
 time_to_first_token_var: ContextVar[float | None] = ContextVar("time_to_first_token", default=None)
+effort_var: ContextVar[str | None] = ContextVar("effort", default=None)
 
 
 def get_request_context() -> RequestContext | None:
@@ -111,13 +114,12 @@ def extract_posthog_provider_from_headers(request: Request) -> str | None:
     if provider is None:
         return None
 
+    expected = f"Expected one of: {', '.join(_VALID_PROVIDERS)}."
     normalized_provider = provider.strip().lower()
     if not normalized_provider:
-        raise ValueError(f"Invalid {POSTHOG_PROVIDER_HEADER} header value. Expected one of: anthropic, bedrock.")
-    if normalized_provider not in {"anthropic", "bedrock"}:
-        raise ValueError(
-            f"Invalid {POSTHOG_PROVIDER_HEADER} header value '{provider}'. Expected one of: anthropic, bedrock."
-        )
+        raise ValueError(f"Invalid {POSTHOG_PROVIDER_HEADER} header value. {expected}")
+    if normalized_provider not in _VALID_PROVIDERS:
+        raise ValueError(f"Invalid {POSTHOG_PROVIDER_HEADER} header value '{provider}'. {expected}")
     return normalized_provider
 
 
@@ -165,6 +167,14 @@ def get_time_to_first_token() -> float | None:
 
 def set_time_to_first_token(ttft: float) -> None:
     time_to_first_token_var.set(ttft)
+
+
+def get_effort() -> str | None:
+    return effort_var.get()
+
+
+def set_effort(effort: str | None) -> None:
+    effort_var.set(effort)
 
 
 async def record_cost(cost: float, end_user_id: str | None = None) -> None:

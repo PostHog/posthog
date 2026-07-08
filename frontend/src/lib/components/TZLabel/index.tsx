@@ -11,16 +11,37 @@ import { dayjs } from 'lib/dayjs'
 import { useOnMountEffect } from 'lib/hooks/useOnMountEffect'
 import { usePageVisibility } from 'lib/hooks/usePageVisibility'
 import { IconLinux, IconWeb } from 'lib/lemon-ui/icons'
-import { humanFriendlyDetailedTime, shortTimeZone } from 'lib/utils'
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
 import { cn } from 'lib/utils/css-classes'
+import { humanFriendlyDetailedTime } from 'lib/utils/datetime'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
+import { shortTimeZone } from 'lib/utils/timezones'
 import { urls } from 'scenes/urls'
 
 import { teamLogic } from '../../../scenes/teamLogic'
 
 const BASE_OUTPUT_FORMAT = 'ddd, MMM D, YYYY h:mm A'
 const BASE_OUTPUT_FORMAT_WITH_SECONDS = 'ddd, MMM D, YYYY h:mm:ss A'
+
+// One shared 1s ticker for every mounted TZLabel: a table can render hundreds of them, and an
+// interval per instance means hundreds of timer wake-ups per second for text that changes about
+// once a minute. The interval only runs while at least one label is subscribed.
+const tickerListeners = new Set<() => void>()
+let tickerId: number | null = null
+
+function subscribeToTicker(listener: () => void): () => void {
+    tickerListeners.add(listener)
+    if (tickerId === null) {
+        tickerId = window.setInterval(() => tickerListeners.forEach((tick) => tick()), 1000)
+    }
+    return () => {
+        tickerListeners.delete(listener)
+        if (tickerListeners.size === 0 && tickerId !== null) {
+            window.clearInterval(tickerId)
+            tickerId = null
+        }
+    }
+}
 
 export type TZLabelProps = Omit<LemonDropdownProps, 'overlay' | 'trigger' | 'children'> & {
     time: string | dayjs.Dayjs
@@ -218,7 +239,7 @@ const TZLabelRaw = forwardRef<HTMLElement, TZLabelProps>(function TZLabelRaw(
 
     const { isVisible: isPageVisible } = usePageVisibility()
 
-    // NOTE: This is an optimization to make sure we don't needlessly re-render the component every second.
+    // NOTE: The guarded setState makes sure we don't needlessly re-render the component every second.
     useEffect(() => {
         if (!isPageVisible) {
             return
@@ -229,10 +250,9 @@ const TZLabelRaw = forwardRef<HTMLElement, TZLabelProps>(function TZLabelRaw(
             setFormattedContent((current) => (newContent !== current ? newContent : current))
         }
 
-        const interval = setInterval(run, 1000)
         run()
 
-        return () => clearInterval(interval)
+        return subscribeToTicker(run)
     }, [displayTime, format, isPageVisible])
 
     const innerContent = children ?? (

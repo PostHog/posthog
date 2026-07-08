@@ -1,13 +1,13 @@
 import { TaxonomicFilterGroup, TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
+import { isKeyOf } from 'lib/utils/guards'
 import {
     allOperatorsMapping,
-    capitalizeFirstLetter,
     cohortOperatorMap,
     isOperatorCohort,
     isOperatorFlag,
     isOperatorMulti,
-    isKeyOf,
-} from 'lib/utils'
+} from 'lib/utils/operators'
+import { capitalizeFirstLetter } from 'lib/utils/strings'
 
 import { propertyDefinitionsModelType } from '~/models/propertyDefinitionsModelType'
 import { extractExpressionComment } from '~/queries/nodes/DataTable/utils'
@@ -32,7 +32,9 @@ import {
     HogQLPropertyFilter,
     LogEntryPropertyFilter,
     LogPropertyFilter,
+    PersonMetadataPropertyFilter,
     PersonPropertyFilter,
+    PropertyDefinition,
     PropertyDefinitionType,
     PropertyFilterType,
     PropertyFilterValue,
@@ -114,6 +116,7 @@ export const PROPERTY_FILTER_TYPE_TO_TAXONOMIC_FILTER_GROUP_TYPE: Record<Propert
         [PropertyFilterType.Event]: TaxonomicFilterGroupType.EventProperties,
         [PropertyFilterType.InternalEvent]: TaxonomicFilterGroupType.EventProperties,
         [PropertyFilterType.EventMetadata]: TaxonomicFilterGroupType.EventMetadata,
+        [PropertyFilterType.PersonMetadata]: TaxonomicFilterGroupType.PersonMetadata,
         [PropertyFilterType.Feature]: TaxonomicFilterGroupType.EventFeatureFlags,
         [PropertyFilterType.Cohort]: TaxonomicFilterGroupType.Cohorts,
         [PropertyFilterType.Element]: TaxonomicFilterGroupType.Elements,
@@ -227,8 +230,23 @@ export function isValidPropertyFilter(
 export function isCohortPropertyFilter(filter?: AnyFilterLike | null): filter is CohortPropertyFilter {
     return filter?.type === PropertyFilterType.Cohort
 }
+
+// Filter keys whose value we offer a read-only group-info card for on hover.
+// '$group_key' is the group's true identity (always a group key). 'id' is a
+// group *property* that conventionally holds the group key (e.g. CRM-imported
+// groups), so a card is a useful confirmation there too — but it is display
+// only: the lookup falls back to the plain label when the value isn't a real
+// group key, and we deliberately do NOT swap the value editor for these (only
+// the true '$group_key' identity gets the group picker). 'id' is also the
+// Cohort key, so the Group type gate matters.
+export function isGroupCardFilterKey(key: string | number | undefined, type: PropertyFilterType | undefined): boolean {
+    return type === PropertyFilterType.Group && (key === '$group_key' || key === 'id')
+}
 export function isEventMetadataPropertyFilter(filter?: AnyFilterLike | null): filter is EventMetadataPropertyFilter {
     return filter?.type === PropertyFilterType.EventMetadata
+}
+export function isPersonMetadataPropertyFilter(filter?: AnyFilterLike | null): filter is PersonMetadataPropertyFilter {
+    return filter?.type === PropertyFilterType.PersonMetadata
 }
 export function isRevenueAnalyticsPropertyFilter(
     filter?: AnyFilterLike | null
@@ -319,6 +337,7 @@ export function isAnyPropertyfilter(filter?: AnyFilterLike | null): filter is An
     return (
         isEventPropertyFilter(filter) ||
         isPersonPropertyFilter(filter) ||
+        isPersonMetadataPropertyFilter(filter) ||
         isEventMetadataPropertyFilter(filter) ||
         isRevenueAnalyticsPropertyFilter(filter) ||
         isElementPropertyFilter(filter) ||
@@ -339,6 +358,7 @@ export function isPropertyFilterWithOperator(
 ): filter is
     | EventPropertyFilter
     | PersonPropertyFilter
+    | PersonMetadataPropertyFilter
     | EventMetadataPropertyFilter
     | RevenueAnalyticsPropertyFilter
     | ElementPropertyFilter
@@ -357,6 +377,7 @@ export function isPropertyFilterWithOperator(
         !isPropertyGroupFilterLike(filter) &&
         (isEventPropertyFilter(filter) ||
             isPersonPropertyFilter(filter) ||
+            isPersonMetadataPropertyFilter(filter) ||
             isEventMetadataPropertyFilter(filter) ||
             isRevenueAnalyticsPropertyFilter(filter) ||
             isElementPropertyFilter(filter) ||
@@ -393,6 +414,7 @@ const propertyFilterMapping: Partial<Record<PropertyFilterType, TaxonomicFilterG
     [PropertyFilterType.InternalEvent]: TaxonomicFilterGroupType.EventProperties,
     [PropertyFilterType.Feature]: TaxonomicFilterGroupType.EventFeatureFlags,
     [PropertyFilterType.EventMetadata]: TaxonomicFilterGroupType.EventMetadata,
+    [PropertyFilterType.PersonMetadata]: TaxonomicFilterGroupType.PersonMetadata,
     [PropertyFilterType.Cohort]: TaxonomicFilterGroupType.Cohorts,
     [PropertyFilterType.Element]: TaxonomicFilterGroupType.Elements,
     [PropertyFilterType.Session]: TaxonomicFilterGroupType.SessionProperties,
@@ -448,6 +470,7 @@ export function propertyFilterTypeToPropertyDefinitionType(
         [PropertyFilterType.Event]: PropertyDefinitionType.Event,
         [PropertyFilterType.EventMetadata]: PropertyDefinitionType.EventMetadata,
         [PropertyFilterType.Person]: PropertyDefinitionType.Person,
+        [PropertyFilterType.PersonMetadata]: PropertyDefinitionType.PersonMetadata,
         [PropertyFilterType.Group]: PropertyDefinitionType.Group,
         [PropertyFilterType.Session]: PropertyDefinitionType.Session,
         [PropertyFilterType.Recording]: PropertyDefinitionType.Session,
@@ -475,6 +498,9 @@ export function taxonomicFilterTypeToPropertyFilterType(
     }
     if (filterType === TaxonomicFilterGroupType.EventMetadata) {
         return PropertyFilterType.EventMetadata
+    }
+    if (filterType === TaxonomicFilterGroupType.PersonMetadata) {
+        return PropertyFilterType.PersonMetadata
     }
     if (
         filterType?.startsWith(TaxonomicFilterGroupType.GroupsPrefix) ||
@@ -542,6 +568,33 @@ export function taxonomicFilterTypeToPropertyFilterType(
         | undefined
 }
 
+/**
+ * Recover a property definition's id. Pinned/default taxonomic items are stored as
+ * `{ name }` with no saved id, so fall back to the canonical `propertyDefinitionsModel`
+ * (keyed by name + type) instead of building a link with an `undefined` id. Returns
+ * `undefined` when the id can't be resolved so callers can hide the link. Shared by the
+ * legacy DefinitionPopover and the quill rebuild's PreviewPane to keep them in lockstep.
+ */
+export function resolvePropertyDefinitionId(
+    definition: Pick<PropertyDefinition, 'id' | 'name'>,
+    taxonomicGroupType: TaxonomicFilterGroupType,
+    getPropertyDefinition: propertyDefinitionsModelType['values']['getPropertyDefinition']
+): PropertyDefinition['id'] | undefined {
+    if (definition.id) {
+        return definition.id
+    }
+    if (!definition.name) {
+        return undefined
+    }
+    const propertyFilterType = taxonomicFilterTypeToPropertyFilterType(taxonomicGroupType)
+    // `null` only when the taxonomic type has no property-filter equivalent;
+    // propertyFilterTypeToPropertyDefinitionType itself is total (defaults to Event).
+    const propertyDefinitionType = propertyFilterType
+        ? propertyFilterTypeToPropertyDefinitionType(propertyFilterType)
+        : null
+    return propertyDefinitionType ? getPropertyDefinition(definition.name, propertyDefinitionType)?.id : undefined
+}
+
 export function isEmptyProperty(property: AnyPropertyFilter): boolean {
     return (
         property.value === null ||
@@ -601,6 +654,8 @@ export function createDefaultPropertyFilter(
     const propertyValueType = describeProperty(propertyKey, apiType, taxonomicGroup.groupTypeIndex)
     const property_name_to_default_operator_override: Partial<Record<string | number, PropertyOperator>> = {
         $active_feature_flags: PropertyOperator.IContains,
+        $current_url: PropertyOperator.IContains,
+        $pathname: PropertyOperator.IContains,
     }
     const propValueTypeToDefaultOpOverride = {
         [PropertyType.Duration]: PropertyOperator.GreaterThan,

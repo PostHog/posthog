@@ -8,7 +8,12 @@ import { apiMutator } from '../../../../frontend/src/lib/api-orval-mutator'
  * PostHog API - generated
  * OpenAPI spec version: 1.0.0
  */
-import type { BatchImportApi, PatchedBatchImportApi } from './api.schemas'
+import type {
+    BatchImportApi,
+    ManagedMigrationsListParams,
+    PaginatedBatchImportListApi,
+    PatchedBatchImportApi,
+} from './api.schemas'
 
 // https://stackoverflow.com/questions/49579094/typescript-conditional-types-filter-out-readonly-properties-pick-only-requir/49579497#49579497
 type IfEquals<X, Y, A = X, B = never> = (<T>() => T extends X ? 1 : 2) extends <T>() => T extends Y ? 1 : 2 ? A : B
@@ -26,6 +31,56 @@ type NonReadonly<T> = [T] extends [UnionToIntersection<T>]
           [P in keyof Writable<T>]: T[P] extends object ? NonReadonly<NonNullable<T[P]>> : T[P]
       }
     : DistributeReadOnlyOverUnions<T>
+
+export const getManagedMigrationsListUrl = (projectId: string, params?: ManagedMigrationsListParams) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/managed_migrations/?${stringifiedParams}`
+        : `/api/projects/${projectId}/managed_migrations/`
+}
+
+/**
+ * List managed migrations using the response serializer
+ */
+export const managedMigrationsList = async (
+    projectId: string,
+    params?: ManagedMigrationsListParams,
+    options?: RequestInit
+): Promise<PaginatedBatchImportListApi> => {
+    return apiMutator<PaginatedBatchImportListApi>(getManagedMigrationsListUrl(projectId, params), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getManagedMigrationsCreateUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/managed_migrations/`
+}
+
+/**
+ * Create a new managed migration/batch import.
+ */
+export const managedMigrationsCreate = async (
+    projectId: string,
+    batchImportApi?: NonReadonly<BatchImportApi>,
+    options?: RequestInit
+): Promise<BatchImportApi> => {
+    return apiMutator<BatchImportApi>(getManagedMigrationsCreateUrl(projectId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(batchImportApi),
+    })
+}
 
 export const getManagedMigrationsRetrieveUrl = (projectId: string, id: string) => {
     return `/api/projects/${projectId}/managed_migrations/${id}/`

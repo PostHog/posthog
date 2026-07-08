@@ -5,11 +5,11 @@ import React, { useEffect, useState } from 'react'
 import { IconExpand45, IconInfo, IconLineGraph, IconOpenSidebar, IconX } from '@posthog/icons'
 import { LemonSegmentedButton, LemonSegmentedDropdown, LemonSkeleton } from '@posthog/lemon-ui'
 
-import { keyBinds } from 'lib/components/AppShortcuts/shortcuts'
-import { useAppShortcut } from 'lib/components/AppShortcuts/useAppShortcut'
 import { IntervalFilterStandalone } from 'lib/components/IntervalFilter/IntervalFilter'
 import { ProductIntroduction } from 'lib/components/ProductIntroduction/ProductIntroduction'
 import { SetupTaskId, globalSetupLogic } from 'lib/components/ProductSetup'
+import { keyBinds } from 'lib/components/Shortcuts/shortcuts'
+import { useShortcut } from 'lib/components/Shortcuts/useShortcut'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { useOnMountEffect } from 'lib/hooks/useOnMountEffect'
 import { IconOpenInNew, IconTableChart } from 'lib/lemon-ui/icons'
@@ -21,13 +21,14 @@ import { LemonTag } from 'lib/lemon-ui/LemonTag'
 import { Link, PostHogComDocsURL } from 'lib/lemon-ui/Link/Link'
 import { Popover } from 'lib/lemon-ui/Popover'
 import { FeatureFlagsSet, featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { isNotNil } from 'lib/utils'
+import { isNotNil } from 'lib/utils/guards'
 import { addProductIntentForCrossSell } from 'lib/utils/product-intents'
 import { Scene } from 'scenes/sceneTypes'
 import { QuickSurveyType } from 'scenes/surveys/quick-create/types'
 import { QuickSurveyModal } from 'scenes/surveys/QuickSurveyModal'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
+import { WebAnalyticsAchievementsModal } from 'scenes/web-analytics/achievements/WebAnalyticsAchievementsModal'
 import {
     ProductTab,
     QueryTile,
@@ -40,6 +41,7 @@ import {
     tabSplitIndicesMap,
 } from 'scenes/web-analytics/common'
 import { PageReports, PageReportsFilters } from 'scenes/web-analytics/PageReports'
+import { ShareNudgePrompt } from 'scenes/web-analytics/ShareNudgePrompt'
 import { WebAnalyticsErrorTrackingTile } from 'scenes/web-analytics/tiles/WebAnalyticsErrorTracking'
 import { WebAnalyticsRecordingsTile } from 'scenes/web-analytics/tiles/WebAnalyticsRecordings'
 import { WebQuery } from 'scenes/web-analytics/tiles/WebAnalyticsTile'
@@ -47,6 +49,7 @@ import { WebAnalyticsHealthCheck } from 'scenes/web-analytics/WebAnalyticsHealth
 import { webAnalyticsLoadTimeLogic } from 'scenes/web-analytics/webAnalyticsLoadTimeLogic'
 import { webAnalyticsLogic } from 'scenes/web-analytics/webAnalyticsLogic'
 import { WebAnalyticsModal } from 'scenes/web-analytics/WebAnalyticsModal'
+import { WebAnalyticsShareColleagueBanner } from 'scenes/web-analytics/WebAnalyticsShareColleagueBanner'
 import { WebTileHeader } from 'scenes/web-analytics/WebTileHeader'
 import { useWebTileOpenInsight, useWebTileOverflowMenuItems } from 'scenes/web-analytics/webTileHeaderHooks'
 
@@ -671,8 +674,6 @@ const BotAnalyticsTiles = (): JSX.Element => {
     // Drives bot tab off its own logic so bot filters don't pollute the regular Analytics tab.
     useMountedLogic(botAnalyticsLogic)
     const { tiles } = useValues(botAnalyticsLogic)
-    const { featureFlags } = useValues(featureFlagLogic)
-    const showLiveTiles = !!featureFlags[FEATURE_FLAGS.WEB_ANALYTICS_LIVE_METRICS]
 
     return (
         <>
@@ -681,7 +682,7 @@ const BotAnalyticsTiles = (): JSX.Element => {
                 results. For better coverage, send server-side HTTP logs as <code>$http_log</code> events — most bots
                 don't execute JavaScript, so client-side tracking alone misses the majority of crawler traffic.
             </LemonBanner>
-            {showLiveTiles && <LiveBotTiles />}
+            <LiveBotTiles />
             <Tiles tiles={tiles} />
         </>
     )
@@ -702,11 +703,7 @@ const HealthTabLabel = (): JSX.Element => {
     )
 }
 
-const healthTab = (featureFlags: FeatureFlagsSet): { key: ProductTab; label: JSX.Element; link: string }[] => {
-    if (!featureFlags[FEATURE_FLAGS.WEB_ANALYTICS_HEALTH_TAB]) {
-        return []
-    }
-
+const healthTab = (): { key: ProductTab; label: JSX.Element; link: string }[] => {
     return [
         {
             key: ProductTab.HEALTH,
@@ -716,11 +713,7 @@ const healthTab = (featureFlags: FeatureFlagsSet): { key: ProductTab; label: JSX
     ]
 }
 
-const liveTab = (featureFlags: FeatureFlagsSet): { key: ProductTab; label: string | JSX.Element; link: string }[] => {
-    if (!featureFlags[FEATURE_FLAGS.WEB_ANALYTICS_LIVE_METRICS]) {
-        return []
-    }
-
+const liveTab = (): { key: ProductTab; label: string | JSX.Element; link: string }[] => {
     return [
         {
             key: ProductTab.LIVE,
@@ -783,6 +776,7 @@ export const WebAnalyticsDashboard = (): JSX.Element => {
             <BindLogic logic={dataNodeCollectionLogic} props={{ key: WEB_ANALYTICS_DATA_COLLECTION_NODE_ID }}>
                 <WebAnalyticsLoadTimeTracker />
                 <WebAnalyticsModal />
+                <WebAnalyticsAchievementsModal />
                 <WebAnalyticsSurveyModal />
                 <SceneContent className="WebAnalyticsDashboard gap-y-2">
                     <>
@@ -790,6 +784,8 @@ export const WebAnalyticsDashboard = (): JSX.Element => {
                         {/* Empty fragment so tabs are not part of the sticky bar */}
                         <Filters tabs={<></>} />
 
+                        <WebAnalyticsShareColleagueBanner />
+                        <ShareNudgePrompt />
                         <WebAnalyticsHealthCheck />
                         <MainContent />
                     </>
@@ -811,7 +807,7 @@ const WebAnalyticsTabs = (): JSX.Element => {
     const { setProductTab } = useActions(webAnalyticsLogic)
 
     // Tab switching shortcuts
-    useAppShortcut({
+    useShortcut({
         name: 'WebAnalyticsTab1',
         keybind: [keyBinds.tab1],
         intent: 'Web analytics tab',
@@ -819,7 +815,7 @@ const WebAnalyticsTabs = (): JSX.Element => {
         callback: () => setProductTab(ProductTab.ANALYTICS),
         scope: Scene.WebAnalytics,
     })
-    useAppShortcut({
+    useShortcut({
         name: 'WebAnalyticsTab2',
         keybind: [keyBinds.tab2],
         intent: 'Web vitals tab',
@@ -827,7 +823,7 @@ const WebAnalyticsTabs = (): JSX.Element => {
         callback: () => setProductTab(ProductTab.WEB_VITALS),
         scope: Scene.WebAnalytics,
     })
-    useAppShortcut({
+    useShortcut({
         name: 'WebAnalyticsTab3',
         keybind: [keyBinds.tab3],
         intent: 'Page reports tab',
@@ -835,14 +831,13 @@ const WebAnalyticsTabs = (): JSX.Element => {
         callback: () => setProductTab(ProductTab.PAGE_REPORTS),
         scope: Scene.WebAnalytics,
     })
-    useAppShortcut({
+    useShortcut({
         name: 'WebAnalyticsTab4',
         keybind: [keyBinds.tab4],
         intent: 'Health tab',
         interaction: 'function',
         callback: () => setProductTab(ProductTab.HEALTH),
         scope: Scene.WebAnalytics,
-        disabled: !featureFlags[FEATURE_FLAGS.WEB_ANALYTICS_HEALTH_TAB],
     })
 
     useEffect(() => {
@@ -862,9 +857,9 @@ const WebAnalyticsTabs = (): JSX.Element => {
                 { key: ProductTab.ANALYTICS, label: 'Web analytics', link: '/web' },
                 { key: ProductTab.WEB_VITALS, label: 'Web vitals', link: '/web/web-vitals' },
                 { key: ProductTab.PAGE_REPORTS, label: 'Page reports', link: '/web/page-reports' },
-                ...liveTab(featureFlags),
+                ...liveTab(),
                 ...botAnalyticsTab(featureFlags),
-                ...healthTab(featureFlags),
+                ...healthTab(),
             ]}
             sceneInset
             className="-mt-4"

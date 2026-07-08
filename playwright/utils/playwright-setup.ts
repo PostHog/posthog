@@ -66,6 +66,7 @@ export interface PlaywrightWorkspaceSetupData {
     use_current_time?: boolean
     skip_onboarding?: boolean
     no_demo_data?: boolean
+    staff?: boolean
     insight_variables?: PlaywrightSetupVariable[]
     insights?: PlaywrightSetupInsight[]
     dashboards?: PlaywrightSetupDashboard[]
@@ -274,15 +275,32 @@ export class PlaywrightSetup {
 
     async login(page: Page, workspace: PlaywrightWorkspaceSetupResult): Promise<void> {
         await page.goto(`${this.baseURL}/login`)
+        await page.waitForLoadState('networkidle')
         await page.evaluate(
             async ({ email, password }) => {
-                await fetch('/api/login/', {
-                    method: 'POST',
-                    headers: {
-                        'Content-Type': 'application/json',
-                    },
-                    body: JSON.stringify({ email, password }),
-                })
+                const maxAttempts = 3
+                for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+                    try {
+                        const res = await fetch('/api/login/', {
+                            method: 'POST',
+                            headers: {
+                                'Content-Type': 'application/json',
+                            },
+                            body: JSON.stringify({ email, password }),
+                        })
+                        if (res.ok) {
+                            return
+                        }
+                        if (attempt === maxAttempts || res.status < 500) {
+                            throw new Error(`Login failed with status ${res.status}`)
+                        }
+                    } catch (e) {
+                        if (attempt === maxAttempts) {
+                            throw e
+                        }
+                    }
+                    await new Promise((r) => setTimeout(r, 500 * attempt))
+                }
             },
             {
                 email: workspace.user_email,
@@ -302,6 +320,26 @@ export class PlaywrightSetup {
 
         await page.goto(`${this.baseURL}/project/${workspace.team_id}`)
     }
+
+    /**
+     * Seed a single HogFunctionTemplate row. Templates are global (not team-scoped) and
+     * Playwright CI doesn't run sync_hog_function_templates, so any test that exercises
+     * the workflow editor or hog function configuration must seed the templates it needs.
+     * Idempotent across parallel workers.
+     */
+    async seedHogFunctionTemplate(data: {
+        template_id: string
+        name?: string
+        status?: 'alpha' | 'beta' | 'stable' | 'deprecated' | 'hidden' | 'coming_soon' | 'client_side'
+        template_type?: 'destination' | 'transformation' | 'source_webhook' | 'site_destination' | 'site_app'
+        inputs_schema?: Array<Record<string, any>>
+    }): Promise<{ template_id: string; created: boolean }> {
+        const result = await this.callSetupEndpoint('hog_function_template', { data })
+        if (!result.success) {
+            throw new Error(`Failed to seed hog function template: ${result.error}`)
+        }
+        return result.result as { template_id: string; created: boolean }
+    }
 }
 
 /**
@@ -314,10 +352,7 @@ export function createPlaywrightSetup(baseURL?: string): PlaywrightSetup {
 /**
  * One-off workspace creation (for simple cases)
  */
-export async function createTestWorkspace(
-    setupType: string,
-    data?: Record<string, any>
-): Promise<TestSetupResponse> {
+export async function createTestWorkspace(setupType: string, data?: Record<string, any>): Promise<TestSetupResponse> {
     const playwrightSetup = createPlaywrightSetup()
     try {
         return await playwrightSetup.callSetupEndpoint(setupType, { data })

@@ -117,6 +117,12 @@ class TestE2EProvisioningFlow(ProvisioningTestBase):
         parsed = urlparse(deep_link_url)
         deep_link_token = parse_qs(parsed.query)["token"][0]
 
+        # In prod the user verifies the email via the welcome reset link (which flips
+        # is_email_verified=True) before any deep-link login works. Simulate that here.
+        provisioned_user = User.objects.get(email="e2e-test@example.com")
+        provisioned_user.is_email_verified = True
+        provisioned_user.save(update_fields=["is_email_verified"])
+
         login_res = self.client.get(f"/agentic/login?token={deep_link_token}")
         assert login_res.status_code == 302
         assert "/project/" in login_res["Location"]

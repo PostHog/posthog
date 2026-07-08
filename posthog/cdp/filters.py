@@ -6,12 +6,12 @@ from posthog.hogql.compiler.bytecode import create_bytecode
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.parser import parse_expr
 from posthog.hogql.property import action_to_expr, ast, property_to_expr
-from posthog.hogql.visitor import TraversingVisitor
+from posthog.hogql.visitor import CloningVisitor, TraversingVisitor
 
-from posthog.models.cohort.cohort import Cohort
 from posthog.models.team.team import Team
 
 from products.actions.backend.models.action import Action
+from products.cohorts.backend.models.cohort import Cohort
 
 COHORT_FILTER_TYPES = frozenset({"cohort", "static-cohort", "precalculated-cohort", "dynamic-cohort"})
 
@@ -274,6 +274,34 @@ def _internal_user_settings_url(team_id: int) -> str:
     return f"{site_url}/project/{team_id}/settings/project#internal-user-filtering"
 
 
+class _LowerConstantMembership(CloningVisitor):
+    """Rewrite `x IN (c1, c2, ...)` / `x NOT IN (...)` over constant literals into a coercing
+    OR-of-EQ / AND-of-NotEq chain. The Hog VM evaluates the IN/NOT_IN opcode with strict equality
+    (no type coercion), unlike EQ/NotEq which unify operand types first. So a numeric property — e.g.
+    a survey rating sent as a number — never matches a list of string literals like ("1".."6"), and
+    the condition silently falls through. Scoped to real-time filter bytecode: the shared Hog
+    compiler, the ClickHouse query path, and the JS-transpiled filter path are all untouched."""
+
+    def visit_compare_operation(self, node: ast.CompareOperation) -> ast.Expr:
+        if node.op in (ast.CompareOperationOp.In, ast.CompareOperationOp.NotIn) and isinstance(
+            node.right, ast.Tuple | ast.Array
+        ):
+            elements = node.right.exprs
+            if elements and all(isinstance(element, ast.Constant) for element in elements):
+                eq_op = (
+                    ast.CompareOperationOp.Eq if node.op == ast.CompareOperationOp.In else ast.CompareOperationOp.NotEq
+                )
+                comparisons: list[ast.Expr] = [
+                    ast.CompareOperation(op=eq_op, left=self.visit(node.left), right=self.visit(element))
+                    for element in elements
+                ]
+                if len(comparisons) == 1:
+                    return comparisons[0]
+                # IN → "matches any" (OR); NOT IN → "matches none" (AND).
+                return ast.Or(exprs=comparisons) if node.op == ast.CompareOperationOp.In else ast.And(exprs=comparisons)
+        return super().visit_compare_operation(node)
+
+
 def compile_filters_bytecode(filters: Optional[dict], team: Team, actions: Optional[dict[int, Action]] = None) -> dict:
     filters = filters or {}
     try:
@@ -281,6 +309,7 @@ def compile_filters_bytecode(filters: Optional[dict], team: Team, actions: Optio
         if SelectFinder.has_select(expr):
             raise Exception("Select queries are not allowed in filters")
 
+        expr = _LowerConstantMembership().visit(expr)
         context = HogQLContext(team_id=team.id)
         filters["bytecode"] = create_bytecode(expr, context=context).bytecode
 

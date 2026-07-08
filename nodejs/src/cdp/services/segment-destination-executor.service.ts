@@ -1,8 +1,9 @@
 import { Histogram } from 'prom-client'
 import { ReadableStream } from 'stream/web'
 
-import { parseJSON } from '../../utils/json-parse'
-import { FetchOptions, FetchResponse, Response } from '../../utils/request'
+import { parseJSON } from '~/common/utils/json-parse'
+import { FetchOptions, FetchResponse, Response } from '~/common/utils/request'
+
 import { LegacyPluginLogger } from '../legacy-plugins/types'
 import { SEGMENT_DESTINATIONS_BY_ID } from '../segment/segment-templates'
 import { CyclotronJobInvocationHogFunction, CyclotronJobInvocationResult } from '../types'
@@ -75,6 +76,9 @@ const convertFetchResponse = <Data = unknown>(response: FetchResponse, text: str
         clone: () => modifiedResponse as unknown as Response,
         bodyUsed: false,
         arrayBuffer: () => {
+            throw new Error('Not implemented')
+        },
+        bytes: () => {
             throw new Error('Not implemented')
         },
         blob: () => {

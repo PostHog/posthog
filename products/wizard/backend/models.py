@@ -39,5 +39,10 @@ class WizardSession(UUIDModel, TeamScopedRootMixin):
             # to optimize fetching the latest session
             models.Index(
                 fields=["team", "workflow_id", "skill_id", "-started_at"],
-            )
+            ),
+            # the detector queries team + workflow_id (no skill_id) ordered by started_at desc
+            models.Index(
+                fields=["team", "workflow_id", "-started_at"],
+                name="wizard_sess_team_wf_start_idx",
+            ),
         ]

@@ -1,11 +1,11 @@
 from django.contrib.auth.models import AbstractBaseUser
 from django.contrib.auth.tokens import PasswordResetTokenGenerator
 
-import posthoganalytics
 from rest_framework import exceptions
 
 from posthog.exceptions_capture import capture_exception
 from posthog.models.user import User
+from posthog.ph_client import feature_enabled_or_false
 from posthog.tasks.email import send_email_verification
 
 VERIFICATION_DISABLED_FLAG = "email-verification-disabled"
@@ -13,7 +13,7 @@ VERIFICATION_DISABLED_FLAG = "email-verification-disabled"
 
 def is_email_verification_disabled(user: User) -> bool:
     # using disabled here so that the default state (if no flag exists) is that verification defaults to ON.
-    return user.organization is not None and posthoganalytics.feature_enabled(
+    return user.organization is not None and feature_enabled_or_false(
         VERIFICATION_DISABLED_FLAG,
         str(user.organization.id),
         groups={"organization": str(user.organization.id)},

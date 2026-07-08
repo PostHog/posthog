@@ -3,45 +3,10 @@
  * MCP service uses these Zod schemas for generated tool handlers.
  * To regenerate: hogli build:openapi
  *
- * PostHog API - MCP 11 enabled ops
+ * PostHog API - MCP 10 enabled ops
  * OpenAPI spec version: 1.0.0
  */
 import * as zod from 'zod'
-
-/**
- * Paginated delivery history for a subscription. Requires premium subscriptions.
- * @summary List subscription deliveries
- */
-export const SubscriptionsDeliveriesListParams = /* @__PURE__ */ zod.object({
-    project_id: zod
-        .string()
-        .describe(
-            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
-        ),
-    subscription_id: zod.number(),
-})
-
-export const SubscriptionsDeliveriesListQueryParams = /* @__PURE__ */ zod.object({
-    cursor: zod.string().optional().describe('The pagination cursor value.'),
-    status: zod
-        .enum(['completed', 'failed', 'skipped', 'starting'])
-        .optional()
-        .describe('Return only deliveries in this run status (starting, completed, failed, or skipped).'),
-})
-
-/**
- * Fetch one delivery row by id.
- * @summary Retrieve subscription delivery
- */
-export const SubscriptionsDeliveriesRetrieveParams = /* @__PURE__ */ zod.object({
-    id: zod.string().describe('A UUID string identifying this subscription delivery.'),
-    project_id: zod
-        .string()
-        .describe(
-            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
-        ),
-    subscription_id: zod.number(),
-})
 
 /**
  * Retrieve a project and its settings.
@@ -98,6 +63,11 @@ export const organizationsProjectsPartialUpdateBodySessionRecordingMinimumDurati
 export const organizationsProjectsPartialUpdateBodySessionRecordingTriggerMatchTypeConfigMax = 24
 
 export const organizationsProjectsPartialUpdateBodyRecordingDomainsItemMax = 200
+
+export const organizationsProjectsPartialUpdateBodyMarketingAnalyticsConfigAttributionWindowDaysMax = 90
+
+export const organizationsProjectsPartialUpdateBodyDefaultDataThemeMin = -2147483648
+export const organizationsProjectsPartialUpdateBodyDefaultDataThemeMax = 2147483647
 
 export const OrganizationsProjectsPartialUpdateBody = /* @__PURE__ */ zod
     .object({
@@ -264,10 +234,422 @@ export const OrganizationsProjectsPartialUpdateBody = /* @__PURE__ */ zod
         conversations_settings: zod.unknown().optional(),
         logs_settings: zod.unknown().optional(),
         proactive_tasks_enabled: zod.boolean().nullish(),
+        revenue_analytics_config: zod
+            .object({
+                base_currency: zod
+                    .enum([
+                        'AED',
+                        'AFN',
+                        'ALL',
+                        'AMD',
+                        'ANG',
+                        'AOA',
+                        'ARS',
+                        'AUD',
+                        'AWG',
+                        'AZN',
+                        'BAM',
+                        'BBD',
+                        'BDT',
+                        'BGN',
+                        'BHD',
+                        'BIF',
+                        'BMD',
+                        'BND',
+                        'BOB',
+                        'BRL',
+                        'BSD',
+                        'BTC',
+                        'BTN',
+                        'BWP',
+                        'BYN',
+                        'BZD',
+                        'CAD',
+                        'CDF',
+                        'CHF',
+                        'CLP',
+                        'CNY',
+                        'COP',
+                        'CRC',
+                        'CVE',
+                        'CZK',
+                        'DJF',
+                        'DKK',
+                        'DOP',
+                        'DZD',
+                        'EGP',
+                        'ERN',
+                        'ETB',
+                        'EUR',
+                        'FJD',
+                        'GBP',
+                        'GEL',
+                        'GHS',
+                        'GIP',
+                        'GMD',
+                        'GNF',
+                        'GTQ',
+                        'GYD',
+                        'HKD',
+                        'HNL',
+                        'HRK',
+                        'HTG',
+                        'HUF',
+                        'IDR',
+                        'ILS',
+                        'INR',
+                        'IQD',
+                        'IRR',
+                        'ISK',
+                        'JMD',
+                        'JOD',
+                        'JPY',
+                        'KES',
+                        'KGS',
+                        'KHR',
+                        'KMF',
+                        'KRW',
+                        'KWD',
+                        'KYD',
+                        'KZT',
+                        'LAK',
+                        'LBP',
+                        'LKR',
+                        'LRD',
+                        'LTL',
+                        'LVL',
+                        'LSL',
+                        'LYD',
+                        'MAD',
+                        'MDL',
+                        'MGA',
+                        'MKD',
+                        'MMK',
+                        'MNT',
+                        'MOP',
+                        'MRU',
+                        'MTL',
+                        'MUR',
+                        'MVR',
+                        'MWK',
+                        'MXN',
+                        'MYR',
+                        'MZN',
+                        'NAD',
+                        'NGN',
+                        'NIO',
+                        'NOK',
+                        'NPR',
+                        'NZD',
+                        'OMR',
+                        'PAB',
+                        'PEN',
+                        'PGK',
+                        'PHP',
+                        'PKR',
+                        'PLN',
+                        'PYG',
+                        'QAR',
+                        'RON',
+                        'RSD',
+                        'RUB',
+                        'RWF',
+                        'SAR',
+                        'SBD',
+                        'SCR',
+                        'SDG',
+                        'SEK',
+                        'SGD',
+                        'SRD',
+                        'SSP',
+                        'STN',
+                        'SYP',
+                        'SZL',
+                        'THB',
+                        'TJS',
+                        'TMT',
+                        'TND',
+                        'TOP',
+                        'TRY',
+                        'TTD',
+                        'TWD',
+                        'TZS',
+                        'UAH',
+                        'UGX',
+                        'USD',
+                        'UYU',
+                        'UZS',
+                        'VES',
+                        'VND',
+                        'VUV',
+                        'WST',
+                        'XAF',
+                        'XCD',
+                        'XOF',
+                        'XPF',
+                        'YER',
+                        'ZAR',
+                        'ZMW',
+                    ])
+                    .optional()
+                    .describe(
+                        '* `AED` - AED\n* `AFN` - AFN\n* `ALL` - ALL\n* `AMD` - AMD\n* `ANG` - ANG\n* `AOA` - AOA\n* `ARS` - ARS\n* `AUD` - AUD\n* `AWG` - AWG\n* `AZN` - AZN\n* `BAM` - BAM\n* `BBD` - BBD\n* `BDT` - BDT\n* `BGN` - BGN\n* `BHD` - BHD\n* `BIF` - BIF\n* `BMD` - BMD\n* `BND` - BND\n* `BOB` - BOB\n* `BRL` - BRL\n* `BSD` - BSD\n* `BTC` - BTC\n* `BTN` - BTN\n* `BWP` - BWP\n* `BYN` - BYN\n* `BZD` - BZD\n* `CAD` - CAD\n* `CDF` - CDF\n* `CHF` - CHF\n* `CLP` - CLP\n* `CNY` - CNY\n* `COP` - COP\n* `CRC` - CRC\n* `CVE` - CVE\n* `CZK` - CZK\n* `DJF` - DJF\n* `DKK` - DKK\n* `DOP` - DOP\n* `DZD` - DZD\n* `EGP` - EGP\n* `ERN` - ERN\n* `ETB` - ETB\n* `EUR` - EUR\n* `FJD` - FJD\n* `GBP` - GBP\n* `GEL` - GEL\n* `GHS` - GHS\n* `GIP` - GIP\n* `GMD` - GMD\n* `GNF` - GNF\n* `GTQ` - GTQ\n* `GYD` - GYD\n* `HKD` - HKD\n* `HNL` - HNL\n* `HRK` - HRK\n* `HTG` - HTG\n* `HUF` - HUF\n* `IDR` - IDR\n* `ILS` - ILS\n* `INR` - INR\n* `IQD` - IQD\n* `IRR` - IRR\n* `ISK` - ISK\n* `JMD` - JMD\n* `JOD` - JOD\n* `JPY` - JPY\n* `KES` - KES\n* `KGS` - KGS\n* `KHR` - KHR\n* `KMF` - KMF\n* `KRW` - KRW\n* `KWD` - KWD\n* `KYD` - KYD\n* `KZT` - KZT\n* `LAK` - LAK\n* `LBP` - LBP\n* `LKR` - LKR\n* `LRD` - LRD\n* `LTL` - LTL\n* `LVL` - LVL\n* `LSL` - LSL\n* `LYD` - LYD\n* `MAD` - MAD\n* `MDL` - MDL\n* `MGA` - MGA\n* `MKD` - MKD\n* `MMK` - MMK\n* `MNT` - MNT\n* `MOP` - MOP\n* `MRU` - MRU\n* `MTL` - MTL\n* `MUR` - MUR\n* `MVR` - MVR\n* `MWK` - MWK\n* `MXN` - MXN\n* `MYR` - MYR\n* `MZN` - MZN\n* `NAD` - NAD\n* `NGN` - NGN\n* `NIO` - NIO\n* `NOK` - NOK\n* `NPR` - NPR\n* `NZD` - NZD\n* `OMR` - OMR\n* `PAB` - PAB\n* `PEN` - PEN\n* `PGK` - PGK\n* `PHP` - PHP\n* `PKR` - PKR\n* `PLN` - PLN\n* `PYG` - PYG\n* `QAR` - QAR\n* `RON` - RON\n* `RSD` - RSD\n* `RUB` - RUB\n* `RWF` - RWF\n* `SAR` - SAR\n* `SBD` - SBD\n* `SCR` - SCR\n* `SDG` - SDG\n* `SEK` - SEK\n* `SGD` - SGD\n* `SRD` - SRD\n* `SSP` - SSP\n* `STN` - STN\n* `SYP` - SYP\n* `SZL` - SZL\n* `THB` - THB\n* `TJS` - TJS\n* `TMT` - TMT\n* `TND` - TND\n* `TOP` - TOP\n* `TRY` - TRY\n* `TTD` - TTD\n* `TWD` - TWD\n* `TZS` - TZS\n* `UAH` - UAH\n* `UGX` - UGX\n* `USD` - USD\n* `UYU` - UYU\n* `UZS` - UZS\n* `VES` - VES\n* `VND` - VND\n* `VUV` - VUV\n* `WST` - WST\n* `XAF` - XAF\n* `XCD` - XCD\n* `XOF` - XOF\n* `XPF` - XPF\n* `YER` - YER\n* `ZAR` - ZAR\n* `ZMW` - ZMW'
+                    ),
+                events: zod.unknown().optional(),
+                goals: zod.unknown().optional(),
+                filter_test_accounts: zod.boolean().optional(),
+            })
+            .optional(),
+        marketing_analytics_config: zod
+            .object({
+                sources_map: zod.unknown().optional(),
+                conversion_goals: zod.unknown().optional(),
+                attribution_window_days: zod
+                    .number()
+                    .min(1)
+                    .max(organizationsProjectsPartialUpdateBodyMarketingAnalyticsConfigAttributionWindowDaysMax)
+                    .optional(),
+                attribution_mode: zod
+                    .enum(['first_touch', 'last_touch', 'linear', 'time_decay', 'position_based'])
+                    .optional()
+                    .describe(
+                        '* `first_touch` - First Touch\n* `last_touch` - Last Touch\n* `linear` - Linear\n* `time_decay` - Time Decay\n* `position_based` - Position Based'
+                    ),
+                campaign_name_mappings: zod.unknown().optional(),
+                custom_source_mappings: zod.unknown().optional(),
+                campaign_field_preferences: zod.unknown().optional(),
+            })
+            .optional(),
+        customer_analytics_config: zod
+            .object({
+                activity_event: zod.unknown().optional().describe('Event used as the activity signal (DAU/WAU/MAU).'),
+                signup_pageview_event: zod
+                    .unknown()
+                    .optional()
+                    .describe('Event used to count signup pageviews on dashboards.'),
+                signup_event: zod.unknown().optional().describe('Event used to count signups on dashboards.'),
+                subscription_event: zod
+                    .unknown()
+                    .optional()
+                    .describe('Event used to count subscriptions on dashboards.'),
+                payment_event: zod.unknown().optional().describe('Event used to count payments on dashboards.'),
+                account_group_type_index: zod
+                    .number()
+                    .nullish()
+                    .describe(
+                        'Index of the group type to treat as an Account in customer analytics. Must reference an existing group type configured for the project.'
+                    ),
+            })
+            .optional(),
+        workflows_config: zod
+            .object({
+                capture_workflows_engagement_events: zod
+                    .boolean()
+                    .optional()
+                    .describe(
+                        'When enabled, workflows engagement activity (email sends, opens, clicks, bounces, spam reports, unsubscribes) is captured as standard PostHog events ($workflows_email_*) alongside the existing workflow metrics.'
+                    ),
+            })
+            .optional(),
+        base_currency: zod
+            .enum([
+                'AED',
+                'AFN',
+                'ALL',
+                'AMD',
+                'ANG',
+                'AOA',
+                'ARS',
+                'AUD',
+                'AWG',
+                'AZN',
+                'BAM',
+                'BBD',
+                'BDT',
+                'BGN',
+                'BHD',
+                'BIF',
+                'BMD',
+                'BND',
+                'BOB',
+                'BRL',
+                'BSD',
+                'BTC',
+                'BTN',
+                'BWP',
+                'BYN',
+                'BZD',
+                'CAD',
+                'CDF',
+                'CHF',
+                'CLP',
+                'CNY',
+                'COP',
+                'CRC',
+                'CVE',
+                'CZK',
+                'DJF',
+                'DKK',
+                'DOP',
+                'DZD',
+                'EGP',
+                'ERN',
+                'ETB',
+                'EUR',
+                'FJD',
+                'GBP',
+                'GEL',
+                'GHS',
+                'GIP',
+                'GMD',
+                'GNF',
+                'GTQ',
+                'GYD',
+                'HKD',
+                'HNL',
+                'HRK',
+                'HTG',
+                'HUF',
+                'IDR',
+                'ILS',
+                'INR',
+                'IQD',
+                'IRR',
+                'ISK',
+                'JMD',
+                'JOD',
+                'JPY',
+                'KES',
+                'KGS',
+                'KHR',
+                'KMF',
+                'KRW',
+                'KWD',
+                'KYD',
+                'KZT',
+                'LAK',
+                'LBP',
+                'LKR',
+                'LRD',
+                'LTL',
+                'LVL',
+                'LSL',
+                'LYD',
+                'MAD',
+                'MDL',
+                'MGA',
+                'MKD',
+                'MMK',
+                'MNT',
+                'MOP',
+                'MRU',
+                'MTL',
+                'MUR',
+                'MVR',
+                'MWK',
+                'MXN',
+                'MYR',
+                'MZN',
+                'NAD',
+                'NGN',
+                'NIO',
+                'NOK',
+                'NPR',
+                'NZD',
+                'OMR',
+                'PAB',
+                'PEN',
+                'PGK',
+                'PHP',
+                'PKR',
+                'PLN',
+                'PYG',
+                'QAR',
+                'RON',
+                'RSD',
+                'RUB',
+                'RWF',
+                'SAR',
+                'SBD',
+                'SCR',
+                'SDG',
+                'SEK',
+                'SGD',
+                'SRD',
+                'SSP',
+                'STN',
+                'SYP',
+                'SZL',
+                'THB',
+                'TJS',
+                'TMT',
+                'TND',
+                'TOP',
+                'TRY',
+                'TTD',
+                'TWD',
+                'TZS',
+                'UAH',
+                'UGX',
+                'USD',
+                'UYU',
+                'UZS',
+                'VES',
+                'VND',
+                'VUV',
+                'WST',
+                'XAF',
+                'XCD',
+                'XOF',
+                'XPF',
+                'YER',
+                'ZAR',
+                'ZMW',
+            ])
+            .optional()
+            .describe(
+                '* `AED` - AED\n* `AFN` - AFN\n* `ALL` - ALL\n* `AMD` - AMD\n* `ANG` - ANG\n* `AOA` - AOA\n* `ARS` - ARS\n* `AUD` - AUD\n* `AWG` - AWG\n* `AZN` - AZN\n* `BAM` - BAM\n* `BBD` - BBD\n* `BDT` - BDT\n* `BGN` - BGN\n* `BHD` - BHD\n* `BIF` - BIF\n* `BMD` - BMD\n* `BND` - BND\n* `BOB` - BOB\n* `BRL` - BRL\n* `BSD` - BSD\n* `BTC` - BTC\n* `BTN` - BTN\n* `BWP` - BWP\n* `BYN` - BYN\n* `BZD` - BZD\n* `CAD` - CAD\n* `CDF` - CDF\n* `CHF` - CHF\n* `CLP` - CLP\n* `CNY` - CNY\n* `COP` - COP\n* `CRC` - CRC\n* `CVE` - CVE\n* `CZK` - CZK\n* `DJF` - DJF\n* `DKK` - DKK\n* `DOP` - DOP\n* `DZD` - DZD\n* `EGP` - EGP\n* `ERN` - ERN\n* `ETB` - ETB\n* `EUR` - EUR\n* `FJD` - FJD\n* `GBP` - GBP\n* `GEL` - GEL\n* `GHS` - GHS\n* `GIP` - GIP\n* `GMD` - GMD\n* `GNF` - GNF\n* `GTQ` - GTQ\n* `GYD` - GYD\n* `HKD` - HKD\n* `HNL` - HNL\n* `HRK` - HRK\n* `HTG` - HTG\n* `HUF` - HUF\n* `IDR` - IDR\n* `ILS` - ILS\n* `INR` - INR\n* `IQD` - IQD\n* `IRR` - IRR\n* `ISK` - ISK\n* `JMD` - JMD\n* `JOD` - JOD\n* `JPY` - JPY\n* `KES` - KES\n* `KGS` - KGS\n* `KHR` - KHR\n* `KMF` - KMF\n* `KRW` - KRW\n* `KWD` - KWD\n* `KYD` - KYD\n* `KZT` - KZT\n* `LAK` - LAK\n* `LBP` - LBP\n* `LKR` - LKR\n* `LRD` - LRD\n* `LTL` - LTL\n* `LVL` - LVL\n* `LSL` - LSL\n* `LYD` - LYD\n* `MAD` - MAD\n* `MDL` - MDL\n* `MGA` - MGA\n* `MKD` - MKD\n* `MMK` - MMK\n* `MNT` - MNT\n* `MOP` - MOP\n* `MRU` - MRU\n* `MTL` - MTL\n* `MUR` - MUR\n* `MVR` - MVR\n* `MWK` - MWK\n* `MXN` - MXN\n* `MYR` - MYR\n* `MZN` - MZN\n* `NAD` - NAD\n* `NGN` - NGN\n* `NIO` - NIO\n* `NOK` - NOK\n* `NPR` - NPR\n* `NZD` - NZD\n* `OMR` - OMR\n* `PAB` - PAB\n* `PEN` - PEN\n* `PGK` - PGK\n* `PHP` - PHP\n* `PKR` - PKR\n* `PLN` - PLN\n* `PYG` - PYG\n* `QAR` - QAR\n* `RON` - RON\n* `RSD` - RSD\n* `RUB` - RUB\n* `RWF` - RWF\n* `SAR` - SAR\n* `SBD` - SBD\n* `SCR` - SCR\n* `SDG` - SDG\n* `SEK` - SEK\n* `SGD` - SGD\n* `SRD` - SRD\n* `SSP` - SSP\n* `STN` - STN\n* `SYP` - SYP\n* `SZL` - SZL\n* `THB` - THB\n* `TJS` - TJS\n* `TMT` - TMT\n* `TND` - TND\n* `TOP` - TOP\n* `TRY` - TRY\n* `TTD` - TTD\n* `TWD` - TWD\n* `TZS` - TZS\n* `UAH` - UAH\n* `UGX` - UGX\n* `USD` - USD\n* `UYU` - UYU\n* `UZS` - UZS\n* `VES` - VES\n* `VND` - VND\n* `VUV` - VUV\n* `WST` - WST\n* `XAF` - XAF\n* `XCD` - XCD\n* `XOF` - XOF\n* `XPF` - XPF\n* `YER` - YER\n* `ZAR` - ZAR\n* `ZMW` - ZMW'
+            ),
+        capture_dead_clicks: zod
+            .boolean()
+            .nullish()
+            .describe('Enables capturing clicks that had no effect (rage-click detection).'),
+        cookieless_server_hash_mode: zod
+            .union([
+                zod
+                    .union([zod.literal(0), zod.literal(1), zod.literal(2)])
+                    .describe('* `0` - Disabled\n* `1` - Stateless\n* `2` - Stateful'),
+                zod.null(),
+            ])
+            .optional(),
+        human_friendly_comparison_periods: zod.boolean().nullish(),
+        feature_flag_confirmation_enabled: zod.boolean().nullish(),
+        feature_flag_confirmation_message: zod.string().nullish(),
+        default_evaluation_contexts_enabled: zod
+            .boolean()
+            .nullish()
+            .describe('Whether to automatically apply default evaluation contexts to new feature flags'),
+        require_evaluation_contexts: zod
+            .boolean()
+            .nullish()
+            .describe('Whether to require at least one evaluation context tag when creating new feature flags'),
+        default_data_theme: zod
+            .number()
+            .min(organizationsProjectsPartialUpdateBodyDefaultDataThemeMin)
+            .max(organizationsProjectsPartialUpdateBodyDefaultDataThemeMax)
+            .nullish(),
+        onboarding_tasks: zod.unknown().optional(),
+        web_analytics_pre_aggregated_tables_enabled: zod.boolean().nullish(),
     })
     .describe('Mixin for serializers to add user access control fields')
 
-export const SubscriptionsListParams = /* @__PURE__ */ zod.object({
+/**
+ * The file tree for the desktop product surface. Reuses all FileSystemViewSet behaviour but is
+ * scoped to the "desktop" surface, so its tree is fully isolated from the default "web" tree.
+ *
+ * Adds per-folder, versioned markdown instructions describing the contents of a folder.
+ */
+export const DesktopFileSystemListParams = /* @__PURE__ */ zod.object({
     project_id: zod
         .string()
         .describe(
@@ -275,275 +657,113 @@ export const SubscriptionsListParams = /* @__PURE__ */ zod.object({
         ),
 })
 
-export const SubscriptionsListQueryParams = /* @__PURE__ */ zod.object({
-    created_by: zod.string().optional().describe('Filter by creator user UUID.'),
-    dashboard: zod.number().optional().describe('Filter by dashboard ID.'),
-    insight: zod.number().optional().describe('Filter by insight ID.'),
+export const DesktopFileSystemListQueryParams = /* @__PURE__ */ zod.object({
     limit: zod.number().optional().describe('Number of results to return per page.'),
     offset: zod.number().optional().describe('The initial index from which to return the results.'),
-    ordering: zod.string().optional().describe('Which field to use when ordering the results.'),
-    resource_type: zod
-        .enum(['dashboard', 'insight'])
-        .optional()
-        .describe('Filter by subscription resource: insight vs dashboard export.'),
     search: zod.string().optional().describe('A search term.'),
-    target_type: zod
-        .enum(['email', 'slack', 'webhook'])
+})
+
+/**
+ * The file tree for the desktop product surface. Reuses all FileSystemViewSet behaviour but is
+ * scoped to the "desktop" surface, so its tree is fully isolated from the default "web" tree.
+ *
+ * Adds per-folder, versioned markdown instructions describing the contents of a folder.
+ */
+export const DesktopFileSystemCreateParams = /* @__PURE__ */ zod.object({
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
+        ),
+})
+
+export const desktopFileSystemCreateBodyTypeMax = 100
+
+export const desktopFileSystemCreateBodyRefMax = 100
+
+export const DesktopFileSystemCreateBody = /* @__PURE__ */ zod.object({
+    path: zod.string(),
+    type: zod.string().max(desktopFileSystemCreateBodyTypeMax).optional(),
+    ref: zod.string().max(desktopFileSystemCreateBodyRefMax).nullish(),
+    href: zod.string().nullish(),
+    meta: zod.unknown().optional(),
+    shortcut: zod.boolean().nullish(),
+})
+
+/**
+ * The file tree for the desktop product surface. Reuses all FileSystemViewSet behaviour but is
+ * scoped to the "desktop" surface, so its tree is fully isolated from the default "web" tree.
+ *
+ * Adds per-folder, versioned markdown instructions describing the contents of a folder.
+ */
+export const DesktopFileSystemRetrieveParams = /* @__PURE__ */ zod.object({
+    id: zod.string().describe('A UUID string identifying this file system.'),
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
+        ),
+})
+
+/**
+ * Publish a new version of a freeform canvas's React source.
+ *
+ * Merges into the dashboard row's `meta` (never replaces it), so existing
+ * keys like `channelId`/`templateId` survive. Appends a full-file version
+ * snapshot and points `currentVersionId` at it — the server-side mirror of
+ * the app's dashboardsService.saveFreeform.
+ */
+export const DesktopFileSystemCanvasPartialUpdateParams = /* @__PURE__ */ zod.object({
+    id: zod.string().describe('A UUID string identifying this file system.'),
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
+        ),
+})
+
+export const DesktopFileSystemCanvasPartialUpdateBody = /* @__PURE__ */ zod
+    .object({
+        code: zod.string().optional(),
+        prompt: zod.string().optional(),
+        name: zod.string().optional(),
+    })
+    .describe("Payload for publishing a freeform canvas's React source via the agent.")
+
+/**
+ * Return the latest non-deleted instructions for this folder.
+ */
+export const DesktopFileSystemInstructionsRetrieveParams = /* @__PURE__ */ zod.object({
+    id: zod.string().describe('A UUID string identifying this file system.'),
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
+        ),
+})
+
+/**
+ * Publish a new version of the folder's instructions.
+ */
+export const DesktopFileSystemInstructionsPartialUpdateParams = /* @__PURE__ */ zod.object({
+    id: zod.string().describe('A UUID string identifying this file system.'),
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
+        ),
+})
+
+export const desktopFileSystemInstructionsPartialUpdateBodyBaseVersionMin = 0
+
+export const DesktopFileSystemInstructionsPartialUpdateBody = /* @__PURE__ */ zod.object({
+    content: zod.string().optional().describe('Full markdown instructions to publish as a new version for the folder.'),
+    base_version: zod
+        .number()
+        .min(desktopFileSystemInstructionsPartialUpdateBodyBaseVersionMin)
         .optional()
-        .describe('Filter by delivery channel (email, Slack, or webhook).'),
-})
-
-export const SubscriptionsCreateParams = /* @__PURE__ */ zod.object({
-    project_id: zod
-        .string()
         .describe(
-            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
-        ),
-})
-
-export const subscriptionsCreateBodyIntervalMax = 2147483647
-
-export const subscriptionsCreateBodyBysetposMin = -2147483648
-export const subscriptionsCreateBodyBysetposMax = 2147483647
-
-export const subscriptionsCreateBodyCountMin = -2147483648
-export const subscriptionsCreateBodyCountMax = 2147483647
-
-export const subscriptionsCreateBodyTitleMax = 100
-
-export const subscriptionsCreateBodySummaryPromptGuideMax = 500
-
-export const SubscriptionsCreateBody = /* @__PURE__ */ zod
-    .object({
-        dashboard: zod
-            .number()
-            .nullish()
-            .describe('Dashboard ID to subscribe to (mutually exclusive with insight on create).'),
-        insight: zod
-            .number()
-            .nullish()
-            .describe('Insight ID to subscribe to (mutually exclusive with dashboard on create).'),
-        dashboard_export_insights: zod
-            .array(zod.number())
-            .optional()
-            .describe(
-                'List of insight IDs from the dashboard to include. Required for dashboard subscriptions, max 6.'
-            ),
-        target_type: zod
-            .enum(['email', 'slack', 'webhook'])
-            .describe('* `email` - Email\n* `slack` - Slack\n* `webhook` - Webhook')
-            .describe(
-                'Delivery channel: email, slack, or webhook.\n\n* `email` - Email\n* `slack` - Slack\n* `webhook` - Webhook'
-            ),
-        target_value: zod
-            .string()
-            .describe(
-                'Recipient(s): comma-separated email addresses for email, Slack channel name/ID for slack, or full URL for webhook.'
-            ),
-        frequency: zod
-            .enum(['daily', 'weekly', 'monthly', 'yearly'])
-            .describe('* `daily` - Daily\n* `weekly` - Weekly\n* `monthly` - Monthly\n* `yearly` - Yearly')
-            .describe(
-                'How often to deliver: daily, weekly, monthly, or yearly.\n\n* `daily` - Daily\n* `weekly` - Weekly\n* `monthly` - Monthly\n* `yearly` - Yearly'
-            ),
-        interval: zod
-            .number()
-            .min(1)
-            .max(subscriptionsCreateBodyIntervalMax)
-            .describe(
-                'Interval multiplier (e.g. 2 with weekly frequency means every 2 weeks). Required on create; must be 1 or greater.'
-            ),
-        byweekday: zod
-            .array(
-                zod
-                    .enum(['monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday', 'sunday'])
-                    .describe(
-                        '* `monday` - Monday\n* `tuesday` - Tuesday\n* `wednesday` - Wednesday\n* `thursday` - Thursday\n* `friday` - Friday\n* `saturday` - Saturday\n* `sunday` - Sunday'
-                    )
-            )
-            .nullish()
-            .describe(
-                'Days of week for weekly subscriptions: monday, tuesday, wednesday, thursday, friday, saturday, sunday.'
-            ),
-        bysetpos: zod
-            .number()
-            .min(subscriptionsCreateBodyBysetposMin)
-            .max(subscriptionsCreateBodyBysetposMax)
-            .nullish()
-            .describe('Position within byweekday set for monthly frequency (e.g. 1 for first, -1 for last).'),
-        count: zod
-            .number()
-            .min(subscriptionsCreateBodyCountMin)
-            .max(subscriptionsCreateBodyCountMax)
-            .nullish()
-            .describe('Total number of deliveries before the subscription stops. Null for unlimited.'),
-        start_date: zod.iso.datetime({ offset: true }).describe('When to start delivering (ISO 8601 datetime).'),
-        until_date: zod.iso
-            .datetime({ offset: true })
-            .nullish()
-            .describe('When to stop delivering (ISO 8601 datetime). Null for indefinite.'),
-        deleted: zod.boolean().optional().describe('Set to true to soft-delete. Subscriptions cannot be hard-deleted.'),
-        enabled: zod
-            .boolean()
-            .optional()
-            .describe(
-                'Whether the subscription is active. Set to false to pause delivery without deleting. Auto-set to false when the delivery integration becomes invalid.'
-            ),
-        title: zod
-            .string()
-            .max(subscriptionsCreateBodyTitleMax)
-            .nullish()
-            .describe('Human-readable name for this subscription.'),
-        integration_id: zod
-            .number()
-            .nullish()
-            .describe('ID of a connected Slack integration. Required when target_type is slack.'),
-        invite_message: zod
-            .string()
-            .nullish()
-            .describe('Optional message included in the invitation email when adding new recipients.'),
-        summary_enabled: zod.boolean().optional(),
-        summary_prompt_guide: zod.string().max(subscriptionsCreateBodySummaryPromptGuideMax).optional(),
-    })
-    .describe('Standard Subscription serializer.')
-
-export const SubscriptionsRetrieveParams = /* @__PURE__ */ zod.object({
-    id: zod.number().describe('A unique integer value identifying this subscription.'),
-    project_id: zod
-        .string()
-        .describe(
-            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
-        ),
-})
-
-export const SubscriptionsPartialUpdateParams = /* @__PURE__ */ zod.object({
-    id: zod.number().describe('A unique integer value identifying this subscription.'),
-    project_id: zod
-        .string()
-        .describe(
-            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
-        ),
-})
-
-export const subscriptionsPartialUpdateBodyIntervalMax = 2147483647
-
-export const subscriptionsPartialUpdateBodyBysetposMin = -2147483648
-export const subscriptionsPartialUpdateBodyBysetposMax = 2147483647
-
-export const subscriptionsPartialUpdateBodyCountMin = -2147483648
-export const subscriptionsPartialUpdateBodyCountMax = 2147483647
-
-export const subscriptionsPartialUpdateBodyTitleMax = 100
-
-export const subscriptionsPartialUpdateBodySummaryPromptGuideMax = 500
-
-export const SubscriptionsPartialUpdateBody = /* @__PURE__ */ zod
-    .object({
-        dashboard: zod
-            .number()
-            .nullish()
-            .describe('Dashboard ID to subscribe to (mutually exclusive with insight on create).'),
-        insight: zod
-            .number()
-            .nullish()
-            .describe('Insight ID to subscribe to (mutually exclusive with dashboard on create).'),
-        dashboard_export_insights: zod
-            .array(zod.number())
-            .optional()
-            .describe(
-                'List of insight IDs from the dashboard to include. Required for dashboard subscriptions, max 6.'
-            ),
-        target_type: zod
-            .enum(['email', 'slack', 'webhook'])
-            .describe('* `email` - Email\n* `slack` - Slack\n* `webhook` - Webhook')
-            .optional()
-            .describe(
-                'Delivery channel: email, slack, or webhook.\n\n* `email` - Email\n* `slack` - Slack\n* `webhook` - Webhook'
-            ),
-        target_value: zod
-            .string()
-            .optional()
-            .describe(
-                'Recipient(s): comma-separated email addresses for email, Slack channel name/ID for slack, or full URL for webhook.'
-            ),
-        frequency: zod
-            .enum(['daily', 'weekly', 'monthly', 'yearly'])
-            .describe('* `daily` - Daily\n* `weekly` - Weekly\n* `monthly` - Monthly\n* `yearly` - Yearly')
-            .optional()
-            .describe(
-                'How often to deliver: daily, weekly, monthly, or yearly.\n\n* `daily` - Daily\n* `weekly` - Weekly\n* `monthly` - Monthly\n* `yearly` - Yearly'
-            ),
-        interval: zod
-            .number()
-            .min(1)
-            .max(subscriptionsPartialUpdateBodyIntervalMax)
-            .optional()
-            .describe(
-                'Interval multiplier (e.g. 2 with weekly frequency means every 2 weeks). Required on create; must be 1 or greater.'
-            ),
-        byweekday: zod
-            .array(
-                zod
-                    .enum(['monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday', 'sunday'])
-                    .describe(
-                        '* `monday` - Monday\n* `tuesday` - Tuesday\n* `wednesday` - Wednesday\n* `thursday` - Thursday\n* `friday` - Friday\n* `saturday` - Saturday\n* `sunday` - Sunday'
-                    )
-            )
-            .nullish()
-            .describe(
-                'Days of week for weekly subscriptions: monday, tuesday, wednesday, thursday, friday, saturday, sunday.'
-            ),
-        bysetpos: zod
-            .number()
-            .min(subscriptionsPartialUpdateBodyBysetposMin)
-            .max(subscriptionsPartialUpdateBodyBysetposMax)
-            .nullish()
-            .describe('Position within byweekday set for monthly frequency (e.g. 1 for first, -1 for last).'),
-        count: zod
-            .number()
-            .min(subscriptionsPartialUpdateBodyCountMin)
-            .max(subscriptionsPartialUpdateBodyCountMax)
-            .nullish()
-            .describe('Total number of deliveries before the subscription stops. Null for unlimited.'),
-        start_date: zod.iso
-            .datetime({ offset: true })
-            .optional()
-            .describe('When to start delivering (ISO 8601 datetime).'),
-        until_date: zod.iso
-            .datetime({ offset: true })
-            .nullish()
-            .describe('When to stop delivering (ISO 8601 datetime). Null for indefinite.'),
-        deleted: zod.boolean().optional().describe('Set to true to soft-delete. Subscriptions cannot be hard-deleted.'),
-        enabled: zod
-            .boolean()
-            .optional()
-            .describe(
-                'Whether the subscription is active. Set to false to pause delivery without deleting. Auto-set to false when the delivery integration becomes invalid.'
-            ),
-        title: zod
-            .string()
-            .max(subscriptionsPartialUpdateBodyTitleMax)
-            .nullish()
-            .describe('Human-readable name for this subscription.'),
-        integration_id: zod
-            .number()
-            .nullish()
-            .describe('ID of a connected Slack integration. Required when target_type is slack.'),
-        invite_message: zod
-            .string()
-            .nullish()
-            .describe('Optional message included in the invitation email when adding new recipients.'),
-        summary_enabled: zod.boolean().optional(),
-        summary_prompt_guide: zod.string().max(subscriptionsPartialUpdateBodySummaryPromptGuideMax).optional(),
-    })
-    .describe('Standard Subscription serializer.')
-
-export const SubscriptionsTestDeliveryCreateParams = /* @__PURE__ */ zod.object({
-    id: zod.number().describe('A unique integer value identifying this subscription.'),
-    project_id: zod
-        .string()
-        .describe(
-            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
+            "Latest version you are editing from, for optimistic concurrency. If provided and the folder's instructions have changed since, the request fails with 409. Use 0 when no instructions exist yet."
         ),
 })
 

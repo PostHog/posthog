@@ -28,7 +28,11 @@ from products.batch_exports.backend.models.batch_export import (
     BatchExportOnDemand,
     BatchExportRun,
 )
-from products.batch_exports.backend.service import cancel_running_batch_export_run, start_file_download_batch_export
+from products.batch_exports.backend.service import (
+    BatchExportModel,
+    cancel_running_batch_export_run,
+    start_file_download_batch_export,
+)
 
 SESSION = boto3.Session()
 FILE_DOWNLOAD_MAX_RANGE = dt.timedelta(weeks=1)
@@ -288,6 +292,7 @@ class FileDownloadBatchExportOnDemandViewSet(
                 batch_export_run_id=instance.id,
                 data_interval_start=instance.data_interval_start,
                 data_interval_end=instance.data_interval_end,
+                batch_export_model=BatchExportModel(name=instance.batch_export_on_demand.model, schema=None),
                 compression=instance.batch_export_on_demand.destination.config.get("compression", None),
                 format=instance.batch_export_on_demand.destination.config.get("format", "Parquet"),
                 max_size_mb=instance.batch_export_on_demand.destination.config.get("max_size_mb", 0),

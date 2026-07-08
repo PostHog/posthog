@@ -17,6 +17,7 @@ import type {
     PingRequest,
     ReadResourceRequest,
 } from '@modelcontextprotocol/sdk/types.js'
+import GUIDELINES from '@shared/guidelines.md'
 import { randomUUID } from 'node:crypto'
 
 import { MCP_SERVER_NAME, MCP_SERVER_VERSION } from '@/lib/constants'
@@ -34,24 +35,6 @@ import { ToolExecutor } from './tool-executor'
 
 export { McpDispatcher }
 export type { ResolvedState } from './request-state-resolver'
-
-function loadGuidelines(): string {
-    try {
-        // eslint-disable-next-line @typescript-eslint/no-require-imports
-        const mod = require('@shared/guidelines.md')
-        return typeof mod === 'string' ? mod : (mod?.default ?? '')
-    } catch {
-        // @shared alias only resolves in the esbuild production bundle.
-        // Fall back to reading from disk (works in Vitest/test contexts).
-    }
-    try {
-        const fs = require('node:fs')
-        const path = require('node:path')
-        return fs.readFileSync(path.resolve(process.cwd(), 'shared/guidelines.md'), 'utf-8')
-    } catch {
-        return ''
-    }
-}
 
 const MAX_BATCH_SIZE = 100
 const MAX_BODY_BYTES = 1_048_576
@@ -115,7 +98,7 @@ class McpDispatcher {
         this.catalog = catalog
         this.resourceCatalog = new ResourceCatalog(env, redis)
         this.stateResolver = new RequestStateResolver(catalog, redis, env)
-        this.instructionsBuilder = new InstructionsBuilder(loadGuidelines())
+        this.instructionsBuilder = new InstructionsBuilder(GUIDELINES)
         this.toolExecutor = new ToolExecutor(catalog, this.instructionsBuilder)
     }
 
@@ -222,7 +205,7 @@ class McpDispatcher {
                 : LATEST_PROTOCOL_VERSION
 
             await this.resourceCatalog.revalidateContextMillResources('initialize')
-            const instructions = await this.instructionsBuilder.build(props, state)
+            const instructions = this.instructionsBuilder.build(state)
 
             initDurationSeconds.observe(props.requestStartTime ? (Date.now() - props.requestStartTime) / 1000 : 0)
             initTotal.inc({ status: 'success' })

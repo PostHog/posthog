@@ -64,10 +64,11 @@ class ExperimentTrendsQueryRunner(QueryRunner):
 
         self.experiment = Experiment.objects.get(id=self.query.experiment_id, team=self.team)
         self.feature_flag = self.experiment.feature_flag
+        self.feature_flag_key = self.feature_flag.key_without_tombstone()
         self.variants = [variant["key"] for variant in self.feature_flag.variants]
         if self.experiment.holdout:
             self.variants.append(f"holdout-{self.experiment.holdout.id}")
-        self.breakdown_key = f"$feature/{self.feature_flag.key}"
+        self.breakdown_key = f"$feature/{self.feature_flag_key}"
 
         self._fix_math_aggregation()
 
@@ -228,7 +229,7 @@ class ExperimentTrendsQueryRunner(QueryRunner):
                     ),
                     EventPropertyFilter(
                         key="$feature_flag",
-                        value=[self.feature_flag.key],
+                        value=[self.feature_flag_key],
                         operator=PropertyOperator.EXACT,
                         type="event",
                     ),
@@ -245,7 +246,7 @@ class ExperimentTrendsQueryRunner(QueryRunner):
             query_type="ExperimentTrendsQuery",
             experiment_id=str(self.experiment.id),
             experiment_name=self.experiment.name,
-            experiment_feature_flag_key=self.feature_flag.key,
+            experiment_feature_flag_key=self.feature_flag_key,
         )
 
         shared_results: dict[str, Optional[Any]] = {"count_result": None, "exposure_result": None}

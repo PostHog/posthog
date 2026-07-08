@@ -18,39 +18,75 @@ from typing import TYPE_CHECKING
 
 from asgiref.sync import async_to_sync
 from temporalio.client import ScheduleCalendarSpec, ScheduleListActionStartWorkflow, ScheduleRange, ScheduleSpec
+from temporalio.common import SearchAttributePair, TypedSearchAttributes
 
 from posthog.temporal.common.client import async_connect
+from posthog.temporal.common.search_attributes import (
+    POSTHOG_DAG_ID_KEY,
+    POSTHOG_ORG_ID_KEY,
+    POSTHOG_SCHEDULE_TYPE_KEY,
+    POSTHOG_TEAM_ID_KEY,
+)
 
+from products.data_modeling.backend.logic.cohort_scheduling import dag_id_from_schedule_id
 from products.data_modeling.backend.models import Node
 
 if TYPE_CHECKING:
     from products.data_modeling.backend.models.datawarehouse_saved_query import DataWarehouseSavedQuery
 
-# v2 (DAG-based) schedules run this workflow; their schedule id is the DAG id. The v1 backend
+# v2 (DAG-based) schedules run this workflow; their schedule id is the bare DAG id, or
+# "{dag_id}:{interval_seconds}" for a per-cadence-tier schedule. The v1 backend
 # (`data-modeling-run`, one schedule per saved query) is frozen and being migrated away from.
 DATA_MODELING_EXECUTE_DAG_WORKFLOW = "data-modeling-execute-dag"
 
 
+def dag_schedule_search_attributes(*, team_id: int, organization_id: str, dag_id: str) -> TypedSearchAttributes:
+    return TypedSearchAttributes(
+        search_attributes=[
+            SearchAttributePair(key=POSTHOG_TEAM_ID_KEY, value=team_id),
+            SearchAttributePair(key=POSTHOG_ORG_ID_KEY, value=organization_id),
+            SearchAttributePair(key=POSTHOG_DAG_ID_KEY, value=dag_id),
+            SearchAttributePair(key=POSTHOG_SCHEDULE_TYPE_KEY, value=DATA_MODELING_EXECUTE_DAG_WORKFLOW),
+        ]
+    )
+
+
 @async_to_sync
-async def get_v2_scheduled_dag_ids() -> set[str]:
+async def get_v2_scheduled_dag_ids(candidate_dag_ids: Collection[str] | None = None) -> set[str]:
     """Return the IDs of DAGs that already have a v2 `data-modeling-execute-dag` Temporal schedule.
 
     A DAG appearing here has been migrated off the frozen v1 backend. Callers performing v1
     schedule operations must skip these DAGs' saved queries so they never re-create or revive a
     v1 schedule for a DAG already running on v2.
+
+    When `candidate_dag_ids` is given, the listing is scoped server-side to those DAGs via the
+    `PostHogDagId` search attribute so we never paginate every schedule in the namespace — a
+    single unscoped listing per saved-query operation is enough to exhaust the namespace rate
+    limit once the schedule fleet is large. The None sweep filters on `PostHogScheduleType`
+    (needs schedules backfilled with the tag).
     """
+    if candidate_dag_ids is not None and not candidate_dag_ids:
+        return set()
+
     temporal = await async_connect()
+    if candidate_dag_ids is not None:
+        # Filtering on a search attribute (PostHogDagId) is supported server-side; filtering on
+        # WorkflowType is not, so we still narrow to the execute-dag workflow client-side below.
+        quoted = ", ".join(f"'{dag_id}'" for dag_id in candidate_dag_ids)
+        schedules = await temporal.list_schedules(query=f"{POSTHOG_DAG_ID_KEY.name} IN ({quoted})")
+    else:
+        schedules = await temporal.list_schedules(
+            query=f'{POSTHOG_SCHEDULE_TYPE_KEY.name} = "{DATA_MODELING_EXECUTE_DAG_WORKFLOW}"'
+        )
+
     dag_ids: set[str] = set()
-    # Pre-filter server-side so we don't page through every v1 `data-modeling-run` schedule;
-    # keep the client-side check as a safety net since visibility data is eventually consistent.
-    query = f"WorkflowType = '{DATA_MODELING_EXECUTE_DAG_WORKFLOW}'"
-    async for listing in await temporal.list_schedules(query=query):
+    async for listing in schedules:
         action = listing.schedule.action if listing.schedule else None
         if (
             isinstance(action, ScheduleListActionStartWorkflow)
             and action.workflow == DATA_MODELING_EXECUTE_DAG_WORKFLOW
         ):
-            dag_ids.add(listing.id)
+            dag_ids.add(dag_id_from_schedule_id(listing.id))
     return dag_ids
 
 
@@ -60,13 +96,29 @@ def get_v2_saved_query_ids(candidate_ids: Collection[uuid.UUID] | None = None) -
     Optionally restrict the lookup to `candidate_ids` to keep the query bounded. These saved
     queries must be skipped by v1 schedule commands so we never undo migration progress.
     """
+    if candidate_ids is not None:
+        if not candidate_ids:
+            return set()
+        # Resolve the candidate saved queries to their DAGs first so the Temporal lookup is scoped
+        # to just those DAGs rather than listing every schedule in the namespace.
+        dag_id_by_saved_query = {
+            saved_query_id: str(dag_id)
+            for saved_query_id, dag_id in Node.objects.filter(
+                saved_query_id__in=candidate_ids, saved_query_id__isnull=False
+            ).values_list("saved_query_id", "dag_id")
+            if dag_id is not None
+        }
+        if not dag_id_by_saved_query:
+            return set()
+
+        v2_dag_ids = get_v2_scheduled_dag_ids(set(dag_id_by_saved_query.values()))
+        return {saved_query_id for saved_query_id, dag_id in dag_id_by_saved_query.items() if dag_id in v2_dag_ids}
+
     v2_dag_ids = get_v2_scheduled_dag_ids()
     if not v2_dag_ids:
         return set()
 
     nodes = Node.objects.filter(dag_id__in=v2_dag_ids, saved_query_id__isnull=False)
-    if candidate_ids is not None:
-        nodes = nodes.filter(saved_query_id__in=candidate_ids)
     return set(nodes.values_list("saved_query_id", flat=True))
 
 

@@ -39,6 +39,13 @@ class VisionQuotaSerializer(serializers.Serializer):
         read_only=True,
         help_text="First moment of the next quota period (UTC); the current period's exclusive upper bound.",
     )
+    projected_monthly_observations = serializers.IntegerField(
+        read_only=True,
+        help_text=(
+            "Sum of enabled scanners' projected observations/month across the organization. "
+            "Scanners without a computed estimate contribute 0."
+        ),
+    )
 
 
 class VisionQuotaViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):

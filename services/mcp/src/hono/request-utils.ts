@@ -1,6 +1,6 @@
 import { z } from 'zod'
 
-import { mapErrorToAuthResponse, mapKnownErrorMessage, validateBearerToken } from '@/lib/auth-errors'
+import { mapErrorToAuthResponse, validateBearerToken } from '@/lib/auth-errors'
 import { getPostHogClient } from '@/lib/posthog'
 import {
     type ClientInfo,
@@ -9,7 +9,7 @@ import {
     type Transport,
 } from '@/lib/request-properties'
 import { getRegionFromRequest } from '@/lib/routing'
-import { sanitizeHeaderValue } from '@/lib/utils'
+import { extractBearerToken, sanitizeHeaderValue } from '@/lib/utils'
 
 import { authFailuresTotal } from './metrics'
 import type { HonoCtx } from './types'
@@ -53,7 +53,7 @@ function parseClientInfo(bodyText: string): ClientInfo {
 }
 
 function authenticate(c: HonoCtx): Response | null {
-    const token = c.req.header('Authorization')?.split(' ')[1]
+    const token = extractBearerToken(c.req.raw)
     const error = validateBearerToken(token, c.req.raw, getRegionFromRequest(c.req.raw))
     if (error) {
         const reason = !token ? 'missing_token' : 'invalid_token'
@@ -110,12 +110,4 @@ export function handleCatchError(error: unknown, props: RequestProperties): Resp
         }
     } catch {}
     return new Response('Internal server error', { status: 500 })
-}
-
-export async function passThrough(response: Response): Promise<Response> {
-    if (response.ok) {
-        return response
-    }
-    const body = await response.clone().text()
-    return mapKnownErrorMessage(body) ?? response
 }

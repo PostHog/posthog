@@ -18,6 +18,7 @@ def test_tool_quality_sql_contains_required_columns() -> None:
         "error_rate_pct",
         "p50_duration_ms",
         "p95_duration_ms",
+        "p99_duration_ms",
         "users",
         "sessions",
         "first_seen",
@@ -36,8 +37,8 @@ def test_tool_quality_sql_supports_filters_and_sort_placeholders() -> None:
     assert "__ORDER_DIRECTION__" in sql
 
 
-def test_tool_quality_sql_targets_mcp_tool_call_event() -> None:
+def test_tool_quality_sql_targets_canonical_mcp_tool_call_event() -> None:
     sql = TOOL_QUALITY_SQL_PATH.read_text()
 
-    assert "event = 'mcp_tool_call'" in sql
+    assert "event = '$mcp_tool_call'" in sql
     assert "$mcp_tool_name" in sql

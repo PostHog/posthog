@@ -1,6 +1,6 @@
 import json
 import time
-from datetime import timedelta
+from datetime import datetime, timedelta
 from urllib.parse import parse_qs, urlparse
 
 from unittest.mock import patch
@@ -65,6 +65,25 @@ class TestAccountRequests(ProvisioningTestBase):
         user = User.objects.get(email="newuser@example.com")
         assert user.organization is not None
         assert user.team is not None
+
+    def test_new_user_starts_unverified(self):
+        # Partner-asserted email ownership is not trusted: the user must prove they own
+        # the inbox before any session is issued (see agentic_login).
+        payload = self._account_request_payload()
+        self._post_signed("/api/agentic/provisioning/account_requests", data=payload)
+        user = User.objects.get(email="newuser@example.com")
+        assert user.is_email_verified is False
+
+    def test_new_user_auth_code_cached_with_issued_at(self):
+        payload = self._account_request_payload()
+        res = self._post_signed("/api/agentic/provisioning/account_requests", data=payload)
+        code = res.json()["oauth"]["code"]
+        code_data = cache.get(f"{AUTH_CODE_CACHE_PREFIX}{code}")
+        assert code_data is not None
+        # Without issued_at the code exchange fails closed once the app is ever session-revoked,
+        # which would block every new user. See _exchange_authorization_code's revoke guard.
+        assert "issued_at" in code_data
+        datetime.fromisoformat(code_data["issued_at"])
 
     def test_existing_user_returns_oauth_type_with_code(self):
         User.objects.create_and_join(
@@ -286,6 +305,19 @@ class TestAccountRequests(ProvisioningTestBase):
         # Stripe HMAC path has no OAuthApplication partner, so there's no client to attribute.
         assert kwargs["partner"] is None
 
+    @patch("ee.api.agentic_provisioning.views.report_user_signed_up")
+    def test_new_user_emits_signup_event(self, mock_signup):
+        payload = self._account_request_payload(email="signupevent@example.com")
+        res = self._post_signed("/api/agentic/provisioning/account_requests", data=payload)
+        assert res.status_code == 200
+
+        assert mock_signup.call_count == 1
+        kwargs = mock_signup.call_args.kwargs
+        assert kwargs["backend_processor"] == "AgenticProvisioning"
+        assert kwargs["is_organization_first_user"] is True
+        # Stripe HMAC path has no OAuthApplication, so no client name.
+        assert kwargs["social_provider"] == ""
+
 
 @override_settings(STRIPE_SIGNING_SECRET=HMAC_SECRET)
 class TestPKCEPartnerExistingUserConsent(ProvisioningTestBase):
@@ -358,6 +390,7 @@ class TestPKCEPartnerExistingUserConsent(ProvisioningTestBase):
         assert pending["email"] == "existing@example.com"
         assert pending["partner_id"] == str(self.pkce_partner.id)
         assert pending["scopes"] == ["query:read"]
+        assert pending["consent_required"] is True
 
     def test_pkce_partner_within_ceiling_creates_pending_auth(self):
         self.pkce_partner.scopes = ["query:read", "insight:read"]
@@ -401,7 +434,22 @@ class TestPKCEPartnerExistingUserConsent(ProvisioningTestBase):
         assert len(new_user_calls) == 1
         assert new_user_calls[0].kwargs["partner"] == self.pkce_partner
 
-    def test_pkce_partner_with_skip_consent_existing_user_gets_direct_code(self):
+    @patch("ee.api.agentic_provisioning.views.report_user_signed_up")
+    def test_pkce_partner_new_user_emits_signup_event_with_client(self, mock_signup):
+        payload = self._account_request_payload(email="pkce_signup@example.com")
+        res = self._post_as_pkce_partner(payload)
+        assert res.status_code == 200
+
+        assert mock_signup.call_count == 1
+        kwargs = mock_signup.call_args.kwargs
+        assert kwargs["backend_processor"] == "AgenticProvisioning"
+        assert kwargs["is_organization_first_user"] is True
+        assert kwargs["social_provider"] == self.pkce_partner.name
+
+    def test_pkce_partner_with_skip_consent_existing_user_requires_consent(self):
+        # A public PKCE caller is identified only by a client_id anyone can send, so even with
+        # skip_existing_user_consent it must not silently mint for an existing account — it has
+        # no proof it controls the partner or the account.
         self.pkce_partner.provisioning_skip_existing_user_consent = True
         self.pkce_partner.save()
         User.objects.create_and_join(
@@ -411,10 +459,8 @@ class TestPKCEPartnerExistingUserConsent(ProvisioningTestBase):
         res = self._post_as_pkce_partner(payload)
         assert res.status_code == 200
         data = res.json()
-        assert data["type"] == "oauth"
-        assert "code" in data["oauth"]
-        # Consent path would return a requires_auth payload with redirect URL; absence proves consent was skipped.
-        assert "requires_auth" not in data
+        assert data["type"] == "requires_auth"
+        assert "oauth" not in data
 
     def test_pkce_partner_missing_code_challenge_returns_400(self):
         User.objects.create_and_join(
@@ -443,11 +489,13 @@ class TestPKCEPartnerExistingUserConsent(ProvisioningTestBase):
 
 
 @override_settings(STRIPE_SIGNING_SECRET=HMAC_SECRET)
-class TestSilentRemintBlockedAfterReview(ProvisioningTestBase):
-    """Once a user has reviewed their credentials, a partner with
-    skip_existing_user_consent=True can only re-mint silently when it already
-    holds live OAuth credentials on that user — otherwise the consent screen
-    is required. Closes the server-side half of the pre-hijacking defense."""
+class TestSilentRemintRequiresTrustProof(ProvisioningTestBase):
+    """A partner with skip_existing_user_consent=True can only mint silently for an
+    existing user when the caller proved a prior trust relationship with that user
+    (live partner credential for HMAC, the user's own token for bearer). Otherwise
+    the consent screen is required. This holds whether or not the user has reviewed
+    their credentials: an unreviewed account is still a pre-existing account that a
+    caller must not be able to silently link."""
 
     def setUp(self):
         super().setUp()
@@ -599,13 +647,16 @@ class TestSilentRemintBlockedAfterReview(ProvisioningTestBase):
             revoked=timezone.now(),
         )
 
-    def test_unreviewed_user_silent_path_still_works(self):
+    def test_unreviewed_existing_user_pkce_requires_consent(self):
+        # A public PKCE caller never proves control of the partner, so it must not mint
+        # silently for an existing account — even an unreviewed one, whose email may belong
+        # to a direct signup the caller has no relationship with.
         self._make_user(credentials_reviewed=False)
         res = self._post_as_partner(self._account_request_payload())
         assert res.status_code == 200
         data = res.json()
-        assert data["type"] == "oauth"
-        assert "code" in data["oauth"]
+        assert data["type"] == "requires_auth"
+        assert "oauth" not in data
 
     @parameterized.expand(
         [
@@ -624,28 +675,18 @@ class TestSilentRemintBlockedAfterReview(ProvisioningTestBase):
         assert data["type"] == "oauth"
         assert "code" in data["oauth"]
 
-    def test_pkce_caller_with_live_credential_is_blocked_post_review(self):
-        # A public PKCE caller is unauthenticated, so an existing live credential
-        # for the claimed client_id is not proof the caller controls the partner.
-        # It must not unlock the silent path once the user has reviewed credentials.
-        user = self._make_user(credentials_reviewed=True)
+    @parameterized.expand([("reviewed", True), ("unreviewed", False)])
+    def test_pkce_caller_with_live_credential_requires_consent(self, _name, reviewed):
+        # A public PKCE caller is unauthenticated, so an existing live credential for the
+        # claimed client_id is not proof the caller controls the partner. It must not unlock
+        # the silent path for an existing user, in either review state.
+        user = self._make_user(credentials_reviewed=reviewed)
         self._make_live_access_token(user, self.partner)
         res = self._post_as_partner(self._account_request_payload())
         assert res.status_code == 200
         data = res.json()
         assert data["type"] == "requires_auth"
         assert "oauth" not in data
-
-    def test_pkce_caller_with_live_credential_unreviewed_silent_still_works(self):
-        # The public-client lockout only applies after review; the legitimate
-        # Connect re-link flow on an unreviewed user must stay silent.
-        user = self._make_user(credentials_reviewed=False)
-        self._make_live_access_token(user, self.partner)
-        res = self._post_as_partner(self._account_request_payload())
-        assert res.status_code == 200
-        data = res.json()
-        assert data["type"] == "oauth"
-        assert "code" in data["oauth"]
 
     @parameterized.expand(
         [
@@ -683,12 +724,13 @@ class TestSilentRemintBlockedAfterReview(ProvisioningTestBase):
             scope="query:read",
         )
 
-    def test_bearer_caller_cannot_remint_for_other_user_post_review(self):
-        # A bearer token only proves the caller holds *some* user's token under the
-        # partner's client, not that they control the partner. An attacker holding their
-        # own token must not ride a reviewed victim's existing credential to mint a code
-        # for the victim's account.
-        victim = self._make_user(credentials_reviewed=True)
+    @parameterized.expand([("reviewed", True), ("unreviewed", False)])
+    def test_bearer_caller_cannot_remint_for_other_user(self, _name, reviewed):
+        # A bearer token only proves the caller holds *some* user's token under the partner's
+        # client, not that they control the partner. An attacker holding their own token must
+        # not ride a victim's account to mint a code for it, whether or not the victim has
+        # reviewed credentials — an unreviewed account is still a pre-existing account.
+        victim = self._make_user(credentials_reviewed=reviewed)
         self._make_live_access_token(victim, self.bearer_partner)
 
         attacker = User.objects.create_and_join(
@@ -705,13 +747,38 @@ class TestSilentRemintBlockedAfterReview(ProvisioningTestBase):
         assert data["type"] == "requires_auth"
         assert "oauth" not in data
 
-    def test_bearer_caller_can_remint_for_own_user_post_review(self):
-        # The legitimate bearer re-link path: the caller presents the very user's own
-        # token, which is genuine proof of an existing trust relationship.
-        user = self._make_user(credentials_reviewed=True)
+    @parameterized.expand([("reviewed", True), ("unreviewed", False)])
+    def test_bearer_caller_can_remint_for_own_user(self, _name, reviewed):
+        # The legitimate bearer re-link path: the caller presents the user's own token, which
+        # is genuine proof of an existing trust relationship, so it stays silent in either state.
+        user = self._make_user(credentials_reviewed=reviewed)
         self._mint_bearer_token(user, self.bearer_partner, "owner_bearer_token")
 
         res = self._post_as_bearer_partner(self._account_request_payload(), token="owner_bearer_token")
+        assert res.status_code == 200
+        data = res.json()
+        assert data["type"] == "oauth"
+        assert "code" in data["oauth"]
+
+    @parameterized.expand([("reviewed", True), ("unreviewed", False)])
+    def test_hmac_first_link_existing_user_requires_consent(self, _name, reviewed):
+        # HMAC proof is "the partner already holds a live credential for this user". On a first
+        # link there is none, so even a trusted HMAC partner must get consent before linking a
+        # pre-existing account, regardless of review state.
+        self._make_user(credentials_reviewed=reviewed)
+        res = self._post_as_hmac_partner(self._account_request_payload())
+        assert res.status_code == 200
+        data = res.json()
+        assert data["type"] == "requires_auth"
+        assert "oauth" not in data
+
+    @parameterized.expand([("reviewed", True), ("unreviewed", False)])
+    def test_hmac_relink_existing_user_with_live_credential_silent(self, _name, reviewed):
+        # Genuine HMAC re-link: the partner holds a live credential for the user, so it may
+        # mint silently whether or not the user has reviewed credentials.
+        user = self._make_user(credentials_reviewed=reviewed)
+        self._make_live_access_token(user, self.hmac_partner)
+        res = self._post_as_hmac_partner(self._account_request_payload())
         assert res.status_code == 200
         data = res.json()
         assert data["type"] == "oauth"

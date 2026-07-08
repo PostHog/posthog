@@ -35,13 +35,14 @@ def update_team_llm_gateway_policy_cache_task(team_id: int) -> None:
     except Team.DoesNotExist:
         logger.debug("Team does not exist for llm-gateway policy cache update", team_id=team_id)
         HYPERCACHE_SIGNAL_UPDATE_COUNTER.labels(
-            namespace="team_llm_gateway_policy", operation="update", result="failure"
+            namespace="team_metadata", cache_name="llm_gateway_policy", operation="update", result="failure"
         ).inc()
         return
 
     success = update_team_llm_gateway_policy_cache(team)
     HYPERCACHE_SIGNAL_UPDATE_COUNTER.labels(
-        namespace="team_llm_gateway_policy",
+        namespace="team_metadata",
+        cache_name="llm_gateway_policy",
         operation="update",
         result="success" if success else "failure",
     ).inc()

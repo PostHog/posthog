@@ -1,1 +1,1 @@
-0029_wipe_legacy_scout_configs
+0054_alter_signalsourceconfig_source_type

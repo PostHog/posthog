@@ -1,7 +1,7 @@
 import { buildGoalLineReferenceLines } from '@posthog/quill-charts'
 import type { GoalLineConfig, ReferenceLineProps, Series } from '@posthog/quill-charts'
 
-import type { GoalLine as SchemaGoalLine } from '~/queries/schema/schema-general'
+import type { GoalLineLike as SchemaGoalLine } from './trendsChartDisplayOptions'
 
 export function schemaGoalLineToConfig(line: SchemaGoalLine): GoalLineConfig {
     return {

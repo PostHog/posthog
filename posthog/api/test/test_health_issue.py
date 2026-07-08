@@ -1,3 +1,6 @@
+import json
+from datetime import UTC, datetime, timedelta
+
 from posthog.test.base import APIBaseTest
 from unittest.mock import patch
 
@@ -8,6 +11,9 @@ from rest_framework import status
 
 from posthog.models.health_issue import HealthIssue
 from posthog.models.team import Team
+from posthog.redis import get_client
+
+from products.growth.backend.constants import github_sdk_versions_key
 
 
 class TestHealthIssueAPI(APIBaseTest):
@@ -114,6 +120,56 @@ class TestHealthIssueAPI(APIBaseTest):
         self.assertNotIn("unique_hash", data)
         self.assertNotIn("team", data)
 
+    def test_retrieve_enriches_with_rendered_explanation(self):
+        issue = self._create_issue(
+            kind="sdk_outdated",
+            payload={"sdk_name": "posthog-python", "latest_version": "3.0.0", "reason": "posthog-python is behind"},
+        )
+
+        response = self.client.get(self._url(f"/{issue.id}"))
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+        data = response.json()
+        self.assertEqual(data["title"], "posthog-python SDK is outdated")
+        self.assertEqual(data["summary"], "posthog-python is behind")
+        self.assertEqual(data["link"], "/health/sdk-health")
+        # remediation is the static, kind-level constant (not interpolated per issue),
+        # split into human/agent halves and normalized by cleandoc (no leading indent).
+        self.assertTrue(data["remediation"]["human"].startswith("Open the SDK Health page"))
+        self.assertIn("bump the PostHog SDK dependency", data["remediation"]["agent"])
+
+    def test_retrieve_unknown_kind_falls_back_to_generic_envelope(self):
+        issue = self._create_issue(kind="not_a_registered_check", payload={})
+
+        response = self.client.get(self._url(f"/{issue.id}"))
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+        data = response.json()
+        self.assertEqual(data["title"], "not_a_registered_check")
+        self.assertEqual(data["link"], "/health")
+        self.assertIsNone(data["remediation"])
+
+    def test_retrieve_remediation_has_human_and_agent_halves(self):
+        issue = self._create_issue(kind="reverse_proxy", payload={"reason": "No reverse proxy"})
+
+        response = self.client.get(self._url(f"/{issue.id}"))
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+        remediation = response.json()["remediation"]
+        self.assertEqual(set(remediation.keys()), {"human", "agent"})
+        self.assertTrue(remediation["human"])
+        self.assertTrue(remediation["agent"])
+
+    def test_list_omits_rendered_explanation_fields(self):
+        self._create_issue()
+
+        response = self.client.get(self._url())
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+        result = response.json()["results"][0]
+        for field in ("title", "summary", "link", "remediation"):
+            self.assertNotIn(field, result)
+
     def test_retrieve_nonexistent_returns_404(self):
         response = self.client.get(self._url("/00000000-0000-0000-0000-000000000000"))
         self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
@@ -210,6 +266,33 @@ class TestHealthIssueAPI(APIBaseTest):
         self.assertEqual(data["total"], 0)
         self.assertEqual(data["by_severity"], {})
         self.assertEqual(data["by_kind"], {})
+
+    def test_sdk_issue_visible_even_when_latest_release_is_fresh(self):
+        # A fresh upstream release (<7 days old) must not hide sdk_outdated issues — fast-releasing
+        # SDKs like posthog-python and posthog-js always have a recent release, so any blanket
+        # exclusion keyed on release freshness blacks out their issues permanently. The Redis seed
+        # below sets up exactly that condition; the endpoints must ignore it, so don't remove it
+        # as unused setup.
+        key = github_sdk_versions_key("posthog-python")
+        release_date = (datetime.now(UTC) - timedelta(days=1)).strftime("%Y-%m-%dT%H:%M:%SZ")
+        get_client().set(key, json.dumps({"latestVersion": "7.18.3", "releaseDates": {"7.18.3": release_date}}))
+        self.addCleanup(get_client().delete, key)
+
+        issue = self._create_issue(
+            severity=HealthIssue.Severity.CRITICAL,
+            payload={"sdk_name": "posthog-python", "current_version": "7.14.1", "latest_version": "7.18.3"},
+            unique_hash="fresh_release",
+        )
+
+        list_response = self.client.get(self._url(), {"status": "active", "dismissed": "false"})
+        self.assertEqual(list_response.status_code, status.HTTP_200_OK)
+        self.assertEqual([result["id"] for result in list_response.json()["results"]], [str(issue.id)])
+
+        summary_response = self.client.get(self._url("/summary"))
+        self.assertEqual(summary_response.status_code, status.HTTP_200_OK)
+        summary = summary_response.json()
+        self.assertEqual(summary["total"], 1)
+        self.assertEqual(summary["by_kind"], {"sdk_outdated": 1})
 
     def test_resolve_already_resolved_returns_400(self):
         issue = self._create_issue(status=HealthIssue.Status.RESOLVED)

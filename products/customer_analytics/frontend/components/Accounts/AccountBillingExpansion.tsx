@@ -1,23 +1,25 @@
 import { useActions, useValues } from 'kea'
 
+import * as magnifyingGlassPng from '@posthog/brand/hoggies/png/magnifying-glass'
 import { LemonSkeleton } from '@posthog/lemon-ui'
 
+import { pngHoggie } from 'lib/brand/hoggies'
 import { DateFilter } from 'lib/components/DateFilter/DateFilter'
-import { BurningMoneyHog, DetectiveHog } from 'lib/components/hedgehogs'
+import { BurningMoneyHog } from 'lib/components/hedgehogs'
 
 import { Query } from '~/queries/Query/Query'
 
 import { AccountBillingKind, accountBillingLogic } from './accountBillingLogic'
 
-const KIND_NOTE: Record<AccountBillingKind, string | null> = {
-    usage: null,
-    spend: 'Daily billed units (not dollars).',
-}
+const HedgehogMagnifyingGlass = pngHoggie(magnifyingGlassPng)
 
 function BillingInsightNotFound({ kind }: { kind: AccountBillingKind }): JSX.Element {
-    const Hog = kind === 'spend' ? BurningMoneyHog : DetectiveHog
+    const Hog = kind === 'spend' ? BurningMoneyHog : HedgehogMagnifyingGlass
     return (
-        <div className="flex flex-col items-center justify-center gap-2 p-8 text-center">
+        <div
+            className="flex flex-col items-center justify-center gap-2 p-8 text-center"
+            data-attr="account-billing-insight-not-found"
+        >
             <Hog className="w-24 h-24" />
             <h4 className="mb-0">No billing {kind} insight here</h4>
             <p className="text-secondary max-w-sm mb-0">
@@ -37,44 +39,52 @@ export function AccountBillingExpansion({
     kind: AccountBillingKind
 }): JSX.Element {
     const logic = accountBillingLogic({ accountId, externalId, kind })
-    const { savedInsight, savedInsightLoading, dateRange, variableOverrides } = useValues(logic)
+    const { savedInsights, savedInsightsLoading, dateRange, variableOverridesByShortId, queryKeyFor } = useValues(logic)
     const { setDateRange } = useActions(logic)
 
     if (!externalId) {
         return <div className="p-4 text-secondary">This account has no linked organization.</div>
     }
 
-    if (savedInsightLoading) {
+    if (savedInsightsLoading) {
         return <LemonSkeleton className="h-64 w-full" />
     }
 
-    const query = savedInsight?.query
-    if (!query) {
+    if (!savedInsights || savedInsights.length === 0) {
         return <BillingInsightNotFound kind={kind} />
     }
 
-    const note = KIND_NOTE[kind]
+    const showTitles = savedInsights.length > 1
 
     return (
-        <div className="flex flex-col gap-2">
-            <div className="flex items-center justify-between gap-2">
-                <DateFilter
-                    dateFrom={dateRange.date_from}
-                    dateTo={dateRange.date_to}
-                    onChange={(from, to) => setDateRange(from, to)}
-                />
-                {note ? <span className="text-xs text-secondary">{note}</span> : null}
-            </div>
-            {/* Embedded DataVisualization collapses to a sliver without a fixed-height parent (InsightCard__viz is flex:1, min-height:0). */}
-            <div className="h-80 flex flex-col overflow-hidden">
-                <Query
-                    uniqueKey={`account-billing-${accountId}-${kind}`}
-                    query={query}
-                    variablesOverride={variableOverrides ?? null}
-                    readOnly
-                    embedded
-                />
-            </div>
+        <div className="flex flex-col gap-3">
+            <DateFilter
+                dateFrom={dateRange.date_from}
+                dateTo={dateRange.date_to}
+                onChange={(from, to) => setDateRange(from, to)}
+            />
+            {savedInsights.map((insight) => {
+                const queryKey = queryKeyFor(insight.short_id)
+                return (
+                    <div key={insight.short_id} className="flex flex-col gap-1">
+                        {showTitles && insight.name ? <h4 className="mb-0 text-sm">{insight.name}</h4> : null}
+                        {/* Embedded DataVisualization collapses to a sliver without a fixed-height parent (InsightCard__viz is flex:1, min-height:0). */}
+                        <div className="h-80 flex flex-col overflow-hidden">
+                            <Query
+                                key={queryKey}
+                                uniqueKey={queryKey}
+                                query={insight.query}
+                                variablesOverride={variableOverridesByShortId[insight.short_id] ?? null}
+                                readOnly
+                                embedded
+                                // Attach the insight's data logic to accountBillingLogic (mounted at the expanded-row
+                                // root) so the loaded results survive tab switches instead of refetching on return.
+                                attachTo={logic}
+                            />
+                        </div>
+                    </div>
+                )
+            })}
         </div>
     )
 }

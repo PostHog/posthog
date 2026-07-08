@@ -76,11 +76,12 @@ def _parse_embedding_response(data: dict) -> EmbeddingResponse:
 
 
 def generate_embedding(
-    team: Team, content: str, model: str | None = None, no_truncate: bool = True
+    team: Team, content: str, model: str | None = None, no_truncate: bool = True, timeout: float | None = None
 ) -> EmbeddingResponse:
     logger.info(f"Generating ad-hoc embedding for team {team.pk}")
     payload = _build_embedding_payload(team, content, model, no_truncate)
-    response = internal_requests.post(_EMBEDDING_URL, json=payload)
+    # `internal_requests` is a bare Session with no default timeout — pass one so callers can't hang on a stuck worker.
+    response = internal_requests.post(_EMBEDDING_URL, json=payload, timeout=timeout)
     _raise_for_embedding_response(response)
     return _parse_embedding_response(response.json())
 

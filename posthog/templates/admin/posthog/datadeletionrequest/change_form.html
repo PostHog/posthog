@@ -60,10 +60,12 @@
     </fieldset>
     {% endif %}
 
-    {# Stats are calculated from this page (works for any status). These buttons use
+    {% comment %}
+       Stats are calculated from this page (works for any status). These buttons use
        formaction= to post the surrounding admin <form> to the stats views.
        Guarded on `original` — the stats URLs only exist for a saved object, and on the
-       add view an empty formaction would post back and create a record. #}
+       add view an empty formaction would post back and create a record.
+    {% endcomment %}
     {% if original %}
     <fieldset style="margin: 20px 0; padding: 16px; border: 1px solid #ccc; border-radius: 4px;">
         <h2>ClickHouse stats</h2>
@@ -137,6 +139,16 @@
             Retry to re-queue it for execution — the original approval is preserved.
         </div>
         <button type="submit" formaction="{{ retry_url }}" formmethod="post" formnovalidate class="button" style="padding: 10px 15px; background: #d9534f; color: white;" onclick="return confirm('Retry this failed request? It will be re-queued for execution.');">Retry execution</button>
+    </div>
+    {% endif %}
+
+    {% if can_verify %}
+    <div class="submit-row" style="margin-top: 20px; padding: 20px; border-radius: 5px; border: 1px solid #417690; display: flex; align-items: center; gap: 10px;">
+        <div class="info">
+            This request is <strong>{{ original.get_status_display|lower }}</strong>. Verify to re-check ClickHouse now —
+            if no matching events remain, it will be marked completed{% if original.status == "failed" %} (use this when the job errored after the events were already deleted){% endif %}.
+        </div>
+        <button type="submit" formaction="{{ verify_url }}" formmethod="post" formnovalidate class="button" style="padding: 10px 15px; background: #417690; color: white;" onclick="return confirm('Verify this request against ClickHouse now?');">Verify deletion</button>
     </div>
     {% endif %}
 {% endblock %}

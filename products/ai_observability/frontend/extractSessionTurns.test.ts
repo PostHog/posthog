@@ -3,6 +3,7 @@ import { LLMTrace, LLMTraceEvent } from '~/queries/schema/schema-general'
 import {
     buildInputSourceIndices,
     extractSessionTurns,
+    getToolNamesCalled,
     pickUserVisibleTurn,
     SessionTurnError,
 } from './extractSessionTurns'
@@ -791,5 +792,190 @@ describe('extractSessionTurns — real production shapes (anonymized)', () => {
             }),
         ])
         expect(() => extractSessionTurns([t1, t2], { t1, t2 })).not.toThrow()
+    })
+})
+
+describe('getToolNamesCalled', () => {
+    const span = (id: string, createdAt: string, spanName?: string): LLMTraceEvent => ({
+        id,
+        event: '$ai_span',
+        createdAt,
+        properties: spanName ? { $ai_span_name: spanName } : {},
+    })
+    const generation = (id: string, createdAt: string, outputChoices: unknown): LLMTraceEvent => ({
+        id,
+        event: '$ai_generation',
+        createdAt,
+        properties: { $ai_output_choices: outputChoices },
+    })
+
+    it('returns [] for an empty event list', () => {
+        expect(getToolNamesCalled([])).toEqual([])
+    })
+
+    it('returns `$ai_span_name` from instrumented span events', () => {
+        const events = [span('s1', '2026-05-11T00:00:00.000Z', 'fetch_user')]
+        expect(getToolNamesCalled(events)).toEqual(['fetch_user'])
+    })
+
+    it('skips span events without a `$ai_span_name`', () => {
+        const events = [span('s1', '2026-05-11T00:00:00.000Z')]
+        expect(getToolNamesCalled(events)).toEqual([])
+    })
+
+    it('skips event types other than `$ai_span` and `$ai_generation`', () => {
+        const events: LLMTraceEvent[] = [
+            {
+                id: 'trace',
+                event: '$ai_trace',
+                createdAt: '2026-05-11T00:00:00.000Z',
+                properties: { $ai_span_name: 'irrelevant' },
+            },
+        ]
+        expect(getToolNamesCalled(events)).toEqual([])
+    })
+
+    // Covers every output shape `normalizeMessages` understands — adding a new
+    // SDK shape there should bring it under this case table without further
+    // changes here.
+    it.each<[name: string, outputChoices: unknown, expected: string[]]>([
+        [
+            'OpenAI Chat Completions `tool_calls`',
+            [
+                {
+                    role: 'assistant',
+                    content: '',
+                    tool_calls: [
+                        { id: 'a', type: 'function', function: { name: 'get_weather', arguments: '{}' } },
+                        { id: 'b', type: 'function', function: { name: 'search_docs', arguments: '{}' } },
+                    ],
+                },
+            ],
+            ['get_weather', 'search_docs'],
+        ],
+        [
+            'Anthropic `tool_use` typed parts',
+            [
+                {
+                    role: 'assistant',
+                    content: [
+                        { type: 'text', text: 'Looking it up.' },
+                        { type: 'tool_use', id: 'toolu_1', name: 'get_weather', input: { city: 'Berlin' } },
+                        { type: 'tool_use', id: 'toolu_2', name: 'search_docs', input: {} },
+                    ],
+                },
+            ],
+            ['get_weather', 'search_docs'],
+        ],
+        [
+            'OpenAI Responses `function_call` items',
+            [
+                { type: 'function_call', call_id: 'c1', name: 'get_weather', arguments: '{}' },
+                { type: 'function_call', call_id: 'c2', name: 'search_docs', arguments: '{}' },
+            ],
+            ['get_weather', 'search_docs'],
+        ],
+        [
+            'Vercel SDK `tool-call` items',
+            [
+                { type: 'tool-call', toolCallId: 'a', toolName: 'get_weather', input: { city: 'Berlin' } },
+                { type: 'tool-call', toolCallId: 'b', toolName: 'search_docs', input: {} },
+            ],
+            ['get_weather', 'search_docs'],
+        ],
+        [
+            'OpenAI Responses built-in tool calls',
+            [
+                { id: 'ws1', type: 'web_search_call', status: 'completed' },
+                { id: 'mcp1', type: 'mcp_call', name: 'list_dashboards', status: 'completed' },
+            ],
+            ['web_search_call', 'list_dashboards'],
+        ],
+        [
+            'LiteLLM-style {choices:[{message:{tool_calls}}]} wrapper',
+            {
+                choices: [
+                    {
+                        finish_reason: 'tool_calls',
+                        index: 0,
+                        message: {
+                            role: 'assistant',
+                            content: null,
+                            tool_calls: [
+                                {
+                                    id: 'a',
+                                    type: 'function',
+                                    function: { name: 'get_weather', arguments: '{"city":"Berlin"}' },
+                                },
+                                {
+                                    id: 'b',
+                                    type: 'function',
+                                    function: { name: 'search_docs', arguments: '{}' },
+                                },
+                            ],
+                        },
+                    },
+                ],
+            },
+            ['get_weather', 'search_docs'],
+        ],
+    ])('returns tool names from %s in $ai_generation outputs', (_, outputChoices, expected) => {
+        const events = [generation('g1', '2026-05-11T00:00:00.000Z', outputChoices)]
+        expect(getToolNamesCalled(events)).toEqual(expected)
+    })
+
+    it('preserves duplicates in the raw call sequence — caller decides whether to dedupe', () => {
+        // Three identical tool calls across span + generation events should all appear.
+        // Dedup is a session-page concern, not part of "what tools were called".
+        const events = [
+            span('s1', '2026-05-11T00:00:00.000Z', 'fetch_user'),
+            generation('g1', '2026-05-11T00:00:01.000Z', [
+                {
+                    role: 'assistant',
+                    content: '',
+                    tool_calls: [{ id: 'a', type: 'function', function: { name: 'fetch_user', arguments: '{}' } }],
+                },
+            ]),
+            span('s2', '2026-05-11T00:00:02.000Z', 'fetch_user'),
+        ]
+        expect(getToolNamesCalled(events)).toEqual(['fetch_user', 'fetch_user', 'fetch_user'])
+    })
+
+    it('orders names chronologically regardless of input order', () => {
+        // Events come back from ClickHouse in whatever order the query produced.
+        const events = [
+            span('s3', '2026-05-11T00:00:02.000Z', 'send_email'),
+            span('s1', '2026-05-11T00:00:00.000Z', 'fetch_user'),
+            span('s2', '2026-05-11T00:00:01.000Z', 'subscription_lookup'),
+        ]
+        expect(getToolNamesCalled(events)).toEqual(['fetch_user', 'subscription_lookup', 'send_email'])
+    })
+
+    it('skips tool calls with missing or empty names', () => {
+        const events = [
+            generation('g1', '2026-05-11T00:00:00.000Z', [
+                {
+                    role: 'assistant',
+                    content: '',
+                    tool_calls: [
+                        { id: 'a', type: 'function', function: { name: '', arguments: '{}' } },
+                        { id: 'b', type: 'function', function: { name: 'real_tool', arguments: '{}' } },
+                    ],
+                },
+            ]),
+        ]
+        expect(getToolNamesCalled(events)).toEqual(['real_tool'])
+    })
+
+    it('returns [] when a generation has no $ai_output_choices', () => {
+        const events: LLMTraceEvent[] = [
+            {
+                id: 'g1',
+                event: '$ai_generation',
+                createdAt: '2026-05-11T00:00:00.000Z',
+                properties: {},
+            },
+        ]
+        expect(getToolNamesCalled(events)).toEqual([])
     })
 })

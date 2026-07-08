@@ -50,6 +50,7 @@ def setup_async_migrations(ignore_posthog_version: bool = False):
             (not ignore_posthog_version)
             and (migration_name in unapplied_migrations)
             and (FROZEN_POSTHOG_VERSION > Version(migration.posthog_max_version))
+            and migration.is_required()
         ):
             raise ImproperlyConfigured(
                 f"Migration {migration_name} is required for PostHog versions above {FROZEN_POSTHOG_VERSION}."

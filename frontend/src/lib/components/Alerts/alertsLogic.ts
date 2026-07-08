@@ -4,6 +4,7 @@ import { loaders } from 'kea-loaders'
 import { PaginationManual } from '@posthog/lemon-ui'
 
 import api from 'lib/api'
+import { objectClean } from 'lib/utils/objects'
 
 import { AlertState } from '~/queries/schema/schema-general'
 
@@ -15,11 +16,22 @@ export interface AlertsLogicProps extends AlertLogicProps {}
 
 export const ALERTS_PER_PAGE = 30
 
+export interface AlertsFilters {
+    search: string
+    createdBy: string
+}
+
+export const DEFAULT_ALERTS_FILTERS: AlertsFilters = {
+    search: '',
+    createdBy: 'All users',
+}
+
 export const alertsLogic = kea<alertsLogicType>([
     path(['lib', 'components', 'Alerts', 'alertsLogic']),
 
     actions({
         setPage: (page: number) => ({ page }),
+        setFilters: (filters: Partial<AlertsFilters>) => ({ filters }),
     }),
 
     reducers({
@@ -29,6 +41,16 @@ export const alertsLogic = kea<alertsLogicType>([
                 setPage: (_, { page }) => page,
             },
         ],
+        filters: [
+            DEFAULT_ALERTS_FILTERS,
+            {
+                setFilters: (state, { filters }) =>
+                    objectClean({
+                        ...state,
+                        ...filters,
+                    }),
+            },
+        ],
     }),
 
     loaders(({ values }) => ({
@@ -36,9 +58,13 @@ export const alertsLogic = kea<alertsLogicType>([
             { results: [], count: 0 } as { results: AlertType[]; count: number },
             {
                 loadAlerts: async () => {
+                    const search = values.filters.search.trim()
+
                     const response = await api.alerts.list(undefined, {
                         limit: ALERTS_PER_PAGE,
                         offset: (values.page - 1) * ALERTS_PER_PAGE,
+                        ...(search ? { search } : {}),
+                        ...(values.filters.createdBy !== 'All users' ? { created_by: values.filters.createdBy } : {}),
                     })
                     return { results: response.results, count: response.count ?? response.results.length }
                 },
@@ -49,6 +75,12 @@ export const alertsLogic = kea<alertsLogicType>([
     selectors(({ actions }) => ({
         alerts: [(s) => [s.alertsResponse], (response): AlertType[] => response.results],
         alertsCount: [(s) => [s.alertsResponse], (response): number => response.count],
+        isFiltering: [
+            (s) => [s.filters],
+            (filters): boolean =>
+                filters.search !== DEFAULT_ALERTS_FILTERS.search ||
+                filters.createdBy !== DEFAULT_ALERTS_FILTERS.createdBy,
+        ],
         alertsSortedByState: [
             (s) => [s.alerts],
             (alerts: AlertType[]): AlertType[] =>
@@ -67,9 +99,19 @@ export const alertsLogic = kea<alertsLogicType>([
         ],
     })),
 
-    listeners(({ actions }) => ({
+    listeners(({ actions, values }) => ({
         setPage: () => {
             actions.loadAlerts()
+        },
+        setFilters: async ({ filters }, breakpoint) => {
+            if ('search' in filters && filters.search?.trim()) {
+                await breakpoint(300)
+            }
+            if (values.page !== 1) {
+                actions.setPage(1)
+            } else {
+                actions.loadAlerts()
+            }
         },
     })),
 

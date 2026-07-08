@@ -4,8 +4,8 @@ import { isPersonPropertyFilter, parseProperties } from 'lib/components/Property
 import { FEATURE_FLAGS } from 'lib/constants'
 import { Dayjs, dayjs } from 'lib/dayjs'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { groupBy } from 'lib/utils'
-import { parseDateInTimezone } from 'lib/utils/dateTimeUtils'
+import { groupBy } from 'lib/utils/arrays'
+import { parseDateInTimezone } from 'lib/utils/datetime'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
 import { teamLogic } from 'scenes/teamLogic'
@@ -40,7 +40,7 @@ export interface AnnotationsOverlayLogicProps extends Omit<InsightLogicProps, 'd
 
 /** Week/month charts bucket annotations by day so distinct dates don't collapse into one badge. */
 export function getGroupingUnit(intervalUnit: IntervalType): IntervalType {
-    return intervalUnit === 'week' || intervalUnit === 'month' ? 'day' : intervalUnit
+    return ['week', 'month', 'quarter', 'year'].includes(intervalUnit) ? 'day' : intervalUnit
 }
 
 export function determineAnnotationsDateGroup(date: Dayjs, intervalUnit: IntervalType): string {

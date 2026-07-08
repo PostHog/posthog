@@ -1,16 +1,18 @@
 import type { ExperimentFunnelsQuery, ExperimentMetric, ExperimentTrendsQuery } from '~/queries/schema/schema-general'
 import { ExperimentMetricType, NodeKind } from '~/queries/schema/schema-general'
-import { ExperimentMetricGoal, ExperimentMetricMathType } from '~/types'
+import { ExperimentMetricGoal, ExperimentMetricMathType, FunnelConversionWindowTimeUnit } from '~/types'
 
 import {
     type ExperimentVariantResult,
     formatChanceToWinForGoal,
+    formatMetricValue,
     formatPValue,
     formatTickValue,
     getChanceToWin,
     getDefaultMetricTitle,
     getMetricColors,
     getMetricTag,
+    isProportionMetric,
     isWinning,
 } from './utils'
 
@@ -280,5 +282,75 @@ describe('formatTickValue', () => {
         [1.5, '150%'],
     ])('formatTickValue(%p) === %p', (input, expected) => {
         expect(formatTickValue(input)).toBe(expected)
+    })
+})
+
+const meanMetric = (threshold?: number): ExperimentMetric => ({
+    kind: NodeKind.ExperimentMetric,
+    metric_type: ExperimentMetricType.MEAN,
+    source: { kind: NodeKind.EventsNode, event: 'purchase', math: ExperimentMetricMathType.Sum },
+    ...(threshold != null ? { threshold } : {}),
+})
+
+const funnelMetric: ExperimentMetric = {
+    kind: NodeKind.ExperimentMetric,
+    metric_type: ExperimentMetricType.FUNNEL,
+    series: [{ kind: NodeKind.EventsNode, event: 'signup' }],
+}
+
+const retentionMetric: ExperimentMetric = {
+    kind: NodeKind.ExperimentMetric,
+    metric_type: ExperimentMetricType.RETENTION,
+    start_event: { kind: NodeKind.EventsNode, event: 'signup' },
+    completion_event: { kind: NodeKind.EventsNode, event: 'return' },
+    retention_window_start: 0,
+    retention_window_end: 7,
+    retention_window_unit: FunnelConversionWindowTimeUnit.Day,
+    start_handling: 'first_seen',
+}
+
+const ratioMetric: ExperimentMetric = {
+    kind: NodeKind.ExperimentMetric,
+    metric_type: ExperimentMetricType.RATIO,
+    numerator: { kind: NodeKind.EventsNode, event: 'revenue' },
+    denominator: { kind: NodeKind.EventsNode, event: 'sessions' },
+}
+
+describe('isProportionMetric', () => {
+    const cases: { label: string; metric: ExperimentMetric; expected: boolean }[] = [
+        { label: 'threshold mean', metric: meanMetric(5), expected: true },
+        { label: 'plain mean', metric: meanMetric(), expected: false },
+        { label: 'funnel', metric: funnelMetric, expected: true },
+        { label: 'retention', metric: retentionMetric, expected: true },
+        { label: 'ratio', metric: ratioMetric, expected: false },
+    ]
+    it.each(cases)('classifies $label metric', ({ metric, expected }) => {
+        expect(isProportionMetric(metric)).toBe(expected)
+    })
+})
+
+describe('formatMetricValue', () => {
+    it('formats a plain mean metric as a raw number', () => {
+        expect(formatMetricValue({ sum: 4, number_of_samples: 100 }, meanMetric())).toBe('0.04')
+    })
+
+    it('formats a threshold mean metric as a percentage', () => {
+        expect(formatMetricValue({ sum: 40, number_of_samples: 100 }, meanMetric(5))).toBe('40.00%')
+    })
+
+    it('formats a funnel metric as a percentage', () => {
+        expect(formatMetricValue({ sum: 25, number_of_samples: 100 }, funnelMetric)).toBe('25.00%')
+    })
+
+    it('formats a retention metric as a percentage', () => {
+        expect(formatMetricValue({ sum: 60, number_of_samples: 100 }, retentionMetric)).toBe('60.00%')
+    })
+
+    it('formats a ratio metric as a quotient', () => {
+        expect(formatMetricValue({ sum: 50, denominator_sum: 200 }, ratioMetric)).toBe('0.25')
+    })
+
+    it('returns "—" when the value is not a number', () => {
+        expect(formatMetricValue({ sum: 0, number_of_samples: 0 }, meanMetric())).toBe('—')
     })
 })

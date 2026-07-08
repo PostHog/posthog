@@ -3,10 +3,10 @@ import { router } from 'kea-router'
 
 import { IconCheckCircle } from '@posthog/icons'
 
+import { BridgePage } from 'lib/components/BridgePage/BridgePage'
 import { CLOUD_HOSTNAMES, FEATURE_FLAGS } from 'lib/constants'
 import { Link } from 'lib/lemon-ui/Link'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { AuthShell } from 'scenes/authentication/shared/AuthShell'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { userLogic } from 'scenes/userLogic'
 
@@ -14,12 +14,12 @@ import { Region } from '~/types'
 
 import { SignupForm } from '../../signupForm/SignupForm'
 
-export function LegacySignup(): JSX.Element | null {
+function Signup(): JSX.Element | null {
     const { preflight } = useValues(preflightLogic)
     const { user } = useValues(userLogic)
     const { featureFlags } = useValues(featureFlagLogic)
 
-    const isAATestVariant = featureFlags[FEATURE_FLAGS.SIGNUP_AA_TEST] === 'test'
+    const signupAATestVariant = featureFlags[FEATURE_FLAGS.SIGNUP_AA_TEST_4_WAY]
 
     const footerHighlights = {
         cloud: ['Hosted & managed by PostHog', 'Pay per event, cancel anytime', 'Fast and reliable support'],
@@ -27,7 +27,7 @@ export function LegacySignup(): JSX.Element | null {
     }
 
     return !user ? (
-        <AuthShell
+        <BridgePage
             view="signup"
             sideLogo
             leftContainerContent={<SignupLeftContainer />}
@@ -41,9 +41,11 @@ export function LegacySignup(): JSX.Element | null {
                 </div>
             }
         >
-            {isAATestVariant && <div data-attr="signup-aa-test-variant" className="hidden" />}
+            {typeof signupAATestVariant === 'string' && (
+                <div data-attr="signup-aa-test-variant" data-variant={signupAATestVariant} className="hidden" />
+            )}
             <SignupForm />
-        </AuthShell>
+        </BridgePage>
     ) : null
 }
 
@@ -114,3 +116,5 @@ export function SignupLeftContainer(): JSX.Element {
         </>
     )
 }
+
+export { Signup as LegacySignup }

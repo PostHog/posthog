@@ -78,6 +78,26 @@ REFRESH_INTERVAL_TIMEDELTAS: dict[str, datetime.timedelta] = {
 }
 
 
+class EmbeddingStatus(models.TextChoices):
+    """
+    API-only (not a DB column): semantic-index state of a source, derived
+    from its documents. A `ready` source serves keyword (FTS) search right
+    away, but semantic search needs the hourly coordinator to classify and
+    embed its documents — `pending` covers that window. `disabled` means the
+    org has not approved AI data processing, so embeddings never run.
+    """
+
+    PENDING = "pending", "Pending"
+    COMPLETED = "completed", "Completed"
+    DISABLED = "disabled", "Disabled"
+
+
+class GapStatus(models.TextChoices):
+    PENDING = "pending", "Pending"
+    ACCEPTED = "accepted", "Accepted"
+    DISMISSED = "dismissed", "Dismissed"
+
+
 class SafetyVerdict(models.TextChoices):
     """
     Content-safety classification of a document, set by the background

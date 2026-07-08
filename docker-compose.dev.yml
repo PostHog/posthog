@@ -51,6 +51,8 @@ services:
                         path /e
                         path /e/*
                         path /i/v0/*
+                        path /i/v1/analytics/events
+                        path /i/v1/analytics/events/
                         path /batch
                         path /batch*
                         path /capture
@@ -66,6 +68,10 @@ services:
                     @flags {
                         path /flags
                         path /flags*
+                        # Local evaluation (flag definitions) — mirrors cloud Contour routing to Rust
+                        path /api/feature_flag/local_evaluation
+                        path /api/feature_flag/local_evaluation/
+                        path /api/feature_flag/local_evaluation/*
                     }
 
                     @surveys {
@@ -341,6 +347,19 @@ services:
         profiles:
             - ingestion
 
+    browserless:
+        # Renders heatmap screenshots and image exports — there is no local-browser fallback.
+        # Optional: docker compose -f docker-compose.dev.yml --profile browserless up -d browserless
+        # See the HEATMAP_BROWSERLESS_* / BROWSERLESS_* entries in .env.example for the app-side wiring.
+        image: ghcr.io/browserless/chromium:v2.51.2
+        restart: on-failure
+        ports:
+            - '127.0.0.1:4445:3000'
+        environment:
+            TOKEN: dev
+        profiles:
+            - browserless
+
     db:
         extends:
             file: docker-compose.base.yml
@@ -452,7 +471,7 @@ services:
             - zookeeper
 
     kafka-init:
-        image: docker.redpanda.com/redpandadata/redpanda:v25.1.9
+        image: docker.io/redpandadata/redpanda:v25.1.9
         entrypoint: /bin/sh
         restart: 'no'
         command:
@@ -477,6 +496,8 @@ services:
                 # startup for every output it produces to (see analytics/outputs/registry.ts).
                 # Auto-create only fires on producer-first writes, so pre-create them here.
                 TOPICS="document_embeddings_input \
+                    document_embedding_results \
+                    error_tracking_ingestion_notifications \
                     clickhouse_events_json \
                     clickhouse_ai_events_json \
                     clickhouse_heatmap_events \
@@ -484,11 +505,14 @@ services:
                     events_plugin_ingestion_dlq \
                     events_plugin_ingestion_overflow \
                     events_plugin_ingestion_async \
+                    ingestion-clientwarnings-main-1 \
+                    heatmaps_ingestion \
                     clickhouse_groups \
                     clickhouse_person \
                     clickhouse_person_distinct_id \
                     clickhouse_app_metrics2 \
                     log_entries \
+                    clickhouse_property_values \
                     clickhouse_tophog"
                 for topic in $$TOPICS; do
                     if rpk topic create "$$topic" --brokers kafka:9092 -p 1 -r 1 2>&1; then
@@ -522,6 +546,10 @@ services:
         ports:
             - '19000:19000'
             - '19001:19001'
+        # Fresh named volume so the swap starts clean; data on the previous volume
+        # stays salvageable via `hogli deploy:upgrade-objectstorage`.
+        volumes:
+            - objectstorage-data:/data
 
     objectstorage-azure:
         extends:
@@ -562,6 +590,8 @@ services:
         extends:
             file: docker-compose.base.yml
             service: personhog-router
+        ports:
+            - '50052:50052'
         depends_on:
             personhog-replica:
                 condition: service_started
@@ -731,3 +761,4 @@ volumes:
     redpanda-data:
     seaweedfs-data:
     duckgres-data:
+    objectstorage-data:

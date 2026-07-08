@@ -3,7 +3,7 @@ import { useValues } from 'kea'
 import { IconCheck, IconFilter, IconX } from '@posthog/icons'
 import { LemonSkeleton, Tooltip } from '@posthog/lemon-ui'
 
-import { humanFriendlyLargeNumber } from 'lib/utils'
+import { humanFriendlyLargeNumber } from 'lib/utils/numbers'
 
 import { HogFlowEditorActionMetrics, hogFlowEditorLogic } from '../../hogFlowEditorLogic'
 import { HogFlowAction } from '../../types'

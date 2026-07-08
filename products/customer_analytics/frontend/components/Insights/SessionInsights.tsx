@@ -12,7 +12,7 @@ import {
 } from 'products/customer_analytics/frontend/customerAnalyticsSceneLogic'
 
 export function SessionInsights(): JSX.Element {
-    const { sessionInsights, tabId } = useValues(customerAnalyticsSceneLogic)
+    const { sessionInsights } = useValues(customerAnalyticsSceneLogic)
 
     return (
         <div className="space-y-2">
@@ -28,9 +28,7 @@ export function SessionInsights(): JSX.Element {
             </div>
             <div className="grid grid-cols-3 gap-2">
                 {sessionInsights.map((insight, index) => {
-                    return (
-                        <CustomerAnalyticsQueryCard key={index} insight={insight as InsightDefinition} tabId={tabId} />
-                    )
+                    return <CustomerAnalyticsQueryCard key={index} insight={insight as InsightDefinition} />
                 })}
             </div>
         </div>

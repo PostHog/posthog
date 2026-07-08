@@ -2,6 +2,50 @@
     "$schema": "https://json-schema.org/draft/2020-12/schema",
     "description": "Standard Subscription serializer.",
     "properties": {
+        "ai_prompt_config": {
+            "description": "Configuration for AI report subscriptions (analysis window, future knobs). Only valid when resource_type is 'ai_prompt'. Replaced wholesale on writes.",
+            "properties": {
+                "window": {
+                    "description": "Analysis window for the report. Omitted = 'since_last_sent' (everything since the previous scheduled delivery).",
+                    "properties": {
+                        "end_days_ago": {
+                            "anyOf": [
+                                {
+                                    "maximum": 365,
+                                    "minimum": 0,
+                                    "type": "number"
+                                },
+                                {
+                                    "type": "null"
+                                }
+                            ],
+                            "description": "Upper bound of the analysis window, in days before the run (0 = now). Required for 'days_ago_range' and must be less than start_days_ago; ignored for other modes. 0-365."
+                        },
+                        "mode": {
+                            "default": "since_last_sent",
+                            "description": "What the report analyzes each run:\n* `since_last_sent` (default) — everything since the previous successful scheduled delivery (gap-free; test/manual sends don't move the anchor)\n* `last_n_days` — a fixed trailing window of start_days_ago days\n* `days_ago_range` — the explicit range from start_days_ago to end_days_ago days ago\n\n* `since_last_sent` - Since last report\n* `last_n_days` - Last N days\n* `days_ago_range` - Between X and Y days ago",
+                            "enum": ["since_last_sent", "last_n_days", "days_ago_range"],
+                            "type": "string"
+                        },
+                        "start_days_ago": {
+                            "anyOf": [
+                                {
+                                    "maximum": 365,
+                                    "minimum": 1,
+                                    "type": "number"
+                                },
+                                {
+                                    "type": "null"
+                                }
+                            ],
+                            "description": "Lower bound of the analysis window, in days before the run. Required for 'last_n_days' (the N) and 'days_ago_range'; ignored for 'since_last_sent'. 1-365."
+                        }
+                    },
+                    "type": "object"
+                }
+            },
+            "type": "object"
+        },
         "bysetpos": {
             "anyOf": [
                 {
@@ -62,10 +106,6 @@
             },
             "type": "array"
         },
-        "deleted": {
-            "description": "Set to true to soft-delete. Subscriptions cannot be hard-deleted.",
-            "type": "boolean"
-        },
         "enabled": {
             "description": "Whether the subscription is active. Set to false to pause delivery without deleting. Auto-set to false when the delivery integration becomes invalid.",
             "type": "boolean"
@@ -103,7 +143,7 @@
             "minimum": 1,
             "type": "number"
         },
-        "invite_message": {
+        "prompt": {
             "anyOf": [
                 {
                     "type": "string"
@@ -112,7 +152,7 @@
                     "type": "null"
                 }
             ],
-            "description": "Optional message included in the invitation email when adding new recipients."
+            "description": "Free-text prompt that drives the AI-generated report. Required when resource_type is 'ai_prompt'. Max 4000 characters."
         },
         "start_date": {
             "description": "When to start delivering (ISO 8601 datetime).",
@@ -121,19 +161,21 @@
             "type": "string"
         },
         "summary_enabled": {
+            "description": "Whether to attach an AI-generated summary to each delivery (insight and dashboard subscriptions only). Requires the organization to have approved AI data processing, and is subject to the org's active-summary cap and AI credit budget; otherwise the write is rejected. Not applicable to prompt subscriptions, which are themselves AI-generated.",
             "type": "boolean"
         },
         "summary_prompt_guide": {
+            "description": "Optional free-text guidance (max 500 chars) steering the AI summary, e.g. which metrics to emphasize. Only settable when AI summary context is enabled for the organization; clearing it (empty string) is always allowed.",
             "maxLength": 500,
             "type": "string"
         },
         "target_type": {
-            "description": "Delivery channel: email, slack, or webhook.\n\n* `email` - Email\n* `slack` - Slack\n* `webhook` - Webhook",
-            "enum": ["email", "slack", "webhook"],
+            "description": "Delivery channel: email or slack.\n\n* `email` - Email\n* `slack` - Slack",
+            "enum": ["email", "slack"],
             "type": "string"
         },
         "target_value": {
-            "description": "Recipient(s): comma-separated email addresses for email, Slack channel name/ID for slack, or full URL for webhook.",
+            "description": "Recipient(s): comma-separated email addresses for email, or Slack channel name/ID for slack.",
             "type": "string"
         },
         "title": {

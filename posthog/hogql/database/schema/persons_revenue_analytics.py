@@ -1,7 +1,5 @@
 from collections import defaultdict
 
-from posthog.schema import DatabaseSchemaManagedViewTableKind
-
 from posthog.hogql import ast
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.database.models import (
@@ -17,6 +15,7 @@ from posthog.hogql.database.schema.util.revenue_analytics import get_table_kind,
 from posthog.hogql.errors import ResolutionError
 
 from posthog.models.exchange_rate.sql import EXCHANGE_RATE_DECIMAL_PRECISION
+from posthog.schema_enums import DatabaseSchemaManagedViewTableKind
 
 ZERO_DECIMAL = ast.Call(
     name="toDecimal", args=[ast.Constant(value=0), ast.Constant(value=EXCHANGE_RATE_DECIMAL_PRECISION)]
@@ -24,9 +23,19 @@ ZERO_DECIMAL = ast.Call(
 
 FIELDS: dict[str, FieldOrTable] = {
     "team_id": IntegerDatabaseField(name="team_id"),
-    "person_id": StringDatabaseField(name="person_id"),
-    "revenue": DecimalDatabaseField(name="revenue", nullable=False),
-    "mrr": DecimalDatabaseField(name="mrr", nullable=False),
+    "person_id": StringDatabaseField(
+        name="person_id", description="Person these revenue figures are aggregated for; join target for `persons.id`."
+    ),
+    "revenue": DecimalDatabaseField(
+        name="revenue",
+        nullable=False,
+        description="Total revenue attributed to the person, summed across all their customers, in the project's base currency.",
+    ),
+    "mrr": DecimalDatabaseField(
+        name="mrr",
+        nullable=False,
+        description="Monthly recurring revenue attributed to the person, summed across all their customers, in the project's base currency.",
+    ),
 }
 
 
@@ -151,13 +160,32 @@ def _select_from_persons_revenue_analytics_table(context: HogQLContext) -> ast.S
 
     if not queries:
         return ast.SelectQuery.empty(columns=FIELDS)
-    elif len(queries) == 1:
-        return queries[0]
-    else:
-        return ast.SelectSetQuery.create_from_queries(queries, set_operator="UNION ALL")
+
+    inner_query: ast.SelectQuery | ast.SelectSetQuery = (
+        queries[0] if len(queries) == 1 else ast.SelectSetQuery.create_from_queries(queries, set_operator="UNION ALL")
+    )
+
+    # A person can map to more than one customer -- duplicate customer records sharing an email, or
+    # customers spread across multiple revenue sources -- and each mapping is its own row above.
+    # Aggregating by `person_id` keeps this table at one row per person so the `persons` join can't
+    # fan out the persons table. Mirrors what `groups_revenue_analytics` already does per group.
+    return ast.SelectQuery(
+        select=[
+            ast.Alias(alias="team_id", expr=ast.Constant(value=context.team_id)),
+            ast.Alias(alias="person_id", expr=ast.Field(chain=["person_id"])),
+            ast.Alias(alias="revenue", expr=ast.Call(name="sum", args=[ast.Field(chain=["revenue"])])),
+            ast.Alias(alias="mrr", expr=ast.Call(name="sum", args=[ast.Field(chain=["mrr"])])),
+        ],
+        select_from=ast.JoinExpr(table=inner_query),
+        group_by=[ast.Field(chain=["person_id"])],
+    )
 
 
 class PersonsRevenueAnalyticsTable(LazyTable):
+    description: str = (
+        "Revenue and MRR aggregated per person from the revenue analytics views. "
+        "One row per person; reachable from persons via the `revenue_analytics` join."
+    )
     fields: dict[str, FieldOrTable] = FIELDS
 
     def lazy_select(

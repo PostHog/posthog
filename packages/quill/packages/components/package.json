@@ -1,6 +1,6 @@
 {
     "name": "@posthog/quill-components",
-    "version": "0.3.0-beta.14",
+    "version": "0.3.0-beta.15",
     "private": true,
     "description": "Internal workspace package (private, not published). The middle layer of the quill design system — higher-level compositions of primitives that wire several of them together with sensible defaults (e.g. a FormField that composes Label + Input + validation state, or a ConfirmDialog that composes Dialog + Button + destructive variant). Bundled into @posthog/quill at build time; consumers should import from @posthog/quill instead.",
     "license": "MIT",
@@ -24,12 +24,19 @@
             "require": "./dist/index.cjs",
             "default": "./dist/index.js"
         },
+        "./metric": {
+            "types": "./dist/metric.d.ts",
+            "import": "./dist/metric.js",
+            "require": "./dist/metric.cjs",
+            "default": "./dist/metric.js"
+        },
         "./package.json": "./package.json"
     },
     "scripts": {
         "build": "vite build"
     },
     "dependencies": {
+        "@posthog/quill-charts": "workspace:^",
         "@posthog/quill-primitives": "workspace:^",
         "@posthog/quill-tokens": "workspace:^",
         "date-fns": "^4.0.0",

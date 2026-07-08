@@ -10,7 +10,13 @@ import { CodeSnippet } from 'lib/components/CodeSnippet'
 import { FEATURE_FLAGS, OrganizationMembershipLevel } from 'lib/constants'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { APIScope, API_SCOPES, scopesArrayToObject, scopesObjectToArray } from 'lib/scopes'
+import {
+    APIScope,
+    API_SCOPES,
+    SCOPES_IMPLYING_FEATURE_FLAG_WRITE,
+    scopesArrayToObject,
+    scopesObjectToArray,
+} from 'lib/scopes'
 import { hasMembershipLevelOrHigher, organizationAllowsPersonalApiKeysForMembers } from 'lib/utils/permissioning'
 import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
@@ -167,6 +173,16 @@ export const personalAPIKeysLogic = kea<personalAPIKeysLogicType>([
                 // Filter out llm_gateway scope if feature flag is disabled
                 if (!featureFlags[FEATURE_FLAGS.GATEWAY_PERSONAL_API_KEY]) {
                     scopes = scopes.filter((scope) => scope.key !== 'llm_gateway')
+                }
+
+                // Hide agents scope unless the agent platform flag is enabled (hidden until GA)
+                if (!featureFlags[FEATURE_FLAGS.AGENT_PLATFORM]) {
+                    scopes = scopes.filter((scope) => scope.key !== 'agents')
+                }
+
+                // Hide engineering analytics scope unless the product's rollout flag is enabled
+                if (!featureFlags[FEATURE_FLAGS.ENGINEERING_ANALYTICS]) {
+                    scopes = scopes.filter((scope) => scope.key !== 'engineering_analytics')
                 }
 
                 // Hide approvals scope unless the org has the APPROVALS feature
@@ -461,6 +477,18 @@ export const personalAPIKeysLogic = kea<personalAPIKeysLogicType>([
                 delete scopesObject[key]
             } else {
                 scopesObject[key] = action
+            }
+
+            // Survey and early access feature writes also write a feature flag (targeting / linked flag),
+            // so they imply feature_flag:write (see SCOPES_IMPLYING_FEATURE_FLAG_WRITE). Auto-select it so
+            // the key works out of the box. Scoped to this toggle action only — not every scopes change —
+            // so it stays visible and removable if the key only manages plain surveys.
+            if (
+                action === 'write' &&
+                key in SCOPES_IMPLYING_FEATURE_FLAG_WRITE &&
+                scopesObject['feature_flag'] !== 'write'
+            ) {
+                scopesObject['feature_flag'] = 'write'
             }
 
             // Convert back to array format

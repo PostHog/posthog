@@ -3,6 +3,7 @@ from datetime import timedelta
 from typing import Any
 from uuid import UUID
 
+import pytest
 from freezegun import freeze_time
 from posthog.test.base import (
     APIBaseTest,
@@ -3259,6 +3260,7 @@ class TestClickhousePaths(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual([p1.uuid], [row[0]["id"] for row in results])
         self.assertEqual([[]], [list(row[3]) for row in results])
 
+    @pytest.mark.timeout(60)
     @snapshot_clickhouse_queries
     @freeze_time("2012-01-01T03:21:34.000Z")
     def test_recording_with_start_and_end(self):
@@ -3363,6 +3365,7 @@ class TestClickhousePaths(ClickhouseTestMixin, APIBaseTest):
             [list(row[3]) for row in results],
         )
 
+    @pytest.mark.timeout(60)
     @snapshot_clickhouse_queries
     @freeze_time("2012-01-01T03:21:34.000Z")
     def test_recording_for_dropoff(self):

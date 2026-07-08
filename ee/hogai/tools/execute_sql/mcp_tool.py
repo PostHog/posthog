@@ -10,11 +10,14 @@ from posthog.hogql.taxonomy_validation import validate_taxonomy_references
 
 from posthog.sync import database_sync_to_async
 
+from products.warehouse_sources.backend.facade.models import ExternalDataSource
+
 from ee.hogai.chat_agent.schema_generator.parsers import PydanticOutputParserException
 from ee.hogai.chat_agent.sql.mixins import HogQLOutputParserMixin
 from ee.hogai.context.insight.context import InsightContext
 from ee.hogai.mcp_tool import MCPTool, mcp_tool_registry
 from ee.hogai.tool_errors import MaxToolRetryableError
+from ee.hogai.tools.execute_sql.import_suggestions import build_import_suggestion, extract_unknown_tables
 
 
 class ExecuteSQLMCPToolArgs(BaseModel):
@@ -59,9 +62,16 @@ class ExecuteSQLMCPTool(HogQLOutputParserMixin, MCPTool[ExecuteSQLMCPToolArgs]):
             query = HogQLQuery(query=cleaned_query, connectionId=args.connectionId)
         else:
             try:
-                query = await self._validate_hogql_query(args.query)
+                validated = await self._validate_hogql_query(args.query)
             except PydanticOutputParserException as e:
-                raise MaxToolRetryableError(f"Query validation failed: {e.validation_message}")
+                message = f"Query validation failed: {e.validation_message}"
+                suggestion = await self._maybe_import_suggestion(e.validation_message)
+                if suggestion:
+                    message = f"{message}\n\n{suggestion}"
+                raise MaxToolRetryableError(message)
+
+            variables = await self._abuild_query_variables(validated.query)
+            query = HogQLQuery(query=validated.query, variables=variables) if variables else validated
 
             # Warn (non-fatally) when the query references events/properties absent from the project
             # taxonomy — the most common silent-wrong-answer surface for agents (e.g. `event = 'purchase'`
@@ -76,10 +86,26 @@ class ExecuteSQLMCPTool(HogQLOutputParserMixin, MCPTool[ExecuteSQLMCPToolArgs]):
             user=self._user,
         )
         results = await insight_context.execute_and_format(
-            prompt_template="{{{results}}}", truncate_results=args.truncate
+            prompt_template="{{{results}}}", truncate_results=args.truncate, include_prompt_framing=False
         )
 
         return _prepend_taxonomy_warnings(results, taxonomy_warnings)
+
+    async def _maybe_import_suggestion(self, validation_message: str) -> str | None:
+        """When a query fails on an unknown table, suggest importing a matching warehouse source."""
+        missing_tables = extract_unknown_tables(validation_message)
+        if not missing_tables:
+            return None
+        existing_source_types = await self._existing_source_types()
+        return build_import_suggestion(missing_tables, existing_source_types)
+
+    @database_sync_to_async(thread_sensitive=False)
+    def _existing_source_types(self) -> set[str]:
+        return set(
+            ExternalDataSource.objects.filter(team_id=self._team.pk, deleted=False).values_list(
+                "source_type", flat=True
+            )
+        )
 
     @database_sync_to_async(thread_sensitive=False)
     def _get_taxonomy_warnings(self, query: str) -> list[HogQLNotice]:

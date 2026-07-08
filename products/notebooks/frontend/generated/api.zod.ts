@@ -84,6 +84,112 @@ export const NotebooksPartialUpdateBody = /* @__PURE__ */ zod.object({
 /**
  * The API for interacting with Notebooks. This feature is in early access and the API can have breaking changes without announcement.
  */
+export const notebooksCollabMarkdownSaveCreateBodyTextContentDefault = ``
+export const notebooksCollabMarkdownSaveCreateBodyCursorOneHeadMin = 0
+
+export const notebooksCollabMarkdownSaveCreateBodyCursorOneNodeIndexMin = 0
+
+export const notebooksCollabMarkdownSaveCreateBodyCursorOneOffsetMin = 0
+
+export const notebooksCollabMarkdownSaveCreateBodyCursorOneListItemIndexMin = 0
+
+export const NotebooksCollabMarkdownSaveCreateBody = /* @__PURE__ */ zod.object({
+    client_id: zod
+        .string()
+        .describe('Unique identifier for the client session, used to skip self-echo on the update stream.'),
+    version: zod
+        .number()
+        .describe('The notebook version the submitted content is based on (optimistic concurrency baseline).'),
+    content: zod
+        .unknown()
+        .describe('The full markdown notebook document: a ProseMirror doc wrapping a single markdown node.'),
+    text_content: zod
+        .string()
+        .default(notebooksCollabMarkdownSaveCreateBodyTextContentDefault)
+        .describe('Plain text for search indexing.'),
+    title: zod.string().optional().describe('Updated notebook title.'),
+    cursor: zod
+        .object({
+            head: zod
+                .number()
+                .min(notebooksCollabMarkdownSaveCreateBodyCursorOneHeadMin)
+                .optional()
+                .describe('ProseMirror selection head position (rich v1 notebooks).'),
+            node_index: zod
+                .number()
+                .min(notebooksCollabMarkdownSaveCreateBodyCursorOneNodeIndexMin)
+                .optional()
+                .describe("Index of the caret's block node in the markdown notebook document (markdown notebooks)."),
+            offset: zod
+                .number()
+                .min(notebooksCollabMarkdownSaveCreateBodyCursorOneOffsetMin)
+                .optional()
+                .describe('Caret offset in the plain text of the focused editable element, in UTF-16 code units.'),
+            list_item_index: zod
+                .number()
+                .min(notebooksCollabMarkdownSaveCreateBodyCursorOneListItemIndexMin)
+                .optional()
+                .describe('Index of the focused list item when the caret is inside a list block.'),
+        })
+        .optional()
+        .describe(
+            "The author's caret in the saved markdown, broadcast with the update so other clients can move the author's remote caret together with the text change."
+        ),
+})
+
+/**
+ * The API for interacting with Notebooks. This feature is in early access and the API can have breaking changes without announcement.
+ */
+export const notebooksCollabPresenceCreateBodyClientIdMax = 200
+
+export const notebooksCollabPresenceCreateBodyVersionMin = 0
+
+export const notebooksCollabPresenceCreateBodyCursorOneHeadMin = 0
+
+export const notebooksCollabPresenceCreateBodyCursorOneNodeIndexMin = 0
+
+export const notebooksCollabPresenceCreateBodyCursorOneOffsetMin = 0
+
+export const notebooksCollabPresenceCreateBodyCursorOneListItemIndexMin = 0
+
+export const NotebooksCollabPresenceCreateBody = /* @__PURE__ */ zod.object({
+    client_id: zod
+        .string()
+        .max(notebooksCollabPresenceCreateBodyClientIdMax)
+        .describe('Unique identifier for the client session, used to skip self-echo on the update stream.'),
+    version: zod
+        .number()
+        .min(notebooksCollabPresenceCreateBodyVersionMin)
+        .describe('The notebook version the cursor position is relative to.'),
+    cursor: zod
+        .object({
+            head: zod
+                .number()
+                .min(notebooksCollabPresenceCreateBodyCursorOneHeadMin)
+                .optional()
+                .describe('ProseMirror selection head position (rich v1 notebooks).'),
+            node_index: zod
+                .number()
+                .min(notebooksCollabPresenceCreateBodyCursorOneNodeIndexMin)
+                .optional()
+                .describe("Index of the caret's block node in the markdown notebook document (markdown notebooks)."),
+            offset: zod
+                .number()
+                .min(notebooksCollabPresenceCreateBodyCursorOneOffsetMin)
+                .optional()
+                .describe('Caret offset in the plain text of the focused editable element, in UTF-16 code units.'),
+            list_item_index: zod
+                .number()
+                .min(notebooksCollabPresenceCreateBodyCursorOneListItemIndexMin)
+                .optional()
+                .describe('Index of the focused list item when the caret is inside a list block.'),
+        })
+        .describe("The caller's caret position, broadcast to other clients on this notebook's collab stream."),
+})
+
+/**
+ * The API for interacting with Notebooks. This feature is in early access and the API can have breaking changes without announcement.
+ */
 export const notebooksCollabSaveCreateBodyTextContentDefault = ``
 
 export const NotebooksCollabSaveCreateBody = /* @__PURE__ */ zod.object({

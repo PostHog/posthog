@@ -3,19 +3,52 @@ This module contains serializers that are used across other serializers for nest
 """
 
 import copy
+from functools import cached_property
 from typing import Any, Optional
+from uuid import UUID
 
+from drf_spectacular.utils import extend_schema_field
 from opentelemetry import trace
 from rest_framework import serializers
 from rest_framework.fields import SkipField
 from rest_framework.relations import PKOnlyObject
 from rest_framework.utils import model_meta
 
+from posthog.helpers.trigram_search import search_match_type_from_instance
 from posthog.models import Organization, Team, User
 from posthog.models.organization import OrganizationMembership
 from posthog.models.project import Project
 
 tracer = trace.get_tracer(__name__)
+
+
+# Adds the read-only `search_match_type` field to a saved-list serializer whose viewset runs
+# `apply_trigram_search`. The helper annotates each matched row with `_is_exact`; this surfaces it
+# as `exact` / `similar`, and strips the field entirely when the list was not filtered by `search`
+# (no annotation present) so it never appears on retrieve or unfiltered lists. Mix it in before
+# `ModelSerializer` in the bases so its `to_representation` runs in the super() chain — the
+# `test_search_match_type_mixin` tests pin that ordering. Deliberately undocumented (no docstring):
+# `inspect.getdoc` walks the MRO, so a docstring here would leak into every mixed-in serializer's
+# public OpenAPI/MCP component description.
+class SearchMatchTypeSerializerMixin(serializers.Serializer):
+    search_match_type = serializers.SerializerMethodField(
+        read_only=True,
+        help_text=(
+            "How this row matched the `search` query parameter: `exact` (the term is a "
+            "case-insensitive substring of a searched field) or `similar` (a fuzzy trigram match, "
+            "returned only when no exact match exists). Null when the list is not filtered by `search`."
+        ),
+    )
+
+    @extend_schema_field(serializers.ChoiceField(choices=["exact", "similar"], allow_null=True))
+    def get_search_match_type(self, instance: Any) -> Optional[str]:
+        return search_match_type_from_instance(instance)
+
+    def to_representation(self, instance: Any) -> Any:
+        data = super().to_representation(instance)
+        if getattr(instance, "_is_exact", None) is None:
+            data.pop("search_match_type", None)
+        return data
 
 
 class UserBasicSerializer(serializers.ModelSerializer):
@@ -81,12 +114,19 @@ class ProjectBackwardCompatBasicSerializer(serializers.ModelSerializer):
 
     instance: Optional[Project]
 
+    # Declared explicitly (not a passthrough): Team.project_id is an FK attname the model-field merge can't
+    # resolve, and a Project's own id equals its primary Team's project_id (Project ↔ Team is 1:1).
+    project_id = serializers.IntegerField(
+        source="id", read_only=True, help_text="ID of the project this environment belongs to."
+    )
+
     class Meta:
         model = Project
         fields = (
             "id",
             "uuid",  # Compat with TeamSerializer
             "organization",
+            "project_id",  # Compat with TeamSerializer
             "api_token",  # Compat with TeamSerializer
             "name",
             "completed_snippet_onboarding",  # Compat with TeamSerializer
@@ -244,10 +284,16 @@ class OrganizationBasicSerializer(serializers.ModelSerializer):
         ]
 
     def get_membership_level(self, organization: Organization) -> Optional[OrganizationMembership.Level]:
-        membership = OrganizationMembership.objects.filter(
-            organization=organization, user=self.context["request"].user
-        ).first()
-        return OrganizationMembership.Level(membership.level) if membership is not None else None
+        level = self._membership_levels_by_org.get(organization.id)
+        return OrganizationMembership.Level(level) if level is not None else None
+
+    @cached_property
+    def _membership_levels_by_org(self) -> dict[UUID, int]:
+        return dict(
+            OrganizationMembership.objects.filter(user=self.context["request"].user).values_list(
+                "organization_id", "level"
+            )
+        )
 
     @tracer.start_as_current_span("organization_basic_serializer.to_representation")
     def to_representation(self, instance):

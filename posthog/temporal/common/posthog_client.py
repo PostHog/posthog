@@ -2,6 +2,7 @@ from dataclasses import is_dataclass
 from typing import Any, Optional
 
 import temporalio.exceptions
+from opentelemetry import trace
 from posthoganalytics import api_key, capture_exception
 from temporalio import activity, workflow
 from temporalio.worker import (
@@ -13,10 +14,31 @@ from temporalio.worker import (
     WorkflowInterceptorClassInput,
 )
 
+from posthog.egress.transport.transport import EgressBudgetExhausted
 from posthog.temporal.common.interceptor import ALL_TASK_QUEUES
 from posthog.temporal.common.logger import get_write_only_logger
 
 logger = get_write_only_logger()
+
+
+def _tag_team_id_on_current_span(input: ExecuteActivityInput | ExecuteWorkflowInput) -> None:
+    """Tag the active span (the Temporal RunActivity/RunWorkflow span, when OTel tracing is
+    enabled on the worker) with team_id read from the activity/workflow input.
+
+    team_id is named consistently across PostHog's Temporal input dataclasses, so a reflective
+    read covers nearly all of them without per-workflow opt-in. Best-effort: span bookkeeping
+    must never break execution, and set_attribute is a non-IO no-op when the span isn't recording."""
+    try:
+        if not (len(input.args) == 1 and is_dataclass(input.args[0])):
+            return
+        team_id = getattr(input.args[0], "team_id", None)
+        if not isinstance(team_id, int) or isinstance(team_id, bool):
+            return
+        span = trace.get_current_span()
+        if span.is_recording():
+            span.set_attribute("team_id", team_id)
+    except Exception:
+        pass
 
 
 async def _add_inputs_to_capture_kwargs(
@@ -40,9 +62,16 @@ async def _add_inputs_to_capture_kwargs(
 
 class _PostHogClientActivityInboundInterceptor(ActivityInboundInterceptor):
     async def execute_activity(self, input: ExecuteActivityInput) -> Any:
+        _tag_team_id_on_current_span(input)
         try:
             return await super().execute_activity(input)
         except Exception as e:
+            # Cancellations (worker drain, activity timeout, workflow cancellation) and our own
+            # egress-budget backpressure (a deliberate "defer and retry later" signal that our
+            # rate limiter already records via record_outbound_decision) are expected control flow,
+            # not defects — re-raise without reporting them to error tracking.
+            if temporalio.exceptions.is_cancelled_exception(e) or isinstance(e, EgressBudgetExhausted):
+                raise
             activity_info = activity.info()
             capture_kwargs = {
                 "properties": {
@@ -69,11 +98,14 @@ class _PostHogClientActivityInboundInterceptor(ActivityInboundInterceptor):
 
 class _PostHogClientWorkflowInterceptor(WorkflowInboundInterceptor):
     async def execute_workflow(self, input: ExecuteWorkflowInput) -> Any:
+        _tag_team_id_on_current_span(input)
         try:
             return await super().execute_workflow(input)
         except Exception as e:
             if isinstance(e, temporalio.exceptions.ActivityError):
                 raise  # Already captured at the activity level
+            if temporalio.exceptions.is_cancelled_exception(e):
+                raise  # Expected cancellation (worker drain, timeout, cancel), not a defect
             try:
                 workflow_info = workflow.info()
                 capture_kwargs = {
@@ -100,7 +132,8 @@ class _PostHogClientWorkflowInterceptor(WorkflowInboundInterceptor):
 
 
 class PostHogClientInterceptor(Interceptor):
-    """PostHog Interceptor class which will report workflow & activity exceptions to PostHog"""
+    """PostHog Interceptor: reports workflow & activity exceptions to PostHog and tags the
+    Temporal span of each execution with team_id (read reflectively from the input)."""
 
     task_queue = ALL_TASK_QUEUES
 

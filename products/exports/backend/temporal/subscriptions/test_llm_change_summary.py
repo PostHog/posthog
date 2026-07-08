@@ -474,6 +474,28 @@ class TestGenerateChangeSummary:
         assert call_kwargs.kwargs["temperature"] == 0.3
         assert call_kwargs.kwargs["max_tokens"] == 500
 
+    @patch("posthog.event_usage.SITE_URL", "https://us.posthog.com")
+    @patch("products.exports.backend.temporal.subscriptions.llm_change_summary._get_openai_client")
+    def test_generation_is_tagged_billable(self, mock_get_client):
+        mock_client = mock_get_client.return_value
+        mock_client.chat.completions.create.return_value = _mock_openai_response("- summary", 10, 5)
+
+        team = MagicMock()
+        team.id = 42
+
+        generate_change_summary(
+            [_make_state(1, "X", "data")],
+            [_make_state(1, "X", "data", timestamp="2025-04-15T10:00:00Z")],
+            team=team,
+        )
+
+        call_kwargs = mock_client.chat.completions.create.call_args.kwargs
+        properties = call_kwargs["posthog_properties"]
+        assert properties["$ai_billable"] is True
+        assert properties["team_id"] == 42
+        assert properties["ai_product"] == "subscriptions"
+        assert call_kwargs["posthog_groups"] == {"project": "42", "instance": "https://us.posthog.com"}
+
     @patch("products.exports.backend.temporal.subscriptions.llm_change_summary._get_openai_client")
     def test_uses_initial_prompt_when_no_previous_states(self, mock_get_client):
         mock_client = mock_get_client.return_value
@@ -623,6 +645,7 @@ class TestGenerateChangeSummary:
         user_tag = mock_client.chat.completions.create.call_args.kwargs["user"]
         assert user_tag.endswith("-delivery-abc-123")
 
+    @patch("posthog.event_usage.SITE_URL", "https://us.posthog.com")
     @patch("products.exports.backend.temporal.subscriptions.llm_change_summary._get_openai_client")
     def test_marks_generation_billable_to_team_when_team_provided(self, mock_get_client):
         mock_client = mock_get_client.return_value
@@ -638,7 +661,7 @@ class TestGenerateChangeSummary:
         assert call_kwargs["posthog_properties"]["team_id"] == 42
         assert call_kwargs["posthog_properties"]["ai_product"] == "subscriptions"
         assert call_kwargs["posthog_properties"]["delivery_id"] == "abc-123"
-        assert call_kwargs["posthog_groups"] == {"project": "42"}
+        assert call_kwargs["posthog_groups"] == {"project": "42", "instance": "https://us.posthog.com"}
         assert call_kwargs["posthog_distinct_id"] == call_kwargs["user"]
 
     @patch("products.exports.backend.temporal.subscriptions.llm_change_summary._get_openai_client")
@@ -666,6 +689,7 @@ class TestGenerateChangeSummary:
         from unittest.mock import MagicMock
 
         monkeypatch.setenv("OPENAI_API_KEY", "test-fake-key")
+        monkeypatch.setattr("posthog.event_usage.SITE_URL", "https://us.posthog.com")
 
         captured_calls: list[dict] = []
 
@@ -705,7 +729,7 @@ class TestGenerateChangeSummary:
         assert captured["properties"]["$ai_billable"] is True
         assert captured["properties"]["team_id"] == 42
         assert captured["properties"]["ai_product"] == "subscriptions"
-        assert captured["groups"] == {"project": "42"}
+        assert captured["groups"] == {"project": "42", "instance": "https://us.posthog.com"}
 
 
 class TestAnnotationsSection:

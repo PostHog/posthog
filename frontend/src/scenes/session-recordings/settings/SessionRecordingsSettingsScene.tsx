@@ -46,16 +46,9 @@ export const scene: SceneExport = {
     productKey: ProductKey.SESSION_REPLAY,
 }
 
-export interface SessionRecordingsSettingsSceneProps {
-    tabId?: string
-}
-
-export function SessionRecordingsSettingsScene({ tabId }: SessionRecordingsSettingsSceneProps = {}): JSX.Element {
-    if (!tabId) {
-        throw new Error('<SessionRecordingsSettingsScene /> must receive a tabId prop')
-    }
+export function SessionRecordingsSettingsScene(): JSX.Element {
     return (
-        <BindLogic logic={sessionReplaySceneLogic} props={{ tabId }}>
+        <BindLogic logic={sessionReplaySceneLogic} props={{}}>
             <SceneContent className="-mb-14">
                 <SceneTitleSection
                     name={sceneConfigurations[Scene.Replay].name}

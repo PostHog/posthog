@@ -26,13 +26,6 @@ def _normalize_order_clause(raw: str) -> str:
     return stripped
 
 
-ROLE_FIELDS = {
-    "csm": "csm",
-    "accountExecutive": "account_executive",
-    "accountOwner": "account_owner",
-}
-
-
 class AccountsQueryRunner(AnalyticsQueryRunner[AccountsQueryResponse]):
     query: AccountsQuery
     cached_response: CachedAccountsQueryResponse
@@ -110,15 +103,18 @@ class AccountsQueryRunner(AnalyticsQueryRunner[AccountsQueryResponse]):
         if self.query.tagNames:
             where_exprs.append(self._tag_filter_expr(self.query.tagNames))
 
-        for query_field, json_key in ROLE_FIELDS.items():
-            role_value = getattr(self.query, query_field, None)
-            role_expr = self._role_filter_expr(json_key, role_value)
-            if role_expr is not None:
-                where_exprs.append(role_expr)
-
         if self.query.allRolesUnassigned:
-            for json_key in ROLE_FIELDS.values():
-                where_exprs.append(self._role_id_isnull(json_key))
+            where_exprs.append(
+                parse_expr("id NOT IN {subquery}", {"subquery": self._active_relationship_account_ids()})
+            )
+
+        if self.query.assignedToUserIds:
+            where_exprs.append(
+                parse_expr(
+                    "id IN {subquery}",
+                    {"subquery": self._active_relationship_account_ids(self.query.assignedToUserIds)},
+                )
+            )
 
         if self.query.filterExpression and self.query.filterExpression.strip():
             where_exprs.append(parse_expr(self.query.filterExpression))
@@ -163,27 +159,20 @@ class AccountsQueryRunner(AnalyticsQueryRunner[AccountsQueryResponse]):
         )
         return parse_expr("id IN {subquery}", {"subquery": subquery})
 
-    def _role_filter_expr(self, json_key: str, value: object) -> ast.Expr | None:
-        if value is None:
-            return None
-        if value == "unassigned":
-            return self._role_id_isnull(json_key)
-        try:
-            user_id = int(value)  # type: ignore[call-overload]
-        except (TypeError, ValueError):
-            return None
-        return parse_expr(
-            "JSONExtract(properties, {role_key}, 'id', 'Nullable(Int64)') = {user_id}",
-            {
-                "role_key": ast.Constant(value=json_key),
-                "user_id": ast.Constant(value=user_id),
-            },
-        )
-
-    def _role_id_isnull(self, json_key: str) -> ast.Expr:
-        return parse_expr(
-            "isNull(JSONExtract(properties, {role_key}, 'id', 'Nullable(Int64)'))",
-            {"role_key": ast.Constant(value=json_key)},
+    def _active_relationship_account_ids(
+        self, user_ids: list[int] | None = None
+    ) -> ast.SelectQuery | ast.SelectSetQuery:
+        # An account is "assigned" when someone actively holds any relationship on
+        # it (CSM, Account executive, or a custom definition) — optionally narrowed
+        # to the given holders. Explicit ids (not the requester) so a shared URL
+        # filtered by "my accounts" resolves to the same accounts for every viewer.
+        if user_ids is not None:
+            return parse_select(
+                "SELECT account_id FROM system.account_relationships WHERE isNull(ended_at) AND user_id IN {user_ids}",
+                {"user_ids": ast.Constant(value=user_ids)},
+            )
+        return parse_select(
+            "SELECT account_id FROM system.account_relationships WHERE isNull(ended_at) AND isNotNull(user_id)"
         )
 
     def _calculate(self) -> AccountsQueryResponse:

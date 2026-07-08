@@ -67,7 +67,7 @@ function DialogContent({
                 data-quill-portal="modal-content"
                 data-slot="dialog-content"
                 data-size={size}
-                className={cn('quill-dialog__content grid gap-4', className)}
+                className={cn('quill-dialog__content grid', className)}
                 {...props}
             >
                 {children}

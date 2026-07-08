@@ -1672,7 +1672,13 @@ class TestUpsertDashboardTool(BaseTest):
         dashboard_created_calls = [c for c in mock_report.call_args_list if c[0][1] == "dashboard created"]
         self.assertEqual(len(dashboard_created_calls), 1)
         self.assertEqual(dashboard_created_calls[0][0][0], self.user)
-        self.assertEqual(dashboard_created_calls[0][0][2]["source"], "posthog_ai")
+        created_props = dashboard_created_calls[0][0][2]
+        self.assertEqual(created_props["source"], "posthog_ai")
+        self.assertEqual(created_props["creation_mode"], "default")
+        self.assertEqual(created_props["from_template"], False)
+        self.assertEqual(created_props["template_key"], None)
+        self.assertEqual(created_props["duplicated"], False)
+        self.assertEqual(created_props["duplicated_from_dashboard_id"], None)
 
     @patch("ee.hogai.tools.upsert_dashboard.tool.report_user_action")
     async def test_update_dashboard_reports_dashboard_updated(self, mock_report):

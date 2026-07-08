@@ -1,11 +1,11 @@
 import guidelines from '@shared/guidelines.md'
-import path from 'node:path'
-import { fileURLToPath } from 'node:url'
-import { format } from 'oxfmt'
 import { describe, expect, it } from 'vitest'
 import { parse as parseYaml } from 'yaml'
 import { z } from 'zod'
 
+import { ToolInputValidationError } from '@/lib/errors'
+import { estimateTokens } from '@/lib/estimate-tokens'
+import { buildQueryToolsBlock, buildToolDomainsBlock } from '@/lib/instructions'
 import { InstructionsFormatter } from '@/lib/instructions-formatter'
 import { SessionManager } from '@/lib/SessionManager'
 import { getToolsFromContext } from '@/tools'
@@ -18,6 +18,7 @@ import {
     type Tool,
     type ZodObjectAny,
 } from '@/tools/types'
+import { APP_DATA_META_KEY } from '@/ui-apps/types'
 
 function makeMockTool(overrides: Partial<Tool<ZodObjectAny>> = {}): Tool<ZodObjectAny> {
     return {
@@ -41,8 +42,21 @@ const mockContext = {
     getDistinctId: async () => 'test-distinct-id',
 } as unknown as Context
 
-function createExec(tools: Tool<ZodObjectAny>[] = [makeMockTool()], mcpConsumer?: string): Tool<any> {
-    return createExecTool(tools, mockContext, 'test description', 'test command reference', mcpConsumer)
+function createExec(
+    tools: Tool<ZodObjectAny>[] = [makeMockTool()],
+    mcpConsumer?: string,
+    options?: { isInlineExecUiHost?: boolean }
+): Tool<any> {
+    return createExecTool(
+        tools,
+        mockContext,
+        'test description',
+        'test command reference',
+        mcpConsumer,
+        undefined,
+        [],
+        options ?? {}
+    )
 }
 
 describe('exec tool', () => {
@@ -126,34 +140,74 @@ describe('exec tool', () => {
         it('throws usage error for bare call', async () => {
             const exec = createExec()
             await expect(exec.handler(mockContext, { command: 'call' })).rejects.toThrow(
-                'Usage: call [--json] <tool_name> <json_input>'
+                'Usage: call [--json] [--confirm] <tool_name> <json_input>'
             )
         })
 
         it('throws usage error for call --json with no tool name', async () => {
             const exec = createExec()
             await expect(exec.handler(mockContext, { command: 'call --json' })).rejects.toThrow(
-                'Usage: call [--json] <tool_name> <json_input>'
+                'Usage: call [--json] [--confirm] <tool_name> <json_input>'
             )
         })
 
-        it('propagates _meta.ui.resourceUri and structuredContent when the inner tool has a UI app and consumer is posthog-code', async () => {
+        it('allows --confirm before --json when dispatching a call', async () => {
+            const exec = createExec()
+            const result = await exec.handler(mockContext, { command: 'call --confirm --json mock-tool' })
+            const parsed = JSON.parse(result as string)
+            expect(parsed).toEqual({ id: 1, name: 'test', items: [{ a: 1 }, { a: 2 }] })
+        })
+
+        it('requires --confirm for destructive tools when enabled', async () => {
+            const destructive = makeMockTool({
+                annotations: {
+                    destructiveHint: true,
+                    idempotentHint: true,
+                    openWorldHint: false,
+                    readOnlyHint: false,
+                },
+            })
+            const exec = createExecTool(
+                [destructive],
+                mockContext,
+                'test description',
+                'test command reference',
+                undefined,
+                undefined,
+                [],
+                { requireDestructiveConfirmation: true }
+            )
+
+            await expect(exec.handler(mockContext, { command: 'call mock-tool' })).rejects.toThrow(
+                'Tool "mock-tool" is destructive'
+            )
+            await expect(exec.handler(mockContext, { command: 'call --confirm --json mock-tool' })).resolves.toEqual(
+                JSON.stringify({ id: 1, name: 'test', items: [{ a: 1 }, { a: 2 }] })
+            )
+        })
+
+        it('propagates the UI resource URI and exec brand when the inner tool has a UI app and consumer is posthog-code', async () => {
             const tool = makeMockTool({
                 _meta: { ui: { resourceUri: 'ui://posthog/mock-app.html' } },
             })
             const exec = createExec([tool], 'posthog-code')
             const result = (await exec.handler(mockContext, { command: 'call mock-tool' })) as {
                 content: { type: string; text: string }[]
-                structuredContent: { id: number; name: string; _analytics: { distinctId: string; toolName: string } }
+                structuredContent?: Record<string, unknown>
                 _meta: { ui: { resourceUri: string }; [key: string]: unknown }
                 __execBuiltPayload?: true
             }
 
             // Text content still includes the TOON-formatted result for model context
             expect(result.content[0]!.text).toContain('id: 1')
-            // structuredContent carries the raw object plus analytics for the UI app
-            expect(result.structuredContent.id).toBe(1)
-            expect(result.structuredContent._analytics).toEqual({
+            // structuredContent is dropped; the UI data (with analytics) rides on _meta.
+            expect(result.structuredContent).toBeUndefined()
+            const appData = result._meta[APP_DATA_META_KEY] as {
+                id: number
+                _analytics: { distinctId: string; toolName: string }
+            }
+            expect(appData.id).toBe(1)
+            expect(appData._analytics).toEqual({
                 distinctId: 'test-distinct-id',
                 toolName: 'mock-tool',
             })
@@ -169,7 +223,70 @@ describe('exec tool', () => {
             expect(result.__execBuiltPayload).toBe(true)
         })
 
-        it.each([[undefined], ['cline'], ['claude-code'], ['slack'], ['posthog_code']])(
+        // Inline-exec UI-app hosts: PostHog Code (via consumer) plus Claude Code and
+        // Cowork (via the client-profile flag). All three surface structuredContent to
+        // the model, so it must be dropped and the UI data re-homed onto _meta.
+        it.each([
+            ['posthog-code consumer', 'posthog-code', undefined],
+            ['claude-code client', undefined, { isInlineExecUiHost: true }],
+            ['cowork client', undefined, { isInlineExecUiHost: true }],
+        ])(
+            'suppresses structuredContent toward the model but re-homes UI data onto _meta for %s (with a formatted override)',
+            async (_label, consumer, options) => {
+                const tool = makeMockTool({
+                    _meta: { ui: { resourceUri: 'ui://posthog/mock-app.html' } },
+                    handler: async () => ({
+                        results: [{ data: [1, 2, 3], count: 6 }],
+                        _posthogUrl: 'http://localhost:8010/insights/new#q=...',
+                        [POSTHOG_FORMATTED_RESULTS_OVERRIDE_KEY]: 'Date|count\n2026-05-07|6',
+                    }),
+                })
+                const exec = createExec([tool], consumer, options)
+                const result = (await exec.handler(mockContext, { command: 'call mock-tool' })) as {
+                    content: { type: string; text: string }[]
+                    structuredContent?: Record<string, unknown>
+                    _meta: { ui: { resourceUri: string }; [key: string]: unknown }
+                }
+
+                // Model sees ONLY the compact table, not the raw results JSON.
+                expect(result.content[0]!.text).toBe('Date|count\n2026-05-07|6')
+                // Top-level structuredContent is dropped so coding agents don't surface it.
+                expect(result.structuredContent).toBeUndefined()
+                // The UI app's data (with analytics) rides on _meta instead.
+                const appData = result._meta[APP_DATA_META_KEY] as {
+                    results: unknown
+                    _analytics: { distinctId: string; toolName: string }
+                }
+                expect(appData.results).toEqual([{ data: [1, 2, 3], count: 6 }])
+                expect(appData._analytics).toEqual({ distinctId: 'test-distinct-id', toolName: 'mock-tool' })
+                expect(result._meta.ui.resourceUri).toBe('ui://posthog/mock-app.html')
+            }
+        )
+
+        it('re-homes UI data onto _meta and gives the model TOON text even when there is no formatted override', async () => {
+            const tool = makeMockTool({
+                _meta: { ui: { resourceUri: 'ui://posthog/mock-app.html' } },
+                handler: async () => ({
+                    results: [{ data: [1, 2, 3], count: 6 }],
+                    _posthogUrl: 'http://localhost:8010/insights/new#q=...',
+                }),
+            })
+            const exec = createExec([tool], 'posthog-code')
+            const result = (await exec.handler(mockContext, { command: 'call mock-tool' })) as {
+                content: { type: string; text: string }[]
+                structuredContent?: Record<string, unknown>
+                _meta: { [key: string]: unknown }
+            }
+
+            // Without a compact table the model reads TOON text, never verbose structuredContent.
+            expect(result.structuredContent).toBeUndefined()
+            expect(result.content[0]!.text).toContain('_posthogUrl')
+            const appData = result._meta[APP_DATA_META_KEY] as { results: unknown }
+            expect(appData.results).toEqual([{ data: [1, 2, 3], count: 6 }])
+        })
+
+        // posthog_ai is sent as its own consumer for attribution but is NOT a UI-apps host.
+        it.each([[undefined], ['cline'], ['claude-code'], ['slack'], ['posthog_code'], ['posthog_ai']])(
             'returns plain text (no UI payload) when consumer is %s even if the inner tool has a UI app',
             async (consumer) => {
                 const tool = makeMockTool({
@@ -194,6 +311,30 @@ describe('exec tool', () => {
                 calls.push({ toolName, properties })
             }
             const exec = createExecTool(
+                [makeMockTool({ schema: z.object({ query: z.string() }) })],
+                mockContext,
+                'test description',
+                'test command reference',
+                undefined,
+                tracker
+            )
+            await exec.handler(mockContext, { command: 'call --json mock-tool {"query":"SELECT 1"}' })
+            expect(calls).toHaveLength(1)
+            expect(calls[0]!.toolName).toBe('mock-tool')
+            expect(calls[0]!.properties.success).toBe(true)
+            expect(calls[0]!.properties.output_format).toBe('json')
+            expect(typeof calls[0]!.properties.duration_ms).toBe('number')
+            expect(calls[0]!.properties.input_tokens).toBeGreaterThan(0)
+            expect(calls[0]!.properties.output_tokens).toBeGreaterThan(0)
+            expect(calls[0]!.properties.input).toEqual({ query: 'SELECT 1' })
+        })
+
+        it('estimates inner output tokens from the serialized output (TOON vs JSON)', async () => {
+            const calls: { toolName: string; properties: ExecInnerCallProperties }[] = []
+            const tracker = (toolName: string, properties: ExecInnerCallProperties): void => {
+                calls.push({ toolName, properties })
+            }
+            const exec = createExecTool(
                 [makeMockTool()],
                 mockContext,
                 'test description',
@@ -201,12 +342,15 @@ describe('exec tool', () => {
                 undefined,
                 tracker
             )
-            await exec.handler(mockContext, { command: 'call --json mock-tool' })
-            expect(calls).toHaveLength(1)
-            expect(calls[0]!.toolName).toBe('mock-tool')
-            expect(calls[0]!.properties.success).toBe(true)
-            expect(calls[0]!.properties.output_format).toBe('json')
-            expect(typeof calls[0]!.properties.duration_ms).toBe('number')
+
+            const toonOutput = await exec.handler(mockContext, { command: 'call mock-tool' })
+            const jsonOutput = await exec.handler(mockContext, { command: 'call --json mock-tool' })
+
+            // Each estimate matches the text actually returned, not a re-stringified object.
+            expect(calls[0]!.properties.output_tokens).toBe(estimateTokens(toonOutput))
+            expect(calls[1]!.properties.output_tokens).toBe(estimateTokens(jsonOutput))
+            // TOON and JSON serialize to different sizes — the estimate tracks the wire format.
+            expect(calls[0]!.properties.output_tokens).not.toBe(calls[1]!.properties.output_tokens)
         })
 
         it('passes inline JSON arguments to the inner tool', async () => {
@@ -244,6 +388,68 @@ describe('exec tool', () => {
             ).rejects.toThrow(/Invalid JSON input:/)
         })
 
+        it.each([
+            {
+                case: 'a missing required parameter, naming the field',
+                input: '{}',
+                expected: /Invalid input for "action-get": missing required parameter: id/,
+            },
+            {
+                case: 'a parameter of the wrong type, naming the expected type',
+                input: '{"id":"not-a-number"}',
+                expected: /parameter "id" must be of type number/,
+            },
+            {
+                // Plain z.object strips unknown keys at parse time (Zod v4), so the
+                // actionable signal is the absent required `id`, not the stray key.
+                case: 'an unexpected property displacing the required field',
+                input: '{"actionId":277664}',
+                expected: /missing required parameter: id/,
+            },
+        ])('rejects a call with $case', async ({ input, expected }) => {
+            const tool = makeMockTool({
+                name: 'action-get',
+                schema: z.object({ id: z.number() }),
+                handler: async (_ctx, params) => params,
+            })
+            const exec = createExec([tool])
+            const error: unknown = await exec.handler(mockContext, { command: `call action-get ${input}` }).then(
+                () => null,
+                (e: unknown) => e
+            )
+            // Typed rejection — the executor relies on it to skip exception
+            // capture and classify the failure as `validation`.
+            expect(error).toBeInstanceOf(ToolInputValidationError)
+            expect((error as Error).message).toMatch(expected)
+        })
+
+        it('passes validated output — with defaults applied — to the inner handler', async () => {
+            const tool = makeMockTool({
+                schema: z.object({ id: z.number(), limit: z.number().default(10) }),
+                handler: async (_ctx, params) => params,
+            })
+            const exec = createExec([tool])
+            const result = await exec.handler(mockContext, { command: 'call --json mock-tool {"id":5}' })
+            expect(JSON.parse(result as string)).toEqual({ id: 5, limit: 10 })
+        })
+
+        it('does not dispatch to the handler when validation fails', async () => {
+            let called = false
+            const tool = makeMockTool({
+                name: 'action-get',
+                schema: z.object({ id: z.number() }),
+                handler: async () => {
+                    called = true
+                    return {}
+                },
+            })
+            const exec = createExec([tool])
+            await expect(exec.handler(mockContext, { command: 'call action-get {}' })).rejects.toThrow(
+                /missing required parameter: id/
+            )
+            expect(called).toBe(false)
+        })
+
         it('invokes the inner-call tracker with success=false when the inner tool throws', async () => {
             const calls: { toolName: string; properties: ExecInnerCallProperties }[] = []
             const tracker = (toolName: string, properties: ExecInnerCallProperties): void => {
@@ -267,6 +473,95 @@ describe('exec tool', () => {
             expect(calls[0]!.properties.success).toBe(false)
             expect(calls[0]!.properties.error_message).toBe('boom')
             expect(calls[0]!.properties.output_format).toBe('text')
+            // Token estimates are success-only — nothing useful to measure on a throw.
+            expect(calls[0]!.properties.input_tokens).toBeUndefined()
+            expect(calls[0]!.properties.output_tokens).toBeUndefined()
+        })
+
+        it('invokes the inner-call tracker with validation_error=true when input fails validation', async () => {
+            const calls: { toolName: string; properties: ExecInnerCallProperties }[] = []
+            const tracker = (toolName: string, properties: ExecInnerCallProperties): void => {
+                calls.push({ toolName, properties })
+            }
+            const tool = makeMockTool({
+                name: 'action-get',
+                schema: z.object({ id: z.number() }),
+                handler: async (_ctx, params) => params,
+            })
+            const exec = createExecTool(
+                [tool],
+                mockContext,
+                'test description',
+                'test command reference',
+                undefined,
+                tracker
+            )
+            await expect(exec.handler(mockContext, { command: 'call action-get {}' })).rejects.toThrow(
+                /missing required parameter: id/
+            )
+            expect(calls).toHaveLength(1)
+            expect(calls[0]!.toolName).toBe('action-get')
+            expect(calls[0]!.properties.success).toBe(false)
+            expect(calls[0]!.properties.validation_error).toBe(true)
+            expect(calls[0]!.properties.duration_ms).toBe(0)
+            expect(calls[0]!.properties.error_message).toMatch(/missing required parameter: id/)
+        })
+    })
+
+    describe('output_format suppression', () => {
+        // Mirrors the generated query wrappers / insight-query: `output_format`
+        // toggles whether the handler surfaces the server-side formatted table.
+        function makeFormatterTool(received: Record<string, unknown>[]): Tool<ZodObjectAny> {
+            return makeMockTool({
+                schema: z.object({
+                    series: z.string().optional().describe('Query series'),
+                    output_format: z.enum(['optimized', 'json']).default('optimized').optional(),
+                }),
+                handler: async (_ctx, params) => {
+                    received.push(params as Record<string, unknown>)
+                    const optimized = (params as { output_format?: string }).output_format !== 'json'
+                    return {
+                        results: [{ count: 6 }],
+                        ...(optimized ? { [POSTHOG_FORMATTED_RESULTS_OVERRIDE_KEY]: 'Date|count\n2026-05-07|6' } : {}),
+                    }
+                },
+            })
+        }
+
+        it.each(['info mock-tool', 'schema mock-tool'])(
+            'hides output_format from the schema rendered by "%s"',
+            async (command) => {
+                const exec = createExec([makeFormatterTool([])])
+                const result = (await exec.handler(mockContext, { command })) as string
+                expect(result).toContain('series')
+                expect(result).not.toContain('output_format')
+            }
+        )
+
+        it('returns raw JSON when output_format:"json" is passed in the call input', async () => {
+            const exec = createExec([makeFormatterTool([])])
+            const result = (await exec.handler(mockContext, {
+                command: 'call mock-tool {"output_format":"json"}',
+            })) as string
+            const parsed = JSON.parse(result)
+            expect(parsed.results).toEqual([{ count: 6 }])
+            expect(parsed[POSTHOG_FORMATTED_RESULTS_OVERRIDE_KEY]).toBeUndefined()
+        })
+
+        it('folds --json into the dispatched output_format so the handler skips the formatter', async () => {
+            const received: Record<string, unknown>[] = []
+            const exec = createExec([makeFormatterTool(received)])
+            const result = (await exec.handler(mockContext, { command: 'call --json mock-tool' })) as string
+            expect(received[0]!.output_format).toBe('json')
+            expect(JSON.parse(result).results).toEqual([{ count: 6 }])
+        })
+
+        it('still dispatches the schema default "optimized" so the formatted table wins by default', async () => {
+            const received: Record<string, unknown>[] = []
+            const exec = createExec([makeFormatterTool(received)])
+            const result = await exec.handler(mockContext, { command: 'call mock-tool' })
+            expect(received[0]!.output_format).toBe('optimized')
+            expect(result).toBe('Date|count\n2026-05-07|6')
         })
     })
 
@@ -577,7 +872,7 @@ describe('exec tool', () => {
 
         it('rejects an overly long search pattern before compiling the regex', async () => {
             const exec = createExec([makeMockTool()])
-            const longPattern = 'a'.repeat(201)
+            const longPattern = 'a'.repeat(401)
             await expect(exec.handler(mockContext, { command: `search ${longPattern}` })).rejects.toThrow(
                 /pattern too long/i
             )
@@ -625,10 +920,63 @@ describe('exec tool', () => {
             const result = await exec.handler(mockContext, { command: 'search feature-flag' })
             expect(JSON.parse(result as string)).toEqual(['feature-flag-get-all'])
         })
+
+        it('ranks tools for a multi-word plain-language query that a single regex would miss', async () => {
+            // /create dashboard insight/i matches no tool literally; routing to
+            // ranked search is the whole point of this command.
+            const tools = [
+                makeMockTool({ name: 'dashboard-create', title: 'Create dashboard' }),
+                makeMockTool({ name: 'insight-create', title: 'Create insight' }),
+                makeMockTool({ name: 'feature-flag-get-all', title: 'List feature flags' }),
+            ]
+            const exec = createExec(tools)
+            const result = JSON.parse(
+                (await exec.handler(mockContext, { command: 'search create dashboard insight' })) as string
+            )
+            expect(Array.isArray(result)).toBe(true)
+            expect(result.slice(0, 2)).toEqual(['dashboard-create', 'insight-create'])
+        })
+
+        it('surfaces scope-gated tools for a plain-language query', async () => {
+            const exec = createExecTool([makeMockTool()], mockContext, 'desc', 'cmd', undefined, undefined, [
+                {
+                    name: 'experiment-create',
+                    title: 'Create experiment',
+                    description: 'Create a new experiment',
+                    missingScopes: ['experiment:write'],
+                },
+            ])
+            const result = JSON.parse(
+                (await exec.handler(mockContext, { command: 'search create experiment' })) as string
+            )
+            expect(result.scope_gated_matches).toEqual([
+                { name: 'experiment-create', missing_scopes: ['experiment:write'] },
+            ])
+            expect(result.hint).toContain('experiment:write')
+        })
+
+        it('caps ranked results and notes truncation', async () => {
+            const tools = Array.from({ length: 30 }, (_, i) =>
+                makeMockTool({ name: `dashboard-tool-${i}`, title: `Dashboard tool ${i}` })
+            )
+            const exec = createExec(tools)
+            const result = JSON.parse((await exec.handler(mockContext, { command: 'search dashboard' })) as string)
+            expect(result.truncated).toBe(true)
+            expect(result.matches).toHaveLength(25)
+            expect(result.hint).toContain('30')
+        })
+
+        it('reports an invalid regex gracefully', async () => {
+            const exec = createExec([makeMockTool()])
+            await expect(exec.handler(mockContext, { command: 'search [invalid' })).rejects.toThrow(
+                /invalid regex pattern/i
+            )
+        })
     })
 
     describe('deprecated tool redirects', () => {
         it.each([
+            ['read-data-warehouse-schema', 'execute-sql'],
             ['entity-search', 'execute-sql'],
             ['event-definitions-list', 'read-data-schema'],
             ['properties-list', 'read-data-schema'],
@@ -654,6 +1002,8 @@ describe('exec tool', () => {
             ['call my-tool {}', 'my-tool'],
             ['call my-tool', 'my-tool'],
             ['call --json my-tool {}', 'my-tool'],
+            ['call --confirm my-tool {}', 'my-tool'],
+            ['call --json --confirm my-tool {}', 'my-tool'],
             ['  call   my-tool   {}  ', 'my-tool'],
         ])('extracts inner tool name from "%s"', (command, expected) => {
             expect(parseExecCallInnerToolName(command)).toBe(expected)
@@ -676,8 +1026,8 @@ describe('exec tool', () => {
         })
     })
 
-    describe('schema snapshot', () => {
-        function createSnapshotContext(): Context {
+    describe('exec tool description', () => {
+        function createExecContext(): Context {
             return {
                 api: {} as any,
                 cache: {} as any,
@@ -704,7 +1054,7 @@ describe('exec tool', () => {
         // exec tool's description must fit within that budget or clients will
         // silently drop the tail of the instructions.
         it('keeps the tool description within 2048 characters', async () => {
-            const context = createSnapshotContext()
+            const context = createExecContext()
             const v2Tools = await getToolsFromContext(context)
             const toolInfos = v2Tools.map((t) => ({
                 name: t.name,
@@ -736,68 +1086,41 @@ describe('exec tool', () => {
             expect(execTool.description.length).toBeLessThanOrEqual(2048)
         })
 
-        // Snapshots the full exec tool definition built from the real v2 tool set:
-        // description (the `exec-tool-blurb` subprompt), annotations, and input schema
-        // including the `command` field description — which embeds the generated
-        // `tool_domains` block. Because `buildToolDomainsBlock` relies on tool-name conventions
-        // (CRUD suffixes, prefix actions, plural collapsing), this snapshot is the
-        // canary for any drift in naming or in the domain-extraction logic.
-        //
-        // Snapshots the Codex (`supportsInstructions: false`) wiring, where every
-        // placeholder is filled. That's the only path where `{tool_domains}` and
-        // `{query_tools}` actually appear in the `command` parameter description,
-        // so the snapshot has to follow it to keep catching drift in those blocks.
-        it('matches the full exec tool schema', async () => {
-            const context = createSnapshotContext()
-            const v2Tools = [...(await getToolsFromContext(context))].sort((a, b) => a.name.localeCompare(b.name))
-            const toolInfos = v2Tools.map((t) => ({
-                name: t.name,
-                category: getToolDefinition(t.name).category,
-            }))
-            const queryToolInfos = v2Tools
-                .filter((t) => t.name.startsWith('query-'))
-                .map((t) => {
-                    const def = getToolDefinition(t.name)
-                    return {
-                        name: t.name,
-                        title: def.title,
-                        ...(def.system_prompt_hint ? { systemPromptHint: def.system_prompt_hint } : {}),
-                    }
-                })
+        // The `{tool_domains}` and `{query_tools}` placeholders in the exec
+        // tool's `command` description are filled from the passed tool set. A
+        // fixed fake set keeps this hermetic — adding or renaming a real tool
+        // can't flip it.
+        it('interpolates the tool-domain and query-tool blocks into the command description', () => {
+            const toolInfos = [
+                { name: 'experiment-create', category: 'Experiments' },
+                { name: 'experiment-delete', category: 'Experiments' },
+                { name: 'query-trends', category: 'Query' },
+            ]
+            const queryToolInfos = [{ name: 'query-trends', title: 'Trends', systemPromptHint: 'time series' }]
+
             const formatter = new InstructionsFormatter()
             const commandReference = formatter.buildExecCommandReference(
                 { guidelines, tools: toolInfos, queryTools: queryToolInfos },
                 { stripEnvContext: false }
             )
             const execTool = createExecTool(
-                v2Tools,
-                context,
+                [],
+                createExecContext(),
                 formatter.buildExecToolDescription(),
                 commandReference,
                 undefined
             )
+            const commandDescription = execTool.schema.shape.command.description ?? ''
 
-            const snapshot = {
-                name: execTool.name,
-                title: execTool.title,
-                description: execTool.description,
-                annotations: execTool.annotations,
-                scopes: execTool.scopes,
-                inputSchema: z.toJSONSchema(execTool.schema, { io: 'input', reused: 'inline' }),
-            }
+            expect(commandDescription).not.toContain('{tool_domains}')
+            expect(commandDescription).not.toContain('{query_tools}')
 
-            const __dirname = path.dirname(fileURLToPath(import.meta.url))
-            const snapshotPath = path.resolve(__dirname, '__snapshots__', 'exec-tool.json')
-            // Format via oxfmt so the snapshot matches repo-wide formatting rules
-            // (lint-staged reformats *.json and would otherwise flip this file on save).
-            const content = `${JSON.stringify(snapshot, null, 4)}\n`
-            const result = await format(snapshotPath, content, { tabWidth: 4, printWidth: 120 })
-            if (result.errors.length > 0) {
-                throw new Error(
-                    `Failed formatting snapshot: ${result.errors.map((e) => e.message ?? 'unknown').join('; ')}`
-                )
-            }
-            await expect(result.code).toMatchFileSnapshot(snapshotPath)
+            const domainsBlock = buildToolDomainsBlock(toolInfos)
+            const queryToolsBlock = buildQueryToolsBlock(queryToolInfos)
+            expect(domainsBlock).toContain('experiment')
+            expect(domainsBlock).toContain('query')
+            expect(commandDescription).toContain(domainsBlock)
+            expect(commandDescription).toContain(queryToolsBlock)
         })
     })
 })

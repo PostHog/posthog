@@ -2,7 +2,7 @@ import { useValues } from 'kea'
 
 import { LemonBanner } from '@posthog/lemon-ui'
 
-import { pluralize } from 'lib/utils'
+import { pluralize } from 'lib/utils/strings'
 import { urls } from 'scenes/urls'
 
 import { pendingApprovalsLogic } from './pendingApprovalsLogic'

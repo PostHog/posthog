@@ -1,0 +1,82 @@
+#!/usr/bin/env bash
+# Verify the local metrics pipe end to end.
+#
+# Confirms that PostHog's own logs/metrics ingestion services (scraped by the
+# dev otel-collector, see otel-collector-config.dev.yaml) have landed in
+# ClickHouse and are queryable through the same table the product reads:
+# `posthog.metrics` (the Distributed alias over the local storage table).
+# Always database-qualify here — the docker clickhouse-client defaults to the
+# `default` database, which is NOT what the product connection uses.
+#
+# Prereqs: `hogli start` with the `metrics` intent running (capture-logs,
+# ingestion-metrics, ingestion-logs, clickhouse), and the dev otel-collector
+# container up (it's part of docker-compose.dev.yml).
+#
+# Usage: bin/verify-metrics-pipe
+set -euo pipefail
+
+CH_CONTAINER="${CH_CONTAINER:-posthog-clickhouse-1}"
+LOOKBACK="${LOOKBACK:-10 MINUTE}"
+
+# LOOKBACK is interpolated into SQL — only accept "<n> <unit>".
+if ! [[ "$LOOKBACK" =~ ^[0-9]+\ (SECOND|MINUTE|HOUR|DAY)$ ]]; then
+    echo "✗ Invalid LOOKBACK '${LOOKBACK}' — use e.g. '10 MINUTE', '2 HOUR'." >&2
+    exit 1
+fi
+
+ch() {
+    # Prefer a host clickhouse-client; fall back to docker exec into the dev CH.
+    if command -v clickhouse-client >/dev/null 2>&1; then
+        clickhouse-client -h localhost --query "$1"
+    else
+        docker exec -i "$CH_CONTAINER" clickhouse-client --query "$1"
+    fi
+}
+
+echo "→ Checking posthog.metrics for piped PostHog service metrics (last ${LOOKBACK})…"
+echo
+
+# `|| true`: a failing query (CH down, tables missing) must fall through to
+# the troubleshooting message below instead of tripping set -e.
+ROWS=$(ch "
+    SELECT service_name, count() AS samples, uniq(metric_name) AS metric_names
+    FROM posthog.metrics
+    WHERE timestamp > now() - INTERVAL ${LOOKBACK}
+      AND service_name IN ('logs-ingestion', 'metrics-ingestion', 'nodejs')
+    GROUP BY service_name
+    ORDER BY samples DESC
+    FORMAT TSV
+" || true)
+
+if [ -z "$ROWS" ]; then
+    cat <<'MSG'
+✗ No PostHog service metrics found in posthog.metrics yet.
+
+Check, in order:
+  1. Is the stack up with the `metrics` intent?  hogli dev:setup → metrics
+  2. Is the dev otel-collector running?           docker ps | grep otel-collector-local
+  3. Are the ingestion services exposing /_metrics?
+         curl -s localhost:6743/_metrics | head   # logs-ingestion
+         curl -s localhost:6744/_metrics | head   # metrics-ingestion
+  4. Is capture-logs receiving?                    docker logs capture-logs | tail
+  5. Were the CH tables initialised?               bin/clickhouse-metrics-init
+  6. Give it ~30s after start (15s scrape + ingest lag), then re-run.
+MSG
+    exit 1
+fi
+
+printf 'service_name\tsamples\tmetric_names\n'
+echo "$ROWS"
+echo
+echo "→ Ingestion-lag metrics (the on-call signal this pipe exists for):"
+ch "
+    SELECT service_name, metric_name, max(timestamp) AS latest, argMax(value, timestamp) AS latest_value
+    FROM posthog.metrics
+    WHERE timestamp > now() - INTERVAL ${LOOKBACK}
+      AND metric_name IN ('metrics_rate_limiter_message_lag_seconds', 'logs_rate_limiter_message_lag_seconds')
+    GROUP BY service_name, metric_name
+    ORDER BY service_name, metric_name
+    FORMAT Vertical
+"
+echo
+echo "✓ Metrics pipe is live. Open /metrics (Viewer or SQL tab) to explore."

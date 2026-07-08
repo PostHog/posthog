@@ -6,7 +6,7 @@ import { LemonButton, LemonCheckbox, LemonDialog, LemonMenu, LemonTag } from '@p
 
 import { LemonCard } from 'lib/lemon-ui/LemonCard'
 import { LemonTableColumns } from 'lib/lemon-ui/LemonTable'
-import { capitalizeFirstLetter } from 'lib/utils'
+import { capitalizeFirstLetter } from 'lib/utils/strings'
 import { hogFunctionLogsLogic } from 'scenes/hog-functions/logs/hogFunctionLogsLogic'
 import { LogsViewer } from 'scenes/hog-functions/logs/LogsViewer'
 import { GroupedLogEntry, LogsViewerLogicProps } from 'scenes/hog-functions/logs/logsViewerLogic'

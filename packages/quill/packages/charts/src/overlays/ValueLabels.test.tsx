@@ -312,6 +312,82 @@ describe('ValueLabels', () => {
         })
     })
 
+    describe('formatter context', () => {
+        it('passes each segment the raw value and its band of stack-contributing values', () => {
+            // Two series, one negative — the formatter encodes rawValue and the band so we can
+            // assert the overlay surfaces the full band (incl. the negative) to the caller.
+            const series: ResolvedSeries[] = [
+                { key: 'a', label: 'A', color: '#a00', data: [30, 25] },
+                { key: 'b', label: 'B', color: '#0a0', data: [-10, 75] },
+            ]
+            const ctx = makeContext(series, { labels: ['Mon', 'Tue'] })
+            const { container } = renderInChart(
+                ctx,
+                <ValueLabels valueFormatter={(_v, _si, _di, c) => `${c.rawValue}|${c.bandValues.join(',')}`} />
+            )
+            expect(
+                labelDivs(container)
+                    .map((d) => d.textContent)
+                    .sort()
+            ).toEqual(['-10|30,-10', '25|25,75', '30|30,-10', '75|25,75'])
+        })
+
+        it('passes the preceding band as previousBandValues (empty at the first index)', () => {
+            const series: ResolvedSeries[] = [
+                { key: 'a', label: 'A', color: '#a00', data: [30, 25] },
+                { key: 'b', label: 'B', color: '#0a0', data: [-10, 75] },
+            ]
+            const ctx = makeContext(series, { labels: ['Mon', 'Tue'] })
+            const { container } = renderInChart(
+                ctx,
+                <ValueLabels valueFormatter={(_v, _si, _di, c) => `${c.rawValue}|${c.previousBandValues.join(',')}`} />
+            )
+            expect(
+                labelDivs(container)
+                    .map((d) => d.textContent)
+                    .sort()
+            ).toEqual(['-10|', '25|30,-10', '30|', '75|30,-10'])
+        })
+
+        it('marks the context isPercent in percent layout and passes the segment fraction as value', () => {
+            const series: ResolvedSeries[] = [
+                { key: 'a', label: 'A', color: '#a00', data: [20, 60] },
+                { key: 'b', label: 'B', color: '#0a0', data: [80, 40] },
+            ]
+            const percentScales: ChartScales = {
+                x: xScale,
+                y: (v: number) => 368 - v * 352,
+                yTicks: () => [0, 0.5, 1],
+            }
+            const positionByKey: Record<string, number[]> = { a: [0.2, 0.6], b: [1.0, 1.0] }
+            const resolvePositionValue: ResolveValueFn = (s, i) => positionByKey[s.key]?.[i] ?? 0
+            const ctx = makeContext(series, {
+                isPercent: true,
+                labels: ['Mon', 'Tue'],
+                scales: percentScales,
+                resolvePositionValue,
+            })
+            const { container } = renderInChart(
+                ctx,
+                // Encode both `value` (the fraction) and `isPercent` so the assertion pins both, no branch.
+                <ValueLabels valueFormatter={(v, _si, _di, c) => `${(v * 100).toFixed(0)}%|${c.isPercent}`} />
+            )
+            expect(
+                labelDivs(container)
+                    .map((d) => d.textContent)
+                    .sort()
+            ).toEqual(['20%|true', '40%|true', '60%|true', '80%|true'])
+        })
+
+        it('skips labels whose formatter returns an empty string', () => {
+            const series: ResolvedSeries[] = [{ key: 's', label: 'S', color: '#f00', data: [10, 20, 30] }]
+            const ctx = makeContext(series, { labels: ['Mon', 'Tue', 'Wed'] })
+            const textByValue: Record<number, string> = { 10: '10', 20: '', 30: '30' }
+            const { container } = renderInChart(ctx, <ValueLabels valueFormatter={(v) => textByValue[v]} />)
+            expect(labelDivs(container).map((d) => d.textContent)).toEqual(['10', '30'])
+        })
+    })
+
     it('in percent layout, formatter receives each segment fraction (0..1), not raw data', () => {
         // Both series have non-zero values in both bands so we exercise the `raw / total`
         // division, not the trivial single-segment-per-band 100% path.
@@ -344,5 +420,46 @@ describe('ValueLabels', () => {
                 .map((d) => d.textContent)
                 .sort()
         ).toEqual(['20%', '40%', '60%', '80%'])
+    })
+
+    describe('offset', () => {
+        it('nudges a vertical above-label up by the offset', () => {
+            const series: ResolvedSeries[] = [{ key: 's', label: 'S', color: '#f00', data: [50] }]
+            const { container } = renderInChart(makeContext(series, { labels: ['Mon'] }), <ValueLabels offset={6} />)
+            const divs = labelDivs(container)
+            expect(divs).toHaveLength(1)
+            expect(divs[0].style.transform).toBe('translate(-50%, -100%) translate(0px, -6px)')
+        })
+
+        it('nudges a horizontal label outward from the bar tip by the offset', () => {
+            const series: ResolvedSeries[] = [{ key: 's', label: 'S', color: '#f00', data: [1] }]
+            const ctx = makeContext(series, {
+                axisOrientation: 'horizontal',
+                labels: ['Mon'],
+                scales: { x: () => 200, y: () => 400, yTicks: () => [0, 1] },
+            })
+            const divs = labelDivs(renderInChart(ctx, <ValueLabels offset={6} />).container)
+            expect(divs).toHaveLength(1)
+            expect(divs[0].style.transform).toBe('translateY(-50%) translate(6px, 0px)')
+        })
+
+        it('ignores offset for centered percent-mode labels', () => {
+            const series: ResolvedSeries[] = [
+                { key: 'a', label: 'A', color: '#f00', data: [20, 60] },
+                { key: 'b', label: 'B', color: '#0f0', data: [80, 40] },
+            ]
+            const percentScales: ChartScales = { x: xScale, y: (v: number) => 368 - v * 352, yTicks: () => [0, 0.5, 1] }
+            const positionByKey: Record<string, number[]> = { a: [0.2, 0.6], b: [1.0, 1.0] }
+            const resolvePositionValue: ResolveValueFn = (s, i) => positionByKey[s.key]?.[i] ?? 0
+            const ctx = makeContext(series, {
+                isPercent: true,
+                labels: ['Mon', 'Tue'],
+                scales: percentScales,
+                resolvePositionValue,
+            })
+            const divs = labelDivs(renderInChart(ctx, <ValueLabels offset={6} />).container)
+            expect(divs.length).toBeGreaterThan(0)
+            divs.forEach((d) => expect(d.style.transform).toBe('translate(-50%, -50%)'))
+        })
     })
 })

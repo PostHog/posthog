@@ -49,7 +49,6 @@ DataWarehouseSavedQueryFolder
 DataWarehouseTable
 Dataset
 DatasetItem
-DesktopRecording
 EarlyAccessFeature
 Edge
 EmailChannel
@@ -58,6 +57,7 @@ Endpoint
 EnterpriseEventDefinition
 EnterprisePropertyDefinition
 ErrorTrackingAssignmentRule
+ErrorTrackingBypassRule
 ErrorTrackingGroupingRule
 ErrorTrackingIssue
 ErrorTrackingIssueFingerprintV2
@@ -132,8 +132,11 @@ PropertyAccessControl
 QueryTabState
 QuickFilter
 QuickFilterContext
+Reminder
 ReplayObservation
+ReplayObservationLabel
 ReplayScanner
+ReplayScannerPromptSuggestion
 RepoRoutingRule
 ReviewQueue
 ReviewQueueItem
@@ -155,7 +158,7 @@ SignalTeamConfig
 SingleSessionSummary
 SlackThreadTaskMapping
 SourceBatch
-StreamlitApp
+SourceGroupLease
 Subscription
 SubscriptionDelivery
 Survey

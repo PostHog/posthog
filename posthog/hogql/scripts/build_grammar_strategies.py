@@ -479,6 +479,8 @@ _VARIABLE_CONTENT_TOKENS: frozenset[str] = frozenset(
         "QUOTED_IDENTIFIER",
         "FLOATING_LITERAL",
         "OCTAL_LITERAL",
+        "OCTAL_PREFIX_LITERAL",
+        "BINARY_LITERAL",
         "DECIMAL_LITERAL",
         "HEXADECIMAL_LITERAL",
         "STRING_LITERAL",
@@ -585,28 +587,15 @@ def _alt_to_literal(alt: Alternative, host_token: str, lexer: Grammar) -> str | 
 # HogQLX and Hog-program productions are explicitly out of scope (per
 # product requirements). We carry a hard-coded skip-set; any rule
 # alternative that transitively requires an excluded rule is dropped.
-
-EXCLUDED_RULES: frozenset[str] = frozenset(
-    {
-        # HogQLX
-        "hogqlxTagElement",
-        "hogqlxChildElement",
-        "hogqlxText",
-        "hogqlxTagAttribute",
-        # Template strings (lexer-mode dependent; not exercised by the
-        # grammar PBT — the mode-stack interaction is hand-tested in the
-        # parametrised suite and would dominate the grind otherwise)
-        "templateString",
-        "stringContents",
-        "fullTemplateString",
-        "stringContentsFull",
-        # `kvPair` / `kvPairList` — Hog dict key/value pairs. Not a
-        # program statement; left excluded so enabling Hog programs
-        # doesn't also widen the expression-strategy surface.
-        "kvPair",
-        "kvPairList",
-    }
-)
+#
+# HogQLX tags, template strings, the lexer mode-stack tokens, and Hog kv-pairs
+# are all enabled. Escape-hatch strategies for their variable-content tokens
+# (HOGQLX_TEXT_TEXT, QUOTE_SINGLE_TEMPLATE*, STRING_TEXT*, ESCAPE_CHAR_COMMON,
+# …) live in `_grammar_token_strategies.py` and are mapped via
+# `_ESCAPE_HATCH_NAMES`. The grammar PBT's space-joined token output is still
+# accepted by the lexer in these modes because STRING_TEXT / FULL_STRING_TEXT
+# / HOGQLX_TEXT_TEXT all permit whitespace within their alphabets.
+EXCLUDED_RULES: frozenset[str] = frozenset()
 # NB: the Hog program rules (`program`, `declaration`, `statement`,
 # `returnStmt` / `throwStmt` / `tryCatchStmt` / `catchBlock` /
 # `ifStmt` / `whileStmt` / `forStmt` / `forInStmt` / `funcStmt` /
@@ -801,7 +790,24 @@ _ESCAPE_HATCH_NAMES: dict[str, str] = {
     "OCTAL_LITERAL": "octal_literal_token",
     "DECIMAL_LITERAL": "decimal_literal_token",
     "HEXADECIMAL_LITERAL": "hexadecimal_literal_token",
+    "BINARY_LITERAL": "binary_literal_token",
+    "OCTAL_PREFIX_LITERAL": "octal_prefix_literal_token",
     "STRING_LITERAL": "string_literal_token",
+    # HogQLX / template-string variable-content tokens. These belong to lexer
+    # modes the codegen can't resolve to a literal; strategies in
+    # `_grammar_token_strategies.py` supply short, conservative content.
+    "QUOTE_SINGLE_TEMPLATE": "quote_single_template_token",
+    "QUOTE_SINGLE_TEMPLATE_FULL": "quote_single_template_full_token",
+    "STRING_ESCAPE_TRIGGER": "string_escape_trigger_token",
+    "FULL_STRING_ESCAPE_TRIGGER": "full_string_escape_trigger_token",
+    "STRING_TEXT": "string_text_token",
+    "FULL_STRING_TEXT": "full_string_text_token",
+    "HOGQLX_TEXT_TEXT": "hogqlx_text_token",
+    # ESCAPE_CHAR_COMMON is a lexer-internal subrule of STRING_TEXT /
+    # FULL_STRING_TEXT, never referenced by parser rules directly, so no
+    # escape-hatch is needed. (`escape_char_common_token` still lives in
+    # `_grammar_token_strategies.py` for manual use if a future grammar edit
+    # adds a parser-level reference.)
 }
 
 
@@ -905,13 +911,22 @@ from typing import Any
 from hypothesis import strategies as st
 
 from posthog.hogql.test._grammar_token_strategies import (
+    binary_literal_token,
     decimal_literal_token,
     floating_literal_token,
+    full_string_escape_trigger_token,
+    full_string_text_token,
     hexadecimal_literal_token,
+    hogqlx_text_token,
     identifier_token,
     octal_literal_token,
+    octal_prefix_literal_token,
+    quote_single_template_full_token,
+    quote_single_template_token,
     quoted_identifier_token,
+    string_escape_trigger_token,
     string_literal_token,
+    string_text_token,
 )
 
 _DEFAULT_DEPTH = 5

@@ -7,9 +7,10 @@ import {
     IconClock,
     IconCopy,
     IconDownload,
+    IconEye,
     IconFlask,
 } from '@posthog/icons'
-import { LemonButton, LemonSkeleton, LemonTag, LemonWidget } from '@posthog/lemon-ui'
+import { LemonButton, LemonModal, LemonSkeleton, LemonTag, LemonWidget } from '@posthog/lemon-ui'
 
 import { NotFound } from 'lib/components/NotFound'
 import { dayjs } from 'lib/dayjs'
@@ -21,7 +22,7 @@ import { urls } from 'scenes/urls'
 
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
 
-import type { TestInterviewLinkApi, UserInterviewTopicApi } from './generated/api.schemas'
+import type { PreviewInviteResultApi, TestInterviewLinkApi, UserInterviewTopicApi } from './generated/api.schemas'
 import { InterviewLinkCopyButton } from './InterviewLinkCopyButton'
 import { UserInterviewLogicProps, userInterviewLogic } from './userInterviewLogic'
 
@@ -57,8 +58,11 @@ export function UserInterview({ id }: UserInterviewLogicProps): JSX.Element {
         linksCsvExporting,
         testLink,
         testLinkLoading,
+        previewInviteIdentifier,
+        invitePreview,
+        invitePreviewLoading,
     } = useValues(userInterviewLogic)
-    const { exportLinksCsv, loadTestLink } = useActions(userInterviewLogic)
+    const { exportLinksCsv, loadTestLink, openInvitePreview, closeInvitePreview } = useActions(userInterviewLogic)
 
     if (topicLoading && !topic) {
         return (
@@ -173,6 +177,8 @@ export function UserInterview({ id }: UserInterviewLogicProps): JSX.Element {
                                         identifier={identifier}
                                         topicId={id}
                                         hasResponded={respondedIdentifiers.has(identifier)}
+                                        onPreview={() => openInvitePreview(identifier)}
+                                        previewLoading={previewInviteIdentifier === identifier && invitePreviewLoading}
                                     />
                                 ))
                             )}
@@ -212,7 +218,65 @@ export function UserInterview({ id }: UserInterviewLogicProps): JSX.Element {
                     )}
                 </div>
             </div>
+
+            <InvitePreviewModal
+                isOpen={previewInviteIdentifier !== null}
+                onClose={closeInvitePreview}
+                preview={invitePreview}
+                loading={invitePreviewLoading}
+            />
         </SceneContent>
+    )
+}
+
+export function InvitePreviewModal({
+    isOpen,
+    onClose,
+    preview,
+    loading,
+}: {
+    isOpen: boolean
+    onClose: () => void
+    preview: PreviewInviteResultApi | null
+    loading: boolean
+}): JSX.Element {
+    return (
+        <LemonModal isOpen={isOpen} onClose={onClose} title="Invite email preview" width="90vw">
+            {/* Gate on `loading` alone (not `loading && !preview`): while a newly opened person's
+                preview loads, kea-loaders still holds the previous person's value, so keying off
+                `loading` shows the skeleton instead of the stale email. */}
+            {loading ? (
+                <div className="space-y-3 h-[70vh]">
+                    <LemonSkeleton.Text className="h-4 w-[50%]" />
+                    <LemonSkeleton className="h-[60vh]" />
+                </div>
+            ) : preview ? (
+                <div className="flex flex-col gap-3">
+                    <div className="flex flex-col gap-1">
+                        <div className="text-xs font-semibold uppercase text-muted tracking-wide">Subject</div>
+                        <div className="text-sm font-medium">{preview.subject}</div>
+                        <div className="text-sm text-muted">
+                            To {preview.user_name}
+                            {preview.email ? ` <${preview.email}>` : ''}
+                        </div>
+                        <div className="flex items-center gap-2 flex-wrap">
+                            {!preview.emailable && <LemonTag type="warning">No email address — can't be sent</LemonTag>}
+                            {preview.is_preview_link && (
+                                <LemonTag type="default">Link is a placeholder until invites are sent</LemonTag>
+                            )}
+                        </div>
+                    </div>
+                    <iframe
+                        srcDoc={preview.html}
+                        sandbox=""
+                        title="Invite email preview"
+                        className="w-full h-[70vh] border rounded"
+                    />
+                </div>
+            ) : (
+                <div className="text-muted h-[70vh]">Couldn't load the preview. Try again.</div>
+            )}
+        </LemonModal>
     )
 }
 
@@ -361,10 +425,14 @@ function PersonRow({
     identifier,
     topicId,
     hasResponded,
+    onPreview,
+    previewLoading,
 }: {
     identifier: string
     topicId: string
     hasResponded: boolean
+    onPreview: () => void
+    previewLoading: boolean
 }): JSX.Element {
     return (
         <Link
@@ -377,6 +445,19 @@ function PersonRow({
                         <div className="font-medium text-sm">{identifier}</div>
                     </div>
                     <div className="flex items-center gap-2">
+                        <LemonButton
+                            type="tertiary"
+                            size="xsmall"
+                            icon={<IconEye />}
+                            loading={previewLoading}
+                            onClick={(e) => {
+                                e.preventDefault()
+                                e.stopPropagation()
+                                onPreview()
+                            }}
+                            data-attr="user-interview-preview-invite"
+                            tooltip="Preview the invite email this person would receive"
+                        />
                         <InterviewLinkCopyButton identifier={identifier} topicId={topicId} />
                         {hasResponded ? (
                             <LemonTag type="success" icon={<IconCheck />}>

@@ -24,13 +24,12 @@ import {
 export interface ScoreDefinitionModalLogicProps {
     mode: ScoreDefinitionModalMode
     scoreDefinition: ScoreDefinitionApi | null
-    tabId?: string
 }
 
 export const scoreDefinitionModalLogic = kea<scoreDefinitionModalLogicType>([
     path(['products', 'ai_observability', 'frontend', 'scoreDefinitions', 'scoreDefinitionModalLogic']),
     props({} as ScoreDefinitionModalLogicProps),
-    key((props) => `${props.tabId ?? 'default'}-${props.mode}-${props.scoreDefinition?.id ?? 'new'}`),
+    key((props) => `${props.mode}-${props.scoreDefinition?.id ?? 'new'}`),
 
     actions({
         submit: true,
@@ -145,7 +144,7 @@ export const scoreDefinitionModalLogic = kea<scoreDefinitionModalLogicType>([
                 }
 
                 actions.submitSuccess()
-                const listLogic = aiObservabilityScoreDefinitionsLogic({ tabId: props.tabId })
+                const listLogic = aiObservabilityScoreDefinitionsLogic()
                 listLogic.actions.loadScoreDefinitions(false)
                 listLogic.actions.closeModal()
             } catch (error) {

@@ -10,7 +10,7 @@ from parameterized import parameterized, parameterized_class
 
 from posthog.clickhouse.client import sync_execute
 from posthog.clickhouse.log_entries import TRUNCATE_LOG_ENTRIES_TABLE_SQL
-from posthog.models import EventProperty, Person
+from posthog.models import EventProperty
 from posthog.models.team import Team
 from posthog.models.utils import uuid7
 from posthog.session_recordings.queries.session_recording_list_from_query import SessionRecordingQueryResult
@@ -21,6 +21,7 @@ from posthog.session_recordings.queries.test.listing_recordings.test_utils impor
 )
 from posthog.session_recordings.queries.test.session_replay_sql import produce_replay_summary
 from posthog.session_recordings.sql.session_replay_event_sql import TRUNCATE_SESSION_REPLAY_EVENTS_TABLE_SQL
+from posthog.test.persons import create_person
 
 from products.actions.backend.models.action import Action
 
@@ -111,7 +112,7 @@ class TestSessionRecordingsListByTopLevelEventProperty(ClickhouseTestMixin, APIB
             session = f"{label}-session-{i}"
             sessions.append(session)
 
-            Person.objects.create(
+            create_person(
                 team=self.team,
                 distinct_ids=[user],
                 properties=session_one_person_properties if i == 0 else session_two_person_properties,
@@ -159,7 +160,7 @@ class TestSessionRecordingsListByTopLevelEventProperty(ClickhouseTestMixin, APIB
     @freeze_time("2021-01-21T20:00:00.000Z")
     @snapshot_clickhouse_queries
     def test_can_filter_for_flags(self, _name: str, properties: dict, expected: list[str]) -> None:
-        Person.objects.create(team=self.team, distinct_ids=["user"], properties={"email": "bla"})
+        create_person(team=self.team, distinct_ids=["user"], properties={"email": "bla"})
 
         for event_name in ["foo", "bar", "baz", "$pageview"]:
             EventProperty.objects.create(team=self.team, event=event_name, property="$feature/target-flag")
@@ -245,7 +246,7 @@ class TestSessionRecordingsListByTopLevelEventProperty(ClickhouseTestMixin, APIB
     @freeze_time("2021-01-21T20:00:00.000Z")
     @snapshot_clickhouse_queries
     def test_can_filter_for_two_is_not_event_properties(self) -> None:
-        Person.objects.create(team=self.team, distinct_ids=["user"], properties={"email": "bla"})
+        create_person(team=self.team, distinct_ids=["user"], properties={"email": "bla"})
 
         for event_name in ["foo", "bar", "baz", "$pageview"]:
             EventProperty.objects.create(team=self.team, event=event_name, property="probe-one")
@@ -323,7 +324,7 @@ class TestSessionRecordingsListByTopLevelEventProperty(ClickhouseTestMixin, APIB
     @freeze_time("2021-01-21T20:00:00.000Z")
     @snapshot_clickhouse_queries
     def test_can_filter_for_does_not_match_regex_event_properties(self) -> None:
-        Person.objects.create(team=self.team, distinct_ids=["user"], properties={"email": "bla"})
+        create_person(team=self.team, distinct_ids=["user"], properties={"email": "bla"})
 
         for event_name in ["foo", "bar", "baz", "$pageview"]:
             EventProperty.objects.create(team=self.team, event=event_name, property="$host")
@@ -400,7 +401,7 @@ class TestSessionRecordingsListByTopLevelEventProperty(ClickhouseTestMixin, APIB
     @freeze_time("2021-01-21T20:00:00.000Z")
     @snapshot_clickhouse_queries
     def test_can_filter_for_does_not_contain_event_properties(self) -> None:
-        Person.objects.create(team=self.team, distinct_ids=["user"], properties={"email": "bla"})
+        create_person(team=self.team, distinct_ids=["user"], properties={"email": "bla"})
 
         for event_name in ["foo", "bar", "baz", "$pageview"]:
             EventProperty.objects.create(team=self.team, event=event_name, property="something")

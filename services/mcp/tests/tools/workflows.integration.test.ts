@@ -22,8 +22,11 @@ describe('Workflows', { concurrent: false }, () => {
     const getTool = GENERATED_TOOLS['workflows-get']!()
     const createTool = GENERATED_TOOLS['workflows-create']!()
     const updateTool = GENERATED_TOOLS['workflows-update']!()
-    const logsTool = GENERATED_TOOLS['hog-flows-logs-retrieve']!()
-    const metricsTool = GENERATED_TOOLS['hog-flows-metrics-retrieve']!()
+    const logsTool = GENERATED_TOOLS['workflows-logs']!()
+    const statsTool = GENERATED_TOOLS['workflows-stats']!()
+    const globalStatsTool = GENERATED_TOOLS['workflows-global-stats']!()
+    const listInvocationsTool = GENERATED_TOOLS['workflows-list-invocations']!()
+    const getInvocationTool = GENERATED_TOOLS['workflows-get-invocation']!()
     const enableTool = workflowsEnable()
     const disableTool = workflowsDisable()
     const archiveTool = workflowsArchive()
@@ -176,7 +179,7 @@ describe('Workflows', { concurrent: false }, () => {
         })
     })
 
-    describe('hog-flows-logs-retrieve tool', () => {
+    describe('workflows-logs tool', () => {
         it('should return log entries for a workflow', async () => {
             const listResult = await listTool.handler(context, {})
             const { results: workflows } = parseToolResponse(listResult)
@@ -216,8 +219,8 @@ describe('Workflows', { concurrent: false }, () => {
         })
     })
 
-    describe('hog-flows-metrics-retrieve tool', () => {
-        it('should return metrics for a workflow', async () => {
+    describe('workflows-stats tool', () => {
+        it('should return stats for a workflow', async () => {
             const listResult = await listTool.handler(context, {})
             const { results: workflows } = parseToolResponse(listResult)
 
@@ -225,7 +228,7 @@ describe('Workflows', { concurrent: false }, () => {
                 return
             }
 
-            const result = await metricsTool.handler(context, { id: workflows[0].id })
+            const result = await statsTool.handler(context, { id: workflows[0].id })
             const data = parseToolResponse(result)
 
             expect(Array.isArray(data.labels)).toBe(true)
@@ -240,7 +243,7 @@ describe('Workflows', { concurrent: false }, () => {
                 return
             }
 
-            const result = await metricsTool.handler(context, {
+            const result = await statsTool.handler(context, {
                 id: workflows[0].id,
                 interval: 'day',
             })
@@ -252,7 +255,51 @@ describe('Workflows', { concurrent: false }, () => {
 
         it('should throw for a non-existent UUID', async () => {
             const absentId = crypto.randomUUID()
-            await expect(metricsTool.handler(context, { id: absentId })).rejects.toThrow()
+            await expect(statsTool.handler(context, { id: absentId })).rejects.toThrow()
+        })
+    })
+
+    describe('workflows-global-stats tool', () => {
+        it('should return per-workflow stats for the project', async () => {
+            // Bare-array response enriched via withPostHogUrl — an object with _posthogUrl, not a raw array.
+            const data = parseToolResponse(await globalStatsTool.handler(context, {}))
+            expect(data).toBeTypeOf('object')
+            expect(data).toHaveProperty('_posthogUrl')
+        })
+    })
+
+    describe('workflows-list-invocations tool', () => {
+        it('should return invocations for a workflow', async () => {
+            const listResult = await listTool.handler(context, {})
+            const { results: workflows } = parseToolResponse(listResult)
+
+            if (workflows.length === 0) {
+                return
+            }
+
+            const data = parseToolResponse(await listInvocationsTool.handler(context, { id: workflows[0].id }))
+            expect(data).toBeTypeOf('object')
+            expect(data).toHaveProperty('_posthogUrl')
+        })
+
+        it('should throw for a non-existent UUID', async () => {
+            const absentId = crypto.randomUUID()
+            await expect(listInvocationsTool.handler(context, { id: absentId })).rejects.toThrow()
+        })
+    })
+
+    describe('workflows-get-invocation tool', () => {
+        it('should throw for a non-existent invocation', async () => {
+            const listResult = await listTool.handler(context, {})
+            const { results: workflows } = parseToolResponse(listResult)
+
+            if (workflows.length === 0) {
+                return
+            }
+
+            await expect(
+                getInvocationTool.handler(context, { id: workflows[0].id, invocation_id: crypto.randomUUID() })
+            ).rejects.toThrow()
         })
     })
 
@@ -269,7 +316,7 @@ describe('Workflows', { concurrent: false }, () => {
             expect(workflow.version).toBeTypeOf('number')
             expect(Array.isArray(workflow.actions)).toBe(true)
             expect(workflow.actions).toHaveLength(2)
-            expect(workflow._posthogUrl).toContain(`/pipeline/destinations/hog-${workflow.id}`)
+            expect(workflow._posthogUrl).toContain(`/workflows/${workflow.id}/workflow`)
         })
 
         it('should reject a workflow without exactly one trigger action', async () => {
@@ -379,7 +426,7 @@ describe('Workflows', { concurrent: false }, () => {
         })
     })
 
-    // workflows-run hits the invocations endpoint, which forwards to the CDP plugin
+    // workflows-test-run hits the invocations endpoint, which forwards to the CDP plugin
     // server (CDP_API_URL). That container isn't started in MCP CI (only the `temporal`
     // compose profile is enabled), so the happy-path returns 500 from a DNS failure.
     // Coverage for the endpoint lives in posthog/api/test/test_hog_flow.py
@@ -484,7 +531,7 @@ describe('Workflows', { concurrent: false }, () => {
         })
 
         // The happy path (matching count → POST batch_jobs) forwards to the CDP plugin server
-        // (CDP_API_URL), which isn't running in MCP CI — see the workflows-run note above. Fire-path
+        // (CDP_API_URL), which isn't running in MCP CI — see the workflows-test-run note above. Fire-path
         // coverage lives in the backend test and the unit handler test
         // (tests/unit/workflows-batch-handlers.test.ts).
     })

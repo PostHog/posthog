@@ -51,12 +51,13 @@ describe('EditSessionReplayWidgetModal', () => {
         )
 
         const dialog = screen.getByRole('dialog')
-        await userEvent.click(within(dialog).getByRole('button', { name: 'Save' }))
+        await userEvent.click(within(dialog).getByText('Save'))
 
         expect(onSave).toHaveBeenCalledWith(
             expect.objectContaining({
                 limit: 10,
                 orderBy: 'start_time',
+                orderDirection: 'DESC',
                 filterTestAccounts: true,
                 dateRange: { date_from: '-7d' },
             }),
@@ -80,8 +81,8 @@ describe('EditSessionReplayWidgetModal', () => {
         await userEvent.clear(limitInput)
         await userEvent.type(limitInput, '30')
 
-        expect(screen.getByText('Must be an integer between 1 and 25.')).toBeInTheDocument()
-        expect(screen.getByRole('button', { name: 'Save' })).toHaveAttribute('aria-disabled', 'true')
+        expect(screen.getByText('Too big: expected number to be <=25')).toBeInTheDocument()
+        expect(screen.getByText('Save').closest('button')).toHaveAttribute('aria-disabled', 'true')
         expect(onSave).not.toHaveBeenCalled()
     })
 })

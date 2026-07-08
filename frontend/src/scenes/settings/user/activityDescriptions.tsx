@@ -86,3 +86,109 @@ export const personalAPIKeyActivityDescriber: Describer = (logItem: ActivityLogI
 
     return defaultDescriber(logItem)
 }
+
+function asScopeList(value: unknown): string[] {
+    return Array.isArray(value) ? value.map(String) : []
+}
+
+function ScopeList({ scopes }: { scopes: string[] }): JSX.Element {
+    return (
+        <>
+            {scopes.map((scope, index) => (
+                <span key={scope}>
+                    {index > 0 && ', '}
+                    <code>{scope}</code>
+                </span>
+            ))}
+        </>
+    )
+}
+
+export const oauthApplicationActivityDescriber: Describer = (logItem: ActivityLogItem): HumanizedChange => {
+    if (logItem.scope !== 'OAuthApplication') {
+        console.error('oauthApplicationActivityDescriber received a non-OAuthApplication activity')
+        return { description: null }
+    }
+
+    const appName = logItem.detail.name || 'an OAuth application'
+    const scopesChange = logItem.detail.changes?.find((change) => change.field === 'scopes')
+    if (!scopesChange) {
+        return defaultDescriber(logItem)
+    }
+
+    const actor = <strong className="ph-no-capture">{userNameForLogItem(logItem)}</strong>
+    const before = asScopeList(scopesChange.before)
+    const after = asScopeList(scopesChange.after)
+
+    if (logItem.activity === 'created') {
+        return {
+            description: (
+                <>
+                    {actor} registered OAuth application <strong>{appName}</strong> with scope ceiling{' '}
+                    <ScopeList scopes={after} />
+                </>
+            ),
+        }
+    }
+
+    if (logItem.activity === 'updated') {
+        if (after.length === 0 && before.length > 0) {
+            return {
+                description: (
+                    <>
+                        {actor} removed the scope ceiling on <strong>{appName}</strong> (was{' '}
+                        <ScopeList scopes={before} />; default unprivileged scopes now apply)
+                    </>
+                ),
+            }
+        }
+
+        if (before.length === 0 && after.length > 0) {
+            return {
+                description: (
+                    <>
+                        {actor} set the scope ceiling on <strong>{appName}</strong> to <ScopeList scopes={after} />
+                    </>
+                ),
+            }
+        }
+
+        const added = after.filter((scope) => !before.includes(scope))
+        const removed = before.filter((scope) => !after.includes(scope))
+
+        if (added.length > 0 && removed.length > 0) {
+            return {
+                description: (
+                    <>
+                        {actor} changed the scope ceiling on <strong>{appName}</strong>: added{' '}
+                        <ScopeList scopes={added} />, removed <ScopeList scopes={removed} />
+                    </>
+                ),
+            }
+        }
+        if (added.length > 0) {
+            return {
+                description: (
+                    <>
+                        {actor} widened the scope ceiling on <strong>{appName}</strong>: added{' '}
+                        <ScopeList scopes={added} />
+                    </>
+                ),
+            }
+        }
+        if (removed.length > 0) {
+            return {
+                description: (
+                    <>
+                        {actor} narrowed the scope ceiling on <strong>{appName}</strong>: removed{' '}
+                        <ScopeList scopes={removed} />
+                    </>
+                ),
+            }
+        }
+
+        return defaultDescriber(logItem)
+    }
+
+    return defaultDescriber(logItem)
+}

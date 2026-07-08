@@ -9,38 +9,8 @@ feature: conversations
 url_prefix: /conversations/tickets
 ui_apps: {}
 tools:
-    conversations-append-message-create:
-        operation: conversations_append_message_create
-        enabled: false
-    conversations-cancel-partial-update:
-        operation: conversations_cancel_partial_update
-        enabled: false
-    conversations-create:
-        operation: conversations_create
-        enabled: false
-    conversations-destroy:
-        operation: conversations_destroy
-        enabled: false
-    conversations-list:
-        operation: conversations_list
-        enabled: false
-    conversations-queue-clear-create:
-        operation: conversations_queue_clear_create
-        enabled: false
-    conversations-queue-create:
-        operation: conversations_queue_create
-        enabled: false
-    conversations-queue-destroy:
-        operation: conversations_queue_destroy
-        enabled: false
-    conversations-queue-partial-update:
-        operation: conversations_queue_partial_update
-        enabled: false
-    conversations-queue-retrieve:
-        operation: conversations_queue_retrieve
-        enabled: false
-    conversations-retrieve:
-        operation: conversations_retrieve
+    conversations-tickets-ai-feedback-create:
+        operation: conversations_tickets_ai_feedback_create
         enabled: false
     conversations-tickets-bulk-update-status-create:
         operation: conversations_tickets_bulk_update_status_create
@@ -89,6 +59,36 @@ tools:
                 - unread_team_count
                 - created_at
                 - updated_at
+    conversations-tickets-messages-retrieve:
+        operation: conversations_tickets_messages_list
+        enabled: true
+        scopes:
+            - ticket:read
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        title: Read support ticket messages
+        description: >
+            Return a support ticket's message thread, ordered chronologically. The response is paginated (default 50,
+            max 200 per page) — use the limit and offset query params to page through long threads, and read count/next
+            from the response envelope. Includes all messages from the customer, team members, and AI, as well as
+            private internal notes. Each message contains author_type, author_name, content, and an is_private flag
+            indicating internal notes.
+    conversations-tickets-reply-create:
+        operation: conversations_tickets_reply_create
+        enabled: true
+        scopes:
+            - ticket:write
+        annotations:
+            readOnly: false
+            destructive: false
+            idempotent: false
+        title: Reply to support ticket
+        description: >
+            Post a reply or internal note to a support ticket. IMPORTANT: With is_private=false (the default), the reply
+            IS DELIVERED to the customer via the ticket's channel (email, Slack, Teams, or GitHub). Set is_private=true
+            to store an internal note visible only to team members.
     conversations-tickets-retrieve:
         operation: conversations_tickets_retrieve
         enabled: true
@@ -127,9 +127,6 @@ tools:
                 - distinct_id
                 - created_at
                 - updated_at
-    conversations-tickets-suggest-reply-create:
-        operation: conversations_tickets_suggest_reply_create
-        enabled: false
     conversations-tickets-unread-count-retrieve:
         operation: conversations_tickets_unread_count_retrieve
         enabled: false
@@ -163,4 +160,10 @@ tools:
         enabled: false
     conversations-views-retrieve:
         operation: conversations_views_retrieve
+        enabled: false
+    conversations-zendesk-imports-create:
+        operation: conversations_zendesk_imports_create
+        enabled: false
+    conversations-zendesk-imports-status-retrieve:
+        operation: conversations_zendesk_imports_status_retrieve
         enabled: false

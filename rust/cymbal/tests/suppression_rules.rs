@@ -1,4 +1,7 @@
-use cymbal::{config::Config, suppression_rules::SuppressionRule, teams::TeamManager};
+use cymbal::{
+    modes::processing::rules::suppression::SuppressionRule, modes::processing::ProcessingConfig,
+    teams::TeamManager,
+};
 use serde_json::{json, Value as JsonValue};
 use sqlx::{PgPool, Row};
 use uuid::Uuid;
@@ -113,7 +116,7 @@ async fn test_suppression_rule_disable(db: PgPool) {
 
 #[sqlx::test(migrations = "./tests/test_migrations")]
 async fn test_suppression_rule_cache(db: PgPool) {
-    let config = Config::init_with_defaults().unwrap();
+    let config = ProcessingConfig::init_with_defaults().unwrap();
     let team_manager = TeamManager::new(&config);
     let team_id = 1;
 

@@ -1,25 +1,67 @@
-import { actions, afterMount, kea, listeners, path, reducers, selectors } from 'kea'
+import { actions, afterMount, connect, kea, listeners, path, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 
-import api from 'lib/api'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
+import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { teamLogic } from 'scenes/teamLogic'
 
-import { DataWarehouseProvisioningStatus } from '~/types'
+import { Region } from '~/types'
+
+import {
+    dataWarehouseCheckDatabaseNameRetrieve,
+    dataWarehouseDeleteOrgDestroy,
+    dataWarehouseDeprovisionCreate,
+    dataWarehouseEnableBackfillCreate,
+    dataWarehouseProvisionCreate,
+    dataWarehouseResetPasswordCreate,
+    dataWarehouseWarehouseStatusRetrieve,
+} from 'products/data_warehouse/frontend/generated/api'
+import type { WarehouseStatusResponseApi } from 'products/data_warehouse/frontend/generated/api.schemas'
 
 import type { warehouseProvisioningLogicType } from './warehouseProvisioningLogicType'
+
+// The warehouse name becomes the connection's SNI subdomain (a DNS-1123 label), so it
+// mirrors the backend validator in products/data_warehouse/backend/api/managed_warehouse.py:
+// 3-63 chars, lowercase alphanumerics and hyphens, starting/ending alphanumeric (no underscores).
+const WAREHOUSE_NAME_REGEX = /^[a-z][a-z0-9-]{1,61}[a-z0-9]$/
+
+// DNS zone the connection host lives under, selected by deployment region. Mirrors
+// _MANAGED_WAREHOUSE_DOMAINS in products/data_warehouse/backend/api/managed_warehouse.py.
+const MANAGED_WAREHOUSE_DOMAINS: Partial<Record<Region, string>> = {
+    [Region.US]: 'us.postwh.com',
+    [Region.EU]: 'eu.postwh.com',
+    [Region.DEV]: 'dev.postwh.com',
+}
+
+// The table name is used verbatim as the suffix in events_<suffix> / persons_<suffix>, so it
+// must already be a safe SQL identifier. Mirrors validate_table_suffix in posthog/ducklake/common.py.
+const TABLE_NAME_REGEX = /^[a-z0-9_]{1,63}$/
 
 const databaseNameStorageKey = (teamId: number | null): string =>
     `warehouse-provisioning-database-name-${teamId ?? 'unknown'}`
 
+// Status is polled every 10s. Deprovision teardown has no terminal `failed` state (the
+// provisioner retries indefinitely), so a genuinely stuck teardown sits in `deleting` forever.
+// After this many consecutive `deleting` polls (~3 min) we surface a "still working" affordance
+// instead of spinning silently. It's advisory only; polling continues.
+const DELETING_POLL_WARN_THRESHOLD = 18
+
+const currentProjectId = (): string => String(teamLogic.values.currentTeamId)
+
 export const warehouseProvisioningLogic = kea<warehouseProvisioningLogicType>([
     path(['scenes', 'data-warehouse', 'scene', 'warehouseProvisioningLogic']),
 
+    connect(() => ({
+        values: [preflightLogic, ['preflight']],
+    })),
+
     actions({
-        provisionWarehouse: (params: { databaseName: string }) => params,
+        provisionWarehouse: (params: { databaseName: string; tableName: string }) => params,
         provisionWarehouseComplete: true,
         deprovisionWarehouse: true,
         deprovisionWarehouseComplete: true,
+        deleteOrg: true,
+        deleteOrgComplete: (success: boolean) => ({ success }),
         resetPassword: true,
         resetPasswordComplete: true,
         setInitialPassword: (password: string) => ({ password }),
@@ -31,15 +73,18 @@ export const warehouseProvisioningLogic = kea<warehouseProvisioningLogicType>([
         checkDatabaseName: (name: string) => ({ name }),
         setDatabaseNameAvailable: (available: boolean | null) => ({ available }),
         setDatabaseNameChecking: (checking: boolean) => ({ checking }),
+        setTableName: (name: string) => ({ name }),
+        enableBackfill: (params: { tableName: string }) => params,
+        enableBackfillComplete: (suffix: string | null) => ({ suffix }),
     }),
 
     loaders({
         warehouseStatus: [
-            null as DataWarehouseProvisioningStatus | null,
+            null as WarehouseStatusResponseApi | null,
             {
                 loadWarehouseStatus: async () => {
                     try {
-                        return await api.dataWarehouse.warehouseStatus()
+                        return await dataWarehouseWarehouseStatusRetrieve(currentProjectId())
                     } catch (e: any) {
                         if (e.status === 404) {
                             return null
@@ -64,6 +109,46 @@ export const warehouseProvisioningLogic = kea<warehouseProvisioningLogicType>([
             {
                 deprovisionWarehouse: () => true,
                 deprovisionWarehouseComplete: () => false,
+            },
+        ],
+        // Consecutive `deleting` status reads, to detect a teardown that's stuck (no terminal
+        // failed state exists, so it would otherwise poll forever). Reset whenever the state
+        // isn't `deleting` and when a fresh deprovision starts.
+        deletingPollCount: [
+            0,
+            {
+                loadWarehouseStatusSuccess: (state, { warehouseStatus }) =>
+                    warehouseStatus?.state === 'deleting' ? state + 1 : 0,
+                deprovisionWarehouse: () => 0,
+            },
+        ],
+        // In-flight flag for the automatic delete-org call. Doubles as the fire guard: while a
+        // delete-org is running we don't start another, but once it settles (success or failure)
+        // the next `deleted` poll can retry.
+        isDeletingOrg: [
+            false,
+            {
+                deleteOrg: () => true,
+                deleteOrgComplete: () => false,
+            },
+        ],
+        // Latched once delete-org succeeds so a status read still reporting `deleted` (provisioner
+        // propagation lag before the record 404s) can't trigger a second delete against the now-gone
+        // org. Cleared on a fresh deprovision so a later cycle can delete again.
+        orgDeletionSucceeded: [
+            false,
+            {
+                deleteOrgComplete: (state, { success }) => success || state,
+                deprovisionWarehouse: () => false,
+            },
+        ],
+        // Whether the last delete-org attempt failed, so we notify the user once per failure
+        // streak instead of on every 10s retry. Cleared on success and on a new deprovision.
+        orgDeletionFailed: [
+            false,
+            {
+                deleteOrgComplete: (_, { success }) => !success,
+                deprovisionWarehouse: () => false,
             },
         ],
         pollingActive: [
@@ -116,6 +201,37 @@ export const warehouseProvisioningLogic = kea<warehouseProvisioningLogicType>([
                 resetPasswordComplete: () => false,
             },
         ],
+        tableName: [
+            '',
+            {
+                setTableName: (_, { name }) => name,
+            },
+        ],
+        isEnablingBackfill: [
+            false,
+            {
+                enableBackfill: () => true,
+                enableBackfillComplete: () => false,
+            },
+        ],
+        backfillTableSuffix: [
+            null as string | null,
+            {
+                loadWarehouseStatusSuccess: (_, { warehouseStatus }) => warehouseStatus?.table_suffix ?? null,
+                enableBackfillComplete: (state, { suffix }) => suffix ?? state,
+                deprovisionWarehouse: () => null,
+            },
+        ],
+        // Whether this project already has a backfill configured. When true, the table name is
+        // fixed (immutable), so we show a read-only state instead of re-offering the enable form.
+        hasBackfill: [
+            false,
+            {
+                loadWarehouseStatusSuccess: (_, { warehouseStatus }) => warehouseStatus?.has_backfill ?? false,
+                enableBackfillComplete: (state, { suffix }) => (suffix ? true : state),
+                deprovisionWarehouse: () => false,
+            },
+        ],
     }),
 
     selectors({
@@ -137,14 +253,37 @@ export const warehouseProvisioningLogic = kea<warehouseProvisioningLogicType>([
                 return status.state === 'pending' || status.state === 'provisioning' || status.state === 'deleting'
             },
         ],
-        isValidDatabaseName: [(s) => [s.databaseName], (name): boolean => /^[a-z][a-z0-9_-]{2,62}$/.test(name)],
+        // True once teardown has sat in `deleting` past the warn threshold, so the UI can show a
+        // "still working" note rather than an indefinite spinner.
+        deprovisionTakingLong: [
+            (s) => [s.warehouseStatus, s.deletingPollCount],
+            (status, deletingPollCount): boolean =>
+                status?.state === 'deleting' && deletingPollCount >= DELETING_POLL_WARN_THRESHOLD,
+        ],
+        isValidDatabaseName: [(s) => [s.databaseName], (name): boolean => WAREHOUSE_NAME_REGEX.test(name)],
+        // DNS zone for the connection host, resolved from the deployment region (null when unknown).
+        warehouseDomain: [
+            (s) => [s.preflight],
+            (preflight): string | null => {
+                const region = preflight?.region
+                return region ? (MANAGED_WAREHOUSE_DOMAINS[region] ?? null) : null
+            },
+        ],
         retryDatabaseName: [
             (s) => [s.databaseName, s.lastRequestedDatabaseName],
             (databaseName, lastRequestedDatabaseName): string => databaseName || lastRequestedDatabaseName || '',
         ],
+        // The table name is used verbatim as the table suffix, so it must already be a valid
+        // identifier (mirrors the backend validator) — we reject rather than silently rewrite.
+        isValidTableName: [(s) => [s.tableName], (name): boolean => TABLE_NAME_REGEX.test(name)],
         canProvision: [
-            (s) => [s.isValidDatabaseName, s.databaseNameAvailable],
-            (valid, available): boolean => valid && available === true,
+            (s) => [s.isValidDatabaseName, s.databaseNameAvailable, s.isValidTableName],
+            (valid, available, validEvents): boolean => valid && available === true && validEvents,
+        ],
+        canRetryProvision: [
+            (s) => [s.retryDatabaseName, s.isValidTableName],
+            (retryDatabaseName, validEvents): boolean =>
+                !!retryDatabaseName && WAREHOUSE_NAME_REGEX.test(retryDatabaseName) && validEvents,
         ],
     }),
 
@@ -156,7 +295,7 @@ export const warehouseProvisioningLogic = kea<warehouseProvisioningLogicType>([
                 if (debounceTimer) {
                     clearTimeout(debounceTimer)
                 }
-                if (/^[a-z][a-z0-9_-]{2,62}$/.test(name)) {
+                if (WAREHOUSE_NAME_REGEX.test(name)) {
                     actions.setDatabaseNameChecking(true)
                     debounceTimer = setTimeout(() => {
                         actions.checkDatabaseName(name)
@@ -166,7 +305,7 @@ export const warehouseProvisioningLogic = kea<warehouseProvisioningLogicType>([
 
             checkDatabaseName: async ({ name }) => {
                 try {
-                    const result = await api.dataWarehouse.checkDatabaseName(name)
+                    const result = await dataWarehouseCheckDatabaseNameRetrieve(currentProjectId(), { name })
                     if (values.databaseName === name) {
                         actions.setDatabaseNameAvailable(result.available)
                     }
@@ -176,11 +315,14 @@ export const warehouseProvisioningLogic = kea<warehouseProvisioningLogicType>([
                 actions.setDatabaseNameChecking(false)
             },
 
-            provisionWarehouse: async ({ databaseName }) => {
+            provisionWarehouse: async ({ databaseName, tableName }) => {
                 actions.setLastRequestedDatabaseName(databaseName)
                 window.localStorage.setItem(databaseNameStorageKey(teamLogic.values.currentTeamId), databaseName)
                 try {
-                    const result = await api.dataWarehouse.provisionWarehouse(databaseName)
+                    const result = await dataWarehouseProvisionCreate(currentProjectId(), {
+                        database_name: databaseName,
+                        table_name: tableName,
+                    })
                     if (result.password) {
                         actions.setInitialPassword(result.password)
                     }
@@ -188,14 +330,36 @@ export const warehouseProvisioningLogic = kea<warehouseProvisioningLogicType>([
                     actions.loadWarehouseStatus()
                     actions.pollStatus()
                 } catch (e: any) {
-                    lemonToast.error(`Failed to provision warehouse: ${e.message || 'Unknown error'}`)
+                    if (e.status === 409) {
+                        // Another project in this organization already provisioned the shared warehouse.
+                        lemonToast.info('This organization already has a managed warehouse')
+                        actions.loadWarehouseStatus()
+                        actions.pollStatus()
+                    } else {
+                        lemonToast.error(`Failed to provision warehouse: ${e.message || 'Unknown error'}`)
+                    }
                 }
                 actions.provisionWarehouseComplete()
             },
 
+            enableBackfill: async ({ tableName }) => {
+                try {
+                    const result = await dataWarehouseEnableBackfillCreate(currentProjectId(), {
+                        table_name: tableName,
+                    })
+                    lemonToast.success('Warehouse backfill enabled for this project')
+                    actions.enableBackfillComplete(result.table_suffix ?? null)
+                    // Refresh from the server so the read-only state reflects the now-fixed table.
+                    actions.loadWarehouseStatus()
+                } catch (e: any) {
+                    lemonToast.error(`Failed to enable backfill: ${e.detail || e.message || 'Unknown error'}`)
+                    actions.enableBackfillComplete(null)
+                }
+            },
+
             resetPassword: async () => {
                 try {
-                    const result = await api.dataWarehouse.resetPassword()
+                    const result = await dataWarehouseResetPasswordCreate(currentProjectId())
                     if (result.password) {
                         actions.setInitialPassword(result.password)
                     }
@@ -209,7 +373,7 @@ export const warehouseProvisioningLogic = kea<warehouseProvisioningLogicType>([
             deprovisionWarehouse: async () => {
                 window.localStorage.removeItem(databaseNameStorageKey(teamLogic.values.currentTeamId))
                 try {
-                    await api.dataWarehouse.deprovisionWarehouse()
+                    await dataWarehouseDeprovisionCreate(currentProjectId())
                     lemonToast.success('Warehouse deprovisioning started')
                     actions.loadWarehouseStatus()
                     actions.pollStatus()
@@ -227,17 +391,40 @@ export const warehouseProvisioningLogic = kea<warehouseProvisioningLogicType>([
                 actions.loadWarehouseStatus()
             },
 
+            deleteOrg: async () => {
+                try {
+                    // Teardown is done (status is `deleted`); remove the now-empty org record so
+                    // its database_name is freed. On success the next status read 404s and the UI
+                    // returns to the provisioning form.
+                    await dataWarehouseDeleteOrgDestroy(currentProjectId())
+                    actions.loadWarehouseStatus()
+                    actions.deleteOrgComplete(true)
+                } catch (e: any) {
+                    // Polling stays active while `deleted`, so the next tick retries this; notify
+                    // once per failure streak rather than on every retry.
+                    if (!values.orgDeletionFailed) {
+                        lemonToast.error(`Failed to finish removing the warehouse: ${e.message || 'Unknown error'}`)
+                    }
+                    actions.deleteOrgComplete(false)
+                }
+            },
+
             loadWarehouseStatusSuccess: ({ warehouseStatus }) => {
-                if (warehouseStatus?.state === 'deleted') {
+                const state = warehouseStatus?.state
+                if (state === 'deleted') {
                     actions.setLastRequestedDatabaseName(null)
                     window.localStorage.removeItem(databaseNameStorageKey(teamLogic.values.currentTeamId))
+                    // Teardown finished, so remove the org row to free the name. Skip if a delete is
+                    // already in flight or has already succeeded (a stale `deleted` read during
+                    // propagation lag must not re-delete); a failed attempt retries on the next poll.
+                    if (!values.isDeletingOrg && !values.orgDeletionSucceeded) {
+                        actions.deleteOrg()
+                    }
                 }
-                if (
-                    warehouseStatus &&
-                    (warehouseStatus.state === 'pending' ||
-                        warehouseStatus.state === 'provisioning' ||
-                        warehouseStatus.state === 'deleting')
-                ) {
+                // Keep polling while teardown is in flight, and while the org record still needs
+                // removing (`deleted`) so a failed delete-org retries on the next tick. A
+                // successful delete-org 404s the next read, which falls through to stopPolling.
+                if (state === 'pending' || state === 'provisioning' || state === 'deleting' || state === 'deleted') {
                     actions.pollStatus()
                 } else {
                     actions.stopPolling()
@@ -252,6 +439,18 @@ export const warehouseProvisioningLogic = kea<warehouseProvisioningLogicType>([
         )
         if (persistedDatabaseName) {
             actions.setLastRequestedDatabaseName(persistedDatabaseName)
+        }
+        // Prefill the table name with a valid default derived from the project name (lowercased,
+        // non-identifier chars collapsed to underscores). It's only a starting point — the user
+        // edits/confirms it, and the input is validated verbatim from there.
+        const projectName = teamLogic.values.currentTeam?.name
+        const defaultTableName = projectName
+            ?.toLowerCase()
+            .replace(/[^a-z0-9_]+/g, '_')
+            .replace(/^_+|_+$/g, '')
+            .slice(0, 63)
+        if (defaultTableName) {
+            actions.setTableName(defaultTableName)
         }
         actions.loadWarehouseStatus()
     }),

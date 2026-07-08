@@ -15,8 +15,11 @@ import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { Dayjs, dayjs } from 'lib/dayjs'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { ceilMsToClosestSecond, eventToDescription, humanizeBytes, toParams } from 'lib/utils'
+import { ceilMsToClosestSecond } from 'lib/utils/durations'
+import { eventToDescription } from 'lib/utils/events'
 import { createFuse } from 'lib/utils/fuseSearch'
+import { humanizeBytes } from 'lib/utils/numbers'
+import { toParams } from 'lib/utils/url'
 import { getText } from 'scenes/comments/Comment'
 import {
     InspectorListItemPerformance,
@@ -896,11 +899,17 @@ export const playerInspectorLogic = kea<playerInspectorLogicType>([
                         })
                     })
 
-                // Add all pre-processed context items at once
-                items.push(...(processedSnapshotData?.contextItems || []))
+                // Add all pre-processed context items
+                // NOTE: not `items.push(...array)` — spreading an unbounded array into a call
+                // blows the argument stack (RangeError) on very large recordings
+                for (const item of processedSnapshotData?.contextItems || []) {
+                    items.push(item)
+                }
 
                 // Add runtime doctor events (asset errors, rrweb warnings)
-                items.push(...runtimeDoctorEvents)
+                for (const item of runtimeDoctorEvents) {
+                    items.push(item)
+                }
 
                 // now we've calculated everything else,
                 // we always start with a context row

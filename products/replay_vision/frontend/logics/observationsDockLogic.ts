@@ -1,16 +1,15 @@
-import { actions, afterMount, kea, key, listeners, path, props, reducers, selectors } from 'kea'
+import { actions, afterMount, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 
 import { lemonToast } from 'lib/lemon-ui/LemonToast'
 import { teamLogic } from 'scenes/teamLogic'
 
-import { visionScannersList, visionScannersObserveCreate, visionObservationsList } from '../generated/api'
+import { visionObservationsList, visionScannersObserveCreate } from '../generated/api'
 import type { ReplayScannerApi, ReplayObservationApi } from '../generated/api.schemas'
-import { scheduleObservationPoll } from './observationPolling'
+import { OBSERVE_POLL_GRACE_MS, scheduleObservationPoll, shouldPollObservations } from './observationPolling'
+import { requestObservationRetry } from './observationRetry'
 import type { observationsDockLogicType } from './observationsDockLogicType'
-
-// The observe endpoint only starts the workflow; its row is created a moment later. Keep polling
-// for this window after an observe so the new card appears even before anything reports in flight.
-const OBSERVE_POLL_GRACE_MS = 30000
+import { refreshVisionQuota } from './visionQuotaLogic'
+import { visionScannersListLogic } from './visionScannersListLogic'
 
 export interface ObservationsDockLogicProps {
     sessionId: string
@@ -21,16 +20,21 @@ export const observationsDockLogic = kea<observationsDockLogicType>([
     props({} as ObservationsDockLogicProps),
     key((props) => props.sessionId),
 
+    connect(() => ({
+        // The scanner list is team-wide — shared so per-recording dock instances don't each refetch it.
+        values: [visionScannersListLogic, ['scanners']],
+    })),
+
     actions({
         loadObservations: true,
         loadObservationsSuccess: (observations: ReplayObservationApi[]) => ({ observations }),
         loadObservationsFailure: true,
-        loadScanners: true,
-        loadScannersSuccess: (scanners: ReplayScannerApi[]) => ({ scanners }),
-        loadScannersFailure: true,
         observe: (scannerId: string) => ({ scannerId }),
         observeSuccess: true,
         observeFailure: true,
+        retryObservation: (observationId: string) => ({ observationId }),
+        retryObservationSuccess: (observationId: string) => ({ observationId }),
+        retryObservationFailure: (observationId: string) => ({ observationId }),
         setDockOpen: (open: boolean) => ({ open }),
         setScannerPickerOpen: (open: boolean) => ({ open }),
         setScannerSearch: (search: string) => ({ search }),
@@ -49,12 +53,6 @@ export const observationsDockLogic = kea<observationsDockLogicType>([
                 loadObservations: () => true,
                 loadObservationsSuccess: () => false,
                 loadObservationsFailure: () => false,
-            },
-        ],
-        scanners: [
-            [] as ReplayScannerApi[],
-            {
-                loadScannersSuccess: (_, { scanners }) => scanners,
             },
         ],
         observing: [
@@ -85,10 +83,25 @@ export const observationsDockLogic = kea<observationsDockLogicType>([
                 setScannerPickerOpen: () => '',
             },
         ],
+        retryingObservationIds: [
+            [] as string[],
+            {
+                retryObservation: (state: string[], { observationId }: { observationId: string }) => [
+                    ...state,
+                    observationId,
+                ],
+                retryObservationSuccess: (state: string[], { observationId }: { observationId: string }) =>
+                    state.filter((id) => id !== observationId),
+                retryObservationFailure: (state: string[], { observationId }: { observationId: string }) =>
+                    state.filter((id) => id !== observationId),
+            },
+        ],
         pollUntil: [
             0,
             {
                 observeSuccess: () => Date.now() + OBSERVE_POLL_GRACE_MS,
+                // The replacement row is inserted by the workflow moments after the retry 202 lands.
+                retryObservationSuccess: () => Date.now() + OBSERVE_POLL_GRACE_MS,
             },
         ],
     }),
@@ -108,71 +121,72 @@ export const observationsDockLogic = kea<observationsDockLogicType>([
         ],
     }),
 
-    listeners(({ actions, props, values, cache }) => ({
-        loadObservations: async () => {
-            const teamId = teamLogic.values.currentTeamId
-            if (!teamId) {
-                return
-            }
-            try {
-                const response = await visionObservationsList(String(teamId), { session_id: props.sessionId })
-                actions.loadObservationsSuccess(response.results ?? [])
-            } catch {
-                actions.loadObservationsFailure()
-            }
-        },
-
-        loadObservationsSuccess: () => {
-            // Poll while work is in flight, and through the grace window after an observe.
+    listeners(({ actions, props, values, cache }) => {
+        const reschedulePoll = (): void => {
             scheduleObservationPoll(
                 cache.disposables,
-                values.hasObservationsInFlight || Date.now() < values.pollUntil,
+                shouldPollObservations(values.hasObservationsInFlight, values.pollUntil),
                 actions.loadObservations
             )
-        },
+        }
+        return {
+            loadObservations: async () => {
+                const teamId = teamLogic.values.currentTeamId
+                if (!teamId) {
+                    actions.loadObservationsFailure() // Clear the loading flag; a bare return spins forever.
+                    return
+                }
+                try {
+                    const response = await visionObservationsList(String(teamId), { session_id: props.sessionId })
+                    actions.loadObservationsSuccess(response.results ?? [])
+                } catch {
+                    actions.loadObservationsFailure()
+                }
+            },
 
-        loadScanners: async () => {
-            const teamId = teamLogic.values.currentTeamId
-            if (!teamId) {
-                return
-            }
-            try {
-                const response = await visionScannersList(String(teamId))
-                actions.loadScannersSuccess(response.results ?? [])
-            } catch {
-                actions.loadScannersFailure()
-            }
-        },
+            // Poll while in flight and through the observe grace window; rescheduled on failure so one hiccup can't kill it.
+            loadObservationsSuccess: reschedulePoll,
+            loadObservationsFailure: reschedulePoll,
 
-        observe: async ({ scannerId }) => {
-            actions.setScannerPickerOpen(false)
-            const teamId = teamLogic.values.currentTeamId
-            if (!teamId) {
-                actions.observeFailure()
-                return
-            }
-            // Backend keys the workflow id on (scanner, session); re-triggering the same pair silently no-ops.
-            if (values.observations.some((o) => o.scanner_id === scannerId)) {
-                lemonToast.info('This scanner has already been run on this recording.')
-                actions.observeFailure()
-                actions.setDockOpen(true)
-                return
-            }
-            try {
-                await visionScannersObserveCreate(String(teamId), scannerId, { session_id: props.sessionId })
-                lemonToast.success('Observation started')
-                actions.observeSuccess()
-                actions.setDockOpen(true)
+            observe: async ({ scannerId }) => {
+                actions.setScannerPickerOpen(false)
+                const teamId = teamLogic.values.currentTeamId
+                if (!teamId) {
+                    actions.observeFailure()
+                    return
+                }
+                // Backend keys the workflow id on (scanner, session); re-triggering the same pair silently no-ops.
+                if (values.observations.some((o) => o.scanner_id === scannerId)) {
+                    lemonToast.info('This scanner has already been run on this recording.')
+                    actions.observeFailure()
+                    actions.setDockOpen(true)
+                    return
+                }
+                try {
+                    await visionScannersObserveCreate(String(teamId), scannerId, { session_id: props.sessionId })
+                    lemonToast.success('Observation started')
+                    actions.observeSuccess()
+                    actions.setDockOpen(true)
+                    actions.loadObservations()
+                    refreshVisionQuota()
+                } catch (error: any) {
+                    lemonToast.error(`Failed to start observation${error.detail ? `: ${error.detail}` : ''}`)
+                    actions.observeFailure()
+                }
+            },
+
+            retryObservation: async ({ observationId }) => {
+                if (!(await requestObservationRetry(observationId))) {
+                    actions.retryObservationFailure(observationId)
+                    return
+                }
+                actions.retryObservationSuccess(observationId)
                 actions.loadObservations()
-            } catch (error) {
-                lemonToast.error(`Failed to start observation: ${String(error)}`)
-                actions.observeFailure()
-            }
-        },
-    })),
+            },
+        }
+    }),
 
     afterMount(({ actions }) => {
         actions.loadObservations()
-        actions.loadScanners()
     }),
 ])

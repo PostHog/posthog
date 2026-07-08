@@ -1,10 +1,12 @@
 import { useMemo } from 'react'
 
 import type { Series } from '../../core/types'
+import type { ValueLabelFormatter } from '../../overlays/ValueLabels'
 
 export interface ValueLabelsConfig {
     seriesKeys?: string[]
-    formatter?: (value: number) => string
+    /** Per-segment label text — see `ValueLabelFormatter` for the context and empty-string contract. */
+    formatter?: ValueLabelFormatter
 }
 
 export function resolveValueLabelsConfig(input: boolean | ValueLabelsConfig | undefined): ValueLabelsConfig | null {

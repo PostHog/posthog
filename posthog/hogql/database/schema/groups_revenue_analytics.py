@@ -1,7 +1,5 @@
 from collections import defaultdict
 
-from posthog.schema import DatabaseSchemaManagedViewTableKind
-
 from posthog.hogql import ast
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.database.models import (
@@ -17,6 +15,7 @@ from posthog.hogql.database.schema.util.revenue_analytics import get_table_kind,
 from posthog.hogql.errors import ResolutionError
 
 from posthog.models.exchange_rate.sql import EXCHANGE_RATE_DECIMAL_PRECISION
+from posthog.schema_enums import DatabaseSchemaManagedViewTableKind
 
 ZERO_DECIMAL = ast.Call(
     name="toDecimal", args=[ast.Constant(value=0), ast.Constant(value=EXCHANGE_RATE_DECIMAL_PRECISION)]
@@ -24,9 +23,20 @@ ZERO_DECIMAL = ast.Call(
 
 FIELDS: dict[str, FieldOrTable] = {
     "team_id": IntegerDatabaseField(name="team_id"),
-    "group_key": StringDatabaseField(name="group_key"),
-    "revenue": DecimalDatabaseField(name="revenue", nullable=False),
-    "mrr": DecimalDatabaseField(name="mrr", nullable=False),
+    "group_key": StringDatabaseField(
+        name="group_key",
+        description="Group key these revenue figures are aggregated for; join target for `groups.key`.",
+    ),
+    "revenue": DecimalDatabaseField(
+        name="revenue",
+        nullable=False,
+        description="Total revenue attributed to the group, summed across all its customers, in the project's base currency.",
+    ),
+    "mrr": DecimalDatabaseField(
+        name="mrr",
+        nullable=False,
+        description="Monthly recurring revenue attributed to the group, summed across all its customers, in the project's base currency.",
+    ),
 }
 
 
@@ -363,6 +373,10 @@ def _build_dw_query(
 
 
 class GroupsRevenueAnalyticsTable(LazyTable):
+    description: str = (
+        "Revenue and MRR aggregated per group from the revenue analytics views. "
+        "One row per group key; reachable from groups via the `revenue_analytics` join."
+    )
     fields: dict[str, FieldOrTable] = FIELDS
 
     def lazy_select(

@@ -11,11 +11,14 @@ from parameterized import parameterized
 from rest_framework import status
 
 from posthog.api.test.test_personal_api_keys import PersonalAPIKeysBaseTest
-from posthog.models import Person
 from posthog.models.team.team_caching import set_team_in_cache
+from posthog.models.user import User
+from posthog.test.persons import create_person
 
 from products.early_access_features.backend.models import EarlyAccessFeature
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
+
+from ee.models.rbac.access_control import AccessControl
 
 
 class TestEarlyAccessFeatureSiteAppTemplate(unittest.TestCase):
@@ -655,6 +658,7 @@ class TestEarlyAccessFeature(APIBaseTest):
                     "name": "Click counter",
                     "payload": {},
                     "stage": "beta",
+                    "user_access_level": "editor",
                 },
             ],
         }
@@ -875,7 +879,7 @@ class TestPreviewList(BaseTest, QueryMatchingTest):
 
     @snapshot_postgres_queries
     def test_early_access_features(self):
-        Person.objects.create(
+        create_person(
             team=self.team,
             distinct_ids=["example_id"],
             properties={"email": "example@posthog.com"},
@@ -932,7 +936,7 @@ class TestPreviewList(BaseTest, QueryMatchingTest):
 
     @snapshot_postgres_queries
     def test_early_access_features_with_pre_env_cached_team(self):
-        Person.objects.create(
+        create_person(
             team=self.team,
             distinct_ids=["example_id"],
             properties={"email": "example@posthog.com"},
@@ -989,7 +993,7 @@ class TestPreviewList(BaseTest, QueryMatchingTest):
 
     @snapshot_postgres_queries
     def test_early_access_features_with_cached_team(self):
-        Person.objects.create(
+        create_person(
             team=self.team,
             distinct_ids=["example_id"],
             properties={"email": "example@posthog.com"},
@@ -1034,7 +1038,7 @@ class TestPreviewList(BaseTest, QueryMatchingTest):
             )
 
     def test_early_access_features_beta_only(self):
-        Person.objects.create(
+        create_person(
             team=self.team,
             distinct_ids=["example_id"],
             properties={"email": "example@posthog.com"},
@@ -1153,7 +1157,7 @@ class TestPreviewList(BaseTest, QueryMatchingTest):
 
     @snapshot_postgres_queries
     def test_early_access_features_includes_payload_in_preview(self):
-        Person.objects.create(
+        create_person(
             team=self.team,
             distinct_ids=["example_id"],
             properties={"email": "example@posthog.com"},
@@ -1318,3 +1322,263 @@ class TestEarlyAccessFeatureScopeWarning(PersonalAPIKeysBaseTest, APIBaseTest):
             )
         assert response.status_code == status.HTTP_201_CREATED, response.json()
         assert self._warning_events(mock_logger) == []
+
+
+class TestEarlyAccessFeatureScopeEnforcement(PersonalAPIKeysBaseTest, APIBaseTest):
+    # Enforcement (raise 403) is gated behind a rollout flag; force it on for this class.
+    CREATE_PAYLOAD = {
+        "name": "Scope enforcement feature",
+        "description": "x",
+        "stage": "concept",
+    }
+
+    def setUp(self):
+        super().setUp()
+        self.key.scopes = ["early_access_feature:write"]
+        self.key.save()
+        self.auth_headers = {"authorization": f"Bearer {self.value}"}
+        enforce_patcher = patch(
+            "products.feature_flags.backend.api.feature_flag._is_enforce_feature_flag_write_scope_enabled",
+            return_value=True,
+        )
+        enforce_patcher.start()
+        self.addCleanup(enforce_patcher.stop)
+
+    def _create_feature(self, **extra):
+        return self.client.post(
+            f"/api/projects/{self.team.id}/early_access_feature/",
+            data={**self.CREATE_PAYLOAD, **extra},
+            format="json",
+            headers=self.auth_headers,
+        )
+
+    def _create_feature_as_admin(self):
+        self.key.scopes = ["*"]
+        self.key.save()
+        feature_id = self._create_feature().json()["id"]
+        self.key.scopes = ["early_access_feature:write"]
+        self.key.save()
+        return feature_id
+
+    @parameterized.expand(
+        [
+            ("eaf_write_only", ["early_access_feature:write"], status.HTTP_403_FORBIDDEN),
+            ("with_feature_flag_write", ["early_access_feature:write", "feature_flag:write"], status.HTTP_201_CREATED),
+            ("wildcard", ["*"], status.HTTP_201_CREATED),
+        ]
+    )
+    def test_create_scope_matrix(self, _name, scopes, expected_status):
+        self.key.scopes = scopes
+        self.key.save()
+        response = self._create_feature()
+        assert response.status_code == expected_status, response.json()
+        if expected_status == status.HTTP_403_FORBIDDEN:
+            assert "feature_flag:write" in response.json()["detail"]
+
+    def test_update_stage_change_is_denied(self):
+        feature_id = self._create_feature_as_admin()
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/early_access_feature/{feature_id}/",
+            data={"stage": "beta"},
+            format="json",
+            headers=self.auth_headers,
+        )
+        assert response.status_code == status.HTTP_403_FORBIDDEN, response.json()
+
+    def test_update_without_stage_change_is_allowed(self):
+        feature_id = self._create_feature_as_admin()
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/early_access_feature/{feature_id}/",
+            data={"description": "updated"},
+            format="json",
+            headers=self.auth_headers,
+        )
+        assert response.status_code == status.HTTP_200_OK, response.json()
+
+    def test_create_linking_existing_flag_without_mutation_is_allowed(self):
+        # Linking an existing flag at a non-active stage writes no flag row, so it is not gated.
+        flag = FeatureFlag.objects.create(team=self.team, key="eaf-link-only", created_by=self.user)
+        response = self._create_feature(feature_flag_id=flag.id, stage="concept")
+        assert response.status_code == status.HTTP_201_CREATED, response.json()
+
+    def test_destroy_is_denied(self):
+        feature_id = self._create_feature_as_admin()
+        response = self.client.delete(
+            f"/api/projects/{self.team.id}/early_access_feature/{feature_id}/",
+            headers=self.auth_headers,
+        )
+        assert response.status_code == status.HTTP_403_FORBIDDEN, response.json()
+
+    def test_session_auth_is_allowed(self):
+        self.client.force_login(self.user)
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/early_access_feature/",
+            data=self.CREATE_PAYLOAD,
+            format="json",
+        )
+        assert response.status_code == status.HTTP_201_CREATED, response.json()
+
+
+class TestEarlyAccessFeatureResourceAccessControl(APIBaseTest):
+    """Resource- and object-level access control for early access features."""
+
+    def setUp(self) -> None:
+        super().setUp()
+        self.organization.available_product_features = [{"key": "access_control", "name": "Access control"}]
+        self.organization.save()
+        self.member = User.objects.create_and_join(self.organization, "eaf-member@posthog.com", "password")
+        self.client.force_login(self.member)
+
+    def _set_resource_level(self, access_level: str) -> None:
+        AccessControl.objects.create(resource="early_access_feature", team=self.team, access_level=access_level)
+
+    def _create_feature(self) -> EarlyAccessFeature:
+        return EarlyAccessFeature.objects.create(team=self.team, name="Example feature", stage="concept")
+
+    def _create_feature_with_flag(self) -> EarlyAccessFeature:
+        # Flag created by the admin so the member is not the flag creator (creators get manager).
+        flag = FeatureFlag.objects.create(
+            team=self.team,
+            key="eaf-linked-flag",
+            name="EAF linked flag",
+            created_by=self.user,
+            filters={"groups": [{"properties": [], "rollout_percentage": 0}]},
+        )
+        return EarlyAccessFeature.objects.create(
+            team=self.team, name="Linked feature", stage="concept", feature_flag=flag
+        )
+
+    def _restrict_feature_flag_access(self, access_level: str) -> None:
+        AccessControl.objects.create(resource="feature_flag", team=self.team, access_level=access_level)
+
+    @parameterized.expand([("none", status.HTTP_403_FORBIDDEN), ("viewer", status.HTTP_200_OK)])
+    def test_list_access_by_resource_level(self, access_level: str, expected_status: int) -> None:
+        self._set_resource_level(access_level)
+        response = self.client.get(f"/api/projects/{self.team.id}/early_access_feature/")
+        self.assertEqual(response.status_code, expected_status)
+
+    @parameterized.expand([("viewer", status.HTTP_403_FORBIDDEN), ("editor", status.HTTP_201_CREATED)])
+    def test_create_access_by_resource_level(self, access_level: str, expected_status: int) -> None:
+        self._set_resource_level(access_level)
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/early_access_feature/",
+            {"name": f"Feature {access_level}", "stage": "concept"},
+            format="json",
+        )
+        self.assertEqual(response.status_code, expected_status, response.json())
+
+    @parameterized.expand([("viewer", status.HTTP_403_FORBIDDEN), ("editor", status.HTTP_200_OK)])
+    def test_update_access_by_resource_level(self, access_level: str, expected_status: int) -> None:
+        feature = self._create_feature()
+        self._set_resource_level(access_level)
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/early_access_feature/{feature.id}",
+            {"name": "Renamed"},
+            format="json",
+        )
+        self.assertEqual(response.status_code, expected_status, response.json())
+
+    @parameterized.expand([("viewer", status.HTTP_403_FORBIDDEN), ("editor", status.HTTP_204_NO_CONTENT)])
+    def test_delete_access_by_resource_level(self, access_level: str, expected_status: int) -> None:
+        feature = self._create_feature()
+        self._set_resource_level(access_level)
+        response = self.client.delete(f"/api/projects/{self.team.id}/early_access_feature/{feature.id}")
+        self.assertEqual(response.status_code, expected_status)
+
+    def test_user_access_level_reflects_resource_level(self) -> None:
+        feature = self._create_feature()
+        self._set_resource_level("viewer")
+        response = self.client.get(f"/api/projects/{self.team.id}/early_access_feature/{feature.id}")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        # No creator concept on this model, so the effective level is the resource-level floor.
+        self.assertEqual(response.json()["user_access_level"], "viewer")
+
+    def test_user_access_level_reflects_object_level(self) -> None:
+        # An object-level grant for one feature should win over the lower resource-level floor.
+        feature = self._create_feature()
+        self._set_resource_level("viewer")
+        AccessControl.objects.create(
+            resource="early_access_feature",
+            resource_id=str(feature.id),
+            organization_member=self.member.organization_memberships.get(organization=self.organization),
+            team=self.team,
+            access_level="editor",
+        )
+        response = self.client.get(f"/api/projects/{self.team.id}/early_access_feature/{feature.id}")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.json()["user_access_level"], "editor")
+
+    def test_access_controls_endpoint_route_exists(self) -> None:
+        feature = self._create_feature()
+        # Grant the member viewer so the read still exercises the access_control:read gate as a non-admin.
+        self._set_resource_level("viewer")
+        response = self.client.get(f"/api/projects/{self.team.id}/early_access_feature/{feature.id}/access_controls")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+    def test_non_manager_member_cannot_modify_object_access_controls(self) -> None:
+        # Editor resource access passes write checks but does not grant manager on the object.
+        feature = self._create_feature()
+        self._set_resource_level("editor")
+        response = self.client.put(
+            f"/api/projects/{self.team.id}/early_access_feature/{feature.id}/access_controls",
+            {"access_level": "viewer"},
+        )
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+
+    def test_manager_can_modify_object_access_controls(self) -> None:
+        # A member with manager access to the object can change its access controls.
+        feature = self._create_feature()
+        AccessControl.objects.create(
+            resource="early_access_feature",
+            resource_id=str(feature.id),
+            organization_member=self.member.organization_memberships.get(organization=self.organization),
+            team=self.team,
+            access_level="manager",
+        )
+        response = self.client.put(
+            f"/api/projects/{self.team.id}/early_access_feature/{feature.id}/access_controls",
+            {"access_level": "viewer"},
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response.json())
+
+    def test_eaf_editor_without_feature_flag_access_cannot_create_flag(self) -> None:
+        # early_access_feature editor must not bypass feature_flag access control when creating a flag.
+        self._set_resource_level("editor")
+        self._restrict_feature_flag_access("viewer")
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/early_access_feature/",
+            {"name": "Bypass attempt", "stage": "concept"},
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN, response.json())
+
+    def test_eaf_editor_without_feature_flag_access_cannot_activate_stage(self) -> None:
+        # Promoting to an active stage mutates the linked flag, so it requires feature_flag editor.
+        feature = self._create_feature_with_flag()
+        self._set_resource_level("editor")
+        self._restrict_feature_flag_access("viewer")
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/early_access_feature/{feature.id}",
+            {"stage": "beta"},
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN, response.json())
+
+    def test_eaf_editor_without_feature_flag_access_cannot_delete_with_linked_flag(self) -> None:
+        # Deleting clears the linked flag's enrollment, so it requires feature_flag editor.
+        feature = self._create_feature_with_flag()
+        self._set_resource_level("editor")
+        self._restrict_feature_flag_access("viewer")
+        response = self.client.delete(f"/api/projects/{self.team.id}/early_access_feature/{feature.id}")
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+
+    def test_eaf_editor_with_feature_flag_access_can_activate_stage(self) -> None:
+        # With the default feature_flag editor access, the linked-flag write is allowed.
+        feature = self._create_feature_with_flag()
+        self._set_resource_level("editor")
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/early_access_feature/{feature.id}",
+            {"stage": "beta"},
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response.json())

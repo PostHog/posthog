@@ -43,7 +43,11 @@ export const retentionModalLogic = kea<retentionModalLogicType>([
         actions: [retentionPeopleLogic(props), ['loadPeople']],
     })),
     actions(() => ({
-        openModal: (rowIndex: number, breakdownValue?: string | number | null) => ({ rowIndex, breakdownValue }),
+        openModal: (rowIndex: number, breakdownValue?: string | number | null, columnIndex?: number | null) => ({
+            rowIndex,
+            breakdownValue,
+            columnIndex,
+        }),
         closeModal: true,
         saveAsCohort: (cohortName: string) => ({ cohortName }),
         setIsCohortModalOpen: (isOpen: boolean) => ({ isOpen }),
@@ -61,6 +65,14 @@ export const retentionModalLogic = kea<retentionModalLogicType>([
             {
                 openModal: (_, { breakdownValue }: { rowIndex: number; breakdownValue?: string | number | null }) =>
                     breakdownValue ?? null,
+                closeModal: () => null,
+            },
+        ],
+        // The interval column of the cell the modal was opened from, so the modal can highlight it.
+        selectedColumnIndex: [
+            null as number | null,
+            {
+                openModal: (_, { columnIndex }: { columnIndex?: number | null }) => columnIndex ?? null,
                 closeModal: () => null,
             },
         ],

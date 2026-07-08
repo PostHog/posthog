@@ -3,7 +3,7 @@ name = "llm-gateway"
 version = "0.1.0"
 description = "LLM Gateway"
 readme = "README.md"
-requires-python = ">=3.12"
+requires-python = ">=3.13"
 authors = [
     { name = "PostHog", email = "hey@posthog.com" },
 ]
@@ -15,7 +15,7 @@ dependencies = [
     "pydantic-settings>=2.1.0",
     "asyncpg>=0.30.0",
     "redis==5.3.1",
-    "litellm==1.83.7",
+    "litellm==1.84.0",
     "orjson>=3.10.0",
     "prometheus-client>=0.21.0",
     "prometheus-fastapi-instrumentator>=7.0.0",
@@ -61,7 +61,7 @@ exclude = [
 ]
 
 [tool.ruff]
-target-version = "py312"
+target-version = "py313"
 line-length = 120
 indent-width = 4
 
@@ -100,7 +100,7 @@ pythonpath = ["src"]
 addopts = ["--junitxml=junit.xml", "--reruns=2", "--reruns-delay=5"]
 
 [tool.mypy]
-python_version = "3.12"
+python_version = "3.13"
 strict = true
 warn_return_any = true
 warn_unused_ignores = true

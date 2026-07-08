@@ -1,7 +1,7 @@
 import { kea } from 'kea'
 
 import api from 'lib/api'
-import { toParams } from 'lib/utils'
+import { toParams } from 'lib/utils/url'
 import { experimentsLogic } from 'scenes/experiments/experimentsLogic'
 import { validateFeatureFlagKey } from 'scenes/feature-flags/featureFlagLogic'
 import { featureFlagsLogic } from 'scenes/feature-flags/featureFlagsLogic'
@@ -15,19 +15,19 @@ export type FeatureFlagKeyValidation = {
     valid: boolean
     error: string | null
     existingFlag?: FeatureFlagType
+    /** The key this result validated, so consumers can detect a stale result after the key changed. */
+    key?: string
 }
 
 export const variantsPanelLogic = kea<variantsPanelLogicType>({
-    key: (props) => props.tabId || props.experiment?.id || 'new',
+    key: (props) => props.experiment?.id || 'new',
     path: (key) => ['scenes', 'experiments', 'create', 'panels', 'variantsPanelLogic', key],
     props: {
         experiment: {} as Experiment,
         disabled: false as boolean,
-        tabId: undefined as string | undefined,
     } as {
         experiment: Experiment
         disabled: boolean
-        tabId?: string
     },
     connect: {
         values: [
@@ -92,7 +92,7 @@ export const variantsPanelLogic = kea<variantsPanelLogicType>({
                     // First do client-side validation
                     const clientError = validateFeatureFlagKey(key)
                     if (clientError) {
-                        return { valid: false, error: clientError }
+                        return { valid: false, error: clientError, key }
                     }
 
                     // Check if key already exists in our unavailable keys set
@@ -104,6 +104,7 @@ export const variantsPanelLogic = kea<variantsPanelLogicType>({
                             valid: false,
                             error: 'A feature flag with this key already exists.',
                             existingFlag,
+                            key,
                         }
                     }
 
@@ -119,11 +120,12 @@ export const variantsPanelLogic = kea<variantsPanelLogicType>({
                                 valid: false,
                                 error: 'A feature flag with this key already exists.',
                                 existingFlag: exactMatch,
+                                key,
                             }
                         }
                     }
 
-                    return { valid: true, error: null }
+                    return { valid: true, error: null, key }
                 },
                 clearFeatureFlagKeyValidation: () => null,
             },

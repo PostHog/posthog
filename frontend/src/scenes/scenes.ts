@@ -149,7 +149,8 @@ export const sceneConfigurations: Record<Scene | string, SceneConfig> = {
     [Scene.Destinations]: {
         projectBased: true,
         name: 'Destinations',
-        description: 'Destinations allow you to send your data to external systems in real time.',
+        description:
+            'Destinations allow you to send your data to external systems either in real time or in scheduled batches.',
         activityScope: ActivityScope.HOG_FUNCTION,
         iconType: 'data_pipeline',
     },
@@ -275,6 +276,7 @@ export const sceneConfigurations: Record<Scene | string, SceneConfig> = {
         description: 'Choose the type of insight you want to create',
     },
     [Scene.IntegrationsRedirect]: { name: 'Integrations redirect' },
+    [Scene.IntegrationsLanding]: { name: 'Integration', layout: 'plain' },
     [Scene.StripeConfirmInstall]: { name: 'Confirm Stripe install', projectBased: true },
     [Scene.IngestionWarnings]: {
         projectBased: true,
@@ -500,10 +502,10 @@ export const sceneConfigurations: Record<Scene | string, SceneConfig> = {
         description: 'Monitor the status of your data pipelines.',
         iconType: 'pipeline_status',
     },
-    [Scene.SdkDoctor]: {
+    [Scene.SdkHealth]: {
         projectBased: true,
-        name: 'SDK doctor',
-        iconType: 'sdk_doctor',
+        name: 'SDK health',
+        iconType: 'sdk_health',
         description:
             'Monitor and maintain your PostHog SDK integrations by automatically detecting version issues, configuration problems, and implementation patterns across your applications.',
     },
@@ -513,18 +515,6 @@ export const sceneConfigurations: Record<Scene | string, SceneConfig> = {
         iconType: 'exports',
         description:
             'Retrieve your exports here. Exports are generated asynchronously and may take a few seconds to complete.',
-    },
-    [Scene.Subscriptions]: {
-        projectBased: true,
-        name: 'Subscriptions',
-        iconType: 'inbox',
-        description: 'View and manage scheduled insight and dashboard subscriptions for this project.',
-    },
-    [Scene.Subscription]: {
-        projectBased: true,
-        name: 'Subscription',
-        iconType: 'inbox',
-        description: 'View subscription details and delivery history for this project.',
     },
     [Scene.SessionAttributionExplorer]: { projectBased: true, name: 'Session attribution explorer (beta)' },
     [Scene.SessionProfile]: { projectBased: true, name: 'Session profile', iconType: 'session_profile' },
@@ -579,6 +569,8 @@ export const sceneConfigurations: Record<Scene | string, SceneConfig> = {
         iconType: 'data_pipeline',
     },
     [Scene.Unsubscribe]: { allowUnauthenticated: true, layout: 'app-raw' },
+    [Scene.CodeCanvasLink]: { allowUnauthenticated: true, layout: 'app-raw' },
+    [Scene.CodeChannelLink]: { allowUnauthenticated: true, layout: 'app-raw' },
     [Scene.VerifyEmail]: { allowUnauthenticated: true, layout: 'plain' },
     [Scene.WebAnalyticsPageReports]: {
         projectBased: true,
@@ -607,6 +599,13 @@ export const sceneConfigurations: Record<Scene | string, SceneConfig> = {
         description: 'Analyze your web analytics data to understand website performance and user behavior.',
         iconType: 'web_analytics',
     },
+    [Scene.WebAnalyticsRecap]: {
+        projectBased: true,
+        name: 'Weekly recap',
+        layout: 'app-raw',
+        description: "A delightful weekly recap of this project's web analytics.",
+        iconType: 'web_analytics',
+    },
     [Scene.Wizard]: { projectBased: true, name: 'Wizard', layout: 'plain' },
     [Scene.OrganizationDeactivated]: {
         projectBased: false,
@@ -618,6 +617,11 @@ export const sceneConfigurations: Record<Scene | string, SceneConfig> = {
         projectBased: false,
         organizationBased: true,
         name: 'Organization Pending Deletion',
+        layout: 'plain',
+    },
+    [Scene.ProjectPendingDeletion]: {
+        projectBased: true,
+        name: 'Project Pending Deletion',
         layout: 'plain',
     },
     ...productConfiguration,
@@ -761,6 +765,7 @@ export const routes: Record<string, [Scene | string, string]> = {
     [urls.dashboardSubscriptions(':id')]: [Scene.Dashboard, 'dashboardSubscriptions'],
     [urls.dashboardSubscription(':id', ':subscriptionId')]: [Scene.Dashboard, 'dashboardSubscription'],
     [urls.ingestionWarnings()]: [Scene.DataManagement, 'ingestionWarnings'],
+    [urls.ingestionWarningsV2()]: [Scene.DataManagement, 'ingestionWarningsV2'],
     [urls.insightQuickStart()]: [Scene.InsightQuickStart, 'insightQuickStart'],
     [urls.insightNew()]: [Scene.Insight, 'insightNew'],
     [urls.insightEdit(':shortId' as InsightShortId)]: [Scene.Insight, 'insightEdit'],
@@ -777,6 +782,7 @@ export const routes: Record<string, [Scene | string, string]> = {
     [urls.webAnalyticsBotAnalytics()]: [Scene.WebAnalytics, 'webAnalyticsBotAnalytics'],
     [urls.webAnalyticsHealth()]: [Scene.WebAnalyticsHealth, 'webAnalyticsHealth'],
     [urls.webAnalyticsLive()]: [Scene.WebAnalyticsLive, 'webAnalyticsLive'],
+    [urls.webAnalyticsRecap()]: [Scene.WebAnalyticsRecap, 'webAnalyticsRecap'],
     [urls.webAnalyticsPageReports()]: [Scene.WebAnalytics, 'webAnalyticsPageReports'],
     [urls.revenueAnalytics()]: [Scene.RevenueAnalytics, 'revenueAnalytics'],
     [urls.marketingAnalyticsApp()]: [Scene.MarketingAnalytics, 'marketingAnalytics'],
@@ -838,6 +844,7 @@ export const routes: Record<string, [Scene | string, string]> = {
     [urls.sqlEditor()]: [Scene.SQLEditor, 'sqlEditor'],
     [urls.featureFlags()]: [Scene.FeatureFlags, 'featureFlags'],
     [urls.featureFlagTemplates()]: ['FeatureFlagTemplates' as Scene, 'featureFlagTemplates'],
+    [urls.featureFlagsStaffTools()]: ['FeatureFlagsStaffTools' as Scene, 'featureFlagsStaffTools'],
     [urls.featureFlag(':id')]: [Scene.FeatureFlag, 'featureFlag'],
     [urls.annotations()]: [Scene.DataManagement, 'annotations'],
     [urls.annotation(':id')]: [Scene.DataManagement, 'annotation'],
@@ -898,7 +905,11 @@ export const routes: Record<string, [Scene | string, string]> = {
     [urls.vercelLinkError()]: [Scene.VercelLinkError, 'vercelLinkError'],
     [urls.agenticAccountMismatch()]: [Scene.AgenticAccountMismatch, 'agenticAccountMismatch'],
     [urls.unsubscribe()]: [Scene.Unsubscribe, 'unsubscribe'],
+    [urls.codeCanvasLink(':channelId', ':dashboardId')]: [Scene.CodeCanvasLink, 'codeCanvasLink'],
+    [urls.codeChannelLink(':channelId')]: [Scene.CodeChannelLink, 'codeChannelLink'],
+    [urls.codeChannelLink(':channelId', ':taskId')]: [Scene.CodeChannelLink, 'codeChannelThreadLink'],
     [urls.integrationsRedirect(':kind')]: [Scene.IntegrationsRedirect, 'integrationsRedirect'],
+    [urls.integration(':slug')]: [Scene.IntegrationsLanding, 'integrationsLanding'],
     [urls.stripeConfirmInstall()]: [Scene.StripeConfirmInstall, 'stripeConfirmInstall'],
     [urls.debugQuery()]: [Scene.DebugQuery, 'debugQuery'],
     [urls.debugHog()]: [Scene.DebugHog, 'debugHog'],
@@ -921,15 +932,20 @@ export const routes: Record<string, [Scene | string, string]> = {
     [urls.coupons(':campaign')]: [Scene.Coupons, 'coupons'],
     [urls.health()]: [Scene.Health, 'health'],
     [urls.inbox()]: [Scene.Inbox, 'inbox'],
-    [urls.inbox(':reportId')]: [Scene.Inbox, 'inbox'],
+    [urls.inbox(':tab')]: [Scene.Inbox, 'inbox'],
+    // Static memory route, registered before `:skillName` so it isn't read as a scout name.
+    [urls.inboxScratchpad()]: [Scene.Inbox, 'inbox'],
+    // Registered before the generic report route: both are two-segment `/inbox/x/y` shapes.
+    [urls.inboxScout(':skillName')]: [Scene.Inbox, 'inbox'],
+    // Deep-link to a single scout finding: the bare scout route plus a trailing `/<finding>` segment.
+    [urls.inboxScout(':skillName', ':findingId')]: [Scene.Inbox, 'inbox'],
+    [urls.inboxReport(':tab', ':reportId')]: [Scene.Inbox, 'inbox'],
     [urls.pipelineStatus()]: [Scene.PipelineStatus, 'pipelineStatus'],
-    [urls.sdkDoctor()]: [Scene.SdkDoctor, 'sdkDoctor'],
+    [urls.sdkHealth()]: [Scene.SdkHealth, 'sdkHealth'],
     [urls.healthAlerts()]: [Scene.HealthAlerts, 'healthAlerts'],
     // Parameterized route must come after static /health/* routes
     [urls.healthCategory(':category')]: [Scene.HealthCategoryDetail, 'healthCategoryDetail'],
     [urls.exports()]: [Scene.Exports, 'exports'],
-    [urls.subscriptions()]: [Scene.Subscriptions, 'subscriptions'],
-    [urls.subscription(':subscriptionId')]: [Scene.Subscription, 'subscription'],
     [urls.startups()]: [Scene.StartupProgram, 'startupProgram'],
     [urls.startups(':referrer')]: [Scene.StartupProgram, 'startupProgramWithReferrer'],
     [urls.agenticAuthorize()]: [Scene.AgenticAuthorize, 'agenticAuthorize'],
@@ -945,5 +961,6 @@ export const routes: Record<string, [Scene | string, string]> = {
     [urls.hogFunctionNew(':templateId')]: [Scene.HogFunction, 'hogFunctionNew'],
     [urls.organizationDeactivated()]: [Scene.OrganizationDeactivated, 'organizationDeactivated'],
     [urls.organizationPendingDeletion()]: [Scene.OrganizationPendingDeletion, 'organizationPendingDeletion'],
+    [urls.projectPendingDeletion()]: [Scene.ProjectPendingDeletion, 'projectPendingDeletion'],
     ...productRoutes,
 }

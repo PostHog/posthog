@@ -5,7 +5,7 @@ from temporalio import activity
 from posthog.models import Integration
 from posthog.temporal.common.utils import asyncify
 
-from products.tasks.backend.services.sandbox import Sandbox, SandboxConfig, SandboxTemplate
+from products.tasks.backend.logic.services.sandbox import Sandbox, SandboxConfig, SandboxTemplate
 from products.tasks.backend.temporal.oauth import create_oauth_access_token_for_user
 from products.tasks.backend.temporal.observability import log_activity_execution
 from products.tasks.backend.temporal.process_task.utils import get_github_token, get_sandbox_api_url

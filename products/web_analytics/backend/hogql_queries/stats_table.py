@@ -10,6 +10,7 @@ from posthog.schema import (
     PersonPropertyFilter,
     WebAnalyticsOrderByDirection,
     WebAnalyticsOrderByFields,
+    WebAnalyticsPreComputeStrategy,
     WebStatsBreakdown,
     WebStatsTableQuery,
     WebStatsTableQueryResponse,
@@ -406,7 +407,7 @@ class WebStatsTableQueryRunner(WebAnalyticsQueryRunner[WebStatsTableQueryRespons
             ],
             results=results,
             modifiers=self.modifiers,
-            usedLazyPrecompute=True,
+            preComputeStrategy=WebAnalyticsPreComputeStrategy.LAZY_PRECOMPUTE,
             hasMore=result.has_more,
             limit=self.paginator.limit,
             offset=self.paginator.offset,
@@ -434,7 +435,6 @@ class WebStatsTableQueryRunner(WebAnalyticsQueryRunner[WebStatsTableQueryRespons
         )
         if rows is None:
             return None
-        self.used_preaggregated_tables = True
         return self._build_response_from_lazy_rows(rows, limit=limit, offset=offset)
 
     def _maybe_calculate_via_frustration_lazy_precompute(self) -> Optional[WebStatsTableQueryResponse]:
@@ -450,7 +450,6 @@ class WebStatsTableQueryRunner(WebAnalyticsQueryRunner[WebStatsTableQueryRespons
         rows = execute_frustration_lazy_precomputed_read(self, limit=limit + 1, offset=offset)
         if rows is None:
             return None
-        self.used_preaggregated_tables = True
         return self._build_frustration_response_from_lazy_rows(rows, limit=limit, offset=offset)
 
     def _build_frustration_response_from_lazy_rows(
@@ -496,8 +495,7 @@ class WebStatsTableQueryRunner(WebAnalyticsQueryRunner[WebStatsTableQueryRespons
             ],
             results=results,
             modifiers=self.modifiers,
-            usedPreAggregatedTables=True,
-            usedLazyPrecompute=True,
+            preComputeStrategy=WebAnalyticsPreComputeStrategy.LAZY_PRECOMPUTE,
             hasMore=has_more,
             limit=limit,
             offset=offset,
@@ -555,8 +553,7 @@ class WebStatsTableQueryRunner(WebAnalyticsQueryRunner[WebStatsTableQueryRespons
             columns=columns,
             results=results,
             modifiers=self.modifiers,
-            usedPreAggregatedTables=True,
-            usedLazyPrecompute=True,
+            preComputeStrategy=WebAnalyticsPreComputeStrategy.LAZY_PRECOMPUTE,
             hasMore=has_more,
             limit=limit,
             offset=offset,
@@ -661,7 +658,11 @@ class WebStatsTableQueryRunner(WebAnalyticsQueryRunner[WebStatsTableQueryRespons
             types=response.types,
             hogql=response.hogql,
             modifiers=self.modifiers,
-            usedPreAggregatedTables=self.used_preaggregated_tables,
+            preComputeStrategy=(
+                WebAnalyticsPreComputeStrategy.PRE_AGGREGATED
+                if self.used_preaggregated_tables
+                else WebAnalyticsPreComputeStrategy.LIVE
+            ),
             **self.paginator.response_params(),
         )
 

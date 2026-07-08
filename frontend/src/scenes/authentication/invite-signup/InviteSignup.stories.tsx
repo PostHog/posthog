@@ -1,4 +1,5 @@
 import { Meta, StoryObj } from '@storybook/react'
+import { HttpResponse, delay } from 'msw'
 
 import { useDelayedOnMountEffect } from 'lib/hooks/useOnMountEffect'
 
@@ -13,9 +14,6 @@ const meta: Meta = {
     parameters: {
         layout: 'fullscreen',
         viewMode: 'story',
-        testOptions: {
-            waitForSelector: '.BridgePage__left__message--visible',
-        },
     },
     decorators: [
         mswDecorator({
@@ -32,8 +30,14 @@ const meta: Meta = {
                 ],
             },
             post: {
-                '/api/signup': (_, __, ctx) => [ctx.delay(1000), ctx.status(200), ctx.json({ success: true })],
-                '/api/signup/1234': (_, __, ctx) => [ctx.delay(1000), ctx.status(200), ctx.json({ success: true })],
+                '/api/signup': async () => {
+                    await delay(1000)
+                    return HttpResponse.json({ success: true })
+                },
+                '/api/signup/1234': async () => {
+                    await delay(1000)
+                    return HttpResponse.json({ success: true })
+                },
                 '/api/login/precheck': { sso_enforcement: null, saml_available: false },
             },
         }),

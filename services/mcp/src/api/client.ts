@@ -2,7 +2,14 @@ import { createParser } from 'eventsource-parser'
 import { z } from 'zod'
 
 import { getUserAgent } from '@/lib/constants'
-import { ErrorCode, PostHogApiError, PostHogPermissionError, PostHogValidationError } from '@/lib/errors'
+import {
+    ErrorCode,
+    parseRetryAfterSeconds,
+    PostHogApiError,
+    PostHogPermissionError,
+    PostHogRateLimitError,
+    PostHogValidationError,
+} from '@/lib/errors'
 import { getSearchParamsFromRecord } from '@/lib/utils.js'
 import type {
     ApiEventDefinition,
@@ -21,7 +28,15 @@ import { buildMetricEntries, ExperimentExposureQuerySchema } from '@/schema/expe
 import { isShortId } from '@/tools/insights/utils'
 
 import type { Schemas } from './generated.js'
-import { globalRateLimiter } from './rate-limiter.js'
+
+// Outbound 429 retry policy. The API is the source of truth for rate limits
+// (per-scope, with per-team overrides), so we honor its Retry-After signal and
+// fall back to jittered exponential backoff when the header is missing or
+// invalid. The total wait budget bounds how long a throttled tool call can
+// hold the MCP client's request open across all retries combined.
+const RATE_LIMIT_MAX_RETRIES = 3
+const RATE_LIMIT_BASE_BACKOFF_MS = 2000
+const RATE_LIMIT_TOTAL_WAIT_BUDGET_MS = 30_000
 
 // Default overall timeout for an SSE stream (wall-clock cap from connect to close).
 // Sized to comfortably cover the slowest known caller (session summarization, ~5 min
@@ -104,6 +119,12 @@ export interface ApiConfig {
     oauthClientName?: string | undefined
     mcpSessionId?: string | undefined
     mcpConversationId?: string | undefined
+    /**
+     * Sandbox-provisioned task id (from the inbound `x-posthog-task-id` MCP header). Forwarded
+     * to the PostHog API as `X-PostHog-Task-Id` on every call so writes can be attributed to
+     * the agent's task; the API validates it against the token's team.
+     */
+    taskId?: string | undefined
 }
 
 type Endpoint = Record<string, any>
@@ -130,7 +151,6 @@ export class ApiClient {
     }
 
     private async fetch(url: string, options?: RequestInit): Promise<Response> {
-        // TODO: should we move rate limiting from `fetchJson` to here?
         const defaultHeaders: HeadersInit = {
             Authorization: `Bearer ${this.config.apiToken}`,
             'User-Agent': getUserAgent({ clientUserAgent: this.config.clientUserAgent }),
@@ -159,6 +179,8 @@ export class ApiClient {
             ...(this.config.mcpConversationId
                 ? { 'x-posthog-mcp-conversation-id': this.config.mcpConversationId }
                 : {}),
+            // Forward the sandbox task id so API writes are attributed to the agent's task.
+            ...(this.config.taskId ? { 'X-PostHog-Task-Id': this.config.taskId } : {}),
             'X-PostHog-Client': 'mcp',
         }
         if (options?.body) {
@@ -174,7 +196,7 @@ export class ApiClient {
     }
 
     /**
-     * Generic HTTP request with auth, rate limiting, and retries.
+     * Generic HTTP request with auth.
      * Used by generated tool handlers to avoid duplicating endpoint-specific methods.
      */
     async request<T = unknown>(opts: {
@@ -323,41 +345,52 @@ export class ApiClient {
     }
 
     private async fetchJson<T>(url: string, options?: RequestInit): Promise<Result<T>> {
-        const maxRetries = 3
-        const baseBackoffMs = 2000
         const method = options?.method ?? 'GET'
+        let waitBudgetMs = RATE_LIMIT_TOTAL_WAIT_BUDGET_MS
 
-        for (let attempt = 0; attempt <= maxRetries; attempt++) {
+        for (let attempt = 0; attempt <= RATE_LIMIT_MAX_RETRIES; attempt++) {
             try {
-                // Apply rate limiting before making the request
-                await globalRateLimiter.throttle()
-
                 const response = await this.fetch(url, options)
 
-                // Handle rate limiting with exponential backoff
                 if (response.status === 429) {
-                    if (attempt < maxRetries) {
-                        // Check for Retry-After header
-                        const retryAfter = response.headers.get('Retry-After')
-                        const delayMs = retryAfter
-                            ? parseInt(retryAfter, 10) * 1000
-                            : baseBackoffMs * Math.pow(2, attempt)
-
-                        console.warn(
-                            `[API] Rate limited (429) on ${method} ${url}. Retrying in ${delayMs}ms (attempt ${attempt + 1}/${maxRetries})`
-                        )
-                        await new Promise((resolve) => setTimeout(resolve, delayMs))
-                        continue
-                    }
-                    // Max retries exceeded
-                    const errorText = await response.text()
-                    console.error(`[API] Rate limit exceeded after ${maxRetries} retries on ${method} ${url}`)
-                    return {
+                    const retryAfterSeconds = parseRetryAfterSeconds(response.headers.get('Retry-After'))
+                    const rateLimitFailure = async (): Promise<Result<T>> => ({
                         success: false,
-                        error: new Error(
-                            `Rate limit exceeded after ${maxRetries} retries:\nURL: ${method} ${url}\nStatus Code: ${response.status}\nError Message: ${errorText}`
-                        ),
+                        error: new PostHogRateLimitError({
+                            body: await response.text(),
+                            url,
+                            method,
+                            retryAfterSeconds,
+                        }),
+                    })
+
+                    if (attempt === RATE_LIMIT_MAX_RETRIES) {
+                        console.error(`[API] Rate limit (429) retries exhausted on ${method} ${url}`)
+                        return rateLimitFailure()
                     }
+
+                    // DRF rejects throttled requests before the view executes,
+                    // so retrying is safe for mutations too.
+                    const backoffMs = RATE_LIMIT_BASE_BACKOFF_MS * 2 ** attempt
+                    const delayMs =
+                        retryAfterSeconds !== null
+                            ? retryAfterSeconds * 1000
+                            : // Equal jitter so concurrent 429s don't retry in lockstep.
+                              backoffMs / 2 + Math.random() * (backoffMs / 2)
+
+                    if (delayMs > waitBudgetMs) {
+                        console.warn(
+                            `[API] Rate limited (429) on ${method} ${url}. Requested wait of ${Math.round(delayMs / 1000)}s exceeds the remaining ${Math.round(waitBudgetMs / 1000)}s retry budget; not retrying.`
+                        )
+                        return rateLimitFailure()
+                    }
+
+                    waitBudgetMs -= delayMs
+                    console.warn(
+                        `[API] Rate limited (429) on ${method} ${url}. Retrying in ${Math.round(delayMs)}ms (attempt ${attempt + 1}/${RATE_LIMIT_MAX_RETRIES})`
+                    )
+                    await new Promise((resolve) => setTimeout(resolve, delayMs))
+                    continue
                 }
 
                 if (!response.ok) {
@@ -439,19 +472,13 @@ export class ApiClient {
                     return { success: true, data: rawText as T }
                 }
             } catch (error) {
-                // Only retry on rate limit errors, not other errors
-                if (error instanceof Error && error.message.includes('Rate limit')) {
-                    continue
-                }
                 return { success: false, error: error as Error }
             }
         }
 
-        // This should never be reached, but TypeScript needs it
-        return {
-            success: false,
-            error: new Error('Unexpected error in retry logic'),
-        }
+        // Unreachable: the final attempt always returns above, but TypeScript
+        // can't prove the loop is exhaustive.
+        return { success: false, error: new Error('Unexpected rate limit retry state') }
     }
 
     organizations(): Endpoint {
@@ -1139,10 +1166,11 @@ export class ApiClient {
 
             const baseUrl = this.getProjectBaseUrl(projectId)
 
-            // `actor` → 3 columns, `matched_recordings` → recordings, everything else passes through.
+            // `actor`/`person` → 3 columns, `matched_recordings` → recordings, everything else passes through.
+            // Retention projects `person`, which carries the same actor shape as `actor`.
             const columns: string[] = []
             for (const field of finalSelect) {
-                if (field === 'actor') {
+                if (field === 'actor' || field === 'person') {
                     columns.push('distinct_id', 'email', 'name')
                 } else if (field === 'matched_recordings') {
                     columns.push('recordings')
@@ -1156,7 +1184,7 @@ export class ApiClient {
                 for (let i = 0; i < finalSelect.length; i++) {
                     const field = finalSelect[i]
                     const cell = row[i]
-                    if (field === 'actor') {
+                    if (field === 'actor' || field === 'person') {
                         const props = cell?.properties ?? {}
                         cells.push(cell?.distinct_ids?.[0] ?? null, props.email, props.name)
                     } else if (field === 'matched_recordings') {
@@ -1207,6 +1235,41 @@ export class ApiClient {
 
             pathsActors: async ({ query }: { query: Record<string, unknown> }) =>
                 runActorsQuery(query, ['actor', 'event_count'], ['event_count DESC', 'actor_id DESC']),
+
+            retentionActors: async ({ query }: { query: Record<string, unknown> }) => {
+                // Columns are `person` + one per return interval: prefix = period (day/week/…), count =
+                // custom-bracket count + 1, else totalIntervals. Mirrors the frontend retentionToActorsQuery.
+                const filter = ((query.source as Record<string, unknown>)?.retentionFilter ?? {}) as Record<
+                    string,
+                    unknown
+                >
+                const period = typeof filter.period === 'string' ? filter.period.toLowerCase() : 'day'
+                const brackets = filter.retentionCustomBrackets as number[] | undefined
+                const count = brackets?.length ? brackets.length + 1 : (filter.totalIntervals as number) || 7
+                // The schema codegen doesn't propagate `@minimum`/`@maximum` on integer fields (only array
+                // `@maxItems`, which already bounds `retentionCustomBrackets`), so `totalIntervals` can't be
+                // capped in the generated zod — enforce it here instead. The limit matches the app's
+                // retention UI (period count capped at 31; totalIntervals adds the acquisition interval → 32).
+                // TODO: drop this guard once the schema generator supports integer min/max.
+                const MAX_RETENTION_INTERVALS = 32
+                if (count > MAX_RETENTION_INTERVALS) {
+                    throw new Error(
+                        `Retention query requests ${count} intervals; the maximum is ${MAX_RETENTION_INTERVALS}.`
+                    )
+                }
+
+                const select = ['person', ...Array.from({ length: count }, (_, i) => `${period}_${i}`)]
+                return runActorsQuery(query, select, ['length(appearances) DESC', 'actor_id'])
+            },
+
+            // Stickiness drills into one bar (`day` = active-interval count). The runner projects only
+            // `actor_id` with no `matching_events`, so there is no recordings column — same as lifecycle.
+            stickinessActors: async ({ query }: { query: Record<string, unknown> }) => runActorsQuery(query, ['actor']),
+
+            // Funnel actors project `actor` (+ `matched_recordings` when `includeRecordings`, handled
+            // by runActorsQuery). The query carries the step/trends-dropoff selectors on the inner
+            // FunnelsActorsQuery; ordering is backend-determined, so orderBy stays empty.
+            funnelActors: async ({ query }: { query: Record<string, unknown> }) => runActorsQuery(query, ['actor']),
         }
     }
 

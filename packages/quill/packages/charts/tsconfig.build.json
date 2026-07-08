@@ -1,12 +1,16 @@
 {
     "extends": "./tsconfig.json",
     "compilerOptions": {
-        "noEmit": false,
         "declaration": true,
-        "emitDeclarationOnly": true,
-        "rootDir": "src",
-        "outDir": "dist"
+        "rootDir": "src"
     },
-    "include": ["src/index.ts"],
-    "exclude": ["src/**/*.test.ts", "src/**/*.test.tsx", "src/testing", "src/story-helpers.tsx"]
+    "include": ["src"],
+    "exclude": [
+        "src/**/*.test.ts",
+        "src/**/*.test.tsx",
+        "src/**/*.stories.ts",
+        "src/**/*.stories.tsx",
+        "src/testing",
+        "src/story-helpers.tsx"
+    ]
 }

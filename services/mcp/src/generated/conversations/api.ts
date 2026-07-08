@@ -3,7 +3,7 @@
  * MCP service uses these Zod schemas for generated tool handlers.
  * To regenerate: hogli build:openapi
  *
- * PostHog API - MCP 3 enabled ops
+ * PostHog API - MCP 5 enabled ops
  * OpenAPI spec version: 1.0.0
  */
 import * as zod from 'zod'
@@ -90,14 +90,28 @@ export const ConversationsTicketsListQueryParams = /* @__PURE__ */ zod.object({
     tags: zod
         .string()
         .optional()
-        .describe('JSON-encoded array of tag names to filter by, e.g. `["billing","urgent"]`.'),
+        .describe(
+            'JSON-encoded array of tag names; returns tickets with ANY of them (OR), e.g. `["billing","urgent"]`.'
+        ),
+    tags_all: zod
+        .string()
+        .optional()
+        .describe(
+            'JSON-encoded array of tag names; returns tickets that have ALL of them (AND), e.g. `["billing","urgent"]`.'
+        ),
+    tags_exclude: zod
+        .string()
+        .optional()
+        .describe(
+            'JSON-encoded array of tag names; returns tickets that have NONE of them (NOT), e.g. `["escalated"]`.'
+        ),
 })
 
 /**
  * Get single ticket and mark as read by team.
  */
 export const ConversationsTicketsRetrieveParams = /* @__PURE__ */ zod.object({
-    id: zod.string().describe('A UUID string identifying this ticket.'),
+    id: zod.string().describe("The ticket's UUID or its numeric ticket number."),
     project_id: zod
         .string()
         .describe(
@@ -106,7 +120,7 @@ export const ConversationsTicketsRetrieveParams = /* @__PURE__ */ zod.object({
 })
 
 export const ConversationsTicketsPartialUpdateParams = /* @__PURE__ */ zod.object({
-    id: zod.string().describe('A UUID string identifying this ticket.'),
+    id: zod.string().describe("The ticket's UUID or its numeric ticket number."),
     project_id: zod
         .string()
         .describe(
@@ -143,3 +157,53 @@ export const ConversationsTicketsPartialUpdateBody = /* @__PURE__ */ zod
         tags: zod.array(zod.unknown()).optional(),
     })
     .describe('Serializer mixin that handles tags for objects.')
+
+/**
+ * Return the message thread for a ticket, ordered chronologically (paginated).
+ */
+export const ConversationsTicketsMessagesListParams = /* @__PURE__ */ zod.object({
+    id: zod.string().describe("The ticket's UUID or its numeric ticket number."),
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
+        ),
+})
+
+export const ConversationsTicketsMessagesListQueryParams = /* @__PURE__ */ zod.object({
+    limit: zod.number().optional().describe('Number of results to return per page.'),
+    offset: zod.number().optional().describe('The initial index from which to return the results.'),
+})
+
+/**
+ * Post a reply or internal note to a ticket.
+ *
+ * With is_private=false, the reply is delivered to the customer via the
+ * ticket's channel (email, Slack, Teams, GitHub). With is_private=true,
+ * the message is stored as an internal note only visible to team members.
+ */
+export const ConversationsTicketsReplyCreateParams = /* @__PURE__ */ zod.object({
+    id: zod.string().describe("The ticket's UUID or its numeric ticket number."),
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
+        ),
+})
+
+export const conversationsTicketsReplyCreateBodyMessageMax = 5000
+
+export const conversationsTicketsReplyCreateBodyIsPrivateDefault = false
+
+export const ConversationsTicketsReplyCreateBody = /* @__PURE__ */ zod
+    .object({
+        message: zod.string().max(conversationsTicketsReplyCreateBodyMessageMax).describe('Reply content in markdown.'),
+        is_private: zod
+            .boolean()
+            .default(conversationsTicketsReplyCreateBodyIsPrivateDefault)
+            .describe(
+                "If true, store as an internal note (not sent to the customer). If false, the reply is delivered to the customer over the ticket's channel."
+            ),
+        rich_content: zod.unknown().optional().describe('Optional TipTap rich content JSON for formatted messages.'),
+    })
+    .describe('Payload for posting a reply or internal note to a ticket.')

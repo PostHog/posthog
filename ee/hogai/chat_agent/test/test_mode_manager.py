@@ -235,6 +235,32 @@ class TestAgentToolkit(BaseTest):
 
     @parameterized.expand(
         [
+            # (customer_analytics_flag, should_be_present)
+            [False, False],
+            [True, True],
+        ]
+    )
+    def test_mode_registry_gates_customer_analytics_on_feature_flag(self, flag_on, should_be_present):
+        with patch("ee.hogai.chat_agent.mode_manager.has_customer_analytics_mode_feature_flag", return_value=flag_on):
+            node_path = (NodePath(name=AssistantNodeName.ROOT, message_id="test_id", tool_call_id="test_tool_call_id"),)
+            context_manager = AssistantContextManager(
+                team=self.team, user=self.user, config=RunnableConfig(configurable={})
+            )
+            mode_manager = ChatAgentModeManager(
+                team=self.team,
+                user=self.user,
+                node_path=node_path,
+                context_manager=context_manager,
+                state=AssistantState(messages=[HumanMessage(content="Test")]),
+            )
+            mode_names = [mode.value for mode in mode_manager.mode_registry.keys()]
+            if should_be_present:
+                self.assertIn("customer_analytics", mode_names)
+            else:
+                self.assertNotIn("customer_analytics", mode_names)
+
+    @parameterized.expand(
+        [
             # (plan_mode_flag, should_contain_plan_prompt)
             [False, False],
             [True, True],

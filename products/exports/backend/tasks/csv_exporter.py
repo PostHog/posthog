@@ -233,7 +233,7 @@ def _format_breakdown_value(breakdown_value: Any) -> str:
     return "::".join(breakdown_value)
 
 
-def _convert_response_to_csv_data(data: Any, breakdown_filter: Optional[dict] = None) -> Generator[Any, None, None]:
+def _convert_response_to_csv_data(data: Any, breakdown_filter: Optional[dict] = None) -> Generator[Any]:
     if isinstance(data.get("results"), list):
         results = data.get("results")
         if len(results) > 0 and (isinstance(results[0], list) or isinstance(results[0], tuple)) and data.get("types"):
@@ -397,7 +397,7 @@ class UnexpectedEmptyJsonResponse(Exception):
     pass
 
 
-def get_from_insights_api(exported_asset: ExportedAsset, limit: int, resource: dict) -> Generator[Any, None, None]:
+def get_from_insights_api(exported_asset: ExportedAsset, limit: int, resource: dict) -> Generator[Any]:
     path: str = resource["path"]
     method: str = resource.get("method", "GET")
     body = resource.get("body", None)
@@ -412,6 +412,20 @@ def get_from_insights_api(exported_asset: ExportedAsset, limit: int, resource: d
         try:
             response = make_api_call(access_token, body, limit, method, next_url, path)
         except HTTPError as e:
+            # The underlying resource (e.g. a cohort) can be deleted or become unresolvable
+            # mid-export, which surfaces as a 404 partway through pagination. Treat that as
+            # end-of-data and return what we have rather than failing the whole export.
+            if e.response is not None and e.response.status_code == 404:
+                logger.warning(
+                    "csv_exporter.resource_gone",
+                    exc=e,
+                    exc_info=True,
+                    path=path,
+                    next_url=next_url,
+                    total=total,
+                )
+                break
+
             if "Query size exceeded" not in e.response.text:
                 raise
 
@@ -465,7 +479,7 @@ def _query_supports_limit(query: dict) -> bool:
 
 def get_from_query(
     exported_asset: ExportedAsset, limit: int, resource: dict, analytics_props: Optional[AnalyticsProps] = None
-) -> Generator[Any, None, None]:
+) -> Generator[Any]:
     query = resource.get("source")
     assert query is not None
 
@@ -490,6 +504,9 @@ def get_from_query(
                 query_json=paginated_query,
                 limit_context=LimitContext.EXPORT,
                 execution_mode=ExecutionMode.CALCULATE_BLOCKING_ALWAYS,
+                # Background export (no request user); attribute the read to the export owner so
+                # warehouse HogQL access control resolves against their access.
+                user=exported_asset.created_by,
                 pagination_cursor=cursor,
                 analytics_props=analytics_props,
             )
@@ -534,7 +551,7 @@ def get_from_query(
 
 def _iter_rows(
     exported_asset: ExportedAsset, limit: int, analytics_props: Optional[AnalyticsProps] = None
-) -> Generator[Any, None, None]:
+) -> Generator[Any]:
     resource = exported_asset.export_context or {}
 
     if resource.get("source"):

@@ -20,7 +20,6 @@ if TYPE_CHECKING:
     from posthog.models.team.team import Team
     from posthog.models.user import User
 
-SUPPORT_SLACK_MAX_IMAGE_BYTES = 4 * 1024 * 1024
 SUPPORT_SLACK_ALLOWED_HOST_SUFFIXES = ("slack.com", "slack-edge.com", "slack-files.com")
 
 
@@ -35,6 +34,17 @@ def get_support_slack_settings() -> dict:
 def get_support_slack_bot_token(team: "Team") -> str:
     config = get_or_create_team_extension(team, TeamConversationsSlackConfig)
     return str(config.slack_bot_token or "")
+
+
+def team_exists_for_slack_workspace(slack_team_id: str) -> bool:
+    """Whether any team has SupportHog connected to this Slack workspace.
+
+    Used by the webhook endpoints for region routing — the Celery task re-resolves
+    the full config, so only existence matters here.
+    """
+    return TeamConversationsSlackConfig.objects.filter(
+        slack_team_id=slack_team_id, slack_bot_token__isnull=False
+    ).exists()
 
 
 def validate_support_request(request: HttpRequest | Request) -> None:

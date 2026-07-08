@@ -6,29 +6,17 @@ Feature flags control rollouts of new features and are used for A/B testing.
 
 ### Columns
 
+These are the only columns exposed via HogQL — the full flag model (e.g. `active`, `ensure_experience_continuity`, `last_called_at`, rollback settings) is not queryable here; fetch the flag via the feature flag API tools instead.
+
 Column | Type | Nullable | Description
 `id` | integer | NOT NULL | Primary key (auto-generated)
+`team_id` | integer | NOT NULL | Project scope
 `key` | varchar(400) | NOT NULL | Unique flag key per team
 `name` | text | NOT NULL | Flag description (not the display name)
 `filters` | jsonb | NOT NULL | Targeting conditions and variants
 `rollout_percentage` | integer | NULL | Overall rollout percentage
 `created_at` | timestamp with tz | NOT NULL | Creation timestamp
-`deleted` | boolean | NOT NULL | Soft delete flag
-`active` | boolean | NOT NULL | Whether flag is enabled
-`rollback_conditions` | jsonb | NULL | Automatic rollback configuration
-`performed_rollback` | boolean | NULL | Whether rollback was triggered
-`ensure_experience_continuity` | boolean | NULL | Sticky bucketing for users
-`created_by_id` | integer | NULL | Creator user ID
-`usage_dashboard_id` | integer | NULL | FK to `system.dashboards.id`
-`has_enriched_analytics` | boolean | NULL | Whether rich analytics enabled
-`is_remote_configuration` | boolean | NULL | Whether used as remote config
-`has_encrypted_payloads` | boolean | NULL | Whether payloads are encrypted
-`last_modified_by_id` | integer | NULL | Last modifier user ID
-`version` | integer | NULL | Version number for tracking changes
-`evaluation_runtime` | varchar(10) | NULL | `server`, `client`, or `all`
-`updated_at` | timestamp with tz | NULL | Last update timestamp
-`last_called_at` | timestamp with tz | NULL | Last evaluation timestamp
-`bucketing_identifier` | varchar(50) | NULL | `distinct_id` or `device_id`
+`deleted` | integer (0/1) | NOT NULL | Soft delete flag
 
 ### Filters Structure
 
@@ -74,34 +62,21 @@ Experiments are A/B tests that compare variants against a control group.
 
 ### Columns
 
+These are the only columns exposed via HogQL — the full experiment model (e.g. `deleted`, `conclusion`, `metrics`, `metrics_secondary`, `stats_config`, `exposure_criteria`, `holdout_id`, `type`) is not queryable here; fetch the experiment via the experiment API tools instead.
+
 Column | Type | Nullable | Description
 `id` | integer | NOT NULL | Primary key (auto-generated)
+`team_id` | integer | NOT NULL | Project scope
 `name` | varchar(400) | NOT NULL | Experiment name
 `description` | varchar(400) | NULL | Experiment description
-`filters` | jsonb | NOT NULL | Target metric definition
-`parameters` | jsonb | NULL | Experiment configuration
-`secondary_metrics` | jsonb | NULL | Additional metrics to track
+`filters` | jsonb | NOT NULL | Legacy target metric definition
+`parameters` | jsonb | NULL | Experiment configuration (variants, MDE, sample size)
 `start_date` | timestamp with tz | NULL | When experiment started (NULL = draft)
 `end_date` | timestamp with tz | NULL | When experiment ended
 `created_at` | timestamp with tz | NOT NULL | Creation timestamp
 `updated_at` | timestamp with tz | NOT NULL | Last update timestamp
-`archived` | boolean | NOT NULL | Whether experiment is archived
-`deleted` | boolean | NULL | Soft delete flag
-`created_by_id` | integer | NULL | Creator user ID
+`archived` | integer (0/1) | NOT NULL | Whether experiment is archived
 `feature_flag_id` | integer | NOT NULL | FK to `system.feature_flags.id`
-`exposure_cohort_id` | integer | NULL | FK to `system.cohorts.id`
-`holdout_id` | integer | NULL | Holdout ID
-`type` | varchar(40) | NULL | `web` or `product`
-`variants` | jsonb | NULL | Variant configuration
-`metrics` | jsonb | NULL | Primary metrics (new format)
-`metrics_secondary` | jsonb | NULL | Secondary metrics (new format)
-`stats_config` | jsonb | NULL | Statistical analysis configuration
-`exposure_criteria` | jsonb | NULL | Exposure event criteria
-`conclusion` | varchar(30) | NULL | `won`, `lost`, `inconclusive`, `stopped_early`, `invalid`
-`conclusion_comment` | text | NULL | Notes about conclusion
-`scheduling_config` | jsonb | NULL | Scheduled actions configuration
-`primary_metrics_ordered_uuids` | jsonb | NULL | Ordered primary metric UUIDs
-`secondary_metrics_ordered_uuids` | jsonb | NULL | Ordered secondary metric UUIDs
 
 ### Parameters Structure
 
@@ -121,10 +96,10 @@ Column | Type | Nullable | Description
 ### Key Relationships
 
 - **Feature Flag**: `feature_flag_id` -> `system.feature_flags.id` (required)
-- **Exposure Cohort**: `exposure_cohort_id` -> `system.cohorts.id`
 
 ### Important Notes
 
 - An experiment is a "draft" if `start_date` is NULL
+- Soft-deleted experiments still appear in this table — there is no `deleted` column to filter them out; confirm via the experiment API tools when deletion status matters
 - Each experiment requires an associated feature flag
 - The feature flag controls variant assignment

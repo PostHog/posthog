@@ -8,6 +8,7 @@ from django.conf import settings
 from django.core.cache import cache, caches
 
 import structlog
+from botocore.exceptions import BotoCoreError, ClientError
 from posthoganalytics import capture_exception
 from prometheus_client import Counter, Histogram
 
@@ -65,6 +66,12 @@ HYPERCACHE_REBUILD_SKIPPED_COUNTER = Counter(
     "posthog_hypercache_rebuild_skipped",
     "Rebuilds skipped because a dependency was unavailable, keeping the existing entry",
     labelnames=["namespace", "reason"],
+)
+
+HYPERCACHE_WRITE_SKIPPED_UNCHANGED_COUNTER = Counter(
+    "posthog_hypercache_write_skipped_unchanged",
+    "Content-propagation writes skipped because the ETag was unchanged, avoiding a redundant rewrite",
+    labelnames=["namespace", "value"],
 )
 
 CACHE_SYNC_DURATION_HISTOGRAM = Histogram(
@@ -151,6 +158,7 @@ class HyperCache:
         value: str,
         load_fn: Callable[[KeyType], dict | HyperCacheStoreMissing],
         token_based: bool = False,
+        hashed_credential_based: bool = False,
         cache_ttl: int = DEFAULT_CACHE_TTL,
         cache_miss_ttl: int = DEFAULT_CACHE_MISS_TTL,
         cache_alias: Optional[str] = None,
@@ -159,10 +167,17 @@ class HyperCache:
         enable_etag: bool = False,
         expiry_sorted_set_key: Optional[str] = None,
     ):
+        if token_based and hashed_credential_based:
+            raise ValueError("token_based and hashed_credential_based are mutually exclusive")
+
         self.namespace = namespace
         self.value = value
         self.load_fn = load_fn
         self.token_based = token_based
+        # Credential-centric mode: keys by an already-hashed credential string
+        # (sha256$<hex>) rather than a team. Used by the gateway credential
+        # policy cache, where one blob exists per phx_/pha_ credential.
+        self.hashed_credential_based = hashed_credential_based
         self.cache_ttl = cache_ttl
         self.cache_miss_ttl = cache_miss_ttl
         self.batch_load_fn = batch_load_fn
@@ -203,6 +218,9 @@ class HyperCache:
         return team.api_token if self.token_based else team.id
 
     def get_cache_key(self, key: KeyType) -> str:
+        if self.hashed_credential_based:
+            # key is the precomputed sha256$<hex> credential hash, never a Team.
+            return f"cache/team_tokens_hashed/{key}/{self.namespace}/{self.value}"
         if self.token_based:
             if isinstance(key, Team):
                 key = key.api_token
@@ -241,8 +259,13 @@ class HyperCache:
                 HYPERCACHE_CACHE_COUNTER.labels(result="hit_s3", namespace=self.namespace, value=self.value).inc()
                 self._set_cache_value_redis(key, response)
                 return response, "s3"
-        except ObjectStorageError:
-            pass
+        except (ObjectStorageError, BotoCoreError, ClientError, ValueError) as e:
+            # Any storage-layer failure here (including a misconfigured S3 endpoint that
+            # makes boto3 raise on client construction) must degrade to a cache miss and
+            # fall through to load_fn, never bubble a 500 up to the request handler.
+            # ValueError also catches json.JSONDecodeError from a corrupt blob, so capture
+            # it — otherwise persistent corruption keeps missing silently as a plain hit_db.
+            capture_exception(e)
 
         # NOTE: This only applies to the django version - the dedicated service will rely entirely on the cache
         try:
@@ -395,20 +418,27 @@ class HyperCache:
         key: KeyType,
         ttl: Optional[int] = None,
         should_skip_write: Optional[Callable[[KeyType, dict], bool]] = None,
+        data: dict | None = None,
     ) -> bool:
+        """
+        Load (or accept a pre-built) value, write it to all tiers, and emit sync metrics.
+
+        Pass ``data`` to write an already-built value and skip ``load_fn``; when None the
+        value is loaded via ``load_fn``.
+        """
         logger.info(f"Syncing {self.namespace} cache for team {key}")
 
         start_time = time.time()
         success = False
         size: int | None = None
         try:
-            data = self.load_fn(key)
-            if should_skip_write is not None and isinstance(data, dict) and should_skip_write(key, data):
+            value = self.load_fn(key) if data is None else data
+            if should_skip_write is not None and isinstance(value, dict) and should_skip_write(key, value):
                 # A caller-supplied predicate vetoed persisting this freshly loaded
                 # value (e.g. it would overwrite good data with a degraded one). Keep
                 # the existing entry; the predicate owns its own metric/logging.
                 return False
-            size = self.set_cache_value(key, data, ttl=ttl)
+            size = self.set_cache_value(key, value, ttl=ttl)
             success = True
             return True
         except HyperCacheDependencyUnavailable:
@@ -431,14 +461,36 @@ class HyperCache:
             emit_cache_sync_metrics(result, self.namespace, self.value, duration=duration, size=size)
 
     def set_cache_value(
-        self, key: KeyType, data: dict | None | HyperCacheStoreMissing, ttl: Optional[int] = None
+        self,
+        key: KeyType,
+        data: dict | None | HyperCacheStoreMissing,
+        ttl: Optional[int] = None,
+        skip_if_unchanged: bool = False,
     ) -> int | None:
         """
         Set cache value in Redis and S3, returning the serialized size in bytes.
 
         Returns None for None/missing values.
+
+        When ``skip_if_unchanged`` is set, an ETag-enabled dict payload whose ETag matches
+        the stored one is not rewritten (the counter records the skip; the serialized size
+        is still returned). Skipping does not re-stamp expiry, so the cache must own an
+        independent refresh path that does. ``expiry_sorted_set_key`` is the structural marker
+        for that path (the refresh task reads the set to find expiring entries), so a refresh-less
+        cache that opts into skipping raises rather than silently letting entries expire.
         """
-        size = self._set_cache_value_redis(key, data, ttl=ttl)
+        if skip_if_unchanged and not self.expiry_sorted_set_key:
+            raise ValueError(
+                "set_cache_value(skip_if_unchanged=True) requires expiry tracking "
+                "(expiry_sorted_set_key) with a scheduled refresh that re-stamps the TTL"
+            )
+        json_data: str | None = None
+        if skip_if_unchanged and self.enable_etag and isinstance(data, dict):
+            json_data = json.dumps(data, sort_keys=True)
+            if self._compute_etag(json_data) == self.get_etag(key):
+                HYPERCACHE_WRITE_SKIPPED_UNCHANGED_COUNTER.labels(namespace=self.namespace, value=self.value).inc()
+                return len(json_data)
+        size = self._set_cache_value_redis(key, data, ttl=ttl, json_data=json_data)
         self._set_cache_value_s3(key, data, ttl=ttl)
         # Only track expiry when we have a Team object (avoids DB lookup)
         if isinstance(key, Team):
@@ -450,22 +502,39 @@ class HyperCache:
         key: KeyType,
         data: dict | None | HyperCacheStoreMissing,
         ttl: Optional[int] = None,
+        track_expiry: bool = False,
     ) -> int | None:
         """
-        Write only to the configured cache backend (self.cache_client), skipping S3
-        and expiry tracking.
+        Write only to the configured cache backend (self.cache_client), skipping S3.
 
-        Use this for backfills where S3 is known to already hold fresh data
-        (e.g. populated by the normal sync() path) and the only cold tier is the
-        cache backend. In prod with cache_alias=FLAGS_DEDICATED_CACHE_ALIAS this is
-        the dedicated flags Redis; in dev/test it's whatever the alias resolves to.
+        Use this for backfills and TTL refreshes where S3 already holds fresh data
+        (e.g. via the normal sync() path) and the only cold tier is the cache backend.
+        In prod with cache_alias=FLAGS_DEDICATED_CACHE_ALIAS this is the dedicated flags
+        Redis; in dev/test it's whatever the alias resolves to.
+
+        When track_expiry=True the expiry sorted-set entry is re-stamped too, keeping a
+        redis-only refresh visible to the refresh task. Requires a Team key (the identifier
+        derives from it without a DB lookup); raises ValueError otherwise rather than
+        silently skipping the stamp.
+
         Returns the serialized size in bytes, or None for None/missing values.
         """
-        return self._set_cache_value_redis(key, data, ttl=ttl)
+        if track_expiry and not isinstance(key, Team):
+            raise ValueError("set_cache_value_redis_only(track_expiry=True) requires a Team key")
+        size = self._set_cache_value_redis(key, data, ttl=ttl)
+        if track_expiry and isinstance(key, Team):
+            self._track_expiry(key, data, ttl=ttl)
+        return size
 
     def clear_cache(self, key: KeyType, kinds: Optional[list[str]] = None):
-        """
-        Only meant for use in tests
+        """Test helper alias for delete_cache_entry."""
+        return self.delete_cache_entry(key, kinds)
+
+    def delete_cache_entry(self, key: KeyType, kinds: Optional[list[str]] = None):
+        """Hard-delete an entry from the given tiers (default redis + s3).
+
+        Production-safe: the gateway credential projection uses this to revoke a
+        credential's blob immediately — a missing key fails closed at the gateway.
         """
         kinds = kinds or ["redis", "s3"]
         try:
@@ -494,12 +563,19 @@ class HyperCache:
             capture_exception(e)
 
     def _set_cache_value_redis(
-        self, key: KeyType, data: dict | None | HyperCacheStoreMissing, ttl: Optional[int] = None
+        self,
+        key: KeyType,
+        data: dict | None | HyperCacheStoreMissing,
+        ttl: Optional[int] = None,
+        json_data: str | None = None,
     ) -> int | None:
         """
         Set cache value in Redis and return the serialized size in bytes.
 
         Returns None for None/missing values, otherwise returns len(json_data).
+
+        Pass ``json_data`` to reuse an already-serialized payload (a caller that hashed it
+        for an ETag comparison) instead of re-running ``json.dumps`` over a large value.
         """
         cache_key = self.get_cache_key(key)
         etag_key = self.get_etag_key(key)
@@ -513,7 +589,8 @@ class HyperCache:
         else:
             timeout = ttl if ttl is not None else self.cache_ttl
             # Use sort_keys for deterministic serialization (consistent ETags)
-            json_data = json.dumps(data, sort_keys=True)
+            if json_data is None:
+                json_data = json.dumps(data, sort_keys=True)
             if self.enable_etag:
                 etag = self._compute_etag(json_data)
                 # Write data and ETag via pipeline (single Redis round trip)

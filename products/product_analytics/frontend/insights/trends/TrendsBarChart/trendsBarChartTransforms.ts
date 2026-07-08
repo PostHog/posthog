@@ -1,14 +1,11 @@
-import { normalizeAxisLabel } from '@posthog/quill-charts'
-import type { Series, TimeSeriesBarChartConfig } from '@posthog/quill-charts'
+import { DEFAULT_Y_AXIS_ID, normalizeAxisLabel } from '@posthog/quill-charts'
+import type { Series, TimeInterval, TimeSeriesBarChartConfig, YAxisConfig } from '@posthog/quill-charts'
 
-import { hexToRGBA } from 'lib/utils'
-import { COMPARE_PREVIOUS_DIM_OPACITY } from 'scenes/trends/viz/trendsAdapterConstants'
-
-import type { CurrencyCode, GoalLine as SchemaGoalLine, TrendsFilter } from '~/queries/schema/schema-general'
-import type { IntervalType } from '~/types'
-
+import { COMPARE_PREVIOUS_DIM_OPACITY, dimHexColor } from '../shared/compareDimming'
 import { schemaGoalLinesToConfigs } from '../shared/goalLinesAdapter'
+import { humanizeSeriesLabel } from '../shared/humanizeSeriesLabel'
 import { buildTrendsYAxisConfig } from '../shared/trendsAxisFormat'
+import type { GoalLineLike, YFormatterFields } from '../shared/trendsChartDisplayOptions'
 
 // Shape both IndexedTrendResult (kea) and TrendsResultItem (MCP) satisfy.
 export interface TrendsBarResultLike {
@@ -30,6 +27,12 @@ export interface BuildTrendsBarSeriesOpts<R extends TrendsBarResultLike, M = unk
     getColor: (r: R, index: number) => string
     getHidden?: (r: R, index: number) => boolean
     buildMeta?: (r: R, index: number) => M
+    // Resolves the legend/series label (custom name + breakdown formatting). Hosts that lack the
+    // breakdown/cohort deps (e.g. MCP) omit it and fall back to the raw humanized event name.
+    getLabel?: (r: R) => string
+    // Scale each series past the first against its own y-axis. Grouped (unstacked) bars only —
+    // stacked layouts must share one axis, so the adapter never sets this for them.
+    showMultipleYAxes?: boolean
 }
 
 export interface BuildTrendsBarAggregatedSeriesOpts<
@@ -48,7 +51,7 @@ function resolveBarColor<R extends TrendsBarResultLike, M = unknown>(
     opts: BuildTrendsBarSeriesOpts<R, M>
 ): string {
     const baseColor = opts.getColor(r, index)
-    return r.compare_label === 'previous' ? hexToRGBA(baseColor, COMPARE_PREVIOUS_DIM_OPACITY) : baseColor
+    return r.compare_label === 'previous' ? dimHexColor(baseColor, COMPARE_PREVIOUS_DIM_OPACITY) : baseColor
 }
 
 function buildMainTrendsBarSeries<R extends TrendsBarResultLike, M = unknown>(
@@ -60,12 +63,14 @@ function buildMainTrendsBarSeries<R extends TrendsBarResultLike, M = unknown>(
     const color = resolveBarColor(r, index, opts)
     const excluded = opts.getHidden ? opts.getHidden(r, index) : false
     const meta = opts.buildMeta ? opts.buildMeta(r, index) : undefined
+    const yAxisId = opts.showMultipleYAxes && index > 0 ? `y${index}` : DEFAULT_Y_AXIS_ID
     return {
         key: String(r.id),
-        label: r.label ?? '',
+        label: opts.getLabel ? opts.getLabel(r) : humanizeSeriesLabel(r.label),
         data,
         color,
         meta,
+        yAxisId,
         visibility: excluded ? { excluded: true } : undefined,
     }
 }
@@ -78,22 +83,27 @@ export function buildTrendsBarTimeSeries<R extends TrendsBarResultLike, M = unkn
 }
 
 export interface BuildTrendsBarTimeSeriesConfigOpts {
-    trendsFilter?: TrendsFilter | null
-    baseCurrency?: CurrencyCode
+    trendsFilter?: YFormatterFields | null
+    baseCurrency?: string
     isPercentStackView: boolean
     isGrouped: boolean
     yAxisScaleType?: string | null
-    interval?: IntervalType | null
+    interval?: TimeInterval | null
     timezone?: string
     allDays?: string[]
     xAxisLabel?: string | null
     yAxisLabel?: string | null
-    goalLines?: SchemaGoalLine[] | null
+    // Explicit x-axis tick formatter — used by hosts (e.g. MCP) that have label strings but no
+    // interval/timezone for the auto date formatter. Mirrors the line config.
+    xAxisTickFormatter?: (value: string, index: number) => string | null
+    goalLines?: GoalLineLike[] | null
     valueLabels?: TimeSeriesBarChartConfig['valueLabels']
     tooltip?: TimeSeriesBarChartConfig['tooltip']
 }
 
-export function buildTrendsBarTimeSeriesConfig(opts: BuildTrendsBarTimeSeriesConfigOpts): TimeSeriesBarChartConfig {
+export function buildTrendsBarTimeSeriesConfig(
+    opts: BuildTrendsBarTimeSeriesConfigOpts
+): TimeSeriesBarChartConfig & { yAxis?: YAxisConfig } {
     const yAxis = buildTrendsYAxisConfig(opts.trendsFilter, opts.isPercentStackView, opts.baseCurrency, {
         yAxisScaleType: opts.yAxisScaleType,
         showGrid: true,
@@ -105,6 +115,7 @@ export function buildTrendsBarTimeSeriesConfig(opts: BuildTrendsBarTimeSeriesCon
             timezone: opts.timezone,
             interval: opts.interval ?? 'day',
             allDays: opts.allDays ?? [],
+            tickFormatter: opts.xAxisTickFormatter,
         },
         yAxis: {
             ...yAxis,
@@ -122,6 +133,38 @@ export function buildTrendsBarTimeSeriesConfig(opts: BuildTrendsBarTimeSeriesCon
 
 /** Separator between the series id and compare label in synthetic stacked-mode band keys. */
 const BAND_KEY_SEP = '\u001f'
+
+export interface BuildTrendsBarChartModelOpts<
+    R extends TrendsBarResultLike,
+    M = unknown,
+> extends BuildTrendsBarTimeSeriesConfigOpts {
+    /** Final x-axis labels (the host formats them — kea dates vs the MCP `formatDate`). */
+    labels: string[]
+    getColor: (r: R, index: number) => string
+    getHidden?: (r: R, index: number) => boolean
+    buildMeta?: (r: R, index: number) => M
+}
+
+export interface TrendsBarChartModel<M = unknown> {
+    series: Series<M>[]
+    labels: string[]
+    config: TimeSeriesBarChartConfig
+}
+
+/** Assembles the time-series bar chart model (series + config) in one call so the MCP visualizer
+ *  builds the same series + config the web container assembles piecewise. */
+export function buildTrendsBarChartModel<R extends TrendsBarResultLike, M = unknown>(
+    results: R[],
+    opts: BuildTrendsBarChartModelOpts<R, M>
+): TrendsBarChartModel<M> {
+    const series = buildTrendsBarTimeSeries<R, M>(results, {
+        getColor: opts.getColor,
+        getHidden: opts.getHidden,
+        buildMeta: opts.buildMeta,
+    })
+    const config = buildTrendsBarTimeSeriesConfig(opts)
+    return { series, labels: opts.labels, config }
+}
 
 export function buildTrendsBarAggregatedSeries<R extends TrendsBarResultLike, M = unknown>(
     results: R[],

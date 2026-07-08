@@ -1,4 +1,5 @@
 import math
+import time
 import uuid
 import typing
 import asyncio
@@ -9,6 +10,7 @@ import collections.abc
 from django.conf import settings
 
 import pyarrow as pa
+from temporalio.common import MetricHistogram
 
 from posthog.schema import EventPropertyFilter, HogQLPropertyFilter, HogQLQueryModifiers, MaterializationMode
 
@@ -26,7 +28,8 @@ from posthog.sync import database_sync_to_async
 from posthog.temporal.common.clickhouse import get_client
 from posthog.temporal.common.logger import get_write_only_logger
 
-from products.batch_exports.backend.service import BackfillDetails
+from products.batch_exports.backend.service import SUPPORTED_FILTER_TYPES, BackfillDetails
+from products.batch_exports.backend.temporal.metrics import get_metric_meter
 from products.batch_exports.backend.temporal.record_batch_model import RecordBatchModel
 from products.batch_exports.backend.temporal.sql import (
     SELECT_FROM_DISTRIBUTED_EVENTS_RECENT,
@@ -42,6 +45,13 @@ from products.batch_exports.backend.temporal.sql import (
 LOGGER = get_write_only_logger(__name__)
 
 
+class QueuedRecordBatch(typing.NamedTuple):
+    """A record batch in queue, tracking the time it entered."""
+
+    record_batch: pa.RecordBatch
+    enqueued_at: int
+
+
 class RecordBatchQueue(asyncio.Queue):
     """A queue of pyarrow RecordBatch instances limited by bytes."""
 
@@ -50,14 +60,28 @@ class RecordBatchQueue(asyncio.Queue):
         self._bytes_size = 0
         self._schema_set = asyncio.Event()
         self.record_batch_schema: pa.Schema | None = None
+        self._histogram: MetricHistogram | None = None
         # This is set by `asyncio.Queue.__init__` calling `_init`
-        self._queue: collections.deque
+        self._queue: collections.deque[QueuedRecordBatch]
+
+    @property
+    def histogram(self) -> MetricHistogram:
+        if self._histogram is None:
+            meter = get_metric_meter()
+            self._histogram = meter.create_histogram(
+                "batch_exports_queue_wait_time", description="Time spent by record batches waiting in queue"
+            )
+        return self._histogram
 
     def _get(self) -> pa.RecordBatch:
         """Override parent `_get` to keep track of bytes."""
-        item = self._queue.popleft()
-        self._bytes_size -= item.get_total_buffer_size()
-        return item
+        record_batch, enqueued_at = self._queue.popleft()
+        self._bytes_size -= record_batch.get_total_buffer_size()
+
+        queued_time = time.perf_counter_ns() - enqueued_at
+        self.histogram.record(queued_time)
+
+        return record_batch
 
     def _put(self, item: pa.RecordBatch) -> None:
         """Override parent `_put` to keep track of bytes."""
@@ -66,7 +90,7 @@ class RecordBatchQueue(asyncio.Queue):
         if not self._schema_set.is_set():
             self.set_schema(item)
 
-        self._queue.append(item)
+        self._queue.append(QueuedRecordBatch(item, time.perf_counter_ns()))
 
     def set_schema(self, record_batch: pa.RecordBatch) -> None:
         """Used to keep track of schema of events in queue."""
@@ -679,10 +703,16 @@ def compose_filters_clause(
         values=values or {},
         modifiers=HogQLQueryModifiers(materializationMode=MaterializationMode.DISABLED),
     )
+    # Export models are only events/persons/sessions; warehouse tables and views are denied.
+    # Pass bypass_warehouse_access_control=True or a user if that becomes an issue.
     context.database = Database.create_for(team=team, modifiers=context.modifiers)
     exprs = []
     for filter in filters:
-        match filter["type"]:
+        filter_type = filter["type"]
+        if filter_type not in SUPPORTED_FILTER_TYPES:
+            raise TypeError(f"Unknown filter type: '{filter_type}'")
+
+        match filter_type:
             case "event":
                 exprs.append(property_to_expr(EventPropertyFilter(**filter), team=team))
             case "person":
@@ -707,8 +737,9 @@ def compose_filters_clause(
                 except (ExposedHogQLError, InternalHogQLError) as e:
                     raise InvalidFilterError(e) from e
 
-            case s:
-                raise TypeError(f"Unknown filter type: '{s}'")
+            case _:
+                # Reachable only if SUPPORTED_FILTER_TYPES gains a type without a handler here.
+                raise TypeError(f"Unhandled filter type: '{filter_type}'")
 
     and_expr = ast.And(exprs=exprs)
     # This query only supports events at the moment.

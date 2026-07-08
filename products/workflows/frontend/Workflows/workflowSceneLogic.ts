@@ -1,6 +1,6 @@
 import { actions, kea, key, path, props, reducers, selectors } from 'kea'
+import { urlToAction } from 'kea-router'
 
-import { tabAwareUrlToAction } from 'lib/logic/scenes/tabAwareUrlToAction'
 import { Scene } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
@@ -8,19 +8,18 @@ import { Breadcrumb } from '~/types'
 
 import type { workflowSceneLogicType } from './workflowSceneLogicType'
 
-export const WorkflowTabs = ['workflow', 'logs', 'metrics', 'history'] as const
+export const WorkflowTabs = ['workflow', 'logs', 'invocations', 'metrics', 'assets', 'history'] as const
 export type WorkflowTab = (typeof WorkflowTabs)[number]
 
 export interface WorkflowSceneLogicProps {
     id?: string
     tab?: WorkflowTab
-    tabId?: string
 }
 
 export const workflowSceneLogic = kea<workflowSceneLogicType>([
     path(['products', 'workflows', 'frontend', 'workflowSceneLogic']),
-    props({ id: 'new', tabId: 'default' } as WorkflowSceneLogicProps),
-    key((props) => `workflow-scene-${props.id || 'new'}-${props.tabId || 'default'}`),
+    props({ id: 'new' } as WorkflowSceneLogicProps),
+    key((props) => `workflow-scene-${props.id || 'new'}`),
     actions({
         setCurrentTab: (tab: WorkflowTab) => ({ tab }),
     }),
@@ -52,7 +51,7 @@ export const workflowSceneLogic = kea<workflowSceneLogicType>([
             },
         ],
     }),
-    tabAwareUrlToAction(({ actions, values }) => ({
+    urlToAction(({ actions, values }) => ({
         '/workflows/:id/:tab': ({ tab }) => {
             if (tab !== values.currentTab) {
                 actions.setCurrentTab(tab as WorkflowTab)

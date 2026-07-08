@@ -16,7 +16,7 @@ import {
 import { EventSelect } from 'lib/components/EventSelect/EventSelect'
 import { PropertyFilters } from 'lib/components/PropertyFilters/PropertyFilters'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
-import { toSentenceCase } from 'lib/utils'
+import { toSentenceCase } from 'lib/utils/strings'
 import { AddEventButton } from 'scenes/surveys/AddEventButton'
 import { SurveyMatchTypeLabels } from 'scenes/surveys/constants'
 import {

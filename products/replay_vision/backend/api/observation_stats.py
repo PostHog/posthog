@@ -6,26 +6,36 @@ summary+histogram via raw SQL (`jsonb_array_elements_text`, `PERCENTILE_CONT`).
 
 import math
 from datetime import timedelta
-from typing import Any
+from typing import Any, Literal, get_args
 
 from django.db import connection
-from django.db.models import Count, Q, QuerySet
+from django.db.models import Count, Max, Min, Q, QuerySet
 from django.db.models.fields.json import KeyTextTransform
+from django.db.models.functions import TruncDate
 from django.utils import timezone
 
 from products.replay_vision.backend.models.replay_observation import ObservationStatus, ReplayObservation
 from products.replay_vision.backend.models.replay_scanner import ReplayScanner, ScannerType
+from products.replay_vision.backend.temporal.scanners.monitor import MonitorVerdict
 
-_RECENT_DAYS = 14
+_DEFAULT_RECENT_DAYS = 14
+_MAX_RECENT_DAYS = 365
 _HISTOGRAM_BUCKET_TARGET = 21
 _TOP_TAGS = 10
 
 
-def compute_observation_stats(scanner: ReplayScanner, queryset: QuerySet[ReplayObservation]) -> dict[str, Any]:
+def compute_observation_stats(
+    scanner: ReplayScanner,
+    queryset: QuerySet[ReplayObservation],
+    recent_days: int = _DEFAULT_RECENT_DAYS,
+) -> dict[str, Any]:
+    # Clamp so a hostile or stale client can't ask for "last 9,999 days" or 0.
+    clamped_recent_days = max(1, min(recent_days, _MAX_RECENT_DAYS))
     status_counts = _status_counts(queryset)
     payload: dict[str, Any] = {
         "status_counts": status_counts,
-        "coverage": _coverage(queryset),
+        "coverage": _coverage(queryset, clamped_recent_days),
+        "labels": _label_stats(queryset, clamped_recent_days),
         "available_tags": [],
         "monitor": None,
         "classifier": None,
@@ -65,8 +75,8 @@ def _status_counts(queryset: QuerySet[ReplayObservation]) -> dict[str, Any]:
     }
 
 
-def _coverage(queryset: QuerySet[ReplayObservation]) -> dict[str, Any]:
-    cutoff = timezone.now() - timedelta(days=_RECENT_DAYS)
+def _coverage(queryset: QuerySet[ReplayObservation], recent_days: int) -> dict[str, Any]:
+    cutoff = timezone.now() - timedelta(days=recent_days)
     with_sessions = queryset.exclude(session_id="")
     aggregates = with_sessions.aggregate(
         total=Count("session_id", distinct=True),
@@ -75,12 +85,93 @@ def _coverage(queryset: QuerySet[ReplayObservation]) -> dict[str, Any]:
     return {
         "recent_sessions": aggregates["recent"] or 0,
         "total_sessions": aggregates["total"] or 0,
-        "recent_days": _RECENT_DAYS,
+        "recent_days": recent_days,
+    }
+
+
+def _label_day_counts(
+    labeled: QuerySet[ReplayObservation], day_field: Literal["created_at", "label__updated_at"], cutoff: Any
+) -> list[dict[str, Any]]:
+    # Explicit branches (not a dynamic **{f"{field}__gte"} key) so ORM field names stay static.
+    if day_field == "created_at":
+        windowed = labeled.filter(created_at__gte=cutoff)
+    else:
+        windowed = labeled.filter(label__updated_at__gte=cutoff)
+    rows = (
+        windowed.annotate(day=TruncDate(day_field))
+        .order_by()  # Don't let parent ordering leak into GROUP BY.
+        .values("day")
+        .annotate(
+            up=Count("id", filter=Q(label__is_correct=True)),
+            down=Count("id", filter=Q(label__is_correct=False)),
+        )
+        .order_by("day")
+    )
+    return [{"date": row["day"], "up": row["up"], "down": row["down"]} for row in rows]
+
+
+def _version_markers(queryset: QuerySet[ReplayObservation]) -> list[dict[str, Any]]:
+    """Every prompt version that produced observations, with its first day, prompt text (from the run
+    snapshot), and rating counts. All-time: charts window it client-side; the configuration overview
+    shows the full history."""
+    rows = (
+        queryset.annotate(snapshot_version=KeyTextTransform("scanner_version", "scanner_snapshot"))
+        .exclude(snapshot_version=None)
+        .annotate(
+            day=TruncDate("created_at"),
+            snapshot_prompt=KeyTextTransform("prompt", KeyTextTransform("scanner_config", "scanner_snapshot")),
+        )
+        .order_by()
+        .values("snapshot_version")
+        .annotate(
+            first_day=Min("day"),
+            prompt=Max("snapshot_prompt"),
+            up=Count("id", filter=Q(label__is_correct=True)),
+            down=Count("id", filter=Q(label__is_correct=False)),
+        )
+    )
+    markers = []
+    for row in rows:
+        try:
+            version = int(row["snapshot_version"])
+        except (TypeError, ValueError):
+            continue
+        markers.append(
+            {
+                "date": row["first_day"],
+                "version": version,
+                "prompt": row["prompt"] or "",
+                "up": row["up"],
+                "down": row["down"],
+            }
+        )
+    return sorted(markers, key=lambda marker: (marker["date"], marker["version"]))
+
+
+def _label_stats(queryset: QuerySet[ReplayObservation], recent_days: int) -> dict[str, Any]:
+    labeled = queryset.filter(label__isnull=False)
+    totals = labeled.aggregate(
+        up=Count("id", filter=Q(label__is_correct=True)),
+        down=Count("id", filter=Q(label__is_correct=False)),
+    )
+    # UTC midnight so the window is exactly the `recent_days` calendar days the client charts;
+    # a rolling now-based cutoff would return a boundary day the chart then drops.
+    today_start = timezone.now().replace(hour=0, minute=0, second=0, microsecond=0)
+    cutoff = today_start - timedelta(days=recent_days - 1)
+    return {
+        "up_total": totals["up"] or 0,
+        "down_total": totals["down"] or 0,
+        # Bucketed by the day the session was scanned, so the series tracks scanner quality over time:
+        # as the prompt improves, newer days should carry fewer thumbs-down.
+        "by_day": _label_day_counts(labeled, "created_at", cutoff),
+        # Bucketed by the day the rating was last set or changed: the team's rating activity.
+        "by_rating_day": _label_day_counts(labeled, "label__updated_at", cutoff),
+        "version_markers": _version_markers(queryset),
     }
 
 
 def _monitor_stats(queryset: QuerySet[ReplayObservation]) -> dict[str, Any]:
-    counts = {"yes": 0, "no": 0, "inconclusive": 0}
+    counts = dict.fromkeys(get_args(MonitorVerdict), 0)
     rows = (
         queryset.filter(status=ObservationStatus.SUCCEEDED)
         .annotate(verdict=KeyTextTransform("verdict", KeyTextTransform("model_output", "scanner_result")))

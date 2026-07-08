@@ -2,7 +2,7 @@ import { useCallback, useMemo } from 'react'
 
 import type { TooltipContext } from '@posthog/quill-charts'
 
-import { roundToDecimal } from 'lib/utils'
+import { roundToDecimal } from 'lib/utils/numbers'
 import { InsightTooltip } from 'scenes/insights/InsightTooltip/InsightTooltip'
 import type { SeriesDatum } from 'scenes/insights/InsightTooltip/insightTooltipUtils'
 

@@ -1,6 +1,6 @@
 import { actions, connect, kea, listeners, path, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
-import { router } from 'kea-router'
+import { router, urlToAction } from 'kea-router'
 
 import api, { CountedPaginatedResponse } from 'lib/api'
 import { AlertType } from 'lib/components/Alerts/types'
@@ -8,11 +8,10 @@ import { dayjs } from 'lib/dayjs'
 import { Sorting } from 'lib/lemon-ui/LemonTable'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { PaginationManual } from 'lib/lemon-ui/PaginationControl'
-import { tabAwareActionToUrl } from 'lib/logic/scenes/tabAwareActionToUrl'
-import { tabAwareScene } from 'lib/logic/scenes/tabAwareScene'
-import { tabAwareUrlToAction } from 'lib/logic/scenes/tabAwareUrlToAction'
-import { objectDiffShallow, objectsEqual, toParams } from 'lib/utils'
+import { trackedActionToUrl } from 'lib/logic/scenes/trackedActionToUrl'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
+import { objectDiffShallow, objectsEqual } from 'lib/utils/objects'
+import { toParams } from 'lib/utils/url'
 import { deleteDashboardLogic } from 'scenes/dashboard/deleteDashboardLogic'
 import { duplicateDashboardLogic } from 'scenes/dashboard/duplicateDashboardLogic'
 import { insightsApi } from 'scenes/insights/utils/api'
@@ -25,6 +24,11 @@ import { dashboardsModel } from '~/models/dashboardsModel'
 import { insightsModel } from '~/models/insightsModel'
 import { getQueryBasedInsightModel } from '~/queries/nodes/InsightViz/utils'
 import { Breadcrumb, InsightModel, QueryBasedInsightModel, SavedInsightsTabs } from '~/types'
+
+import {
+    InsightBulkDeleteResponseApi,
+    InsightBulkRestoreResponseApi,
+} from 'products/product_analytics/frontend/generated/api.schemas'
 
 import { teamLogic } from '../teamLogic'
 import type { savedInsightsLogicType } from './savedInsightsLogicType'
@@ -86,7 +90,6 @@ export function cleanFilters(values: Partial<SavedInsightFilters>): SavedInsight
 
 export const savedInsightsLogic = kea<savedInsightsLogicType>([
     path(['scenes', 'saved-insights', 'savedInsightsLogic']),
-    tabAwareScene(),
     connect(() => ({
         values: [teamLogic, ['currentTeamId'], sceneLogic, ['activeSceneId']],
         logic: [eventUsageLogic],
@@ -177,6 +180,26 @@ export const savedInsightsLogic = kea<savedInsightsLogicType>([
                 return { ...values.insights, results: updatedInsights }
             },
         },
+        bulkDeleteResponse: [
+            null as InsightBulkDeleteResponseApi | null,
+            {
+                bulkDeleteInsights: async ({ ids }: { ids: number[] }) => {
+                    return (await api.create(`api/environments/${values.currentTeamId}/insights/bulk_delete/`, {
+                        ids,
+                    })) as InsightBulkDeleteResponseApi
+                },
+            },
+        ],
+        bulkRestoreResponse: [
+            null as InsightBulkRestoreResponseApi | null,
+            {
+                bulkRestoreInsights: async ({ ids }: { ids: number[] }) => {
+                    return (await api.create(`api/environments/${values.currentTeamId}/insights/bulk_restore/`, {
+                        ids,
+                    })) as InsightBulkRestoreResponseApi
+                },
+            },
+        ],
     })),
     reducers({
         insights: {
@@ -383,8 +406,46 @@ export const savedInsightsLogic = kea<savedInsightsLogicType>([
                 actions.loadInsights()
             }
         },
+        bulkDeleteInsightsSuccess: ({ bulkDeleteResponse }) => {
+            if (!bulkDeleteResponse) {
+                return
+            }
+            const { deleted, skipped } = bulkDeleteResponse
+            const deletedIds = deleted.map((insight) => insight.id)
+            if (deletedIds.length > 0) {
+                const noun = deletedIds.length === 1 ? 'insight' : 'insights'
+                const skippedSuffix = skipped.length > 0 ? ` ${skipped.length} skipped (no permission).` : ''
+                lemonToast.info(`Deleted ${deletedIds.length} ${noun}.${skippedSuffix}`, {
+                    toastId: 'bulk-delete-insights',
+                    button: {
+                        label: 'Undo',
+                        action: () => actions.bulkRestoreInsights({ ids: deletedIds }),
+                    },
+                })
+            } else if (skipped.length > 0) {
+                lemonToast.warning(`No insights deleted. ${skipped.length} skipped due to permissions.`)
+            }
+            actions.loadInsights()
+        },
+        bulkDeleteInsightsFailure: () => {
+            lemonToast.error('Failed to delete insights')
+        },
+        bulkRestoreInsightsSuccess: ({ bulkRestoreResponse }) => {
+            if (!bulkRestoreResponse) {
+                return
+            }
+            const { restored } = bulkRestoreResponse
+            if (restored.length > 0) {
+                const noun = restored.length === 1 ? 'insight' : 'insights'
+                lemonToast.success(`Restored ${restored.length} ${noun}`)
+            }
+            actions.loadInsights()
+        },
+        bulkRestoreInsightsFailure: () => {
+            lemonToast.error('Failed to restore insights')
+        },
     })),
-    tabAwareActionToUrl(({ values }) => {
+    trackedActionToUrl(({ values }) => {
         const changeUrl = ():
             | [
                   string,
@@ -413,7 +474,7 @@ export const savedInsightsLogic = kea<savedInsightsLogicType>([
             loadInsights: changeUrl,
         }
     }),
-    tabAwareUrlToAction(({ actions, values }) => ({
+    urlToAction(({ actions, values }) => ({
         [urls.savedInsights()]: async (
             _,
             { alert_id, ...searchParams }, // search params,

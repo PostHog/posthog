@@ -269,6 +269,21 @@ class MeanQueryBuilder:
             else ""
         )
 
+        # When a threshold is set, each user's value collapses to a binary "reached the
+        # threshold" outcome, turning the mean into a proportion. total_sum becomes the
+        # count of users who crossed; sum_of_squares equals it since 1^2 = 1 and 0^2 = 0.
+        if self._b.metric.threshold is not None:
+            per_user_value = "if(entity_metrics.value >= {threshold}, 1, 0)"
+            total_sum_expr = f"sum({per_user_value})"
+            total_sum_squares_expr = total_sum_expr
+        else:
+            total_sum_expr = "sum(entity_metrics.value)"
+            total_sum_squares_expr = "sum(power(entity_metrics.value, 2))"
+
+        placeholders = self.get_mean_query_common_placeholders()
+        if self._b.metric.threshold is not None:
+            placeholders["threshold"] = ast.Constant(value=self._b.metric.threshold)
+
         query = parse_select(
             f"""
             WITH {common_ctes}
@@ -276,14 +291,14 @@ class MeanQueryBuilder:
             SELECT
                 entity_metrics.variant AS variant,
                 count(entity_metrics.entity_id) AS num_users,
-                sum(entity_metrics.value) AS total_sum,
-                sum(power(entity_metrics.value, 2)) AS total_sum_of_squares{cuped_selects}
+                {total_sum_expr} AS total_sum,
+                {total_sum_squares_expr} AS total_sum_of_squares{cuped_selects}
                 -- breakdown columns added programmatically below
             FROM entity_metrics
             GROUP BY entity_metrics.variant
             -- breakdown columns added programmatically below
             """,
-            placeholders=self.get_mean_query_common_placeholders(),
+            placeholders=placeholders,
         )
 
         assert isinstance(query, ast.SelectQuery)

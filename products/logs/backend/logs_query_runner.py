@@ -18,6 +18,7 @@ from posthog.schema import (
 
 from posthog.hogql import ast
 from posthog.hogql.constants import HogQLGlobalSettings, LimitContext
+from posthog.hogql.errors import ExposedHogQLError, QueryError
 from posthog.hogql.parser import parse_expr, parse_order_expr, parse_select
 from posthog.hogql.property import get_lowercase_index_hint, operator_is_negative, property_to_expr
 
@@ -27,8 +28,34 @@ from posthog.hogql_queries.query_runner import AnalyticsQueryRunner, QueryRunner
 from posthog.hogql_queries.utils.query_date_range import QueryDateRange
 from posthog.models.filters.mixins.utils import cached_property
 
+from products.logs.backend.column_expressions import canonical_key, column_to_expr
+
 if TYPE_CHECKING:
     from posthog.models import Team, User
+
+
+# Bounds the per-request fan-out of user-supplied HogQL expressions. Per-expression cost is already
+# bounded by the query's max_execution_time / max_memory_usage; this just caps how many run at once.
+# Enforced in the runner so every LogsQuery entry point (interactive query endpoint and the
+# server-side CSV export worker) is bounded, not just the interactive one.
+MAX_CUSTOM_COLUMNS = 50
+
+
+LIVE_LOGS_CHECKPOINT_QUERY = parse_select(
+    """
+    SELECT min(partition_checkpoint) FROM (
+        SELECT _topic, _partition, max(max_observed_timestamp) AS partition_checkpoint
+        FROM logs_kafka_metrics
+        GROUP BY _topic, _partition
+    )
+"""
+)
+
+
+def ilike_pattern(search: str | None) -> str:
+    # Escape ILIKE wildcards so a search for "%" matches a literal percent sign, not every row.
+    escaped = (search or "").replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+    return f"%{escaped}%"
 
 
 def _trace_id_normalise_to_base64(value: str) -> str:
@@ -186,10 +213,24 @@ class LogsFilterBuilder:
     Standalone — no QueryRunner dependency.
     """
 
-    def __init__(self, query: LogsQuery, team: "Team", query_date_range: QueryDateRange):
+    def __init__(
+        self,
+        query: LogsQuery,
+        team: "Team",
+        query_date_range: QueryDateRange,
+        exclude_facet_field: str | None = None,
+        exclude_resource_attribute: str | None = None,
+    ):
         self.query = query
         self.team = team
         self.query_date_range = query_date_range
+        # When set (e.g. "severity_text" or "service_name"), that facet's own filter is omitted
+        # from the WHERE clause so facet counts reflect every *other* active filter — the standard
+        # faceted-search behaviour where selecting a value doesn't zero out its siblings.
+        self.exclude_facet_field = exclude_facet_field
+        # The resource-attribute equivalent: when faceting on a resource attribute key, omit that
+        # key's own log_resource_attribute filter so the facet doesn't zero out its own siblings.
+        self.exclude_resource_attribute = exclude_resource_attribute
 
         self.resource_attribute_filters: list[LogPropertyFilter] = []
         self.resource_attribute_negative_filters: list[LogPropertyFilter] = []
@@ -249,6 +290,14 @@ class LogsFilterBuilder:
 
                     self.attribute_filters.insert(0, property_filter)
 
+        if self.exclude_resource_attribute is not None:
+            self.resource_attribute_filters = [
+                f for f in self.resource_attribute_filters if f.key != self.exclude_resource_attribute
+            ]
+            self.resource_attribute_negative_filters = [
+                f for f in self.resource_attribute_negative_filters if f.key != self.exclude_resource_attribute
+            ]
+
     def where(self) -> ast.Expr:
         exprs: list[ast.Expr] = []
 
@@ -263,7 +312,7 @@ class LogsFilterBuilder:
             )
         )
 
-        if self.query.serviceNames:
+        if self.query.serviceNames and self.exclude_facet_field != "service_name":
             exprs.append(
                 parse_expr(
                     "service_name IN {serviceNames}",
@@ -290,7 +339,8 @@ class LogsFilterBuilder:
             if self.log_filters:
                 for log_filter in self.log_filters:
                     if log_filter.key == "severity_level":
-                        exprs.append(_severity_level_to_expr(log_filter))
+                        if self.exclude_facet_field != "severity_text":
+                            exprs.append(_severity_level_to_expr(log_filter))
                         continue
                     if log_filter.key in ("trace_id", "span_id"):
                         log_filter = log_filter.copy(deep=True)
@@ -311,7 +361,7 @@ class LogsFilterBuilder:
             exprs.append(get_lowercase_index_hint(search_filter, team=self.team))
             exprs.append(property_to_expr(search_filter, team=self.team))
 
-        if self.query.severityLevels:
+        if self.query.severityLevels and self.exclude_facet_field != "severity_text":
             exprs.append(
                 parse_expr(
                     "severity_text IN {severityLevels}",
@@ -324,10 +374,16 @@ class LogsFilterBuilder:
             )
 
         if self.query.liveLogsCheckpoint:
+            try:
+                checkpoint = dt.datetime.fromisoformat(self.query.liveLogsCheckpoint)
+            except ValueError as e:
+                raise ValueError(f"Invalid liveLogsCheckpoint format: {e}")
+            if checkpoint.tzinfo is None:
+                checkpoint = checkpoint.replace(tzinfo=ZoneInfo("UTC"))
             exprs.append(
                 parse_expr(
                     "observed_timestamp >= {liveLogsCheckpoint}",
-                    placeholders={"liveLogsCheckpoint": ast.Constant(value=self.query.liveLogsCheckpoint)},
+                    placeholders={"liveLogsCheckpoint": ast.Constant(value=checkpoint)},
                 )
             )
 
@@ -482,19 +538,45 @@ class LogsQueryRunnerMixin(QueryRunner):
         return self._filter_builder.resource_filter(existing_filters=existing_filters)
 
 
+# Number of fixed SELECT columns in to_query; custom columns are appended after these,
+# so _calculate maps result[_FIXED_COLUMN_COUNT:] onto the custom column aliases.
+_FIXED_COLUMN_COUNT = 15
+
+
 class LogsQueryRunner(AnalyticsQueryRunner[LogsQueryResponse], LogsQueryRunnerMixin):
     query: LogsQuery
     cached_response: CachedLogsQueryResponse
     paginator: HogQLHasMorePaginator
 
     def validate_query_runner_access(self, user: "User") -> bool:
-        # LogsQuery is registered in get_query_runner solely for server-side CSV export
-        # (via ExportedAsset + Celery, which runs without a user context and skips this check).
-        # Block all user-initiated queries via the generic /api/projects/:id/query/ endpoint
+        # LogsQuery is registered in get_query_runner solely for server-side CSV export.
+        # The export runs via ExportedAsset + Celery and attributes the read to the export
+        # owner (LimitContext.EXPORT), which must be allowed through. Block everything else —
+        # i.e. user-initiated queries via the generic /api/projects/:id/query/ endpoint —
         # until the LogsQuery schema is stable and ready to be a public API.
+        if self.limit_context == LimitContext.EXPORT:
+            return True
+
         from posthog.rbac.user_access_control import UserAccessControlError
 
         raise UserAccessControlError("logs", "viewer")
+
+    @cached_property
+    def _custom_column_aliases(self) -> list[str]:
+        return [canonical_key(text) for text in self.query.customColumns or []]
+
+    def _custom_column_selects(self) -> list[ast.Expr]:
+        custom_columns = self.query.customColumns or []
+        if len(custom_columns) > MAX_CUSTOM_COLUMNS:
+            raise QueryError(f"Too many custom columns: {len(custom_columns)} (max {MAX_CUSTOM_COLUMNS})")
+        selects: list[ast.Expr] = []
+        for text, alias in zip(custom_columns, self._custom_column_aliases):
+            try:
+                expr = column_to_expr(text)
+            except (ValueError, ExposedHogQLError) as e:
+                raise QueryError(f"Invalid custom column {text!r}: {e}")
+            selects.append(ast.Alias(alias=alias, expr=expr))
+        return selects
 
     def _calculate(self) -> LogsQueryResponse:
         response = self.paginator.execute_hogql_query(
@@ -512,6 +594,7 @@ class LogsQueryRunner(AnalyticsQueryRunner[LogsQueryResponse], LogsQueryRunnerMi
         for result in response.results:
             results.append(
                 {
+                    **dict(zip(self._custom_column_aliases, result[_FIXED_COLUMN_COUNT:])),
                     "uuid": result[0],
                     "trace_id": result[1],
                     "span_id": result[2],
@@ -526,11 +609,18 @@ class LogsQueryRunner(AnalyticsQueryRunner[LogsQueryResponse], LogsQueryRunnerMi
                     "resource_fingerprint": str(result[11]),
                     "instrumentation_scope": result[12],
                     "event_name": result[13],
-                    "live_logs_checkpoint": result[14],
+                    # ClickHouse returns naive datetimes; tag as UTC like timestamp/observed_timestamp
+                    # so the schema's AwareDatetime serializes with an offset rather than as a naive
+                    # string the frontend would misparse in non-UTC timezones.
+                    "live_logs_checkpoint": result[14].replace(tzinfo=ZoneInfo("UTC")) if result[14] else None,
                 }
             )
 
-        return LogsQueryResponse(results=results, **self.paginator.response_params())
+        return LogsQueryResponse(
+            results=results,
+            columns=self._custom_column_aliases or None,
+            **self.paginator.response_params(),
+        )
 
     def run(self, *args, **kwargs) -> LogsQueryResponse | CachedLogsQueryResponse:
         response = super().run(*args, **kwargs)
@@ -558,12 +648,13 @@ class LogsQueryRunner(AnalyticsQueryRunner[LogsQueryResponse], LogsQueryRunnerMi
                 resource_fingerprint,
                 instrumentation_scope,
                 event_name,
-                (select min(max_observed_timestamp) from logs_kafka_metrics) as live_logs_checkpoint
+                {live_logs_checkpoint} as live_logs_checkpoint
             FROM logs
             WHERE {where}
         """,
                 placeholders={
                     "where": self.where(),
+                    "live_logs_checkpoint": LIVE_LOGS_CHECKPOINT_QUERY,
                     # Attribute maps dominate payload size. When excluded we still SELECT a column
                     # (an empty map) so the positional result mapping in _calculate stays stable.
                     "attributes": parse_expr("map() AS attributes" if self.query.excludeAttributes else "attributes"),
@@ -574,6 +665,7 @@ class LogsQueryRunner(AnalyticsQueryRunner[LogsQueryResponse], LogsQueryRunnerMi
             )
         )
         assert isinstance(query, ast.SelectQuery)
+        query.select.extend(self._custom_column_selects())
         query.order_by = [
             parse_order_expr(f"timestamp {order_dir}"),
             parse_order_expr(f"uuid {order_dir}"),

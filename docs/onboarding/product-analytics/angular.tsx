@@ -1,6 +1,7 @@
-import { OnboardingComponentsContext, createInstallation } from 'scenes/onboarding/OnboardingDocsContentWrapper'
+import { OnboardingComponentsContext, createInstallation } from 'scenes/onboarding/shared/OnboardingDocsContentWrapper'
 
 import { StepDefinition } from '../steps'
+import { SDK_DEFAULTS_DATE } from './_snippets/sdkDefaults'
 
 export const getAngularSteps = (ctx: OnboardingComponentsContext): StepDefinition[] => {
     const { CodeBlock, Markdown, dedent, snippets, Tab } = ctx
@@ -90,7 +91,7 @@ export const getAngularSteps = (ctx: OnboardingComponentsContext): StepDefinitio
                                                   this.ngZone.runOutsideAngular(() => {
                                                     posthog.init(environment.posthogKey, {
                                                       api_host: environment.posthogHost,
-                                                      defaults: '2026-01-30',
+                                                      defaults: '${SDK_DEFAULTS_DATE}',
                                                     });
                                                   });
                                                 }
@@ -156,7 +157,7 @@ export const getAngularSteps = (ctx: OnboardingComponentsContext): StepDefinitio
                                               import posthog from 'posthog-js'
                                               posthog.init(environment.posthogKey, {
                                                 api_host: environment.posthogHost,
-                                                defaults: '2025-11-30'
+                                                defaults: '${SDK_DEFAULTS_DATE}'
                                               })
                                               bootstrapApplication(AppComponent, appConfig)
                                                 .catch((err) => console.error(err));

@@ -38,6 +38,8 @@ services:
                         path /i/v0
                         path /i/v0/
                         path /i/v0/*
+                        path /i/v1/analytics/events
+                        path /i/v1/analytics/events/
                         path /batch
                         path /batch/
                         path /batch/*
@@ -62,6 +64,10 @@ services:
                         path /flags
                         path /flags/
                         path /flags/*
+                        # Local evaluation (flag definitions) — mirrors cloud Contour routing to Rust
+                        path /api/feature_flag/local_evaluation
+                        path /api/feature_flag/local_evaluation/
+                        path /api/feature_flag/local_evaluation/*
                     }
 
                     @surveys {
@@ -191,7 +197,7 @@ services:
         restart: on-failure
 
     kafka:
-        image: docker.redpanda.com/redpandadata/redpanda:v25.1.9
+        image: docker.io/redpandadata/redpanda:v25.1.9
         restart: on-failure
         command:
             - redpanda
@@ -231,13 +237,81 @@ services:
             DYNAMIC_CONFIG_ENABLED: 'true'
 
     objectstorage:
-        image: minio/minio:RELEASE.2025-04-22T22-12-26Z
+        # SeaweedFS, S3-compatible object storage on objectstorage:19000.
+        # No static -s3.config (it triggers known SeaweedFS SigV4 signature failures and
+        # presigned-URL regressions; see seaweedfs/seaweedfs #6635 and discussion #3976),
+        # but pure open-access mode doesn't work either: the POST-policy handler always
+        # looks the access key up in the identity store (no open-access bypass, also on
+        # master), so presigned POST uploads — error tracking symbol sets via posthog-cli —
+        # fail with InvalidAccessKeyId when no identities exist. The bootstrap loop below
+        # therefore registers the canonical dev credentials at runtime via `s3.configure`
+        # (which doesn't hit the static-config regressions), plus an `anonymous` identity
+        # so unsigned clients keep working. Signed requests with any other access key are
+        # rejected — everything in this repo uses object_storage_root_user against :19000.
+        # Pin >= 4.05: that's the first release that persists Content-Encoding metadata
+        # (4.03/4.04 silently drop it, breaking gzipped objects that rely on the header
+        # round-tripping). 4.29 is the newest release that's been out at least two weeks.
+        image: chrislusf/seaweedfs:4.29
         restart: on-failure
-        environment:
-            MINIO_ROOT_USER: object_storage_root_user
-            MINIO_ROOT_PASSWORD: object_storage_root_password
-        entrypoint: sh
-        command: -c 'mkdir -p /data/posthog /data/ducklake-dev /data/ai-blobs && minio server --address ":19000" --console-address ":19001" /data' # create the 'posthog', 'ducklake-dev', and 'ai-blobs' buckets before starting the service
+        entrypoint:
+            - /bin/sh
+            - -c
+            # Background a setup-and-verify loop and exec weed as PID 1 so SIGTERM
+            # reaches it directly. `weed shell` exits 0 as long as the master is
+            # reachable, even if individual commands fail (e.g. while the filer is still
+            # coming up), and setup output can't be grepped for success markers anyway:
+            # the identity is also named `posthog`, so its configure echo would shadow
+            # the `posthog` bucket check. The sentinel is therefore only touched once
+            # read-only `s3.bucket.list` / `s3.configure` sessions report every required
+            # bucket and identity from actual persisted state.
+            - |
+                (
+                    while true; do
+                        printf 's3.configure -access_key=object_storage_root_user -secret_key=object_storage_root_password -user=posthog -actions=Admin -apply\ns3.configure -user=anonymous -actions=Admin -apply\ns3.bucket.create -name posthog\ns3.bucket.create -name ducklake-dev\ns3.bucket.create -name ai-blobs\n' \
+                                | /usr/bin/weed shell -master=localhost:19001 >/dev/null 2>&1 || true
+                        BUCKETS=$$(echo 's3.bucket.list' | /usr/bin/weed shell -master=localhost:19001 2>/dev/null || true)
+                        IDENTITIES=$$(echo 's3.configure' | /usr/bin/weed shell -master=localhost:19001 2>/dev/null || true)
+                        if echo "$$BUCKETS" | grep -q posthog \
+                                && echo "$$BUCKETS" | grep -q ducklake-dev \
+                                && echo "$$BUCKETS" | grep -q ai-blobs \
+                                && echo "$$IDENTITIES" | grep -q object_storage_root_user \
+                                && echo "$$IDENTITIES" | grep -q anonymous; then
+                            touch /tmp/objectstorage-ready
+                            echo "Objectstorage SeaweedFS ready with required buckets and identities"
+                            break
+                        fi
+                        sleep 1
+                    done
+                ) &
+                exec /usr/bin/weed "$$@"
+            - --
+        # Every S3 bucket is its own SeaweedFS collection that grows volumes in batches.
+        # By default SeaweedFS preallocates 1 GiB per volume, so a workload that creates
+        # many buckets (the test suite uses a unique bucket per test) reserves many GiB
+        # up front and exhausts disk/volumes — writes then fail with HTTP 500
+        # ("no writable volumes"). volumePreallocate=false makes volumes grow on demand so
+        # capacity tracks actual data, not bucket count; volume.max is raised well above the
+        # default 8 since each collection consumes several volume slots.
+        command:
+            [
+                'server',
+                '-master.port=19001',
+                '-s3',
+                '-s3.port=19000',
+                '-dir=/data',
+                '-volume.max=1000',
+                '-master.volumePreallocate=false',
+            ]
+        # SeaweedFS creates buckets after startup via the background loop above, so without
+        # this sentinel bin/wait-for-docker would treat the container as ready the instant
+        # weed execs and race the bucket bootstrap. The loop touches the sentinel once every
+        # required bucket exists.
+        healthcheck:
+            test: ['CMD', 'test', '-f', '/tmp/objectstorage-ready']
+            interval: 5s
+            timeout: 5s
+            retries: 30
+            start_period: 10s
 
     objectstorage-azure:
         image: mcr.microsoft.com/azure-storage/azurite:3.35.0
@@ -273,6 +347,10 @@ services:
             DEPLOYMENT: hobby
             CDP_API_URL: 'http://plugins:6738'
             FLAGS_REDIS_ENABLED: false
+            # Off-ORM persons_db util (posthog/persons_db.py). Hobby keeps persons in
+            # the main posthog DB, so both point there.
+            PERSONS_DB_WRITER_URL: 'postgres://posthog:posthog@db:5432/posthog'
+            PERSONS_DB_READER_URL: 'postgres://posthog:posthog@db:5432/posthog'
 
     web:
         <<: *worker
@@ -293,6 +371,15 @@ services:
             REDIS_URL: 'redis://redis7:6379/'
             CAPTURE_MODE: events
             RUST_LOG: 'info,rdkafka=warn'
+            CAPTURE_V1_SINKS: 'msk'
+            CAPTURE_V1_SINK_MSK_KAFKA_HOSTS: 'kafka:9092'
+            CAPTURE_V1_SINK_MSK_KAFKA_TOPIC_MAIN: 'events_plugin_ingestion'
+            CAPTURE_V1_SINK_MSK_KAFKA_TOPIC_HISTORICAL: 'events_plugin_ingestion_historical'
+            CAPTURE_V1_SINK_MSK_KAFKA_TOPIC_OVERFLOW: 'events_plugin_ingestion_overflow'
+            CAPTURE_V1_SINK_MSK_KAFKA_TOPIC_DLQ: 'events_plugin_ingestion_dlq'
+            CAPTURE_V1_SINK_MSK_KAFKA_TOPIC_EXCEPTION: 'ingestion-errortracking-main'
+            CAPTURE_V1_SINK_MSK_KAFKA_TOPIC_HEATMAP: 'heatmaps_ingestion'
+            CAPTURE_V1_SINK_MSK_KAFKA_TOPIC_CLIENT_INGESTION_WARNING: 'ingestion-clientwarnings-main-1'
 
     replay-capture:
         image: ghcr.io/posthog/posthog/capture:master
@@ -322,7 +409,7 @@ services:
             REDIS_URL: 'redis://redis7:6379/'
             CAPTURE_MODE: events
             RUST_LOG: 'info,rdkafka=warn'
-            # AI endpoint S3 blob storage (MinIO)
+            # AI endpoint S3 blob storage
             AI_S3_BUCKET: ai-blobs
             AI_S3_PREFIX: 'llma/'
             AI_S3_ENDPOINT: 'http://objectstorage:19000'
@@ -705,6 +792,18 @@ services:
             - jaeger
         networks:
             - otel_network
+        # Cap the footprint: the collector parses every container's logs, so one
+        # log-flooding container could otherwise peg many cores and balloon RAM.
+        cpus: 2
+        mem_limit: 2g
+        environment:
+            # Keep Go's GC under mem_limit so pressure triggers collection, not an OOM kill.
+            GOMEMLIMIT: 1750MiB
+        logging:
+            driver: json-file
+            options:
+                max-size: '50m'
+                max-file: '3'
 
     jaeger:
         image: jaegertracing/all-in-one:1.76.0
@@ -719,7 +818,9 @@ services:
             - '/var/run/docker.sock:/var/run/docker.sock'
 
     seaweedfs:
-        image: chrislusf/seaweedfs:4.03
+        # Default open-access mode; see the `objectstorage` service above for rationale
+        # (including the >= 4.05 Content-Encoding pin).
+        image: chrislusf/seaweedfs:4.29
         entrypoint:
             - /bin/sh
             - -c
@@ -754,7 +855,11 @@ services:
             db:
                 condition: service_healthy
             objectstorage:
-                condition: service_started
+                # Wait for the bucket-bootstrap sentinel, not just the process: DuckLake
+                # targets s3://ducklake-dev/, which SeaweedFS creates asynchronously after
+                # startup. service_started would race the bootstrap loop (see the
+                # objectstorage healthcheck rationale above).
+                condition: service_healthy
         command: ['--config', '/app/config.yaml']
 
 networks:

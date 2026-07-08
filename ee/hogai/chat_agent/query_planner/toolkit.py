@@ -19,12 +19,14 @@ from posthog.event_usage import EventSource
 from posthog.hogql_queries.ai.actors_property_taxonomy_query_runner import ActorsPropertyTaxonomyQueryRunner
 from posthog.hogql_queries.ai.event_taxonomy_query_runner import EventTaxonomyQueryRunner
 from posthog.hogql_queries.query_runner import ExecutionMode
-from posthog.models import Team
-from posthog.taxonomy.taxonomy import CORE_FILTER_DEFINITIONS_BY_GROUP
+from posthog.models import Team, User
+from posthog.taxonomy.property_access import restricted_property_names
+from posthog.taxonomy.taxonomy import CORE_FILTER_DEFINITIONS_BY_GROUP, CoreFilterDefinition
 
 from products.actions.backend.models.action import Action
 from products.event_definitions.backend.models.property_definition import PropertyDefinition, PropertyType
 
+from ee.hogai.chat_agent.taxonomy.format import enrich_props_with_descriptions
 from ee.hogai.chat_agent.taxonomy.tools import (
     ask_user_for_help,
     retrieve_action_properties,
@@ -33,6 +35,15 @@ from ee.hogai.chat_agent.taxonomy.tools import (
     retrieve_entity_property_values,
     retrieve_event_properties,
     retrieve_event_property_values,
+)
+from ee.hogai.chat_agent.taxonomy.virtual_properties import (
+    PropertyDefinitionOrVirtual,
+    get_virtual_property_definition,
+    get_virtual_property_sample_values,
+    list_virtual_properties,
+    property_is_string_like,
+    virtual_group_for_entity,
+    virtual_property_no_values_message,
 )
 from ee.hogai.utils.prompt import format_prompt_string
 
@@ -92,9 +103,14 @@ Results:
 
 class TaxonomyAgentToolkit:
     _team: Team
+    _user: User
 
-    def __init__(self, team: Team):
+    def __init__(self, team: Team, user: User):
         self._team = team
+        self._user = user
+
+    def _restricted_property_names(self, property_type: PropertyDefinition.Type) -> set[str]:
+        return restricted_property_names(self._team, self._user, property_type)
 
     @cached_property
     def _groups(self) -> list[dict]:
@@ -146,20 +162,7 @@ class TaxonomyAgentToolkit:
         return "\n".join(output_parts)
 
     def _enrich_props_with_descriptions(self, entity: str, props: Iterable[tuple[str, str | None]]):
-        enriched_props = []
-        mapping = {
-            "session": CORE_FILTER_DEFINITIONS_BY_GROUP["session_properties"],
-            "person": CORE_FILTER_DEFINITIONS_BY_GROUP["person_properties"],
-            "event": CORE_FILTER_DEFINITIONS_BY_GROUP["event_properties"],
-        }
-        for prop_name, prop_type in props:
-            description = None
-            if entity_definition := mapping.get(entity, {}).get(prop_name):
-                if entity_definition.get("system") or entity_definition.get("ignored_in_assistant"):
-                    continue
-                description = entity_definition.get("description_llm") or entity_definition.get("description")
-            enriched_props.append((prop_name, prop_type, description))
-        return enriched_props
+        return enrich_props_with_descriptions(entity, props)
 
     def retrieve_entity_properties(self, entity: str, max_properties: int = 500) -> str:
         """
@@ -170,10 +173,18 @@ class TaxonomyAgentToolkit:
             return f"Entity {entity} does not exist in the taxonomy."
 
         if entity == "person":
-            qs = PropertyDefinition.objects.filter(team=self._team, type=PropertyDefinition.Type.PERSON).values_list(
-                "name", "property_type"
+            restricted = self._restricted_property_names(PropertyDefinition.Type.PERSON)
+            stored_props = [
+                p
+                for p in PropertyDefinition.objects.filter(
+                    team=self._team, type=PropertyDefinition.Type.PERSON
+                ).values_list("name", "property_type")
+                if p[0] not in restricted
+            ]
+            stored_props += list_virtual_properties(
+                "person_properties", exclude={name for name, _ in stored_props} | restricted
             )
-            props = self._enrich_props_with_descriptions("person", qs)
+            props = self._enrich_props_with_descriptions("person", stored_props)
         elif entity == "session":
             # Session properties are not in the DB.
             props = self._enrich_props_with_descriptions(
@@ -189,10 +200,16 @@ class TaxonomyAgentToolkit:
             group_type_index = next((g["group_type_index"] for g in self._groups if g["group_type"] == entity), None)
             if group_type_index is None:
                 return f"Group {entity} does not exist in the taxonomy."
-            qs = PropertyDefinition.objects.filter(
-                team=self._team, type=PropertyDefinition.Type.GROUP, group_type_index=group_type_index
-            ).values_list("name", "property_type")[:max_properties]
-            props = self._enrich_props_with_descriptions(entity, qs)
+            restricted = self._restricted_property_names(PropertyDefinition.Type.GROUP)
+            stored_props = [
+                p
+                for p in PropertyDefinition.objects.filter(
+                    team=self._team, type=PropertyDefinition.Type.GROUP, group_type_index=group_type_index
+                ).values_list("name", "property_type")[:max_properties]
+                if p[0] not in restricted
+            ]
+            stored_props += list_virtual_properties("groups", exclude={name for name, _ in stored_props} | restricted)
+            props = self._enrich_props_with_descriptions(entity, stored_props)
 
         if not props:
             return f"Properties do not exist in the taxonomy for the entity {entity}."
@@ -207,7 +224,7 @@ class TaxonomyAgentToolkit:
         else:
             query = EventTaxonomyQuery(actionId=event_name_or_action_id, maxPropertyValues=25)
             verbose_name = f"action with ID {event_name_or_action_id}"
-        runner = EventTaxonomyQueryRunner(query, self._team)
+        runner = EventTaxonomyQueryRunner(query, self._team, user=self._user)
         with tags_context(
             product=Product.MAX_AI,
             feature=Feature.POSTHOG_AI,
@@ -238,16 +255,23 @@ class TaxonomyAgentToolkit:
             return f"Properties do not exist in the taxonomy for the {verbose_name}."
 
         # Intersect properties with their types.
+        restricted = self._restricted_property_names(PropertyDefinition.Type.EVENT)
         qs = PropertyDefinition.objects.filter(
             team=self._team, type=PropertyDefinition.Type.EVENT, name__in=[item.property for item in response.results]
         )
-        property_to_type = {property_definition.name: property_definition.property_type for property_definition in qs}
-        props = [
+        property_to_type = {
+            property_definition.name: property_definition.property_type
+            for property_definition in qs
+            if property_definition.name not in restricted
+        }
+        props: list[tuple[str, str | None]] = [
             (item.property, property_to_type.get(item.property))
             for item in response.results
             # Exclude properties that exist in the taxonomy, but don't have a type.
             if item.property in property_to_type
         ]
+        # Virtual properties are computed at query time, so they never appear in stored event data.
+        props += list_virtual_properties("event_properties", exclude=property_to_type.keys() | restricted)
 
         if not props:
             return f"Properties do not exist in the taxonomy for the {verbose_name}."
@@ -285,28 +309,46 @@ class TaxonomyAgentToolkit:
 
         return prop_values
 
+    def _format_virtual_property_values(self, property_name: str, property_definition: CoreFilterDefinition) -> str:
+        sample_values, sample_count = get_virtual_property_sample_values(property_definition)
+        if not sample_values:
+            return virtual_property_no_values_message(property_name)
+        return self._format_property_values(
+            sample_values, sample_count, format_as_string=property_is_string_like(property_definition)
+        )
+
     def retrieve_event_or_action_property_values(self, event_name_or_action_id: str | int, property_name: str) -> str:
+        # Restricted properties are indistinguishable from non-existent ones, so we don't leak their values.
+        if property_name in self._restricted_property_names(PropertyDefinition.Type.EVENT):
+            return f"The property {property_name} does not exist in the taxonomy."
+        virtual_definition = get_virtual_property_definition("event_properties", property_name)
+        property_definition: PropertyDefinitionOrVirtual
         try:
             property_definition = PropertyDefinition.objects.get(
                 team=self._team, name=property_name, type=PropertyDefinition.Type.EVENT
             )
         except PropertyDefinition.DoesNotExist:
-            return f"The property {property_name} does not exist in the taxonomy."
+            if virtual_definition is None:
+                return f"The property {property_name} does not exist in the taxonomy."
+            property_definition = virtual_definition
 
         response, verbose_name = self._retrieve_event_or_action_taxonomy(event_name_or_action_id)
         if not isinstance(response, CachedEventTaxonomyQueryResponse):
             return f"The {verbose_name} does not exist in the taxonomy."
-        if not response.results:
-            return f"Property values for {property_name} do not exist in the taxonomy for the {verbose_name}."
 
-        prop = next((item for item in response.results if item.property == property_name), None)
+        prop = next((item for item in response.results or [] if item.property == property_name), None)
         if not prop:
+            # Virtual properties never appear in stored event data, so fall back to taxonomy examples.
+            if virtual_definition is not None:
+                return self._format_virtual_property_values(property_name, virtual_definition)
+            if not response.results:
+                return f"Property values for {property_name} do not exist in the taxonomy for the {verbose_name}."
             return f"The property {property_name} does not exist in the taxonomy for the {verbose_name}."
 
         return self._format_property_values(
             prop.sample_values,
             prop.sample_count,
-            format_as_string=property_definition.property_type in (PropertyType.String, PropertyType.Datetime),
+            format_as_string=property_is_string_like(property_definition),
         )
 
     def _retrieve_session_properties(self, property_name: str) -> str:
@@ -341,6 +383,12 @@ class TaxonomyAgentToolkit:
 
         if entity == "session":
             return self._retrieve_session_properties(property_name)
+
+        # Restricted properties are indistinguishable from non-existent ones, so we don't leak their values.
+        restricted_type = PropertyDefinition.Type.PERSON if entity == "person" else PropertyDefinition.Type.GROUP
+        if property_name in self._restricted_property_names(restricted_type):
+            return f"The property {property_name} does not exist in the taxonomy for the entity {entity}."
+
         if entity == "person":
             query = ActorsPropertyTaxonomyQuery(properties=[property_name], maxPropertyValues=25)
         elif entity == "event":
@@ -353,6 +401,8 @@ class TaxonomyAgentToolkit:
                 groupTypeIndex=group_index, properties=[property_name], maxPropertyValues=25
             )
 
+        virtual_definition = get_virtual_property_definition(virtual_group_for_entity(entity), property_name)
+        property_definition: PropertyDefinitionOrVirtual
         try:
             if query.groupTypeIndex is not None:
                 prop_type = PropertyDefinition.Type.GROUP
@@ -370,7 +420,9 @@ class TaxonomyAgentToolkit:
                 group_type_index=group_type_index,
             )
         except PropertyDefinition.DoesNotExist:
-            return f"The property {property_name} does not exist in the taxonomy for the entity {entity}."
+            if virtual_definition is None:
+                return f"The property {property_name} does not exist in the taxonomy for the entity {entity}."
+            property_definition = virtual_definition
 
         with tags_context(
             product=Product.MAX_AI,
@@ -378,7 +430,7 @@ class TaxonomyAgentToolkit:
             team_id=self._team.pk,
             org_id=self._team.organization_id,
         ):
-            response = ActorsPropertyTaxonomyQueryRunner(query, self._team).run(
+            response = ActorsPropertyTaxonomyQueryRunner(query, self._team, user=self._user).run(
                 ExecutionMode.RECENT_CACHE_CALCULATE_ASYNC_IF_STALE_AND_BLOCKING_ON_MISS,
                 analytics_props={"source": EventSource.POSTHOG_AI},
             )
@@ -387,6 +439,8 @@ class TaxonomyAgentToolkit:
             return f"The entity {entity} does not exist in the taxonomy."
 
         if not response.results:
+            if virtual_definition is not None:
+                return self._format_virtual_property_values(property_name, virtual_definition)
             return f"Property values for {property_name} do not exist in the taxonomy for the entity {entity}."
 
         # TRICKY. Remove when the toolkit supports multiple results.
@@ -395,10 +449,14 @@ class TaxonomyAgentToolkit:
         else:
             unpacked_results = response.results
 
+        # Virtual properties never appear in stored actor data, so fall back to taxonomy examples.
+        if not unpacked_results.sample_values and virtual_definition is not None:
+            return self._format_virtual_property_values(property_name, virtual_definition)
+
         return self._format_property_values(
             unpacked_results.sample_values,
             unpacked_results.sample_count,
-            format_as_string=property_definition.property_type in (PropertyType.String, PropertyType.Datetime),
+            format_as_string=property_is_string_like(property_definition),
         )
 
     def handle_incorrect_response(self, response: BaseModel) -> str:

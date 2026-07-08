@@ -21,7 +21,7 @@ import { DateFilter } from 'lib/components/DateFilter/DateFilter'
 import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { TZLabel } from 'lib/components/TZLabel'
-import { capitalizeFirstLetter } from 'lib/utils'
+import { capitalizeFirstLetter } from 'lib/utils/strings'
 import { InsightEmptyState } from 'scenes/insights/EmptyStates'
 import { PersonDisplay } from 'scenes/persons/PersonDisplay'
 import { urls } from 'scenes/urls'
@@ -34,6 +34,7 @@ import {
 } from '../configuration/hogFunctionConfigurationLogic'
 import { hogFunctionTestLogic } from '../configuration/hogFunctionTestLogic'
 import { HogFunctionFilters } from '../filters/HogFunctionFilters'
+import { InvocationsLegacyTabBanner } from '../invocations/InvocationsTabBanners'
 import { tagTypeForLevel } from '../logs/LogsViewer'
 import { CyclotronJobTestInvocationResultWithEventId, hogFunctionTestingLogic } from './hogFunctionTestingLogic'
 
@@ -81,6 +82,7 @@ export function HogFunctionTesting(): JSX.Element | null {
     return (
         <BindLogic logic={hogFunctionTestingLogic} props={{ id }}>
             <div className="deprecated-space-y-3">
+                <InvocationsLegacyTabBanner legacyTab="Testing" />
                 <LemonBanner type="info">
                     <span>
                         This is a list of all events matching your filters. You can run the function using these
@@ -482,7 +484,7 @@ function TestingEventsList(): JSX.Element | null {
                     },
                 },
             ]}
-            emptyState={<InsightEmptyState />}
+            emptyState={<InsightEmptyState sampleDataVariant="table" />}
         />
     )
 }

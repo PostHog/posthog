@@ -17,7 +17,7 @@
         "noFallthroughCasesInSwitch": true,
         "noUncheckedIndexedAccess": true,
         "skipLibCheck": true,
-        "types": ["node", "./worker-configuration.d.ts", "./types.d.ts", "@cloudflare/vitest-pool-workers"],
+        "types": ["node", "./worker-configuration.d.ts", "./types.d.ts", "@cloudflare/vitest-pool-workers/types"],
         "paths": {
             "products/*": ["../../products/*"],
             "@/*": ["./src/*", "./tests/*"],
@@ -31,5 +31,5 @@
         }
     },
     "include": ["src/**/*.ts", "src/**/*.tsx", "scripts/**/*.ts", "tests/**/*.ts", "worker-configuration.d.ts"],
-    "exclude": ["node_modules", "dist", "src/ui-apps/lib/storybook/**"]
+    "exclude": ["node_modules", "dist", "src/ui-apps/lib/storybook/**", "src/**/*.stories.tsx"]
 }

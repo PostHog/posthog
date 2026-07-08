@@ -1,11 +1,13 @@
 ---
 name: inbox-exploration
 description: >
-  Explore PostHog's Inbox — the surface where signal reports surface as actionable issues and trends.
-  Use when the user asks "what's in my inbox?", "what should I look at?", "which reports are actionable?",
-  "what's PostHog flagged recently?", asks about a specific report by ID or title, or wants to see
-  which signal sources are configured. Covers listing, filtering, and drilling into reports, plus
-  pointers to the deeper `signals` skill when raw signals or semantic search are needed.
+  Explore PostHog's Inbox and act on what it surfaces — the place where signal reports cluster into
+  actionable issues and trends. Use when the user asks "what's in my inbox?", "what should I look at?",
+  "which reports are actionable?", "what's PostHog flagged recently?", asks about a specific report by
+  ID or title, wants to act on / fix / implement a report (turn it into a PR), wants to dismiss or
+  snooze a report, or wants to see which signal sources are configured. Covers listing, filtering,
+  drilling into, and acting on reports, plus pointers to the deeper `signals` skill when raw signals
+  or semantic search are needed.
 ---
 
 # Exploring the Inbox
@@ -29,6 +31,9 @@ the user's actual question.
 - "Are there any reports about <topic / product area>?"
 - "What signal sources are configured for this project?"
 - The user pastes a report ID or URL and wants context
+- "Fix this inbox item" / "turn this report into a PR" / "implement this report" — see
+  _Workflow: act on an actionable report_
+- "Dismiss this" / "snooze this report" — see _Workflow: dismiss or snooze a report_
 
 For deeper investigation, hand off to other skills and tools:
 
@@ -50,16 +55,27 @@ _underlying detail_ — pair them when the user wants to dig in.
 
 ## Available tools
 
-| Tool                                  | Purpose                                                             |
-| ------------------------------------- | ------------------------------------------------------------------- |
-| `inbox-reports-list`                  | Paginated list of reports with filters (status, search, etc.)       |
-| `inbox-reports-retrieve`              | Full detail for a single report                                     |
-| `inbox-source-configs-list`           | Configured signal sources (which products feed the inbox)           |
-| `inbox-source-configs-retrieve`       | Full record for a single source config                              |
-| `posthog:execute-sql` (signals skill) | HogQL access to underlying signals (read the `signals` skill first) |
+| Tool                                  | Purpose                                                                                                       |
+| ------------------------------------- | ------------------------------------------------------------------------------------------------------------- |
+| `inbox-reports-list`                  | Paginated list of reports with filters (status, search, etc.)                                                 |
+| `inbox-reports-retrieve`              | Full detail for a single report                                                                               |
+| `inbox-report-artefacts-list`         | A report's full work log — `signal_finding` evidence, status judgments, commits, task runs, notes (read-only) |
+| `inbox-report-artefacts-retrieve`     | Full detail for a single artefact (read-only)                                                                 |
+| `inbox-reports-set-state`             | Dismiss (`suppressed`) or snooze (`potential`) a single report                                                |
+| `inbox-reports-bulk-set-state`        | Same transition for 1–100 reports in one call (per-id result)                                                 |
+| `inbox-source-configs-list`           | Configured signal sources (which products feed the inbox)                                                     |
+| `inbox-source-configs-retrieve`       | Full record for a single source config                                                                        |
+| `inbox-source-configs-partial-update` | Toggle a source's `enabled` flag (or adjust its `config`)                                                     |
+| `posthog:execute-sql` (signals skill) | HogQL access to underlying signals (read the `signals` skill first)                                           |
 
-All four `inbox-*` tools are read-only. Writes (pause processing, change source configs, manage
-per-user autonomy) are intentionally not exposed via MCP today.
+The `inbox-reports-*-list` / `-retrieve`, `inbox-report-artefacts-list` / `-retrieve`, and
+`inbox-source-configs-*-list` / `-retrieve` tools are read-only. The exposed writes are `inbox-reports-set-state` (dismiss / snooze a single report),
+`inbox-reports-bulk-set-state` (the same transition for 1–100 reports in one call) — see
+_Workflow: dismiss or snooze a report_ — and `inbox-source-configs-partial-update`, which flips a
+source's `enabled` flag on or off (e.g. `{enabled: false}` to stop a source feeding the inbox);
+`-create` / `-update` exist too for standing a source up or replacing it wholesale. Other writes
+(pause processing, mark a report resolved, set `implementation_pr_url`) are not exposed via MCP
+today — those happen on the product surface when a PR is opened against a report.
 
 ## Terminology
 
@@ -141,7 +157,9 @@ empty.
 **Case B — source configs exist but all are `enabled: false`**
 
 Sources have been set up at some point but are currently turned off. Tell the user no signals are
-flowing right now and point them at the project's signals settings to re-enable. Don't go fishing
+flowing right now. You can re-enable a source directly with
+`inbox-source-configs-partial-update { "id": "<source_config_uuid>", "enabled": true }` (confirm
+with the user first), or they can flip it on from the project's signals settings. Don't go fishing
 for reports — anything still there is stale.
 
 **Case C — at least one source config is `enabled: true`**
@@ -229,15 +247,128 @@ inbox-reports-retrieve
 { "id": "<report_uuid>" }
 ```
 
-Returns the full record including `signals_at_run` and `artefact_count`. Combine this with the
-`signals` skill if the user wants to see the actual signal contents:
+Returns the full record including `signals_at_run` and `artefact_count`. Then read the report's
+work log:
+
+```json
+inbox-report-artefacts-list
+{ "report_id": "<report_uuid>" }
+```
+
+This returns the report's evidence (`signal_finding`), the judgments behind its
+status/priority/actionability (`safety_judgment`, `actionability_judgment`, `priority_judgment`,
+`repo_selection`, `suggested_reviewers`), and its work-log (`commit`, `task_run`, `note`) — the
+curated "why it exists and what's been done" view, in one read-only call.
+
+Use the `signals` skill only when you need the raw signal text beyond the curated findings:
 
 1. Use `inbox-reports-retrieve` to get the report metadata + `id`
-2. Use the `signals` skill's Example 2 (fetch all signals for a specific report) — pass the
-   report ID as `metadata.report_id` in the HogQL query
+2. Use `inbox-report-artefacts-list` for the curated evidence, judgments, and work-log
+3. Use the `signals` skill's Example 2 (fetch all signals for a specific report) — pass the
+   report ID as `metadata.report_id` in the HogQL query — only for the raw underlying signal text
 
-The two layers complement each other: the `inbox-*` tools give you the curated/judged view, and
-the `signals` skill lets you inspect the raw observations that produced it.
+The layers complement each other: `inbox-report-artefacts-list` gives you the curated/judged view
+(evidence + judgments + PR/task-run history), and the `signals` skill lets you inspect the raw
+observations that produced it.
+
+## Workflow: act on an actionable report
+
+When the user wants to _do_ something about a report — "fix this inbox item", "turn this into a
+PR", "implement this" — not just read it. A `ready` report with
+`actionability: immediately_actionable` is the usual candidate. The discipline that matters here:
+**a report is a diagnosis, not ground truth — verify it against the actual code before you
+implement.** Reports from `signals_scout` (and any LLM-research source) are especially worth
+double-checking; their `summary` often reads as a confident root-cause with file and function
+names, but it can be stale or wrong.
+
+### Step 1 — Retrieve and check it isn't already handled
+
+```json
+inbox-reports-retrieve
+{ "id": "<report_uuid>" }
+```
+
+Before doing any work, look at:
+
+- `already_addressed` — if `true`, the fix may already be in flight or merged; confirm with the
+  user before duplicating it.
+- `implementation_pr_url` — if a PR is already linked, surface it instead of opening a second one.
+- `status` — only `ready` reports carry a finished judgment. A `candidate` / `pending_input`
+  report hasn't been researched yet; don't implement off a half-formed summary.
+
+### Step 2 — Verify the diagnosis against the code (do not skip)
+
+Start by reading the report's work log — its evidence and the judgments behind it:
+
+```json
+inbox-report-artefacts-list
+{ "report_id": "<report_uuid>" }
+```
+
+This surfaces the `signal_finding` evidence, the status/priority/actionability judgments, and any
+`commit` / `task_run` history — exactly the "why it exists and what's already been done" you need
+before touching code. Then the report's `summary` will name files, functions, and sometimes line
+numbers. **Open them and confirm the claim holds** — that the cited code exists, still looks the
+way the report describes, and actually produces the described failure. As a deeper fallback, pull
+the raw underlying signals via the `signals` skill (`metadata.report_id`) if you need the signal
+text behind the curated findings. If the diagnosis doesn't hold up, say so and stop — a wrong
+report is itself a useful finding (and a candidate for _dismiss_ below), not a license to write a
+speculative fix.
+
+### Step 3 — Scope the fix to the right layer
+
+- If `source_products` includes `signals_scout` and the root cause is in a **scout's own
+  behavior** (the prompt it runs, a threshold it uses), the better fix is often the scout's
+  `SKILL.md`, not the harness. Note that per-team custom scouts live in the user's Skills Store,
+  not this repo, so the fix site may be out of reach of a repo PR — flag that to the user.
+- Otherwise treat it like any normal change: follow the repo's conventions (`CLAUDE.md`,
+  area-specific skills), make the change minimal, and add a regression test that would have caught
+  the reported failure.
+
+### Step 4 — Open the PR and link it back
+
+Open the PR following the repo's PR conventions. There is **no MCP tool to mark a report resolved
+or set `implementation_pr_url`** — that link is populated on the product surface when a PR is
+opened against the report. So reference the report in the PR description (its `_posthogUrl`) and
+tell the user which report the PR addresses, so the loop is traceable. Don't claim the report is
+"resolved" in the inbox — it isn't until the product surface records the merged PR.
+
+## Workflow: dismiss or snooze a report
+
+When the user has reviewed a report and wants it gone, or wants to defer it. These are the inbox
+writes exposed via MCP:
+
+```json
+inbox-reports-set-state
+{
+  "id": "<report_uuid>",
+  "state": "suppressed",
+  "dismissal_reason": "analysis_wrong",
+  "dismissal_note": "Verified against products/foo/bar.py — the cited code path can't reach this state."
+}
+```
+
+- `state: "suppressed"` dismisses the report from the inbox; `state: "potential"` snoozes it back
+  into the pipeline. When snoozing, `snooze_for: <N>` holds it until it accumulates N more signals.
+- `dismissal_reason` must be one of six server-validated canonical codes — `already_fixed`,
+  `report_unclear`, `analysis_wrong`, `wontfix_intentional`, `wontfix_irrelevant`, `other` — an
+  unlisted value returns `400`. `already_fixed` is a _snooze_, so pair it with `state: "potential"`
+  rather than `"suppressed"`; reach for `other` plus a `dismissal_note` for anything that doesn't
+  fit a specific code. `dismissal_note` is free-form (≤ 4000 chars). Both persist as a DISMISSAL
+  artefact, so the rationale survives even if the report transitions again later — **always include
+  them** so a future reader knows _why_.
+- It's a destructive, non-idempotent transition and returns `409` if it isn't allowed from the
+  report's current status (and `400` if `dismissal_reason` isn't a canonical code). Confirm with
+  the user before suppressing, and capture _why_ in the note — a dismissal with no rationale is
+  worse than none. A report you dismissed because the diagnosis was wrong (Step 2 above) is the
+  textbook case: suppress it with `analysis_wrong` and the evidence in the note.
+- To dismiss or snooze several reports at once, use `inbox-reports-bulk-set-state` with an `ids`
+  array (1–100). It applies the same `state` / `dismissal_reason` / `dismissal_note` / `snooze_for`
+  to every id and returns a per-id `results` list (in request order) plus a
+  `transitioned_count` / `skipped_count` / `failed_count` / `not_found_count` summary. Each id is
+  processed independently, so the call returns `200` even on partial failure — an id whose
+  transition isn't allowed comes back as `skipped` (the single-report `409`) while the rest go
+  through. Inspect the per-id outcomes rather than assuming the whole batch succeeded.
 
 ## Workflow: filter by topic or source
 
@@ -292,6 +423,16 @@ The `status` field reflects the underlying data import or workflow:
 - `running` / `completed` — feeding signals normally
 - `failed` — the source isn't currently producing signals; flag this to the user
 
+To turn a source on or off, use `inbox-source-configs-partial-update` with the config's `id` and
+`{ "enabled": true | false }` — only the fields you pass change, so this is the right tool for a
+plain toggle (`-update` replaces the whole record; `-create` stands up a new source). Confirm with
+the user before flipping a source, since enabling one drives signal processing and spend.
+
+```json
+inbox-source-configs-partial-update
+{ "id": "<source_config_uuid>", "enabled": false }
+```
+
 ## Tips
 
 - **Check setup before assuming the inbox is empty.** If `inbox-reports-list` returns `count: 0`,
@@ -305,9 +446,17 @@ The `status` field reflects the underlying data import or workflow:
   status; this is expected, not a bug — judgment hasn't run yet
 - `suppressed` reports are excluded by default; pass `status: "suppressed"` explicitly if the
   user wants to see hidden items
-- Don't try to write to the inbox via MCP — destroy / state changes / reingest endpoints are
-  intentionally not exposed. If the user wants to act on a report, point them at the
+- The inbox writes exposed via MCP are `inbox-reports-set-state` (dismiss / snooze one report),
+  `inbox-reports-bulk-set-state` (the same for 1–100 reports), and `inbox-source-configs-partial-update`
+  (toggle a source's `enabled` flag). To _act_ on a report (implement a
+  fix), verify the diagnosis against the code first, then open a
+  PR — see _Workflow: act on an actionable report_. Marking a report resolved / setting
+  `implementation_pr_url` happens on the product surface, not via MCP; always also surface the
   `_posthogUrl` deep-link
+- **Never implement a report's fix straight from its `summary`.** Reports — especially
+  `signals_scout` ones — are LLM diagnoses; confirm the cited files / functions / behavior in the
+  actual code before writing a fix. A report that doesn't hold up is a dismissal candidate, not a
+  fix
 - For "what kinds of signals exist?" or "what's been happening recently across all sources?",
   drop into the `signals` skill — the report layer hides individual observations; you need
   HogQL on `document_embeddings` to see them

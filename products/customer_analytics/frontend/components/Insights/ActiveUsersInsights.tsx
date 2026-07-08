@@ -18,7 +18,7 @@ import { buildDashboardItemId, isPageviewWithoutFilters } from '../../utils'
 import { CustomerAnalyticsQueryCard } from '../CustomerAnalyticsQueryCard'
 
 export function ActiveUsersInsights(): JSX.Element {
-    const { activityEvent, activeUsersInsights, customerLabel, tabId } = useValues(customerAnalyticsSceneLogic)
+    const { activityEvent, activeUsersInsights, customerLabel } = useValues(customerAnalyticsSceneLogic)
 
     // Check if using pageview as default, with no properties filter
     const isOnlyPageview = isPageviewWithoutFilters(activityEvent)
@@ -43,9 +43,7 @@ export function ActiveUsersInsights(): JSX.Element {
             <h2 className="ml-1">Active {customerLabel.plural}</h2>
             <div className="grid grid-cols-[3fr_1fr] gap-2">
                 {activeUsersInsights.map((insight, index) => {
-                    return (
-                        <CustomerAnalyticsQueryCard key={index} insight={insight as InsightDefinition} tabId={tabId} />
-                    )
+                    return <CustomerAnalyticsQueryCard key={index} insight={insight as InsightDefinition} />
                 })}
             </div>
             <PowerUsersTable />
@@ -54,13 +52,13 @@ export function ActiveUsersInsights(): JSX.Element {
 }
 
 function PowerUsersTable(): JSX.Element {
-    const { businessType, customerLabel, dauSeries, selectedGroupType, tabId, filterTestAccounts } =
+    const { businessType, customerLabel, dauSeries, selectedGroupType, filterTestAccounts } =
         useValues(customerAnalyticsSceneLogic)
     const { isRevenueAnalyticsEnabled, baseCurrency } = useValues(revenueAnalyticsLogic)
     const { currentTeam } = useValues(teamLogic)
     const lastSeenEnabled = currentTeam?.extra_settings?.person_last_seen_at_enabled === true
     const revenueFieldsEnabled = useFeatureFlag('REVENUE_FIELDS_IN_POWER_USERS_TABLE')
-    const uniqueKey = `power-users-${tabId}`
+    const uniqueKey = 'power-users'
     const insightProps: InsightLogicProps<InsightVizNode> = {
         dataNodeCollectionId: CUSTOMER_ANALYTICS_DATA_COLLECTION_NODE_ID,
         dashboardItemId: buildDashboardItemId(uniqueKey),

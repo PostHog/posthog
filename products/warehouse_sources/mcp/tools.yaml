@@ -1,0 +1,544 @@
+# MCP tool definition — tool entries are scaffolded from the OpenAPI schema.
+# The tool list and operation IDs are kept in sync automatically:
+#   pnpm --filter=@posthog/mcp run scaffold-yaml -- --sync-all
+#
+# To enable a tool, set enabled: true and add required scopes + annotations.
+# All other fields (title, description, enrich_url, etc.) are yours to configure.
+category: Warehouse sources
+feature: warehouse_sources
+url_prefix: /data-management/sources
+ui_apps: {}
+tools:
+    data-warehouse-source-connect-link:
+        operation: external_data_sources_connect_link_retrieve
+        enabled: true
+        scopes:
+            - external_data_source:read
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        title: Get a secure connect link for a source
+        description: >
+            Return a secure browser link to connect a data warehouse source WITHOUT the user pasting secrets into the
+            chat. The link opens a minimal page rendering the source's full connection form — the user authorizes via
+            OAuth or enters credentials there, whichever the source offers — and the page stores the connection details
+            encrypted and temporarily; it does NOT create the source. This is the preferred, secure way to collect
+            credentials: share the returned connect_url with the user, wait for them to confirm they're done, then find
+            the stored credential via 'data-warehouse-stored-credentials-list' (filter by source_type, newest first) and
+            call 'data-warehouse-source-setup' with {'credential_id': '<uuid>'} in the payload. Stored credentials are
+            single-use and expire after 24 hours. Never ask the user to paste raw database passwords, API keys, or OAuth
+            tokens into the chat.
+        param_overrides:
+            source_type:
+                input_schema: ExternalDataSourceTypeSchema
+    data-warehouse-source-setup:
+        operation: external_data_sources_setup_create
+        enabled: true
+        scopes:
+            - external_data_source:write
+        annotations:
+            readOnly: false
+            destructive: false
+            idempotent: false
+        title: Set up a data warehouse source (one step)
+        description: >
+            Reach for this the moment a user wants to analyze data PostHog doesn't store — Stripe revenue, Hubspot or
+            Salesforce CRM, Zendesk tickets, Shopify orders, or their own Postgres/MySQL/BigQuery/Snowflake database.
+            Connect an external data source and start importing it into queryable warehouse tables in a single call.
+            Validates credentials, discovers all available tables, enables them with sensible sync defaults (incremental
+            where supported to keep ongoing cost low), and creates the source — no 'schemas' array required. For
+            webhook-capable sources (e.g. Stripe) a webhook is auto-registered after creation: check the 'webhook' key
+            in the response — on success webhook-capable tables sync in real time (including webhook-only tables like
+            Stripe Discount); on failure (e.g. the API key can't create webhooks) tables keep the polling defaults and
+            webhook-only tables stay disabled. If 'webhook.pending_inputs' is non-empty, ask the user for those values
+            and submit them via 'external-data-sources-update-webhook-inputs-create'. Use this for revenue (Stripe), CRM
+            (Hubspot, Salesforce), support tickets (Zendesk), e-commerce (Shopify), and your own databases (Postgres,
+            MySQL, BigQuery, Snowflake). Discover required credential fields per source_type with
+            'external-data-sources-wizard'. Prefer references over raw secrets in the payload: pass {'credential_id':
+            '<uuid>'} referencing the connection details the user stored via the 'data-warehouse-source-connect-link'
+            page (discover ids with 'data-warehouse-stored-credentials-list'); stored credentials are deleted once the
+            source is created. For an already-connected OAuth integration you can instead pass its integration id key
+            (e.g. {'hubspot_integration_id': 123}). NOTE: this enables EVERY discovered table — ideal for small fixed
+            schemas (Stripe, Zendesk) but on a large production database (a Postgres/MySQL/BigQuery/Snowflake with many
+            tables) it syncs them all, which can be costly and noisy. When the user wants only specific tables, or
+            non-default sync types per table, use 'external-data-sources-create' instead.
+        exclude_params:
+            - client_secret
+            - account_id
+        param_overrides:
+            source_type:
+                input_schema: ExternalDataSourceTypeSchema
+    data-warehouse-stored-credentials-list:
+        operation: external_data_sources_stored_credentials_list
+        enabled: true
+        scopes:
+            - external_data_source:read
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        list: true
+        title: List stored source credentials awaiting setup
+        description: >
+            List credentials the user stored via the 'data-warehouse-source-connect-link' page that haven't been
+            consumed yet. Returns metadata only (credential_id, source_type, created_at, expires_at) — never the secrets
+            themselves. Newest first; filter by source_type. After the user confirms they've finished the connect page,
+            take the newest credential_id for the source type and call 'data-warehouse-source-setup' with
+            {'credential_id': '<uuid>'} in the payload. Stored credentials are single-use — they are deleted as soon as
+            setup consumes them — and expire after 24 hours if never used.
+    external-data-schemas-cancel:
+        operation: external_data_schemas_cancel_create
+        enabled: true
+        scopes:
+            - external_data_source:write
+        annotations:
+            readOnly: false
+            destructive: false
+            idempotent: true
+        title: Cancel running sync
+        description: >
+            Cancel a currently running sync job for a specific table schema. If no sync is running, returns an error.
+            Use 'external-data-schemas-list' to check which schemas have status 'Running' before calling this.
+    external-data-schemas-create:
+        operation: external_data_schemas_create
+        enabled: false
+    external-data-schemas-delete-data:
+        operation: external_data_schemas_delete_data_destroy
+        enabled: true
+        scopes:
+            - external_data_source:write
+        annotations:
+            readOnly: false
+            destructive: true
+            idempotent: true
+        title: Delete synced table data
+        description: >
+            Delete the synced table data from PostHog but keep the schema entry. The schema remains visible in the
+            source and can be re-synced. Use this to clear stale or corrupt data before triggering a fresh sync.
+    external-data-schemas-destroy:
+        operation: external_data_schemas_destroy
+        enabled: false
+    external-data-schemas-incremental-fields-create:
+        operation: external_data_schemas_incremental_fields_create
+        enabled: true
+        scopes:
+            - external_data_source:write
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        title: Refresh candidate incremental fields for a schema
+        description: >
+            Re-inspect the source for a single table schema and return the currently available incremental fields,
+            detected primary keys, column list, and which sync methods (incremental/append/cdc/webhook) are available.
+            Use this when the source schema has changed, an incremental field has been dropped, or the user wants to
+            switch to a different incremental_field/sync_type on an existing schema. The operation_id is
+            external_data_schemas_incremental_fields_create but semantically this is a read-only refresh.
+    external-data-schemas-list:
+        operation: external_data_schemas_list
+        enabled: true
+        scopes:
+            - external_data_source:read
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        list: true
+        title: List data warehouse table schemas (imported tables)
+        description: >
+            List all table schemas across all data warehouse sources. Each schema represents one table being synced from
+            an external source. Returns the schema name, sync status, sync frequency, incremental field configuration,
+            last_synced_at, and latest error. Use this to see which tables are actively syncing and their health. To
+            check one table's freshness, pass `search` with the table/schema name to narrow to that schema. Column
+            definitions are omitted here — use external-data-schemas-retrieve for a single schema's columns.
+        response:
+            exclude:
+                - table.columns
+                - available_columns
+    external-data-schemas-logs-retrieve:
+        operation: external_data_schemas_logs_retrieve
+        enabled: false
+    external-data-schemas-partial-update:
+        operation: external_data_schemas_partial_update
+        enabled: true
+        scopes:
+            - external_data_source:write
+        annotations:
+            readOnly: false
+            destructive: false
+            idempotent: true
+        title: Update data warehouse table schema sync config
+        description: >
+            Update a table schema's sync configuration. Can change sync type, sync frequency, incremental field, primary
+            key columns, CDC table mode, and enable/disable the schema.
+    external-data-schemas-reload:
+        operation: external_data_schemas_reload_create
+        enabled: true
+        scopes:
+            - external_data_source:write
+        annotations:
+            readOnly: false
+            destructive: false
+            idempotent: true
+        title: Trigger sync for a table schema
+        description: >
+            Trigger a sync for a single table schema using its configured sync method (incremental, full refresh,
+            append, or CDC). Use this to manually sync a specific table without triggering all tables in the source.
+    external-data-schemas-resync:
+        operation: external_data_schemas_resync_create
+        enabled: true
+        scopes:
+            - external_data_source:write
+        annotations:
+            readOnly: false
+            destructive: true
+            idempotent: false
+        title: Resync table schema from scratch
+        description: >
+            Trigger a full resync for a table schema, discarding all previously synced data and re-importing from the
+            source. This cancels any running sync first, then resets the pipeline state. Use this when data is corrupt
+            or out of sync.
+    external-data-schemas-retrieve:
+        operation: external_data_schemas_retrieve
+        enabled: true
+        scopes:
+            - external_data_source:read
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        title: Get data warehouse table schema
+        description: >
+            Get a single table schema by ID. Returns full details including sync status, sync frequency, incremental
+            field, latest error, and the associated source and table metadata.
+    external-data-schemas-update:
+        operation: external_data_schemas_update
+        enabled: false
+    external-data-sources-bulk-update-schemas-partial-update:
+        operation: external_data_sources_bulk_update_schemas_partial_update
+        enabled: false
+    external-data-sources-cdc-status-retrieve:
+        operation: external_data_sources_cdc_status_retrieve
+        enabled: false
+    external-data-sources-check-cdc-prerequisites-create:
+        operation: external_data_sources_check_cdc_prerequisites_create
+        enabled: true
+        scopes:
+            - external_data_source:write
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        title: Check Postgres CDC prerequisites
+        description: >
+            Validate that a live Postgres database meets Change Data Capture prerequisites — logical replication enabled
+            (wal_level=logical), replication slot available, publication present, and required permissions.
+            Postgres-only. Returns {valid, errors[]}. Use this before configuring a schema with sync_type=cdc, or to
+            diagnose why an existing CDC sync has started failing.
+        param_overrides:
+            source_type:
+                input_schema: ExternalDataSourceTypeSchema
+    external-data-sources-check-cdc-prerequisites-for-source-create:
+        operation: external_data_sources_check_cdc_prerequisites_for_source_create
+        enabled: false
+    external-data-sources-connections-list:
+        operation: external_data_sources_connections_list
+        enabled: true
+        scopes:
+            - external_data_source:read
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        list: true
+        title: List direct-query connections
+        description: >
+            List external data sources that can be used as a connectionId when running execute-sql against an external
+            source (direct-query Postgres and MySQL connections). Returns a lightweight id, prefix, and engine for each
+            — unlike external-data-sources-list, it does not include warehouse import sources or table schemas. Use this
+            to discover valid connectionId values.
+    external-data-sources-create:
+        operation: external_data_sources_create
+        enabled: true
+        scopes:
+            - external_data_source:write
+        annotations:
+            readOnly: false
+            destructive: false
+            idempotent: false
+        title: Create data warehouse source (advanced; prefer source setup)
+        description: >
+            Low-level create for a data warehouse import source when you need to hand-pick tables and sync types. For
+            most cases prefer 'data-warehouse-source-setup', which validates credentials, discovers tables, applies
+            sensible sync defaults, and creates the source in one call. Use this advanced path only for fine-grained
+            control. The 'schemas' array is NOT a top-level argument — it goes INSIDE 'payload', alongside the
+            credential fields: payload = {<credential fields…>, "schemas": [...]}. Each schemas entry has: name,
+            should_sync (bool), sync_type (incremental/full_refresh/append), and optionally incremental_field,
+            incremental_field_type, and primary_key_columns. Build the entries from the rows returned by
+            'external-data-sources-db-schema' first. Sources back queryable warehouse tables for revenue (Stripe), CRM
+            (Hubspot, Salesforce), support (Zendesk), and your own databases (Postgres, MySQL, BigQuery).
+        exclude_params:
+            - client_secret
+            - account_id
+            - job_inputs
+            - created_via
+        inject_body:
+            created_via: mcp
+        param_overrides:
+            source_type:
+                input_schema: ExternalDataSourceTypeSchema
+            payload:
+                input_schema: ExternalDataSourcePayloadSchema
+    external-data-sources-create-webhook-create:
+        operation: external_data_sources_create_webhook_create
+        enabled: true
+        scopes:
+            - external_data_source:write
+        annotations:
+            readOnly: false
+            destructive: false
+            idempotent: false
+        title: Create and register a webhook for a source
+        description: >
+            For sources that support real-time webhook ingestion (currently Stripe), create the HogFunction handler and
+            register the webhook URL with the external service using the source's stored credentials. Requires at least
+            one schema on the source with sync_type='webhook' and should_sync=true. Returns the webhook_url, success
+            flag, and any error. NOT idempotent — each successful call registers a new endpoint on the external service,
+            so retrying after a network error or calling twice can create duplicate webhook endpoints (e.g. duplicate
+            Stripe webhook endpoints delivering the same events twice). Always check webhook-info-retrieve first and
+            only re-call if `exists: false`. For Stripe the signing_secret is auto-captured from the Stripe API response
+            and stored securely; if auto-registration fails (e.g. the API key lacks webhook permissions), the user must
+            create the webhook manually in Stripe and submit the signing_secret via update-webhook-inputs.
+    external-data-sources-db-schema:
+        operation: external_data_sources_database_schema_create
+        enabled: false
+    external-data-sources-delete-webhook-create:
+        operation: external_data_sources_delete_webhook_create
+        enabled: true
+        scopes:
+            - external_data_source:write
+        annotations:
+            readOnly: false
+            destructive: true
+            idempotent: true
+        title: Delete a source's webhook
+        description: >
+            Unregister the webhook with the external service and delete the PostHog HogFunction that was handling it.
+            Any webhook-type schemas under the source will stop receiving real-time events. The source and its schemas
+            are preserved — only the webhook is removed. After deletion, schemas can be switched to a polling sync_type
+            (incremental/full_refresh) via external-data-schemas-partial-update, or a new webhook can be created with
+            create-webhook.
+    external-data-sources-destroy:
+        operation: external_data_sources_destroy
+        enabled: true
+        scopes:
+            - external_data_source:write
+        annotations:
+            readOnly: false
+            destructive: true
+            idempotent: false
+        title: Delete data warehouse source
+        description: >
+            Delete a data warehouse source and all its table schemas, synced tables, and sync schedules. This is a soft
+            delete. Any running syncs are cancelled first. This cannot be undone — the source must be recreated to
+            resume syncing.
+    external-data-sources-disable-cdc-create:
+        operation: external_data_sources_disable_cdc_create
+        enabled: false
+    external-data-sources-draft-custom-manifest-create:
+        operation: external_data_sources_draft_custom_manifest_create
+        enabled: false
+    external-data-sources-enable-cdc-create:
+        operation: external_data_sources_enable_cdc_create
+        enabled: false
+    external-data-sources-jobs:
+        operation: external_data_sources_jobs_retrieve
+        enabled: false
+    external-data-sources-list:
+        operation: external_data_sources_list
+        enabled: true
+        scopes:
+            - external_data_source:read
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        list: true
+        title: List data warehouse sources
+        description: >
+            Check what external data is already connected before answering any revenue, billing, subscription, CRM,
+            support-ticket, or product-database question — call this first so you JOIN against an existing source
+            instead of telling the user the data isn't available. Lists every configured import source with its type
+            (Postgres, Stripe, Hubspot, etc.), connection status, prefix, schemas, latest error, and last sync
+            timestamp. If nothing relevant is connected, offer to set one up with 'data-warehouse-source-setup'.
+            Per-schema column definitions are omitted to keep the payload small — to look up a single table's sync
+            status by name use external-data-schemas-list with a search, and to see a table's columns use
+            external-data-schemas-retrieve.
+        response:
+            exclude:
+                - schemas.*.table.columns
+                - schemas.*.available_columns
+    external-data-sources-partial-update:
+        operation: external_data_sources_partial_update
+        enabled: true
+        scopes:
+            - external_data_source:write
+        annotations:
+            readOnly: false
+            destructive: false
+            idempotent: true
+        title: Update data warehouse source
+        description: >
+            Update an existing data warehouse source's prefix (table name prefix in HogQL) or description. Cannot change
+            the source_type or access_method after creation. Avoid sending new connection credentials inline here — to
+            rotate or fix credentials, point the user at 'data-warehouse-source-connect-link' so they re-enter them
+            securely in their browser rather than pasting secrets into the chat.
+    external-data-sources-preview-resource-create:
+        operation: external_data_sources_preview_resource_create
+        enabled: false
+    external-data-sources-refresh-schemas:
+        operation: external_data_sources_refresh_schemas_create
+        enabled: true
+        scopes:
+            - external_data_source:write
+        annotations:
+            readOnly: false
+            destructive: false
+            idempotent: true
+        title: Discover new tables in source
+        description: >
+            Fetch the latest table list from the remote database and create schema entries for any new tables found.
+            This is a metadata refresh — it does NOT move or sync any data (use 'external-data-sources-reload' for
+            that). Use this after adding new tables to a source database to make them available for syncing.
+        exclude_params:
+            - client_secret
+            - account_id
+            - prefix
+            - description
+            - job_inputs
+    external-data-sources-reload:
+        operation: external_data_sources_reload_create
+        enabled: true
+        scopes:
+            - external_data_source:write
+        annotations:
+            readOnly: false
+            destructive: false
+            idempotent: true
+        title: Trigger sync for a source
+        description: >
+            Trigger a sync for all enabled table schemas in the source using each table's configured sync method. If the
+            source uses direct query mode, this refreshes the schema metadata instead.
+        exclude_params:
+            - client_secret
+            - account_id
+            - prefix
+            - description
+            - job_inputs
+    external-data-sources-repair-cdc-create:
+        operation: external_data_sources_repair_cdc_create
+        enabled: true
+        scopes:
+            - external_data_source:write
+        annotations:
+            readOnly: false
+            destructive: true
+            idempotent: true
+        title: Repair CDC on a source
+        description: >
+            Repair change data capture on a source whose replication slot or publication was lost — use when
+            'external-data-sources-cdc-status-retrieve' shows slot_exists=false or publication_exists=false, or the
+            source reports a CDC error about a missing slot. Recreates the replication resources from the stored CDC
+            config, resets every active CDC schema to a fresh snapshot (a full re-sync — changes made while the slot was
+            gone cannot be recovered), and resumes the paused sync schedules. Refuses with a 400 if CDC looks healthy
+            (both slot and publication exist) so it cannot accidentally force a re-sync, and with a 409 if a repair is
+            already running. Safe to retry after a failure. Returns {success, schemas_reset}.
+    external-data-sources-retrieve:
+        operation: external_data_sources_retrieve
+        enabled: true
+        scopes:
+            - external_data_source:read
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        title: Get data warehouse source
+        description: >
+            Get a single data warehouse source by ID. Returns full details including source type, connection status,
+            prefix, all table schemas with their sync statuses, latest error, and last sync timestamp.
+    external-data-sources-revenue-analytics-config-partial-update:
+        operation: external_data_sources_revenue_analytics_config_partial_update
+        enabled: false
+    external-data-sources-source-prefix-create:
+        operation: external_data_sources_source_prefix_create
+        enabled: false
+    external-data-sources-store-credentials-create:
+        operation: external_data_sources_store_credentials_create
+        enabled: false
+    external-data-sources-update:
+        operation: external_data_sources_update
+        enabled: false
+    external-data-sources-update-cdc-settings-create:
+        operation: external_data_sources_update_cdc_settings_create
+        enabled: false
+    external-data-sources-update-webhook-inputs-create:
+        operation: external_data_sources_update_webhook_inputs_create
+        enabled: true
+        scopes:
+            - external_data_source:write
+        annotations:
+            readOnly: false
+            destructive: false
+            idempotent: true
+        title: Update webhook inputs (signing secret, etc.)
+        description: >
+            Update the webhook-specific inputs on an already-created webhook — for example when a signing secret has
+            been rotated on the source side, or when the webhook was registered manually and the signing_secret needs to
+            be supplied. Only accepts keys defined in the source type's webhookFields (e.g. Stripe's signing_secret).
+            Fails if no webhook has been created for this source yet — call create-webhook first.
+    external-data-sources-webhook-info-retrieve:
+        operation: external_data_sources_webhook_info_retrieve
+        enabled: true
+        scopes:
+            - external_data_source:read
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        title: Get webhook status for a source
+        description: >
+            Return webhook state for a source: supports_webhooks (is this source type webhook-capable), exists (has a
+            webhook been created), webhook_url (the PostHog endpoint the external service should POST to),
+            schema_mapping (external event type → PostHog schema id), and external_status (what the remote service
+            reports about the webhook — enabled_events, status, created_at, error). Use this to check whether a webhook
+            is healthy and whether the external registration is still valid.
+    external-data-sources-wizard:
+        operation: external_data_sources_wizard_retrieve
+        enabled: true
+        scopes:
+            - external_data_source:read
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        title: List data warehouse source types you can import
+        description: >
+            Use this whenever the user needs data PostHog doesn't capture natively — revenue and payments (Stripe,
+            Chargebee), CRM contacts and deals (Hubspot, Salesforce), support tickets (Zendesk), e-commerce orders
+            (Shopify), ad spend, or their own application/production database (Postgres, MySQL, BigQuery, Snowflake) —
+            or when a HogQL query fails because the table doesn't exist yet. Importing turns that data into queryable
+            warehouse tables you can JOIN against product events. Returns the configuration metadata for every supported
+            source type: the required fields (host, port, database, credentials, etc.), field types, and OAuth flows, so
+            you know what a connection needs. ALWAYS pass 'source_type' with the specific kind(s) you need
+            (comma-separated, e.g. 'Postgres,Stripe') — the unfiltered response describes every source and is very large
+            (hundreds of KB). Only omit 'source_type' if you genuinely need to enumerate every available type. To
+            actually connect a source, prefer 'data-warehouse-source-setup'.
+        response:
+            include:
+                - '*.name'
+                - '*.caption'
+                - '*.docsUrl'
+                - '*.featured'
+                - '*.unreleasedSource'
+                - '*.fields'

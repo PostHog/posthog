@@ -1,4 +1,4 @@
-import { hexToRGB, hexToRGBA } from 'lib/utils'
+import { hexToRGB, hexToRGBA } from 'lib/utils/colors'
 
 import { ProductTourAppearance } from '~/types'
 

@@ -2,17 +2,22 @@ import os
 import json
 from contextlib import suppress
 
+from posthog.settings.access import SECRET_KEY
 from posthog.settings.utils import get_from_env, get_list
 
 # Used mostly by the hobby install to have some feature flags enabled by default
 # NOTE: This only affects the frontend, the same FFs will still be considered disabled on the backend
 PERSISTED_FEATURE_FLAGS = get_list(os.getenv("PERSISTED_FEATURE_FLAGS", ""))
 
-# Per-team local evaluation rate limits, e.g. {"123": "1200/minute", "456": "2400/hour"}
-LOCAL_EVAL_RATE_LIMITS: dict[int, str] = {}
-with suppress(Exception):
-    as_json = json.loads(os.getenv("LOCAL_EVAL_RATE_LIMITS", "{}"))
-    LOCAL_EVAL_RATE_LIMITS = {int(k): str(v) for k, v in as_json.items()}
+# Encryption keys for remote-config feature flag payloads, kept separate from
+# Temporal's keys (posthog/settings/temporal.py) so the two rotate independently.
+# An ordered list: the first key encrypts new payloads, every key can decrypt. That
+# is what lets us rotate without a hard cutover: prepend a new key, re-encrypt existing
+# payloads (manage.py reencrypt_flag_payloads), then drop the old key. Defaults to
+# [SECRET_KEY] so self-hosted installs, which encrypt flag payloads with SECRET_KEY,
+# keep working with no configuration. An empty or unset value floors to [SECRET_KEY]
+# so a key is always present.
+FLAGS_SECRET_KEYS: list[str] = get_list(os.getenv("FLAGS_SECRET_KEYS", "")) or [SECRET_KEY]
 
 # Per-team remote config rate limits, e.g. {"123": "1200/minute", "456": "2400/hour"}
 REMOTE_CONFIG_RATE_LIMITS: dict[int, str] = {}

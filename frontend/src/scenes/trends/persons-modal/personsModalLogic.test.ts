@@ -1,9 +1,12 @@
+import { combineUrl } from 'kea-router'
 import { expectLogic } from 'kea-test-utils'
+
+import { urls } from 'scenes/urls'
 
 import { useMocks } from '~/mocks/jest'
 import { FunnelsActorsQuery, FunnelsQuery, NodeKind } from '~/queries/schema/schema-general'
 import { initKeaTests } from '~/test/init'
-import { FilterLogicalOperator, PersonActorType, PropertyFilterType, PropertyOperator } from '~/types'
+import { ActivityTab, FilterLogicalOperator, PersonActorType, PropertyFilterType, PropertyOperator } from '~/types'
 
 import { personsModalLogic } from './personsModalLogic'
 
@@ -408,6 +411,189 @@ describe('personsModalLogic', () => {
             })
         })
 
+        describe('funnel step scoping', () => {
+            const funnelSeries = [
+                { kind: NodeKind.EventsNode, event: 'step one' },
+                { kind: NodeKind.EventsNode, event: 'step two' },
+                {
+                    kind: NodeKind.EventsNode,
+                    event: 'step three',
+                    properties: [
+                        {
+                            key: 'tab',
+                            value: 'public',
+                            operator: PropertyOperator.Exact,
+                            type: PropertyFilterType.Event,
+                        },
+                    ],
+                },
+            ]
+
+            const setupFunnelStepLogic = ({
+                funnelStep,
+                matchedRecordings = [],
+                series = funnelSeries,
+            }: {
+                funnelStep?: number
+                matchedRecordings?: Array<{ session_id: string; events: any[] }>
+                series?: any[]
+            }): void => {
+                logic = personsModalLogic({
+                    query: {
+                        kind: NodeKind.FunnelsActorsQuery,
+                        source: {
+                            kind: NodeKind.FunnelsQuery,
+                            series,
+                            dateRange: { date_from: '-7d', date_to: '2024-05-01' },
+                        },
+                        ...(funnelStep !== undefined ? { funnelStep } : {}),
+                        includeRecordings: true,
+                    } as any,
+                    url: '/api/environments/1/persons?',
+                    additionalSelect: { matched_recordings: 'matched_recordings' },
+                })
+                logic.mount()
+                logic.actions.loadActorsSuccess({
+                    results: [
+                        {
+                            count: 1,
+                            people: [
+                                {
+                                    type: 'person',
+                                    id: 'person-1',
+                                    distinct_ids: ['user-1'],
+                                    is_identified: true,
+                                    properties: {},
+                                    created_at: '2024-01-01',
+                                    matched_recordings: matchedRecordings,
+                                    value_at_data_point: null,
+                                },
+                            ],
+                        },
+                    ],
+                    missing_persons: 0,
+                })
+            }
+
+            const getInnerFilterValues = (): any[] => {
+                const outerGroup = logic.values.recordingFilters.filter_group
+                const innerGroup = outerGroup?.values?.[0]
+                return innerGroup && 'values' in innerGroup ? (innerGroup.values as any[]) : []
+            }
+
+            it('includes the funnel date range when session IDs are available for a drop-off step', () => {
+                setupFunnelStepLogic({
+                    funnelStep: -3,
+                    matchedRecordings: [{ session_id: 'session-1', events: [] }],
+                })
+                expectLogic(logic).toMatchValues({
+                    recordingFilters: {
+                        session_ids: ['session-1'],
+                        filter_group: {
+                            type: FilterLogicalOperator.And,
+                            values: [{ type: FilterLogicalOperator.And, values: [] }],
+                        },
+                        duration: [],
+                        date_from: '-7d',
+                        date_to: '2024-05-01',
+                    },
+                })
+            })
+
+            it('only filters on completed steps in the fallback path for a drop-off step', () => {
+                setupFunnelStepLogic({ funnelStep: -3 })
+                const innerValues = getInnerFilterValues()
+                expect(innerValues).toEqual([
+                    expect.objectContaining({ id: 'step one', type: 'events' }),
+                    expect.objectContaining({ id: 'step two', type: 'events' }),
+                ])
+                expect(innerValues).not.toEqual(expect.arrayContaining([expect.objectContaining({ id: 'step three' })]))
+                expect(logic.values.recordingFilters.date_from).toEqual('-7d')
+                expect(logic.values.recordingFilters.date_to).toEqual('2024-05-01')
+            })
+
+            it.each([
+                { scenario: 'drop-off at step 2', funnelStep: -2, expectedEvents: ['step one'] },
+                {
+                    scenario: 'conversion through step 3',
+                    funnelStep: 3,
+                    expectedEvents: ['step one', 'step two', 'step three'],
+                },
+                {
+                    scenario: 'no funnel step',
+                    funnelStep: undefined,
+                    expectedEvents: ['step one', 'step two', 'step three'],
+                },
+            ])('filters on $expectedEvents for $scenario', ({ funnelStep, expectedEvents }) => {
+                setupFunnelStepLogic({ funnelStep })
+                expect(getInnerFilterValues().map((filter) => filter.id)).toEqual(expectedEvents)
+            })
+
+            it('includes action steps in the fallback path', () => {
+                setupFunnelStepLogic({
+                    funnelStep: -3,
+                    series: [
+                        { kind: NodeKind.EventsNode, event: 'step one' },
+                        { kind: NodeKind.ActionsNode, id: 42, name: 'Sign up' },
+                        { kind: NodeKind.EventsNode, event: 'step three' },
+                    ],
+                })
+                expect(getInnerFilterValues()).toEqual([
+                    expect.objectContaining({ id: 'step one', type: 'events' }),
+                    expect.objectContaining({ id: 42, name: 'Sign up', type: 'actions' }),
+                ])
+            })
+        })
+
+        it('keeps all series filters and the date range for the trends fallback path', () => {
+            logic = personsModalLogic({
+                query: {
+                    kind: NodeKind.InsightActorsQuery,
+                    source: {
+                        kind: NodeKind.TrendsQuery,
+                        series: [
+                            { kind: NodeKind.EventsNode, event: '$pageview' },
+                            { kind: NodeKind.EventsNode, event: 'sign_up' },
+                        ],
+                        dateRange: { date_from: '-14d' },
+                    },
+                    includeRecordings: true,
+                },
+                url: '/api/environments/1/persons?',
+                additionalSelect: { matched_recordings: 'matched_recordings' },
+            })
+            logic.mount()
+
+            logic.actions.loadActorsSuccess({
+                results: [
+                    {
+                        count: 1,
+                        people: [
+                            {
+                                type: 'person',
+                                id: 'person-1',
+                                distinct_ids: ['user-1'],
+                                is_identified: true,
+                                properties: {},
+                                created_at: '2024-01-01',
+                                matched_recordings: [],
+                                value_at_data_point: null,
+                            },
+                        ],
+                    },
+                ],
+                missing_persons: 0,
+            })
+
+            const filters = logic.values.recordingFilters
+            const innerValues = (filters.filter_group as any)?.values?.[0]?.values
+            expect(innerValues).toEqual([
+                expect.objectContaining({ id: '$pageview', type: 'events' }),
+                expect.objectContaining({ id: 'sign_up', type: 'events' }),
+            ])
+            expect(filters.date_from).toEqual('-14d')
+        })
+
         it('falls back to event filters when no session IDs are available', () => {
             logic = personsModalLogic({
                 query: {
@@ -455,6 +641,52 @@ describe('personsModalLogic', () => {
                     expect.objectContaining({ id: 'sign_up', type: 'events' }),
                 ])
             )
+        })
+    })
+
+    describe('insightEventsQueryUrl', () => {
+        it('routes "View events" to the events explorer with the events query in the #q= hash', () => {
+            logic = personsModalLogic({
+                query: {
+                    kind: NodeKind.InsightActorsQuery,
+                    source: {
+                        kind: NodeKind.TrendsQuery,
+                        series: [{ kind: NodeKind.EventsNode, event: '$pageview' }],
+                    },
+                    includeRecordings: true,
+                },
+                url: null,
+            })
+            logic.mount()
+
+            const url = logic.values.insightEventsQueryUrl
+            expect(url).not.toBeNull()
+
+            // Must target the dedicated events explorer, NOT /insights/new — the explorer reads the query
+            // synchronously and avoids the async upgrade that drops the drill-down to a default Trends insight.
+            const { pathname, hashParams } = combineUrl(url as string)
+            expect(pathname).toEqual(urls.activity(ActivityTab.ExploreEvents))
+            expect(hashParams.q?.kind).toEqual(NodeKind.DataTableNode)
+            expect(hashParams.q?.source?.kind).toEqual(NodeKind.EventsQuery)
+            expect(hashParams.q?.source?.event).toEqual('$pageview')
+            // The embedded InsightActorsQuery (and its TrendsQuery source) is what scopes the events to the
+            // clicked data point rather than showing every event in the project.
+            expect(hashParams.q?.source?.source?.kind).toEqual(NodeKind.InsightActorsQuery)
+            expect(hashParams.q?.source?.source?.source?.kind).toEqual(NodeKind.TrendsQuery)
+        })
+
+        it('returns null for non-Trends actors queries', () => {
+            logic = personsModalLogic({
+                query: {
+                    kind: NodeKind.FunnelsActorsQuery,
+                    source: { kind: NodeKind.FunnelsQuery, series: [] },
+                    funnelStep: 1,
+                },
+                url: null,
+            })
+            logic.mount()
+
+            expect(logic.values.insightEventsQueryUrl).toBeNull()
         })
     })
 })

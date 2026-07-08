@@ -70,17 +70,16 @@ export interface ActionEditProps extends ActionEditLogicProps {
     attachTo?: BuiltLogic<Logic> | LogicWrapper<Logic>
 }
 
-export function ActionEdit({ action: loadedAction, id, tabId, actionLoading, attachTo }: ActionEditProps): JSX.Element {
+export function ActionEdit({ action: loadedAction, id, actionLoading, attachTo }: ActionEditProps): JSX.Element {
     const logicProps: ActionEditLogicProps = {
         id,
         action: loadedAction,
-        tabId,
     }
     const { isComplete } = useValues(actionLogic)
     const logic = actionEditLogic(logicProps)
-    // Attach to the scene-kept actionLogic so the form state persists across tab switches:
-    // sceneLogic keeps actionLogic mounted per tab, and useAttachedLogic keeps actionEditLogic
-    // alive for as long as actionLogic is mounted, even when this component unmounts.
+    // Attach to the scene-kept actionLogic so the form state persists across React remounts:
+    // useAttachedLogic keeps actionEditLogic alive for as long as actionLogic is mounted, even
+    // when this component unmounts.
     useAttachedLogic(logic, attachTo)
     const { action, actionChanged, isActionSubmitting } = useValues(logic)
     const { submitAction, deleteAction, setActionValue, setAction, setOriginalAction } = useActions(logic)

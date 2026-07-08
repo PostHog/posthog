@@ -92,9 +92,9 @@ const EMPTY_TOTALS_RESULTS: unknown[][] = []
 function metricsHandler(
     timeSeriesResults: unknown[][],
     totalsResults: unknown[][]
-): (req: { json: () => Promise<unknown> }) => Promise<[number, unknown]> {
-    return async (req) => {
-        const body = (await req.json()) as { query?: { query?: string } }
+): ({ request }: { request: Request }) => Promise<[number, unknown]> {
+    return async ({ request }) => {
+        const body = (await request.json()) as { query?: { query?: string } }
         const isTimeSeries = body.query?.query?.includes('calendar') ?? false
         return [200, { results: isTimeSeries ? timeSeriesResults : totalsResults }]
     }
@@ -268,6 +268,48 @@ Expected to show:
                 `,
             },
         },
+    },
+}
+
+export const SingleConditionRootIsEditable: Story = {
+    // Regression: mirrors a real production record. The backend used to prune a
+    // one-condition filter down to a bare `condition` root, which the editor
+    // rendered with no enclosing group — and therefore no "Add condition" /
+    // "Add group" buttons, stranding the user. The logic now re-wraps a
+    // non-group root in an OR on load so the add affordances are always present.
+    render: withFilter({
+        mode: 'live',
+        filter_tree: { type: 'condition', field: 'distinct_id', operator: 'contains', value: 'bot-' },
+        test_cases: [{ event_name: '', distinct_id: 'bot-crawler', expected_result: 'drop' }],
+    }),
+    parameters: {
+        docs: {
+            description: {
+                story: `
+A filter loaded from the API as a bare \`condition\` root (no enclosing group).
+
+Expected to show:
+- The single \`distinct_id ~ "bot-"\` condition row, now hosted inside a root OR group
+- "Add condition" and "Add group" buttons present (the root is normalized to a group on load)
+- One test case with a green "Pass" tag
+                `,
+            },
+        },
+    },
+    play: async () => {
+        // Wait for the loaded condition to render.
+        await waitFor(() => {
+            if (!document.querySelector('input[value="bot-"]')) {
+                throw new Error('Tree not loaded')
+            }
+        })
+        // The root must be wrapped into a group so the add affordance exists.
+        // Before the fix this button is absent and the story fails here.
+        await waitFor(() => {
+            if (!document.querySelector('[data-attr="add-condition-root"]')) {
+                throw new Error('Add condition button missing for single-condition root')
+            }
+        })
     },
 }
 

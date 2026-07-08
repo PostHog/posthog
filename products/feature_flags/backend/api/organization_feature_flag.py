@@ -1,24 +1,32 @@
 import copy
 from typing import cast
 
+from django.db.models import Case, IntegerField, Q, QuerySet, Value, When
+
 import structlog
 from drf_spectacular.types import OpenApiTypes
 from drf_spectacular.utils import OpenApiParameter
 from rest_framework import mixins, serializers, status, viewsets
 from rest_framework.response import Response
+from rest_framework.utils.urls import replace_query_param
 
 from posthog.api.cohort import CohortSerializer
 from posthog.api.documentation import _FallbackSerializer, extend_schema
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
 from posthog.api.utils import action
-from posthog.helpers.encrypted_flag_payloads import get_decrypted_flag_payloads
-from posthog.models import Team
-from posthog.models.cohort import Cohort, CohortOrEmpty
+from posthog.models import Team, User
 from posthog.models.filters.filter import Filter
+from posthog.rbac.user_access_control import UserAccessControl
 from posthog.user_permissions import UserPermissions
+from posthog.utils import safe_int
 
+from products.cohorts.backend.models.cohort import Cohort, CohortOrEmpty
 from products.feature_flags.backend.api.feature_flag import FeatureFlagSerializer
+from products.feature_flags.backend.encrypted_flag_payloads import (
+    get_decrypted_flag_payloads,
+    get_decrypted_flag_payloads_protected,
+)
 from products.feature_flags.backend.flag_analytics import get_cached_evaluations_7d_by_team
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
 from products.feature_flags.backend.models.scheduled_change import ScheduledChange
@@ -56,11 +64,38 @@ class CopyFlagsSuccessItemSerializer(serializers.Serializer):
     name = serializers.CharField(help_text="Name of the feature flag")
     active = serializers.BooleanField(help_text="Whether the flag is active")
     team_id = serializers.IntegerField(help_text="Team ID the flag was copied to")
+    flag_dependency_warnings = serializers.ListField(
+        child=serializers.CharField(),
+        required=False,
+        help_text="Warnings for flag dependencies that were dropped because no matching active flag exists in the target project",
+    )
+    schedule_copy_warning = serializers.CharField(
+        required=False,
+        help_text="Warning emitted when the flag was copied but its scheduled changes failed to copy",
+    )
 
 
 class CopyFlagsResponseSerializer(serializers.Serializer):
     success = CopyFlagsSuccessItemSerializer(many=True, help_text="List of successfully copied flags")
     failed = CopyFlagsResultSerializer(many=True, help_text="List of failed copy attempts")
+
+
+class OrganizationFeatureFlagRowSerializer(serializers.Serializer):
+    id = serializers.IntegerField(help_text="ID of the representative feature flag for this key")
+    team_id = serializers.IntegerField(help_text="Team ID the representative feature flag belongs to")
+    key = serializers.CharField(help_text="Feature flag key, unique within the compared projects")
+    name = serializers.CharField(allow_blank=True, help_text="Human-readable name of the representative feature flag")
+    active = serializers.BooleanField(help_text="Whether the representative feature flag is enabled")
+    filters = serializers.JSONField(help_text="Release condition filters of the representative feature flag")
+
+
+class OrganizationFeatureFlagKeysResponseSerializer(serializers.Serializer):
+    count = serializers.IntegerField(help_text="Total number of distinct flag keys across the compared projects")
+    next = serializers.CharField(allow_null=True, help_text="URL for the next page of results, or null if none")
+    previous = serializers.CharField(allow_null=True, help_text="URL for the previous page of results, or null if none")
+    results = OrganizationFeatureFlagRowSerializer(
+        many=True, help_text="One representative flag per distinct key across the compared projects"
+    )
 
 
 logger = structlog.get_logger(__name__)
@@ -79,6 +114,17 @@ class OrganizationFeatureFlagView(
 
     lookup_field = "feature_flag_key"
 
+    @staticmethod
+    def _redact_encrypted_payloads(request, flag: FeatureFlag) -> None:
+        """Replace encrypted remote-config payload ciphertext with a redacted placeholder, in place.
+
+        Mirrors the project-scoped flag read paths: only requests authenticated with a personal API
+        key get decrypted values; everyone else (session, OAuth) sees the redacted placeholder, so the
+        ciphertext is never returned over the org-wide endpoints.
+        """
+        if flag.has_encrypted_payloads:
+            flag.filters["payloads"] = get_decrypted_flag_payloads_protected(request, flag.filters.get("payloads", {}))
+
     @extend_schema(
         operation_id="org_feature_flags_retrieve",
         parameters=[OpenApiParameter("feature_flag_key", OpenApiTypes.STR, OpenApiParameter.PATH)],
@@ -92,10 +138,14 @@ class OrganizationFeatureFlagView(
         org_team_ids = set(self.organization.teams.values_list("id", flat=True))
         team_ids = list(org_team_ids & set(accessible_team_ids))
 
-        flags = FeatureFlag.objects.filter(
+        flags_qs = FeatureFlag.objects.filter(
             key=feature_flag_key,
             team_id__in=team_ids,
         )
+        flags_qs = self._filter_flags_by_rbac(flags_qs, team_ids)
+        flags = list(flags_qs)
+        for flag in flags:
+            self._redact_encrypted_payloads(request, flag)
 
         counts_by_team = get_cached_evaluations_7d_by_team(
             cast(str, feature_flag_key), [flag.team_id for flag in flags]
@@ -117,6 +167,94 @@ class OrganizationFeatureFlagView(
         ]
 
         return Response(flags_data)
+
+    @extend_schema(
+        operation_id="org_feature_flags_keys",
+        parameters=[
+            OpenApiParameter("search", OpenApiTypes.STR, OpenApiParameter.QUERY, description="Filter by key or name"),
+            OpenApiParameter("limit", OpenApiTypes.INT, OpenApiParameter.QUERY, description="Page size (max 100)"),
+            OpenApiParameter("offset", OpenApiTypes.INT, OpenApiParameter.QUERY, description="Pagination offset"),
+            OpenApiParameter(
+                "team_ids",
+                OpenApiTypes.INT,
+                OpenApiParameter.QUERY,
+                many=True,
+                description="Teams to compare, in priority order. Defaults to all accessible teams in the org.",
+            ),
+        ],
+        responses={200: OrganizationFeatureFlagKeysResponseSerializer},
+    )
+    @action(detail=False, methods=["get"], url_path="keys")
+    def keys(self, request, *args, **kwargs):
+        """Paginated, de-duplicated list of feature flag keys across the org's compared projects.
+
+        Unlike the project-scoped flag list, this enumerates the union of flag keys across every
+        compared project, so flags that exist only in another project still appear as rows.
+        """
+        # Restrict to teams in this org that the user can access.
+        user_permissions = UserPermissions(user=request.user)
+        accessible_team_ids = set(user_permissions.team_ids_visible_for_user)
+        org_team_ids = set(self.organization.teams.values_list("id", flat=True))
+        allowed_team_ids = org_team_ids & accessible_team_ids
+
+        # Accept team_ids as repeated params (?team_ids=1&team_ids=2) or comma-separated (?team_ids=1,2).
+        try:
+            requested_team_ids = [
+                int(part) for value in request.query_params.getlist("team_ids") for part in value.split(",") if part
+            ]
+            limit = max(min(int(request.query_params.get("limit") or 25), 100), 1)
+            offset = max(int(request.query_params.get("offset") or 0), 0)
+        except ValueError:
+            return Response({"error": "Invalid query parameter."}, status=status.HTTP_400_BAD_REQUEST)
+
+        # Preserve the caller's team ordering, de-duplicated (used to pick the representative per key).
+        ordered_team_ids: list[int] = []
+        seen_teams: set[int] = set()
+        for team_id in requested_team_ids:
+            if team_id in allowed_team_ids and team_id not in seen_teams:
+                seen_teams.add(team_id)
+                ordered_team_ids.append(team_id)
+        if not ordered_team_ids:
+            ordered_team_ids = sorted(allowed_team_ids)
+        if not ordered_team_ids:
+            return Response({"count": 0, "next": None, "previous": None, "results": []})
+
+        search = (request.query_params.get("search") or "").strip()
+        flags_qs = FeatureFlag.objects.filter(team_id__in=ordered_team_ids, deleted=False)
+        flags_qs = self._filter_flags_by_rbac(flags_qs, ordered_team_ids)
+        if search:
+            flags_qs = flags_qs.filter(Q(key__icontains=search) | Q(name__icontains=search))
+
+        distinct_keys_qs = flags_qs.order_by("key").values_list("key", flat=True).distinct()
+        count = distinct_keys_qs.count()
+        page_keys = list(distinct_keys_qs[offset : offset + limit])
+
+        # Choose one representative flag per key, preferring earlier teams in the requested order.
+        # Select from the search-filtered queryset so the representative always matches the search,
+        # and let Postgres do the per-key dedup (DISTINCT ON key, ordered by team rank) so we load
+        # one row per key instead of every team's copy. Ordering by key matches page_keys' order.
+        rank_whens = [When(team_id=team_id, then=Value(rank)) for rank, team_id in enumerate(ordered_team_ids)]
+        representatives = list(
+            flags_qs.filter(key__in=page_keys)
+            .annotate(_rank=Case(*rank_whens, output_field=IntegerField()))
+            .order_by("key", "_rank")
+            .distinct("key")
+        )
+        for flag in representatives:
+            self._redact_encrypted_payloads(request, flag)
+        # OrganizationFeatureFlagRowSerializer is the single source of truth for the row shape.
+        results = OrganizationFeatureFlagRowSerializer(representatives, many=True).data
+
+        next_url = (
+            replace_query_param(request.build_absolute_uri(), "offset", offset + limit)
+            if offset + limit < count
+            else None
+        )
+        previous_url = (
+            replace_query_param(request.build_absolute_uri(), "offset", max(offset - limit, 0)) if offset > 0 else None
+        )
+
+        return Response({"count": count, "next": next_url, "previous": previous_url, "results": results})
 
     @extend_schema(
         request=CopyFlagsRequestSerializer,
@@ -159,6 +297,22 @@ class OrganizationFeatureFlagView(
 
         successful_projects = []
         failed_projects = []
+
+        # Flag dependencies reference other flags by ID, which differs across projects. Like cohorts,
+        # we remap them by the dependency flag's key, so resolve each source dependency ID to its key once.
+        source_dependency_keys: dict[int, str] = {}
+        for group in flag_to_copy.get_filters().get("groups", []) or []:
+            for prop in group.get("properties", []) or []:
+                if isinstance(prop, dict) and prop.get("type") == "flag":
+                    dependency_id = safe_int(prop.get("key"))
+                    if dependency_id is not None and dependency_id not in source_dependency_keys:
+                        dependency_flag = (
+                            FeatureFlag.objects.filter(id=dependency_id, team__project_id=from_project, deleted=False)
+                            .only("key")
+                            .first()
+                        )
+                        if dependency_flag:
+                            source_dependency_keys[dependency_id] = dependency_flag.key
 
         # Get accessible teams for the user
         user_permissions = UserPermissions(user=request.user)
@@ -257,8 +411,13 @@ class OrganizationFeatureFlagView(
                     if destination_cohort is not None and original_cohort.name is not None:
                         name_to_dest_cohort_id[original_cohort.name] = destination_cohort.id
 
+            # Deep-copy the filters per iteration before remapping the cohort and flag-dependency
+            # references, whose target IDs are project-specific. Both remaps mutate this dict, so
+            # working on a per-target copy keeps one target's IDs from leaking into the next.
+            filters = copy.deepcopy(flag_to_copy.get_filters())
+
             # reference correct destination cohort ids in the flag
-            for group in flag_to_copy.conditions:
+            for group in filters.get("groups", []) or []:
                 props = group.get("properties", [])
                 for prop in props:
                     if isinstance(prop, dict) and prop.get("type") == "cohort":
@@ -272,8 +431,7 @@ class OrganizationFeatureFlagView(
                         except (ValueError, TypeError):
                             continue
 
-            # Retrieve filters per iteration since cohort replacement logic mutates the dict
-            filters = flag_to_copy.get_filters()
+            flag_dependency_warnings = self._remap_flag_dependencies(filters, source_dependency_keys, target_project_id)
             if flag_to_copy.has_encrypted_payloads:
                 # Decrypt payloads before copying to ensure the new flag has unencrypted payloads
                 # that will be re-encrypted by the serializer if needed
@@ -284,7 +442,10 @@ class OrganizationFeatureFlagView(
                 "key": flag_to_copy.key,
                 "name": flag_to_copy.name,
                 "filters": filters,
-                "active": False if disable_copied_flag else flag_to_copy.active,
+                # Dropping a flag dependency leaves its condition group ungated (an empty-property
+                # group matches everyone), so a copy with dropped dependencies must never land
+                # enabled — force it inactive for review.
+                "active": False if (disable_copied_flag or flag_dependency_warnings) else flag_to_copy.active,
                 "ensure_experience_continuity": flag_to_copy.ensure_experience_continuity,
                 "deleted": False,
                 "evaluation_runtime": flag_to_copy.evaluation_runtime,
@@ -338,6 +499,8 @@ class OrganizationFeatureFlagView(
                 result = feature_flag_serializer.data
                 if schedule_copy_error:
                     result["schedule_copy_warning"] = f"Flag copied but schedules failed: {schedule_copy_error}"
+                if flag_dependency_warnings:
+                    result["flag_dependency_warnings"] = flag_dependency_warnings
                 successful_projects.append(result)
             except Exception as e:
                 failed_projects.append(
@@ -353,6 +516,75 @@ class OrganizationFeatureFlagView(
             {"success": successful_projects, "failed": failed_projects},
             status=status.HTTP_200_OK,
         )
+
+    def _remap_flag_dependencies(
+        self, filters: dict, source_dependency_keys: dict[int, str], target_project_id: int
+    ) -> list[str]:
+        """Remap flag-dependency references to the matching flag in the target project.
+
+        Flag dependencies store the parent flag's ID, which differs across projects, so we match by
+        key — the same approach used for cohorts. When no active flag with that key exists in the
+        target project, the dependency is dropped and a warning is returned rather than failing the
+        whole copy (the validator would otherwise reject a dangling or disabled dependency).
+        """
+        warnings: list[str] = []
+        # Resolve every source dependency key to its target flag in one query per target, rather than
+        # querying once per flag-type property (mirrors the batched source-dependency scan upstream).
+        target_flags_by_key = {
+            flag.key: flag
+            for flag in FeatureFlag.objects.filter(
+                key__in=source_dependency_keys.values(), team__project_id=target_project_id, deleted=False
+            ).only("id", "key", "active")
+        }
+        for group in filters.get("groups", []) or []:
+            # Leave groups without a properties key untouched so we don't change the filter shape
+            # (an injected empty list would otherwise alter every copied flag's serialized filters).
+            if not group.get("properties"):
+                continue
+            kept_properties = []
+            dropped_dependency = False
+            for prop in group.get("properties", []) or []:
+                if not (isinstance(prop, dict) and prop.get("type") == "flag"):
+                    kept_properties.append(prop)
+                    continue
+
+                source_dependency_id = safe_int(prop.get("key"))
+                source_key = (
+                    source_dependency_keys.get(source_dependency_id) if source_dependency_id is not None else None
+                )
+
+                if source_key is None:
+                    # The source dependency itself couldn't be resolved (e.g. it was soft-deleted), so
+                    # there's no key to match in the target — drop it and name the unresolved source id.
+                    dropped_dependency = True
+                    warnings.append(
+                        f"Removed a flag dependency (source flag id {prop.get('key')}) because the dependency flag could not be resolved in the source project."
+                    )
+                    continue
+
+                target_flag = target_flags_by_key.get(source_key)
+                if target_flag and target_flag.active:
+                    # Preserve the original key type (dependencies are typically stored as strings)
+                    prop["key"] = str(target_flag.id) if isinstance(prop.get("key"), str) else target_flag.id
+                    kept_properties.append(prop)
+                elif target_flag and not target_flag.active:
+                    dropped_dependency = True
+                    warnings.append(
+                        f"Removed dependency on flag '{source_key}' because that flag is disabled in the target project."
+                    )
+                else:
+                    dropped_dependency = True
+                    warnings.append(
+                        f"Removed dependency on flag '{source_key}' because no flag with that key exists in the target project."
+                    )
+            # Dropping a dependency that leaves a group with no other constraints turns it into a
+            # 100%-rollout group that matches everyone, so flag it for review before re-enabling.
+            if dropped_dependency and not kept_properties:
+                warnings.append(
+                    "A condition group now has no remaining constraints and will match all users at its rollout percentage — review and re-gate it before re-enabling this flag."
+                )
+            group["properties"] = kept_properties
+        return warnings
 
     def _copy_feature_flag_schedules(self, source_schedules, target_flag, user, cohort_mapping, cohort_cache):
         """
@@ -413,6 +645,28 @@ class OrganizationFeatureFlagView(
                             continue
 
         return updated_payload
+
+    def _filter_flags_by_rbac(self, flags_qs: QuerySet, team_ids: list[int]) -> QuerySet:
+        """Apply per-team RBAC object-level filtering to a cross-team flag queryset.
+
+        For each team, instantiate a UserAccessControl scoped to that team and apply
+        filter_queryset_by_access_level so that flags the user has been explicitly denied
+        (via resource-level or object-level access controls) are excluded.  Org admins
+        always pass through — filter_queryset_by_access_level short-circuits for them.
+        """
+        teams = {t.id: t for t in Team.objects.filter(id__in=team_ids)}
+
+        allowed_ids: set[int] = set()
+        for team_id in team_ids:
+            team = teams.get(team_id)
+            if team is None:
+                continue
+            uac = UserAccessControl(user=cast(User, self.request.user), team=team)
+            team_qs = flags_qs.filter(team_id=team_id)
+            filtered_qs = uac.filter_queryset_by_access_level(team_qs, include_all_if_admin=True)
+            allowed_ids.update(filtered_qs.values_list("id", flat=True))
+
+        return flags_qs.filter(id__in=allowed_ids)
 
     def _extract_cohort_ids_from_schedules(self, schedules):
         """Extract all cohort IDs referenced in pending scheduled changes."""

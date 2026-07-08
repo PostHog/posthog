@@ -3,15 +3,16 @@ import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
 import { useState } from 'react'
 
+import * as experimentPng from '@posthog/brand/hoggies/png/experiment'
 import { LemonInput, LemonSelect, LemonTag, Tooltip, lemonToast } from '@posthog/lemon-ui'
 
+import { pngHoggie } from 'lib/brand/hoggies'
 import { AccessControlAction } from 'lib/components/AccessControlAction'
 import { ActivityLog } from 'lib/components/ActivityLog/ActivityLog'
-import { AppShortcut } from 'lib/components/AppShortcuts/AppShortcut'
-import { keyBinds } from 'lib/components/AppShortcuts/shortcuts'
-import { ExperimentsHog } from 'lib/components/hedgehogs'
-import { MemberSelect } from 'lib/components/MemberSelect'
+import { MemberMultiSelect } from 'lib/components/MemberMultiSelect'
 import { ProductIntroduction } from 'lib/components/ProductIntroduction/ProductIntroduction'
+import { Shortcut } from 'lib/components/Shortcuts/Shortcut'
+import { keyBinds } from 'lib/components/Shortcuts/shortcuts'
 import { dayjs } from 'lib/dayjs'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { More } from 'lib/lemon-ui/LemonButton/More'
@@ -21,8 +22,8 @@ import { LemonTable, LemonTableColumn, LemonTableColumns } from 'lib/lemon-ui/Le
 import { atColumn, createdAtColumn, createdByColumn } from 'lib/lemon-ui/LemonTable/columnUtils'
 import { LemonTableLink } from 'lib/lemon-ui/LemonTable/LemonTableLink'
 import { LemonTabs } from 'lib/lemon-ui/LemonTabs'
-import { pluralize } from 'lib/utils'
 import { addProductIntentForCrossSell } from 'lib/utils/product-intents'
+import { pluralize } from 'lib/utils/strings'
 import stringWithWBR from 'lib/utils/stringWithWBR'
 import MaxTool from 'scenes/max/MaxTool'
 import { useMaxTool } from 'scenes/max/useMaxTool'
@@ -62,7 +63,8 @@ import { ExperimentVelocityStats } from './ExperimentVelocityStats'
 import { StatusTag } from './ExperimentView/StatusTag'
 import { Holdouts } from './Holdouts'
 import { SharedMetrics } from './SharedMetrics/SharedMetrics'
-import { isLegacyExperiment } from './utils'
+
+const HedgehogExperiment = pngHoggie(experimentPng)
 
 export const scene: SceneExport = {
     component: Experiments,
@@ -111,7 +113,7 @@ const ExperimentsTableFilters = ({
     return (
         <div className="flex justify-between gap-2 flex-wrap">
             <div className="flex items-center gap-6">
-                <AppShortcut
+                <Shortcut
                     name="SearchExperiments"
                     keybind={[keyBinds.filter]}
                     intent="Search experiments"
@@ -124,7 +126,7 @@ const ExperimentsTableFilters = ({
                         onChange={(search) => onFiltersChange({ search, page: 1 })}
                         value={filters.search || ''}
                     />
-                </AppShortcut>
+                </Shortcut>
                 <div className="flex items-center gap-2">
                     <span>
                         <b>Status</b>
@@ -155,16 +157,16 @@ const ExperimentsTableFilters = ({
                     <span className="ml-1">
                         <b>Created by</b>
                     </span>
-                    <MemberSelect
+                    <MemberMultiSelect
                         defaultLabel="Any user"
-                        value={filters.created_by_id ?? null}
+                        value={filters.created_by_id ?? []}
                         size="xsmall"
-                        onChange={(user) => {
-                            if (!user) {
+                        onChange={(userIds) => {
+                            if (!userIds.length) {
                                 const { created_by_id, ...restFilters } = filters
                                 onFiltersChange({ ...restFilters, page: 1 }, true)
                             } else {
-                                onFiltersChange({ created_by_id: user.id, page: 1 })
+                                onFiltersChange({ created_by_id: userIds, page: 1 })
                             }
                         }}
                     />
@@ -230,7 +232,7 @@ const ExperimentsTable = ({
                                         No-code
                                     </LemonTag>
                                 )}
-                                {isLegacyExperiment(experiment) && (
+                                {experiment.is_legacy && (
                                     <Tooltip
                                         title="This experiment uses the legacy engine, so some features and improvements may be missing."
                                         docLink="https://posthog.com/docs/experiments/new-experimentation-engine"
@@ -279,7 +281,7 @@ const ExperimentsTable = ({
             key: 'remaining_time',
             width: 80,
             render: function Render(_, experiment: Experiment) {
-                const remainingDays = experiment.parameters?.recommended_running_time
+                const remainingDays = experiment.running_time_calculation?.recommended_running_time
                 const daysElapsed = experiment.start_date
                     ? dayjs().diff(dayjs(experiment.start_date), 'day')
                     : undefined
@@ -387,7 +389,7 @@ const ExperimentsTable = ({
                                     size="small"
                                     fullWidth
                                     disabledReason={
-                                        isLegacyExperiment(experiment)
+                                        experiment.is_legacy
                                             ? 'Not supported for experiments using legacy metrics. Please recreate the experiment manually.'
                                             : undefined
                                     }
@@ -400,7 +402,7 @@ const ExperimentsTable = ({
                                         size="small"
                                         fullWidth
                                         disabledReason={
-                                            isLegacyExperiment(experiment)
+                                            experiment.is_legacy
                                                 ? 'Copying is not supported for experiments using legacy metrics.'
                                                 : undefined
                                         }
@@ -427,8 +429,11 @@ const ExperimentsTable = ({
                                     >
                                         <LemonButton
                                             onClick={() =>
-                                                confirmArchiveExperiment(() =>
-                                                    archiveExperiment(experiment.id as number)
+                                                confirmArchiveExperiment(experiment, (disableFlag) =>
+                                                    archiveExperiment({
+                                                        id: experiment.id as number,
+                                                        disableFeatureFlag: disableFlag,
+                                                    })
                                                 )
                                             }
                                             data-attr={`experiment-${experiment.id}-dropdown-archive`}
@@ -497,7 +502,7 @@ const ExperimentsTable = ({
                         docsURL="https://posthog.com/docs/experiments"
                         action={() => router.actions.push(urls.experiment('new'))}
                         isEmpty={shouldShowEmptyState}
-                        customHog={ExperimentsHog}
+                        customHog={HedgehogExperiment}
                         className="my-0"
                         mcpSurfaceKey="experiments.create"
                     />
@@ -601,7 +606,7 @@ export function Experiments(): JSX.Element {
                                     active={true}
                                     context={{}}
                                 >
-                                    <AppShortcut
+                                    <Shortcut
                                         name="NewExperiment"
                                         keybind={[keyBinds.new]}
                                         intent="New experiment"
@@ -617,7 +622,7 @@ export function Experiments(): JSX.Element {
                                         >
                                             <span className="pr-3">New experiment</span>
                                         </LemonButton>
-                                    </AppShortcut>
+                                    </Shortcut>
                                 </MaxTool>
                             </div>
                         </AccessControlAction>

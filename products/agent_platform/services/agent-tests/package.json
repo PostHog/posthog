@@ -1,0 +1,40 @@
+{
+    "name": "@posthog/agent-tests",
+    "version": "0.1.0",
+    "private": true,
+    "description": "End-to-end test harness for the v2 agent platform. Boots ingress + runner + janitor in-process, fires triggers, asserts on outcomes.",
+    "license": "MIT",
+    "author": "PostHog <hey@posthog.com>",
+    "type": "module",
+    "scripts": {
+        "lint": "oxlint --quiet .",
+        "format": "oxfmt .",
+        "format:check": "oxfmt --check .",
+        "typescript:check": "tsc --noEmit -p .",
+        "test": "vitest run"
+    },
+    "dependencies": {
+        "@earendil-works/pi-ai": "^0.75.5",
+        "@posthog/agent-ingress": "workspace:*",
+        "@posthog/agent-janitor": "workspace:*",
+        "@posthog/agent-runner": "workspace:*",
+        "@posthog/agent-shared": "workspace:*",
+        "@posthog/agent-tools": "workspace:*",
+        "pg": "^8.6.0"
+    },
+    "devDependencies": {
+        "@modelcontextprotocol/sdk": "^1.29.0",
+        "@types/express": "^4.17.21",
+        "@types/node": "catalog:",
+        "@types/pg": "^8.6.0",
+        "@types/supertest": "^6.0.2",
+        "express": "^4.21.1",
+        "supertest": "^7.0.0",
+        "typescript": "catalog:",
+        "vitest": "^4.1.0",
+        "zod": "^4.3.6"
+    },
+    "engines": {
+        "node": ">=24 <25"
+    }
+}

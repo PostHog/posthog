@@ -14,7 +14,6 @@ import temporalio.activity
 import temporalio.workflow
 from temporalio.common import MetricHistogramFloat
 
-from posthog.models.cohort.cohort import Cohort, CohortType
 from posthog.sync import database_sync_to_async
 from posthog.temporal.common.base import PostHogWorkflow
 from posthog.temporal.common.logger import get_logger
@@ -24,6 +23,8 @@ from posthog.temporal.messaging.realtime_cohort_calculation_workflow import (
     RealtimeCohortCalculationWorkflow,
     RealtimeCohortCalculationWorkflowInputs,
 )
+
+from products.cohorts.backend.models.cohort import Cohort, CohortType
 
 LOGGER = get_logger(__name__)
 

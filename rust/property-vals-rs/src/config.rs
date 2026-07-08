@@ -7,6 +7,8 @@ use std::{num::ParseIntError, str::FromStr};
 use common_continuous_profiling::ContinuousProfilingConfig;
 use common_kafka::config::{ConsumerConfig, KafkaConfig};
 use common_kafka::kafka_producer::EnvelopeEncoding;
+
+use crate::producer::WireFormat;
 use envconfig::Envconfig;
 use siphasher::sip::SipHasher13;
 
@@ -32,6 +34,9 @@ pub struct Config {
     // incrementally. `none` by default.
     #[envconfig(default = "none")]
     pub intermediate_topic_encoding: EnvelopeEncoding,
+
+    #[envconfig(default = "json")]
+    pub intermediate_topic_format: WireFormat,
 
     #[envconfig(default = "clickhouse-property-vals-rs-merger")]
     pub merger_consumer_group: String,
@@ -86,7 +91,7 @@ pub struct LengthCaps {
     #[envconfig(default = "400")]
     pub max_property_key_len: usize,
 
-    #[envconfig(default = "255")]
+    #[envconfig(default = "10000")]
     pub max_property_value_len: usize,
 }
 
@@ -204,7 +209,7 @@ mod tests {
     fn length_caps_default_when_env_unset() {
         let caps = LengthCaps::init_from_hashmap(&std::collections::HashMap::new()).unwrap();
         assert_eq!(caps.max_property_key_len, 400);
-        assert_eq!(caps.max_property_value_len, 255);
+        assert_eq!(caps.max_property_value_len, 10000);
     }
 
     #[test]

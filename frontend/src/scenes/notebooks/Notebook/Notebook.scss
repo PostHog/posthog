@@ -447,45 +447,50 @@
                 cursor: text;
             }
         }
+    }
 
-        .NotebookLatex {
-            font-size: 1.1em;
-            line-height: 1.5;
-            text-align: center;
+    // Kept at .Notebook level so LaTeX renders the same in the classic editor and markdown v2
+    .NotebookLatex {
+        font-size: 1.1em;
+        line-height: 1.5;
+        text-align: center;
 
-            &[data-display='true'] {
-                display: block;
-                margin: 1.5em 0;
-                font-size: 1.2em;
-                text-align: center;
-            }
-
-            &[data-display='false'] {
-                display: inline;
-                vertical-align: middle;
-            }
-
-            // Style for the MathJax rendered content
-            .MathJax {
-                font-size: 1.1em;
-            }
-        }
-
-        .NotebookLatex mjx-container {
-            padding: 1em 0;
-        }
-
-        .NotebookLatex mjx-container,
-        .NotebookLatex svg {
+        &[data-display='true'] {
             display: block;
-            margin-right: auto;
-            margin-left: auto;
+            margin: 1.5em 0;
+            font-size: 1.2em;
+            text-align: center;
         }
+
+        &[data-display='false'] {
+            display: inline;
+            vertical-align: middle;
+        }
+
+        // Style for the MathJax rendered content
+        .MathJax {
+            font-size: 1.1em;
+        }
+    }
+
+    .NotebookLatex mjx-container {
+        padding: 1em 0;
+    }
+
+    .NotebookLatex mjx-container,
+    .NotebookLatex svg {
+        display: block;
+        margin-right: auto;
+        margin-left: auto;
     }
 
     &--compact:not(.Notebook--canvas) {
         .NotebookEditor {
             max-width: 50rem;
+        }
+
+        .Notebook__markdown-v2 {
+            --markdown-notebook-canvas-max-width: 50rem;
         }
     }
 
@@ -545,7 +550,11 @@
             flex: 1;
 
             // Add some padding to help clicking below the last element
-            padding-bottom: 10rem;
+            padding-bottom: 6rem;
+        }
+
+        .Notebook__markdown-v2 .MarkdownNotebook__canvas {
+            padding-bottom: 6rem;
         }
 
         .NotebookColumn--left.NotebookColumn--showing {
@@ -613,6 +622,13 @@
     }
 }
 
+.Notebook__top-actions {
+    display: flex;
+    justify-content: flex-end;
+    padding: 0 0.75rem;
+    margin-bottom: 0.75rem;
+}
+
 .Notebook_content {
     display: flex;
     flex: 1;
@@ -624,10 +640,103 @@
     }
 }
 
+.Notebook__markdown-v2 {
+    // Notebook provides its own width constraint; let the canvas fill it. Overriding the
+    // variable (not the canvas rule) keeps the debug toolbar's right-edge calc in sync,
+    // so the code icon hugs the first text block's right edge at any viewport width.
+    --markdown-notebook-canvas-max-width: 100%;
+
+    flex: 1;
+    width: 100%;
+    min-width: 0;
+    margin: 0 auto;
+}
+
+body:has(.Notebook--markdown-v2),
+.Navigation3000:has(.Notebook--markdown-v2),
+.main-content-container:has(.Notebook--markdown-v2) > main {
+    --notebook-markdown-v2-page-background: var(--color-bg-primary);
+    --scene-layout-background: var(--notebook-markdown-v2-page-background);
+
+    background: var(--notebook-markdown-v2-page-background);
+}
+
+[theme='dark']:has(.Notebook--markdown-v2),
+[theme='dark'] .Navigation3000:has(.Notebook--markdown-v2),
+[theme='dark'] .main-content-container:has(.Notebook--markdown-v2) > main {
+    --notebook-markdown-v2-page-background: var(--color-bg-surface-primary);
+}
+
+.Notebook--markdown-v2 {
+    --notebook-markdown-v2-page-background: var(--color-bg-primary);
+
+    background: var(--notebook-markdown-v2-page-background);
+
+    [theme='dark'] & {
+        --notebook-markdown-v2-page-background: var(--color-bg-surface-primary);
+    }
+
+    .Notebook_content,
+    .Notebook__markdown-v2,
+    .Notebook__markdown-v2 .MarkdownNotebook__debug-layout,
+    .Notebook__markdown-v2 .MarkdownNotebook__main,
+    .Notebook__markdown-v2 .MarkdownNotebook__canvas {
+        background: var(--notebook-markdown-v2-page-background);
+    }
+
+    .Notebook__markdown-v2 {
+        --markdown-notebook-component-background: var(--color-bg-surface-primary);
+
+        [theme='dark'] & {
+            --markdown-notebook-component-background: var(--color-bg-surface-tertiary);
+        }
+    }
+}
+
+.Notebook--markdown-v2.Notebook--expanded {
+    .main-content-container > main > & {
+        width: 100%;
+        width: var(--scene-layout-rect-width);
+        max-width: none;
+        margin-left: -1rem;
+    }
+
+    .Notebook_content {
+        padding-right: 0;
+        padding-left: 0;
+
+        .Notebook__markdown-v2,
+        .MarkdownNotebook__debug-layout,
+        .MarkdownNotebook__main,
+        .MarkdownNotebook__canvas {
+            width: 100%;
+            max-width: none;
+        }
+
+        .SidePanel3000 & {
+            padding: 0 0.75rem;
+        }
+    }
+}
+
 .NotebookProfileCanvas {
     .Notebook_content {
         padding: 0;
     }
+}
+
+.NotebookPresence__ai-bubble {
+    position: relative;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 1.5rem;
+    height: 1.5rem;
+    padding: 0;
+    color: var(--white);
+    background: var(--notebook-ai-presence-color, var(--color-accent));
+    border: 0;
+    border-radius: 50%;
 }
 
 // Google-Docs-style remote presence carets + name flag.

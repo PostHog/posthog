@@ -15,9 +15,11 @@ from products.tracing.backend.logic import TraceSpansQueryRunner
 
 DATE_FROM = "2026-06-02T07:00:00Z"
 DATE_TO = "2026-06-02T09:00:00Z"
-# One trace: a root ("GET /api") with two children ("redis_cluster.discovery", "clickhouse.query").
+# Trace A (service "web" throughout): root "GET /api" with two children.
 ROOT_NAME = "GET /api"
 CHILD_NAME = "redis_cluster.discovery"
+# Trace B: its root runs on service "worker" (won't match a "web" filter), but a child runs on "web".
+OTHER_ROOT_NAME = "POST /webhook"
 
 
 def _b64(raw: bytes) -> str:
@@ -40,24 +42,32 @@ class TestRootSpansFilter(ClickhouseTestMixin, APIBaseTest):
         )
         sync_execute(TRACE_SPANS_DISTRIBUTED_TABLE_SQL())
 
-        trace_id = _b64((1).to_bytes(16, "big"))
-        root_span_id = _b64((1).to_bytes(8, "big"))
+        trace_a = _b64((1).to_bytes(16, "big"))
+        trace_b = _b64((2).to_bytes(16, "big"))
+        root_a = _b64((1).to_bytes(8, "big"))
+        root_b = _b64((4).to_bytes(8, "big"))
         base = dt.datetime(2026, 6, 2, 8, 0, 0)
 
-        def _row(uuid_suffix: int, span_id: str, parent: str, name: str, offset_ms: int) -> str:
+        def _row(
+            uuid_suffix: int, trace_id: str, span_id: str, parent: str, name: str, service: str, offset_ms: int
+        ) -> str:
             ts = base + dt.timedelta(milliseconds=offset_ms)
             ts_str = ts.strftime("%Y-%m-%d %H:%M:%S.%f")
             return (
                 "("
                 f"'019e8754-0000-0000-0000-{uuid_suffix:012d}', {cls.team.id}, '{trace_id}', "
-                f"'{span_id}', '{parent}', '{name}', 2, '{ts_str}', '{ts_str}', '{ts_str}', 0, 'web'"
+                f"'{span_id}', '{parent}', '{name}', 2, '{ts_str}', '{ts_str}', '{ts_str}', 0, '{service}'"
                 ")"
             )
 
         rows = [
-            _row(1, root_span_id, "", ROOT_NAME, 0),
-            _row(2, _b64((2).to_bytes(8, "big")), root_span_id, CHILD_NAME, 10),
-            _row(3, _b64((3).to_bytes(8, "big")), root_span_id, "clickhouse.query", 20),
+            # Trace A: root and both children on service "web".
+            _row(1, trace_a, root_a, "", ROOT_NAME, "web", 0),
+            _row(2, trace_a, _b64((2).to_bytes(8, "big")), root_a, CHILD_NAME, "web", 10),
+            _row(3, trace_a, _b64((3).to_bytes(8, "big")), root_a, "clickhouse.query", "web", 20),
+            # Trace B: root on "worker" (won't match a "web" filter), child on "web" (will).
+            _row(4, trace_b, root_b, "", OTHER_ROOT_NAME, "worker", 0),
+            _row(5, trace_b, _b64((5).to_bytes(8, "big")), root_b, CHILD_NAME, "web", 10),
         ]
         sync_execute(
             "INSERT INTO trace_spans (uuid, team_id, trace_id, span_id, parent_span_id, name, kind, "
@@ -72,32 +82,36 @@ class TestRootSpansFilter(ClickhouseTestMixin, APIBaseTest):
         sync_execute(TRACE_SPANS_DISTRIBUTED_TABLE_SQL())
         super().tearDownClass()
 
-    def _run(self, *, root_spans: bool | None, prefetch: int) -> list[dict]:
+    def _run(self, *, root_spans: bool | None, prefetch: int, service_names: list[str] | None = None) -> list[dict]:
         query = TraceSpansQuery(
             dateRange=DateRange(date_from=DATE_FROM, date_to=DATE_TO),
-            orderBy="latest",
+            orderBy="timestamp",
             limit=100,
             rootSpans=root_spans,
             prefetchSpans=prefetch,
+            serviceNames=service_names,
         )
         return TraceSpansQueryRunner(query, self.team).run().results
 
     @parameterized.expand(
         [
-            # rootSpans=True collapses to the single root span even with a high prefetch.
-            ("true_returns_only_root", True, True),
-            # rootSpans=False keeps children so the child span (redis_cluster.discovery) comes through.
-            ("false_includes_children", False, False),
-            # The frontend sends None; it relies on prefetch to populate the waterfall (children present).
-            ("none_unchanged_includes_children", None, False),
+            # rootSpans=True selects traces by ROOT match: only trace A (its root is on "web").
+            # Trace B is dropped because its root is on "worker", even though a child is on "web".
+            ("true_prefetches_children_excludes_nonroot_traces", True, False),
+            # rootSpans=False matches a trace on ANY span, so trace B comes through via its "web" child.
+            ("false_includes_child_matched_traces", False, True),
+            # The frontend sends None; it behaves like False (relies on prefetch for the waterfall).
+            ("none_includes_child_matched_traces", None, True),
         ]
     )
-    def test_root_spans_filter(self, _name, root_spans, expect_only_root):
-        results = self._run(root_spans=root_spans, prefetch=20)
+    def test_root_spans_filter(self, _name, root_spans, expect_other_trace):
+        results = self._run(root_spans=root_spans, prefetch=20, service_names=["web"])
         names = {r["name"] for r in results}
-        if expect_only_root:
-            self.assertEqual([r["name"] for r in results], [ROOT_NAME])
-            self.assertTrue(all(r["is_root_span"] for r in results))
+        # Trace A's root always matches the filter, and its children are always prefetched for the
+        # waterfall regardless of rootSpans — this is the regression guard for the root_filter fix.
+        self.assertIn(ROOT_NAME, names)
+        self.assertIn(CHILD_NAME, names)
+        if expect_other_trace:
+            self.assertIn(OTHER_ROOT_NAME, names)
         else:
-            self.assertIn(CHILD_NAME, names)
-            self.assertIn(ROOT_NAME, names)
+            self.assertNotIn(OTHER_ROOT_NAME, names)

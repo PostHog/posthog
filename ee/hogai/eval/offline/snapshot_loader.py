@@ -13,9 +13,10 @@ from dagster_pipes import PipesContext
 from fastavro import reader
 from pydantic_avro import AvroBase
 
-from posthog.models import GroupTypeMapping, Organization, Project, PropertyDefinition, Team, User
+from posthog.models import Organization, Project, PropertyDefinition, Team, User
+from posthog.persons_db import persons_db_aconnection
 
-from products.warehouse_sources.backend.models.table import DataWarehouseTable
+from products.warehouse_sources.backend.facade.models import DataWarehouseTable
 
 from ee.hogai.eval.schema import (
     ActorsPropertyTaxonomySnapshot,
@@ -116,7 +117,7 @@ class SnapshotLoader:
         content = await response["Body"].read()
         return BytesIO(content)
 
-    def _parse_snapshot_to_schema(self, schema: type[T], buffer: BytesIO) -> Generator[T, None, None]:
+    def _parse_snapshot_to_schema(self, schema: type[T], buffer: BytesIO) -> Generator[T]:
         for record in reader(buffer):
             yield schema.model_validate(record)
 
@@ -138,12 +139,23 @@ class SnapshotLoader:
 
     async def _load_group_type_mappings(self, buffer: BytesIO, *, team: Team, project: Project):
         snapshot = list(self._parse_snapshot_to_schema(GroupTypeMappingSnapshot, buffer))
-        group_type_mappings = GroupTypeMappingSnapshot.deserialize_for_team(
-            snapshot, team_id=team.id, project_id=project.id
+        group_type_mappings = list(
+            GroupTypeMappingSnapshot.deserialize_for_team(snapshot, team_id=team.id, project_id=project.id)
         )
-        return await GroupTypeMapping.objects.abulk_create(  # nosemgrep: no-direct-persons-db-orm
-            group_type_mappings, batch_size=500
-        )  # nosemgrep: no-direct-persons-db-orm
+        if not group_type_mappings:
+            return []
+        # Written through the off-ORM persons connection so the persons DB stays decoupled from Django.
+        async with persons_db_aconnection(writer=True) as conn, conn.cursor() as cursor:
+            await cursor.executemany(
+                "INSERT INTO posthog_grouptypemapping "
+                "(team_id, project_id, group_type, group_type_index, name_singular, name_plural) "
+                "VALUES (%s, %s, %s, %s, %s, %s)",
+                [
+                    (m.team_id, m.project_id, m.group_type, m.group_type_index, m.name_singular, m.name_plural)
+                    for m in group_type_mappings
+                ],
+            )
+        return group_type_mappings
 
     async def _load_data_warehouse_tables(self, buffer: BytesIO, *, team: Team, project: Project):
         snapshot = list(self._parse_snapshot_to_schema(DataWarehouseTableSnapshot, buffer))

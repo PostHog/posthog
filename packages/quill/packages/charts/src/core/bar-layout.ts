@@ -1,6 +1,7 @@
 import type { BarRect, BarRoundedCorners } from './canvas-renderer'
 import { type BarScaleSet, groupedBandSlot, type StackedBand } from './scales'
-import type { Series } from './types'
+import type { ResolvedSeries, Series } from './types'
+import { DEFAULT_Y_AXIS_ID } from './types'
 
 /** Brand for the BarChart `ChartScales._private` slot — populated by BarChart and
  *  narrowed by its draw callbacks. */
@@ -9,6 +10,9 @@ export interface BarChartPrivate {
 }
 
 export type SeriesBarLayout = (BarRect | null)[]
+
+// Sub-pixel overlap between adjacent stacked segments, to hide anti-aliased seams at shared edges.
+const STACK_SEGMENT_OVERLAP_PX = 0.5
 
 /** Cap is the side away from the value-axis baseline; pass `shouldRoundCap: false` for stacked
  *  layers below the topmost. `shouldRoundBaseline` rounds the side *towards* the baseline — used
@@ -47,6 +51,120 @@ export function cornersFor(
         }
     }
     return corners
+}
+
+// A segment thinner than this can't visibly carry a rounded cap; skipping it stops an invisible
+// sliver (e.g. a zero-valued breakdown at the top of the stack order) from stealing the cap.
+const MIN_CAP_SEGMENT_PX = 0.5
+
+// How far a cap edge must clear the baseline to count as extending in that direction. Same value
+// as MIN_CAP_SEGMENT_PX but a distinct concept: an epsilon around the baseline, not a segment size.
+const BASELINE_TOLERANCE_PX = 0.5
+
+/** Re-resolve stacked cap rounding per band, geometrically, from the laid-out rects: within each
+ *  `dataIndex`, only the segment reaching furthest away from the baseline in each direction keeps
+ *  a rounded cap — everything else's cap is squared. Decided after layout so breakdown stacks
+ *  (whose top layer varies band to band) and diverging stacks (negative bottoms) round the actual
+ *  outer segment, not the last series in stack order. Mutates `corners` in place; baseline
+ *  corners are untouched. */
+export function roundOuterStackCaps(bars: BarRect[], isHorizontal: boolean, baselinePx: number): void {
+    const outerPositive = new Map<number, BarRect>()
+    const outerNegative = new Map<number, BarRect>()
+    for (const bar of bars) {
+        const size = isHorizontal ? bar.width : bar.height
+        if (size < MIN_CAP_SEGMENT_PX) {
+            continue
+        }
+        // The cap edge, signed so "further from the baseline" compares uniformly per direction.
+        // Vertical: smaller y is further up; horizontal: larger x+width is further right.
+        if (isHorizontal) {
+            if (bar.x + bar.width > baselinePx + BASELINE_TOLERANCE_PX) {
+                const prev = outerPositive.get(bar.dataIndex)
+                if (!prev || bar.x + bar.width >= prev.x + prev.width) {
+                    outerPositive.set(bar.dataIndex, bar)
+                }
+            }
+            if (bar.x < baselinePx - BASELINE_TOLERANCE_PX) {
+                const prev = outerNegative.get(bar.dataIndex)
+                if (!prev || bar.x <= prev.x) {
+                    outerNegative.set(bar.dataIndex, bar)
+                }
+            }
+        } else {
+            if (bar.y < baselinePx - BASELINE_TOLERANCE_PX) {
+                const prev = outerPositive.get(bar.dataIndex)
+                if (!prev || bar.y <= prev.y) {
+                    outerPositive.set(bar.dataIndex, bar)
+                }
+            }
+            if (bar.y + bar.height > baselinePx + BASELINE_TOLERANCE_PX) {
+                const prev = outerNegative.get(bar.dataIndex)
+                if (!prev || bar.y + bar.height >= prev.y + prev.height) {
+                    outerNegative.set(bar.dataIndex, bar)
+                }
+            }
+        }
+    }
+    for (const bar of bars) {
+        const isOuterPositive = outerPositive.get(bar.dataIndex) === bar
+        const isOuterNegative = outerNegative.get(bar.dataIndex) === bar
+        // Rewrite only the bar's own cap side (away from the baseline), so baseline-side rounding
+        // a caller may have applied is preserved. Same tolerance as the outer-segment classification
+        // above — a bar straddling the baseline within tolerance must resolve to the same direction
+        // it was classified under, or its rounding lands on the wrong side.
+        const positive = isHorizontal
+            ? bar.x + bar.width > baselinePx + BASELINE_TOLERANCE_PX
+            : bar.y < baselinePx - BASELINE_TOLERANCE_PX
+        const cap = isOuterPositive || isOuterNegative || undefined
+        if (isHorizontal) {
+            if (positive) {
+                bar.corners.topRight = bar.corners.bottomRight = cap
+            } else {
+                bar.corners.topLeft = bar.corners.bottomLeft = cap
+            }
+        } else if (positive) {
+            bar.corners.topLeft = bar.corners.topRight = cap
+        } else {
+            bar.corners.bottomLeft = bar.corners.bottomRight = cap
+        }
+    }
+}
+
+/** A laid-out bar paired with the axis its series scales against (`Series.yAxisId`). */
+export interface AxisBarEntry {
+    bar: BarRect
+    yAxisId?: string
+}
+
+/** The shared cap-rounding pass over laid-out bars: groups them by value axis and runs
+ *  {@link roundOuterStackCaps} per group against that axis's own zero pixel — a secondary-axis
+ *  stack (ComboChart) must not be judged against the primary baseline. Owns the layout guard:
+ *  no-op for grouped layouts (caps are per-bar) and under `roundStackEnds` (the pill clip owns
+ *  the corners), so static, hover, and cursor paths can't diverge on when the pass applies. */
+export function applyOuterStackCaps(
+    entries: readonly AxisBarEntry[],
+    scales: BarScaleSet,
+    isHorizontal: boolean,
+    layout: 'stacked' | 'grouped' | 'percent',
+    roundStackEnds: boolean = false
+): void {
+    if (layout === 'grouped' || roundStackEnds) {
+        return
+    }
+    const barsByAxis = new Map<string, BarRect[]>()
+    for (const { bar, yAxisId } of entries) {
+        const axisId = yAxisId ?? DEFAULT_Y_AXIS_ID
+        const group = barsByAxis.get(axisId)
+        if (group) {
+            group.push(bar)
+        } else {
+            barsByAxis.set(axisId, [bar])
+        }
+    }
+    for (const [axisId, bars] of barsByAxis) {
+        const valueScale = scales.yAxes?.[axisId]?.scale ?? scales.value
+        roundOuterStackCaps(bars, isHorizontal, valueScale(0))
+    }
 }
 
 function makeBarRect(
@@ -112,6 +230,54 @@ export function computeSeriesBars({
     return result
 }
 
+/** One drawn series and its computed rects — the unit both BarChart and ComboChart iterate. */
+export interface BarLayer {
+    series: ResolvedSeries
+    bars: BarRect[]
+}
+
+export interface BuildBarLayersOptions {
+    series: readonly ResolvedSeries[]
+    labels: string[]
+    scales: BarScaleSet
+    layout: 'stacked' | 'grouped' | 'percent'
+    isHorizontal: boolean
+    stackedData?: Map<string, StackedBand>
+    topStackedKeyByAxis: Map<string, string>
+}
+
+/** Compute the bar rects for every visible series — the per-series `computeSeriesBars` loop shared by
+ *  `drawBarChartStatic` and ComboChart so the band/axis/stack wiring lives in one place. Excluded
+ *  series are dropped; nulls (overlay/CI-band series with no stacked entry) are filtered out. */
+export function buildBarLayers({
+    series,
+    labels,
+    scales,
+    layout,
+    isHorizontal,
+    stackedData,
+    topStackedKeyByAxis,
+}: BuildBarLayersOptions): BarLayer[] {
+    const layers: BarLayer[] = []
+    for (const s of series) {
+        if (s.visibility?.excluded) {
+            continue
+        }
+        const axisId = s.yAxisId ?? DEFAULT_Y_AXIS_ID
+        const bars = computeSeriesBars({
+            series: s,
+            labels,
+            scales,
+            layout,
+            isHorizontal,
+            stackedBand: stackedData?.get(s.key),
+            isTopOfStack: topStackedKeyByAxis.get(axisId) === s.key,
+        }).filter((b): b is BarRect => b !== null)
+        layers.push({ series: s, bars })
+    }
+    return layers
+}
+
 export interface ComputeBarAtIndexOptions {
     series: Series
     label: string
@@ -160,18 +326,29 @@ export function computeBarAtIndex({
     const shouldRoundBaseline = isGrouped ? false : (baseRounded ?? false)
     const bandWidth = scales.band.bandwidth()
 
+    // Grouped multi-axis: each series scales against its own value axis. Falls back to the
+    // shared `value` scale when only one axis is present (`yAxes` unset).
+    const valueScale = scales.yAxes?.[series.yAxisId ?? DEFAULT_Y_AXIS_ID]?.scale ?? scales.value
+
     if (isGrouped) {
         const slot = groupedBandSlot(scales, label, series.key)
-        const valuePixel = scales.value(raw)
+        const valuePixel = valueScale(raw)
         if (!slot || !isFinite(valuePixel)) {
             return null
         }
         const corners = cornersFor(isHorizontal, raw >= 0, shouldRoundCap)
-        return makeBarRect(isHorizontal, slot.x, slot.width, scales.value(0), valuePixel, corners, dataIndex)
+        // A fixed `valueDomain` (e.g. [50, 100]) makes `valueScale(0)` extrapolate outside the
+        // plot, so the bar would bleed through the axis. Clamp the baseline to the scale's range.
+        const [r0, r1] = valueScale.range()
+        const baseline = Math.min(Math.max(valueScale(0), Math.min(r0, r1)), Math.max(r0, r1))
+        return makeBarRect(isHorizontal, slot.x, slot.width, baseline, valuePixel, corners, dataIndex)
     }
 
-    const topPixel = scales.value(stackedBand!.top[dataIndex])
-    const bottomPixel = scales.value(stackedBand!.bottom[dataIndex])
+    // Resolve against the series' own axis (mirrors the grouped branch above), so a stacked bar on
+    // a non-default `yAxisId` — only ComboChart combines stacking with per-series axes — is hit-tested
+    // and drawn against the same scale. For single-axis charts `valueScale` is `scales.value`.
+    const topPixel = valueScale(stackedBand!.top[dataIndex])
+    const bottomPixel = valueScale(stackedBand!.bottom[dataIndex])
     if (!isFinite(topPixel) || !isFinite(bottomPixel)) {
         return null
     }
@@ -179,7 +356,16 @@ export function computeBarAtIndex({
     // which differs by orientation: horizontal = larger x-pixel, vertical = smaller y-pixel (axis is inverted).
     const isPositive = isHorizontal ? topPixel >= bottomPixel : topPixel <= bottomPixel
     const corners = cornersFor(isHorizontal, isPositive, shouldRoundCap, shouldRoundBaseline)
-    return makeBarRect(isHorizontal, bandStart, bandWidth, topPixel, bottomPixel, corners, dataIndex)
+    // Extend an interior segment a sub-pixel toward the baseline so it overlaps its lower neighbour,
+    // hiding the faint anti-aliased seam where two adjacent fills meet on a fractional device pixel.
+    // The bottom-of-stack segment sits on the value-axis baseline, so it's left exact — extending it
+    // would only overpaint the axis. The cap (away-from-baseline) side is always exact so cap
+    // rounding and the stack's outer edge stay put.
+    const sitsOnBaseline = Math.abs(bottomPixel - valueScale(0)) < 0.001
+    const overlappedBottom = sitsOnBaseline
+        ? bottomPixel
+        : bottomPixel + STACK_SEGMENT_OVERLAP_PX * Math.sign(bottomPixel - topPixel)
+    return makeBarRect(isHorizontal, bandStart, bandWidth, topPixel, overlappedBottom, corners, dataIndex)
 }
 
 /** The track rect behind a bar — the bar's band slot stretched across the whole value
@@ -204,4 +390,18 @@ export function computeBarTrackRect(
               dataIndex: bar.dataIndex,
           }
         : { x: bar.x, y: valueMin, width: bar.width, height: valueSize, corners: bar.corners, dataIndex: bar.dataIndex }
+}
+
+/** Pixel center of a band along the band axis — the anchor for band-level tooltips and grid ticks. */
+export function bandCenter(scales: BarScaleSet, label: string): number | undefined {
+    const start = scales.band(label)
+    return start == null ? undefined : start + scales.band.bandwidth() / 2
+}
+
+/** Center of a specific series's bar within a band. Used by overlays (e.g. annotations)
+ *  to anchor on the current-period bar in compare-against-previous grouped layouts.
+ *  Returns undefined when the layout isn't grouped or the series isn't in the group scale. */
+export function groupedBarCenter(scales: BarScaleSet, label: string, seriesKey: string): number | undefined {
+    const slot = groupedBandSlot(scales, label, seriesKey)
+    return slot && slot.x + slot.width / 2
 }

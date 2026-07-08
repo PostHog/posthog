@@ -1,11 +1,13 @@
+import './menu.css'
+
 import { ContextMenu as ContextMenuPrimitive } from '@base-ui/react/context-menu'
 import { ChevronRightIcon } from 'lucide-react'
 import * as React from 'react'
 
 import { Button } from './button'
 import { Checkbox } from './checkbox'
+import { Kbd } from './kbd'
 import { cn } from './lib/utils'
-import './menu.css'
 import { RadioIndicator } from './radio-group'
 
 function ContextMenu({ ...props }: ContextMenuPrimitive.Root.Props): React.ReactElement {
@@ -17,7 +19,13 @@ function ContextMenuPortal({ ...props }: ContextMenuPrimitive.Portal.Props): Rea
 }
 
 function ContextMenuTrigger({ className, ...props }: ContextMenuPrimitive.Trigger.Props): React.ReactElement {
-    return <ContextMenuPrimitive.Trigger data-slot="context-menu-trigger" className={cn('select-none', className)} {...props} />
+    return (
+        <ContextMenuPrimitive.Trigger
+            data-slot="context-menu-trigger"
+            className={cn('select-none', className)}
+            {...props}
+        />
+    )
 }
 
 function ContextMenuContent({
@@ -90,11 +98,19 @@ function ContextMenuItem({
             data-inset={inset}
             data-variant={variant}
             className={cn(
-                "group/context-menu-item relative flex cursor-default items-center outline-hidden select-none [&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg:not([class*='size-'])]:size-3.5",
+                "group/context-menu-item relative flex cursor-default items-center outline-hidden select-none data-disabled:pointer-events-none data-disabled:opacity-50 [&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg:not([class*='size-'])]:size-3.5",
+                // Same destructive treatment as DropdownMenuItem: red text at rest, red tint on
+                // hover/highlight — never Button's filled `destructive` variant inside a menu.
+                // Disabled destructive mirrors the disabled destructive Button: 50%-mix red fill
+                // under the item-level opacity-50.
+                'data-[variant=destructive]:text-destructive-foreground data-[variant=destructive]:hover:text-destructive-foreground data-[variant=destructive]:[&_svg]:text-destructive-foreground data-[variant=destructive]:hover:bg-destructive/10 data-[variant=destructive]:focus:bg-destructive/10 data-[variant=destructive]:data-highlighted:bg-destructive/10 dark:data-[variant=destructive]:hover:bg-destructive/20 dark:data-[variant=destructive]:focus:bg-destructive/20 dark:data-[variant=destructive]:data-highlighted:bg-destructive/20 data-[variant=destructive]:data-disabled:bg-destructive/50',
                 inset && 'quill-menu-item--inset',
                 className
             )}
-            render={<Button variant={variant} className="w-full font-normal" left />}
+            // The default render is a real <button>; only declare nativeButton when the
+            // caller hasn't overridden render (their element may not be a button).
+            nativeButton={!('render' in props)}
+            render={<Button variant="default" className="w-full font-normal" left />}
             {...props}
         >
             {children}
@@ -123,6 +139,9 @@ function ContextMenuSubTrigger({
                 inset && 'quill-menu-item--inset',
                 className
             )}
+            // The default render is a real <button>; only declare nativeButton when the
+            // caller hasn't overridden render (their element may not be a button).
+            nativeButton={!('render' in props)}
             render={<Button className="w-full font-normal" left />}
             {...props}
         >
@@ -170,6 +189,9 @@ function ContextMenuCheckboxItem({
                 "quill-menu-item--inset relative flex cursor-default items-center pe-2 text-xs outline-hidden select-none data-disabled:pointer-events-none data-disabled:opacity-50 [&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg:not([class*='size-'])]:size-3.5",
                 className
             )}
+            // The default render is a real <button>; only declare nativeButton when the
+            // caller hasn't overridden render (their element may not be a button).
+            nativeButton={!('render' in props)}
             render={<Button className="w-full font-normal" left />}
             checked={checked}
             {...props}
@@ -205,6 +227,9 @@ function ContextMenuRadioItem({
                 "quill-menu-item--inset relative flex cursor-default items-center pe-2 outline-hidden select-none data-disabled:pointer-events-none data-disabled:opacity-50 [&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg:not([class*='size-'])]:size-3.5",
                 className
             )}
+            // The default render is a real <button>; only declare nativeButton when the
+            // caller hasn't overridden render (their element may not be a button).
+            nativeButton={!('render' in props)}
             render={<Button className="w-full font-normal" left />}
             {...props}
         >
@@ -220,11 +245,17 @@ function ContextMenuRadioItem({
 }
 
 function ContextMenuSeparator({ className, ...props }: ContextMenuPrimitive.Separator.Props): React.ReactElement {
-    return <ContextMenuPrimitive.Separator data-slot="context-menu-separator" className={cn('quill-menu__separator', className)} {...props} />
+    return (
+        <ContextMenuPrimitive.Separator
+            data-slot="context-menu-separator"
+            className={cn('quill-menu__separator', className)}
+            {...props}
+        />
+    )
 }
 
-function ContextMenuShortcut({ className, ...props }: React.ComponentProps<'span'>): React.ReactElement {
-    return <span data-slot="context-menu-shortcut" className={cn('quill-menu__shortcut', className)} {...props} />
+function ContextMenuShortcut({ className, ...props }: React.ComponentProps<typeof Kbd>): React.ReactElement {
+    return <Kbd data-slot="context-menu-shortcut" className={cn('quill-menu__shortcut', className)} {...props} />
 }
 
 export {

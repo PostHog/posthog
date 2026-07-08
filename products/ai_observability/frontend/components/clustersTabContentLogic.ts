@@ -6,7 +6,7 @@ import api from 'lib/api'
 
 import { hogql } from '~/queries/utils'
 
-import { NOISE_CLUSTER_ID } from '../clusters/constants'
+import { CLUSTERING_RUNS_LOOKBACK_DAYS, NOISE_CLUSTER_ID } from '../clusters/constants'
 import { Cluster } from '../clusters/types'
 import type { clustersTabContentLogicType } from './clustersTabContentLogicType'
 
@@ -40,12 +40,12 @@ export const clustersTabContentLogic = kea<clustersTabContentLogicType>([
                     const response = await api.queryHogQL(
                         hogql`
                             SELECT
-                                JSONExtractString(properties, '$ai_clustering_run_id') as run_id,
-                                JSONExtractRaw(properties, '$ai_clusters') as clusters_json,
+                                properties.$ai_clustering_run_id as run_id,
+                                properties.$ai_clusters as clusters_json,
                                 timestamp
                             FROM events
                             WHERE event = '$ai_trace_clusters'
-                                AND timestamp >= now() - INTERVAL 7 DAY
+                                AND timestamp >= now() - INTERVAL ${hogql.raw(String(CLUSTERING_RUNS_LOOKBACK_DAYS))} DAY
                             ORDER BY timestamp DESC
                             LIMIT 20
                         `,

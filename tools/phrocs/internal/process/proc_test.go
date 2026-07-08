@@ -882,3 +882,148 @@ func TestProcess_logFileDisabledByDefault(t *testing.T) {
 		t.Errorf("expected no log file when logDir unset; got err=%v", err)
 	}
 }
+
+func TestRestartBackoffFor(t *testing.T) {
+	tests := []struct {
+		attempt int
+		want    time.Duration
+	}{
+		{0, restartBackoffBase}, // clamped to 1
+		{1, 1 * time.Second},
+		{2, 2 * time.Second},
+		{3, 4 * time.Second},
+		{4, 8 * time.Second},
+		{5, 16 * time.Second},
+		{6, restartBackoffMax}, // 32s would exceed the cap
+		{7, restartBackoffMax},
+		{50, restartBackoffMax},
+	}
+	for _, tt := range tests {
+		t.Run(fmt.Sprintf("attempt-%d", tt.attempt), func(t *testing.T) {
+			if got := restartBackoffFor(tt.attempt); got != tt.want {
+				t.Errorf("restartBackoffFor(%d) = %s, want %s", tt.attempt, got, tt.want)
+			}
+		})
+	}
+}
+
+func TestProcess_autorestartAfterCrash(t *testing.T) {
+	// Shrink the backoff so the restart happens in milliseconds, not ~1s.
+	origBase, origMax := restartBackoffBase, restartBackoffMax
+	restartBackoffBase = 2 * time.Millisecond
+	restartBackoffMax = 5 * time.Millisecond
+	t.Cleanup(func() {
+		restartBackoffBase, restartBackoffMax = origBase, origMax
+	})
+
+	dir := t.TempDir()
+	mark := dir + "/runs"
+	// Append a line then crash, so each run leaves a trace and triggers autorestart.
+	p := NewProcess("crasher", config.ProcConfig{
+		Shell:       `echo run >> "$MARK"; exit 1`,
+		Autorestart: true,
+		Env:         map[string]string{"MARK": mark},
+	}, 100, "")
+
+	send, _, _ := collectMsgs()
+	if err := p.Start(send); err != nil {
+		t.Skipf("cannot spawn subprocess: %v", err)
+	}
+
+	// First crash restarts after the (shrunk) backoff, so a second run shows up
+	// shortly after.
+	deadline := time.After(5 * time.Second)
+	for {
+		data, _ := os.ReadFile(mark)
+		if strings.Count(string(data), "run") >= 2 {
+			break
+		}
+		select {
+		case <-deadline:
+			t.Fatalf("expected at least 2 runs from autorestart, got %q", string(data))
+		case <-time.After(25 * time.Millisecond):
+		}
+	}
+
+	// Stop the proc so the crash loop doesn't keep restarting after the test.
+	p.Stop()
+}
+
+func TestProcess_autorestartGivesUpAfterCap(t *testing.T) {
+	// Shrink the timings and cap so the full give-up flow runs in milliseconds.
+	origBase, origMax, origCap := restartBackoffBase, restartBackoffMax, maxRestartAttempts
+	restartBackoffBase = 2 * time.Millisecond
+	restartBackoffMax = 5 * time.Millisecond
+	maxRestartAttempts = 3
+	t.Cleanup(func() {
+		restartBackoffBase, restartBackoffMax, maxRestartAttempts = origBase, origMax, origCap
+	})
+
+	dir := t.TempDir()
+	mark := dir + "/runs"
+	p := NewProcess("crasher", config.ProcConfig{
+		Shell:       `echo run >> "$MARK"; exit 1`,
+		Autorestart: true,
+		Env:         map[string]string{"MARK": mark},
+	}, 100, "")
+
+	send, _, _ := collectMsgs()
+	if err := p.Start(send); err != nil {
+		t.Skipf("cannot spawn subprocess: %v", err)
+	}
+
+	// Wait for the give-up notice, which is only written once the cap is hit.
+	deadline := time.After(5 * time.Second)
+	for !strings.Contains(strings.Join(p.Lines(), "\n"), "gave up") {
+		select {
+		case <-deadline:
+			t.Fatalf("expected give-up notice after %d restarts", maxRestartAttempts)
+		case <-time.After(10 * time.Millisecond):
+		}
+	}
+
+	// Give any erroneous further restart a chance to fire, then assert the proc
+	// stayed dead and ran exactly maxRestartAttempts+1 times (initial + cap).
+	time.Sleep(50 * time.Millisecond)
+	if p.Status() != StatusCrashed {
+		t.Errorf("expected status crashed after giving up, got %s", p.Status())
+	}
+	data, _ := os.ReadFile(mark)
+	if got, want := strings.Count(string(data), "run"), maxRestartAttempts+1; got != want {
+		t.Errorf("expected %d runs before giving up, got %d", want, got)
+	}
+}
+
+func TestProcess_noAutorestartWhenDisabled(t *testing.T) {
+	dir := t.TempDir()
+	mark := dir + "/runs"
+	p := NewProcess("crasher", config.ProcConfig{
+		Shell: `echo run >> "$MARK"; exit 1`,
+		Env:   map[string]string{"MARK": mark},
+	}, 100, "")
+
+	send, _, _ := collectMsgs()
+	if err := p.Start(send); err != nil {
+		t.Skipf("cannot spawn subprocess: %v", err)
+	}
+
+	// Wait for the single run to finish and the proc to settle into crashed.
+	deadline := time.After(5 * time.Second)
+	for p.IsRunning() {
+		select {
+		case <-deadline:
+			t.Fatal("process did not exit in time")
+		case <-time.After(25 * time.Millisecond):
+		}
+	}
+
+	// Give any (erroneous) restart a chance to fire, then assert it stayed dead.
+	time.Sleep(restartBackoffBase + 200*time.Millisecond)
+	if p.Status() != StatusCrashed {
+		t.Errorf("expected status crashed, got %s", p.Status())
+	}
+	data, _ := os.ReadFile(mark)
+	if got := strings.Count(string(data), "run"); got != 1 {
+		t.Errorf("expected exactly 1 run without autorestart, got %d", got)
+	}
+}

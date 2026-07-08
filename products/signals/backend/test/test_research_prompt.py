@@ -2,7 +2,10 @@ from datetime import datetime
 
 import pytest
 
-from products.signals.backend.report_generation.research import _render_signal_for_research
+from products.signals.backend.report_generation.research import (
+    _render_signal_for_research,
+    build_initial_research_prompt,
+)
 from products.signals.backend.temporal.types import SignalData
 
 
@@ -66,3 +69,19 @@ class TestRenderSignalForResearch:
 
         assert "- images: [customer] https://media.posthog.com/ok.png" in rendered
         assert "[team]" not in rendered
+
+
+class TestBuildInitialResearchPrompt:
+    @pytest.mark.parametrize(
+        "has_bk, expected_present, extra_checks",
+        [
+            (True, True, ["business-knowledge-documents-search"]),
+            (False, False, []),
+        ],
+    )
+    def test_business_knowledge_block_presence(self, has_bk, expected_present, extra_checks):
+        signal = _make_signal({})
+        prompt = build_initial_research_prompt(signal, 1, has_business_knowledge=has_bk)
+        assert ("## Business knowledge" in prompt) == expected_present
+        for snippet in extra_checks:
+            assert snippet in prompt

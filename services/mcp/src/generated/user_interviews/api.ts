@@ -3,7 +3,7 @@
  * MCP service uses these Zod schemas for generated tool handlers.
  * To regenerate: hogli build:openapi
  *
- * PostHog API - MCP 18 enabled ops
+ * PostHog API - MCP 19 enabled ops
  * OpenAPI spec version: 1.0.0
  */
 import * as zod from 'zod'
@@ -188,6 +188,30 @@ export const UserInterviewTopicsLinksCsvCreateParams = /* @__PURE__ */ zod.objec
         .string()
         .describe(
             "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
+        ),
+})
+
+/**
+ * Render the invite email exactly as a specific targeted interviewee would receive it — personalized subject and body — without sending anything and without creating or reading any share links. Pass `interviewee_identifier` to preview for a particular person, or omit it to preview for the first targeted interviewee. The body always shows an illustrative placeholder link (`is_preview_link: true`), never a live interview URL.
+ */
+export const UserInterviewTopicsPreviewInviteCreateParams = /* @__PURE__ */ zod.object({
+    id: zod.string().describe('A UUID string identifying this user interview topic.'),
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
+        ),
+})
+
+export const userInterviewTopicsPreviewInviteCreateBodyIntervieweeIdentifierMax = 400
+
+export const UserInterviewTopicsPreviewInviteCreateBody = /* @__PURE__ */ zod.object({
+    interviewee_identifier: zod
+        .string()
+        .max(userInterviewTopicsPreviewInviteCreateBodyIntervieweeIdentifierMax)
+        .optional()
+        .describe(
+            'Which targeted interviewee to render the preview for (an email or PostHog distinct ID already on the topic). Leave blank to preview for the first targeted interviewee.'
         ),
 })
 
@@ -465,7 +489,7 @@ export const UserInterviewsSearchCreateBody = /* @__PURE__ */ zod.object({
             'Which document types to search across. Omit to default to both `transcript` and `summary`. Pass a non-empty subset to restrict the search.'
         ),
     topic_id: zod
-        .uuid()
+        .string()
         .nullish()
         .describe('Optional. Restrict results to interviews belonging to a specific UserInterviewTopic.'),
     classifications: zod

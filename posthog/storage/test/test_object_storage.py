@@ -4,10 +4,14 @@ import uuid
 from posthog.test.base import APIBaseTest
 from unittest.mock import MagicMock, patch
 
+from django.test import SimpleTestCase
+
 from boto3 import resource
 from botocore.client import Config
 from botocore.exceptions import ClientError
+from parameterized import parameterized
 
+import posthog.storage.object_storage as object_storage_module
 from posthog.settings import (
     OBJECT_STORAGE_ACCESS_KEY_ID,
     OBJECT_STORAGE_BUCKET,
@@ -17,11 +21,14 @@ from posthog.settings import (
 from posthog.storage.object_storage import (
     ObjectStorage,
     ObjectStorageError,
+    UnavailableStorage,
     copy_objects,
     get_presigned_post,
     get_presigned_url,
     health_check,
+    is_usable_endpoint,
     list_objects,
+    object_storage_client,
     read,
     write,
 )
@@ -213,3 +220,91 @@ class TestStorage(APIBaseTest):
 
         with self.assertRaises(ObjectStorageError):
             storage.read_bytes("test-bucket", "test-key")
+
+    def test_delete_objects_batches_keys_and_returns_failures(self) -> None:
+        mock_client = MagicMock()
+        mock_client.delete_objects.side_effect = [
+            {"Errors": [{"Key": "key-2"}]},
+            {},
+        ]
+        storage = ObjectStorage(mock_client)
+
+        failed_keys = storage.delete_objects("test-bucket", [f"key-{index}" for index in range(1001)])
+
+        assert failed_keys == ["key-2"]
+        assert mock_client.delete_objects.call_count == 2
+        assert len(mock_client.delete_objects.call_args_list[0].kwargs["Delete"]["Objects"]) == 1000
+        assert len(mock_client.delete_objects.call_args_list[1].kwargs["Delete"]["Objects"]) == 1
+
+
+class TestObjectStorageClientFactory(SimpleTestCase):
+    def setUp(self) -> None:
+        object_storage_module._client = UnavailableStorage()
+        self.addCleanup(setattr, object_storage_module, "_client", UnavailableStorage())
+
+    @parameterized.expand(
+        [
+            ("valid_http", "http://objectstorage:19000", True),
+            ("valid_https", "https://s3.amazonaws.com", True),
+            ("unsubstituted_placeholder", "https://${POSTHOG_DOMAIN}", False),
+            ("placeholder_in_path", "https://example.com/${BUCKET}", False),
+            ("missing_scheme", "objectstorage:19000", False),
+            ("empty", "", False),
+            ("none", None, False),
+        ]
+    )
+    def test_is_usable_endpoint(self, _name: str, endpoint: str | None, expected: bool) -> None:
+        assert is_usable_endpoint(endpoint) is expected
+
+    @patch("posthog.storage.object_storage.capture_exception")
+    @patch("posthog.storage.object_storage.client")
+    def test_bad_public_endpoint_does_not_crash_read_path(self, patched_client, patched_capture) -> None:
+        # A bad public endpoint must never raise out of the factory — readers route through it.
+        with self.settings(
+            OBJECT_STORAGE_ENABLED=True,
+            OBJECT_STORAGE_ENDPOINT="http://objectstorage:19000",
+            OBJECT_STORAGE_PUBLIC_ENDPOINT="https://${POSTHOG_DOMAIN}",
+        ):
+            storage = object_storage_client()
+
+        assert isinstance(storage, ObjectStorage)
+        # Only the internal client is built; presigned degrades to the internal client.
+        patched_client.assert_called_once()
+        assert storage.presigned_client is storage.aws_client
+        # The bad config is surfaced to Sentry even though the read path stays up.
+        patched_capture.assert_called_once()
+
+    @patch("posthog.storage.object_storage.capture_exception")
+    @patch("posthog.storage.object_storage.client")
+    def test_boto_failure_building_presigned_client_degrades(self, patched_client, patched_capture) -> None:
+        internal_client = MagicMock()
+        patched_client.side_effect = [internal_client, ValueError("Invalid endpoint")]
+
+        with self.settings(
+            OBJECT_STORAGE_ENABLED=True,
+            OBJECT_STORAGE_ENDPOINT="http://objectstorage:19000",
+            OBJECT_STORAGE_PUBLIC_ENDPOINT="https://public.example.com",
+        ):
+            storage = object_storage_client()
+
+        assert isinstance(storage, ObjectStorage)
+        assert storage.aws_client is internal_client
+        assert storage.presigned_client is internal_client
+        patched_capture.assert_called_once()
+
+    @patch("posthog.storage.object_storage.client")
+    def test_valid_public_endpoint_builds_separate_presigned_client(self, patched_client) -> None:
+        internal_client = MagicMock()
+        presigned_client = MagicMock()
+        patched_client.side_effect = [internal_client, presigned_client]
+
+        with self.settings(
+            OBJECT_STORAGE_ENABLED=True,
+            OBJECT_STORAGE_ENDPOINT="http://objectstorage:19000",
+            OBJECT_STORAGE_PUBLIC_ENDPOINT="https://public.example.com",
+        ):
+            storage = object_storage_client()
+
+        assert isinstance(storage, ObjectStorage)
+        assert storage.aws_client is internal_client
+        assert storage.presigned_client is presigned_client

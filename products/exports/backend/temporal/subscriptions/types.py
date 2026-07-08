@@ -24,6 +24,20 @@ class DeliveryStatus:
 # workflow sandbox can route by resource type without importing the Django model.
 AI_PROMPT_RESOURCE_TYPE = "ai_prompt"
 
+# `SubscriptionDelivery.content_snapshot` keys for the AI report. The markdown and prompt can
+# exceed Temporal's ~2 MiB payload cap, so they travel through Postgres by reference rather than
+# on the wire (the same pattern insight snapshots use). They live alongside the workflow types so
+# the API serializer can import them without pulling in the LLM delivery stack.
+AI_REPORT_SNAPSHOT_KEY = "ai_report"
+# The prompt that generated the report, captured at generation time so the delivery is reproducible.
+AI_REPORT_PROMPT_SNAPSHOT_KEY = "ai_report_prompt"
+# Per-step query diagnostics (generated HogQL + failure type) so a degraded report is debuggable
+# after the fact. Written alongside the markdown; never shipped to recipients.
+AI_REPORT_DIAGNOSTICS_KEY = "ai_report_diagnostics"
+# The analysis window's end for this run, as a UTC ISO instant. The next run anchors its window here
+# (exactly gap-free); rows written before this key existed fall back to finished_at.
+AI_REPORT_WINDOW_END_KEY = "ai_report_window_end"
+
 
 class SubscriptionTriggerType:
     """How a subscription delivery was triggered.
@@ -164,10 +178,47 @@ class GenerateAIReportInputs:
 class GenerateAIReportResult:
     """Outcome of the generation phase. `aborted` signals a terminal pre-delivery
     failure (consent revoked, prompt invalid) that already auto-disabled the
-    subscription; the workflow records `recipient_results` as FAILED and skips delivery."""
+    subscription; the workflow records `recipient_results` as FAILED and skips delivery.
+    `skipped` signals an over-AI-credit-budget skip: generation rescheduled the sub past
+    the credit reset and notified the owner — the workflow records SKIPPED (not FAILED,
+    the sub isn't broken) and skips delivery.
+
+    The query-failure counts let the workflow flag a fully-degraded report (every query failed →
+    FAILED, not COMPLETED) without re-reading the per-query detail from content_snapshot."""
 
     aborted: bool = False
+    skipped: bool = False
     recipient_results: list[RecipientResult] = dataclasses.field(default_factory=list)
+    failed_step_count: int = 0
+    total_step_count: int = 0
+    query_error_types: list[str] = dataclasses.field(default_factory=list)
+
+    @property
+    def all_queries_failed(self) -> bool:
+        # Single source of truth for the "fully degraded" judgement, so callers don't re-derive it.
+        return bool(self.total_step_count) and self.failed_step_count >= self.total_step_count
+
+    def failure_error(self) -> dict[str, str]:
+        # Access-safe reason recorded on a fully-degraded delivery's error column: failure counts and
+        # error-type names only (query_error_types are exception class names), never raw query content.
+        detail = f" ({', '.join(self.query_error_types)})" if self.query_error_types else ""
+        subject = (
+            "The query the AI generated"
+            if self.total_step_count == 1
+            else f"All {self.total_step_count} queries the AI generated"
+        )
+        return {
+            "message": f"{subject} failed to run{detail}, so the report could not be computed.",
+            "type": "AIReportQueryFailure",
+        }
+
+    def delivered_status(self) -> tuple[str, typing.Optional[dict[str, str]]]:
+        # Status to record once the report shipped: a fully-degraded report (every query failed) is FAILED
+        # with its failure detail — recording it COMPLETED would misrepresent an empty report. Partial
+        # failures stay COMPLETED. Owns this mapping so the workflow can't diverge from the judgement above.
+        if self.all_queries_failed:
+            return DeliveryStatus.FAILED, self.failure_error()
+        return DeliveryStatus.COMPLETED, None
 
 
 @dataclasses.dataclass

@@ -1,3 +1,4 @@
+import { router } from 'kea-router'
 import { expectLogic } from 'kea-test-utils'
 
 import { FEATURE_FLAGS } from 'lib/constants'
@@ -54,6 +55,42 @@ describe('featureFlagTemplatesSceneLogic', () => {
             await expectLogic(logic).toMatchValues({
                 intentsEnabled: expected,
             })
+        })
+    })
+
+    describe('selectTemplate listener', () => {
+        function mountWithIntents(enabled: boolean): void {
+            enabledFeaturesLogic.actions.setFeatureFlags(
+                [],
+                enabled ? { [FEATURE_FLAGS.FEATURE_FLAG_CREATION_INTENTS]: true } : {}
+            )
+            logic = featureFlagTemplatesSceneLogic()
+            logic.mount()
+        }
+
+        it.each([
+            { name: 'when intents are enabled', intentsEnabled: true },
+            { name: 'when intents are disabled', intentsEnabled: false },
+        ])(
+            'routes remote-config to the new flag via type, skipping the intent step $name',
+            async ({ intentsEnabled }) => {
+                mountWithIntents(intentsEnabled)
+
+                logic.actions.selectTemplate('remote-config')
+
+                await expectLogic(logic).toMatchValues({ selectedTemplate: null })
+                expect(router.values.location.pathname).toContain('/feature_flags/new')
+                expect(router.values.searchParams.type).toBe('remote_config')
+                expect(router.values.searchParams.template).toBeUndefined()
+            }
+        )
+
+        it('shows the intent step for a non-remote-config template when intents are enabled', async () => {
+            mountWithIntents(true)
+
+            logic.actions.selectTemplate('targeted')
+
+            await expectLogic(logic).toMatchValues({ selectedTemplate: 'targeted' })
         })
     })
 })

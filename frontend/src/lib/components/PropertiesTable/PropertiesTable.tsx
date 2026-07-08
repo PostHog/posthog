@@ -8,12 +8,11 @@ import { useMemo, useState } from 'react'
 import { IconPencil, IconTrash, IconWarning } from '@posthog/icons'
 import { LemonCheckbox, LemonDialog, LemonInput, LemonMenu, LemonTag, Link, Tooltip } from '@posthog/lemon-ui'
 
-import { FEATURE_FLAGS } from 'lib/constants'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonTable, LemonTableColumns, LemonTableProps } from 'lib/lemon-ui/LemonTable'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { userPreferencesLogic } from 'lib/logic/userPreferencesLogic'
-import { isObject, isURL, isKeyOf } from 'lib/utils'
+import { isObject, isKeyOf } from 'lib/utils/guards'
+import { isURL } from 'lib/utils/url'
 import { NewProperty } from 'scenes/persons/NewProperty'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { urls } from 'scenes/urls'
@@ -225,6 +224,11 @@ export interface PropertiesTableProps extends BasePropertyType {
      * Can be used for e.g. to promote particular properties when sorting the properties
      */
     parent?: KNOWN_PROMOTED_PROPERTY_PARENTS
+    /**
+     * When true, complex values (arrays and objects) render collapsed by default in a JSON viewer
+     * that can be expanded on demand, rather than being expanded inline. Threads through nesting.
+     */
+    collapsible?: boolean
 }
 
 export function PropertiesTable({
@@ -244,12 +248,12 @@ export function PropertiesTable({
     highlightVariant = 'default',
     type,
     parent,
+    collapsible = false,
 }: PropertiesTableProps): JSX.Element {
     const [searchTerm, setSearchTerm] = useState('')
     const { hidePostHogPropertiesInTable, hideNullValues } = useValues(userPreferencesLogic)
     const { setHidePostHogPropertiesInTable, setHideNullValues } = useActions(userPreferencesLogic)
     const { isCloudOrDev } = useValues(preflightLogic)
-    const { featureFlags } = useValues(featureFlagLogic)
 
     const objectProperties = useMemo(() => {
         if (!properties || Array.isArray(properties) || !isObject(properties)) {
@@ -263,6 +267,7 @@ export function PropertiesTable({
             [PropertyDefinitionType.EventMetadata]: TaxonomicFilterGroupType.EventMetadata,
             [PropertyDefinitionType.RevenueAnalytics]: TaxonomicFilterGroupType.RevenueAnalyticsProperties,
             [PropertyDefinitionType.Person]: TaxonomicFilterGroupType.PersonProperties,
+            [PropertyDefinitionType.PersonMetadata]: TaxonomicFilterGroupType.PersonMetadata,
             [PropertyDefinitionType.Group]: TaxonomicFilterGroupType.GroupsPrefix,
             [PropertyDefinitionType.Session]: TaxonomicFilterGroupType.SessionProperties,
             [PropertyDefinitionType.LogEntry]: TaxonomicFilterGroupType.LogEntries,
@@ -343,6 +348,15 @@ export function PropertiesTable({
     }, [properties, sortProperties, searchTerm, hidePostHogPropertiesInTable, hideNullValues, type]) // oxlint-disable-line react-hooks/exhaustive-deps
 
     if (Array.isArray(properties)) {
+        // When collapsible, render the whole array in a collapsed JSON viewer instead of an
+        // expanded table of items — expandable on demand. Mask it from capture like scalar values.
+        if (collapsible && properties.length) {
+            return (
+                <div className="ph-no-capture">
+                    <JSONViewer src={properties} collapsed={true} />
+                </div>
+            )
+        }
         return (
             <div>
                 {properties.length ? (
@@ -367,32 +381,10 @@ export function PropertiesTable({
                                 ),
                                 fullWidth: true,
                                 render: function Value(_, item: any): JSX.Element {
-                                    const arrayItem = item[1]
-                                    const isComplexStructure =
-                                        Array.isArray(arrayItem) || (isObject(arrayItem) && arrayItem !== null)
-                                    if (!featureFlags[FEATURE_FLAGS.TOGGLE_PROPERTY_ARRAYS]) {
-                                        return (
-                                            <PropertiesTable
-                                                type={type}
-                                                properties={item[1]}
-                                                nestingLevel={nestingLevel + 1}
-                                                useDetectedPropertyType={
-                                                    ['$set', '$set_once'].some((s) => s === rootKey)
-                                                        ? false
-                                                        : useDetectedPropertyType
-                                                }
-                                            />
-                                        )
-                                    }
-
-                                    if (isComplexStructure) {
-                                        return <JSONViewer src={arrayItem} collapsed={true} />
-                                    }
-
                                     return (
-                                        <ValueDisplay
+                                        <PropertiesTable
                                             type={type}
-                                            value={arrayItem}
+                                            properties={item[1]}
                                             nestingLevel={nestingLevel + 1}
                                             useDetectedPropertyType={
                                                 ['$set', '$set_once'].some((s) => s === rootKey)
@@ -446,8 +438,12 @@ export function PropertiesTable({
                 render: function Value(_, item: any): JSX.Element {
                     const isComplexStructure = Array.isArray(item[1]) || (isObject(item[1]) && item[1] !== null)
 
-                    if (isComplexStructure && featureFlags[FEATURE_FLAGS.TOGGLE_PROPERTY_ARRAYS]) {
-                        return <JSONViewer src={item[1]} collapsed={true} />
+                    if (isComplexStructure && collapsible) {
+                        return (
+                            <div className="ph-no-capture">
+                                <JSONViewer src={item[1]} collapsed={true} />
+                            </div>
+                        )
                     }
                     return (
                         <PropertiesTable
@@ -456,6 +452,7 @@ export function PropertiesTable({
                             rootKey={item[0]}
                             onEdit={onEdit}
                             nestingLevel={nestingLevel + 1}
+                            collapsible={collapsible}
                             useDetectedPropertyType={
                                 ['$set', '$set_once'].some((s) => s === rootKey) ? false : useDetectedPropertyType
                             }

@@ -8,6 +8,8 @@ from rest_framework import status
 
 from posthog.cdp.templates.hog_function_template import sync_template_to_db
 from posthog.cdp.templates.slack.template_slack import template as template_slack
+from posthog.models.personal_api_key import PersonalAPIKey
+from posthog.models.utils import generate_random_token_personal, hash_key_value
 
 from products.cdp.backend.models.hog_function_template import HogFunctionTemplate
 from products.cdp.backend.models.hog_functions.hog_function import HogFunction
@@ -271,8 +273,118 @@ class TestHogFunctionTemplates(ClickhouseTestMixin, APIBaseTest, QueryMatchingTe
             data=payload,
         )
 
-        assert response.status_code in {status.HTTP_405_METHOD_NOT_ALLOWED}, response.json()
+        assert response.status_code in {
+            status.HTTP_401_UNAUTHORIZED,
+            status.HTTP_403_FORBIDDEN,
+            status.HTTP_405_METHOD_NOT_ALLOWED,
+        }, response.json()
 
         unchanged_template = self.client.get("/api/projects/@current/hog_function_templates/template-slack")
 
         assert unchanged_template.json()["code"] != 'return "scary_code"'
+
+    def test_hidden_template_not_exposed_to_anonymous_on_project_route(self):
+        HogFunctionTemplate.objects.create(
+            template_id="template-hidden",
+            sha="1.0.0",
+            name="Hidden Template",
+            description="A hidden template",
+            code="return event",
+            code_language="hog",
+            inputs_schema={},
+            type="destination",
+            status="hidden",
+            category=["Other"],
+            free=True,
+        )
+        self.client.logout()
+
+        list_response = self.client.get(f"/api/projects/{self.team.id}/hog_function_templates/")
+        assert list_response.status_code in (status.HTTP_401_UNAUTHORIZED, status.HTTP_403_FORBIDDEN)
+
+        retrieve_response = self.client.get(f"/api/projects/{self.team.id}/hog_function_templates/template-hidden")
+        assert retrieve_response.status_code in (status.HTTP_401_UNAUTHORIZED, status.HTTP_403_FORBIDDEN)
+
+    def test_hidden_templates_included_in_project_list(self):
+        # Hidden templates are internal building blocks (e.g. template-posthog-capture,
+        # template-posthog-update-person-properties, email, twilio). The workflow editor pulls them
+        # via the authenticated project list to render action configuration; the destinations chooser
+        # filters them client-side. Excluding them server-side breaks workflows containing those steps.
+        HogFunctionTemplate.objects.create(
+            template_id="template-hidden",
+            sha="1.0.0",
+            name="Hidden Template",
+            description="A hidden template",
+            code="return event",
+            code_language="hog",
+            inputs_schema={},
+            type="destination",
+            status="hidden",
+            category=["Other"],
+            free=True,
+        )
+
+        response = self.client.get(f"/api/projects/{self.team.id}/hog_function_templates/")
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        assert "template-hidden" in [template["id"] for template in response.json()["results"]]
+
+    def test_hidden_templates_excluded_from_public_catalog(self):
+        HogFunctionTemplate.objects.create(
+            template_id="template-hidden",
+            sha="1.0.0",
+            name="Hidden Template",
+            description="A hidden template",
+            code="return event",
+            code_language="hog",
+            inputs_schema={},
+            type="destination",
+            status="hidden",
+            category=["Other"],
+            free=True,
+        )
+
+        response = self.client.get("/api/public_hog_function_templates/")
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        assert "template-hidden" not in [template["id"] for template in response.json()["results"]]
+
+    def _get_with_pak(self, suffix, scopes, scoped_teams=None):
+        key_value = generate_random_token_personal()
+        PersonalAPIKey.objects.create(
+            label="Test key",
+            user=self.user,
+            secure_value=hash_key_value(key_value),
+            scopes=scopes,
+            scoped_teams=scoped_teams or [],
+        )
+        self.client.logout()
+        return self.client.get(
+            f"/api/projects/{self.team.id}{suffix}",
+            headers={"authorization": f"Bearer {key_value}"},
+        )
+
+    @parameterized.expand(
+        [
+            ("list", "/hog_function_templates/"),
+            ("retrieve", "/hog_function_templates/template-slack"),
+        ]
+    )
+    def test_project_route_authenticates_personal_api_key(self, _name, suffix):
+        # The project-nested mount requires authentication but isn't a TeamAndOrgViewSetMixin, so it
+        # must declare the API-token authenticators itself. Guard against a regression to session-only
+        # auth that would 401 the MCP server and public API.
+        response = self._get_with_pak(suffix, ["hog_function:read"])
+        assert response.status_code == status.HTTP_200_OK, response.json()
+
+    def test_project_route_enforces_hog_function_scope(self):
+        # A token without the hog_function scope is rejected — scope_object is enforced, not decorative.
+        response = self._get_with_pak("/hog_function_templates/", ["feature_flag:read"])
+        assert response.status_code == status.HTTP_403_FORBIDDEN, response.json()
+
+    def test_project_route_allows_key_scoped_to_this_project(self):
+        response = self._get_with_pak("/hog_function_templates/", ["hog_function:read"], scoped_teams=[self.team.id])
+        assert response.status_code == status.HTTP_200_OK, response.json()
+
+    def test_project_route_rejects_key_scoped_to_another_project(self):
+        other_team = self.create_team_with_organization(self.organization)
+        response = self._get_with_pak("/hog_function_templates/", ["hog_function:read"], scoped_teams=[other_team.id])
+        assert response.status_code == status.HTTP_403_FORBIDDEN, response.json()

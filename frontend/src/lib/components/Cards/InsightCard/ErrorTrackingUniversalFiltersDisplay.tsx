@@ -1,7 +1,7 @@
 import { IconFilter, IconList, IconSort } from '@posthog/icons'
 
 import { LemonTag } from 'lib/lemon-ui/LemonTag/LemonTag'
-import { pluralize } from 'lib/utils'
+import { pluralize } from 'lib/utils/strings'
 
 import { MaxErrorTrackingSearchResponse } from '~/queries/schema/schema-assistant-error-tracking'
 

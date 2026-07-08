@@ -67,11 +67,12 @@ from posthog.clickhouse.preaggregation.sql import (
     SHARDED_PREAGGREGATION_RESULTS_TABLE_SQL,
 )
 from posthog.clickhouse.query_log_archive import (
-    QUERY_LOG_ARCHIVE_DATA_TABLE,
-    QUERY_LOG_ARCHIVE_MV,
-    QUERY_LOG_ARCHIVE_NEW_MV_SQL,
-    QUERY_LOG_ARCHIVE_NEW_TABLE_SQL,
-    QUERY_LOG_ARCHIVE_TABLE_ENGINE_NEW,
+    DISTRIBUTED_QUERY_LOG_ARCHIVE_OPS_TABLE_SQL,
+    QUERY_LOG_ARCHIVE_OPS_MV,
+    QUERY_LOG_ARCHIVE_OPS_MV_SQL,
+    SHARDED_QUERY_LOG_ARCHIVE_OPS_TABLE_SQL,
+    WRITABLE_QUERY_LOG_ARCHIVE_OPS_TABLE_SQL,
+    WRITABLE_QUERY_LOG_ARCHIVE_TABLE,
 )
 from posthog.cloud_utils import TEST_clear_instance_license_cache
 from posthog.helpers.two_factor_session import email_mfa_token_generator
@@ -86,7 +87,6 @@ from posthog.models.channel_type.sql import (
     DROP_CHANNEL_DEFINITION_DICTIONARY_SQL,
     DROP_CHANNEL_DEFINITION_TABLE_SQL,
 )
-from posthog.models.cohort.sql import TRUNCATE_COHORTPEOPLE_TABLE_SQL
 from posthog.models.cohortmembership.sql import (
     COHORT_MEMBERSHIP_MV_SQL,
     COHORT_MEMBERSHIP_TABLE_SQL,
@@ -104,7 +104,7 @@ from posthog.models.event.sql import (
     EVENTS_TABLE_SQL,
     TRUNCATE_EVENTS_RECENT_TABLE_SQL,
 )
-from posthog.models.event.util import bulk_create_events
+from posthog.models.event.util import _resolve_person_for_bulk_event, bulk_create_events
 from posthog.models.exchange_rate.sql import (
     DROP_EXCHANGE_RATE_DICTIONARY_SQL,
     DROP_EXCHANGE_RATE_TABLE_SQL,
@@ -115,7 +115,6 @@ from posthog.models.exchange_rate.sql import (
 from posthog.models.group.sql import TRUNCATE_GROUPS_TABLE_SQL
 from posthog.models.instance_setting import get_instance_setting
 from posthog.models.organization import OrganizationMembership
-from posthog.models.person import Person
 from posthog.models.person.sql import (
     DROP_PERSON_TABLE_SQL,
     PERSONS_TABLE_SQL,
@@ -124,7 +123,6 @@ from posthog.models.person.sql import (
     TRUNCATE_PERSON_DISTINCT_ID_TABLE_SQL,
     TRUNCATE_PERSON_STATIC_COHORT_TABLE_SQL,
 )
-from posthog.models.person.util import bulk_create_persons, create_person
 from posthog.models.personal_api_key import PersonalAPIKey
 from posthog.models.precalculated_events.sql import (
     DROP_PRECALCULATED_EVENTS_KAFKA_TABLE_SQL,
@@ -198,6 +196,7 @@ from posthog.session_recordings.sql.session_replay_event_sql import (
 from posthog.test.assert_faster_than import assert_faster_than
 
 from products.actions.backend.models.action import Action
+from products.cohorts.backend.models.sql import TRUNCATE_COHORTPEOPLE_TABLE_SQL
 from products.dashboards.backend.models.dashboard import Dashboard
 from products.dashboards.backend.models.dashboard_tile import DashboardTile
 from products.event_definitions.backend.models.property_definition import (
@@ -212,9 +211,9 @@ cast(Any, freezegun).configure(
     extend_ignore_list=["posthog.test.assert_faster_than", "transformers"],
 )
 
-persons_cache_tests: list[dict[str, Any]] = []
 events_cache_tests: list[dict[str, Any]] = []
-persons_ordering_int: int = 0
+
+from posthog.test.persons import stage_person_for_bulk_create  # noqa: E402
 
 # Expand string diffs
 unittest.util._MAX_LENGTH = 2000  # type: ignore
@@ -269,6 +268,13 @@ def clean_varying_query_parts(query, replace_all_numbers):
     query = re.sub(r"flag_\d+_condition", r"flag_X_condition", query)
     query = re.sub(r"flag_\d+_super_condition", r"flag_X_super_condition", query)
 
+    # event uuid point lookups (error tracking first/last event fetch) embed random fixture uuids
+    query = re.sub(
+        r"in\(((?:\w+\.)?uuid), \['[0-9a-f-]{36}'(?:, '[0-9a-f-]{36}')*\]\)",
+        r"in(\1, ['00000000-0000-0000-0000-000000000000' /* ... */])",
+        query,
+    )
+
     # session_recording_linked_flag embeds feature flag IDs in JSON, normalize them
     query = re.sub(
         r"""session_recording_linked_flag" @> '{"id": \d+}'::jsonb""",
@@ -278,6 +284,9 @@ def clean_varying_query_parts(query, replace_all_numbers):
 
     # remove version suffix from funnel UDFs
     query = re.sub(r"aggregate_funnel(_(?:array|cohort))?(_trends)?(_json)?_v\d+", r"aggregate_funnel\1\2\3", query)
+
+    # remove version suffix from the restricted-property blob-strip UDF
+    query = re.sub(r"JSONDropKeys_v\d+", "JSONDropKeys", query)
 
     # replace django cursors
     query = re.sub(r"_django_curs_[0-9sync_]*\"", r'_django_curs_X"', query)
@@ -643,8 +652,7 @@ class PostHogTestCase(SimpleTestCase):
     # to `False` will set up test data on every test case instead.
     CLASS_DATA_LEVEL_SETUP = True
 
-    # Allow tests to use the persons databases (for Person/PersonDistinctId models)
-    databases = {"default", "persons_db_writer", "persons_db_reader"}
+    databases = {"default"}
 
     # Test data definition stubs
     organization: Organization = cast(Organization, None)
@@ -664,7 +672,7 @@ class PostHogTestCase(SimpleTestCase):
             _setup_test_data(cls)
 
     def setUp(self):
-        get_instance_setting.cache_clear()
+        get_instance_setting.cache_clear()  # type: ignore[attr-defined]
 
         if get_instance_setting("PERSON_ON_EVENTS_ENABLED"):
             from posthog.models.team import util
@@ -675,8 +683,10 @@ class PostHogTestCase(SimpleTestCase):
             _setup_test_data(self)
 
     def tearDown(self):
-        if len(persons_cache_tests) > 0:
-            persons_cache_tests.clear()
+        from posthog.test.persons import has_unflushed_persons, reset_persons_state
+
+        if has_unflushed_persons():
+            reset_persons_state()
             raise Exception(
                 "Some persons created in this test weren't flushed, which can lead to inconsistent test results. Add flush_persons_and_events() right after creating all persons."
             )
@@ -688,8 +698,7 @@ class PostHogTestCase(SimpleTestCase):
             )
         # We might be using memory cache in tests at Django level, but we also use `redis` directly in some places, so we need to clear Redis
         redis.get_client().flushdb()
-        global persons_ordering_int
-        persons_ordering_int = 0
+        reset_persons_state()
         super().tearDown()
 
     def validate_basic_html(self, html_message, site_url, preheader=None):
@@ -721,7 +730,7 @@ class PostHogTestCase(SimpleTestCase):
             yield value
 
     @contextmanager
-    def retry_assertion(self, max_retries=5, delay=0.1) -> Generator[None, None, None]:
+    def retry_assertion(self, max_retries=5, delay=0.1) -> Generator[None]:
         for attempt in range(max_retries):
             try:
                 yield  # Only yield once per context manager instance
@@ -875,25 +884,7 @@ class NonAtomicBaseTest(PostHogTestCase, ErrorResponsesMixin, TransactionTestCas
         # Required when models are moved between Django apps, as PostgreSQL
         # needs CASCADE to handle FK constraints across app boundaries.
         for db_name in cast(Any, self)._databases_names(include_mirrors=False):
-            if db_name in ("persons_db_writer", "persons_db_reader"):
-                # Manually truncate persons database tables
-                # Can't use Django's flush because it emits post_migrate signals that try to
-                # create contenttypes/permissions tables that don't exist in persons database
-                conn = connections[db_name]
-                with conn.cursor() as cursor:
-                    cursor.execute("""
-                                   SELECT tablename
-                                   FROM pg_tables
-                                   WHERE schemaname = 'public'
-                                     AND tablename NOT LIKE 'pg_%'
-                                     AND tablename NOT LIKE '_sqlx_%'
-                                     AND tablename NOT LIKE '_persons_migrations'
-                                   """)
-                    tables = [row[0] for row in cursor.fetchall()]
-                    if tables:
-                        cursor.execute(f"TRUNCATE TABLE {', '.join(tables)} RESTART IDENTITY CASCADE")
-            else:
-                call_command("flush", verbosity=0, interactive=False, database=db_name, allow_cascade=True)
+            call_command("flush", verbosity=0, interactive=False, database=db_name, allow_cascade=True)
 
 
 class NonAtomicBaseTestKeepIdentities(PostHogTestCase, ErrorResponsesMixin, TransactionTestCase):
@@ -912,23 +903,13 @@ class NonAtomicBaseTestKeepIdentities(PostHogTestCase, ErrorResponsesMixin, Tran
         for db_name in cast(Any, self)._databases_names(include_mirrors=False):
             conn = connections[db_name]
             with conn.cursor() as cursor:
-                if db_name in ("persons_db_writer", "persons_db_reader"):
-                    cursor.execute("""
-                                   SELECT tablename
-                                   FROM pg_tables
-                                   WHERE schemaname = 'public'
-                                     AND tablename NOT LIKE 'pg_%'
-                                     AND tablename NOT LIKE '_sqlx_%'
-                                     AND tablename NOT LIKE '_persons_migrations'
-                                   """)
-                else:
-                    cursor.execute("""
-                                   SELECT tablename
-                                   FROM pg_tables
-                                   WHERE schemaname = 'public'
-                                     AND tablename NOT LIKE 'pg_%'
-                                     AND tablename NOT LIKE 'django_%'
-                                   """)
+                cursor.execute("""
+                               SELECT tablename
+                               FROM pg_tables
+                               WHERE schemaname = 'public'
+                                 AND tablename NOT LIKE 'pg_%'
+                                 AND tablename NOT LIKE 'django_%'
+                               """)
                 tables = [row[0] for row in cursor.fetchall()]
                 if tables:
                     cursor.execute(f"TRUNCATE TABLE {', '.join(tables)} CASCADE")
@@ -1166,6 +1147,7 @@ def materialized(
     property,
     create_minmax_index: bool = False,
     is_nullable: bool = False,
+    column_type: str | None = None,
     create_bloom_filter_index: bool = False,
     create_ngram_lower_index: bool = False,
     create_bloom_filter_lower_index: bool = False,
@@ -1189,6 +1171,7 @@ def materialized(
             property,
             create_minmax_index=create_minmax_index,
             is_nullable=is_nullable,
+            column_type=column_type,
             create_bloom_filter_index=create_bloom_filter_index,
             create_ngram_lower_index=create_ngram_lower_index,
             create_bloom_filter_lower_index=create_bloom_filter_lower_index,
@@ -1270,6 +1253,24 @@ def also_test_with_materialized_columns(
     return decorator
 
 
+# sqlparse.format(reindent=True) is quadratic-ish on large statements (~70ms on a big HogQL
+# listing query) and snapshot-heavy suites format hundreds per run. It's a pure function of the
+# input, and clean_varying_query_parts normalizes team ids/UUIDs/timestamps so the same query
+# shapes recur across tests - cache the formatting. Keys are the full SQL strings, so the cap
+# bounds memory rather than correctness.
+_sqlparse_format_cache: dict[str, str] = {}
+_SQLPARSE_FORMAT_CACHE_MAX_ENTRIES = 2048
+
+
+def _format_sql_for_snapshot(query: str) -> str:
+    formatted = _sqlparse_format_cache.get(query)
+    if formatted is None:
+        formatted = sqlparse.format(query, reindent=True)
+        if len(_sqlparse_format_cache) < _SQLPARSE_FORMAT_CACHE_MAX_ENTRIES:
+            _sqlparse_format_cache[query] = formatted
+    return formatted
+
+
 @pytest.mark.usefixtures("unittest_snapshot")
 class QueryMatchingTest:
     snapshot: Any
@@ -1282,7 +1283,7 @@ class QueryMatchingTest:
         query = clean_varying_query_parts(query, replace_all_numbers)
 
         try:
-            assert sqlparse.format(query, reindent=True) == self.snapshot
+            assert _format_sql_for_snapshot(query) == self.snapshot
         except AssertionError:
             diff_lines = "\n".join(self.snapshot.get_assert_diff())
             error_message = f"Query does not match snapshot. Update snapshots with --snapshot-update.\n\n{diff_lines}"
@@ -1457,11 +1458,9 @@ def _flush_ai_events(events: list[dict[str, Any]], person_mapping: dict) -> None
             team = event.get("team")
             team_id = event.get("team_id") or (team.pk if team else None)
             if team_id:
-                from posthog.models import PersonDistinctId
-
-                pdi = PersonDistinctId.objects.filter(team_id=team_id, distinct_id=distinct_id).first()
-                if pdi:
-                    event["person_id"] = str(pdi.person.uuid)
+                person = _resolve_person_for_bulk_event(team_id, distinct_id)
+                if person is not None:
+                    event["person_id"] = str(person.uuid)
 
     from posthog.models.ai_events.test_util import bulk_create_ai_events
 
@@ -1480,10 +1479,9 @@ def flush_persons_and_events():
     pass of writing a test. Only consider adding it after the test has failed, and you think that lack of flushing is
     the cause.
     """
-    person_mapping = {}
-    if len(persons_cache_tests) > 0:
-        person_mapping = bulk_create_persons(persons_cache_tests)
-        persons_cache_tests.clear()
+    from posthog.test.persons import flush_persons_to_db_and_clickhouse
+
+    person_mapping = flush_persons_to_db_and_clickhouse()
     if len(events_cache_tests) > 0:
         bulk_create_events(events_cache_tests, person_mapping)
         _flush_ai_events(events_cache_tests, person_mapping)
@@ -1543,34 +1541,8 @@ def _warn_if_session_id_malformed(session_id: str):
 
 
 def _create_person(*args, **kwargs):
-    """
-    Create a person in tests. NOTE: all persons get batched and only created when sync_execute is called
-    Pass immediate=True to create immediately and get a pk back
-    """
-    global persons_ordering_int
-    if not (kwargs.get("uuid")):
-        kwargs["uuid"] = uuid.UUID(
-            int=persons_ordering_int, version=4
-        )  # make sure the ordering of uuids is always consistent
-    persons_ordering_int += 1
-    # If we've done freeze_time just create straight away
-    if kwargs.get("immediate") or (
-        hasattr(dt.datetime.now(), "__module__") and dt.datetime.now().__module__ == "freezegun.api"
-    ):
-        if kwargs.get("immediate"):
-            del kwargs["immediate"]
-        create_person(
-            team_id=kwargs.get("team_id") or kwargs["team"].pk,
-            properties=kwargs.get("properties"),
-            uuid=kwargs["uuid"],
-            version=kwargs.get("version", 0),
-        )
-        return Person.objects.create(**kwargs)
-    if len(args) > 0:
-        kwargs["distinct_ids"] = [args[0]]  # allow calling _create_person("distinct_id")
-
-    persons_cache_tests.append(kwargs)
-    return Person(**{key: value for key, value in kwargs.items() if key != "distinct_ids"})
+    """Thin wrapper — delegates to posthog.test.persons.stage_person_for_bulk_create."""
+    return stage_person_for_bulk_create(*args, **kwargs)
 
 
 def _create_action(**kwargs):
@@ -1602,12 +1574,48 @@ class ClickhouseTestMixin(QueryMatchingTest):
     def capture_queries_startswith(self, query_prefixes: Union[str, tuple[str, ...]]):
         return self.capture_queries(lambda x: x.startswith(query_prefixes))
 
+    @staticmethod
+    def _strip_leading_sql_comments(sql: str) -> str:
+        """Drop leading whitespace and comments (keeping any parens) so head-anchored query
+        filters see the first real token. Equivalent to sqlparse.format(strip_comments=True)
+        for every filter used with capture_queries — all of them match on the statement head —
+        but without paying sqlparse's full-statement lexing (~100ms on large generated SQL)."""
+        i, n, parens = 0, len(sql), []
+        while i < n:
+            char = sql[i]
+            if char.isspace():
+                i += 1
+            elif char == "(":
+                parens.append("(")
+                i += 1
+            elif sql.startswith("/*", i):
+                end = sql.find("*/", i + 2)
+                if end == -1:
+                    break
+                i = end + 2
+            elif sql.startswith("--", i):
+                newline = sql.find("\n", i)
+                if newline == -1:
+                    i = n
+                    break
+                i = newline + 1
+            else:
+                break
+        return "".join(parens) + sql[i:]
+
     @contextmanager
     def capture_queries(self, query_filter: Callable[[str], bool]):
+        """Capture ClickHouse queries that pass query_filter.
+
+        The filter receives the query after stripping leading whitespace and comments (head-only
+        — see _strip_leading_sql_comments). All built-in filters (capture_select_queries,
+        capture_queries_startswith) are head-anchored, so this contract holds for them. Do not
+        pass a filter that matches on mid-statement text; it will not see comments embedded there.
+        """
         queries = []
 
         def execute_wrapper(original_client_execute, query, *args, **kwargs):
-            if query_filter(sqlparse.format(query, strip_comments=True).strip()):
+            if query_filter(self._strip_leading_sql_comments(query)):
                 queries.append(query)
             return original_client_execute(query, *args, **kwargs)
 
@@ -1626,6 +1634,16 @@ class ClickhouseTestMixin(QueryMatchingTest):
 
 
 def run_clickhouse_statement_in_parallel(statements: list[str]):
+    # Test infrastructure runs a single-node ClickHouse, so ON CLUSTER only adds
+    # distributed-DDL keeper round-trips (~0.3-0.5s per statement) without changing
+    # the outcome — strip it from TRUNCATEs.
+    # If a CI variant ever runs multi-replica this strip must be removed or gated; without it,
+    # TRUNCATE without ON CLUSTER only touches the connected node and leaves others dirty.
+    statements = [
+        re.sub(r"\s+ON CLUSTER\s+'?[\w-]+'?", "", stmt) if stmt.lstrip().upper().startswith("TRUNCATE") else stmt
+        for stmt in statements
+    ]
+
     def _execute_with_retry(stmt: str) -> None:
         max_attempts = 5
         for attempt in range(max_attempts):
@@ -1732,9 +1750,7 @@ def reset_clickhouse_database() -> None:
             WEB_STATS_SQL(table_name="web_pre_aggregated_stats_staging"),
             WEB_BOUNCES_SQL(table_name="web_pre_aggregated_bounces_staging"),
             WEB_PRE_AGGREGATED_TEAM_SELECTION_TABLE_SQL(),
-            QUERY_LOG_ARCHIVE_NEW_TABLE_SQL(
-                table_name=QUERY_LOG_ARCHIVE_DATA_TABLE, engine=QUERY_LOG_ARCHIVE_TABLE_ENGINE_NEW()
-            ),
+            SHARDED_QUERY_LOG_ARCHIVE_OPS_TABLE_SQL(),
             COHORT_MEMBERSHIP_TABLE_SQL(),
             PRECALCULATED_EVENTS_SHARDED_TABLE_SQL(),
             SHARDED_PREAGGREGATION_RESULTS_TABLE_SQL(),
@@ -1756,7 +1772,8 @@ def reset_clickhouse_database() -> None:
             CUSTOM_METRICS_TEST_VIEW(),
             CUSTOM_METRICS_REPLICATION_QUEUE_VIEW(),
             WEB_PRE_AGGREGATED_TEAM_SELECTION_DICTIONARY_SQL(),
-            QUERY_LOG_ARCHIVE_NEW_MV_SQL(view_name=QUERY_LOG_ARCHIVE_MV, dest_table=QUERY_LOG_ARCHIVE_DATA_TABLE),
+            DISTRIBUTED_QUERY_LOG_ARCHIVE_OPS_TABLE_SQL(),
+            WRITABLE_QUERY_LOG_ARCHIVE_OPS_TABLE_SQL(),
             COHORT_MEMBERSHIP_WRITABLE_TABLE_SQL(),
             KAFKA_COHORT_MEMBERSHIP_TABLE_SQL(),
             PRECALCULATED_EVENTS_WRITABLE_TABLE_SQL(),
@@ -1779,6 +1796,9 @@ def reset_clickhouse_database() -> None:
             WEB_PRE_AGGREGATED_TEAM_SELECTION_DATA_SQL(),
             COHORT_MEMBERSHIP_MV_SQL(),
             PRECALCULATED_EVENTS_MV_SQL(),
+            QUERY_LOG_ARCHIVE_OPS_MV_SQL(
+                view_name=QUERY_LOG_ARCHIVE_OPS_MV, dest_table=WRITABLE_QUERY_LOG_ARCHIVE_TABLE
+            ),
         ]
     )
 
@@ -1979,7 +1999,7 @@ class HogQLSnapshotExtension(AmberSnapshotExtension):
     def serialize(cls, data, **kwargs):
         """Serialize the HogQL query."""
         # Format the query for readability
-        formatted = sqlparse.format(data, reindent=True)
+        formatted = _format_sql_for_snapshot(data)
         return f"'''\n{formatted}\n'''\n"
 
 

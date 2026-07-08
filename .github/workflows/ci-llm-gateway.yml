@@ -23,6 +23,9 @@ permissions:
     contents: read
     pull-requests: read
 
+env:
+    RUNS_ON_INTERNAL_PR: ${{ github.event_name != 'pull_request' || github.event.pull_request.head.repo.fork == false }}
+
 jobs:
     changes:
         runs-on: ubuntu-latest
@@ -54,7 +57,7 @@ jobs:
         needs: changes
         if: needs.changes.outputs.llm_gateway == 'true'
         runs-on: ubuntu-latest
-        timeout-minutes: 10
+        timeout-minutes: 15
         defaults:
             run:
                 working-directory: services/llm-gateway
@@ -62,21 +65,11 @@ jobs:
         steps:
             - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
 
-            - name: Mint setup-action GitHub token
-              id: setup-gh-token
-              if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
-              continue-on-error: true
-              uses: actions/create-github-app-token@1b10c78c7865c340bc4f6099eb2f838309f1e8c3 # v3.1.1
-              with:
-                  client-id: ${{ secrets.GH_APP_POSTHOG_DEVEX_GENERAL_APP_ID }}
-                  private-key: ${{ secrets.GH_APP_POSTHOG_DEVEX_GENERAL_PRIVATE_KEY }}
-                  skip-token-revoke: true
-
             - name: Set up Python
               uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6.2.0
               with:
-                  python-version: '3.12'
-                  token: ${{ steps.setup-gh-token.outputs.token || github.token }}
+                  python-version: '3.13.13'
+                  token: ${{ github.token }}
 
             - name: Install uv
               uses: astral-sh/setup-uv@37802adc94f370d6bfd71619e3f0bf239e1f3b78 # v7.6.0
@@ -92,6 +85,9 @@ jobs:
                   ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
                   OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
                   FIREWORKS_API_KEY: ${{ secrets.FIREWORKS_API_KEY }}
+                  AWS_DEFAULT_REGION: us-east-1
+                  CLOUDFLARE_API_KEY: ${{ secrets.CLOUDFLARE_LLM_GATEWAY_TOKEN }}
+                  CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
               run: uv run pytest tests/ -v --tb=short --junitxml=junit.xml
 
             - name: Upload test results
@@ -101,6 +97,18 @@ jobs:
                   name: junit-results-llm-gateway
                   path: services/llm-gateway/junit.xml
 
+            # Upload results to Trunk for flaky-test detection. Non-gating (continue-on-error),
+            # so a Trunk outage never fails the job. Runs the token only on internal PRs,
+            # master, and the merge queue — never on fork PRs or Dependabot, which have no secret.
+            - name: Upload test results to Trunk
+              if: ${{ !cancelled() && env.RUNS_ON_INTERNAL_PR == 'true' && github.repository == 'PostHog/posthog' && github.actor != 'dependabot[bot]' }}
+              continue-on-error: true
+              uses: trunk-io/analytics-uploader@385f1ccdf345b4532dc4b6c665dd432b702b8e28 # v2.1.2
+              with:
+                  junit-paths: services/llm-gateway/junit.xml
+                  org-slug: posthog-inc
+                  token: ${{ secrets.TRUNK_API_TOKEN }}
+
     # Single required status check for branch protection. Add future LLM
     # services test jobs to `needs` here rather than reconfiguring GitHub.
     llm_services_tests:
@@ -108,17 +116,21 @@ jobs:
         name: LLM Services Tests Pass
         runs-on: ubuntu-latest
         timeout-minutes: 5
-        if: ${{ !cancelled() }}
+        # always(), not !cancelled(): a skipped required check is treated as a pass by
+        # branch protection, so on cancellation the gate must run and emit an explicit
+        # result rather than skip into a green. A cancelled or timed-out job is caught
+        # by the != success && != skipped checks below; a legitimate no-change skip passes.
+        if: always()
         steps:
             - name: Check outcomes
               run: |
-                  if [[ "${{ needs.changes.result }}" == "failure" ]]; then
-                    echo "Change detection job failed."
+                  if [[ "${{ needs.changes.result }}" != "success" && "${{ needs.changes.result }}" != "skipped" ]]; then
+                    echo "Change detection did not succeed (result: ${{ needs.changes.result }})."
                     exit 1
                   fi
 
-                  if [[ "${{ needs.llm-gateway.result }}" == "failure" ]]; then
-                    echo "LLM Gateway tests failed."
+                  if [[ "${{ needs.llm-gateway.result }}" != "success" && "${{ needs.llm-gateway.result }}" != "skipped" ]]; then
+                    echo "LLM Gateway tests did not succeed (result: ${{ needs.llm-gateway.result }})."
                     exit 1
                   fi
 

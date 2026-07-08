@@ -29,7 +29,7 @@ from products.exports.backend.models.subscription import (
 from products.product_analytics.backend.models.insight import Insight
 
 
-@patch.object(settings, "SECRET_KEY", "not-so-secret")
+@patch.object(settings, "JWT_SIGNING_KEY", "not-so-secret")
 @freeze_time("2022-01-01")
 class TestSubscription(BaseTest):
     def _create_insight_subscription(self, **kwargs):

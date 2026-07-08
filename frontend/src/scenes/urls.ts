@@ -3,13 +3,19 @@ import { combineUrl } from 'kea-router'
 import { getCurrentTeamId } from 'lib/utils/getAppContext'
 
 import { fileSystemTypes, productUrls } from '~/products'
-import { ProductKey, SharingConfigurationSettings } from '~/queries/schema/schema-general'
+import {
+    DataTableNode,
+    DataVisualizationNode,
+    ProductKey,
+    SharingConfigurationSettings,
+} from '~/queries/schema/schema-general'
 import { ActivityTab, AnnotationType, CommentType, OnboardingStepKey, SDKKey } from '~/types'
 
 import type { BillingSectionId } from './billing/types'
 import { DataPipelinesNewSceneKind } from './data-pipelines/DataPipelinesNewScene'
 import { OutputTab } from './data-warehouse/editor/outputPaneLogic'
 import type { HogFunctionSceneTab } from './hog-functions/HogFunctionScene'
+import type { InboxTabKey } from './inbox/types'
 import type { ModelsSceneTab } from './models/modelsSceneLogic'
 import type { SettingId, SettingLevelId, SettingSectionId } from './settings/types'
 
@@ -51,6 +57,7 @@ export const urls = {
     event: (id: string, timestamp: string): string =>
         `/events/${encodeURIComponent(id)}/${encodeURIComponent(timestamp)}`,
     ingestionWarnings: (): string => '/data-management/ingestion-warnings',
+    ingestionWarningsV2: (): string => '/data-management/ingestion-warnings-v2',
     revenueSettings: (): string => '/data-management/revenue',
     coreEvents: (): string => '/data-management/core-events',
     marketingAnalyticsApp: (): string => '/marketing',
@@ -66,7 +73,8 @@ export const urls = {
         connectionId,
         dashboard,
     }: {
-        query?: string
+        /** Raw SQL, or a node whose visualization settings (display, chartSettings) should survive the trip */
+        query?: string | DataVisualizationNode | DataTableNode
         view_id?: string
         insightShortId?: string
         draftId?: string
@@ -79,7 +87,7 @@ export const urls = {
         const params = new URLSearchParams()
 
         if (query) {
-            params.set('open_query', query)
+            params.set('open_query', typeof query === 'string' ? query : JSON.stringify(query))
         } else if (view_id) {
             params.set('open_view', view_id)
         } else if (insightShortId) {
@@ -138,6 +146,7 @@ export const urls = {
     aiHistory: (): string => '/ai/history',
     settings: (section: SettingSectionId | SettingLevelId = 'project', setting?: SettingId): string =>
         combineUrl(`/settings/${section}`, undefined, setting).url,
+    featurePreview: (flagKey: string): string => combineUrl('/settings/user-feature-previews', {}, flagKey).url,
     organizationCreationConfirm: (): string => '/organization/confirm-creation',
     toolbarLaunch: (): string => '/toolbar',
     site: (url: string): string => `/site/${url === ':url' ? url : encodeURIComponent(url)}`,
@@ -229,6 +238,10 @@ export const urls = {
     queryPerformance: (): string => '/instance/query_performance',
     materializedColumns: (): string => '/data-management/materialized-columns',
     unsubscribe: (): string => '/unsubscribe',
+    codeCanvasLink: (channelId: string, dashboardId: string): string => `/code/canvas/${channelId}/${dashboardId}`,
+    codeChannelLink: (channelId: string, taskId?: string): string =>
+        `/code/channel/${channelId}${taskId ? `/tasks/${taskId}` : ''}`,
+    integration: (slug: string): string => `/integrations/${slug}`,
     integrationsRedirect: (kind: string): string => `/integrations/${kind}/callback`,
     stripeConfirmInstall: (): string => '/integrations/stripe/confirm-install',
     shared: (token: string, exportOptions: SharingConfigurationSettings = {}): string =>
@@ -284,6 +297,7 @@ export const urls = {
         `/product_tours/${id}${params ? `?${params.startsWith('?') ? params.slice(1) : params}` : ''}`,
     organizationDeactivated: (): string => '/organization-deactivated',
     organizationPendingDeletion: (): string => '/organization-pending-deletion',
+    projectPendingDeletion: (): string => '/project-pending-deletion',
     approvals: (): string => '/settings/environment-approvals#change-requests',
     approval: (id: string): string => `/approvals/${id}`,
     health: (): string => '/health',
@@ -292,14 +306,26 @@ export const urls = {
         presetKinds && presetKinds.length > 0
             ? `/health/alerts?preset_kinds=${encodeURIComponent(presetKinds.join(','))}`
             : '/health/alerts',
-    inbox: (reportId?: string): string => `/inbox${reportId ? `/${reportId}` : ''}`,
+    // Inbox 2.0 tab-first routing: /inbox, /inbox/<tab>, /inbox/<tab>/<reportId>.
+    inbox: (tab?: InboxTabKey | ':tab'): string => `/inbox${tab ? `/${tab}` : ''}`,
+    inboxReport: (tab: InboxTabKey | ':tab', reportId: string | ':reportId'): string => `/inbox/${tab}/${reportId}`,
+    // Scout detail surface, full-width over the inbox list (the fleet section lives in the Configuration tab).
+    // An optional finding id deep-links straight to one emitted finding (best-effort: only resolves while
+    // that finding is still in the scout's recent runs window).
+    inboxScout: (skillName: string | ':skillName', findingId?: string | ':findingId'): string => {
+        const segment = findingId ? `/${findingId === ':findingId' ? findingId : encodeURIComponent(findingId)}` : ''
+        return `/inbox/scouts/${skillName}${segment}`
+    },
+    // Scout fleet memory (scratchpad) browse/search surface, reached from the fleet-memory callout.
+    inboxScratchpad: (): string => '/inbox/scouts/scratchpad',
+    // Cross-fleet findings browse/search surface, reached from the scout-findings callout.
+    inboxFindings: (): string => '/inbox/scouts/findings',
     webAnalyticsBotAnalytics: (): string => '/web/bots',
     webAnalyticsHealth: (): string => '/web/health',
+    webAnalyticsRecap: (): string => '/web/recap',
     pipelineStatus: (): string => '/health/pipeline-status',
-    sdkDoctor: (): string => '/health/sdk-doctor',
+    sdkHealth: (): string => '/health/sdk-health',
     exports: (): string => '/exports',
-    subscriptions: (): string => '/subscriptions',
-    subscription: (id: string | number): string => `/subscriptions/${id}`,
 }
 
 export interface UrlMatcher {

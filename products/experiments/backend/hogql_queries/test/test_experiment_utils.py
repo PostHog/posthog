@@ -12,6 +12,7 @@ from posthog.schema import (
     ExperimentRatioMetric,
     ExperimentRetentionMetric,
     ExperimentStatsBase,
+    ExperimentStatsBaseValidated,
     ExperimentStatsValidationFailure,
     FunnelConversionWindowTimeUnit,
     StartHandling,
@@ -24,14 +25,15 @@ from products.experiments.backend.hogql_queries.utils import (
     get_experiment_query_debug,
     get_variant_result,
     get_variant_results,
+    metric_variant_to_statistic,
     validate_variant_result,
 )
+from products.experiments.stats.shared.statistics import ProportionStatistic, SampleMeanStatistic
 
 
 def _columns_for(
     metric: ExperimentFunnelMetric | ExperimentMeanMetric | ExperimentRatioMetric | ExperimentRetentionMetric,
     *,
-    has_step_sessions: bool = False,
     cuped: bool = False,
 ) -> list[str]:
     """
@@ -54,8 +56,6 @@ def _columns_for(
 
     if isinstance(metric, ExperimentFunnelMetric):
         cols.append("step_counts")
-        if has_step_sessions:
-            cols.append("steps_event_data")
 
     if isinstance(metric, (ExperimentRatioMetric, ExperimentRetentionMetric)):
         cols.extend(["denominator_sum", "denominator_sum_squares", "numerator_denominator_sum_product"])
@@ -189,31 +189,6 @@ class TestGetVariantResult:
         assert stats.sum_squares == 90.0
         assert stats.step_counts == [120, 90]
         assert stats.step_sessions is None
-
-    def test_funnel_metric_with_sessions(self):
-        metric = self.create_funnel_metric()
-        # With step_sessions data
-        sessions_data = [
-            [
-                ("user1", "session1", "uuid1", "2024-01-01T00:00:00Z"),
-                ("user2", "session2", "uuid2", "2024-01-01T00:00:01Z"),
-            ],  # Step 0 sessions
-            [("user1", "session1", "uuid3", "2024-01-01T00:00:02Z")],  # Step 1 sessions
-        ]
-        result = ("control", 100, 80.0, 80.0, [100, 80], sessions_data)
-
-        breakdown_value, stats = get_variant_result(result, _columns_for(metric, has_step_sessions=True))
-
-        assert breakdown_value is None
-        assert stats.key == "control"
-        assert stats.step_counts == [100, 80]
-        assert stats.step_sessions is not None
-        assert len(stats.step_sessions) == 2
-        assert len(stats.step_sessions[0]) == 2  # First step has 2 sessions
-        assert len(stats.step_sessions[1]) == 1  # Second step has 1 session
-        assert stats.step_sessions[0][0].person_id == "user1"
-        assert stats.step_sessions[0][0].session_id == "session1"
-        assert stats.step_sessions[0][0].event_uuid == "uuid1"
 
     # Ratio Metric Tests
     def test_ratio_metric_without_breakdown(self):
@@ -376,68 +351,6 @@ class TestGetVariantResult:
 
         assert breakdown_tuple == ("MacOS", "1920")  # Both as strings
         assert stats.number_of_samples == 100
-
-    def test_funnel_metric_with_breakdown_and_sessions(self):
-        """Test funnel metric with breakdown and sessions combined."""
-        metric = ExperimentFunnelMetric(
-            series=[
-                EventsNode(event="$pageview", name="$pageview"),
-                EventsNode(event="purchase", name="purchase"),
-            ],
-            breakdownFilter=BreakdownFilter(breakdowns=[Breakdown(property="$browser")]),
-        )
-        sessions_data = [
-            [("user1", "session1", "uuid1", "2024-01-01T00:00:00Z")],
-            [("user1", "session1", "uuid2", "2024-01-01T00:00:01Z")],
-        ]
-        # Result: variant, breakdown, samples, sum, sum_squares, step_counts, step_sessions
-        result = ("test", "Chrome", 100, 80.0, 80.0, [100, 80], sessions_data)
-
-        breakdown_tuple, stats = get_variant_result(result, _columns_for(metric, has_step_sessions=True))
-
-        assert breakdown_tuple == ("Chrome",)
-        assert stats.key == "test"
-        assert stats.number_of_samples == 100
-        assert stats.step_counts == [100, 80]
-        assert stats.step_sessions is not None
-        assert len(stats.step_sessions) == 2
-        assert len(stats.step_sessions[0]) == 1
-        assert stats.step_sessions[0][0].person_id == "user1"
-
-    def test_funnel_metric_with_multiple_breakdowns_and_sessions(self):
-        """Test funnel metric with multiple breakdowns and sessions."""
-        metric = ExperimentFunnelMetric(
-            series=[
-                EventsNode(event="$pageview", name="$pageview"),
-                EventsNode(event="purchase", name="purchase"),
-            ],
-            breakdownFilter=BreakdownFilter(
-                breakdowns=[
-                    Breakdown(property="$os"),
-                    Breakdown(property="$browser"),
-                ]
-            ),
-        )
-        sessions_data = [
-            [
-                ("user1", "session1", "uuid1", "2024-01-01T00:00:00Z"),
-                ("user2", "session2", "uuid2", "2024-01-01T00:00:01Z"),
-            ],
-            [("user1", "session1", "uuid3", "2024-01-01T00:00:02Z")],
-        ]
-        # Result: variant, os, browser, samples, sum, sum_squares, step_counts, step_sessions
-        result = ("control", "MacOS", "Chrome", 100, 80.0, 80.0, [100, 80], sessions_data)
-
-        breakdown_tuple, stats = get_variant_result(result, _columns_for(metric, has_step_sessions=True))
-
-        assert breakdown_tuple == ("MacOS", "Chrome")
-        assert stats.key == "control"
-        assert stats.number_of_samples == 100
-        assert stats.step_counts == [100, 80]
-        assert stats.step_sessions is not None
-        assert len(stats.step_sessions) == 2
-        assert len(stats.step_sessions[0]) == 2
-        assert len(stats.step_sessions[1]) == 1
 
     def test_ratio_metric_with_multiple_breakdowns(self):
         """Test ratio metric with multiple breakdowns."""
@@ -709,72 +622,6 @@ class TestAggregateVariantsAcrossBreakdowns:
         assert control.number_of_samples == 180  # 100 + 80
         assert control.sum == 140.0  # 80 + 60
         assert control.step_counts == [180, 155, 140]  # Element-wise sum
-
-    def test_aggregate_funnel_metrics_with_step_sessions(self):
-        """Test that funnel step_sessions are aggregated across breakdowns for actors view."""
-        from posthog.schema import SessionData
-
-        variants = [
-            (
-                ("Chrome",),
-                ExperimentStatsBase(
-                    key="control",
-                    number_of_samples=100,
-                    sum=80.0,
-                    sum_squares=80.0,
-                    step_counts=[100, 80],
-                    step_sessions=[
-                        [
-                            SessionData(
-                                person_id="user1", session_id="s1", event_uuid="e1", timestamp="2024-01-01T00:00:00Z"
-                            )
-                        ],
-                        [
-                            SessionData(
-                                person_id="user1", session_id="s1", event_uuid="e2", timestamp="2024-01-01T00:00:01Z"
-                            )
-                        ],
-                    ],
-                ),
-            ),
-            (
-                ("Safari",),
-                ExperimentStatsBase(
-                    key="control",
-                    number_of_samples=80,
-                    sum=60.0,
-                    sum_squares=60.0,
-                    step_counts=[80, 60],
-                    step_sessions=[
-                        [
-                            SessionData(
-                                person_id="user2", session_id="s2", event_uuid="e3", timestamp="2024-01-01T00:00:02Z"
-                            )
-                        ],
-                        [
-                            SessionData(
-                                person_id="user2", session_id="s2", event_uuid="e4", timestamp="2024-01-01T00:00:03Z"
-                            )
-                        ],
-                    ],
-                ),
-            ),
-        ]
-
-        aggregated = aggregate_variants_across_breakdowns(
-            cast(list[tuple[tuple[str, ...] | None, ExperimentStatsBase]], variants)
-        )
-
-        assert len(aggregated) == 1
-        control = aggregated[0]
-        assert control.key == "control"
-        assert control.step_counts == [180, 140]
-        assert control.step_sessions is not None
-        assert len(control.step_sessions) == 2  # Two steps
-        assert len(control.step_sessions[0]) == 2  # Aggregated from both breakdowns
-        assert len(control.step_sessions[1]) == 2  # Aggregated from both breakdowns
-        assert control.step_sessions[0][0].person_id == "user1"
-        assert control.step_sessions[0][1].person_id == "user2"
 
     def test_aggregate_ratio_metrics_denominator_fields(self):
         """Test that ratio metric denominator fields are aggregated correctly."""
@@ -1136,3 +983,39 @@ class TestGetExperimentQueryDebug:
             assert "SECRETKEY123" not in clickhouse_sql
             assert "SECRETTOKEN456" not in clickhouse_sql
             assert clickhouse_sql.count("[HIDDEN]") == 2
+
+
+class TestMetricVariantToStatistic:
+    def _validated(self, *, n: int = 10, sum: float = 4, sum_squares: float = 4) -> ExperimentStatsBaseValidated:
+        return ExperimentStatsBaseValidated(key="test", number_of_samples=n, sum=sum, sum_squares=sum_squares)
+
+    def test_mean_without_threshold_maps_to_sample_mean(self) -> None:
+        metric = ExperimentMeanMetric(
+            source=EventsNode(event="purchase", math=ExperimentMetricMathType.SUM, math_property="amount"),
+        )
+        stat = metric_variant_to_statistic(metric, self._validated(sum=60, sum_squares=400))
+        assert isinstance(stat, SampleMeanStatistic)
+        assert stat.sum == 60
+        assert stat.sum_squares == 400
+
+    def test_mean_with_threshold_maps_to_proportion(self) -> None:
+        metric = ExperimentMeanMetric(
+            source=EventsNode(event="purchase", math=ExperimentMetricMathType.SUM, math_property="amount"),
+            threshold=100,
+        )
+        stat = metric_variant_to_statistic(metric, self._validated(n=10, sum=4))
+        assert isinstance(stat, ProportionStatistic)
+        # sum is the count of users who crossed the threshold
+        assert stat.n == 10
+        assert stat.sum == 4
+
+    def test_threshold_proportion_coerces_sum_to_int(self) -> None:
+        """ClickHouse may return total_sum as a float; ProportionStatistic.sum must be an int count."""
+        metric = ExperimentMeanMetric(
+            source=EventsNode(event="purchase", math=ExperimentMetricMathType.SUM, math_property="amount"),
+            threshold=100,
+        )
+        stat = metric_variant_to_statistic(metric, self._validated(n=10, sum=4.0))
+        assert isinstance(stat, ProportionStatistic)
+        assert isinstance(stat.sum, int)
+        assert stat.sum == 4

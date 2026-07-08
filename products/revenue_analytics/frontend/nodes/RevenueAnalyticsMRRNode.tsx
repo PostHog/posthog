@@ -5,7 +5,7 @@ import { IconGraph } from '@posthog/icons'
 import { LemonButton, LemonSegmentedButton, LemonSegmentedButtonOption } from '@posthog/lemon-ui'
 
 import { useAttachedLogic } from 'lib/logic/scenes/useAttachedLogic'
-import { getCurrencySymbol } from 'lib/utils/geography/currency'
+import { getCurrencySymbol } from 'lib/utils/currency'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
 
@@ -138,8 +138,6 @@ const Tile = ({ context }: TileProps): JSX.Element => {
                     labels={labels}
                     legend={{
                         display: breakdownProperties.length > 0 && mappedDatasets.length > 1,
-                        position: 'right',
-                        // By default chart.js renders first item at the bottom of stack, but legend goes at the top, let's reverse the legend instead
                         reverse: true,
                     }}
                     trendsFilter={{

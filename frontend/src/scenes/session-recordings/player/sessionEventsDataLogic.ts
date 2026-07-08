@@ -9,7 +9,7 @@ import { ViewportResolution } from '@posthog/replay-shared'
 import api from 'lib/api'
 import { Dayjs, dayjs } from 'lib/dayjs'
 import { chainToElements } from 'lib/utils/elements-chain'
-import { getEventsWithPrimaryProperty } from 'lib/utils/primaryEventProperty'
+import { getEventsWithPrimaryProperty } from 'lib/utils/events'
 import { TimeTree } from 'lib/utils/time-tree'
 
 import { primaryEventPropertiesModel } from '~/models/primaryEventPropertiesModel'
@@ -153,6 +153,11 @@ AND properties.$lib != 'web'`
                     }
 
                     existingEvents = existingEvents.filter((e) => !e.fullyLoaded)
+                    if (!existingEvents.length) {
+                        // nothing left to load (e.g. the events list was replaced while this action
+                        // was queued) — bail out before reducing over an empty timestamps list
+                        return cachedSessionEventsData
+                    }
                     const timestamps = existingEvents.map((ee) => dayjs(ee.timestamp).utc().valueOf())
                     const eventNames = Array.from(new Set(existingEvents.map((ee) => ee.event)))
                     const eventIds = existingEvents.map((ee) => ee.id)

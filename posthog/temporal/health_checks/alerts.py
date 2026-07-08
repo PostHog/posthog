@@ -5,8 +5,12 @@ import structlog
 from posthog.cdp.internal_events import InternalEventEvent, produce_internal_event
 from posthog.exceptions_capture import capture_exception
 from posthog.models.health_issue import HealthIssue
-from posthog.temporal.health_checks.framework import AlertContent, HealthCheck
-from posthog.temporal.health_checks.registry import _DETECT_FNS, ensure_registry_loaded
+from posthog.temporal.health_checks.framework import (
+    AlertContent,
+    HealthCheck,
+    health_check_class_for_kind,
+    remediation_for_kind,
+)
 
 logger = structlog.get_logger(__name__)
 
@@ -17,23 +21,12 @@ EVENT_RESOLVED = "$health_check_issue_resolved"
 
 # FUTURE: this module is the seam where a Signals-style inbox can plug in.
 # Health-check transitions already carry a uniform envelope (kind / severity /
-# title / summary / link / payload); a Signals integration can read from the
-# same event stream — keep that envelope stable as new fields are added.
+# title / summary / link / remediation / payload); a Signals integration can
+# read from the same event stream — keep that envelope stable as new fields are added.
 
 
 def _check_class_for_kind(kind: str) -> type[HealthCheck] | None:
-    # The registry only stores instance-bound detect callables, but every
-    # HealthCheck subclass binds `cls()` so the underlying class is reachable
-    # via the bound method's `__self__`. Ensure the registry is loaded so this
-    # works when called outside the orchestrator's primary code path.
-    ensure_registry_loaded()
-    fn = _DETECT_FNS.get(kind)
-    if fn is None:
-        return None
-    instance = getattr(fn, "__self__", None)
-    if instance is None:
-        return None
-    return type(instance)
+    return health_check_class_for_kind(kind)
 
 
 def _render(issue: HealthIssue) -> AlertContent:
@@ -52,6 +45,8 @@ def emit_health_check_alert(issue: HealthIssue, *, status: Literal["firing", "re
     """
     try:
         content = _render(issue)
+        remediation = remediation_for_kind(issue.kind)
+
         produce_internal_event(
             team_id=issue.team_id,
             event=InternalEventEvent(
@@ -64,6 +59,9 @@ def emit_health_check_alert(issue: HealthIssue, *, status: Literal["firing", "re
                     "title": content.title,
                     "summary": content.summary,
                     "link": content.link,
+                    # Alerts are read by people (Slack/email/webhooks), so surface the human
+                    # remediation — the agent guidance would be noise in a notification.
+                    "remediation": remediation.human if remediation else None,
                     "payload": issue.payload,
                 },
             ),

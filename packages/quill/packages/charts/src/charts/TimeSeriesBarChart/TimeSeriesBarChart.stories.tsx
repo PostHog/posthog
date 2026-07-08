@@ -62,6 +62,31 @@ export const Grouped: Story = {
     },
 }
 
+// Grouped bars whose series span very different magnitudes — each is scaled against its own
+// y-axis (`yAxisId`) so all three stay individually legible instead of the small series being
+// flattened against the large one. Mirrors the legacy "show multiple y-axes" trends option.
+const MULTI_AXIS_SERIES: Series[] = [
+    { key: 'sessions', label: 'Sessions', data: [70, 78, 72, 88, 75, 90, 80] },
+    { key: 'pageviews', label: 'Pageviews', data: [140, 168, 150, 184, 160, 178, 170], yAxisId: 'y1' },
+    { key: 'events', label: 'Events', data: [3500, 4200, 3600, 4500, 3800, 4100, 4000], yAxisId: 'y2' },
+]
+
+export const GroupedMultipleYAxes: Story = {
+    render: () => {
+        const theme = useReactiveTheme()
+        return (
+            <Stage>
+                <TimeSeriesBarChart
+                    series={MULTI_AXIS_SERIES}
+                    labels={DAYS}
+                    theme={theme}
+                    config={{ barLayout: 'grouped', yAxis: { showGrid: true } }}
+                />
+            </Stage>
+        )
+    },
+}
+
 export const Percent: Story = {
     render: () => {
         const theme = useReactiveTheme()

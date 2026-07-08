@@ -7,6 +7,7 @@ import { windowValues } from 'kea-window-values'
 import {
     CommonFilters,
     HeatmapArea,
+    HeatmapBoundsFilter,
     HeatmapEventsResponse,
     HeatmapFilters,
     HeatmapFixedPositionMode,
@@ -21,13 +22,18 @@ import {
 } from 'lib/components/IframedToolbarBrowser/utils'
 import { LemonSelectOption } from 'lib/lemon-ui/LemonSelect'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
-import { dateFilterToText } from 'lib/utils'
+import { dateFilterToText } from 'lib/utils/dateFilters'
+import { getAppContext } from 'lib/utils/getAppContext'
 
-import { toolbarConfigLogic, toolbarFetch } from '~/toolbar/toolbarConfigLogic'
+import { toolbarConfigLogic } from '~/toolbar/toolbarConfigLogic'
+import { toolbarFetch } from '~/toolbar/toolbarFetch'
 import { HeatmapElement, HeatmapResponseType } from '~/toolbar/types'
 import { FilterType } from '~/types'
 
 import type { heatmapDataLogicType } from './heatmapDataLogicType'
+
+// The endpoint defaults to a bounded page for API callers; the overlay renders every point.
+const UNBOUNDED_HEATMAP_LIMIT = 0
 
 export const HEATMAP_COLOR_PALETTE_OPTIONS: LemonSelectOption<string>[] = [
     { value: 'default', label: 'Default (multicolor)' },
@@ -61,7 +67,36 @@ export interface HeatmapDataLogicProps {
     exportToken?: string | null
 }
 
+export function heatmapApiPath(context: HeatmapDataLogicProps['context'], endpoint: '' | 'events/'): string {
+    if (context === 'in-app') {
+        // The unscoped /api/heatmap/ route resolves the team from the user's *global* current
+        // project, which any other tab can change, so pin the team this page was loaded for
+        // instead. The app context team is also set on export renders (team_for_public_context).
+        const teamId = getAppContext()?.current_team?.id
+        if (teamId != null) {
+            return `/api/projects/${teamId}/heatmaps/${endpoint}`
+        }
+    }
+    return `/api/heatmap/${endpoint}`
+}
+
 export type HrefMatchType = 'exact' | 'pattern'
+
+export function isWithinBounds(
+    point: { x: number; y: number; targetFixed: boolean },
+    boundsFilter: HeatmapBoundsFilter | null
+): boolean {
+    if (!boundsFilter) {
+        return true
+    }
+    // points and areas live in different coordinate spaces depending on fixedness, so a
+    // point of the other kind can't be meaningfully tested against this area — exclude it
+    if (point.targetFixed !== boundsFilter.areaFixed) {
+        return false
+    }
+    const { bounds } = boundsFilter
+    return point.x >= bounds.left && point.x <= bounds.right && point.y >= bounds.top && point.y <= bounds.bottom
+}
 
 export const heatmapDataLogic = kea<heatmapDataLogicType>([
     path((key) => ['lib', 'components', 'heatmap', 'heatmapDataLogic', key]),
@@ -74,9 +109,11 @@ export const heatmapDataLogic = kea<heatmapDataLogicType>([
         patchHeatmapFilters: (filters: Partial<HeatmapFilters>) => ({ filters }),
         setHeatmapFixedPositionMode: (mode: HeatmapFixedPositionMode) => ({ mode }),
         setHeatmapColorPalette: (palette: string | null) => ({ palette }),
+        setHeatmapTooltipSuppressed: (suppressed: boolean) => ({ suppressed }),
         setHref: (href: string) => ({ href }),
         setHrefMatchType: (matchType: HrefMatchType) => ({ matchType }),
         setWindowWidthOverride: (widthOverride: number | null) => ({ widthOverride }),
+        setHeatmapBoundsFilter: (boundsFilter: HeatmapBoundsFilter | null) => ({ boundsFilter }),
         setIsReady: (isReady: boolean) => ({ isReady }),
         // Click-to-view-events actions
         setSelectedArea: (area: HeatmapArea | null) => ({ area }),
@@ -125,6 +162,13 @@ export const heatmapDataLogic = kea<heatmapDataLogicType>([
                 setHeatmapColorPalette: (_, { palette }) => palette,
             },
         ],
+        // e.g. while the clickmap overlay shows its own element tooltip
+        heatmapTooltipSuppressed: [
+            false,
+            {
+                setHeatmapTooltipSuppressed: (_, { suppressed }) => suppressed,
+            },
+        ],
         href: [
             null as string | null,
             {
@@ -138,6 +182,14 @@ export const heatmapDataLogic = kea<heatmapDataLogicType>([
             { persist: true },
             {
                 setWindowWidthOverride: (_, { widthOverride }) => widthOverride,
+            },
+        ],
+        // deliberately not persisted: the bounds describe an element on the page currently
+        // being viewed, so they'd be meaningless (and misleading) on the next page
+        heatmapBoundsFilter: [
+            null as HeatmapBoundsFilter | null,
+            {
+                setHeatmapBoundsFilter: (_, { boundsFilter }) => boundsFilter,
             },
         ],
         isReady: [
@@ -197,7 +249,7 @@ export const heatmapDataLogic = kea<heatmapDataLogicType>([
                     const { type, aggregation } = values.heatmapFilters
 
                     // toolbar fetch collapses queryparams but this URL has multiple with the same name
-                    const apiURL = `/api/heatmap/${encodeParams(
+                    const apiURL = `${heatmapApiPath(props.context, '')}${encodeParams(
                         {
                             type,
                             date_from,
@@ -209,6 +261,7 @@ export const heatmapDataLogic = kea<heatmapDataLogicType>([
                             aggregation,
                             filter_test_accounts,
                             cohort_ids: cohort_ids && cohort_ids.length > 0 ? cohort_ids : undefined,
+                            limit: UNBOUNDED_HEATMAP_LIMIT,
                         },
                         '?'
                     )}`
@@ -249,7 +302,7 @@ export const heatmapDataLogic = kea<heatmapDataLogicType>([
                     const { date_from, date_to, filter_test_accounts, cohort_ids } = values.commonFilters
                     const { type } = values.heatmapFilters
 
-                    const apiURL = `/api/heatmap/events/${encodeParams(
+                    const apiURL = `${heatmapApiPath(props.context, 'events/')}${encodeParams(
                         {
                             type,
                             date_from,
@@ -374,11 +427,33 @@ export const heatmapDataLogic = kea<heatmapDataLogicType>([
             },
         ],
 
-        heatmapJsData: [
-            (s) => [s.heatmapElements, s.windowWidth, s.windowWidthOverride, s.heatmapFixedPositionMode],
-            (heatmapElements, windowWidth, windowWidthOverride, heatmapFixedPositionMode): HeatmapJsData => {
+        // the one place the area bounds filter applies, so rendering (heatmapJsData) and
+        // click-to-view-events hit testing can't disagree about which points exist
+        filteredHeatmapElements: [
+            (s) => [s.heatmapElements, s.windowWidth, s.windowWidthOverride, s.heatmapBoundsFilter],
+            (heatmapElements, windowWidth, windowWidthOverride, heatmapBoundsFilter): HeatmapElement[] => {
+                if (!heatmapBoundsFilter) {
+                    return heatmapElements
+                }
                 const width = windowWidthOverride ?? windowWidth
-                const data = heatmapElements.reduce((acc, element) => {
+                return heatmapElements.filter((element) =>
+                    isWithinBounds(
+                        {
+                            x: Math.round(element.xPercentage * width),
+                            y: Math.round(element.y),
+                            targetFixed: element.targetFixed,
+                        },
+                        heatmapBoundsFilter
+                    )
+                )
+            },
+        ],
+
+        heatmapJsData: [
+            (s) => [s.filteredHeatmapElements, s.windowWidth, s.windowWidthOverride, s.heatmapFixedPositionMode],
+            (filteredHeatmapElements, windowWidth, windowWidthOverride, heatmapFixedPositionMode): HeatmapJsData => {
+                const width = windowWidthOverride ?? windowWidth
+                const data = filteredHeatmapElements.reduce((acc, element) => {
                     if (heatmapFixedPositionMode === 'hidden' && element.targetFixed) {
                         return acc
                     }
@@ -440,7 +515,7 @@ export const heatmapDataLogic = kea<heatmapDataLogicType>([
             const { type } = values.heatmapFilters
             const nextOffset = currentEvents.results.length
 
-            const apiURL = `/api/heatmap/events/${encodeParams(
+            const apiURL = `${heatmapApiPath(props.context, 'events/')}${encodeParams(
                 {
                     type,
                     date_from,

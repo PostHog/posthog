@@ -186,6 +186,42 @@ describe('ReferenceLine', () => {
         })
     })
 
+    describe('axisOrientation from chart context', () => {
+        // In a horizontal-axis chart, scales.y is the value scale producing x-pixels, so a
+        // numeric horizontal reference line is drawn as a vertical stripe at scales.y(value).
+        const horizontalAxisContext: BaseChartContext = makeOverlayContext(
+            { ...CONTEXT.scales },
+            { dimensions: DIMENSIONS, labels: ['Mon', 'Tue', 'Wed'], axisOrientation: 'horizontal' }
+        )
+
+        it('defaults to the chart axis orientation (horizontal) without an explicit prop', () => {
+            const { container } = renderInChart(<ReferenceLine value={50} />, horizontalAxisContext)
+            // Drawn as a vertical stripe (left border) at scales.y(50) = 192; width 2 → left = 191.
+            const line = lineDiv(container, 'left')
+            expect(line).not.toBeNull()
+            expect(line!.style.left).toBe('191px')
+            // ...and NOT as a horizontal (top border) line.
+            expect(lineDiv(container, 'top')).toBeNull()
+        })
+
+        it('renders a horizontal line in a vertical-axis chart by default', () => {
+            // CONTEXT defaults axis.orientation to 'vertical'.
+            const { container } = renderInChart(<ReferenceLine value={50} />)
+            expect(lineDiv(container, 'top')).not.toBeNull()
+            expect(lineDiv(container, 'left')).toBeNull()
+        })
+
+        it('lets an explicit axisOrientation prop override the context', () => {
+            const { container } = renderInChart(
+                <ReferenceLine value={50} axisOrientation="vertical" />,
+                horizontalAxisContext
+            )
+            // Forced back to a horizontal (top border) line despite the horizontal-axis context.
+            expect(lineDiv(container, 'top')).not.toBeNull()
+            expect(lineDiv(container, 'left')).toBeNull()
+        })
+    })
+
     describe('variants and style overrides', () => {
         it.each([
             ['goal (default)', undefined, 'dashed', '2px'],

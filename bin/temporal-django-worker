@@ -16,7 +16,6 @@ trap cleanup SIGINT SIGTERM EXIT
 
 echo "Initializing Temporal Worker"
 
-
 python3 manage.py start_temporal_worker "$@" &
 worker_pid=$!
 

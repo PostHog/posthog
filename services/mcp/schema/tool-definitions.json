@@ -1,13 +1,41 @@
 {
+    "generate-app-url": {
+        "description": "Build a correct, clickable PostHog app URL for any page or entity — run `info generate-app-url` for the full catalog of path templates.\nALWAYS use this (or an existing `_posthogUrl` field on a tool result) instead of writing PostHog links by hand: slugs and project/host prefixes are easy to get wrong (a person UUID lives at `/persons/<uuid>`, not `/person/...`) and IDs must never be retyped into a path. Pass a `url` template from the catalog plus its `{placeholders}` as `params`; returns `{ url }` — surface it verbatim.",
+        "category": "Utilities",
+        "feature": "links",
+        "summary": "Build a correct PostHog app URL for a page or entity.",
+        "title": "Generate app URL",
+        "required_scopes": [],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": false,
+            "readOnlyHint": true
+        }
+    },
     "agent-feedback": {
-        "description": "Optional: report a concrete problem with this PostHog MCP server itself — a tool, input schema, response format, error, or these instructions. Keep feedback about the MCP, not the user's task, their data, or your findings. ONLY use this when something went wrong or was missing: friction that slowed you down, a surprise, a missing capability, an unhelpful error, wrong results, or unclear docs. Feedback must be constructive and actionable — point at a specific defect the PostHog team can fix and name the change in `suggested_improvement`. Do NOT submit positive or 'everything worked' reports — they are noise we cannot act on. Skip it entirely for routine tasks where nothing went wrong. Keep `summary` to one sentence and write the free-text fields as clear, concise bullet points, quoting tool names, parameters, and error messages where possible. Do not include user PII or sensitive query content. IMPORTANT: submitting feedback does NOT mean your work is done — keep going and finish the user's task using the other available tools. This tool is for reporting problems to the PostHog team, not for ending the conversation.",
+        "description": "Send feedback about anything PostHog to the PostHog team. Set `feedback_type` to route it: `product` (any PostHog product or feature — insights, session replay, feature flags, the data warehouse, web analytics, error tracking, etc.; put the area in `product_area`), `mcp` (this MCP server itself — a tool, input schema, response format, error, or these instructions; set `category`), `docs`, or `other`. ALL sentiments are welcome via `sentiment` (`positive`/`neutral`/`negative`/`mixed`) — praise and feature requests are useful signal, not just problems. Good triggers: a confusing or broken product experience, a papercut that slowed the task down, a missing capability you worked around, a feature request, an unhelpful error, or something that worked really well. Keep `summary` to one sentence and write the free-text fields as clear, concise bullet points, quoting the product surface, tool name, parameter, or error text where possible. Include a concrete `suggested_improvement` whenever you can name one. Do not include user PII or sensitive query content. The user can also ask you to send feedback directly (e.g. 'make a PostHog feedback for this'). IMPORTANT: submitting feedback does NOT mean your work is done — keep going and finish the user's task using the other available tools. This tool is a side channel to the PostHog team, not a way to end the conversation.",
         "category": "Feedback",
         "feature": "feedback",
-        "summary": "Optional: report a problem with the PostHog MCP server.",
-        "title": "Submit agent feedback",
+        "summary": "Send feedback about any PostHog product, this MCP, or the docs.",
+        "title": "Submit PostHog feedback",
         "required_scopes": [],
         "always_available": true,
         "feature_flag": "mcp-feedback-tool",
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": false,
+            "openWorldHint": false,
+            "readOnlyHint": true
+        }
+    },
+    "agent-resolve-resource": {
+        "description": "Fetch a builder playbook — a markdown guide for using the agent-platform authoring tools well, returned with the live, scope-aware tool surface for the operation. Resolve the relevant one BEFORE a non-trivial operation (editing/promoting a revision, wiring secrets, authoring an agent, debugging a session). Many `agent-applications-*` tool descriptions name the playbook to read first. Pass either a bare id or its `posthog://agent-platform/playbooks/<id>` URI — the `resource` parameter enumerates the available playbooks. Returns `{ id, uri, title, content }` where `content` is the full markdown plus the tool surface.",
+        "category": "Agent stack",
+        "feature": "agent_platform",
+        "summary": "Fetch an agent-platform operator playbook (markdown).",
+        "title": "Resolve an agent operator playbook",
+        "required_scopes": ["agents:read"],
         "annotations": {
             "destructiveHint": false,
             "idempotentHint": false,
@@ -43,6 +71,146 @@
             "readOnlyHint": true
         }
     },
+    "llma-skill-archive": {
+        "description": "DEPRECATED: renamed to skill-archive. This alias forwards to skill-archive and will be removed. Call skill-archive directly with the same arguments.",
+        "category": "Skills",
+        "feature": "skills",
+        "summary": "Deprecated alias for skill-archive.",
+        "title": "Archive skill (deprecated)",
+        "required_scopes": ["llm_skill:write"],
+        "annotations": {
+            "destructiveHint": true,
+            "idempotentHint": false,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        }
+    },
+    "llma-skill-create": {
+        "description": "DEPRECATED: renamed to skill-create. This alias forwards to skill-create and will be removed. Call skill-create directly with the same arguments.",
+        "category": "Skills",
+        "feature": "skills",
+        "summary": "Deprecated alias for skill-create.",
+        "title": "Create skill (deprecated)",
+        "required_scopes": ["llm_skill:write"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": false,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        }
+    },
+    "llma-skill-duplicate": {
+        "description": "DEPRECATED: renamed to skill-duplicate. This alias forwards to skill-duplicate and will be removed. Call skill-duplicate directly with the same arguments.",
+        "category": "Skills",
+        "feature": "skills",
+        "summary": "Deprecated alias for skill-duplicate.",
+        "title": "Duplicate skill (deprecated)",
+        "required_scopes": ["llm_skill:write"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": false,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        }
+    },
+    "llma-skill-file-create": {
+        "description": "DEPRECATED: renamed to skill-file-create. This alias forwards to skill-file-create and will be removed. Call skill-file-create directly with the same arguments.",
+        "category": "Skills",
+        "feature": "skills",
+        "summary": "Deprecated alias for skill-file-create.",
+        "title": "Create skill file (deprecated)",
+        "required_scopes": ["llm_skill:write"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": false,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        }
+    },
+    "llma-skill-file-delete": {
+        "description": "DEPRECATED: renamed to skill-file-delete. This alias forwards to skill-file-delete and will be removed. Call skill-file-delete directly with the same arguments.",
+        "category": "Skills",
+        "feature": "skills",
+        "summary": "Deprecated alias for skill-file-delete.",
+        "title": "Delete skill file (deprecated)",
+        "required_scopes": ["llm_skill:write"],
+        "annotations": {
+            "destructiveHint": true,
+            "idempotentHint": false,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        }
+    },
+    "llma-skill-file-get": {
+        "description": "DEPRECATED: renamed to skill-file-get. This alias forwards to skill-file-get and will be removed. Call skill-file-get directly with the same arguments.",
+        "category": "Skills",
+        "feature": "skills",
+        "summary": "Deprecated alias for skill-file-get.",
+        "title": "Get skill file (deprecated)",
+        "required_scopes": ["llm_skill:read"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        }
+    },
+    "llma-skill-file-rename": {
+        "description": "DEPRECATED: renamed to skill-file-rename. This alias forwards to skill-file-rename and will be removed. Call skill-file-rename directly with the same arguments.",
+        "category": "Skills",
+        "feature": "skills",
+        "summary": "Deprecated alias for skill-file-rename.",
+        "title": "Rename skill file (deprecated)",
+        "required_scopes": ["llm_skill:write"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": false,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        }
+    },
+    "llma-skill-get": {
+        "description": "DEPRECATED: renamed to skill-get. This alias forwards to skill-get and will be removed. Call skill-get directly with the same arguments.",
+        "category": "Skills",
+        "feature": "skills",
+        "summary": "Deprecated alias for skill-get.",
+        "title": "Get skill (deprecated)",
+        "required_scopes": ["llm_skill:read"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        }
+    },
+    "llma-skill-list": {
+        "description": "DEPRECATED: renamed to skill-list. This alias forwards to skill-list and will be removed. Call skill-list directly with the same arguments.",
+        "category": "Skills",
+        "feature": "skills",
+        "summary": "Deprecated alias for skill-list.",
+        "title": "List skills (deprecated)",
+        "required_scopes": ["llm_skill:read"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        }
+    },
+    "llma-skill-update": {
+        "description": "DEPRECATED: renamed to skill-update. This alias forwards to skill-update and will be removed. Call skill-update directly with the same arguments.",
+        "category": "Skills",
+        "feature": "skills",
+        "summary": "Deprecated alias for skill-update.",
+        "title": "Update skill (deprecated)",
+        "required_scopes": ["llm_skill:write"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        }
+    },
     "insight-query": {
         "description": "Execute a saved insight's query and return results. THIS IS THE ONLY WAY TO RETRIEVE INSIGHT RESULTS — the insights-list, insight-get, insight-create, and insight-update tools all return metadata and query definitions but never the actual data. Call insight-query whenever the user asks to see, analyze, summarize, or compare data from a saved insight, and immediately after creating or updating an insight if they want to verify the output. Supports two output formats: 'optimized' (default) returns a human-readable summary from server-side formatters ideal for analysis, while 'json' returns the raw query results. Optionally accepts `variables_override` and `filters_override` to run the insight with one-off overrides without mutating the saved definition.",
         "category": "Insights & analytics",
@@ -58,7 +226,7 @@
         }
     },
     "evaluations-get": {
-        "description": "List AI observability evaluations for the project. Evaluations automatically score AI generations for quality, relevance, safety, and other criteria. Supports optional search by name/description and filtering by enabled status. Evaluation results are stored as '$ai_evaluation' events — to query results, use the execute-sql or query-run tool with a HogQL query filtering on event = '$ai_evaluation'. Key properties: $ai_evaluation_id (evaluation UUID), $ai_evaluation_name, $ai_target_event_id (generation event UUID), $ai_trace_id, $ai_evaluation_result (boolean pass/fail), $ai_evaluation_reasoning (text), $ai_evaluation_applicable (boolean, false = N/A).",
+        "description": "List AI observability evaluations for the project. Evaluations automatically score AI generations for quality, relevance, safety, and other criteria. Supports optional search by name/description and filtering by enabled status. Evaluation results are stored as '$ai_evaluation' events — to query results, use the execute-sql tool with a HogQL query filtering on event = '$ai_evaluation'. Key properties: $ai_evaluation_id (evaluation UUID), $ai_evaluation_name, $ai_target_event_id (generation event UUID), $ai_trace_id, $ai_evaluation_result (boolean pass/fail), $ai_evaluation_reasoning (text), $ai_evaluation_applicable (boolean, false = N/A).",
         "category": "AI observability",
         "feature": "llm_analytics",
         "summary": "List AI observability evaluations.",
@@ -72,7 +240,7 @@
         }
     },
     "evaluation-get": {
-        "description": "Get a specific AI observability evaluation by its UUID. Returns full details including name, type (llm_judge or hog), configuration, conditions, and enabled status.",
+        "description": "Get a specific AI observability evaluation by its UUID. Returns full details including name, type (llm_judge, hog, or sentiment), configuration, conditions, and enabled status.",
         "category": "AI observability",
         "feature": "llm_analytics",
         "summary": "Get a specific evaluation by ID.",
@@ -86,7 +254,7 @@
         }
     },
     "evaluation-create": {
-        "description": "Create a new AI observability evaluation. Two types are supported: 'llm_judge' uses an LLM to score generations against a prompt you define (for subjective checks like tone, helpfulness, hallucination detection), and 'hog' runs deterministic code against each generation (for rule-based checks like format validation, keyword detection, length limits). For llm_judge evaluations, provide a prompt in evaluation_config and a model_configuration. For hog evaluations, provide source code in evaluation_config.",
+        "description": "Create a new AI observability evaluation. Supported types are 'llm_judge' (LLM scores generations against a prompt), 'hog' (deterministic code returning a boolean), and 'sentiment' (user-message sentiment analysis). For llm_judge evaluations, provide evaluation_config.prompt and model_configuration. For hog evaluations, provide evaluation_config.source. For sentiment evaluations, use output_type='sentiment', omit model_configuration, and optionally set evaluation_config.source='user_messages'.",
         "category": "AI observability",
         "feature": "llm_analytics",
         "summary": "Create a new evaluation.",
@@ -156,7 +324,7 @@
         }
     },
     "notebook-edit": {
-        "description": "Edit part of a notebook's content. Use this for any change inside a notebook — text, headings, attributes, whole paragraphs. Call `notebooks-retrieve` first to see what to target.\n\nMatching is by content. The tool finds `old_value` anywhere in the notebook and swaps it for `new_value` in place.\n\nOn success, returns the updated notebook with the new content and bumped version. On a 409 or 410 error, the notebook has changed since you loaded it — call `notebooks-retrieve` and re-apply your edit against the latest content.",
+        "description": "Edit part of a notebook's content by short_id.\n\nFor markdown notebooks, use `execute-sql` to read the current markdown from `system.notebooks.markdown`, then edit with `old_markdown` / `new_markdown`. These are plain markdown strings; do not copy or construct the nested `ph-markdown-notebook` JSON wrapper.\n\nFor legacy rich-text notebooks, inspect the JSON content from `system.notebooks.content`, then edit with `old_value` / `new_value` JSON subtree replacement. Matching is by content: the tool finds `old_value` anywhere in the notebook and swaps it for `new_value` in place.\n\nOn success, returns the updated notebook with the new content and bumped version. On a 409 or 410 error, the notebook has changed since you loaded it; reload the latest markdown or JSON content and re-apply your edit.",
         "category": "Notebooks",
         "feature": "notebooks",
         "summary": "Edit part of a notebook's content.",
@@ -380,6 +548,20 @@
             "readOnlyHint": true
         }
     },
+    "external-data-sources-preview-resource": {
+        "description": "Read a small live sample of rows for one resource (table) of a Custom REST source, so you can verify the manifest's data_selector, primary_key, and incremental cursor_path against real data BEFORE creating the source. Only source_type 'Custom' is supported. Pass source_type, a payload object ({manifest_json, plus the credential for the manifest's auth type — auth_token | auth_api_key | auth_password}), the resource_name to sample, and an optional limit (1–50, default 10). Returns {rows, row_count, columns (name + inferred JSON type), error}. Manifest, validation, and SSRF problems return 400; a live fetch failure returns 200 with `error` set and empty rows. Use external-data-sources-db-schema first to list the resource names and detected cursors.",
+        "category": "Data warehouse",
+        "feature": "data_warehouse",
+        "summary": "Preview sample rows for a Custom REST source resource",
+        "title": "Preview rows for a Custom REST source resource",
+        "required_scopes": ["external_data_source:write"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        }
+    },
     "external-data-sync-logs": {
         "description": "Get sync job logs for a data warehouse table schema. Returns log entries from the log_entries ClickHouse table, filtered by schema ID and optionally by a specific job's workflow_run_id. Use external-data-sources-jobs to find job IDs and workflow_run_ids. Supports filtering by log level (DEBUG, INFO, WARNING, ERROR) and message search.",
         "category": "Data warehouse",
@@ -395,7 +577,7 @@
         }
     },
     "session-recording-summarize": {
-        "description": "Generate an AI-powered summary of one or more session recordings. Returns structured analysis including user journey segments, key actions, segment outcomes, overall session outcome, and sentiment analysis (frustration score, rage clicks, confusion signals). Use this instead of asking users to watch full recordings — it provides the key insights in seconds. Accepts up to 300 session IDs and an optional focus_area to guide the summary toward a specific aspect (e.g., \"checkout flow\" or \"error handling\"). The response is a dict keyed by session ID. Successful entries contain the summary fields; failed entries contain an `error` (e.g. `no_events_or_too_short`, `summary_failed`) and an `error_message` so callers can distinguish \"skipped on purpose\" from \"tool broke\". A bad session ID in the batch is reported as a per-session error and does not fail the whole request. WARNING: First-time summaries call an AI model and are very slow — expect around 5 minutes on average. Previously generated summaries are cached and return instantly. Warn the user about the wait before calling this tool.\n\nDEEP LINKS: Key actions include `session_id` and `milliseconds_since_start`. Build deep links as `{posthog_base_url}/replay/{session_id}?t={milliseconds_since_start / 1000}` (the `?t=` parameter is in seconds). Example: 45000ms in session abc123 → `/replay/abc123?t=45`. Always include these links for key actions and frustration signals.",
+        "description": "Generate an AI-powered summary of one or more session recordings. Returns structured analysis including user journey segments, key actions, segment outcomes, overall session outcome, and sentiment analysis (frustration score, rage clicks, confusion signals). This is the legacy summary path, being retired in favor of Replay Vision summarizer scanners — prefer those (`vision-observations-list` to read an existing summary, `vision-scanners-scan-session` to run one) and use this tool only if the user doesn't have Replay Vision enabled (it's in beta). It provides the key insights in seconds without watching the full recording. Accepts up to 300 session IDs and an optional focus_area to guide the summary toward a specific aspect (e.g., \"checkout flow\" or \"error handling\"). The response is a dict keyed by session ID. Successful entries contain the summary fields; failed entries contain an `error` (e.g. `no_events_or_too_short`, `summary_failed`) and an `error_message` so callers can distinguish \"skipped on purpose\" from \"tool broke\". A bad session ID in the batch is reported as a per-session error and does not fail the whole request. WARNING: First-time summaries call an AI model and are very slow — expect around 5 minutes on average. Previously generated summaries are cached and return instantly. Warn the user about the wait before calling this tool.\n\nDEEP LINKS: Key actions include `session_id` and `milliseconds_since_start`. Build deep links as `{posthog_base_url}/replay/{session_id}?t={milliseconds_since_start / 1000}` (the `?t=` parameter is in seconds). Example: 45000ms in session abc123 → `/replay/abc123?t=45`. Always include these links for key actions and frustration signals.",
         "category": "Session replays",
         "feature": "replay",
         "summary": "Generate AI-powered summaries of session recordings via streaming.",
@@ -411,7 +593,7 @@
         }
     },
     "execute-sql": {
-        "description": "Use this tool to execute an SQL query (or HogQL, which is PostHog's variant of SQL that supports most of ClickHouse SQL). We're going to use terms \"HogQL\" and \"SQL\" interchangeably. For more information, see the querying-posthog-data skill.\nBEFORE writing any query, you should follow these steps:\n1. Call posthog:read-data-warehouse-schema to discover available tables, views, columns, and their types. Do NOT guess table or column names.\n2. Call posthog:read-data-schema to discover available events, properties, and property values. Do NOT rely on training data or PostHog defaults.\n3. Only after completing steps 1 and 2, write and execute your SQL query using verified table and column names.\nUse system tables with the system. prefix for PostHog-created data. For example, count SQL insight variables with:\n```sql\nSELECT count() AS total FROM system.insight_variables\n```\nAn example query to retrieve columns of a custom data warehouse table:\n```sql\nSELECT columns FROM system.data_warehouse_tables WHERE name = 'my_table'\n```\nIMPORTANT: By default, large JSON values in results (like full `properties` objects) are truncated. If you anticipate that results might be large or you are selecting the full `properties` object (e.g., `SELECT properties FROM events`), you should dump the results to a file instead of outputting them directly. Use bash commands to process the file. Alternatively, cherry-pick only the specific properties you need (e.g., `properties.$browser`) instead of selecting the entire object.",
+        "description": "Use this tool to execute an SQL query (or HogQL, which is PostHog's variant of SQL that supports most of ClickHouse SQL). We're going to use terms \"HogQL\" and \"SQL\" interchangeably. For more information, see the querying-posthog-data skill.\nBEFORE writing any query, you should follow these steps:\n1. Discover the available tables, views, columns, and their types before querying. Do NOT guess table or column names.\n2. Call posthog:read-data-schema to discover available events, properties, and property values. Do NOT rely on training data or PostHog defaults.\n3. Only after completing steps 1 and 2, write and execute your SQL query using verified table and column names.\nUse system tables with the system. prefix for PostHog-created data. For example, count SQL insight variables with:\n```sql\nSELECT count() AS total FROM system.insight_variables\n```\nAn example query to retrieve columns of a custom data warehouse table:\n```sql\nSELECT columns FROM system.data_warehouse_tables WHERE name = 'my_table'\n```\nIMPORTANT: By default, large JSON values in results (like full `properties` objects) are truncated. If you anticipate that results might be large or you are selecting the full `properties` object (e.g., `SELECT properties FROM events`), you should dump the results to a file instead of outputting them directly. Use bash commands to process the file. Alternatively, cherry-pick only the specific properties you need (e.g., `properties.$browser`) instead of selecting the entire object.\nPROPERTY ACCESS: dot notation (`properties.$browser`) only works for keys that are valid identifiers — they must start with a letter, underscore, or `$` and contain only letters, digits, underscores, and `$` (`^[A-Za-z_$][A-Za-z0-9_$]*$`). Keys that break this rule (hyphens, dots, spaces, or a leading digit) cannot use dot notation; for example `properties.$survey_response_0196e96d-7705-7d32` is parsed as a subtraction and fails. Use bracket notation with a quoted string for those keys: `properties['$survey_response_0196e96d-7705-7d32']`. This applies to all JSON columns (e.g. `person.properties[...]`).",
         "category": "SQL",
         "feature": "sql",
         "summary": "Execute an SQL query.",
@@ -445,6 +627,8 @@
         "summary": "Read core data warehouse schemas and table lists.",
         "title": "Read data warehouse schema",
         "required_scopes": ["warehouse_table:read", "warehouse_view:read"],
+        "feature_flag": "mcp-sql-schema-discovery",
+        "feature_flag_behavior": "disable",
         "annotations": {
             "destructiveHint": false,
             "idempotentHint": true,
@@ -453,7 +637,7 @@
         }
     },
     "workflows-enable": {
-        "description": "Enable / activate a draft workflow and start processing events. Confirm with the user before invoking.",
+        "description": "Enable / activate a draft workflow and start processing events. One-way door: a live workflow can't be edited over MCP (to change it you recreate it as a new draft), so test it first and get the user's explicit approval before invoking. Don't enable on your own initiative.",
         "category": "Workflows",
         "feature": "workflows",
         "summary": "Enable workflow",

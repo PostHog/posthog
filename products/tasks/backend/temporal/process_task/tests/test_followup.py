@@ -119,7 +119,7 @@ class TestFollowupDeliveryFailure:
     async def test_failed_followup_marks_run_as_failed_promptly(self):
         """The workflow must exit its main loop and mark the run as failed
         within seconds when a followup delivery fails — not after the
-        2-hour inactivity timeout."""
+        full inactivity timeout."""
         _status_updates.clear()
 
         async with await WorkflowEnvironment.start_time_skipping() as env:
@@ -164,7 +164,7 @@ class TestFollowupDeliveryFailure:
 
         failed_updates = [(s, e) for s, e in _status_updates if s == "failed"]
         assert len(failed_updates) == 1
-        assert "Follow-up delivery failed" in (failed_updates[0][1] or "")
+        assert failed_updates[0][1] == "Follow-up delivery failed: RuntimeError: Sandbox session is dead"
 
 
 _ci_context_overrides: dict = {}

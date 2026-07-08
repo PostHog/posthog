@@ -6,6 +6,8 @@ import { createInsightStory } from 'scenes/insights/__mocks__/createInsightScene
 
 import { mswDecorator } from '~/mocks/browser'
 
+import __trendsWorldMap from '../../../mocks/fixtures/api/projects/team_id/insights/trendsWorldMap.json'
+
 type Story = StoryObj<{}>
 const meta: Meta = {
     title: 'Scenes-App/Insights/TrendsPie',
@@ -37,55 +39,11 @@ const meta: Meta = {
 }
 export default meta
 /* eslint-disable @typescript-eslint/no-var-requires */
-// Trends Pie
-export const TrendsPie: Story = createInsightStory(
-    require('../../../mocks/fixtures/api/projects/team_id/insights/trendsPie.json')
-)
-TrendsPie.parameters = { testOptions: { waitForSelector: '[data-attr=trend-pie-graph] > canvas' } }
-export const TrendsPieEdit: Story = createInsightStory(
-    require('../../../mocks/fixtures/api/projects/team_id/insights/trendsPie.json'),
-    'edit'
-)
-TrendsPieEdit.parameters = { testOptions: { waitForSelector: '[data-attr=trend-pie-graph] > canvas' } }
 
-export const TrendsPieBreakdown: Story = createInsightStory(
-    require('../../../mocks/fixtures/api/projects/team_id/insights/trendsPieBreakdown.json')
-)
-TrendsPieBreakdown.parameters = { testOptions: { waitForSelector: '[data-attr=trend-pie-graph] > canvas' } }
-export const TrendsPieBreakdownEdit: Story = createInsightStory(
-    require('../../../mocks/fixtures/api/projects/team_id/insights/trendsPieBreakdown.json'),
-    'edit'
-)
-TrendsPieBreakdownEdit.parameters = {
-    testOptions: { waitForSelector: '[data-attr=trend-pie-graph] > canvas' },
-}
-
-export const TrendsPieBreakdownLabels: Story = createInsightStory(
-    require('../../../mocks/fixtures/api/projects/team_id/insights/trendsPieBreakdown.json'),
-    'view',
-    true
-)
-TrendsPieBreakdownLabels.parameters = { testOptions: { waitForSelector: '[data-attr=trend-pie-graph] > canvas' } }
-
-// Trends World Map
-export const TrendsWorldMap: Story = createInsightStory(
-    require('../../../mocks/fixtures/api/projects/team_id/insights/trendsWorldMap.json')
-)
+// Trends World Map (no hog-charts equivalent yet — keep these)
+export const TrendsWorldMap: Story = createInsightStory(__trendsWorldMap as any)
 TrendsWorldMap.parameters = { testOptions: { waitForSelector: '.WorldMap' } }
-export const TrendsWorldMapEdit: Story = createInsightStory(
-    require('../../../mocks/fixtures/api/projects/team_id/insights/trendsWorldMap.json'),
-    'edit'
-)
+export const TrendsWorldMapEdit: Story = createInsightStory(__trendsWorldMap as any, 'edit')
 TrendsWorldMapEdit.parameters = { testOptions: { waitForSelector: '.WorldMap' } }
-export const TrendsPieEditViewports: Story = createInsightStory(
-    require('../../../mocks/fixtures/api/projects/team_id/insights/trendsPie.json'),
-    'edit'
-)
-TrendsPieEditViewports.parameters = {
-    testOptions: {
-        waitForSelector: '[data-attr=trend-pie-graph] > canvas',
-        viewportWidths: ['medium', 'wide', 'superwide'],
-    },
-}
 
 /* eslint-enable @typescript-eslint/no-var-requires */

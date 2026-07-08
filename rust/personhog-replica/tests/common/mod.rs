@@ -218,8 +218,31 @@ impl TestContext {
         Ok(())
     }
 
+    pub async fn insert_personless_distinct_id(
+        &self,
+        distinct_id: &str,
+    ) -> Result<(), sqlx::Error> {
+        sqlx::query(
+            r#"INSERT INTO posthog_personlessdistinctid
+            (distinct_id, team_id, is_merged, created_at)
+            VALUES ($1, $2, false, NOW())
+            ON CONFLICT DO NOTHING"#,
+        )
+        .bind(distinct_id)
+        .bind(self.team_id)
+        .execute(&self.pool)
+        .await?;
+
+        Ok(())
+    }
+
     pub async fn cleanup(&self) -> Result<(), sqlx::Error> {
         sqlx::query("DELETE FROM posthog_featureflaghashkeyoverride WHERE team_id = $1")
+            .bind(self.team_id)
+            .execute(&self.pool)
+            .await?;
+
+        sqlx::query("DELETE FROM posthog_personlessdistinctid WHERE team_id = $1")
             .bind(self.team_id)
             .execute(&self.pool)
             .await?;

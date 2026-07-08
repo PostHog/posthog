@@ -1,56 +1,21 @@
-import {
-    addMonths,
-    endOfDay,
-    format,
-    getDate,
-    getDay,
-    getDaysInMonth,
-    getHours,
-    getMinutes,
-    getMonth,
-    getYear,
-    isAfter,
-    isSameDay,
-    isSameMonth,
-    isToday,
-    startOfDay,
-    subMonths,
-} from 'date-fns'
-import { ArrowRight, ChevronLeft, ChevronRight, SettingsIcon } from 'lucide-react'
+import { endOfDay, format, getMonth, getYear, startOfDay, subMonths } from 'date-fns'
+import { ArrowRight, SettingsIcon } from 'lucide-react'
 import * as React from 'react'
 
-import { Badge, Button, InputGroup, InputGroupNumberInput, ScrollArea, Select, SelectContent, SelectGroup, SelectItem, SelectTrigger, SelectValue, Separator, Tooltip, TooltipContent, TooltipProvider, TooltipTrigger, cn } from '@posthog/quill-primitives'
+import { Badge, Button, ScrollArea, Separator, cn } from '@posthog/quill-primitives'
 
+import { Calendar } from './calendar-grid'
 import { CUSTOM_RANGE, type DateTimeRange, quickRanges } from './date-time-ranges'
-import { Day, useCalendar } from './use-calendar'
+import { SegmentedDateInput, type DateFormatOrder } from './segmented-date-input'
+import { Day } from './use-calendar'
+
+export type { DateFormatOrder } from './segmented-date-input'
 
 const DATE_TIME_FORMATS: Record<DateFormatOrder, string> = {
     MDY: 'MM/dd/yy HH:mm:ss',
     DMY: 'dd/MM/yy HH:mm:ss',
     YMD: 'yy-MM-dd HH:mm:ss',
 }
-
-const DATE_FORMAT_LABELS: Record<DateFormatOrder, string> = {
-    MDY: 'MM/DD/YY',
-    DMY: 'DD/MM/YY',
-    YMD: 'YY-MM-DD',
-}
-const POSTHOG_START_DATE = new Date(2020, 0, 23)
-const WEEK_DAYS = ['Su', 'Mo', 'Tu', 'We', 'Th', 'Fr', 'Sa']
-const MONTH_NAMES = [
-    'January',
-    'February',
-    'March',
-    'April',
-    'May',
-    'June',
-    'July',
-    'August',
-    'September',
-    'October',
-    'November',
-    'December',
-]
 
 // Tailwind `lg` breakpoint — matches the `lg:` classes that switch this picker
 // between a single calendar and the side-by-side dual-calendar layout.
@@ -74,8 +39,6 @@ export interface DateTimeValue {
     range: DateTimeRange
 }
 
-export type DateFormatOrder = 'MDY' | 'DMY' | 'YMD'
-
 export interface DateTimePickerProps {
     value: DateTimeValue
     onApply: (value: DateTimeValue) => void
@@ -89,394 +52,6 @@ export interface DateTimePickerProps {
     className?: string
 }
 
-interface DayItemProps {
-    day: Date
-    startDate: Date
-    endDate: Date
-    viewing: Date
-    minDate?: Date
-    maxDate: Date
-    onClick: (day: Date) => void
-}
-
-function DayItem({ day, startDate, endDate, viewing, minDate, maxDate, onClick }: DayItemProps): React.ReactElement {
-    const outOfMonth = !isSameMonth(day, viewing)
-    const dayDate = new Date(day.getFullYear(), day.getMonth(), day.getDate())
-    const maxDay = new Date(maxDate.getFullYear(), maxDate.getMonth(), maxDate.getDate())
-    const afterMax = dayDate.getTime() > maxDay.getTime()
-    const beforeMin = minDate
-        ? dayDate.getTime() < new Date(minDate.getFullYear(), minDate.getMonth(), minDate.getDate()).getTime()
-        : false
-    const disabled = outOfMonth || afterMax || beforeMin
-
-    const isStart = !disabled && isSameDay(startDate, day)
-    const isEnd = !disabled && isSameDay(endDate, day)
-    const sameDay = isSameDay(startDate, endDate)
-    const isBetween =
-        !disabled &&
-        !isStart &&
-        !isEnd &&
-        isAfter(day, startDate) &&
-        !isAfter(day, endDate)
-    const today = isToday(day)
-
-    const label = format(day, 'dd')
-
-    return (
-        <div
-            data-is-between={isBetween}
-            data-is-start={isStart}
-            data-is-end={isEnd}
-            data-is-today={today}
-            data-is-same-day={sameDay}
-            className={cn(
-                'w-8 h-8 flex items-center justify-center',
-                isBetween && 'bg-fill-selected',
-                isStart && !sameDay && 'bg-fill-selected rounded-l-full',
-                isEnd && !sameDay && 'bg-fill-selected rounded-r-full'
-            )}
-        >
-            <Button
-                variant={isStart || isEnd ? 'primary' : 'default'}
-                size="icon-sm"
-                disabled={disabled}
-                aria-label={`Select ${format(day, 'PP')}`}
-                title={disabled ? undefined : `Select ${format(day, 'PP')}`}
-                onClick={() => onClick(day)}
-                className={cn(
-                    'w-full h-full !rounded-full p-0 text-[11px] tabular-nums',
-                    today && !isStart && !isEnd && 'border border-primary',
-                    disabled && 'opacity-20'
-                )}
-            >
-                {label}
-            </Button>
-        </div>
-    )
-}
-
-interface CalendarProps {
-    defaultViewing: Date
-    startDate: Date
-    endDate: Date
-    minDate?: Date
-    maxDate: Date
-    onSelect: (day: Date) => void
-    onViewChange: (month: Date) => void
-    siblingViewing?: Date
-    weekStartsOn?: Day
-}
-
-function Calendar({
-    defaultViewing,
-    startDate,
-    endDate,
-    minDate,
-    maxDate,
-    onSelect,
-    onViewChange,
-    siblingViewing,
-    weekStartsOn,
-}: CalendarProps): React.ReactElement {
-    const { calendar, viewing, setViewing, viewPreviousMonth, viewNextMonth } = useCalendar({
-        viewing: defaultViewing,
-        weekStartsOn,
-    })
-
-    // Keep viewing in sync if parent-controlled defaultViewing changes (e.g. when
-    // quick ranges reset both calendars).
-    const lastDefaultRef = React.useRef(defaultViewing)
-    React.useEffect(() => {
-        if (!isSameMonth(lastDefaultRef.current, defaultViewing)) {
-            setViewing(defaultViewing)
-            lastDefaultRef.current = defaultViewing
-        }
-    }, [defaultViewing, setViewing])
-
-    const handlePrev = (): void => {
-        viewPreviousMonth()
-        onViewChange(subMonths(viewing, 1))
-    }
-    const handleNext = (): void => {
-        viewNextMonth()
-        onViewChange(addMonths(viewing, 1))
-    }
-
-    const floorDate = minDate && minDate.getTime() > POSTHOG_START_DATE.getTime() ? minDate : POSTHOG_START_DATE
-    const minYearVal = getYear(floorDate)
-    const minMonthAtMinYear = getMonth(floorDate)
-    const floorKey = minYearVal * 12 + minMonthAtMinYear
-    const viewingKey = getYear(viewing) * 12 + getMonth(viewing)
-
-    const disableNext =
-        (getMonth(viewing) === getMonth(new Date()) && getYear(viewing) === getYear(new Date())) ||
-        (!!siblingViewing &&
-            getMonth(siblingViewing) === getMonth(addMonths(viewing, 1)) &&
-            getYear(siblingViewing) === getYear(addMonths(viewing, 1)))
-
-    const disablePrev =
-        viewingKey <= floorKey ||
-        (!!siblingViewing &&
-            getMonth(siblingViewing) === getMonth(subMonths(viewing, 1)) &&
-            getYear(siblingViewing) === getYear(subMonths(viewing, 1)))
-    const maxYearVal = getYear(maxDate)
-    const maxMonthAtMaxYear = getMonth(maxDate)
-    const currentYear = getYear(viewing)
-    const currentMonth = getMonth(viewing)
-
-    const monthKey = (year: number, month: number): number => year * 12 + month
-    const currentKey = monthKey(currentYear, currentMonth)
-    const siblingKey = siblingViewing ? monthKey(getYear(siblingViewing), getMonth(siblingViewing)) : null
-
-    const monthOptions: { key: number; year: number; month: number }[] = []
-    for (let y = minYearVal; y <= maxYearVal; y++) {
-        const startMonth = y === minYearVal ? minMonthAtMinYear : 0
-        const endMonth = y === maxYearVal ? maxMonthAtMaxYear : 11
-        for (let m = startMonth; m <= endMonth; m++) {
-            monthOptions.push({ key: monthKey(y, m), year: y, month: m })
-        }
-    }
-
-    const handleMonthYearSelect = (next: number): void => {
-        const year = Math.floor(next / 12)
-        const month = next % 12
-        const nextDate = new Date(year, month, 1)
-        setViewing(nextDate)
-        onViewChange(nextDate)
-    }
-
-    return (
-        <div>
-            <div className="flex justify-center items-center py-1 gap-1">
-                <Button
-                    variant="default"
-                    size="icon-sm"
-                    onClick={handlePrev}
-                    disabled={disablePrev}
-                    aria-label="Previous month"
-                    title={disablePrev ? 'Disabled' : 'Previous month'}
-                    className="disabled:cursor-not-allowed"
-                >
-                    <ChevronLeft />
-                </Button>
-                <Select
-                    value={currentKey}
-                    onValueChange={(v) => {
-                        if (v !== null) {
-                            handleMonthYearSelect(v)
-                        }
-                    }}
-                >
-                    <SelectTrigger size="sm" aria-label="Month and year" className="h-6 px-2 text-xs">
-                        <SelectValue>
-                            {(v: number) => `${MONTH_NAMES[v % 12]} ${Math.floor(v / 12)}`}
-                        </SelectValue>
-                    </SelectTrigger>
-                    <SelectContent>
-                        <SelectGroup>
-                            {monthOptions.map(({ key, year, month }) => (
-                                <SelectItem key={key} value={key} disabled={key === siblingKey}>
-                                    {MONTH_NAMES[month]} {year}
-                                </SelectItem>
-                            ))}
-                        </SelectGroup>
-                    </SelectContent>
-                </Select>
-                <Button
-                    variant="default"
-                    size="icon-sm"
-                    onClick={handleNext}
-                    disabled={disableNext}
-                    aria-label="Next month"
-                    title={disableNext ? 'Disabled' : 'Next month'}
-                    className="disabled:cursor-not-allowed"
-                >
-                    <ChevronRight />
-                </Button>
-            </div>
-
-            <div className="grid grid-cols-7">
-                {calendar[0][0].map((day) => (
-                    <div
-                        key={`h-${getDay(day)}`}
-                        className="w-8 h-6 flex items-center justify-center text-[10px] text-muted-foreground uppercase"
-                    >
-                        {WEEK_DAYS[getDay(day)]}
-                    </div>
-                ))}
-            </div>
-
-            <div className="flex flex-col">
-                {calendar[0].map((week, wi) => (
-                    <div key={`w-${wi}`} className="grid grid-cols-7">
-                        {week.map((day) => (
-                            <DayItem
-                                key={day.toISOString()}
-                                day={day}
-                                startDate={startDate}
-                                endDate={endDate}
-                                viewing={viewing}
-                                minDate={minDate}
-                                maxDate={maxDate}
-                                onClick={onSelect}
-                            />
-                        ))}
-                    </div>
-                ))}
-            </div>
-        </div>
-    )
-}
-
-interface DateTimeInputProps {
-    date: Date
-    maxDate: Date
-    onChange: (date: Date) => void
-    dateFormat: DateFormatOrder
-}
-
-const PAD_2 = { minimumIntegerDigits: 2 } as const
-
-function DateTimeInput({ date, maxDate, onChange, dateFormat }: DateTimeInputProps): React.ReactElement {
-    const [month, setMonth] = React.useState(getMonth(date) + 1)
-    const [day, setDay] = React.useState(getDate(date))
-    const [year, setYear] = React.useState(getYear(date) % 100)
-    const [hour, setHour] = React.useState(getHours(date))
-    const [minute, setMinute] = React.useState(getMinutes(date))
-
-    const onChangeRef = React.useRef(onChange)
-    React.useEffect(() => {
-        onChangeRef.current = onChange
-    }, [onChange])
-
-    React.useEffect(() => {
-        setMonth(getMonth(date) + 1)
-        setDay(getDate(date))
-        setYear(getYear(date) % 100)
-        setHour(getHours(date))
-        setMinute(getMinutes(date))
-    }, [date])
-
-    const touched = React.useRef(false)
-    React.useEffect(() => {
-        if (!touched.current) {
-            return
-        }
-        const handle = setTimeout(() => {
-            onChangeRef.current(new Date(2000 + year, month - 1, day, hour, minute))
-            touched.current = false
-        }, 400)
-        return () => clearTimeout(handle)
-    }, [month, day, year, hour, minute])
-
-    const set = (setter: React.Dispatch<React.SetStateAction<number>>) => (v: number | null) => {
-        if (v === null) {
-            return
-        }
-        touched.current = true
-        setter(v)
-    }
-
-    const segmentClass = 'w-7 flex-none text-center tabular-nums p-0'
-    const separatorClass = 'text-xs text-muted-foreground select-none'
-    const sep = dateFormat === 'YMD' ? '-' : '/'
-
-    const maxYear = getYear(maxDate) % 100
-    const atMaxYear = year === maxYear
-    const maxMonth = atMaxYear ? getMonth(maxDate) + 1 : 12
-    const atMaxMonth = atMaxYear && month === maxMonth
-    const maxDay = atMaxMonth ? getDate(maxDate) : getDaysInMonth(new Date(2000 + year, month - 1))
-
-    const monthSegment = (
-        <InputGroupNumberInput
-            key="month"
-            aria-label="Month"
-            value={month}
-            onValueChange={set(setMonth)}
-            min={1}
-            max={maxMonth}
-            format={PAD_2}
-            className={segmentClass}
-        />
-    )
-    const daySegment = (
-        <InputGroupNumberInput
-            key="day"
-            aria-label="Day"
-            value={day}
-            onValueChange={set(setDay)}
-            min={1}
-            max={maxDay}
-            format={PAD_2}
-            className={segmentClass}
-        />
-    )
-    const yearSegment = (
-        <InputGroupNumberInput
-            key="year"
-            aria-label="Year"
-            value={year}
-            onValueChange={set(setYear)}
-            min={0}
-            max={maxYear}
-            format={PAD_2}
-            className={segmentClass}
-        />
-    )
-
-    const dateSegments =
-        dateFormat === 'DMY'
-            ? [daySegment, monthSegment, yearSegment]
-            : dateFormat === 'YMD'
-                ? [yearSegment, monthSegment, daySegment]
-                : [monthSegment, daySegment, yearSegment]
-
-    return (
-        <TooltipProvider>
-            <div className="flex items-center gap-2">
-                <Tooltip>
-                    <TooltipTrigger render={
-                        <InputGroup className="w-auto px-1.5">
-                            {dateSegments.map((segment, i) => (
-                                <React.Fragment key={i}>
-                                    {i > 0 && <span className={separatorClass}>{sep}</span>}
-                                    {segment}
-                                </React.Fragment>
-                            ))}
-                        </InputGroup>
-                    }/>
-                    <TooltipContent>
-                        {DATE_FORMAT_LABELS[dateFormat]}
-                    </TooltipContent>
-                </Tooltip>
-
-
-                <InputGroup className="w-auto px-1.5">
-                    <InputGroupNumberInput
-                        aria-label="Hour"
-                        value={hour}
-                        onValueChange={set(setHour)}
-                        min={0}
-                        max={23}
-                        format={PAD_2}
-                        className={segmentClass}
-                    />
-                    <span className={separatorClass}>:</span>
-                    <InputGroupNumberInput
-                        aria-label="Minute"
-                        value={minute}
-                        onValueChange={set(setMinute)}
-                        min={0}
-                        max={59}
-                        format={PAD_2}
-                        className={segmentClass}
-                    />
-                </InputGroup>
-            </div>
-        </TooltipProvider>
-
-    )
-}
 
 export function DateTimePicker({
     value,
@@ -606,7 +181,7 @@ export function DateTimePicker({
     return (
         <div
             className={cn(
-                'bg-card text-foreground rounded-lg shadow-md ring-1 ring-foreground/10',
+                'bg-card text-foreground rounded-lg shadow-md ring-1 ring-foreground/10 overflow-hidden',
                 compact ? 'w-[15rem]' : 'w-[15rem] lg:w-full max-w-[42rem]',
                 className
             )}
@@ -652,9 +227,9 @@ export function DateTimePicker({
                                         <SettingsIcon />
                                     </Button>
                                 )}
-                                <DateTimeInput date={start} maxDate={maxDate} onChange={handleStartChange} dateFormat={dateFormat} />
+                                <SegmentedDateInput date={start} maxDate={maxDate} onChange={handleStartChange} dateFormat={dateFormat} showTime />
                                 <span className="text-xs text-muted-foreground">to</span>
-                                <DateTimeInput date={end} maxDate={maxDate} onChange={handleEndChange} dateFormat={dateFormat} />
+                                <SegmentedDateInput date={end} maxDate={maxDate} onChange={handleEndChange} dateFormat={dateFormat} showTime />
                                 <Button
                                     variant="link"
                                     size="xs"

@@ -9,12 +9,17 @@ import { getColorVar } from 'lib/colors'
 import { PreAggregatedBadge } from 'lib/components/PreAggregatedBadge'
 import { IconTrendingDown, IconTrendingFlat } from 'lib/lemon-ui/icons'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
-import { formatPercentage, humanFriendlyDuration, humanFriendlyLargeNumber, isNotNil, range } from 'lib/utils'
-import { DEFAULT_CURRENCY, getCurrencySymbol } from 'lib/utils/geography/currency'
+import { range } from 'lib/utils/arrays'
+import { DEFAULT_CURRENCY, getCurrencySymbol } from 'lib/utils/currency'
+import { humanFriendlyDuration } from 'lib/utils/durations'
+import { isNotNil } from 'lib/utils/guards'
+import { formatPercentage, humanFriendlyLargeNumber } from 'lib/utils/numbers'
 import { teamLogic } from 'scenes/teamLogic'
 
 import { EvenlyDistributedRows } from '~/queries/nodes/WebOverview/EvenlyDistributedRows'
-import { WebAnalyticsItemKind } from '~/queries/schema/schema-general'
+import { WebAnalyticsItemKind, WebAnalyticsPreComputeStrategy } from '~/queries/schema/schema-general'
+
+export const NO_BASELINE_CHANGE_SENTINEL = 999999
 
 const OVERVIEW_ITEM_CELL_MIN_WIDTH_REMS_COMPACT = 6
 const OVERVIEW_ITEM_CELL_MIN_WIDTH_REMS_DEFAULT = 10
@@ -52,8 +57,8 @@ interface OverviewGridProps {
     loading: boolean
     numSkeletons: number
     samplingRate?: SamplingRate
-    usedPreAggregatedTables?: boolean
-    usedLazyPrecompute?: boolean
+    preComputeStrategy?: WebAnalyticsPreComputeStrategy
+    onDisablePrecompute?: () => void
     labelFromKey: (key: string) => string
     filterEmptyItems?: (item: OverviewItem) => boolean
     compact?: boolean
@@ -64,8 +69,8 @@ export function OverviewGrid({
     loading,
     numSkeletons,
     samplingRate,
-    usedPreAggregatedTables = false,
-    usedLazyPrecompute = false,
+    preComputeStrategy,
+    onDisablePrecompute,
     labelFromKey,
     filterEmptyItems = () => true,
     compact = false,
@@ -89,21 +94,28 @@ export function OverviewGrid({
                           <OverviewItemCell
                               key={item.key}
                               item={item}
-                              usedPreAggregatedTables={usedPreAggregatedTables}
-                              usedLazyPrecompute={usedLazyPrecompute}
+                              preComputeStrategy={preComputeStrategy}
+                              onDisablePrecompute={onDisablePrecompute}
                               labelFromKey={labelFromKey}
                               compact={compact}
                           />
                       ))}
             </EvenlyDistributedRows>
-            {samplingRate && !(samplingRate.numerator === 1 && (samplingRate.denominator ?? 1) === 1) ? (
-                <LemonBanner type="info" className="my-4">
-                    These results are using a sampling factor of {samplingRate.numerator}
-                    <span>{(samplingRate.denominator ?? 1 !== 1) ? `/${samplingRate.denominator}` : ''}</span>. Sampling
-                    is currently in beta.
-                </LemonBanner>
-            ) : null}
+            <SamplingNotice samplingRate={samplingRate} />
         </>
+    )
+}
+
+export function SamplingNotice({ samplingRate }: { samplingRate?: SamplingRate }): JSX.Element | null {
+    if (!samplingRate || (samplingRate.numerator === 1 && (samplingRate.denominator ?? 1) === 1)) {
+        return null
+    }
+    return (
+        <LemonBanner type="info" className="my-4">
+            These results are using a sampling factor of {samplingRate.numerator}
+            <span>{(samplingRate.denominator ?? 1) !== 1 ? `/${samplingRate.denominator}` : ''}</span>. Sampling is
+            currently in beta.
+        </LemonBanner>
     )
 }
 
@@ -134,16 +146,16 @@ const OverviewItemCellSkeleton = ({ compact }: { compact: boolean }): JSX.Elemen
 
 interface OverviewItemCellProps {
     item: OverviewItem
-    usedPreAggregatedTables: boolean
-    usedLazyPrecompute: boolean
+    preComputeStrategy?: WebAnalyticsPreComputeStrategy
+    onDisablePrecompute?: () => void
     labelFromKey: (key: string) => string
     compact: boolean
 }
 
 const OverviewItemCell = ({
     item,
-    usedPreAggregatedTables,
-    usedLazyPrecompute,
+    preComputeStrategy,
+    onDisablePrecompute,
     labelFromKey,
     compact,
 }: OverviewItemCellProps): JSX.Element => {
@@ -152,7 +164,7 @@ const OverviewItemCell = ({
     const label = labelFromKey(item.key)
 
     const trend =
-        isNotNil(item.changeFromPreviousPct) && Math.abs(item.changeFromPreviousPct) < 999999
+        isNotNil(item.changeFromPreviousPct) && Math.abs(item.changeFromPreviousPct) < NO_BASELINE_CHANGE_SENTINEL
             ? item.changeFromPreviousPct === 0
                 ? { Icon: IconTrendingFlat, color: getColorVar('muted') }
                 : item.changeFromPreviousPct > 0
@@ -171,7 +183,7 @@ const OverviewItemCell = ({
         isNotNil(item.value) &&
         isNotNil(item.previous) &&
         isNotNil(item.changeFromPreviousPct) &&
-        Math.abs(item.changeFromPreviousPct) < 999999
+        Math.abs(item.changeFromPreviousPct) < NO_BASELINE_CHANGE_SENTINEL
             ? item.value === 0 && item.previous === 0
                 ? `${label}: No change (0 in both periods)`
                 : Math.abs(item.changeFromPreviousPct) < 1
@@ -184,7 +196,9 @@ const OverviewItemCell = ({
                         item.kind,
                         { precise: true, currency: baseCurrency }
                     )}`
-            : isNotNil(item.value) && isNotNil(item.previous) && Math.abs(item.changeFromPreviousPct || 0) >= 999999
+            : isNotNil(item.value) &&
+                isNotNil(item.previous) &&
+                Math.abs(item.changeFromPreviousPct || 0) >= NO_BASELINE_CHANGE_SENTINEL
               ? `${label}: ${formatItem(item.value, item.kind, { precise: true, currency: baseCurrency })} (was 0 in previous period)`
               : isNotNil(item.value)
                 ? `${label}: ${formatItem(item.value, item.kind, { precise: true, currency: baseCurrency })}`
@@ -222,9 +236,9 @@ const OverviewItemCell = ({
         >
             {/* Rendered as a sibling of the Tooltip trigger so hovering the badge
                 does not also surface the cell's metric tooltip. */}
-            {usedLazyPrecompute ? (
-                <PreAggregatedBadge variant="precomputed" />
-            ) : usedPreAggregatedTables ? (
+            {preComputeStrategy === WebAnalyticsPreComputeStrategy.LazyPrecompute ? (
+                <PreAggregatedBadge variant="precomputed" onDisable={onDisablePrecompute} />
+            ) : preComputeStrategy === WebAnalyticsPreComputeStrategy.PreAggregated ? (
                 <PreAggregatedBadge variant="preagg" />
             ) : null}
             <Tooltip title={tooltip}>
@@ -270,7 +284,8 @@ const OverviewItemCell = ({
                             <trend.Icon color={trend.color} />
                             {formatPercentage(item.changeFromPreviousPct)}
                         </div>
-                    ) : isNotNil(item.changeFromPreviousPct) && Math.abs(item.changeFromPreviousPct) >= 999999 ? (
+                    ) : isNotNil(item.changeFromPreviousPct) &&
+                      Math.abs(item.changeFromPreviousPct) >= NO_BASELINE_CHANGE_SENTINEL ? (
                         <div className="text-muted">-</div>
                     ) : item.caption ? (
                         <div
@@ -295,7 +310,7 @@ const formatUnit = (x: number, options?: { precise?: boolean }): string => {
     return humanFriendlyLargeNumber(x)
 }
 
-const formatItem = (
+export const formatItem = (
     value: number | string | undefined,
     kind: WebAnalyticsItemKind,
     options?: { precise?: boolean; currency?: string }

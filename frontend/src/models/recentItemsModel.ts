@@ -1,7 +1,9 @@
 import { actions, afterMount, connect, kea, listeners, path, reducers } from 'kea'
 import { loaders } from 'kea-loaders'
+import posthog from 'posthog-js'
 
 import api, { ApiConfig } from 'lib/api'
+import { PromiseTimeoutError, withTimeout } from 'lib/utils/async'
 import { permanentlyMount } from 'lib/utils/kea-logic-builders'
 import { teamLogic } from 'scenes/teamLogic'
 
@@ -10,6 +12,13 @@ import { FileSystemEntry } from '~/queries/schema/schema-general'
 import type { recentItemsModelType } from './recentItemsModelType'
 
 const RECENTS_FETCH_LIMIT = 20
+/**
+ * Upper bound on how long a recents/scene-views fetch may run before we give up. A stalled
+ * request that never settles would otherwise leave `recentsHasLoaded` / `sceneLogViewsHasLoaded`
+ * false forever, freezing the global search page on a loading skeleton (these flags only flip
+ * via the loaders' Success/Failure reducers).
+ */
+const LOADER_TIMEOUT_MS = 10000
 
 export const recentItemsModel = kea<recentItemsModelType>([
     path(['models', 'recentItemsModel']),
@@ -31,12 +40,30 @@ export const recentItemsModel = kea<recentItemsModelType>([
                         return []
                     }
 
-                    const response = await api.fileSystem.list({
-                        orderBy: '-last_viewed_at',
-                        notType: 'folder',
-                        limit: RECENTS_FETCH_LIMIT,
-                    })
-                    return response.results
+                    try {
+                        const response = await withTimeout(
+                            (signal) =>
+                                api.fileSystem.list({
+                                    orderBy: '-last_viewed_at',
+                                    notType: 'folder',
+                                    limit: RECENTS_FETCH_LIMIT,
+                                    signal,
+                                }),
+                            LOADER_TIMEOUT_MS,
+                            'loadRecents timed out'
+                        )
+                        return response.results
+                    } catch (error) {
+                        // A stalled fetch that never settles would freeze the search page on a
+                        // skeleton; the timeout lets the loader settle. Surface the hang so these
+                        // previously-invisible stuck states show up as captured exceptions.
+                        if (error instanceof PromiseTimeoutError) {
+                            posthog.captureException(error)
+                        }
+                        // Recents are a non-essential homepage widget — transient failures (offline,
+                        // aborted navigation, blocked requests) shouldn't surface as captured exceptions.
+                        return []
+                    }
                 },
             },
         ],
@@ -48,15 +75,28 @@ export const recentItemsModel = kea<recentItemsModelType>([
                         return {}
                     }
 
-                    const results = await api.fileSystemLogView.list({ type: 'scene' })
-                    const record: Record<string, string> = {}
-                    for (const { ref, viewed_at } of results) {
-                        const current = record[ref]
-                        if (!current || Date.parse(viewed_at) > Date.parse(current)) {
-                            record[ref] = viewed_at
+                    try {
+                        const results = await withTimeout(
+                            (signal) => api.fileSystemLogView.list({ type: 'scene', signal }),
+                            LOADER_TIMEOUT_MS,
+                            'loadSceneLogViews timed out'
+                        )
+                        const record: Record<string, string> = {}
+                        for (const { ref, viewed_at } of results) {
+                            const current = record[ref]
+                            if (!current || Date.parse(viewed_at) > Date.parse(current)) {
+                                record[ref] = viewed_at
+                            }
                         }
+                        return record
+                    } catch (error) {
+                        // See loadRecents: a hung fetch is surfaced, while transient failures
+                        // degrade to an empty result rather than throw.
+                        if (error instanceof PromiseTimeoutError) {
+                            posthog.captureException(error)
+                        }
+                        return {}
                     }
-                    return record
                 },
             },
         ],

@@ -77,7 +77,6 @@ A background task runs every 60 seconds (`RATE_LIMITER_CLEANUP_INTERVAL_SECS`) t
 | `FLAGS_TOKEN_RATE_LIMIT_OVERRIDES`         | (empty) | Per-token rate limit overrides as JSON (max 100)                   |
 | `RATE_LIMITER_CLEANUP_INTERVAL_SECS`       | `60`    | Stale entry cleanup interval                                       |
 | `FLAG_DEFINITIONS_DEFAULT_RATE_PER_MINUTE` | `600`   | Default rate for `/flags/definitions`                              |
-| `LOCAL_EVAL_RATE_LIMITS`                   | (empty) | Per-team overrides for `/flags/definitions` as JSON                |
 
 ## Key files
 

@@ -13,7 +13,7 @@ from posthog.hogql_queries.query_runner import AnalyticsQueryRunner
 from posthog.hogql_queries.utils.query_date_range import QueryDateRange
 from posthog.models.filters.mixins.utils import cached_property
 
-from products.logs.backend.logs_query_runner import LogsQueryRunnerMixin
+from products.logs.backend.logs_query_runner import LogsQueryRunnerMixin, ilike_pattern
 
 # Read a max of 5GB from the table at a time - this should get us plenty of results
 # without having long and expensive attributes queries. Users can always search or add other
@@ -77,7 +77,7 @@ class LogAttributesQueryRunner(AnalyticsQueryRunner[LogAttributesQueryResponse],
             )
             """,
             placeholders={
-                "search": ast.Constant(value=f"%{self.query.search}%"),
+                "search": ast.Constant(value=ilike_pattern(self.query.search)),
                 "exact": ast.Constant(value=self.query.search),
                 "attributeType": ast.Constant(value=self.query.attributeType),
                 "limit": ast.Constant(value=self.query.limit),
@@ -143,7 +143,7 @@ class LogAttributesQueryRunner(AnalyticsQueryRunner[LogAttributesQueryResponse],
             OFFSET {offset}
             """,
             placeholders={
-                "search": ast.Constant(value=f"%{self.query.search}%"),
+                "search": ast.Constant(value=ilike_pattern(self.query.search)),
                 "exact": ast.Constant(value=self.query.search),
                 "attributeType": ast.Constant(value=self.query.attributeType),
                 "limit": ast.Constant(value=self.query.limit),

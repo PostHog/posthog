@@ -59,7 +59,7 @@ export class RetentionInsight extends ChartInsightBase {
         }).toPass({ timeout: 30000 })
     }
 
-    async waitForChart(): Promise<void> {
+    override async waitForChart(): Promise<void> {
         const loading = this.page.getByTestId('insight-loading-waiting-message')
         // Wait for the loading indicator to appear (query started), then disappear.
         // Short timeout on 'attached' handles cached/instant queries where it never appears.

@@ -1,0 +1,133 @@
+# MCP tool definition — tool entries are scaffolded from the OpenAPI schema.
+# The tool list and operation IDs are kept in sync automatically:
+#   pnpm --filter=@posthog/mcp run scaffold-yaml -- --sync-all
+#
+# To enable a tool, set enabled: true and add required scopes + annotations.
+# All other fields (title, description, enrich_url, etc.) are yours to configure.
+category: Marketing analytics
+feature: marketing_analytics
+url_prefix: /marketing
+ui_apps: {}
+tools:
+    marketing-analytics-conversion-goals:
+        operation: marketing_analytics_conversion_goals_retrieve
+        enabled: true
+        scopes:
+            - marketing_analytics:read
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        title: List conversion goals
+        description: >
+            List the configured marketing conversion goals for the current project. Each goal returns its kind
+            (EventsNode / ActionsNode / DataWarehouseNode), target, last-30d count, and the integrated vs non-integrated
+            split. Non-integrated breaks into two buckets with OPPOSITE fixes: events_without_utm_source (tag UTMs) vs
+            events_with_unmatched_utm_source (add a custom source mapping). is_approximate is true when the 30d count
+            may differ from the dashboard's attribution-windowed number.
+        feature_flag: marketing-analytics-mcp
+    marketing-analytics-data-sources:
+        operation: marketing_analytics_data_sources_retrieve
+        enabled: true
+        scopes:
+            - marketing_analytics:read
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        title: List marketing data sources health
+        description: >
+            List the platform-side health of every native marketing integration: connected/not, last sync time and
+            status, last error, rows synced, and schema-mapping coverage. This is the platform → data-warehouse side
+            only. For PostHog-events-side health (UTM matching), call marketing-analytics-diagnose.
+        feature_flag: marketing-analytics-mcp
+    marketing-analytics-diagnose:
+        operation: marketing_analytics_diagnose_retrieve
+        enabled: true
+        scopes:
+            - marketing_analytics:read
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        title: Diagnose marketing analytics setup
+        description: >
+            READ-ONLY end-to-end diagnostic of Marketing analytics for the current project. Returns per-integration
+            overall_status (healthy / sync_broken / events_broken / events_unmatched / events_only /
+            schema_misconfigured / not_connected), sync state, attribution state (UTM-tagged events arriving, matched vs
+            likely-yours-but-unmatched), conversion goals with last-30d performance and misconfig flags, and recommended
+            next actions each pointing to the right follow-up tool. USE THIS TOOL FIRST whenever the user asks why
+            marketing analytics looks wrong, missing, or broken. Do NOT speculate about causes before calling this tool.
+        feature_flag: marketing-analytics-mcp
+    marketing-analytics-explain-conversion-goal:
+        operation: marketing_analytics_explain_conversion_goal_retrieve
+        enabled: true
+        scopes:
+            - marketing_analytics:read
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        title: Explain a conversion goal
+        description: >
+            Break down the events that COUNT toward a conversion goal by their own utm_source, utm_campaign, and matched
+            integration. Returns recent sample events for inspection. This is a flat per-event breakdown of the
+            conversion events themselves — NOT an analysis of the user's prior journey, and NOT the dashboard's
+            attribution calculation (first-touch / last-touch / multi-touch weighting is applied by the dashboard, not
+            here). Use when the user asks "what utm_sources are behind my N conversions?" or "where do these conversions
+            come from?". Only EventsNode and ActionsNode goals are explained at the event level; DataWarehouseNode goals
+            short-circuit with a note.
+        feature_flag: marketing-analytics-mcp
+    marketing-analytics-suggest-conversion-goals:
+        operation: marketing_analytics_suggest_conversion_goals_retrieve
+        enabled: true
+        scopes:
+            - marketing_analytics:read
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        title: Suggest conversion goal candidates
+        description: >
+            Suggest custom events that are good candidates for becoming conversion goals. Ranks by volume, UTM tag
+            coverage, and uniqueness of users. Excludes autocapture / system events and events that are already
+            configured as goals.
+        feature_flag: marketing-analytics-mcp
+    marketing-analytics-suggest-utm-mappings:
+        operation: marketing_analytics_suggest_utm_mappings_retrieve
+        enabled: true
+        scopes:
+            - marketing_analytics:read
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        title: Suggest utm_source → integration mappings
+        description: >
+            USE THIS TOOL — DO NOT FALL BACK TO SQL — whenever the user asks about utm_source mappings,
+            custom_source_mappings, unmatched / non-integrated UTM values, or the question "what utm_sources do I have
+            and which ad platform do they belong to?". Returns full_utm_source_catalogue (every utm_source value seen on
+            events in the window, matched + unmatched, with event count and the integration it resolves to),
+            source_suggestions (mapping recommendations where a value's token matches a known alias, e.g. raw
+            facebook_paid → MetaAds), raw_unmatched_samples (every unmatched value, including likely-not-an-ad values
+            like organic/newsletter/partner), and current_mappings (every alias already in effect — canonical +
+            team_custom — so duplicates aren't suggested). Read-only — applying mappings is a separate write tool.
+        feature_flag: marketing-analytics-mcp
+    marketing-analytics-test-mapping-create:
+        operation: marketing_analytics_test_mapping_create
+        enabled: false
+    marketing-analytics-utm-audit:
+        operation: marketing_analytics_utm_audit_retrieve
+        enabled: true
+        scopes:
+            - marketing_analytics:read
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        title: Audit UTM tagging quality
+        description: >
+            Audit the UTM tagging quality of recent events: campaigns with issues, mismatched utm_source vs configured
+            integrations, unmatched custom sources, and total spend at risk. Use when the user asks why their events
+            appear in 'non-integrated', or why UTMs are not matching the ad platform data.
+        feature_flag: marketing-analytics-mcp

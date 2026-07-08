@@ -118,7 +118,7 @@ class TestBillingNode(ClickhouseTestMixin, NonAtomicBaseTest):
         spend_history = [
             SpendHistoryItem(
                 id=1,
-                label="Mobile Recordings",
+                label="Mobile recordings",
                 dates=["2023-01-01", "2023-01-02"],
                 data=[10.50, 20.00],
                 breakdown_type=None,
@@ -132,7 +132,7 @@ class TestBillingNode(ClickhouseTestMixin, NonAtomicBaseTest):
         self.assertIn("| Events | 1.50 | 2.50 |", usage_table)
 
         spend_table = self.tool._format_history_table(spend_history)
-        self.assertIn("| Mobile Recordings | 10.50 | 20.00 |", spend_table)
+        self.assertIn("| Mobile recordings | 10.50 | 20.00 |", spend_table)
 
     def test_get_top_events_by_usage(self):
         mock_results = [("pageview", 1000), ("$autocapture", 500)]
@@ -196,7 +196,7 @@ class TestBillingNode(ClickhouseTestMixin, NonAtomicBaseTest):
                     docs_url="https://posthog.com/docs/product-analytics",
                     addons=[
                         MaxAddonInfo(
-                            name="Group Analytics",
+                            name="Group analytics",
                             type="addon",
                             description="Analyze by groups",
                             current_usage=1000.0,
@@ -208,7 +208,7 @@ class TestBillingNode(ClickhouseTestMixin, NonAtomicBaseTest):
                             docs_url="https://posthog.com/docs/group-analytics",
                         ),
                         MaxAddonInfo(
-                            name="Data Pipelines",
+                            name="Data pipelines",
                             type="addon",
                             description="Export data to destinations",
                             current_usage=2000.0,
@@ -266,9 +266,9 @@ class TestBillingNode(ClickhouseTestMixin, NonAtomicBaseTest):
 
             # Check addons are nested within products
             self.assertIn("#### Add-ons for Product Analytics", formatted_string)
-            self.assertIn("##### Group Analytics", formatted_string)
+            self.assertIn("##### Group analytics", formatted_string)
             self.assertIn("Current usage: 1000 of 5000 limit", formatted_string)
-            self.assertIn("##### Data Pipelines", formatted_string)
+            self.assertIn("##### Data pipelines", formatted_string)
 
             # Check Session Replay exists but has no addons section
             self.assertIn("### Session Replay", formatted_string)
@@ -352,7 +352,7 @@ class TestBillingNode(ClickhouseTestMixin, NonAtomicBaseTest):
         # Check data is properly grouped
         self.assertIn("| Events | 1,000.00 | 2,000.00 |", table)
         self.assertIn("| Recordings | 100.00 | 200.00 |", table)
-        self.assertIn("| Feature Flag Requests | 50.00 | 100.00 |", table)
+        self.assertIn("| Feature flag requests | 50.00 | 100.00 |", table)
 
     async def test_format_billing_context_edge_cases(self):
         """Test edge cases and potential security issues"""
@@ -518,7 +518,7 @@ class TestBillingNode(ClickhouseTestMixin, NonAtomicBaseTest):
         usage_history = [
             UsageHistoryItem(
                 id=1,
-                label="84444::Data Pipelines",
+                label="84444::Data pipelines",
                 dates=["2025-02-01", "2025-02-02", "2025-02-03"],
                 data=[8036.0, 10286.0, 8174.0],
                 breakdown_type=BillingUsageResponseBreakdownType.MULTIPLE,
@@ -568,16 +568,16 @@ class TestBillingNode(ClickhouseTestMixin, NonAtomicBaseTest):
         # Events: 50000+25000=75000, 75000+30000=105000, 60000+28000=88000
         self.assertIn("| Events | 75,000.00 | 105,000.00 | 88,000.00 |", table)
 
-        # Feature Flag Requests should appear in aggregated (only non-team data)
-        self.assertIn("| Feature Flag Requests | 1,000.00 | 1,500.00 | 1,200.00 |", table)
+        # Feature flag requests should appear in aggregated (only non-team data)
+        self.assertIn("| Feature flag requests | 1,000.00 | 1,500.00 | 1,200.00 |", table)
 
-        # Data Pipelines should show aggregated total (only from team 84444)
-        self.assertIn("| Data Pipelines (deprecated) | 8,036.00 | 10,286.00 | 8,174.00 |", table)
+        # Data pipelines should show aggregated total (only from team 84444)
+        self.assertIn("| Data pipelines (deprecated) | 8,036.00 | 10,286.00 | 8,174.00 |", table)
 
         # Check that team-specific tables show clean labels
-        # Team 84444 should show "Data Pipelines (deprecated)" and "Events", not raw labels
+        # Team 84444 should show "Data pipelines (deprecated)" and "Events", not raw labels
         team_84444_section = table.split("### Project 84444")[1].split("### Project 12345")[0]
-        self.assertIn("| Data Pipelines (deprecated) |", team_84444_section)
+        self.assertIn("| Data pipelines (deprecated) |", team_84444_section)
         self.assertIn("| Events |", team_84444_section)
         self.assertNotIn("| 84444::", team_84444_section)  # Should not show raw labels
 
@@ -611,7 +611,7 @@ class TestBillingNode(ClickhouseTestMixin, NonAtomicBaseTest):
         self.assertIn("| Recordings | 50.00 | 75.00 |", table)
 
         # Should handle unknown types gracefully (formatted from label)
-        self.assertIn("| Custom Product 12345 | 100.00 | 200.00 |", table)
+        self.assertIn("| Custom product 12345 | 100.00 | 200.00 |", table)
 
     def test_create_aggregated_items_functionality(self):
         """Test the aggregation logic specifically"""

@@ -1,4 +1,4 @@
-import { computeBarAtIndex } from '../../../core/bar-layout'
+import { applyOuterStackCaps, computeBarAtIndex, computeBarTrackRect } from '../../../core/bar-layout'
 import type { BarRect } from '../../../core/canvas-renderer'
 import { type BarScaleSet, groupedBandSlot, type StackedBand } from '../../../core/scales'
 import type { BandSlot, Series } from '../../../core/types'
@@ -46,6 +46,30 @@ export function cursorOutsideBarFillExtent(
         : point.y < bar.y || point.y > bar.y + bar.height
 }
 
+/** True when the cursor sits beyond a series' per-bar track ceiling — the blank, inert region above a
+ *  capped `trackData` track (a funnel compare bar's volume gap). False when the series has no ceiling
+ *  at this bar (the track spans the whole axis). Callers establish band-axis containment and that the
+ *  cursor is already outside the bar's own fill before calling. */
+export function cursorBeyondTrackCeiling(
+    series: { trackData?: number[] },
+    bar: BarRect,
+    scales: BarScaleSet,
+    point: { x: number; y: number },
+    isHorizontal: boolean
+): boolean {
+    const ceiling = series.trackData?.[bar.dataIndex]
+    if (ceiling == null) {
+        return false
+    }
+    const ceilingPixel = scales.value(ceiling)
+    if (!isFinite(ceilingPixel)) {
+        return false
+    }
+    // Track grows from the value baseline (range start) to the ceiling; beyond it is the blank gap.
+    const [axisBaseline = 0] = scales.value.range()
+    return !barContainsPoint(computeBarTrackRect(bar, axisBaseline, ceilingPixel, isHorizontal), point)
+}
+
 export interface BarsAtCursorArgs {
     series: readonly Pick<Series, 'key' | 'visibility' | 'yAxisId' | 'data'>[]
     label: string
@@ -64,11 +88,14 @@ export interface BarAtCursor<S> {
 
 /** Yields the renderable `{ series, bar }` for every visible series at `(label, dataIndex)`.
  *  Single source of truth shared by drawHover, tooltip narrowing, and click routing —
- *  encapsulates visibility skip, stacked-band lookup, and `computeBarAtIndex`. */
-export function* iterBarsAtCursor<S extends Pick<Series, 'key' | 'visibility' | 'yAxisId' | 'data'>>(
+ *  encapsulates visibility skip, stacked-band lookup, and `computeBarAtIndex`. Eager despite
+ *  the generator shape: every bar is computed up front so stacked cap corners can be
+ *  re-resolved across the whole band before the first yield. */
+export function* barsAtCursor<S extends Pick<Series, 'key' | 'visibility' | 'yAxisId' | 'data'>>(
     args: Omit<BarsAtCursorArgs, 'series'> & { series: readonly S[] }
 ): Generator<BarAtCursor<S>> {
     const { series, label, dataIndex, scales, layout, isHorizontal, stackedData, topStackedKeyByAxis } = args
+    const results: BarAtCursor<S>[] = []
     for (const s of series) {
         if (s.visibility?.excluded) {
             continue
@@ -87,9 +114,47 @@ export function* iterBarsAtCursor<S extends Pick<Series, 'key' | 'visibility' | 
             isTopOfStack,
         })
         if (bar) {
-            yield { series: s, bar }
+            results.push({ series: s, bar })
         }
     }
+    // Match the static layer's per-band cap resolution so hover highlights round the same corners.
+    applyOuterStackCaps(
+        results.map((r) => ({ bar: r.bar, yAxisId: r.series.yAxisId })),
+        scales,
+        isHorizontal,
+        layout
+    )
+    yield* results
+}
+
+/** True when the cursor sits in a bar's inert volume gap — lined up on the band axis with a bar
+ *  whose capped `trackData` ceiling it has passed (a funnel compare period's blank space above its
+ *  track). Such a position takes no hover, tooltip, highlight, or click. Bars whose track spans the
+ *  full axis are never a gap. A grouped cursor lines up with a single column of the group; stacked
+ *  segments all share their band slot, so the cursor must clear every segment's fill before a
+ *  segment's ceiling can declare the position a gap. */
+export function cursorInInertTrackGap(
+    args: Omit<BarsAtCursorArgs, 'series'> & {
+        // `trackData` beyond the base pick so the ceiling check sees each series' cap.
+        series: readonly Pick<Series, 'key' | 'visibility' | 'yAxisId' | 'data' | 'trackData'>[]
+        cursor: { x: number; y: number }
+    }
+): boolean {
+    const { cursor, isHorizontal, scales } = args
+    let beyondACeiling = false
+    for (const { series: s, bar } of barsAtCursor(args)) {
+        if (!barContainsPointOnBandAxis(bar, cursor, isHorizontal)) {
+            continue
+        }
+        // The cursor is over this bar's own fill — an actual segment, never a gap.
+        if (!cursorOutsideBarFillExtent(bar, cursor, isHorizontal)) {
+            return false
+        }
+        if (cursorBeyondTrackCeiling(s, bar, scales, cursor, isHorizontal)) {
+            beyondACeiling = true
+        }
+    }
+    return beyondACeiling
 }
 
 export interface ResolveBarsAtCursorResult {
@@ -108,7 +173,7 @@ export function resolveBarsAtCursor(
     const { cursor, isHorizontal } = args
     const hits = new Set<string>()
     let strictHit: string | null = null
-    for (const { series: s, bar } of iterBarsAtCursor(args)) {
+    for (const { series: s, bar } of barsAtCursor(args)) {
         if (barContainsPointOnBandAxis(bar, cursor, isHorizontal)) {
             hits.add(s.key)
         }
@@ -170,7 +235,7 @@ export function findVisibleStackedSegment<S extends Pick<Series, 'key' | 'visibi
         if (labels[dataIndex] !== hoveredLabel) {
             continue
         }
-        for (const { series: s, bar } of iterBarsAtCursor({ ...args, label: labels[dataIndex], dataIndex })) {
+        for (const { series: s, bar } of barsAtCursor({ ...args, label: labels[dataIndex], dataIndex })) {
             const extent = isHorizontal ? bar.width : bar.height
             if (extent <= 0) {
                 continue

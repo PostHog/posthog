@@ -2,15 +2,15 @@ import { useActions, useValues } from 'kea'
 
 import { LemonSegmentedButton, LemonSelect, Tooltip } from '@posthog/lemon-ui'
 
-import { AppShortcut } from 'lib/components/AppShortcuts/AppShortcut'
-import { keyBinds } from 'lib/components/AppShortcuts/shortcuts'
 import { DateFilter } from 'lib/components/DateFilter/DateFilter'
 import { CUSTOM_OPTION_KEY } from 'lib/components/DateFilter/types'
 import { FilterBar } from 'lib/components/FilterBar'
+import { Shortcut } from 'lib/components/Shortcuts/Shortcut'
+import { keyBinds } from 'lib/components/Shortcuts/shortcuts'
 import { TestAccountFilterSwitch } from 'lib/components/TestAccountFiltersSwitch'
 import { dayjs } from 'lib/dayjs'
 import { groupsAccessLogic } from 'lib/introductions/groupsAccessLogic'
-import { formatDateRange } from 'lib/utils'
+import { formatDateRange } from 'lib/utils/datetime'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { Scene } from 'scenes/sceneTypes'
 import { teamLogic } from 'scenes/teamLogic'
@@ -147,7 +147,7 @@ export function CustomerAnalyticsFilters(): JSX.Element {
             right={
                 <div className="flex flex-row items-center gap-2">
                     <TestAccountFilterSwitch checked={filterTestAccounts} onChange={setFilterTestAccounts} />
-                    <AppShortcut
+                    <Shortcut
                         name="CustomerAnalyticsRefresh"
                         keybind={[keyBinds.refresh]}
                         intent="Refresh data"
@@ -157,7 +157,7 @@ export function CustomerAnalyticsFilters(): JSX.Element {
                         <Tooltip title="Refresh data">
                             <ReloadAll />
                         </Tooltip>
-                    </AppShortcut>
+                    </Shortcut>
                 </div>
             }
         />

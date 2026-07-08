@@ -7,11 +7,11 @@ import { KafkaProducerObserver } from './producer.spy'
 
 import { HighLevelProducer } from 'node-rdkafka'
 
-import { KafkaProducerWrapper } from '../../../src/kafka/producer'
+import { KafkaProducerWrapper } from '~/common/kafka/producer'
 
-const ActualKafkaProducerWrapper = jest.requireActual('../../../src/kafka/producer').KafkaProducerWrapper
+const ActualKafkaProducerWrapper = jest.requireActual('~/common/kafka/producer').KafkaProducerWrapper
 
-jest.mock('../../../src/kafka/producer', () => {
+jest.mock('~/common/kafka/producer', () => {
     const mockHighLevelProducer: jest.Mocked<HighLevelProducer> = {
         produce: jest.fn((...args) => args[args.length - 1]?.()),
         flush: jest.fn((...args) => args[args.length - 1]?.()),
@@ -44,7 +44,7 @@ jest.mock('../../../src/kafka/producer', () => {
     }
 })
 
-export const mockProducer = require('../../../src/kafka/producer')._producer as KafkaProducerWrapper
-export const MockKafkaProducerWrapper = require('../../../src/kafka/producer')
+export const mockProducer = require('~/common/kafka/producer')._producer as KafkaProducerWrapper
+export const MockKafkaProducerWrapper = require('~/common/kafka/producer')
     .KafkaProducerWrapper as typeof KafkaProducerWrapper
 export const mockProducerObserver = new KafkaProducerObserver(mockProducer)

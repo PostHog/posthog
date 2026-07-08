@@ -2,7 +2,7 @@
 # {type: message, role, content}, {type: tool_call, callId, name, arguments},
 # {type: tool_result, callId, name, output}. Items arrive as array elements that
 # the dispatcher flattens, so each is matched here on its own. Without these,
-# tool_call / tool_result items match nothing and fall to cajole's stringify.
+# tool_call / tool_result items match nothing and fall to the catch-all stringify.
 
 id: typed_agent_items
 

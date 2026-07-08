@@ -11,9 +11,9 @@ import * as zod from 'zod'
 
 /**
  * Unified endpoint that handles both conversation creation and streaming.
-
-- If message is provided: Start new conversation processing
-- If no message: Stream from existing conversation
+ *
+ * - If message is provided: Start new conversation processing
+ * - If no message: Stream from existing conversation
  */
 export const conversationsCreateBodyContentMax = 40000
 
@@ -42,10 +42,11 @@ export const ConversationsCreateBody = /* @__PURE__ */ zod
                 'llm_analytics',
                 'sandbox',
                 'user_interview',
+                'customer_analytics',
             ])
             .optional()
             .describe(
-                '\* `product_analytics` - product_analytics\n\* `sql` - sql\n\* `session_replay` - session_replay\n\* `error_tracking` - error_tracking\n\* `plan` - plan\n\* `execution` - execution\n\* `survey` - survey\n\* `research` - research\n\* `flags` - flags\n\* `llm_analytics` - llm_analytics\n\* `sandbox` - sandbox\n\* `user_interview` - user_interview'
+                '\* `product_analytics` - product_analytics\n\* `sql` - sql\n\* `session_replay` - session_replay\n\* `error_tracking` - error_tracking\n\* `plan` - plan\n\* `execution` - execution\n\* `survey` - survey\n\* `research` - research\n\* `flags` - flags\n\* `llm_analytics` - llm_analytics\n\* `sandbox` - sandbox\n\* `user_interview` - user_interview\n\* `customer_analytics` - customer_analytics'
             ),
         is_sandbox: zod.boolean().default(conversationsCreateBodyIsSandboxDefault),
         resume_payload: zod.unknown().optional(),
@@ -54,8 +55,8 @@ export const ConversationsCreateBody = /* @__PURE__ */ zod
 
 /**
  * Appends a message to an existing conversation without triggering AI processing.
-This is used for client-side generated messages that need to be persisted
-(e.g., support ticket confirmation messages).
+ * This is used for client-side generated messages that need to be persisted
+ * (e.g., support ticket confirmation messages).
  */
 export const conversationsAppendMessageCreateBodyContentMax = 10000
 
@@ -65,7 +66,85 @@ export const ConversationsAppendMessageCreateBody = /* @__PURE__ */ zod
     })
     .describe('Serializer for appending a message to an existing conversation without triggering AI processing.')
 
+/**
+ * Cancel the conversation's in-progress LangGraph run.
+ */
 export const ConversationsCancelPartialUpdateBody = /* @__PURE__ */ zod.looseObject({})
+
+/**
+ * Create-or-resume a sandbox conversation — the single sandbox session opener. With `content`, processes the turn (first message, in-progress follow-up, or terminal resume); without `content`, warms a sandbox that idles awaiting the first message. Returns the `(task, run)` handle the frontend opens SSE against. The conversation row is created on first use from the URL id.
+ */
+export const conversationsOpenCreateBodyContentMax = 40000
+
+export const ConversationsOpenCreateBody = /* @__PURE__ */ zod
+    .object({
+        content: zod
+            .string()
+            .max(conversationsOpenCreateBodyContentMax)
+            .nullish()
+            .describe(
+                "The user's message text. Omit or null to warm a sandbox (boot + idle) ahead of the first message."
+            ),
+        trace_id: zod
+            .uuid()
+            .optional()
+            .describe("Client-generated trace id correlated with the resulting Run's SSE stream."),
+        attached_context: zod
+            .array(
+                zod
+                    .object({
+                        type: zod
+                            .enum([
+                                'action',
+                                'dashboard',
+                                'error_tracking_issue',
+                                'evaluation',
+                                'event',
+                                'insight',
+                                'notebook',
+                                'text',
+                            ])
+                            .describe(
+                                '\* `action` - action\n\* `dashboard` - dashboard\n\* `error_tracking_issue` - error_tracking_issue\n\* `evaluation` - evaluation\n\* `event` - event\n\* `insight` - insight\n\* `notebook` - notebook\n\* `text` - text'
+                            )
+                            .describe(
+                                'Attachment kind. Entity types carry `id` (+ optional `name`); `text` carries `value`.\n\n\* `action` - action\n\* `dashboard` - dashboard\n\* `error_tracking_issue` - error_tracking_issue\n\* `evaluation` - evaluation\n\* `event` - event\n\* `insight` - insight\n\* `notebook` - notebook\n\* `text` - text'
+                            ),
+                        id: zod
+                            .unknown()
+                            .optional()
+                            .describe(
+                                'Entity identifier — integer for `dashboard`\/`action`, string short_id\/UUID otherwise. Absent for `text`.'
+                            ),
+                        name: zod
+                            .string()
+                            .optional()
+                            .describe('Optional human-readable label rendered in the context block.'),
+                        value: zod.string().optional().describe('Free-text content. Only for `text` attachments.'),
+                    })
+                    .describe('One typed attachment carried by a sandbox message.')
+            )
+            .optional()
+            .describe('Typed PostHog entities (and free text) attached to this message.'),
+        initial_permission_mode: zod
+            .enum(['default', 'acceptEdits', 'plan', 'bypassPermissions', 'auto'])
+            .describe(
+                '\* `default` - default\n\* `acceptEdits` - acceptEdits\n\* `plan` - plan\n\* `bypassPermissions` - bypassPermissions\n\* `auto` - auto'
+            )
+            .optional()
+            .describe(
+                'Initial permission mode for the sandbox agent session. Defaults to `auto`, which allows safe tool use while preserving explicit confirmations.\n\n\* `default` - default\n\* `acceptEdits` - acceptEdits\n\* `plan` - plan\n\* `bypassPermissions` - bypassPermissions\n\* `auto` - auto'
+            ),
+        task_id: zod
+            .uuid()
+            .optional()
+            .describe(
+                "Bind a brand-new sandbox conversation to an existing Task so the first message resumes that Task's run. Honored only when this request creates the conversation row; ignored for an already-existing conversation."
+            ),
+    })
+    .describe(
+        'Request body for `POST \/conversations\/{id}\/open\/`. A string `content` processes a turn; a\nnull\/absent `content` warms a sandbox that idles awaiting the first message.'
+    )
 
 export const ConversationsQueueCreateBody = /* @__PURE__ */ zod.looseObject({})
 
@@ -176,10 +255,59 @@ export const ConversationsTicketsPartialUpdateBody = /* @__PURE__ */ zod
     .describe('Serializer mixin that handles tags for objects.')
 
 /**
- * Update the status of multiple tickets in a single request.
+ * Record reviewer feedback on an AI reply, captured to the internal analytics project.
+ */
+export const conversationsTicketsAiFeedbackCreateBodyMessageIdMax = 200
 
-Only tickets belonging to the current team are affected; other-team UUIDs
-are silently ignored.  Tickets already in the requested status are skipped.
+export const conversationsTicketsAiFeedbackCreateBodyFeedbackTextMax = 2000
+
+export const ConversationsTicketsAiFeedbackCreateBody = /* @__PURE__ */ zod
+    .object({
+        message_id: zod
+            .string()
+            .max(conversationsTicketsAiFeedbackCreateBodyMessageIdMax)
+            .describe('ID of the AI message being rated.'),
+        rating: zod
+            .enum(['good', 'bad'])
+            .describe('\* `good` - good\n\* `bad` - bad')
+            .describe('Reviewer rating: good or bad.\n\n\* `good` - good\n\* `bad` - bad'),
+        feedback_text: zod
+            .string()
+            .max(conversationsTicketsAiFeedbackCreateBodyFeedbackTextMax)
+            .optional()
+            .describe('Optional text explaining a bad rating.'),
+    })
+    .describe('Payload for recording reviewer feedback on an AI reply.')
+
+/**
+ * Post a reply or internal note to a ticket.
+ *
+ * With is_private=false, the reply is delivered to the customer via the
+ * ticket's channel (email, Slack, Teams, GitHub). With is_private=true,
+ * the message is stored as an internal note only visible to team members.
+ */
+export const conversationsTicketsReplyCreateBodyMessageMax = 5000
+
+export const conversationsTicketsReplyCreateBodyIsPrivateDefault = false
+
+export const ConversationsTicketsReplyCreateBody = /* @__PURE__ */ zod
+    .object({
+        message: zod.string().max(conversationsTicketsReplyCreateBodyMessageMax).describe('Reply content in markdown.'),
+        is_private: zod
+            .boolean()
+            .default(conversationsTicketsReplyCreateBodyIsPrivateDefault)
+            .describe(
+                "If true, store as an internal note (not sent to the customer). If false, the reply is delivered to the customer over the ticket's channel."
+            ),
+        rich_content: zod.unknown().optional().describe('Optional TipTap rich content JSON for formatted messages.'),
+    })
+    .describe('Payload for posting a reply or internal note to a ticket.')
+
+/**
+ * Update the status of multiple tickets in a single request.
+ *
+ * Only tickets belonging to the current team are affected; other-team UUIDs
+ * are silently ignored.  Tickets already in the requested status are skipped.
  */
 export const conversationsTicketsBulkUpdateStatusCreateBodyIdsMax = 500
 
@@ -200,22 +328,22 @@ export const ConversationsTicketsBulkUpdateStatusCreateBody = /* @__PURE__ */ zo
 
 /**
  * Bulk update tags on multiple objects.
-
-PAT access: this action has no ``required_scopes=`` on the decorator —
-inheriting viewsets must add ``"bulk_update_tags"`` to their
-``scope_object_write_actions`` list to accept personal API keys.
-Without that opt-in, ``APIScopePermission`` rejects PAT requests with
-"This action does not support personal API key access". Done per-viewset
-so granting ``<scope>:write`` for one resource doesn't leak access to
-sibling resources that share this mixin.
-
-Accepts:
-- {"ids": [...], "action": "add"|"remove"|"set", "tags": ["tag1", "tag2"]}
-
-Actions:
-- "add": Add tags to existing tags on each object
-- "remove": Remove specific tags from each object
-- "set": Replace all tags on each object with the provided list
+ *
+ * PAT access: this action has no ``required_scopes=`` on the decorator —
+ * inheriting viewsets must add ``"bulk_update_tags"`` to their
+ * ``scope_object_write_actions`` list to accept personal API keys.
+ * Without that opt-in, ``APIScopePermission`` rejects PAT requests with
+ * "This action does not support personal API key access". Done per-viewset
+ * so granting ``<scope>:write`` for one resource doesn't leak access to
+ * sibling resources that share this mixin.
+ *
+ * Accepts:
+ * - {"ids": [...], "action": "add"|"remove"|"set", "tags": ["tag1", "tag2"]}
+ *
+ * Actions:
+ * - "add": Add tags to existing tags on each object
+ * - "remove": Remove specific tags from each object
+ * - "set": Replace all tags on each object with the provided list
  */
 export const conversationsTicketsBulkUpdateTagsCreateBodyIdsMax = 500
 
@@ -268,5 +396,27 @@ export const ConversationsViewsCreateBody = /* @__PURE__ */ zod.object({
         .optional()
         .describe(
             'Saved ticket filter criteria. May contain status, priority, channel, sla, assignee, tags, dateFrom, dateTo, and sorting keys.'
+        ),
+})
+
+export const conversationsZendeskImportsCreateBodySubdomainMax = 255
+
+export const conversationsZendeskImportsCreateBodyApiTokenMax = 500
+
+export const ConversationsZendeskImportsCreateBody = /* @__PURE__ */ zod.object({
+    subdomain: zod
+        .string()
+        .max(conversationsZendeskImportsCreateBodySubdomainMax)
+        .describe("Zendesk subdomain (e.g. 'acme' from acme.zendesk.com)."),
+    email_address: zod.email().describe('Zendesk agent email tied to the API token.'),
+    api_token: zod
+        .string()
+        .max(conversationsZendeskImportsCreateBodyApiTokenMax)
+        .describe('Zendesk API token with ticket read access.'),
+    default_email_channel_id: zod
+        .uuid()
+        .nullish()
+        .describe(
+            "Optional fallback email channel for tickets whose original Zendesk recipient doesn't match a configured support address (or isn't an email). Omit or null to leave those tickets without an email channel."
         ),
 })

@@ -1,6 +1,7 @@
 import { actions, events, kea, listeners, path, reducers, selectors } from 'kea'
 
 import api from 'lib/api'
+import { chunk } from 'lib/utils/arrays'
 
 import { HogQLQuery, NodeKind } from '~/queries/schema/schema-general'
 import { escapeHogQLString } from '~/queries/utils'
@@ -9,11 +10,11 @@ import type { traceMessagesLazyLoaderLogicType } from './traceMessagesLazyLoader
 import { parsePartialJSON } from './utils'
 
 export interface TraceMessages {
-    firstInput: unknown
+    lastInput: unknown
     lastOutput: unknown
-    // First/last $ai_generation payloads, used when the preferred $ai_trace
+    // Latest $ai_generation payloads, used when the preferred $ai_trace
     // state wrapper is missing or resolves to an empty messages array.
-    firstInputFallback: unknown
+    lastInputFallback: unknown
     lastOutputFallback: unknown
 }
 
@@ -30,14 +31,6 @@ const FIELD_TRUNCATE_CHARS = 2000
 const TRACE_ID_MAX_LENGTH = 128
 // Matches TracesQueryDateRange.CAPTURE_RANGE_MINUTES on the backend runner.
 const BATCH_WINDOW_BUFFER_MINUTES = 10
-
-function chunk<T>(arr: T[], size: number): T[][] {
-    const chunks: T[][] = []
-    for (let i = 0; i < arr.length; i += size) {
-        chunks.push(arr.slice(i, i + size))
-    }
-    return chunks
-}
 
 // "2026-04-11T19:20:55.828Z" → "2026-04-11 19:20:55" (ClickHouse toDateTime format, UTC).
 function formatHogqlDateTime(d: Date): string {
@@ -65,9 +58,9 @@ export const traceMessagesLazyLoaderLogic = kea<traceMessagesLazyLoaderLogicType
                     const next = { ...state }
                     for (const traceId of requestedTraceIds) {
                         next[traceId] = results[traceId] ?? {
-                            firstInput: null,
+                            lastInput: null,
                             lastOutput: null,
-                            firstInputFallback: null,
+                            lastInputFallback: null,
                             lastOutputFallback: null,
                         }
                     }
@@ -197,23 +190,23 @@ export const traceMessagesLazyLoaderLogic = kea<traceMessagesLazyLoaderLogicType
                                     SELECT
                                         trace_id,
                                         anyIf(
-                                            substring(input_state, 1, ${FIELD_TRUNCATE_CHARS}),
+                                            substringUTF8(input_state, 1, ${FIELD_TRUNCATE_CHARS}),
                                             event = '$ai_trace'
                                                 AND length(input_state) > 0
-                                        ) AS first_input,
+                                        ) AS last_input,
                                         anyIf(
-                                            substring(output_state, 1, ${FIELD_TRUNCATE_CHARS}),
+                                            substringUTF8(output_state, 1, ${FIELD_TRUNCATE_CHARS}),
                                             event = '$ai_trace'
                                                 AND length(output_state) > 0
                                         ) AS last_output,
-                                        argMinIf(
-                                            substring(input, 1, ${FIELD_TRUNCATE_CHARS}),
+                                        argMaxIf(
+                                            substringUTF8(input, 1, ${FIELD_TRUNCATE_CHARS}),
                                             timestamp,
                                             event = '$ai_generation'
                                                 AND length(input) > 0
-                                        ) AS first_input_fallback,
+                                        ) AS last_input_fallback,
                                         argMaxIf(
-                                            substring(output_choices, 1, ${FIELD_TRUNCATE_CHARS}),
+                                            substringUTF8(output_choices, 1, ${FIELD_TRUNCATE_CHARS}),
                                             timestamp,
                                             event = '$ai_generation'
                                                 AND length(output_choices) > 0
@@ -231,13 +224,18 @@ export const traceMessagesLazyLoaderLogic = kea<traceMessagesLazyLoaderLogicType
                             const results: Record<string, TraceMessages> = {}
 
                             for (const row of response.results || []) {
-                                const [traceId, firstInput, lastOutput, firstInputFallback, lastOutputFallback] =
-                                    row as [string, unknown, unknown, unknown, unknown]
+                                const [traceId, lastInput, lastOutput, lastInputFallback, lastOutputFallback] = row as [
+                                    string,
+                                    unknown,
+                                    unknown,
+                                    unknown,
+                                    unknown,
+                                ]
                                 if (traceId) {
                                     results[traceId] = {
-                                        firstInput: parseTruncatedJson(firstInput),
+                                        lastInput: parseTruncatedJson(lastInput),
                                         lastOutput: parseTruncatedJson(lastOutput),
-                                        firstInputFallback: parseTruncatedJson(firstInputFallback),
+                                        lastInputFallback: parseTruncatedJson(lastInputFallback),
                                         lastOutputFallback: parseTruncatedJson(lastOutputFallback),
                                     }
                                 }

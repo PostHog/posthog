@@ -8,7 +8,7 @@ This is an internal guide to setting up and working with the data warehouse for 
 
 ## Adding a new source
 
-Looking to add a new source to data warehouse? [We have a detailed guide in the codebase](https://github.com/PostHog/posthog/blob/master/posthog/temporal/data_imports/sources/README.md).
+Looking to add a new source to data warehouse? [We have a detailed guide in the codebase](https://github.com/PostHog/posthog/blob/master/products/warehouse_sources/backend/temporal/data_imports/sources/README.md).
 
 > If you're a customer of PostHog Cloud and are looking to import data into your project, then you're likely looking for [this section of the docs instead](https://posthog.com/docs/cdp/sources)
 
@@ -22,12 +22,19 @@ Looking to add a new source to data warehouse? [We have a detailed guide in the 
    4. user = posthog
    5. password = posthog
    6. schema = public
-3. Hit next, then select which tables you'd like to import. [More info on the sync types can be found here](https://posthog.com/docs/cdp/sources#incremental-vs-append-only-vs-full-table)
-4. Hit next and finish the import - `temporal-worker-data-warehouse` will then import the data into your local MinIO instance
+3. Hit next, then select which tables you'd like to import. [More info on the sync types can be found here](https://posthog.com/docs/cdp/sources#incremental-vs-append-only-vs-full-table). For the Postgres-specific `xmin` (cursorless incremental) sync type and its limitations, see the [Postgres source README](https://github.com/PostHog/posthog/blob/master/products/warehouse_sources/backend/temporal/data_imports/sources/postgres/README.md)
+4. Hit next and finish the import - `temporal-worker-data-warehouse` will then import the data into your local object storage
 
-## Accessing MinIO
+## Accessing object storage
 
-All your data warehouse data is stored in your local MinIO instance. You can view all the files by going to `http://localhost:19001/` and using the username `object_storage_root_user` and password `object_storage_root_password`. There should be a `data-warehouse` bucket that has a separate folder for each table you sync.
+All your data warehouse data is stored in your local object storage (SeaweedFS, S3-compatible, running at `http://localhost:19000`). Unlike MinIO, SeaweedFS has no web console, so inspect it with any S3 client. For example, with the AWS CLI:
+
+```bash
+AWS_ACCESS_KEY_ID=object_storage_root_user AWS_SECRET_ACCESS_KEY=object_storage_root_password \
+  aws --endpoint-url http://localhost:19000 s3 ls s3://data-warehouse/ --recursive
+```
+
+There's a separate folder under the `data-warehouse` bucket for each table you sync.
 
 ## Setting up a MySQL source
 

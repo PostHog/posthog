@@ -21,6 +21,7 @@ from posthog.schema import (
     TrendsQuery,
 )
 
+from posthog.constants import AvailableFeature
 from posthog.errors import CHQueryErrorTooManySimultaneousQueries
 from posthog.models import User
 from posthog.tasks.alerts.utils import AlertEvaluationResult
@@ -33,7 +34,9 @@ from posthog.temporal.alerts.types import (
     SkipReason,
 )
 
-from products.alerts.backend.models.alert import AlertCheck, AlertConfiguration
+from products.alerts.backend.evaluation.contract import AlertExtractionError
+from products.alerts.backend.evaluation.validation import THRESHOLD_BOUNDS_REQUIRED_MESSAGE
+from products.alerts.backend.models.alert import AlertCheck, AlertConfiguration, Threshold
 from products.product_analytics.backend.models.insight import Insight
 
 
@@ -45,6 +48,10 @@ def _valid_trends_query() -> dict:
     ).model_dump()
 
 
+def _default_threshold_configuration() -> dict:
+    return {"type": "absolute", "bounds": {"upper": 100.0}}
+
+
 async def _create_alert(
     ateam,
     *,
@@ -53,6 +60,7 @@ async def _create_alert(
     calculation_interval: str = AlertCalculationInterval.DAILY.value,
     config: dict | None = None,
     condition: dict | None = None,
+    threshold_configuration: dict | None = None,
     next_check_at: datetime | None = None,
     snoozed_until: datetime | None = None,
     skip_weekend: bool = False,
@@ -68,6 +76,11 @@ async def _create_alert(
             query=query if query is not None else _valid_trends_query(),
             deleted=insight_deleted,
         )
+        threshold = Threshold.objects.create(
+            team=ateam,
+            insight=insight,
+            configuration=threshold_configuration or _default_threshold_configuration(),
+        )
         alert = AlertConfiguration.objects.create(
             team=ateam,
             insight=insight,
@@ -76,6 +89,7 @@ async def _create_alert(
             calculation_interval=calculation_interval,
             config=config if config is not None else {"type": "TrendsAlertConfig", "series_index": 0},
             condition=condition if condition is not None else {"type": "absolute_value"},
+            threshold=threshold,
             next_check_at=next_check_at,
             snoozed_until=snoozed_until,
             skip_weekend=skip_weekend,
@@ -100,6 +114,11 @@ async def alert_with_user(ateam, aorganization):
             organization=aorganization, email=f"alerts-{uuid.uuid4().hex[:6]}@posthog.com", password=None
         )
         insight = Insight.objects.create(team=ateam, name="insight", query=_valid_trends_query())
+        threshold = Threshold.objects.create(
+            team=ateam,
+            insight=insight,
+            configuration=_default_threshold_configuration(),
+        )
         a = AlertConfiguration.objects.create(
             team=ateam,
             insight=insight,
@@ -108,6 +127,7 @@ async def alert_with_user(ateam, aorganization):
             calculation_interval=AlertCalculationInterval.DAILY.value,
             config={"type": "TrendsAlertConfig", "series_index": 0},
             condition={"type": "absolute_value"},
+            threshold=threshold,
         )
         a.subscribed_users.add(user)
         return a
@@ -236,6 +256,22 @@ class TestPrepareAlert:
 
         assert result.action == PrepareAction.EVALUATE
 
+    async def test_auto_disable_when_threshold_bounds_empty(self, ateam) -> None:
+        a = await _create_alert(
+            ateam,
+            threshold_configuration={"type": "absolute", "bounds": {}},
+        )
+
+        env = ActivityEnvironment()
+        result = await env.run(prepare_alert, PrepareAlertActivityInputs(alert_id=str(a.id)))
+
+        assert result.action == PrepareAction.AUTO_DISABLE
+        assert result.reason == THRESHOLD_BOUNDS_REQUIRED_MESSAGE
+
+        refreshed = await sync_to_async(AlertConfiguration.objects.get)(pk=a.pk)
+        assert refreshed.enabled is False
+        assert refreshed.state == AlertState.ERRORED
+
     async def test_auto_disable_when_config_invalid(self, ateam) -> None:
         # Missing required "type" in config makes validate_alert_config raise ValueError.
         a = await _create_alert(ateam, config={"series_index": 0})
@@ -263,6 +299,48 @@ class TestPrepareAlert:
 
         assert result.action == PrepareAction.EVALUATE
         assert result.reason is None
+
+    @pytest.mark.parametrize(
+        "calculation_interval,required_feature",
+        [
+            pytest.param(
+                AlertCalculationInterval.REAL_TIME.value,
+                AvailableFeature.REAL_TIME_ALERTS,
+                id="real_time",
+            ),
+            pytest.param(
+                AlertCalculationInterval.EVERY_15_MINUTES.value,
+                AvailableFeature.HIGH_FREQUENCY_ALERTS,
+                id="every_15_minutes",
+            ),
+        ],
+    )
+    async def test_entitlement_gated_interval_auto_disabled_without_feature(
+        self, ateam, aorganization, calculation_interval: str, required_feature: AvailableFeature
+    ) -> None:
+        a = await _create_alert(ateam, calculation_interval=calculation_interval)
+
+        env = ActivityEnvironment()
+        result = await env.run(prepare_alert, PrepareAlertActivityInputs(alert_id=str(a.id)))
+
+        assert result.action == PrepareAction.AUTO_DISABLE
+        refreshed = await sync_to_async(AlertConfiguration.objects.get)(pk=a.pk)
+        assert refreshed.enabled is False
+        assert refreshed.state == AlertState.ERRORED
+
+        check = await sync_to_async(AlertCheck.objects.get)(alert_configuration=refreshed)
+        assert check.state == AlertState.ERRORED
+        assert check.error is not None
+
+        @sync_to_async
+        def _grant_feature() -> None:
+            aorganization.available_product_features = [{"key": required_feature, "name": required_feature}]
+            aorganization.save()
+
+        await _grant_feature()
+        entitled = await _create_alert(ateam, calculation_interval=calculation_interval)
+        result = await env.run(prepare_alert, PrepareAlertActivityInputs(alert_id=str(entitled.id)))
+        assert result.action == PrepareAction.EVALUATE
 
 
 @pytest.mark.asyncio
@@ -320,6 +398,40 @@ class TestEvaluateAlert:
         # Only prepare-time validate_alert_config failures call disable_invalid_alert.
         refreshed = await sync_to_async(AlertConfiguration.objects.get)(pk=alert.pk)
         assert refreshed.enabled is True
+
+    async def test_evaluate_auto_disables_and_skips_error_tracking_on_extraction_error(self, alert_with_user) -> None:
+        # A misconfigured query (wrong shape / bad config) fails loud with AlertExtractionError. That's
+        # a config problem, not a bug: it must auto-disable + email the owner, not hit error tracking.
+        # alert_with_user has a subscriber, so this also exercises the send_notifications_for_disabled
+        # branch — guarding against a silent regression where the owner isn't told their alert died.
+        with (
+            patch(
+                "posthog.temporal.alerts.activities.check_alert_for_insight",
+                side_effect=AlertExtractionError("query returns 2 numeric columns — pick one"),
+            ),
+            patch("posthog.temporal.alerts.activities.capture_exception") as mock_capture,
+            patch("posthog.tasks.alerts.utils.send_notifications_for_disabled") as mock_notify,
+        ):
+            env = ActivityEnvironment()
+            result = await env.run(evaluate_alert, EvaluateAlertActivityInputs(alert_id=str(alert_with_user.id)))
+
+        assert result.new_state == AlertState.ERRORED
+        assert result.should_notify is False  # disable_invalid_alert already emailed subscribers
+        mock_capture.assert_not_called()
+
+        check = await sync_to_async(AlertCheck.objects.get)(pk=result.alert_check_id)
+        assert check.state == AlertState.ERRORED
+        assert check.error is not None
+        assert "2 numeric columns" in check.error["message"]
+
+        refreshed = await sync_to_async(AlertConfiguration.objects.get)(pk=alert_with_user.pk)
+        assert refreshed.enabled is False
+
+        mock_notify.assert_called_once()
+        notified_alert, reason, targets = mock_notify.call_args.args
+        assert notified_alert.id == alert_with_user.id
+        assert "2 numeric columns" in reason
+        assert targets  # the subscribed owner's email
 
     async def test_evaluate_reraises_ch_transient_error(self, alert) -> None:
         # Transient CH errors bubble up so Temporal's retry policy handles them.

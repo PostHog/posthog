@@ -8,9 +8,9 @@ import { OrganizationMembershipLevel } from 'lib/constants'
 import { IconSwapHoriz } from 'lib/lemon-ui/icons'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { identifierToHuman, isUserLoggedIn } from 'lib/utils'
+import { DEFAULT_CURRENCY } from 'lib/utils/currency'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
-import { DEFAULT_CURRENCY } from 'lib/utils/geography/currency'
+import { isUserLoggedIn } from 'lib/utils/getAppContext'
 import { getAppContext } from 'lib/utils/getAppContext'
 import {
     type ProductCrossSellProperties,
@@ -18,6 +18,7 @@ import {
     addProductIntent,
     addProductIntentForCrossSell,
 } from 'lib/utils/product-intents'
+import { identifierToHuman } from 'lib/utils/strings'
 
 import { customProductsLogic } from '~/layout/panel-layout/ProjectTree/customProductsLogic'
 import { CurrencyCode, CustomerAnalyticsConfig, ProductKey } from '~/queries/schema/schema-general'
@@ -66,6 +67,8 @@ export const teamLogic = kea<teamLogicType>([
             ['loadCurrentOrganization'],
             customProductsLogic,
             ['loadCustomProducts'],
+            projectLogic,
+            ['loadCurrentProjectSuccess'],
         ],
     })),
     actions({
@@ -112,16 +115,22 @@ export const teamLogic = kea<teamLogicType>([
                         }
                     }
 
-                    const promises: [Promise<TeamType>, Promise<ProjectType> | undefined] = [
-                        api.update(`api/environments/${values.currentTeam.id}`, payload),
-                        undefined,
-                    ]
-                    if (Object.keys(payload).length === 1 && payload.name && values.currentProject) {
-                        // If we're only updating the name, update the project name as well for equivalence
-                        promises[1] = api.update(`api/projects/${values.currentProject.id}`, { name: payload.name })
+                    let patchedTeam: TeamType | TeamPublicType
+                    if (Object.keys(payload).length === 1 && payload.name && values.currentTeam.project_id) {
+                        // Renames go through /api/projects, which mirrors the name onto the passthrough
+                        // team server-side. /api/environments is deprecated, don't add calls to it
+                        const patchedProject = await api.update<ProjectType>(
+                            `api/projects/${values.currentTeam.project_id}`,
+                            { name: payload.name }
+                        )
+                        breakpoint()
+                        // Sync projectLogic too, as surfaces like the project switcher read currentProject.name
+                        actions.loadCurrentProjectSuccess(patchedProject)
+                        patchedTeam = { ...values.currentTeam, name: patchedProject.name }
+                    } else {
+                        patchedTeam = await api.update(`api/environments/${values.currentTeam.id}`, payload)
+                        breakpoint()
                     }
-                    const [patchedTeam] = await Promise.all(promises)
-                    breakpoint()
 
                     // We need to reload current org (which lists its teams) in organizationLogic
                     actions.loadCurrentOrganization()

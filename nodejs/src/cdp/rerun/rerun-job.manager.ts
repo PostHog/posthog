@@ -1,6 +1,7 @@
 import { v7 as uuidv7 } from 'uuid'
 
-import { logger } from '../../utils/logger'
+import { logger } from '~/common/utils/logger'
+
 import { CyclotronV2Manager } from '../services/cyclotron-v2'
 import {
     RERUN_MAX_WINDOW_DAYS,

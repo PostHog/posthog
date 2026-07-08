@@ -1,8 +1,10 @@
 from contextlib import AbstractContextManager
+from typing import TYPE_CHECKING
 
 import pytest
 from posthog.test.base import BaseTest
 
+from django.apps import apps
 from django.db import IntegrityError
 from django.utils import timezone
 
@@ -11,7 +13,9 @@ from posthog.models.activity_logging.activity_log import ActivityLog
 from posthog.models.scoping import team_scope
 
 from products.signals.backend.models import SignalScoutConfig, SignalScoutRun, SignalScratchpad
-from products.tasks.backend.models import Task, TaskRun
+
+if TYPE_CHECKING:
+    from products.tasks.backend.models import TaskRun
 
 
 class _ScoutTeamScopedTestMixin:
@@ -59,9 +63,9 @@ class TestSignalScoutModels(_ScoutTeamScopedTestMixin, BaseTest):
     def test_signal_scout_config_defaults(self) -> None:
         config = SignalScoutConfig.objects.create(team=self.team, skill_name="signals-scout-foo")
         loaded = SignalScoutConfig.objects.get(pk=config.pk)
-        # Auto-created scouts run on a daily cadence but stay in dry-run until emit is flipped.
+        # Auto-created scouts run every 24 hours and emit on by default (live from the first tick).
         assert loaded.enabled is True
-        assert loaded.emit is False
+        assert loaded.emit is True
         assert loaded.run_interval_minutes == 1440
         assert loaded.last_run_at is None
 
@@ -91,8 +95,10 @@ class TestSignalScoutModels(_ScoutTeamScopedTestMixin, BaseTest):
         SignalScoutConfig.all_teams.filter(pk=config.pk).update(last_run_at=timezone.now())
         assert not ActivityLog.objects.filter(scope="SignalScoutConfig", item_id=str(config.id)).exists()
 
-    def _make_task_run(self) -> TaskRun:
+    def _make_task_run(self) -> "TaskRun":
         """Minimal Task + TaskRun pair scoped to this test's team."""
+        Task = apps.get_model("tasks", "Task")
+        TaskRun = apps.get_model("tasks", "TaskRun")
         task = Task.objects.create(
             team=self.team,
             title="scout run",

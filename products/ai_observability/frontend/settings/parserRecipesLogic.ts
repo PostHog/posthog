@@ -60,13 +60,14 @@ export const parserRecipesLogic = kea<parserRecipesLogicType>([
         submitEditor: true,
         submitEditorDone: true,
         deleteItem: (item: CustomRecipeItem) => ({ item }),
+        recipesApplied: true,
     }),
     loaders(({ values }) => ({
         storedRecipes: [
             [] as ParserRecipeApi[],
             {
                 loadRecipes: async () => {
-                    if (!values.featureFlags[FEATURE_FLAGS.LLM_ANALYTICS_RECIPE_NORMALIZER]) {
+                    if (!values.featureFlags[FEATURE_FLAGS.LLM_ANALYTICS_CUSTOM_PARSERS]) {
                         return []
                     }
                     return (await llmAnalyticsParserRecipesList(String(values.currentTeamId), { limit: 1000 })).results
@@ -93,6 +94,14 @@ export const parserRecipesLogic = kea<parserRecipesLogicType>([
                 closeEditor: () => false,
             },
         ],
+        // The normalizer is a module singleton; memoized normalizations include this in their
+        // deps to re-render when the recipe set changes
+        recipesVersion: [
+            0,
+            {
+                recipesApplied: (state) => state + 1,
+            },
+        ],
     }),
     selectors({
         storedForMerge: [
@@ -113,7 +122,7 @@ export const parserRecipesLogic = kea<parserRecipesLogicType>([
         loadKey: [
             (s) => [s.currentTeamId, s.featureFlags],
             (currentTeamId, featureFlags): number | null =>
-                featureFlags[FEATURE_FLAGS.LLM_ANALYTICS_RECIPE_NORMALIZER] ? currentTeamId : null,
+                featureFlags[FEATURE_FLAGS.LLM_ANALYTICS_CUSTOM_PARSERS] ? currentTeamId : null,
         ],
     }),
     subscriptions(({ actions }) => ({
@@ -126,7 +135,10 @@ export const parserRecipesLogic = kea<parserRecipesLogicType>([
         },
     })),
     listeners(({ actions, values }) => ({
-        loadRecipesSuccess: () => applyTeamParserRecipes(values.storedForMerge),
+        loadRecipesSuccess: () => {
+            applyTeamParserRecipes(values.storedForMerge)
+            actions.recipesApplied()
+        },
         submitEditor: async () => {
             const editor = values.editor
             if (!editor) {

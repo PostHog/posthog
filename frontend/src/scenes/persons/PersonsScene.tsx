@@ -9,6 +9,7 @@ import { useOnMountEffect } from 'lib/hooks/useOnMountEffect'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { Link } from 'lib/lemon-ui/Link'
 import { ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
+import { isUUIDLike } from 'lib/utils/guards'
 import { PersonsManagementSceneTabs } from 'scenes/persons-management/PersonsManagementSceneTabs'
 import { sceneConfigurations } from 'scenes/scenes'
 import { Scene, SceneExport } from 'scenes/sceneTypes'
@@ -20,8 +21,8 @@ import { SceneMenuBar, SceneMenuBarItem, SceneMenuBarMenu } from '~/layout/scene
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 import { ScenePanel, ScenePanelActionsSection } from '~/layout/scenes/SceneLayout'
 import { Query } from '~/queries/Query/Query'
-import { ProductKey } from '~/queries/schema/schema-general'
-import { CustomerProfileScope, OnboardingStepKey } from '~/types'
+import { ActorsQuery, ProductKey } from '~/queries/schema/schema-general'
+import { ActivityTab, CustomerProfileScope, OnboardingStepKey } from '~/types'
 
 import { FeedbackButton } from 'products/customer_analytics/frontend/components/FeedbackButton'
 import { PersonDisplayNameNudgeBanner } from 'products/customer_analytics/frontend/components/PersonDisplayNameNudgeBanner'
@@ -35,23 +36,20 @@ export const scene: SceneExport = {
     productKey: ProductKey.PRODUCT_ANALYTICS,
 }
 
-export function PersonsScene({ tabId }: { tabId?: string } = {}): JSX.Element {
-    if (!tabId) {
-        // TODO: sometimes when opening a property filter on a scene, the tabId is suddently empty.
-        // If I remove the "{closable && !disabledReason && ...}" block from within
-        // "frontend/src/lib/components/PropertyFilters/components/PropertyFilterButton.tsx"
-        // ... then the issue goes away. We should still figure out why this happens.
-        // Throwing seems to make it go away.
-        throw new Error('PersonsScene rendered with no tabId')
-    }
-
+export function PersonsScene(): JSX.Element {
     const { query } = useValues(personsSceneLogic)
     const { setQuery } = useActions(personsSceneLogic)
     const { resetDeletedDistinctId } = useAsyncActions(personsSceneLogic)
     const { currentTeam, baseCurrency } = useValues(teamLogic)
     const { loadConfigs } = useActions(customerProfileConfigLogic({ scope: CustomerProfileScope.PERSON }))
-    const queryUniqueKey = `persons-query-${tabId}`
+    const queryUniqueKey = 'persons-query'
     const sceneMenuBarEnabled = useFeatureFlag('SCENE_MENU_BAR')
+
+    // A UUID-shaped search that returns nothing is often a session ID typed into the wrong field.
+    // Session IDs aren't part of the persons query, so point the user to where they are searchable.
+    const rawSearch: unknown = (query.source as Partial<ActorsQuery> | undefined)?.search
+    const searchTerm = typeof rawSearch === 'string' ? rawSearch.trim() : undefined
+    const searchLooksLikeSessionId = !!searchTerm && isUUIDLike(searchTerm)
 
     useOnMountEffect(() => {
         loadConfigs()
@@ -146,36 +144,48 @@ export function PersonsScene({ tabId }: { tabId?: string } = {}): JSX.Element {
 
             <Query
                 uniqueKey={queryUniqueKey}
-                attachTo={personsSceneLogic({ tabId })}
+                attachTo={personsSceneLogic()}
                 query={{ ...query, showCount: true, showTableViews: true }}
                 setQuery={setQuery}
                 context={{
                     refresh: 'blocking',
-                    emptyStateHeading: currentTeam?.ingested_event
-                        ? 'There are no matching persons for this query'
-                        : 'No persons exist because no events have been ingested',
-                    emptyStateDetail: currentTeam?.ingested_event ? (
-                        <>
-                            This page only shows{' '}
-                            <Link to="https://posthog.com/docs/data/persons">identified persons</Link>. Try adjusting
-                            your property filters, or make sure you're calling{' '}
-                            <Link to="https://posthog.com/docs/product-analytics/identify">identify</Link> in your app.
-                        </>
-                    ) : (
-                        <>
-                            Go to the{' '}
-                            <Link
-                                to={urls.onboarding({
-                                    productKey: ProductKey.PRODUCT_ANALYTICS,
-                                    stepKey: OnboardingStepKey.INSTALL,
-                                })}
-                                data-attr="real_project_with_no_events-ingestion_link"
-                            >
-                                onboarding flow
-                            </Link>{' '}
-                            to get things moving
-                        </>
-                    ),
+                    emptyStateHeading:
+                        currentTeam?.ingested_event && searchLooksLikeSessionId
+                            ? 'Looking for a session?'
+                            : currentTeam?.ingested_event
+                              ? 'There are no matching persons for this query'
+                              : 'No persons exist because no events have been ingested',
+                    emptyStateDetail:
+                        currentTeam?.ingested_event && searchLooksLikeSessionId ? (
+                            <>
+                                Session IDs can't be searched here. Open it directly in{' '}
+                                <Link to={urls.replaySingle(searchTerm!)}>Session replay</Link>, or search sessions on
+                                the <Link to={urls.activity(ActivityTab.ExploreSessions)}>Activity</Link> page. To find
+                                a person instead, search by name, email, person ID, or distinct ID.
+                            </>
+                        ) : currentTeam?.ingested_event ? (
+                            <>
+                                This page only shows{' '}
+                                <Link to="https://posthog.com/docs/data/persons">identified persons</Link>. Try
+                                adjusting your property filters, or make sure you're calling{' '}
+                                <Link to="https://posthog.com/docs/product-analytics/identify">identify</Link> in your
+                                app.
+                            </>
+                        ) : (
+                            <>
+                                Go to the{' '}
+                                <Link
+                                    to={urls.onboarding({
+                                        productKey: ProductKey.PRODUCT_ANALYTICS,
+                                        stepKey: OnboardingStepKey.INSTALL,
+                                    })}
+                                    data-attr="real_project_with_no_events-ingestion_link"
+                                >
+                                    onboarding flow
+                                </Link>{' '}
+                                to get things moving
+                            </>
+                        ),
                     baseCurrency,
                 }}
                 dataAttr="persons-table"

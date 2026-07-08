@@ -15,7 +15,7 @@ import { AutoSizer } from 'lib/components/AutoSizer'
 import { SortableDragIcon } from 'lib/lemon-ui/icons'
 import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
 import { LemonSnack } from 'lib/lemon-ui/LemonSnack/LemonSnack'
-import { range } from 'lib/utils'
+import { range } from 'lib/utils/arrays'
 import { createFuse } from 'lib/utils/fuseSearch'
 
 import { KeyboardShortcut } from '~/layout/navigation-3000/components/KeyboardShortcut'
@@ -121,6 +121,7 @@ export interface LemonInputSelectOption<T = string> {
     key: string
     label: string
     labelComponent?: React.ReactNode
+    /** Shown when hovering the dropdown option row and any snack rendered for the selected value. */
     tooltip?: TooltipTitle
     /** @internal */
     __isInput?: boolean
@@ -294,8 +295,16 @@ export function LemonInputSelect<T = string>({
 
     const separateOnComma = allowCustomValues && mode === 'multiple' && !disableCommaSplitting
 
-    // We stringify the objects to prevent wasteful recalculations (esp. Fuse). Note: labelComponent is not serializable
-    const optionsKey = JSON.stringify(options, (key, value) => (key === 'labelComponent' ? value?.name : value))
+    // We stringify the objects to prevent wasteful recalculations (esp. Fuse). Note: labelComponent and non-string tooltips are not serializable
+    const optionsKey = JSON.stringify(options, (key, value) => {
+        if (key === 'labelComponent') {
+            return value?.name
+        }
+        if (key === 'tooltip' && typeof value !== 'string') {
+            return value?.type?.name
+        }
+        return value
+    })
     const stringKeys = values.map(getStringKey)
     const valuesKey = JSON.stringify(stringKeys)
     const allOptionsMap: Map<string, LemonInputSelectOption<T>> = useMemo(() => {
@@ -527,8 +536,11 @@ export function LemonInputSelect<T = string>({
     }
 
     const _onFocus = (): void => {
-        // In single mode, when focusing with a selected value, enter edit mode right away
-        if (mode === 'single' && values.length > 0 && !inputValue) {
+        // In single mode with a free-text (custom) value, seed the input with the current value
+        // so the user can edit it. Don't do this for option-backed selects: there the key is an
+        // opaque id (e.g. a UUID), and seeding it makes the dropdown filter down to just the
+        // selected option, hiding every other choice. Leaving the input empty shows the full list.
+        if (mode === 'single' && values.length > 0 && !inputValue && allowCustomValues) {
             setInputValue(getStringKey(values[0]))
         }
         onFocus?.()
@@ -599,24 +611,28 @@ export function LemonInputSelect<T = string>({
         // For single mode with a selected value and no active input, show the value as prefix since
         // showing the entered value as placeholder was unintuitive
         if (mode === 'single' && values.length > 0 && !inputValue) {
-            const label = allOptionsMap.get(getStringKey(values[0]))?.label ?? getDisplayLabel(values[0])
+            const selectedOption = allOptionsMap.get(getStringKey(values[0]))
+            const label = selectedOption?.label ?? getDisplayLabel(values[0])
             if (singleValueAsSnack) {
                 const canClear = allowCustomValues && !disableEditing
+                const snack = (
+                    <LemonSnack
+                        title={String(label)}
+                        onClose={
+                            canClear
+                                ? () => {
+                                      setInputValue('')
+                                      onChange?.([])
+                                  }
+                                : undefined
+                        }
+                    >
+                        {label}
+                    </LemonSnack>
+                )
                 return (
                     <PopoverReferenceContext.Provider value={null}>
-                        <LemonSnack
-                            title={String(label)}
-                            onClose={
-                                canClear
-                                    ? () => {
-                                          setInputValue('')
-                                          onChange?.([])
-                                      }
-                                    : undefined
-                            }
-                        >
-                            {label}
-                        </LemonSnack>
+                        {selectedOption?.tooltip ? <Tooltip title={selectedOption.tooltip}>{snack}</Tooltip> : snack}
                     </PopoverReferenceContext.Provider>
                 )
             }
@@ -1073,17 +1089,19 @@ function DraggableValueSnack<T = string>({
     return (
         <Tooltip
             title={
-                <>
-                    <span>
-                        {onInitiateEdit && (
-                            <>
-                                Click on the text to edit.
-                                <br />
-                            </>
-                        )}
-                    </span>
-                    <span>Click on the X to remove.</span>
-                </>
+                option.tooltip ?? (
+                    <>
+                        <span>
+                            {onInitiateEdit && (
+                                <>
+                                    Click on the text to edit.
+                                    <br />
+                                </>
+                            )}
+                        </span>
+                        <span>Click on the X to remove.</span>
+                    </>
+                )
             }
         >
             <span
@@ -1168,17 +1186,19 @@ function ValueSnacks<T = string>({
             <Tooltip
                 key={value}
                 title={
-                    <>
-                        <span>
-                            {onInitiateEdit && (
-                                <>
-                                    Click on the text to edit.
-                                    <br />
-                                </>
-                            )}
-                        </span>
-                        <span>Click on the X to remove.</span>
-                    </>
+                    option.tooltip ?? (
+                        <>
+                            <span>
+                                {onInitiateEdit && (
+                                    <>
+                                        Click on the text to edit.
+                                        <br />
+                                    </>
+                                )}
+                            </span>
+                            <span>Click on the X to remove.</span>
+                        </>
+                    )
                 }
             >
                 <LemonSnack

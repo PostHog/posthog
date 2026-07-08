@@ -7,27 +7,50 @@ All ORM access, chunking, quota enforcement, and search queries.
 import re
 import uuid
 import datetime
+from collections import defaultdict
 from dataclasses import dataclass
 from functools import reduce
 from operator import or_
 from urllib.parse import urlsplit
 from uuid import UUID
 
+from django.conf import settings
+from django.contrib.postgres.search import SearchQuery, SearchRank, SearchVector
 from django.db import (
     connection as db_connection,
     transaction,
 )
-from django.db.models import Count, Exists, F, OuterRef, Q
+from django.db.models import Count, Exists, F, Max, OuterRef, Q, QuerySet
 from django.db.models.functions import Substr
 from django.utils import timezone
 
 import structlog
+from langchain_core.messages import HumanMessage, SystemMessage
 
+from posthog.api.embedding_worker import generate_embedding
+from posthog.helpers.full_text_search import process_query
+from posthog.models.organization import OrganizationMembership
 from posthog.models.scoping import with_team_scope
+from posthog.models.team.team import Team
+from posthog.models.user import User
+from posthog.ph_client import feature_enabled_or_false
 from posthog.security.url_validation import is_url_allowed
+
+from ee.hogai.llm import MaxChatAnthropic
 
 from . import crawl, discover, file_parse, html_parse, url_fetch
 from .constants import (
+    BK_DRILLDOWN_DEFAULT_RADIUS,
+    BK_DRILLDOWN_MAX_RADIUS,
+    BK_EMBEDDING_DOCUMENT_TYPE,
+    BK_EMBEDDING_MODEL,
+    BK_EMBEDDING_PRODUCT,
+    BK_RERANK_MODEL,
+    BK_RERANK_SNIPPET_CHARS,
+    BK_RRF_K,
+    BK_RRF_SCORE_FLOOR,
+    BK_SEMANTIC_DISTANCE_CUTOFF,
+    BK_SEMANTIC_OVERFETCH,
     CHUNK_HARD_MAX_CHARS,
     CHUNK_TARGET_CHARS,
     CLASSIFY_MAX_ATTEMPTS,
@@ -35,16 +58,25 @@ from .constants import (
     CRAWL_HARD_MAX_DEPTH,
     DEFAULT_CRAWL_MAX_DEPTH,
     DEFAULT_MAX_PAGES,
+    EMBEDDING_STABLE_TS_MAX_AGE,
+    EMBEDDING_TTL_REFRESH_WINDOW,
+    MAX_ALWAYS_ON_CONTEXT_CHARS,
     MAX_CHUNKS_PER_TEAM,
     MAX_SOURCES_PER_TEAM,
     MAX_TEXT_SIZE_BYTES,
     MAX_URLS_PER_SOURCE,
+    PENDING_EMBEDDING_SCAN_CAP,
+    RECONCILE_EMBEDDING_GRACE,
+    RECONCILE_EMBEDDING_SCAN_CAP,
+    REEMIT_EMBEDDING_SCAN_CAP,
 )
 from .models import (
     REFRESH_INTERVAL_TIMEDELTAS,
     CrawlMode,
+    GapStatus,
     KnowledgeChunk,
     KnowledgeDocument,
+    KnowledgeGapSuggestion,
     KnowledgeSource,
     RefreshInterval,
     SafetyVerdict,
@@ -159,7 +191,7 @@ def _bulk_create_chunks(
     team_id: int,
     chunks: list[_Chunk],
 ) -> None:
-    KnowledgeChunk.objects.bulk_create(
+    created = KnowledgeChunk.objects.bulk_create(
         [
             KnowledgeChunk(
                 id=_chunk_id(source.id, document.stable_id, c.heading_path, c.ordinal),
@@ -174,6 +206,14 @@ def _bulk_create_chunks(
             for c in chunks
         ]
     )
+    # Populate the FTS vector here (the single chunk-creation choke point) so it
+    # stays correct everywhere — including the test schema, which is built from
+    # model state with migrations disabled and so would never run a DB trigger.
+    # Computed in Postgres via `to_tsvector('english', content)`.
+    if created:
+        KnowledgeChunk.objects.filter(team_id=team_id, id__in=[c.id for c in created]).update(
+            content_search_vector=SearchVector("content", config="english")
+        )
 
 
 # --- Quota enforcement -------------------------------------------------------
@@ -266,6 +306,43 @@ def _unsafe_documents_subquery() -> Exists:
     )
 
 
+def _pending_embedding_documents_subquery() -> Exists:
+    """
+    Live docs that are still on their way into the semantic index: either
+    awaiting safety classification (with retries left — docs past the attempt
+    cap stay excluded forever, so they're not "pending"), or already SAFE with
+    chunks but not yet produced to the embedding pipeline. Mirrors the
+    eligibility rules of `_embeddable_documents_qs` so the API never reports
+    "pending" for a doc the coordinator will never pick up.
+    """
+    has_chunks = Exists(KnowledgeChunk.objects.filter(document_id=OuterRef("pk")))
+    return Exists(
+        KnowledgeDocument.objects.filter(source_id=OuterRef("pk"), tombstoned_at__isnull=True).filter(
+            Q(safety_verdict=SafetyVerdict.UNKNOWN, classification_attempts__lt=CLASSIFY_MAX_ATTEMPTS)
+            | (Q(safety_verdict=SafetyVerdict.SAFE, embeddings_emitted_at__isnull=True) & Q(has_chunks))
+        )
+    )
+
+
+def has_pending_embeddings(source_id: UUID) -> bool:
+    """Standalone DB check — same logic as the annotation subquery."""
+    return (
+        KnowledgeDocument.objects.filter(
+            source_id=source_id,
+            tombstoned_at__isnull=True,
+        )
+        .filter(
+            Q(safety_verdict=SafetyVerdict.UNKNOWN, classification_attempts__lt=CLASSIFY_MAX_ATTEMPTS)
+            | Q(
+                safety_verdict=SafetyVerdict.SAFE,
+                embeddings_emitted_at__isnull=True,
+                chunks__isnull=False,
+            )
+        )
+        .exists()
+    )
+
+
 @with_team_scope(canonical=True)
 def list_for_team(team_id: int) -> list[KnowledgeSource]:
     # Annotate counts in one round-trip so the serializer doesn't N+1.
@@ -275,6 +352,8 @@ def list_for_team(team_id: int) -> list[KnowledgeSource]:
             _document_count=Count("documents", distinct=True),
             _chunk_count=Count("chunks", distinct=True),
             _has_unsafe_documents=_unsafe_documents_subquery(),
+            _has_pending_embeddings=_pending_embedding_documents_subquery(),
+            _ai_processing_approved=F("team__organization__is_ai_data_processing_approved"),
         )
         .order_by("-created_at")
     )
@@ -287,6 +366,8 @@ def get_for_team(source_id: UUID, team_id: int) -> KnowledgeSource | None:
             _document_count=Count("documents", distinct=True),
             _chunk_count=Count("chunks", distinct=True),
             _has_unsafe_documents=_unsafe_documents_subquery(),
+            _has_pending_embeddings=_pending_embedding_documents_subquery(),
+            _ai_processing_approved=F("team__organization__is_ai_data_processing_approved"),
         ).get(id=source_id, team_id=team_id)
     except KnowledgeSource.DoesNotExist:
         return None
@@ -318,6 +399,7 @@ def create_text_source(
     created_by_id: int | None,
     name: str,
     text: str,
+    always_include: bool = False,
 ) -> KnowledgeSource:
     """
     Create source + 1 document + N chunks synchronously.
@@ -335,6 +417,7 @@ def create_text_source(
         name=name,
         source_type=SourceType.TEXT,
         status=SourceStatus.PROCESSING,
+        always_include=always_include,
     )
 
     # One text source == one document. Stable_id is the document's own UUID,
@@ -382,6 +465,7 @@ def update_text_source(
     team_id: int,
     name: str | None,
     text: str | None,
+    always_include: bool | None = None,
 ) -> KnowledgeSource | None:
     """
     Edit path.
@@ -401,6 +485,9 @@ def update_text_source(
     except KnowledgeSource.DoesNotExist:
         return None
 
+    if always_include is not None:
+        source.always_include = always_include
+
     if text is not None:
         if len(text.encode("utf-8")) > MAX_TEXT_SIZE_BYTES:
             raise TextTooLargeError(f"Text exceeds {MAX_TEXT_SIZE_BYTES} bytes.")
@@ -416,6 +503,8 @@ def update_text_source(
         if name is not None:
             source.name = name
             update_fields.append("name")
+        if always_include is not None:
+            update_fields.append("always_include")
         source.save(update_fields=update_fields)
 
         KnowledgeChunk.objects.filter(team_id=team_id, source_id=source_id).delete()
@@ -440,9 +529,14 @@ def update_text_source(
         _bulk_create_chunks(source=source, document=document, team_id=team_id, chunks=chunks)
         source.status = SourceStatus.READY
         source.save(update_fields=["status", "updated_at"])
-    elif name is not None:
-        source.name = name
-        source.save(update_fields=["name", "updated_at"])
+    elif name is not None or always_include is not None:
+        update_fields = ["updated_at"]
+        if name is not None:
+            source.name = name
+            update_fields.append("name")
+        if always_include is not None:
+            update_fields.append("always_include")
+        source.save(update_fields=update_fields)
 
     return get_for_team(source.id, team_id) or source
 
@@ -457,6 +551,7 @@ def update_url_source(
     crawl_mode: str | None = None,
     crawl_config: dict | None = None,
     refresh_interval: str | None = None,
+    always_include: bool | None = None,
 ) -> KnowledgeSource | None:
     """
     Update a URL source's metadata and optionally re-crawl.
@@ -484,6 +579,10 @@ def update_url_source(
     if refresh_interval is not None and refresh_interval != source.refresh_interval:
         source.refresh_interval = refresh_interval
         update_fields.append("refresh_interval")
+
+    if always_include is not None and always_include != source.always_include:
+        source.always_include = always_include
+        update_fields.append("always_include")
 
     if url is not None and url != source.source_url:
         normalized = _validate_url(url)
@@ -545,6 +644,7 @@ def create_file_source(
     name: str,
     file_data: bytes,
     original_filename: str,
+    always_include: bool = False,
 ) -> KnowledgeSource:
     """
     Detect type → parse → chunk. Inline, not Temporal.
@@ -580,6 +680,7 @@ def create_file_source(
             original_filename=file_parse.sanitize_filename(original_filename),
             file_content_type=parsed.content_type,
             file_size_bytes=len(file_data),
+            always_include=always_include,
         )
 
         if _count_chunks(team_id) + len(chunks) > MAX_CHUNKS_PER_TEAM:
@@ -692,7 +793,7 @@ def _fetch_and_parse(url: str, *, etag: str | None) -> tuple[url_fetch.FetchResu
     if not url_fetch.is_html_content_type(result.content_type):
         raise UrlFetchFailedError("Unsupported content type.")
 
-    title, text = html_parse.parse_html(result.body, result.final_url)
+    title, text = html_parse.parse_html(result.body, result.final_url, content_type=result.content_type)
     if not text.strip():
         raise EmptyContentError("Could not extract any text from the URL.")
     if len(text.encode("utf-8")) > MAX_TEXT_SIZE_BYTES:
@@ -757,6 +858,7 @@ def claim_url_source(
     crawl_mode: str | None = None,
     crawl_config: dict | None = None,
     refresh_interval: str | None = None,
+    always_include: bool = False,
 ) -> KnowledgeSource:
     """
     Create the PROCESSING claim row for a URL/crawl source *without* fetching.
@@ -781,6 +883,7 @@ def claim_url_source(
             crawl_mode=crawl_mode or CrawlMode.SINGLE,
             crawl_config=crawl_config or {},
             refresh_interval=refresh_interval or RefreshInterval.MANUAL,
+            always_include=always_include,
         )
     return source
 
@@ -1125,10 +1228,13 @@ def _insert_document_and_chunks(
         document.tombstoned_at = None
         # Content changed (caller only reaches this branch on a hash diff), so
         # the prior safety verdict no longer applies — re-queue for
-        # classification with a fresh attempt budget.
+        # classification with a fresh attempt budget. The old chunk vectors are
+        # stale too (and the chunk ids may shift), so clear the embedding stamp
+        # to re-embed once the new content is re-classified SAFE.
         document.safety_verdict = SafetyVerdict.UNKNOWN
         document.safety_reason = ""
         document.classification_attempts = 0
+        document.embeddings_emitted_at = None
         document.save(
             update_fields=[
                 "title",
@@ -1141,6 +1247,7 @@ def _insert_document_and_chunks(
                 "safety_verdict",
                 "safety_reason",
                 "classification_attempts",
+                "embeddings_emitted_at",
                 "updated_at",
             ]
         )
@@ -1232,10 +1339,11 @@ def _ingest_crawl_source(*, source: KnowledgeSource, team_id: int) -> KnowledgeS
         return _mark_error(str(exc))
 
     try:
-        candidate_urls = discover.discover(source.crawl_mode, normalized, config)
+        discovery = discover.discover(source.crawl_mode, normalized, config)
     except discover.DiscoverError as exc:
         return _mark_error(str(exc))
 
+    candidate_urls = discovery.urls
     if not candidate_urls:
         return _mark_error("Crawl discovered no URLs. Check the entry URL and globs.")
 
@@ -1250,7 +1358,7 @@ def _ingest_crawl_source(*, source: KnowledgeSource, team_id: int) -> KnowledgeS
     if not safe_urls:
         return _mark_error("Crawl discovered no safe URLs to fetch.")
 
-    outcomes = crawl.fetch_many(safe_urls)
+    outcomes = crawl.fetch_many(safe_urls, prefetched=discovery.prefetched)
     ok_outcomes = [o for o in outcomes if o.status == "ok"]
 
     if not ok_outcomes:
@@ -1317,7 +1425,8 @@ def _refresh_crawl_source(*, source: KnowledgeSource, team_id: int) -> Knowledge
         config = _resolve_crawl_config(source.crawl_config)
         normalized = _validate_url(source.source_url)
         try:
-            discovered = discover.discover(source.crawl_mode, normalized, config)
+            discovery = discover.discover(source.crawl_mode, normalized, config)
+            discovered = discovery.urls
         except discover.DiscoverError as exc:
             raise UrlFetchFailedError(str(exc)) from exc
     except (InvalidUrlError, UrlFetchFailedError) as exc:
@@ -1360,7 +1469,7 @@ def _refresh_crawl_source(*, source: KnowledgeSource, team_id: int) -> Knowledge
         existing = existing_by_url.get(u)
         return existing.etag if existing and existing.etag else None
 
-    outcomes = crawl.fetch_many(safe_urls, etag_for=_etag_for)
+    outcomes = crawl.fetch_many(safe_urls, etag_for=_etag_for, prefetched=discovery.prefetched)
     # `discovered_set` is built by normalizing the raw discovered URLs (lowercased
     # scheme+host, no fragment) so keys match `existing_by_url` (which uses the
     # normalized stable_id). We do NOT use `safe_urls` here — that would tombstone
@@ -1462,9 +1571,212 @@ def has_ready_sources(team_id: int) -> bool:
     return KnowledgeSource.objects.filter(team_id=team_id, status=SourceStatus.READY).exists()
 
 
+@with_team_scope(canonical=True)
+def get_always_on_context(team_id: int) -> "list[KnowledgeSearchResult]":
+    """Return all SAFE/READY chunks from always_include sources, hard-capped by chars.
+
+    Same safety gate as search — fails closed for UNKNOWN/unsafe/tombstoned/non-READY.
+    Output is truncated to MAX_ALWAYS_ON_CONTEXT_CHARS worth of chunk content so
+    always-on injection can't blow the prompt budget.
+    """
+    chunks = (
+        _safe_chunks_qs(team_id)
+        .filter(source__always_include=True)
+        .select_related("source", "document")
+        .only(
+            "id",
+            "source_id",
+            "document_id",
+            "heading_path",
+            "ordinal",
+            "content",
+            "source__name",
+            "source__source_type",
+            "document__title",
+        )
+        .order_by("source_id", "document_id", "ordinal")
+    )
+
+    results: list[KnowledgeSearchResult] = []
+    total_chars = 0
+    for c in chunks:
+        # Account for the "\n\n" separator the caller joins chunks with, so the
+        # assembled text honors the cap precisely (no mid-sentence slice downstream).
+        separator = 2 if results else 0
+        if total_chars + separator + len(c.content) > MAX_ALWAYS_ON_CONTEXT_CHARS:
+            break
+        total_chars += separator + len(c.content)
+        results.append(
+            KnowledgeSearchResult(
+                chunk_id=c.id,
+                source_id=c.source_id,
+                source_name=c.source.name,
+                source_type=c.source.source_type,
+                document_id=c.document_id,
+                document_title=c.document.title,
+                heading_path=c.heading_path,
+                ordinal=c.ordinal,
+                content=c.content,
+            )
+        )
+    return results
+
+
+def has_feature_flag(team: Team) -> bool:
+    """The `product-business-knowledge` flag check, org-keyed. Canonical home for the
+    check — `ee/hogai/utils/feature_flags.py` delegates here."""
+    if settings.DEBUG:
+        return True
+    return feature_enabled_or_false(
+        "product-business-knowledge",
+        str(team.organization_id),
+        groups={"organization": str(team.organization_id)},
+        group_properties={"organization": {"id": str(team.organization_id)}},
+        send_feature_flag_events=False,
+    )
+
+
+def is_available_for_team(team: Team) -> bool:
+    """Feature flag + ready sources — the full "should agents use BK?" predicate."""
+    return has_feature_flag(team) and has_ready_sources(team.id)
+
+
 _SEARCH_LIMIT_CAP = 20
 
-_WORD_RE = re.compile(r"\w{2,}", re.UNICODE)
+
+# ---------------------------------------------------------------------------
+# Semantic search helpers (hybrid retrieval, gated on use_semantic)
+# ---------------------------------------------------------------------------
+
+
+@dataclass(frozen=True)
+class _SemanticCandidate:
+    """A chunk_id + cosineDistance returned from ClickHouse vector search."""
+
+    chunk_id: UUID
+    distance: float
+
+
+def _semantic_chunk_candidates(
+    team_id: int,
+    query_embedding: list[float],
+    *,
+    limit: int,
+) -> list[_SemanticCandidate]:
+    """
+    Vector search over document_embeddings for BK chunks.
+
+    Returns up to ``limit * BK_SEMANTIC_OVERFETCH`` candidates under the
+    distance cutoff, ordered by cosineDistance ASC. The caller re-joins to
+    Postgres for safety filters and trims to ``limit``.
+    """
+    from posthog.hogql import ast  # noqa: PLC0415 — keeps HogQL compiler off the import path
+    from posthog.hogql.query import execute_hogql_query  # noqa: PLC0415
+
+    from posthog.clickhouse.query_tagging import Feature, Product, tag_queries  # noqa: PLC0415
+    from posthog.models.team.team import Team  # noqa: PLC0415
+
+    ch_limit = limit * BK_SEMANTIC_OVERFETCH
+
+    # Distance is computed in the inner SELECT and filtered in the outer WHERE
+    # so cosineDistance runs once per row (ClickHouse can't reuse a SELECT alias
+    # in the same level's WHERE — WHERE is evaluated first). Matters at 1536 dims.
+    hogql_query = """
+        SELECT document_id, distance
+        FROM (
+            SELECT
+                document_id,
+                cosineDistance(embedding, {embedding}) AS distance
+            FROM document_embeddings
+            WHERE model_name = {model_name}
+              AND product = {product}
+              AND document_type = {document_type}
+              AND team_id = {team_id}
+        )
+        WHERE distance < {cutoff}
+        ORDER BY distance ASC
+        LIMIT {limit}
+    """
+
+    placeholders: dict[str, ast.Expr] = {
+        "embedding": ast.Constant(value=query_embedding),
+        "model_name": ast.Constant(value=BK_EMBEDDING_MODEL),
+        "product": ast.Constant(value=BK_EMBEDDING_PRODUCT),
+        "document_type": ast.Constant(value=BK_EMBEDDING_DOCUMENT_TYPE),
+        "team_id": ast.Constant(value=team_id),
+        "cutoff": ast.Constant(value=BK_SEMANTIC_DISTANCE_CUTOFF),
+        "limit": ast.Constant(value=ch_limit),
+    }
+
+    team = Team.objects.get(pk=team_id)
+    tag_queries(product=Product.CONVERSATIONS, feature=Feature.SEMANTIC_SEARCH)
+    result = execute_hogql_query(
+        query=hogql_query,
+        team=team,
+        placeholders=placeholders,
+    )
+
+    candidates: list[_SemanticCandidate] = []
+    for row in result.results or []:
+        doc_id_str, distance = row
+        try:
+            candidates.append(_SemanticCandidate(chunk_id=UUID(doc_id_str), distance=float(distance)))
+        except (ValueError, TypeError):
+            continue
+    return candidates
+
+
+def _rrf_fuse(
+    fts_chunk_ids: list[UUID],
+    semantic_candidates: list[_SemanticCandidate],
+    *,
+    k: int = BK_RRF_K,
+    score_floor: float = BK_RRF_SCORE_FLOOR,
+) -> list[UUID]:
+    """
+    Reciprocal Rank Fusion of FTS anchors and semantic candidates.
+
+    Each list contributes 1/(k + rank) per candidate. FTS anchors are always
+    kept (they're real lexical matches against SAFE/READY content); only
+    semantic-ONLY candidates are subject to ``score_floor``, so a borderline
+    semantic hit on an off-topic query is dropped without trimming the
+    legitimate FTS tail.
+
+    Semantic candidates are deduped by chunk_id first: the shared
+    ``document_embeddings`` table is a ReplacingMergeTree that we do NOT read
+    with FINAL, so a re-emitted chunk can appear as several rows. Keeping the
+    first occurrence (the CH query is ordered by distance ASC, so that's the
+    closest) prevents a duplicated vector from double-counting its RRF score.
+    """
+    scores: dict[UUID, float] = defaultdict(float)
+    fts_ids = set(fts_chunk_ids)
+
+    for rank, chunk_id in enumerate(fts_chunk_ids, start=1):
+        scores[chunk_id] += 1.0 / (k + rank)
+
+    seen_semantic: set[UUID] = set()
+    semantic_rank = 0
+    for candidate in semantic_candidates:
+        if candidate.chunk_id in seen_semantic:
+            continue
+        seen_semantic.add(candidate.chunk_id)
+        semantic_rank += 1
+        scores[candidate.chunk_id] += 1.0 / (k + semantic_rank)
+
+    # FTS anchors bypass the floor; semantic-only candidates must clear it.
+    fused = [(cid, score) for cid, score in scores.items() if cid in fts_ids or score >= score_floor]
+    fused.sort(key=lambda x: x[1], reverse=True)
+    return [cid for cid, _score in fused]
+
+
+def _safe_chunks_qs(team_id: int) -> QuerySet[KnowledgeChunk]:
+    """Base queryset for searchable/readable chunks: team-scoped + all safety gates."""
+    return KnowledgeChunk.objects.filter(
+        team_id=team_id,
+        source__status=SourceStatus.READY,
+        document__tombstoned_at__isnull=True,
+        document__safety_verdict=SafetyVerdict.SAFE,
+    )
 
 
 @dataclass(frozen=True)
@@ -1488,45 +1800,72 @@ def search_knowledge(
     query: str,
     *,
     limit: int = 10,
+    use_semantic: bool = False,
+    query_embedding: list[float] | None = None,
 ) -> list[KnowledgeSearchResult]:
     """
-    Word-level ILIKE search over chunks belonging to READY sources.
+    Hybrid (lexical + semantic) relevance search over BK chunks.
 
-    Splits the query into words (>=2 chars) and matches chunks containing
-    ANY of them (OR). Uses the GIN trigram index for performance. The top
-    `limit` matches (shortest, most focused chunks first) anchor the result;
-    each anchor is expanded to its ordinal-adjacent neighbours (ordinal n-1,
-    n, n+1 within the same document) so the agent gets continuous context
-    instead of isolated fragments. `ordinal` is document-global and
-    contiguous, so neighbours never cross into a different document.
+    When ``use_semantic=False`` (default / flag off), this is pure FTS — the
+    existing keyword path byte-for-byte.
+
+    When ``use_semantic=True``, the caller must also pass ``query_embedding``
+    (the pre-computed query vector). Both FTS and vector results are fused via
+    Reciprocal Rank Fusion (RRF), safety-re-joined against Postgres, trimmed
+    to ``limit``, and ordinal-neighbour-expanded.
     """
     limit = max(1, min(limit, _SEARCH_LIMIT_CAP))
 
-    words = _WORD_RE.findall(query)
-    if not words:
-        return []
-
-    word_filters = reduce(or_, (Q(content__icontains=w) for w in words))
-
-    anchors = list(
-        KnowledgeChunk.objects.filter(
-            word_filters,
-            team_id=team_id,
-            source__status=SourceStatus.READY,
-            document__tombstoned_at__isnull=True,
-            document__safety_verdict=SafetyVerdict.SAFE,
+    # --- FTS anchors (always computed) ---
+    processed = process_query(query)
+    fts_anchors: list[KnowledgeChunk] = []
+    if processed is not None:
+        processed = processed.replace(" & ", " | ")
+        search_query = SearchQuery(processed, config="english", search_type="raw")
+        fts_anchors = list(
+            _safe_chunks_qs(team_id)
+            .filter(content_search_vector=search_query)
+            .annotate(rank=SearchRank(F("content_search_vector"), search_query))
+            .only("id", "document_id", "ordinal", "char_count")
+            .order_by("-rank", "char_count", "id")[:limit]
         )
-        .only("id", "document_id", "ordinal", "char_count")
-        .order_by("char_count")[:limit]
-    )
-    if not anchors:
+    fts_anchor_ids = [a.id for a in fts_anchors]
+
+    # --- Semantic candidates (hybrid path only) ---
+    semantic_candidates: list[_SemanticCandidate] = []
+    if use_semantic and query_embedding:
+        semantic_candidates = _semantic_chunk_candidates(team_id, query_embedding, limit=limit)
+
+    # --- Fusion or FTS-only ---
+    # Fusion requires an actual embedding; when it's None (e.g. embedding-service
+    # timeout) semantic_candidates is empty, so fall through to the FTS-only
+    # branch which reuses the already-filtered, rank-ordered anchors.
+    if use_semantic and query_embedding and (fts_anchor_ids or semantic_candidates):
+        fused_ids = _rrf_fuse(fts_anchor_ids, semantic_candidates)
+        if not fused_ids:
+            return []
+        # Semantic candidates may reference now-unsafe/tombstoned chunks, so we
+        # re-join against Postgres with all safety filters and trim after.
+        fetch_limit = limit * BK_SEMANTIC_OVERFETCH
+        anchor_chunks = list(
+            _safe_chunks_qs(team_id).filter(id__in=fused_ids[:fetch_limit]).only("id", "document_id", "ordinal")
+        )
+        if not anchor_chunks:
+            return []
+        id_to_rank = {cid: rank for rank, cid in enumerate(fused_ids)}
+        anchor_chunks.sort(key=lambda c: id_to_rank.get(c.id, len(fused_ids)))
+        anchor_chunks = anchor_chunks[:limit]
+    elif fts_anchors:
+        # FTS anchors are already safety-filtered — use them directly (no
+        # extra query). Already ordered by rank from the FTS query.
+        anchor_chunks = fts_anchors
+    else:
         return []
 
-    # Preserve relevance ranking at the document level (first anchor wins) and
-    # collect the ordinal window we want to fetch for each document.
+    # --- Ordinal neighbour expansion ---
     doc_rank: dict[UUID, int] = {}
     wanted_ordinals: dict[UUID, set[int]] = {}
-    for rank, anchor in enumerate(anchors):
+    for rank, anchor in enumerate(anchor_chunks):
         doc_rank.setdefault(anchor.document_id, rank)
         wanted_ordinals.setdefault(anchor.document_id, set()).update(
             (anchor.ordinal - 1, anchor.ordinal, anchor.ordinal + 1)
@@ -1538,13 +1877,8 @@ def search_knowledge(
     )
 
     chunks = (
-        KnowledgeChunk.objects.filter(
-            window_filter,
-            team_id=team_id,
-            source__status=SourceStatus.READY,
-            document__tombstoned_at__isnull=True,
-            document__safety_verdict=SafetyVerdict.SAFE,
-        )
+        _safe_chunks_qs(team_id)
+        .filter(window_filter)
         .select_related("source", "document")
         .only(
             "id",
@@ -1559,8 +1893,7 @@ def search_knowledge(
         )
     )
 
-    # Order by document relevance, then ordinal so neighbours stay contiguous.
-    ordered = sorted(chunks, key=lambda c: (doc_rank.get(c.document_id, len(anchors)), c.ordinal))
+    ordered = sorted(chunks, key=lambda c: (doc_rank.get(c.document_id, len(anchor_chunks)), c.ordinal))
 
     return [
         KnowledgeSearchResult(
@@ -1575,6 +1908,244 @@ def search_knowledge(
             content=c.content,
         )
         for c in ordered
+    ]
+
+
+def search_knowledge_for_team(
+    team: Team,
+    query: str,
+    *,
+    limit: int = 10,
+) -> list[KnowledgeSearchResult]:
+    """
+    Sync orchestration of hybrid BK search: embed the query, then call
+    ``search_knowledge``. Falls back to FTS-only on any embedding failure.
+
+    Used by the DRF search endpoint (sync view). The async PHAI tool path
+    uses ``async_generate_embedding`` directly — they share ``search_knowledge``
+    as the common layer, not this wrapper.
+    """
+    embedding: list[float] | None = None
+    try:
+        embedding = generate_embedding(team, query, model=BK_EMBEDDING_MODEL).embedding
+    except Exception:
+        logger.warning("bk_query_embedding_failed", team_id=team.id, exc_info=True)
+    return search_knowledge(team.id, query, limit=limit, use_semantic=embedding is not None, query_embedding=embedding)
+
+
+_RERANK_CHUNK_ID_PATTERN = re.compile(
+    r"[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}",
+    re.IGNORECASE,
+)
+_RERANK_SYSTEM_PROMPT = """You rerank knowledge-base search results for relevance to a user query.
+Return ONLY chunk_id UUIDs in order from most to least relevant, one UUID per line.
+Do not include any other text."""
+
+
+def _resolve_active_org_user(team: Team) -> User:
+    membership = (
+        OrganizationMembership.objects.select_related("user")
+        .filter(organization=team.organization, user__is_active=True)
+        .order_by("id")
+        .first()
+    )
+    if not membership:
+        raise RuntimeError(f"No active users in organization '{team.organization.name}' (team {team.id})")
+    return membership.user
+
+
+def _build_rerank_user_prompt(query: str, results: list[KnowledgeSearchResult]) -> str:
+    lines = [f"Query: {query}", "", "Candidates:"]
+    for index, result in enumerate(results, start=1):
+        snippet = result.content[:BK_RERANK_SNIPPET_CHARS]
+        lines.append(
+            f"{index}. chunk_id={result.chunk_id} document={result.document_title!r} heading={result.heading_path!r}"
+        )
+        lines.append(f"   {snippet}")
+    lines.extend(["", "Most relevant chunk_ids first, one per line:"])
+    return "\n".join(lines)
+
+
+def _parse_reranked_chunk_ids(response_text: str, valid_ids: set[UUID]) -> list[UUID] | None:
+    parsed: list[UUID] = []
+    seen: set[UUID] = set()
+    for match in _RERANK_CHUNK_ID_PATTERN.finditer(response_text):
+        chunk_id = UUID(match.group())
+        if chunk_id not in valid_ids or chunk_id in seen:
+            continue
+        parsed.append(chunk_id)
+        seen.add(chunk_id)
+    if not parsed:
+        return None
+    return parsed
+
+
+def rerank_chunks(
+    team: Team,
+    query: str,
+    results: list[KnowledgeSearchResult],
+    *,
+    top_k: int,
+) -> list[KnowledgeSearchResult]:
+    """
+    Listwise LLM rerank over BK search candidates. On any model/parse failure,
+    returns the input order (RRF order from ``search_knowledge``) trimmed to
+    ``top_k``.
+    """
+    if not results:
+        return []
+
+    top_k = max(1, top_k)
+    original_order = results
+    if len(results) == 1:
+        return original_order[:top_k]
+
+    if not team.organization.is_ai_data_processing_approved:
+        return original_order[:top_k]
+
+    valid_ids = {result.chunk_id for result in results}
+    id_to_result = {result.chunk_id: result for result in results}
+
+    try:
+        user = _resolve_active_org_user(team)
+        llm = MaxChatAnthropic(
+            model=BK_RERANK_MODEL,
+            streaming=False,
+            user=user,
+            team=team,
+            max_tokens=1024,
+            billable=False,
+            inject_context=False,
+        )
+        response = llm.invoke(
+            [
+                SystemMessage(content=_RERANK_SYSTEM_PROMPT),
+                HumanMessage(content=_build_rerank_user_prompt(query, results)),
+            ]
+        )
+        content = response.content
+        if isinstance(content, list):
+            content = "".join(str(item) for item in content)
+        ranked_ids = _parse_reranked_chunk_ids(str(content), valid_ids)
+        if ranked_ids is None:
+            return original_order[:top_k]
+
+        ranked_set = set(ranked_ids)
+        for result in original_order:
+            if result.chunk_id not in ranked_set:
+                ranked_ids.append(result.chunk_id)
+
+        reranked = [id_to_result[chunk_id] for chunk_id in ranked_ids]
+        return reranked[:top_k]
+    except Exception:
+        logger.warning("bk_rerank_failed", team_id=team.id, exc_info=True)
+        return original_order[:top_k]
+
+
+# ---------------------------------------------------------------------------
+# Drill-down: wider context window for a single document
+# ---------------------------------------------------------------------------
+
+
+@with_team_scope(canonical=True)
+def get_document_window(
+    team_id: int,
+    document_id: UUID,
+    center_ordinal: int,
+    *,
+    radius: int = BK_DRILLDOWN_DEFAULT_RADIUS,
+) -> list[KnowledgeSearchResult]:
+    """
+    Return a contiguous span of chunks from one document, centered on
+    ``center_ordinal``. Reuses the exact same safety filters as
+    ``search_knowledge`` so drill-down can never surface content that search
+    wouldn't return.
+    """
+    radius = max(0, min(radius, BK_DRILLDOWN_MAX_RADIUS))
+    center_ordinal = max(0, center_ordinal)
+    low = max(0, center_ordinal - radius)
+    high = center_ordinal + radius
+
+    chunks = (
+        _safe_chunks_qs(team_id)
+        .filter(document_id=document_id, ordinal__gte=low, ordinal__lte=high)
+        .select_related("source", "document")
+        .only(
+            "id",
+            "source_id",
+            "document_id",
+            "heading_path",
+            "ordinal",
+            "content",
+            "source__name",
+            "source__source_type",
+            "document__title",
+        )
+        .order_by("ordinal")
+    )
+
+    return [
+        KnowledgeSearchResult(
+            chunk_id=c.id,
+            source_id=c.source_id,
+            source_name=c.source.name,
+            source_type=c.source.source_type,
+            document_id=c.document_id,
+            document_title=c.document.title,
+            heading_path=c.heading_path,
+            ordinal=c.ordinal,
+            content=c.content,
+        )
+        for c in chunks
+    ]
+
+
+@with_team_scope(canonical=True)
+def get_chunks_by_ids(team_id: int, chunk_ids: list[UUID]) -> list[KnowledgeSearchResult]:
+    """
+    Rehydrate full chunk content + source context for a set of chunk ids,
+    preserving the order of ``chunk_ids`` and dropping any id that no longer
+    resolves (unsafe/tombstoned/deleted). Applies the same safety filters as
+    ``search_knowledge``.
+
+    Lets callers pass chunk ids across a process/serialization boundary (e.g.
+    between Temporal activities) and re-fetch content on demand — deterministic
+    retrieval — instead of shipping the content itself through workflow history.
+    """
+    if not chunk_ids:
+        return []
+
+    chunks = (
+        _safe_chunks_qs(team_id)
+        .filter(id__in=chunk_ids)
+        .select_related("source", "document")
+        .only(
+            "id",
+            "source_id",
+            "document_id",
+            "heading_path",
+            "ordinal",
+            "content",
+            "source__name",
+            "source__source_type",
+            "document__title",
+        )
+    )
+    by_id = {c.id: c for c in chunks}
+    return [
+        KnowledgeSearchResult(
+            chunk_id=c.id,
+            source_id=c.source_id,
+            source_name=c.source.name,
+            source_type=c.source.source_type,
+            document_id=c.document_id,
+            document_title=c.document.title,
+            heading_path=c.heading_path,
+            ordinal=c.ordinal,
+            content=c.content,
+        )
+        for chunk_id in chunk_ids
+        if (c := by_id.get(chunk_id)) is not None
     ]
 
 
@@ -1740,3 +2311,372 @@ def sweep_tombstoned_documents(*, older_than: datetime.timedelta = datetime.time
         KnowledgeDocument.objects.unscoped().filter(tombstoned_at__isnull=False, tombstoned_at__lt=cutoff).delete()
     )
     return deleted
+
+
+# ---------------------------------------------------------------------------
+# Embedding-pipeline coordinator helpers (cross-team)
+#
+# Like the classification helpers above, these run inside Temporal activities
+# and scan across teams via `.unscoped()`. They only read/write Postgres; the
+# actual produce-to-Kafka and ClickHouse presence check live in the coordinator
+# activity so this module stays free of Kafka / ClickHouse dependencies.
+# ---------------------------------------------------------------------------
+
+
+@dataclass(frozen=True)
+class ChunkToEmbed:
+    chunk_id: UUID
+    content: str
+
+
+@dataclass(frozen=True)
+class DocumentToEmbed:
+    """A SAFE document whose chunks need producing to the embedding pipeline."""
+
+    team_id: int
+    document_id: UUID
+    # The embedding row `timestamp`. Young docs use the stable `created_at` so
+    # a re-emit of the same chunk_id collapses onto one ClickHouse sort key /
+    # partition instead of duplicating under a later `toDate(timestamp)`.
+    # Old docs (created_at older than EMBEDDING_STABLE_TS_MAX_AGE) and the
+    # TTL-refresh path use `now()` so the row survives until the refresh cron
+    # fires, instead of expiring under `TTL timestamp + 3 MONTH` first. The
+    # extra row is correctness-safe via the read-path re-join.
+    timestamp: datetime.datetime
+    chunks: list[ChunkToEmbed]
+
+
+@dataclass(frozen=True)
+class EmittedDocument:
+    """An already-emitted SAFE document, for ClickHouse-presence reconciliation."""
+
+    team_id: int
+    document_id: UUID
+    chunk_ids: list[UUID]
+
+
+def _embeddable_documents_qs() -> QuerySet[KnowledgeDocument]:
+    """Base queryset of docs eligible to be embedded: SAFE, live, READY source,
+    and an org that approved AI data processing (we must not send content to the
+    embedding service otherwise — same gate as classification). Cross-team.
+
+    Zero-chunk docs are excluded: there's nothing to embed, and letting one
+    through would loop forever — emit stamps it with no produce, then
+    reconciliation finds no vectors in ClickHouse and clears the stamp, putting
+    it right back in the pending queue. A SAFE doc with no chunks is unlikely but
+    reachable (e.g. whitespace-only content), so we filter it out at the source.
+    """
+    return (
+        KnowledgeDocument.objects.unscoped()
+        .filter(
+            safety_verdict=SafetyVerdict.SAFE,
+            tombstoned_at__isnull=True,
+            source__status=SourceStatus.READY,
+            team__organization__is_ai_data_processing_approved=True,
+        )
+        .filter(Exists(KnowledgeChunk.objects.unscoped().filter(document_id=OuterRef("pk"))))
+    )
+
+
+def _chunks_to_embed_by_document(document_ids: list[UUID]) -> dict[UUID, list[ChunkToEmbed]]:
+    """Load chunk content for many docs in ONE query, grouped by document_id and
+    ordered by ordinal within each doc. Avoids an N+1 (one query per pending
+    doc). Cross-team."""
+    by_doc: dict[UUID, list[ChunkToEmbed]] = defaultdict(list)
+    for document_id, chunk_id, content in (
+        KnowledgeChunk.objects.unscoped()
+        .filter(document_id__in=document_ids)
+        .order_by("document_id", "ordinal")
+        .values_list("document_id", "id", "content")
+    ):
+        by_doc[document_id].append(ChunkToEmbed(chunk_id=chunk_id, content=content))
+    return by_doc
+
+
+def _chunk_ids_by_document(document_ids: list[UUID]) -> dict[UUID, list[UUID]]:
+    """Load chunk ids for many docs in ONE query, grouped by document_id. Avoids
+    an N+1 in reconciliation. Cross-team."""
+    by_doc: dict[UUID, list[UUID]] = defaultdict(list)
+    for document_id, chunk_id in (
+        KnowledgeChunk.objects.unscoped().filter(document_id__in=document_ids).values_list("document_id", "id")
+    ):
+        by_doc[document_id].append(chunk_id)
+    return by_doc
+
+
+def list_documents_pending_embedding(*, limit: int = PENDING_EMBEDDING_SCAN_CAP) -> list[DocumentToEmbed]:
+    """
+    Return SAFE documents that have not yet had their chunks produced to the
+    embedding pipeline (``embeddings_emitted_at IS NULL``).
+
+    Bounded by ``limit`` (loads chunk content per doc into memory, same rationale
+    as ``list_documents_pending_classification``). The first post-deploy pass
+    backfills every existing SAFE doc across all teams, so the cap is what lets
+    the hourly coordinator drain that over many passes. Cross-team — coordinator
+    only.
+
+    Timestamp strategy: young docs use the stable ``created_at`` so a re-emit
+    collapses onto one ClickHouse sort key. Old docs (``created_at`` older than
+    ``EMBEDDING_STABLE_TS_MAX_AGE``) use ``now()``: a stable timestamp is only
+    safe if the row survives until the TTL-refresh cron re-emits the doc at
+    ``emitted_at + EMBEDDING_TTL_REFRESH_WINDOW`` — beyond the max age the row
+    would expire first (in the worst case it lands already expired,
+    reconciliation re-nulls it, and the next pass re-emits with ``created_at``
+    again: a token-burning loop while the doc silently serves FTS-only forever).
+    """
+    now = timezone.now()
+    ttl_cutoff = now - EMBEDDING_STABLE_TS_MAX_AGE
+    rows = list(
+        _embeddable_documents_qs()
+        .filter(embeddings_emitted_at__isnull=True)
+        .values_list("team_id", "id", "created_at")[:limit]
+    )
+    chunks_by_doc = _chunks_to_embed_by_document([document_id for _team_id, document_id, _created_at in rows])
+    return [
+        DocumentToEmbed(
+            team_id=team_id,
+            document_id=document_id,
+            timestamp=now if created_at < ttl_cutoff else created_at,
+            chunks=chunks_by_doc.get(document_id, []),
+        )
+        for team_id, document_id, created_at in rows
+    ]
+
+
+def list_documents_for_embedding_reconciliation(
+    *,
+    now: datetime.datetime | None = None,
+    grace: datetime.timedelta = RECONCILE_EMBEDDING_GRACE,
+    limit: int = RECONCILE_EMBEDDING_SCAN_CAP,
+) -> list[EmittedDocument]:
+    """
+    Return already-emitted SAFE docs (oldest first) whose vectors should by now
+    be in ClickHouse, so the coordinator can re-verify they actually landed.
+
+    ``embeddings_emitted_at`` only means "produced to Kafka", not "present in
+    ClickHouse": a transient produce failure that did NOT raise, or a worker
+    that dropped the message, leaves a SAFE doc permanently serving FTS-only.
+    The grace window skips docs whose vectors are merely still in flight.
+    Cross-team — coordinator only.
+    """
+    now = now or timezone.now()
+    cutoff = now - grace
+    rows = list(
+        _embeddable_documents_qs()
+        .filter(embeddings_emitted_at__isnull=False, embeddings_emitted_at__lt=cutoff)
+        .order_by("embeddings_emitted_at")
+        .values_list("team_id", "id")[:limit]
+    )
+    chunk_ids_by_doc = _chunk_ids_by_document([document_id for _team_id, document_id in rows])
+    return [
+        EmittedDocument(
+            team_id=team_id,
+            document_id=document_id,
+            chunk_ids=chunk_ids_by_doc.get(document_id, []),
+        )
+        for team_id, document_id in rows
+    ]
+
+
+def list_documents_for_embedding_refresh(
+    *,
+    now: datetime.datetime | None = None,
+    window: datetime.timedelta = EMBEDDING_TTL_REFRESH_WINDOW,
+    limit: int = REEMIT_EMBEDDING_SCAN_CAP,
+) -> list[DocumentToEmbed]:
+    """
+    Return already-emitted SAFE docs (oldest-emitted first) whose vectors are
+    aging toward the 3-month ClickHouse TTL, so their chunks can be re-emitted
+    before the rows expire and the doc silently drops to FTS-only.
+
+    The returned ``DocumentToEmbed.timestamp`` is ``now`` (NOT the doc's
+    ``created_at``): the shared table TTLs on the embedding row ``timestamp``,
+    so the re-emit must carry a fresh timestamp to actually reset the clock —
+    re-emitting under the old ``created_at`` would land an already-/soon-expired
+    row and keep losing vectors. The extra row this creates is correctness-safe:
+    the read path always re-joins to Postgres and dedups candidates by chunk_id.
+    Cross-team — coordinator only.
+    """
+    now = now or timezone.now()
+    cutoff = now - window
+    rows = list(
+        _embeddable_documents_qs()
+        .filter(embeddings_emitted_at__isnull=False, embeddings_emitted_at__lt=cutoff)
+        .order_by("embeddings_emitted_at")
+        .values_list("team_id", "id")[:limit]
+    )
+    chunks_by_doc = _chunks_to_embed_by_document([document_id for _team_id, document_id in rows])
+    return [
+        DocumentToEmbed(
+            team_id=team_id,
+            document_id=document_id,
+            timestamp=now,
+            chunks=chunks_by_doc.get(document_id, []),
+        )
+        for team_id, document_id in rows
+    ]
+
+
+@with_team_scope(canonical=True)
+def mark_document_embeddings_emitted(*, team_id: int, document_id: UUID) -> None:
+    """
+    Stamp ``embeddings_emitted_at`` after a successful produce.
+
+    Gated on the doc still being SAFE and unstamped: a concurrent content change
+    resets the verdict to ``unknown`` and the stamp to NULL, and we must never
+    mark that new (unembedded) content as emitted. The guard makes this a no-op
+    in that race, so the new content is re-embedded on a later pass.
+    """
+    KnowledgeDocument.objects.filter(
+        team_id=team_id,
+        id=document_id,
+        safety_verdict=SafetyVerdict.SAFE,
+        embeddings_emitted_at__isnull=True,
+    ).update(embeddings_emitted_at=timezone.now(), updated_at=timezone.now())
+
+
+@with_team_scope(canonical=True)
+def restamp_document_embeddings_emitted(*, team_id: int, document_id: UUID) -> None:
+    """
+    Bump ``embeddings_emitted_at`` to now after a TTL-refresh re-emit.
+
+    Unlike ``mark_document_embeddings_emitted`` (gated on NULL, for first
+    emission), this re-stamps an ALREADY-stamped doc so it drops out of the
+    refresh window for another full cycle. Still gated on the doc being SAFE
+    AND already stamped: a content change that flipped it to ``unknown``
+    mid-pass NULLs the stamp, and that new (unembedded) content must go through
+    the normal pending-emit path rather than being re-stamped here.
+    """
+    KnowledgeDocument.objects.filter(
+        team_id=team_id,
+        id=document_id,
+        safety_verdict=SafetyVerdict.SAFE,
+        embeddings_emitted_at__isnull=False,
+    ).update(embeddings_emitted_at=timezone.now(), updated_at=timezone.now())
+
+
+@with_team_scope(canonical=True)
+def clear_document_embeddings_emitted(*, team_id: int, document_id: UUID) -> None:
+    """
+    Reset the emission stamp to NULL so the next pending pass re-emits.
+
+    Used by reconciliation when a doc's vectors never landed in ClickHouse.
+    """
+    KnowledgeDocument.objects.filter(team_id=team_id, id=document_id).update(
+        embeddings_emitted_at=None, updated_at=timezone.now()
+    )
+
+
+# ---------------------------------------------------------------------------
+# Knowledge gap suggestions
+# ---------------------------------------------------------------------------
+
+_GAP_NOISE_TOPICS = frozenset({"parse_failure"})
+
+
+def _normalize_topic(topic: str) -> str:
+    return topic.strip().lower()[:255]
+
+
+def upsert_knowledge_gaps(
+    team_id: int,
+    ticket_id: str,
+    topics: list[str],
+    ticket_type: str = "",
+    outcome: str = "",
+) -> int:
+    """Create one KnowledgeGapSuggestion per (ticket, normalized topic).
+
+    Idempotent via the unique constraint — safe under Temporal activity retries.
+    Returns the number of rows created (not the total including existing ones).
+    """
+    created_count = 0
+    for raw_topic in topics:
+        normalized = _normalize_topic(raw_topic)
+        if not normalized or normalized in _GAP_NOISE_TOPICS:
+            continue
+        _, created = KnowledgeGapSuggestion.objects.for_team(team_id).get_or_create(
+            team_id=team_id,
+            ticket_id=ticket_id,
+            normalized_topic=normalized,
+            defaults={
+                "topic": raw_topic.strip(),
+                "ticket_type": ticket_type,
+                "outcome": outcome,
+            },
+        )
+        if created:
+            created_count += 1
+    return created_count
+
+
+def list_gap_suggestions_for_ticket(
+    team_id: int,
+    ticket_id: str,
+) -> QuerySet[KnowledgeGapSuggestion]:
+    return KnowledgeGapSuggestion.objects.for_team(team_id).filter(ticket_id=ticket_id).order_by("-created_at")
+
+
+@dataclass
+class AggregatedGap:
+    normalized_topic: str
+    topic: str
+    ticket_count: int
+
+
+def aggregate_gap_suggestions(
+    team_id: int,
+    status: str = GapStatus.PENDING,
+    limit: int = 50,
+) -> list[AggregatedGap]:
+    """Group pending gaps by normalized_topic, ranked by ticket count."""
+    rows = (
+        KnowledgeGapSuggestion.objects.for_team(team_id)
+        .filter(status=status)
+        .values("normalized_topic")
+        .annotate(
+            ticket_count=Count("ticket_id", distinct=True),
+            representative_topic=Substr(Max("topic"), 1, 500),
+        )
+        .order_by("-ticket_count")[:limit]
+    )
+    return [
+        AggregatedGap(
+            normalized_topic=r["normalized_topic"],
+            topic=r["representative_topic"],
+            ticket_count=r["ticket_count"],
+        )
+        for r in rows
+    ]
+
+
+def set_gap_status(
+    team_id: int,
+    *,
+    suggestion_id: UUID | None = None,
+    normalized_topic: str | None = None,
+    status: str,
+    resolved_source_id: UUID | None = None,
+    only_pending: bool = False,
+) -> int:
+    """Accept or dismiss gap suggestions. Returns updated row count.
+
+    Pass suggestion_id for a single row, or normalized_topic to flip the whole
+    cluster (all tickets with that topic). Set only_pending=True to restrict
+    the update to rows still in PENDING status.
+    """
+    qs = KnowledgeGapSuggestion.objects.for_team(team_id)
+    if suggestion_id is not None:
+        qs = qs.filter(id=suggestion_id)
+    elif normalized_topic is not None:
+        qs = qs.filter(normalized_topic=normalized_topic)
+    else:
+        raise ValueError("One of suggestion_id or normalized_topic is required")
+
+    if only_pending:
+        qs = qs.filter(status=GapStatus.PENDING)
+
+    update_kwargs: dict[str, object] = {"status": status}
+    if resolved_source_id is not None:
+        update_kwargs["resolved_source_id"] = resolved_source_id
+    return qs.update(**update_kwargs)

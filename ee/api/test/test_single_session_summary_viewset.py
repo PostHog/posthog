@@ -8,10 +8,11 @@ from posthog.constants import AvailableFeature
 from posthog.models import Organization, OrganizationMembership, Team, User
 from posthog.session_recordings.models.session_recording import SessionRecording
 
+from products.replay.backend.models.session_summaries import SessionSummaryRunMeta, SingleSessionSummary
+
 from ee.hogai.session_summaries.session.output_data import SessionSummarySerializer
 from ee.hogai.session_summaries.tests.conftest import get_mock_enriched_llm_json_response
 from ee.models.rbac.access_control import AccessControl
-from ee.models.session_summaries import SessionSummaryRunMeta, SingleSessionSummary
 
 
 class TestSingleSessionSummaryViewSet(APIBaseTest):

@@ -1,6 +1,5 @@
-import { isPropertyFilterWithOperator } from 'lib/components/PropertyFilters/utils'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
-import { allOperatorsMapping, genericOperatorMap } from 'lib/utils'
+import { allOperatorsMapping, genericOperatorMap } from 'lib/utils/operators'
 
 import { AnyPropertyFilter, PropertyFilterValue, PropertyOperator } from '~/types'
 
@@ -15,10 +14,15 @@ export function operatorToHumanName(operator?: string): string {
 }
 
 export function genericOperatorToHumanName(property?: AnyPropertyFilter | null): string {
-    if (isPropertyFilterWithOperator(property) && property.operator && genericOperatorMap[property.operator]) {
-        return genericOperatorMap[property.operator].slice(2)
+    // Legacy action step properties have no `type`, so isPropertyFilterWithOperator would reject them
+    // and collapse every operator to "equals" — read the operator directly instead. Prefer the curated
+    // generic labels, but fall back to the full operator map (covers semver etc.) rather than a
+    // hardcoded "equals" for anything outside the generic subset.
+    const operator = property && 'operator' in property ? property.operator : undefined
+    if (operator && genericOperatorMap[operator]) {
+        return genericOperatorMap[operator].slice(2)
     }
-    return 'equals'
+    return allOperatorsToHumanName(operator)
 }
 
 // Most operator labels carry a 2-char "<symbol> " prefix that slice(2) strips (e.g. "= equals"

@@ -7,7 +7,7 @@ import { IconOpenInNew } from 'lib/lemon-ui/icons'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { LemonRadio } from 'lib/lemon-ui/LemonRadio'
 import { Link } from 'lib/lemon-ui/Link'
-import { truncate } from 'lib/utils'
+import { truncate } from 'lib/utils/strings'
 import { TestAccountFilter } from 'scenes/insights/filters/TestAccountFilter/TestAccountFilter'
 import { urls } from 'scenes/urls'
 

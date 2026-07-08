@@ -39,7 +39,9 @@ import {
     isEvenlyDistributed,
     isLegacyExperiment,
     isLegacyExperimentQuery,
+    metricResults,
     percentageDistribution,
+    toExperimentWritePayload,
 } from './utils'
 
 describe('utils', () => {
@@ -551,6 +553,7 @@ describe('checkFeatureFlagEligibility', () => {
             multivariate: null,
         },
         deleted: false,
+        archived: false,
         active: true,
         experiment_set: null,
         experiment_set_metadata: null,
@@ -1352,6 +1355,206 @@ describe('getOrderedMetricsWithResults', () => {
     })
 })
 
+describe('metricResults', () => {
+    const baseExperiment = {
+        ...experimentJson,
+        metrics: [],
+        metrics_secondary: [],
+        saved_metrics: [],
+        primary_metrics_ordered_uuids: [],
+        secondary_metrics_ordered_uuids: [],
+    } as unknown as Experiment
+
+    const mockResult = (data: Record<string, any>): CachedNewExperimentQueryResponse =>
+        data as CachedNewExperimentQueryResponse
+
+    const inlineMetric = (uuid: string, event: string): ExperimentMetric =>
+        ({
+            uuid,
+            kind: NodeKind.ExperimentMetric,
+            metric_type: ExperimentMetricType.MEAN,
+            source: { kind: NodeKind.EventsNode, event },
+        }) as unknown as ExperimentMetric
+
+    it('returns an empty array when the experiment has no metrics', () => {
+        expect(metricResults(baseExperiment)([], [], 'primary')).toEqual([])
+    })
+
+    it('returns an empty array when no ordered uuids reference existing metrics', () => {
+        const experiment = {
+            ...baseExperiment,
+            metrics: [inlineMetric('metric-1', 'test')],
+            // ordered uuids point at a metric that no longer exists
+            primary_metrics_ordered_uuids: ['stale-uuid'],
+        }
+        expect(metricResults(experiment)([mockResult({ result: 'data' })], [null], 'primary')).toEqual([])
+    })
+
+    it('zips inline metrics with their results and errors', () => {
+        const experiment = {
+            ...baseExperiment,
+            metrics: [inlineMetric('metric-1', 'test')],
+            primary_metrics_ordered_uuids: ['metric-1'],
+        }
+
+        const ordered = metricResults(experiment)([mockResult({ result: 'data1' })], [null], 'primary')
+
+        expect(ordered).toEqual([
+            {
+                metric: expect.objectContaining({ uuid: 'metric-1' }),
+                result: { result: 'data1' },
+                error: null,
+                displayIndex: 0,
+                metricIndex: 0,
+            },
+        ])
+    })
+
+    it('respects the display ordering, not the metric array order', () => {
+        const experiment = {
+            ...baseExperiment,
+            metrics: [inlineMetric('metric-1', 'test1'), inlineMetric('metric-2', 'test2')],
+            primary_metrics_ordered_uuids: ['metric-2', 'metric-1'],
+        }
+
+        const ordered = metricResults(experiment)(
+            [mockResult({ result: 'data1' }), mockResult({ result: 'data2' })],
+            [null, null],
+            'primary'
+        )
+
+        expect(ordered.map((o) => o.metric.uuid)).toEqual(['metric-2', 'metric-1'])
+        // displayIndex follows the ordering; metricIndex stays the original array position
+        expect(ordered.map((o) => o.displayIndex)).toEqual([0, 1])
+        expect(ordered.map((o) => o.metricIndex)).toEqual([1, 0])
+        // results map by uuid, so metric-2 keeps data2 despite being shown first
+        expect(ordered.map((o) => o.result)).toEqual([{ result: 'data2' }, { result: 'data1' }])
+    })
+
+    it('enriches shared metrics and merges metadata breakdowns', () => {
+        const breakdowns: Breakdown[] = [{ property: '$browser', type: 'event' }]
+        const experiment = {
+            ...baseExperiment,
+            saved_metrics: [
+                {
+                    saved_metric: 123,
+                    name: 'Shared Metric',
+                    query: {
+                        uuid: 'shared-uuid',
+                        kind: NodeKind.ExperimentMetric,
+                        metric_type: ExperimentMetricType.MEAN,
+                        source: { kind: NodeKind.EventsNode, event: 'test' },
+                    },
+                    metadata: { type: 'primary', breakdowns },
+                },
+            ],
+            primary_metrics_ordered_uuids: ['shared-uuid'],
+        }
+
+        const ordered = metricResults(experiment)([mockResult({ result: 'shared' })], [null], 'primary')
+
+        expect(ordered).toHaveLength(1)
+        expect(ordered[0].metric.uuid).toBe('shared-uuid')
+        expect(ordered[0].metric.name).toBe('Shared Metric')
+        expect(ordered[0].metric.sharedMetricId).toBe(123)
+        expect(ordered[0].metric.isSharedMetric).toBe(true)
+        expect(ordered[0].metric.breakdownFilter?.breakdowns).toEqual(breakdowns)
+    })
+
+    it('only includes shared metrics whose metadata type matches', () => {
+        const experiment = {
+            ...baseExperiment,
+            saved_metrics: [
+                {
+                    saved_metric: 1,
+                    name: 'Primary Shared',
+                    query: { uuid: 'p-uuid', kind: NodeKind.ExperimentMetric, source: {} },
+                    metadata: { type: 'primary' },
+                },
+                {
+                    saved_metric: 2,
+                    name: 'Secondary Shared',
+                    query: { uuid: 's-uuid', kind: NodeKind.ExperimentMetric, source: {} },
+                    metadata: { type: 'secondary' },
+                },
+            ],
+            primary_metrics_ordered_uuids: ['p-uuid'],
+            secondary_metrics_ordered_uuids: ['s-uuid'],
+        }
+
+        const zip = metricResults(experiment)
+        expect(zip([mockResult({ r: 1 })], [null], 'primary').map((o) => o.metric.uuid)).toEqual(['p-uuid'])
+        expect(zip([mockResult({ r: 2 })], [null], 'secondary').map((o) => o.metric.uuid)).toEqual(['s-uuid'])
+    })
+
+    it('drops metrics that have no uuid', () => {
+        const experiment = {
+            ...baseExperiment,
+            metrics: [
+                { kind: NodeKind.ExperimentMetric, source: {} } as unknown as ExperimentMetric, // no uuid
+                inlineMetric('metric-2', 'test'),
+            ],
+            primary_metrics_ordered_uuids: ['metric-2'],
+        }
+
+        const ordered = metricResults(experiment)(
+            [mockResult({ result: 'data1' }), mockResult({ result: 'data2' })],
+            [null, null],
+            'primary'
+        )
+
+        expect(ordered).toHaveLength(1)
+        expect(ordered[0].metric.uuid).toBe('metric-2')
+        // metric-2 is at original index 1, so it picks results[1]
+        expect(ordered[0].result).toEqual({ result: 'data2' })
+        expect(ordered[0].metricIndex).toBe(1)
+    })
+
+    it('yields undefined result/error when the arrays are shorter than the metric list', () => {
+        const experiment = {
+            ...baseExperiment,
+            metrics: [inlineMetric('metric-1', 'test')],
+            primary_metrics_ordered_uuids: ['metric-1'],
+        }
+
+        const ordered = metricResults(experiment)([], [], 'primary')
+
+        expect(ordered).toHaveLength(1)
+        expect(ordered[0].result).toBeUndefined()
+        expect(ordered[0].error).toBeUndefined()
+    })
+
+    it('surfaces a per-metric error alongside its metric', () => {
+        const experiment = {
+            ...baseExperiment,
+            metrics: [inlineMetric('metric-1', 'test')],
+            primary_metrics_ordered_uuids: ['metric-1'],
+        }
+        const error = { detail: 'boom' }
+
+        const ordered = metricResults(experiment)([mockResult({})], [error], 'primary')
+
+        expect(ordered[0].error).toBe(error)
+    })
+
+    it('can be bound once and reused for primary and secondary (currying)', () => {
+        const experiment = {
+            ...baseExperiment,
+            metrics: [inlineMetric('p-1', 'p')],
+            metrics_secondary: [inlineMetric('s-1', 's')],
+            primary_metrics_ordered_uuids: ['p-1'],
+            secondary_metrics_ordered_uuids: ['s-1'],
+        }
+
+        const zip = metricResults(experiment)
+        const primary = zip([mockResult({ result: 'p' })], [null], 'primary')
+        const secondary = zip([mockResult({ result: 's' })], [null], 'secondary')
+
+        expect(primary.map((o) => o.metric.uuid)).toEqual(['p-1'])
+        expect(secondary.map((o) => o.metric.uuid)).toEqual(['s-1'])
+    })
+})
+
 describe('getEventCountQuery', () => {
     it('includes product analytics tags in the query', () => {
         const metric: ExperimentMetric = {
@@ -1381,5 +1584,61 @@ describe('getEventCountQuery', () => {
         const query = getEventCountQuery(metric, true)
 
         expect(query).toBeNull()
+    })
+})
+
+describe('toExperimentWritePayload', () => {
+    const experiment = {
+        name: 'test',
+        feature_flag: { id: 456, key: 'test-flag' },
+        parameters: {
+            feature_flag_variants: [
+                { key: 'control', name: null, rollout_percentage: 60 },
+                { key: 'test', name: 'Test', rollout_percentage: 40 },
+            ],
+            rollout_percentage: 80,
+            aggregation_group_type_index: 1,
+            feature_flag_payloads: { test: '"v1"' },
+            ensure_experience_continuity: false,
+            variant_notes: { control: 'baseline' },
+        },
+    } as unknown as Experiment
+
+    it('moves flag config from parameters into the feature_flag object and drops the echoed flag', () => {
+        expect(toExperimentWritePayload(experiment)).toEqual({
+            name: 'test',
+            parameters: { variant_notes: { control: 'baseline' } },
+            feature_flag: {
+                filters: {
+                    multivariate: {
+                        variants: [
+                            { key: 'control', rollout_percentage: 60 },
+                            { key: 'test', name: 'Test', rollout_percentage: 40 },
+                        ],
+                    },
+                    groups: [{ properties: [], rollout_percentage: 80 }],
+                    aggregation_group_type_index: 1,
+                    payloads: { test: '"v1"' },
+                },
+                ensure_experience_continuity: false,
+            },
+        })
+    })
+
+    it('omits flag config entirely when linking a pre-existing flag', () => {
+        expect(toExperimentWritePayload(experiment, { omitFlagConfig: true })).toEqual({
+            name: 'test',
+            parameters: { variant_notes: { control: 'baseline' } },
+        })
+    })
+
+    it('sends no feature_flag object when parameters carry no flag config', () => {
+        expect(toExperimentWritePayload({ parameters: { variant_notes: {} } } as unknown as Experiment)).toEqual({
+            parameters: { variant_notes: {} },
+        })
+    })
+
+    it('preserves a null parameters instead of coercing it to an empty object', () => {
+        expect(toExperimentWritePayload({ parameters: null } as unknown as Experiment)).toEqual({ parameters: null })
     })
 })

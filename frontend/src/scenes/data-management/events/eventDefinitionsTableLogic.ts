@@ -5,8 +5,9 @@ import { actionToUrl, combineUrl, router, urlToAction } from 'kea-router'
 import api, { PaginatedResponse } from 'lib/api'
 import { convertPropertyGroupToProperties } from 'lib/components/PropertyFilters/utils'
 import { EVENT_DEFINITIONS_PER_PAGE, PROPERTY_DEFINITIONS_PER_EVENT } from 'lib/constants'
-import { objectsEqual, parseTagsFilter } from 'lib/utils'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
+import { objectsEqual } from 'lib/utils/objects'
+import { parseTagsFilter } from 'lib/utils/url'
 
 import { AnyPropertyFilter, EventDefinition, EventDefinitionType, PropertyDefinition } from '~/types'
 
@@ -100,6 +101,7 @@ export const eventDefinitionsTableLogic = kea<eventDefinitionsTableLogicType>([
         loadPropertiesForEvent: (definition: EventDefinition, url: string | null = '') => ({ definition, url }),
         setFilters: (filters: Partial<Filters>) => ({ filters }),
         setLocalEventDefinition: (definition: EventDefinition) => ({ definition }),
+        applyBulkTagUpdates: (updates: { id: number | string; tags: string[] }[]) => ({ updates }),
         setLocalPropertyDefinition: (event: EventDefinition, definition: PropertyDefinition) => ({ event, definition }),
         setEventDefinitionPropertiesLoading: (ids: string[]) => ({ ids }),
     }),
@@ -178,6 +180,25 @@ export const eventDefinitionsTableLogic = kea<eventDefinitionsTableLogicType>([
                     }
 
                     // Update cache
+                    cache.apiCache = {
+                        ...cache.apiCache,
+                        [values.eventDefinitions.current]: result,
+                    }
+
+                    return result
+                },
+                applyBulkTagUpdates: ({ updates }) => {
+                    if (!values.eventDefinitions.current || updates.length === 0) {
+                        return values.eventDefinitions
+                    }
+                    const tagsById = new Map(updates.map((u) => [String(u.id), u.tags]))
+                    const result = {
+                        ...values.eventDefinitions,
+                        results: values.eventDefinitions.results.map((d) =>
+                            tagsById.has(String(d.id)) ? { ...d, tags: tagsById.get(String(d.id)) } : d
+                        ),
+                    }
+
                     cache.apiCache = {
                         ...cache.apiCache,
                         [values.eventDefinitions.current]: result,

@@ -4,9 +4,9 @@ use serde::ser::{SerializeMap, SerializeStruct};
 use serde::Serialize;
 use uuid::Uuid;
 
-use super::constants::DEFAULT_RETRY_AFTER_SECS;
+use super::constants::{CAPTURE_V1_BATCH_OUTCOMES, DEFAULT_RETRY_AFTER_SECS};
 use super::types::{EventResult, WrappedEvent};
-use crate::v1::context::Context;
+use crate::v1::context::RequestContext;
 
 // ---------------------------------------------------------------------------
 // BatchEntryStatus
@@ -48,8 +48,7 @@ pub struct BatchResponse {
 impl BatchResponse {
     /// Build the response from a processed batch of WrappedEvents.
     /// Call this after sink publishing and result merging are complete.
-    pub fn build(ctx: &Context, events: &[WrappedEvent]) -> Self {
-        let _ = ctx; // Context reserved for future per-response metadata
+    pub fn build(ctx: &RequestContext, events: &[WrappedEvent]) -> Self {
         let mut has_retry = false;
         let entries: Vec<(Uuid, BatchEntryStatus)> = events
             .iter()
@@ -67,12 +66,41 @@ impl BatchResponse {
             })
             .collect();
 
+        if let Some(outcome) = classify_batch(events) {
+            metrics::counter!(CAPTURE_V1_BATCH_OUTCOMES, "outcome" => outcome, "path" => ctx.path)
+                .increment(1);
+        }
+
         Self { has_retry, entries }
     }
 
     pub fn entries(&self) -> &[(Uuid, BatchEntryStatus)] {
         &self.entries
     }
+}
+
+/// Classify the outcome mix of a processed batch for the
+/// `capture_v1_batch_outcomes` counter. `Warning` counts toward "all_ok"
+/// (the event was still accepted). Returns `None` for an empty batch.
+fn classify_batch(events: &[WrappedEvent]) -> Option<&'static str> {
+    if events.is_empty() {
+        return None;
+    }
+    let all_ok_or_warn = events
+        .iter()
+        .all(|e| matches!(e.result, EventResult::Ok | EventResult::Warning));
+    let all_drop = events.iter().all(|e| e.result == EventResult::Drop);
+    let all_retry = events.iter().all(|e| e.result == EventResult::Retry);
+
+    Some(if all_ok_or_warn {
+        "all_ok"
+    } else if all_drop {
+        "all_drop"
+    } else if all_retry {
+        "all_retry"
+    } else {
+        "partial_failure"
+    })
 }
 
 /// Wrapper for serializing the response body as `{"results": {uuid: status, ...}}`.
@@ -132,7 +160,7 @@ mod tests {
     use uuid::Uuid;
 
     use super::*;
-    use crate::v1::analytics::types::{Event, EventResult, Options, WrappedEvent};
+    use crate::v1::analytics::types::{Event, EventResult, Options, RawOptions, WrappedEvent};
     use crate::v1::sinks::Destination;
     use crate::v1::test_utils;
 
@@ -146,20 +174,17 @@ mod tests {
                 timestamp: "2026-03-19T14:29:58.123Z".to_string(),
                 session_id: None,
                 window_id: None,
-                options: Options {
-                    cookieless_mode: None,
-                    disable_skew_correction: None,
-                    product_tour_id: None,
-                    process_person_profile: None,
-                },
+                options: RawOptions::default(),
                 properties: serde_json::value::RawValue::from_string("{}".to_owned()).unwrap(),
             },
             uuid,
+            options: Options::default(),
             adjusted_timestamp: Some(Utc::now()),
             result,
             details,
             destination: Destination::AnalyticsMain,
             force_disable_person_processing: false,
+            is_gateway_verified: false,
         }
     }
 
@@ -207,6 +232,65 @@ mod tests {
             json,
             r#"{"result":"warning","details":"person_processing_disabled"}"#
         );
+    }
+
+    #[test]
+    fn classify_batch_all_ok() {
+        let events = vec![
+            make_wrapped(EventResult::Ok, None),
+            make_wrapped(EventResult::Ok, None),
+        ];
+        assert_eq!(classify_batch(&events), Some("all_ok"));
+    }
+
+    #[test]
+    fn classify_batch_ok_and_warning_counts_as_all_ok() {
+        let events = vec![
+            make_wrapped(EventResult::Ok, None),
+            make_wrapped(EventResult::Warning, Some("person_processing_disabled")),
+        ];
+        assert_eq!(classify_batch(&events), Some("all_ok"));
+    }
+
+    #[test]
+    fn classify_batch_all_drop() {
+        let events = vec![
+            make_wrapped(EventResult::Drop, Some("billing_limit_exceeded")),
+            make_wrapped(EventResult::Drop, Some("billing_limit_exceeded")),
+        ];
+        assert_eq!(classify_batch(&events), Some("all_drop"));
+    }
+
+    #[test]
+    fn classify_batch_all_retry() {
+        let events = vec![
+            make_wrapped(EventResult::Retry, Some("not_persisted")),
+            make_wrapped(EventResult::Retry, Some("not_persisted")),
+        ];
+        assert_eq!(classify_batch(&events), Some("all_retry"));
+    }
+
+    #[test]
+    fn classify_batch_ok_and_drop_is_partial_failure() {
+        let events = vec![
+            make_wrapped(EventResult::Ok, None),
+            make_wrapped(EventResult::Drop, Some("billing_limit_exceeded")),
+        ];
+        assert_eq!(classify_batch(&events), Some("partial_failure"));
+    }
+
+    #[test]
+    fn classify_batch_drop_and_retry_is_partial_failure() {
+        let events = vec![
+            make_wrapped(EventResult::Drop, Some("billing_limit_exceeded")),
+            make_wrapped(EventResult::Retry, Some("not_persisted")),
+        ];
+        assert_eq!(classify_batch(&events), Some("partial_failure"));
+    }
+
+    #[test]
+    fn classify_batch_empty_is_none() {
+        assert_eq!(classify_batch(&[]), None);
     }
 
     #[test]

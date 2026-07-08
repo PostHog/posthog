@@ -19,7 +19,7 @@ from products.product_analytics.backend.models.insight import Insight
 
 
 class TestAnnotation(APIBaseTest, QueryMatchingTest):
-    @patch("products.annotations.backend.api.annotation.report_user_action")
+    @patch("products.annotations.backend.activity_logging.report_user_action")
     def test_retrieving_annotation(self, mock_capture: MagicMock) -> None:
         Annotation.objects.create(
             organization=self.organization,
@@ -35,7 +35,7 @@ class TestAnnotation(APIBaseTest, QueryMatchingTest):
         assert len(response["results"]) == 1
         assert response["results"][0]["content"] == "hello world!"
 
-    @patch("products.annotations.backend.api.annotation.report_user_action")
+    @patch("products.annotations.backend.activity_logging.report_user_action")
     def test_retrieving_annotation_is_not_n_plus_1(self, _mock_capture: MagicMock) -> None:
         with self.assertNumQueries(FuzzyInt(9, 10)), snapshot_postgres_queries_context(self):
             response = self.client.get(f"/api/projects/{self.team.id}/annotations/").json()
@@ -105,7 +105,7 @@ class TestAnnotation(APIBaseTest, QueryMatchingTest):
         assert response_2.status_code == 200
         assert response_2.json()["results"] == []
 
-    @patch("products.annotations.backend.api.annotation.report_user_action")
+    @patch("products.annotations.backend.activity_logging.report_user_action")
     def test_creating_annotation(self, mock_capture: MagicMock) -> None:
         team2 = Organization.objects.bootstrap(None)[2]
 
@@ -136,7 +136,7 @@ class TestAnnotation(APIBaseTest, QueryMatchingTest):
             {"scope": "organization", "date_marker": date_marker},
         )
 
-    @patch("products.annotations.backend.api.annotation.report_user_action")
+    @patch("products.annotations.backend.activity_logging.report_user_action")
     def test_can_create_annotations_as_a_bot(self, mock_capture: MagicMock) -> None:
         response = self.client.post(
             f"/api/projects/{self.team.id}/annotations/",
@@ -156,7 +156,7 @@ class TestAnnotation(APIBaseTest, QueryMatchingTest):
         get_created_response = self.client.get(f"/api/projects/{self.team.id}/annotations/{instance.id}/")
         assert get_created_response.json()["creation_type"] == "GIT"
 
-    @patch("products.annotations.backend.api.annotation.report_user_action")
+    @patch("products.annotations.backend.activity_logging.report_user_action")
     def test_downgrading_scope_from_org_to_project_uses_team_id_from_api(self, mock_capture: MagicMock) -> None:
         second_team = Team.objects.create(organization=self.organization, name="Second team")
         test_annotation = Annotation.objects.create(
@@ -262,6 +262,64 @@ class TestAnnotation(APIBaseTest, QueryMatchingTest):
         assert clear_response.status_code == status.HTTP_200_OK
         test_annotation.refresh_from_db()
         assert test_annotation.emoji is None
+
+    def test_creating_annotation_defaults_hidden_in_user_interface_to_null(self) -> None:
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/annotations/",
+            {"content": "Release shipped", "scope": "project", "date_marker": "2020-01-01T00:00:00.000000Z"},
+        )
+        assert response.status_code == status.HTTP_201_CREATED
+        assert response.json()["hidden_in_user_interface"] is None
+        instance = Annotation.objects.get(pk=response.json()["id"])
+        assert instance.hidden_in_user_interface is None
+
+    def test_creating_and_clearing_hidden_in_user_interface(self) -> None:
+        create_response = self.client.post(
+            f"/api/projects/{self.team.id}/annotations/",
+            {
+                "content": "Deployment",
+                "scope": "project",
+                "date_marker": "2020-01-01T00:00:00.000000Z",
+                "hidden_in_user_interface": True,
+            },
+        )
+        assert create_response.status_code == status.HTTP_201_CREATED
+        assert create_response.json()["hidden_in_user_interface"] is True
+
+        annotation_id = create_response.json()["id"]
+        clear_response = self.client.patch(
+            f"/api/projects/{self.team.id}/annotations/{annotation_id}/",
+            {"hidden_in_user_interface": None},
+        )
+        assert clear_response.status_code == status.HTTP_200_OK
+        assert clear_response.json()["hidden_in_user_interface"] is None
+
+    @parameterized.expand(
+        [
+            (None, {"hidden", "visible", "unset"}),
+            ("false", {"visible", "unset"}),
+            ("0", {"visible", "unset"}),
+            ("banana", {"visible", "unset"}),
+            ("true", {"hidden"}),
+            ("1", {"hidden"}),
+        ]
+    )
+    def test_filter_annotations_by_hidden_in_user_interface(
+        self, query_value: Optional[str], expected_contents: set[str]
+    ) -> None:
+        for content, hidden in (("hidden", True), ("visible", False), ("unset", None)):
+            Annotation.objects.create(
+                organization=self.organization,
+                team=self.team,
+                content=content,
+                scope=Annotation.Scope.PROJECT,
+                hidden_in_user_interface=hidden,
+            )
+
+        query = f"?hidden_in_user_interface={query_value}" if query_value is not None else ""
+        response = self.client.get(f"/api/projects/{self.team.id}/annotations/{query}")
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        assert {result["content"] for result in response.json()["results"]} == expected_contents
 
     def test_deleting_annotation(self) -> None:
         new_user = User.objects.create_and_join(self.organization, "new_annotations@posthog.com", None)

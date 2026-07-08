@@ -9,6 +9,7 @@ import {
     type DrawContext,
     traceRoundedBarPath,
 } from './canvas-renderer'
+import type { BarFillStyle } from './types'
 
 function mockCanvasContext(): jest.Mocked<CanvasRenderingContext2D> {
     return {
@@ -23,6 +24,8 @@ function mockCanvasContext(): jest.Mocked<CanvasRenderingContext2D> {
         save: jest.fn(),
         restore: jest.fn(),
         createPattern: jest.fn(() => ({}) as CanvasPattern),
+        createLinearGradient: jest.fn(() => ({ addColorStop: jest.fn() }) as unknown as CanvasGradient),
+        createRadialGradient: jest.fn(() => ({ addColorStop: jest.fn() }) as unknown as CanvasGradient),
         strokeStyle: '',
         fillStyle: '',
         lineWidth: 0,
@@ -140,6 +143,28 @@ describe('hog-charts canvas-renderer (bars)', () => {
             const series = makeSeries({ key: 's', data: [1], color: '#abcdef' })
             drawBars(drawCtx, series, [BASE_BAR])
             expect(ctx.fillStyle).toBe('#abcdef')
+        })
+
+        describe('fillStyle', () => {
+            const series = makeSeries({ key: 's', data: [1], color: '#abcdef' })
+
+            it.each<{ style: BarFillStyle; linear: number; radial: number }>([
+                { style: 'flat', linear: 0, radial: 0 },
+                { style: 'gradient', linear: 1, radial: 0 },
+                { style: 'gloss', linear: 0, radial: 1 },
+            ])('routes fillStyle=$style to the matching gradient call', ({ style, linear, radial }) => {
+                const ctx = mockCanvasContext()
+                drawBars(makeDrawContext(ctx, ['a']), series, [BASE_BAR], 0, style)
+                expect(ctx.createLinearGradient).toHaveBeenCalledTimes(linear)
+                expect(ctx.createRadialGradient).toHaveBeenCalledTimes(radial)
+            })
+
+            it('falls back to a solid color for dashed (hatched) bars regardless of fillStyle', () => {
+                const ctx = mockCanvasContext()
+                const dashed = makeSeries({ key: 's', data: [1], color: '#abcdef', stroke: { partial: { fromIndex: 0 } } })
+                drawBars(makeDrawContext(ctx, ['a']), dashed, [BASE_BAR], 0, 'gloss')
+                expect(ctx.createRadialGradient).not.toHaveBeenCalled()
+            })
         })
 
         it('uses per-bar colors from bars[i].color, falling back to series.color where absent', () => {

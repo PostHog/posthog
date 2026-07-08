@@ -7,18 +7,17 @@ from django.test import override_settings
 
 from parameterized import parameterized
 
-from posthog.models.cohort.cohort import Cohort
-from posthog.models.group_type_mapping import (
-    GROUP_TYPES_STALE_CACHE_KEY_PREFIX,
-    GroupTypeMapping,
-    GroupTypesUnavailable,
-)
+from posthog.models.group_type_mapping import GROUP_TYPES_STALE_CACHE_KEY_PREFIX, GroupTypesUnavailable
 from posthog.models.project import Project
 from posthog.models.tag import Tag
 from posthog.models.team.team import Team
+from posthog.personhog_client.fake_client import get_active_fake
+from posthog.test.persons import _seed_group_type_mapping_into_fake, create_group_type_mapping
 from posthog.test.test_utils import create_group_type_mapping_without_created_at
 from posthog.utils import safe_cache_delete
 
+from products.cohorts.backend.models.cohort import Cohort
+from products.experiments.backend.models.experiment import Experiment
 from products.feature_flags.backend.flags_cache import get_team_ids_with_recently_updated_flags
 from products.feature_flags.backend.local_evaluation import (
     FLAG_DEFINITIONS_HYPERCACHE_MANAGEMENT_CONFIG,
@@ -250,6 +249,21 @@ class TestUpdateFlagCachesGroupMappingGuards(BaseTest):
         response, _ = flag_definitions_hypercache.get_from_cache_with_source(self.team)
         return (response or {}).get("group_type_mapping", {})
 
+    @patch("posthog.storage.hypercache.HYPERCACHE_WRITE_SKIPPED_UNCHANGED_COUNTER")
+    def test_unchanged_rebuild_skips_both_variant_writes(self, mock_skip_counter):
+        # The signal path opts into skip_if_unchanged=True. A second rebuild with no flag
+        # changes must skip the rewrite for both variants; dropping the kwarg silently
+        # reverts the optimization and only this assertion would catch it.
+        update_flag_caches(self.team)
+        mock_skip_counter.labels.assert_not_called()
+
+        update_flag_caches(self.team)
+
+        assert mock_skip_counter.labels.call_count == 2
+        mock_skip_counter.labels.assert_any_call(namespace="feature_flags", value="flags_with_cohorts.json")
+        mock_skip_counter.labels.assert_any_call(namespace="feature_flags", value="flags_without_cohorts.json")
+        assert mock_skip_counter.labels.return_value.inc.call_count == 2
+
     @patch("products.feature_flags.backend.local_evaluation.HYPERCACHE_REBUILD_SKIPPED_COUNTER")
     def test_skips_write_on_group_types_unavailable(self, mock_skipped_counter):
         # Warm with the real fetch so a prior good entry exists
@@ -340,7 +354,9 @@ class TestUpdateFlagCachesGroupMappingGuards(BaseTest):
     @patch("products.feature_flags.backend.local_evaluation.HYPERCACHE_GROUP_MAPPING_EMPTIED_COUNTER")
     def test_writes_when_genuinely_empty(self, mock_emptied_counter):
         # A team that truly has no group types must still rebuild normally
-        GroupTypeMapping.objects.filter(team_id=self.team.id).delete()
+        fake = get_active_fake()
+        fake._group_type_mappings_by_project.pop(self.team.project_id, None)
+        fake._group_type_mappings_by_team.pop(self.team.id, None)
         self._clear_stale()
         clear_flag_definition_caches(self.team)
 
@@ -386,9 +402,11 @@ class TestUpdateFlagCachesGroupMappingGuards(BaseTest):
                 "products.feature_flags.backend.local_evaluation.get_group_types_for_projects",
                 return_value={self.team.project_id: []},
             ),
-            patch("posthog.models.group_type_mapping.GroupTypeMapping.objects") as mock_objects,
+            patch(
+                "posthog.models.group_type_mapping._fetch_group_types_for_project_direct",
+                side_effect=DatabaseError("persons db down"),
+            ),
         ):
-            mock_objects.using.return_value.filter.return_value.exists.side_effect = DatabaseError("persons db down")
             with patch.object(flag_definitions_hypercache, "set_cache_value") as mock_set:
                 update_flag_caches(self.team)
                 mock_set.assert_not_called()
@@ -398,6 +416,30 @@ class TestUpdateFlagCachesGroupMappingGuards(BaseTest):
 
 
 class TestLocalEvaluationSignals(BaseTest):
+    @parameterized.expand(["create", "soft_delete", "delete"])
+    @patch("products.feature_flags.backend.tasks.update_team_flags_cache")
+    @patch("django.db.transaction.on_commit", lambda fn: fn())
+    def test_signal_fired_on_experiment_change(self, action, mock_task):
+        flag = FeatureFlag.objects.create(
+            team=self.team,
+            key="exp-flag",
+            created_by=self.user,
+            filters={"groups": [{"properties": [], "rollout_percentage": 100}]},
+        )
+        if action == "create":
+            mock_task.reset_mock()
+            Experiment.objects.create(team=self.team, name="My experiment", feature_flag=flag)
+        else:
+            experiment = Experiment.objects.create(team=self.team, name="My experiment", feature_flag=flag)
+            mock_task.reset_mock()
+            if action == "soft_delete":
+                experiment.deleted = True
+                experiment.save()
+            else:
+                experiment.delete()
+
+        mock_task.delay.assert_called_once_with(self.team.id)
+
     @patch("products.feature_flags.backend.tasks.update_team_flags_cache")
     @patch("django.db.transaction.on_commit", lambda fn: fn())
     def test_signal_fired_on_evaluation_context_association_create(self, mock_task):
@@ -1228,10 +1270,10 @@ class TestLocalEvaluationBatch(BaseTest):
             filters={"groups": [{"rollout_percentage": 100}]},
         )
 
-        with self.assertNumQueries(3):
-            # Expected queries: survey flag IDs, flags (with evaluation
-            # tags via ArrayAgg), and group type mappings. No cohort
-            # query should be issued.
+        with self.assertNumQueries(2):
+            # Expected queries: survey flag IDs and flags (with evaluation
+            # tags via ArrayAgg). Group type mappings are read from
+            # personhog, not SQL. No cohort query should be issued.
             results = _get_flags_response_for_local_evaluation_batch([team], True)
 
         assert results[team.id]["cohorts"] == {}
@@ -1584,7 +1626,7 @@ class TestVerifyFlagDefinitions(BaseTest):
         assert len(cohorts_diff) == 1
 
     def test_verify_returns_mismatch_when_group_type_mapping_changed(self):
-        GroupTypeMapping.objects.create(
+        mapping = create_group_type_mapping(
             team=self.team,
             project_id=self.team.project_id,
             group_type="company",
@@ -1603,9 +1645,8 @@ class TestVerifyFlagDefinitions(BaseTest):
 
         update_flag_definitions_cache(self.team)
 
-        mapping = GroupTypeMapping.objects.get(team=self.team, group_type_index=0)
         mapping.group_type = "organization"
-        mapping.save()
+        _seed_group_type_mapping_into_fake(mapping)
 
         result = verify_team_flag_definitions(self.team, include_cohorts=True, verbose=True)
 
@@ -1711,3 +1752,371 @@ class TestFlagDefinitionsCacheWithoutRedis(BaseTest):
 
         result = update_flag_definitions_cache(self.team)
         assert result is True
+
+
+class TestFlagDependencyChainTransformation(BaseTest):
+    """`dependency_chain` transformation in the local evaluation payload.
+
+    Ported from the removed Django-endpoint tests; exercises `_build_all_dependency_chains`
+    via the response builder directly, now that the HTTP endpoint is served by Rust.
+    """
+
+    def setUp(self):
+        super().setUp()
+        FeatureFlag.objects.filter(team=self.team).delete()
+        clear_flag_definition_caches(self.team)
+
+    def _find_flag(self, flags: list[dict], key: str) -> dict:
+        return next(flag for flag in flags if flag["key"] == key)
+
+    def test_complex_chain(self):
+        """Dependency transformation with a chain C -> B -> A (topologically sorted)."""
+        flag_a = FeatureFlag.objects.create(
+            team=self.team,
+            key="flag-a",
+            name="Flag A",
+            filters={
+                "groups": [
+                    {
+                        "properties": [
+                            {"key": "email", "type": "person", "value": "test@example.com", "operator": "exact"}
+                        ],
+                        "rollout_percentage": 100,
+                    }
+                ]
+            },
+        )
+        flag_b = FeatureFlag.objects.create(
+            team=self.team,
+            key="flag-b",
+            name="Flag B",
+            filters={
+                "groups": [
+                    {
+                        "properties": [
+                            {"key": str(flag_a.id), "type": "flag", "value": True, "operator": "flag_evaluates_to"}
+                        ],
+                        "rollout_percentage": 100,
+                    }
+                ]
+            },
+        )
+        FeatureFlag.objects.create(
+            team=self.team,
+            key="flag-c",
+            name="Flag C",
+            filters={
+                "groups": [
+                    {
+                        "properties": [
+                            {"key": str(flag_b.id), "type": "flag", "value": True, "operator": "flag_evaluates_to"}
+                        ],
+                        "rollout_percentage": 100,
+                    }
+                ]
+            },
+        )
+
+        response = _get_flags_response_for_local_evaluation(self.team, include_cohorts=True)
+        flags = response["flags"]
+
+        flag_c_data = self._find_flag(flags, "flag-c")
+        properties = flag_c_data["filters"]["groups"][0]["properties"]
+        flag_property = next(prop for prop in properties if prop["type"] == "flag")
+        # ID should be converted to key, with the full chain (topologically sorted)
+        self.assertEqual(flag_property["key"], "flag-b")
+        self.assertIn("dependency_chain", flag_property)
+        self.assertEqual(flag_property["dependency_chain"], ["flag-a", "flag-b"])
+
+        flag_b_data = self._find_flag(flags, "flag-b")
+        properties_b = flag_b_data["filters"]["groups"][0]["properties"]
+        flag_property_b = next(prop for prop in properties_b if prop["type"] == "flag")
+        self.assertEqual(flag_property_b["dependency_chain"], ["flag-a"])
+
+    def test_circular_dependency(self):
+        """A <-> B cycle yields empty dependency chains."""
+        flag_a = FeatureFlag.objects.create(
+            team=self.team,
+            key="flag-a",
+            name="Flag A",
+            filters={
+                "groups": [
+                    {
+                        "properties": [
+                            {"key": "email", "type": "person", "value": "test@example.com", "operator": "exact"}
+                        ],
+                        "rollout_percentage": 100,
+                    }
+                ]
+            },
+        )
+        flag_b = FeatureFlag.objects.create(
+            team=self.team,
+            key="flag-b",
+            name="Flag B",
+            filters={
+                "groups": [
+                    {
+                        "properties": [
+                            {"key": str(flag_a.id), "type": "flag", "value": True, "operator": "flag_evaluates_to"}
+                        ],
+                        "rollout_percentage": 100,
+                    }
+                ]
+            },
+        )
+        flag_a.filters = {
+            "groups": [
+                {
+                    "properties": [
+                        {"key": str(flag_b.id), "type": "flag", "value": True, "operator": "flag_evaluates_to"}
+                    ],
+                    "rollout_percentage": 100,
+                }
+            ]
+        }
+        flag_a.save()
+
+        response = _get_flags_response_for_local_evaluation(self.team, include_cohorts=True)
+        flags = response["flags"]
+        self.assertEqual(len(flags), 2)
+
+        flag_a_data = self._find_flag(flags, "flag-a")
+        flag_b_data = self._find_flag(flags, "flag-b")
+
+        properties_a = flag_a_data["filters"]["groups"][0]["properties"]
+        flag_properties_a = [prop for prop in properties_a if prop["type"] == "flag"]
+        self.assertEqual(len(flag_properties_a), 1)
+        self.assertEqual(flag_properties_a[0]["dependency_chain"], [])
+
+        properties_b = flag_b_data["filters"]["groups"][0]["properties"]
+        flag_properties_b = [prop for prop in properties_b if prop["type"] == "flag"]
+        self.assertEqual(len(flag_properties_b), 1)
+        self.assertEqual(flag_properties_b[0]["dependency_chain"], [])
+
+    def test_multiple_and_transitive_dependencies(self):
+        """C depends on A and B; D depends on C (transitive chain A,B,C)."""
+        flag_a = FeatureFlag.objects.create(
+            team=self.team,
+            key="flag-a",
+            name="Flag A",
+            filters={"groups": [{"properties": [], "rollout_percentage": 100}]},
+        )
+        flag_b = FeatureFlag.objects.create(
+            team=self.team,
+            key="flag-b",
+            name="Flag B",
+            filters={"groups": [{"properties": [], "rollout_percentage": 100}]},
+        )
+        flag_c = FeatureFlag.objects.create(
+            team=self.team,
+            key="flag-c",
+            name="Flag C",
+            filters={
+                "groups": [
+                    {
+                        "properties": [
+                            {"key": str(flag_a.id), "type": "flag", "value": True, "operator": "flag_evaluates_to"},
+                            {"key": str(flag_b.id), "type": "flag", "value": True, "operator": "flag_evaluates_to"},
+                            {"key": "email", "type": "person", "value": "test@example.com", "operator": "exact"},
+                        ],
+                        "rollout_percentage": 100,
+                    }
+                ]
+            },
+        )
+        FeatureFlag.objects.create(
+            team=self.team,
+            key="flag-d",
+            name="Flag D",
+            filters={
+                "groups": [
+                    {
+                        "properties": [
+                            {"key": str(flag_c.id), "type": "flag", "value": True, "operator": "flag_evaluates_to"},
+                            {"key": "country", "type": "person", "value": "US", "operator": "exact"},
+                        ],
+                        "rollout_percentage": 100,
+                    }
+                ]
+            },
+        )
+
+        response = _get_flags_response_for_local_evaluation(self.team, include_cohorts=True)
+        flags = response["flags"]
+
+        flag_c_data = self._find_flag(flags, "flag-c")
+        properties = flag_c_data["filters"]["groups"][0]["properties"]
+        flag_properties = [prop for prop in properties if prop["type"] == "flag"]
+        self.assertEqual(len(flag_properties), 2)
+        self.assertEqual({prop["key"] for prop in flag_properties}, {"flag-a", "flag-b"})
+        for prop in flag_properties:
+            self.assertIn("dependency_chain", prop)
+            if prop["key"] == "flag-a":
+                self.assertEqual(prop["dependency_chain"], ["flag-a"])
+            elif prop["key"] == "flag-b":
+                self.assertEqual(prop["dependency_chain"], ["flag-b"])
+
+        flag_d_data = self._find_flag(flags, "flag-d")
+        properties_d = flag_d_data["filters"]["groups"][0]["properties"]
+        flag_properties_d = [prop for prop in properties_d if prop["type"] == "flag"]
+        self.assertEqual(len(flag_properties_d), 1)
+        self.assertEqual(flag_properties_d[0]["key"], "flag-c")
+        self.assertEqual(flag_properties_d[0]["dependency_chain"], ["flag-a", "flag-b", "flag-c"])
+
+    def test_self_dependency(self):
+        """A flag referencing itself yields an empty dependency chain."""
+        FeatureFlag.objects.create(
+            team=self.team,
+            key="self-flag",
+            name="Self Flag",
+            filters={
+                "groups": [
+                    {
+                        "properties": [
+                            {"key": "self-flag", "type": "flag", "value": True, "operator": "flag_evaluates_to"},
+                            {"key": "email", "type": "person", "value": "test@example.com", "operator": "exact"},
+                        ],
+                        "rollout_percentage": 100,
+                    }
+                ]
+            },
+        )
+
+        response = _get_flags_response_for_local_evaluation(self.team, include_cohorts=True)
+        flags = response["flags"]
+
+        self_flag_data = self._find_flag(flags, "self-flag")
+        properties = self_flag_data["filters"]["groups"][0]["properties"]
+        flag_properties = [prop for prop in properties if prop["type"] == "flag"]
+        self.assertEqual(len(flag_properties), 1)
+        self.assertEqual(flag_properties[0]["key"], "self-flag")
+        self.assertEqual(flag_properties[0]["dependency_chain"], [])
+
+    def test_self_referencing_circular_dependency(self):
+        """A -> B where B references itself: both chains empty."""
+        flag_b = FeatureFlag.objects.create(
+            team=self.team,
+            key="flag-b",
+            name="Flag B",
+            filters={
+                "groups": [
+                    {
+                        "properties": [
+                            {"key": "flag-b", "type": "flag", "value": True, "operator": "flag_evaluates_to"}
+                        ],
+                        "rollout_percentage": 100,
+                    }
+                ]
+            },
+        )
+        FeatureFlag.objects.create(
+            team=self.team,
+            key="flag-a",
+            name="Flag A",
+            filters={
+                "groups": [
+                    {
+                        "properties": [
+                            {"key": str(flag_b.id), "type": "flag", "value": True, "operator": "flag_evaluates_to"}
+                        ],
+                        "rollout_percentage": 100,
+                    }
+                ]
+            },
+        )
+
+        response = _get_flags_response_for_local_evaluation(self.team, include_cohorts=True)
+        flags = response["flags"]
+
+        flag_b_data = self._find_flag(flags, "flag-b")
+        properties_b = flag_b_data["filters"]["groups"][0]["properties"]
+        flag_properties_b = [prop for prop in properties_b if prop["type"] == "flag"]
+        self.assertEqual(len(flag_properties_b), 1)
+        self.assertEqual(flag_properties_b[0]["key"], "flag-b")
+        self.assertEqual(flag_properties_b[0]["dependency_chain"], [])
+
+        flag_a_data = self._find_flag(flags, "flag-a")
+        properties_a = flag_a_data["filters"]["groups"][0]["properties"]
+        flag_properties_a = [prop for prop in properties_a if prop["type"] == "flag"]
+        self.assertEqual(len(flag_properties_a), 1)
+        self.assertEqual(flag_properties_a[0]["key"], "flag-b")
+        self.assertEqual(flag_properties_a[0]["dependency_chain"], [])
+
+    def test_missing_dependency(self):
+        """A reference to a non-existent flag id keeps the id and yields an empty chain."""
+        non_existent_flag_id = "999999"
+        FeatureFlag.objects.create(
+            team=self.team,
+            key="flag-a",
+            name="Flag A",
+            filters={
+                "groups": [
+                    {
+                        "properties": [
+                            {
+                                "key": non_existent_flag_id,
+                                "type": "flag",
+                                "value": True,
+                                "operator": "flag_evaluates_to",
+                            },
+                            {"key": "email", "type": "person", "value": "test@example.com", "operator": "exact"},
+                        ],
+                        "rollout_percentage": 100,
+                    }
+                ]
+            },
+        )
+
+        response = _get_flags_response_for_local_evaluation(self.team, include_cohorts=True)
+        flags = response["flags"]
+
+        flag_a_data = self._find_flag(flags, "flag-a")
+        properties = flag_a_data["filters"]["groups"][0]["properties"]
+        flag_properties = [prop for prop in properties if prop["type"] == "flag"]
+        self.assertEqual(len(flag_properties), 1)
+        self.assertEqual(flag_properties[0]["key"], non_existent_flag_id)
+        self.assertEqual(flag_properties[0]["dependency_chain"], [])
+
+    def test_shared_dependencies(self):
+        """Multiple flags depending on the same shared flag each get the same chain."""
+        shared_flag = FeatureFlag.objects.create(
+            team=self.team,
+            key="shared-dependency",
+            name="Shared Dependency",
+            filters={"groups": [{"properties": [], "rollout_percentage": 100}]},
+        )
+        dependent_flags = []
+        for i in range(5):
+            flag = FeatureFlag.objects.create(
+                team=self.team,
+                key=f"dependent-flag-{i}",
+                name=f"Dependent Flag {i}",
+                filters={
+                    "groups": [
+                        {
+                            "properties": [
+                                {
+                                    "key": str(shared_flag.id),
+                                    "type": "flag",
+                                    "value": True,
+                                    "operator": "flag_evaluates_to",
+                                }
+                            ],
+                            "rollout_percentage": 100,
+                        }
+                    ]
+                },
+            )
+            dependent_flags.append(flag)
+
+        response = _get_flags_response_for_local_evaluation(self.team, include_cohorts=True)
+        flags = response["flags"]
+
+        for i, _flag in enumerate(dependent_flags):
+            flag_data = self._find_flag(flags, f"dependent-flag-{i}")
+            properties = flag_data["filters"]["groups"][0]["properties"]
+            flag_properties = [prop for prop in properties if prop["type"] == "flag"]
+            self.assertEqual(len(flag_properties), 1)
+            self.assertEqual(flag_properties[0]["key"], "shared-dependency")
+            self.assertEqual(flag_properties[0]["dependency_chain"], ["shared-dependency"])

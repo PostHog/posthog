@@ -1,7 +1,7 @@
 import posthog from 'posthog-js'
 
-import { toSentenceCase } from 'lib/utils'
 import { getAppContext } from 'lib/utils/getAppContext'
+import { toSentenceCase } from 'lib/utils/strings'
 
 import { APIScopeObject, AccessControlLevel, AccessControlResourceType, AvailableFeature } from '~/types'
 
@@ -73,6 +73,8 @@ export const pluralizeResource = (resource: APIScopeObject): string => {
         return 'data warehouse tables & views'
     } else if (resource === AccessControlResourceType.Logs) {
         return 'logs'
+    } else if (resource === AccessControlResourceType.Tracing) {
+        return 'tracing'
     }
 
     return resource.replace(/_/g, ' ') + 's'
@@ -209,7 +211,7 @@ export const getAccessControlTooltip = (resource: APIScopeObject): string | null
         return 'Access control only applies to managed sources (Stripe, Postgres, etc.) and covers CRUD operations on the source configuration. It does not restrict querying data from those sources.'
     }
     if (resource === AccessControlResourceType.WarehouseObjects) {
-        return 'Controls creating, editing, and deleting warehouse tables, views (aka "models"), folders, and joins, plus materialization actions (sync now, revert, sync frequency). Does not restrict querying the underlying data via SQL — blocked users can still SELECT from these tables.'
+        return 'Viewer is required to query a table or view via SQL. Editor and above also control creating, editing, and deleting tables, views (aka "models"), folders, and joins.'
     }
     return null
 }

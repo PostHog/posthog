@@ -18,15 +18,26 @@ import {
 } from '~/types'
 
 import { getDashboardWidgetCatalogEntry, tryGetDashboardWidgetCatalogEntry } from '../../widget_types/catalog'
+import { userHasDashboardWidgetProductAccess } from '../../widgetProductAccess'
 import { DashboardWidgetItem } from './DashboardWidgetItem'
 
 jest.mock('lib/utils/accessControlUtils', () => ({
     userHasAccess: () => true,
 }))
 
+jest.mock('../../widgetProductAccess', () => ({
+    userHasDashboardWidgetProductAccess: jest.fn(() => true),
+    userCanMutateErrorTrackingIssuesOnDashboard: jest.fn(() => true),
+}))
+
+jest.mock('../../widget_types/widgetAvailability', () => ({
+    useWidgetAvailability: () => ({ isAvailable: true }),
+}))
+
 jest.mock('../../widgets/registry', () => ({
     getDashboardWidgetDefinition: () => ({
         Component: () => <div>Widget body</div>,
+        TileFilters: () => <div data-attr="widget-tile-filters">filters</div>,
         EditModal: ({
             isOpen,
             name,
@@ -105,6 +116,7 @@ const tileWithoutDescription = {
 
 describe('DashboardWidgetItem', () => {
     beforeEach(() => {
+        jest.mocked(userHasDashboardWidgetProductAccess).mockReturnValue(true)
         initKeaTests(true, {
             ...MOCK_DEFAULT_TEAM,
             test_account_filters: [
@@ -135,6 +147,25 @@ describe('DashboardWidgetItem', () => {
         }).unmount()
     })
 
+    it('does not render tile filters without product access', () => {
+        jest.mocked(userHasDashboardWidgetProductAccess).mockReturnValue(false)
+
+        const { container } = render(
+            <DashboardWidgetItem
+                tile={tile}
+                placement={DashboardPlacement.Dashboard}
+                dashboardId={99}
+                result={null}
+                loading={false}
+                onRefresh={jest.fn()}
+                onUpdateWidgetTile={jest.fn()}
+                showEditingControls
+            />
+        )
+
+        expect(container.querySelector('[data-attr="widget-tile-filters"]')).toBeNull()
+    })
+
     it('renders insight-style more menu with view, dashboard section, and refresh data', async () => {
         const onRefresh = jest.fn()
         render(
@@ -156,19 +187,20 @@ describe('DashboardWidgetItem', () => {
             />
         )
 
-        await userEvent.click(screen.getByRole('button', { name: /more/i }))
+        await userEvent.click(screen.getByLabelText('more'))
 
-        expect(screen.getByRole('link', { name: 'View' })).toHaveAttribute('href', '/project/997/error_tracking')
+        expect(screen.getByText('View').closest('a')).toHaveAttribute('href', '/project/997/error_tracking')
         expect(
             screen
-                .getAllByRole('button', { name: 'Edit' })
-                .find((button: HTMLElement) => button.classList.contains('LemonButton--full-width'))
+                .getAllByText('Edit')
+                .map((label) => label.closest('button'))
+                .find((button) => button?.classList.contains('LemonButton--full-width'))
         ).toBeTruthy()
-        expect(screen.getByRole('button', { name: 'Duplicate' })).toBeInTheDocument()
+        expect(screen.getByText('Duplicate')).toBeInTheDocument()
         expect(screen.getByText('Dashboard')).toBeInTheDocument()
-        expect(screen.getByRole('button', { name: 'Hide description' })).toBeInTheDocument()
-        expect(screen.getByRole('button', { name: 'Remove from dashboard' })).toBeInTheDocument()
-        const refreshTrigger = screen.getByRole('button', { name: /Refresh data/i })
+        expect(screen.getByText('Hide description')).toBeInTheDocument()
+        expect(screen.getByText('Remove from dashboard')).toBeInTheDocument()
+        const refreshTrigger = document.querySelector('[data-attr="dashboard-tile-refresh-data"]') as HTMLElement
         expect(refreshTrigger).toBeInTheDocument()
         expect(screen.getByText(/Last computed/i)).toBeInTheDocument()
 
@@ -192,8 +224,8 @@ describe('DashboardWidgetItem', () => {
             />
         )
 
-        await userEvent.click(within(container).getByRole('button', { name: /more/i }))
-        await userEvent.click(await screen.findByRole('button', { name: 'Remove from dashboard' }))
+        await userEvent.click(within(container).getByLabelText('more'))
+        await userEvent.click(await screen.findByText('Remove from dashboard'))
 
         expect(onRemove).toHaveBeenCalledTimes(1)
         expect(
@@ -234,11 +266,11 @@ describe('DashboardWidgetItem', () => {
             />
         )
 
-        await userEvent.click(within(container).getByRole('button', { name: /more/i }))
-        await userEvent.click(screen.getByRole('button', { name: 'Add description' }))
+        await userEvent.click(within(container).getByLabelText('more'))
+        await userEvent.click(screen.getByText('Add description'))
 
         expect(toggleShowDescription).toHaveBeenCalledTimes(1)
-        expect(await screen.findByRole('dialog', { name: 'Widget settings' })).toBeInTheDocument()
+        expect(await screen.findByLabelText('Widget settings')).toBeInTheDocument()
     })
 
     it('opens widget settings with title and description fields from edit menu', async () => {
@@ -255,13 +287,13 @@ describe('DashboardWidgetItem', () => {
             />
         )
 
-        await userEvent.click(within(container).getByRole('button', { name: /more/i }))
+        await userEvent.click(within(container).getByLabelText('more'))
         await waitFor(() => {
             expect(document.querySelector('[data-attr="dashboard-widget-edit"]')).toBeInTheDocument()
         })
         await userEvent.click(document.querySelector('[data-attr="dashboard-widget-edit"]') as HTMLElement)
 
-        const dialog = await screen.findByRole('dialog', { name: 'Widget settings' })
+        const dialog = await screen.findByLabelText('Widget settings')
         expect(within(dialog).getByPlaceholderText('Top issues')).toBeInTheDocument()
         expect(within(dialog).getByPlaceholderText('Enter description (optional)')).toBeInTheDocument()
     })
@@ -303,6 +335,9 @@ describe('DashboardWidgetItem', () => {
     })
 
     it('contains unknown widget errors in the card body while keeping the header', () => {
+        // The thrown render error is expected: React and jsdom both report it to
+        // console.error before the error boundary contains it
+        const consoleErrorSpy = jest.spyOn(console, 'error').mockImplementation()
         const catalogEntryMock = getDashboardWidgetCatalogEntry as jest.Mock
         ;(tryGetDashboardWidgetCatalogEntry as jest.Mock).mockReturnValue(undefined)
         catalogEntryMock.mockImplementation(() => {
@@ -343,5 +378,6 @@ describe('DashboardWidgetItem', () => {
             label: 'Top issues',
             headerTitle: 'Top issues',
         }))
+        consoleErrorSpy.mockRestore()
     })
 })

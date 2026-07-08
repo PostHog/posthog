@@ -6,11 +6,10 @@ from django.utils import timezone
 from celery import shared_task
 from structlog import get_logger
 
-from posthog.cdp.filters import compile_filters_bytecode
+from posthog.celery_queues import CeleryQueue
 from posthog.plugins.plugin_server_api import reload_hog_functions_on_workers
 from posthog.redis import get_client
 from posthog.scoping_audit import skip_team_scope_audit
-from posthog.tasks.utils import CeleryQueue
 
 from products.actions.backend.models.action import Action
 
@@ -35,7 +34,7 @@ def refresh_affected_hog_functions(
             .filter(filters__contains={"actions": [{"id": str(action_id)}]})
         )
     elif cohort_id:
-        from posthog.models.cohort import Cohort
+        from products.cohorts.backend.models.cohort import Cohort
 
         try:
             cohort = Cohort.objects.select_related("team").get(id=cohort_id)
@@ -78,6 +77,10 @@ def refresh_affected_hog_functions(
     )
 
     actions_by_id = {action.id: action for action in all_related_actions}
+
+    # posthog.cdp.filters pulls hogql.property and with it the HogQL/schema layer;
+    # posthog.apps ready() imports this module in every process at setup.
+    from posthog.cdp.filters import compile_filters_bytecode  # noqa: PLC0415 — keeps HogQL off the import path
 
     successfully_compiled_hog_functions = []
     for hog_function in affected_hog_functions:

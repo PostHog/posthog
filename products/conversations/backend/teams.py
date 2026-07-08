@@ -27,13 +27,17 @@ from posthog.models.user import User
 from .cache import get_cached_teams_user, set_cached_teams_user
 from .models import Ticket
 from .models.constants import Channel, ChannelDetail, Status
+from .services.attachments import build_content_with_images
 from .support_teams import (
     get_bot_framework_token,
     get_bot_from_id,
     get_graph_token,
     invalidate_bot_framework_token,
+    is_teams_graph_message_seen,
     is_trusted_teams_service_url,
+    mark_teams_graph_message_seen,
 )
+from .teams_attachments import extract_teams_bot_attachments
 from .teams_formatting import teams_html_to_content_and_rich_content
 
 logger = structlog.get_logger(__name__)
@@ -420,6 +424,104 @@ def _send_confirmation_card(
         logger.warning("teams_confirmation_post_error", ticket_id=str(ticket.id))
 
 
+# Graph's channel membershipType is an evolvable enum: the v1.0
+# /teams/{id}/channels endpoint emits "unknownFutureValue" for shared channels in
+# some tenants instead of the literal "shared". We treat anything that isn't an
+# explicit standard/private channel as shared (poll + Graph-post), and Graph
+# re-verification elsewhere rejects only the explicit standard/private cases.
+TEAMS_NON_POLLED_MEMBERSHIP_TYPES = {"standard", "private"}
+
+
+def is_shared_membership_type(membership_type: str | None) -> bool:
+    return membership_type not in TEAMS_NON_POLLED_MEMBERSHIP_TYPES
+
+
+def parse_teams_root_message_id(conversation_id: str | None) -> str | None:
+    """Extract the Graph root message id from a ``<channel>;messageid=<id>`` conversation id."""
+    if not conversation_id:
+        return None
+    marker = ";messageid="
+    if marker not in conversation_id:
+        return None
+    return conversation_id.split(marker, 1)[1] or None
+
+
+def resolve_shared_channel_team_id(team: Team, channel_id: str | None) -> str | None:
+    """Return the Graph teamId (group id) for a configured *shared* channel, else ``None``.
+
+    Shared/private channels are written to via Graph (delegated admin token), not the
+    bot connector, so this both selects the transport and supplies the teamId the Graph
+    messages endpoint needs (the ticket itself doesn't store the group id).
+    """
+    if not channel_id:
+        return None
+    settings_dict = team.conversations_settings or {}
+    entries = settings_dict.get("teams_channels")
+    if not isinstance(entries, list):
+        return None
+    for entry in entries:
+        if not isinstance(entry, dict) or entry.get("channel_id") != channel_id:
+            continue
+        if not is_shared_membership_type(entry.get("membership_type")):
+            return None
+        team_group_id = entry.get("team_id")
+        return str(team_group_id) if team_group_id else None
+    return None
+
+
+def post_teams_channel_message_via_graph(
+    *,
+    team: Team,
+    teams_team_id: str,
+    channel_id: str,
+    html: str,
+    reply_to_message_id: str | None = None,
+    token: str | None = None,
+    log_context: dict | None = None,
+) -> tuple[int, str | None]:
+    """Post an HTML channel message (or thread reply) via Graph as the connecting admin.
+
+    The bot connector can't write to shared channels (the bot isn't a member), so
+    confirmation cards and agent replies for shared-channel tickets go through Graph
+    with the same delegated token the poller uses to read. Returns ``(status, message_id)``
+    where status is the HTTP status code (``0`` for a missing token or network error)
+    and ``message_id`` is the created chatMessage id on success.
+    """
+    ctx = log_context or {}
+    if token is None:
+        try:
+            token = get_graph_token(team)
+        except ValueError:
+            logger.warning("teams_graph_post_no_token", **ctx)
+            return 0, None
+
+    base = f"{GRAPH_API_BASE}/teams/{teams_team_id}/channels/{channel_id}/messages"
+    url = f"{base}/{reply_to_message_id}/replies" if reply_to_message_id else base
+    try:
+        resp = requests.post(
+            url,
+            json={"body": {"contentType": "html", "content": html}},
+            headers={"Authorization": f"Bearer {token}", "Content-Type": "application/json"},
+            timeout=15,
+        )
+    except requests.RequestException:
+        logger.warning("teams_graph_post_error", url=url, **ctx)
+        return 0, None
+
+    message_id: str | None = None
+    if resp.status_code in (200, 201):
+        try:
+            raw_id = resp.json().get("id")
+            message_id = str(raw_id) if raw_id else None
+        except (ValueError, AttributeError, TypeError):
+            message_id = None
+        if message_id:
+            mark_teams_graph_message_seen(_get_team_id(team), channel_id, message_id)
+    else:
+        logger.warning("teams_graph_post_failed", status=resp.status_code, body=resp.text[:500], url=url, **ctx)
+    return resp.status_code, message_id
+
+
 def create_or_update_teams_ticket(
     *,
     team: Team,
@@ -427,6 +529,8 @@ def create_or_update_teams_ticket(
     tenant_id: str,
     is_thread_reply: bool = False,
     channel_detail: ChannelDetail | None = None,
+    graph_post_context: dict | None = None,
+    images: list[dict[str, Any]] | None = None,
 ) -> Ticket | None:
     """
     Core function: create a new ticket or add a message to an existing one from a Teams Activity.
@@ -468,7 +572,12 @@ def create_or_update_teams_ticket(
     # Convert Teams HTML to content and rich_content
     cleaned_text, rich_content = teams_html_to_content_and_rich_content(text_html)
 
-    if not cleaned_text:
+    # Merge extracted images into content + rich_content
+    resolved_images = images or []
+    if resolved_images:
+        cleaned_text, rich_content = build_content_with_images(cleaned_text, rich_content, resolved_images)
+
+    if not cleaned_text and not resolved_images:
         logger.warning("teams_ticket_ingest_empty", team_id=team_id, activity_id=activity_id)
         return None
 
@@ -487,6 +596,27 @@ def create_or_update_teams_ticket(
             )
             return None
 
+        if activity_id and is_teams_graph_message_seen(team_id, channel_id, activity_id):
+            logger.debug(
+                "teams_thread_reply_duplicate_skipped",
+                team_id=team_id,
+                activity_id=activity_id,
+                ticket_id=str(ticket.id),
+            )
+            return ticket
+
+        if (
+            activity_id
+            and Comment.objects.filter(
+                team=team,
+                scope="conversations_ticket",
+                item_id=str(ticket.id),
+                item_context__teams_graph_message_id=activity_id,
+            ).exists()
+        ):
+            mark_teams_graph_message_seen(team_id, channel_id, activity_id)
+            return ticket
+
         Comment.objects.create(
             team=team,
             scope="conversations_ticket",
@@ -501,8 +631,11 @@ def create_or_update_teams_ticket(
                 "teams_user_id": teams_user_id,
                 "teams_author_name": user_info["name"],
                 "teams_author_email": user_info.get("email"),
+                "teams_graph_message_id": activity_id,
+                "teams_images": resolved_images if resolved_images else None,
             },
         )
+        mark_teams_graph_message_seen(team_id, channel_id, activity_id)
 
         if not is_team_member:
             Ticket.objects.filter(id=ticket.id, team=team).update(
@@ -554,6 +687,8 @@ def create_or_update_teams_ticket(
         teams_service_url=service_url,
         teams_tenant_id=tenant_id,
         unread_team_count=0 if is_team_member else 1,
+        # Created from a signature-validated Teams webhook — platform-attested identity.
+        identity_verified=True,
     )
 
     Comment.objects.create(
@@ -570,19 +705,70 @@ def create_or_update_teams_ticket(
             "teams_user_id": teams_user_id,
             "teams_author_name": user_info["name"],
             "teams_author_email": user_info.get("email"),
+            "teams_graph_message_id": activity_id,
+            "teams_images": resolved_images if resolved_images else None,
         },
     )
 
-    # Post confirmation card in the Teams thread
-    _send_confirmation_card(
-        service_url=service_url,
-        conversation_id=conversation_id,
-        reply_to_id=activity_id,
-        ticket=ticket,
-        team=team,
-    )
+    if activity_id:
+        mark_teams_graph_message_seen(team_id, channel_id, activity_id)
+
+    # Post confirmation card in the Teams thread. Shared-channel tickets (polled)
+    # can't be confirmed over the bot connector, so go through Graph instead.
+    if graph_post_context:
+        ticket_url = f"{settings.SITE_URL}/project/{team_id}/support/tickets/{ticket.id}"
+        post_teams_channel_message_via_graph(
+            team=team,
+            teams_team_id=graph_post_context["teams_team_id"],
+            channel_id=channel_id,
+            html=f'\U0001f3ab Ticket #{ticket.ticket_number} created. <a href="{ticket_url}">View in PostHog</a>',
+            reply_to_message_id=activity_id,
+            token=graph_post_context.get("token"),
+            log_context={"ticket_id": str(ticket.id)},
+        )
+    else:
+        _send_confirmation_card(
+            service_url=service_url,
+            conversation_id=conversation_id,
+            reply_to_id=activity_id,
+            ticket=ticket,
+            team=team,
+        )
 
     return ticket
+
+
+def _configured_support_channel_ids(settings: dict) -> set[str]:
+    """Return the set of Teams channel IDs configured for auto-ticket creation.
+
+    Merges the new ``teams_channels`` list with the legacy scalar
+    ``teams_channel_id`` so that teams that haven't re-saved settings after
+    the multi-channel migration still work.
+    """
+    ids: set[str] = set()
+    teams_channels = settings.get("teams_channels")
+    if isinstance(teams_channels, list):
+        for entry in teams_channels:
+            if isinstance(entry, dict):
+                channel_id = entry.get("channel_id")
+                if channel_id:
+                    ids.add(channel_id)
+    legacy = settings.get("teams_channel_id")
+    if legacy:
+        ids.add(legacy)
+    return ids
+
+
+def _extract_bot_images(activity: dict, team: Team) -> list[dict[str, Any]]:
+    """Best-effort extraction of image attachments from a bot-framework activity."""
+    attachments = activity.get("attachments")
+    if not attachments:
+        return []
+    try:
+        bot_token = get_bot_framework_token()
+    except ValueError:
+        return []
+    return extract_teams_bot_attachments(attachments, team, bot_token)
 
 
 def handle_teams_message(activity: dict, team: Team, tenant_id: str) -> None:
@@ -606,7 +792,7 @@ def handle_teams_message(activity: dict, team: Team, tenant_id: str) -> None:
         return
 
     settings_dict = team.conversations_settings or {}
-    configured_channel = settings_dict.get("teams_channel_id")
+    configured_channels = _configured_support_channel_ids(settings_dict)
 
     conversation_id = _extract_conversation_id(activity)
     is_reply = _is_reply(activity)
@@ -616,27 +802,31 @@ def handle_teams_message(activity: dict, team: Team, tenant_id: str) -> None:
         if not Ticket.objects.filter(
             team=team, teams_channel_id=channel_id, teams_conversation_id=conversation_id
         ).exists():
-            if not configured_channel or configured_channel != channel_id:
+            if channel_id not in configured_channels:
                 return
 
+        images = _extract_bot_images(activity, team)
         create_or_update_teams_ticket(
             team=team,
             activity=activity,
             tenant_id=tenant_id,
             is_thread_reply=True,
+            images=images,
         )
         return
 
-    if not configured_channel or configured_channel != channel_id:
+    if channel_id not in configured_channels:
         return
 
     # Top-level message -> create new ticket
+    images = _extract_bot_images(activity, team)
     create_or_update_teams_ticket(
         team=team,
         activity=activity,
         tenant_id=tenant_id,
         is_thread_reply=False,
         channel_detail=ChannelDetail.TEAMS_CHANNEL_MESSAGE,
+        images=images,
     )
 
 
@@ -677,10 +867,154 @@ def handle_teams_mention(activity: dict, team: Team, tenant_id: str) -> None:
         teams_conversation_id__in=candidate_conversation_ids,
     ).exists()
 
+    images = _extract_bot_images(activity, team)
     create_or_update_teams_ticket(
         team=team,
         activity=activity,
         tenant_id=tenant_id,
         is_thread_reply=existing,
         channel_detail=ChannelDetail.TEAMS_BOT_MENTION,
+        images=images,
     )
+
+
+def graph_message_to_activity(msg: dict, channel_id: str, service_url: str) -> dict | None:
+    """Map a Microsoft Graph ``chatMessage`` (from channel ``messages/delta``) to the
+    Bot Framework activity shape that ``create_or_update_teams_ticket`` consumes.
+
+    Returns ``None`` for anything we don't ingest as a top-level support message:
+    non-message types (system events), deletions, replies, empty bodies, and
+    system/bot/app-authored posts (no ``from.user``). The mapped activity uses the
+    canonical ``"<channelId>;messageid=<msgId>"`` conversation id so a later webhook
+    reply on the same thread dedupes onto the same ticket.
+    """
+    # Only real user messages: skip systemEventMessage, typing, etc.
+    if msg.get("messageType") != "message":
+        return None
+    if msg.get("deletedDateTime"):
+        return None
+    # Channel messages/delta returns root messages only; guard defensively in case
+    # a reply ever shows up (thread replies are ingested via the reply poller).
+    if msg.get("replyToId"):
+        return None
+
+    body = msg.get("body") or {}
+    content = body.get("content") or ""
+    has_hosted_images = bool(msg.get("hostedContents"))
+    if not content.strip() and not has_hosted_images:
+        return None
+
+    # System/bot/app posts (incl. our own confirmation cards) carry from.application
+    # or from.device, never from.user — skip them so we never self-ingest.
+    from_field = msg.get("from") or {}
+    user = from_field.get("user") or {}
+    aad_object_id = user.get("id")
+    if not aad_object_id:
+        return None
+
+    msg_id = msg.get("id")
+    if not msg_id:
+        return None
+
+    return {
+        "id": msg_id,
+        "type": "message",
+        "text": content,
+        "from": {
+            "id": aad_object_id,
+            "aadObjectId": aad_object_id,
+            "name": user.get("displayName") or "",
+        },
+        "conversation": {"id": f"{channel_id};messageid={msg_id}"},
+        "channelData": {"channel": {"id": channel_id}},
+        "serviceUrl": service_url,
+    }
+
+
+def graph_reply_to_activity(
+    msg: dict,
+    channel_id: str,
+    root_message_id: str,
+    service_url: str,
+) -> dict | None:
+    """Map a Graph thread ``chatMessage`` reply to a Bot Framework activity shape.
+
+    Used by the shared-channel reply poller. The activity uses the ticket's canonical
+    ``"<channelId>;messageid=<rootId>"`` conversation id so ``create_or_update_teams_ticket``
+    finds the existing ticket with ``is_thread_reply=True``.
+    """
+    msg_id = msg.get("id")
+    if msg.get("messageType") != "message":
+        logger.debug(
+            "teams_reply_skipped",
+            reason="not_a_message",
+            channel_id=channel_id,
+            root_message_id=root_message_id,
+            msg_id=msg_id,
+            message_type=msg.get("messageType"),
+        )
+        return None
+    if msg.get("deletedDateTime"):
+        logger.debug(
+            "teams_reply_skipped",
+            reason="deleted",
+            channel_id=channel_id,
+            root_message_id=root_message_id,
+            msg_id=msg_id,
+        )
+        return None
+
+    body = msg.get("body") or {}
+    content = body.get("content") or ""
+    has_hosted_images = bool(msg.get("hostedContents"))
+    if not content.strip() and not has_hosted_images:
+        logger.debug(
+            "teams_reply_skipped",
+            reason="empty_content",
+            channel_id=channel_id,
+            root_message_id=root_message_id,
+            msg_id=msg_id,
+        )
+        return None
+
+    from_field = msg.get("from") or {}
+    user = from_field.get("user") or {}
+    aad_object_id = user.get("id")
+    if not aad_object_id:
+        logger.debug(
+            "teams_reply_skipped",
+            reason="no_author",
+            channel_id=channel_id,
+            root_message_id=root_message_id,
+            msg_id=msg_id,
+        )
+        return None
+
+    if not msg_id:
+        logger.debug(
+            "teams_reply_skipped",
+            reason="no_msg_id",
+            channel_id=channel_id,
+            root_message_id=root_message_id,
+        )
+        return None
+
+    # Graph's /replies endpoint only returns replies belonging to this root thread, so
+    # we trust the endpoint scoping rather than re-validating replyToId (it can differ
+    # from the root id for nested quote-replies, which we still want to ingest).
+    reply_to_id = msg.get("replyToId")
+
+    return {
+        "id": msg_id,
+        "type": "message",
+        "text": content,
+        "replyToId": reply_to_id or root_message_id,
+        "from": {
+            "id": aad_object_id,
+            "aadObjectId": aad_object_id,
+            "name": user.get("displayName") or "",
+        },
+        "conversation": {"id": f"{channel_id};messageid={root_message_id}"},
+        "channelData": {"channel": {"id": channel_id}},
+        "serviceUrl": service_url,
+    }

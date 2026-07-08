@@ -69,7 +69,7 @@ async def test_find_sessions_filters_summarized(activity_environment, organizati
                 return_value=raw_ids,
             ),
             patch(
-                "ee.models.session_summaries.SingleSessionSummary.objects.summaries_exist",
+                "products.replay.backend.models.session_summaries.SingleSessionSummary.objects.summaries_exist",
                 return_value=existing,
             ),
             patch(
@@ -105,7 +105,7 @@ async def test_find_sessions_dispatches_all_unsummarized_candidates(activity_env
                 return_value=raw_ids,
             ),
             patch(
-                "ee.models.session_summaries.SingleSessionSummary.objects.summaries_exist",
+                "products.replay.backend.models.session_summaries.SingleSessionSummary.objects.summaries_exist",
                 return_value=existing,
             ),
             patch(
@@ -143,7 +143,7 @@ async def test_find_sessions_passes_sample_rate_to_fetch(activity_environment, o
                 side_effect=_fake_fetch,
             ),
             patch(
-                "ee.models.session_summaries.SingleSessionSummary.objects.summaries_exist",
+                "products.replay.backend.models.session_summaries.SingleSessionSummary.objects.summaries_exist",
                 return_value={"only-1": False},
             ),
             patch(
@@ -240,7 +240,7 @@ async def test_find_sessions_prefers_created_by_user(activity_environment, organ
                 return_value=["s1"],
             ),
             patch(
-                "ee.models.session_summaries.SingleSessionSummary.objects.summaries_exist",
+                "products.replay.backend.models.session_summaries.SingleSessionSummary.objects.summaries_exist",
                 return_value={"s1": False},
             ),
             patch(
@@ -272,7 +272,7 @@ async def test_find_sessions_falls_back_when_created_by_is_null(activity_environ
                 return_value=["s1"],
             ),
             patch(
-                "ee.models.session_summaries.SingleSessionSummary.objects.summaries_exist",
+                "products.replay.backend.models.session_summaries.SingleSessionSummary.objects.summaries_exist",
                 return_value={"s1": False},
             ),
             patch(
@@ -327,7 +327,7 @@ async def test_find_sessions_skips_recordings_with_too_many_failures(activity_en
                 return_value=candidate_ids,
             ),
             patch(
-                "ee.models.session_summaries.SingleSessionSummary.objects.summaries_exist",
+                "products.replay.backend.models.session_summaries.SingleSessionSummary.objects.summaries_exist",
                 return_value={},
             ),
             patch(
@@ -383,7 +383,7 @@ async def test_find_sessions_drops_sessions_without_events(
                 return_value=candidate_ids,
             ),
             patch(
-                "ee.models.session_summaries.SingleSessionSummary.objects.summaries_exist",
+                "products.replay.backend.models.session_summaries.SingleSessionSummary.objects.summaries_exist",
                 return_value={},
             ),
             patch(
@@ -422,7 +422,7 @@ async def test_find_sessions_skips_events_filter_when_all_summarized(activity_en
                 return_value=candidate_ids,
             ),
             patch(
-                "ee.models.session_summaries.SingleSessionSummary.objects.summaries_exist",
+                "products.replay.backend.models.session_summaries.SingleSessionSummary.objects.summaries_exist",
                 return_value={"s1": True, "s2": True},
             ),
             patch(

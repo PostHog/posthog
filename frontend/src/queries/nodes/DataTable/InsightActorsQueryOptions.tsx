@@ -1,7 +1,7 @@
 import { useMountedLogic, useValues } from 'kea'
 
 import { LemonSelect, LemonSelectOptions } from 'lib/lemon-ui/LemonSelect'
-import { isKeyOf } from 'lib/utils'
+import { isKeyOf } from 'lib/utils/guards'
 import { cleanedInsightActorsQueryOptions } from 'scenes/trends/persons-modal/persons-modal-utils'
 
 import { dataNodeLogic } from '~/queries/nodes/DataNode/dataNodeLogic'

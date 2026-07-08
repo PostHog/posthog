@@ -3,7 +3,7 @@ import { MOCK_TEAM_ID } from 'lib/api.mock'
 import { combineUrl, router } from 'kea-router'
 import { expectLogic, partial } from 'kea-test-utils'
 
-import { addProjectIdIfMissing } from 'lib/utils/router-utils'
+import { addProjectIdIfMissing } from 'lib/utils/kea-router'
 import { insightSceneLogic } from 'scenes/insights/insightSceneLogic'
 import { sceneLogic } from 'scenes/sceneLogic'
 import { Scene } from 'scenes/sceneTypes'
@@ -20,7 +20,6 @@ const Insight42 = '42' as InsightShortId
 
 describe('insightSceneLogic', () => {
     let logic: ReturnType<typeof insightSceneLogic.build>
-    let tabId: string = ''
     beforeEach(async () => {
         useMocks({
             get: {
@@ -31,21 +30,20 @@ describe('insightSceneLogic', () => {
             },
             post: {
                 '/api/environments/:team_id/insights/funnel/': { result: ['result from api'] },
-                '/api/environments/:team_id/insights/': (req) => [
+                '/api/environments/:team_id/insights/': async ({ request }) => [
                     200,
-                    { id: 12, short_id: Insight12, ...(req.body as any) },
+                    { id: 12, short_id: Insight12, ...((await request.json()) as any) },
                 ],
                 '/api/environments/:team_id/query/upgrade/': { query: {} },
             },
         })
         initKeaTests()
         sceneLogic.mount()
-        tabId = sceneLogic.values.activeTabId || ''
     })
 
     it('keeps url /insight/new', async () => {
         router.actions.push(urls.insightNew())
-        logic = insightSceneLogic({ tabId })
+        logic = insightSceneLogic()
         logic.mount()
         await expectLogic(logic).toFinishAllListeners()
         await expectLogic(router)
@@ -57,7 +55,7 @@ describe('insightSceneLogic', () => {
 
     it('redirects maintaining url params when opening /insight/new with insight type in theurl', async () => {
         router.actions.push(urls.insightNew({ type: InsightType.FUNNELS }))
-        logic = insightSceneLogic({ tabId })
+        logic = insightSceneLogic()
         logic.mount()
         await expectLogic(logic).toFinishAllListeners()
 
@@ -68,7 +66,7 @@ describe('insightSceneLogic', () => {
 
     it('tags new default insights with product_analytics productKey', async () => {
         router.actions.push(urls.insightNew())
-        logic = insightSceneLogic({ tabId })
+        logic = insightSceneLogic()
         logic.mount()
         await expectLogic(logic).toFinishAllListeners()
 
@@ -78,7 +76,7 @@ describe('insightSceneLogic', () => {
 
     it('tags new typed insights with product_analytics productKey', async () => {
         router.actions.push(urls.insightNew({ type: InsightType.FUNNELS }))
-        logic = insightSceneLogic({ tabId })
+        logic = insightSceneLogic()
         logic.mount()
         await expectLogic(logic).toFinishAllListeners()
 
@@ -98,7 +96,7 @@ describe('insightSceneLogic', () => {
                 } as InsightVizNode,
             })
         )
-        logic = insightSceneLogic({ tabId })
+        logic = insightSceneLogic()
         logic.mount()
         await expectLogic(logic).toFinishAllListeners()
 
@@ -115,13 +113,122 @@ describe('insightSceneLogic', () => {
                 } as InsightVizNode,
             })
         )
-        logic = insightSceneLogic({ tabId })
+        logic = insightSceneLogic()
         logic.mount()
         await expectLogic(logic).toDispatchActions(['upgradeQuery']).toFinishAllListeners()
     })
 
+    it('retains the #q= query hash after navigating to /insights/new (persons modal drill-down)', async () => {
+        // Mirrors PersonsModal's "View events" / "Open as new insight" navigation: a DataTableNode
+        // query encoded in the #q= hash must survive the post-load URL sync, otherwise both buttons
+        // collapse onto the same default insight page.
+        const dataTableQuery = {
+            kind: NodeKind.DataTableNode,
+            source: {
+                kind: NodeKind.EventsQuery,
+                select: ['*'],
+            },
+        }
+        router.actions.push(urls.insightNew({ query: dataTableQuery as any }))
+        logic = insightSceneLogic()
+        logic.mount()
+        await expectLogic(logic).toFinishAllListeners()
+
+        await expectLogic(router)
+            .delay(1)
+            .toMatchValues({
+                hashParams: partial({ q: JSON.stringify(dataTableQuery) }),
+            })
+    })
+
+    it('tags a DataTableNode drill-down query on cold load via the upgrade path', async () => {
+        // The persons-modal "View events" button opens in a new tab, so the scene cold-loads with the
+        // query already in the URL (initial navigation -> upgradeQuery). A DataTableNode's source query
+        // is executed directly, so without a productKey tag ClickHouse rejects it as untagged — the
+        // upgrade path must tag the source when materializing the new insight.
+        const dataTableQuery = {
+            kind: NodeKind.DataTableNode,
+            source: {
+                kind: NodeKind.ActorsQuery,
+                select: ['person'],
+            },
+        }
+        router.actions.push(urls.insightNew({ query: dataTableQuery as any }))
+        logic = insightSceneLogic()
+        logic.mount()
+        await expectLogic(logic).toDispatchActions(['upgradeQuery']).toFinishAllListeners()
+
+        const query = logic.values.insightLogicRef?.logic.values.insight.query as any
+        expect(query.kind).toEqual(NodeKind.DataTableNode)
+        expect(query.source?.tags?.productKey).toEqual(ProductKey.PRODUCT_ANALYTICS)
+    })
+
+    it('tags a DataTableNode drill-down query on in-app navigation', async () => {
+        // The "Open as new insight" button navigates in-app (router PUSH, not an initial load), which
+        // routes through urlToAction's PUSH branch rather than upgradeQuery. That path must tag too.
+        const dataTableQuery = {
+            kind: NodeKind.DataTableNode,
+            source: {
+                kind: NodeKind.ActorsQuery,
+                select: ['person'],
+            },
+        }
+
+        // Settle a new-insight scene first, then navigate in-app to the drill-down query
+        router.actions.push(urls.insightNew())
+        logic = insightSceneLogic()
+        logic.mount()
+        await expectLogic(logic).toFinishAllListeners()
+
+        router.actions.push(urls.insightNew({ query: dataTableQuery as any }))
+        await expectLogic(logic).toFinishAllListeners()
+
+        const query = logic.values.insightLogicRef?.logic.values.insight.query as any
+        expect(query.kind).toEqual(NodeKind.DataTableNode)
+        expect(query.source?.tags?.productKey).toEqual(ProductKey.PRODUCT_ANALYTICS)
+    })
+
+    it('does not overwrite an existing productKey on a DataTableNode drill-down query', async () => {
+        // A drill-down query that already declares its product (e.g. web analytics) must keep it.
+        const dataTableQuery = {
+            kind: NodeKind.DataTableNode,
+            source: {
+                kind: NodeKind.ActorsQuery,
+                select: ['person'],
+                tags: { productKey: ProductKey.WEB_ANALYTICS },
+            },
+        }
+        router.actions.push(urls.insightNew({ query: dataTableQuery as any }))
+        logic = insightSceneLogic()
+        logic.mount()
+        await expectLogic(logic).toFinishAllListeners()
+
+        const query = logic.values.insightLogicRef?.logic.values.insight.query as any
+        expect(query.source?.tags?.productKey).toEqual(ProductKey.WEB_ANALYTICS)
+    })
+
+    it('does not inject tags into a DataTableNode with an EventsNode source', async () => {
+        // EventsNode forbids extra keys in its schema, so tagging it would produce an invalid query.
+        // The source must be left untouched (no tags field added).
+        const dataTableQuery = {
+            kind: NodeKind.DataTableNode,
+            source: {
+                kind: NodeKind.EventsNode,
+                event: '$pageview',
+            },
+        }
+        router.actions.push(urls.insightNew({ query: dataTableQuery as any }))
+        logic = insightSceneLogic()
+        logic.mount()
+        await expectLogic(logic).toFinishAllListeners()
+
+        const query = logic.values.insightLogicRef?.logic.values.insight.query as any
+        expect(query.source.kind).toEqual(NodeKind.EventsNode)
+        expect(query.source.tags).toBeUndefined()
+    })
+
     it('persists edit mode in the url', async () => {
-        logic = insightSceneLogic({ tabId })
+        logic = insightSceneLogic()
         logic.mount()
         const viewUrl = combineUrl(urls.insightView(Insight42))
         const editUrl = combineUrl(urls.insightEdit(Insight42))
@@ -141,7 +248,7 @@ describe('insightSceneLogic', () => {
 
     it('resets insight state when navigating to /insights/new again after previous visit', async () => {
         router.actions.push(urls.insightNew({ type: InsightType.TRENDS, dashboardId: 6 }))
-        logic = insightSceneLogic({ tabId })
+        logic = insightSceneLogic()
         logic.mount()
         await expectLogic(logic).toFinishAllListeners()
 
@@ -164,13 +271,11 @@ describe('insightSceneLogic', () => {
             { logic: insightSceneLogic, component: () => null as any },
             Scene.Insight,
             'insightNew',
-            tabId,
             { params: {}, searchParams: {}, hashParams: {} }
         )
         sceneLogic.actions.setScene(
             Scene.Insight,
             'insightNew',
-            tabId,
             { params: {}, searchParams: {}, hashParams: {} },
             false
         )
@@ -187,8 +292,8 @@ describe('insightSceneLogic', () => {
         useMocks({
             get: {
                 '/api/environments/:team_id/insights/trend/': { result: ['result from api'] },
-                '/api/environments/:team_id/insights/': (req) => {
-                    const shortId = req.url.searchParams.get('short_id') || ''
+                '/api/environments/:team_id/insights/': ({ request }) => {
+                    const shortId = new URL(request.url).searchParams.get('short_id') || ''
                     const id = shortId === '12' ? 12 : 42
                     const sid = (shortId === '12' ? Insight12 : Insight42) as InsightShortId
                     return [
@@ -208,15 +313,15 @@ describe('insightSceneLogic', () => {
             },
             post: {
                 '/api/environments/:team_id/insights/funnel/': { result: ['result from api'] },
-                '/api/environments/:team_id/insights/': (req) => [
+                '/api/environments/:team_id/insights/': async ({ request }) => [
                     200,
-                    { id: 12, short_id: Insight12, ...(req.body as any) },
+                    { id: 12, short_id: Insight12, ...((await request.json()) as any) },
                 ],
                 '/api/environments/:team_id/query/upgrade/': { query: {} },
             },
         })
 
-        logic = insightSceneLogic({ tabId })
+        logic = insightSceneLogic()
         logic.mount()
 
         router.actions.push(urls.insightEdit(Insight42))
@@ -264,7 +369,7 @@ describe('insightSceneLogic', () => {
             },
         })
 
-        logic = insightSceneLogic({ tabId })
+        logic = insightSceneLogic()
         logic.mount()
 
         router.actions.push(urls.insightView(Insight42))
@@ -277,13 +382,11 @@ describe('insightSceneLogic', () => {
             { logic: insightSceneLogic, component: () => null as any },
             Scene.Insight,
             'insightView',
-            tabId,
             { params: {}, searchParams: {}, hashParams: {} }
         )
         sceneLogic.actions.setScene(
             Scene.Insight,
             'insightView',
-            tabId,
             { params: {}, searchParams: {}, hashParams: {} },
             false
         )
@@ -305,7 +408,7 @@ describe('insightSceneLogic', () => {
     ])(
         'updates itemId when navigating from subscriptions list to %s',
         async (_label, subscriptionId, expectedItemId) => {
-            logic = insightSceneLogic({ tabId })
+            logic = insightSceneLogic()
             logic.mount()
 
             router.actions.push(urls.insightSubcriptions(Insight42))
@@ -319,13 +422,11 @@ describe('insightSceneLogic', () => {
                 { logic: insightSceneLogic, component: () => null as any },
                 Scene.Insight,
                 'insightSubcriptions',
-                tabId,
                 { params: {}, searchParams: {}, hashParams: {} }
             )
             sceneLogic.actions.setScene(
                 Scene.Insight,
                 'insightSubcriptions',
-                tabId,
                 { params: {}, searchParams: {}, hashParams: {} },
                 false
             )
@@ -352,7 +453,7 @@ describe('insightSceneLogic', () => {
             },
         })
 
-        logic = insightSceneLogic({ tabId })
+        logic = insightSceneLogic()
         logic.mount()
 
         router.actions.push(urls.insightView(Insight42))

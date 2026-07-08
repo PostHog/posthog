@@ -1,0 +1,562 @@
+import sys
+import time
+import asyncio
+import threading
+import contextvars
+from collections.abc import AsyncIterable, AsyncIterator, Iterable
+from concurrent.futures import ThreadPoolExecutor
+from typing import Any, Generic, Literal, TypeVar, cast
+
+import pyarrow as pa
+import deltalake as deltalake
+from structlog.types import FilteringBoundLogger
+
+from posthog.exceptions_capture import capture_exception
+from posthog.sync import database_sync_to_async_pool
+from posthog.temporal.common.shutdown import ShutdownMonitor
+
+from products.warehouse_sources.backend.models.external_data_job import ExternalDataJob
+from products.warehouse_sources.backend.models.external_data_schema import (
+    ExternalDataSchema,
+    process_incremental_value,
+    update_sync_type_config_keys,
+)
+from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
+from products.warehouse_sources.backend.models.table import DataWarehouseTable
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.common.extract import (
+    advance_xmin_state,
+    cdp_producer_clear_chunks,
+    cleanup_memory,
+    finalize_desc_sort_incremental_value,
+    handle_corrupted_delta_log,
+    handle_reset_or_full_refresh,
+    reset_rows_synced_if_needed,
+    run_pre_write_defensive_compact,
+    setup_row_tracking_with_billing_check,
+    should_check_shutdown,
+    update_incremental_field_values,
+    update_row_tracking_after_batch,
+    validate_incremental_sync,
+    write_chunk_for_cdp_producer,
+)
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.common.load import (
+    notify_revenue_analytics_that_sync_has_completed,
+    supports_partial_data_loading,
+)
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.helpers import sync_revenue_analytics_views
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.batcher import Batcher
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.cdp_producer import CDPProducer
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.delta_table_helper import (
+    DeltaTableHelper,
+)
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.hogql_schema import HogQLSchema
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.typings import (
+    PipelineResult,
+    ResumableData,
+    SourceResponse,
+)
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.utils import (
+    _append_debug_column_to_pyarrows_table,
+    _handle_null_columns_with_definitions,
+    evolve_pyarrow_schema,
+    merge_observed_columns_into_schema_metadata,
+    normalize_table_column_names,
+    observe_and_project_table,
+    setup_partitioning,
+    source_uses_delta_write_column_selection,
+)
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_sync import (
+    set_initial_sync_complete,
+    update_last_synced_at,
+    validate_schema_and_update_table,
+)
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
+from products.warehouse_sources.backend.temporal.data_imports.util import prepare_s3_files_for_querying
+
+T = TypeVar("T")
+
+# Dedicated thread pool for source iteration so that long-running HTTP calls
+# (e.g. Stripe API pagination) can't starve the default executor which is
+# shared by logging, DB operations, and S3 writes.
+_SOURCE_ITERATOR_EXECUTOR = ThreadPoolExecutor(max_workers=32, thread_name_prefix="source-iter")
+
+
+async def async_iterate(iterable: Iterable[T] | AsyncIterable[T]) -> AsyncIterator[T]:
+    """
+    Normalize a sync or async iterable into an async iterator.
+
+    Async iterables are yielded directly. Sync iterables are wrapped so that
+    each call to `next()` runs in a dedicated thread pool, preventing
+    blocking source HTTP calls from exhausting the default executor.
+    """
+    if isinstance(iterable, AsyncIterable):
+        async for item in iterable:
+            yield cast(T, item)
+        return
+
+    iterator = iter(iterable)
+    lock = threading.Lock()
+    loop = asyncio.get_running_loop()
+    # loop.run_in_executor does not propagate contextvars across the thread
+    # boundary (unlike asyncio.to_thread). Snapshot them once so logs emitted
+    # from inside the source generator keep team_id / workflow_* and reach the
+    # log_entries table via LogMessagesRenderer's produce path.
+    ctx = contextvars.copy_context()
+
+    def _next() -> tuple[bool, T | None]:
+        with lock:
+            try:
+                return (True, next(iterator))
+            except StopIteration:
+                return (False, None)
+
+    def _close() -> None:
+        with lock:
+            if hasattr(iterator, "close") and callable(iterator.close):
+                iterator.close()
+
+    try:
+        while True:
+            has_value, item = await loop.run_in_executor(_SOURCE_ITERATOR_EXECUTOR, ctx.run, _next)  # type: ignore
+            if not has_value:
+                break
+
+            assert item is not None
+            yield item
+    finally:
+        # Use a fresh context snapshot for cleanup. Reusing `ctx` would fail
+        # with RuntimeError if the activity is cancelled mid-_next: the
+        # in-flight _next may still be inside `ctx` on an executor thread,
+        # and Context.run raises when re-entered. A failed _close would skip
+        # iterator.close() and leave DB cursors / connections / tunnels held
+        # open until garbage collection.
+        cleanup_ctx = contextvars.copy_context()
+        await loop.run_in_executor(_SOURCE_ITERATOR_EXECUTOR, cleanup_ctx.run, _close)
+
+
+class PipelineNonDLT(Generic[ResumableData]):
+    _resource: SourceResponse
+    _resource_name: str
+    _job: ExternalDataJob
+    _source: ExternalDataSource
+    _schema: ExternalDataSchema
+    _table: DataWarehouseTable | None
+    _logger: FilteringBoundLogger
+    _is_incremental: bool
+    _reset_pipeline: bool
+    _delta_table_helper: DeltaTableHelper
+    _resumable_source_manager: ResumableSourceManager[ResumableData] | None
+    _internal_schema = HogQLSchema()
+    _cdp_producer: CDPProducer
+    _batcher: Batcher
+    _load_id: int
+
+    def __init__(
+        self,
+        source_response: SourceResponse,
+        logger: FilteringBoundLogger,
+        job_id: str,
+        reset_pipeline: bool,
+        shutdown_monitor: ShutdownMonitor,
+        job: ExternalDataJob,
+        schema: ExternalDataSchema,
+        source: ExternalDataSource,
+        table: DataWarehouseTable | None,
+        resumable_source_manager: ResumableSourceManager[ResumableData] | None,
+    ) -> None:
+        self._resource = source_response
+        self._resource_name = source_response.name
+
+        # Allow user-specified primary keys to override auto-detected ones
+        if schema.primary_key_columns:
+            self._resource.primary_keys = schema.primary_key_columns
+
+        self._job = job
+        self._reset_pipeline = reset_pipeline
+        self._logger = logger
+        self._load_id = time.time_ns()
+
+        self._schema = schema
+        self._source = source
+        self._table = table
+        # xmin reads deltas and upserts on the primary key, so it writes incrementally too — never
+        # as a full_refresh overwrite, which would wipe earlier data on the second (delta-only) sync.
+        self._is_incremental = schema.is_incremental or schema.is_webhook or schema.is_xmin
+
+        self._delta_table_helper = DeltaTableHelper(self._resource_name, self._job, self._logger)
+        self._resumable_source_manager = resumable_source_manager
+        # A source can shrink the batcher chunk (e.g. document sources with large rows) so the
+        # source->Arrow conversion doesn't materialise an oversized table; None falls back to defaults.
+        self._batcher = Batcher(
+            self._logger,
+            chunk_size=source_response.chunk_size,
+            chunk_size_bytes=source_response.chunk_size_bytes,
+        )
+        self._internal_schema = HogQLSchema()
+        self._cdp_producer = CDPProducer(
+            team_id=self._job.team_id, schema_id=self._schema.id, job_id=job_id, logger=self._logger
+        )
+        self._shutdown_monitor = shutdown_monitor
+        self._last_incremental_field_value: Any = None
+        self._earliest_incremental_field_value: Any = process_incremental_value(
+            schema.incremental_field_earliest_value, schema.incremental_field_type
+        )
+        # SQL sources project enabled_columns in their SELECT and own schema_metadata via
+        # introspection; managed-schema sources don't allow selection. Everything else gets the
+        # Delta-write-side drop plus observed-columns capture so the column picker has a catalog.
+        self._uses_delta_write_column_selection = source_uses_delta_write_column_selection(source.source_type)
+        self._observed_columns: dict[str, dict[str, Any]] = {}
+
+    async def run(self) -> PipelineResult:
+        pa_memory_pool = pa.default_memory_pool()
+
+        should_resume = self._resumable_source_manager is not None and self._resumable_source_manager.can_resume()
+        source_is_resumable = self._resumable_source_manager is not None
+        if should_resume:
+            await self._logger.ainfo("Resumable source detected - attempting to resume previous import")
+
+        try:
+            await cdp_producer_clear_chunks(self._cdp_producer)
+
+            await reset_rows_synced_if_needed(self._job, self._is_incremental, self._reset_pipeline, should_resume)
+
+            validate_incremental_sync(self._is_incremental, self._resource)
+
+            await setup_row_tracking_with_billing_check(
+                self._job.team_id,
+                self._schema,
+                self._resource,
+                self._source,
+                self._logger,
+                billable=self._job.billable,
+            )
+
+            py_table = None
+            row_count = 0
+            chunk_index = 0
+
+            # Revive a corrupt-`_delta_log` table (from an interrupted repartition swap or OOM-crashed
+            # merge) before extraction so it self-heals in this run instead of looping forever.
+            await handle_corrupted_delta_log(self._schema, self._job, self._delta_table_helper, self._logger)
+
+            await handle_reset_or_full_refresh(
+                self._reset_pipeline, should_resume, self._schema, self._delta_table_helper, self._logger
+            )
+
+            # If the schema has no DWH table, it's a first ever sync
+            is_first_ever_sync: bool = self._table is None
+
+            # Defensive pre-write compaction so a sync that arrived at a fragmented
+            # Delta target (e.g. earlier attempts that failed before reaching
+            # `_post_run_operations`) cleans up before adding more small files. Skipped
+            # cheaply when the table is healthy. Shared implementation lives in
+            # `extract.run_pre_write_defensive_compact` so the v3 pipeline matches.
+            if not is_first_ever_sync:
+                await run_pre_write_defensive_compact(
+                    self._delta_table_helper, self._schema, self._resource, self._logger
+                )
+
+            async for item in async_iterate(self._resource.items()):
+                py_table = None
+
+                self._batcher.batch(item)
+
+                # A single batched table may be split into several when a string/binary/list
+                # column would otherwise overflow a 32-bit offset, so drain every ready chunk.
+                while self._batcher.should_yield():
+                    py_table = self._batcher.get_table()
+
+                    row_count += py_table.num_rows
+
+                    await self._process_pa_table(
+                        pa_table=py_table,
+                        index=chunk_index,
+                        resuming_sync=should_resume,
+                        row_count=row_count,
+                        is_first_ever_sync=is_first_ever_sync,
+                    )
+
+                    chunk_index += 1
+
+                    cleanup_memory(pa_memory_pool, py_table)
+                    py_table = None
+
+                if should_check_shutdown(self._schema, self._resource, self._reset_pipeline, source_is_resumable):
+                    self._shutdown_monitor.raise_if_is_worker_shutdown()
+
+            while self._batcher.should_yield(include_incomplete_chunk=True):
+                py_table = self._batcher.get_table()
+                row_count += py_table.num_rows
+                await self._process_pa_table(
+                    pa_table=py_table,
+                    index=chunk_index,
+                    resuming_sync=should_resume,
+                    row_count=row_count,
+                    is_first_ever_sync=is_first_ever_sync,
+                )
+                chunk_index += 1
+
+            await self._persist_observed_columns()
+
+            await self._post_run_operations(row_count=row_count)
+
+            await advance_xmin_state(self._resource, self._schema, self._logger)
+
+            return {"should_trigger_cdp_producer": await self._cdp_producer.should_produce_table()}
+        finally:
+            # Help reduce the memory footprint of each job. This is best-effort cleanup:
+            # `get_delta_table` does object-storage I/O, so a transient storage blip here
+            # must not mask the real import error from the try body — which drives
+            # retry classification and the user-facing message — nor fail an otherwise
+            # successful sync.
+            await self._logger.adebug("Cleaning up delta table helper")
+            try:
+                delta_table = await self._delta_table_helper.get_delta_table()
+                self._delta_table_helper.get_delta_table.cache_clear()
+                if delta_table:
+                    del delta_table
+            except Exception:
+                await self._logger.aexception("Failed to clean up delta table helper")
+
+            del self._resource
+            del self._delta_table_helper
+
+            cleanup_memory(pa_memory_pool, py_table if "py_table" in locals() else None)
+
+    async def _persist_observed_columns(self) -> None:
+        """Union the columns the source actually returned into `schema_metadata["columns"]`.
+
+        Bookkeeping for the column picker — a failure here must not fail an otherwise
+        successful sync.
+        """
+        if not self._observed_columns:
+            return
+        observed = list(self._observed_columns.values())
+        try:
+            await database_sync_to_async_pool(update_sync_type_config_keys)(
+                self._schema.id,
+                self._job.team_id,
+                mutate=lambda config: merge_observed_columns_into_schema_metadata(config, observed),
+            )
+        except Exception:
+            await self._logger.aexception("Failed to persist observed columns into schema_metadata")
+
+    async def _process_pa_table(
+        self, pa_table: pa.Table, index: int, resuming_sync: bool, row_count: int, is_first_ever_sync: bool
+    ):
+        delta_table = await self._delta_table_helper.get_delta_table()
+        previous_file_uris = await self._delta_table_helper.get_file_uris()
+
+        pa_table = _append_debug_column_to_pyarrows_table(pa_table, self._load_id)
+        pa_table = normalize_table_column_names(pa_table)
+
+        if self._uses_delta_write_column_selection:
+            pa_table = await observe_and_project_table(
+                pa_table,
+                self._schema.enabled_columns,
+                self._resource.primary_keys,
+                self._schema.incremental_field,
+                [
+                    *(self._schema.partitioning_keys_override or []),
+                    *(self._schema.partitioning_keys or []),
+                    *(self._resource.partition_keys or []),
+                ],
+                self._observed_columns,
+                self._logger,
+                "Dropped non-enabled columns before Delta write",
+            )
+
+        pa_table = await setup_partitioning(pa_table, delta_table, self._schema, self._resource, self._logger)
+
+        pa_table = evolve_pyarrow_schema(pa_table, delta_table.schema() if delta_table is not None else None)
+        pa_table = _handle_null_columns_with_definitions(pa_table, self._resource)
+
+        write_type: Literal["incremental", "full_refresh", "append"] = "full_refresh"
+        if self._schema.is_incremental or self._schema.is_webhook or self._schema.is_xmin:
+            write_type = "incremental"
+        elif self._schema.is_append:
+            write_type = "append"
+
+        should_overwrite_table = index == 0 and not resuming_sync
+
+        delta_table = await self._delta_table_helper.write_to_deltalake(
+            pa_table,
+            write_type,
+            should_overwrite_table=should_overwrite_table,
+            primary_keys=self._resource.primary_keys,
+        )
+
+        self._internal_schema.add_pyarrow_table(pa_table)
+
+        await write_chunk_for_cdp_producer(self._cdp_producer, index, pa_table)
+
+        (
+            self._last_incremental_field_value,
+            self._earliest_incremental_field_value,
+        ) = await update_incremental_field_values(
+            self._schema,
+            pa_table,
+            self._resource,
+            self._last_incremental_field_value,
+            self._earliest_incremental_field_value,
+            self._logger,
+        )
+
+        await update_row_tracking_after_batch(
+            self._job.id, self._job.team_id, self._schema.id, pa_table.num_rows, self._logger
+        )
+
+        # if it's the first ever sync for this schema and the source supports partial data loading, we make the delta
+        # table files available for querying and create the data warehouse table, so that the user has some data
+        # available to start using
+        # TODO - enable this for all source types
+        if is_first_ever_sync and supports_partial_data_loading(self._schema):
+            file_uris = await self._delta_table_helper.get_file_uris()
+
+            await self._process_partial_data(
+                previous_file_uris=previous_file_uris,
+                file_uris=file_uris,
+                row_count=row_count,
+                chunk_index=index,
+            )
+
+    async def _process_partial_data(
+        self, previous_file_uris: list[str], file_uris: list[str], row_count: int, chunk_index: int
+    ):
+        await self._logger.adebug(
+            "Source supports partial data loading and is first ever sync -> "
+            "making delta table files available for querying and creating data warehouse table"
+        )
+        if chunk_index == 0:
+            new_file_uris = file_uris
+        else:
+            new_file_uris = list(set(file_uris) - set(previous_file_uris))
+            # in theory, we should always be appending files for a first time sync but we just check that this is the
+            # case in case we update this assumption
+            files_modified = set(previous_file_uris) - set(file_uris)
+            if len(files_modified) > 0:
+                await self._logger.awarning(
+                    "Should always be appending delta table files for a first time sync but found modified files!"
+                )
+                capture_exception(
+                    Exception(
+                        "Should always be appending delta table files for a first time sync but found modified files!"
+                    )
+                )
+                return
+
+        await self._logger.adebug(f"Adding {len(new_file_uris)} S3 files to query folder")
+        folder_path = await database_sync_to_async_pool(self._job.folder_path)()
+        queryable_folder = await prepare_s3_files_for_querying(
+            folder_path=folder_path,
+            table_name=self._resource_name,
+            file_uris=new_file_uris,
+            # delete existing files if it's the first chunk, otherwise we'll just append to the existing files
+            delete_existing=chunk_index == 0,
+            use_timestamped_folders=False,
+            logger=self._logger,
+        )
+        await self._logger.adebug("Validating schema and updating table")
+        await validate_schema_and_update_table(
+            run_id=str(self._job.id),
+            team_id=self._job.team_id,
+            schema_id=self._schema.id,
+            table_schema_dict=self._internal_schema.to_hogql_types(),
+            row_count=row_count,
+            queryable_folder=queryable_folder,
+            table_format=DataWarehouseTable.TableFormat.DeltaS3Wrapper,
+        )
+
+    async def _post_run_operations(self, row_count: int):
+        delta_table = await self._delta_table_helper.get_delta_table()
+
+        if delta_table is None:
+            await self._logger.adebug("No deltalake table, not continuing with post-run ops")
+            return
+
+        await self._logger.adebug("Triggering compaction and vacuuming on delta table")
+        try:
+            await self._delta_table_helper.compact_table()
+        except Exception as e:
+            capture_exception(e)
+            await self._logger.aexception(f"Compaction failed: {e}", exc_info=e)
+
+        file_uris = await self._delta_table_helper.get_file_uris()
+        await self._logger.adebug(f"Preparing S3 files - total parquet files: {len(file_uris)}")
+
+        folder_path = await database_sync_to_async_pool(self._job.folder_path)()
+        existing_queryable_folder = self._table.queryable_folder if self._table else None
+        queryable_folder = await prepare_s3_files_for_querying(
+            folder_path,
+            self._resource_name,
+            file_uris,
+            delete_existing=True,
+            existing_queryable_folder=existing_queryable_folder,
+            logger=self._logger,
+        )
+
+        await self._logger.adebug("Updating last synced at timestamp on schema")
+        await update_last_synced_at(job_id=self._job.id, schema_id=self._schema.id, team_id=self._job.team_id)
+
+        if not self._schema.initial_sync_complete:
+            await self._logger.adebug("Setting initial_sync_complete on schema")
+            await set_initial_sync_complete(schema_id=self._schema.id, team_id=self._job.team_id)
+
+        await self._logger.adebug("Notifying revenue analytics that sync has completed")
+        await notify_revenue_analytics_that_sync_has_completed(self._schema, self._source, self._logger)
+
+        await finalize_desc_sort_incremental_value(
+            self._resource, self._schema, self._last_incremental_field_value, self._logger
+        )
+
+        # For cdc_only mode, skip registering the consolidated DataWarehouseTable — only the
+        # _cdc companion table should be visible.  The DeltaLake files still exist on S3 for
+        # the seeding step to read from.
+        if not (
+            self._schema.sync_type == ExternalDataSchema.SyncType.CDC and self._schema.cdc_table_mode == "cdc_only"
+        ):
+            await self._logger.adebug("Validating schema and updating table")
+            await validate_schema_and_update_table(
+                run_id=str(self._job.id),
+                team_id=self._job.team_id,
+                schema_id=self._schema.id,
+                table_schema_dict=self._internal_schema.to_hogql_types(),
+                row_count=row_count,
+                queryable_folder=queryable_folder,
+                table_format=DataWarehouseTable.TableFormat.DeltaS3Wrapper,
+                primary_keys=self._resource.primary_keys,
+            )
+            await self._logger.adebug("Finished validating schema and updating table")
+
+        # Seed the _cdc companion table for CDC schemas (same logic as in run_post_load_operations
+        # for the V3 pipeline — the V2 pipeline calls validate_schema_and_update_table directly
+        # and doesn't go through run_post_load_operations).
+        if self._schema.sync_type == ExternalDataSchema.SyncType.CDC and self._schema.cdc_table_mode in (
+            "cdc_only",
+            "both",
+        ):
+            from products.warehouse_sources.backend.temporal.data_imports.pipelines.common.load import (
+                _seed_cdc_companion_from_snapshot,
+            )
+
+            await self._logger.ainfo("Seeding CDC companion table from snapshot (V2 pipeline)")
+            await _seed_cdc_companion_from_snapshot(
+                schema=self._schema,
+                job=self._job,
+                source=self._source,
+                snapshot_delta_table_helper=self._delta_table_helper,
+                logger=self._logger,
+            )
+            await self._logger.ainfo("Finished seeding CDC companion table from snapshot")
+
+        await self._logger.adebug("Syncing revenue analytics views")
+        await database_sync_to_async_pool(sync_revenue_analytics_views)(self._schema, self._source)
+
+
+def _estimate_size(obj: Any) -> int:
+    if isinstance(obj, dict):
+        return sys.getsizeof(obj) + sum(_estimate_size(k) + _estimate_size(v) for k, v in obj.items())
+    elif isinstance(obj, list | tuple | set):
+        return sys.getsizeof(obj) + sum(_estimate_size(i) for i in obj)
+    else:
+        return sys.getsizeof(obj)

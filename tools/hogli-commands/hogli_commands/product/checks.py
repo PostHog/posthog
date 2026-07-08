@@ -16,6 +16,18 @@ from collections.abc import Iterator
 from dataclasses import dataclass, field
 from pathlib import Path
 
+from .isolation import (
+    IsolationStatus,
+    compute_isolation_status,
+    has_legacy_interface_leaks,
+    has_routes_module,
+    has_tach_interface,
+    is_isolated_product,
+    iter_interface_blocks as _iter_interface_blocks,
+    names_from_pattern as _names_from_pattern,
+    pattern_targets_public_surface as _pattern_targets_public_surface,
+    routes_in_turbo_inputs,
+)
 from .paths import TACH_TOML, get_tach_block
 
 # ---------------------------------------------------------------------------
@@ -35,19 +47,6 @@ def check_file_exists(backend_dir: Path, path: str) -> bool:
     return False
 
 
-def _iter_interface_blocks(tach_content: str) -> Iterator[tuple[list[str], list[str]]]:
-    """Yield (expose_patterns, from_patterns) for every [[interfaces]] block."""
-    for match in re.finditer(r"\[\[interfaces\]\]\s*\n(.*?)(?=\[\[|\Z)", tach_content, re.DOTALL):
-        block = match.group(1)
-        expose_match = re.search(r"expose\s*=\s*\[(.*?)\]", block, re.DOTALL)
-        from_match = re.search(r"from\s*=\s*\[(.*?)\]", block, re.DOTALL)
-        if not expose_match or not from_match:
-            continue
-        expose_patterns = re.findall(r'"(.*?)"', expose_match.group(1))
-        from_patterns = re.findall(r'"(.*?)"', from_match.group(1))
-        yield expose_patterns, from_patterns
-
-
 def _iter_module_blocks(tach_content: str) -> Iterator[tuple[str, list[str]]]:
     """Yield (path, depends_on) for every [[modules]] block."""
     for match in re.finditer(r"\[\[modules\]\]\s*\n(.*?)(?=\[\[|\Z)", tach_content, re.DOTALL):
@@ -59,47 +58,6 @@ def _iter_module_blocks(tach_content: str) -> Iterator[tuple[str, list[str]]]:
         deps_match = re.search(r"depends_on\s*=\s*\[(.*?)\]", block, re.DOTALL)
         depends_on = re.findall(r'"(.*?)"', deps_match.group(1)) if deps_match else []
         yield path, depends_on
-
-
-def _pattern_targets_public_surface(pattern: str) -> bool:
-    """True if a tach expose pattern targets a product's public surface.
-
-    Public surface is backend.facade, backend.presentation, or backend.routes —
-    the last being the product-local route registration entry point that core
-    imports to assemble the API router. It is a public composition hook, not an
-    internal leak, so it does not mark a product as un-isolatable.
-
-    Strips backslashes first so it works on both the on-disk TOML form (`\\.`,
-    two literal backslashes) and Python-string fixtures (single backslash).
-    """
-    normalized = pattern.replace("\\", "")
-    return (
-        normalized.startswith("backend.facade")
-        or normalized.startswith("backend.presentation")
-        or normalized.startswith("backend.routes")
-    )
-
-
-def has_legacy_interface_leaks(tach_content: str, module_path: str) -> bool:
-    """Check if a product has legacy interface leak blocks in tach.toml.
-
-    These are products where core (posthog/ee) still imports internals directly,
-    so they can't safely be tested in isolation via contract-check.
-
-    Detected structurally: an [[interfaces]] block whose `from` is exactly this
-    module and whose `expose` includes any non-facade/non-presentation pattern.
-    """
-    for expose_patterns, from_patterns in _iter_interface_blocks(tach_content):
-        normalized_from = [p.replace("\\", "") for p in from_patterns]
-        if normalized_from != [module_path]:
-            continue
-        if any(not _pattern_targets_public_surface(p) for p in expose_patterns):
-            return True
-    return False
-
-
-def is_isolated_product(backend_dir: Path) -> bool:
-    return (backend_dir / "facade" / "contracts.py").exists() or (backend_dir / "facade" / "contracts").exists()
 
 
 # ---------------------------------------------------------------------------
@@ -131,26 +89,6 @@ def _is_canonical_facade_expose(expose_patterns: list[str]) -> bool:
     if not all(_pattern_targets_public_surface(p) for p in expose_patterns):
         return False
     return any(_targets_facade_or_presentation(p) for p in expose_patterns)
-
-
-def _names_from_pattern(pattern: str) -> set[str]:
-    """Extract product short names from a tach `from` pattern.
-
-    Handles three forms:
-      - "products.experiments"                       -> {"experiments"}
-      - "products\\.experiments"                     -> {"experiments"}
-      - "products\\.(experiments|mcp_store|...)"     -> {"experiments", "mcp_store", ...}
-    """
-    # Normalize backslashes — tach regex uses `\.` which appears as `\\.` when
-    # read as raw TOML source.
-    normalized = pattern.replace("\\", "")
-    m = re.match(r"^products\.\(([^)]+)\)$", normalized)
-    if m:
-        return {n.strip() for n in m.group(1).split("|") if n.strip()}
-    m = re.match(r"^products\.([A-Za-z0-9_]+)$", normalized)
-    if m:
-        return {m.group(1)}
-    return set()
 
 
 def validate_facade_alternation(tach_content: str, products_dir: Path) -> list[str]:
@@ -311,6 +249,19 @@ class CheckContext:
     is_isolated: bool
     structure: dict
     detailed: bool  # True = single-product run, False = --all
+    _isolation: IsolationStatus | None = field(default=None, repr=False, compare=False)
+
+    def isolation_status(self) -> IsolationStatus:
+        """Memoized isolation seal status, shared across checks within one product run.
+
+        Several checks need it; computing once avoids re-reading tach.toml/pyproject.toml/
+        package.json per check (files don't change mid-run).
+        """
+        if self._isolation is None:
+            self._isolation = compute_isolation_status(
+                self.name, self.product_dir, self.backend_dir, is_isolated=self.is_isolated
+            )
+        return self._isolation
 
 
 @dataclass
@@ -404,6 +355,24 @@ def _parse_pytest_paths(script: str) -> list[str]:
     return paths
 
 
+def _contract_check_withheld_note(status: IsolationStatus) -> str | None:
+    """Why the contract-check skip is correctly withheld for an isolated product.
+
+    Surfaced on a passing single-product lint so a reader sees the decision, not just
+    its silent absence. Returns None when there's nothing meaningful to explain.
+    """
+    if status.deferred_count > 0 and status.has_legacy_leaks:
+        return f"legacy interface leaks + {status.deferred_count} presentation bypass(es) still open"
+    if status.deferred_count > 0:
+        plural = "bypass" if status.deferred_count == 1 else "bypasses"
+        return f"{status.deferred_count} presentation {plural} still open (internal seal incomplete)"
+    if status.has_legacy_leaks:
+        return "legacy interface leak block present (external seal incomplete)"
+    if not status.has_real_facade:
+        return "facade/api.py is a re-export, not real functions"
+    return None
+
+
 class PackageJsonScriptsCheck(ProductCheck):
     label = "package.json scripts"
 
@@ -423,15 +392,13 @@ class PackageJsonScriptsCheck(ProductCheck):
         result = CheckResult()
 
         # --- presence checks (legacy leaks exempt from contract-check) ---
-        from .ast_helpers import has_any_function_defs
-
-        module_path = f"products.{ctx.name}"
-        tach_content = TACH_TOML.read_text() if TACH_TOML.exists() else ""
-        has_leaks = has_legacy_interface_leaks(tach_content, module_path)
-
-        facade_api = ctx.backend_dir / "facade" / "api.py"
-        has_real_facade = facade_api.exists() and has_any_function_defs(facade_api)
-        needs_contract_check = ctx.is_isolated and not has_leaks and has_real_facade
+        # While a product has deferred presentation-wave ignore_imports entries, its
+        # views still bypass the facade and reach internals directly. The skip only
+        # re-runs the full suite on facade/presentation changes, so an internals
+        # change flowing to HTTP through such a view would be hidden. The skip is the
+        # reward for finishing — it can't be enabled until the wave empties them.
+        status = ctx.isolation_status()
+        needs_contract_check = status.eligible_for_isolated_tests
         required = ["backend:test"] + (["backend:contract-check"] if needs_contract_check else [])
         for script in required:
             if script not in scripts:
@@ -442,10 +409,16 @@ class PackageJsonScriptsCheck(ProductCheck):
                 )
 
         # --- absence check: must NOT have contract-check when not safe for isolation ---
-        must_not_have_contract_check = not ctx.is_isolated or has_leaks or not has_real_facade
-        if must_not_have_contract_check and "backend:contract-check" in scripts:
-            if has_leaks:
+        if not needs_contract_check and "backend:contract-check" in scripts:
+            if status.has_legacy_leaks:
                 reason = "has legacy interface leaks (core imports internals directly)"
+            elif status.deferred_count > 0:
+                plural = "entry" if status.deferred_count == 1 else "entries"
+                reason = (
+                    f"has {status.deferred_count} deferred presentation-wave ignore_imports {plural} — its "
+                    "presentation still bypasses the facade, so finish the presentation wave (empty the "
+                    "ignore_imports TODO section) before opting into the skip"
+                )
             else:
                 reason = "non-isolated product must not have 'backend:contract-check' script"
             result.lines.append("✗ must not have 'backend:contract-check'")
@@ -454,6 +427,12 @@ class PackageJsonScriptsCheck(ProductCheck):
                 "turbo-discover uses this to classify products as isolated, which causes "
                 "the full Django test suite to be skipped when this product changes"
             )
+
+        # --- surface the withholding decision (single-product view only; keep the CI sweep quiet) ---
+        if ctx.detailed and ctx.is_isolated and not needs_contract_check and "backend:contract-check" not in scripts:
+            note = _contract_check_withheld_note(status)
+            if note:
+                result.lines.append(f"ℹ contract-check skip withheld — {note}")
 
         # --- content checks on backend:test ---
         test_script = scripts.get("backend:test", "")
@@ -503,9 +482,20 @@ class MisplacedFilesCheck(ProductCheck):
     # `templates` is allowed because Django's app_directories loader requires
     # the folder to live at <app>/templates/, and templates aren't Python
     # imports so import-linter contracts don't apply.
+    # `admin` is allowed because Django's autodiscover_modules("admin") requires
+    # the admin module at <app>.admin — and that module can be a flat `admin.py`
+    # or an `admin/` package (both resolve to the same import). The file form is
+    # already accepted, so the package form has to be too.
     # `hogql_queries` is the established home for HogQL query runners across
     # products (web_analytics, revenue_analytics, product_analytics), so it is
     # allowed in isolated products too rather than forcing query code into logic/.
+    # `temporal` is the established home for Temporal workflow + activity code
+    # across products (batch_exports, data_warehouse, tasks, experiments, and
+    # others), so it is allowed in isolated products on the same grounds.
+    # `sandbox` holds Docker build context (Dockerfiles + helper scripts) for
+    # sandboxed execution, not importable Python — its path is referenced by
+    # image-build workflows and COPY directives, so it can't follow the
+    # Python-package convention and is allowed at backend root.
     _KNOWN_DIRS = {
         "facade",
         "presentation",
@@ -517,7 +507,10 @@ class MisplacedFilesCheck(ProductCheck):
         "models",
         "logic",
         "hogql_queries",
+        "temporal",
+        "sandbox",
         "templates",
+        "admin",
         "__pycache__",
     }
 
@@ -614,28 +607,16 @@ class TachCheck(ProductCheck):
                 ],
             )
 
-        if ctx.is_isolated and "interfaces" not in tach_block:
-            # Check global [[interfaces]] blocks — the product name may appear
-            # literally or as part of a regex pattern in a from = [...] field.
-            tach_content = TACH_TOML.read_text() if TACH_TOML.exists() else ""
-            product_short = ctx.name
-            has_global_interface = bool(
-                re.search(
-                    rf"\[\[interfaces\]\].*?from\s*=\s*\[.*?{re.escape(product_short)}",
-                    tach_content,
-                    re.DOTALL,
-                )
-            )
-            if not has_global_interface:
-                return CheckResult(
-                    lines=["✗ missing interfaces declaration"],
-                    issues=[
-                        f"Isolated product missing interface definition in tach.toml — "
-                        f'add a [[interfaces]] block with from = ["{module_path}"]'
-                    ],
-                )
-
         tach_content = TACH_TOML.read_text() if TACH_TOML.exists() else ""
+        if ctx.is_isolated and not has_tach_interface(ctx.name, tach_content):
+            return CheckResult(
+                lines=["✗ missing interfaces declaration"],
+                issues=[
+                    f"Isolated product missing interface definition in tach.toml — "
+                    f'add a [[interfaces]] block with from = ["{module_path}"]'
+                ],
+            )
+
         if has_legacy_interface_leaks(tach_content, module_path):
             return CheckResult(lines=["⚠ has legacy interface leaks — core bypasses facade (not tested in isolation)"])
 
@@ -643,67 +624,29 @@ class TachCheck(ProductCheck):
 
 
 class IsolationChainCheck(ProductCheck):
-    """Validates the isolation prerequisite chain is consistent.
+    """Validates the isolation prerequisite chain is consistent — and finished.
 
     The chain: real facade → tach interfaces → contract-check script → narrowed turbo.json.
-    Each step requires the previous one. A product that skips a step gets CI
-    benefits it hasn't earned (Django suite skipped on changes).
+    Each step requires the previous one, so a product can't claim a CI benefit it hasn't
+    earned (the Django suite skipped on changes). The final step also can't be left
+    half-wired: once a product is fully sealed and eligible, it must actually turn the skip
+    on by narrowing turbo.json inputs — otherwise the contract-check script is inert
+    (inputs default to all of backend/, so every change still re-runs the Django suite).
     """
 
     label = "isolation chain"
 
-    def _has_contract_check_script(self, product_dir: Path) -> bool:
-        package_json = product_dir / "package.json"
-        if not package_json.exists():
-            return False
-        try:
-            scripts = json.loads(package_json.read_text()).get("scripts", {})
-        except json.JSONDecodeError:
-            return False
-        return "backend:contract-check" in scripts
-
-    def _has_narrowed_turbo_inputs(self, product_dir: Path) -> bool:
-        turbo_json = product_dir / "turbo.json"
-        if not turbo_json.exists():
-            return False
-        try:
-            tasks = json.loads(turbo_json.read_text()).get("tasks", {})
-        except json.JSONDecodeError:
-            return False
-        contract_task = tasks.get("backend:contract-check")
-        if not contract_task:
-            return False
-        inputs = contract_task.get("inputs", [])
-        return any("facade" in i or "presentation" in i for i in inputs)
-
-    def _has_tach_interfaces(self, name: str) -> bool:
-        module_path = f"products.{name}"
-        block = get_tach_block(module_path)
-        if not block:
-            return False
-        if "interfaces" in block and "interfaces = []" not in block:
-            return True
-        tach_content = TACH_TOML.read_text() if TACH_TOML.exists() else ""
-        return bool(
-            re.search(
-                rf"\[\[interfaces\]\].*?from\s*=\s*\[.*?{re.escape(name)}",
-                tach_content,
-                re.DOTALL,
-            )
-        )
-
     def run(self, ctx: CheckContext) -> CheckResult:
-        from .ast_helpers import has_any_function_defs
-
         facade_api = ctx.backend_dir / "facade" / "api.py"
-        has_real_facade = facade_api.exists() and has_any_function_defs(facade_api)
-        has_tach = self._has_tach_interfaces(ctx.name)
-        has_script = self._has_contract_check_script(ctx.product_dir)
-        has_narrowed = self._has_narrowed_turbo_inputs(ctx.product_dir)
+        status = ctx.isolation_status()
+        real_facade = status.has_real_facade
+        has_tach = status.has_tach_interface
+        has_script = status.has_contract_check_script
+        has_narrowed = status.has_narrowed_turbo
 
         result = CheckResult()
 
-        if has_script and not has_real_facade:
+        if has_script and not real_facade:
             result.issues.append(
                 "has 'backend:contract-check' but facade/api.py has no function definitions — "
                 "re-exporting from logic is not a facade. turbo-discover classifies this product "
@@ -721,21 +664,100 @@ class IsolationChainCheck(ProductCheck):
                 "'backend:contract-check' script — dead config, remove the turbo.json override"
             )
 
-        if has_narrowed and not has_real_facade:
+        if has_narrowed and not real_facade:
             result.issues.append(
                 "turbo.json narrows contract-check inputs to facade/presentation but "
                 "facade/api.py has no function definitions — internal changes won't trigger "
                 "Django suite even though the facade boundary isn't real"
             )
 
-        if not has_script and facade_api.exists() and not has_real_facade:
+        if not has_script and facade_api.exists() and not real_facade:
             result.warnings.append(
                 "facade/api.py exists but has no function definitions — "
                 "a real facade should convert models to contracts, not just re-export"
             )
 
+        # Earned but not turned on: a fully sealed, eligible product that already carries
+        # 'backend:contract-check' (real facade, tach interface, no legacy leaks, presentation
+        # wave emptied). Without a turbo.json narrowing its inputs to facade/presentation, that
+        # script inherits the root task's all-of-backend inputs, so every internal change still
+        # re-runs the full Django suite — the skip is inert. Force the narrowing so READY
+        # products land on ON. Gating on has_script keeps this distinct from
+        # PackageJsonScriptsCheck, which is what nags a still-eligible product to add the script.
+        needs_turn_on = (
+            has_script and status.eligible_for_isolated_tests and status.externally_sealed and not has_narrowed
+        )
+        if needs_turn_on:
+            result.issues.append(
+                "product is fully sealed and eligible for isolated tests and carries "
+                "'backend:contract-check', but turbo.json does not narrow contract-check inputs to "
+                "facade/presentation — the skip is inert (every change still re-runs the full Django "
+                'suite). Add a turbo.json narrowing inputs to ["backend/facade/**", '
+                '"backend/presentation/**"] to turn the skip on'
+            )
+
+        # Watching the route registration: routes.py is the product's route-registration entry
+        # point (public API surface, imported by core to assemble the router), but it lives at
+        # backend/ root — outside the facade/presentation globs. A narrowed product that has one
+        # must add it to the inputs, or a routes-only change is invisible to the skip and runs no
+        # Django suite. (Mutually exclusive with needs_turn_on, which requires no narrowing.)
+        routes_unwatched = (
+            has_narrowed and has_routes_module(ctx.backend_dir) and not routes_in_turbo_inputs(ctx.product_dir)
+        )
+        if routes_unwatched:
+            routes_glob = "backend/routes/**" if (ctx.backend_dir / "routes").is_dir() else "backend/routes.py"
+            result.issues.append(
+                f"turbo.json narrows contract-check inputs but omits {routes_glob} — the routes module is the "
+                "product's route-registration entry point (public API surface, imported by core), so a "
+                f'routes-only change would skip the Django suite. Add "{routes_glob}" to the contract-check inputs'
+            )
+
+        # Watching the permanent-interface exposures: a marked [[interfaces]] block lets core
+        # depend on these modules outside the import graph (ClickHouse DDL in the schema registry
+        # and frozen migrations). That coupling can't be sealed, so the skip stays sound only if a
+        # change to those modules still re-runs the suite — they must be in the contract-check
+        # inputs. Mirrors routes_unwatched.
+        if has_narrowed and status.uncovered_permanent_exposures:
+            globs = ", ".join(f"{m.replace('.', '/')}.py" for m in status.uncovered_permanent_exposures)
+            result.issues.append(
+                "turbo.json narrows contract-check inputs but omits the permanently-exposed module(s) "
+                f"{', '.join(status.uncovered_permanent_exposures)} — core depends on them outside the import "
+                "graph (ClickHouse DDL in the schema registry and frozen migrations), so a change to them "
+                f"would skip the Django suite. Add the matching input(s) ({globs}) to keep the skip sound"
+            )
+
+        # Guarding against marker abuse: the permanent-interface marker is only legitimate for
+        # modules core depends on outside the import graph (ClickHouse DDL in a frozen migration or
+        # the schema registry). Without this check the marker is mechanically unrestricted — a
+        # product could mark backend.models/backend.logic permanent, list it in turbo inputs, and
+        # pass the chain. Fires regardless of has_narrowed: the abuse lives in tach.toml itself, not
+        # in turbo config, so it must block even before the product narrows.
+        if status.unqualified_permanent_exposures:
+            modules = ", ".join(status.unqualified_permanent_exposures)
+            result.issues.append(
+                f"permanent-interface marker covers module(s) {modules}, but they are not imported by any "
+                "frozen ClickHouse migration or the ClickHouse schema registry — so they don't qualify as a "
+                "permanent interface. Route them through the facade instead (or remove the marker)"
+            )
+
+        # Note: a product that has the contract-check script *and* deferred
+        # presentation-wave ignore_imports entries is hard-blocked by
+        # PackageJsonScriptsCheck — the skip can't be enabled until the wave empties them.
+
         if result.issues or result.warnings:
-            result.file = f"products/{ctx.name}/backend/facade/api.py"
+            # needs_turn_on and routes_unwatched both point at turbo.json. needs_turn_on can't
+            # co-occur with the facade/turbo mismatch issues above (it requires a real facade, a
+            # script, and no narrowing). routes_unwatched can co-occur with them (it only needs
+            # has_narrowed + a routes module), but turbo.json is still where the routes omission is
+            # fixed, so it wins; the co-firing mismatch issues still print in the lint output.
+            # An unqualified permanent exposure is a defect in the tach.toml marker itself, so point
+            # there; it takes precedence because it's the most fundamental of these issues.
+            if status.unqualified_permanent_exposures:
+                result.file = "tach.toml"
+            elif needs_turn_on or routes_unwatched:
+                result.file = f"products/{ctx.name}/turbo.json"
+            else:
+                result.file = f"products/{ctx.name}/backend/facade/api.py"
         if result.issues:
             result.lines = [f"✗ {len(result.issues)} issue(s)"] + [f"  → {i}" for i in result.issues]
         elif result.warnings:
@@ -885,6 +907,8 @@ class OrphanedTestFilesCheck(ProductCheck):
         # ci-backend.yml "Run Temporal tests" step pytest paths:
         "batch_exports": ("backend/tests/temporal/",),
         "tasks": ("backend/temporal/",),
+        "warehouse_sources": ("backend/temporal/",),
+        "signals": ("backend/emission/",),
     }
 
     def run(self, ctx: CheckContext) -> CheckResult:

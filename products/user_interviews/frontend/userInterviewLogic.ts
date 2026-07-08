@@ -13,6 +13,7 @@ import {
     getUserInterviewTopicsLinksCsvCreateUrl,
     userInterviewTopicsGenerateLinksCreate,
     userInterviewTopicsIntervieweesList,
+    userInterviewTopicsPreviewInviteCreate,
     userInterviewTopicsRetrieve,
     userInterviewTopicsTestLinkRetrieve,
     userInterviewsList,
@@ -20,6 +21,7 @@ import {
 import type {
     IntervieweeContextApi,
     InterviewLinkApi,
+    PreviewInviteResultApi,
     TestInterviewLinkApi,
     UserInterviewApi,
     UserInterviewTopicApi,
@@ -94,10 +96,21 @@ export const userInterviewLogic = kea<userInterviewLogicType>([
                 return await userInterviewTopicsTestLinkRetrieve(projectId, props.id)
             },
         },
+        invitePreview: {
+            __default: null as PreviewInviteResultApi | null,
+            loadInvitePreview: async (identifier: string): Promise<PreviewInviteResultApi> => {
+                const projectId = String(teamLogic.values.currentTeamId)
+                return await userInterviewTopicsPreviewInviteCreate(projectId, props.id, {
+                    interviewee_identifier: identifier,
+                })
+            },
+        },
     })),
     actions({
         exportLinksCsv: true,
         exportLinksCsvDone: true,
+        openInvitePreview: (identifier: string) => ({ identifier }),
+        closeInvitePreview: true,
     }),
     reducers({
         linksLoadFailed: [
@@ -114,8 +127,18 @@ export const userInterviewLogic = kea<userInterviewLogicType>([
                 exportLinksCsvDone: () => false,
             },
         ],
+        previewInviteIdentifier: [
+            null as string | null,
+            {
+                openInvitePreview: (_, { identifier }) => identifier,
+                closeInvitePreview: () => null,
+            },
+        ],
     }),
     listeners(({ props, values, actions }) => ({
+        openInvitePreview: ({ identifier }) => {
+            actions.loadInvitePreview(identifier)
+        },
         exportLinksCsv: async () => {
             const projectId = String(teamLogic.values.currentTeamId)
             try {

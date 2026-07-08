@@ -17,6 +17,11 @@ DEFAULT_TARGET_BUCKETS = 10
 MAX_TARGET_BUCKETS = 100
 
 
+def _utc_z(value: dt.datetime) -> str:
+    """Format a naive UTC datetime as a Z-suffixed ISO 8601 string."""
+    return value.replace(tzinfo=dt.UTC).isoformat().replace("+00:00", "Z")
+
+
 class CountRangesQueryRunner(AnalyticsQueryRunner[LogsQueryResponse], LogsQueryRunnerMixin):
     """Returns adaptive-interval bucket counts for a filtered log stream.
 
@@ -55,13 +60,16 @@ class CountRangesQueryRunner(AnalyticsQueryRunner[LogsQueryResponse], LogsQueryR
 
         ranges: list[dict] = []
         for row in response.results:
+            # ClickHouse returns naive datetimes holding UTC values. Emit explicit UTC
+            # (Z-suffixed) ISO strings so a bucket's date_from/date_to can be fed straight
+            # back into query-logs without timezone drift.
             bucket_start: dt.datetime = row[0]
             bucket_end: dt.datetime = row[1]
             count: int = row[2]
             ranges.append(
                 {
-                    "date_from": bucket_start.isoformat(),
-                    "date_to": bucket_end.isoformat(),
+                    "date_from": _utc_z(bucket_start),
+                    "date_to": _utc_z(bucket_end),
                     "count": count,
                 }
             )

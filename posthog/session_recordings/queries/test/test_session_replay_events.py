@@ -1,11 +1,17 @@
-from posthog.test.base import APIBaseTest, ClickhouseTestMixin
+from posthog.test.base import APIBaseTest, ClickhouseTestMixin, _create_event
 
 from django.utils.timezone import now
 
 from dateutil.relativedelta import relativedelta
+from parameterized import parameterized
 
 from posthog.models import Team
-from posthog.session_recordings.queries.session_replay_events import SessionReplayEvents
+from posthog.session_recordings.queries.session_replay_events import (
+    SESSION_ID_CLOCK_SKEW_SLACK,
+    SessionReplayEvents,
+    get_latest_session_event_properties,
+    uuidv7_session_lower_bound,
+)
 from posthog.session_recordings.queries.test.session_replay_sql import produce_replay_summary
 
 
@@ -321,3 +327,171 @@ class SessionReplayEventsQueries(ClickhouseTestMixin, APIBaseTest):
         assert sessions == set()
         assert min_ts is None
         assert max_ts is None
+
+
+def _uuidv7_session_id_for(ts) -> str:
+    ms = int(ts.timestamp() * 1000)
+    hex12 = f"{ms:012x}"
+    return f"{hex12[:8]}-{hex12[8:12]}-7000-8000-000000000000"
+
+
+class TestUuidv7SessionLowerBound(APIBaseTest):
+    @parameterized.expand(
+        [
+            ("uuidv4_id", "7c10ab30-3a9c-4b75-89ce-09e51c826989", None),
+            ("non_uuid_id", "my-custom-session", None),
+            ("implausibly_old_embedded_timestamp", "0000ffff-ffff-7000-8000-000000000000", None),
+            ("far_future_embedded_timestamp", "ffffffff-ffff-7000-8000-000000000000", None),
+        ]
+    )
+    def test_returns_no_bound(self, _name: str, session_id: str, expected: None) -> None:
+        assert uuidv7_session_lower_bound(session_id) is expected
+
+    def test_derives_bound_from_embedded_timestamp(self) -> None:
+        session_start = (now() - relativedelta(days=1)).replace(microsecond=0)
+        bound = uuidv7_session_lower_bound(_uuidv7_session_id_for(session_start))
+        assert bound == session_start - SESSION_ID_CLOCK_SKEW_SLACK
+
+
+class TestSessionLookupUsesUuidv7Bound(ClickhouseTestMixin, APIBaseTest):
+    def test_finds_session_with_uuidv7_id_seeded_at_its_embedded_time(self) -> None:
+        session_start = (now() - relativedelta(days=1)).replace(microsecond=0)
+        session_id = _uuidv7_session_id_for(session_start)
+        produce_replay_summary(
+            session_id=session_id,
+            team_id=self.team.pk,
+            first_timestamp=session_start,
+            last_timestamp=session_start,
+            distinct_id="u1",
+            retention_period_days=30,
+        )
+
+        assert SessionReplayEvents().exists(session_id, self.team) is True
+        assert SessionReplayEvents().get_metadata(session_id, self.team) is not None
+
+    def test_finds_session_seeded_far_before_its_ids_embedded_time_via_unbounded_fallback(self) -> None:
+        # A recording whose events predate the session id's embedded timestamp by more
+        # than the clock-skew slack misses the derived scan window; the lookup retries
+        # unbounded so the recording is still found, just on the slower path.
+        session_start = (now() - relativedelta(days=1)).replace(microsecond=0)
+        session_id = _uuidv7_session_id_for(session_start)
+        produce_replay_summary(
+            session_id=session_id,
+            team_id=self.team.pk,
+            first_timestamp=session_start - relativedelta(days=10),
+            last_timestamp=session_start - relativedelta(days=10),
+            distinct_id="u1",
+            retention_period_days=30,
+        )
+
+        assert SessionReplayEvents().exists(session_id, self.team)
+        assert SessionReplayEvents().get_metadata(session_id, self.team) is not None
+
+    def test_batch_with_mixed_id_formats_finds_all_sessions(self) -> None:
+        # One uuidv7 id and one custom id in the same batch: the unparseable id
+        # disables the bound for the whole batch, so both stay findable.
+        session_start = (now() - relativedelta(days=1)).replace(microsecond=0)
+        uuid_id = _uuidv7_session_id_for(session_start)
+        custom_id = "my-custom-session-id"
+        for session_id in (uuid_id, custom_id):
+            produce_replay_summary(
+                session_id=session_id,
+                team_id=self.team.pk,
+                first_timestamp=session_start,
+                last_timestamp=session_start,
+                distinct_id="u1",
+                retention_period_days=30,
+            )
+
+        found = SessionReplayEvents()._find_with_timestamps([uuid_id, custom_id], self.team)
+
+        assert {session_id for session_id, _, _, _ in found} == {uuid_id, custom_id}
+
+
+class TestGetLatestSessionEventProperties(ClickhouseTestMixin, APIBaseTest):
+    def _seed_event(self, session_id: str, timestamp, marker: str) -> None:
+        _create_event(
+            team=self.team,
+            event="$pageview",
+            distinct_id="d1",
+            timestamp=timestamp,
+            properties={"$session_id": session_id, "$recording_status": marker},
+        )
+
+    @parameterized.expand(
+        [
+            ("event_within_uuidv7_window", True, relativedelta(minutes=0), "bounded"),
+            ("event_outside_uuidv7_window_via_fallback", True, relativedelta(days=10), "fallback"),
+            ("non_uuid_session_id_via_fallback", False, relativedelta(minutes=0), "custom"),
+        ]
+    )
+    def test_finds_event(self, _name: str, uuidv7_id: bool, event_age_before_start, marker: str) -> None:
+        session_start = (now() - relativedelta(minutes=10)).replace(microsecond=0)
+        session_id = _uuidv7_session_id_for(session_start) if uuidv7_id else "my-custom-session-id"
+        self._seed_event(session_id, session_start - event_age_before_start, marker)
+
+        properties = get_latest_session_event_properties(session_id, self.team)
+
+        assert properties is not None
+        assert properties["$recording_status"] == marker
+
+    def test_filters_response_to_diagnostic_properties(self) -> None:
+        session_start = (now() - relativedelta(minutes=10)).replace(microsecond=0)
+        session_id = _uuidv7_session_id_for(session_start)
+        _create_event(
+            team=self.team,
+            event="$pageview",
+            distinct_id="d1",
+            timestamp=session_start,
+            properties={
+                "$session_id": session_id,
+                "$recording_status": "disabled",
+                "$sdk_debug_replay_internal_buffer_length": 0,
+                "$current_url": "https://example.com/private-path",
+                "email": "person@example.com",
+            },
+        )
+
+        properties = get_latest_session_event_properties(session_id, self.team)
+
+        assert properties == {
+            "$recording_status": "disabled",
+            "$sdk_debug_replay_internal_buffer_length": 0,
+        }
+
+    def test_returns_none_when_session_has_no_events(self) -> None:
+        session_id = _uuidv7_session_id_for(now() - relativedelta(minutes=10))
+
+        assert get_latest_session_event_properties(session_id, self.team) is None
+
+    def test_does_not_leak_another_teams_session(self) -> None:
+        session_start = (now() - relativedelta(minutes=10)).replace(microsecond=0)
+        session_id = _uuidv7_session_id_for(session_start)
+        other_team = Team.objects.create(organization=self.organization, name="other team")
+        _create_event(
+            team=other_team,
+            event="$pageview",
+            distinct_id="d1",
+            timestamp=session_start,
+            properties={"$session_id": session_id, "$recording_status": "secret"},
+        )
+
+        assert get_latest_session_event_properties(session_id, self.team) is None
+
+        response = self.client.get(
+            f"/api/environments/{self.team.id}/session_recordings/{session_id}/capture_diagnostics"
+        )
+        assert response.status_code == 200
+        assert response.json()["properties"] is None
+
+    def test_capture_diagnostics_endpoint_returns_properties(self) -> None:
+        session_start = (now() - relativedelta(minutes=10)).replace(microsecond=0)
+        session_id = _uuidv7_session_id_for(session_start)
+        self._seed_event(session_id, session_start, "endpoint")
+
+        response = self.client.get(
+            f"/api/environments/{self.team.id}/session_recordings/{session_id}/capture_diagnostics"
+        )
+
+        assert response.status_code == 200
+        assert response.json()["properties"]["$recording_status"] == "endpoint"

@@ -1,19 +1,17 @@
-import { useValues } from 'kea'
 import { RE2JS } from 're2js'
 import { useEffect, useState } from 'react'
 
 import { LemonBanner, LemonDropdownProps, LemonSelect, LemonSelectProps, LemonSelectSection } from '@posthog/lemon-ui'
 
 import { allOperatorsToHumanName } from 'lib/components/DefinitionPopover/utils'
-import { FEATURE_FLAGS } from 'lib/constants'
+import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { dayjs } from 'lib/dayjs'
 import { LemonInputSelect } from 'lib/lemon-ui/LemonInputSelect/LemonInputSelect'
 import { Link } from 'lib/lemon-ui/Link'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { isMobile } from 'lib/utils/dom'
 import {
     allOperatorsMapping,
     chooseOperatorMap,
-    isMobile,
     isOperatorCohort,
     isOperatorDate,
     isOperatorFlag,
@@ -21,9 +19,10 @@ import {
     isOperatorRange,
     isOperatorRegex,
     isOperatorSemver,
-} from 'lib/utils'
+} from 'lib/utils/operators'
 import { RE2_DOCS_LINK, formatRE2Error } from 'lib/utils/regexp'
 
+import { getCoreFilterDefinition } from '~/taxonomy/helpers'
 import {
     GroupTypeIndex,
     PropertyDefinition,
@@ -194,8 +193,6 @@ export function OperatorValueSelect({
     operatorAllowlist,
     forceSingleSelect,
 }: OperatorValueSelectProps): JSX.Element {
-    const { featureFlags } = useValues(featureFlagLogic)
-    const semverTargetingEnabled = !!featureFlags[FEATURE_FLAGS.SEMVER_TARGETING]
     const lookupKey = type === PropertyFilterType.DataWarehousePersonProperty ? 'id' : 'name'
     const propertyDefinition = propertyDefinitions.find((pd) => pd[lookupKey] === propertyKey)
 
@@ -240,17 +237,19 @@ export function OperatorValueSelect({
             )
         ) {
             propertyType = PropertyType.StringArray
+        } else if (type === PropertyFilterType.Recording && propertyKey) {
+            // Recording properties have no entry in propertyDefinitions, so resolve their type from
+            // the authoritative taxonomy (e.g. numeric activity counts get range operators + a numeric
+            // input). Reading CORE_FILTER_DEFINITIONS_BY_GROUP keeps this in sync with the one source
+            // of truth rather than a hardcoded key list that drifts as new recording filters are added.
+            propertyType = getCoreFilterDefinition(propertyKey, TaxonomicFilterGroupType.Replay)?.type ?? propertyType
         }
 
         const operatorMapping: Record<string, string> = chooseOperatorMap(propertyType)
 
-        let operators = (Object.keys(operatorMapping) as Array<PropertyOperator>).filter((op) => {
-            // Filter out semver operators if feature flag is not enabled
-            if (!semverTargetingEnabled && isOperatorSemver(op)) {
-                return false
-            }
-            return !operatorAllowlist || operatorAllowlist.includes(op)
-        })
+        let operators = (Object.keys(operatorMapping) as Array<PropertyOperator>).filter(
+            (op) => !operatorAllowlist || operatorAllowlist.includes(op)
+        )
 
         // Restrict message log property to only allow exact, is_not, contains, not contains, regex, and not regex operators
         if (propertyKey === 'message' && type === PropertyFilterType.Log) {
@@ -328,7 +327,7 @@ export function OperatorValueSelect({
             }
             setCurrentOperator(defaultProperty)
         }
-    }, [propertyDefinition, propertyKey, operator, operatorAllowlist, semverTargetingEnabled]) // oxlint-disable-line react-hooks/exhaustive-deps
+    }, [propertyDefinition, propertyKey, operator, operatorAllowlist, type]) // oxlint-disable-line react-hooks/exhaustive-deps
 
     const validationError = currentOperator && value ? getValidationError(currentOperator, value, propertyKey) : null
 

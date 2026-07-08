@@ -21,8 +21,8 @@ LOGGER = get_write_only_logger(__name__)
 
 
 def peek_first_and_rewind(
-    gen: collections.abc.Generator[T, None, None],
-) -> tuple[T | None, collections.abc.Generator[T, None, None]]:
+    gen: collections.abc.Generator[T],
+) -> tuple[T | None, collections.abc.Generator[T]]:
     """Peek into the first element in a generator and rewind the advance.
 
     The generator is advanced and cannot be reversed, so we create a new one that first
@@ -36,7 +36,7 @@ def peek_first_and_rewind(
     except StopIteration:
         first = None
 
-    def rewind_gen() -> collections.abc.Generator[T, None, None]:
+    def rewind_gen() -> collections.abc.Generator[T]:
         """Yield the item we popped to rewind the generator.
 
         Return early if the generator is empty.
@@ -51,8 +51,8 @@ def peek_first_and_rewind(
 
 
 async def apeek_first_and_rewind(
-    gen: collections.abc.AsyncGenerator[T, None],
-) -> tuple[T | None, collections.abc.AsyncGenerator[T, None]]:
+    gen: collections.abc.AsyncGenerator[T],
+) -> tuple[T | None, collections.abc.AsyncGenerator[T]]:
     """Peek into the first element in a generator and rewind the advance.
 
     The generator is advanced and cannot be reversed, so we create a new one that first
@@ -66,7 +66,7 @@ async def apeek_first_and_rewind(
     except StopAsyncIteration:
         first = None
 
-    async def rewind_gen() -> collections.abc.AsyncGenerator[T, None]:
+    async def rewind_gen() -> collections.abc.AsyncGenerator[T]:
         """Yield the item we popped to rewind the generator.
 
         Return early if the generator is empty.
@@ -83,7 +83,7 @@ async def apeek_first_and_rewind(
 
 
 @contextlib.asynccontextmanager
-async def set_status_to_running_task(run_id: str | None) -> collections.abc.AsyncGenerator[asyncio.Task | None, None]:
+async def set_status_to_running_task(run_id: str | None) -> collections.abc.AsyncGenerator[asyncio.Task | None]:
     """Manage a background task to set a batch export run status to 'RUNNING'.
 
     This is intended to be used within a batch export's 'insert_*' activity. These activities cannot afford

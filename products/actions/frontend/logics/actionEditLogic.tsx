@@ -10,7 +10,6 @@ import { SetupTaskId, globalSetupLogic } from 'lib/components/ProductSetup'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { Link } from 'lib/lemon-ui/Link'
 import { eventDefinitionsTableLogic } from 'scenes/data-management/events/eventDefinitionsTableLogic'
-import { sceneLogic } from 'scenes/sceneLogic'
 import { urls } from 'scenes/urls'
 
 import { deleteFromTree, getLastNewFolder, refreshTreeItem } from '~/layout/panel-layout/ProjectTree/projectTreeLogic'
@@ -37,7 +36,6 @@ export interface SetActionProps {
 export interface ActionEditLogicProps {
     id: number
     action?: ActionType | null
-    tabId?: string
 }
 
 export const DEFAULT_ACTION_STEP: ActionStepType = {
@@ -48,9 +46,7 @@ export const DEFAULT_ACTION_STEP: ActionStepType = {
 export const actionEditLogic = kea<actionEditLogicType>([
     path((key) => ['scenes', 'actions', 'actionEditLogic', key]),
     props({} as ActionEditLogicProps),
-    // Key by tabId AND id so each tab preserves its own form state across tab switches.
-    // Fall back to 'notab' for non-scene mounts (e.g. tests, side panel) to stay backwards-compatible.
-    key((props) => `${props.tabId || 'notab'}:${props.id || 'new'}`),
+    key((props) => `${props.id || 'new'}`),
     connect(() => ({
         actions: [
             actionsModel,
@@ -166,7 +162,7 @@ export const actionEditLogic = kea<actionEditLogicType>([
                     router.actions.push(urls.action(action.id))
                 } else {
                     const id = parseInt(props.id.toString()) // props.id can be a string
-                    const logic = actionLogic.findMounted({ tabId: props.tabId, id })
+                    const logic = actionLogic.findMounted({ id })
                     logic?.actions.loadActionSuccess(action)
                 }
 
@@ -313,28 +309,6 @@ export const actionEditLogic = kea<actionEditLogicType>([
             // Ignore in-page URL updates such as opening the side panel
             if (newLocation && newLocation.pathname === router.values.location.pathname) {
                 return false
-            }
-
-            // Skip the prompt for tab switches — our tab still exists, the logic stays mounted
-            // via the scene-logic cache, and the form state is preserved. A tab switch shows up
-            // in one of two ways at beforeUnload time:
-            //  - switching AWAY: sceneLogic.activateTab() has already moved active to another
-            //    tab before router.push fires, so activeTabId !== our tabId.
-            //  - switching BACK: active is now us again, and the push target is our own tab's
-            //    stored pathname.
-            // Anything else (in-tab navigation, closing our tab) should still prompt.
-            const myTabId = logic.props.tabId
-            const scene = sceneLogic.findMounted()
-            if (myTabId && scene && newLocation) {
-                const myTab = scene.values.tabs.find((t) => t.id === myTabId)
-                if (myTab) {
-                    if (scene.values.activeTabId !== myTabId) {
-                        return false
-                    }
-                    if (myTab.pathname === newLocation.pathname) {
-                        return false
-                    }
-                }
             }
 
             return true

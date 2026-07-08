@@ -140,7 +140,7 @@ function BatchExportSceneHeader(): JSX.Element {
                 resourceType={{
                     type: 'data_pipelines',
                     forceIcon: configuration.destination ? (
-                        <RenderBatchExportIcon size="medium" type={configuration.destination} />
+                        <RenderBatchExportIcon size="small" type={configuration.destination} />
                     ) : undefined,
                 }}
                 isLoading={batchExportConfigLoading}

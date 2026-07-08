@@ -15,8 +15,7 @@ from temporalio.client import (
 
 from posthog.temporal.common.schedule import a_create_schedule, a_schedule_exists, a_update_schedule
 
-from products.logs.backend.temporal.activities import CheckAlertsInput
-from products.logs.backend.temporal.constants import SCHEDULE_CRON, SCHEDULE_ID, WORKFLOW_NAME
+from products.logs.backend.facade.temporal import SCHEDULE_CRON, SCHEDULE_ID, WORKFLOW_NAME, CheckAlertsInput
 
 
 async def create_logs_alert_check_schedule(client: Client) -> None:

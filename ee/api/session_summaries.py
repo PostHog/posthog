@@ -17,7 +17,6 @@ import structlog
 from asgiref.sync import async_to_sync
 from drf_spectacular.types import OpenApiTypes
 from drf_spectacular.utils import OpenApiParameter, extend_schema, extend_schema_field
-from loginas.utils import is_impersonated_session
 from rest_framework import exceptions, serializers, status, viewsets
 from rest_framework.decorators import action
 from rest_framework.permissions import IsAuthenticated
@@ -28,9 +27,11 @@ from rest_framework.viewsets import GenericViewSet
 
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
+from posthog.api.streaming import sse_streaming_response
 from posthog.clickhouse.query_tagging import Product, tag_queries
 from posthog.cloud_utils import is_cloud
 from posthog.event_usage import EventSource, get_event_source
+from posthog.helpers.impersonation import is_impersonated
 from posthog.models import OrganizationMembership, Team, User
 from posthog.models.activity_logging.activity_log import Change, Detail, log_activity
 from posthog.models.team.extensions import get_or_create_team_extension
@@ -42,6 +43,15 @@ from posthog.temporal.session_replay.session_summary.workflow import execute_sum
 from posthog.temporal.session_replay.session_summary_group.types import FailedSessionInfo, SessionSummaryStreamUpdate
 from posthog.temporal.session_replay.session_summary_group.workflow import execute_summarize_session_group
 from posthog.utils import relative_date_parse
+
+from products.replay.backend.models.session_summaries import SessionGroupSummary, SingleSessionSummary
+from products.replay.backend.models.team_session_summaries_config import (
+    CUSTOM_TAG_DESCRIPTION_MAX_LENGTH,
+    CUSTOM_TAG_NAME_MAX_LENGTH,
+    CUSTOM_TAGS_MAX_COUNT,
+    PRODUCT_CONTEXT_MAX_LENGTH,
+    TeamSessionSummariesConfig,
+)
 
 from ee.hogai.session_summaries.session.output_data import SessionSummarySerializer
 from ee.hogai.session_summaries.session.summarize_session import ExtraSummaryContext
@@ -58,14 +68,6 @@ from ee.hogai.session_summaries.tracking import (
 )
 from ee.hogai.session_summaries.utils import logging_session_ids
 from ee.hogai.utils.aio import async_to_sync as async_generator_to_sync
-from ee.models.session_summaries import SessionGroupSummary, SingleSessionSummary
-from ee.models.team_session_summaries_config import (
-    CUSTOM_TAG_DESCRIPTION_MAX_LENGTH,
-    CUSTOM_TAG_NAME_MAX_LENGTH,
-    CUSTOM_TAGS_MAX_COUNT,
-    PRODUCT_CONTEXT_MAX_LENGTH,
-    TeamSessionSummariesConfig,
-)
 
 logger = structlog.get_logger(__name__)
 
@@ -518,7 +520,7 @@ class SessionSummariesViewSet(TeamAndOrgViewSetMixin, GenericViewSet):
             session_ids=session_ids,
         )
 
-        async def async_stream() -> AsyncGenerator[bytes, None]:
+        async def async_stream() -> AsyncGenerator[bytes]:
             SSE_KEEPALIVE_COMMENT = b": keepalive\n\n"
             SSE_KEEPALIVE_INTERVAL = 15  # seconds — well under typical LB idle timeouts (60s)
 
@@ -598,13 +600,9 @@ class SessionSummariesViewSet(TeamAndOrgViewSetMixin, GenericViewSet):
             done_data = json.dumps({"completed": completed_ids, "failed": failed_ids})
             yield f"event: done\ndata: {done_data}\n\n".encode()
 
-        return StreamingHttpResponse(
-            (async_stream() if settings.SERVER_GATEWAY_INTERFACE == "ASGI" else async_generator_to_sync(async_stream)),
-            content_type="text/event-stream",
-            headers={
-                "Cache-Control": "no-cache",
-                "X-Accel-Buffering": "no",
-            },
+        return sse_streaming_response(
+            async_stream() if settings.SERVER_GATEWAY_INTERFACE == "ASGI" else async_generator_to_sync(async_stream),
+            endpoint="session_summaries",
         )
 
     @extend_schema(
@@ -757,7 +755,7 @@ class SessionGroupSummaryViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             organization_id=self.request.user.current_organization_id,
             team_id=self.team_id,
             user=self.request.user,
-            was_impersonated=is_impersonated_session(self.request),
+            was_impersonated=is_impersonated(self.request),
         )
         super().perform_destroy(instance)
 

@@ -10,6 +10,7 @@ the IDE repo dropdown.
 
 from __future__ import annotations
 
+import sys
 import time
 import uuid
 import base64
@@ -25,9 +26,9 @@ from django.db.models import Q
 from django.utils import timezone
 
 import structlog
-import temporalio.activity
 
 from posthog import redis as posthog_redis
+from posthog.egress.github.transport import GitHubRateLimitError
 from posthog.helpers.async_concurrency import run_parallel_with_backoff
 from posthog.models.github_integration_base import GitHubIntegrationBase
 from posthog.models.integration import GitHubIntegration, GitHubIntegrationError, Integration
@@ -218,7 +219,8 @@ class GitHubRepositoryFullCache:
                 readme_text = base64.b64decode(encoded).decode("utf-8", errors="replace")
         except GitHubIntegrationError as exc:
             if getattr(exc, "status_code", None) != 404:
-                # Rate-limit and other retryable errors propagate so run_parallel_with_backoff can retry.
+                # Non-404 failures propagate; rate limits bypass this catch entirely (they raise
+                # GitHubRateLimitError) so run_parallel_with_backoff can retry them.
                 raise
         # Recursive file tree → newline-separated blob paths for ARRAY JOIN grep.
         tree_data = self.github._gh_api_get(
@@ -380,8 +382,8 @@ class GitHubRepositoryFullCache:
         results = await run_parallel_with_backoff(
             [make_fn(name) for name in valid_full_names],
             concurrency=concurrency,
-            is_retryable=lambda exc: isinstance(exc, GitHubIntegrationError) and exc.is_rate_limit,
-            get_retry_delay=lambda exc: getattr(exc, "retry_after_seconds", None),
+            is_retryable=lambda exc: isinstance(exc, GitHubRateLimitError),
+            get_retry_delay=lambda exc: getattr(exc, "retry_after", None),
         )
         # 4. Single summary line — distinguishes "warm cache, all hits" from "did real work".
         errors = sum(1 for r in results if isinstance(r, BaseException))
@@ -416,8 +418,14 @@ async def _acquire_sync_lock(integration_id: int) -> AsyncIterator[None]:
             raise SyncFullCacheTimeoutError(
                 f"Waited {SYNC_LOCK_MAX_WAIT_SECONDS}s for sync lock on integration {integration_id}"
             )
-        if temporalio.activity.in_activity():
-            temporalio.activity.heartbeat()
+        # Only meaningful inside a Temporal activity, and being in one implies temporalio is
+        # imported — this is a models module, so a top-level import would put temporalio on
+        # the django.setup() path
+        if "temporalio" in sys.modules:
+            import temporalio.activity  # noqa: PLC0415
+
+            if temporalio.activity.in_activity():
+                temporalio.activity.heartbeat()
         await asyncio.sleep(SYNC_LOCK_POLL_INTERVAL_SECONDS)
 
     stop_heartbeat = asyncio.Event()

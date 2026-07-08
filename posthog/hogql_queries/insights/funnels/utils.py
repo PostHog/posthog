@@ -1,5 +1,6 @@
+from typing import TypeIs
+
 from rest_framework.exceptions import ValidationError
-from typing_extensions import TypeIs
 
 from posthog.schema import (
     ActionsNode,
@@ -15,8 +16,11 @@ from posthog.hogql.parser import parse_expr
 from posthog.hogql.property import apply_path_cleaning
 
 from posthog.constants import FUNNEL_WINDOW_INTERVAL_TYPES
+from posthog.hogql_queries.insights.utils.breakdowns import ALL_USERS_COHORT_ID, NOT_IN_COHORT_ID
 from posthog.models.team.team import Team
 from posthog.types import FunnelEntityNode, FunnelExclusionEntityNode
+
+from products.cohorts.backend.models.cohort import Cohort
 
 
 def funnel_window_interval_unit_to_sql(
@@ -138,3 +142,15 @@ def alias_columns_in_select(columns: list[ast.Expr], table_alias: str) -> list[a
         else:
             raise ValueError(f"Unexpected select expression {col!r}")
     return result
+
+
+def get_breakdown_cohort_name(cohort_id: int, team: Team, not_in_cohort_name: str | None = None) -> str:
+    if cohort_id == ALL_USERS_COHORT_ID:
+        return "all users"
+    elif cohort_id == NOT_IN_COHORT_ID:
+        if not_in_cohort_name:
+            return f"Not in {not_in_cohort_name}"
+        return "Not in cohort"
+    else:
+        cohort_name = Cohort.objects.get(pk=cohort_id, team__project_id=team.project_id).name
+        return cohort_name or ""

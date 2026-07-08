@@ -69,6 +69,14 @@ export interface QueryContext<Q extends QuerySchema = QuerySchema> {
     customActions?: JSX.Element | JSX.Element[]
     /** Callback for drag-to-zoom on time series charts. Enables x-axis drag selection when set. */
     onDateRangeZoom?: (dateFrom: string, dateTo: string) => void
+    /** Wired by the web analytics scene so a pre-computed tile's badge can offer "always query live data". */
+    onDisableWebAnalyticsPrecompute?: () => void
+    /**
+     * Suppress the generic "Need to speed things up?" optimization tips while a query is loading.
+     * Use this when the embedded chart is built from a fixed query that the viewer cannot edit
+     * (e.g. the Error tracking insights tab) and the suggestions would not be actionable.
+     */
+    suppressSlowQuerySuggestions?: boolean
 }
 
 export type QueryContextColumnTitleComponent = ComponentType<{

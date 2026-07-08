@@ -28,7 +28,7 @@ uuid = { workspace = true }
 rand = { workspace = true }
 anyhow = { workspace = true }
 personhog-proto = { path = "../personhog-proto" }
-tonic = { workspace = true, features = ["gzip"] }
+tonic = { workspace = true }
 thiserror.workspace = true
 regex.workspace = true
 

@@ -1,10 +1,9 @@
 import equal from 'fast-deep-equal'
-import { actions, connect, kea, listeners, path, props, reducers, selectors } from 'kea'
+import { actions, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 
 import { FEATURE_FLAGS } from 'lib/constants'
-import { tabAwareScene } from 'lib/logic/scenes/tabAwareScene'
-import { removeUndefinedAndNull } from 'lib/utils'
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
+import { removeUndefinedAndNull } from 'lib/utils/objects'
 import { Scene } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
@@ -56,7 +55,7 @@ export interface EditorSceneLogicProps {
 export const editorSceneLogic = kea<editorSceneLogicType>([
     path(['data-warehouse', 'editor', 'editorSceneLogic']),
     props({} as EditorSceneLogicProps),
-    tabAwareScene(),
+    key((props) => props.tabId),
     connect((props: EditorSceneLogicProps) => ({
         values: [
             sqlEditorLogic({ tabId: props.tabId }),
@@ -225,6 +224,21 @@ export const editorSceneLogic = kea<editorSceneLogicType>([
                     }
                 }
 
+                if (editorSource === 'view') {
+                    const forceBackTo: Breadcrumb = {
+                        key: 'models',
+                        name: 'Models',
+                        path: urls.models(),
+                        iconType: 'sql_editor',
+                    }
+
+                    return {
+                        forceBackTo,
+                        name: 'New view',
+                        resourceType: { type: 'sql_editor' },
+                    }
+                }
+
                 if (dashboardId) {
                     const forceBackTo: Breadcrumb = {
                         key: 'dashboard',
@@ -268,6 +282,13 @@ export const editorSceneLogic = kea<editorSceneLogicType>([
                     return {
                         primary: saveAsEndpointItem,
                         secondary: [saveAsInsightItem, saveAsViewItem],
+                    }
+                }
+
+                if (editorSource === 'view') {
+                    return {
+                        primary: saveAsViewItem,
+                        secondary: endpointsEnabled ? [saveAsInsightItem, saveAsEndpointItem] : [saveAsInsightItem],
                     }
                 }
 

@@ -1,7 +1,7 @@
 import clsx from 'clsx'
 import { useActions, useMountedLogic, useValues } from 'kea'
 import { router } from 'kea-router'
-import { useEffect, useMemo } from 'react'
+import { useEffect, useMemo, useRef } from 'react'
 
 import { IconChevronDown, IconClock, IconRefresh, IconX } from '@posthog/icons'
 import {
@@ -11,18 +11,21 @@ import {
     LemonDropdown,
     LemonInput,
     LemonInputSelect,
+    LemonSegmentedButton,
     LemonSelect,
     LemonTable,
     LemonTableColumns,
     LemonTag,
+    Spinner,
+    Tooltip,
 } from '@posthog/lemon-ui'
 
 import { DateFilter } from 'lib/components/DateFilter/DateFilter'
 import { ObjectTags } from 'lib/components/ObjectTags/ObjectTags'
 import { TZLabel } from 'lib/components/TZLabel'
 import { useBulkSelection } from 'lib/lemon-ui/LemonTable/useBulkSelection'
+import { stripMarkdown } from 'lib/utils/markdown'
 import { newInternalTab } from 'lib/utils/newInternalTab'
-import { stripMarkdown } from 'lib/utils/stripMarkdown'
 import { PersonDisplay } from 'scenes/persons/PersonDisplay'
 import { SceneExport } from 'scenes/sceneTypes'
 import { teamLogic } from 'scenes/teamLogic'
@@ -43,13 +46,21 @@ import {
 import { ChannelsTag } from '../../components/Channels/ChannelsTag'
 import { ComposeTicketButton } from '../../components/ComposeTicket'
 import { ConversationsDisabledBanner } from '../../components/ConversationsDisabledBanner'
+import { IdentityBadge } from '../../components/IdentityBadge/IdentityBadge'
 import { SavedViewsButton } from '../../components/SavedViews/SavedViewsButton'
 import { ScenesTabs } from '../../components/ScenesTabs'
 import { SlaDisplay } from '../../components/SlaDisplay'
 import {
+    type AITriageFilterValue,
     type Ticket,
     type TicketSlaState,
     type TicketStatus,
+    type TicketTagsMatch,
+    aiTriageFilterOptions,
+    aiTriageProcessingLabel,
+    aiTriageResultLabel,
+    aiTriageResultTagType,
+    aiTriageTicketTypeLabel,
     channelOptions,
     priorityMultiselectOptions,
     slaOptions,
@@ -97,6 +108,7 @@ export const SUPPORT_TICKETS_TABLE_COLUMNS: LemonTableColumns<Ticket> = [
                     }
                     withIcon
                 />
+                {ticket.identity_verified === false && <IdentityBadge verified={false} iconOnly />}
             </div>
         ),
     },
@@ -242,7 +254,7 @@ function SupportTicketsBulkActions(): JSX.Element {
                 }
                 bulkUpdateStatus(selectedTicketIds, value as TicketStatus)
             }}
-            value={currentStatus === 'mixed' ? null : currentStatus}
+            value={null}
             placeholder="Mark as"
             loading={bulkUpdating}
             disabledReason={!hasSelection ? 'Select tickets first' : bulkUpdating ? 'Updating…' : undefined}
@@ -257,20 +269,41 @@ export function SupportTicketsTable({ embedded = false }: SupportTicketsTablePro
     const { tickets, ticketsLoading, currentPage, totalCount, sorting, selectedTicketIds } = useValues(logic)
     const { setCurrentPage, setSorting, setSelectedTicketIds } = useActions(logic)
     const { push } = useActions(router)
+    const { currentTeam } = useValues(teamLogic)
+    const aiEnabled = !!currentTeam?.conversations_settings?.ai_suggestions_enabled
 
     const getKey = useMemo(() => (t: Ticket) => t.id, [])
     const bulk = useBulkSelection<Ticket, string>({ pageRecords: tickets, getKey })
+    // `bulk` is a fresh object every render, but its members are individually stable
+    // (callbacks/useState/useMemo or primitives). Destructure so hook deps reference the
+    // stable members instead of the unstable wrapper object.
+    const {
+        selectedKeys,
+        clearSelection,
+        isSomeOnPageSelected,
+        isAllOnPageSelected,
+        toggleAllOnPage,
+        selectedKeysSet,
+        toggleRow,
+    } = bulk
 
     useEffect(() => {
-        setSelectedTicketIds(bulk.selectedKeys)
-    }, [bulk.selectedKeys])
+        setSelectedTicketIds(selectedKeys)
+    }, [selectedKeys, setSelectedTicketIds])
 
-    // Clear hook selection when kea resets (e.g. after bulk update or page reload)
+    // Clear hook selection only when kea's selection is reset *externally* (e.g. after a bulk
+    // update or page reload). We detect that as a non-empty -> empty transition. Reacting to
+    // `selectedTicketIds.length === 0` alone would also fire during the brief window right after
+    // the first selection, before the effect above has pushed `selectedKeys` into kea — which
+    // would immediately wipe the selection the user just made.
+    const prevSelectedTicketIdCount = useRef(selectedTicketIds.length)
     useEffect(() => {
-        if (selectedTicketIds.length === 0 && bulk.selectedKeys.length > 0) {
-            bulk.clearSelection()
+        const wasSelected = prevSelectedTicketIdCount.current > 0
+        prevSelectedTicketIdCount.current = selectedTicketIds.length
+        if (wasSelected && selectedTicketIds.length === 0 && selectedKeys.length > 0) {
+            clearSelection()
         }
-    }, [selectedTicketIds, bulk.clearSelection])
+    }, [selectedTicketIds, selectedKeys, clearSelection])
 
     const columns = useMemo<LemonTableColumns<Ticket>>(() => {
         const checkboxCol: LemonTableColumns<Ticket>[number] = {
@@ -278,33 +311,66 @@ export function SupportTicketsTable({ embedded = false }: SupportTicketsTablePro
             width: 32,
             title: (
                 <LemonCheckbox
-                    checked={bulk.isSomeOnPageSelected ? 'indeterminate' : bulk.isAllOnPageSelected}
-                    onChange={bulk.toggleAllOnPage}
+                    checked={isSomeOnPageSelected ? 'indeterminate' : isAllOnPageSelected}
+                    onChange={toggleAllOnPage}
                     stopPropagation
                 />
             ),
             render: (_, ticket: Ticket, recordIndex: number) => (
                 <LemonCheckbox
-                    checked={bulk.selectedKeysSet.has(ticket.id)}
+                    checked={selectedKeysSet.has(ticket.id)}
                     onChange={(_value, event) =>
-                        bulk.toggleRow(ticket.id, recordIndex, (event.nativeEvent as MouseEvent).shiftKey ?? false)
+                        toggleRow(ticket.id, recordIndex, (event.nativeEvent as MouseEvent).shiftKey ?? false)
                     }
                     stopPropagation
                 />
             ),
         }
-        const base = embedded
+        const aiCol: LemonTableColumns<Ticket>[number] = {
+            title: 'AI status',
+            key: 'ai_triage',
+            render: (_, ticket: Ticket) => {
+                const triage = ticket.ai_triage
+                if (!triage || !triage.status) {
+                    return <span className="text-muted-alt text-xs">—</span>
+                }
+                if (triage.status === 'in_progress') {
+                    return (
+                        <span className="flex items-center gap-1 text-xs">
+                            <Spinner className="text-sm" />
+                            {aiTriageProcessingLabel}
+                        </span>
+                    )
+                }
+                if (triage.result) {
+                    const tooltipContent = [
+                        triage.ticket_type &&
+                            `Type: ${aiTriageTicketTypeLabel[triage.ticket_type] ?? triage.ticket_type}`,
+                        triage.confidence != null && `Confidence: ${(triage.confidence * 100).toFixed(0)}%`,
+                        triage.attempts != null && `Attempts: ${triage.attempts}`,
+                    ]
+                        .filter(Boolean)
+                        .join(' · ')
+                    return (
+                        <Tooltip title={tooltipContent || undefined}>
+                            <LemonTag type={aiTriageResultTagType(triage.result)}>
+                                {aiTriageResultLabel[triage.result]}
+                            </LemonTag>
+                        </Tooltip>
+                    )
+                }
+                return <span className="text-muted-alt text-xs">—</span>
+            },
+        }
+        let base = embedded
             ? SUPPORT_TICKETS_TABLE_COLUMNS.filter((col) => 'key' in col && col.key !== 'customer')
             : SUPPORT_TICKETS_TABLE_COLUMNS
+        if (aiEnabled) {
+            const createdIdx = base.findIndex((col) => 'key' in col && col.key === 'priority')
+            base = [...base.slice(0, createdIdx), aiCol, ...base.slice(createdIdx)]
+        }
         return [checkboxCol, ...base]
-    }, [
-        embedded,
-        bulk.isSomeOnPageSelected,
-        bulk.isAllOnPageSelected,
-        bulk.toggleAllOnPage,
-        bulk.selectedKeysSet,
-        bulk.toggleRow,
-    ])
+    }, [embedded, aiEnabled, isSomeOnPageSelected, isAllOnPageSelected, toggleAllOnPage, selectedKeysSet, toggleRow])
 
     return (
         <LemonTable<Ticket>
@@ -365,8 +431,11 @@ export function SupportTicketsTableFilters(): JSX.Element {
         priorityFilter,
         channelFilter,
         slaFilter,
+        aiTriageResultFilter,
         assigneeFilter,
         tagsFilter,
+        tagsMatch,
+        tagsExcludeFilter,
         dateFrom,
         dateTo,
         ticketsLoading,
@@ -377,12 +446,17 @@ export function SupportTicketsTableFilters(): JSX.Element {
         setPriorityFilter,
         setChannelFilter,
         setSlaFilter,
+        setAiTriageResultFilter,
         setAssigneeFilter,
         setTagsFilter,
+        setTagsMatch,
+        setTagsExcludeFilter,
         setDateRange,
         loadTickets,
     } = useActions(logic)
+    const { aiEnabled } = useValues(logic)
     const { tags: tagsAvailable } = useValues(tagsModel)
+    const tagOptions = tagsAvailable?.map((t: string) => ({ key: t, label: t })) || []
 
     return (
         <div className="flex flex-wrap gap-3 items-center justify-between">
@@ -520,36 +594,112 @@ export function SupportTicketsTableFilters(): JSX.Element {
                         {slaOptions.find((o) => o.value === slaFilter)?.label ?? 'All SLA states'}
                     </LemonButton>
                 </LemonDropdown>
+                {aiEnabled && (
+                    <LemonDropdown
+                        closeOnClickInside={false}
+                        overlay={
+                            <div className="space-y-px p-1">
+                                {aiTriageFilterOptions.map((option) => (
+                                    <LemonButton
+                                        key={option.key}
+                                        type="tertiary"
+                                        size="small"
+                                        fullWidth
+                                        icon={
+                                            <LemonCheckbox
+                                                checked={aiTriageResultFilter.includes(option.key)}
+                                                className="pointer-events-none"
+                                            />
+                                        }
+                                        onClick={() => {
+                                            const newFilter = aiTriageResultFilter.includes(option.key)
+                                                ? aiTriageResultFilter.filter(
+                                                      (r: AITriageFilterValue) => r !== option.key
+                                                  )
+                                                : [...aiTriageResultFilter, option.key]
+                                            setAiTriageResultFilter(newFilter)
+                                        }}
+                                    >
+                                        {option.label}
+                                    </LemonButton>
+                                ))}
+                            </div>
+                        }
+                    >
+                        <LemonButton type="secondary" size="small" sideIcon={<IconChevronDown />}>
+                            {aiTriageResultFilter.length === 0
+                                ? 'All AI results'
+                                : aiTriageResultFilter.length === 1
+                                  ? aiTriageFilterOptions.find((o) => o.key === aiTriageResultFilter[0])?.label
+                                  : `${aiTriageResultFilter.length} AI results`}
+                        </LemonButton>
+                    </LemonDropdown>
+                )}
                 <LemonDropdown
                     closeOnClickInside={false}
                     overlay={
-                        <div className="p-2 min-w-64">
-                            <LemonInputSelect
-                                mode="multiple"
-                                allowCustomValues
-                                value={tagsFilter}
-                                options={tagsAvailable?.map((t: string) => ({ key: t, label: t })) || []}
-                                onChange={setTagsFilter}
-                                placeholder="Select or type tags..."
-                                data-attr="tags-filter-input"
-                            />
+                        <div className="p-2 min-w-64 flex flex-col gap-2">
+                            <div className="flex flex-col gap-1">
+                                <div className="flex items-center justify-between gap-2">
+                                    <span className="text-muted text-xs">Include tags</span>
+                                    <LemonSegmentedButton
+                                        size="small"
+                                        value={tagsMatch}
+                                        onChange={(value) => setTagsMatch(value as TicketTagsMatch)}
+                                        options={[
+                                            { value: 'any', label: 'Match any' },
+                                            { value: 'all', label: 'Match all' },
+                                        ]}
+                                    />
+                                </div>
+                                <LemonInputSelect
+                                    mode="multiple"
+                                    allowCustomValues
+                                    value={tagsFilter}
+                                    options={tagOptions}
+                                    onChange={setTagsFilter}
+                                    placeholder="Select or type tags..."
+                                    data-attr="tags-filter-input"
+                                />
+                            </div>
+                            <div className="flex flex-col gap-1">
+                                <span className="text-muted text-xs">Exclude tags</span>
+                                <LemonInputSelect
+                                    mode="multiple"
+                                    allowCustomValues
+                                    value={tagsExcludeFilter}
+                                    options={tagOptions}
+                                    onChange={setTagsExcludeFilter}
+                                    placeholder="Exclude tags..."
+                                    data-attr="tags-exclude-filter-input"
+                                />
+                            </div>
                         </div>
                     }
                 >
                     <LemonButton type="secondary" size="small" sideIcon={<IconChevronDown />}>
-                        {tagsFilter.length === 0
+                        {tagsFilter.length === 0 && tagsExcludeFilter.length === 0
                             ? 'All tags'
-                            : tagsFilter.length === 1
-                              ? tagsFilter[0]
-                              : `${tagsFilter.length} tags`}
+                            : [
+                                  tagsFilter.length > 0 &&
+                                      (tagsFilter.length === 1
+                                          ? tagsFilter[0]
+                                          : `${tagsMatch === 'all' ? 'all' : 'any'} of ${tagsFilter.length} tags`),
+                                  tagsExcludeFilter.length > 0 && `excl. ${tagsExcludeFilter.length}`,
+                              ]
+                                  .filter(Boolean)
+                                  .join(', ')}
                     </LemonButton>
                 </LemonDropdown>
-                {tagsFilter.length > 0 && (
+                {(tagsFilter.length > 0 || tagsExcludeFilter.length > 0) && (
                     <LemonButton
                         type="secondary"
                         size="small"
                         icon={<IconX />}
-                        onClick={() => setTagsFilter([])}
+                        onClick={() => {
+                            setTagsFilter([])
+                            setTagsExcludeFilter([])
+                        }}
                         tooltip="Clear tag filter"
                     />
                 )}

@@ -8,9 +8,9 @@ import structlog
 import temporalio.activity
 from temporalio.exceptions import ApplicationError
 
-from posthog.schema import AlertCalculationInterval, AlertState
+from posthog.schema import AlertState
 
-from posthog.clickhouse.query_tagging import tag_queries
+from posthog.clickhouse.query_tagging import Feature, Product, tag_queries
 from posthog.errors import CH_TRANSIENT_ERRORS
 from posthog.exceptions_capture import capture_exception
 from posthog.schema_migrations.upgrade_manager import upgrade_query
@@ -18,14 +18,13 @@ from posthog.sync import database_sync_to_async
 from posthog.tasks.alerts.investigation_notifications import run_investigation_notification_safety_net
 from posthog.tasks.alerts.schedule_restriction import is_utc_datetime_blocked, next_unblocked_utc
 from posthog.tasks.alerts.utils import (
+    CALCULATION_INTERVAL_ORDER,
     add_alert_check,
-    check_alert_for_insight,
     disable_invalid_alert,
     dispatch_alert_notification,
     next_check_time,
     record_alert_delivery,
     skip_because_of_weekend,
-    validate_alert_config,
 )
 from posthog.temporal.alerts.investigation import claim_investigation_slot, should_trigger_investigation
 from posthog.temporal.alerts.types import (
@@ -40,6 +39,9 @@ from posthog.temporal.alerts.types import (
 )
 from posthog.temporal.common.heartbeat import Heartbeater
 
+from products.alerts.backend.evaluation import check_alert_for_insight
+from products.alerts.backend.evaluation.contract import AlertExtractionError
+from products.alerts.backend.evaluation.validation import validate_alert_config
 from products.alerts.backend.models.alert import AlertCheck, AlertConfiguration
 from products.notifications.backend.facade.api import (
     NotificationData,
@@ -59,14 +61,12 @@ async def retrieve_due_alerts() -> list[AlertInfo]:
     def get_alerts() -> list[AlertInfo]:
         now = datetime.now(UTC)
 
-        # Hourly before daily before weekly/monthly so the cheaper, more
-        # time-sensitive checks get workers first when the due batch is large.
-        # Keep ordering in sync with calculation_interval_to_order in posthog/tasks/alerts/utils.py.
         calculation_interval_order = Case(
-            When(calculation_interval=AlertCalculationInterval.EVERY_15_MINUTES.value, then=Value(0)),
-            When(calculation_interval=AlertCalculationInterval.HOURLY.value, then=Value(1)),
-            When(calculation_interval=AlertCalculationInterval.DAILY.value, then=Value(2)),
-            default=Value(3),
+            *(
+                When(calculation_interval=interval.value, then=Value(order))
+                for interval, order in CALCULATION_INTERVAL_ORDER.items()
+            ),
+            default=Value(max(CALCULATION_INTERVAL_ORDER.values())),
             output_field=IntegerField(),
         )
 
@@ -103,7 +103,9 @@ async def prepare_alert(inputs: PrepareAlertActivityInputs) -> PrepareAlertResul
     @database_sync_to_async(thread_sensitive=False)
     def _prepare() -> PrepareAlertResult:
         try:
-            alert = AlertConfiguration.objects.select_related("insight", "team", "threshold").get(id=inputs.alert_id)
+            alert = AlertConfiguration.objects.select_related("insight", "team", "team__organization", "threshold").get(
+                id=inputs.alert_id
+            )
         except AlertConfiguration.DoesNotExist:
             logger.warning("Alert not found", alert_id=inputs.alert_id)
             return PrepareAlertResult(action=PrepareAction.SKIP, reason=SkipReason.NOT_FOUND)
@@ -119,6 +121,16 @@ async def prepare_alert(inputs: PrepareAlertActivityInputs) -> PrepareAlertResul
                 insight_id=alert.insight_id,
             )
             return PrepareAlertResult(action=PrepareAction.SKIP, reason=SkipReason.INSIGHT_DELETED)
+
+        # Plan downgrade protection: entitlement-gated intervals must stop evaluating when the
+        # org loses the feature (e.g. billing downgrade), since API validation only runs on writes.
+        entitlement_error = AlertConfiguration.interval_entitlement_error(
+            calculation_interval=alert.calculation_interval,
+            organization=alert.team.organization,
+        )
+        if entitlement_error:
+            disable_invalid_alert(alert, entitlement_error)
+            return PrepareAlertResult(action=PrepareAction.AUTO_DISABLE, reason=entitlement_error)
 
         now = datetime.now(UTC)
 
@@ -166,6 +178,7 @@ async def prepare_alert(inputs: PrepareAlertActivityInputs) -> PrepareAlertResul
                     alert.config,
                     threshold_config,
                     alert.calculation_interval,
+                    detector_config=alert.detector_config,
                 )
         except ValueError as e:
             disable_invalid_alert(alert, str(e))
@@ -200,8 +213,16 @@ async def evaluate_alert(inputs: EvaluateAlertActivityInputs) -> EvaluateAlertRe
                 non_retryable=True,
             )
 
-        # CH workload management keys off this tag to isolate alert queries from other tenants.
-        tag_queries(alert_config_id=str(alert.id))
+        # CH workload management keys off these tags to isolate alert queries from other tenants.
+        # calculation_interval / config_type also let query_log cost be grouped by alert cadence
+        # (real_time vs every_15_minutes vs ...) and query shape (trends vs HogQL) without a join.
+        tag_queries(
+            alert_config_id=str(alert.id),
+            product=Product.PRODUCT_ANALYTICS,
+            feature=Feature.ALERTING,
+            alert_calculation_interval=alert.calculation_interval,
+            alert_config_type=(alert.config or {}).get("type"),
+        )
 
         # Snapshot before add_alert_check mutates alert.state — needed to detect the
         # NOT_FIRING/ERRORED -> FIRING transition that triggers an investigation.
@@ -218,6 +239,17 @@ async def evaluate_alert(inputs: EvaluateAlertActivityInputs) -> EvaluateAlertRe
             breaches = alert_evaluation_result.breaches
         except CH_TRANSIENT_ERRORS:
             raise
+        except AlertExtractionError as err:
+            # The alert can't be evaluated as configured (wrong query shape / bad config) — a
+            # deliberate fail-loud outcome, not a bug. Auto-disable and email the owner via the
+            # existing path instead of capturing it as an exception, which would pollute error
+            # tracking with a config problem that recurs on every check until fixed.
+            alert_check = disable_invalid_alert(alert, str(err))
+            return EvaluateAlertResult(
+                alert_check_id=str(alert_check.id),
+                should_notify=False,  # disable_invalid_alert already emailed subscribers
+                new_state=AlertState.ERRORED,
+            )
         except Exception as err:
             logger.exception(f"Alert id = {alert.id}, failed to evaluate", exc_info=err)
             capture_exception(

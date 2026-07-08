@@ -3,15 +3,21 @@ import { MOCK_TEAM_ID } from 'lib/api.mock'
 import { router } from 'kea-router'
 import { expectLogic } from 'kea-test-utils'
 
+import api from 'lib/api'
+import { FEATURE_FLAGS } from 'lib/constants'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { emptySceneParams } from 'scenes/scenes'
 import { urls } from 'scenes/urls'
 
 import { productRedirects } from '~/products'
+import { isTracesQuery } from '~/queries/utils'
 import { initKeaTests } from '~/test/init'
 import { PropertyFilterType, PropertyOperator } from '~/types'
 
 import { sceneLogic } from '../../../frontend/src/scenes/sceneLogic'
 import { aiObservabilitySharedLogic } from './aiObservabilitySharedLogic'
 import { DisplayOption, aiObservabilityTraceLogic } from './aiObservabilityTraceLogic'
+import { llmSessionTitleLazyLoaderLogic } from './llmSessionTitleLazyLoaderLogic'
 import { aiObservabilityDashboardLogic } from './tabs/aiObservabilityDashboardLogic'
 import { aiObservabilityGenerationsLogic } from './tabs/aiObservabilityGenerationsLogic'
 import { aiObservabilitySessionsViewLogic } from './tabs/aiObservabilitySessionsViewLogic'
@@ -38,7 +44,6 @@ describe('LLM analytics URL split', () => {
         expect(urls.aiObservabilityTags()).toBe('/ai-evals/taggers')
         expect(urls.aiObservabilityEvaluations()).toBe('/ai-evals/evaluations')
         expect(urls.aiObservabilityPrompts()).toBe('/prompt-management/prompts')
-        expect(urls.aiObservabilitySkills()).toBe('/prompt-management/skills')
     })
 
     it('redirects legacy LLM analytics URLs to their new product areas', () => {
@@ -63,9 +68,6 @@ describe('LLM analytics URL split', () => {
         expect(redirectUrl('/llm-analytics/prompts/:name', { name: 'prompt-1' })).toBe(
             '/prompt-management/prompts/prompt-1'
         )
-        expect(redirectUrl('/llm-analytics/skills/:name', { name: 'skill-1' })).toBe(
-            '/prompt-management/skills/skill-1'
-        )
     })
 
     it('redirects AI observability settings to the project-level BYOK setting', () => {
@@ -82,7 +84,7 @@ describe('aiObservabilitySharedLogic', () => {
         initKeaTests()
         sceneLogic.mount()
         router.actions.push(urls.aiObservabilityTraces())
-        logic = aiObservabilitySharedLogic({ tabId: sceneLogic.values.activeTabId || '' })
+        logic = aiObservabilitySharedLogic({})
         logic.mount()
     })
 
@@ -119,6 +121,34 @@ describe('aiObservabilitySharedLogic', () => {
         })
     })
 
+    it('preserves params owned by other logics when rewriting the URL', () => {
+        // review_* / human_reviews_tab ride along on tab links — applying shared
+        // state must not strip them
+        router.actions.push(urls.aiObservabilityGenerations(), {
+            date_from: '-14d',
+            review_search: 'needs review',
+            human_reviews_tab: 'reviews',
+        })
+
+        expectLogic(logic).toMatchValues({
+            dateFilter: { dateFrom: '-14d', dateTo: null },
+        })
+        expect(router.values.searchParams).toMatchObject({
+            review_search: 'needs review',
+            human_reviews_tab: 'reviews',
+        })
+    })
+
+    it('strips stale trace-view params while keeping foreign params', () => {
+        router.actions.push(urls.aiObservabilityTraces(), {
+            event: 'event-1',
+            timestamp: '2026-01-01',
+            review_search: 'abc',
+        })
+
+        expect(router.values.searchParams).toEqual({ review_search: 'abc' })
+    })
+
     it('should reset filters when switching tabs without params', () => {
         // Set some filters first
         logic.actions.setPropertyFilters([
@@ -131,6 +161,7 @@ describe('aiObservabilitySharedLogic', () => {
         ])
         logic.actions.setDates('-30d', '-1d')
         logic.actions.setShouldFilterTestAccounts(true)
+        logic.actions.setSearchQuery('walrus')
 
         // Navigate to another tab without params
         router.actions.push(urls.aiObservabilityGenerations())
@@ -143,263 +174,257 @@ describe('aiObservabilitySharedLogic', () => {
                 dateTo: null,
             },
             shouldFilterTestAccounts: false,
+            searchQuery: '',
         })
+    })
+
+    it('syncs the trace content search between the URL, state, and traces query', () => {
+        featureFlagLogic.mount()
+        featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.LLM_OBSERVABILITY_TRACE_SEARCH], {
+            [FEATURE_FLAGS.LLM_OBSERVABILITY_TRACE_SEARCH]: true,
+        })
+
+        router.actions.push(urls.aiObservabilityTraces(), { trace_search: 'walrus' })
+        expectLogic(logic).toMatchValues({ searchQuery: 'walrus' })
+
+        const tabLogic = aiObservabilityTracesTabLogic()
+        tabLogic.mount()
+        const source = tabLogic.values.tracesQuery.source
+        expect(isTracesQuery(source) && source.searchTerm).toBe('walrus')
+        tabLogic.unmount()
+
+        logic.actions.setSearchQuery('penguin')
+        expect(router.values.searchParams).toMatchObject({ trace_search: 'penguin' })
+
+        logic.actions.setSearchQuery('')
+        expect(router.values.searchParams).not.toHaveProperty('trace_search')
+    })
+
+    it('does not apply the search to the traces query when the flag is off', () => {
+        // A shared URL must not invisibly filter a list with no visible search box.
+        featureFlagLogic.mount()
+        featureFlagLogic.actions.setFeatureFlags([], {})
+
+        router.actions.push(urls.aiObservabilityTraces(), { trace_search: 'walrus' })
+        expectLogic(logic).toMatchValues({ searchQuery: 'walrus' })
+
+        const tabLogic = aiObservabilityTracesTabLogic()
+        tabLogic.mount()
+        const source = tabLogic.values.tracesQuery.source
+        expect(isTracesQuery(source) && source.searchTerm).toBeUndefined()
+        tabLogic.unmount()
+    })
+
+    it('keeps the search when URL state applies without a searchQuery', () => {
+        // Payloads built by other tabs omit searchQuery — they must not clear it.
+        logic.actions.setSearchQuery('walrus')
+        logic.actions.applyUrlState({
+            propertyFilters: [],
+            dateFrom: '-14d',
+            dateTo: null,
+            shouldFilterTestAccounts: false,
+            datesChanged: true,
+        })
+
+        expectLogic(logic).toMatchValues({ searchQuery: 'walrus' })
+        expect(router.values.searchParams).toMatchObject({ trace_search: 'walrus' })
     })
 })
 
 describe('aiObservabilitySessionsViewLogic', () => {
     let sharedLogic: ReturnType<typeof aiObservabilitySharedLogic.build>
-    let sessionsLogic: ReturnType<typeof aiObservabilitySessionsViewLogic.build>
+    let logic: ReturnType<typeof aiObservabilitySessionsViewLogic.build>
+    let querySpy: jest.SpyInstance
+    const sessionColumns = ['session_id', 'distinct_id', 'traces', 'total_cost', 'total_latency', 'errors', 'last_seen']
+
+    const urlState = {
+        propertyFilters: [],
+        dateFrom: '-14d',
+        dateTo: null,
+        shouldFilterTestAccounts: false,
+        datesChanged: true,
+    }
+
+    async function settleListeners(): Promise<void> {
+        for (let i = 0; i < 5; i++) {
+            await Promise.resolve()
+        }
+    }
+
+    function setActiveTab(sceneKey: string): void {
+        sceneLogic.actions.setScene('AIObservability', sceneKey, emptySceneParams)
+    }
+
+    function sessionRow(index: number): unknown[] {
+        return [
+            `session-${index}`,
+            `person-${index}`,
+            1,
+            0,
+            0.5,
+            0,
+            `2026-01-01T00:${String(index).padStart(2, '0')}:00Z`,
+        ]
+    }
+
+    function sessionResponse(indexes: number[]): { columns: string[]; results: unknown[][] } {
+        return {
+            columns: sessionColumns,
+            results: indexes.map((index) => sessionRow(index)),
+        }
+    }
+
+    function deferredResponse(): {
+        promise: Promise<{ columns: string[]; results: unknown[][] }>
+        resolve: (response: { columns: string[]; results: unknown[][] }) => void
+        reject: (error: unknown) => void
+    } {
+        let resolve!: (response: { columns: string[]; results: unknown[][] }) => void
+        let reject!: (error: unknown) => void
+        const promise = new Promise<{ columns: string[]; results: unknown[][] }>((promiseResolve, promiseReject) => {
+            resolve = promiseResolve
+            reject = promiseReject
+        })
+        return { promise, resolve, reject }
+    }
 
     beforeEach(() => {
         initKeaTests()
+        querySpy = jest.spyOn(api, 'query').mockResolvedValue({
+            columns: sessionColumns,
+            results: [],
+        } as any)
         sceneLogic.mount()
-        router.actions.push(urls.aiObservabilitySessions())
         sharedLogic = aiObservabilitySharedLogic({})
         sharedLogic.mount()
-        sessionsLogic = aiObservabilitySessionsViewLogic({})
-        sessionsLogic.mount()
+        logic = aiObservabilitySessionsViewLogic({})
+        logic.mount()
     })
 
     afterEach(() => {
-        sessionsLogic.unmount()
+        logic.unmount()
         sharedLogic.unmount()
+        sceneLogic.unmount()
+        jest.restoreAllMocks()
     })
 
-    describe('session expansion state', () => {
-        it('toggles session expansion state', async () => {
-            await expectLogic(sessionsLogic, () => {
-                sessionsLogic.actions.toggleSessionExpanded('session-123')
-            }).toMatchValues({
-                expandedSessionIds: new Set(['session-123']),
-            })
+    it('reloads URL-applied session filters while the sessions tab is visible', async () => {
+        setActiveTab('aiObservabilitySessions')
+        querySpy.mockClear()
 
-            // Toggle again to collapse
-            await expectLogic(sessionsLogic, () => {
-                sessionsLogic.actions.toggleSessionExpanded('session-123')
-            }).toMatchValues({
-                expandedSessionIds: new Set(),
-            })
-        })
+        sharedLogic.actions.applyUrlState(urlState)
+        await settleListeners()
 
-        it('handles multiple expanded sessions', async () => {
-            await expectLogic(sessionsLogic, () => {
-                sessionsLogic.actions.toggleSessionExpanded('session-1')
-                sessionsLogic.actions.toggleSessionExpanded('session-2')
-                sessionsLogic.actions.toggleSessionExpanded('session-3')
-            }).toMatchValues({
-                expandedSessionIds: new Set(['session-1', 'session-2', 'session-3']),
-            })
-
-            // Collapse middle session
-            await expectLogic(sessionsLogic, () => {
-                sessionsLogic.actions.toggleSessionExpanded('session-2')
-            }).toMatchValues({
-                expandedSessionIds: new Set(['session-1', 'session-3']),
-            })
-        })
-
-        it('clears expanded sessions when date filter changes', async () => {
-            sessionsLogic.actions.toggleSessionExpanded('session-123')
-
-            await expectLogic(sessionsLogic, () => {
-                sharedLogic.actions.setDates('-7d', null)
-            }).toMatchValues({
-                expandedSessionIds: new Set(),
-                sessionTraces: {},
-            })
-        })
-
-        it('clears expanded sessions when property filters change', async () => {
-            sessionsLogic.actions.toggleSessionExpanded('session-456')
-
-            await expectLogic(sessionsLogic, () => {
-                sharedLogic.actions.setPropertyFilters([
-                    {
-                        type: PropertyFilterType.Event,
-                        key: 'browser',
-                        value: 'Chrome',
-                        operator: PropertyOperator.Exact,
-                    },
-                ])
-            }).toMatchValues({
-                expandedSessionIds: new Set(),
-                sessionTraces: {},
-            })
-        })
-
-        it('clears expanded sessions when test accounts filter changes', async () => {
-            sessionsLogic.actions.toggleSessionExpanded('session-789')
-
-            await expectLogic(sessionsLogic, () => {
-                sharedLogic.actions.setShouldFilterTestAccounts(true)
-            }).toMatchValues({
-                expandedSessionIds: new Set(),
-                sessionTraces: {},
-            })
-        })
+        expect(querySpy).toHaveBeenCalledTimes(1)
     })
 
-    describe('trace expansion state', () => {
-        it('toggles trace expansion state', async () => {
-            await expectLogic(sessionsLogic, () => {
-                sessionsLogic.actions.toggleTraceExpanded('trace-abc')
-            }).toMatchValues({
-                expandedTraceIds: new Set(['trace-abc']),
-            })
+    it('does not reload sessions for hidden-tab URL state changes', async () => {
+        setActiveTab('aiObservabilityTraces')
+        querySpy.mockClear()
 
-            // Toggle again to collapse
-            await expectLogic(sessionsLogic, () => {
-                sessionsLogic.actions.toggleTraceExpanded('trace-abc')
-            }).toMatchValues({
-                expandedTraceIds: new Set(),
-            })
-        })
+        sharedLogic.actions.applyUrlState(urlState)
+        await settleListeners()
 
-        it('handles multiple expanded traces', async () => {
-            await expectLogic(sessionsLogic, () => {
-                sessionsLogic.actions.toggleTraceExpanded('trace-1')
-                sessionsLogic.actions.toggleTraceExpanded('trace-2')
-            }).toMatchValues({
-                expandedTraceIds: new Set(['trace-1', 'trace-2']),
-            })
-        })
-
-        it('clears expanded traces when filters change', async () => {
-            sessionsLogic.actions.toggleTraceExpanded('trace-xyz')
-
-            await expectLogic(sessionsLogic, () => {
-                sharedLogic.actions.setDates('-14d', null)
-            }).toMatchValues({
-                expandedTraceIds: new Set(),
-                fullTraces: {},
-            })
-        })
+        expect(querySpy).not.toHaveBeenCalled()
     })
 
-    describe('loading state tracking', () => {
-        it('tracks loading state for session traces', async () => {
-            sessionsLogic.actions.loadSessionTraces('session-123')
+    it('ignores stale session reloads after filters change', async () => {
+        setActiveTab('aiObservabilitySessions')
+        const staleResponse = deferredResponse()
+        const freshResponse = deferredResponse()
+        querySpy.mockImplementationOnce(() => staleResponse.promise).mockImplementationOnce(() => freshResponse.promise)
 
-            expect(sessionsLogic.values.loadingSessionTraces.has('session-123')).toBe(true)
+        logic.actions.loadSessions()
+        await settleListeners()
 
-            sessionsLogic.actions.loadSessionTracesSuccess('session-123', [])
+        sharedLogic.actions.applyUrlState(urlState)
+        await settleListeners()
 
-            expect(sessionsLogic.values.loadingSessionTraces.has('session-123')).toBe(false)
-        })
+        freshResponse.resolve(sessionResponse([2]))
+        await settleListeners()
+        expect(logic.values.sessions.map((session) => session.sessionId)).toEqual(['session-2'])
+        expect(logic.values.sessionsLoading).toBe(false)
 
-        it('clears loading state on failure', async () => {
-            sessionsLogic.actions.loadSessionTraces('session-456')
-
-            expect(sessionsLogic.values.loadingSessionTraces.has('session-456')).toBe(true)
-
-            sessionsLogic.actions.loadSessionTracesFailure('session-456', new Error('Test error'))
-
-            expect(sessionsLogic.values.loadingSessionTraces.has('session-456')).toBe(false)
-        })
-
-        it('tracks loading state for full traces', async () => {
-            sessionsLogic.actions.loadFullTrace('trace-abc')
-
-            expect(sessionsLogic.values.loadingFullTraces.has('trace-abc')).toBe(true)
-
-            const mockTrace = { id: 'trace-abc' } as any
-            sessionsLogic.actions.loadFullTraceSuccess('trace-abc', mockTrace)
-
-            expect(sessionsLogic.values.loadingFullTraces.has('trace-abc')).toBe(false)
-        })
-
-        it('handles multiple concurrent loading operations', async () => {
-            sessionsLogic.actions.loadSessionTraces('session-1')
-            sessionsLogic.actions.loadSessionTraces('session-2')
-            sessionsLogic.actions.loadFullTrace('trace-1')
-
-            expect(sessionsLogic.values.loadingSessionTraces.has('session-1')).toBe(true)
-            expect(sessionsLogic.values.loadingSessionTraces.has('session-2')).toBe(true)
-            expect(sessionsLogic.values.loadingFullTraces.has('trace-1')).toBe(true)
-
-            sessionsLogic.actions.loadSessionTracesSuccess('session-1', [])
-
-            expect(sessionsLogic.values.loadingSessionTraces.has('session-1')).toBe(false)
-            expect(sessionsLogic.values.loadingSessionTraces.has('session-2')).toBe(true)
-            expect(sessionsLogic.values.loadingFullTraces.has('trace-1')).toBe(true)
-        })
+        staleResponse.resolve(sessionResponse([1]))
+        await settleListeners()
+        expect(logic.values.sessions.map((session) => session.sessionId)).toEqual(['session-2'])
+        expect(querySpy).toHaveBeenCalledTimes(2)
     })
 
-    describe('session traces data', () => {
-        it('stores loaded session traces', async () => {
-            const mockTraces = [{ id: 'trace-1' }, { id: 'trace-2' }] as any[]
+    it('ignores stale load-more responses after a first-page reload', async () => {
+        querySpy.mockResolvedValueOnce(sessionResponse(Array.from({ length: 50 }, (_, i) => i)))
 
-            await expectLogic(sessionsLogic, () => {
-                sessionsLogic.actions.loadSessionTracesSuccess('session-123', mockTraces)
-            }).toMatchValues({
-                sessionTraces: {
-                    'session-123': mockTraces,
-                },
-            })
-        })
+        logic.actions.loadSessions()
+        await settleListeners()
+        expect(logic.values.sessions).toHaveLength(50)
+        expect(logic.values.hasMoreSessions).toBe(true)
 
-        it('stores traces for multiple sessions', async () => {
-            const mockTraces1 = [{ id: 'trace-1' }] as any[]
-            const mockTraces2 = [{ id: 'trace-2' }] as any[]
+        const staleLoadMoreResponse = deferredResponse()
+        const refreshResponse = deferredResponse()
+        querySpy
+            .mockImplementationOnce(() => staleLoadMoreResponse.promise)
+            .mockImplementationOnce(() => refreshResponse.promise)
 
-            sessionsLogic.actions.loadSessionTracesSuccess('session-1', mockTraces1)
-            sessionsLogic.actions.loadSessionTracesSuccess('session-2', mockTraces2)
+        logic.actions.loadMoreSessions()
+        await settleListeners()
+        expect(logic.values.moreSessionsLoading).toBe(true)
 
-            expect(sessionsLogic.values.sessionTraces).toEqual({
-                'session-1': mockTraces1,
-                'session-2': mockTraces2,
-            })
-        })
+        logic.actions.loadSessions({ refresh: 'force_blocking' })
+        await settleListeners()
+        expect(logic.values.moreSessionsLoading).toBe(false)
 
-        it('clears session traces when filters change', async () => {
-            const mockTraces = [{ id: 'trace-1' }] as any[]
-            sessionsLogic.actions.loadSessionTracesSuccess('session-123', mockTraces)
+        refreshResponse.resolve(sessionResponse([60]))
+        await settleListeners()
+        expect(logic.values.sessions.map((session) => session.sessionId)).toEqual(['session-60'])
 
-            await expectLogic(sessionsLogic, () => {
-                sharedLogic.actions.setDates('-30d', null)
-            }).toMatchValues({
-                sessionTraces: {},
-            })
-        })
+        staleLoadMoreResponse.resolve(sessionResponse([50]))
+        await settleListeners()
+        expect(logic.values.sessions.map((session) => session.sessionId)).toEqual(['session-60'])
+        expect(querySpy).toHaveBeenCalledTimes(3)
     })
 
-    describe('full traces data', () => {
-        it('stores loaded full trace', async () => {
-            const mockTrace = { id: 'trace-abc', events: [] } as any
-
-            await expectLogic(sessionsLogic, () => {
-                sessionsLogic.actions.loadFullTraceSuccess('trace-abc', mockTrace)
-            }).toMatchValues({
-                fullTraces: {
-                    'trace-abc': mockTrace,
-                },
+    it('appends additional session pages', async () => {
+        let page = 0
+        querySpy.mockImplementation(() => {
+            page += 1
+            return Promise.resolve({
+                columns: sessionColumns,
+                results: page === 1 ? Array.from({ length: 50 }, (_, i) => sessionRow(i)) : [sessionRow(50)],
             })
         })
 
-        it('stores multiple full traces', async () => {
-            const mockTrace1 = { id: 'trace-1' } as any
-            const mockTrace2 = { id: 'trace-2' } as any
+        logic.actions.loadSessions()
+        await settleListeners()
+        expect(logic.values.sessions).toHaveLength(50)
+        expect(logic.values.hasMoreSessions).toBe(true)
 
-            sessionsLogic.actions.loadFullTraceSuccess('trace-1', mockTrace1)
-            sessionsLogic.actions.loadFullTraceSuccess('trace-2', mockTrace2)
+        logic.actions.loadMoreSessions()
+        await settleListeners()
+        expect(logic.values.sessions).toHaveLength(51)
+        expect(logic.values.sessions[50].sessionId).toBe('session-50')
+        expect(logic.values.hasMoreSessions).toBe(false)
+        expect(querySpy).toHaveBeenCalledTimes(2)
+    })
 
-            expect(sessionsLogic.values.fullTraces).toEqual({
-                'trace-1': mockTrace1,
-                'trace-2': mockTrace2,
-            })
-        })
+    it('preloads titles for appended session pages', async () => {
+        const titleLogic = llmSessionTitleLazyLoaderLogic()
+        titleLogic.mount()
+        try {
+            querySpy.mockResolvedValueOnce(sessionResponse(Array.from({ length: 50 }, (_, i) => i)))
+            querySpy.mockResolvedValueOnce(sessionResponse([50]))
 
-        it('clears full traces when filters change', async () => {
-            const mockTrace = { id: 'trace-xyz' } as any
-            sessionsLogic.actions.loadFullTraceSuccess('trace-xyz', mockTrace)
+            logic.actions.loadSessions()
+            await settleListeners()
+            expect(logic.values.hasMoreSessions).toBe(true)
 
-            await expectLogic(sessionsLogic, () => {
-                sharedLogic.actions.setPropertyFilters([])
-            }).toMatchValues({
-                fullTraces: {},
-            })
-        })
+            logic.actions.loadMoreSessions()
+            await settleListeners()
+
+            expect(logic.values.sessions[50].sessionId).toBe('session-50')
+            expect(titleLogic.values.loadingSessionIds.has('session-50')).toBe(true)
+        } finally {
+            titleLogic.unmount()
+        }
     })
 })
 
@@ -413,14 +438,14 @@ describe('AI observability persisted preferences', () => {
         window.localStorage.clear()
     })
 
-    it('keeps generation column preferences stable across tab ids', () => {
+    it('persists generation column preferences across remount', () => {
         const columns = ['uuid', 'timestamp']
-        const firstLogic = aiObservabilityGenerationsLogic({ tabId: 'first-tab' })
+        const firstLogic = aiObservabilityGenerationsLogic()
         firstLogic.mount()
         firstLogic.actions.setGenerationsColumns(columns)
         firstLogic.unmount()
 
-        const secondLogic = aiObservabilityGenerationsLogic({ tabId: 'second-tab' })
+        const secondLogic = aiObservabilityGenerationsLogic()
         secondLogic.mount()
 
         expect(secondLogic.values.generationsColumns).toEqual(columns)
@@ -428,13 +453,13 @@ describe('AI observability persisted preferences', () => {
         secondLogic.unmount()
     })
 
-    it('keeps traces table preferences stable across tab ids', () => {
-        const firstLogic = aiObservabilityTracesTabLogic({ tabId: 'first-tab' })
+    it('persists traces table preferences across remount', () => {
+        const firstLogic = aiObservabilityTracesTabLogic()
         firstLogic.mount()
         firstLogic.actions.setShowInputOutputColumns(false)
         firstLogic.unmount()
 
-        const secondLogic = aiObservabilityTracesTabLogic({ tabId: 'second-tab' })
+        const secondLogic = aiObservabilityTracesTabLogic()
         secondLogic.mount()
 
         expect(secondLogic.values.showInputOutputColumns).toBe(false)
@@ -442,13 +467,13 @@ describe('AI observability persisted preferences', () => {
         secondLogic.unmount()
     })
 
-    it('keeps selected dashboard stable across tab ids', () => {
-        const firstLogic = aiObservabilityDashboardLogic({ tabId: 'first-tab' })
+    it('persists selected dashboard across remount', () => {
+        const firstLogic = aiObservabilityDashboardLogic()
         firstLogic.mount()
         firstLogic.actions.loadLLMDashboardsSuccess([{ id: 42, name: 'AI dashboard', description: '' }])
         firstLogic.unmount()
 
-        const secondLogic = aiObservabilityDashboardLogic({ tabId: 'second-tab' })
+        const secondLogic = aiObservabilityDashboardLogic()
         secondLogic.mount()
 
         expect(secondLogic.values.selectedDashboardId).toBe(42)
@@ -456,8 +481,8 @@ describe('AI observability persisted preferences', () => {
         secondLogic.unmount()
     })
 
-    it('keeps trace display preferences stable across tab ids', () => {
-        const firstLogic = aiObservabilityTraceLogic({ tabId: 'first-tab' })
+    it('persists trace display preferences across remount', () => {
+        const firstLogic = aiObservabilityTraceLogic()
         firstLogic.mount()
         firstLogic.actions.setIsRenderingMarkdown(false)
         firstLogic.actions.setIsRenderingXml(true)
@@ -465,7 +490,7 @@ describe('AI observability persisted preferences', () => {
         firstLogic.actions.setTraceReviewPanelExpanded(true)
         firstLogic.unmount()
 
-        const secondLogic = aiObservabilityTraceLogic({ tabId: 'second-tab' })
+        const secondLogic = aiObservabilityTraceLogic()
         secondLogic.mount()
 
         expect(secondLogic.values.isRenderingMarkdown).toBe(false)
@@ -477,7 +502,7 @@ describe('AI observability persisted preferences', () => {
     })
 
     it('scopes explicit storage keys to the current team', () => {
-        const logic = aiObservabilityTraceLogic({ tabId: 'team-scoped-tab' })
+        const logic = aiObservabilityTraceLogic()
         logic.mount()
         logic.actions.setIsRenderingMarkdown(false)
 

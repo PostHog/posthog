@@ -240,6 +240,7 @@ IREGEX_DOUBLE: '=~*';
 LBRACE: '{' -> pushMode(DEFAULT_MODE);
 LBRACKET: '[';
 LPAREN: '(';
+NULL_SAFE_EQ: '<=>';
 LT_EQ: '<=';
 TAG_LT_SLASH: '</' -> type(LT_SLASH), pushMode(HOGQLX_TAG_CLOSE);
 TAG_LT_OPEN: '<' {isOpeningTag()}? -> type(LT), pushMode(HOGQLX_TAG_OPEN);
@@ -270,6 +271,9 @@ UNDERSCORE: '_';
 // Comments and whitespace
 MULTI_LINE_COMMENT: '/*' .*? '*/' -> skip;
 SINGLE_LINE_COMMENT: ('--' | '//') ~('\n'|'\r')* ('\n' | '\r' | EOF) -> skip;
+// MySQL-style `#` comments. `#<digit>` is excluded so positional references (`#1`) keep
+// working — a `#` comment whose text starts with a digit is the one MySQL-ism this rejects.
+HASH_COMMENT: '#' (~[0-9\n\r] ~[\n\r]*)? ('\n' | '\r' | EOF) -> skip;
 // whitespace is hidden and not skipped so that it's preserved in ANTLR errors like "no viable alternative"
 // The class is the full Unicode `White_Space` set, not just ASCII: a
 // NO-BREAK SPACE or other Unicode space (often pasted in from rich

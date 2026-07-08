@@ -595,12 +595,22 @@ class LazyTableResolver(TraversingVisitor):
                     join_ptr.table = subquery
                     join_ptr.type = select_type.tables[table_name]
                     join_ptr.alias = table_name
+                    # A lazy table expands into an aggregating subquery. ClickHouse rejects a SAMPLE
+                    # modifier on a subquery, and sampling a pre-aggregated table is meaningless, so
+                    # drop the modifier rather than emitting invalid SQL.
+                    if join_ptr.sample is not None:
+                        self.context.add_warning(
+                            f'SAMPLE clause ignored: the "{table_name}" table is computed on the fly and cannot be sampled',
+                            start=join_ptr.sample.start,
+                            end=join_ptr.sample.end,
+                        )
+                        join_ptr.sample = None
                     break
                 join_ptr = join_ptr.next_join
 
         # For all the collected joins, create the join subqueries, and add them to the table.
         for to_table, join_scope in joins_to_add.items():
-            join_to_add: ast.JoinExpr = join_scope.lazy_join.join_function(
+            join_to_add: ast.JoinExpr = join_scope.lazy_join.resolve_join_to_add(
                 join_scope,
                 self.context,
                 node,
@@ -685,7 +695,7 @@ class LazyTableResolver(TraversingVisitor):
                 else:
                     node.select_from = join_to_add
 
-            # Collect any fields or properties that may have been added from the join_function with the LazyJoinType
+            # Collect any fields or properties that may have been added by the join resolver with the LazyJoinType
             join_field_collector: list[ast.FieldType | ast.PropertyType] = []
             self.field_collectors.append(join_field_collector)
             super().visit(join_to_add)

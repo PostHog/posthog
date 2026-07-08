@@ -27,8 +27,8 @@ describe('the authorized urls list logic', () => {
     beforeEach(() => {
         useMocks({
             get: {
-                '/api/environments/:team_id/insights/trend/': (req) => {
-                    if (JSON.parse(req.url.searchParams.get('events') || '[]')?.[0]?.throw) {
+                '/api/environments/:team_id/insights/trend/': ({ request }) => {
+                    if (JSON.parse(new URL(request.url).searchParams.get('events') || '[]')?.[0]?.throw) {
                         return [500, { status: 0, detail: 'error from the API' }]
                     }
                     return [200, { result: ['result from api'] }]

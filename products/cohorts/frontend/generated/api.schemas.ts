@@ -69,13 +69,28 @@ export interface CohortFilterApi {
 }
 
 export interface PersonFilterApi {
+    operator?: string | null
+    value?: unknown
     bytecode?: unknown[] | null
     bytecode_error?: string | null
     conditionHash?: string | null
     type: 'person'
     key: string
+    negation?: boolean
+}
+
+/**
+ * Filter on a top-level persons-table column (e.g. created_at) rather than the
+ * properties JSON. The matching key must be one of PERSON_METADATA_FIELDS.
+ */
+export interface PersonMetadataFilterApi {
     operator?: string | null
     value?: unknown
+    bytecode?: unknown[] | null
+    bytecode_error?: string | null
+    conditionHash?: string | null
+    type: 'person_metadata'
+    key: string
     negation?: boolean
 }
 
@@ -84,7 +99,7 @@ export interface PersonFilterApi {
  */
 export interface CohortFilterGroupApi {
     type: PropertyGroupOperatorApi
-    values: (BehavioralFilterApi | CohortFilterApi | PersonFilterApi | CohortFilterGroupApi)[]
+    values: (BehavioralFilterApi | CohortFilterApi | PersonFilterApi | PersonMetadataFilterApi | CohortFilterGroupApi)[]
 }
 
 export interface CohortFiltersApi {
@@ -93,13 +108,13 @@ export interface CohortFiltersApi {
 
 /**
  * * `engineering` - Engineering
- * `data` - Data
- * `product` - Product Management
- * `founder` - Founder
- * `leadership` - Leadership
- * `marketing` - Marketing
- * `sales` - Sales / Success
- * `other` - Other
+ * * `data` - Data
+ * * `product` - Product Management
+ * * `founder` - Founder
+ * * `leadership` - Leadership
+ * * `marketing` - Marketing
+ * * `sales` - Sales / Success
+ * * `other` - Other
  */
 export type RoleAtOrganizationEnumApi = (typeof RoleAtOrganizationEnumApi)[keyof typeof RoleAtOrganizationEnumApi]
 
@@ -148,10 +163,10 @@ export interface UserBasicApi {
 
 /**
  * * `static` - static
- * `person_property` - person_property
- * `behavioral` - behavioral
- * `realtime` - realtime
- * `analytical` - analytical
+ * * `person_property` - person_property
+ * * `behavioral` - behavioral
+ * * `realtime` - realtime
+ * * `analytical` - analytical
  */
 export type CohortTypeEnumApi = (typeof CohortTypeEnumApi)[keyof typeof CohortTypeEnumApi]
 
@@ -161,6 +176,13 @@ export const CohortTypeEnumApi = {
     Behavioral: 'behavioral',
     Realtime: 'realtime',
     Analytical: 'analytical',
+} as const
+
+export type SearchMatchTypeEnumApi = (typeof SearchMatchTypeEnumApi)[keyof typeof SearchMatchTypeEnumApi]
+
+export const SearchMatchTypeEnumApi = {
+    Exact: 'exact',
+    Similar: 'similar',
 } as const
 
 export interface CohortApi {
@@ -195,14 +217,16 @@ export interface CohortApi {
     readonly count: number | null
     is_static?: boolean
     /** Type of cohort based on filter complexity
-
-  * `static` - static
-  * `person_property` - person_property
-  * `behavioral` - behavioral
-  * `realtime` - realtime
-  * `analytical` - analytical */
+     *
+     * * `static` - static
+     * * `person_property` - person_property
+     * * `behavioral` - behavioral
+     * * `realtime` - realtime
+     * * `analytical` - analytical */
     cohort_type?: CohortTypeEnumApi | BlankEnumApi | null
     readonly experiment_set: readonly number[]
+    /** How this row matched the `search` query parameter: `exact` (the term is a case-insensitive substring of a searched field) or `similar` (a fuzzy trigram match, returned only when no exact match exists). Null when the list is not filtered by `search`. */
+    readonly search_match_type: SearchMatchTypeEnumApi | null
     _create_in_folder?: string
     _create_static_person_ids?: string[]
 }
@@ -248,14 +272,16 @@ export interface PatchedCohortApi {
     readonly count?: number | null
     is_static?: boolean
     /** Type of cohort based on filter complexity
-
-  * `static` - static
-  * `person_property` - person_property
-  * `behavioral` - behavioral
-  * `realtime` - realtime
-  * `analytical` - analytical */
+     *
+     * * `static` - static
+     * * `person_property` - person_property
+     * * `behavioral` - behavioral
+     * * `realtime` - realtime
+     * * `analytical` - analytical */
     cohort_type?: CohortTypeEnumApi | BlankEnumApi | null
     readonly experiment_set?: readonly number[]
+    /** How this row matched the `search` query parameter: `exact` (the term is a case-insensitive substring of a searched field) or `similar` (a fuzzy trigram match, returned only when no exact match exists). Null when the list is not filtered by `search`. */
+    readonly search_match_type?: SearchMatchTypeEnumApi | null
     _create_in_folder?: string
     _create_static_person_ids?: string[]
 }
@@ -310,6 +336,70 @@ export interface PatchedRemovePersonRequestApi {
     person_id?: string
 }
 
+export interface CohortUsedInFlagApi {
+    /** Feature flag database ID */
+    id: number
+    /** Feature flag key (URL slug) */
+    key: string
+    /**
+     * Feature flag display name
+     * @nullable
+     */
+    name: string | null
+}
+
+export interface CohortUsedInFlagsBlockApi {
+    /** Feature flags referencing this cohort, capped at 100 results */
+    results: CohortUsedInFlagApi[]
+    /** Total number of feature flags referencing this cohort, before truncation */
+    total: number
+    /** True when more feature flags exist beyond the truncation cap */
+    has_more: boolean
+}
+
+export interface CohortUsedInInsightApi {
+    /** Insight database ID */
+    id: number
+    /** Insight short ID used for routing in the frontend */
+    short_id: string
+    /** Insight display name; falls back to derived name, then to 'Unnamed' when both are empty */
+    name: string
+}
+
+export interface CohortUsedInInsightsBlockApi {
+    /** Insights referencing this cohort, capped at 100 results */
+    results: CohortUsedInInsightApi[]
+    /** Total number of insights referencing this cohort, before truncation */
+    total: number
+    /** True when more insights exist beyond the truncation cap */
+    has_more: boolean
+}
+
+export interface CohortUsedInCohortApi {
+    /** Cohort database ID */
+    id: number
+    /** Cohort display name; falls back to 'Unnamed' when empty */
+    name: string
+}
+
+export interface CohortUsedInCohortsBlockApi {
+    /** Cohorts that include this cohort as a criterion, capped at 100 results */
+    results: CohortUsedInCohortApi[]
+    /** Total number of cohorts referencing this cohort, before truncation */
+    total: number
+    /** True when more cohorts exist beyond the truncation cap */
+    has_more: boolean
+}
+
+export interface CohortUsedInResponseApi {
+    /** Feature flags (active and inactive, excluding soft-deleted) that reference this cohort in their targeting conditions, with truncation metadata */
+    feature_flags: CohortUsedInFlagsBlockApi
+    /** Insights referencing this cohort with truncation metadata */
+    insights: CohortUsedInInsightsBlockApi
+    /** Other cohorts that include this cohort as a criterion, with truncation metadata */
+    cohorts: CohortUsedInCohortsBlockApi
+}
+
 export type CohortsListParams = {
     /**
      * Return a basic payload that omits the heavy `filters`, `query`, and `groups` fields. Useful for pickers that only need id/name/count.
@@ -327,6 +417,10 @@ export type CohortsListParams = {
      * The initial index from which to return the results.
      */
     offset?: number
+    /**
+     * Optional. Match against cohort `name`. Returns exact (case-insensitive substring) matches only; if no exact match exists, returns similar (fuzzy trigram — typos, transpositions, prefix-as-you-type) matches instead. Each result's `search_match_type` is `exact` or `similar`. Results are ordered by relevance. When omitted, cohorts are ordered newest-first. Capped at 200 characters; longer queries return a 400 error.
+     */
+    search?: string
 }
 
 export type CohortsPersonsRetrieveParams = {

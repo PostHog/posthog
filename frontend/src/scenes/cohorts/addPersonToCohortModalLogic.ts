@@ -14,7 +14,6 @@ import { createCohortDataNodeLogicKey } from './cohortUtils'
 
 export type AddPersonToCohortModalProps = {
     id?: CohortType['id']
-    tabId: string
 }
 
 const DEFAULT_QUERY: ActorsQuery = {
@@ -26,12 +25,7 @@ const DEFAULT_QUERY: ActorsQuery = {
 export const addPersonToCohortModalLogic = kea<addPersonToCohortModalLogicType>([
     props({} as AddPersonToCohortModalProps),
     path(['scenes', 'cohorts', 'addPersonToCohortModalLogic']),
-    key((props) => {
-        if (props.id === 'new' || !props.id) {
-            return 'new'
-        }
-        return `${props.id}-${props.tabId}`
-    }),
+    key((props) => (props.id === 'new' || !props.id ? 'new' : `${props.id}`)),
     actions({
         showAddPersonToCohortModal: true,
         hideAddPersonToCohortModal: true,
@@ -107,7 +101,7 @@ export const addPersonToCohortModalLogic = kea<addPersonToCohortModalLogicType>(
                 await actions.loadCohortPersons()
                 if (response) {
                     lemonToast.success('Users added to cohort')
-                    const mountedCohortEditLogic = cohortEditLogic.findMounted({ id: cohortId, tabId: props.tabId })
+                    const mountedCohortEditLogic = cohortEditLogic.findMounted({ id: cohortId })
                     await mountedCohortEditLogic?.actions.updateCohortCount()
 
                     const mountedDataNodeLogic = dataNodeLogic.findMounted({

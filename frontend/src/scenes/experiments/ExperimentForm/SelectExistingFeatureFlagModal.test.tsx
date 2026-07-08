@@ -43,6 +43,7 @@ describe('SelectExistingFeatureFlagModal', () => {
         created_by: null,
         is_remote_configuration: false,
         deleted: false,
+        archived: false,
         active: true,
         experiment_set: null,
         experiment_set_metadata: null,
@@ -104,7 +105,11 @@ describe('SelectExistingFeatureFlagModal', () => {
 
         logic.actions.openSelectExistingFeatureFlagModal()
 
+        // Wait for the feature flags data to be populated rather than just checking loading state.
+        // This avoids a race where `loadCurrentTeamSuccess` fires after the modal opens and
+        // triggers a second `loadFeatureFlags` call, briefly resetting loading back to true.
         await waitFor(() => {
+            expect(logic.values.featureFlags.results.length).toBeGreaterThan(0)
             expect(logic.values.featureFlagsLoading).toBe(false)
         })
 
@@ -144,7 +149,7 @@ describe('SelectExistingFeatureFlagModal', () => {
 
             render(<SelectExistingFeatureFlagModal onClose={mockOnClose} onSelect={mockOnSelect} />)
 
-            const selectButtons = await screen.findAllByRole('button', { name: 'Select' })
+            const selectButtons = await screen.findAllByText('Select')
             await userEvent.click(selectButtons[0])
 
             expect(mockOnSelect).toHaveBeenCalledWith(mockFeatureFlags[0])
@@ -159,7 +164,7 @@ describe('SelectExistingFeatureFlagModal', () => {
 
             render(<SelectExistingFeatureFlagModal onClose={mockOnClose} onSelect={mockOnSelect} />)
 
-            const closeButton = screen.getByRole('button', { name: /close/i })
+            const closeButton = screen.getByLabelText(/close/i)
             await userEvent.click(closeButton)
 
             expect(resetFiltersSpy).toHaveBeenCalled()

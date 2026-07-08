@@ -42,17 +42,19 @@ def send_events_for_early_access_feature_stage_change(feature_id: str, from_stag
     if not feature_flag:
         return
 
-    # Get the unique persons enrolled in the feature along with their distinct ID
+    # Get the unique persons enrolled in the feature along with their distinct ID.
+    # Property access (rather than JSONExtractString) lets the HogQL printer use
+    # materialized person-property columns when available.
     response = execute_hogql_query(
         """
         SELECT
             argMax(id, created_at) AS id,
-            JSONExtractString(properties, 'email') AS email,
+            properties.email AS email,
             argMax(pdi.distinct_id, created_at) as distinct_id
         FROM persons
-        WHERE JSONExtractString(properties, {enrollment_key}) = 'true'
-        AND notEmpty(JSONExtractString(properties, 'email'))
-        GROUP BY JSONExtractString(properties, 'email')
+        WHERE properties[{enrollment_key}] = 'true'
+        AND notEmpty(properties.email)
+        GROUP BY properties.email
         LIMIT {limit}
         """,
         placeholders={

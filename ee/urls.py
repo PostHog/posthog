@@ -23,25 +23,13 @@ from ee.api.vercel import vercel_connect, vercel_sso, vercel_webhooks
 from ee.middleware import admin_oauth2_callback
 from ee.support_sidebar_max.views import MaxChatViewSet
 
-from .api import (
-    authentication,
-    billing,
-    conversation,
-    core_memory,
-    dashboard_collaborator,
-    license,
-    sentry_stats,
-    subscription,
-)
+from .api import authentication, billing, conversation, core_memory, license, sentry_stats, subscription
 from .api.rbac import role
 from .api.scim import views as scim_views
 
 
 def extend_api_router() -> None:
     from posthog.api import (
-        environment_dashboards_router,
-        environments_router,
-        legacy_project_dashboards_router,
         organizations_router,
         register_legacy_dual_route_team_nested_viewset,
         router as root_router,
@@ -66,21 +54,14 @@ def extend_api_router() -> None:
     )
     register_legacy_dual_route_team_nested_viewset(r"hooks", hooks.HookViewSet, "environment_hooks", ["team_id"])
 
-    environment_dashboards_router.register(
-        r"collaborators",
-        dashboard_collaborator.DashboardCollaboratorViewSet,
-        "environment_dashboard_collaborators",
-        ["project_id", "dashboard_id"],
-    )
-    legacy_project_dashboards_router.register(
-        r"collaborators",
-        dashboard_collaborator.DashboardCollaboratorViewSet,
-        "project_dashboard_collaborators",
-        ["project_id", "dashboard_id"],
-    )
-
-    _, env_subscriptions_router = register_legacy_dual_route_team_nested_viewset(
+    project_subscriptions_router, env_subscriptions_router = register_legacy_dual_route_team_nested_viewset(
         r"subscriptions", subscription.SubscriptionViewSet, "environment_subscriptions", ["team_id"]
+    )
+    project_subscriptions_router.register(
+        r"deliveries",
+        subscription.SubscriptionDeliveryViewSet,
+        "project_subscription_deliveries",
+        ["team_id", "subscription_id"],
     )
     env_subscriptions_router.register(
         r"deliveries",
@@ -89,21 +70,23 @@ def extend_api_router() -> None:
         ["team_id", "subscription_id"],
     )
 
-    environments_router.register(
+    register_legacy_dual_route_team_nested_viewset(
         r"conversations", conversation.ConversationViewSet, "environment_conversations", ["team_id"]
     )
 
-    environments_router.register(
+    register_legacy_dual_route_team_nested_viewset(
         r"core_memory", core_memory.MaxCoreMemoryViewSet, "environment_core_memory", ["team_id"]
     )
 
-    environments_router.register(r"max_tools", max_tools.MaxToolsViewSet, "environment_max_tools", ["team_id"])
+    register_legacy_dual_route_team_nested_viewset(
+        r"max_tools", max_tools.MaxToolsViewSet, "environment_max_tools", ["team_id"]
+    )
 
-    environments_router.register(
+    register_legacy_dual_route_team_nested_viewset(
         r"max_hands_free", hands_free.MaxHandsFreeViewSet, "environment_max_hands_free", ["team_id"]
     )
 
-    environments_router.register(
+    register_legacy_dual_route_team_nested_viewset(
         r"session_summaries", session_summaries.SessionSummariesViewSet, "environment_session_summaries", ["team_id"]
     )
 
@@ -131,6 +114,11 @@ if settings.ADMIN_PORTAL_ENABLED:
         health_check_list_view,
         health_check_runs_fragment_view,
         health_check_trigger_view,
+    )
+    from posthog.admin.admins.notebook_markdown_migration_admin import (
+        notebook_markdown_migration_run_view,
+        notebook_markdown_migration_stats_view,
+        notebook_markdown_migration_view,
     )
     from posthog.admin.admins.radar_bypass_admin import RadarBypassViewSet, radar_bypass_view
     from posthog.admin.admins.realtime_cohort_calculation_admin import analyze_realtime_cohort_calculation_view
@@ -225,6 +213,21 @@ if settings.ADMIN_PORTAL_ENABLED:
             "admin/health-checks/<str:kind>/runs/",
             admin.site.admin_view(health_check_runs_fragment_view),
             name="health-check-runs",
+        ),
+        path(
+            "admin/notebook-markdown-migration/",
+            admin.site.admin_view(notebook_markdown_migration_view),
+            name="notebook-markdown-migration",
+        ),
+        path(
+            "admin/notebook-markdown-migration/stats/",
+            admin.site.admin_view(notebook_markdown_migration_stats_view),
+            name="notebook-markdown-migration-stats",
+        ),
+        path(
+            "admin/notebook-markdown-migration/run/",
+            admin.site.admin_view(notebook_markdown_migration_run_view),
+            name="notebook-markdown-migration-run",
         ),
         path(
             "admin/logout/",

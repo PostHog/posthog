@@ -2,7 +2,7 @@ import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 
 import { toolbarLogger } from '~/toolbar/toolbarLogger'
 import { captureToolbarException, toolbarPosthogJS } from '~/toolbar/toolbarPosthogJS'
-import { asNonEmptyString } from '~/toolbar/utils'
+import { asNonEmptyString, safeFetch } from '~/toolbar/utils'
 
 import { toolbarConfigLogic } from './toolbarConfigLogic'
 
@@ -22,7 +22,7 @@ export async function refreshOAuthTokens(
     refreshPromise = (async () => {
         const startTime = performance.now()
         try {
-            const response = await fetch(`${uiHost}/api/user/toolbar_oauth_refresh/`, {
+            const response = await safeFetch(`${uiHost}/api/user/toolbar_oauth_refresh/`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ refresh_token: currentRefreshToken, client_id: clientId }),
@@ -67,7 +67,9 @@ export async function withTokenRefresh(
     const clientId = logic?.values.clientId
     const uiHost = logic?.values.uiHost
 
-    if (response.status !== 401 || !accessToken || !refreshToken || !clientId || !uiHost) {
+    // `response?.status` (not `response.status`) so a non-Response value from a customer-page
+    // `fetch` wrapper can't throw here — callers that don't route through `safeFetch` stay safe too.
+    if (response?.status !== 401 || !accessToken || !refreshToken || !clientId || !uiHost) {
         return response
     }
 

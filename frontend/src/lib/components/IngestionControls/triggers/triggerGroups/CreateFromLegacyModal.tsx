@@ -1,6 +1,6 @@
 import { LemonBanner, LemonButton, LemonModal, LemonSnack, LemonTag } from '@posthog/lemon-ui'
 
-import { pluralize } from 'lib/utils'
+import { pluralize } from 'lib/utils/strings'
 
 import { SessionRecordingTriggerGroup } from '~/lib/components/IngestionControls/types'
 

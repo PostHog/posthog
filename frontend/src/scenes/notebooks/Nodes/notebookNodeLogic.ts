@@ -18,7 +18,7 @@ import { LemonMenuItems } from '@posthog/lemon-ui'
 
 import api from 'lib/api'
 import { JSONContent, RichContentNode } from 'lib/components/RichContentEditor/types'
-import { hashCodeForString } from 'lib/utils'
+import { hashCodeForString } from 'lib/utils/strings'
 import { sqlEditorLogic } from 'scenes/data-warehouse/editor/sqlEditorLogic'
 import { SQLEditorMode } from 'scenes/data-warehouse/editor/sqlEditorModes'
 
@@ -46,6 +46,7 @@ import {
     extractHogqlPlaceholders,
     getUniqueDuckSqlReturnVariable,
     getUniqueHogqlReturnVariable,
+    getUniqueSqlV2ReturnVariable,
     resolveDuckSqlReturnVariable,
     resolveHogqlReturnVariable,
 } from './notebookNodeContent'
@@ -101,6 +102,9 @@ const isSqlQueryNode = (nodeAttributes: NotebookNodeAttributes<any>): boolean =>
     const query = nodeAttributes?.query
     if (!query) {
         return false
+    }
+    if (isHogQLQuery(query)) {
+        return true
     }
     if (isNodeWithSource(query)) {
         return isHogQLQuery(query.source)
@@ -963,6 +967,7 @@ export const notebookNodeLogic = kea<notebookNodeLogicType>([
                 'pythonNodeSummaries',
                 'duckSqlNodeSummaries',
                 'hogqlSqlNodeSummaries',
+                'sqlV2NodeSummaries',
                 'dependencyGraph',
                 'notebook',
                 'kernelInfo',
@@ -1201,6 +1206,16 @@ export const notebookNodeLogic = kea<notebookNodeLogicType>([
             (s) => [s.dependencyGraph, s.nodeId, s.hogqlSqlReturnVariable],
             (dependencyGraph, nodeId, hogqlSqlReturnVariable): NotebookDependencyUsage[] =>
                 dependencyGraph.downstreamUsageByNode[nodeId]?.[hogqlSqlReturnVariable] ?? [],
+        ],
+        sqlV2ReturnVariable: [
+            (s) => [s.sqlV2NodeSummaries, s.nodeId, s.nodeAttributes],
+            (sqlV2NodeSummaries, nodeId, nodeAttributes): string =>
+                getUniqueSqlV2ReturnVariable(sqlV2NodeSummaries, nodeId, nodeAttributes.returnVariable ?? ''),
+        ],
+        sqlV2ReturnVariableUsage: [
+            (s) => [s.dependencyGraph, s.nodeId, s.sqlV2ReturnVariable],
+            (dependencyGraph, nodeId, sqlV2ReturnVariable): NotebookDependencyUsage[] =>
+                dependencyGraph.downstreamUsageByNode[nodeId]?.[sqlV2ReturnVariable] ?? [],
         ],
 
         usageByVariable: [

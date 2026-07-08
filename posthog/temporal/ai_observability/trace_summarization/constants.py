@@ -119,6 +119,22 @@ EVENT_NAME_GENERATION_SUMMARY = "$ai_generation_summary"  # For generation-level
 # Document types for embeddings
 GENERATION_DOCUMENT_TYPE = "llm-generation-summary-detailed"  # For generation-level embeddings
 
+# Keys under which the summary embedding's `metadata` JSON carries the ids needed to stitch
+# clustering data back together. `rendering` stays a fixed low-cardinality enum (the summary
+# mode); these ids live in `metadata` instead and are read back via JSONExtractString in
+# trace_clustering/data.py. `batch_run_id` pairs an embedding to its summary event
+# ($ai_batch_run_id); `job_id` scopes a clustering read to one ClusteringJob.
+EMBEDDING_METADATA_BATCH_RUN_ID_KEY = "batch_run_id"
+EMBEDDING_METADATA_JOB_ID_KEY = "job_id"
+
+# The summary embedding's `document_id` is `{item_id}::{job_id}` — the clustering job id is
+# appended to the trace/generation id (joined by this delimiter). `document_id` is the only
+# non-LowCardinality component of the document_embeddings ReplacingMergeTree key, so scoping per
+# job here keeps two jobs that summarize the same item on the same day in distinct rows instead of
+# collapsing them on merge (which would drop a job's embeddings). Stage B strips it back to the
+# bare item id (item ids contain no ":", so a single split recovers it) before pairing summaries.
+EMBEDDING_DOCUMENT_ID_JOB_DELIMITER = "::"
+
 # Generation-level configuration
 DEFAULT_MAX_GENERATIONS_PER_WINDOW = 20  # Higher than traces - generations are simpler units
 

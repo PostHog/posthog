@@ -282,7 +282,7 @@ class ConversationRedisStream:
         start_id: str = "0",
         block_ms: int = 50,  # Block for 50ms waiting for new messages
         count: Optional[int] = CONVERSATION_STREAM_CONCURRENT_READ_COUNT,
-    ) -> AsyncGenerator[StreamEvent, None]:
+    ) -> AsyncGenerator[StreamEvent]:
         """
         Read updates from Redis stream.
 
@@ -377,7 +377,7 @@ class ConversationRedisStream:
 
     async def write_to_stream(
         self,
-        generator: AsyncGenerator[AssistantOutput, None],
+        generator: AsyncGenerator[AssistantOutput],
         callback: Callable[[], None] | None = None,
         emit_completion: bool = True,
     ) -> None:

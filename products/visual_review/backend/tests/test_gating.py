@@ -19,6 +19,7 @@ covers the entire state space.
 import pytest
 
 from products.visual_review.backend import logic
+from products.visual_review.backend.facade import api
 from products.visual_review.backend.facade.enums import ReviewState, RunStatus, RunType, SnapshotResult
 from products.visual_review.backend.models import QuarantinedIdentifier, Run
 from products.visual_review.backend.tests.conftest import PRODUCT_DATABASES
@@ -61,7 +62,7 @@ class TestGatingInvariants:
         mocker.patch("products.visual_review.backend.logic._post_commit_status")
         mocker.patch("products.visual_review.backend.tasks.tasks.process_run_diffs.delay")
 
-    def _build_run(self, result: str, action: str | None) -> Run:
+    def _build_run(self, result: str, action: str | None, purpose: str = "review") -> Run:
         snapshots: list[dict] = []
         baseline: dict[str, str] = {}
 
@@ -89,6 +90,7 @@ class TestGatingInvariants:
             branch="feat/test",
             pr_number=1,
             snapshots=snapshots,
+            purpose=purpose,
         )
         logic.complete_run(run.id)
         run.refresh_from_db()
@@ -156,3 +158,18 @@ class TestGatingInvariants:
 
         second = logic.recompute_run(run.id, team_id=self.team.id)
         assert second["counts_changed"] is False
+
+    def test_observe_run_summary_never_gates(self):
+        # The CLI exits non-zero on summary.unresolved > 0. Observe (tracking-only) runs are
+        # non-approvable, so the summary must report 0 unresolved even with real changes —
+        # otherwise `vr submit --purpose observe` would red a default-branch job.
+        run = self._build_run("changed", None, purpose="observe")
+        summary = api.get_run(run.id, team_id=self.team.id).summary
+        assert summary.changed == 1
+        assert summary.unresolved == 0
+
+    def test_review_run_summary_still_gates(self):
+        run = self._build_run("changed", None)
+        summary = api.get_run(run.id, team_id=self.team.id).summary
+        assert summary.changed == 1
+        assert summary.unresolved == 1

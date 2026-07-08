@@ -50,8 +50,9 @@ async def store_video_session_summary_activity(
 
         from posthog.models.user import User
 
+        from products.replay.backend.models.session_summaries import SessionSummaryRunMeta, SingleSessionSummary
+
         from ee.hogai.session_summaries.session.output_data import SessionSummarySerializer
-        from ee.models.session_summaries import SessionSummaryRunMeta, SingleSessionSummary
 
         # Check against duplicate writes (summary already exists). Should not happen, as we should avoid starting the workflow in the first place.
         summary_exists = await database_sync_to_async(SingleSessionSummary.objects.summaries_exist)(

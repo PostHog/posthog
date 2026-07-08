@@ -1,5 +1,6 @@
 import { actions, connect, kea, listeners, path, reducers } from 'kea'
 
+import { globalModalsLogic } from '~/layout/globalModalsLogic'
 import { organizationLogic } from '~/scenes/organizationLogic'
 import { projectLogic } from '~/scenes/projectLogic'
 
@@ -7,20 +8,10 @@ import type { modalInterruptionTrackingLogicType } from './modalInterruptionTrac
 
 export const modalInterruptionTrackingLogic = kea<modalInterruptionTrackingLogicType>([
     path(['lib', 'components', 'TimeSensitiveAuthentication', 'modalInterruptionTrackingLogic']),
-    connect(() => {
-        try {
-            // Use lazy require to avoid circular dependencies
-            const { globalModalsLogic } = require('~/layout/GlobalModals')
-
-            return {
-                values: [globalModalsLogic, ['isCreateOrganizationModalShown', 'isCreateProjectModalShown']],
-                actions: [organizationLogic, ['createOrganization'], projectLogic, ['createProject']],
-            }
-        } catch {
-            // Safe fallback for tests
-            return {}
-        }
-    }),
+    connect(() => ({
+        values: [globalModalsLogic, ['isCreateOrganizationModalShown', 'isCreateProjectModalShown']],
+        actions: [organizationLogic, ['createOrganization'], projectLogic, ['createProject']],
+    })),
     actions({
         setInterruptedForm: (form: string | null) => ({ form }),
     }),
@@ -34,13 +25,13 @@ export const modalInterruptionTrackingLogic = kea<modalInterruptionTrackingLogic
     }),
     listeners(({ actions, values }) => ({
         createOrganization: () => {
-            if ((values as any).isCreateOrganizationModalShown) {
+            if (values.isCreateOrganizationModalShown) {
                 actions.setInterruptedForm('create_organization_modal')
             }
         },
 
         createProject: () => {
-            if ((values as any).isCreateProjectModalShown) {
+            if (values.isCreateProjectModalShown) {
                 actions.setInterruptedForm('create_project_modal')
             }
         },

@@ -38,7 +38,7 @@ def bigquery_config() -> dict[str, str]:
 
 
 @pytest.fixture
-def bigquery_client() -> typing.Generator[bigquery.Client, None, None]:
+def bigquery_client() -> typing.Generator[bigquery.Client]:
     """Manage a bigquery.Client for testing."""
     client = bigquery.Client()
 
@@ -48,7 +48,7 @@ def bigquery_client() -> typing.Generator[bigquery.Client, None, None]:
 
 
 @pytest.fixture
-def bigquery_dataset(bigquery_config, bigquery_client) -> typing.Generator[bigquery.Dataset, None, None]:
+def bigquery_dataset(bigquery_config, bigquery_client) -> typing.Generator[bigquery.Dataset]:
     """Manage a bigquery dataset for testing.
 
     We clean up the dataset after every test. Could be quite time expensive, but guarantees a clean slate.

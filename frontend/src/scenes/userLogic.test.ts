@@ -1,9 +1,11 @@
 import { MOCK_DEFAULT_USER } from 'lib/api.mock'
 
 import { expectLogic } from 'kea-test-utils'
+import posthog from 'posthog-js'
 
 import api from 'lib/api'
 
+import { resumeKeaLoadersErrors, silenceKeaLoadersErrors } from '~/initKea'
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
 
@@ -184,6 +186,65 @@ describe('userLogic', () => {
                     },
                 }),
             })
+        })
+    })
+
+    describe('updateUser failure handling', () => {
+        beforeEach(silenceKeaLoadersErrors)
+        afterEach(resumeKeaLoadersErrors)
+
+        afterEach(() => {
+            jest.restoreAllMocks()
+        })
+
+        it('dispatches updateUserFailure (not success) when the backend rejects the update', async () => {
+            jest.spyOn(api, 'update').mockRejectedValue({
+                status: 400,
+                detail: 'Update rejected by server.',
+            })
+
+            await expectLogic(userLogic, () => {
+                userLogic.actions.updateUser({ email: 'new@example.com' })
+            })
+                .toDispatchActions(['updateUserFailure'])
+                .toNotHaveDispatchedActions(['updateUserSuccess'])
+        })
+
+        it('keeps the existing user when the update fails — no silent revert via success', async () => {
+            jest.spyOn(api, 'update').mockRejectedValue({ status: 400, detail: 'nope' })
+
+            await expectLogic(userLogic, () => {
+                userLogic.actions.updateUser({ email: 'new@example.com' })
+            })
+                .toDispatchActions(['updateUserFailure'])
+                .toMatchValues({ user: userWithLightTheme })
+        })
+
+        it.each([502, 503, 504])(
+            'does not report transient gateway error %s to error tracking but still fails the update',
+            async (status) => {
+                const captureSpy = jest.spyOn(posthog, 'captureException').mockImplementation(() => undefined as any)
+                jest.spyOn(api, 'update').mockRejectedValue({ status, statusText: 'Bad Gateway' })
+
+                await expectLogic(userLogic, () => {
+                    userLogic.actions.updateUser({ email: 'new@example.com' })
+                })
+                    .toDispatchActions(['updateUserFailure'])
+                    .toNotHaveDispatchedActions(['updateUserSuccess'])
+
+                expect(captureSpy).not.toHaveBeenCalled()
+            }
+        )
+
+        it('reports a genuine backend error (500) to error tracking', async () => {
+            const captureSpy = jest.spyOn(posthog, 'captureException').mockImplementation(() => undefined as any)
+            jest.spyOn(api, 'update').mockRejectedValue({ status: 500, statusText: 'Internal Server Error' })
+
+            await expectLogic(userLogic, () => {
+                userLogic.actions.updateUser({ email: 'new@example.com' })
+            }).toDispatchActions(['updateUserFailure'])
+
+            expect(captureSpy).toHaveBeenCalled()
         })
     })
 })

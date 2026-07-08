@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from collections.abc import Callable
 from typing import TYPE_CHECKING, Optional
 
 from django.core.exceptions import ObjectDoesNotExist
@@ -23,9 +24,32 @@ class HyperCacheFlagProvider:
     by reading directly from the same Redis cache.
     """
 
-    def __init__(self, team_id: int):
-        self._team_id = team_id
+    def __init__(self, team_id_resolver: Callable[[], Optional[int]]):
+        self._team_id_resolver = team_id_resolver
+        self._team_id: Optional[int] = None  # memoized first non-None resolution
         self._hypercache: Optional[HyperCache] = None
+        self._logged_resolved_team = False
+        self._logged_zero_flags = False
+
+    @classmethod
+    def for_static_team(cls, team_id: int) -> HyperCacheFlagProvider:
+        """Cloud / E2E / explicit operator override: a fixed, known team id."""
+        return cls(team_id_resolver=lambda: team_id)
+
+    @classmethod
+    def for_dynamic_resolution(cls, team_id_resolver: Callable[[], Optional[int]]) -> HyperCacheFlagProvider:
+        """Local/self-hosted: resolve the team id lazily, retrying while it returns None."""
+        return cls(team_id_resolver=team_id_resolver)
+
+    def _resolve_team_id(self) -> Optional[int]:
+        # Resolve once and memoize; a None result is NOT cached, so we retry next poll
+        # (resolution may run before the first team exists / before migrations).
+        if self._team_id is None:
+            self._team_id = self._team_id_resolver()
+            if self._team_id is not None and not self._logged_resolved_team:
+                logger.info("sdk_flag_provider_team_resolved", team_id=self._team_id)
+                self._logged_resolved_team = True
+        return self._team_id
 
     def _get_hypercache(self):
         """Lazily resolve the hypercache reference.
@@ -43,22 +67,34 @@ class HyperCacheFlagProvider:
         return self._hypercache
 
     def get_flag_definitions(self) -> Optional[FlagDefinitionCacheData]:
+        team_id = self._resolve_team_id()
+        if team_id is None:
+            # No self-team resolved (yet) — skip the lookup; the SDK falls back.
+            return None
         try:
-            data = self._get_hypercache().get_from_cache(self._team_id)
+            data = self._get_hypercache().get_from_cache(team_id)
             if data is not None:
                 # Defensive: ensure a valid FlagDefinitionCacheData even if
                 # the HyperCache shape drifts in the future.
-                return {
+                result: FlagDefinitionCacheData = {
                     "flags": data.get("flags", []),
                     "group_type_mapping": data.get("group_type_mapping", {}),
                     "cohorts": data.get("cohorts", {}),
                 }
+                if not result["flags"] and not self._logged_zero_flags:
+                    logger.warning(
+                        "sdk_flag_provider_zero_flags",
+                        team_id=team_id,
+                        hint="resolved self-team has no flag definitions; run sync_feature_flags_from_api or set POSTHOG_SELF_TEAM_ID",
+                    )
+                    self._logged_zero_flags = True
+                return result
             return None
         except ImportError:
             # Expected during Django startup — local_evaluation.py has a
             # circular import chain through cohort.util that resolves once
             # all modules finish loading. The SDK's next poll cycle will retry.
-            logger.debug("hypercache_flag_provider_import_pending", team_id=self._team_id)
+            logger.debug("hypercache_flag_provider_import_pending", team_id=team_id)
             return None
         except ObjectDoesNotExist:
             # Self-hosted/local instances often lack the configured self team
@@ -66,7 +102,7 @@ class HyperCacheFlagProvider:
             logger.debug("hypercache_flag_provider_team_missing", team_id=self._team_id)
             return None
         except Exception:
-            logger.exception("hypercache_flag_provider_read_error", team_id=self._team_id)
+            logger.exception("hypercache_flag_provider_read_error", team_id=team_id)
             return None
 
     def should_fetch_flag_definitions(self) -> bool:

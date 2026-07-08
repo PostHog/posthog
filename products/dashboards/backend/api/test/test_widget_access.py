@@ -29,7 +29,6 @@ class TestWidgetAccess(BaseTest):
 
     def test_registry_entry_without_product_access_allows(self) -> None:
         entry: WidgetRegistryEntry = {
-            "validate_config": lambda config: config,
             "query_fn": lambda team, config: {},
             "required_scopes": [],
         }

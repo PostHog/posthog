@@ -22,6 +22,7 @@ from posthog.models.team.team import Team
 
 from products.signals.backend.models import SignalScoutConfig
 from products.signals.backend.scout_harness.lazy_seed import sync_canonical_skills
+from products.signals.backend.scout_harness.team_limits import withheld_skills_for_team
 
 
 class Command(BaseCommand):
@@ -80,7 +81,10 @@ class Command(BaseCommand):
         }
         for team in teams:
             # Explicit reconciliation path → prune orphaned rows (canonical removed from disk).
-            result = sync_canonical_skills(team, prune=True)
+            # Honor the per-scout holdback denylist so this impatient fan-out can't seed a
+            # withheld scout's LLMSkill rows onto a held-back team (the coordinator gates the
+            # scheduled path the same way).
+            result = sync_canonical_skills(team, prune=True, withheld_skill_names=withheld_skills_for_team(team.id))
             totals["created"] += len(result.created_skill_names)
             totals["updated"] += len(result.updated_skill_names)
             totals["diverged"] += len(result.diverged_skill_names)
@@ -131,7 +135,8 @@ class Command(BaseCommand):
         with transaction.atomic():
             for team in teams:
                 # Preview prune too (rolled back below), so the dry-run shows what would be reaped.
-                result = sync_canonical_skills(team, prune=True)
+                # Same holdback resolution as the real run so the preview matches what would seed.
+                result = sync_canonical_skills(team, prune=True, withheld_skill_names=withheld_skills_for_team(team.id))
                 self._print_team_result(team, result, prefix="[dry-run] ")
             transaction.set_rollback(True)
 
