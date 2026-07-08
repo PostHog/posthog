@@ -31,6 +31,21 @@ import { BulkSelectionConfig, BulkSelectionKey, useBulkSelection } from './useBu
  *  unconditionally so hook order is stable, but its result is never read. */
 const UNUSED_ROW_KEY = (): string | number => 0
 
+/** Text extracted from a cell for "Copy cell contents". Reads `textContent` (which recovers the
+ *  full value even when the cell is visually clipped by `text-overflow`), but joins the cell's
+ *  direct child nodes with a space so visually-separated pieces (e.g. a label plus a tag) don't
+ *  smush together — `textContent` alone drops the CSS spacing between them. Exported for testing. */
+export function extractCellText(cell: HTMLElement): string {
+    const parts: string[] = []
+    cell.childNodes.forEach((node) => {
+        const text = node.textContent?.trim()
+        if (text) {
+            parts.push(text)
+        }
+    })
+    return (parts.length ? parts.join(' ') : (cell.textContent ?? '')).replace(/\s+/g, ' ').trim()
+}
+
 export interface LemonTableProps<T extends Record<string, any>, K extends BulkSelectionKey = BulkSelectionKey> {
     /** Table ID that will also be used in pagination to add uniqueness to search params (page + order). */
     id?: string
@@ -108,6 +123,11 @@ export interface LemonTableProps<T extends Record<string, any>, K extends BulkSe
     /** Enable bulk-selection — adds a leading checkbox column and renders the consumer-provided
      *  action bar above the table whenever any rows are selected. */
     bulkSelection?: BulkSelectionConfig<T, K>
+    /** Enable a right-click "Copy cell contents" affordance on each data cell. Off by default —
+     *  only opt in on data-result tables (query/insight/SQL result tables) where cells are scalar
+     *  values. Not for entity-list tables, where composed cells (dates, tags, avatars) would copy
+     *  a misleading rendered string. */
+    enableCellCopy?: boolean
 }
 
 export function LemonTable<T extends Record<string, any>, K extends BulkSelectionKey = BulkSelectionKey>({
@@ -149,6 +169,7 @@ export function LemonTable<T extends Record<string, any>, K extends BulkSelectio
     rowActions,
     hideSortingIndicatorWhenInactive = false,
     bulkSelection,
+    enableCellCopy = false,
 }: LemonTableProps<T, K>): JSX.Element {
     if (bulkSelection && !bulkSelection.getKey && rowKey === undefined) {
         throw new Error(
@@ -206,9 +227,7 @@ export function LemonTable<T extends Record<string, any>, K extends BulkSelectio
     // A single stable handler shared by every data cell keeps the per-cell cost to just a prop
     // reference (no extra components or DOM), so this stays cheap even on very large tables.
     const handleCellContextMenu = useCallback((event: React.MouseEvent<HTMLTableCellElement>) => {
-        // The full value lives in the DOM even when the cell is visually clipped by `text-overflow`,
-        // so reading `textContent` recovers content a manual highlight-and-copy can't reach.
-        const text = event.currentTarget.textContent?.trim()
+        const text = extractCellText(event.currentTarget)
         if (!text) {
             return // Nothing to copy — fall back to the browser's native context menu
         }
@@ -687,7 +706,7 @@ export function LemonTable<T extends Record<string, any>, K extends BulkSelectio
                                                 pinnedColumnWidths={pinnedColumnWidths}
                                                 columns={columns}
                                                 rowActions={rowActions}
-                                                onCellContextMenu={handleCellContextMenu}
+                                                onCellContextMenu={enableCellCopy ? handleCellContextMenu : undefined}
                                             />
                                         )
                                     })
@@ -731,27 +750,29 @@ export function LemonTable<T extends Record<string, any>, K extends BulkSelectio
                     </div>
                 </ScrollableShadows>
             </div>
-            <Popover
-                visible={!!cellContextMenu}
-                referenceElement={cellContextMenu?.element ?? null}
-                onClickOutside={() => setCellContextMenu(null)}
-                placement="bottom-start"
-                overlay={
-                    <LemonButton
-                        icon={<IconCopy />}
-                        fullWidth
-                        size="small"
-                        onClick={() => {
-                            if (cellContextMenu) {
-                                void copyToClipboard(cellContextMenu.text, 'cell contents')
-                            }
-                            setCellContextMenu(null)
-                        }}
-                    >
-                        Copy cell contents
-                    </LemonButton>
-                }
-            />
+            {enableCellCopy && (
+                <Popover
+                    visible={!!cellContextMenu}
+                    referenceElement={cellContextMenu?.element ?? null}
+                    onClickOutside={() => setCellContextMenu(null)}
+                    placement="bottom-start"
+                    overlay={
+                        <LemonButton
+                            icon={<IconCopy />}
+                            fullWidth
+                            size="small"
+                            onClick={() => {
+                                if (cellContextMenu) {
+                                    void copyToClipboard(cellContextMenu.text, 'cell contents')
+                                }
+                                setCellContextMenu(null)
+                            }}
+                        >
+                            Copy cell contents
+                        </LemonButton>
+                    }
+                />
+            )}
         </>
     )
 }

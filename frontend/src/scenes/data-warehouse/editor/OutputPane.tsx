@@ -4,7 +4,13 @@ import 'react-data-grid/lib/styles.css'
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import { useCallback, useMemo, useRef, useState } from 'react'
-import DataGrid, { DataGridProps, RenderHeaderCellProps, SortColumn } from 'react-data-grid'
+import DataGrid, {
+    CellClickArgs,
+    CellMouseEvent,
+    DataGridProps,
+    RenderHeaderCellProps,
+    SortColumn,
+} from 'react-data-grid'
 
 import {
     IconCode,
@@ -31,6 +37,7 @@ import { TZLabel } from 'lib/components/TZLabel'
 import { IconTableChart } from 'lib/lemon-ui/icons'
 import { Link } from 'lib/lemon-ui/Link'
 import { LoadingBar } from 'lib/lemon-ui/LoadingBar'
+import { Popover } from 'lib/lemon-ui/Popover/Popover'
 import { getAccessControlDisabledReason } from 'lib/utils/accessControlUtils'
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
 import { InsightErrorState, StatelessInsightLoadingState } from 'scenes/insights/EmptyStates'
@@ -1075,6 +1082,24 @@ const Content = ({
 }: any): JSX.Element | null => {
     const [sortColumns, setSortColumns] = useState<SortColumn[]>([])
 
+    /** Cell whose right-click "Copy cell contents" menu is open in the results grid, if any. */
+    const [cellContextMenu, setCellContextMenu] = useState<{ element: HTMLElement; text: string } | null>(null)
+
+    // Right-click a results cell to copy its value. Unlike the LemonTable feature (which reads DOM
+    // text), react-data-grid hands us the raw row value, so datetimes/numbers copy accurately.
+    const handleGridCellContextMenu = useCallback((args: CellClickArgs<Record<string, any>>, event: CellMouseEvent) => {
+        if (args.column.key === '__details') {
+            return // Not a data cell — fall back to the native context menu
+        }
+        const value = args.row[args.column.key]
+        if (value === null || value === undefined || value === '') {
+            return
+        }
+        event.preventGridDefault()
+        event.preventDefault()
+        setCellContextMenu({ element: event.currentTarget, text: String(value) })
+    }, [])
+
     const sortedRows = useMemo(() => {
         if (!sortColumns.length) {
             return rows
@@ -1214,6 +1239,28 @@ const Content = ({
                             rows={sortedRows}
                             sortColumns={sortColumns}
                             onSortColumnsChange={setSortColumns}
+                            onCellContextMenu={handleGridCellContextMenu}
+                        />
+                        <Popover
+                            visible={!!cellContextMenu}
+                            referenceElement={cellContextMenu?.element ?? null}
+                            onClickOutside={() => setCellContextMenu(null)}
+                            placement="bottom-start"
+                            overlay={
+                                <LemonButton
+                                    icon={<IconCopy />}
+                                    fullWidth
+                                    size="small"
+                                    onClick={() => {
+                                        if (cellContextMenu) {
+                                            void copyToClipboard(cellContextMenu.text, 'cell contents')
+                                        }
+                                        setCellContextMenu(null)
+                                    }}
+                                >
+                                    Copy cell contents
+                                </LemonButton>
+                            }
                         />
                     </TabScroller>
                 )}
