@@ -225,6 +225,13 @@ pub struct Config {
     #[envconfig(default = "1000")]
     pub coordinator_rebalance_debounce_ms: u64,
 
+    /// How often the coordinator re-evaluates in-flight handoffs
+    /// regardless of watch events — the liveness backstop for state
+    /// changes that fire no event (e.g. router departures) and for
+    /// events missed before a watch attaches.
+    #[envconfig(default = "5")]
+    pub coordinator_reconcile_secs: u64,
+
     // ── K8s awareness (leader mode only) ────────────────────────
     /// Enable K8s-aware departure classification for smarter rebalancing.
     /// When disabled, falls back to lease-based behavior.
@@ -414,6 +421,10 @@ impl Config {
 
     pub fn coordinator_rebalance_debounce_interval(&self) -> Duration {
         Duration::from_millis(self.coordinator_rebalance_debounce_ms)
+    }
+
+    pub fn coordinator_reconcile_interval(&self) -> Duration {
+        Duration::from_secs(self.coordinator_reconcile_secs)
     }
 
     pub fn stash_max_wait(&self) -> Duration {

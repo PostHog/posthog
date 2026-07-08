@@ -646,17 +646,26 @@ pub fn create_test_person() -> Person {
 /// stamps the header, not just that the body arrives intact.
 pub struct TestLeaderService {
     persons: DashMap<(i64, i64), Person>,
+    /// When true, writes are rejected with FailedPrecondition, mimicking
+    /// a leader whose partition is write-fenced for a handoff.
+    fenced: bool,
 }
 
 impl TestLeaderService {
     pub fn new() -> Self {
         Self {
             persons: DashMap::new(),
+            fenced: false,
         }
     }
 
     pub fn with_person(self, person: Person) -> Self {
         self.persons.insert((person.team_id, person.id), person);
+        self
+    }
+
+    pub fn fenced(mut self) -> Self {
+        self.fenced = true;
         self
     }
 }
@@ -703,6 +712,11 @@ impl PersonHogLeader for TestLeaderService {
     ) -> Result<Response<UpdatePersonPropertiesResponse>, Status> {
         require_partition_metadata(&request)?;
         let req = request.into_inner();
+        if self.fenced {
+            return Err(Status::failed_precondition(
+                "partition is fenced for handoff; writes are rejected",
+            ));
+        }
         let key = (req.team_id, req.person_id);
 
         let mut person = self

@@ -28,25 +28,14 @@
         "src/lib/utils/eventUsageLogic.ts -> src/scenes/web-analytics/achievements/recordInteraction.ts",
         "src/taxonomy/helpers.ts -> src/scenes/surveys/surveyQuestionLabelsLogic.ts",
         "src/taxonomy/taxonomy.tsx -> src/scenes/web-analytics/tabs/marketing-analytics/utils.ts",
-        "src/toolbar/actions/ActionsToolbarMenu.tsx -> src/scenes/urls.ts",
         "src/toolbar/actions/StepField.tsx -> ../products/actions/frontend/utils/hints.tsx",
-        "src/toolbar/actions/actionsTabLogic.tsx -> src/scenes/urls.ts",
         "src/toolbar/debug/EventDebugMenu.tsx -> src/scenes/session-recordings/components/PanelSettings.tsx",
-        "src/toolbar/experiments/ExperimentsToolbarMenu.tsx -> src/scenes/urls.ts",
         "src/toolbar/experiments/experimentsTabLogic.tsx -> src/scenes/experiments/experimentsLogic.ts",
         "src/toolbar/experiments/experimentsTabLogic.tsx -> src/scenes/experiments/utils.ts",
-        "src/toolbar/experiments/experimentsTabLogic.tsx -> src/scenes/urls.ts",
-        "src/toolbar/flags/FlagsToolbarMenu.tsx -> src/scenes/urls.ts",
         "src/toolbar/product-tours/ProductToursSidebar.tsx -> src/scenes/product-tours/stepUtils.tsx",
         "src/toolbar/product-tours/StepCard.tsx -> src/scenes/product-tours/stepUtils.tsx",
         "src/toolbar/product-tours/productToursLogic.ts -> src/scenes/product-tours/constants.ts",
         "src/toolbar/product-tours/productToursLogic.ts -> src/scenes/product-tours/editor/generateStepHtml.ts",
-        "src/toolbar/product-tours/productToursLogic.ts -> src/scenes/product-tours/stepUtils.tsx",
-        "src/toolbar/product-tours/productToursLogic.ts -> src/scenes/urls.ts",
-        "src/toolbar/stats/HeatmapToolbarMenu.tsx -> src/scenes/urls.ts",
-        "src/toolbar/surveys/SurveyRow.tsx -> src/scenes/urls.ts",
-        "src/toolbar/surveys/SurveySidebar.tsx -> src/scenes/urls.ts",
-        "src/toolbar/surveys/surveysToolbarLogic.ts -> src/scenes/urls.ts",
-        "src/toolbar/web-vitals/WebVitalsToolbarMenu.tsx -> src/scenes/urls.ts"
+        "src/toolbar/product-tours/productToursLogic.ts -> src/scenes/product-tours/stepUtils.tsx"
     ]
 }
