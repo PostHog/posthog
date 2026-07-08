@@ -939,45 +939,11 @@ export const ExperimentsCreateBody = /* @__PURE__ */ zod
         parameters: zod
             .union([
                 zod.object({
-                    feature_flag_variants: zod
-                        .union([
-                            zod.array(
-                                zod.object({
-                                    key: zod
-                                        .string()
-                                        .describe(
-                                            "Variant key. Exactly one variant in feature_flag_variants must use key 'control' (lowercase, exactly) — that is the baseline used for analysis and the special key the experiment runtime expects. Other variants use keys like 'test', 'variant_a', 'variant_b'. Map natural-language names ('original', 'A', 'baseline') to 'control'."
-                                        ),
-                                    name: zod
-                                        .union([zod.string(), zod.null()])
-                                        .optional()
-                                        .describe('Human-readable variant name.'),
-                                    rollout_percentage: zod.union([zod.number(), zod.null()]).optional(),
-                                    split_percent: zod
-                                        .union([zod.number(), zod.null()])
-                                        .optional()
-                                        .describe(
-                                            'Percentage of users assigned to this variant (0–100). All variants must sum to 100. One of split_percent (recommended) or rollout_percentage must be provided.'
-                                        ),
-                                })
-                            ),
-                            zod.null(),
-                        ])
-                        .optional()
-                        .describe(
-                            "Experiment variants. If specified, must include a variant with key 'control' (lowercase). Defaults to a 50/50 control/test split when omitted. Minimum 2, maximum 20."
-                        ),
                     minimum_detectable_effect: zod
                         .union([zod.number(), zod.null()])
                         .optional()
                         .describe(
                             'Minimum detectable effect as a percentage. Lower values need more users but catch smaller changes. Suggest 20–30% for most experiments.'
-                        ),
-                    rollout_percentage: zod
-                        .union([zod.number(), zod.null()])
-                        .optional()
-                        .describe(
-                            'Overall rollout percentage (0-100). Controls what fraction of all users enter the experiment. Users outside the rollout never see any variant and are excluded from analysis. Default: 100.'
                         ),
                     variant_notes: zod
                         .union([zod.record(zod.string(), zod.string()), zod.null()])
@@ -990,7 +956,7 @@ export const ExperimentsCreateBody = /* @__PURE__ */ zod
             ])
             .optional()
             .describe(
-                'Experiment parameters JSON. Supported keys include `custom_exposure_filter` and `variant_notes` (free-text notes per variant, keyed by variant key). Flag config keys (`feature_flag_variants`, `rollout_percentage`) are a deprecated input surface kept for compatibility — the linked feature flag is the source of truth, and reads project its current config into this field. Excluded variants live on the top-level `excluded_variants` field, not here.'
+                "Experiment parameters JSON. Supported keys include `custom_exposure_filter` and `variant_notes` (free-text notes per variant, keyed by variant key). Flag config (variants, rollout, aggregation, payloads, experience continuity) is not accepted here — send it via the `feature_flag` object. Reads still project the linked flag's current config into this field for backward compatibility. Excluded variants live on the top-level `excluded_variants` field, not here."
             ),
         running_time_calculation: zod
             .union([
@@ -4218,7 +4184,7 @@ export const ExperimentsCreateBody = /* @__PURE__ */ zod
             .boolean()
             .default(experimentsCreateBodyUpdateFeatureFlagParamsDefault)
             .describe(
-                'When true, sync the flag config sent in this request (via the `feature_flag` object, or the deprecated `parameters` keys) to the linked feature flag. Draft experiments always sync regardless. On a running experiment, `feature_flag` config without this flag is rejected.'
+                'When true, sync the flag config sent in this request (via the `feature_flag` object) to the linked feature flag. Draft experiments always sync regardless. On a running experiment, `feature_flag` config without this flag is rejected.'
             ),
     })
     .describe('Experiment write payload. Identical to Experiment, plus the writable `feature_flag` config input.')
@@ -4447,45 +4413,11 @@ export const ExperimentsPartialUpdateBody = /* @__PURE__ */ zod
         parameters: zod
             .union([
                 zod.object({
-                    feature_flag_variants: zod
-                        .union([
-                            zod.array(
-                                zod.object({
-                                    key: zod
-                                        .string()
-                                        .describe(
-                                            "Variant key. Exactly one variant in feature_flag_variants must use key 'control' (lowercase, exactly) — that is the baseline used for analysis and the special key the experiment runtime expects. Other variants use keys like 'test', 'variant_a', 'variant_b'. Map natural-language names ('original', 'A', 'baseline') to 'control'."
-                                        ),
-                                    name: zod
-                                        .union([zod.string(), zod.null()])
-                                        .optional()
-                                        .describe('Human-readable variant name.'),
-                                    rollout_percentage: zod.union([zod.number(), zod.null()]).optional(),
-                                    split_percent: zod
-                                        .union([zod.number(), zod.null()])
-                                        .optional()
-                                        .describe(
-                                            'Percentage of users assigned to this variant (0–100). All variants must sum to 100. One of split_percent (recommended) or rollout_percentage must be provided.'
-                                        ),
-                                })
-                            ),
-                            zod.null(),
-                        ])
-                        .optional()
-                        .describe(
-                            "Experiment variants. If specified, must include a variant with key 'control' (lowercase). Defaults to a 50/50 control/test split when omitted. Minimum 2, maximum 20."
-                        ),
                     minimum_detectable_effect: zod
                         .union([zod.number(), zod.null()])
                         .optional()
                         .describe(
                             'Minimum detectable effect as a percentage. Lower values need more users but catch smaller changes. Suggest 20–30% for most experiments.'
-                        ),
-                    rollout_percentage: zod
-                        .union([zod.number(), zod.null()])
-                        .optional()
-                        .describe(
-                            'Overall rollout percentage (0-100). Controls what fraction of all users enter the experiment. Users outside the rollout never see any variant and are excluded from analysis. Default: 100.'
                         ),
                     variant_notes: zod
                         .union([zod.record(zod.string(), zod.string()), zod.null()])
@@ -4498,7 +4430,7 @@ export const ExperimentsPartialUpdateBody = /* @__PURE__ */ zod
             ])
             .optional()
             .describe(
-                'Experiment parameters JSON. Supported keys include `custom_exposure_filter` and `variant_notes` (free-text notes per variant, keyed by variant key). Flag config keys (`feature_flag_variants`, `rollout_percentage`) are a deprecated input surface kept for compatibility — the linked feature flag is the source of truth, and reads project its current config into this field. Excluded variants live on the top-level `excluded_variants` field, not here.'
+                "Experiment parameters JSON. Supported keys include `custom_exposure_filter` and `variant_notes` (free-text notes per variant, keyed by variant key). Flag config (variants, rollout, aggregation, payloads, experience continuity) is not accepted here — send it via the `feature_flag` object. Reads still project the linked flag's current config into this field for backward compatibility. Excluded variants live on the top-level `excluded_variants` field, not here."
             ),
         running_time_calculation: zod
             .union([
@@ -7731,7 +7663,7 @@ export const ExperimentsPartialUpdateBody = /* @__PURE__ */ zod
             .boolean()
             .optional()
             .describe(
-                'When true, sync the flag config sent in this request (via the `feature_flag` object, or the deprecated `parameters` keys) to the linked feature flag. Draft experiments always sync regardless. On a running experiment, `feature_flag` config without this flag is rejected.'
+                'When true, sync the flag config sent in this request (via the `feature_flag` object) to the linked feature flag. Draft experiments always sync regardless. On a running experiment, `feature_flag` config without this flag is rejected.'
             ),
     })
     .describe('Experiment write payload. Identical to Experiment, plus the writable `feature_flag` config input.')
@@ -7925,45 +7857,11 @@ export const ExperimentsDuplicateCreateBody = /* @__PURE__ */ zod
         parameters: zod
             .union([
                 zod.object({
-                    feature_flag_variants: zod
-                        .union([
-                            zod.array(
-                                zod.object({
-                                    key: zod
-                                        .string()
-                                        .describe(
-                                            "Variant key. Exactly one variant in feature_flag_variants must use key 'control' (lowercase, exactly) — that is the baseline used for analysis and the special key the experiment runtime expects. Other variants use keys like 'test', 'variant_a', 'variant_b'. Map natural-language names ('original', 'A', 'baseline') to 'control'."
-                                        ),
-                                    name: zod
-                                        .union([zod.string(), zod.null()])
-                                        .optional()
-                                        .describe('Human-readable variant name.'),
-                                    rollout_percentage: zod.union([zod.number(), zod.null()]).optional(),
-                                    split_percent: zod
-                                        .union([zod.number(), zod.null()])
-                                        .optional()
-                                        .describe(
-                                            'Percentage of users assigned to this variant (0–100). All variants must sum to 100. One of split_percent (recommended) or rollout_percentage must be provided.'
-                                        ),
-                                })
-                            ),
-                            zod.null(),
-                        ])
-                        .optional()
-                        .describe(
-                            "Experiment variants. If specified, must include a variant with key 'control' (lowercase). Defaults to a 50/50 control/test split when omitted. Minimum 2, maximum 20."
-                        ),
                     minimum_detectable_effect: zod
                         .union([zod.number(), zod.null()])
                         .optional()
                         .describe(
                             'Minimum detectable effect as a percentage. Lower values need more users but catch smaller changes. Suggest 20–30% for most experiments.'
-                        ),
-                    rollout_percentage: zod
-                        .union([zod.number(), zod.null()])
-                        .optional()
-                        .describe(
-                            'Overall rollout percentage (0-100). Controls what fraction of all users enter the experiment. Users outside the rollout never see any variant and are excluded from analysis. Default: 100.'
                         ),
                     variant_notes: zod
                         .union([zod.record(zod.string(), zod.string()), zod.null()])
@@ -7976,7 +7874,7 @@ export const ExperimentsDuplicateCreateBody = /* @__PURE__ */ zod
             ])
             .optional()
             .describe(
-                'Experiment parameters JSON. Supported keys include `custom_exposure_filter` and `variant_notes` (free-text notes per variant, keyed by variant key). Flag config keys (`feature_flag_variants`, `rollout_percentage`) are a deprecated input surface kept for compatibility — the linked feature flag is the source of truth, and reads project its current config into this field. Excluded variants live on the top-level `excluded_variants` field, not here.'
+                "Experiment parameters JSON. Supported keys include `custom_exposure_filter` and `variant_notes` (free-text notes per variant, keyed by variant key). Flag config (variants, rollout, aggregation, payloads, experience continuity) is not accepted here — send it via the `feature_flag` object. Reads still project the linked flag's current config into this field for backward compatibility. Excluded variants live on the top-level `excluded_variants` field, not here."
             ),
         running_time_calculation: zod
             .union([
@@ -11212,7 +11110,7 @@ export const ExperimentsDuplicateCreateBody = /* @__PURE__ */ zod
             .boolean()
             .default(experimentsDuplicateCreateBodyUpdateFeatureFlagParamsDefault)
             .describe(
-                'When true, sync the flag config sent in this request (via the `feature_flag` object, or the deprecated `parameters` keys) to the linked feature flag. Draft experiments always sync regardless. On a running experiment, `feature_flag` config without this flag is rejected.'
+                'When true, sync the flag config sent in this request (via the `feature_flag` object) to the linked feature flag. Draft experiments always sync regardless. On a running experiment, `feature_flag` config without this flag is rejected.'
             ),
     })
     .describe(

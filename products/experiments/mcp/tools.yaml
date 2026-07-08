@@ -202,8 +202,7 @@ tools:
             feature_flag:
                 description: >
                     Variant split, rollout scope, payloads, and experience continuity for the auto-created feature flag,
-                    in the flag's own filters shape. This is the canonical input, do not send flag config via the
-                    deprecated parameters keys (feature_flag_variants, rollout_percentage). If the user mentions a
+                    in the flag's own filters shape. This is the canonical input for flag config. If the user mentions a
                     specific percentage, load the configuring-experiment-rollout skill and clarify before setting these
                     values. Set filters.multivariate.variants (each with key and rollout_percentage; percentages must
                     sum to 100) to customize the variant split. Set filters.groups to a single group [{"properties": [],
@@ -986,8 +985,7 @@ tools:
             feature_flag:
                 description: >
                     Variant split, rollout scope, payloads, and experience continuity for the linked feature flag, in
-                    the flag's own filters shape. This is the canonical input, do not send flag config via the
-                    deprecated parameters keys (feature_flag_variants, rollout_percentage). Set
+                    the flag's own filters shape. This is the canonical input for flag config. Set
                     filters.multivariate.variants (each with key and rollout_percentage; percentages must sum to 100,
                     exactly one key must be the literal string 'control') to change the variant split. Set
                     filters.groups to a single group [{"properties": [], "rollout_percentage": N}] (0-100) to change the

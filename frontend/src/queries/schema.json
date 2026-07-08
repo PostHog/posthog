@@ -20748,19 +20748,8 @@
         "ExperimentParameters": {
             "additionalProperties": false,
             "properties": {
-                "feature_flag_variants": {
-                    "description": "Experiment variants. If specified, must include a variant with key 'control' (lowercase). Defaults to a 50/50 control/test split when omitted. Minimum 2, maximum 20.",
-                    "items": {
-                        "$ref": "#/definitions/ExperimentVariant"
-                    },
-                    "type": "array"
-                },
                 "minimum_detectable_effect": {
                     "description": "Minimum detectable effect as a percentage. Lower values need more users but catch smaller changes. Suggest 20–30% for most experiments.",
-                    "type": "number"
-                },
-                "rollout_percentage": {
-                    "description": "Overall rollout percentage (0-100). Controls what fraction of all users enter the experiment. Users outside the rollout never see any variant and are excluded from analysis. Default: 100.",
                     "type": "number"
                 },
                 "variant_notes": {
@@ -21384,29 +21373,6 @@
                 "p_value",
                 "credible_intervals"
             ],
-            "type": "object"
-        },
-        "ExperimentVariant": {
-            "additionalProperties": false,
-            "properties": {
-                "key": {
-                    "description": "Variant key. Exactly one variant in feature_flag_variants must use key 'control' (lowercase, exactly) — that is the baseline used for analysis and the special key the experiment runtime expects. Other variants use keys like 'test', 'variant_a', 'variant_b'. Map natural-language names ('original', 'A', 'baseline') to 'control'.",
-                    "type": "string"
-                },
-                "name": {
-                    "description": "Human-readable variant name.",
-                    "type": "string"
-                },
-                "rollout_percentage": {
-                    "deprecated": "Use split_percent instead. Accepted for backward compatibility.",
-                    "type": "number"
-                },
-                "split_percent": {
-                    "description": "Percentage of users assigned to this variant (0–100). All variants must sum to 100. One of split_percent (recommended) or rollout_percentage must be provided.",
-                    "type": "number"
-                }
-            },
-            "required": ["key"],
             "type": "object"
         },
         "ExperimentVariantFunnelsBaseStats": {

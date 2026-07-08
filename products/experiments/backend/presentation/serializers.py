@@ -106,11 +106,6 @@ class ExperimentParametersField(serializers.JSONField):
             data = {**data, "feature_flag_variants": _with_split_percent(data["feature_flag_variants"])}
         return data
 
-    def to_internal_value(self, data: Any) -> Any:
-        if isinstance(data, dict) and isinstance(data.get("feature_flag_variants"), list):
-            data = {**data, "feature_flag_variants": _normalized_flag_variants(data["feature_flag_variants"])}
-        return super().to_internal_value(data)
-
 
 @extend_schema_field(ExperimentApiExposureCriteria)  # type: ignore[arg-type]
 class ExperimentExposureCriteriaField(serializers.JSONField):
@@ -161,9 +156,9 @@ class ExperimentBaseSerializer(UserAccessControlSerializerMixin, serializers.Mod
             "Experiment parameters JSON. Supported keys include "
             "`custom_exposure_filter` and `variant_notes` "
             "(free-text notes per variant, keyed by variant key). "
-            "Flag config keys (`feature_flag_variants`, `rollout_percentage`) are a deprecated "
-            "input surface kept for compatibility — the linked feature flag is the source of "
-            "truth, and reads project its current config into this field. "
+            "Flag config (variants, rollout, aggregation, payloads, experience continuity) is "
+            "not accepted here — send it via the `feature_flag` object. Reads still project the "
+            "linked flag's current config into this field for backward compatibility. "
             "Excluded variants live on the top-level `excluded_variants` field, not here."
         ),
     )
@@ -358,9 +353,8 @@ class ExperimentSerializer(ExperimentBaseSerializer):
         write_only=True,
         help_text=(
             "When true, sync the flag config sent in this request (via the "
-            "`feature_flag` object, or the deprecated `parameters` keys) to "
-            "the linked feature flag. Draft experiments always sync "
-            "regardless. On a running experiment, `feature_flag` config "
+            "`feature_flag` object) to the linked feature flag. Draft experiments "
+            "always sync regardless. On a running experiment, `feature_flag` config "
             "without this flag is rejected."
         ),
     )
@@ -561,9 +555,54 @@ class ExperimentSerializer(ExperimentBaseSerializer):
         data["parameters"] = merged
         return data
 
+    _DEPRECATED_FLAG_CONFIG_MESSAGE = (
+        "Feature flag config (feature_flag_variants, rollout_percentage, "
+        "aggregation_group_type_index, feature_flag_payloads, ensure_experience_continuity) "
+        "is no longer accepted in parameters. Send it via the feature_flag object "
+        "(feature_flag.filters) instead."
+    )
+
     def validate_parameters(self, value):
+        value = self._reject_deprecated_flag_config(value)
         ExperimentService.validate_experiment_parameters(value)
         return value
+
+    def _reject_deprecated_flag_config(self, value: Any) -> Any:
+        """Close the legacy flag-config entrance on ``parameters`` — flag config belongs on the
+        ``feature_flag`` object now. On create, reject any ``FEATURE_FLAG_CONFIG_KEYS`` outright.
+        On update, tolerate a read-modify-write echo (a client that spreads a GET response back
+        sends the projected keys): strip keys whose values match the linked flag's current
+        projected config, and reject keys whose values differ — a genuine write through the
+        removed surface must fail loudly, not be silently dropped."""
+        if not isinstance(value, dict):
+            return value
+        present = [key for key in ExperimentService.FEATURE_FLAG_CONFIG_KEYS if key in value]
+        if not present:
+            return value
+
+        flag = self.instance.feature_flag if self.instance is not None else None
+        if flag is None:
+            raise serializers.ValidationError({"parameters": self._DEPRECATED_FLAG_CONFIG_MESSAGE})
+
+        projection: dict[str, Any] = {}
+        self._project_feature_flag_config(projection, flag)
+        projected = projection.get("parameters") or {}
+
+        value = dict(value)
+        for key in present:
+            if self._flag_config_echo_matches(key, value[key], projected.get(key)):
+                del value[key]
+            else:
+                raise serializers.ValidationError({"parameters": self._DEPRECATED_FLAG_CONFIG_MESSAGE})
+        return value
+
+    @staticmethod
+    def _flag_config_echo_matches(key: str, sent: Any, projected: Any) -> bool:
+        if key == "feature_flag_variants":
+            # The read projection adds split_percent; normalize both sides to the flag's native
+            # shape (split_percent -> rollout_percentage) so a faithful echo compares equal.
+            return _normalized_flag_variants(sent or []) == _normalized_flag_variants(projected or [])
+        return sent == projected
 
     def validate_running_time_calculation(self, value):
         ExperimentService.validate_running_time_calculation(value)
