@@ -61,7 +61,10 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline
     observe_and_project_table,
     source_uses_delta_write_column_selection,
 )
-from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_sync import set_initial_sync_complete
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_sync import (
+    set_initial_sync_complete,
+    update_last_synced_at,
+)
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.metrics import (
     get_batches_produced_metric,
     get_pipeline_run_duration_metric,
@@ -454,6 +457,15 @@ class PipelineV3(Generic[ResumableData]):
 
         if total_batches == 0:
             self._logger.debug("V3 Pipeline: No batches extracted, skipping finalization")
+            # A run that completes with no new rows still successfully synced the schema — advance
+            # last_synced_at so it doesn't stay frozen behind the job's Completed status (which is what
+            # the source-level "Last successful run" reads). Mirrors V2 and CDC, which both bump
+            # last_synced_at on no-new-rows runs. Gated on initial_sync_complete to match V2, which only
+            # updates it once a delta table already exists (i.e. not on an empty first sync).
+            if self._schema.initial_sync_complete:
+                await update_last_synced_at(
+                    job_id=str(self._job.id), schema_id=str(self._schema.id), team_id=self._job.team_id
+                )
             return
 
         self._logger.info(

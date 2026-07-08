@@ -3,6 +3,8 @@ from typing import cast
 import pytest
 from unittest.mock import AsyncMock, MagicMock, patch
 
+from parameterized import parameterized
+
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.pipeline import PipelineV3
 
 
@@ -32,6 +34,7 @@ def _make_pipeline() -> PipelineV3:
         is_webhook=False,
         is_append=False,
         table=None,
+        initial_sync_complete=False,
     )
     pipeline._table = None
     pipeline._logger = _make_logger()
@@ -193,3 +196,30 @@ class TestExtractionFailureDoesNotCleanupS3:
                 await pipeline.run()
 
         s3_writer.cleanup.assert_not_called()
+
+
+class TestFinalizeWithNoBatches:
+    @parameterized.expand(
+        [
+            ("already_synced", True, True),
+            ("first_sync", False, False),
+        ]
+    )
+    @pytest.mark.asyncio
+    async def test_last_synced_at_advances_only_after_initial_sync(
+        self, _name: str, initial_sync_complete: bool, expect_update: bool
+    ) -> None:
+        # A no-new-rows run still completes and the source's "last successful run" advances, so
+        # last_synced_at must advance too — but only once the initial sync is done (matching V2, which
+        # skips the update on an empty first sync). Otherwise the two "last sync" indicators diverge.
+        pipeline = _make_pipeline()
+        pipeline._schema.initial_sync_complete = initial_sync_complete
+        pipeline._batch_results = []
+
+        with patch(
+            "products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.pipeline.update_last_synced_at",
+            new_callable=AsyncMock,
+        ) as mock_update:
+            await pipeline._finalize(row_count=0)
+
+        assert mock_update.called is expect_update
