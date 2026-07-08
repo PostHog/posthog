@@ -754,6 +754,7 @@ export interface ConversationsSettings {
     slack_notify_on_join?: boolean
     slack_notify_on_leave?: boolean
     slack_alert_channel_id?: string | null
+    slack_nudge_enabled?: boolean
     email_enabled?: boolean
     teams_enabled?: boolean
     teams_team_id?: string | null
