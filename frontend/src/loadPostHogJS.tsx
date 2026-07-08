@@ -1,6 +1,7 @@
 import posthog, { BeforeSendFn, PostHogInterface, SessionRecordingOptions } from 'posthog-js'
 import { sampleOnProperty } from 'posthog-js/lib/src/extensions/sampling'
 
+import { beforeSendExceptionFilter } from 'lib/apiErrorTracking'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { isOAuthMode } from 'lib/oauth/oauthClient'
 import { inStorybook, inStorybookTestRunner } from 'lib/utils/dom'
@@ -56,7 +57,15 @@ export function loadPostHogJS(options: LoadPostHogJSOptions = {}): void {
             error_tracking: {
                 __capturePostHogExceptions: true,
             },
-            before_send: options.beforeSend,
+            // `beforeSendExceptionFilter` drops expected pre-auth 401s and fingerprints ApiErrors
+            // (see `lib/apiErrorTracking`). It also owns the registry that feature logics (e.g.
+            // read-only mode) plug into, so keep it in the chain even when a caller passes its own.
+            before_send: options.beforeSend
+                ? [
+                      beforeSendExceptionFilter,
+                      ...(Array.isArray(options.beforeSend) ? options.beforeSend : [options.beforeSend]),
+                  ]
+                : beforeSendExceptionFilter,
             loaded: (loadedInstance) => {
                 if (loadedInstance.sessionRecording) {
                     loadedInstance.sessionRecording._forceAllowLocalhostNetworkCapture = true

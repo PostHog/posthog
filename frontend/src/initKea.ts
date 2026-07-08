@@ -8,6 +8,8 @@ import { waitForPlugin } from 'kea-waitfor'
 import { windowValuesPlugin } from 'kea-window-values'
 import posthog from 'posthog-js'
 
+import { ApiError } from 'lib/api-error'
+import { apiErrorFingerprint } from 'lib/apiErrorTracking'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { addProjectIdIfMissing, removeProjectIdIfPresent, stripTrailingSlash } from 'lib/utils/kea-router'
 import { identifierToHuman } from 'lib/utils/strings'
@@ -102,8 +104,8 @@ export function initKea({
                 // it extends `ApiError` with `status=403`, so the `!(isLoadAction && error.status === 403)`
                 // condition already suppresses the toast for load actions, and write actions
                 // get a toast with the read-only `detail` as the message. The
-                // `posthog.captureException` event is dropped by the central
-                // `before_send` filter in `selfReadOnlyModeLogic`.
+                // `posthog.captureException` event is dropped by the `before_send`
+                // filter that `selfReadOnlyModeLogic` registers via `lib/apiErrorTracking`.
                 // Toast if it's a fetch error or a specific API update error
                 const isLoadAction = typeof actionKey === 'string' && /^(load|get|fetch)[A-Z]/.test(actionKey)
                 if (
@@ -141,7 +143,13 @@ export function initKea({
                     console.error({ error, reducerKey, actionKey })
                 }
                 if (!TRANSIENT_GATEWAY_STATUSES.includes(error?.status)) {
-                    posthog.captureException(error)
+                    // Fingerprint ApiErrors by status + endpoint so distinct API failures don't
+                    // collapse into one catch-all issue anchored at `new ApiError`. Expected
+                    // pre-auth 401s are dropped by the `before_send` filter in `lib/apiErrorTracking`.
+                    posthog.captureException(
+                        error,
+                        error instanceof ApiError ? { $exception_fingerprint: apiErrorFingerprint(error) } : undefined
+                    )
                 }
             },
         }),

@@ -14,19 +14,33 @@ export class ApiError extends Error {
     /** Link to external resources, e.g. stripe invoices */
     link: string | null
 
+    /**
+     * The request that failed, as `"<METHOD> <pathname>"` (e.g. `"GET /api/users/@me/"`).
+     * Populated by `handleFetch` in `api.ts`. Used to fingerprint captured exceptions by
+     * endpoint (see `apiErrorFingerprint`) so distinct API failures don't collapse into a
+     * single catch-all issue in error tracking.
+     */
+    endpoint: string | null
+
     constructor(
         message?: string,
         public status?: number,
         public headers?: Headers,
-        public data?: any
+        public data?: any,
+        endpoint?: string | null
     ) {
         message = message || `API request failed with status: ${status ?? 'unknown'}`
         super(message)
+        // `name` becomes the exception `type` in error tracking. Without this it defaults to the
+        // base `"Error"`, so ApiErrors are indistinguishable from every other error. Setting it
+        // lets us both display and fingerprint them as their own class.
+        this.name = 'ApiError'
         this.statusText = data?.statusText || null
         this.detail = data?.detail || null
         this.code = data?.code || null
         this.link = data?.link || null
         this.attr = data?.attr || null
+        this.endpoint = endpoint || null
     }
 
     /**
