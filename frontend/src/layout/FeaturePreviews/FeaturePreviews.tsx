@@ -6,6 +6,7 @@ import { LemonBanner, LemonButton, LemonInput, LemonSwitch, LemonTextArea, Link 
 
 import { BasicCard } from 'lib/components/Cards/BasicCard'
 import { FEATURE_FLAGS } from 'lib/constants'
+import { useAnchor } from 'lib/hooks/useAnchor'
 import { IconLink } from 'lib/lemon-ui/icons'
 import { SpinnerOverlay } from 'lib/lemon-ui/Spinner'
 import { Label } from 'lib/ui/Label/Label'
@@ -45,6 +46,10 @@ export function FeaturePreviews(): JSX.Element {
     const { loadEarlyAccessFeatures, setSearchTerm } = useActions(featurePreviewsLogic)
 
     useLayoutEffect(() => loadEarlyAccessFeatures(), [loadEarlyAccessFeatures])
+
+    // Cards render only after the async feature fetch, so the scene-level anchor handling
+    // fires too early — defer the scroll + highlight until the cards exist.
+    useAnchor(rawEarlyAccessFeaturesLoading ? '' : window.location.hash)
 
     const betaFeatures = filteredEarlyAccessFeatures.filter((f) => f.stage === 'beta')
     const shouldShowEmptyState =
@@ -107,6 +112,10 @@ export function FeaturePreviewsComingSoon(): JSX.Element {
     const { loadEarlyAccessFeatures } = useActions(featurePreviewsLogic)
 
     useLayoutEffect(() => loadEarlyAccessFeatures(), [loadEarlyAccessFeatures])
+
+    // Cards render only after the async feature fetch, so the scene-level anchor handling
+    // fires too early — defer the scroll + highlight until the cards exist.
+    useAnchor(rawEarlyAccessFeaturesLoading ? '' : window.location.hash)
 
     const conceptFeatures = filteredEarlyAccessFeatures.filter((f) => f.stage === 'concept')
 
