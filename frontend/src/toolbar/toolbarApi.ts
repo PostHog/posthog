@@ -25,9 +25,10 @@ import type { ActionType, CombinedFeatureFlagAndValueType, EventDefinition, Prod
  *   - It always parses the body and returns a discriminated-union `ToolbarApiResult`,
  *     so every call site branches on `result.ok` the same way.
  *   - It centralizes observability: every failure is logged via `toolbarLogger`, and
- *     genuinely-unexpected failures (network errors, 5xx, malformed JSON) are reported
- *     to error tracking. Auth (401/403) and client (4xx) errors are expected outcomes —
- *     they are logged but not reported as exceptions.
+ *     genuinely-unexpected failures (5xx, malformed JSON) are reported to error tracking.
+ *     Network-level failures (offline, CORS, a customer page that wrapped `window.fetch`),
+ *     auth (401/403), and client (4xx) errors are expected outcomes for a toolbar running
+ *     inside arbitrary customer pages — they are logged but not reported as exceptions.
  *   - Per-request telemetry (`toolbar api request`) is emitted by `toolbarFetch` itself.
  *
  * What stays at the call site is only what is genuinely call-site specific: the
@@ -80,10 +81,11 @@ export interface ToolbarApiOptions {
      */
     reauthenticateOnForbidden?: boolean
     /**
-     * Report unexpected failures (network / 5xx / malformed JSON) to error tracking.
-     * Defaults to `true`. Set to `false` when the caller deliberately re-raises the
-     * failure (e.g. a kea loader that throws to drive its own `*Failure` reducer) so the
-     * exception is only captured once.
+     * Report unexpected failures (5xx / malformed JSON) to error tracking. Defaults to
+     * `true`. Network-level failures are always treated as expected (logged, never
+     * reported) regardless of this flag. Set to `false` when the caller deliberately
+     * re-raises the failure (e.g. a kea loader that throws to drive its own `*Failure`
+     * reducer) so the exception is only captured once.
      */
     captureOnError?: boolean
     /**
@@ -155,7 +157,7 @@ async function request<T>(
     let response: Response
     try {
         response = await toolbarFetch(url, method, payload, urlConstruction)
-    } catch (e) {
+    } catch {
         const error: ToolbarApiErrorInfo = {
             status: 0,
             detail: 'Network error',
@@ -163,10 +165,11 @@ async function request<T>(
             isAuthError: false,
             isNetworkError: true,
         }
-        toolbarLogger.error('api', `Request failed (network): ${context}`, { context, method, pathname })
-        if (captureOnError) {
-            captureToolbarException(e, context, { reason: 'network' })
-        }
+        // Network-level failures never reach the server: the toolbar runs inside arbitrary
+        // customer pages, so offline, CORS, ad blockers, and pages that wrap `window.fetch`
+        // all land here. They are environmental and non-actionable — like auth/4xx, log but
+        // don't report, so they can't drown the error-tracking signal.
+        toolbarLogger.warn('api', `Request failed (network): ${context}`, { context, method, pathname })
         emitToast(toastOnError, error)
         return { ok: false, status: 0, data: null, error }
     }
