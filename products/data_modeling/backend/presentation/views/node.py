@@ -362,7 +362,9 @@ class NodeViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         except ValueError:
             return response.Response({"error": "Invalid UUID"}, status=status.HTTP_400_BAD_REQUEST)
 
-        node = Node.objects.filter(team_id=self.team_id, **lookup).first()
+        # saved_query is a non-unique FK: a saved query synced into multiple DAGs has multiple nodes.
+        # Order for a deterministic pick (the graphs are equivalent for lineage purposes).
+        node = Node.objects.filter(team_id=self.team_id, **lookup).order_by("created_at").first()
         if node is None:
             return response.Response({"error": "Node not found"}, status=status.HTTP_404_NOT_FOUND)
 

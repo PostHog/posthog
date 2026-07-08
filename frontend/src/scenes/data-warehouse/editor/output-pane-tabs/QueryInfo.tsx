@@ -170,8 +170,11 @@ export function QueryInfo({ tabId, view }: QueryInfoProps): JSX.Element {
                         <div>
                             <div className="flex items-center justify-between">
                                 <div>
-                                    <h3 className="mb-1">Tables we use</h3>
-                                    <p className="text-xs mb-0">Tables and views that this query relies on.</p>
+                                    <h3 className="mb-1">Lineage</h3>
+                                    <p className="text-xs mb-0">
+                                        Tables and views connected to this query — what it reads from and what builds on
+                                        it.
+                                    </p>
                                 </div>
                                 <LemonSegmentedButton
                                     value={upstreamViewMode}

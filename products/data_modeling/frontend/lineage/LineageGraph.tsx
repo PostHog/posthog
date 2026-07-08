@@ -1,44 +1,21 @@
 import '@xyflow/react/dist/style.css'
 
-import {
-    Background,
-    BackgroundVariant,
-    Controls,
-    MarkerType,
-    MiniMap,
-    Panel,
-    Position,
-    ReactFlow,
-    ReactFlowProvider,
-    type Edge as ReactFlowEdge,
-    type Node as ReactFlowNode,
-} from '@xyflow/react'
+import { Background, BackgroundVariant, Controls, MiniMap, Panel, ReactFlow, ReactFlowProvider } from '@xyflow/react'
 import { useValues } from 'kea'
-import { ReactNode, useEffect, useState } from 'react'
+import { ReactNode } from 'react'
 
 import { IconArchive } from '@posthog/icons'
 import { Spinner } from '@posthog/lemon-ui'
 
-import { getFormattedNodes } from 'scenes/data-warehouse/scene/modeling/autolayout'
-import { ElkDirection, NodeHandle } from 'scenes/data-warehouse/scene/modeling/types'
+import { ElkDirection } from 'scenes/data-warehouse/scene/modeling/types'
 
 import { themeLogic } from '~/layout/navigation-3000/themeLogic'
 import { DataModelingEdge, DataModelingNode } from '~/types'
 
-import {
-    LINEAGE_NODE_TYPES,
-    LineageNodeCallbacks,
-    LineageNodeData,
-    LineageNodeState,
-    LineageVariant,
-} from './LineageNode'
+import { lineageGraphLogic } from './lineageGraphLogic'
+import { LINEAGE_NODE_TYPES, LineageNodeCallbacks, LineageNodeState, LineageVariant } from './LineageNode'
 
 export type { LineageVariant, LineageNodeState, LineageNodeCallbacks } from './LineageNode'
-
-const NODE_SIZES: Record<LineageVariant, { width: number; height: number }> = {
-    full: { width: 200, height: 90 },
-    canvas: { width: 180, height: 120 },
-}
 
 export interface LineageGraphProps {
     nodes: DataModelingNode[]
@@ -64,81 +41,17 @@ export interface LineageGraphProps {
     panels?: ReactNode
 }
 
-function handlesForDirection(nodeId: string, direction: ElkDirection): NodeHandle[] {
-    const isDown = direction === 'DOWN'
-    return [
-        { id: `target_${nodeId}`, type: 'target', position: isDown ? Position.Top : Position.Left },
-        { id: `source_${nodeId}`, type: 'source', position: isDown ? Position.Bottom : Position.Right },
-    ]
-}
-
-async function layoutGraph(props: LineageGraphProps): Promise<{ nodes: ReactFlowNode[]; edges: ReactFlowEdge[] }> {
-    const {
-        nodes,
-        edges,
-        variant = 'full',
-        direction = 'RIGHT',
-        currentNodeId,
-        nodeState,
-        nodeCallbacks,
-        onNodeClick,
-    } = props
-    const { width, height } = NODE_SIZES[variant]
-
-    const rfNodes: ReactFlowNode<LineageNodeData>[] = nodes.map((node) => ({
-        id: node.id,
-        type: 'lineage',
-        position: { x: 0, y: 0 },
-        width,
-        height,
-        data: {
-            node,
-            variant,
-            direction,
-            state: { isCurrent: node.id === currentNodeId, ...nodeState?.(node) },
-            callbacks: nodeCallbacks?.(node) ?? { onClick: onNodeClick ? () => onNodeClick(node) : undefined },
-            handles: handlesForDirection(node.id, direction),
-        },
-    }))
-
-    const rfEdges: ReactFlowEdge[] = edges.map((edge) => ({
-        id: edge.id,
-        source: edge.source_id,
-        target: edge.target_id,
-        sourceHandle: `source_${edge.source_id}`,
-        targetHandle: `target_${edge.target_id}`,
-        markerEnd: { type: MarkerType.ArrowClosed, width: 20, height: 20 },
-    }))
-
-    const laidOut = await getFormattedNodes(rfNodes as any, rfEdges, direction)
-    return { nodes: laidOut as unknown as ReactFlowNode[], edges: rfEdges }
-}
-
 function LineageGraphContent(props: LineageGraphProps): JSX.Element {
     const { isDarkModeOn } = useValues(themeLogic)
-    const [layout, setLayout] = useState<{ nodes: ReactFlowNode[]; edges: ReactFlowEdge[] } | null>(null)
-
-    useEffect(() => {
-        let cancelled = false
-        void layoutGraph(props).then((result) => {
-            if (!cancelled) {
-                setLayout(result)
-            }
+    const { currentNodeId, nodeState, nodeCallbacks, onNodeClick } = props
+    const { layout } = useValues(
+        lineageGraphLogic({
+            nodes: props.nodes,
+            edges: props.edges,
+            variant: props.variant ?? 'full',
+            direction: props.direction ?? 'RIGHT',
         })
-        return () => {
-            cancelled = true
-        }
-        // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [
-        props.nodes,
-        props.edges,
-        props.variant,
-        props.direction,
-        props.currentNodeId,
-        props.nodeState,
-        props.nodeCallbacks,
-        props.onNodeClick,
-    ])
+    )
 
     if (!layout) {
         return (
@@ -148,10 +61,25 @@ function LineageGraphContent(props: LineageGraphProps): JSX.Element {
         )
     }
 
+    // Cheap per-render pass: current-node highlight, state, and callbacks change without relayout
+    const decoratedNodes = layout.nodes.map((rfNode) => {
+        const node = rfNode.data.node as DataModelingNode
+        return {
+            ...rfNode,
+            data: {
+                ...rfNode.data,
+                state: { isCurrent: node.id === currentNodeId, ...nodeState?.(node) },
+                callbacks: nodeCallbacks?.(node) ?? {
+                    onClick: onNodeClick ? () => onNodeClick(node) : undefined,
+                },
+            },
+        }
+    })
+
     return (
         <ReactFlow
             colorMode={isDarkModeOn ? 'dark' : 'light'}
-            nodes={layout.nodes}
+            nodes={decoratedNodes}
             edges={layout.edges}
             nodeTypes={LINEAGE_NODE_TYPES}
             nodesDraggable={false}
