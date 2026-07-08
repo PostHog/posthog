@@ -139,6 +139,10 @@ class TestInternalDataModelingOpsAPI(APIBaseTest):
         self.assertEqual(results[0]["engine"], "duckgres")
         self.assertEqual(results[0]["storage_delta_mib"], 12.5)
 
+    def test_jobs_returns_404_for_malformed_saved_query_id(self):
+        response = self._get("/saved_queries/not-a-uuid/jobs", self._token())
+        self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
+
     def test_dag_detail_returns_nodes_and_edges(self):
         dag = DAG.objects.create(team=self.team, name="Default")
         saved_query = DataWarehouseSavedQuery.objects.create(

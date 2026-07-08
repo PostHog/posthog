@@ -188,10 +188,13 @@ class InternalDataModelingOpsViewSet(TeamAndOrgViewSetMixin, viewsets.GenericVie
 
     @extend_schema(exclude=True)
     def internal_saved_query_jobs(self, request: Request, team_id: str, saved_query_id: str) -> Response:
-        queryset = DataModelingJob.objects.filter(team_id=int(team_id), saved_query_id=saved_query_id).order_by(
-            "-created_at"
-        )
-        return self._paginate(request, queryset, InternalDataModelingJobSerializer)
+        try:
+            queryset = DataModelingJob.objects.filter(team_id=int(team_id), saved_query_id=saved_query_id).order_by(
+                "-created_at"
+            )
+            return self._paginate(request, queryset, InternalDataModelingJobSerializer)
+        except (DjangoValidationError, ValueError):
+            return Response({"error": "Saved query not found"}, status=404)
 
     @extend_schema(exclude=True)
     def internal_dags(self, request: Request, team_id: str) -> Response:
