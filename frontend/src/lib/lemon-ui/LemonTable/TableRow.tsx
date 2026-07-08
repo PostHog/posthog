@@ -174,12 +174,12 @@ function TableRowRaw<T extends Record<string, any>>({
                                     {...extraCellProps}
                                 >
                                     {truncateCell ? (
-                                        // Single-line ellipsis only for plain text; element content keeps its own wrapping
+                                        // Clips inside the cell, since sticky cells keep `overflow: visible` for their scroll shadow.
+                                        // Single-line ellipsis only for plain text; element content keeps its own wrapping.
                                         <div
-                                            className={clsx(
-                                                'LemonTable__cell-content',
-                                                cellTitle !== undefined && 'whitespace-nowrap'
-                                            )}
+                                            className={
+                                                cellTitle !== undefined ? 'truncate' : 'overflow-hidden text-ellipsis'
+                                            }
                                             title={cellTitle}
                                             // eslint-disable-next-line react/forbid-dom-props
                                             style={{ maxWidth: maxCellWidth }}

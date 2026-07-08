@@ -544,7 +544,7 @@ export function LemonTable<T extends Record<string, any>, K extends BulkSelectio
                                                                     ) : truncateHeader ? (
                                                                         // Block wrapper, so an element title's flex layout can shrink instead of min-content overflowing
                                                                         <div
-                                                                            className="LemonTable__cell-content min-w-0"
+                                                                            className="min-w-0 truncate"
                                                                             title={
                                                                                 typeof column.title === 'string'
                                                                                     ? column.title

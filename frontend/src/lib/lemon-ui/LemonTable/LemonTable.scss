@@ -256,13 +256,6 @@
     }
 }
 
-// A wrapper inside the cell (not the cell itself) so it also clips sticky cells, which keep `overflow: visible`.
-// Deliberately no `white-space: nowrap` — it inherits, and would stop multi-line cell content from wrapping.
-.LemonTable__cell-content {
-    overflow: hidden;
-    text-overflow: ellipsis;
-}
-
 .LemonTable__empty-state {
     color: var(--color-text-secondary);
 }
