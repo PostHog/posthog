@@ -1,15 +1,13 @@
 import clsx from 'clsx'
-import { useActions } from 'kea'
 import { router } from 'kea-router'
 
-import { IconArchive, IconHandMoney, IconPullRequest, IconUndo } from '@posthog/icons'
+import { IconArchive, IconPullRequest, IconUndo } from '@posthog/icons'
 import { LemonButton, LemonTag, LemonTagType, Link, Tooltip } from '@posthog/lemon-ui'
 
 import { TZLabel } from 'lib/components/TZLabel'
 import { scoutDisplayName } from 'lib/signals/signalCardSourceLine'
 import { urls } from 'scenes/urls'
 
-import { inboxBulkActionsLogic } from '../../logics/inboxBulkActionsLogic'
 import { InboxFlatListTabKey, SignalReport, SignalReportStatus, SignalSourceProduct } from '../../types'
 import { dismissalReasonLabel, DismissalReasonValue } from '../../utils/dismissalReasons'
 import {
@@ -30,7 +28,6 @@ import {
     sourceProductsTooltipTitle,
 } from '../badges/sourceProductIcons'
 import { inboxCardRowClassName, useReportArchive } from './useReportArchive'
-import { useReportRefund } from './useReportRefund'
 
 // ── Shared card sub-components ────────────────────────────────────────────────
 
@@ -166,7 +163,7 @@ export function ReportCard({
 }): JSX.Element {
     const isArchived = tabKey === 'archived'
     // Resolved reports are terminal (their implementation PR merged) – shown for reference in the
-    // Archive tab. They can't be restored or re-archived, but their PR can still be refunded.
+    // Archive tab. They can't be restored or re-archived; refunding their PR lives in the detail pane.
     const isResolved = report.status === SignalReportStatus.RESOLVED
     const prUrl = safeHttpUrl(report.implementation_pr_url)
     const prUrlParts = prUrl ? parsePrUrlParts(prUrl) : null
@@ -189,14 +186,6 @@ export function ReportCard({
         onArchive,
     })
 
-    // Refunding archives the report server-side; broadcast `reportArchived` so every mounted list
-    // reconciles against the server (the row leaves Reports/Pull requests and joins Archived).
-    const { reportArchived } = useActions(inboxBulkActionsLogic)
-    const { canRefund, isRefunding, onRefundClick } = useReportRefund({
-        report,
-        surface: 'list_row',
-        onRefunded: reportArchived,
-    })
     const isRefunded = !!report.refund
 
     // On the Archive tab, surface why it was dismissed (reason tag + note tooltip) when we have it.
@@ -307,25 +296,13 @@ export function ReportCard({
                 </div>
             </Link>
 
-            {/* Terminal resolved reports carry only the Refund action (their merged PR can still be
-                refunded, matching the detail pane); a refunded archived report can't be restored or
-                re-refunded, so it carries none – skip the column (and divider). */}
-            {(canRefund || (!isResolved && !(isArchived && isRefunded))) && (
+            {/* Refund deliberately isn't offered at the card level – it lives in the report detail
+                pane, where the consequences are in view. Resolved reports are terminal and a refunded
+                archived report can't be restored, so neither carries actions – skip the column (and
+                divider) for both. */}
+            {!isResolved && !(isArchived && isRefunded) && (
                 <div className="flex items-center justify-end gap-2.5 shrink-0 @lg:self-stretch @lg:border-l @lg:border-primary @lg:pl-3">
-                    {canRefund && (
-                        <LemonButton
-                            type="secondary"
-                            size="small"
-                            icon={<IconHandMoney />}
-                            tooltip="Refund this PR – you won't pay for it and it won't count toward your included PRs"
-                            aria-label="Refund this PR"
-                            loading={isRefunding}
-                            onClick={onRefundClick}
-                        >
-                            Refund
-                        </LemonButton>
-                    )}
-                    {isResolved ? null : isArchived ? (
+                    {isArchived ? (
                         // A refunded report can't be restored (its PR can never be billed again).
                         !isRefunded && (
                             <LemonButton

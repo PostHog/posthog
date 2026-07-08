@@ -2,7 +2,7 @@ import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
 import { type MouseEvent, useState } from 'react'
 
-import { IconArchive, IconHandMoney, IconMessage, IconPullRequest, IconUndo } from '@posthog/icons'
+import { IconArchive, IconMessage, IconPullRequest, IconReceipt, IconUndo } from '@posthog/icons'
 import { lemonToast } from '@posthog/lemon-ui'
 
 import api from 'lib/api'
@@ -103,7 +103,7 @@ export function useReportDetailActions(report: SignalReport): ReportDetailAction
     const refund: ReportDetailAction = {
         key: 'refund',
         label: 'Refund',
-        icon: <IconHandMoney />,
+        icon: <IconReceipt />,
         loading: isRefunding,
         tooltip: "Refund this PR – you won't pay for it and it won't count toward your included PRs",
         onClick: onRefundClick,
