@@ -146,6 +146,7 @@ rules:
                               |ExportedRecording
                               |ExternalDataJob
                               |ExternalDataSchema
+                              |ExternalDataSchemaOOMEvent
                               |ExternalDataSource
                               |FeatureFlag
                               |TeamExperimentsConfig
@@ -216,6 +217,7 @@ rules:
                               |ReplayScannerPromptSuggestion
                               |Repo
                               |RepoRoutingRule
+                              |SandboxCustomImage
                               |SandboxEnvironment
                               |ScoreDefinition
                               |SavedHeatmap
@@ -429,6 +431,7 @@ rules:
                         |ExportedRecording
                         |ExternalDataJob
                         |ExternalDataSchema
+                        |ExternalDataSchemaOOMEvent
                         |ExternalDataSource
                         |FeatureFlag
                         |TeamExperimentsConfig
@@ -495,6 +498,7 @@ rules:
                         |ReplayScannerPromptSuggestion
                         |Repo
                         |RepoRoutingRule
+                        |SandboxCustomImage
                         |SandboxEnvironment
                         |ScoreDefinition
                         |SavedHeatmap

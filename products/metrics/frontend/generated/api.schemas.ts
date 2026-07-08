@@ -241,6 +241,11 @@ export interface _MetricAnomalyReportApi {
     series: _MetricSeriesApi
 }
 
+export interface _HasMetricsResponseApi {
+    /** Whether the team has ingested any metrics. */
+    hasMetrics: boolean
+}
+
 export interface _MetricGroupByApi {
     /**
      * Attribute name to split series by (e.g. 'k8s.pod.name', 'env').
@@ -458,15 +463,16 @@ export interface _MetricNamesResponseApi {
     results: _MetricNameApi[]
 }
 
-export type MetricsHasMetricsRetrieve200 = { [key: string]: unknown }
-
 export type MetricsValuesRetrieveParams = {
     /**
      * Max number of names to return. Defaults to 100; maximum 1000.
+     * @minimum 1
+     * @maximum 1000
      */
     limit?: number
     /**
      * Substring filter (case-insensitive) applied to metric names.
+     * @maxLength 255
      */
     value?: string
 }
