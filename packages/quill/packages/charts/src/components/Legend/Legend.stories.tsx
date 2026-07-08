@@ -3,6 +3,7 @@ import { useMemo, useState, type ReactNode } from 'react'
 
 import { DAYS, SERIES } from '../../charts/time-series-fixtures'
 import { TimeSeriesBarChart } from '../../charts/TimeSeriesBarChart/TimeSeriesBarChart'
+import type { Series } from '../../core/types'
 import { Stage, useReactiveTheme } from '../../story-helpers'
 import { ChartLegend } from './ChartLegend'
 import { Legend, type LegendItem } from './Legend'
@@ -92,17 +93,19 @@ export const LongLabelsTruncate: Story = {
 function ChartLegendStory({
     show = true,
     position,
+    series = SERIES,
 }: {
     show?: boolean
     position: 'top' | 'bottom' | 'left' | 'right'
+    series?: Series[]
 }): JSX.Element {
     const theme = useReactiveTheme()
-    const items = useMemo(() => legendItemsFromSeries(SERIES, theme), [theme])
+    const items = useMemo(() => legendItemsFromSeries(series, theme), [series, theme])
     return (
         <Stage width={520} height={320}>
             <ChartLegend show={show} items={items} position={position}>
                 <TimeSeriesBarChart
-                    series={SERIES}
+                    series={series}
                     labels={DAYS}
                     theme={theme}
                     config={{ yAxis: { showGrid: true } }}
@@ -114,6 +117,24 @@ function ChartLegendStory({
 
 export const LayoutTop: Story = {
     render: () => <ChartLegendStory position="top" />,
+}
+
+// A single-series insight whose series name blows well past the legend's label cap — the row
+// truncates with an ellipsis (full text on the native `title` tooltip) instead of pushing the
+// chart around, and its descenders (g, p, y) render uncut at both positions.
+const LONG_NAME_SERIES: Series[] = [
+    {
+        key: 'long',
+        label: '$pageview · United States · Chrome · organic search · returning users grouped by signup cohort (last 30 days)',
+        data: [20, 35, 28, 60, 45, 70, 52],
+    },
+]
+
+export const LongSeriesNameTop: Story = {
+    render: () => <ChartLegendStory position="top" series={LONG_NAME_SERIES} />,
+}
+export const LongSeriesNameSide: Story = {
+    render: () => <ChartLegendStory position="right" series={LONG_NAME_SERIES} />,
 }
 export const LayoutBottom: Story = {
     render: () => <ChartLegendStory position="bottom" />,
