@@ -2636,7 +2636,8 @@ class QontoSourceConfig(config.Config):
 
 @config.config
 class QualarooSourceConfig(config.Config):
-    pass
+    api_key: str
+    api_secret: str
 
 
 @config.config
