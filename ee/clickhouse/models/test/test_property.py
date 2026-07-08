@@ -779,6 +779,7 @@ class TestPropDenormalized(ClickhouseTestMixin, BaseTest):
     CLASS_DATA_LEVEL_SETUP = False
 
     def _run_query(self, filter: Filter, join_person_tables=False) -> list:
+        filter.hogql_context.use_new_events_schema = False
         outer_properties = PropertyOptimizer().parse_property_groups(filter.property_groups).outer
         query, params = parse_prop_grouped_clauses(
             team_id=self.team.pk,

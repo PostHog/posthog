@@ -26,16 +26,25 @@ def _filter_events(filter: Filter, team: Team, order_by: Optional[str] = None):
         hogql_context=filter.hogql_context,
     )
     params = {"team_id": team.pk, **prop_filter_params}
-    events_table = events_read_table(filter.hogql_context.uses_new_events_schema())
+    use_new_events_schema = filter.hogql_context.uses_new_events_schema()
+    events_table = events_read_table(use_new_events_schema)
+    properties_expr = "toJSONString(properties)" if use_new_events_schema else "properties"
 
     events = query_with_columns(
         f"""
-        SELECT * FROM {events_table} WHERE
+        SELECT
+            uuid,
+            event,
+            {properties_expr} AS properties,
+            timestamp,
+            distinct_id,
+            elements_chain
+        FROM {events_table} WHERE
         team_id = %(team_id)s
         {prop_filters}
         {"ORDER BY {}".format(order_by) if order_by else ""}
         """,
-        params,
+        {**params, **filter.hogql_context.values},
     )
     parsed_events = ClickhouseEventSerializer(events, many=True, context={"elements": None, "people": None}).data
     return parsed_events
