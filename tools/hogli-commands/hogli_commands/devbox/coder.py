@@ -68,6 +68,7 @@ AUTO_START_APP_PARAMETER = "auto_start_app"
 # parameters, so forwarding the region here breaks every resume instead of
 # suppressing a picker. Valid values match the template contract exactly.
 WORKSPACE_REGION_PARAMETER = "workspace_region"
+DISK_SIZE_PARAMETER = "disk_size"
 REGIONS = ("us-east-1", "eu-central-1")
 DEFAULT_REGION = REGIONS[0]
 
@@ -1095,40 +1096,42 @@ def get_workspace_status(workspace: dict[str, Any]) -> str:
     return workspace.get("latest_build", {}).get("status", "unknown")
 
 
-def get_workspace_region(workspace: dict[str, Any]) -> str | None:
-    """Return the region a workspace lives in, or ``None`` when unknown.
+def _workspace_metadata_value(workspace: dict[str, Any], key: str) -> str | None:
+    """Return a ``coder_metadata`` item value the template publishes back.
 
-    The template publishes the region as a ``coder_metadata`` item (key
-    ``region``), which surfaces under ``latest_build.resources[].metadata[]``
-    in the ``coder list`` payload. Returns ``None`` for boxes created before
-    the metadata item existed so callers can render their own placeholder.
+    Items surface under ``latest_build.resources[].metadata[]`` in the ``coder
+    list`` payload. Returns ``None`` when the key is absent (e.g. boxes created
+    before that item existed) so callers can decide on a fallback.
     """
-    resources = workspace.get("latest_build", {}).get("resources", [])
-    for resource in resources:
+    for resource in workspace.get("latest_build", {}).get("resources", []):
         for item in resource.get("metadata", []):
-            if isinstance(item, dict) and item.get("key") == REGION_METADATA_KEY:
+            if isinstance(item, dict) and item.get("key") == key:
                 value = item.get("value")
                 if isinstance(value, str) and value:
                     return value
     return None
 
 
+def get_workspace_region(workspace: dict[str, Any]) -> str | None:
+    """Return the region a workspace lives in, or ``None`` when unknown.
+
+    The template publishes the region as a ``coder_metadata`` item (key
+    ``region``). Returns ``None`` for boxes created before the metadata item
+    existed so callers can render their own placeholder.
+    """
+    return _workspace_metadata_value(workspace, REGION_METADATA_KEY)
+
+
 def get_workspace_disk_size(workspace: dict[str, Any]) -> int | None:
     """Return a workspace's root disk size in GiB, or ``None`` when unknown.
 
     The template publishes it as a ``coder_metadata`` item (key ``disk``, value
-    like ``"100 GiB"``) under ``latest_build.resources[].metadata[]``. A clone
-    must request at least the source's size or the instance fails to launch from
-    the captured AMI (``InvalidBlockDeviceMapping``).
+    like ``"100 GiB"``). A clone must request at least the source's size or the
+    instance fails to launch from the captured AMI (``InvalidBlockDeviceMapping``).
     """
-    resources = workspace.get("latest_build", {}).get("resources", [])
-    for resource in resources:
-        for item in resource.get("metadata", []):
-            if isinstance(item, dict) and item.get("key") == DISK_METADATA_KEY:
-                match = re.search(r"\d+", str(item.get("value", "")))
-                if match:
-                    return int(match.group(0))
-    return None
+    value = _workspace_metadata_value(workspace, DISK_METADATA_KEY)
+    match = re.search(r"\d+", value) if value else None
+    return int(match.group(0)) if match else None
 
 
 def _list_template_presets(template: str) -> list[str]:
@@ -1230,7 +1233,7 @@ def create_workspace(
     ``resolve_template_preset``; pass ``NO_PRESET`` to opt out.
     """
     parameters: dict[str, str] = {
-        "disk_size": str(disk_size),
+        DISK_SIZE_PARAMETER: str(disk_size),
         "repo": repo,
         WORKSPACE_REGION_PARAMETER: region,
     }
@@ -1352,7 +1355,7 @@ def clone_workspace(
         ],
         {
             CLONE_SOURCE_PARAMETER: source_instance_id,
-            "disk_size": str(disk_size),
+            DISK_SIZE_PARAMETER: str(disk_size),
             WORKSPACE_REGION_PARAMETER: region,
         },
     )
