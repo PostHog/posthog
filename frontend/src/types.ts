@@ -2649,6 +2649,7 @@ export type DashboardTemplateStoredTextTile = {
 }
 
 export type DashboardTemplateStoredButtonTile = {
+    type: 'BUTTON'
     button_tile: {
         url: string
         text: string
