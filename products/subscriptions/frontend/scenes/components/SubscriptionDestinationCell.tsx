@@ -1,10 +1,11 @@
 import { IconChevronDown, IconCopy } from '@posthog/icons'
 import { LemonMenu, LemonTag } from '@posthog/lemon-ui'
-import { TargetTypeEnumApi, type SubscriptionApi } from '@posthog/products-subscriptions/frontend/generated/api.schemas'
 
 import { CopyToClipboardInline } from 'lib/components/CopyToClipboard'
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
 import { parseCommaSeparatedSlackTargetDisplayLabels } from 'lib/utils/slackChannelValue'
+
+import { TargetTypeEnumApi, type SubscriptionApi } from 'products/subscriptions/frontend/generated/api.schemas'
 
 function parseEmailRecipients(targetValue: string): string[] {
     return targetValue

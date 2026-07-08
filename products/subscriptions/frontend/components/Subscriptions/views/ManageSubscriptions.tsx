@@ -11,11 +11,11 @@ import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
 import { ProfileBubbles } from 'lib/lemon-ui/ProfilePicture'
 import { Spinner } from 'lib/lemon-ui/Spinner'
 import { capitalizeFirstLetter, pluralize } from 'lib/utils/strings'
-import { isSubscriptionEnabled } from 'scenes/subscriptions/components/SubscriptionsTable'
 import { urls } from 'scenes/urls'
 
 import { SubscriptionResourceTypes, SubscriptionType } from '~/types'
 
+import { isSubscriptionEnabled } from '../../../scenes/components/SubscriptionsTable'
 import { subscriptionsLogic } from '../subscriptionsLogic'
 import { SubscriptionBaseProps } from '../utils'
 

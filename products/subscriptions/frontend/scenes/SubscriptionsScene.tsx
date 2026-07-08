@@ -4,11 +4,9 @@ import { router } from 'kea-router'
 import * as magnifyingGlassPng from '@posthog/brand/hoggies/png/magnifying-glass'
 import { IconEllipsis } from '@posthog/icons'
 import { LemonButton, LemonMenu, LemonModal, Link } from '@posthog/lemon-ui'
-import type { SubscriptionApi } from '@posthog/products-subscriptions/frontend/generated/api.schemas'
 
 import { pngHoggie } from 'lib/brand/hoggies'
 import { ProductIntroduction } from 'lib/components/ProductIntroduction/ProductIntroduction'
-import { EditSubscription } from 'lib/components/Subscriptions/views/EditSubscription'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { LemonTab, LemonTabs } from 'lib/lemon-ui/LemonTabs'
 import { Spinner } from 'lib/lemon-ui/Spinner'
@@ -22,6 +20,9 @@ import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 import { ProductKey } from '~/queries/schema/schema-general'
 
+import type { SubscriptionApi } from 'products/subscriptions/frontend/generated/api.schemas'
+
+import { EditSubscription } from '../components/Subscriptions/views/EditSubscription'
 import { SubscriptionsFiltersBar } from './components/SubscriptionsFiltersBar'
 import {
     SubscriptionsTable,

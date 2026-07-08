@@ -1,7 +1,6 @@
 import { IconAI, IconDashboard, IconGraph } from '@posthog/icons'
 import { LemonTable, LemonTableColumn, LemonTableColumns, LemonTag, Link, Tooltip } from '@posthog/lemon-ui'
 import type { PaginationManual, Sorting } from '@posthog/lemon-ui'
-import type { SubscriptionApi } from '@posthog/products-subscriptions/frontend/generated/api.schemas'
 
 import { TZLabel } from 'lib/components/TZLabel'
 import { atColumn, createdByColumn } from 'lib/lemon-ui/LemonTable/columnUtils'
@@ -9,6 +8,8 @@ import { urls } from 'scenes/urls'
 
 import type { InsightShortId } from '~/types'
 import { SubscriptionResourceTypes } from '~/types'
+
+import type { SubscriptionApi } from 'products/subscriptions/frontend/generated/api.schemas'
 
 import { SubscriptionDestinationCell } from './SubscriptionDestinationCell'
 import { TARGET_TYPE_LABEL } from './subscriptionLabels'

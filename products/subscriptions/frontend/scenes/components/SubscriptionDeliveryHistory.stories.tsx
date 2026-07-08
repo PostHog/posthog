@@ -4,7 +4,7 @@ import { useMemo, useState } from 'react'
 import type {
     PaginatedSubscriptionDeliveryListApi,
     SubscriptionsDeliveriesListStatus,
-} from '@posthog/products-subscriptions/frontend/generated/api.schemas'
+} from 'products/subscriptions/frontend/generated/api.schemas'
 
 import { SubscriptionDeliveryHistory } from './SubscriptionDeliveryHistory'
 import { MOCK_SUBSCRIPTION_DELIVERIES } from './subscriptionStoryFixtures'
