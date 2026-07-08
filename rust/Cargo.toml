@@ -74,6 +74,9 @@ unit_bindings = "deny"
 [workspace.lints.clippy]
 # See https://rust-lang.github.io/rust-clippy/, we might want to add more
 enum_glob_use = "deny"
+# Inert for every crate that ships no `clippy.toml` `disallowed-methods` list (all of them but
+# `cohort-stream-processor`, whose list confines async code to the `StoreHandle` facade).
+disallowed_methods = "deny"
 
 # this is needed until getsentry/symbolic update the js-source-scopes to >0.6.0
 # I made a PR for the upstream fix here https://github.com/getsentry/symbolic/pull/945
@@ -131,7 +134,6 @@ hyper = { version = "1.9.0", features = ["server", "http1", "http2"] }
 hyper-util = { version = "0.1.20", features = ["server", "server-graceful", "tokio", "http1", "http2"] }
 itoa = "1.0.15"
 libdeflater = "1"
-lru = "0.12"
 metrics = "0.22.0"
 metrics-exporter-prometheus = "0.14.0"
 metrics-util = "0.16.0"

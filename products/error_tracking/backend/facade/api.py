@@ -636,3 +636,15 @@ def build_ingestion_failures_url(team_id: int) -> str:
 
 def has_resolved_issues(team_id: int) -> bool:
     return ErrorTrackingIssue.objects.filter(team_id=team_id, status=ErrorTrackingIssue.Status.RESOLVED).exists()
+
+
+def build_team_digest_data(team: Any) -> dict[str, Any] | None:
+    return weekly_digest.build_team_digest_data(team)
+
+
+def build_team_section_payload(data: dict[str, Any]) -> dict[str, Any]:
+    return weekly_digest.build_team_section_payload(data)
+
+
+def send_digest_to_workflow(digest: dict[str, Any], distinct_id: str) -> None:
+    weekly_digest.send_digest_to_workflow(digest, distinct_id)

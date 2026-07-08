@@ -15,7 +15,51 @@ export interface PrecomputationTeam {
     experiment_precomputation_enabled: boolean
 }
 
-export type ExperimentsTab = 'slowest_queries' | 'cache_health'
+export type ExperimentsTab = 'slowest_queries' | 'precompute_overview' | 'cache_health'
+
+export interface PrecomputePathStats {
+    reads: number
+    failed_reads: number
+    // Reads where precompute was attempted (no skip reason). On the direct_scan path these paid
+    // for the build AND the full events scan — the failure bucket to watch.
+    attempted: number
+    skip_reasons: Record<string, number>
+    avg_duration_ms: number | null
+    p50_duration_ms: number | null
+    p90_duration_ms: number | null
+    avg_read_bytes: number | null
+    total_read_bytes: number
+}
+
+export interface PrecomputeBuildStats {
+    total: number
+    succeeded: number
+    failed: number
+    total_duration_ms: number
+    total_read_bytes: number
+    by_table: Record<string, { succeeded: number; failed: number }>
+    failures_by_code: Record<string, number>
+}
+
+export interface PrecomputeJobStats {
+    ready: number
+    failed: number
+    pending: number
+    stale_failed: number
+    stuck_pending: number
+}
+
+export interface PrecomputeOverviewResponse {
+    hours: number
+    reads: {
+        total: number
+        failed: number
+        by_exposures_path: Record<string, PrecomputePathStats>
+        metric_events: { precomputed: number; direct_scan: number; not_applicable: number }
+    }
+    builds: PrecomputeBuildStats
+    jobs: PrecomputeJobStats
+}
 
 export interface CachePartitionStats {
     partition: string // YYYYMMDD — the expiry day of the partition (tables partition by toYYYYMMDD(expires_at))
@@ -92,6 +136,7 @@ export const queryPerformanceLogic = kea<queryPerformanceLogicType>([
         setMetricTypeFilter: (metricType: string) => ({ metricType }),
         setExceptionCodeFilter: (exceptionCode: string) => ({ exceptionCode }),
         setExperimentsTab: (tab: ExperimentsTab) => ({ tab }),
+        setOverviewHoursBack: (hours: number) => ({ hours }),
     }),
     reducers({
         search: [
@@ -136,6 +181,12 @@ export const queryPerformanceLogic = kea<queryPerformanceLogicType>([
                 setExperimentsTab: (_, { tab }) => tab,
             },
         ],
+        overviewHoursBack: [
+            24,
+            {
+                setOverviewHoursBack: (_, { hours }) => hours,
+            },
+        ],
     }),
     loaders(({ values }) => ({
         precomputationTeams: [
@@ -168,6 +219,14 @@ export const queryPerformanceLogic = kea<queryPerformanceLogicType>([
             {
                 loadCacheHealth: async () => {
                     return await api.get('api/debug_ch_queries/cache_health/')
+                },
+            },
+        ],
+        precomputeOverview: [
+            null as PrecomputeOverviewResponse | null,
+            {
+                loadPrecomputeOverview: async () => {
+                    return await api.get(`api/debug_ch_queries/precompute_overview/?hours=${values.overviewHoursBack}`)
                 },
             },
         ],
@@ -238,12 +297,16 @@ export const queryPerformanceLogic = kea<queryPerformanceLogicType>([
         setExceptionCodeFilter: () => {
             actions.loadSlowestQueries()
         },
+        setOverviewHoursBack: () => {
+            actions.loadPrecomputeOverview()
+        },
     })),
     afterMount(({ actions }) => {
         if (userLogic.findMounted()?.values.user?.is_staff) {
             actions.loadPrecomputationTeams()
             actions.loadSlowestQueries()
             actions.loadCacheHealth()
+            actions.loadPrecomputeOverview()
         }
     }),
 ])

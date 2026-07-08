@@ -3,7 +3,7 @@ import { combineUrl } from 'kea-router'
 import { lazy, Suspense, useRef } from 'react'
 
 import { IconColumns, IconMarkdown, IconMarkdownFilled } from '@posthog/icons'
-import { LemonBanner, LemonButton, LemonSelect, LemonTag, LemonTextArea, Link } from '@posthog/lemon-ui'
+import { LemonBanner, LemonButton, LemonModal, LemonSelect, LemonTag, LemonTextArea, Link } from '@posthog/lemon-ui'
 
 import { AccessControlAction } from 'lib/components/AccessControlAction'
 import { dayjs } from 'lib/dayjs'
@@ -24,8 +24,9 @@ import { useTracesQueryContext } from '../AIObservabilityTracesScene'
 import { MarkdownOutline } from '../components/MarkdownOutline'
 import { CreatePromptExperimentModal } from './CreatePromptExperimentModal'
 import { createPromptExperimentModalLogic } from './createPromptExperimentModalLogic'
-import { PROMPT_NAME_MAX_LENGTH, PromptAnalyticsScope, isPrompt, llmPromptLogic } from './llmPromptLogic'
+import { PromptAnalyticsScope, isPrompt, llmPromptLogic } from './llmPromptLogic'
 import { promptExperimentsLogic } from './promptExperimentsLogic'
+import { PROMPT_NAME_MAX_LENGTH } from './utils'
 
 const MonacoDiffEditor = lazy(() => import('lib/components/MonacoDiffEditor'))
 
@@ -166,6 +167,77 @@ export function PromptViewDetails(): JSX.Element {
                 </div>
             )}
         </div>
+    )
+}
+
+export function PublishReviewModal(): JSX.Element | null {
+    const { isPublishReviewOpen, prompt, promptForm, nextVersion, isPromptFormSubmitting } = useValues(llmPromptLogic)
+    const { closePublishReview, submitPromptForm } = useActions(llmPromptLogic)
+
+    if (!isPrompt(prompt)) {
+        return null
+    }
+
+    const publishLabel = nextVersion ? `Publish v${nextVersion}` : 'Publish version'
+
+    return (
+        <LemonModal
+            isOpen={isPublishReviewOpen}
+            onClose={closePublishReview}
+            title="Review changes"
+            description={`Comparing v${prompt.version} with your edits. Publishing creates ${
+                nextVersion ? `v${nextVersion}` : 'a new version'
+            } — previous versions stay unchanged.`}
+            width={880}
+            footer={
+                <>
+                    <LemonButton
+                        type="secondary"
+                        onClick={closePublishReview}
+                        disabledReason={isPromptFormSubmitting ? 'Publishing…' : undefined}
+                        data-attr="llma-prompt-review-back-button"
+                    >
+                        Back to editing
+                    </LemonButton>
+                    <LemonButton
+                        type="primary"
+                        onClick={submitPromptForm}
+                        loading={isPromptFormSubmitting}
+                        data-attr="llma-prompt-review-publish-button"
+                    >
+                        {publishLabel}
+                    </LemonButton>
+                </>
+            }
+        >
+            <div className="overflow-hidden rounded border" data-attr="llma-prompt-publish-review-diff">
+                <Suspense
+                    fallback={
+                        <div className="space-y-2 p-4">
+                            <LemonSkeleton active className="h-4 w-full" />
+                            <LemonSkeleton active className="h-4 w-3/4" />
+                        </div>
+                    }
+                >
+                    <MonacoDiffEditor
+                        original={prompt.prompt}
+                        value={promptForm.prompt}
+                        modified={promptForm.prompt}
+                        language="markdown"
+                        options={{
+                            readOnly: true,
+                            renderSideBySide: true,
+                            minimap: { enabled: false },
+                            scrollBeyondLastLine: false,
+                            wordWrap: 'on',
+                            lineNumbers: 'off',
+                            folding: false,
+                            hideUnchangedRegions: { enabled: true },
+                        }}
+                    />
+                </Suspense>
+            </div>
+        </LemonModal>
     )
 }
 
@@ -570,6 +642,7 @@ export function PromptVersionSidebar({
     canLoadMoreVersions,
     loadMoreVersions,
     searchParams,
+    readOnly = false,
 }: {
     promptName: string
     prompt: LLMPrompt | null
@@ -578,6 +651,7 @@ export function PromptVersionSidebar({
     canLoadMoreVersions: boolean
     loadMoreVersions: () => void
     searchParams: Record<string, any>
+    readOnly?: boolean
 }): JSX.Element {
     const { compareVersion } = useValues(llmPromptLogic)
     const { setCompareVersion } = useActions(llmPromptLogic)
@@ -598,22 +672,11 @@ export function PromptVersionSidebar({
                     {versions.map((versionPrompt) => {
                         const selected = prompt?.id === versionPrompt.id
                         const isCompareTarget = compareVersion === versionPrompt.version
-                        const canCompare = prompt?.version !== versionPrompt.version
+                        const canCompare = !readOnly && prompt?.version !== versionPrompt.version
                         const versionUrl = buildPromptUrl(promptName, searchParams, versionPrompt.version)
 
-                        return (
-                            <Link
-                                key={versionPrompt.id}
-                                to={versionUrl}
-                                className={`block rounded border p-3 no-underline ${
-                                    selected
-                                        ? 'border-primary bg-primary-highlight'
-                                        : isCompareTarget
-                                          ? 'border-warning bg-warning-highlight'
-                                          : 'border-primary/10 hover:bg-fill-secondary'
-                                }`}
-                                data-attr={`llma-prompt-version-link-${versionPrompt.version}`}
-                            >
+                        const cardContent = (
+                            <>
                                 <div className="mb-1 flex items-center justify-between">
                                     <div className="flex items-center gap-2">
                                         <span className="font-mono text-sm">v{versionPrompt.version}</span>
@@ -653,6 +716,35 @@ export function PromptVersionSidebar({
                                 {versionPrompt.created_by?.email ? (
                                     <div className="mt-1 text-xs text-secondary">{versionPrompt.created_by.email}</div>
                                 ) : null}
+                            </>
+                        )
+
+                        const cardClassName = `block rounded border p-3 no-underline ${
+                            selected
+                                ? 'border-primary bg-primary-highlight'
+                                : isCompareTarget
+                                  ? 'border-warning bg-warning-highlight'
+                                  : readOnly
+                                    ? 'border-primary/10 opacity-75'
+                                    : 'border-primary/10 hover:bg-fill-secondary'
+                        }`
+
+                        if (readOnly) {
+                            return (
+                                <div key={versionPrompt.id} className={cardClassName}>
+                                    {cardContent}
+                                </div>
+                            )
+                        }
+
+                        return (
+                            <Link
+                                key={versionPrompt.id}
+                                to={versionUrl}
+                                className={cardClassName}
+                                data-attr={`llma-prompt-version-link-${versionPrompt.version}`}
+                            >
+                                {cardContent}
                             </Link>
                         )
                     })}

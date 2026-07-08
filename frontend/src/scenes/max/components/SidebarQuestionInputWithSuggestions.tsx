@@ -73,7 +73,7 @@ export function SidebarQuestionInputWithSuggestions({
             >
                 <h3 className="text-center text-xs font-medium mb-0 text-secondary">{tip}</h3>
                 {showBadges ? (
-                    <div className="flex flex-col gap-6 w-full">
+                    <div className="flex flex-col items-center gap-6 w-full">
                         <CapabilityBadges
                             capabilities={capabilities}
                             selectedKey={selectedCapability}

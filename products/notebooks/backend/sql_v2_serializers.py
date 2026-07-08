@@ -74,8 +74,10 @@ class NotebookSQLV2DataPlaneRequestSerializer(serializers.Serializer):
         required=False,
         default=50,
         min_value=1,
-        max_value=1000,
-        help_text="Maximum number of rows to return (applied as an outer LIMIT).",
+        # Must admit the kernel executor's full-frame materialize cap (_MATERIALIZE_ROW_CAP);
+        # the HogQL printer clamps explicit LIMITs to MAX_SELECT_RETURNED_ROWS regardless.
+        max_value=2_000_000,
+        help_text="Maximum number of rows to return (applied as an outer LIMIT, clamped by HogQL's row ceiling).",
     )
     offset = serializers.IntegerField(
         required=False,

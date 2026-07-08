@@ -44,7 +44,7 @@ class KernelServerHandler(BaseHTTPRequestHandler):
         except (json.JSONDecodeError, ValueError):
             self._respond(400, {"error": "Invalid JSON body"})
             return
-        if not verify_command_token(_config["secret"], payload.get("run_id", ""), self._bearer_token()):
+        if not verify_command_token(_config["secret"], payload.get("run_id", ""), self._command_token()):
             self._respond(401, {"error": "Invalid command token"})
             return
         if self.path == "/run":
@@ -74,7 +74,14 @@ class KernelServerHandler(BaseHTTPRequestHandler):
             logging.getLogger(__name__).exception("nb_kernel page fetch failed")
             self._respond(500, {"error": "Page fetch failed in the sandbox"})
 
-    def _bearer_token(self) -> str:
+    def _command_token(self) -> str:
+        # The command token rides its own header: Authorization carries the Modal connect
+        # token (tunnel auth), which must stay out of the URL to stay out of access logs.
+        # Fall back to a bearer Authorization for a backend that still sends the pre-split
+        # layout (mixed versions during a rolling deploy).
+        token = (self.headers.get("X-Command-Token") or "").strip()
+        if token:
+            return token
         authorization = self.headers.get("Authorization", "")
         return authorization[len("Bearer ") :].strip() if authorization.startswith("Bearer ") else ""
 

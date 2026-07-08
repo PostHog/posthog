@@ -1,17 +1,22 @@
 """Tests for deny-list pattern matching in gates.py."""
 
+from pathlib import Path
+
 import pytest
 
 from gates import (
     DEPENDENCY_ECOSYSTEMS,
     DISMISS_TIME_LOCKFILES,
+    build_ownership,
     dependency_manifests_without_lockfile,
     detect_deny_categories,
+    detect_ownership,
     detect_title_scrutiny_flags,
     has_dependency_changes,
     is_size_exempt,
     substantive_size,
 )
+from policy import OwnershipSource
 
 # ── False positives that should NOT trigger ──────────────────────
 
@@ -473,3 +478,57 @@ def test_dismiss_time_trust_is_opt_in_per_ecosystem() -> None:
     assert "go.sum" not in DISMISS_TIME_LOCKFILES
     assert "pnpm-lock.yaml" in DISMISS_TIME_LOCKFILES
     assert "npm-shrinkwrap.json" in DISMISS_TIME_LOCKFILES
+
+
+# ── Ownership sources ────────────────────────────────────────────
+
+_PH_PRODUCT = (OwnershipSource(format="ph-product", glob="products/*/product.yaml"),)
+
+
+@pytest.mark.parametrize(
+    "owners_yaml, expected_teams",
+    [
+        pytest.param("owners:\n  - team-devex\n", ["@PostHog/team-devex"], id="plain-slug-prefixed"),
+        pytest.param("owners:\n  - '@PostHog/team-x'\n", [], id="already-prefixed-skipped"),
+        pytest.param("owners:\n  - team-CHANGEME\n", [], id="changeme-skipped"),
+        pytest.param("name: foo\n", [], id="ownerless"),
+        pytest.param("owners: value: bad\n", [], id="unparseable"),
+    ],
+)
+def test_product_yaml_owner_normalization(tmp_path: Path, owners_yaml: str, expected_teams: list[str]) -> None:
+    product_dir = tmp_path / "products" / "foo"
+    product_dir.mkdir(parents=True)
+    (product_dir / "product.yaml").write_text(owners_yaml)
+
+    resolvers = build_ownership(tmp_path, _PH_PRODUCT)
+    ownership = detect_ownership(["products/foo/backend/models.py"], resolvers)
+
+    assert ownership["teams"] == expected_teams
+
+
+def test_ownership_unions_codeowners_and_product_yaml(tmp_path: Path) -> None:
+    codeowners = tmp_path / ".github" / "CODEOWNERS-soft"
+    codeowners.parent.mkdir(parents=True)
+    codeowners.write_text("products/foo/sub/ @PostHog/team-a\nposthog/ @PostHog/team-c\n")
+    product_dir = tmp_path / "products" / "foo"
+    product_dir.mkdir(parents=True)
+    (product_dir / "product.yaml").write_text("owners:\n  - team-b\n")
+
+    resolvers = build_ownership(
+        tmp_path,
+        (
+            OwnershipSource(format="gh-codeowners", path=".github/CODEOWNERS-soft"),
+            OwnershipSource(format="ph-product", glob="products/*/product.yaml"),
+        ),
+    )
+
+    both = detect_ownership(["products/foo/sub/x.py"], resolvers)
+    assert both["teams"] == ["@PostHog/team-a", "@PostHog/team-b"]
+    assert both["cross_team"] is True
+
+    product_only = detect_ownership(["products/foo/y.py"], resolvers)
+    assert product_only["teams"] == ["@PostHog/team-b"]
+    assert product_only["cross_team"] is False
+
+    outside = detect_ownership(["posthog/models/x.py"], resolvers)
+    assert outside["teams"] == ["@PostHog/team-c"]

@@ -95,7 +95,11 @@ fn like_to_regex(pattern: &str) -> String {
         } else if c == '\\' {
             escape = true;
         } else if c == '%' {
-            result.push_str(".*");
+            // `%` matches any run of characters, newline included (as in ClickHouse and the
+            // reference VM's unanchored matcher). The regex crate's `.` excludes `\n`, so `.*` would
+            // make `elements_chain ilike '%foo%'` miss when the chain wraps across lines. `_` stays
+            // `.` (single non-newline char) to match the reference's `_` -> `.`.
+            result.push_str("[\\s\\S]*");
         } else if c == '_' {
             result.push('.');
         } else {

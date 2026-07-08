@@ -80,6 +80,7 @@ ActivityScope = Literal[
     "ExternalDataSchema",
     "Evaluation",
     "LLMTrace",
+    "AIGatewayCredit",
     "WebAnalyticsFilterPreset",
     "CustomerProfileConfig",
     "Log",
@@ -380,6 +381,14 @@ activity_visibility_restrictions: list[dict[str, Any]] = [
         # org-scoped activity log endpoints, which are visible to organization admins.
         "scope": "InstanceSetting",
         "activities": ["updated"],
+        "exclude_when": {},
+        "allow_staff": True,
+    },
+    {
+        # Admin AI-gateway top-ups are staff-only; keep the staff email, credit reason,
+        # and wallet balance out of the org-scoped activity log endpoints.
+        "scope": "AIGatewayCredit",
+        "activities": ["credit_added"],
         "exclude_when": {},
         "allow_staff": True,
     },

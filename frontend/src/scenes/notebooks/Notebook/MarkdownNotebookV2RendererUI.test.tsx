@@ -104,11 +104,11 @@ describe('MarkdownNotebookV2Renderer UI', () => {
             )
         }
 
-        const { container, getByRole } = render(<ControlledMarkdownNotebookWithHeader />)
+        const { container, getByText } = render(<ControlledMarkdownNotebookWithHeader />)
 
         expect(container.querySelector('.MarkdownNotebook__debug-drawer')).toBeInstanceOf(HTMLElement)
 
-        fireEvent.click(getByRole('button', { name: /kernel/i }))
+        fireEvent.click(getByText('Kernel'))
 
         expect(onDebugOpenChange).not.toHaveBeenCalled()
         expect(settingsLogic.values.showKernelInfo).toBe(true)

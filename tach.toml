@@ -205,7 +205,7 @@ layer = "modules"
 path = "products.conversations"
 depends_on = [
     "ee",
-    "posthog", "products.tasks", "products.business_knowledge",
+    "posthog", "products.tasks", "products.business_knowledge", "products.warehouse_sources",
 ]
 layer = "modules"
 
@@ -337,12 +337,12 @@ depends_on = [
     "products.ai_observability",
     "products.analytics_platform",
     "products.data_tools",
-    "products.data_warehouse",
     "products.event_definitions",
     "products.feature_flags",
     "products.notifications",
     "products.product_tours",
     "products.surveys",
+    "products.tasks",
     "products.warehouse_sources",
 ]
 layer = "modules"
@@ -366,6 +366,7 @@ layer = "modules"
 [[modules]]
 path = "products.growth"
 depends_on = [
+    "ee",
     "posthog",
 ]
 layer = "modules"
@@ -516,7 +517,6 @@ depends_on = [
     "products.actions",
     "products.alerts",
     "products.dashboards",
-    "products.data_warehouse",
     "products.event_definitions",
     "products.annotations",
     "products.warehouse_sources",
@@ -570,8 +570,7 @@ layer = "modules"
 path = "products.revenue_analytics"
 depends_on = [
     "ee",
-    "posthog",
-    "products.data_warehouse", "products.warehouse_sources", "products.data_modeling", "products.data_tools",
+    "posthog", "products.warehouse_sources", "products.data_modeling", "products.data_tools",
 ]
 layer = "modules"
 
@@ -640,7 +639,6 @@ path = "products.customer_analytics"
 depends_on = [
     "ee",
     "posthog",
-    "products.data_warehouse",
     "products.notebooks",
     "products.notifications",
     "products.product_analytics",
@@ -656,8 +654,7 @@ depends_on = [
     "posthog",
     "products.access_control",
     "products.actions",
-    "products.analytics_platform",
-    "products.data_warehouse", "products.warehouse_sources",
+    "products.analytics_platform", "products.warehouse_sources",
 ]
 layer = "modules"
 
@@ -814,18 +811,26 @@ from = [
     "products.mcp_store",
 ]
 
-# warehouse_sources — all production and non-test consumers route through backend.facade.* now
-# (models/types/sources/pipelines are facade-sealed). The one remaining leak is the core
-# data-import Temporal test suite under posthog/temporal/tests/data_imports/** — hundreds of
-# tests that import the temporal internals directly. tach excludes tests/ dirs so they don't
-# surface as violations, but they still reach internals, and they run in the Django Temporal
-# segment. That's why backend:contract-check stays OFF: the isolated-CI skip would drop that
-# segment on internal changes. The CI win comes instead from the narrowed product matrix in
-# .github/scripts/turbo-discover.js (DATA_IMPORT_SOURCES_ONLY). Sealing this fully means
-# relocating those tests into the product — future work.
+# isolation:permanent-interface
+# warehouse_sources' HogQL direct-SQL adapters and its system-table definitions depend on a
+# handful of source internals + models that the facade re-exports lazily — facade.source_management
+# is a thin PEP 562 re-export, so a change to the underlying source flows through to core. That
+# coupling can't be sealed by watching backend.facade alone, so these modules are declared
+# permanent and turbo.json keeps them in the contract-check inputs — any change to them still
+# re-runs the Django suite (IsolationChainCheck enforces that). The vendor set is exactly the
+# sources core reaches through the facade, guarded by test_ci_core_coupled_sources.py. All other
+# core coupling goes through backend.facade.
 [[interfaces]]
 expose = [
-    "backend\\.temporal.*",
+    "backend\\.models.*",
+    "backend\\.temporal\\.data_imports\\.sources\\.common.*",
+    "backend\\.temporal\\.data_imports\\.sources\\.generated_configs.*",
+    "backend\\.temporal\\.data_imports\\.sources\\.google_search_console.*",
+    "backend\\.temporal\\.data_imports\\.sources\\.mysql.*",
+    "backend\\.temporal\\.data_imports\\.sources\\.postgres.*",
+    "backend\\.temporal\\.data_imports\\.sources\\.salesforce.*",
+    "backend\\.temporal\\.data_imports\\.sources\\.snowflake.*",
+    "backend\\.temporal\\.data_imports\\.sources\\.stripe.*",
 ]
 from = [
     "products.warehouse_sources",

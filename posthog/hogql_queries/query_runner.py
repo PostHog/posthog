@@ -62,6 +62,7 @@ from posthog.schema import (
     SamplingRate,
     SessionAttributionExplorerQuery,
     SessionBatchEventsQuery,
+    SessionQuery,
     SessionsQuery,
     SessionsTimelineQuery,
     StickinessQuery,
@@ -298,6 +299,7 @@ RunnableQueryNode = Union[
     ActorsQuery,
     EventsQuery,
     SessionBatchEventsQuery,
+    SessionQuery,
     HogQLQuery,
     InsightActorsQuery,
     FunnelsActorsQuery,
@@ -501,6 +503,17 @@ def get_query_runner(
 
         return SessionBatchEventsQueryRunner(
             query=cast(SessionBatchEventsQuery | dict[str, Any], query),
+            team=team,
+            timings=timings,
+            limit_context=limit_context,
+            modifiers=modifiers,
+            user=user,
+        )
+    if kind == "SessionQuery":
+        from .ai.session_query_runner import SessionQueryRunner
+
+        return SessionQueryRunner(
+            query=cast(SessionQuery | dict[str, Any], query),
             team=team,
             timings=timings,
             limit_context=limit_context,
@@ -2303,6 +2316,15 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
         if dashboard_filter.breakdown_filter and not should_ignore_dashboard_breakdown:
             if hasattr(self.query, "breakdownFilter"):  # redundant, but required for mypy
                 self.query.breakdownFilter = dashboard_filter.breakdown_filter
+
+        # Interval and test-account overrides apply only to query types that carry the field.
+        # Types without it (retention, paths) are silently skipped rather than mutated.
+        if dashboard_filter.interval is not None and hasattr(self.query, "interval"):
+            self.query.interval = dashboard_filter.interval
+
+        if dashboard_filter.filterTestAccounts is not None and hasattr(self.query, "filterTestAccounts"):
+            self.query.filterTestAccounts = dashboard_filter.filterTestAccounts
+
         self.__post_init__()
 
 

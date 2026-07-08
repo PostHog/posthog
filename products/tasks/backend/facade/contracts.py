@@ -146,6 +146,21 @@ class TaskThreadMessageDTO:
 
 
 @dataclass(frozen=True)
+class TaskMentionDTO:
+    """One @-mention of the requesting user in a task's thread, for the mentions feed."""
+
+    id: UUID
+    message_id: UUID
+    task_id: UUID
+    task_title: str
+    channel_id: UUID | None
+    channel_name: str | None
+    content: str
+    created_at: datetime
+    author: "TaskUserBasicInfo | None" = None
+
+
+@dataclass(frozen=True)
 class TaskLatestRunSummaryDTO:
     """The latest-run status/environment pair nested in a task summary response."""
 
