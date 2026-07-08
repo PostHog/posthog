@@ -8,7 +8,7 @@ from urllib.parse import urlencode
 
 from django.db.models import Q, QuerySet
 
-from drf_spectacular.utils import extend_schema, extend_schema_field
+from drf_spectacular.utils import extend_schema
 from rest_framework import mixins, serializers, viewsets
 from rest_framework.decorators import action
 from rest_framework.pagination import BasePagination, CursorPagination, PageNumberPagination
@@ -16,6 +16,7 @@ from rest_framework.permissions import BasePermission
 from rest_framework.request import Request
 from rest_framework.response import Response
 
+from posthog.api.fields import JSONStringFilterField, JSONTolerantListField, OptionalBooleanField
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
 from posthog.constants import AvailableFeature
@@ -193,46 +194,6 @@ class ActivityLogViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet, mixins
         queryset = apply_activity_visibility_restrictions(queryset, self.request.user)
 
         return queryset
-
-
-class OptionalBooleanField(serializers.BooleanField):
-    """BooleanField that returns None when missing instead of False."""
-
-    default_empty_html = None
-
-    def __init__(self, **kwargs):
-        kwargs.setdefault("allow_null", True)
-        super().__init__(**kwargs)
-
-
-@extend_schema_field({"type": "string"})
-class JSONStringFilterField(serializers.JSONField):
-    """JSONField exposed as a JSON-encoded string in the schema (for query string clients)."""
-
-    pass
-
-
-class JSONTolerantListField(serializers.ListField):
-    """ListField that also accepts a single JSON-encoded array as the query value.
-
-    Standard clients send array query params as repeated params
-    (?scopes=a&scopes=b), which DRF reads via ``getlist``. The MCP client sends a
-    single JSON-encoded array instead (?scopes=["a","b"]); accept that too so both
-    encodings resolve to the same filter.
-    """
-
-    def get_value(self, dictionary):
-        value = super().get_value(dictionary)
-        if isinstance(value, list) and len(value) == 1 and isinstance(value[0], str):
-            candidate = value[0].strip()
-            if candidate.startswith("[") and candidate.endswith("]"):
-                try:
-                    parsed = json.loads(candidate)
-                except (json.JSONDecodeError, ValueError):
-                    return value
-                if isinstance(parsed, list):
-                    return parsed
-        return value
 
 
 _IP_FILTER_RE = re.compile(r"^[0-9a-fA-F:.*]+$")
