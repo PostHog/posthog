@@ -11,6 +11,7 @@ import { copyToClipboard } from 'lib/utils/copyToClipboard'
 
 import { PropertyFilterType, PropertyOperator } from '~/types'
 
+import { CopyLogButton } from 'products/logs/frontend/components/LogsViewer/CopyLogButton'
 import { LogContextSelector } from 'products/logs/frontend/components/LogsViewer/LogContextSelector/LogContextSelector'
 import { LogDetailsTabContent } from 'products/logs/frontend/components/LogsViewer/LogDetailsModal/Tabs/Details/LogDetailsTab'
 
@@ -93,14 +94,7 @@ export function LogDetailsModal({ timezone }: LogDetailsModalProps): JSX.Element
                     <div className="flex items-center justify-between">
                         <h3>Log details</h3>
                         <div className="flex items-center gap-1">
-                            <LemonButton
-                                size="xsmall"
-                                icon={<IconCopy />}
-                                onClick={() => void copyToClipboard(selectedLog.body, 'log message')}
-                                tooltip="Copy log message"
-                                aria-label="Copy log message"
-                                data-attr="logs-viewer-copy-message"
-                            />
+                            <CopyLogButton log={selectedLog} />
                             <LemonButton
                                 size="xsmall"
                                 icon={<IconLink />}
@@ -167,13 +161,27 @@ export function LogDetailsModal({ timezone }: LogDetailsModalProps): JSX.Element
                                 label: 'Raw',
                                 content: (
                                     <div className="flex flex-col gap-2">
-                                        <div className="flex items-center">
+                                        <div className="flex items-center justify-between">
                                             <LemonCheckbox
                                                 checked={jsonParseAllFields}
                                                 onChange={setJsonParseAllFields}
                                                 label="JSON parse all fields"
                                                 size="small"
                                             />
+                                            <LemonButton
+                                                size="xsmall"
+                                                type="secondary"
+                                                icon={<IconCopy />}
+                                                onClick={() =>
+                                                    void copyToClipboard(
+                                                        JSON.stringify(displayData, null, 2),
+                                                        'raw log'
+                                                    )
+                                                }
+                                                data-attr="logs-viewer-copy-raw"
+                                            >
+                                                Copy raw
+                                            </LemonButton>
                                         </div>
                                         <div className="p-2 bg-bg-light rounded overflow-auto">
                                             <JSONViewer src={displayData} collapsed={2} sortKeys />
