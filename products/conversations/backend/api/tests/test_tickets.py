@@ -2151,3 +2151,27 @@ class TestAiFeedbackAPI(APIBaseTest):
             format="json",
         )
         assert response.status_code == status.HTTP_400_BAD_REQUEST
+
+
+class TestTicketResolvedAtStamping(BaseTest):
+    def test_resolved_at_follows_status_across_update_fields_saves(self):
+        ticket = Ticket.objects.create_with_number(
+            team=self.team,
+            widget_session_id="session-resolved-at",
+            distinct_id="user-123",
+            channel_source="widget",
+        )
+        assert ticket.resolved_at is None
+
+        # update_fields-limited save is what the API/tasks transition paths use
+        ticket.status = Status.RESOLVED
+        ticket.save(update_fields=["status", "updated_at"])
+        ticket.refresh_from_db()
+        assert ticket.status == Status.RESOLVED
+        resolved_at = ticket.resolved_at
+        assert resolved_at is not None
+
+        ticket.status = Status.OPEN
+        ticket.save(update_fields=["status", "updated_at"])
+        ticket.refresh_from_db()
+        assert ticket.resolved_at is None

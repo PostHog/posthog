@@ -8555,6 +8555,26 @@
                   "table": null,
                   "type": "string"
               },
+              "first_response_at": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "first_response_at",
+                  "id": null,
+                  "name": "first_response_at",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "datetime"
+              },
+              "resolved_at": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "resolved_at",
+                  "id": null,
+                  "name": "resolved_at",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "datetime"
+              },
               "priority": {
                   "chain": null,
                   "fields": null,
@@ -17339,6 +17359,26 @@
                   "schema_valid": true,
                   "table": null,
                   "type": "string"
+              },
+              "first_response_at": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "first_response_at",
+                  "id": null,
+                  "name": "first_response_at",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "datetime"
+              },
+              "resolved_at": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "resolved_at",
+                  "id": null,
+                  "name": "resolved_at",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "datetime"
               },
               "priority": {
                   "chain": null,

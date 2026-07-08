@@ -1,6 +1,7 @@
 from typing import TYPE_CHECKING
 
 from django.db import models, transaction
+from django.utils import timezone
 
 from posthog.models.utils import UUIDTModel
 
@@ -8,6 +9,13 @@ from .constants import Channel, ChannelDetail, Priority, Status
 
 if TYPE_CHECKING:
     from posthog.models import Person
+
+
+def _extend_update_fields(save_kwargs: dict, field: str) -> None:
+    """Include a field set by save() in an update_fields-limited save."""
+    update_fields = save_kwargs.get("update_fields")
+    if update_fields is not None:
+        save_kwargs["update_fields"] = [*update_fields, field]
 
 
 class TicketManager(models.Manager):
@@ -102,6 +110,12 @@ class Ticket(UUIDTModel):
     # SLA deadline — set via workflows, null means no SLA
     sla_due_at = models.DateTimeField(null=True, blank=True)
 
+    # Lifecycle timestamps, denormalized for support metrics (TTFR, resolution time).
+    # first_response_at: first customer-visible team/AI reply, stamped once by the message signal.
+    # resolved_at: kept consistent with status by save() — set on resolve, cleared on reopen.
+    first_response_at = models.DateTimeField(null=True, blank=True)
+    resolved_at = models.DateTimeField(null=True, blank=True)
+
     # Snooze — when set, ticket is "on hold" until this time, then auto-reopened by wake task
     snoozed_until = models.DateTimeField(null=True, blank=True)
 
@@ -168,6 +182,19 @@ class Ticket(UUIDTModel):
                 name="posthog_con_zendesk_ticket_uniq",
             ),
         ]
+
+    def save(self, *args, **kwargs) -> None:
+        # Status transitions happen in many places (agent API, external/workflow API, channel
+        # sync tasks), all via save() — keep resolved_at consistent with status here so no
+        # write site can forget to stamp it.
+        if self.status == Status.RESOLVED:
+            if self.resolved_at is None:
+                self.resolved_at = timezone.now()
+                _extend_update_fields(kwargs, "resolved_at")
+        elif self.resolved_at is not None:
+            self.resolved_at = None
+            _extend_update_fields(kwargs, "resolved_at")
+        super().save(*args, **kwargs)
 
     def __str__(self):
         return f"Ticket {self.id} - {self.widget_session_id[:8]}..."

@@ -1505,6 +1505,16 @@ support_tickets: PostgresTable = PostgresTable(
             name="distinct_id", description="Distinct id of the person who opened the ticket."
         ),
         "status": StringDatabaseField(name="status", description="Ticket status, e.g. 'open', 'pending', 'closed'."),
+        "first_response_at": DateTimeDatabaseField(
+            name="first_response_at",
+            nullable=True,
+            description="When the first customer-visible team or AI reply was sent; NULL if none yet. Time to first response = first_response_at - created_at.",
+        ),
+        "resolved_at": DateTimeDatabaseField(
+            name="resolved_at",
+            nullable=True,
+            description="When the ticket entered the resolved status; cleared if it is reopened. Resolution time = resolved_at - created_at.",
+        ),
         "priority": StringDatabaseField(
             name="priority", nullable=True, description="Ticket priority, e.g. 'low', 'high'."
         ),

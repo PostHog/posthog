@@ -2,8 +2,8 @@ from email.utils import make_msgid
 from typing import Any, cast
 
 from django.db import transaction
-from django.db.models import F, Q
-from django.db.models.functions import Greatest
+from django.db.models import DateTimeField, F, Q, Value
+from django.db.models.functions import Coalesce, Greatest
 from django.db.models.signals import post_save, pre_save
 from django.dispatch import receiver
 
@@ -143,6 +143,11 @@ def update_ticket_on_message(sender, instance: Comment, created: bool, **kwargs)
 
         if is_team_message:
             update_fields["unread_customer_count"] = F("unread_customer_count") + 1
+            # First customer-visible team/AI reply; Coalesce keeps the earliest stamp under
+            # concurrent replies.
+            update_fields["first_response_at"] = Coalesce(
+                F("first_response_at"), Value(created_at, output_field=DateTimeField())
+            )
 
         Ticket.objects.filter(id=item_id, team_id=team_id).update(**update_fields)
 
