@@ -247,10 +247,10 @@ pub struct BillingAggregatorConfig {
     pub per_flush_batch_size: usize,
     /// Must be non-zero — see `validate`.
     pub shutdown_flush_timeout: Duration,
-    /// Test-only: override the random jitter with a fixed duration so timing
-    /// tests are deterministic under paused tokio time.
-    #[cfg(test)]
-    pub(crate) jitter_override: Option<Duration>,
+    /// Override the random jitter with a fixed duration. Used by tests to make
+    /// timing deterministic under paused tokio time. Not intended for production.
+    #[doc(hidden)]
+    pub jitter_override: Option<Duration>,
 }
 
 impl Default for BillingAggregatorConfig {
@@ -260,7 +260,6 @@ impl Default for BillingAggregatorConfig {
             max_pending_entries: 500_000,
             per_flush_batch_size: 200,
             shutdown_flush_timeout: Duration::from_secs(15),
-            #[cfg(test)]
             jitter_override: None,
         }
     }
@@ -576,13 +575,10 @@ async fn run_flusher(inner: Arc<Inner>) {
     // Initial jitter desynchronizes fleet-wide flushes after a coordinated
     // deploy. Race it against shutdown so a quick SIGTERM doesn't wait for the
     // jitter to elapse before flushing.
-    #[cfg(test)]
     let jitter = inner
         .config
         .jitter_override
         .unwrap_or_else(|| pick_jitter(inner.config.flush_interval));
-    #[cfg(not(test))]
-    let jitter = pick_jitter(inner.config.flush_interval);
     tokio::select! {
         _ = tokio::time::sleep(jitter) => {}
         _ = inner.shutdown_signal.notified() => {
