@@ -25,8 +25,8 @@ import type { ActionType, CombinedFeatureFlagAndValueType, EventDefinition, Prod
  *   - It always parses the body and returns a discriminated-union `ToolbarApiResult`,
  *     so every call site branches on `result.ok` the same way.
  *   - It centralizes observability: every failure is logged via `toolbarLogger`, and
- *     genuinely-unexpected failures (network errors, 5xx, malformed JSON) are reported
- *     to error tracking. Auth (401/403) and client (4xx) errors are expected outcomes —
+ *     genuinely-unexpected failures (5xx, malformed JSON) are reported to error tracking.
+ *     Auth (401/403), other client (4xx), and network-level errors are expected outcomes —
  *     they are logged but not reported as exceptions.
  *   - Per-request telemetry (`toolbar api request`) is emitted by `toolbarFetch` itself.
  *
@@ -80,10 +80,11 @@ export interface ToolbarApiOptions {
      */
     reauthenticateOnForbidden?: boolean
     /**
-     * Report unexpected failures (network / 5xx / malformed JSON) to error tracking.
-     * Defaults to `true`. Set to `false` when the caller deliberately re-raises the
-     * failure (e.g. a kea loader that throws to drive its own `*Failure` reducer) so the
-     * exception is only captured once.
+     * Report unexpected failures (5xx / malformed JSON) to error tracking. Defaults to
+     * `true`. Network-level failures are never reported regardless of this flag — they are
+     * expected outcomes (ad blockers, CORS, offline, customer fetch wrappers). Set to
+     * `false` when the caller deliberately re-raises the failure (e.g. a kea loader that
+     * throws to drive its own `*Failure` reducer) so the exception is only captured once.
      */
     captureOnError?: boolean
     /**
@@ -155,7 +156,7 @@ async function request<T>(
     let response: Response
     try {
         response = await toolbarFetch(url, method, payload, urlConstruction)
-    } catch (e) {
+    } catch {
         const error: ToolbarApiErrorInfo = {
             status: 0,
             detail: 'Network error',
@@ -163,10 +164,11 @@ async function request<T>(
             isAuthError: false,
             isNetworkError: true,
         }
-        toolbarLogger.error('api', `Request failed (network): ${context}`, { context, method, pathname })
-        if (captureOnError) {
-            captureToolbarException(e, context, { reason: 'network' })
-        }
+        // Network-level failures (ad blockers, CORS, offline, a customer page that wraps or
+        // replaces `window.fetch`) are expected outcomes the toolbar already soft-fails on.
+        // Log them like 4xx errors, but don't escalate to error tracking where they'd bury
+        // genuine toolbar failures as recurring "Failed to fetch" noise.
+        toolbarLogger.warn('api', `Request failed (network): ${context}`, { context, method, pathname })
         emitToast(toastOnError, error)
         return { ok: false, status: 0, data: null, error }
     }
