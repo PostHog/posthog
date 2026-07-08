@@ -920,23 +920,32 @@ def _selective_flush(db_name: str, *, reset_sequences: bool, include_django_tabl
             cursor.execute(" UNION ALL ".join(f"SELECT '{name}', EXISTS (SELECT FROM \"{name}\")" for name in chunk))
             dirty.extend(name for name, has_rows in cursor.fetchall() if has_rows)
 
-        if not dirty:
-            return
-
-        cursor.execute("SET LOCAL session_replication_role = replica")
-        for name in dirty:
-            cursor.execute(f'DELETE FROM "{name}"')
+        if dirty:
+            cursor.execute("SET LOCAL session_replication_role = replica")
+            for name in dirty:
+                cursor.execute(f'DELETE FROM "{name}"')
 
         if reset_sequences:
+            # pg_sequences.last_value is NULL until a sequence is first read and NULL
+            # again after RESTART, so this finds every sequence advanced since the last
+            # flush - including ones owned by tables that are empty at probe time
+            # because the test deleted its own rows. Sequences owned by preserved
+            # tables keep counting so future inserts can't collide with surviving rows.
             cursor.execute(
                 """
-                SELECT seq.relname
-                FROM pg_class seq
-                JOIN pg_depend dep ON dep.objid = seq.oid AND dep.deptype IN ('a', 'i')
-                JOIN pg_class tbl ON tbl.oid = dep.refobjid
-                WHERE seq.relkind = 'S' AND tbl.relname = ANY(%s)
+                SELECT s.sequencename
+                FROM pg_sequences s
+                WHERE s.schemaname = 'public'
+                  AND s.last_value IS NOT NULL
+                  AND s.sequencename NOT IN (
+                    SELECT seq.relname
+                    FROM pg_class seq
+                    JOIN pg_depend dep ON dep.objid = seq.oid AND dep.deptype IN ('a', 'i')
+                    JOIN pg_class tbl ON tbl.oid = dep.refobjid
+                    WHERE seq.relkind = 'S' AND tbl.relname = ANY(%s)
+                  )
                 """,
-                [dirty],
+                [list(_SELECTIVE_FLUSH_PRESERVED_TABLES)],
             )
             for (seq_name,) in cursor.fetchall():
                 cursor.execute(f'ALTER SEQUENCE "{seq_name}" RESTART')
@@ -1705,6 +1714,25 @@ def run_clickhouse_statement_in_parallel(statements: list[str]):
             raise exceptions[0]
 
 
+# Every ClickHouse round trip in tests checks a client out of the pool, so this
+# counter advancing is a reliable "ClickHouse may have changed" signal. It is
+# registered on get_client_from_pool's patchable hook so production code is
+# untouched; the canary in posthog/test/test_conftest_cache_canaries.py fails
+# loudly if the hook ever disappears.
+_clickhouse_pool_checkouts = 0
+_clickhouse_checkouts_at_last_reset: int | None = None
+
+
+def _count_clickhouse_checkout(orig_fn: Callable[..., Any], *args: Any, **kwargs: Any) -> Any:
+    global _clickhouse_pool_checkouts
+    _clickhouse_pool_checkouts += 1
+    return orig_fn(*args, **kwargs)
+
+
+if settings.TEST:
+    get_client_from_pool._patch(_count_clickhouse_checkout)
+
+
 def reset_clickhouse_database() -> None:
     run_clickhouse_statement_in_parallel(
         [
@@ -1836,6 +1864,17 @@ def reset_clickhouse_database() -> None:
         ]
     )
 
+    global _clickhouse_checkouts_at_last_reset
+    _clickhouse_checkouts_at_last_reset = _clickhouse_pool_checkouts
+
+
+def reset_clickhouse_database_if_dirty() -> None:
+    """Reset ClickHouse only if something has checked out a ClickHouse client since
+    the last reset finished; with zero checkouts the state cannot have changed and
+    the reset would be a no-op costing dozens of DDL statements."""
+    if _clickhouse_pool_checkouts != _clickhouse_checkouts_at_last_reset:
+        reset_clickhouse_database()
+
 
 class ClickhouseDestroyTablesMixin(BaseTest):
     """
@@ -1845,11 +1884,11 @@ class ClickhouseDestroyTablesMixin(BaseTest):
 
     def setUp(self):
         super().setUp()
-        reset_clickhouse_database()
+        reset_clickhouse_database_if_dirty()
 
     def tearDown(self):
         super().tearDown()
-        reset_clickhouse_database()
+        reset_clickhouse_database_if_dirty()
 
 
 def snapshot_clickhouse_queries(fn_or_class):

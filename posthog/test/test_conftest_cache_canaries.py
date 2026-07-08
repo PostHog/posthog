@@ -1,4 +1,5 @@
-# Canary tests for the test-harness monkeypatches in the repo-root conftest.py.
+# Canary tests for the test-harness monkeypatches (repo-root conftest.py and
+# posthog/test/base.py).
 #
 # Each patch caches a Django/DRF internal on the assumption that it is a pure function
 # of immutable inputs *in the currently pinned Django/DRF version*. If an upgrade
@@ -18,7 +19,9 @@ from django.urls import resolvers
 
 from rest_framework.utils import model_meta
 
+from posthog.clickhouse.client.connection import get_client_from_pool
 from posthog.models import Team
+from posthog.test import base as test_base
 
 
 def _unpatched(patched):
@@ -77,6 +80,18 @@ def test_rel_identity_cache_matches_unpatched_django():
     a, b = pair[0], pair[1]
     assert (a == b) == bool(orig_eq(a, b))
     assert (a == a) == bool(orig_eq(a, a))
+
+
+def test_clickhouse_checkout_counter_is_wired():
+    # Assumption: get_client_from_pool keeps its @patchable hook, through which
+    # posthog/test/base.py counts client checkouts to decide whether ClickHouse can
+    # have changed since the last reset. If the hook or the patch registration
+    # disappears, the counter goes stale and ClickhouseDestroyTablesMixin silently
+    # stops resetting ClickHouse between tests.
+    before = test_base._clickhouse_pool_checkouts
+    with get_client_from_pool():
+        pass
+    assert test_base._clickhouse_pool_checkouts > before
 
 
 def test_drf_field_info_cache_matches_unpatched_drf():
