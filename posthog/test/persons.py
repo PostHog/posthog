@@ -280,8 +280,10 @@ def create_people_bulk(specs: list[dict[str, Any]]) -> list[Person]:
 
     Each spec is a create_person() kwargs dict (team/team_id, distinct_ids, uuid, ...). Row values
     mirror what create_person writes via posthog.models.person.util.create_person /
-    create_person_distinct_id, so the stored ClickHouse data is identical — only batched. The
-    persons-DB-layer path (fake off) falls back to per-person create_person.
+    create_person_distinct_id — only batched. Note: distinct-id rows use Python-side
+    (freezegun-frozen) time for _timestamp rather than ClickHouse server now(); harmless because
+    pdi2 dedup uses version, not _timestamp. The persons-DB-layer path (fake off) falls back to
+    per-person create_person.
     """
     import json  # noqa: PLC0415
 

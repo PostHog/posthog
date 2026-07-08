@@ -10,7 +10,13 @@ from posthog.hogql import (
     parser as parser_module,
 )
 from posthog.hogql.errors import SyntaxError as HogQLSyntaxError
-from posthog.hogql.parser import HogQLParserShadowMismatch, _resolve_parser_mode, parse_expr, parse_select
+from posthog.hogql.parser import (
+    HogQLParserShadowMismatch,
+    _resolve_parser_mode,
+    clear_shadow_agreed_for_tests,
+    parse_expr,
+    parse_select,
+)
 
 
 class TestParserMode(BaseTest):
@@ -19,7 +25,7 @@ class TestParserMode(BaseTest):
         # These tests patch the shadow leg to simulate divergences/failures for
         # statements that may already sit in the agreed-statement dedup set, so
         # the shadow must actually run again here.
-        parser_module._shadow_agreed_in_tests.clear()
+        clear_shadow_agreed_for_tests()
 
     @parameterized.expand(
         [

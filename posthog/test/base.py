@@ -993,6 +993,7 @@ def stripResponse(response, remove=("action", "label", "persons_urls", "filter")
 def cleanup_materialized_columns():
     try:
         from ee.clickhouse.materialized_columns.columns import (
+            MATERIALIZATION_VALID_TABLES,
             _clear_materialized_columns_cache,
             get_bloom_filter_index_name,
             get_bloom_filter_lower_index_name,
@@ -1045,8 +1046,8 @@ def cleanup_materialized_columns():
     optionally_drop("groups")
     # Raw DROP COLUMN above bypasses drop_column(), which normally self-invalidates the cache.
     # Clear it explicitly so subsequent lookups in the same process reflect the new schema.
-    for _table in ("events", "person", "groups"):
-        _clear_materialized_columns_cache(_table)  # type: ignore[arg-type]
+    for _table in MATERIALIZATION_VALID_TABLES:
+        _clear_materialized_columns_cache(_table)
 
 
 def get_index_from_explain(
@@ -1621,9 +1622,9 @@ class ClickhouseTestMixin(QueryMatchingTest):
 
 
 def run_clickhouse_statement_in_parallel(statements: list[str]):
-    # Test infrastructure targets a single-node ClickHouse (CLICKHOUSE_TEST_DB_CLUSTER_MODE is
-    # not set). On that topology, ON CLUSTER only adds distributed-DDL keeper round-trips
-    # (~0.3-0.5s per statement) without changing the outcome, so strip it from TRUNCATEs.
+    # Test infrastructure runs a single-node ClickHouse, so ON CLUSTER only adds
+    # distributed-DDL keeper round-trips (~0.3-0.5s per statement) without changing
+    # the outcome — strip it from TRUNCATEs.
     # If a CI variant ever runs multi-replica this strip must be removed or gated; without it,
     # TRUNCATE without ON CLUSTER only touches the connected node and leaves others dirty.
     statements = [
