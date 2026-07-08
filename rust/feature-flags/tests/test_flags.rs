@@ -1769,8 +1769,8 @@ async fn test_minimal_flag_called_events_reaches_v2_but_not_legacy_response() ->
     let v2: FlagsResponse = res.json().await?;
     assert_eq!(v2.minimal_flag_called_events, Some(true));
 
-    // Legacy response (no version param): LegacyFlagsResponse doesn't carry the field at
-    // all, so a gated team's v1 clients never see the signal and keep sending full events.
+    // Legacy response (v=1): LegacyFlagsResponse doesn't carry the field at all, so a
+    // gated team's v1 clients never see the signal and keep sending full events.
     let res = server
         .send_flags_request(payload.to_string(), Some("1"), None)
         .await;
