@@ -32,10 +32,7 @@ from products.customer_analytics.backend.facade import (
     api as facade,
     contracts,
 )
-from products.customer_analytics.backend.facade.constants import (
-    ACCOUNT_ASSIGNMENT_ROLE_FIELDS,
-    CUSTOMER_ANALYTICS_CSP_FLAG,
-)
+from products.customer_analytics.backend.facade.constants import CUSTOMER_ANALYTICS_CSP_FLAG
 
 logger = structlog.get_logger(__name__)
 
@@ -105,6 +102,7 @@ def _external_account_body(account: contracts.ExternalAccount) -> dict[str, Any]
         "name": account.name,
         "properties": account.properties,
         "tags": account.tags,
+        "relationships": account.relationships,
     }
 
 
@@ -124,30 +122,50 @@ def _update_error_response(result: contracts.ExternalAccountUpdateResult) -> Res
             {"error": f"{result.error_field}: user is not a member of this organization"},
             status=status.HTTP_400_BAD_REQUEST,
         )
+    if result.error == contracts.ExternalAccountUpdateError.RELATIONSHIP_DEFINITION_NOT_FOUND:
+        return Response(
+            {"error": f"{result.error_field}: no relationship definition with this name"},
+            status=status.HTTP_400_BAD_REQUEST,
+        )
     assert result.error is not None
     message, code = _UPDATE_ERROR_RESPONSES[result.error]
     return Response({"error": message}, status=code)
 
 
 class ExternalAccountUpdateSerializer(serializers.Serializer):
-    external_id = serializers.CharField(max_length=400)
-    # Each role accepts a `posthog_assignee` value `{type, id}`, `null` to clear, or is
-    # omitted to leave unchanged. Roles (RBAC) are rejected — accounts assign users only.
+    external_id = serializers.CharField(max_length=400, help_text="External ID (group key) of the account to update.")
+    # Each value accepts a `posthog_assignee` object `{type, id}`, or `null` to end the
+    # active assignment. Roles (RBAC) are rejected — accounts assign users only.
     # `validate` normalizes a provided assignment down to the user id; the facade resolves
-    # the email against an org membership so the stored `{id, email}` is always trusted.
-    csm = serializers.JSONField(required=False, allow_null=True)
-    account_executive = serializers.JSONField(required=False, allow_null=True)
-    account_owner = serializers.JSONField(required=False, allow_null=True)
-    tags = serializers.ListField(child=serializers.CharField(max_length=200), required=False, max_length=100)
-    tags_mode = serializers.ChoiceField(choices=["add", "set", "remove"], required=False, default="add")
+    # it against an org membership so assignees are always trusted.
+    relationships = serializers.DictField(
+        child=serializers.JSONField(allow_null=True),
+        required=False,
+        help_text=(
+            "Relationship assignments keyed by definition name (e.g. 'CSM'). Each value is an "
+            "assignee object `{type: 'user', id}` or null to end the active assignment. Only the "
+            "named definitions are changed."
+        ),
+    )
+    tags = serializers.ListField(
+        child=serializers.CharField(max_length=200),
+        required=False,
+        max_length=100,
+        help_text="Tag names to apply, per tags_mode.",
+    )
+    tags_mode = serializers.ChoiceField(
+        choices=["add", "set", "remove"],
+        required=False,
+        default="add",
+        help_text="How to apply tags: add to, replace, or remove from the existing set.",
+    )
 
-    def validate(self, attrs: dict[str, Any]) -> dict[str, Any]:
-        for field in ACCOUNT_ASSIGNMENT_ROLE_FIELDS:
-            if field in attrs and attrs[field] is not None:
-                attrs[field] = self._normalize_assignee(field, attrs[field])
-        return attrs
+    def validate_relationships(self, value: dict[str, Any]) -> dict[str, int | None]:
+        return {name: self._normalize_assignee(name, assignee) for name, assignee in value.items()}
 
-    def _normalize_assignee(self, field: str, value: Any) -> int:
+    def _normalize_assignee(self, field: str, value: Any) -> int | None:
+        if value is None:
+            return None
         if not isinstance(value, dict):
             raise serializers.ValidationError({field: "Must be an assignee object or null"})
         if value.get("type") != "user":
@@ -206,11 +224,10 @@ class ExternalAccountView(APIView):
         if not external_id:
             return Response({"error": "external_id is required"}, status=status.HTTP_400_BAD_REQUEST)
 
-        role_assignments = {field: data[field] for field in ACCOUNT_ASSIGNMENT_ROLE_FIELDS if field in data}
         result = facade.update_external_account(
             team.id,
             external_id,
-            role_assignments=role_assignments,
+            relationship_assignments=data.get("relationships") or {},
             tags=data["tags"] if "tags" in data else None,
             tags_mode=data.get("tags_mode", "add"),
         )

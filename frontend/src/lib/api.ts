@@ -2648,7 +2648,7 @@ const api = {
         async migrate(id: ActionType['id']): Promise<HogFunctionType> {
             return await new ApiRequest().actionsDetail(id).withAction('migrate').create()
         },
-        async list(params?: string): Promise<PaginatedResponse<ActionType>> {
+        async list(params?: string): Promise<CountedPaginatedResponse<ActionType>> {
             return await new ApiRequest().actions().withQueryString(params).get()
         },
         async listMatchingPluginConfigs(
@@ -4923,6 +4923,44 @@ const api = {
         },
         async kernelStatus(notebookId: NotebookType['short_id']): Promise<Record<string, any>> {
             return await new ApiRequest().notebook(notebookId).withAction('kernel/status').get()
+        },
+        async sqlV2Run(
+            notebookId: NotebookType['short_id'],
+            data: { node_id: string; code: string }
+        ): Promise<{ run_id: string }> {
+            return await new ApiRequest().notebook(notebookId).withAction('sql_v2/run').create({ data })
+        },
+        async sqlV2RunResult(
+            notebookId: NotebookType['short_id'],
+            runId: string
+        ): Promise<{
+            status: 'running' | 'done' | 'failed'
+            result: {
+                columns?: string[]
+                types?: [string, string][]
+                row_count?: number
+                first_page?: (string | number | null)[][]
+                has_more?: boolean
+            } | null
+            error: string | null
+        }> {
+            return await new ApiRequest().notebook(notebookId).withAction(`sql_v2/runs/${runId}`).get()
+        },
+        async sqlV2RunPage(
+            notebookId: NotebookType['short_id'],
+            runId: string,
+            params: { offset: number; limit: number }
+        ): Promise<{
+            columns: string[]
+            types: [string, string][]
+            rows: (string | number | null)[][]
+            has_more: boolean
+        }> {
+            return await new ApiRequest()
+                .notebook(notebookId)
+                .withAction(`sql_v2/runs/${runId}/page`)
+                .withQueryString(params)
+                .get()
         },
         async markdownSave(
             notebookId: NotebookType['short_id'],

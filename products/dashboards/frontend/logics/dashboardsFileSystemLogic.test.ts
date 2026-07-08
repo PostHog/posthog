@@ -3,6 +3,7 @@ import { expectLogic } from 'kea-test-utils'
 import api from 'lib/api'
 import { lemonToast } from 'lib/lemon-ui/LemonToast'
 
+import { resumeKeaLoadersErrors, silenceKeaLoadersErrors } from '~/initKea'
 import { projectTreeDataLogic } from '~/layout/panel-layout/ProjectTree/projectTreeDataLogic'
 import { useMocks } from '~/mocks/jest'
 import { dashboardsModel } from '~/models/dashboardsModel'
@@ -11,6 +12,9 @@ import { initKeaTests } from '~/test/init'
 import { dashboardsFileSystemLogic } from './dashboardsFileSystemLogic'
 
 describe('dashboardsFileSystemLogic', () => {
+    // Safety net for tests that call silenceKeaLoadersErrors() inline
+    afterEach(resumeKeaLoadersErrors)
+
     let logic: ReturnType<typeof dashboardsFileSystemLogic.build>
 
     useMocks({
@@ -168,6 +172,8 @@ describe('dashboardsFileSystemLogic', () => {
         await expectLogic(logic).toDispatchActions(['loadDashboardFileSystemEntriesSuccess'])
         const error = jest.spyOn(lemonToast, 'error').mockReturnValue('' as any)
         ;(api.fileSystem.list as jest.Mock).mockRejectedValueOnce(new Error('boom'))
+        // Deliberate loader failure — kea-loaders would log it
+        silenceKeaLoadersErrors()
         await expectLogic(logic, () => {
             logic.actions.loadDashboardFileSystemEntries()
         }).toDispatchActions(['loadDashboardFileSystemEntriesFailure'])
@@ -178,6 +184,8 @@ describe('dashboardsFileSystemLogic', () => {
         await expectLogic(logic).toDispatchActions(['loadFolderEntriesSuccess'])
         const error = jest.spyOn(lemonToast, 'error').mockReturnValue('' as any)
         ;(api.fileSystem.list as jest.Mock).mockRejectedValueOnce(new Error('boom'))
+        // Deliberate loader failure — kea-loaders would log it
+        silenceKeaLoadersErrors()
         await expectLogic(logic, () => {
             logic.actions.loadFolderEntries()
         }).toDispatchActions(['loadFolderEntriesFailure'])

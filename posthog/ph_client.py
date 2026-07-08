@@ -4,10 +4,13 @@ from numbers import Number
 from typing import Any
 from uuid import UUID
 
+from django.conf import settings
+
 import structlog
 import posthoganalytics
 
 from posthog.cloud_utils import is_cloud
+from posthog.settings.ingestion import DedicatedAIEndpointRollout
 from posthog.utils import get_instance_region
 
 PH_US_API_KEY = "sTMFPsFhdP1Ssg"
@@ -17,6 +20,15 @@ PH_EU_API_KEY = "phc_dZ4GK1LRjhB97XozMSkEwPXx7OVANaJEwLErkY1phUF"
 PH_EU_HOST = "https://eu.i.posthog.com"
 
 logger = structlog.get_logger(__name__)
+
+_DEDICATED_AI_ENDPOINT_STAGES = (DedicatedAIEndpointRollout.RUNNER, DedicatedAIEndpointRollout.ALL)
+
+
+def _use_dedicated_ai_endpoint(caller_stage: DedicatedAIEndpointRollout) -> bool:
+    rollout = settings.POSTHOG_DEDICATED_AI_ENDPOINT_ROLLOUT
+    if rollout is DedicatedAIEndpointRollout.OFF:
+        return False
+    return _DEDICATED_AI_ENDPOINT_STAGES.index(rollout) >= _DEDICATED_AI_ENDPOINT_STAGES.index(caller_stage)
 
 
 def feature_enabled_or_false(
@@ -84,7 +96,12 @@ def ph_scoped_capture():
         ph_client.shutdown()
 
 
-def get_client(region: str = "US", **kwargs: Any):
+def get_client(
+    region: str = "US",
+    *,
+    dedicated_ai_endpoint_stage: DedicatedAIEndpointRollout = DedicatedAIEndpointRollout.ALL,
+    **kwargs: Any,
+):
     from posthoganalytics import Posthog
 
     api_key = None
@@ -98,4 +115,10 @@ def get_client(region: str = "US", **kwargs: Any):
     else:
         return
 
-    return Posthog(api_key, host=host, super_properties={"region": region}, **kwargs)
+    return Posthog(
+        api_key,
+        host=host,
+        super_properties={"region": region},
+        _dedicated_ai_endpoint=_use_dedicated_ai_endpoint(dedicated_ai_endpoint_stage),
+        **kwargs,
+    )

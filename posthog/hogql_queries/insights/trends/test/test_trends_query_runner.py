@@ -1136,17 +1136,19 @@ class TestTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
 
         assert len(response.results) == 2
 
-        assert response.results[0]["label"] == "cohort p1"
-        assert response.results[0]["breakdown_value"] == cohort1.pk
-        assert response.results[0]["count"] == 0
-        assert len(response.results[0]["data"]) == 12
-        assert len(response.results[0]["days"]) == 12
+        # Both cohorts aggregate to 0, so breakdown order is a nondeterministic tie — assert per-cohort.
+        by_cohort = {r["breakdown_value"]: r for r in response.results}
+        assert set(by_cohort) == {cohort1.pk, cohort2.pk}
 
-        assert response.results[1]["label"] == "cohort p2"
-        assert response.results[1]["breakdown_value"] == cohort2.pk
-        assert response.results[1]["count"] == 0
-        assert len(response.results[1]["data"]) == 12
-        assert len(response.results[1]["days"]) == 12
+        assert by_cohort[cohort1.pk]["label"] == "cohort p1"
+        assert by_cohort[cohort1.pk]["count"] == 0
+        assert len(by_cohort[cohort1.pk]["data"]) == 12
+        assert len(by_cohort[cohort1.pk]["days"]) == 12
+
+        assert by_cohort[cohort2.pk]["label"] == "cohort p2"
+        assert by_cohort[cohort2.pk]["count"] == 0
+        assert len(by_cohort[cohort2.pk]["data"]) == 12
+        assert len(by_cohort[cohort2.pk]["days"]) == 12
 
     @parameterized.expand(
         [
@@ -2117,8 +2119,8 @@ class TestTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
 
         assert results_by_breakdown["[2,3.01]"]["data"] == [0, 200.0, 0]
 
-    def test_trends_breakdown_histogram_with_unsupported_math_type_raises_error(self):
-        with pytest.raises(ValueError) as exc_info:
+    def test_trends_breakdown_histogram_with_unsupported_math_type_raises_validation_error(self):
+        with pytest.raises(DRFValidationError) as exc_info:
             self._run_trends_query(
                 "2020-01-11",
                 "2020-01-13",
@@ -2131,7 +2133,7 @@ class TestTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
                     breakdown_histogram_bin_count=2,
                 ),
             )
-        assert "is not supported with histogram breakdowns" in str(exc_info.value)
+        assert exc_info.value.get_codes() == ["property_math_unsupported_with_histogram_breakdown"]
 
     @parameterized.expand(
         [

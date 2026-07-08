@@ -15,6 +15,42 @@ import {
     parseGroupsFromResult,
 } from './hogFlowEditorTestLogic'
 
+// Mounting hogFlowEditorTestLogic mounts workflowLogic, whose afterMount loads the hog
+// flow; without a valid fixture the editor's resetFlowFromHogFlow crashes and logs.
+const WORKFLOW_FIXTURE = {
+    id: 'test-workflow',
+    name: 'Test workflow',
+    actions: [
+        {
+            id: 'trigger_node',
+            type: 'trigger',
+            name: 'Trigger',
+            description: '',
+            created_at: 0,
+            updated_at: 0,
+            config: { type: 'event', filters: {} },
+        },
+        {
+            id: 'exit_node',
+            type: 'exit',
+            name: 'Exit',
+            description: '',
+            created_at: 0,
+            updated_at: 0,
+            config: { reason: 'Default exit' },
+        },
+    ],
+    edges: [{ from: 'trigger_node', to: 'exit_node', type: 'continue' }],
+    conversion: { window_minutes: null, filters: [] },
+    exit_condition: 'exit_only_at_end',
+    version: 1,
+    status: 'draft',
+    team_id: 1,
+    trigger: { type: 'event', filters: {} },
+    created_at: '2026-05-01T00:00:00.000Z',
+    updated_at: '2026-05-01T00:00:00.000Z',
+}
+
 describe('hogFlowEditorTestLogic', () => {
     let logic: ReturnType<typeof hogFlowEditorTestLogic.build>
 
@@ -112,6 +148,7 @@ describe('hogFlowEditorTestLogic', () => {
 
     beforeEach(() => {
         initKeaTests()
+        useMocks({ get: { '/api/environments/:team_id/hog_flows/:id/': WORKFLOW_FIXTURE } })
     })
 
     describe('groupTypesForTest gating on group_analytics', () => {

@@ -198,6 +198,7 @@ rules:
                               |Node
                               |NotificationEvent
                               |Notebook
+                              |NotebookNodeRun
                               |ObjectMediaPreview
                               |ParserRecipe
                               |PendingSourceCredential
@@ -210,7 +211,9 @@ rules:
                               |QuickFilter
                               |QuickFilterContext
                               |ReplayObservation
+                              |ReplayObservationLabel
                               |ReplayScanner
+                              |ReplayScannerPromptSuggestion
                               |Repo
                               |RepoRoutingRule
                               |SandboxEnvironment
@@ -250,6 +253,7 @@ rules:
                               |TaskPresence
                               |TaskRun
                               |TaskThreadMessage
+                              |TaskThreadMessageMention
                               |Channel
                               |EmailChannel
                               |EvaluationReport
@@ -259,6 +263,7 @@ rules:
                               |TeamConversationsTeamsConfig
                               |Ticket
                               |TicketView
+                              |ZendeskImportJob
                               |ReviewQueue
                               |ReviewQueueItem
                               |TraceReview
@@ -472,6 +477,7 @@ rules:
                         |Node
                         |NotificationEvent
                         |Notebook
+                        |NotebookNodeRun
                         |ObjectMediaPreview
                         |ParserRecipe
                         |PendingSourceCredential
@@ -484,7 +490,9 @@ rules:
                         |QuickFilter
                         |QuickFilterContext
                         |ReplayObservation
+                        |ReplayObservationLabel
                         |ReplayScanner
+                        |ReplayScannerPromptSuggestion
                         |Repo
                         |RepoRoutingRule
                         |SandboxEnvironment
@@ -524,6 +532,7 @@ rules:
                         |TaskPresence
                         |TaskRun
                         |TaskThreadMessage
+                        |TaskThreadMessageMention
                         |Channel
                         |EmailChannel
                         |EvaluationReport
@@ -533,6 +542,7 @@ rules:
                         |TeamConversationsTeamsConfig
                         |Ticket
                         |TicketView
+                        |ZendeskImportJob
                         |ReviewQueue
                         |ReviewQueueItem
                         |TraceReview
