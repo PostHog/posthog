@@ -345,12 +345,23 @@ export const VariableComponent = ({
         return (
             <LemonField.Pure label={variable.name} className="gap-0" info={tooltip}>
                 <LemonSelect
-                    disabledReason={variableOverridesAreSet && 'Discard dashboard variables to change'}
+                    disabledReason={
+                        (variableOverridesAreSet && 'Discard dashboard variables to change') ||
+                        (variable.isNull && 'Set to null is enabled') ||
+                        undefined
+                    }
                     value={variable.isNull ? null : (variable.value ?? variable.default_value ?? null)}
                     onChange={(value) => onChange(variable.id, value, !value)}
                     options={getListVariableValues(variable).map((n) => ({ label: n, value: n }))}
                     size={size}
                     allowClear
+                />
+                <LemonSwitch
+                    className="mt-1"
+                    label="Set to null"
+                    checked={variable.isNull ?? false}
+                    disabledReason={variableOverridesAreSet && 'Discard dashboard variables to change'}
+                    onChange={(checked) => onChange(variable.id, null, checked)}
                 />
             </LemonField.Pure>
         )
