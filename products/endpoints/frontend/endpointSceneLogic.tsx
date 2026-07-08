@@ -34,16 +34,18 @@ export function extractBreakdownPropertyNames(query: unknown): string[] {
     if (!breakdownFilter) {
         return []
     }
+    // Numeric entries (e.g. legacy cohort breakdowns) are stringified like the backend's str(name)
+    const asName = (value: unknown): string | null =>
+        (typeof value === 'string' || typeof value === 'number') && value ? String(value) : null
     const legacy = breakdownFilter.breakdown
     if (Array.isArray(legacy)) {
-        return legacy.filter((b): b is string => typeof b === 'string' && !!b)
+        return legacy.map(asName).filter((p): p is string => p !== null)
     }
-    if (typeof legacy === 'string' && legacy) {
-        return [legacy]
+    const legacyName = asName(legacy)
+    if (legacyName !== null) {
+        return [legacyName]
     }
-    return (breakdownFilter.breakdowns ?? [])
-        .map((b) => (typeof b?.property === 'string' ? b.property : null))
-        .filter((p): p is string => !!p)
+    return (breakdownFilter.breakdowns ?? []).map((b) => asName(b?.property)).filter((p): p is string => p !== null)
 }
 
 export function generateEndpointPayload(endpoint: EndpointVersionType | null): Record<string, any> {

@@ -29,7 +29,7 @@ export const EndpointSceneHeader = (): JSX.Element => {
         dataFreshness,
         optionalBreakdownProperties,
     } = useValues(endpointSceneLogic)
-    const { endpointName, endpointDescription } = useValues(endpointLogic)
+    const { endpointName, endpointDescription, updatingEndpoint } = useValues(endpointLogic)
     const { setEndpointDescription, updateEndpoint } = useActions(endpointLogic)
     const {
         setLocalQuery,
@@ -169,14 +169,17 @@ export const EndpointSceneHeader = (): JSX.Element => {
                             <LemonButton
                                 type="primary"
                                 onClick={handleSave}
+                                loading={updatingEndpoint}
                                 disabledReason={
                                     !endpoint
                                         ? 'Endpoint not loaded'
-                                        : !hasChanges
-                                          ? 'No changes to save'
-                                          : hasQueryChange && targetVersion
-                                            ? 'Query can only be changed when on the latest version'
-                                            : undefined
+                                        : updatingEndpoint
+                                          ? 'Update in progress'
+                                          : !hasChanges
+                                            ? 'No changes to save'
+                                            : hasQueryChange && targetVersion
+                                              ? 'Query can only be changed when on the latest version'
+                                              : undefined
                                 }
                             >
                                 Update

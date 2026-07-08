@@ -6,7 +6,7 @@ import { urls } from 'scenes/urls'
 import { initKeaTests } from '~/test/init'
 import { expectLogic } from '~/test/keaTestUtils'
 
-import { endpointSceneLogic, EndpointTab } from './endpointSceneLogic'
+import { endpointSceneLogic, EndpointTab, extractBreakdownPropertyNames } from './endpointSceneLogic'
 
 jest.mock('lib/api', () => ({
     __esModule: true,
@@ -110,6 +110,19 @@ describe('endpointSceneLogic', () => {
         expect(router.values.location.pathname).toContain(urls.endpoint('test-endpoint'))
         expect(router.values.searchParams).toMatchObject({
             version: 2,
+        })
+    })
+
+    describe('extractBreakdownPropertyNames', () => {
+        // Must match the backend's iter_breakdowns, which stringifies every entry (str(name)),
+        // so numeric legacy breakdowns (e.g. cohort IDs) land in the OpenAPI required set as strings
+        test.each([
+            ['legacy string', { breakdown: '$browser', breakdown_type: 'event' }, ['$browser']],
+            ['legacy numeric cohort', { breakdown: 2, breakdown_type: 'cohort' }, ['2']],
+            ['legacy numeric list', { breakdown: [2, 5], breakdown_type: 'cohort' }, ['2', '5']],
+            ['breakdowns form', { breakdowns: [{ property: '$browser' }, { property: 7 }] }, ['$browser', '7']],
+        ])('%s', (_name, breakdownFilter, expected) => {
+            expect(extractBreakdownPropertyNames({ kind: 'TrendsQuery', breakdownFilter })).toEqual(expected)
         })
     })
 
