@@ -1,5 +1,6 @@
 import datetime as dt
 
+from freezegun import freeze_time
 from posthog.test.base import APIBaseTest
 from unittest.mock import MagicMock, patch
 
@@ -281,10 +282,11 @@ class TestEvaluationReportApi(APIBaseTest):
         self.assertEqual(response.json().get("attr"), "rrule")
 
     def test_create_scheduled_defaults_starts_at(self):
-        response = self.client.post(self.base_url, self._scheduled_payload(), format="json")
+        with freeze_time("2026-01-15T16:37:42Z"):
+            response = self.client.post(self.base_url, self._scheduled_payload(), format="json")
         self.assertEqual(response.status_code, status.HTTP_201_CREATED, response.json())
         report = EvaluationReport.objects.get()
-        self.assertIsNotNone(report.starts_at)
+        self.assertEqual(report.starts_at, dt.datetime(2026, 1, 15, 16, 0, tzinfo=dt.UTC))
         self.assertEqual(report.timezone_name, "UTC")
 
     def test_create_scheduled_rejects_unsupported_rrule(self):
@@ -469,15 +471,18 @@ class TestEvaluationReportApi(APIBaseTest):
 
     def test_update_report(self):
         report = self._create_report()
-        response = self.client.patch(
-            f"{self.base_url}{report.id}/",
-            {"frequency": "scheduled", "rrule": "FREQ=WEEKLY;BYDAY=MO"},
-            format="json",
-        )
+        with freeze_time("2026-01-15T16:37:42Z"):
+            response = self.client.patch(
+                f"{self.base_url}{report.id}/",
+                {"frequency": "scheduled", "rrule": "FREQ=WEEKLY;BYDAY=MO"},
+                format="json",
+            )
         self.assertEqual(response.status_code, status.HTTP_200_OK, response.json())
         report.refresh_from_db()
         self.assertEqual(report.frequency, "scheduled")
         self.assertEqual(report.rrule, "FREQ=WEEKLY;BYDAY=MO")
+        self.assertEqual(report.starts_at, dt.datetime(2026, 1, 15, 16, 0, tzinfo=dt.UTC))
+        self.assertEqual(report.timezone_name, "UTC")
 
     def test_update_allows_full_resource_echo_for_unchanged_read_only_fields(self) -> None:
         report = self._create_report()

@@ -38,6 +38,10 @@ SCHEDULE_RRULE_ERROR = (
 VALID_WEEKDAYS = {"MO", "TU", "WE", "TH", "FR", "SA", "SU"}
 
 
+def default_schedule_anchor() -> dt.datetime:
+    return timezone.now().replace(minute=0, second=0, microsecond=0)
+
+
 class EvaluationReportListQuerySerializer(serializers.Serializer):
     evaluation = serializers.UUIDField(
         required=False,
@@ -67,8 +71,6 @@ def validate_report_schedule_rrule(rrule_string: str) -> None:
 
 
 class EvaluationReportSerializer(serializers.ModelSerializer):
-    created_instance = True
-
     class Meta:
         model = EvaluationReport
         fields = [
@@ -178,6 +180,10 @@ class EvaluationReportSerializer(serializers.ModelSerializer):
             },
         }
 
+    def __init__(self, *args: Any, **kwargs: Any) -> None:
+        super().__init__(*args, **kwargs)
+        self.created_instance = True
+
     def validate_evaluation(self, value):
         # Prevent creating a report in team A that references team B's evaluation:
         # the FK queryset is unscoped, so a user with access to multiple teams could
@@ -249,7 +255,7 @@ class EvaluationReportSerializer(serializers.ModelSerializer):
             if not rrule_str:
                 raise serializers.ValidationError({"rrule": "Required when frequency is 'scheduled'."})
             if not self.instance or self.instance.starts_at is None:
-                attrs["starts_at"] = timezone.now()
+                attrs["starts_at"] = default_schedule_anchor()
             attrs["timezone_name"] = "UTC"
         return attrs
 
