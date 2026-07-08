@@ -3,13 +3,14 @@ import { MOCK_DEFAULT_ORGANIZATION } from 'lib/api.mock'
 import { Meta, StoryObj } from '@storybook/react'
 import { useRef, useState } from 'react'
 
+import { FEATURE_FLAGS } from 'lib/constants'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { uuid } from 'lib/utils/dom'
 
 import { useStorybookMocks } from '~/mocks/browser'
 import preflightJson from '~/mocks/fixtures/_preflight.json'
 import { createMockSubscription, mockIntegration, mockSlackChannels } from '~/test/mocks'
-import { InsightShortId, Realm } from '~/types'
+import { DashboardType, InsightShortId, Realm } from '~/types'
 
 import { SubscriptionsModal, SubscriptionsModalProps } from './SubscriptionsModal'
 
@@ -94,7 +95,7 @@ const meta: Meta<StoryArgs> = {
                             // eslint-disable-next-line no-console
                             console.log('close')
                         }}
-                        insightShortId={insightShortIdRef.current}
+                        insightShortId={props.dashboard ? undefined : insightShortIdRef.current}
                         isOpen={true}
                         inline
                     />
@@ -109,7 +110,7 @@ const meta: Meta<StoryArgs> = {
                 <SubscriptionsModal
                     {...(props as SubscriptionsModalProps)}
                     closeModal={() => setModalOpen(false)}
-                    insightShortId={insightShortIdRef.current}
+                    insightShortId={props.dashboard ? undefined : insightShortIdRef.current}
                     isOpen={modalOpen}
                 />
             </div>
@@ -150,4 +151,21 @@ export const SubscriptionsNewFreeUnderLimit: Story = {
 // Freemium gate: a free org at the limit sees the upgrade paywall instead of the create form.
 export const SubscriptionsNewFreeAtLimit: Story = {
     args: { subscriptionId: 'new', freeTierSubscriptionCount: 5 },
+}
+
+// Tabbed overview (feature flag on), dashboard context: This dashboard / Insights / AI prompt reports tabs.
+export const SubscriptionsTabbed: Story = {
+    parameters: {
+        featureFlags: [FEATURE_FLAGS.SUBSCRIPTION_TABBED_OVERVIEW, FEATURE_FLAGS.SUBSCRIPTION_AI_PROMPT],
+    },
+    args: {
+        dashboard: {
+            id: 1,
+            name: 'Weekly metrics',
+            tiles: [
+                { id: 1, insight: { id: 11, short_id: 'ins11' as InsightShortId } },
+                { id: 2, insight: { id: 12, short_id: 'ins12' as InsightShortId } },
+            ],
+        } as unknown as DashboardType,
+    },
 }
