@@ -82,6 +82,9 @@ def register_routes(routers: RouterRegistry) -> None:
         r"data_modeling_jobs", data_modeling_job.DataModelingJobViewSet, "environment_data_modeling_jobs", ["team_id"]
     )
     routers.projects.register(
+        r"sql_flint_spec", sql_flint_spec.SQLFlintSpecViewSet, "project_sql_flint_spec", ["team_id"]
+    )
+    routers.projects.register(
         r"warehouse_column_annotations",
         column_annotation.WarehouseColumnAnnotationViewSet,
         "project_warehouse_column_annotations",
