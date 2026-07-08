@@ -47,7 +47,13 @@ describe('dashboardToSaveableTemplate', () => {
             tiles: [
                 {
                     id: 1,
-                    button_tile: { id: '1', url: '/replay/home', text: 'Watch replays', placement: 'left', style: 'primary' },
+                    button_tile: {
+                        id: '1',
+                        url: '/replay/home',
+                        text: 'Watch replays',
+                        placement: 'left',
+                        style: 'primary',
+                    },
                     layouts: {},
                     color: null,
                 },
