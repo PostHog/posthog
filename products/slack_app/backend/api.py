@@ -37,11 +37,13 @@ from posthog.models.organization import OrganizationMembership
 from posthog.models.user import User
 from posthog.models.user_integration import UserGitHubIntegration, UserIntegration
 from posthog.temporal.ai.slack_app import (
+    SLACK_APP_QUEUED_REACTION,
     PostHogCodeSlackMentionCommandWorkflowInputs,
     PostHogCodeSlackMentionWorkflowInputs,
     SlackAppMentionWorkflowInputs,
     derive_mention_workflow_id,
 )
+from posthog.temporal.ai.slack_app.helpers import safe_react
 from posthog.temporal.ai.slack_app.posthog_code_slack_interactivity import (
     PostHogCodeSlackInteractivityInputs,
     PostHogCodeSlackTerminateTaskWorkflow,
@@ -1450,6 +1452,25 @@ def _start_posthog_code_workflow(
     )
 
 
+def _react_message_queued(integration: Integration, event: dict) -> None:
+    """Ack an enqueued mention/DM with the queued reaction. The queue workflow
+    swaps it for the processing one when the message's turn starts. Best-effort
+    — a reaction failure must never fail the dispatch that already succeeded."""
+    message_ts = event.get("ts")
+    channel = event.get("channel")
+    if not message_ts or not channel:
+        return
+    try:
+        safe_react(SlackIntegration(integration).client, channel, message_ts, SLACK_APP_QUEUED_REACTION)
+    except Exception as e:
+        logger.warning(
+            "slack_app_queued_reaction_failed",
+            channel=channel,
+            message_ts=message_ts,
+            error=str(e),
+        )
+
+
 _ASSISTANT_CONTEXT_TTL_SECONDS = 60 * 60
 _ASSISTANT_SUGGESTED_PROMPTS = [
     {"title": "Fix a bug", "message": "Open a PR to fix a bug in my connected repo"},
@@ -2451,6 +2472,10 @@ def _start_mention_workflow(
             start_signal="new_message",
             start_signal_args=[workflow_inputs],
         )
+        # Untagged followups stay reaction-free: they were never addressed
+        # to the bot, and most get dropped by the chitchat classifier.
+        if not untagged_followup:
+            _react_message_queued(integration, event)
         return ROUTE_HANDLED_LOCALLY
     # Use derive_mention_workflow_id as the single source of truth: the workflow persists the same
     # value as slack_mention_workflow_id, so dispatch and the debug-tool Temporal link stay consistent

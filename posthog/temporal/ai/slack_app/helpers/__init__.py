@@ -62,3 +62,12 @@ def safe_react(client: Any, channel: str, timestamp: str, name: str) -> None:
             pass
         else:
             raise
+
+
+def swap_reaction(client: Any, channel: str, timestamp: str, remove: str, add: str) -> None:
+    """Replace one reaction with another; a missing old reaction is a no-op."""
+    try:
+        client.reactions_remove(channel=channel, timestamp=timestamp, name=remove)
+    except Exception:
+        pass
+    safe_react(client, channel, timestamp, add)

@@ -13,6 +13,7 @@ from temporalio.worker import UnsandboxedWorkflowRunner, Worker
 from posthog.temporal.ai.slack_app import derive_mention_workflow_id
 from posthog.temporal.ai.slack_app.slack_app_mention import SlackAppMentionWorkflow
 from posthog.temporal.ai.slack_app.types import (
+    MarkSlackAppMessageProcessingInput,
     PostHogCodeRepoCascadeOutcome,
     PostHogCodeSlackMentionWorkflowInputs,
     SlackAppMentionWorkflowInputs,
@@ -40,6 +41,8 @@ class _Recorder:
     def __init__(self) -> None:
         # (ts, repository) per create-task call, in execution order.
         self.created: list[tuple[str, str | None]] = []
+        # ts per hourglass->eyes reaction swap, in execution order.
+        self.processing_marked: list[str] = []
         # ts per forwarded followup, in execution order.
         self.forwarded: list[str] = []
         # ts -> forward result; missing means False (no existing task, fall through to new-task path).
@@ -190,7 +193,12 @@ def _fake_activities(rec: _Recorder) -> list:
     ) -> int | None:
         return 42
 
+    @activity.defn(name="mark_slack_app_message_processing_activity")
+    async def mark_processing(input: MarkSlackAppMessageProcessingInput) -> None:
+        rec.processing_marked.append(input.message_ts)
+
     return [
+        mark_processing,
         quota,
         classify_followup,
         forward,
@@ -277,6 +285,8 @@ async def test_queued_messages_process_serially_in_arrival_order():
         await asyncio.wait_for(handle.result(), timeout=30)
 
     assert rec.created == [("1.1", "org/auto-repo"), ("1.2", "org/auto-repo"), ("1.3", "org/auto-repo")]
+    # Each mention gets its hourglass swapped for eyes as it leaves the queue.
+    assert rec.processing_marked == ["1.1", "1.2", "1.3"]
 
 
 @pytest.mark.asyncio
@@ -315,7 +325,7 @@ async def test_duplicate_slack_event_id_is_processed_once():
 
 
 @pytest.mark.asyncio
-async def test_untagged_followup_forwards_without_task_creation():
+async def test_untagged_followup_forwards_without_task_creation_or_reactions():
     rec = _Recorder()
     rec.forward_results["1.1"] = True
 
@@ -325,6 +335,8 @@ async def test_untagged_followup_forwards_without_task_creation():
 
     assert rec.forwarded == ["1.1"]
     assert rec.created == []
+    # Untagged followups were never addressed to the bot: no reaction swap.
+    assert rec.processing_marked == []
 
 
 @pytest.mark.asyncio

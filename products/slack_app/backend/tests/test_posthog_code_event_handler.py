@@ -1292,12 +1292,13 @@ class TestQueueWorkflowDispatch(TestCase):
             ("threaded_mention_anchors_on_thread_root", "1000.0001", "1000.0001"),
         ]
     )
+    @patch("products.slack_app.backend.api.SlackIntegration")
     @patch("products.slack_app.backend.api.is_slack_app_queue_workflow_enabled", return_value=True)
     @patch("products.slack_app.backend.api.asyncio.run")
     @patch("products.slack_app.backend.api.sync_connect")
     @override_settings(DEBUG=False, CLOUD_DEPLOYMENT="US")
     def test_flag_on_signal_with_starts_conversation_workflow(
-        self, _name, thread_ts, expected_anchor, mock_sync_connect, mock_asyncio_run, mock_flag
+        self, _name, thread_ts, expected_anchor, mock_sync_connect, mock_asyncio_run, mock_flag, mock_slack
     ):
         # With the flag on, every message in a conversation must land in ONE
         # per-thread workflow via signal-with-start — the conversation ID
@@ -1306,6 +1307,7 @@ class TestQueueWorkflowDispatch(TestCase):
 
         from products.slack_app.backend.api import ROUTE_HANDLED_LOCALLY, route_posthog_code_event_to_relevant_region
 
+        mock_slack.return_value.missing_scopes.return_value = set()
         event = {"type": "app_mention", "channel": "C001", "user": "U123", "ts": "1234.5678"}
         if thread_ts:
             event["thread_ts"] = thread_ts
@@ -1322,3 +1324,7 @@ class TestQueueWorkflowDispatch(TestCase):
         message = call.kwargs["start_signal_args"][0]
         assert message.user_id == self.user.id
         assert message.event["ts"] == "1234.5678"
+        # The enqueued message is acked with an hourglass on the message itself.
+        mock_slack.return_value.client.reactions_add.assert_called_once_with(
+            channel="C001", timestamp="1234.5678", name="hourglass"
+        )

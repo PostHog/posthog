@@ -2,14 +2,19 @@
 import json
 from datetime import timedelta
 
-from temporalio import workflow
+from temporalio import exceptions, workflow
+from temporalio.common import RetryPolicy
 
-from posthog.temporal.ai.slack_app import derive_mention_workflow_id
+from posthog.temporal.ai.slack_app import derive_mention_workflow_id, mark_slack_app_message_processing_activity
 from posthog.temporal.ai.slack_app.helpers.process_mention_message import (
     MentionSignalHandlersMixin,
     process_mention_message,
 )
-from posthog.temporal.ai.slack_app.types import PostHogCodeSlackMentionWorkflowInputs, SlackAppMentionWorkflowInputs
+from posthog.temporal.ai.slack_app.types import (
+    MarkSlackAppMessageProcessingInput,
+    PostHogCodeSlackMentionWorkflowInputs,
+    SlackAppMentionWorkflowInputs,
+)
 from posthog.temporal.common.base import PostHogWorkflow
 
 SLACK_APP_MENTION_IDLE_TIMEOUT_SECONDS = 30
@@ -74,6 +79,32 @@ class SlackAppMentionWorkflow(MentionSignalHandlersMixin, PostHogWorkflow):
         ]
         return SlackAppMentionWorkflowInputs(**loaded)
 
+    async def _mark_processing(self, message: PostHogCodeSlackMentionWorkflowInputs) -> None:
+        """Swap the dispatch-time :hourglass: for :eyes: as the message leaves
+        the queue. Mentions and DMs only — untagged thread followups get no
+        dispatch reaction, and most are dropped by the chitchat classifier.
+        """
+        channel = message.event.get("channel")
+        message_ts = message.event.get("ts")
+        if message.untagged_followup or not channel or not message_ts:
+            return
+        try:
+            await workflow.execute_activity(
+                mark_slack_app_message_processing_activity,
+                MarkSlackAppMessageProcessingInput(
+                    integration_id=message.integration_id,
+                    slack_team_id=message.slack_team_id,
+                    channel=channel,
+                    message_ts=message_ts,
+                ),
+                start_to_close_timeout=timedelta(seconds=10),
+                retry_policy=RetryPolicy(maximum_attempts=1),
+            )
+        except exceptions.ActivityError:
+            # The activity swallows Slack errors itself; this only fires on a
+            # timeout. Cosmetic either way — never stall the queue for it.
+            workflow.logger.warning("slack_app_processing_reaction_activity_failed")
+
     @workflow.run
     async def run(self, inputs: SlackAppMentionWorkflowInputs) -> None:
         for key in inputs.processed_event_keys:
@@ -102,6 +133,7 @@ class SlackAppMentionWorkflow(MentionSignalHandlersMixin, PostHogWorkflow):
 
             message = self._queue.pop(0)
             self._signals.reset()
+            await self._mark_processing(message)
             # Never raises: internal errors are posted back to the thread, so
             # one poisoned message can't wedge the conversation's queue.
             await process_mention_message(message, self._signals)

@@ -8,6 +8,8 @@ creating an import cycle with the workflow modules.
 from dataclasses import dataclass, field, fields
 from typing import Any, Literal
 
+from pydantic import BaseModel
+
 
 @dataclass
 class PostHogSlackInboxOnboardingInputs:
@@ -77,6 +79,26 @@ class SlackAppMentionWorkflowInputs:
 
     pending_messages: list[PostHogCodeSlackMentionWorkflowInputs] = field(default_factory=list)
     processed_event_keys: list[str] = field(default_factory=list)
+
+
+# The queue-ack reaction contract: the webhook adds the queued reaction at
+# dispatch and the queue workflow swaps it for the processing one. Both sides
+# must agree, so the names live here rather than as literals at each call site.
+SLACK_APP_QUEUED_REACTION = "hourglass"
+SLACK_APP_PROCESSING_REACTION = "eyes"
+
+
+class MarkSlackAppMessageProcessingInput(BaseModel):
+    """Single-argument input for ``mark_slack_app_message_processing_activity``.
+
+    New Slack-app activities take one pydantic model instead of positional
+    arguments so the payload can grow fields without signature churn.
+    """
+
+    integration_id: int
+    slack_team_id: str
+    channel: str
+    message_ts: str
 
 
 @dataclass

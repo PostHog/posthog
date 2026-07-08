@@ -23,6 +23,7 @@ from posthog.temporal.ai.slack_app.activities import (
     forward_posthog_code_followup_activity,
     handle_posthog_code_rules_command_activity,
     handle_posthog_code_slack_mention_command_activity,
+    mark_slack_app_message_processing_activity,
     post_posthog_code_authorship_timeout_activity,
     post_posthog_code_internal_error_activity,
     post_posthog_code_no_repos_activity,
@@ -34,6 +35,9 @@ from posthog.temporal.ai.slack_app.activities import (
     run_posthog_slack_inbox_onboarding_activity,
 )
 from posthog.temporal.ai.slack_app.types import (
+    SLACK_APP_PROCESSING_REACTION,
+    SLACK_APP_QUEUED_REACTION,
+    MarkSlackAppMessageProcessingInput,
     PostHogCodeRepoCascadeOutcome,
     PostHogCodeRulesCommandResult,
     PostHogCodeSlackMentionCommandResult,
@@ -65,13 +69,17 @@ SLACK_APP_ACTIVITIES = [
     handle_posthog_code_rules_command_activity,
     create_posthog_code_routing_rule_activity,
     handle_posthog_code_slack_mention_command_activity,
+    mark_slack_app_message_processing_activity,
     run_posthog_slack_inbox_onboarding_activity,
 ]
 
 __all__ = [
     "CLASSIFIER_THREAD_HISTORY_MESSAGES",
+    "MarkSlackAppMessageProcessingInput",
     "POSTHOG_CODE_SLACK_MENTION_PICKER_GUIDANCE",
     "POSTHOG_CODE_SLACK_RULES_ADD_PICKER_GUIDANCE",
+    "SLACK_APP_PROCESSING_REACTION",
+    "SLACK_APP_QUEUED_REACTION",
     "PostHogCodeRepoCascadeOutcome",
     "PostHogCodeRulesCommandResult",
     "PostHogCodeSlackMentionCommandResult",
@@ -95,6 +103,7 @@ __all__ = [
     "forward_posthog_code_followup_activity",
     "handle_posthog_code_rules_command_activity",
     "handle_posthog_code_slack_mention_command_activity",
+    "mark_slack_app_message_processing_activity",
     "post_posthog_code_authorship_timeout_activity",
     "post_posthog_code_internal_error_activity",
     "post_posthog_code_no_repos_activity",
