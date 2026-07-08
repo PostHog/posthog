@@ -261,23 +261,31 @@ function collectTestFiles(dir) {
         const full = path.join(dir, entry.name)
         if (entry.isDirectory()) {
             files.push(...collectTestFiles(full))
-        } else if (entry.isFile() && (entry.name.startsWith('test_') || entry.name.endsWith('_test.py')) && entry.name.endsWith('.py')) {
+        } else if (
+            entry.isFile() &&
+            entry.name.endsWith('.py') &&
+            (entry.name.startsWith('test_') || entry.name.endsWith('_test.py'))
+        ) {
             files.push(full)
         }
     }
     return files
 }
 
-// Check if .test_durations is stale for a product by comparing on-disk test
-// file coverage vs recorded entries. Returns { stale, fileCount, coveredCount }.
-function checkProductStaleness(product, durations) {
-    if (!durations) return { stale: true, fileCount: 0, coveredCount: 0 }
-    const dirName = product.replace(/-/g, '_')
-    const productDir = path.join('products', dirName, 'backend')
-    const testFiles = collectTestFiles(productDir)
-    if (testFiles.length === 0) return { stale: false, fileCount: 0, coveredCount: 0 }
+function productPrefix(product) {
+    return `products/${product.replace(/-/g, '_')}/`
+}
 
-    const prefix = `products/${dirName}/`
+// Check if .test_durations is stale for a product by comparing on-disk test
+// file coverage vs recorded entries. Returns { stale, fileCount, coveredCount, coverage }.
+function checkProductStaleness(product, durations) {
+    if (!durations) return { stale: true, fileCount: 0, coveredCount: 0, coverage: 0 }
+    const dirName = product.replace(/-/g, '_')
+    const productDir = path.join('products', dirName)
+    const testFiles = collectTestFiles(productDir)
+    if (testFiles.length === 0) return { stale: false, fileCount: 0, coveredCount: 0, coverage: 0 }
+
+    const prefix = productPrefix(product)
     // Build set of file paths that have at least one entry in durations
     const coveredFiles = new Set()
     for (const testPath of Object.keys(durations)) {
@@ -301,8 +309,7 @@ function getProductDuration(product, durations) {
     if (!durations) {
         return 0
     }
-    const dirName = product.replace(/-/g, '_')
-    const prefix = `products/${dirName}/`
+    const prefix = productPrefix(product)
     // Temporal tests are normally excluded (they run in the Django Temporal segment), but a product
     // that runs its own temporal suite in the product job must count them toward its size.
     const excluded = PRODUCTS_RUNNING_TEMPORAL_IN_JOB.has(product) ? [] : EXCLUDED_PATH_SEGMENTS
@@ -316,7 +323,12 @@ function getProductDuration(product, durations) {
 }
 
 function productEffectiveCost(product, durations) {
-    return getProductDuration(product, durations) * PRODUCT_SAFETY_FACTOR + PRODUCT_PER_PRODUCT_OVERHEAD_SECONDS
+    let base = getProductDuration(product, durations)
+    const staleness = checkProductStaleness(product, durations)
+    if (staleness.stale && staleness.fileCount > 0) {
+        base = Math.max(base, staleness.fileCount * STALENESS_FALLBACK_SECONDS_PER_FILE)
+    }
+    return base * PRODUCT_SAFETY_FACTOR + PRODUCT_PER_PRODUCT_OVERHEAD_SECONDS
 }
 
 // First-fit-decreasing bin packing into TARGET-sized shards. Sorts products by
@@ -426,18 +438,18 @@ function buildMatrix(products, durations) {
     // can't balance well when many tests have flat-default 0.01s values),
     // paying duplicate Docker setup for little parallel work gained.
     for (const product of products) {
+        const staleness = checkProductStaleness(product, durations)
         let raw = getProductDuration(product, durations) + PRODUCT_PER_PRODUCT_OVERHEAD_SECONDS
         const targetWall = PRODUCT_TARGET_WALL_OVERRIDE[product] ?? PRODUCT_TARGET_WALL_SECONDS
 
         // Staleness guard: if .test_durations has poor coverage for this product,
         // use a file-count-based fallback to avoid under-sharding.
-        const staleness = checkProductStaleness(product, durations)
         if (staleness.stale && staleness.fileCount > 0) {
             const fallbackRaw = staleness.fileCount * STALENESS_FALLBACK_SECONDS_PER_FILE + PRODUCT_PER_PRODUCT_OVERHEAD_SECONDS
             if (fallbackRaw > raw) {
                 console.error(
                     `  ${product}: .test_durations stale — ${staleness.coveredCount}/${staleness.fileCount} test files covered ` +
-                    `(${((staleness.coverage ?? 0) * 100).toFixed(0)}%). Using fallback estimate: ${(fallbackRaw / 60).toFixed(1)} min (was ${(raw / 60).toFixed(1)} min)`
+                    `(${(staleness.coverage * 100).toFixed(0)}%). Using fallback estimate: ${(fallbackRaw / 60).toFixed(1)} min (was ${(raw / 60).toFixed(1)} min)`
                 )
                 console.error(
                     `::warning title=Stale .test_durations::Product '${product}' has only ${staleness.coveredCount}/${staleness.fileCount} ` +
@@ -484,7 +496,11 @@ function buildMatrix(products, durations) {
     return matrix
 }
 
+// Exported for unit tests only — not part of the public API.
+module.exports = { collectTestFiles, checkProductStaleness, productPrefix, productEffectiveCost, STALENESS_COVERAGE_THRESHOLD, STALENESS_FALLBACK_SECONDS_PER_FILE }
+
 // --- Main ---
+if (require.main === module) {
 
 const legacyChanged = process.env.LEGACY_CHANGED === 'true'
 const schemaChanged = process.env.SCHEMA_CHANGED === 'true'
@@ -623,3 +639,5 @@ const result = {
 }
 // eslint-disable-next-line no-console
 process.stdout.write(JSON.stringify(result) + '\n')
+
+} // end if (require.main === module)
