@@ -3,18 +3,15 @@ from typing import cast
 
 from django.contrib.auth.models import AbstractBaseUser
 from django.contrib.auth.tokens import PasswordResetTokenGenerator
-from django.utils import timezone
 from django.utils.crypto import constant_time_compare
 from django.utils.http import base36_to_int
 
 import structlog
-from drf_spectacular.utils import extend_schema
-from rest_framework import permissions, serializers, status, viewsets
+from rest_framework import permissions, status, viewsets
 from rest_framework.request import Request
 from rest_framework.response import Response
 
 from posthog.models.user import User
-from posthog.rate_limit import TwoFactorResetRequestThrottle
 
 logger = structlog.get_logger(__name__)
 
@@ -110,91 +107,20 @@ class TwoFactorResetVerifier:
         return two_factor_reset_token_generator.check_token(user, token)
 
 
-class TwoFactorResetResponseSerializer(serializers.Serializer):
-    success = serializers.BooleanField(help_text="Whether the 2FA reset action succeeded.")
-    error = serializers.CharField(
-        required=False, help_text="Human-readable error message when the request could not be processed."
-    )
-    requires_login = serializers.BooleanField(
-        required=False,
-        help_text="True when the user must re-enter their email and password before requesting a reset.",
-    )
-
-
 # 2FA Reset ViewSet - for resetting 2FA when a user has lost access to their authenticator
 class TwoFactorResetViewSet(viewsets.ViewSet):
     """
-    ViewSet for handling the 2FA reset flow.
+    ViewSet for handling 2FA reset flow initiated by admins.
 
     The user must be in a "half-authed" state (passed credential auth but not 2FA)
     to access these endpoints. This is verified by checking the session keys
     set during the login flow.
 
-    POST /api/reset_2fa/request/ - Self-service: email a reset link to the logged-in user
     GET /api/reset_2fa/<user_uuid>/?token=<token> - Validate token and session state
     POST /api/reset_2fa/<user_uuid>/ - Confirm and execute 2FA reset
     """
 
     permission_classes = (permissions.AllowAny,)
-
-    def get_throttles(self):
-        # Requesting a reset sends an email, so throttle it harder than token validation.
-        if getattr(self, "action", None) == "request_reset":
-            return [TwoFactorResetRequestThrottle()]
-        return super().get_throttles()
-
-    @extend_schema(
-        request=None,
-        responses={
-            200: TwoFactorResetResponseSerializer,
-            400: TwoFactorResetResponseSerializer,
-            401: TwoFactorResetResponseSerializer,
-        },
-        description=(
-            "Self-service 2FA reset request. When a user has entered valid credentials but cannot complete "
-            "two-factor authentication (e.g. lost authenticator), this emails a reset link to their own "
-            "verified address so they can recover without contacting support."
-        ),
-    )
-    def request_reset(self, request: Request) -> Response:
-        """Email a 2FA reset link to the user currently stuck at the 2FA login step."""
-        from django_otp.plugins.otp_totp.models import TOTPDevice
-
-        from posthog.helpers.two_factor_session import has_passkeys
-        from posthog.tasks.email import send_two_factor_reset_email
-
-        # Only a user who has already passed credential auth can trigger this — the reset link then
-        # goes to their own verified email, mirroring the password-reset recovery pattern.
-        session_user, session_error = self._get_half_authed_user(request)
-        if session_error or not session_user:
-            return Response(
-                {
-                    "success": False,
-                    "error": session_error or "You must log in with your credentials first.",
-                    "requires_login": True,
-                },
-                status=status.HTTP_401_UNAUTHORIZED,
-            )
-
-        has_totp = TOTPDevice.objects.filter(user=session_user, confirmed=True).exists()
-        has_passkeys_for_2fa = has_passkeys(session_user) and session_user.passkeys_enabled_for_2fa
-        if not has_totp and not has_passkeys_for_2fa:
-            return Response(
-                {"success": False, "error": "Your account does not have two-factor authentication enabled."},
-                status=status.HTTP_400_BAD_REQUEST,
-            )
-
-        # Bump requested_2fa_reset_at so any previously issued reset tokens are invalidated, then
-        # mint and email a fresh one.
-        session_user.requested_2fa_reset_at = timezone.now()
-        session_user.save(update_fields=["requested_2fa_reset_at"])
-
-        token = TwoFactorResetVerifier.create_token(session_user)
-        send_two_factor_reset_email.delay(session_user.pk, token)
-
-        logger.info("Self-service 2FA reset email requested", user_id=session_user.pk)
-
-        return Response({"success": True})
 
     def _get_half_authed_user(self, request: Request) -> tuple[User | None, str | None]:
         """

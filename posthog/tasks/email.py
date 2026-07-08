@@ -1075,7 +1075,7 @@ def send_two_factor_auth_backup_code_used_email(user_id: int) -> None:
 @shared_task(**EMAIL_TASK_KWARGS)
 @skip_team_scope_audit
 def send_two_factor_reset_email(user_id: int, token: str) -> None:
-    """Send a 2FA reset email to a user, whether triggered by an admin or self-service from login."""
+    """Send 2FA reset email to user when an admin initiates a reset."""
     # Deferred: this constant lives in a DRF viewset module; email.py is eager-imported by
     # posthog/tasks/__init__, so a module-level import drags that machinery onto startup.
     from posthog.api.two_factor_reset import TWO_FACTOR_RESET_TOKEN_TIMEOUT_HOURS  # noqa: PLC0415
@@ -1090,7 +1090,7 @@ def send_two_factor_reset_email(user_id: int, token: str) -> None:
         subject="Reset your two-factor authentication",
         template_name="2fa_reset",
         template_context={
-            "preheader": "We've received a request to reset two-factor authentication for your account.",
+            "preheader": "An administrator has initiated a 2FA reset for your account.",
             "user_name": user.first_name,
             "user_email": user.email,
             "url": reset_link,

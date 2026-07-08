@@ -437,10 +437,6 @@ urlpatterns = [
         authentication.PasswordResetCompleteViewSet.as_view({"get": "retrieve", "post": "create"}),
     ),
     path(
-        "api/reset_2fa/request/",
-        two_factor_reset.TwoFactorResetViewSet.as_view({"post": "request_reset"}),
-    ),
-    path(
         "api/reset_2fa/<str:user_uuid>/",
         two_factor_reset.TwoFactorResetViewSet.as_view({"get": "retrieve", "post": "create"}),
     ),

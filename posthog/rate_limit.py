@@ -768,25 +768,6 @@ class TwoFactorThrottle(UserOrEmailRateThrottle):
         return super().get_cache_key(request, view)
 
 
-class TwoFactorResetRequestThrottle(UserOrEmailRateThrottle):
-    """
-    Rate limiting for self-service 2FA reset email requests during login.
-    Keeps the reset email from being triggered repeatedly for one account.
-    Uses the pending 2FA user ID from session to throttle per-user.
-    """
-
-    scope = "two_factor_reset_request"
-    rate = "3/day"
-
-    def get_cache_key(self, request, view):
-        user_id = request.session.get("user_authenticated_but_no_2fa")
-        if user_id:
-            ident = hashlib.sha256(str(user_id).encode()).hexdigest()
-            return self.cache_format % {"scope": self.scope, "ident": ident}
-
-        return super().get_cache_key(request, view)
-
-
 class UserAuthenticationThrottle(UserOrEmailRateThrottle):
     scope = "user_authentication"
     rate = "5/minute"

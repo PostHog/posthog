@@ -11,21 +11,13 @@ import { LemonField } from 'lib/lemon-ui/LemonField'
 import { Link } from 'lib/lemon-ui/Link'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { SceneExport } from 'scenes/sceneTypes'
-import { urls } from 'scenes/urls'
 
 import { login2FALogic } from './login2FALogic'
 
 export function Login2FA(): JSX.Element {
-    const {
-        isTwofactortokenSubmitting,
-        generalError,
-        passkey2FALoading,
-        passkeysAvailable,
-        totpAvailable,
-        twoFactorResetRequest,
-        twoFactorResetRequestLoading,
-    } = useValues(login2FALogic)
-    const { beginPasskey2FA, requestTwoFactorReset } = useActions(login2FALogic)
+    const { isTwofactortokenSubmitting, generalError, passkey2FALoading, passkeysAvailable, totpAvailable } =
+        useValues(login2FALogic)
+    const { beginPasskey2FA } = useActions(login2FALogic)
     const { preflight } = useValues(preflightLogic)
     const { openSupportForm } = useActions(supportLogic)
 
@@ -109,46 +101,6 @@ export function Login2FA(): JSX.Element {
                     <LemonBanner type="error">
                         No 2FA methods available. Please contact support if you believe this is an error.
                     </LemonBanner>
-                )}
-
-                {(passkeysAvailable || totpAvailable) && (
-                    <>
-                        <LemonDivider className="my-4" />
-                        {twoFactorResetRequest?.success ? (
-                            <LemonBanner type="success">
-                                We've emailed you a link to reset your two-factor authentication. Follow it to regain
-                                access, then set up 2FA again to keep your account secure.
-                            </LemonBanner>
-                        ) : (
-                            <div className="deprecated-space-y-2">
-                                {twoFactorResetRequest && !twoFactorResetRequest.success && (
-                                    <LemonBanner type="error">
-                                        {twoFactorResetRequest.error}
-                                        {twoFactorResetRequest.requires_login && (
-                                            <>
-                                                {' '}
-                                                <Link to={urls.login()}>Log in again</Link>
-                                            </>
-                                        )}
-                                    </LemonBanner>
-                                )}
-                                <p className="text-sm text-secondary text-center mb-0">
-                                    Lost access to your authenticator?
-                                </p>
-                                <LemonButton
-                                    type="tertiary"
-                                    size="small"
-                                    data-attr="2fa-reset-request"
-                                    fullWidth
-                                    center
-                                    loading={twoFactorResetRequestLoading}
-                                    onClick={() => requestTwoFactorReset()}
-                                >
-                                    Email me a reset link
-                                </LemonButton>
-                            </div>
-                        )}
-                    </>
                 )}
             </div>
         </BridgePage>
