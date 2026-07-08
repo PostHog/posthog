@@ -158,7 +158,8 @@ query-log exports make its CH footprint analyzable, so the knobs can be tightene
 Fine for the current flag-gated audience and frames up to low hundreds of thousands of rows.
 
 **Phase 1 — swap the payload path, minimal moving parts.**
-Reintroduce `LimitContext.NOTEBOOK_MATERIALIZE` (2M ceiling, the reverted change) together with the new transport.
+Reintroduce `LimitContext.NOTEBOOK_MATERIALIZE` together with the new transport (tiered ceiling — see
+resource governance — landing eventually at `_MATERIALIZE_ROW_CAP`).
 When the data-plane task runs under it, the worker streams the CH result
 (`output_format="ArrowStream"`, bounded batches — data-modeling pattern) into one object,
 stores the **object key** in `QueryStatus` instead of rows, and the status endpoint answers the poll with a
@@ -166,6 +167,22 @@ stores the **object key** in `QueryStatus` instead of rows, and the status endpo
 The kernel's `requests` client follows redirects by default and drops the `Authorization` header on cross-host
 redirects, so the existing executor works nearly unchanged and the presigned URL needs no auth.
 Keep the Redis path as fallback when object storage is unconfigured (dev parity, degraded mode).
+
+Two decisions locked in for this phase:
+
+- **Format: one plain Arrow IPC stream object per frame — not Delta, not Parquet.** Delta earns its machinery
+  when ClickHouse re-reads a versioned, overwritten _table_ (data modeling's case). A frame is an immutable
+  write-once blob keyed by `query_hash`, read by pandas — an "update" is a different hash, i.e. a different
+  key. The executor already consumes ArrowStream from the data plane, so the sandbox-side change is just
+  "read the same bytes from a different host". If size matters, Arrow IPC supports LZ4/ZSTD buffer
+  compression without a format change; multi-file partitioning waits for phase 2, if ever.
+- **The queue is the throttle.** Under worker streaming, one active task = one running CH query = one upload,
+  so the dedicated queue's concurrency directly bounds CH concurrency, worker memory (~100MB × concurrency),
+  and S3 parallelism with a single knob — no dedicated CH user needed for v1 (that stays as hardening).
+  Throttling moves load in time (backlog), never above the cap; the real amplification risk is impatient
+  re-runs, and the async manager's existing `cache_key` dedup (`get_running_query_by_cache_key`) closes it:
+  enqueue with `cache_key = query_hash` and duplicate in-flight materializations join the running query
+  instead of stacking new ones.
 
 **Phase 2 — let ClickHouse do the writing (only if the data says so).**
 Replace the worker-streamed upload with `INSERT INTO FUNCTION s3(...'ArrowStream')` (batch-exports recipe):
