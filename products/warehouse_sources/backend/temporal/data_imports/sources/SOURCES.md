@@ -319,6 +319,7 @@ the row lists both.
 | square                  | HTTP                        | requests                                                        | ✅                          |
 | squarespace             | HTTP                        | requests                                                        | ✅                          |
 | statuspage              | HTTP                        | requests                                                        | ✅                          |
+| stigg                   | HTTP                        | requests                                                        | ✅                          |
 | stripe                  | HTTP (vendor SDK) + Webhook | stripe (StripeClient + RequestsClient) + `WebhookSourceManager` | ✅ (pull) / ➖ (webhook)    |
 | supabase                | DB protocol                 | psycopg (delegates to PostgresSource)                           | ➖                          |
 | surveymonkey            | HTTP                        | requests                                                        | ✅                          |
@@ -676,7 +677,6 @@ doesn't conflict with concurrent PRs.
 - spotify_ads
 - spotlercrm
 - statsig
-- stigg
 - stockdata
 - strava
 - streamelements

@@ -3149,7 +3149,7 @@ class StatuspageSourceConfig(config.Config):
 
 @config.config
 class StiggSourceConfig(config.Config):
-    pass
+    api_key: str
 
 
 @config.config
