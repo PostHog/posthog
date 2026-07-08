@@ -2740,7 +2740,7 @@ class ReferralHeroSourceConfig(config.Config):
 
 @config.config
 class RentCastSourceConfig(config.Config):
-    pass
+    api_key: str
 
 
 @config.config
