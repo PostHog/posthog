@@ -1,15 +1,7 @@
 from posthog.hogql import ast
 from posthog.hogql.context import HogQLContext
-from posthog.hogql.database.models import (
-    DateDatabaseField,
-    DateTimeDatabaseField,
-    FieldOrTable,
-    FloatDatabaseField,
-    IntegerDatabaseField,
-    LazyTable,
-    LazyTableToAdd,
-    StringDatabaseField,
-)
+from posthog.hogql.database.models import DateTimeDatabaseField, FieldOrTable, LazyTable, LazyTableToAdd
+from posthog.hogql.database.schema.marketing_costs_preaggregated import MarketingCostsPreaggregatedTable
 
 # Public, deduplicated read interface over `marketing_costs_preaggregated`. The raw table is a
 # ReplacingMergeTree whose sort key includes `job_id`, so the same cost cell (source/campaign/ad/day)
@@ -29,27 +21,17 @@ MARKETING_COSTS_PRECOMPUTED_VIEW_NAME = "marketing_costs_precomputed"
 # Alias for the inner raw table reference, so field chains inside the subquery stay two-element.
 _RAW = "marketing_costs_preaggregated"
 
-# Cell identity: every column that isn't a metric. We group by all of these on every read (regardless of
-# which columns the caller selected) so each source/campaign/ad/day cell collapses independently — a
+# Reuse the raw table's column definitions so the view can't drift from the schema it reads.
+_RAW_FIELDS = MarketingCostsPreaggregatedTable().fields
+# Internal columns the dedup folds away — never exposed by the view.
+_INTERNAL = {"job_id", "computed_at"}
+# Metrics take the latest job's value via argMax(…, computed_at). `expires_at` rides along so a consumer's
+# `expires_at > today()` filter reflects the freshest row's TTL, not an arbitrary duplicate's.
+_LATEST = {"cost", "clicks", "impressions", "reported_conversions", "reported_conversion_value", "expires_at"}
+# Cell identity: every exposed column that isn't a metric or the virtual timestamp. We GROUP BY all of these
+# on every read (regardless of which columns the caller selected) so each cell collapses independently — a
 # partial GROUP BY would fold unrelated cells together and argMax the wrong row.
-_DIMENSIONS = [
-    "team_id",
-    "source_id",
-    "source_name",
-    "grain",
-    "match_key",
-    "campaign_id",
-    "campaign_name",
-    "ad_group_id",
-    "ad_group_name",
-    "ad_id",
-    "ad_name",
-    "cost_date",
-]
-
-# Latest-job-wins metrics. `expires_at` follows the latest job too, so a consumer's `expires_at > today()`
-# filter reflects the freshest row's TTL rather than an arbitrary duplicate's.
-_LATEST = ["cost", "clicks", "impressions", "reported_conversions", "reported_conversion_value", "expires_at"]
+_DIMENSIONS = [c for c in _RAW_FIELDS if c not in _INTERNAL | _LATEST | {"timestamp"}]
 
 
 class MarketingCostsPrecomputedTable(LazyTable):
@@ -60,27 +42,10 @@ class MarketingCostsPrecomputedTable(LazyTable):
     )
 
     fields: dict[str, FieldOrTable] = {
-        "team_id": IntegerDatabaseField(name="team_id"),
-        "source_id": StringDatabaseField(name="source_id"),
-        "source_name": StringDatabaseField(name="source_name"),
-        "grain": StringDatabaseField(name="grain"),
-        "match_key": StringDatabaseField(name="match_key"),
-        "campaign_id": StringDatabaseField(name="campaign_id"),
-        "campaign_name": StringDatabaseField(name="campaign_name"),
-        "ad_group_id": StringDatabaseField(name="ad_group_id"),
-        "ad_group_name": StringDatabaseField(name="ad_group_name"),
-        "ad_id": StringDatabaseField(name="ad_id"),
-        "ad_name": StringDatabaseField(name="ad_name"),
-        "cost_date": DateDatabaseField(name="cost_date"),
-        # Virtual DateTime so a TrendsQuery DataWarehouseNode can target the view — the trends builder
-        # references a hardcoded `timestamp` field, and cost_date is a Date.
+        **{name: field for name, field in _RAW_FIELDS.items() if name not in _INTERNAL | {"timestamp"}},
+        # Materialized DateTime (lazy_select emits toDateTime(cost_date)) so a TrendsQuery DataWarehouseNode
+        # can target the view — the trends builder references a hardcoded `timestamp` field.
         "timestamp": DateTimeDatabaseField(name="timestamp"),
-        "cost": FloatDatabaseField(name="cost"),
-        "clicks": FloatDatabaseField(name="clicks"),
-        "impressions": FloatDatabaseField(name="impressions"),
-        "reported_conversions": FloatDatabaseField(name="reported_conversions"),
-        "reported_conversion_value": FloatDatabaseField(name="reported_conversion_value"),
-        "expires_at": DateDatabaseField(name="expires_at"),
     }
 
     def lazy_select(
