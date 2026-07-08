@@ -25,6 +25,8 @@ from posthog.schema import (
     PropertyGroupFilter,
 )
 
+from posthog.hogql.errors import QueryError
+
 from posthog.api.documentation import _FallbackSerializer
 from posthog.api.mixins import PydanticModelMixin
 from posthog.api.property_value_metrics import PROPERTY_VALUES_DURATION
@@ -37,6 +39,7 @@ from posthog.models import User
 from posthog.tasks.exporter import export_asset
 
 from products.exports.backend.models.exported_asset import ExportedAsset
+from products.logs.backend.column_expressions import canonical_key
 from products.logs.backend.count_query_runner import CountQueryRunner
 from products.logs.backend.count_ranges_query_runner import (
     DEFAULT_TARGET_BUCKETS,
@@ -54,7 +57,12 @@ from products.logs.backend.has_logs_query_runner import team_has_logs
 from products.logs.backend.log_attributes_query_runner import LogAttributesQueryRunner
 from products.logs.backend.log_facet_values_query_runner import FACET_FIELDS, LogFacetValuesQueryRunner
 from products.logs.backend.log_values_query_runner import LogValuesQueryRunner
-from products.logs.backend.logs_query_runner import CachedLogsQueryResponse, LogsQueryResponse, LogsQueryRunner
+from products.logs.backend.logs_query_runner import (
+    MAX_CUSTOM_COLUMNS,
+    CachedLogsQueryResponse,
+    LogsQueryResponse,
+    LogsQueryRunner,
+)
 from products.logs.backend.patterns_query_runner import PatternsQueryRunner
 from products.logs.backend.presentation.views.alerts_api import LogsAlertViewSet
 from products.logs.backend.presentation.views.explain import LogExplainViewSet
@@ -257,6 +265,17 @@ class _LogsQueryBodySerializer(serializers.Serializer):
         required=False,
         default=False,
         help_text="Omit the per-log attributes and resource_attributes maps from results to keep payloads compact. Defaults to false.",
+    )
+    customColumns = serializers.ListField(
+        child=serializers.CharField(),
+        required=False,
+        default=[],
+        help_text=(
+            "Custom column expressions evaluated per log row. Each entry is either a source-prefixed shorthand "
+            "(`attributes.<key>`, `resource_attributes.<key>`, `body.<json.path>`) or a scalar HogQL expression "
+            "(`upper(level)`, `coalesce(attributes['a'], attributes['b'])`). Aggregations and subqueries are rejected. "
+            "Values come back on each result row keyed by the aliases echoed in the response `columns` field."
+        ),
     )
 
 
@@ -536,6 +555,15 @@ class _LogsQueryResponseSerializer(serializers.Serializer):
     )
     maxExportableLogs = serializers.IntegerField(
         help_text="Maximum number of rows the `export` endpoint will produce — informational.",
+    )
+    columns = serializers.ListField(
+        child=serializers.CharField(),
+        required=False,
+        allow_null=True,
+        help_text=(
+            "Aliases for the requested `customColumns`, in request order. Each result row carries its "
+            "custom column values under these keys. Null when no custom columns were requested."
+        ),
     )
 
 
@@ -950,6 +978,13 @@ class LogsViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet):
         after_cursor = query_data.get("after", None)
         date_range = self.get_model(query_data.get("dateRange"), DateRange)
 
+        custom_columns = query_data.get("customColumns") or []
+        if len(custom_columns) > MAX_CUSTOM_COLUMNS:
+            return Response(
+                {"error": f"Too many custom columns: {len(custom_columns)} (max {MAX_CUSTOM_COLUMNS})"},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
         order_by = query_data.get("orderBy")
         # Default to latest instead of erroring on invalid order_by
         if order_by not in (LogsOrderBy.EARLIEST, LogsOrderBy.LATEST):
@@ -987,6 +1022,7 @@ class LogsViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet):
             "resourceFingerprint": query_data.get("resourceFingerprint", None),
             "limit": requested_limit + 1,  # Fetch limit plus 1 to see if theres another page
             "excludeAttributes": query_data.get("excludeAttributes", False),
+            "customColumns": custom_columns,
         }
         if live_logs_checkpoint:
             logs_query_params["liveLogsCheckpoint"] = live_logs_checkpoint
@@ -1001,20 +1037,24 @@ class LogsViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet):
         # Skip time-slicing for live tailing - we're always only looking at the most recent 1-2 minutes
         # Note: cursor pagination no longer skips time-slicing because we narrow the date range
         # to end at the cursor timestamp, allowing time-slicing to work on the remaining range.
-        if live_logs_checkpoint:
-            response = LogsQueryRunner(query, self.team).run(
-                ExecutionMode.CALCULATE_BLOCKING_ALWAYS, analytics_props=analytics_props
-            )
-            results = list(response.results)
-        else:
-            results = list(
-                time_sliced_results(
-                    runner=LogsQueryRunner(query, self.team),
-                    order_by_earliest=order_by == LogsOrderBy.EARLIEST,
-                    make_runner=make_runner,
-                    analytics_props=analytics_props,
+        try:
+            if live_logs_checkpoint:
+                response = LogsQueryRunner(query, self.team).run(
+                    ExecutionMode.CALCULATE_BLOCKING_ALWAYS, analytics_props=analytics_props
                 )
-            )
+                results = list(response.results)
+            else:
+                results = list(
+                    time_sliced_results(
+                        runner=LogsQueryRunner(query, self.team),
+                        order_by_earliest=order_by == LogsOrderBy.EARLIEST,
+                        make_runner=make_runner,
+                        analytics_props=analytics_props,
+                    )
+                )
+        except QueryError as e:
+            # A bad custom-column expression is re-raised by the runner as QueryError; keep it a clean 400.
+            return Response({"error": str(e)}, status=status.HTTP_400_BAD_REQUEST)
         has_more = len(results) > requested_limit
         results = results[:requested_limit]  # Rm the +1 we used to check for another page
 
@@ -1052,6 +1092,7 @@ class LogsViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet):
                 "hasMore": has_more,
                 "nextCursor": next_cursor,
                 "maxExportableLogs": LOGS_MAX_EXPORT_ROWS,
+                "columns": [canonical_key(c) for c in custom_columns] or None,
             },
             status=200,
         )
@@ -1508,6 +1549,13 @@ class LogsViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet):
         query_data = request.data.get("query", None)
         if query_data is None:
             return Response({"error": "No query provided"}, status=status.HTTP_400_BAD_REQUEST)
+
+        custom_columns = query_data.get("customColumns") or []
+        if len(custom_columns) > MAX_CUSTOM_COLUMNS:
+            return Response(
+                {"error": f"Too many custom columns: {len(custom_columns)} (max {MAX_CUSTOM_COLUMNS})"},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
 
         columns = request.data.get("columns") or []
         filename = self._generate_export_filename(query_data)
