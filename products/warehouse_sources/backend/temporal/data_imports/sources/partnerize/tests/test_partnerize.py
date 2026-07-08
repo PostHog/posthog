@@ -248,6 +248,23 @@ class TestListRows:
         _, calls = _collect_rows(monkeypatch, manager, pages, "campaigns")
         assert calls[1][0] == f"{PARTNERIZE_BASE_URL}/user/publisher/111111l92/campaign/a?page=2"
 
+    def test_off_host_next_page_terminates_without_following(self, monkeypatch: Any) -> None:
+        # The session carries the Basic auth header, so a tampered next_page pointing off-host (a
+        # different host, or a lookalike that only prefixes the base) must not be followed (SSRF
+        # guard). The first page's rows still surface; the cursor is not followed and not saved.
+        for next_page in ("https://evil.example.com/steal", "https://api.partnerize.com.evil.example.com/steal"):
+            manager = _FakeResumableManager()
+            pages: list[dict[str, Any]] = [
+                {
+                    "countries": [{"country": {"ref_country_id": 1}}],
+                    "hypermedia": {"pagination": {"next_page": next_page}},
+                },
+            ]
+            rows, calls = _collect_rows(monkeypatch, manager, pages, "countries")
+            assert [r["ref_country_id"] for r in rows] == [1], next_page
+            assert len(calls) == 1, next_page
+            assert manager.saved == [], next_page
+
     def test_single_page_stops_without_saving(self, monkeypatch: Any) -> None:
         manager = _FakeResumableManager()
         rows, calls = _collect_rows(

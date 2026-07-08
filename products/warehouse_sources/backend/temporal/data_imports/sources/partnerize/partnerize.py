@@ -188,7 +188,15 @@ def _get_list_rows(
         if not isinstance(next_page, str) or not next_page or not rows:
             break
 
-        url = next_page if next_page.startswith("http") else f"{PARTNERIZE_BASE_URL}{next_page}"
+        # The session carries the Partnerize Basic auth header, so only follow the cursor when it
+        # stays on Partnerize: a relative path, or an absolute URL under the API host. Anything
+        # else (an attacker-tampered response pointing at an internal host) terminates the list.
+        if next_page.startswith("/"):
+            url = f"{PARTNERIZE_BASE_URL}{next_page}"
+        elif next_page.startswith(f"{PARTNERIZE_BASE_URL}/"):
+            url = next_page
+        else:
+            break
         resumable_source_manager.save_state(PartnerizeResumeConfig(next_url=url))
 
 
