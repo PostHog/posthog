@@ -156,6 +156,8 @@ export const productScenes: Record<string, () => Promise<any>> = {
     SessionGroupSummary: () => import('../../products/session_summaries/frontend/SessionGroupSummaryScene'),
     Skills: () => import('../../products/skills/frontend/LLMSkillsScene'),
     Skill: () => import('../../products/skills/frontend/LLMSkillScene'),
+    Subscriptions: () => import('../../products/subscriptions/frontend/scenes/SubscriptionsScene'),
+    Subscription: () => import('../../products/subscriptions/frontend/scenes/SubscriptionScene'),
     SlackTaskContext: () => import('../../products/tasks/frontend/SlackTaskContextScene'),
     Tracing: () => import('../../products/tracing/frontend/TracingScene'),
     TracingOperation: () => import('../../products/tracing/frontend/TracingOperationScene'),
@@ -287,6 +289,7 @@ export const productRoutes: Record<string, [string, string]> = {
     '/logs/drop-rules/:id': ['LogsSamplingDetail', 'logsSamplingDetail'],
     '/managed_migrations': ['ManagedMigration', 'managedMigration'],
     '/managed_migrations/new': ['ManagedMigration', 'managedMigration'],
+    '/mcp-analytics/activity': ['MCPAnalytics', 'mcpAnalyticsActivity'],
     '/mcp-analytics/dashboard': ['MCPAnalytics', 'mcpAnalyticsDashboard'],
     '/mcp-analytics/sessions': ['MCPAnalytics', 'mcpAnalyticsSessions'],
     '/mcp-analytics/tool-quality': ['MCPAnalytics', 'mcpAnalyticsToolQuality'],
@@ -311,6 +314,10 @@ export const productRoutes: Record<string, [string, string]> = {
     '/skills': ['Skills', 'skills'],
     '/skills/scouts': ['Skills', 'skillsScouts'],
     '/skills/:name': ['Skill', 'skill'],
+    '/subscriptions': ['Subscriptions', 'subscriptions'],
+    '/subscriptions/new': ['Subscriptions', 'subscriptionNew'],
+    '/subscriptions/:subscriptionId/edit': ['Subscriptions', 'subscriptionEdit'],
+    '/subscriptions/:subscriptionId': ['Subscription', 'subscription'],
     '/slack-task-context': ['SlackTaskContext', 'slackTaskContext'],
     '/tracing': ['Tracing', 'tracing'],
     '/tracing/operation': ['TracingOperation', 'tracingOperation'],
@@ -477,7 +484,7 @@ export const productRedirects: Record<
     '/logs/sampling/:id': (params, searchParams, hashParams) =>
         combineUrl(`/logs/drop-rules/${params.id}`, searchParams, hashParams).url,
     '/mcp-analytics': (_params, searchParams, hashParams) =>
-        combineUrl(urls.mcpAnalyticsDashboard(), searchParams, hashParams).url,
+        combineUrl(urls.mcpAnalyticsDashboard(), { ...searchParams, landing: 'auto' }, hashParams).url,
     '/replay-vision/templates': '/replay-vision/new/template',
     '/prompt-management/skills': (_params, searchParams, hashParams) =>
         combineUrl(urls.skills(), searchParams, hashParams).url,
@@ -878,6 +885,18 @@ export const productConfiguration: Record<string, any> = {
         iconType: 'llm_prompts',
     },
     Skill: { projectBased: true, name: 'Skill', layout: 'app-container', iconType: 'llm_prompts' },
+    Subscriptions: {
+        projectBased: true,
+        name: 'Subscriptions',
+        iconType: 'inbox',
+        description: 'View and manage scheduled insight and dashboard subscriptions for this project.',
+    },
+    Subscription: {
+        projectBased: true,
+        name: 'Subscription',
+        iconType: 'inbox',
+        description: 'View subscription details and delivery history for this project.',
+    },
     SlackTaskContext: { name: 'Slack task context', projectBased: true },
     Toolbar: {
         name: 'Toolbar',
@@ -1208,6 +1227,7 @@ export const productUrls = {
     managedMigration: (): string => '/managed_migrations',
     managedMigrationNew: (): string => '/managed_migrations/new',
     marketingAnalyticsApp: (): string => '/marketing',
+    mcpAnalyticsActivity: (): string => '/mcp-analytics/activity',
     mcpAnalyticsDashboard: (): string => '/mcp-analytics/dashboard',
     mcpAnalyticsSessions: (): string => '/mcp-analytics/sessions',
     mcpAnalyticsToolQuality: (): string => '/mcp-analytics/tool-quality',
@@ -1339,6 +1359,10 @@ export const productUrls = {
             version?: number
         }
     ): string => combineUrl(`/skills/${name}`, params).url,
+    subscriptions: (): string => '/subscriptions',
+    subscription: (id: string | number): string => `/subscriptions/${id}`,
+    subscriptionNew: (): string => '/subscriptions/new',
+    subscriptionEdit: (id: string | number): string => `/subscriptions/${id}/edit`,
     surveys: (tab?: SurveysTabs): string => `/surveys${tab ? `?tab=${tab}` : ''}`,
     survey: (id: string): string => `/surveys/${id}`,
     surveyFormBuilder: (id: string = 'new'): string => `/surveys/form/${id}`,

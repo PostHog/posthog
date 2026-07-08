@@ -404,6 +404,10 @@ jobs:
             - name: Check toolbar bundle stays under the CloudFront gzip limit
               run: pnpm --filter=@posthog/frontend check-toolbar-size
 
+            # Runs against the PR's own metafile, before the base rebuild overwrites it.
+            - name: Check toolbar graph stays inside its module boundary
+              run: pnpm --filter=@posthog/frontend check-toolbar-graph
+
             - name: Build base branch for size comparison
               # A broken base build (install/esbuild — which --report-only does not cover) must
               # only cost the vs-base delta, never redden every open PR's job. The comment steps
