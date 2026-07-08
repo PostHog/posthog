@@ -35,6 +35,17 @@ class RunAgentInputs:
 
 
 @dataclasses.dataclass
+class ValidatePersistInputs:
+    team_id: int
+    brief_id: str
+    # Raw agent report — untrusted until validate_agent_report accepts it.
+    report: dict
+    agent_session_ref: str
+    transcript_key: str | None
+    seed_items: list[dict]
+
+
+@dataclasses.dataclass
 class MarkBriefFailedInputs:
     team_id: int
     brief_id: str

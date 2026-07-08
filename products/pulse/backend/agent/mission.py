@@ -18,12 +18,12 @@ from pydantic import BaseModel, Field
 
 from posthog.models.team import Team
 
+from products.pulse.backend.generation.gate import MAX_OPPORTUNITIES
 from products.pulse.backend.models import BriefConfig, ProductBrief
 from products.pulse.backend.sources.base import SourceItem
 
 GENERAL_BRIEF_MISSION = "general_brief"
 POSTHOG_MCP_SCOPES: list[str] = ["query:read", "insight:read", "dashboard:read"]
-MAX_OPPORTUNITIES = 3
 
 
 class McpToolGrant(BaseModel):
