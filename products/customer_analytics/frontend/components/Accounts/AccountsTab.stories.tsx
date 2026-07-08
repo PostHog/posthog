@@ -1,5 +1,5 @@
 import { Meta, StoryObj } from '@storybook/react'
-import { within } from '@testing-library/dom'
+import { waitFor, within } from '@testing-library/dom'
 import userEvent from '@testing-library/user-event'
 
 import { FEATURE_FLAGS } from 'lib/constants'
@@ -406,5 +406,16 @@ export const RowExpandedUsagePopulated: Story = {
     ),
     play: async ({ canvasElement }) => {
         await expandAndOpenTab(canvasElement, 'Usage')
+        // Wait for the chart canvas to render before handing off to the snapshot.
+        // The play function timeout (~60s) is much more generous than waitForSelector (10s),
+        // so this prevents flaky timeouts under CI load.
+        await waitFor(
+            () => {
+                if (!canvasElement.querySelector('.DataVisualization canvas')) {
+                    throw new Error('DataVisualization canvas not yet rendered')
+                }
+            },
+            { timeout: 30000, interval: 500 }
+        )
     },
 }
