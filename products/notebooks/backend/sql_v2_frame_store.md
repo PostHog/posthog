@@ -114,29 +114,40 @@ token-authed; only the bulk-bytes leg moves to object storage.
 
 ## Resource governance — not hammering ClickHouse
 
-Materialization is a background bulk read; it must not contend with interactive product queries.
-Layered levers, roughly in order of impact:
+Materialization is **user-facing** — someone is waiting on their cell — so it belongs on the ONLINE pool with
+interactive queries (OFFLINE is where batch exports, usage reports, and cohort calculations run, with
+explicitly accepted latency variance and failure rates; a user-waiting query must not queue behind those).
+The risk is different: a single materialization can be far more expensive than an insight query, an
+**uncapped whale in a pool tuned for bounded queries**. The governance goal is therefore not relocation but
+making the whale impossible. Note the cap that matters is not the row count — an insight query with
+`LIMIT 50000` can still scan billions of rows; cost is bounded by execution time, bytes read, memory,
+and threads.
 
-- **Workload routing (do this first).** The cluster router pins `process_query_task` — the async query
-  manager's Celery task, which the data plane rides today — to the **ONLINE** pool
-  (`posthog/clickhouse/client/execute.py`, the `process_query_task` special case), because insight-page async
-  queries are user-facing. Materialization is not: it should run on the **OFFLINE** workload, where hedged
-  requests are already disabled precisely so heavy offline load can't bleed into the online pool.
-  With that, contention with dashboards is structurally impossible, not merely bounded.
-- **Per-query SETTINGS (batch-exports recipe).** The staging query carries its own caps, as
-  `internal_stage.py` does: `max_memory_usage`, `max_bytes_before_external_sort/group_by` (spill to disk),
-  `max_threads`, `min_insert_block_size_bytes` (64MiB there), `max_execution_time`, and `max_bytes_to_read`
-  to refuse oversized scans up front. `max_network_bandwidth` can throttle the S3 write rate if needed.
+Layered levers:
+
+- **Per-query SETTINGS (batch-exports recipe).** The staging query carries hard caps, as `internal_stage.py`
+  does: `max_execution_time` (modestly above the insight ceiling — frame pulls are legitimately heavier),
+  `max_bytes_to_read` (refuse oversized scans up front), `max_memory_usage`,
+  `max_bytes_before_external_sort/group_by` (spill to disk), `max_threads`, `min_insert_block_size_bytes`
+  (64MiB there). `max_network_bandwidth` can throttle the S3 write rate if needed.
+- **Scheduler priority, not pool exile.** CH's `priority` setting lets materialization run ONLINE while
+  yielding CPU to interactive queries under genuine contention — dashboards get right-of-way without
+  sending notebooks to a worse pool.
+- **Tiered row ceiling.** Don't jump 50k → 2M in one step: raise to ~500k with the phase-1 transport,
+  watch the footprint, then raise toward `_MATERIALIZE_ROW_CAP`.
+- **Admission control above CH.** One operation per notebook is already enforced by the operations logic;
+  add a per-team concurrency cap (one concurrent materialization per team initially) and a small dedicated
+  Celery queue so global concurrency equals worker count. The refs resolver already minimizes demand —
+  only frames the code actually reads are materialized.
 - **Dedicated ClickHouse user as the backstop.** The repo already splits traffic across CH users
   (`ClickHouseUser.APP` / `API`), each governed by a server-side settings profile. A materialization user gets
-  profile limits, QUOTAs, and `max_concurrent_queries_for_user` — a hard server-enforced concurrency ceiling
-  no application bug can exceed.
-- **Admission control above CH.** One operation per notebook is already enforced by the operations logic;
-  add a small dedicated Celery queue (global concurrency = worker count) and, if needed, a per-team
-  concurrency counter. The refs resolver already minimizes demand — only frames the code actually reads
-  are materialized.
+  profile limits, QUOTAs, and `max_concurrent_queries_for_user` — a hard server-enforced ceiling no
+  application bug can exceed.
 - **Demand elimination.** Phase 3's `query_hash` reuse means an unchanged upstream query never re-executes;
   long-term this is the strongest lever.
+- **Escalation path.** If notebooks' share of online capacity becomes meaningful, the router already supports
+  product-specific pools (`Workload.ENDPOINTS` is precedent) — a dedicated notebooks pool with online-grade
+  latency is the growth answer, decided with data rather than up front.
 
 The flow is already measurable: the data plane tags queries with `Product.NOTEBOOKS`, and the Dagster
 query-log exports make its CH footprint analyzable, so the knobs can be tightened with data.
