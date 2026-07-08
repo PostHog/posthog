@@ -290,6 +290,7 @@ the row lists both.
 | resend                  | HTTP                        | requests                                                        | ✅                          |
 | revenuecat              | HTTP + Webhook              | requests + `WebhookSourceManager`                               | ✅ (pull) / ➖ (webhook)    |
 | rippling                | HTTP                        | requests                                                        | ✅                          |
+| rocketlane              | HTTP                        | requests                                                        | ✅                          |
 | rollbar                 | HTTP                        | requests                                                        | ✅                          |
 | rootly                  | HTTP                        | requests                                                        | ✅                          |
 | ruddr                   | HTTP                        | requests                                                        | ✅                          |
