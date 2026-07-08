@@ -1307,7 +1307,7 @@ export default function SurveyEdit({ id }: { id: string }): JSX.Element {
                                         </>
                                     ),
                                 },
-                                ...(survey.type !== SurveyType.API
+                                ...(survey.type !== SurveyType.ExternalSurvey
                                     ? [
                                           {
                                               key: SurveyEditSection.Customization,
