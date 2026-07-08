@@ -2722,6 +2722,55 @@ class TestGitHubTeamIntegrationComplete:
         assert response["Location"].startswith("https://github.com/login/oauth/authorize")
         mock_build_oauth_url.assert_called_once()
 
+    @patch("posthog.models.integration.GitHubIntegration.verify_user_installation_access")
+    @patch("posthog.models.integration.GitHubIntegration.integration_from_installation_id")
+    def test_second_project_admin_links_org_installation_without_personal_github(
+        self, mock_from_install, mock_verify, client: HttpClient
+    ):
+        # A GitHub App installs once per org, so a second project sharing that org returns here as
+        # `setup_action=update` with no OAuth code. The admin has no personal GitHub link, but a sibling
+        # team already has this installation, so the link must still succeed (and never touch the
+        # personal-access check) rather than error with github_link_existing_personal_github_required.
+        source_team = Team.objects.create(organization=self.organization, name="First Project")
+        Integration.objects.create(
+            team=source_team,
+            kind="github",
+            integration_id="12345",
+            config={"installation_id": "12345"},
+            sensitive_config={"access_token": "ghs_source"},
+        )
+        assert not UserIntegration.objects.filter(user=self.user, kind="github").exists()
+
+        mock_from_install.side_effect = lambda *args, **kwargs: self._team_github_integration()
+        client.force_login(self.user)
+        next_path = f"/project/{self.team.pk}/integrations/github"
+        state_token = "second-project-token"
+        store_unified_authorize_state(
+            GitHubAuthorizeState(
+                token=state_token,
+                flow=FlowKind.TEAM_INSTALL,
+                user_id=self.user.id,
+                team_id=self.team.pk,
+                next_url=next_path,
+            ),
+        )
+
+        response = client.get(
+            "/integrations/github/callback/",
+            {
+                "installation_id": "12345",
+                "setup_action": "update",
+                "state": urlencode({"next": next_path, "token": state_token}),
+            },
+        )
+
+        assert response.status_code == status.HTTP_302_FOUND
+        assert "github_setup_error" not in response["Location"]
+        assert "integration_id=" in response["Location"]
+        # The org-level trust stands in for the personal proof, so we never call GitHub to verify it.
+        mock_verify.assert_not_called()
+        assert Integration.objects.filter(team=self.team, kind="github", integration_id="12345").exists()
+
     def test_cross_user_state_rejected_on_unified_callback(self, client: HttpClient):
         # State tokens are bound to a user via the pending-pointer cache key.
         # Another admin in the same team must not be able to finish a callback
@@ -4456,6 +4505,52 @@ class TestIntegrationMembershipPermissions(APIBaseTest):
         existing.refresh_from_db()
         assert existing.config["project_id"] == "original-project"
         assert Integration.objects.filter(team=self.team, kind="google-cloud-service-account").count() == 1
+
+
+class TestGitHubLinkExistingAPI(APIBaseTest):
+    def setUp(self):
+        super().setUp()
+        self.source_team = Team.objects.create(organization=self.organization, name="First Project")
+        Integration.objects.create(
+            team=self.source_team,
+            kind="github",
+            integration_id="12345",
+            config={"installation_id": "12345"},
+            sensitive_config={"access_token": "ghs_source"},
+        )
+
+    def _url(self) -> str:
+        return f"/api/projects/{self.team.id}/integrations/github/link_existing/"
+
+    @patch("posthog.api.github_callback.team_services.GitHubIntegration.integration_from_installation_id")
+    def test_admin_reuses_org_installation_without_personal_github(self, mock_from_install):
+        # The org already controls the installation (a sibling team has it), so an admin can reuse it
+        # for this project even with no personal GitHub link — the personal-access check is skipped.
+        assert not UserIntegration.objects.filter(user=self.user, kind="github").exists()
+        target_integration = Integration.objects.create(
+            team=self.team,
+            kind="github",
+            integration_id="12345",
+            config={"installation_id": "12345"},
+            sensitive_config={"access_token": "ghs_target"},
+        )
+        mock_from_install.return_value = target_integration
+
+        response = self.client.post(self._url(), {"source_team_id": self.source_team.id}, format="json")
+
+        assert response.status_code == status.HTTP_200_OK, response.content
+        assert response.json()["id"] == target_integration.id
+        mock_from_install.assert_called_once_with("12345", self.team.id, self.user)
+
+    def test_member_without_personal_github_is_still_required_to_prove_ownership(self):
+        # A plain member has no org-admin trust to lean on, so the personal-link proof still gates them.
+        self.organization_membership.level = OrganizationMembership.Level.MEMBER
+        self.organization_membership.save()
+
+        response = self.client.post(self._url(), {"source_team_id": self.source_team.id}, format="json")
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST, response.content
+        assert not Integration.objects.filter(team=self.team, kind="github").exists()
 
 
 class TestGoogleSearchConsoleSitesEndpoint:
