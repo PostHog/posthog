@@ -523,6 +523,10 @@ def _process_outbox_row(outbox: EmailOutboxMessage) -> None:
     config = ticket.email_config
     comment = outbox.comment
 
+    settings_dict = ticket.team.conversations_settings or {}
+    if not settings_dict.get("email_enabled"):
+        _mark_outbox_failed(outbox, "email disabled for team")
+        return
     if not config:
         _mark_outbox_failed(outbox, "no email config")
         return
@@ -625,7 +629,7 @@ def _claim_outbox_row(outbox_id: str) -> EmailOutboxMessage | None:
         # nullable email_config FK, and Postgres can't FOR UPDATE an outer-join side.
         outbox = (
             EmailOutboxMessage.objects.select_for_update(skip_locked=True, of=("self",))
-            .select_related("ticket", "ticket__email_config", "comment", "comment__created_by")
+            .select_related("ticket", "ticket__team", "ticket__email_config", "comment", "comment__created_by")
             .filter(id=outbox_id, status=EmailOutboxMessage.Status.PENDING)
             .filter(models.Q(locked_until__isnull=True) | models.Q(locked_until__lte=now))
             .first()
@@ -670,7 +674,7 @@ def flush_pending_email_replies() -> None:
     with transaction.atomic():
         batch = list(
             EmailOutboxMessage.objects.select_for_update(skip_locked=True, of=("self",))
-            .select_related("ticket", "ticket__email_config", "comment", "comment__created_by")
+            .select_related("ticket", "ticket__team", "ticket__email_config", "comment", "comment__created_by")
             .filter(status=EmailOutboxMessage.Status.PENDING, next_attempt_at__lte=now)
             .filter(models.Q(locked_until__isnull=True) | models.Q(locked_until__lte=now))
             .order_by("next_attempt_at")[:EMAIL_OUTBOX_FLUSH_BATCH_SIZE]
