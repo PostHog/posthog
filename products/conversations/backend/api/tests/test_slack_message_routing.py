@@ -250,6 +250,61 @@ class TestSlackMessageRouting(BaseTest):
 
         mock_create_or_update.assert_not_called()
 
+    @parameterized.expand(
+        [
+            ("channel_join",),
+            ("channel_leave",),
+            ("channel_topic",),
+            ("channel_purpose",),
+            ("pinned_item",),
+            ("message_changed",),
+            ("message_deleted",),
+            # An unrecognized subtype must be treated as noise, not silently ticketed —
+            # this is the whole point of using an allowlist over a blocklist.
+            ("some_future_subtype",),
+        ]
+    )
+    @patch(f"{MODULE}.create_or_update_slack_ticket")
+    def test_system_message_subtype_does_not_create_ticket(self, subtype, mock_create_or_update):
+        handle_support_message(
+            {
+                "type": "message",
+                "subtype": subtype,
+                "channel": "C_CONFIG",
+                "ts": "1700000000.000100",
+                "user": "U123",
+                "text": "<@U123> has joined the channel",
+            },
+            self.team,
+            "T123",
+        )
+
+        mock_create_or_update.assert_not_called()
+
+    @parameterized.expand(
+        [
+            ("file_share",),
+            ("me_message",),
+            ("thread_broadcast",),
+        ]
+    )
+    @patch(f"{MODULE}.create_or_update_slack_ticket")
+    def test_content_bearing_subtype_creates_ticket(self, subtype, mock_create_or_update):
+        handle_support_message(
+            {
+                "type": "message",
+                "subtype": subtype,
+                "channel": "C_CONFIG",
+                "ts": "1700000000.000100",
+                "user": "U123",
+                "text": "I need help with something",
+            },
+            self.team,
+            "T123",
+        )
+
+        mock_create_or_update.assert_called_once()
+
     @patch(f"{MODULE}.get_bot_user_id", return_value="U_OWN_BOT")
     @patch(f"{MODULE}.get_slack_client")
     @patch(f"{MODULE}.create_or_update_slack_ticket")

@@ -803,7 +803,16 @@ class BasePrinter(Visitor[str]):
 
     def visit_array_access(self, node: ast.ArrayAccess):
         symbol = self._array_access_prefix(bool(node.nullish))
-        return f"{self.visit(node.array)}{symbol}[{self.visit(node.property)}]"
+        array = self.visit(node.array)
+        # `[...]` binds tighter than any infix-printed form, so a loose operand
+        # must be parenthesized or the printed text re-parses with the access on
+        # the operand's last token (`(1 AS x)[1]` would print as `1 AS x[1]`,
+        # which doesn't parse back).
+        if isinstance(node.array, ast.BetweenExpr | ast.IsDistinctFrom) or (
+            isinstance(node.array, ast.Alias) and not node.array.hidden
+        ):
+            array = f"({array})"
+        return f"{array}{symbol}[{self.visit(node.property)}]"
 
     def _tuple_access_separator(self, nullish: bool) -> str:
         """Separator for tuple-access expressions. HogQL overrides to emit nullish ``?.`` when requested."""

@@ -206,7 +206,7 @@ layer = "modules"
 path = "products.conversations"
 depends_on = [
     "ee",
-    "posthog", "products.tasks", "products.business_knowledge",
+    "posthog", "products.tasks", "products.business_knowledge", "products.warehouse_sources",
 ]
 layer = "modules"
 
@@ -338,12 +338,12 @@ depends_on = [
     "products.ai_observability",
     "products.analytics_platform",
     "products.data_tools",
-    "products.data_warehouse",
     "products.event_definitions",
     "products.feature_flags",
     "products.notifications",
     "products.product_tours",
     "products.surveys",
+    "products.tasks",
     "products.warehouse_sources",
 ]
 layer = "modules"
@@ -367,6 +367,7 @@ layer = "modules"
 [[modules]]
 path = "products.growth"
 depends_on = [
+    "ee",
     "posthog",
 ]
 layer = "modules"
@@ -517,7 +518,6 @@ depends_on = [
     "products.actions",
     "products.alerts",
     "products.dashboards",
-    "products.data_warehouse",
     "products.event_definitions",
     "products.annotations",
     "products.warehouse_sources",
@@ -571,8 +571,7 @@ layer = "modules"
 path = "products.revenue_analytics"
 depends_on = [
     "ee",
-    "posthog",
-    "products.data_warehouse", "products.warehouse_sources", "products.data_modeling", "products.data_tools",
+    "posthog", "products.warehouse_sources", "products.data_modeling", "products.data_tools",
 ]
 layer = "modules"
 
@@ -641,7 +640,6 @@ path = "products.customer_analytics"
 depends_on = [
     "ee",
     "posthog",
-    "products.data_warehouse",
     "products.notebooks",
     "products.notifications",
     "products.product_analytics",
@@ -657,8 +655,7 @@ depends_on = [
     "posthog",
     "products.access_control",
     "products.actions",
-    "products.analytics_platform",
-    "products.data_warehouse", "products.warehouse_sources",
+    "products.analytics_platform", "products.warehouse_sources",
 ]
 layer = "modules"
 
@@ -815,20 +812,26 @@ from = [
     "products.mcp_store",
 ]
 
-# warehouse_sources — facade landed (Phase 1 merge base); core (posthog/ee), sibling
-# products, and data_warehouse still import its models, shared types, and temporal
-# internals directly. Shrinks as the team-sliced read sweeps land and the deferred
-# temporal couplings (HogQL direct-SQL, Google Search Console, the salesforce migration)
-# move behind the facade. Keeps backend:contract-check off package.json (the temporal
-# coupling is permanent). Also hosts the shared warehouse-table test helpers
-# (test.utils, tests.api) that many products' tests use to build warehouse tables.
+# isolation:permanent-interface
+# warehouse_sources' HogQL direct-SQL adapters and its system-table definitions depend on a
+# handful of source internals + models that the facade re-exports lazily — facade.source_management
+# is a thin PEP 562 re-export, so a change to the underlying source flows through to core. That
+# coupling can't be sealed by watching backend.facade alone, so these modules are declared
+# permanent and turbo.json keeps them in the contract-check inputs — any change to them still
+# re-runs the Django suite (IsolationChainCheck enforces that). The vendor set is exactly the
+# sources core reaches through the facade, guarded by test_ci_core_coupled_sources.py. All other
+# core coupling goes through backend.facade.
 [[interfaces]]
 expose = [
     "backend\\.models.*",
-    "backend\\.types.*",
-    "backend\\.temporal.*",
-    "backend\\.test.*",
-    "backend\\.tests.*",
+    "backend\\.temporal\\.data_imports\\.sources\\.common.*",
+    "backend\\.temporal\\.data_imports\\.sources\\.generated_configs.*",
+    "backend\\.temporal\\.data_imports\\.sources\\.google_search_console.*",
+    "backend\\.temporal\\.data_imports\\.sources\\.mysql.*",
+    "backend\\.temporal\\.data_imports\\.sources\\.postgres.*",
+    "backend\\.temporal\\.data_imports\\.sources\\.salesforce.*",
+    "backend\\.temporal\\.data_imports\\.sources\\.snowflake.*",
+    "backend\\.temporal\\.data_imports\\.sources\\.stripe.*",
 ]
 from = [
     "products.warehouse_sources",
@@ -847,18 +850,20 @@ from = [
     "products.legal_documents",
 ]
 
-# error_tracking exposes its ClickHouse DDL (sql / embedding / indexed_embedding) to
-# core's ClickHouse schema + frozen migrations, and its models / remote_config to core
-# model-class consumers (product_intent, remote_config, team deletion) and test fixtures.
-# The frozen-migration coupling cannot be rerouted, so this block is permanent rather than
-# shrinking to zero — which is why backend:contract-check stays off for this product.
+# isolation:permanent-interface
+# error_tracking exposes its ClickHouse DDL (sql / embedding / indexed_embedding) to core's
+# ClickHouse schema registry, conftest, the embedding worker, the hogql document_embeddings
+# system table, and frozen ClickHouse migrations. That coupling is outside the import-reroute
+# path — frozen migrations hardcode these import paths and the schema registry owns table DDL —
+# so it can never route through the facade. The marker above declares it permanent rather than a
+# legacy leak, so it does not hold the external seal open. turbo.json keeps these three modules
+# in the contract-check inputs so any change to them still re-runs the Django suite
+# (IsolationChainCheck enforces that). All other core coupling now goes through backend.facade.
 
 [[interfaces]]
 expose = [
     "backend\\.embedding.*",
     "backend\\.indexed_embedding.*",
-    "backend\\.models.*",
-    "backend\\.remote_config.*",
     "backend\\.sql.*",
 ]
 from = [

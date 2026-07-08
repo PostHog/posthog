@@ -31,6 +31,40 @@ CREATE TABLE posthog.hog_invocation_results_data (
   INDEX event_uuid_idx event_uuid TYPE bloom_filter(0.01) GRANULARITY 1,
   INDEX is_retry_idx is_retry TYPE set(2) GRANULARITY 1
 ) ENGINE = ReplicatedReplacingMergeTree('/clickhouse/tables/noshard/posthog.hog_invocation_results_data', '{replica}-{shard}', version) ORDER BY (team_id, function_kind, function_id, invocation_id) PARTITION BY toYYYYMMDD(scheduled_at) TTL toDate(scheduled_at) + toIntervalDay(30) SETTINGS index_granularity = 1024, storage_policy = 's3_tiered', ttl_only_drop_parts = 1;
+CREATE TABLE posthog.ingestion_warnings_v2 (
+  team_id Int64,
+  source LowCardinality(String),
+  type LowCardinality(String),
+  details String,
+  timestamp DateTime64(6, 'UTC'),
+  category LowCardinality(String) DEFAULT coalesce(nullIf(JSONExtractString(details, 'category'), ''), 'unknown'),
+  severity LowCardinality(String) DEFAULT coalesce(nullIf(JSONExtractString(details, 'severity'), ''), 'warning'),
+  pipeline_step LowCardinality(String) DEFAULT coalesce(nullIf(JSONExtractString(details, 'pipelineStep'), ''), 'unknown'),
+  event_uuid Nullable(UUID) DEFAULT toUUIDOrNull(JSONExtractString(details, 'eventUuid')),
+  distinct_id Nullable(String) DEFAULT nullIf(JSONExtractString(details, 'distinctId'), ''),
+  group_key Nullable(String) DEFAULT nullIf(JSONExtractString(details, 'groupKey'), ''),
+  person_id Nullable(UUID) DEFAULT toUUIDOrNull(JSONExtractString(details, 'personId')),
+  _timestamp DateTime,
+  _offset UInt64,
+  _partition UInt64
+) ENGINE = ReplicatedMergeTree('/clickhouse/tables/noshard/posthog.ingestion_warnings_v2', '{replica}-{shard}') ORDER BY (team_id, type, timestamp) PARTITION BY toYYYYMM(timestamp) TTL toDateTime(timestamp) + toIntervalDay(90) SETTINGS index_granularity = 8192;
+CREATE TABLE posthog.ingestion_warnings_v2_distributed (
+  team_id Int64,
+  source LowCardinality(String),
+  type LowCardinality(String),
+  details String,
+  timestamp DateTime64(6, 'UTC'),
+  category LowCardinality(String) DEFAULT coalesce(nullIf(JSONExtractString(details, 'category'), ''), 'unknown'),
+  severity LowCardinality(String) DEFAULT coalesce(nullIf(JSONExtractString(details, 'severity'), ''), 'warning'),
+  pipeline_step LowCardinality(String) DEFAULT coalesce(nullIf(JSONExtractString(details, 'pipelineStep'), ''), 'unknown'),
+  event_uuid Nullable(UUID) DEFAULT toUUIDOrNull(JSONExtractString(details, 'eventUuid')),
+  distinct_id Nullable(String) DEFAULT nullIf(JSONExtractString(details, 'distinctId'), ''),
+  group_key Nullable(String) DEFAULT nullIf(JSONExtractString(details, 'groupKey'), ''),
+  person_id Nullable(UUID) DEFAULT toUUIDOrNull(JSONExtractString(details, 'personId')),
+  _timestamp DateTime,
+  _offset UInt64,
+  _partition UInt64
+) ENGINE = Distributed('aux', 'posthog', 'ingestion_warnings_v2');
 CREATE TABLE posthog.kafka_hog_invocation_results (
   team_id Int64,
   function_kind LowCardinality(String),
@@ -54,6 +88,13 @@ CREATE TABLE posthog.kafka_hog_invocation_results (
   version UInt64,
   is_deleted UInt8
 ) ENGINE = Kafka() SETTINGS kafka_broker_list = 'warpstream_cyclotron', kafka_format = 'kafka_format = \'JSONEachRow\'', kafka_group_name = 'kafka_group_name = \'clickhouse_hog_invocation_results\'', kafka_skip_broken_messages = 100, kafka_topic_list = 'kafka_topic_list = \'clickhouse_hog_invocation_results\'';
+CREATE TABLE posthog.kafka_ingestion_warnings_v2 (
+  team_id Int64,
+  source LowCardinality(String),
+  type String,
+  details String,
+  timestamp DateTime64(6, 'UTC')
+) ENGINE = Kafka() SETTINGS kafka_broker_list = 'warpstream_ingestion', kafka_format = 'kafka_format = \'JSONEachRow\'', kafka_group_name = 'kafka_group_name = \'clickhouse_ingestion_warnings_v2\'', kafka_topic_list = 'kafka_topic_list = \'clickhouse_ingestion_warnings\'';
 CREATE TABLE posthog.kafka_message_assets (
   team_id Int64,
   function_kind LowCardinality(String),
@@ -757,6 +798,16 @@ CREATE MATERIALIZED VIEW posthog.hog_invocation_results_mv TO posthog.hog_invoca
   _offset,
   _partition
 FROM posthog.kafka_hog_invocation_results;
+CREATE MATERIALIZED VIEW posthog.ingestion_warnings_v2_mv TO posthog.ingestion_warnings_v2 (team_id Int64, source LowCardinality(String), type String, details String, timestamp DateTime64(6, 'UTC'), _timestamp Nullable(DateTime), _offset UInt64, _partition UInt64) AS SELECT
+  team_id,
+  source,
+  type,
+  details,
+  timestamp,
+  _timestamp,
+  _offset,
+  _partition
+FROM posthog.kafka_ingestion_warnings_v2;
 CREATE MATERIALIZED VIEW posthog.message_assets_mv TO posthog.message_assets_data (team_id Int64, function_kind LowCardinality(String), function_id String, parent_run_id String, invocation_id String, action_id String, kind LowCardinality(String), distinct_id String, person_id String, recipient String, subject String, status LowCardinality(String), sent_at DateTime64(6, 'UTC'), version UInt64, is_deleted UInt8, html String, _timestamp Nullable(DateTime), _offset UInt64, _partition UInt64) AS SELECT
   team_id,
   function_kind,

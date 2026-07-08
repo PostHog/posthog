@@ -381,6 +381,23 @@ class TestProcessTaskWorkflowUnit:
             extra={"run_id": "run-id", "sandbox_id": "sandbox-123"},
         )
 
+    async def test_credential_refresh_credentials_unavailable_does_not_mark_sandbox_gone(self, monkeypatch):
+        workflow = ProcessTaskWorkflow()
+        workflow._context = _build_context(github_integration_id=123)
+        logger = Mock()
+        refresh_loop_mock = AsyncMock(return_value=CredentialRefreshExitReason.CREDENTIALS_UNAVAILABLE)
+
+        monkeypatch.setattr(process_task_workflow_module.workflow, "logger", logger)
+        monkeypatch.setattr(process_task_workflow_module, "run_credential_refresh_loop", refresh_loop_mock)
+
+        await workflow._run_credential_refresh_until_sandbox_gone("sandbox-123")
+
+        assert workflow._sandbox_gone is False
+        logger.warning.assert_called_once_with(
+            "credential_refresh_stopped_credentials_unavailable",
+            extra={"run_id": "run-id", "sandbox_id": "sandbox-123"},
+        )
+
     async def test_run_cleans_up_sandbox_when_provisioning_fails_after_creation(self, monkeypatch):
         workflow = ProcessTaskWorkflow()
         get_task_processing_context_mock = AsyncMock(return_value=_build_context(github_integration_id=123))
@@ -554,6 +571,58 @@ class TestProcessTaskWorkflowUnit:
 
         assert result.success is True
         relay_sandbox_events_mock.assert_not_awaited()
+
+    async def test_run_relays_agent_design_signals_when_ingest_and_agent_design_enabled(self, monkeypatch):
+        workflow = ProcessTaskWorkflow()
+        context = _build_context(github_integration_id=123, sandbox_event_ingest_enabled=True)
+        relay_sandbox_events_mock = AsyncMock()
+        relay_agent_design_signals_mock = AsyncMock()
+
+        monkeypatch.setattr(workflow, "_get_task_processing_context", AsyncMock(return_value=context))
+        monkeypatch.setattr(workflow, "_update_task_run_status", AsyncMock())
+        monkeypatch.setattr(workflow, "_track_workflow_event", AsyncMock())
+        monkeypatch.setattr(workflow, "_post_slack_update", AsyncMock())
+        monkeypatch.setattr(workflow, "_read_sandbox_logs", AsyncMock())
+        monkeypatch.setattr(workflow, "_cleanup_sandbox", AsyncMock())
+        monkeypatch.setattr(workflow, "_create_resume_snapshot", AsyncMock())
+        monkeypatch.setattr(workflow, "_emit_progress", AsyncMock())
+        monkeypatch.setattr(workflow, "_forward_pending_user_message", AsyncMock())
+        monkeypatch.setattr(workflow, "_resolve_agent_design_flag", AsyncMock(return_value=True))
+        monkeypatch.setattr(
+            workflow,
+            "_get_sandbox_for_repository",
+            AsyncMock(
+                return_value=GetSandboxForRepositoryOutput(
+                    sandbox_id="sandbox-123",
+                    sandbox_url="https://sandbox.example",
+                    connect_token="connect-token",
+                    used_snapshot=False,
+                    should_create_snapshot=False,
+                )
+            ),
+        )
+        monkeypatch.setattr(
+            workflow,
+            "_start_agent_server",
+            AsyncMock(
+                return_value=StartAgentServerOutput(
+                    sandbox_url="https://sandbox.example",
+                    connect_token="connect-token",
+                )
+            ),
+        )
+        monkeypatch.setattr(
+            workflow, "_wait_for_event", AsyncMock(return_value=process_task_workflow_module.TaskEvent.TIMEOUT_REACHED)
+        )
+        monkeypatch.setattr(workflow, "_relay_sandbox_events", relay_sandbox_events_mock)
+        monkeypatch.setattr(workflow, "_relay_agent_design_signals", relay_agent_design_signals_mock)
+        monkeypatch.setattr(process_task_workflow_module.workflow, "patched", Mock(return_value=True))
+
+        result = await workflow.run(ProcessTaskInput(run_id="run-id", slack_thread_context={"channel": "C1"}))
+
+        assert result.success is True
+        relay_sandbox_events_mock.assert_not_called()
+        relay_agent_design_signals_mock.assert_called_once()
 
     async def test_run_completes_when_credential_refresh_detects_sandbox_gone(self, monkeypatch):
         workflow = ProcessTaskWorkflow()

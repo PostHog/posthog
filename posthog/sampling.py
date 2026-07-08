@@ -75,4 +75,5 @@ def sample_on_property(prop: str, percent: float) -> bool:
         return True
 
     percent = clamp_to_range(percent, 0, 1, "Sampling rate")
-    return simple_hash(prop) % 100 < int(percent * 100)
+    # 4-decimal-place resolution so sub-1% rates don't truncate to zero
+    return simple_hash(prop) % 10000 < round(percent * 10000)

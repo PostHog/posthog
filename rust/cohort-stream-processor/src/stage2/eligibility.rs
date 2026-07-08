@@ -78,7 +78,7 @@ impl CohortEligibility {
     }
 
     /// Whether this class persists a `cf_stage2` row — both composable classes do; single-leaf
-    /// membership lives in `cf_stage1` and excluded cohorts persist nothing.
+    /// membership lives in `cf_behavioral` and excluded cohorts persist nothing.
     pub fn writes_cf_stage2(self) -> bool {
         matches!(self, Self::Stage2Composable | Self::Stage2ComposableRef)
     }

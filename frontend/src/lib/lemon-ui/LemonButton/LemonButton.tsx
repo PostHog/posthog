@@ -99,6 +99,7 @@ export type SideAction = Pick<
     | 'id'
     | 'onClick'
     | 'to'
+    | 'center'
     | 'loading'
     | 'disableClientSideRouting'
     | 'disabled'
