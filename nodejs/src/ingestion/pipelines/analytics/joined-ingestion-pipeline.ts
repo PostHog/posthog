@@ -263,13 +263,10 @@ export function createJoinedIngestionPipeline<
                             b
                                 .teamAware((b) =>
                                     createPostTeamPreprocessingSubpipeline(b, postTeamConfig)
-                                        // Group by token:distinctId and process each group concurrently
-                                        // Events within each group are processed sequentially
-                                        .groupBy(getTokenAndDistinctId)
-                                        .concurrently((eventsForDistinctId) =>
-                                            eventsForDistinctId.sequentially((event) =>
-                                                createPerDistinctIdPipeline(event, perEventConfig)
-                                            )
+                                        // Group by token:distinctId and process each group concurrently.
+                                        // Events within each group are processed sequentially.
+                                        .concurrentlyPerGroup(getTokenAndDistinctId, (event) =>
+                                            createPerDistinctIdPipeline(event, perEventConfig)
                                         )
                                 )
                                 .handleIngestionWarnings(outputs)

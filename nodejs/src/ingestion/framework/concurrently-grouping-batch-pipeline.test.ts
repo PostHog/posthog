@@ -512,14 +512,12 @@ describe('ConcurrentlyGroupingBatchPipeline', () => {
         })
     })
 
-    describe('groupBy builder DSL', () => {
-        it('should work with the groupBy builder method', async () => {
+    describe('concurrentlyPerGroup builder DSL', () => {
+        it('should work with the concurrentlyPerGroup builder method', async () => {
             const pipeline = createNewBatchPipeline<{ value: string; group: string }>()
-                .groupBy((input) => input.group)
-                .concurrently((group) =>
-                    group.sequentially((builder) =>
-                        builder.pipe((input) => Promise.resolve(ok({ ...input, processed: true })))
-                    )
+                .concurrentlyPerGroup(
+                    (input) => input.group,
+                    (builder) => builder.pipe((input) => Promise.resolve(ok({ ...input, processed: true })))
                 )
                 .build()
 
@@ -543,11 +541,9 @@ describe('ConcurrentlyGroupingBatchPipeline', () => {
 
         it('should chain with gather to collect all results', async () => {
             const pipeline = createNewBatchPipeline<{ value: string; group: string }>()
-                .groupBy((input) => input.group)
-                .concurrently((group) =>
-                    group.sequentially((builder) =>
-                        builder.pipe((input) => Promise.resolve(ok({ ...input, processed: true })))
-                    )
+                .concurrentlyPerGroup(
+                    (input) => input.group,
+                    (builder) => builder.pipe((input) => Promise.resolve(ok({ ...input, processed: true })))
                 )
                 .gather()
                 .build()
@@ -753,16 +749,15 @@ describe('ConcurrentlyGroupingBatchPipeline', () => {
         it('should handle multiple items per group with sequential processing', async () => {
             const processingOrder: string[] = []
             const pipeline = createNewBatchPipeline<{ value: string; group: string }>()
-                .groupBy((input) => input.group)
-                .concurrently((group) =>
-                    group.sequentially((builder) =>
+                .concurrentlyPerGroup(
+                    (input) => input.group,
+                    (builder) =>
                         builder.pipe(async (input) => {
                             processingOrder.push(`start-${input.value}`)
                             await new Promise((resolve) => setTimeout(resolve, 10))
                             processingOrder.push(`end-${input.value}`)
                             return ok({ ...input, processed: true })
                         })
-                    )
                 )
                 .gather()
                 .build()
@@ -801,11 +796,9 @@ describe('ConcurrentlyGroupingBatchPipeline', () => {
 
         it('should handle empty batches gracefully', async () => {
             const pipeline = createNewBatchPipeline<{ value: string; group: string }>()
-                .groupBy((input) => input.group)
-                .concurrently((group) =>
-                    group.sequentially((builder) =>
-                        builder.pipe((input) => Promise.resolve(ok({ ...input, processed: true })))
-                    )
+                .concurrentlyPerGroup(
+                    (input) => input.group,
+                    (builder) => builder.pipe((input) => Promise.resolve(ok({ ...input, processed: true })))
                 )
                 .build()
 
@@ -817,11 +810,9 @@ describe('ConcurrentlyGroupingBatchPipeline', () => {
 
         it('should handle single item groups', async () => {
             const pipeline = createNewBatchPipeline<{ value: string; group: string }>()
-                .groupBy((input) => input.group)
-                .concurrently((group) =>
-                    group.sequentially((builder) =>
-                        builder.pipe((input) => Promise.resolve(ok({ ...input, processed: true })))
-                    )
+                .concurrentlyPerGroup(
+                    (input) => input.group,
+                    (builder) => builder.pipe((input) => Promise.resolve(ok({ ...input, processed: true })))
                 )
                 .gather()
                 .build()

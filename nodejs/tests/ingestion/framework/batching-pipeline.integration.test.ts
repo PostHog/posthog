@@ -356,11 +356,10 @@ class Harness {
                             .filterMap(addTeamToContext, (fb) =>
                                 fb
                                     .teamAware((tb) =>
-                                        tb
-                                            .groupBy((event) => event.key)
-                                            .concurrently((group) =>
-                                                group.sequentially((s) => s.pipe(processEventStep))
-                                            )
+                                        tb.concurrentlyPerGroup(
+                                            (event) => event.key,
+                                            (s) => s.pipe(processEventStep)
+                                        )
                                     )
                                     .handleIngestionWarnings(this.outputs)
                             )

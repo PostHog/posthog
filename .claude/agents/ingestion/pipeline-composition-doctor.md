@@ -41,16 +41,16 @@ You review, suggest, and implement pipeline composition code that follows the co
 
 Before reviewing or writing any code, read these files:
 
-- `nodejs/src/ingestion/pipelines/docs/02-batch-pipelines.test.ts` — batch steps, cardinality invariant
-- `nodejs/src/ingestion/pipelines/docs/03-concurrent-processing.test.ts` — concurrently(), item-level processing
-- `nodejs/src/ingestion/pipelines/docs/04-sequential-processing.test.ts` — sequentially(), ordered processing
-- `nodejs/src/ingestion/pipelines/docs/05-grouping.test.ts` — groupBy(), within-group order
-- `nodejs/src/ingestion/pipelines/docs/06-gathering.test.ts` — gather(), re-batching after concurrent
-- `nodejs/src/ingestion/pipelines/docs/10-branching.test.ts` — branching(), branch convergence
-- `nodejs/src/ingestion/pipelines/docs/11-retries.test.ts` — retry(), isRetriable, exhaustion behavior
-- `nodejs/src/ingestion/pipelines/docs/12-filter-map.test.ts` — filterMap(), context enrichment
-- `nodejs/src/ingestion/pipelines/docs/13-conventions.test.ts` — pipeline factory functions, naming
-- `nodejs/src/ingestion/analytics/joined-ingestion-pipeline.ts` — real-world composition example
+- `nodejs/src/ingestion/framework/docs/02-batch-pipelines.test.ts` — batch steps, cardinality invariant
+- `nodejs/src/ingestion/framework/docs/03-concurrent-processing.test.ts` — concurrently(), item-level processing, maxConcurrency
+- `nodejs/src/ingestion/framework/docs/04-sequential-processing.test.ts` — sequentially(), ordered processing
+- `nodejs/src/ingestion/framework/docs/05-grouping.test.ts` — concurrentlyPerGroup(), within-group order
+- `nodejs/src/ingestion/framework/docs/06-gathering.test.ts` — gather(), re-batching after concurrent
+- `nodejs/src/ingestion/framework/docs/10-branching.test.ts` — branching(), branch convergence
+- `nodejs/src/ingestion/framework/docs/11-retries.test.ts` — per-step retry option, isRetriable, exhaustion behavior
+- `nodejs/src/ingestion/framework/docs/12-filter-map.test.ts` — filterMap(), context enrichment
+- `nodejs/src/ingestion/framework/docs/13-conventions.test.ts` — pipeline factory functions, naming
+- `nodejs/src/ingestion/pipelines/analytics/joined-ingestion-pipeline.ts` — real-world composition example
 
 Also read any files the user points you to.
 
@@ -104,23 +104,24 @@ builder.concurrently((b) => b.pipe(createTeamLookup(db)))
 builder.sequentially((b) => b.pipe(createOrderedWrite(db)))
 ```
 
-### 4. groupBy + concurrently pattern
+### 4. concurrentlyPerGroup pattern
 
-`groupBy()` must be followed by `concurrently()`.
-Within-group order is preserved. Groups complete independently.
+`concurrentlyPerGroup(keyFn, callback, options?)` processes groups concurrently;
+items within a group run sequentially through the callback's pipeline, so within-group order is preserved.
+Groups complete independently and results are returned as groups finish.
+Cap group parallelism with `{ maxConcurrency }`.
 The ingestion pipeline groups by `token:distinctId`.
 
 ```typescript
-// GOOD
-builder.groupBy((event) => `${event.token}:${event.distinctId}`).concurrently((b) => b.pipe(createPersonProcessing()))
-
-// BAD - groupBy without concurrently
-builder.groupBy(keyFn).pipe(step) // won't compile
+builder.concurrentlyPerGroup(
+  (event) => `${event.token}:${event.distinctId}`,
+  (b) => b.pipe(createPersonProcessing())
+)
 ```
 
 ### 5. gather() placement
 
-Use after `concurrently()` or `groupBy().concurrently()` when subsequent batch steps need all items at once.
+Use after `concurrently()` or `concurrentlyPerGroup()` when subsequent batch steps need all items at once.
 Without gather, results stream one-by-one.
 
 ```typescript
@@ -147,14 +148,15 @@ builder.branching((event) => event.type, {
 })
 ```
 
-### 7. retry() scope
+### 7. retry scope
 
-Retries re-execute the entire sub-pipeline, not just the failing step.
+Retry is a per-step option on `pipe()` / `pipeBatch()` — it retries only that step, never a sequence of steps.
 Errors must have `isRetriable: boolean`. Non-retriable errors go to DLQ.
 Exhausted retries cause a fatal throw (process should crash).
+Only steps doing transient-failure-prone I/O should retry; pure steps take no retry option.
 
 ```typescript
-builder.retry({ maxRetries: 3, backoff: { initial: 100, multiplier: 2 } }, (b) => b.pipe(createExternalApiStep(client)))
+builder.pipe(createExternalApiStep(client), { retry: { name: 'external_api', tries: 3, sleepMs: 100 } })
 ```
 
 ### 8. filterMap() for context enrichment
@@ -203,7 +205,7 @@ Produce a checklist grouped by rule:
 
 ### Concurrency
 
-- [x] groupBy followed by concurrently
+- [x] concurrentlyPerGroup used for keyed per-entity work
 - [ ] **SUGGESTION**: Team lookup is I/O-bound, consider concurrently() instead of sequentially() (Rule 3)
 
 ### Gather
