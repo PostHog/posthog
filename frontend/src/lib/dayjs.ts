@@ -1,10 +1,5 @@
 // oxlint-disable-next-line no-restricted-imports
-import dayjs, {
-    Dayjs as DayjsOriginal,
-    isDayjs,
-    type ManipulateType as DayjsManipulateType,
-    type QUnitType as DayjsQUnitType,
-} from 'dayjs'
+import dayjs, { Dayjs as DayjsOriginal, isDayjs } from 'dayjs'
 import advancedFormat from 'dayjs/plugin/advancedFormat'
 import customParseFormat from 'dayjs/plugin/customParseFormat'
 import duration from 'dayjs/plugin/duration'
@@ -33,13 +28,14 @@ dayjs.extend(quarterOfYear)
 dayjs.extend(weekOfYear)
 dayjs.extend(updateLocale)
 
-// The base add/subtract accept ManipulateType (has week, no quarter) and quarterOfYear adds a
-// QUnitType overload (has quarter, no week) — neither alone accepts a union like IntervalType,
-// so merge one overload that takes both.
+// The base add/subtract accept ManipulateType (has week, no quarter) and the quarterOfYear plugin
+// adds a QUnitType overload (has quarter, no week). Neither alone accepts a union spanning both
+// (e.g. IntervalType), so merge one overload that takes both. Casting to a single side instead
+// would be unsound: `x as QUnitType` lies when x is 'week'. Types are declared lower in this file.
 declare module 'dayjs' {
     interface Dayjs {
-        add(value: number, unit?: DayjsManipulateType | DayjsQUnitType): DayjsOriginal
-        subtract(value: number, unit?: DayjsManipulateType | DayjsQUnitType): DayjsOriginal
+        add(value: number, unit?: ManipulateType | QUnitType): DayjsOriginal
+        subtract(value: number, unit?: ManipulateType | QUnitType): DayjsOriginal
     }
 }
 
