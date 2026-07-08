@@ -534,27 +534,43 @@ impl S3SourceConfig {
 
         // Customer trust policies reference the dedicated managed-migrations role, not the
         // worker's own identity, so chain through it: ambient creds -> managed-migrations
-        // role -> customer role.
-        if let Some(intermediate_arn) = managed_migrations_role_arn {
-            let intermediate = aws_config::sts::AssumeRoleProvider::builder(intermediate_arn)
-                .session_name("posthog-batch-import")
-                .region(Region::new(self.region.clone()))
-                .build()
-                .await;
-            // An unassumable intermediate role is a PostHog deployment problem, so fail with
-            // an internal error rather than the customer-facing trust-policy message below.
-            intermediate.provide_credentials().await.map_err(|e| {
-                Error::msg(format!(
-                    "Failed to assume managed-migrations role {intermediate_arn}: {e}"
+        // role -> customer role. Without that role configured the customer hop can never
+        // succeed, so fail the job up front rather than attempting a direct assume that
+        // would pause it with a message wrongly blaming the customer's trust policy.
+        let Some(intermediate_arn) = managed_migrations_role_arn else {
+            return Err(Error::from(UserError::new(
+                "The PostHog import service is missing its cross-account role configuration, \
+                 so it cannot use IAM role authentication. This is not a problem with your S3 \
+                 or IAM setup. Please contact PostHog support.",
+            )));
+        };
+
+        let intermediate = aws_config::sts::AssumeRoleProvider::builder(intermediate_arn)
+            .session_name("posthog-batch-import")
+            .region(Region::new(self.region.clone()))
+            .build()
+            .await;
+        // An unassumable intermediate role is a PostHog deployment problem, so surface the
+        // same contact-support message as the missing-ARN case above rather than the
+        // customer-facing trust-policy message below. The ARN and STS error stay in the
+        // inner error chain for logs and status_message.
+        intermediate.provide_credentials().await.map_err(|e| {
+            Error::from(e)
+                .context(format!(
+                    "Failed to assume managed-migrations role {intermediate_arn}"
                 ))
-            })?;
-            let chain_config = aws_config::defaults(BehaviorVersion::latest())
-                .region(Region::new(self.region.clone()))
-                .credentials_provider(intermediate)
-                .load()
-                .await;
-            builder = builder.configure(&chain_config);
-        }
+                .context(UserError::new(
+                    "PostHog's import service could not authenticate with its own cross-account \
+                     role, so it cannot use IAM role authentication. This is not a problem with \
+                     your S3 or IAM setup. Please contact PostHog support.",
+                ))
+        })?;
+        let chain_config = aws_config::defaults(BehaviorVersion::latest())
+            .region(Region::new(self.region.clone()))
+            .credentials_provider(intermediate)
+            .load()
+            .await;
+        builder = builder.configure(&chain_config);
 
         let provider = builder.build().await;
 
@@ -1113,6 +1129,17 @@ mod tests {
             .unwrap_err()
             .to_string();
         assert!(err.contains("IAM role authentication only works with AWS S3"));
+    }
+
+    #[tokio::test]
+    async fn test_build_s3_config_rejects_role_auth_without_managed_migrations_role() {
+        let config = role_auth_config(serde_json::json!({}));
+        let err = config
+            .build_s3_config(&empty_secrets(), None)
+            .await
+            .unwrap_err()
+            .to_string();
+        assert!(err.contains("contact PostHog support"), "got: {err}");
     }
 
     #[tokio::test]

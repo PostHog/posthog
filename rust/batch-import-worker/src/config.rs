@@ -94,7 +94,8 @@ pub struct Config {
     // Dedicated cross-account role for managed-migration S3 imports. Customer trust
     // policies reference this role's ARN (not the worker's own identity), so the worker
     // role-chains through it: ambient creds -> managed-migrations role -> customer role.
-    // When unset (local dev, self-hosted) customer roles are assumed directly.
+    // Required for IAM-role-auth jobs; when unset they fail with a contact-support error
+    // (the customer hop can never succeed without it). Key-auth jobs don't need it.
     #[envconfig(from = "MANAGED_MIGRATIONS_ROLE_ARN")]
     pub managed_migrations_role_arn: Option<String>,
 
