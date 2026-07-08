@@ -14,9 +14,9 @@ const cdpEmailMxValidationTotal = new Counter({
     labelNames: ['result'],
 })
 
-const cdpEmailMxWouldSkipTotal = new Counter({
-    name: 'cdp_email_mx_would_skip_total',
-    help: 'Sends skipped by pre-send email validation as predicted hard bounces, per team. (Name kept from the shadow rollout for dashboard continuity — every increment is now an actual skip.)',
+const cdpEmailMxSkippedTotal = new Counter({
+    name: 'cdp_email_mx_skipped_total',
+    help: 'Sends skipped by pre-send email validation as predicted hard bounces, per team.',
     labelNames: ['team_id', 'reason'],
 })
 
@@ -133,7 +133,7 @@ export class EmailValidationService {
     }
 
     private skip(teamId: number, reason: 'invalid_syntax' | 'invalid_domain', message: string): string {
-        cdpEmailMxWouldSkipTotal.inc({ team_id: String(teamId), reason })
+        cdpEmailMxSkippedTotal.inc({ team_id: String(teamId), reason })
         return message
     }
 

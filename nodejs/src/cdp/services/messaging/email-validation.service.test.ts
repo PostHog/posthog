@@ -59,7 +59,7 @@ describe('EmailValidationService', () => {
             const reason = await service.getSkipReason(emailInvocation('x@dead.invalid', 3), emailAction)
 
             expect(reason).toContain('no reachable mail servers')
-            const metric = await register.getSingleMetric('cdp_email_mx_would_skip_total')!.get()
+            const metric = await register.getSingleMetric('cdp_email_mx_skipped_total')!.get()
             expect(metric.values).toContainEqual(
                 expect.objectContaining({ labels: { team_id: '3', reason: 'invalid_domain' } })
             )
