@@ -970,10 +970,10 @@ class TestTestHogEndpoint(APIBaseTest):
 
 
 class TestEnableBlockingWhenKeyRequired(APIBaseTest):
-    """Enabling a keyless llm_judge eval must mirror the runtime funded-inference gate: only
-    grandfathered (mid-trial, pre-cutoff) teams may run keyless, and explicit keyless configs
-    never fall back to the team's active key. Anything the serializer lets through here would
-    just flap back to disabled on the next Temporal run."""
+    """Enabling a keyless llm_judge eval must mirror the runtime funded-inference gate: a config
+    with no pinned key falls back to the team's active key for the same provider, else only
+    grandfathered (mid-trial, pre-cutoff) teams may run it via funded inference. Anything the
+    serializer lets through here would just flap back to disabled on the next Temporal run."""
 
     def _create_keyless_eval(self, model_configuration=...):
         if model_configuration is ...:
@@ -1039,7 +1039,9 @@ class TestEnableBlockingWhenKeyRequired(APIBaseTest):
         eval_obj.refresh_from_db()
         self.assertTrue(eval_obj.enabled)
 
-    def test_active_team_key_does_not_enable_explicit_keyless_eval(self):
+    def test_active_team_key_enables_explicit_keyless_eval(self):
+        # An explicit config with no pinned key falls back to the team's active key for the same
+        # provider, so it enables even with the trial exhausted (mirrors runtime resolution).
         key = self._create_active_key()
         EvaluationConfig.objects.create(
             team=self.team, trial_eval_limit=100, trial_evals_used=100, active_provider_key=key
@@ -1048,8 +1050,9 @@ class TestEnableBlockingWhenKeyRequired(APIBaseTest):
 
         response = self._enable(eval_obj)
 
-        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
-        self.assertIn("Add a provider API key", str(response.data))
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        eval_obj.refresh_from_db()
+        self.assertTrue(eval_obj.enabled)
 
     def test_active_team_key_enables_null_config_eval(self):
         # Null configs resolve via the active key at runtime — the gate must not over-block them.

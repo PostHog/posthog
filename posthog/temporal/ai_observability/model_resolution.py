@@ -56,6 +56,10 @@ class ExplicitModelSpec:
             return ResolvedModel(self.provider, self.model, _resolve_key_by_id(team_id, self.provider_key_id))
 
         config = _eval_config(team_id)
+        fallback = active_key_fallback(config, self.provider)
+        if fallback is not None:
+            return ResolvedModel(self.provider, self.model, _ensure_usable(fallback))
+
         _assert_funded_inference_allowed(config)
         if self.model not in TRIAL_MODEL_IDS:
             raise ApplicationError(
@@ -96,6 +100,12 @@ def model_spec(model_configuration: dict[str, Any] | None) -> ModelSpec:
             provider_key_id=model_configuration.get("provider_key_id"),
         )
     return DefaultModelSpec()
+
+
+def active_key_fallback(config: EvaluationConfig, provider: str) -> LLMProviderKey | None:
+    """The BYOK key a config with no pinned key resolves to, or None for the trial path."""
+    key = config.active_provider_key
+    return key if key is not None and key.provider == provider else None
 
 
 def _eval_config(team_id: int) -> EvaluationConfig:

@@ -132,8 +132,14 @@ describe('aiObservabilityAIDataLogic', () => {
         expect(mockApi.queryHogQL.mock.calls[1][0]).toContain('FROM events')
     })
 
-    it('degrades gracefully to the passed-in values when the lookup throws', async () => {
-        jest.spyOn(mockApi, 'queryHogQL').mockRejectedValue(new Error('network down'))
+    it('parses fetched heavy props in full instead of collapsing them into a truncated preview', async () => {
+        const fullInput = [
+            { role: 'system', content: `You are a data extraction specialist. ${'detail '.repeat(60)}` },
+            { role: 'user', content: 'analyze this page' },
+        ]
+        jest.spyOn(mockApi, 'queryHogQL').mockResolvedValue({
+            results: [[JSON.stringify(fullInput), null, null, null, null, null]],
+        } as any)
 
         const logic = aiObservabilityAIDataLogic()
         logic.mount()
@@ -141,7 +147,7 @@ describe('aiObservabilityAIDataLogic', () => {
         await expectLogic(logic, () => {
             logic.actions.loadAIDataForEvent({
                 eventId: 'event-1',
-                input: 'fallback-input',
+                input: fullInput,
                 output: undefined,
                 tools: undefined,
                 traceId: 'trace-1',
@@ -152,12 +158,55 @@ describe('aiObservabilityAIDataLogic', () => {
             .toMatchValues({
                 aiDataCache: {
                     'event-1': {
-                        input: 'fallback-input',
+                        input: fullInput,
                         output: undefined,
                         tools: undefined,
                     },
                 },
             })
+    })
+
+    it('degrades gracefully to the passed-in values when the lookup throws', async () => {
+        jest.spyOn(mockApi, 'queryHogQL').mockRejectedValue(new Error('network down'))
+        // The logic warns (by design) once per failed source before falling back.
+        const warnSpy = jest.spyOn(console, 'warn').mockImplementation()
+
+        try {
+            const logic = aiObservabilityAIDataLogic()
+            logic.mount()
+
+            await expectLogic(logic, () => {
+                logic.actions.loadAIDataForEvent({
+                    eventId: 'event-1',
+                    input: 'fallback-input',
+                    output: undefined,
+                    tools: undefined,
+                    traceId: 'trace-1',
+                    timestamp: '2026-04-30T10:00:00Z',
+                })
+            })
+                .toFinishAllListeners()
+                .toMatchValues({
+                    aiDataCache: {
+                        'event-1': {
+                            input: 'fallback-input',
+                            output: undefined,
+                            tools: undefined,
+                        },
+                    },
+                })
+
+            expect(warnSpy).toHaveBeenCalledWith(
+                '[aiObservabilityAIDataLogic] failed to load heavy AI props from ai_events',
+                expect.any(Error)
+            )
+            expect(warnSpy).toHaveBeenCalledWith(
+                '[aiObservabilityAIDataLogic] failed to load heavy AI props from events',
+                expect.any(Error)
+            )
+        } finally {
+            warnSpy.mockRestore()
+        }
     })
 
     it.each([

@@ -106,6 +106,26 @@ class TestExplicitModelSpec:
             ExplicitModelSpec("openai", "gpt-5-mini", None).resolve(team.id)
         assert _error_type(exc_info) == "provider_key_required"
 
+    def test_null_key_falls_back_to_matching_active_key_despite_exhausted_quota(self, team):
+        # Regression: an eval whose model config pinned a model but no key was blocked with
+        # trial_limit_reached even though the team had a healthy active key for that provider.
+        key = _key(team, "openai")
+        EvaluationConfig.objects.create(team=team, active_provider_key=key, trial_eval_limit=100, trial_evals_used=100)
+
+        resolved = ExplicitModelSpec("openai", "gpt-5-mini", None).resolve(team.id)
+
+        assert resolved.provider_key == key
+        assert resolved.is_byok
+
+    def test_null_key_ignores_active_key_of_a_different_provider(self, team):
+        key = _key(team, "anthropic")
+        _grandfathered_config(team, active_provider_key=key)
+
+        resolved = ExplicitModelSpec("openai", "gpt-5-mini", None).resolve(team.id)
+
+        assert resolved.provider_key is None
+        assert not resolved.is_byok
+
 
 @pytest.mark.django_db
 class TestDefaultModelSpec:

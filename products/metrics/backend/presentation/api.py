@@ -333,6 +333,10 @@ class _MetricAnomalyReportSerializer(serializers.Serializer):
     )
 
 
+class _HasMetricsResponseSerializer(serializers.Serializer):
+    hasMetrics = serializers.BooleanField(help_text="Whether the team has ingested any metrics.")
+
+
 class _MetricNameSerializer(serializers.Serializer):
     name = serializers.CharField(help_text="Metric name as it appears in the team's data.")
     metric_type = serializers.CharField(
@@ -419,7 +423,7 @@ class MetricsViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
     scope_object = "metrics"
     serializer_class = _FallbackSerializer
 
-    @extend_schema(responses={200: OpenApiTypes.OBJECT})
+    @extend_schema(responses={200: _HasMetricsResponseSerializer})
     @action(detail=False, methods=["GET"], required_scopes=["metrics:read"])
     def has_metrics(self, request: Request, *args, **kwargs) -> Response:
         tag_queries(product=Product.METRICS, feature=Feature.QUERY)

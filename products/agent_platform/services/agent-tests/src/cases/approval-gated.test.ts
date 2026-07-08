@@ -1,7 +1,7 @@
 /**
  * Approval-gated tools: real e2e contract for v0.
  *
- * Pins the wire-level behaviour for approval-gated tools. The seven cases below
+ * Pins the wire-level behaviour for approval-gated tools. The cases below
  * collectively cover the loop:
  *
  *   model proposes a gated call
@@ -584,5 +584,51 @@ describe('approval-gated tools: real e2e', () => {
         expect(queued!.approval_url).not.toBeUndefined()
         expect(queued!.approver_hint).not.toBeUndefined()
         expect(session!.trigger_metadata).toEqual({ kind: 'chat', supported_client_tools: ['connect_mcp'] })
+    })
+
+    // ─────────────────────────────────────────────────────────────
+    // Case 9 — per-session open-approvals cap (spec.limits.max_open_approvals).
+    // Distinct-args gated calls past the cap must NOT queue (args-hash dedupe
+    // only collapses identical calls); the model gets a synthetic
+    // approval_budget_exhausted error and the turn continues.
+    // ─────────────────────────────────────────────────────────────
+    it('case 9: gated calls past max_open_approvals return budget-exhausted, not a new row', async () => {
+        c.setScript([
+            fauxToolUse([
+                fauxToolCall('@posthog/query', { project_id: 1, query: 'first — queues' }),
+                fauxToolCall('@posthog/query', { project_id: 1, query: 'second — over budget' }),
+            ]),
+            fauxText('cap done'),
+        ])
+        const { application } = await c.deployAgent({
+            slug: 'gated-9',
+            spec: {
+                tools: [
+                    {
+                        kind: 'native',
+                        id: '@posthog/query',
+                        requires_approval: true,
+                        approval_policy: { allow_edit: false },
+                    },
+                ],
+                limits: { max_open_approvals: 1 },
+            },
+        })
+        const run = await request(c.ingress).post('/agents/gated-9/run').send({ message: 'flood' })
+        await c.drain()
+
+        // Exactly one row queued — the second call was capped, not written.
+        const rows = await listApprovals(application.id, 'queued')
+        expect(rows).toHaveLength(1)
+
+        const session = await c.queue.get(run.body.session_id)
+        expect(findApproval(session!.conversation, 'queued')).not.toBeNull()
+        const exhausted = session!.conversation.filter((m) => {
+            const cast = m as { role: string; content?: unknown }
+            return (
+                cast.role === 'toolResult' && JSON.stringify(cast.content ?? '').includes('approval_budget_exhausted')
+            )
+        })
+        expect(exhausted).toHaveLength(1)
     })
 })

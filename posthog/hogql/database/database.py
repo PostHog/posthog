@@ -197,6 +197,7 @@ class SerializedField:
     fields: list[str] | None = None
     table: str | None = None
     chain: list[str | int] | None = None
+    description: str | None = None
 
 
 @dataclasses.dataclass
@@ -323,10 +324,16 @@ _DATABASE_ROOT_NODE_BLOBS_LOCK = threading.Lock()
 # We only ever load our own freshly-built blob, but restrict the unpickler anyway as defense in depth:
 # it can reconstruct only the classes the catalog is built from, so even a future change that fed it
 # untrusted bytes couldn't instantiate arbitrary code (os.system, etc.). Every catalog class lives
-# under posthog.hogql.* except the Workload enum, so new table/field/AST types keep working and
-# anything else fails loudly.
+# under posthog.hogql.* except the Workload enum and product-owned facade schema modules
+# (allowlisted individually, not by prefix, to keep the surface minimal), so new table/field/AST
+# types keep working and anything else fails loudly.
 _CATALOG_PICKLE_MODULE_PREFIXES = ("posthog.hogql.",)
-_CATALOG_PICKLE_MODULES = frozenset({"posthog.clickhouse.workload"})
+_CATALOG_PICKLE_MODULES = frozenset(
+    {
+        "posthog.clickhouse.workload",
+        "products.customer_analytics.backend.facade.hogql",
+    }
+)
 
 
 class _CatalogUnpickler(pickle.Unpickler):
@@ -1987,7 +1994,12 @@ def _setup_group_key_fields(database: Database, group_types: list[dict[str, Any]
             raw_field_name = f"_{field_name}_raw"
             table.fields[raw_field_name] = original_field.model_copy(update={"hidden": True})
 
-            created_at_str = group_mapping["created_at"].strftime("%Y-%m-%d %H:%M:%S")
+            # Must stay a datetime constant: a naive string literal would be parsed by ClickHouse in the
+            # project's timezone (the comparison is against toTimeZone(timestamp, <project tz>)), shifting
+            # the cutoff by the project's UTC offset.
+            created_at = group_mapping["created_at"]
+            if created_at.tzinfo is None:
+                created_at = created_at.replace(tzinfo=UTC)
 
             table.fields[field_name] = ExpressionField(
                 name=field_name,
@@ -1997,7 +2009,7 @@ def _setup_group_key_fields(database: Database, group_types: list[dict[str, Any]
                         ast.CompareOperation(
                             left=ast.Field(chain=["timestamp"]),
                             op=ast.CompareOperationOp.Lt,
-                            right=ast.Constant(value=created_at_str),
+                            right=ast.Constant(value=created_at),
                         ),
                         ast.Constant(value=""),
                         ast.Field(chain=[raw_field_name]),

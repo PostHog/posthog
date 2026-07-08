@@ -103,7 +103,7 @@ describe('VariantsPanelCreateFeatureFlag', () => {
         it('renders add variant button', () => {
             renderComponent(defaultExperiment)
 
-            expect(screen.getByRole('button', { name: /add variant/i })).toBeInTheDocument()
+            expect(screen.getByText(/add variant/i)).toBeInTheDocument()
         })
 
         it('renders experience continuity checkbox', () => {
@@ -118,7 +118,7 @@ describe('VariantsPanelCreateFeatureFlag', () => {
         it('adds a new variant when clicking add button', async () => {
             renderComponent(defaultExperiment)
 
-            const addButton = screen.getByRole('button', { name: /add variant/i })
+            const addButton = screen.getByText(/add variant/i)
             await userEvent.click(addButton)
 
             expect(mockOnChange).toHaveBeenCalledWith({
@@ -135,7 +135,7 @@ describe('VariantsPanelCreateFeatureFlag', () => {
         it('redistributes percentages equally when adding variant', async () => {
             renderComponent(defaultExperiment)
 
-            const addButton = screen.getByRole('button', { name: /add variant/i })
+            const addButton = screen.getByText(/add variant/i)
             await userEvent.click(addButton)
 
             expect(mockOnChange).toHaveBeenCalledWith({
@@ -181,7 +181,7 @@ describe('VariantsPanelCreateFeatureFlag', () => {
             const { container } = renderComponent(defaultExperiment)
 
             // Click pencil button to enable custom split editing
-            await userEvent.click(screen.getByRole('button', { name: /customize split/i }))
+            await userEvent.click(screen.getByLabelText(/customize split/i))
 
             const percentageInputs = container.querySelectorAll(
                 '[data-attr="experiment-variant-rollout-percentage-input"]'
@@ -313,7 +313,7 @@ describe('VariantsPanelCreateFeatureFlag', () => {
             async ({ inputValue, expectedControl, expectedTest }) => {
                 const { container } = renderComponent(defaultExperiment)
 
-                const customizeButton = screen.getByRole('button', { name: /customize split/i })
+                const customizeButton = screen.getByLabelText(/customize split/i)
                 await userEvent.click(customizeButton)
 
                 const percentageInputs = container.querySelectorAll(
@@ -345,7 +345,7 @@ describe('VariantsPanelCreateFeatureFlag', () => {
 
             const { container } = renderComponent(threeVariantExperiment)
 
-            const customizeButton = screen.getByRole('button', { name: /customize split/i })
+            const customizeButton = screen.getByLabelText(/customize split/i)
             await userEvent.click(customizeButton)
 
             const percentageInputs = container.querySelectorAll(
@@ -439,7 +439,7 @@ describe('VariantsPanelCreateFeatureFlag', () => {
 
             renderComponent(experimentWithRollout)
 
-            const addButton = screen.getByRole('button', { name: /add variant/i })
+            const addButton = screen.getByText(/add variant/i)
             await userEvent.click(addButton)
 
             const lastCall = mockOnChange.mock.calls[mockOnChange.mock.calls.length - 1][0]
@@ -553,7 +553,7 @@ describe('VariantsPanelCreateFeatureFlag', () => {
 
             renderComponent(experimentWithMaxVariants)
 
-            const addButton = screen.queryByRole('button', { name: /add variant/i })
+            const addButton = screen.queryByText(/add variant/i)
             expect(addButton).not.toBeInTheDocument()
         })
     })

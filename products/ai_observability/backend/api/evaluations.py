@@ -23,6 +23,7 @@ from posthog.models import User
 from posthog.permissions import AccessControlPermission
 from posthog.rbac.access_control_api_mixin import AccessControlViewSetMixin
 from posthog.temporal.ai_observability.message_utils import extract_text_from_messages
+from posthog.temporal.ai_observability.model_resolution import active_key_fallback
 from posthog.temporal.ai_observability.run_evaluation import extract_event_io, run_hog_eval
 
 from ..feature_flags import is_sentiment_evaluations_enabled
@@ -424,11 +425,13 @@ class EvaluationSerializer(serializers.ModelSerializer):
                 )
 
     def _validate_keyless_resolution(self, data: dict) -> None:
-        """Mirror the runtime model resolution for evals without their own provider key (see
-        `posthog/temporal/ai_observability/model_resolution.py`): a null config resolves via the
-        team's active key, else PostHog-funded trial inference while the team is still
-        grandfathered; an explicit keyless config never falls back to the active key, so it only
-        resolves via funded inference, and only for models on the trial allowlist."""
+        """Mirror the runtime model resolution for evals with no usable provider key (see
+        `posthog/temporal/ai_observability/model_resolution.py`). A pinned key, or an explicit
+        config's active-key fallback, is already handled by `_validate_can_run`; this covers what
+        is left: a null config resolves via the team's active key, else PostHog-funded trial
+        inference while the team is still grandfathered; an explicit config that reached here has
+        no active-key fallback, so it resolves via funded inference only, and only for models on
+        the trial allowlist."""
         add_key_message = "Add a provider API key to enable this evaluation."
         team = self.context["get_team"]()
         config = EvaluationConfig.objects.filter(team=team).first()
@@ -489,17 +492,19 @@ class EvaluationSerializer(serializers.ModelSerializer):
         return bool(data.get("model_configuration")) or bool(self.instance and self.instance.model_configuration_id)
 
     def _effective_provider_key(self, data: dict) -> LLMProviderKey | None:
-        """Return the provider key the evaluation will use after this update."""
+        """The provider key the evaluation will use after this update. With no pinned key, an
+        explicit config falls back to the team's active key for the same provider, mirroring
+        `active_key_fallback` in model_resolution.py."""
+        team = self.context["get_team"]()
         model_config = self._effective_model_configuration(data)
         if not model_config:
             return None
         provider_key_id = model_config.get("provider_key_id")
-        if not provider_key_id:
-            return None
-        return LLMProviderKey.objects.filter(
-            id=provider_key_id,
-            team=self.context["get_team"](),
-        ).first()
+        if provider_key_id:
+            return LLMProviderKey.objects.filter(id=provider_key_id, team=team).first()
+        provider = model_config.get("provider")
+        config = EvaluationConfig.objects.filter(team=team).first()
+        return active_key_fallback(config, provider) if config and provider else None
 
     def _create_or_update_model_configuration(
         self, model_config_data: dict[str, Any] | None, team_id: int

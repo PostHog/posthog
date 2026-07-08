@@ -79,6 +79,7 @@ import type {
 } from '~/queries/schema/schema-general'
 import { QueryContext } from '~/queries/types'
 
+import type { AIPromptConfigApi } from 'products/subscriptions/frontend/generated/api.schemas'
 import { CyclotronInputType } from 'products/workflows/frontend/Workflows/hogflows/steps/types'
 import type { HogFlow } from 'products/workflows/frontend/Workflows/hogflows/types'
 
@@ -209,6 +210,7 @@ export enum AvailableFeature {
     MANAGED_REVERSE_PROXY = 'managed_reverse_proxy',
     ALERTS = 'alerts',
     HIGH_FREQUENCY_ALERTS = 'high_frequency_alerts',
+    REAL_TIME_ALERTS = 'real_time_alerts',
     DATA_COLOR_THEMES = 'data_color_themes',
     ORGANIZATION_INVITE_SETTINGS = 'organization_invite_settings',
     ORGANIZATION_SECURITY_SETTINGS = 'organization_security_settings',
@@ -1821,6 +1823,7 @@ export enum PersonsTabType {
     RELATED = 'related',
     HISTORY = 'history',
     FEATURE_FLAGS = 'featureFlags',
+    EMAILS = 'emails',
 }
 
 export enum GroupsTabType {
@@ -2957,7 +2960,7 @@ export type BreakdownType =
     | 'data_warehouse'
     | 'data_warehouse_person_property'
     | 'revenue_analytics'
-export type IntervalType = 'second' | 'minute' | 'hour' | 'day' | 'week' | 'month'
+export type IntervalType = 'second' | 'minute' | 'hour' | 'day' | 'week' | 'month' | 'quarter' | 'year'
 export type SimpleIntervalType = 'day' | 'month'
 export type SmoothingType = number
 export type InsightSceneSource = 'web-analytics' | 'llm-analytics' | 'endpoints'
@@ -3489,6 +3492,10 @@ export interface FlattenedFunnelStepByBreakdown {
     // :KLUDGE: Data transforms done in `getBreakdownStepValues`
     breakdown_value?: Array<string | number>
     breakdownIndex?: number
+    /** Compare period this row represents; both rows of a pair share breakdown_value and color. */
+    compare_label?: 'current' | 'previous'
+    /** Color position shared by both rows of a compare pair; falls back to breakdownIndex. */
+    colorIndex?: number
     conversionRates?: {
         total: number
     }
@@ -4966,6 +4973,7 @@ export interface AppContext {
     default_event_name: string | null
     has_pageview: boolean
     has_screen: boolean
+    has_person_email: boolean
     /**
      * Flags the server bootstraps as enabled (a list of keys). Storybook may instead pass a
      * record to pin specific multivariate variants (e.g. an experiment arm) for a story.
@@ -5313,6 +5321,7 @@ export interface SubscriptionType {
     dashboard_export_insights?: number[]
     integration_id?: number | null
     prompt?: string | null
+    ai_prompt_config?: AIPromptConfigApi | null
     target_type: string
     target_value: string
     frequency: 'daily' | 'weekly' | 'monthly' | 'yearly'
@@ -5646,6 +5655,7 @@ export type APIScopeObject =
     | 'heatmap'
     | 'hog_flow'
     | 'hog_function'
+    | 'ingestion_warning'
     | 'insight'
     | 'insight_variable'
     | 'integration'
@@ -6296,6 +6306,7 @@ export interface ExternalDataSchemaSourceSummary {
     id: string
     source_type: ExternalDataSourceType
     supports_column_selection?: boolean
+    supports_row_filters?: boolean
     user_access_level: AccessControlLevel | null
 }
 

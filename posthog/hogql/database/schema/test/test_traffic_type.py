@@ -3,6 +3,7 @@ import pytest
 from posthog.hogql import ast
 from posthog.hogql.database.models import ExpressionField
 from posthog.hogql.database.schema.traffic_type import (
+    client_ip_expr,
     create_bot_name_field,
     create_bot_operator_field,
     create_is_bot_field,
@@ -22,27 +23,20 @@ FIELD_NAMES = ["$virt_is_bot", "$virt_traffic_type", "$virt_traffic_category", "
 
 class TestUserAgentExpr:
     def test_default_properties_path(self):
-        expr = user_agent_expr()
-        assert isinstance(expr, ast.Call)
-        assert expr.name == "coalesce"
-        assert len(expr.args) == 2
-        # First arg should be nullIf($raw_user_agent, '') to handle empty strings
-        null_if = expr.args[0]
-        assert isinstance(null_if, ast.Call)
-        assert null_if.name == "nullIf"
-        assert null_if.args[0] == ast.Field(chain=["properties", "$raw_user_agent"])
-        assert null_if.args[1] == ast.Constant(value="")
-        assert expr.args[1] == ast.Field(chain=["properties", "$user_agent"])
+        # Raw-only on purpose: a $user_agent fallback would force a properties-blob read
+        assert user_agent_expr() == ast.Field(chain=["properties", "$raw_user_agent"])
 
     def test_custom_properties_path(self):
         expr = user_agent_expr(properties_path=["poe", "properties"])
-        assert isinstance(expr, ast.Call)
-        assert expr.name == "coalesce"
-        null_if = expr.args[0]
-        assert isinstance(null_if, ast.Call)
-        assert null_if.name == "nullIf"
-        assert null_if.args[0] == ast.Field(chain=["poe", "properties", "$raw_user_agent"])
-        assert expr.args[1] == ast.Field(chain=["poe", "properties", "$user_agent"])
+        assert expr == ast.Field(chain=["poe", "properties", "$raw_user_agent"])
+
+
+class TestClientIPExpr:
+    def test_default_properties_path(self):
+        assert client_ip_expr() == ast.Field(chain=["properties", "$ip"])
+
+    def test_custom_properties_path(self):
+        assert client_ip_expr(["poe", "properties"]) == ast.Field(chain=["poe", "properties", "$ip"])
 
 
 class TestExpressionFieldFactories:
@@ -86,15 +80,15 @@ FIELD_MARKERS = [
 
 class TestFieldMarkers:
     @pytest.mark.parametrize("factory_fn,field_name,marker", FIELD_MARKERS)
-    def test_emits_marker_over_user_agent(self, factory_fn, field_name, marker):
+    def test_emits_marker_over_user_agent_and_ip(self, factory_fn, field_name, marker):
         field = factory_fn(name=field_name)
         assert isinstance(field.expr, ast.Call)
         assert field.expr.name == marker
-        assert field.expr.args == [user_agent_expr()]
+        assert field.expr.args == [user_agent_expr(), client_ip_expr()]
 
     @pytest.mark.parametrize("factory_fn,field_name,marker", FIELD_MARKERS)
     def test_marker_respects_custom_properties_path(self, factory_fn, field_name, marker):
         field = factory_fn(name=field_name, properties_path=["poe", "properties"])
         assert isinstance(field.expr, ast.Call)
         assert field.expr.name == marker
-        assert field.expr.args == [user_agent_expr(["poe", "properties"])]
+        assert field.expr.args == [user_agent_expr(["poe", "properties"]), client_ip_expr(["poe", "properties"])]

@@ -97,9 +97,9 @@ describe('RecordingsUniversalFilterAddFilterPopover (pill category dropdown)', (
         const personPropertiesItem = await screen.findByTestId('taxonomic-category-dropdown-item-person_properties')
         await userEvent.click(personPropertiesItem)
 
-        // The picked category is applied (findByRole waits for the re-render)...
+        // The picked category is applied (findByLabelText waits for the re-render)...
         expect(
-            await screen.findByRole('button', { name: 'Current category: Person properties. Click to change.' })
+            await screen.findByLabelText('Current category: Person properties. Click to change.')
         ).toBeInTheDocument()
 
         // ...and the main filter stays open with its search query intact.

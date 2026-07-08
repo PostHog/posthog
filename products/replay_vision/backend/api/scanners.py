@@ -1,6 +1,5 @@
 from typing import Any, NoReturn, cast
 
-from django.conf import settings
 from django.db import IntegrityError
 from django.db.models import CharField, Count, F, Q, QuerySet, Value
 from django.db.models.functions import Coalesce, NullIf
@@ -8,7 +7,6 @@ from django.utils import timezone
 
 import structlog
 import django_filters
-from asgiref.sync import async_to_sync
 from django_filters.rest_framework import DjangoFilterBackend
 from drf_spectacular.utils import OpenApiParameter, extend_schema, extend_schema_field, extend_schema_view
 from pydantic import ValidationError as PydanticValidationError
@@ -17,21 +15,12 @@ from rest_framework.decorators import action
 from rest_framework.exceptions import NotFound, PermissionDenied, ValidationError
 from rest_framework.request import Request
 from rest_framework.response import Response
-from temporalio.common import SearchAttributePair, TypedSearchAttributes
-from temporalio.exceptions import WorkflowAlreadyStartedError
 
 from posthog.schema import RecordingsQuery
 
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
-from posthog.exceptions import QuotaLimitExceeded
 from posthog.models.user import User
-from posthog.temporal.common.client import sync_connect
-from posthog.temporal.common.search_attributes import (
-    POSTHOG_SCANNER_ID_KEY,
-    POSTHOG_SESSION_RECORDING_ID_KEY,
-    POSTHOG_TEAM_ID_KEY,
-)
 
 from products.replay_vision.backend.api.filters import (
     MultiChoiceFilter,
@@ -40,10 +29,15 @@ from products.replay_vision.backend.api.filters import (
     split_csv,
     validate_csv_choices,
 )
+from products.replay_vision.backend.api.trigger import (
+    WorkflowStartOutcome,
+    check_observation_quota,
+    start_apply_scanner_workflow,
+)
 from products.replay_vision.backend.feature_flag import ReplayVisionEnabledPermission
-from products.replay_vision.backend.models.replay_observation import ObservationTrigger
 from products.replay_vision.backend.models.replay_scanner import (
     ReplayScanner,
+    SamplingMode,
     ScannerModel,
     ScannerProvider,
     ScannerType,
@@ -56,17 +50,11 @@ from products.replay_vision.backend.queries import (
     project_monthly_observations,
     refresh_scanner_estimate,
 )
-from products.replay_vision.backend.quota import compute_quota_snapshot, sum_enabled_scanner_estimates
+from products.replay_vision.backend.quota import sum_enabled_scanner_estimates
 from products.replay_vision.backend.tag_suggestions import SuggestionError, suggest_classifier_tags
 from products.replay_vision.backend.tags import slugify_tag
-from products.replay_vision.backend.temporal.constants import (
-    APPLY_SCANNER_EXECUTION_TIMEOUT,
-    APPLY_SCANNER_WORKFLOW_NAME,
-    MAX_SESSION_ID_LENGTH,
-    build_apply_scanner_workflow_id,
-)
+from products.replay_vision.backend.temporal.constants import MAX_SESSION_ID_LENGTH
 from products.replay_vision.backend.temporal.scanners import validate_scanner_config
-from products.replay_vision.backend.temporal.types import ApplyScannerInputs
 
 # Date is set by the schedule at trigger time, not by the user — strip on save.
 _QUERY_FIELDS_TO_STRIP = ("date_from", "date_to")
@@ -175,6 +163,11 @@ class ReplayScannerSerializer(serializers.ModelSerializer):
             "the sampling precision."
         ),
     )
+    sampling_mode = serializers.ChoiceField(
+        choices=SamplingMode.choices,
+        required=False,
+        help_text="Quality pre-filter applied before random sampling. focused = top sessions only, balanced = drops the lowest-quality, comprehensive = no filter (default).",
+    )
     provider = serializers.ChoiceField(
         choices=ScannerProvider.choices,
         required=False,
@@ -222,6 +215,7 @@ class ReplayScannerSerializer(serializers.ModelSerializer):
             "scanner_config",
             "query",
             "sampling_rate",
+            "sampling_mode",
             "provider",
             "model",
             "enabled",
@@ -477,6 +471,15 @@ class EstimateRequestSerializer(serializers.Serializer):
         max_value=1.0,
         help_text="0..1 downsample applied to matched sessions. Defaults to 1.0 (no downsampling).",
     )
+    sampling_mode = serializers.ChoiceField(
+        choices=SamplingMode.choices,
+        required=False,
+        default=SamplingMode.COMPREHENSIVE,
+        help_text=(
+            "Quality pre-filter applied to the matched-session count, mirroring the sweep's candidate query. "
+            "Defaults to comprehensive (no filter)."
+        ),
+    )
     scanner_id = serializers.UUIDField(
         required=False,
         allow_null=True,
@@ -536,7 +539,10 @@ class EstimateResponseSerializer(serializers.Serializer):
     """Forward-looking observation-volume estimate for a proposed scanner. Pricing-agnostic."""
 
     matched_sessions_in_window = serializers.IntegerField(
-        help_text="Distinct sessions matching the query within the 30-day lookback, before sampling.",
+        help_text=(
+            "Distinct sessions matching the query within the 30-day lookback, after the sampling_mode quality "
+            "filter but before random sampling."
+        ),
     )
     window_days = serializers.IntegerField(
         help_text=(
@@ -544,7 +550,9 @@ class EstimateResponseSerializer(serializers.Serializer):
         ),
     )
     estimated_observations_per_month = serializers.IntegerField(
-        help_text="Projected monthly observations: matched sessions scaled to 30 days, times sampling_rate.",
+        help_text=(
+            "Projected monthly observations: quality-filtered matched sessions scaled to 30 days, times sampling_rate."
+        ),
     )
     other_enabled_scanners_monthly = serializers.IntegerField(
         help_text=(
@@ -720,55 +728,15 @@ class ReplayScannerViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         if not self.user_access_control.check_access_level_for_resource("session_recording", required_level="viewer"):
             raise PermissionDenied("Triggering an on-demand observation requires session_recording read access.")
 
-        snapshot = compute_quota_snapshot(organization_id=self.team.organization_id)
-        if snapshot.exhausted:
-            raise QuotaLimitExceeded(
-                detail=(
-                    f"Monthly Replay Vision quota of {snapshot.monthly_quota:,} observations reached. "
-                    f"Resets {snapshot.period_end.strftime('%b')} {snapshot.period_end.day}."
-                )
-            )
+        check_observation_quota(self.team.organization_id)
 
         body = ObserveRequestSerializer(data=request.data)
         body.is_valid(raise_exception=True)
         session_id: str = body.validated_data["session_id"]
         user = cast(User, request.user)
 
-        workflow_id = build_apply_scanner_workflow_id(scanner.id, session_id)
-        try:
-            client = sync_connect()
-            async_to_sync(client.start_workflow)(  # type: ignore[misc]
-                APPLY_SCANNER_WORKFLOW_NAME,  # type: ignore[arg-type]
-                ApplyScannerInputs(  # type: ignore[arg-type]
-                    scanner_id=scanner.id,
-                    session_id=session_id,
-                    team_id=scanner.team_id,
-                    triggered_by=ObservationTrigger.ON_DEMAND,
-                    triggered_by_user_id=user.id,
-                ),
-                id=workflow_id,
-                task_queue=settings.REPLAY_VISION_TASK_QUEUE,
-                execution_timeout=APPLY_SCANNER_EXECUTION_TIMEOUT,
-                # Stamp the scanner id so on-demand applies count toward the sweep's in-flight cap.
-                search_attributes=TypedSearchAttributes(
-                    search_attributes=[
-                        SearchAttributePair(key=POSTHOG_TEAM_ID_KEY, value=scanner.team_id),
-                        SearchAttributePair(key=POSTHOG_SESSION_RECORDING_ID_KEY, value=session_id),
-                        SearchAttributePair(key=POSTHOG_SCANNER_ID_KEY, value=str(scanner.id)),
-                    ]
-                ),
-            )
-        except WorkflowAlreadyStartedError as exc:
-            # Pin to our own workflow_id so a future id_reuse_policy change can't silently 202 an unrelated run.
-            if exc.workflow_id != workflow_id:
-                logger.exception("replay_vision.observe.workflow_id_mismatch", workflow_id=workflow_id)
-                return Response(
-                    {"error": "Failed to start observation workflow"},
-                    status=status.HTTP_503_SERVICE_UNAVAILABLE,
-                )
-            logger.info("replay_vision.observe.workflow_already_started", workflow_id=workflow_id)
-        except Exception:
-            logger.exception("replay_vision.observe.workflow_start_failed", workflow_id=workflow_id)
+        workflow_id, outcome = start_apply_scanner_workflow(scanner, session_id, triggered_by_user_id=user.id)
+        if outcome is WorkflowStartOutcome.FAILED:
             return Response(
                 {"error": "Failed to start observation workflow"},
                 status=status.HTTP_503_SERVICE_UNAVAILABLE,
@@ -810,7 +778,9 @@ class ReplayScannerViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         query_dict.setdefault("kind", "RecordingsQuery")
         recordings_query = RecordingsQuery.model_validate(query_dict)
 
-        estimate = estimate_scanner_session_volume(team=self.team, query=recordings_query)
+        estimate = estimate_scanner_session_volume(
+            team=self.team, query=recordings_query, sampling_mode=body.validated_data["sampling_mode"]
+        )
         observations_per_month = project_monthly_observations(estimate, sampling_rate)
 
         # The OTHER enabled scanners' projected total (same source as the quota snapshot), so the editor adds this

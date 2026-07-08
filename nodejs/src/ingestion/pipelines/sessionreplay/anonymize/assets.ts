@@ -10,7 +10,7 @@ export const INLINE_IMAGE_ATTR = 'rr_dataURL'
 export const PLACEHOLDER_SRC =
     "data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 80 80'><rect width='80' height='80' fill='%23f3f4f6'/><rect x='6' y='6' width='68' height='68' fill='none' stroke='%23d1d5db' stroke-width='2' rx='6'/><circle cx='26' cy='26' r='6' fill='%239ca3af'/><path d='M14 60 L34 40 L48 50 L66 32 L66 66 L14 66 Z' fill='%239ca3af'/></svg>"
 
-export const MEDIA_SRC_ATTRS = ['src', 'srcset', 'href', 'xlink:href', 'poster']
+export const MEDIA_SRC_ATTRS = ['src', 'rr_src', 'srcset', 'href', 'xlink:href', 'poster']
 
 export function isMediaTag(tag: string): boolean {
     switch (tag.toLowerCase()) {
@@ -74,7 +74,7 @@ export function applyBlur(ctx: ScrubContext, attrs: Record<string, unknown>): vo
         } else {
             // Stash the scrubbed original under a namespaced attr (won't collide with app
             // `data-original-*`), host-scrubbed too so the CDN host can't leak.
-            const scrubbed = scrubUrl(ctx, existing, { scrubAuthority: true })
+            const scrubbed = scrubUrl(ctx, existing, { collapseHost: true })
             attrs[key] = PLACEHOLDER_SRC
             attrs[`data-anon-original-${key}`] = scrubbed.changed ? scrubbed.value : existing
         }
