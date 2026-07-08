@@ -1,7 +1,7 @@
 import { useActions, useMountedLogic, useValues } from 'kea'
 import { useMemo } from 'react'
 
-import { IconCornerDownRight, IconPlay } from '@posthog/icons'
+import { IconCornerDownRight, IconPlayFilled } from '@posthog/icons'
 
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { CodeEditorResizeable } from 'lib/monaco/CodeEditorResizable'
@@ -182,12 +182,21 @@ const Settings = ({
 
     return (
         <div className="flex h-full min-h-0 flex-col">
-            <div className="flex shrink-0 justify-end border-b p-1" onClick={(event) => event.stopPropagation()}>
+            {/* Mirrors the embedded SQL editor's toolbar (QueryWindow) so code cells look alike. */}
+            <div
+                className="flex w-full shrink-0 flex-row items-center gap-2 border-t border-b bg-white py-1 pl-2 pr-2 dark:bg-black"
+                onClick={(event) => event.stopPropagation()}
+            >
                 <LemonButton
-                    size="xsmall"
+                    data-attr="notebook-python-v2-run-button"
+                    size="small"
                     type="primary"
-                    icon={<IconPlay />}
-                    onClick={run}
+                    icon={<IconPlayFilled color="var(--success)" />}
+                    onClick={() => {
+                        if (!isRunning) {
+                            run()
+                        }
+                    }}
                     loading={isRunning}
                     disabledReason={operationBlockReason ?? undefined}
                     tooltip="Run Python (⌘⏎)"

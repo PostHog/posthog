@@ -1,7 +1,5 @@
 from rest_framework import serializers
 
-from posthog.hogql.constants import MAX_SELECT_NOTEBOOK_MATERIALIZE_LIMIT
-
 
 class NotebookSQLV2RefSerializer(serializers.Serializer):
     node_id = serializers.CharField(help_text="ProseMirror node id of the upstream node this name points at.")
@@ -77,8 +75,8 @@ class NotebookSQLV2DataPlaneRequestSerializer(serializers.Serializer):
         default=50,
         min_value=1,
         # Must admit the kernel executor's full-frame materialize cap (_MATERIALIZE_ROW_CAP);
-        # queries run under LimitContext.NOTEBOOK_MATERIALIZE, which shares this ceiling.
-        max_value=MAX_SELECT_NOTEBOOK_MATERIALIZE_LIMIT,
+        # the HogQL printer clamps explicit LIMITs to MAX_SELECT_RETURNED_ROWS regardless.
+        max_value=2_000_000,
         help_text="Maximum number of rows to return (applied as an outer LIMIT, clamped by HogQL's row ceiling).",
     )
     offset = serializers.IntegerField(
