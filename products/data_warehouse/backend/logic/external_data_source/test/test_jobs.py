@@ -300,6 +300,48 @@ class TestUpdateExternalJobStatus:
         assert schema.status == ExternalDataSchema.Status.COMPLETED
         assert schema.latest_error is None
 
+    def test_completed_transition_stamps_schema_last_synced_at(self):
+        # Regression: the schemas list "Last synced" must advance whenever a job completes,
+        # even when the pipeline's own update_last_synced_at is skipped (e.g. a run that found
+        # no new incremental data and short-circuited post-run ops).
+        team, _source, schema, job = _create_org_team_source_schema_job()
+        assert schema.last_synced_at is None
+
+        with patch("products.data_warehouse.backend.logic.external_data_source.jobs.emit_data_import_app_metrics"):
+            update_external_job_status(
+                job_id=str(job.id),
+                team_id=team.pk,
+                status=ExternalDataJob.Status.COMPLETED,
+                logger=MagicMock(),
+                latest_error=None,
+            )
+
+        schema.refresh_from_db()
+        assert schema.last_synced_at == job.created_at
+
+    @pytest.mark.parametrize(
+        "status",
+        [
+            ExternalDataJob.Status.FAILED,
+            ExternalDataJob.Status.BILLING_LIMIT_REACHED,
+            ExternalDataJob.Status.RUNNING,
+        ],
+    )
+    def test_non_completed_transition_leaves_schema_last_synced_at_untouched(self, status):
+        team, _source, schema, job = _create_org_team_source_schema_job()
+
+        with patch("products.data_warehouse.backend.logic.external_data_source.jobs.emit_data_import_app_metrics"):
+            update_external_job_status(
+                job_id=str(job.id),
+                team_id=team.pk,
+                status=status,
+                logger=MagicMock(),
+                latest_error="boom" if status == ExternalDataJob.Status.FAILED else None,
+            )
+
+        schema.refresh_from_db()
+        assert schema.last_synced_at is None
+
     def test_rejected_transition_does_not_overwrite_schema_status(self):
         team, _source, schema, job = _create_org_team_source_schema_job()
 

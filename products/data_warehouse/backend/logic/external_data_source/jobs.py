@@ -82,7 +82,18 @@ def update_external_job_status(
         schema = ExternalDataSchema.objects.select_for_update().get(id=model.schema_id, team_id=team_id)
         schema.status = schema_status
         schema.latest_error = latest_error
-        schema.save(update_fields=["status", "latest_error", "updated_at"])
+        schema_update_fields = ["status", "latest_error", "updated_at"]
+
+        # Advance the schema-level "Last synced" whenever a job actually completes, driven by
+        # the same terminal transition that surfaces the run in the Syncs tab. The pipeline's
+        # own update_last_synced_at only fires deep inside post-run ops, which are skipped when a
+        # run finds no new incremental data (the delta_table-is-None early return). Stamping here
+        # keeps the schemas list from freezing on a stale date while newer Completed jobs pile up.
+        if status == ExternalDataJob.Status.COMPLETED and is_first_terminal_transition:
+            schema.last_synced_at = model.created_at
+            schema_update_fields.append("last_synced_at")
+
+        schema.save(update_fields=schema_update_fields)
 
     model.refresh_from_db()
 
