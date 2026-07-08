@@ -617,6 +617,104 @@ async fn ack_for_previous_handoff_does_not_satisfy_quorum() {
     cancel.cancel();
 }
 
+/// An ack written by a pre-`handoff_id` binary (the JSON has no
+/// `handoff_id` field, so it deserializes to "") must not satisfy the
+/// quorum of a handoff carrying a real id. This is the rolling-upgrade
+/// skew case: mixed fleets must fail safe by stalling until the
+/// participant re-acks with the correct id, never by advancing on a
+/// legacy ack.
+#[tokio::test]
+async fn legacy_ack_without_handoff_id_does_not_satisfy_quorum() {
+    let (store, prefix) = test_store_with_prefix("legacy-ack").await;
+    let cancel = CancellationToken::new();
+
+    let lease_id = store.grant_lease(30).await.expect("lease");
+    store
+        .register_router(
+            &RegisteredRouter {
+                router_name: "r-legacy".to_string(),
+                registered_at: 0,
+                last_heartbeat: 0,
+            },
+            lease_id,
+        )
+        .await
+        .expect("register router");
+
+    // Write the ack exactly as an old binary would: raw JSON with no
+    // `handoff_id` field at all.
+    let mut raw = etcd_client::Client::connect([common::ETCD_ENDPOINT], None)
+        .await
+        .expect("connect raw etcd client");
+    raw.put(
+        format!("{prefix}freeze_acks/0/r-legacy"),
+        r#"{"router_name":"r-legacy","partition":0,"acked_at":0}"#,
+        None,
+    )
+    .await
+    .expect("write legacy ack");
+
+    // The legacy JSON must deserialize (serde default fills ""), not error.
+    let acks = store.list_freeze_acks(0).await.expect("list acks");
+    assert_eq!(acks.len(), 1);
+    assert_eq!(acks[0].handoff_id, "");
+
+    let _coord = start_coordinator(
+        Arc::clone(&store),
+        Arc::new(StickyBalancedStrategy),
+        cancel.clone(),
+    );
+
+    put_handoff(
+        &store,
+        0,
+        Some("pod-old"),
+        "pod-new",
+        HandoffPhase::Freezing,
+    )
+    .await;
+
+    // Router name matches, id ("") doesn't: quorum must not be satisfied.
+    tokio::time::sleep(Duration::from_secs(2)).await;
+    let handoff = store
+        .get_handoff(0)
+        .await
+        .expect("get handoff")
+        .expect("handoff exists");
+    assert_eq!(
+        handoff.phase,
+        HandoffPhase::Freezing,
+        "a legacy ack without a handoff_id must not satisfy an id-bearing handoff's quorum"
+    );
+
+    // A correlated re-ack (what the router writes once upgraded) clears it.
+    store
+        .put_freeze_ack(&RouterFreezeAck {
+            router_name: "r-legacy".to_string(),
+            partition: 0,
+            acked_at: 0,
+            handoff_id: "test-handoff-0".to_string(),
+        })
+        .await
+        .expect("write correlated ack");
+
+    let check_store = Arc::clone(&store);
+    wait_for_condition(WAIT_TIMEOUT, POLL_INTERVAL, || {
+        let store = Arc::clone(&check_store);
+        async move {
+            store
+                .get_handoff(0)
+                .await
+                .ok()
+                .flatten()
+                .is_some_and(|h| h.phase != HandoffPhase::Freezing)
+        }
+    })
+    .await;
+
+    cancel.cancel();
+}
+
 // ============================================================
 // Cleanup owns only unprogressable handoffs
 // ============================================================
@@ -783,6 +881,63 @@ async fn anchored_watch_delivers_events_written_before_attach() {
         {
             assert_eq!(handoff.partition, 7);
             assert_eq!(handoff.new_owner, "anchored-pod");
+            return;
+        }
+    }
+}
+
+/// A pod's startup reconcile takes two snapshots (assignments, then
+/// handoffs) and anchors its handoff watch to the *lower* of the two
+/// revisions. This pins the contract that anchoring at the lower revision
+/// replays a write that lands between the two reads — anchoring at the
+/// higher one (an easy `min`→`max` typo in `reconcile_all`) would let the
+/// watch skip it.
+#[tokio::test]
+async fn watch_anchored_to_lower_snapshot_revision_replays_interleaved_write() {
+    let store = test_store("min-rev-anchor").await;
+
+    // First snapshot: assignments, at rev_a.
+    let (_, rev_a) = store
+        .list_assignments_with_revision()
+        .await
+        .expect("assignments snapshot");
+
+    // A handoff lands between the two snapshot reads.
+    put_handoff(&store, 3, None, "minrev-pod", HandoffPhase::Freezing).await;
+
+    // Second snapshot: handoffs, at rev_h > rev_a. The interleaved write
+    // is included here, so converging from this snapshot is fine — but a
+    // watch anchored past rev_a must still redeliver it, because a future
+    // reordering of the two reads would otherwise silently drop it.
+    let (handoffs, rev_h) = store
+        .list_handoffs_with_revision()
+        .await
+        .expect("handoffs snapshot");
+    assert!(handoffs.iter().any(|h| h.partition == 3));
+    assert!(
+        rev_h > rev_a,
+        "the interleaved write must bump the revision"
+    );
+
+    let mut stream = store
+        .watch_handoffs_from(rev_a.min(rev_h) + 1)
+        .await
+        .expect("anchored watch");
+
+    let deadline = tokio::time::Instant::now() + Duration::from_secs(5);
+    loop {
+        let resp = tokio::time::timeout_at(deadline, stream.message())
+            .await
+            .expect("watch anchored at min(rev_a, rev_h) must replay the interleaved write")
+            .expect("watch stream")
+            .expect("watch response");
+        if let Some(handoff) = resp
+            .events()
+            .iter()
+            .find_map(|e| parse_watch_value::<HandoffState>(e).ok())
+        {
+            assert_eq!(handoff.partition, 3);
+            assert_eq!(handoff.new_owner, "minrev-pod");
             return;
         }
     }

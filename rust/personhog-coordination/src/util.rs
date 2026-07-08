@@ -1,26 +1,24 @@
-use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use tokio_util::sync::CancellationToken;
+use uuid::Uuid;
 
 pub use assignment_coordination::util::now_seconds;
 
 use crate::error::{Error, Result};
 use crate::store::PersonhogStore;
 
-/// Generate a handoff id unique across handoff attempts. Milliseconds
-/// alone can collide when a handoff is cancelled and recreated within the
-/// same instant, so a process-local sequence number disambiguates; across
-/// coordinator failovers the leader election guarantees non-overlapping
-/// creation windows.
+/// Generate a handoff id unique across handoff attempts. The uuid makes
+/// uniqueness structural — ids cannot collide across coordinator
+/// failovers even if the wall clock steps backward — while the millis
+/// prefix keeps ids sortable and debuggable.
 pub fn new_handoff_id() -> String {
-    static SEQ: AtomicU64 = AtomicU64::new(0);
     let millis = SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .map(|d| d.as_millis())
         .unwrap_or(0);
-    format!("{}-{}", millis, SEQ.fetch_add(1, Ordering::Relaxed))
+    format!("{}-{}", millis, Uuid::new_v4())
 }
 
 pub async fn run_lease_keepalive(
@@ -47,5 +45,21 @@ pub async fn run_lease_keepalive(
                 }
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::collections::HashSet;
+
+    use super::new_handoff_id;
+
+    /// Quorum correlation and cancellation detection hang off id
+    /// uniqueness; ids minted in the same instant (a handoff cancelled
+    /// and recreated within one millisecond) must never collide.
+    #[test]
+    fn new_handoff_id_is_unique_within_same_instant() {
+        let ids: HashSet<String> = (0..1000).map(|_| new_handoff_id()).collect();
+        assert_eq!(ids.len(), 1000);
     }
 }

@@ -595,3 +595,136 @@ impl PodHandle {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::types::AssignmentStatus;
+
+    const POD: &str = "pod-self";
+    const OTHER: &str = "pod-other";
+    const THIRD: &str = "pod-third";
+
+    fn assignment(owner: &str) -> PartitionAssignment {
+        PartitionAssignment {
+            partition: 1,
+            owner: owner.to_string(),
+            status: AssignmentStatus::Active,
+        }
+    }
+
+    fn handoff(old_owner: Option<&str>, new_owner: &str, phase: HandoffPhase) -> HandoffState {
+        HandoffState {
+            partition: 1,
+            old_owner: old_owner.map(str::to_string),
+            new_owner: new_owner.to_string(),
+            phase,
+            started_at: 0,
+            handoff_id: "h-test".to_string(),
+        }
+    }
+
+    #[test]
+    fn desired_state_covers_the_full_role_phase_matrix() {
+        use DesiredState::*;
+        use HandoffPhase::*;
+
+        // (case, assignment, handoff, expected). Assignments mirror what
+        // the protocol would hold at that point: they name the old owner
+        // (or nobody) until Complete flips them to the new owner.
+        let cases: Vec<(
+            &str,
+            Option<PartitionAssignment>,
+            Option<HandoffState>,
+            DesiredState,
+        )> = vec![
+            (
+                "old owner serves through Freezing",
+                Some(assignment(POD)),
+                Some(handoff(Some(POD), OTHER, Freezing)),
+                Serving,
+            ),
+            (
+                "old owner drains and acks in Draining",
+                Some(assignment(POD)),
+                Some(handoff(Some(POD), OTHER, Draining)),
+                Drained { ack: true },
+            ),
+            (
+                "old owner stays drained without re-acking in Warming",
+                Some(assignment(POD)),
+                Some(handoff(Some(POD), OTHER, Warming)),
+                Drained { ack: false },
+            ),
+            (
+                "old owner releases at Complete",
+                Some(assignment(OTHER)),
+                Some(handoff(Some(POD), OTHER, Complete)),
+                Released,
+            ),
+            (
+                "new owner must not hold the partition in Freezing",
+                Some(assignment(OTHER)),
+                Some(handoff(Some(OTHER), POD, Freezing)),
+                Released,
+            ),
+            (
+                "new owner must not warm early in Draining",
+                Some(assignment(OTHER)),
+                Some(handoff(Some(OTHER), POD, Draining)),
+                Released,
+            ),
+            (
+                "new owner acquires in Warming",
+                Some(assignment(OTHER)),
+                Some(handoff(Some(OTHER), POD, Warming)),
+                Acquiring,
+            ),
+            (
+                "new owner serves at Complete",
+                Some(assignment(POD)),
+                Some(handoff(Some(OTHER), POD, Complete)),
+                Serving,
+            ),
+            (
+                "initial assignment (no old owner) acquires in Warming",
+                None,
+                Some(handoff(None, POD, Warming)),
+                Acquiring,
+            ),
+            (
+                "handoff between two other pods defers to owned assignment",
+                Some(assignment(POD)),
+                Some(handoff(Some(OTHER), THIRD, Draining)),
+                Serving,
+            ),
+            (
+                "handoff between two other pods defers to unowned assignment",
+                Some(assignment(OTHER)),
+                Some(handoff(Some(OTHER), THIRD, Warming)),
+                Released,
+            ),
+            (
+                "no handoff: owned assignment serves",
+                Some(assignment(POD)),
+                None,
+                Serving,
+            ),
+            (
+                "no handoff: someone else's assignment releases",
+                Some(assignment(OTHER)),
+                None,
+                Released,
+            ),
+            ("no assignment at all releases", None, None, Released),
+        ];
+
+        for (case, assignment, handoff, expected) in cases {
+            assert_eq!(
+                desired_state(POD, assignment.as_ref(), handoff.as_ref()),
+                expected,
+                "{case}"
+            );
+        }
+    }
+}
