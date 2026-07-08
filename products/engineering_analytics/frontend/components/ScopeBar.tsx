@@ -255,6 +255,22 @@ function BranchScopeChip(): JSX.Element {
     )
 }
 
+/** The shared window picker, wired to the cross-page date scope. Standalone so pages can place it outside
+ *  the scope bar (the hub docks it in the repo header). */
+export function ScopeDateFilter(): JSX.Element {
+    const { dateFrom, dateTo } = useValues(engineeringAnalyticsFiltersLogic)
+    const { setDateRange } = useActions(engineeringAnalyticsFiltersLogic)
+    return (
+        <DateFilter
+            dateFrom={dateFrom}
+            dateTo={dateTo}
+            onChange={(from, to) => setDateRange(from ?? SHARED_DEFAULT_DATE_FROM, to ?? null)}
+            dateOptions={SCOPE_DATE_OPTIONS}
+            size="small"
+        />
+    )
+}
+
 export function ScopeBar({
     repoSlot,
     crumbs = [],
@@ -273,9 +289,6 @@ export function ScopeBar({
     showDate?: boolean
     extra?: ReactNode
 }): JSX.Element {
-    const { dateFrom, dateTo } = useValues(engineeringAnalyticsFiltersLogic)
-    const { setDateRange } = useActions(engineeringAnalyticsFiltersLogic)
-
     return (
         <div className="flex flex-wrap items-center gap-2">
             {repoSlot}
@@ -306,15 +319,7 @@ export function ScopeBar({
                     </span>
                 )}
                 {showBranch && <BranchScopeChip />}
-                {showDate && (
-                    <DateFilter
-                        dateFrom={dateFrom}
-                        dateTo={dateTo}
-                        onChange={(from, to) => setDateRange(from ?? SHARED_DEFAULT_DATE_FROM, to ?? null)}
-                        dateOptions={SCOPE_DATE_OPTIONS}
-                        size="small"
-                    />
-                )}
+                {showDate && <ScopeDateFilter />}
                 {extra}
             </span>
         </div>

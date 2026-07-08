@@ -18,6 +18,7 @@ import type {
     WorkflowRunActivityApi,
 } from '../generated/api.schemas'
 import { ciStatusOf } from '../lib/ci'
+import { HUB_PREVIEW_MAX, HUB_PREVIEW_ROWS, HUB_PREVIEW_STEP } from '../lib/preview'
 import { engineeringAnalyticsFiltersLogic } from './engineeringAnalyticsFiltersLogic'
 import { PullRequestRow, STUCK_AFTER_DAYS, engineeringAnalyticsLogic, isStuck } from './engineeringAnalyticsLogic'
 import type { repoOverviewLogicType } from './repoOverviewLogicType'
@@ -57,6 +58,8 @@ export const repoOverviewLogic = kea<repoOverviewLogicType>([
 
     actions({
         loadLogsForRun: (runId: number) => ({ runId }),
+        showMorePrs: true,
+        showMoreWorkflows: true,
     }),
 
     loaders(({ values }) => ({
@@ -136,6 +139,18 @@ export const repoOverviewLogic = kea<repoOverviewLogicType>([
                 loadRepoActivitySuccess: () => false,
                 loadRepoActivityFailure: () => true,
             },
+        ],
+        // How many rows the hub's preview tables show. Start short (HUB_PREVIEW_ROWS), grow by a fixed
+        // step on "Show more", capped so the hub stays a preview — the full tables live on the dedicated
+        // pages. No reset on reload: slicing tolerates any list length, and keeping the user's expansion
+        // across a window change is less surprising than snapping back.
+        prPreviewCount: [
+            HUB_PREVIEW_ROWS,
+            { showMorePrs: (count) => Math.min(HUB_PREVIEW_MAX, count + HUB_PREVIEW_STEP) },
+        ],
+        workflowPreviewCount: [
+            HUB_PREVIEW_ROWS,
+            { showMoreWorkflows: (count) => Math.min(HUB_PREVIEW_MAX, count + HUB_PREVIEW_STEP) },
         ],
     }),
 

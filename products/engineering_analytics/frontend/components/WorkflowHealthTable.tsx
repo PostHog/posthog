@@ -83,7 +83,14 @@ export interface WorkflowHealthTableProps {
     dataAttr?: string
     /** Drop the table's own border when it sits inside a LemonCard (the hub) — avoids a double frame. */
     embedded?: boolean
+    /** Hub preview variant: a focused column set (status · pass rate · Δ · cost · health) with the health
+     *  sparkline given room. The full run/p50/p95/re-runs/last-failure columns stay on the Workflows tab. */
+    compact?: boolean
 }
+
+// The compact (hub preview) column set, in display order: the health-and-cost story with pass rate next
+// to its own trend (Δ). Cost only appears when showCost adds it. Headers stay intact.
+const COMPACT_COLUMN_ORDER = ['workflowName', 'status', 'successRate', 'successRateDelta', 'cost', 'trend']
 
 export function WorkflowHealthTable({
     rows,
@@ -95,6 +102,7 @@ export function WorkflowHealthTable({
     emptyState,
     dataAttr = 'engineering-analytics-workflow-table',
     embedded = false,
+    compact = false,
 }: WorkflowHealthTableProps): JSX.Element {
     const { searchParams } = useValues(router)
     // Carry the active window/branch scope into the drill-down; without `q` the detail page would
@@ -274,12 +282,19 @@ export function WorkflowHealthTable({
         },
     ]
 
+    // Compact keeps the focused column set (in COMPACT_COLUMN_ORDER) and lets the health sparkline breathe.
+    const displayColumns = compact
+        ? COMPACT_COLUMN_ORDER.map((key) => columns.find((column) => String(column.key) === key))
+              .filter((column): column is (typeof columns)[number] => column !== undefined)
+              .map((column) => (column.key === 'trend' ? { ...column, title: 'Health', width: 220 } : column))
+        : columns
+
     return (
         <LemonTable
             data-attr={dataAttr}
             size="small"
             embedded={embedded}
-            columns={columns}
+            columns={displayColumns}
             dataSource={rows}
             rowKey={(row) => `${row.repoOwner}/${row.repoName}:${row.workflowName}`}
             // De-emphasize workflows with nothing settled — no pass/fail signal to read.

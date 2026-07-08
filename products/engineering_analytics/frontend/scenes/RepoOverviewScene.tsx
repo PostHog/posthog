@@ -3,9 +3,10 @@
 
 import { useActions, useValues } from 'kea'
 import { combineUrl, router } from 'kea-router'
+import { ReactNode } from 'react'
 
 import { IconBox } from '@posthog/icons'
-import { LemonCard, LemonSkeleton, LemonTable, LemonTag, Link, Tooltip } from '@posthog/lemon-ui'
+import { LemonButton, LemonCard, LemonSkeleton, LemonTable, LemonTag, Link, Tooltip } from '@posthog/lemon-ui'
 
 import { Sparkline } from 'lib/components/Sparkline'
 import { TZLabel } from 'lib/components/TZLabel'
@@ -19,32 +20,22 @@ import { EntityHeader } from '../components/EntityHeader'
 import { FailureLogGroups } from '../components/FailureLogs'
 import { DeltaBadge, MetricTile, percentChange, pointChange } from '../components/MetricTile'
 import { PullRequestTable } from '../components/PullRequestTable'
-import { RunActivityChart, hasEnoughRunActivity } from '../components/RunActivityChart'
-import { ScopeBar, SourceScopeChip } from '../components/ScopeBar'
-import { Section, SectionNav, scrollToSection } from '../components/Section'
-import { ShareRow } from '../components/ShareRow'
+import { hasEnoughRunActivity } from '../components/RunActivityChart'
+import { RunActivityMiniBars } from '../components/RunActivityMiniBars'
+import { ScopeDateFilter, SourceScopeChip } from '../components/ScopeBar'
+import { Section, scrollToSection } from '../components/Section'
 import { WorkflowHealthTable } from '../components/WorkflowHealthTable'
 import type { MasterFailureGroupApi } from '../generated/api.schemas'
 import { compactCount, compactHours, compactHoursUnit, compactMinutes, compactUsd, percent } from '../lib/format'
+import { HUB_PREVIEW_MAX } from '../lib/preview'
 import { engineeringAnalyticsLogic } from './engineeringAnalyticsLogic'
 import { repoOverviewLogic } from './repoOverviewLogic'
-
-const SHARE_COLORS = [
-    'var(--data-color-1)',
-    'var(--data-color-2)',
-    'var(--data-color-3)',
-    'var(--data-color-4)',
-    'var(--data-color-5)',
-]
-
-// The hub shows capped tables; the dedicated list pages keep the full 50-per-page tables.
-const HUB_TABLE_PAGE_SIZE = 8
 
 function withSource(url: string, sourceId: string | null): string {
     return combineUrl(url, sourceId ? { source: sourceId } : {}).url
 }
 
-function RepoEntityHeader({ repoFullName }: { repoFullName: string }): JSX.Element {
+function RepoEntityHeader({ repoFullName, right }: { repoFullName: string; right?: ReactNode }): JSX.Element {
     const name = repoFullName.split('/')[1] || repoFullName || 'GitHub repository'
     return (
         <EntityHeader
@@ -62,6 +53,7 @@ function RepoEntityHeader({ repoFullName }: { repoFullName: string }): JSX.Eleme
                     </>
                 ) : undefined
             }
+            right={right}
         />
     )
 }
@@ -239,8 +231,6 @@ export function RepoOverviewScene(): JSX.Element {
         repoActivityFailed,
         attentionPrs,
         draftCount,
-        costByWorkflow,
-        otherCostWorkflowCount,
         costPerMergeSeries,
         jobsAvailable,
         defaultBranch,
@@ -249,6 +239,8 @@ export function RepoOverviewScene(): JSX.Element {
         overviewLoading,
         failingWorkflowCount,
         masterFailuresLoading,
+        prPreviewCount,
+        workflowPreviewCount,
     } = useValues(repoOverviewLogic)
     const {
         cards,
@@ -259,8 +251,21 @@ export function RepoOverviewScene(): JSX.Element {
         costLensEnabled,
         activeSource,
     } = useValues(engineeringAnalyticsLogic)
-    const { loadOverview, loadMasterFailures, loadRepoActivity } = useActions(repoOverviewLogic)
+    const { loadOverview, loadMasterFailures, loadRepoActivity, showMorePrs, showMoreWorkflows } =
+        useActions(repoOverviewLogic)
     const { searchParams } = useValues(router)
+
+    // The hub previews each table: a short, sorted slice with "Show more" to grow in place, and "View all"
+    // to the dedicated full table. Workflows are sorted by run count here so the preview is the busiest few,
+    // matching the table's default sort; attentionPrs is already ordered failing-first in the selector.
+    const shownPrs = attentionPrs.slice(0, prPreviewCount)
+    const canShowMorePrs = shownPrs.length < attentionPrs.length && prPreviewCount < HUB_PREVIEW_MAX
+    // Rank the leaderboard by spend when cost is known (where the money goes), else by run volume.
+    const rankedWorkflows = jobsAvailable
+        ? [...workflowHealth].sort((a, b) => (b.estimatedCostUsd ?? -1) - (a.estimatedCostUsd ?? -1))
+        : [...workflowHealth].sort((a, b) => b.runCount - a.runCount)
+    const shownWorkflows = rankedWorkflows.slice(0, workflowPreviewCount)
+    const canShowMoreWorkflows = shownWorkflows.length < workflowHealth.length && workflowPreviewCount < HUB_PREVIEW_MAX
 
     // jobsAvailable reads false until the overview payload lands, so "not synced" messaging
     // during the initial fetch would misread as a broken setup — hold it back while loading.
@@ -283,11 +288,17 @@ export function RepoOverviewScene(): JSX.Element {
 
     return (
         <div className="flex flex-col gap-4">
-            {/* The entity header below is the repo identity — the scope bar only adds the source
-                picker (multi-source teams) so the repo name isn't stated twice on one screen. */}
-            <ScopeBar repoSlot={<SourceScopeChip pickerOnly />} />
-
-            <RepoEntityHeader repoFullName={activeSource?.repo || ''} />
+            {/* Repo identity, with the shared window picker (and source picker on multi-source teams) docked
+                on its right — no separate scope-bar row above the tiles. */}
+            <RepoEntityHeader
+                repoFullName={activeSource?.repo || ''}
+                right={
+                    <>
+                        <SourceScopeChip pickerOnly />
+                        <ScopeDateFilter />
+                    </>
+                }
+            />
 
             <div className="flex flex-wrap gap-2.5">
                 <MasterStatusTile
@@ -364,25 +375,15 @@ export function RepoOverviewScene(): JSX.Element {
                 />
             </div>
 
-            <SectionNav
-                items={[
-                    { id: 'master', label: `${defaultBranch === 'main' ? 'Main' : 'Master'} health` },
-                    { id: 'now', label: `Failing on ${defaultBranch}` },
-                    { id: 'prs', label: 'Pull requests' },
-                    { id: 'workflows', label: 'Workflows' },
-                    { id: 'cost', label: 'Cost' },
-                ]}
-            />
-
             <Section id="master" title={`${defaultBranch === 'main' ? 'Main' : 'Master'} health`}>
-                {/* One dot per commit to the default branch: X = when its CI started, Y = wall-clock CI
-                    duration, color = the commit's overall verdict (red if any workflow failed). Replaces the
-                    old success-rate line + failed-runs bar — the scatter says time, outcome, and cost at once. */}
+                {/* Hub preview: one bar per default-branch commit, height = CI duration, color = verdict — the
+                    at-a-glance "is master healthy and fast lately" read without the full chart's weight. The
+                    full scatter (start-time axis, in-flight band, zoom) lives on the workflow page. */}
                 {hasEnoughRunActivity(activityRuns) ? (
-                    <RunActivityChart
+                    <RunActivityMiniBars
                         runs={activityRuns}
                         truncated={activityTruncated}
-                        title={`Every ${defaultBranch} commit`}
+                        title="CI duration per commit"
                         noun="commit"
                     />
                 ) : (
@@ -421,19 +422,29 @@ export function RepoOverviewScene(): JSX.Element {
                 </div>
                 <LemonCard hoverEffect={false} className="overflow-hidden p-0">
                     <PullRequestTable
-                        rows={attentionPrs}
+                        rows={shownPrs}
                         loading={pullRequestsLoading}
                         sourceId={sourceId}
                         costLensEnabled={costLensEnabled}
                         embedded
-                        pageSize={HUB_TABLE_PAGE_SIZE}
+                        pageSize={HUB_PREVIEW_MAX}
                         emptyState="Nothing failing or stuck in the open backlog."
                         dataAttr="engineering-analytics-attention-prs"
                     />
-                    <div className="border-t border-primary px-4 py-2 text-[11px] text-tertiary">
-                        Showing {attentionPrs.length} of {cards ? humanFriendlyNumber(cards.openPrs) : '…'} open pull
-                        requests ·{' '}
-                        <Link to={withSource(urls.engineeringAnalyticsPullRequestList(), sourceId)}>View all</Link>
+                    <div className="flex flex-wrap items-center justify-between gap-2 border-t border-primary px-4 py-2 text-[11px] text-tertiary">
+                        <span>
+                            Showing {shownPrs.length} of {humanFriendlyNumber(attentionPrs.length)} needing attention
+                        </span>
+                        <div className="flex items-center gap-3">
+                            {canShowMorePrs && (
+                                <LemonButton size="xsmall" onClick={showMorePrs}>
+                                    Show more
+                                </LemonButton>
+                            )}
+                            <Link to={withSource(urls.engineeringAnalyticsPullRequestList(), sourceId)}>
+                                View all →
+                            </Link>
+                        </div>
                     </div>
                 </LemonCard>
             </Section>
@@ -441,32 +452,40 @@ export function RepoOverviewScene(): JSX.Element {
             <Section id="workflows" title="Workflows">
                 <LemonCard hoverEffect={false} className="overflow-hidden p-0">
                     <WorkflowHealthTable
-                        rows={workflowHealth}
+                        rows={shownWorkflows}
                         loading={workflowHealthLoading}
                         sourceId={sourceId}
                         showCost={jobsAvailable}
                         embedded
-                        defaultSorting={{ columnKey: 'runCount', order: -1 }}
-                        pageSize={HUB_TABLE_PAGE_SIZE}
+                        compact
+                        pageSize={HUB_PREVIEW_MAX}
                         emptyState="No workflow runs in the window."
                     />
-                    <div className="border-t border-primary px-4 py-2 text-[11px] text-tertiary">
-                        Showing top {Math.min(HUB_TABLE_PAGE_SIZE, workflowHealth.length)} of {workflowHealth.length}{' '}
-                        workflows ·{' '}
-                        <Link
-                            to={
-                                // A bare link would reset the shared window/branch scope (the filters logic
-                                // re-hydrates from the URL on every route) — carry it, plus the source.
-                                combineUrl(urls.engineeringAnalyticsWorkflows(), {
-                                    ...(searchParams.date_from ? { date_from: searchParams.date_from } : {}),
-                                    ...(searchParams.date_to ? { date_to: searchParams.date_to } : {}),
-                                    ...(searchParams.q ? { q: searchParams.q } : {}),
-                                    ...(sourceId ? { source: sourceId } : {}),
-                                }).url
-                            }
-                        >
-                            View all
-                        </Link>
+                    <div className="flex flex-wrap items-center justify-between gap-2 border-t border-primary px-4 py-2 text-[11px] text-tertiary">
+                        <span>
+                            Showing top {shownWorkflows.length} of {workflowHealth.length} workflows
+                        </span>
+                        <div className="flex items-center gap-3">
+                            {canShowMoreWorkflows && (
+                                <LemonButton size="xsmall" onClick={showMoreWorkflows}>
+                                    Show more
+                                </LemonButton>
+                            )}
+                            <Link
+                                to={
+                                    // A bare link would reset the shared window/branch scope (the filters logic
+                                    // re-hydrates from the URL on every route) — carry it, plus the source.
+                                    combineUrl(urls.engineeringAnalyticsWorkflows(), {
+                                        ...(searchParams.date_from ? { date_from: searchParams.date_from } : {}),
+                                        ...(searchParams.date_to ? { date_to: searchParams.date_to } : {}),
+                                        ...(searchParams.q ? { q: searchParams.q } : {}),
+                                        ...(sourceId ? { source: sourceId } : {}),
+                                    }).url
+                                }
+                            >
+                                View all →
+                            </Link>
+                        </div>
                     </div>
                 </LemonCard>
             </Section>
@@ -478,7 +497,7 @@ export function RepoOverviewScene(): JSX.Element {
                         <LemonSkeleton className="h-24 w-full" />
                     </LemonCard>
                 ) : jobsAvailable && costPerMergeSeries ? (
-                    <LemonCard hoverEffect={false} className="mb-2 p-4">
+                    <LemonCard hoverEffect={false} className="p-4">
                         <h3 className="mb-1 text-xs font-semibold text-secondary">Cost per merged PR</h3>
                         <Sparkline
                             data={costPerMergeSeries.values}
@@ -493,38 +512,7 @@ export function RepoOverviewScene(): JSX.Element {
                             Estimated Depot CI cost per PR merged. Each point divides a trailing window's CI cost by its
                             merges (24 h, 7 d, or 4 w to match the grain), so quiet buckets don't punch holes in the
                             trend. Cost counts by run start, merges by merge time — the same coarse split the daily
-                            depot tooling uses.
-                        </div>
-                    </LemonCard>
-                ) : null}
-                {overviewPending ? null : jobsAvailable && costByWorkflow.length > 0 ? (
-                    <LemonCard hoverEffect={false} className="p-4">
-                        <h3 className="mb-1 text-xs font-semibold text-secondary">By workflow</h3>
-                        {costByWorkflow.map((row, i) => (
-                            <ShareRow
-                                key={row.workflowName ?? 'other'}
-                                label={row.workflowName ?? `Other (${otherCostWorkflowCount} workflows)`}
-                                value={compactUsd(row.costUsd)}
-                                valueSub={`${Math.round(row.share * 100)}% of total`}
-                                share={row.share}
-                                color={row.workflowName ? SHARE_COLORS[i % SHARE_COLORS.length] : 'var(--muted)'}
-                                to={
-                                    row.workflowName && workflowHealth.length
-                                        ? withSource(
-                                              urls.engineeringAnalyticsWorkflowRuns(
-                                                  workflowHealth[0].repoOwner,
-                                                  workflowHealth[0].repoName,
-                                                  row.workflowName
-                                              ),
-                                              sourceId
-                                          )
-                                        : undefined
-                                }
-                            />
-                        ))}
-                        <div className="mt-2 border-t border-primary pt-2 text-[11px] text-tertiary">
-                            Estimated from billable job minutes × runner-tier rate. GitHub-hosted runners are free for
-                            open source.
+                            depot tooling uses. Per-workflow spend is in the Workflows leaderboard above.
                         </div>
                     </LemonCard>
                 ) : (

@@ -10,7 +10,7 @@ import { humanFriendlyDuration } from 'lib/utils/durations'
 import { TimeRange, clampFocus, defaultFocus, panFocus, pxToTime, resizeFocus, timeToFrac } from '../lib/brush'
 import { isDecisiveFailure } from '../lib/lifecycle'
 import { percentileSorted } from '../lib/runHealth'
-import { verdictTag } from '../lib/runStatus'
+import { VERDICT_COLOR, verdictTag } from '../lib/runStatus'
 
 // A run reduced to what the chart needs. Both WorkflowRunRow and PrRunRow satisfy this, so either page
 // can drop the chart in over its own run list; the optional branch/PR fields enrich the hover card.
@@ -34,13 +34,8 @@ interface RunActivityChartProps {
     className?: string
 }
 
-// Dot/series color from the verdict mapping the run tables' StatusDot uses, so colors agree across the page.
-const DOT_COLOR: Record<string, string> = {
-    success: 'var(--success)',
-    danger: 'var(--danger)',
-    warning: 'var(--warning)',
-    muted: 'var(--muted)',
-}
+// Dot/series color per verdict — the shared map so scatter, mini bars, and the run tables' StatusDot agree.
+const DOT_COLOR = VERDICT_COLOR
 
 const LEGEND_LABEL: Record<string, string> = {
     success: 'Passed',
@@ -58,7 +53,7 @@ const X_TICK_COUNT = 5
 // A scatter of one point says nothing; only draw once there's a spread to read.
 const MIN_POINTS = 2
 
-const isPlottable = (run: ActivityRun): run is ActivityRun & { startedAt: string; durationSeconds: number } =>
+export const isPlottable = (run: ActivityRun): run is ActivityRun & { startedAt: string; durationSeconds: number } =>
     run.startedAt != null && run.durationSeconds != null && run.durationSeconds >= 0
 
 /** False when RunActivityChart would render null, so callers can show their empty state instead. */
@@ -87,7 +82,7 @@ function niceStep(rough: number): number {
 }
 
 /** Compact minutes label for the duration axis: "45m", "1h", "1h 30m". */
-function formatAxisMinutes(min: number): string {
+export function formatAxisMinutes(min: number): string {
     const rounded = Math.round(min)
     if (rounded < 60) {
         return `${rounded}m`
