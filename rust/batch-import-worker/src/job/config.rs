@@ -160,6 +160,13 @@ pub struct JobSecrets {
 
 // Jobsecrets is a json object, encrypted using fernet and then base64 urlsafe encoded.
 impl JobSecrets {
+    // Jobs using IAM role auth (rather than customer-provided keys) have no secrets at all.
+    pub fn empty() -> Self {
+        Self {
+            secrets: HashMap::new(),
+        }
+    }
+
     // Data is base64 url-safe encoded
     pub fn decrypt(data: &str, keys: &[String]) -> Result<Self, Error> {
         // Matching the plugin server, each key is 32 btyes of utf8 data, which we
