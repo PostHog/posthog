@@ -1684,60 +1684,61 @@ class HedgeboxMatrix(Matrix):
 
         new_experiment_metrics_ordered_uuids = [str(uuid.uuid4()) for _ in range(4)]
 
-        # New experiment with one metric of each type, configured to show as many
-        # different UI states as possible
-        # Primary metrics are one time metrics, secondary metrics are shared metrics
+        # One metric of each type, configured to show as many different UI states as possible
+        metrics: list[dict[str, Any]] = [
+            {
+                "kind": "ExperimentMetric",
+                "metric_type": "funnel",
+                "uuid": new_experiment_metrics_ordered_uuids[0],
+                "name": "Upload activation",
+                "series": [
+                    {"kind": "EventsNode", "event": "$pageview"},
+                    {"kind": "EventsNode", "event": EVENT_UPLOADED_FILE},
+                ],
+                "goal": "increase",
+                "conversion_window": 7,
+                "conversion_window_unit": "day",
+            },
+            {
+                "kind": "ExperimentMetric",
+                "metric_type": "mean",
+                "uuid": new_experiment_metrics_ordered_uuids[1],
+                "name": "Active sessions per user",
+                "source": {"kind": "EventsNode", "event": "$pageview"},
+                "goal": "increase",
+            },
+            {
+                "kind": "ExperimentMetric",
+                "metric_type": "ratio",
+                "uuid": new_experiment_metrics_ordered_uuids[2],
+                "name": "Download-to-upload ratio",
+                "numerator": {"kind": "EventsNode", "event": EVENT_DOWNLOADED_FILE},
+                "denominator": {"kind": "EventsNode", "event": EVENT_UPLOADED_FILE},
+                "goal": "increase",
+            },
+            {
+                "kind": "ExperimentMetric",
+                "metric_type": "retention",
+                "uuid": new_experiment_metrics_ordered_uuids[3],
+                "name": "7-day user retention",
+                "goal": "increase",
+                "start_event": {"kind": "EventsNode", "event": "$pageview"},
+                "start_handling": "first_seen",
+                "completion_event": {"kind": "EventsNode", "event": "$pageview", "math": "total"},
+                "retention_window_start": 1,
+                "retention_window_end": 7,
+                "retention_window_unit": "day",
+            },
+        ]
+
+        # New experiment; primary metrics are one time metrics, secondary metrics are shared metrics
         new_experiment = Experiment.objects.create(
             team=team,
             name="File engagement boost",
             description="Testing features to increase file uploads, sharing, and overall user engagement with files.",
             feature_flag=flag,
             created_by=user,
-            metrics=[
-                {
-                    "kind": "ExperimentMetric",
-                    "metric_type": "funnel",
-                    "uuid": new_experiment_metrics_ordered_uuids[0],
-                    "name": "Upload activation",
-                    "series": [
-                        {"kind": "EventsNode", "event": "$pageview"},
-                        {"kind": "EventsNode", "event": EVENT_UPLOADED_FILE},
-                    ],
-                    "goal": "increase",
-                    "conversion_window": 7,
-                    "conversion_window_unit": "day",
-                },
-                {
-                    "kind": "ExperimentMetric",
-                    "metric_type": "mean",
-                    "uuid": new_experiment_metrics_ordered_uuids[1],
-                    "name": "Active sessions per user",
-                    "source": {"kind": "EventsNode", "event": "$pageview"},
-                    "goal": "increase",
-                },
-                {
-                    "kind": "ExperimentMetric",
-                    "metric_type": "ratio",
-                    "uuid": new_experiment_metrics_ordered_uuids[2],
-                    "name": "Download-to-upload ratio",
-                    "numerator": {"kind": "EventsNode", "event": EVENT_DOWNLOADED_FILE},
-                    "denominator": {"kind": "EventsNode", "event": EVENT_UPLOADED_FILE},
-                    "goal": "increase",
-                },
-                {
-                    "kind": "ExperimentMetric",
-                    "metric_type": "retention",
-                    "uuid": new_experiment_metrics_ordered_uuids[3],
-                    "name": "7-day user retention",
-                    "goal": "increase",
-                    "start_event": {"kind": "EventsNode", "event": "$pageview"},
-                    "start_handling": "first_seen",
-                    "completion_event": {"kind": "EventsNode", "event": "$pageview", "math": "total"},
-                    "retention_window_start": 1,
-                    "retention_window_end": 7,
-                    "retention_window_unit": "day",
-                },
-            ],
+            metrics=metrics,
             primary_metrics_ordered_uuids=new_experiment_metrics_ordered_uuids,
             secondary_metrics_ordered_uuids=[
                 new_shared_funnel.query["uuid"],
@@ -1763,7 +1764,7 @@ class HedgeboxMatrix(Matrix):
 
         # Inline metrics need stored fingerprints (normally stamped by the experiment service on
         # create/launch) — the timeseries endpoint looks results up by them.
-        for metric_dict in new_experiment.metrics:
+        for metric_dict in metrics:
             metric_dict["fingerprint"] = compute_metric_fingerprint(
                 metric_dict,
                 new_experiment.start_date,
@@ -1772,13 +1773,14 @@ class HedgeboxMatrix(Matrix):
                 only_count_matured_users=new_experiment.only_count_matured_users,
                 excluded_variants=new_experiment.excluded_variants or [],
             )
+        new_experiment.metrics = metrics
         new_experiment.save(update_fields=["metrics"])
 
         # Seed timeseries for the first metric so the day-by-day view has data out of the box.
         # Skipped in tests: one ClickHouse query per experiment day is too slow for CI seeding.
         if settings.TEST:
             return
-        timeseries_metric = new_experiment.metrics[0]
+        timeseries_metric = metrics[0]
         recalculation = ExperimentTimeseriesRecalculation.objects.create(
             team=team,
             experiment=new_experiment,
