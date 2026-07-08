@@ -7,7 +7,9 @@ _DEFINITIONS = Path(__file__).parents[4] / "services/mcp/schema/generated-tool-d
 
 
 class TestEngineeringAnalyticsMCPTools:
-    @pytest.mark.parametrize("tool", ["pull-requests", "workflow-health", "pr-lifecycle"])
+    @pytest.mark.parametrize(
+        "tool", ["pull-requests", "workflow-health", "pr-lifecycle", "engineering-analytics-flaky-tests"]
+    )
     def test_tool_is_generated_read_only_and_scoped(self, tool: str) -> None:
         definitions = json.loads(_DEFINITIONS.read_text())
 

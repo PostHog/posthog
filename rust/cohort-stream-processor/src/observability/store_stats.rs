@@ -3,6 +3,7 @@
 
 use async_trait::async_trait;
 use metrics::{counter, gauge};
+use tracing::debug;
 
 use crate::observability::metrics::{
     STORE_BLOCK_CACHE_DATA_HITS_TOTAL, STORE_BLOCK_CACHE_DATA_MISSES_TOTAL,
@@ -12,25 +13,33 @@ use crate::observability::metrics::{
     STORE_BLOCK_CACHE_USAGE_BYTES, STORE_BLOOM_FILTER_USEFUL_TOTAL, STORE_ESTIMATE_NUM_KEYS,
     STORE_LIVE_DATA_BYTES, STORE_SST_BYTES,
 };
-use crate::store::CohortStore;
+use crate::store::StoreHandle;
 use crate::sweep::Sweeper;
 
-/// Publishes [`CohortStore::stats_snapshot`] onto metrics once per sweep tick, driven by
-/// [`run_sweep_loop`](crate::sweep::run_sweep_loop).
+/// Publishes [`CohortStore::stats_snapshot`](crate::store::CohortStore::stats_snapshot) onto metrics
+/// once per sweep tick, driven by [`run_sweep_loop`](crate::sweep::run_sweep_loop). Goes through the
+/// [`StoreHandle`] so its many RocksDB property reads run off the runtime threads.
 pub struct StoreStatsSweeper {
-    store: CohortStore,
+    handle: StoreHandle,
 }
 
 impl StoreStatsSweeper {
-    pub fn new(store: CohortStore) -> Self {
-        Self { store }
+    pub fn new(handle: StoreHandle) -> Self {
+        Self { handle }
     }
 }
 
 #[async_trait]
 impl Sweeper for StoreStatsSweeper {
     async fn run_once(&self) {
-        let stats = self.store.stats_snapshot();
+        let stats = match self.handle.stats_snapshot().await {
+            Ok(stats) => stats,
+            // Only teardown cancellation errors here; the next tick (if any) re-reads.
+            Err(err) => {
+                debug!(error = %err, "store stats snapshot skipped (offload cancelled)");
+                return;
+            }
+        };
 
         // Tickers are cumulative, so publish them verbatim with `absolute`.
         for (name, value) in [

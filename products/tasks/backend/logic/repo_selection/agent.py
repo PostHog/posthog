@@ -352,6 +352,9 @@ async def select_repository(
     verbose: bool = False,
     output_fn: OutputFn = None,
     on_research_session: Callable[[str, str], None] | None = None,
+    model: str | None = None,
+    runtime_adapter: str | None = None,
+    reasoning_effort: str | None = None,
 ) -> RepoSelectionResult:
     """Select the most relevant repository for a free-form request context.
 
@@ -416,6 +419,11 @@ async def select_repository(
         # Read-only PostHog scopes so the agent can call `execute-sql` against `system.integration_repository_cache`.
         posthog_mcp_scopes="read_only",
         sandbox_resources=SandboxResources(cpu_cores=2, memory_gb=8),
+        # Optional agent runtime/model override (e.g. the Codex runtime + gpt-5.5). All-None keeps
+        # the agent-server default; threaded through from the caller's per-step resolution.
+        model=model,
+        runtime_adapter=runtime_adapter,
+        reasoning_effort=reasoning_effort,
     )
 
     session, result = await MultiTurnSession.start(

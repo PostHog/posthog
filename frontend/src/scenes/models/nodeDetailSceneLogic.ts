@@ -92,7 +92,7 @@ export const nodeDetailSceneLogic = kea<nodeDetailSceneLogicType>([
                 if (!node) {
                     return null
                 }
-                const { nodes, edges } = await api.dataModelingNodes.lineage(node.id)
+                const { nodes, edges } = await api.dataModelingNodes.lineage({ nodeId: node.id })
                 return { nodes, edges, currentNodeId: node.id }
             },
         },

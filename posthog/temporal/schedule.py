@@ -55,6 +55,7 @@ from posthog.temporal.mcp_analytics.intent_clustering.schedule import create_int
 from posthog.temporal.messaging.schedule import create_all_realtime_cohort_calculation_schedules
 from posthog.temporal.product_analytics.upgrade_queries_workflow import UpgradeQueriesWorkflowInputs
 from posthog.temporal.quota_limiting.run_quota_limiting import RunQuotaLimitingInputs
+from posthog.temporal.salesforce_enrichment.conversations_slack_workflow import ConversationsSlackEnrichmentInputs
 from posthog.temporal.salesforce_enrichment.stripe_workflow import StripeEnrichmentInputs
 from posthog.temporal.salesforce_enrichment.usage_workflow import UsageEnrichmentInputs
 from posthog.temporal.salesforce_enrichment.workflow import SalesforceEnrichmentInputs
@@ -279,6 +280,46 @@ async def create_salesforce_stripe_enrichment_schedule(client: Client):
             client,
             "salesforce-stripe-enrichment-schedule",
             salesforce_stripe_enrichment_schedule,
+            trigger_immediately=False,
+        )
+
+
+async def create_salesforce_conversations_slack_enrichment_schedule(client: Client):
+    """Create or update the schedule for the Salesforce Conversations Slack enrichment workflow.
+
+    Runs daily at 5 AM UTC to push Conversations Slack support signals to
+    Salesforce Accounts. ``SKIP`` prevents overlapping runs if Slack API calls
+    or Salesforce updates take longer than expected.
+    """
+    salesforce_conversations_slack_enrichment_schedule = Schedule(
+        action=ScheduleActionStartWorkflow(
+            "salesforce-conversations-slack-enrichment",
+            asdict(ConversationsSlackEnrichmentInputs()),
+            id="salesforce-conversations-slack-enrichment-schedule",
+            task_queue=settings.BILLING_TASK_QUEUE,
+        ),
+        spec=ScheduleSpec(
+            calendars=[
+                ScheduleCalendarSpec(
+                    comment="Daily at 5 AM UTC",
+                    hour=[ScheduleRange(start=5, end=5)],
+                )
+            ]
+        ),
+        policy=SchedulePolicy(overlap=ScheduleOverlapPolicy.SKIP),
+    )
+
+    if await a_schedule_exists(client, "salesforce-conversations-slack-enrichment-schedule"):
+        await a_update_schedule(
+            client,
+            "salesforce-conversations-slack-enrichment-schedule",
+            salesforce_conversations_slack_enrichment_schedule,
+        )
+    else:
+        await a_create_schedule(
+            client,
+            "salesforce-conversations-slack-enrichment-schedule",
+            salesforce_conversations_slack_enrichment_schedule,
             trigger_immediately=False,
         )
 
@@ -577,11 +618,11 @@ async def cleanup_legacy_session_summarization_schedules(client: Client):
 
 
 async def create_run_usage_reports_schedule(client: Client):
-    """Intraday usage report run every 3 hours at minute 45 (8 times a day).
+    """Intraday usage report run every 30 minutes.
 
     Reports *today's* usage so far (`day_offset=0`) so billing gets fresh
     numbers throughout the day. A failed slot is superseded by the next one
-    3 hours later, so no retries. The complete-day capture is handled by the
+    30 minutes later, so no retries. The complete-day capture is handled by the
     daily finalizer schedule (`create_finalize_usage_reports_schedule`). The
     workflow writes per-org usage data to S3 and sends a single SQS pointer
     to the billing service.
@@ -596,15 +637,7 @@ async def create_run_usage_reports_schedule(client: Client):
             task_queue=settings.BILLING_TASK_QUEUE,
             retry_policy=common.RetryPolicy(maximum_attempts=1),
         ),
-        spec=ScheduleSpec(
-            calendars=[
-                ScheduleCalendarSpec(
-                    comment="Every 3 hours at minute 45 (01:45, 04:45, ..., 22:45 UTC)",
-                    hour=[ScheduleRange(start=1, end=22, step=3)],
-                    minute=[ScheduleRange(start=45, end=45)],
-                )
-            ]
-        ),
+        spec=ScheduleSpec(intervals=[ScheduleIntervalSpec(every=timedelta(minutes=30))]),
         policy=SchedulePolicy(overlap=ScheduleOverlapPolicy.SKIP),
     )
 
@@ -625,10 +658,14 @@ async def create_finalize_usage_reports_schedule(client: Client):
     Reports *yesterday* (`day_offset=1`) once the day is complete — its
     pointer carries `report_completeness="complete"`, billing's signal that
     the numbers are final for that date.
-    02:45 leaves ~2.75 hours for ingestion lag after midnight, gives the
-    01:45 intraday slot a full hour to finish (the two schedules' SKIP
-    policies don't see each other, so spacing is the only concurrency
-    control), and stays ahead of the legacy Celery run at 03:45 UTC. Unlike
+    02:45 leaves ~2.75 hours for ingestion lag after midnight and stays ahead
+    of the legacy Celery run at 03:45 UTC. The intraday schedule now runs
+    every 30 minutes, so this slot sits between the 02:30 and 03:00 intraday
+    runs rather than clearing them by an hour, and the two schedules' SKIP
+    policies don't see each other. A brief overlap is harmless: every run
+    writes under its own `{date}/{run_id}` S3 prefix, and the finalizer
+    reports yesterday while the intraday runs report today, so overlapping
+    runs touch distinct data and at worst add concurrent query load. Unlike
     the intraday schedule this run has no later slot to supersede it, so the
     retry policy keeps re-running it across the day (5m, 10m, ... capped at
     2h) until it succeeds. Anything longer than that is a manual backfill:
@@ -800,6 +837,11 @@ if settings.CLOUD_DEPLOYMENT:
 
 if settings.EE_AVAILABLE:
     schedules.append(create_schedule_all_subscriptions_schedule)
+    # Conversations tickets are region-local, so unlike the other (US-only) Salesforce
+    # writers this one runs per region — each region's tickets enrich that region's
+    # orgs, which map to disjoint Salesforce Accounts.
+    if settings.CLOUD_DEPLOYMENT in ("US", "EU"):
+        schedules.append(create_salesforce_conversations_slack_enrichment_schedule)
     if settings.CLOUD_DEPLOYMENT == "US":
         schedules.append(create_salesforce_enrichment_schedule)
         schedules.append(create_salesforce_usage_enrichment_schedule)

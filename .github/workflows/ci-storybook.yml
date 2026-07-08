@@ -50,9 +50,11 @@ jobs:
                 }}
             matrix: ${{ steps.matrix.outputs.matrix }}
         steps:
-            # Needed by the "Derive Node-only product workspace exclusions" step below,
-            # which reads pnpm-workspace.yaml + bin/frontend-exclude-filter. dorny itself
-            # needs no checkout (it diffs via the API), so this job didn't check out before.
+            # Needed by the "Derive Node-only product workspace exclusions" step (reads
+            # pnpm-workspace.yaml + bin/frontend-exclude-filter) and by the local
+            # ./.github/actions/paths-filter exclude step, which must exist on disk. The
+            # remote dorny filter step needs no checkout (it diffs via the API), so this
+            # job didn't check out before those two were added.
             - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
 
             - uses: actions/create-github-app-token@1b10c78c7865c340bc4f6099eb2f838309f1e8c3 # v3.1.1
@@ -121,19 +123,19 @@ jobs:
             # The excluded dirs are derived from pnpm-workspace.yaml (the product paths that
             # declare nested pnpm workspaces), not hardcoded — see bin/frontend-exclude-filter.
             #
-            # A separate `every`-quantifier step is required: a plain `!...` in the broad
-            # filter is neutralized by dorny's default `some` quantifier (same gotcha as the
-            # output comment above). With `every`, the filter is true only when some changed
-            # file lives OUTSIDE every excluded dir.
+            # A separate step is required because the main filter above still runs on
+            # dorny/paths-filter, whose default `some` quantifier neutralizes a plain
+            # `!...` (same gotcha as the output comment above). The vendored action's
+            # exclude semantics make this generated exclude-only filter true only when
+            # some changed file lives OUTSIDE every excluded dir.
             - name: Derive Node-only product workspace exclusions
               if: github.event_name != 'push'
               run: bin/frontend-exclude-filter > "$RUNNER_TEMP/frontend-exclude.yml"
-            - uses: dorny/paths-filter@fbd0ab8f3e69293af611ebaee6363fc25e6d187d # v4.0.1
+            - uses: ./.github/actions/paths-filter
               id: exclude
               if: github.event_name != 'push'
               with:
                   token: ${{ steps.app-token.outputs.token || github.token }}
-                  predicate-quantifier: 'every'
                   filters: ${{ runner.temp }}/frontend-exclude.yml
 
             # Build the visual-regression matrix.
@@ -165,7 +167,11 @@ jobs:
     build-storybook:
         name: Build Storybook (depot-ubuntu-latest)
         runs-on: depot-ubuntu-latest
-        timeout-minutes: 15
+        # The Vite build normally takes ~3.5 minutes, but a degraded runner can stretch
+        # the memory-heavy bundling phase past 15 minutes — leave headroom so a slow
+        # runner yields a slow-but-green build instead of a cancelled one that hard-fails
+        # the visual-regression gate.
+        timeout-minutes: 30
         needs: changes
         if: needs.changes.outputs.frontend == 'true'
         steps:
@@ -211,26 +217,12 @@ jobs:
                   path: ${{ steps.pnpm-store.outputs.path }}
                   key: pnpm-${{ runner.os }}-${{ hashFiles('pnpm-lock.yaml') }}
 
-            - name: Restore webpack build cache
-              uses: actions/cache/restore@cdf6c1fa76f9f475f3d7449005a359c84ca0f306 # v5.0.3
-              with:
-                  path: common/storybook/node_modules/.cache/
-                  key: ${{ runner.os }}-webpack-storybook-${{ hashFiles('pnpm-lock.yaml') }}
-                  restore-keys: ${{ runner.os }}-webpack-storybook-
-
             - name: Build Storybook
               env:
                   NODE_OPTIONS: --max-old-space-size=32768
               run: |
                   bin/turbo --filter=@posthog/storybook prepare
                   pnpm --filter=@posthog/storybook build --test
-
-            - name: Save webpack build cache
-              if: github.ref == 'refs/heads/master'
-              uses: actions/cache/save@cdf6c1fa76f9f475f3d7449005a359c84ca0f306 # v5.0.3
-              with:
-                  path: common/storybook/node_modules/.cache/
-                  key: ${{ runner.os }}-webpack-storybook-${{ hashFiles('pnpm-lock.yaml') }}
 
             - name: Upload Storybook build artifact
               uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
@@ -242,8 +234,9 @@ jobs:
             # Consumed by the select-stories job below. Uploaded separately so
             # the visual-regression matrix doesn't pay to download it on every
             # shard.
+            # module-graph.json only exists once the Vite build completes, so no
+            # `if: always()`: on a failed/cancelled build it would just warn.
             - name: Upload module-graph artifact
-              if: always()
               uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
               with:
                   name: storybook-module-graph
@@ -508,6 +501,7 @@ jobs:
                   name: junit-results-storybook-${{ matrix.browser }}-${{ matrix.shard }}
                   path: common/storybook/junit.xml
                   if-no-files-found: ignore
+                  retention-days: 1
 
     # Verify changed story files are stable by re-running them multiple times.
     # Catches flaky snapshots before they land on master.
@@ -590,7 +584,7 @@ jobs:
 
     # Collate matrix + VR completion status for the required check
     visual_regression_tests:
-        needs: [visual-regression, vr-setup, vr-complete]
+        needs: [changes, build-storybook, visual-regression, vr-setup, vr-complete]
         name: Visual regression tests pass
         runs-on: ubuntu-latest
         timeout-minutes: 5
@@ -598,13 +592,32 @@ jobs:
         steps:
             - name: Check matrix outcome
               run: |
+                  # Change detection is the root of the graph: if it fails, build-storybook
+                  # (and everything after) is skipped, which the checks below would read as
+                  # a pass. Fail here so a broken paths-filter/checkout can't launder into a
+                  # green required check. A legitimate skip (e.g. merge_group) still passes.
+                  if [[ "${{ needs.changes.result }}" != "success" && "${{ needs.changes.result }}" != "skipped" ]]; then
+                    echo "Change detection did not succeed (result: ${{ needs.changes.result }}) — cannot certify visual regression."
+                    exit 1
+                  fi
+
+                  # A failed, timed-out or cancelled Storybook build skips the VR jobs
+                  # below rather than failing them, and this gate would read those skips
+                  # as a pass — a green required check with zero visual coverage. Naming
+                  # the build here makes its failure hit the gate directly. A legitimate
+                  # "no frontend changes" run leaves the build skipped, which still passes.
+                  if [[ "${{ needs.build-storybook.result }}" != "success" && "${{ needs.build-storybook.result }}" != "skipped" ]]; then
+                    echo "Storybook build did not succeed (result: ${{ needs.build-storybook.result }}) — visual regression is uncovered."
+                    exit 1
+                  fi
+
                   if [[ "${{ needs.visual-regression.result }}" != "success" && "${{ needs.visual-regression.result }}" != "skipped" ]]; then
                     echo "One or more jobs in the visual-regression test matrix failed."
                     exit 1
                   fi
 
-                  if [[ "${{ needs.vr-setup.result }}" == "failure" ]]; then
-                    echo "Visual Review setup failed — VR CLI or API error."
+                  if [[ "${{ needs.vr-setup.result }}" != "success" && "${{ needs.vr-setup.result }}" != "skipped" ]]; then
+                    echo "Visual Review setup failed or was cancelled (result: ${{ needs.vr-setup.result }})."
                     exit 1
                   fi
 
@@ -883,3 +896,46 @@ jobs:
                   EOF
                       echo "SELECTION_METRICS: $(echo "$RESULT" | jq -c '{mode, reason, total: .total_story_count}')"
                   fi
+
+    trunk-upload:
+        name: Upload test results to Trunk
+        # visual-regression shards already emit and upload junit-results-storybook-* artifacts;
+        # this feeds them to Trunk (flaky-test detection) once. Trusted non-pull_request events
+        # only (master push), so the secret token never runs in a PR-controlled context; the
+        # uploader is a pinned external action, not a local one.
+        needs: [visual-regression]
+        runs-on: ubuntu-latest
+        continue-on-error: true
+        timeout-minutes: 10
+        # Storybook CI is skipped on merge_group, so visual-regression won't run there;
+        # != 'skipped' keeps this from spinning a runner that downloads nothing, while still
+        # uploading failed-test results (the flake signal Trunk needs) on master push.
+        if: always() && github.repository == 'PostHog/posthog' && github.event_name != 'pull_request' && needs.visual-regression.result != 'skipped'
+        steps:
+            - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+              with:
+                  fetch-depth: 1
+                  persist-credentials: false
+            - name: Download JUnit artifacts
+              uses: actions/download-artifact@634f93cb2916e3fdff6788551b99b062d0335ce0 # v6.0.0
+              continue-on-error: true
+              with:
+                  path: ./junit-artifacts
+                  pattern: junit-results-storybook-*
+            # chromium and webkit run the same stories, so a single upload would give one test id
+            # both browsers' outcomes and a browser-specific failure would look like a flake.
+            # Upload each browser under its own Trunk variant to keep their histories distinct.
+            - name: Upload chromium results to Trunk
+              uses: trunk-io/analytics-uploader@385f1ccdf345b4532dc4b6c665dd432b702b8e28 # v2.1.2
+              with:
+                  junit-paths: junit-artifacts/junit-results-storybook-chromium-*/*.xml
+                  org-slug: posthog-inc
+                  variant: chromium
+                  token: ${{ secrets.TRUNK_API_TOKEN }}
+            - name: Upload webkit results to Trunk
+              uses: trunk-io/analytics-uploader@385f1ccdf345b4532dc4b6c665dd432b702b8e28 # v2.1.2
+              with:
+                  junit-paths: junit-artifacts/junit-results-storybook-webkit-*/*.xml
+                  org-slug: posthog-inc
+                  variant: webkit
+                  token: ${{ secrets.TRUNK_API_TOKEN }}

@@ -21,11 +21,13 @@ import { ClassifierScanner, ReplayScanner, ScorerScanner } from './types'
 describe('replayScannerLogic', () => {
     let logic: ReturnType<typeof replayScannerLogic.build>
     let observeSpy: jest.Mock
+    let retrySpy: jest.Mock
     let suggestSpy: jest.Mock
     let createSpy: jest.Mock
 
     beforeEach(() => {
         observeSpy = jest.fn(() => [202, { workflow_id: 'wf-test' }])
+        retrySpy = jest.fn(() => [202, { workflow_id: 'wf-retry' }])
         suggestSpy = jest.fn(() => [200, { suggestions: [] }])
         createSpy = jest.fn(() => [201, { id: 'created-scanner' }])
         useMocks({
@@ -36,6 +38,7 @@ describe('replayScannerLogic', () => {
             post: {
                 '/api/projects/:team/vision/scanners/': createSpy,
                 '/api/projects/:team/vision/scanners/:id/observe/': observeSpy,
+                '/api/projects/:team/vision/observations/:id/retry/': retrySpy,
                 '/api/projects/:team/vision/scanners/suggest_tags/': suggestSpy,
             },
         })
@@ -640,6 +643,24 @@ describe('replayScannerLogic', () => {
             )
             expect(logic.values.triggeringOnDemandObservation).toBe(false)
             expect(observeSpy).not.toHaveBeenCalled()
+        })
+    })
+
+    describe('retrying failed observations', () => {
+        it('retryObservation hits the endpoint and re-arms the poll window for the replacement row', async () => {
+            const persisted = replayScannerLogic({ id: 'abc-123' })
+            persisted.mount()
+            try {
+                await expectLogic(persisted, () => persisted.actions.retryObservation('obs-1')).toDispatchActions([
+                    'retryObservationSuccess',
+                ])
+                expect(retrySpy).toHaveBeenCalledTimes(1)
+                expect(persisted.values.retryingObservationIds).toEqual([])
+                // Without the grace window the replacement row, inserted moments later, is never polled in.
+                expect(persisted.values.pollUntil).toBeGreaterThan(Date.now())
+            } finally {
+                persisted.unmount()
+            }
         })
     })
 

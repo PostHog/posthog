@@ -1,4 +1,4 @@
-import { useValues } from 'kea'
+import { useActions, useValues } from 'kea'
 import { useEffect, useRef, useState } from 'react'
 
 import {
@@ -9,15 +9,19 @@ import {
     IconExpand,
     IconGear,
     IconInfo,
+    IconRefresh,
     IconSparkles,
     IconThoughtBubble,
     IconVideoCamera,
 } from '@posthog/icons'
 import { LemonButton, LemonCard, LemonTag, Link } from '@posthog/lemon-ui'
 
+import { AccessControlAction } from 'lib/components/AccessControlAction'
 import { TZLabel } from 'lib/components/TZLabel'
+import { FEATURE_FLAGS } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
 import { ProfilePicture } from 'lib/lemon-ui/ProfilePicture'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { useAttachedLogic } from 'lib/logic/scenes/useAttachedLogic'
 import { humanFriendlyDuration, humanFriendlyMilliseconds } from 'lib/utils/durations'
 import { SceneExport } from 'scenes/sceneTypes'
@@ -31,6 +35,7 @@ import { urls } from 'scenes/urls'
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 import { ProductKey } from '~/queries/schema/schema-general'
+import { AccessControlLevel, AccessControlResourceType } from '~/types'
 
 import { BooleanTag } from '../components/BooleanTag'
 import { CardHeader } from '../components/CardHeader'
@@ -58,6 +63,8 @@ import {
     parseIneligibleReason,
     type ScannerType,
 } from '../replay_scanners/types'
+import { ImproveScannerPromptButton, describeObservationOutcome } from './ImproveScannerPromptButton'
+import { ObservationLabelControl } from './ObservationLabelControl'
 import { replayObservationLogic } from './replayObservationLogic'
 import { replayObservationSceneLogic } from './replayObservationSceneLogic'
 
@@ -103,6 +110,8 @@ function AutoSeekToTime({
 
 export function ReplayObservationSceneComponent(): JSX.Element {
     const { observationId } = useValues(replayObservationSceneLogic)
+    const { featureFlags } = useValues(featureFlagLogic)
+    const qualityEnabled = !!featureFlags[FEATURE_FLAGS.REPLAY_VISION_QUALITY]
     const [recordingExpanded, setRecordingExpanded] = useState(true)
     const [pendingSeek, setPendingSeek] = useState<{ ms: number; trigger: number } | null>(null)
 
@@ -114,7 +123,8 @@ export function ReplayObservationSceneComponent(): JSX.Element {
     const observationLogic = replayObservationLogic({ id: observationId })
     useAttachedLogic(observationLogic, replayObservationSceneLogic)
 
-    const { observation, observationLoading } = useValues(observationLogic)
+    const { observation, observationLoading, retrying } = useValues(observationLogic)
+    const { retryObservation } = useActions(observationLogic)
 
     if (observationLoading && !observation) {
         return (
@@ -395,6 +405,23 @@ export function ReplayObservationSceneComponent(): JSX.Element {
                                     <p className="text-sm text-default m-0 leading-snug font-mono">{failedMessage}</p>
                                 </LabeledRow>
                             )}
+                            <div>
+                                <AccessControlAction
+                                    resourceType={AccessControlResourceType.SessionRecording}
+                                    minAccessLevel={AccessControlLevel.Editor}
+                                >
+                                    <LemonButton
+                                        type="primary"
+                                        size="small"
+                                        icon={<IconRefresh />}
+                                        onClick={() => retryObservation()}
+                                        loading={retrying}
+                                        data-attr="vision-observation-detail-retry"
+                                    >
+                                        Retry scan
+                                    </LemonButton>
+                                </AccessControlAction>
+                            </div>
                         </div>
                     )}
 
@@ -445,6 +472,24 @@ export function ReplayObservationSceneComponent(): JSX.Element {
                                         $recording_observed
                                     </Link>
                                 </LabeledRow>
+                            )}
+                            {qualityEnabled && (
+                                <ObservationLabelControl
+                                    observationId={observation.id}
+                                    initialLabel={observation.label}
+                                />
+                            )}
+                            {qualityEnabled && prompt && scannerType && (
+                                <div className="flex justify-end pt-1">
+                                    <ImproveScannerPromptButton
+                                        scannerName={scannerName}
+                                        scannerType={scannerType}
+                                        prompt={prompt}
+                                        sessionId={observation.session_id}
+                                        outcome={describeObservationOutcome(observation)}
+                                        reasoning={reasoning}
+                                    />
+                                </div>
                             )}
                         </div>
                     )}

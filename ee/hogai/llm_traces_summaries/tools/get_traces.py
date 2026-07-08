@@ -3,17 +3,19 @@ from posthog.schema import CachedTracesQueryResponse, DateRange, HogQLPropertyFi
 from posthog.event_usage import EventSource
 from posthog.hogql_queries.ai.traces_query_runner import TracesQueryRunner
 from posthog.models.team.team import Team
+from posthog.models.user import User
 
 
 class LLMTracesSummarizerCollector:
-    def __init__(self, team: Team):
+    def __init__(self, team: Team, user: User | None = None):
         self._team = team
+        self._user = user
         # Should be large enough to go fast, and small enough to avoid any memory issues
         self._traces_per_page = 100
 
     def get_db_traces_per_page(self, offset: int, date_range: DateRange) -> CachedTracesQueryResponse:
         query = self._get_traces_query(offset=offset, date_range=date_range, limit=self._traces_per_page)
-        runner = TracesQueryRunner(query=query, team=self._team)
+        runner = TracesQueryRunner(query=query, team=self._team, user=self._user)
         response = runner.run(analytics_props={"source": EventSource.POSTHOG_AI})
         if not isinstance(response, CachedTracesQueryResponse):
             raise ValueError(f"Failed to get result for the previous day when summarizing LLM traces: {response}")
@@ -22,7 +24,7 @@ class LLMTracesSummarizerCollector:
     def get_db_trace_ids(self, date_range: DateRange, limit: int) -> list[str]:
         """Get all the trace ids (but ids only) within the date range."""
         query = self._get_traces_query(offset=0, date_range=date_range, limit=limit)
-        runner = TracesQueryRunner(query=query, team=self._team)
+        runner = TracesQueryRunner(query=query, team=self._team, user=self._user)
         # Expecting to get all trace ids in a single query, as it should be lightweight-ish
         trace_ids, _, _ = runner._get_trace_ids()
         return trace_ids

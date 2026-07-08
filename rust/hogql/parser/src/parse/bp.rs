@@ -11,10 +11,19 @@ use crate::lex::{Kw, TokenKind};
 
 pub(super) const BP_ALIAS: u8 = 10;
 pub(super) const BP_TERNARY: u8 = 20;
-pub(super) const BP_BETWEEN: u8 = 30;
 pub(super) const BP_OR: u8 = 40;
 pub(super) const BP_AND: u8 = 50;
 pub(super) const BP_NOT: u8 = 60;
+/// `BETWEEN` binds at the comparison tier — tighter than `NOT`/`AND`/`OR`,
+/// looser than every other value operator (it's the loosest alternative in
+/// the grammar's `columnExprValue` rule, declared after `NULLISH`). This is
+/// what makes `a BETWEEN low AND high AND rest` group as
+/// `(a BETWEEN low AND high) AND rest`: the bounds are parsed above `BP_AND`
+/// so they cannot swallow the `AND` chain. The low bound is parsed at
+/// `BP_BETWEEN` (a nested `BETWEEN` chains into it, matching cpp's greedy
+/// interior operand); the high bound at `BP_BETWEEN + 1` (a trailing
+/// `BETWEEN` chains left-associatively onto the whole expression instead).
+pub(super) const BP_BETWEEN: u8 = 65;
 pub(super) const BP_NULLISH: u8 = 70;
 /// `<=>` (MySQL null-safe equality) — declared *after* `IS [NOT]
 /// DISTINCT FROM` in the grammar, so it binds one level looser:
@@ -98,6 +107,32 @@ pub(super) fn postfix_bp(kind: TokenKind) -> Option<u8> {
         | TokenKind::DoubleColon => Some(BP_POSTFIX),
         _ => None,
     }
+}
+
+/// Can `kind` extend a `NamedArgument` primary as a value-tier infix or
+/// postfix operator? cpp's `ColumnExprNamedArg` sits in the value tier, so
+/// when the named-arg value parse stops at a bare-alias boundary
+/// (`y := 1 as x [1]`), the trailing operator re-roots onto the
+/// NamedArgument itself. Mirrors the pratt loop's dispatch: the infix
+/// table, the postfix table, and the keyword-led special-infix arms.
+/// Over-inclusion is safe — a token that then fails to attach falls back
+/// to the caller's bare-NamedArgument handling.
+pub(super) fn can_extend_named_argument(kind: TokenKind) -> bool {
+    infix_bp(kind).is_some()
+        || postfix_bp(kind).is_some()
+        || matches!(
+            kind,
+            TokenKind::Keyword(
+                Kw::Between
+                    | Kw::In
+                    | Kw::Cohort
+                    | Kw::Like
+                    | Kw::Ilike
+                    | Kw::Is
+                    | Kw::Not
+                    | Kw::Ignore
+            )
+        )
 }
 
 pub(super) fn build_infix<E: Emitter>(
