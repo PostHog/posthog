@@ -1,4 +1,5 @@
 import type { ChartTemplateDef, InstantiateContext } from 'flint-chart/core'
+import { STATIC_SERIES_VALUE_COLUMN } from 'flint-chart/core'
 
 import type { Series } from '@posthog/quill-charts'
 import type { BarChartConfig } from '@posthog/quill-charts'
@@ -48,6 +49,7 @@ function instantiateBar(
 
     const horizontal = categoryAxis === 'y'
     const valueFormatter = makeTickFormatter(valCS.format)
+    const valueAxisLabel = valCS.field === STATIC_SERIES_VALUE_COLUMN ? undefined : valCS.field
     const config: BarChartConfig = {
         barLayout,
         axisOrientation: horizontal ? 'horizontal' : 'vertical',
@@ -56,8 +58,10 @@ function instantiateBar(
         // Quill's value axis is y for vertical bars and x for horizontal ones,
         // but yTickFormatter always formats the value axis
         yTickFormatter: valueFormatter,
-        xAxisLabel: horizontal ? valCS.field : catCS.field,
-        yAxisLabel: horizontal ? catCS.field : valCS.field,
+        // The static-series fold points the measure at a synthetic value column; the
+        // legend names the folded measures, so a synthetic axis title is just noise
+        xAxisLabel: horizontal ? valueAxisLabel : catCS.field,
+        yAxisLabel: horizontal ? catCS.field : valueAxisLabel,
         legend: { show: series.length > 1 },
     }
 

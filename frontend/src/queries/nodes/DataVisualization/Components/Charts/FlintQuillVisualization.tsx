@@ -1,3 +1,4 @@
+import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import { useMemo } from 'react'
 
@@ -16,9 +17,14 @@ const CHART_TYPE_OPTIONS = [
     ...quillTemplateDefs.map((t) => ({ value: t.chart as string | null, label: t.chart })),
 ]
 
+export interface FlintQuillVisualizationProps {
+    /** Fixed 60vh chart height for the SQL editor pane, whose flex layout gives children no definite height. */
+    presetChartHeight?: boolean
+}
+
 /** SQL editor output-pane view: renders the query results through the
  *  flint-chart quill backend, inferring a spec from the result shape. */
-export function FlintQuillVisualization(): JSX.Element {
+export function FlintQuillVisualization({ presetChartHeight }: FlintQuillVisualizationProps): JSX.Element {
     const { response, dataVisualizationProps } = useValues(dataVisualizationLogic)
     const logic = flintQuillVisualizationLogic({ key: dataVisualizationProps.key })
     const { chartType } = useValues(logic)
@@ -55,7 +61,15 @@ export function FlintQuillVisualization(): JSX.Element {
                     data-attr="flint-chart-type"
                 />
             </div>
-            <div className="flex-1 min-h-0 rounded bg-surface-primary p-2">
+            <div
+                className={clsx(
+                    // `flex flex-col` is load-bearing: quill chart roots size themselves with
+                    // `flex-1`, which only engages inside a flex container — without it the
+                    // canvas collapses to 0px height (same pattern as SqlLineGraph)
+                    'rounded bg-surface-primary p-2 flex flex-col',
+                    presetChartHeight ? 'h-[60vh]' : 'flex-1 min-h-0'
+                )}
+            >
                 <FlintQuillChart input={input} className="h-full" dataAttr="flint-quill-visualization" />
             </div>
         </div>

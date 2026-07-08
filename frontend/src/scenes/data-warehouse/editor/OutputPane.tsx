@@ -963,7 +963,7 @@ function InternalDataTableVisualization(
     } else if (effectiveVisualizationType === ChartDisplayType.TwoDimensionalHeatmap) {
         component = <TwoDimensionalHeatmap />
     } else if (effectiveVisualizationType === ChartDisplayType.FlintChart) {
-        component = <FlintQuillVisualization />
+        component = <FlintQuillVisualization presetChartHeight={presetChartHeight} />
     } else if (effectiveVisualizationType === ChartDisplayType.BoldNumber) {
         component = <HogQLBoldNumber />
     }

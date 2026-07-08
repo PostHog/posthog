@@ -111,6 +111,30 @@ describe('assembleQuill', () => {
         ])
     })
 
+    it('folds multi-measure encodings into one series per measure without a synthetic axis title', () => {
+        const spec = assembleQuill({
+            data: {
+                values: [
+                    { week: '2026-04-19', pageviews: 1200, users: 300 },
+                    { week: '2026-04-26', pageviews: 1500, users: 340 },
+                ],
+            },
+            semantic_types: { week: 'Date', pageviews: 'Quantity', users: 'Quantity' },
+            chart_spec: {
+                chartType: 'Line Chart',
+                encodings: { x: { field: 'week' }, y: [{ field: 'pageviews' }, { field: 'users' }] },
+            },
+        }) as QuillLineChartSpec
+
+        expect(spec.series).toEqual([
+            expect.objectContaining({ label: 'pageviews', data: [1200, 1500] }),
+            expect.objectContaining({ label: 'users', data: [300, 340] }),
+        ])
+        // The fold's internal value column must not leak into the axis title
+        expect(spec.config.yAxisLabel).toBeUndefined()
+        expect(spec.config.legend?.show).toBe(true)
+    })
+
     it('derives _count from an aggregate encoding and charts row counts', () => {
         const spec = assembleQuill({
             data: {

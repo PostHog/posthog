@@ -1,4 +1,5 @@
 import type { ChartTemplateDef, InstantiateContext } from 'flint-chart/core'
+import { STATIC_SERIES_VALUE_COLUMN } from 'flint-chart/core'
 
 import type { LineChartConfig, Series } from '@posthog/quill-charts'
 
@@ -94,7 +95,9 @@ function instantiateLine(area: boolean, spec: Record<string, unknown>, ctx: Inst
         floatBaseline: yCS.zero?.zero === false,
         yTickFormatter: makeTickFormatter(yCS.format),
         xAxisLabel: xCS.field,
-        yAxisLabel: yCS.field,
+        // The static-series fold points y at a synthetic value column; the legend
+        // names the folded measures, so a synthetic axis title is just noise
+        yAxisLabel: yCS.field === STATIC_SERIES_VALUE_COLUMN ? undefined : yCS.field,
         legend: { show: series.length > 1 },
     }
 
