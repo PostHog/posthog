@@ -50,6 +50,27 @@ logger = structlog.get_logger(__name__)
 SLACK_DOWNLOAD_TIMEOUT_SECONDS = 10
 MAX_REDIRECTS = 5
 
+# Slack message subtypes that carry real, user-authored content and may open or update a
+# ticket. A normal message has no subtype at all; these few subtypes also count as content
+# (file uploads, /me, and thread replies echoed to the channel). ``bot_message`` is handled
+# separately via the ``is_bot`` path. Every other subtype is system noise — channel
+# join/leave, topic/purpose/name changes, pins, edits, deletions, huddles, and so on — and
+# must never create a ticket. This is an allowlist on purpose: Slack keeps adding subtypes,
+# so anything unrecognized is treated as noise rather than silently opening tickets.
+# https://docs.slack.dev/reference/events/message/#subtypes
+TICKETABLE_MESSAGE_SUBTYPES = frozenset({"file_share", "me_message", "thread_broadcast"})
+
+
+def _is_ticketable_message(event: dict, *, is_bot: bool) -> bool:
+    """True when a Slack message event carries real user content worth ticketing.
+
+    ``bot_message`` is allowed through here so the caller's bot handling can decide
+    (top-level bot posts are dropped, thread replies from other bots become comments).
+    """
+    subtype = event.get("subtype")
+    return not subtype or subtype in TICKETABLE_MESSAGE_SUBTYPES or is_bot
+
+
 # Slack ID shapes — guard against malformed payloads before interpolating into mrkdwn.
 # Permissive on charset (underscores allowed) but blocks angle brackets, @, #, and spaces.
 _SLACK_USER_ID_RE = re.compile(r"^[UW][A-Z0-9_]+$")
@@ -576,11 +597,11 @@ def handle_support_message(event: dict, team: Team, slack_team_id: str) -> None:
     if not channel:
         return
 
-    # Always skip non-message subtypes
-    if event.get("subtype") in ("message_changed", "message_deleted"):
-        return
-
     is_bot = bool(event.get("bot_id") or event.get("subtype") == "bot_message")
+
+    # Only real user content opens or updates a ticket; system-message subtypes are noise.
+    if not _is_ticketable_message(event, is_bot=is_bot):
+        return
 
     slack_user_id = event.get("user")
     text = event.get("text", "")
@@ -787,7 +808,8 @@ def _backfill_thread_replies(
     team_message_count = 0
 
     for reply in thread_replies:
-        if reply.get("subtype") in ("message_changed", "message_deleted"):
+        reply_is_bot = bool(reply.get("bot_id") or reply.get("subtype") == "bot_message")
+        if not _is_ticketable_message(reply, is_bot=reply_is_bot):
             continue
 
         # Skip our own bot's messages to prevent loops, but allow other bots
