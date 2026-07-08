@@ -130,6 +130,9 @@ export const metricsViewerLogic = kea<metricsViewerLogicType>([
                 actions.setAggregation(recommended)
             }
         },
+        saveAsInsightFailure: ({ error }) => {
+            lemonToast.error(`Failed to save insight: ${error}`)
+        },
         cancelInProgressQuery: ({ controller }) => {
             if (values.queryAbortController !== null) {
                 values.queryAbortController.abort(NEW_QUERY_STARTED_ERROR_MESSAGE)
