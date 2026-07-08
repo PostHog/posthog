@@ -1826,6 +1826,9 @@ class ExternalDataSourceType(StrEnum):
     MERCURY = "Mercury"
     GOJIBERRY = "Gojiberry"
     TEACHABLE = "Teachable"
+    PEEC_AI = "PeecAI"
+    HEALTHCHECKS = "Healthchecks"
+    IMPACT = "Impact"
 
 
 class ExternalQueryErrorCode(StrEnum):
