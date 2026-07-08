@@ -396,7 +396,7 @@ export type PythonKernelNodeSummary = {
 // the kernel namespace. Unlike the SQL collectors the names are NOT disambiguated — they are
 // exactly the kernel variables, so a duplicated returnVariable means last-run-wins, matching
 // kernel semantics. Markdown-aware (unlike the legacy collectPythonNodes) because revamped
-// markdown notebooks store their cells as `<Python …/>` component tags.
+// markdown notebooks store their cells as `<PythonV2 …/>` component tags.
 export const collectPythonKernelNodes = (content?: JSONContent | null): PythonKernelNodeSummary[] => {
     if (!content || typeof content !== 'object') {
         return []
@@ -408,7 +408,7 @@ export const collectPythonKernelNodes = (content?: JSONContent | null): PythonKe
         if (!node || typeof node !== 'object') {
             return
         }
-        if (node.type === NotebookNodeType.Python) {
+        if (node.type === NotebookNodeType.PythonV2) {
             const attrs = node.attrs ?? {}
             const returnVariable =
                 typeof attrs.returnVariable === 'string' && attrs.returnVariable.trim()
@@ -417,7 +417,7 @@ export const collectPythonKernelNodes = (content?: JSONContent | null): PythonKe
             nodes.push({ nodeId: attrs.nodeId ?? '', returnVariable })
         }
         if (node.type === NotebookNodeType.MarkdownNotebook) {
-            expandMarkdownNotebookNodesOfType(node, NotebookNodeType.Python).forEach(walk)
+            expandMarkdownNotebookNodesOfType(node, NotebookNodeType.PythonV2).forEach(walk)
         }
         if (Array.isArray(node.content)) {
             node.content.forEach(walk)

@@ -42,7 +42,7 @@ describe('notebookNodeSQLV2Logic', () => {
         })
 
         const pythonNode = (nodeId: string, returnVariable?: string): JSONContent => ({
-            type: NotebookNodeType.Python,
+            type: NotebookNodeType.PythonV2,
             attrs: { nodeId, returnVariable },
         })
 
@@ -104,7 +104,7 @@ describe('notebookNodeSQLV2Logic', () => {
                 serializeMarkdownNotebookComponent('SQLV2', { nodeId: 'a', returnVariable: 'df1', code: 'select 1' }),
                 serializeMarkdownNotebookComponent('SQLV2', { nodeId: 'self', returnVariable: 'df2', code: '' }),
                 serializeMarkdownNotebookComponent('SQLV2', { returnVariable: 'df3', code: 'select 3' }),
-                serializeMarkdownNotebookComponent('Python', {
+                serializeMarkdownNotebookComponent('PythonV2', {
                     nodeId: 'py',
                     returnVariable: 'new_events',
                     code: 'x = 1',
