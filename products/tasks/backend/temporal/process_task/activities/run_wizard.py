@@ -5,6 +5,7 @@ from dataclasses import dataclass
 from django.conf import settings
 
 from temporalio import activity
+from temporalio.exceptions import ApplicationError, ApplicationErrorCategory
 
 from posthog.temporal.common.utils import asyncify
 from posthog.utils import get_instance_region
@@ -31,6 +32,13 @@ WIZARD_TIMEOUT_EXIT_CODE = 124
 # Sandbox-level backstop, above the shell `timeout` so the clean 124 path fires first; the sandbox
 # only aborts the exec if `timeout` itself wedges.
 _SANDBOX_EXEC_TIMEOUT_SECONDS = WIZARD_RUN_TIMEOUT_SECONDS + 120
+
+# The wizard exits non-zero and prints this line when it can't classify the repo's framework. That's
+# a user-input condition (the repo isn't something the wizard supports), not a system defect, so we
+# detect it and surface a clean failure instead of the generic non-zero-exit RuntimeError.
+WIZARD_FRAMEWORK_NOT_DETECTED_MARKER = "Could not auto-detect your framework"
+# Error type surfaced on the non-retryable ApplicationError for this case, for downstream matching.
+WIZARD_FRAMEWORK_NOT_DETECTED_ERROR_TYPE = "WizardFrameworkNotDetectedError"
 
 # The wizard's console output is written OUTSIDE the cloned repo working tree so it can never be
 # committed to the user's PR by mistake. The downstream agent reads it from this fixed path to
@@ -62,6 +70,34 @@ def _format_wizard_output(result: ExecutionResult) -> str:
     if result.stderr:
         sections += ["", "=== stderr ===", result.stderr]
     return "\n".join(sections) + "\n"
+
+
+def _wizard_failure_error(result: ExecutionResult) -> Exception | None:
+    """Map a finished wizard run to the exception to raise, or None on success. Kept pure (no
+    logging, no IO) so the exit-code handling is unit-testable without standing up a sandbox.
+
+    A repo the wizard can't classify is a user-input condition, not a defect, so it becomes a
+    benign, non-retryable ApplicationError that the interceptor keeps out of error tracking (see
+    posthog/temporal/common/posthog_client.py). Genuinely unexpected non-zero exits stay a generic
+    RuntimeError so they're still reported.
+    """
+    if result.exit_code == 0:
+        return None
+    if result.exit_code == WIZARD_TIMEOUT_EXIT_CODE:
+        minutes = WIZARD_RUN_TIMEOUT_SECONDS // 60
+        return RuntimeError(f"PostHog setup wizard timed out after {minutes} minutes")
+    if WIZARD_FRAMEWORK_NOT_DETECTED_MARKER.lower() in (result.stdout or "").lower():
+        return ApplicationError(
+            "PostHog setup wizard could not auto-detect a supported framework in this repository, "
+            "so there's nothing to integrate automatically.",
+            type=WIZARD_FRAMEWORK_NOT_DETECTED_ERROR_TYPE,
+            non_retryable=True,
+            category=ApplicationErrorCategory.BENIGN,
+        )
+    # The wizard prints its fatal error to stdout (e.g. "Something went wrong: ..."); stderr is
+    # mostly npm noise. Prefer the stdout tail so the real cause shows at error level.
+    detail = (result.stdout or "").strip()[-2000:] or (result.stderr or "").strip()[-2000:]
+    return RuntimeError(f"PostHog setup wizard failed (exit {result.exit_code}): {detail}")
 
 
 def _build_wizard_command(repo_path: str, project_id: int) -> str:
@@ -137,15 +173,12 @@ def run_wizard(input: RunWizardInput) -> None:
 
         if result.stdout:
             emit_agent_log(ctx.run_id, "debug", result.stdout)
-        if result.exit_code == WIZARD_TIMEOUT_EXIT_CODE:
-            minutes = WIZARD_RUN_TIMEOUT_SECONDS // 60
-            emit_agent_log(ctx.run_id, "error", f"PostHog setup wizard timed out after {minutes} minutes")
-            raise RuntimeError(f"PostHog setup wizard timed out after {minutes} minutes")
-        if result.exit_code != 0:
-            # The wizard prints its fatal error to stdout (e.g. "Something went wrong: ..."); stderr is
-            # mostly npm noise. Prefer the stdout tail so the real cause shows at error level.
-            detail = (result.stdout or "").strip()[-2000:] or (result.stderr or "").strip()[-2000:]
-            emit_agent_log(ctx.run_id, "error", f"PostHog setup wizard failed (exit {result.exit_code}): {detail}")
-            raise RuntimeError(f"PostHog setup wizard failed (exit {result.exit_code}): {detail}")
+
+        error = _wizard_failure_error(result)
+        if error is not None:
+            # ApplicationError.message is the bare text; str() would prepend the error type, which
+            # doesn't belong in the user-facing run log.
+            emit_agent_log(ctx.run_id, "error", getattr(error, "message", None) or str(error))
+            raise error
 
         emit_agent_log(ctx.run_id, "info", "PostHog setup wizard completed")
