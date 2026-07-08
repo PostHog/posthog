@@ -799,6 +799,14 @@ def get_custom_property_definition(
     return _to_custom_property_definition_view(definition, references)
 
 
+def list_custom_property_value_suggestions(team_id: int, definition_id: str, search: str | None) -> list[str]:
+    """Suggested filter values for a custom property — see the logic function for the per-type
+    behavior. Empty for unknown definitions."""
+    return _custom_property_values_logic.list_custom_property_value_suggestions(
+        team_id=team_id, definition_id=definition_id, search=search
+    )
+
+
 def create_custom_property_definition(
     *,
     team_id: int,

@@ -22,6 +22,30 @@
             "enum": ["none", "member", "admin", "viewer", "editor", "manager"],
             "type": "string"
         },
+        "AccountCustomPropertyFilter": {
+            "additionalProperties": false,
+            "properties": {
+                "key": {
+                    "type": "string"
+                },
+                "label": {
+                    "type": "string"
+                },
+                "operator": {
+                    "$ref": "#/definitions/PropertyOperator"
+                },
+                "type": {
+                    "const": "account_custom_property",
+                    "description": "Customer analytics account custom property — the key is the property definition id",
+                    "type": "string"
+                },
+                "value": {
+                    "$ref": "#/definitions/PropertyFilterValue"
+                }
+            },
+            "required": ["key", "operator", "type"],
+            "type": "object"
+        },
         "AccountsQuery": {
             "additionalProperties": false,
             "properties": {
@@ -1112,6 +1136,9 @@
                 },
                 {
                     "$ref": "#/definitions/RevenueAnalyticsPropertyFilter"
+                },
+                {
+                    "$ref": "#/definitions/AccountCustomPropertyFilter"
                 },
                 {
                     "$ref": "#/definitions/WorkflowVariablePropertyFilter"
@@ -32093,6 +32120,7 @@
                 "data_warehouse_person_property",
                 "error_tracking_issue",
                 "revenue_analytics",
+                "account_custom_property",
                 "flag",
                 "log",
                 "log_attribute",
@@ -43975,6 +44003,7 @@
                 "replay",
                 "replay_saved_filters",
                 "revenue_analytics_properties",
+                "account_custom_properties",
                 "resources",
                 "error_tracking_properties",
                 "activity_log_properties",

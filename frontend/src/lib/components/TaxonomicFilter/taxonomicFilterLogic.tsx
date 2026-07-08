@@ -987,6 +987,22 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
                         getPopoverHeader: () => 'Revenue analytics properties',
                     },
                     {
+                        name: 'Custom properties',
+                        searchPlaceholder: 'custom properties',
+                        type: TaxonomicFilterGroupType.AccountCustomProperties,
+                        // Account custom property definitions are per-team API data, so the
+                        // options come from the consumer via `optionsFromProp` — items carry
+                        // `{ id, name, property_type }` with the definition id as the value.
+                        getIcon: getPropertyDefinitionIcon,
+                        getName: (option: PropertyDefinition) => option.name,
+                        getValue: (option: PropertyDefinition) => option.id,
+                        valuesEndpoint: (key) =>
+                            `api/projects/${projectId}/custom_property_definitions/values/?key=${encodeURIComponent(
+                                key
+                            )}`,
+                        getPopoverHeader: () => 'Custom property',
+                    },
+                    {
                         name: 'Logs',
                         searchPlaceholder: 'logs',
                         type: TaxonomicFilterGroupType.Logs,

@@ -11,11 +11,12 @@ import { userLogic } from 'scenes/userLogic'
 
 import { dataNodeLogic } from '~/queries/nodes/DataNode/dataNodeLogic'
 import { AccountsQuery, DataTableNode, NodeKind } from '~/queries/schema/schema-general'
-import type { UserBasicType } from '~/types'
+import type { AccountCustomPropertyFilter, UserBasicType } from '~/types'
 
 import { accountsPartialUpdate, accountsRetrieve } from 'products/customer_analytics/frontend/generated/api'
 import type {
     AccountApi,
+    CustomPropertyDefinitionApi,
     PatchedAccountApiProperties,
 } from 'products/customer_analytics/frontend/generated/api.schemas'
 
@@ -30,6 +31,7 @@ import {
     ACCOUNTS_NAME_COLUMN,
     accountsColumnConfigLogic,
 } from './accountsColumnConfigLogic'
+import { customPropertyFiltersToExpressions } from './accountsCustomPropertyFilters'
 import {
     ACCOUNT_EXPANSION_TABS,
     AccountExpansionTab,
@@ -74,7 +76,7 @@ export type RoleFilterValue = number[]
 
 export type AccountRoleKey = 'csm' | 'account_executive' | 'account_owner'
 
-export type AccountFilterType = 'tag' | 'unassigned_only' | 'my_accounts' | 'assigned_to'
+export type AccountFilterType = 'tag' | 'unassigned_only' | 'my_accounts' | 'assigned_to' | 'custom_property'
 
 // `column` matches the visible column name (alias-stripped) so any selected
 // column can drive the sort.
@@ -107,6 +109,8 @@ interface AccountQueryFilters {
     assignedToFilter: RoleFilterValue
     accountIdFilter: string | null
     tileFilter: TileFilter | null
+    customPropertyFilters: AccountCustomPropertyFilter[]
+    customPropertyDefinitionsById: Record<string, CustomPropertyDefinitionApi>
 }
 
 // Shared filter clauses for the list-rows query and the overview-metrics query,
@@ -135,6 +139,9 @@ function applyAccountFilters(source: AccountsQuery, filters: AccountQueryFilters
     if (filters.accountIdFilter) {
         filterExpressions.push(`toString(id) = '${filters.accountIdFilter}'`)
     }
+    filterExpressions.push(
+        ...customPropertyFiltersToExpressions(filters.customPropertyFilters, filters.customPropertyDefinitionsById)
+    )
     if (filterExpressions.length > 0) {
         source.filterExpression = filterExpressions.map((expr) => `(${expr})`).join(' AND ')
     }
@@ -164,6 +171,7 @@ export interface AccountsViewUrlState {
     sort?: NonNullable<AccountSortOrder>
     columns?: string[]
     tileFilter?: TileFilter
+    customProperties?: AccountCustomPropertyFilter[]
 }
 
 export const accountsLogic = kea<accountsLogicType>([
@@ -175,7 +183,7 @@ export const accountsLogic = kea<accountsLogicType>([
             userLogic,
             ['user'],
             accountsColumnConfigLogic,
-            ['selectColumns', 'visibleColumnNames'],
+            ['selectColumns', 'visibleColumnNames', 'customPropertyDefinitionsById'],
             accountsOverviewTilesLogic,
             ['metrics as overviewMetrics', 'tileFilter'],
             customerAnalyticsSceneLogic,
@@ -198,6 +206,7 @@ export const accountsLogic = kea<accountsLogicType>([
         setSearchInput: (query: string) => ({ query }),
         setSearchQuery: (query: string) => ({ query }),
         setTagsFilter: (tags: string[]) => ({ tags }),
+        setCustomPropertyFilters: (filters: AccountCustomPropertyFilter[]) => ({ filters }),
         setAllRolesUnassigned: (value: boolean) => ({ value }),
         setAssignedToFilter: (value: RoleFilterValue) => ({ value }),
         // Shortcut for the "My accounts" checkbox — resolves to the current
@@ -246,6 +255,12 @@ export const accountsLogic = kea<accountsLogicType>([
             [] as string[],
             {
                 setTagsFilter: (_, { tags }) => tags,
+            },
+        ],
+        customPropertyFilters: [
+            [] as AccountCustomPropertyFilter[],
+            {
+                setCustomPropertyFilters: (_, { filters }) => filters,
             },
         ],
         allRolesUnassigned: [
@@ -310,16 +325,21 @@ export const accountsLogic = kea<accountsLogicType>([
                     !!savingRoles[savingRoleKey(accountId, role)],
         ],
         activeFilterCount: [
-            (s) => [s.searchQuery, s.tagsFilter, s.allRolesUnassigned, s.assignedToFilter],
+            (s) => [s.searchQuery, s.tagsFilter, s.allRolesUnassigned, s.assignedToFilter, s.customPropertyFilters],
             (
                 searchQuery: string,
                 tagsFilter: string[],
                 allRolesUnassigned: boolean,
-                assignedToFilter: RoleFilterValue
+                assignedToFilter: RoleFilterValue,
+                customPropertyFilters: AccountCustomPropertyFilter[]
             ): number =>
-                [!!searchQuery.trim(), tagsFilter.length > 0, allRolesUnassigned, assignedToFilter.length > 0].filter(
-                    Boolean
-                ).length,
+                [
+                    !!searchQuery.trim(),
+                    tagsFilter.length > 0,
+                    allRolesUnassigned,
+                    assignedToFilter.length > 0,
+                    customPropertyFilters.length > 0,
+                ].filter(Boolean).length,
         ],
         viewUrlState: [
             (s) => [
@@ -330,6 +350,7 @@ export const accountsLogic = kea<accountsLogicType>([
                 s.sortOrder,
                 s.selectColumns,
                 s.tileFilter,
+                s.customPropertyFilters,
             ],
             (
                 searchQuery: string,
@@ -338,7 +359,8 @@ export const accountsLogic = kea<accountsLogicType>([
                 assignedToFilter: RoleFilterValue,
                 sortOrder: AccountSortOrder,
                 selectColumns: string[],
-                tileFilter: TileFilter | null
+                tileFilter: TileFilter | null,
+                customPropertyFilters: AccountCustomPropertyFilter[]
             ): AccountsViewUrlState => {
                 const state: AccountsViewUrlState = {}
                 const trimmedSearch = searchQuery.trim()
@@ -363,6 +385,9 @@ export const accountsLogic = kea<accountsLogicType>([
                 if (tileFilter) {
                     state.tileFilter = tileFilter
                 }
+                if (customPropertyFilters.length > 0) {
+                    state.customProperties = customPropertyFilters
+                }
                 return state
             },
         ],
@@ -376,6 +401,8 @@ export const accountsLogic = kea<accountsLogicType>([
                 s.tileFilter,
                 s.sortOrder,
                 s.selectColumns,
+                s.customPropertyFilters,
+                s.customPropertyDefinitionsById,
             ],
             (
                 searchQuery: string,
@@ -385,7 +412,9 @@ export const accountsLogic = kea<accountsLogicType>([
                 accountIdFilter: string | null,
                 tileFilter: TileFilter | null,
                 sortOrder: AccountSortOrder,
-                selectColumns: string[]
+                selectColumns: string[],
+                customPropertyFilters: AccountCustomPropertyFilter[],
+                customPropertyDefinitionsById: Record<string, CustomPropertyDefinitionApi>
             ): DataTableNode => {
                 const source: AccountsQuery = {
                     kind: NodeKind.AccountsQuery,
@@ -399,6 +428,8 @@ export const accountsLogic = kea<accountsLogicType>([
                     assignedToFilter,
                     accountIdFilter,
                     tileFilter,
+                    customPropertyFilters,
+                    customPropertyDefinitionsById,
                 })
                 if (sortOrder) {
                     const expr = deriveAccountsOrderByExpr(sortOrder.column)
@@ -430,6 +461,8 @@ export const accountsLogic = kea<accountsLogicType>([
                 s.assignedToFilter,
                 s.accountIdFilter,
                 s.tileFilter,
+                s.customPropertyFilters,
+                s.customPropertyDefinitionsById,
             ],
             (
                 overviewMetrics: string[],
@@ -438,7 +471,9 @@ export const accountsLogic = kea<accountsLogicType>([
                 allRolesUnassigned: boolean,
                 assignedToFilter: RoleFilterValue,
                 accountIdFilter: string | null,
-                tileFilter: TileFilter | null
+                tileFilter: TileFilter | null,
+                customPropertyFilters: AccountCustomPropertyFilter[],
+                customPropertyDefinitionsById: Record<string, CustomPropertyDefinitionApi>
             ): AccountsQuery | null => {
                 if (overviewMetrics.length === 0) {
                     return null
@@ -455,6 +490,8 @@ export const accountsLogic = kea<accountsLogicType>([
                     assignedToFilter,
                     accountIdFilter,
                     tileFilter,
+                    customPropertyFilters,
+                    customPropertyDefinitionsById,
                 })
                 return source
             },
@@ -494,6 +531,11 @@ export const accountsLogic = kea<accountsLogicType>([
                     properties.value = values.assignedToFilter
                     properties.role_count = values.assignedToFilter.length
                     properties.is_cleared = values.assignedToFilter.length === 0
+                    break
+                // Only the shape is logged — property values can carry customer data.
+                case 'custom_property':
+                    properties.filter_count = values.customPropertyFilters.length
+                    properties.is_cleared = values.customPropertyFilters.length === 0
                     break
             }
             posthog.capture(AccountsEvents.FilterChanged, properties)
@@ -620,6 +662,9 @@ export const accountsLogic = kea<accountsLogicType>([
                 if (values.assignedToFilter.length > 0) {
                     actions.setAssignedToFilter([])
                 }
+                if (values.customPropertyFilters.length > 0) {
+                    actions.setCustomPropertyFilters([])
+                }
                 const term = externalId || name
                 if (term) {
                     actions.setSearchQuery(term)
@@ -666,6 +711,7 @@ export const accountsLogic = kea<accountsLogicType>([
         return {
             setSearchQuery: toUrl,
             setTagsFilter: toUrl,
+            setCustomPropertyFilters: toUrl,
             setAllRolesUnassigned: toUrl,
             setAssignedToFilter: toUrl,
             setSortOrder: toUrl,
@@ -707,6 +753,11 @@ export const accountsLogic = kea<accountsLogicType>([
                 const tags = view.tags ?? []
                 if (!objectsEqual(tags, values.tagsFilter)) {
                     actions.setTagsFilter(tags)
+                }
+
+                const customProperties = Array.isArray(view.customProperties) ? view.customProperties : []
+                if (!objectsEqual(customProperties, values.customPropertyFilters)) {
+                    actions.setCustomPropertyFilters(customProperties)
                 }
 
                 const unassigned = view.unassigned ?? false

@@ -11,18 +11,29 @@ import {
 } from '@posthog/lemon-ui'
 
 import { MemberSelectMultiple } from 'lib/components/MemberSelectMultiple'
+import { PropertyFilters } from 'lib/components/PropertyFilters/PropertyFilters'
+import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 
 import { tagsModel } from '~/models/tagsModel'
 import { dataNodeLogic } from '~/queries/nodes/DataNode/dataNodeLogic'
+import type { AccountCustomPropertyFilter } from '~/types'
 
+import { accountsColumnConfigLogic } from './accountsColumnConfigLogic'
 import { AccountsColumnConfigurator } from './AccountsColumnConfigurator'
+import { ACCOUNT_CUSTOM_PROPERTY_OPERATOR_ALLOWLIST } from './accountsCustomPropertyFilters'
 import { accountsLogic, RoleFilterValue } from './accountsLogic'
 import { AccountsOverviewTilesButton } from './AccountsOverviewTilesButton'
 import { AccountsViewSelector } from './AccountsViewSelector'
 
 export function AccountsTabFilters(): JSX.Element {
-    const { searchInput, tagsFilter, allRolesUnassigned, assignedToCurrentUser, assignedToFilter } =
-        useValues(accountsLogic)
+    const {
+        searchInput,
+        tagsFilter,
+        allRolesUnassigned,
+        assignedToCurrentUser,
+        assignedToFilter,
+        customPropertyFilters,
+    } = useValues(accountsLogic)
     const { responseLoading: accountsLoading } = useValues(dataNodeLogic)
     const {
         setSearchInput,
@@ -30,10 +41,12 @@ export function AccountsTabFilters(): JSX.Element {
         setAllRolesUnassigned,
         setAssignedToCurrentUser,
         setAssignedToFilter,
+        setCustomPropertyFilters,
         refresh,
         reportFilterChange,
     } = useActions(accountsLogic)
     const { tags: tagsAvailable } = useValues(tagsModel)
+    const { customPropertyTaxonomicOptions } = useValues(accountsColumnConfigLogic)
 
     const tagsButtonLabel =
         tagsFilter.length === 0 ? 'All tags' : tagsFilter.length === 1 ? tagsFilter[0] : `${tagsFilter.length} tags`
@@ -127,6 +140,24 @@ export function AccountsTabFilters(): JSX.Element {
                         disabledReason={accountsLoading ? 'Loading…' : undefined}
                         data-attr="accounts-my-accounts-filter"
                     />
+
+                    {customPropertyTaxonomicOptions.length > 0 && (
+                        <PropertyFilters
+                            propertyFilters={customPropertyFilters}
+                            onChange={(filters) => {
+                                setCustomPropertyFilters(filters as AccountCustomPropertyFilter[])
+                                reportFilterChange('custom_property')
+                            }}
+                            pageKey="customer-analytics-accounts-custom-properties"
+                            taxonomicGroupTypes={[TaxonomicFilterGroupType.AccountCustomProperties]}
+                            taxonomicFilterOptionsFromProp={{
+                                [TaxonomicFilterGroupType.AccountCustomProperties]: customPropertyTaxonomicOptions,
+                            }}
+                            operatorAllowlist={ACCOUNT_CUSTOM_PROPERTY_OPERATOR_ALLOWLIST}
+                            buttonSize="small"
+                            hasRowOperator={false}
+                        />
+                    )}
                 </div>
                 <div className="flex flex-wrap gap-2 items-center">
                     <AccountsOverviewTilesButton />

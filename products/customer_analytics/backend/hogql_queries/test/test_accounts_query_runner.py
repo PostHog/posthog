@@ -474,6 +474,19 @@ class TestAccountsQueryRunner(ClickhouseTestMixin, NonAtomicBaseTest):
         )
         self.assertEqual(names, ["Match"])
 
+    def test_filter_expression_can_reference_a_custom_property_not_in_select(self):
+        definition = create_custom_property_definition(team_id=self.team.id, name="Plan")
+        match = create_account(team_id=self.team.id, name="Enterprise co")
+        create_account(team_id=self.team.id, name="No value")
+        CustomPropertyValue.objects.unscoped().create(
+            team_id=self.team.id, account=match, definition=definition, value_str="enterprise"
+        )
+        # The custom-property filter UI compiles to filterExpression fragments like this, and the
+        # filtered property is usually not a selected column — the WHERE reference alone must
+        # expand the custom_properties lazy join.
+        names = self._names(filterExpression=f"accounts.custom_properties.values.`{definition.id}` = 'enterprise'")
+        self.assertEqual(names, ["Enterprise co"])
+
     def test_custom_property_value_round_trips_through_a_selected_alias(self):
         account = create_account(team_id=self.team.id, name="A")
         definition = create_custom_property_definition(team_id=self.team.id, name="Plan")

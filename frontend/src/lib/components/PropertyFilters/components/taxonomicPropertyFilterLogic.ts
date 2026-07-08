@@ -22,6 +22,7 @@ import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 
 import { propertyDefinitionsModel } from '~/models/propertyDefinitionsModel'
 import {
+    AccountCustomPropertyFilter,
     AnyPropertyFilter,
     CohortPropertyFilter,
     EventMetadataPropertyFilter,
@@ -183,6 +184,12 @@ export const taxonomicPropertyFilterLogic = kea<taxonomicPropertyFilterLogicType
                 if (propertyType === PropertyFilterType.EventMetadata && item.id.startsWith('$group_')) {
                     const eventMetadataFilter = filter as EventMetadataPropertyFilter
                     eventMetadataFilter.label = item.name
+                }
+
+                // The key is the definition id (a UUID), so keep the human-readable name for display
+                if (propertyType === PropertyFilterType.AccountCustomProperty && item?.name) {
+                    const accountCustomPropertyFilter = filter as AccountCustomPropertyFilter
+                    accountCustomPropertyFilter.label = item.name
                 }
 
                 props.setFilter(props.filterIndex, filter)
