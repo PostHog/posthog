@@ -34,6 +34,7 @@ tools:
             pushes' failures are included too. logs_available is false when CI hasn't failed, the logs aged out of the
             short Logs retention, or a fork PR has no run association to resolve. Use pr-runs or workflow-jobs for the
             run/job metadata behind these logs.
+        feature_flag: engineering-analytics
     engineering-analytics-flaky-tests:
         operation: engineering_analytics_flaky_tests
         enabled: true
@@ -55,6 +56,7 @@ tools:
             failed_pr_count catches. xfailed_count > 0 means the test is already quarantined but still failing. nodeid
             is a best-effort reconstruction (no '.py' suffix, the file/class boundary folded into '/'), so convert
             before using it as a pytest selector.
+        feature_flag: engineering-analytics
     engineering-analytics-job-aggregates:
         operation: engineering_analytics_job_aggregates
         enabled: false
@@ -79,6 +81,7 @@ tools:
             job-level source isn't synced yet — every figure is then zero/null, so check it before trusting a $0.00.
             estimated_cost_usd is null (not zero) when nothing was costable, and unsettled_jobs counts billable jobs
             still running that are left out of the estimate.
+        feature_flag: engineering-analytics
     engineering-analytics-pr-runs:
         operation: engineering_analytics_pr_runs
         enabled: false
@@ -112,7 +115,11 @@ tools:
             The team's connected GitHub data warehouse sources, oldest first, each with its id, repo (owner/name), and
             table prefix. Call this first when a team may have more than one GitHub source, then pass a chosen id as
             source_id to the pull-requests, workflow-health, ci-cards, or pr-lifecycle tools to read that specific
-            source. With a single source you can skip it — the other tools default to the oldest connected source.
+            source. With a single source you can skip it — the other tools default to the oldest connected source. The
+            prefix also names the underlying warehouse tables (prefix + github_pull_requests / github_workflow_runs /
+            github_workflow_jobs), which you can query directly with SQL or save as SQL insights and subscriptions when
+            the named tools don't fit (timestamps land as strings; parse with parseDateTimeBestEffort).
+        feature_flag: engineering-analytics
     engineering-analytics-workflow-jobs:
         operation: engineering_analytics_workflow_jobs
         enabled: true
@@ -131,6 +138,7 @@ tools:
             latest unless you pass run_attempt) so a re-run's attempts don't merge. estimated_cost_usd is null for free
             GitHub-hosted, non-Linux, or unfinished jobs. Returns an empty list when the job-level source isn't synced
             yet.
+        feature_flag: engineering-analytics
     engineering-analytics-workflow-run:
         operation: engineering_analytics_workflow_run
         enabled: false
@@ -154,6 +162,7 @@ tools:
             estimated_cost_usd. Use this for "which runner tier drives this workflow's CI bill" and to spot oversized
             runners. Billable self-hosted Linux tiers carry a cost; github-hosted and non-Linux rows are null. Returns
             an empty list when the job-level source isn't synced yet.
+        feature_flag: engineering-analytics
     engineering-analytics-workflow-runs:
         operation: engineering_analytics_workflow_runs
         enabled: false
@@ -172,6 +181,7 @@ tools:
             ordered events — opened, CI started, CI finished, and merged or closed. Use this to answer "where is this PR
             stuck and what happened to it". metric_quality is "partial" — it covers CI events only; review and comment
             events are not yet available. For aggregate questions use the pull-requests and workflow-health tools.
+        feature_flag: engineering-analytics
     pull-requests:
         operation: engineering_analytics_pull_requests
         enabled: true
@@ -196,6 +206,7 @@ tools:
                 description: >
                     Recency floor for merged/closed PRs — relative ('-30d', '-8w') or ISO8601. Open PRs are always
                     included regardless of age. Defaults to -30d.
+        feature_flag: engineering-analytics
     workflow-health:
         operation: engineering_analytics_workflow_health
         enabled: true
@@ -217,4 +228,5 @@ tools:
                 description: Window start — relative ('-24h', '-7d') or ISO8601. Defaults to -24h.
             date_to:
                 description: Window end — relative or ISO8601. Defaults to now.
+        feature_flag: engineering-analytics
         url_prefix: /engineering-analytics/workflows
