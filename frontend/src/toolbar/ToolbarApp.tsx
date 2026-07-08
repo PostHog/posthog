@@ -57,11 +57,16 @@ export function ToolbarApp(props: ToolbarProps = {}): JSX.Element {
                   }
 
                   styleLink.onload = () => setDidLoadStyles(true)
-                  // Without onerror the toolbar silently stays invisible when the
-                  // CSS 404s (didLoadStyles never flips to true). That masks
-                  // misconfigured apiHost / rejected URLs. Surface the failure
-                  // via logger + telemetry and render the toolbar anyway —
-                  // missing styles is a worse UX than nothing.
+                  // When the CSS 404s we must NOT render the toolbar: all icon
+                  // sizing and the `:host { all: initial }` isolation reset live
+                  // in toolbar.css, so without it the toolbar renders as giant,
+                  // unstyled SVG icons plastered over the host page. An invisible
+                  // toolbar is far better than one that defaces a customer's
+                  // production site, so we leave didLoadStyles false (hiding the
+                  // toolbar) and only surface the failure via logger + telemetry.
+                  // Inlining the critical styles instead isn't an option: the
+                  // CSS is deliberately kept external so it doesn't break sites
+                  // with strict CSPs (see frontend/toolbar-config.mjs).
                   styleLink.onerror = () => {
                       toolbarLogger.error('config', 'Failed to load toolbar.css', { href: styleLink.href })
                       captureToolbarException(
@@ -69,7 +74,6 @@ export function ToolbarApp(props: ToolbarProps = {}): JSX.Element {
                           'toolbar_css_load'
                       )
                       toolbarPosthogJS.capture('toolbar css load failed', { href: styleLink.href })
-                      setDidLoadStyles(true)
                   }
                   const shadowRoot =
                       shadowRef.current?.shadowRoot || window.document.getElementById(TOOLBAR_ID)?.shadowRoot
