@@ -1447,7 +1447,9 @@ def _start_posthog_code_workflow(
             task_queue=settings.TASKS_TASK_QUEUE,
             id_conflict_policy=WorkflowIDConflictPolicy.USE_EXISTING,
             id_reuse_policy=WorkflowIDReusePolicy.ALLOW_DUPLICATE,
-            **({"start_signal": start_signal, "start_signal_args": start_signal_args or []} if start_signal else {}),
+            # None / [] match the SDK defaults, so a plain start stays a plain start.
+            start_signal=start_signal,
+            start_signal_args=start_signal_args or [],
         )
     )
 
