@@ -1502,6 +1502,15 @@ h3.MarkdownNotebook__text-block--heading {
     opacity: 1;
 }
 
+.MarkdownNotebook__mermaid-block {
+    overflow-x: auto;
+
+    svg {
+        max-width: 100%;
+        height: auto;
+    }
+}
+
 .MarkdownNotebook__divider-block {
     position: relative;
     padding: 0.625rem 0;
