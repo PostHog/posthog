@@ -21,6 +21,27 @@ describe('elementToSelector', () => {
         expect(actual).toEqual('.potato.soup')
     })
 
+    it('ignores unstable useId-derived attr_id and falls back to tag + class', () => {
+        const element = {
+            tag_name: 'button',
+            attr_id: 'radix-:rr:',
+            attr_class: ['btn'],
+        } as ElementType
+
+        const actual = elementToSelector(element, [])
+        expect(actual).toEqual('button.btn')
+    })
+
+    it('ignores an unstable useId-derived data attribute value and falls back', () => {
+        const element = {
+            tag_name: 'div',
+            attributes: { 'attr__data-id': 'base-ui-:rg:-viewport' },
+        } as unknown as ElementType
+
+        const actual = elementToSelector(element, ['data-id'])
+        expect(actual).toEqual('div')
+    })
+
     const dataAttributeValueCases = [
         {
             name: 'keeps dots unescaped so backend literal matching still works',
