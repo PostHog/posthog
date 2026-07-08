@@ -110,145 +110,50 @@ class TestPostHogCallback:
             assert props["ai_product"] == "wizard"
             mock_client.shutdown.assert_called_once()
 
+    @pytest.mark.parametrize(
+        "event_method, effort, caller_effort, expected",
+        [
+            # gateway-resolved effort is stamped, on both success and error events
+            ("_on_success", "medium", None, "medium"),
+            ("_on_failure", "high", None, "high"),
+            # omitted when the gateway found none
+            ("_on_success", None, None, None),
+            # gateway-owned: a caller header can neither override a resolved value...
+            ("_on_success", "medium", "spoofed", "medium"),
+            # ...nor sneak one in when the gateway found none (success and error paths)
+            ("_on_success", None, "spoofed", None),
+            ("_on_failure", None, "spoofed", None),
+        ],
+    )
     @pytest.mark.asyncio
-    async def test_on_success_stamps_effort_from_context(
+    async def test_effort_is_gateway_owned(
         self,
         callback: PostHogCallback,
         auth_user: AuthenticatedUser,
         standard_logging_object: dict,
         mock_posthog_client: tuple,
+        event_method: str,
+        effort: str | None,
+        caller_effort: str | None,
+        expected: str | None,
     ) -> None:
         _, mock_client = mock_posthog_client
         kwargs = {"standard_logging_object": standard_logging_object, "litellm_params": {}}
+        caller_props = {"$ai_effort": caller_effort} if caller_effort is not None else {}
 
         with (
             patch("llm_gateway.callbacks.posthog.get_auth_user", return_value=auth_user),
             patch("llm_gateway.callbacks.posthog.get_product", return_value="posthog_code"),
-            patch("llm_gateway.callbacks.posthog.get_effort", return_value="medium"),
+            patch("llm_gateway.callbacks.posthog.get_effort", return_value=effort),
+            patch("llm_gateway.callbacks.posthog.get_posthog_properties", return_value=caller_props),
         ):
-            await callback._on_success(kwargs, None, 0.0, 1.0, end_user_id=None)
+            await getattr(callback, event_method)(kwargs, None, 0.0, 1.0, end_user_id=None)
 
-            props = mock_client.capture.call_args.kwargs["properties"]
-            assert props["$ai_effort"] == "medium"
-
-    @pytest.mark.asyncio
-    async def test_on_success_omits_effort_when_absent(
-        self,
-        callback: PostHogCallback,
-        auth_user: AuthenticatedUser,
-        standard_logging_object: dict,
-        mock_posthog_client: tuple,
-    ) -> None:
-        _, mock_client = mock_posthog_client
-        kwargs = {"standard_logging_object": standard_logging_object, "litellm_params": {}}
-
-        with (
-            patch("llm_gateway.callbacks.posthog.get_auth_user", return_value=auth_user),
-            patch("llm_gateway.callbacks.posthog.get_product", return_value="posthog_code"),
-            patch("llm_gateway.callbacks.posthog.get_effort", return_value=None),
-        ):
-            await callback._on_success(kwargs, None, 0.0, 1.0, end_user_id=None)
-
-            props = mock_client.capture.call_args.kwargs["properties"]
+        props = mock_client.capture.call_args.kwargs["properties"]
+        if expected is None:
             assert "$ai_effort" not in props
-
-    @pytest.mark.asyncio
-    async def test_on_failure_stamps_effort_from_context(
-        self, callback: PostHogCallback, auth_user: AuthenticatedUser, mock_posthog_client: tuple
-    ) -> None:
-        _, mock_client = mock_posthog_client
-        kwargs = {
-            "standard_logging_object": {
-                "model": "claude-3-opus",
-                "custom_llm_provider": "anthropic",
-                "error_str": "boom",
-            },
-            "litellm_params": {},
-        }
-
-        with (
-            patch("llm_gateway.callbacks.posthog.get_auth_user", return_value=auth_user),
-            patch("llm_gateway.callbacks.posthog.get_product", return_value="posthog_code"),
-            patch("llm_gateway.callbacks.posthog.get_effort", return_value="high"),
-        ):
-            await callback._on_failure(kwargs, None, 0.0, 1.0, end_user_id=None)
-
-            props = mock_client.capture.call_args.kwargs["properties"]
-            assert props["$ai_effort"] == "high"
-
-    @pytest.mark.asyncio
-    async def test_on_success_effort_overrides_caller_header(
-        self,
-        callback: PostHogCallback,
-        auth_user: AuthenticatedUser,
-        standard_logging_object: dict,
-        mock_posthog_client: tuple,
-    ) -> None:
-        # $ai_effort is gateway-owned: a caller-supplied x-posthog-property-$ai_effort
-        # must not win over the value the gateway resolved from the request body.
-        _, mock_client = mock_posthog_client
-        kwargs = {"standard_logging_object": standard_logging_object, "litellm_params": {}}
-
-        with (
-            patch("llm_gateway.callbacks.posthog.get_auth_user", return_value=auth_user),
-            patch("llm_gateway.callbacks.posthog.get_product", return_value="posthog_code"),
-            patch("llm_gateway.callbacks.posthog.get_effort", return_value="medium"),
-            patch("llm_gateway.callbacks.posthog.get_posthog_properties", return_value={"$ai_effort": "spoofed"}),
-        ):
-            await callback._on_success(kwargs, None, 0.0, 1.0, end_user_id=None)
-
-            props = mock_client.capture.call_args.kwargs["properties"]
-            assert props["$ai_effort"] == "medium"
-
-    @pytest.mark.asyncio
-    async def test_on_success_drops_caller_effort_when_gateway_has_none(
-        self,
-        callback: PostHogCallback,
-        auth_user: AuthenticatedUser,
-        standard_logging_object: dict,
-        mock_posthog_client: tuple,
-    ) -> None:
-        # With no gateway-resolved effort, a caller-supplied value is dropped rather than
-        # captured — the property is owned by the gateway, not spoofable via a header.
-        _, mock_client = mock_posthog_client
-        kwargs = {"standard_logging_object": standard_logging_object, "litellm_params": {}}
-
-        with (
-            patch("llm_gateway.callbacks.posthog.get_auth_user", return_value=auth_user),
-            patch("llm_gateway.callbacks.posthog.get_product", return_value="posthog_code"),
-            patch("llm_gateway.callbacks.posthog.get_effort", return_value=None),
-            patch("llm_gateway.callbacks.posthog.get_posthog_properties", return_value={"$ai_effort": "spoofed"}),
-        ):
-            await callback._on_success(kwargs, None, 0.0, 1.0, end_user_id=None)
-
-            props = mock_client.capture.call_args.kwargs["properties"]
-            assert "$ai_effort" not in props
-
-    @pytest.mark.asyncio
-    async def test_on_failure_drops_caller_effort_when_gateway_has_none(
-        self, callback: PostHogCallback, auth_user: AuthenticatedUser, mock_posthog_client: tuple
-    ) -> None:
-        # Same spoof-prevention as the success path applies to error events.
-        _, mock_client = mock_posthog_client
-        kwargs = {
-            "standard_logging_object": {
-                "model": "claude-3-opus",
-                "custom_llm_provider": "anthropic",
-                "error_str": "boom",
-            },
-            "litellm_params": {},
-        }
-
-        with (
-            patch("llm_gateway.callbacks.posthog.get_auth_user", return_value=auth_user),
-            patch("llm_gateway.callbacks.posthog.get_product", return_value="posthog_code"),
-            patch("llm_gateway.callbacks.posthog.get_effort", return_value=None),
-            patch("llm_gateway.callbacks.posthog.get_posthog_properties", return_value={"$ai_effort": "spoofed"}),
-        ):
-            await callback._on_failure(kwargs, None, 0.0, 1.0, end_user_id=None)
-
-            props = mock_client.capture.call_args.kwargs["properties"]
-            assert "$ai_effort" not in props
+        else:
+            assert props["$ai_effort"] == expected
 
     @pytest.mark.asyncio
     async def test_on_success_header_team_id_overrides_auth_user_team(

@@ -35,21 +35,54 @@ from llm_gateway.streaming.sse import format_sse_stream
 logger = structlog.get_logger(__name__)
 
 
+def _clean_effort(value: Any) -> str | None:
+    if isinstance(value, str) and (stripped := value.strip()):
+        return stripped
+    return None
+
+
+# Reasoning-effort lives at a different spot per API surface. Each ProviderConfig declares
+# its extractor so adding a provider forces a choice here rather than silently dropping effort.
+def effort_from_output_config(request_data: dict[str, Any]) -> str | None:
+    """Anthropic Messages: ``output_config: {"effort": "..."}``."""
+    output_config = request_data.get("output_config")
+    return _clean_effort(output_config.get("effort")) if isinstance(output_config, dict) else None
+
+
+def effort_from_reasoning_effort(request_data: dict[str, Any]) -> str | None:
+    """OpenAI chat completions: top-level ``reasoning_effort``."""
+    return _clean_effort(request_data.get("reasoning_effort"))
+
+
+def effort_from_reasoning(request_data: dict[str, Any]) -> str | None:
+    """OpenAI Responses: ``reasoning: {"effort": "..."}``."""
+    reasoning = request_data.get("reasoning")
+    return _clean_effort(reasoning.get("effort")) if isinstance(reasoning, dict) else None
+
+
+def no_effort(request_data: dict[str, Any]) -> str | None:
+    """Endpoints with no reasoning-effort parameter (e.g. transcription)."""
+    return None
+
+
 @dataclass
 class ProviderConfig:
     name: str
     endpoint_name: str
+    # How to pull reasoning effort out of a request body for this surface. Required (no default)
+    # so a new provider can't be added without deciding — see the effort_from_* functions above.
+    extract_effort: Callable[[dict[str, Any]], str | None]
 
 
-ANTHROPIC_CONFIG = ProviderConfig(name="anthropic", endpoint_name="anthropic_messages")
-BEDROCK_CONFIG = ProviderConfig(name="bedrock", endpoint_name="bedrock_messages")
-OPENAI_CONFIG = ProviderConfig(name="openai", endpoint_name="chat_completions")
-OPENAI_RESPONSES_CONFIG = ProviderConfig(name="openai", endpoint_name="responses")
-OPENAI_TRANSCRIPTION_CONFIG = ProviderConfig(name="openai", endpoint_name="audio_transcriptions")
+ANTHROPIC_CONFIG = ProviderConfig("anthropic", "anthropic_messages", effort_from_output_config)
+BEDROCK_CONFIG = ProviderConfig("bedrock", "bedrock_messages", effort_from_output_config)
+OPENAI_CONFIG = ProviderConfig("openai", "chat_completions", effort_from_reasoning_effort)
+OPENAI_RESPONSES_CONFIG = ProviderConfig("openai", "responses", effort_from_reasoning)
+OPENAI_TRANSCRIPTION_CONFIG = ProviderConfig("openai", "audio_transcriptions", no_effort)
 # Split endpoint labels so an adapter-specific regression is distinguishable in metrics.
-CLOUDFLARE_ANTHROPIC_CONFIG = ProviderConfig(name="cloudflare", endpoint_name="cloudflare_anthropic_messages")
-CLOUDFLARE_OPENAI_CONFIG = ProviderConfig(name="cloudflare", endpoint_name="cloudflare_chat_completions")
-CLOUDFLARE_OPENAI_RESPONSES_CONFIG = ProviderConfig(name="cloudflare", endpoint_name="cloudflare_responses")
+CLOUDFLARE_ANTHROPIC_CONFIG = ProviderConfig("cloudflare", "cloudflare_anthropic_messages", effort_from_output_config)
+CLOUDFLARE_OPENAI_CONFIG = ProviderConfig("cloudflare", "cloudflare_chat_completions", effort_from_reasoning_effort)
+CLOUDFLARE_OPENAI_RESPONSES_CONFIG = ProviderConfig("cloudflare", "cloudflare_responses", effort_from_reasoning)
 
 _KNOWN_LITELLM_PROVIDER_PREFIXES = (
     "anthropic/",
@@ -132,40 +165,6 @@ def _sanitize_request_data(data: dict[str, Any]) -> dict[str, Any]:
     return {k: _sanitize_request_value(v) for k, v in data.items() if k not in FORBIDDEN_REQUEST_PARAMS}
 
 
-def _extract_effort(request_data: dict[str, Any]) -> str | None:
-    """Pull the reasoning-effort level out of a request body, normalized across providers.
-
-    Callers express effort in three shapes depending on the API surface:
-      - Anthropic Messages: ``output_config: {"effort": "..."}``
-      - OpenAI chat completions: ``reasoning_effort: "..."``
-      - OpenAI Responses: ``reasoning: {"effort": "..."}``
-
-    Returns the effort string (e.g. "low"/"medium"/"high"/"xhigh"/"max"), or None when the
-    request didn't set one. Kept permissive on the value so a newly-introduced effort level is
-    captured rather than silently dropped.
-    """
-
-    def _clean(value: Any) -> str | None:
-        if isinstance(value, str):
-            stripped = value.strip()
-            if stripped:
-                return stripped
-        return None
-
-    output_config = request_data.get("output_config")
-    if isinstance(output_config, dict) and (effort := _clean(output_config.get("effort"))):
-        return effort
-
-    if effort := _clean(request_data.get("reasoning_effort")):
-        return effort
-
-    reasoning = request_data.get("reasoning")
-    if isinstance(reasoning, dict) and (effort := _clean(reasoning.get("effort"))):
-        return effort
-
-    return None
-
-
 async def handle_llm_request(
     request_data: dict[str, Any],
     user: AuthenticatedUser,
@@ -190,14 +189,10 @@ async def handle_llm_request(
     )
     set_auth_user(user)
 
-    # Effort isn't a first-class LiteLLM logging field, so stash it in the request context
-    # (mirroring time_to_first_token) for the PostHog callback to stamp onto the captured
-    # $ai_generation event. This is the shared chokepoint for every provider (Anthropic,
-    # OpenAI chat/responses, Cloudflare), so a single extraction here covers them all, on
-    # both success and error events. Read from the request body — the source of truth for
-    # what was actually sent to the model — rather than a caller-supplied header. Always
-    # set it (None when absent) so a stale value can't leak in if the context is reused.
-    set_effort(_extract_effort(request_data))
+    # Stash effort for the PostHog callback to stamp on the $ai_generation event (mirrors
+    # time_to_first_token). Set unconditionally so a stale value can't leak if the context
+    # is reused.
+    set_effort(provider_config.extract_effort(request_data))
 
     structlog.contextvars.bind_contextvars(
         user_id=user.user_id,
