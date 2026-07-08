@@ -173,7 +173,9 @@ function ConceptPreview({ feature }: { feature: EnrichedEarlyAccessFeature }): J
     // (recorded as a survey response) instead of the one-click, login-tied enrollment.
     const surveyId = (feature.payload as Record<string, any> | undefined)?.survey_id
     const useSurvey = waitlistSurveysEnabled && !!surveyId
-    const surveySubmitted = !!conceptSurveySubmissions[flagKey]
+    // `enabled` covers users who registered interest before the survey era — the
+    // migration command moves them into the survey, so don't ask them again.
+    const surveySubmitted = !!conceptSurveySubmissions[flagKey] || enabled
 
     let actions: JSX.Element
     if (useSurvey) {

@@ -163,6 +163,9 @@ export const featurePreviewsLogic = kea<featurePreviewsLogicType>([
                 properties[`$survey_response_${surveyQuestionId}`] = email
             }
             posthog.capture('survey sent', properties)
+            // Also record the enrollment so the "registered" state persists across
+            // reloads (person property), matching the pre-survey behavior.
+            actions.updateEarlyAccessFeatureEnrollment(flagKey, true, 'concept')
         },
     })),
     selectors({
