@@ -7,8 +7,8 @@ import { ParsedMessageData, SnapshotEvent } from '~/ingestion/pipelines/sessionr
 import { RetentionPeriod } from '~/ingestion/pipelines/sessionreplay/shared/constants'
 import { SessionFeatureStore } from '~/ingestion/pipelines/sessionreplay/shared/features/session-feature-store'
 import { SessionMetadataStore } from '~/ingestion/pipelines/sessionreplay/shared/metadata/session-metadata-store'
-import { createMockEncryptor, createMockKeyStore } from '~/ingestion/pipelines/sessionreplay/shared/test-helpers'
-import { KeyStore, RecordingEncryptor } from '~/ingestion/pipelines/sessionreplay/shared/types'
+import { createMockEncryptor, createMockSessionKey } from '~/ingestion/pipelines/sessionreplay/shared/test-helpers'
+import { RecordingEncryptor, SessionKey } from '~/ingestion/pipelines/sessionreplay/shared/types'
 import { MessageWithTeam } from '~/ingestion/pipelines/sessionreplay/teams/types'
 
 import { SessionBatchMetrics } from './metrics'
@@ -17,8 +17,6 @@ import { SessionBatchRecorder } from './session-batch-recorder'
 import { SessionConsoleLogRecorder } from './session-console-log-recorder'
 import { SessionConsoleLogStore } from './session-console-log-store'
 import { SessionFeatureRecorder } from './session-feature-recorder'
-import { SessionFilter } from './session-filter'
-import { SessionTracker } from './session-tracker'
 import { EndResult, SnappySessionRecorder } from './snappy-session-recorder'
 
 // RRWeb event type constants
@@ -205,14 +203,15 @@ describe('SessionBatchRecorder', () => {
     let mockMetadataStore: jest.Mocked<SessionMetadataStore>
     let mockConsoleLogStore: jest.Mocked<SessionConsoleLogStore>
     let mockFeatureStore: jest.Mocked<SessionFeatureStore>
-    let mockSessionTracker: jest.Mocked<SessionTracker>
-    let mockSessionFilter: jest.Mocked<SessionFilter>
-    let mockKeyStore: jest.Mocked<KeyStore>
     let mockEncryptor: jest.Mocked<RecordingEncryptor>
 
-    // Records a message with its resolved retention (defaults to 30d — most tests don't vary it).
-    const record = (message: MessageWithTeam, retentionPeriod: RetentionPeriod = '30d'): Promise<number> =>
-        recorder.record(message, retentionPeriod)
+    // Records a message with its resolved retention and encryption key (both resolved upstream in
+    // production). Defaults to 30d and a fresh cleartext key — most tests don't vary either.
+    const record = (
+        message: MessageWithTeam,
+        retentionPeriod: RetentionPeriod = '30d',
+        sessionKey: SessionKey = createMockSessionKey()
+    ): Promise<number> => recorder.record(message, retentionPeriod, sessionKey)
 
     beforeEach(() => {
         jest.clearAllMocks()
@@ -253,16 +252,6 @@ describe('SessionBatchRecorder', () => {
             newBatch: jest.fn().mockReturnValue(mockWriter),
         } as unknown as jest.Mocked<SessionBatchFileStorage>
 
-        mockSessionTracker = {
-            trackSession: jest.fn().mockResolvedValue(false),
-        } as unknown as jest.Mocked<SessionTracker>
-
-        mockSessionFilter = {
-            isBlocked: jest.fn().mockResolvedValue(false),
-            handleNewSession: jest.fn().mockResolvedValue(undefined),
-        } as unknown as jest.Mocked<SessionFilter>
-
-        mockKeyStore = createMockKeyStore()
         mockEncryptor = createMockEncryptor()
 
         recorder = new SessionBatchRecorder(
@@ -271,9 +260,6 @@ describe('SessionBatchRecorder', () => {
             mockMetadataStore,
             mockConsoleLogStore,
             mockFeatureStore,
-            mockSessionTracker,
-            mockSessionFilter,
-            mockKeyStore,
             mockEncryptor,
             Number.MAX_SAFE_INTEGER
         )
@@ -1518,9 +1504,6 @@ describe('SessionBatchRecorder', () => {
                 mockMetadataStore,
                 mockConsoleLogStore,
                 mockFeatureStore,
-                mockSessionTracker,
-                mockSessionFilter,
-                mockKeyStore,
                 mockEncryptor,
                 Number.MAX_SAFE_INTEGER
             )
@@ -1721,9 +1704,6 @@ describe('SessionBatchRecorder', () => {
                 mockMetadataStore,
                 mockConsoleLogStore,
                 mockFeatureStore,
-                mockSessionTracker,
-                mockSessionFilter,
-                mockKeyStore,
                 mockEncryptor,
                 3
             )
@@ -1751,9 +1731,6 @@ describe('SessionBatchRecorder', () => {
                 mockMetadataStore,
                 mockConsoleLogStore,
                 mockFeatureStore,
-                mockSessionTracker,
-                mockSessionFilter,
-                mockKeyStore,
                 mockEncryptor,
                 2
             )
@@ -1784,9 +1761,6 @@ describe('SessionBatchRecorder', () => {
                 mockMetadataStore,
                 mockConsoleLogStore,
                 mockFeatureStore,
-                mockSessionTracker,
-                mockSessionFilter,
-                mockKeyStore,
                 mockEncryptor,
                 1
             )
@@ -1810,9 +1784,6 @@ describe('SessionBatchRecorder', () => {
                 mockMetadataStore,
                 mockConsoleLogStore,
                 mockFeatureStore,
-                mockSessionTracker,
-                mockSessionFilter,
-                mockKeyStore,
                 mockEncryptor,
                 2
             )
@@ -1849,9 +1820,6 @@ describe('SessionBatchRecorder', () => {
                 mockMetadataStore,
                 mockConsoleLogStore,
                 mockFeatureStore,
-                mockSessionTracker,
-                mockSessionFilter,
-                mockKeyStore,
                 mockEncryptor,
                 2
             )
@@ -1888,9 +1856,6 @@ describe('SessionBatchRecorder', () => {
                 mockMetadataStore,
                 mockConsoleLogStore,
                 mockFeatureStore,
-                mockSessionTracker,
-                mockSessionFilter,
-                mockKeyStore,
                 mockEncryptor,
                 1
             )
@@ -1921,9 +1886,6 @@ describe('SessionBatchRecorder', () => {
                 mockMetadataStore,
                 mockConsoleLogStore,
                 mockFeatureStore,
-                mockSessionTracker,
-                mockSessionFilter,
-                mockKeyStore,
                 mockEncryptor,
                 1
             )
@@ -1956,9 +1918,6 @@ describe('SessionBatchRecorder', () => {
                 mockMetadataStore,
                 mockConsoleLogStore,
                 mockFeatureStore,
-                mockSessionTracker,
-                mockSessionFilter,
-                mockKeyStore,
                 mockEncryptor,
                 2
             )
@@ -1988,9 +1947,6 @@ describe('SessionBatchRecorder', () => {
                 mockMetadataStore,
                 mockConsoleLogStore,
                 mockFeatureStore,
-                mockSessionTracker,
-                mockSessionFilter,
-                mockKeyStore,
                 mockEncryptor,
                 1
             )
@@ -2019,9 +1975,6 @@ describe('SessionBatchRecorder', () => {
                 mockMetadataStore,
                 mockConsoleLogStore,
                 mockFeatureStore,
-                mockSessionTracker,
-                mockSessionFilter,
-                mockKeyStore,
                 mockEncryptor,
                 1
             )
@@ -2051,9 +2004,6 @@ describe('SessionBatchRecorder', () => {
                 mockMetadataStore,
                 mockConsoleLogStore,
                 mockFeatureStore,
-                mockSessionTracker,
-                mockSessionFilter,
-                mockKeyStore,
                 mockEncryptor,
                 1
             )
@@ -2086,42 +2036,12 @@ describe('SessionBatchRecorder', () => {
     })
 
     describe('encryption key handling', () => {
-        it('should drop messages for sessions with deleted encryption keys', async () => {
-            mockSessionTracker.trackSession.mockResolvedValue(false)
-            mockKeyStore.getKey.mockResolvedValue({
-                plaintextKey: Buffer.alloc(0),
-                encryptedKey: Buffer.alloc(0),
-                sessionState: 'deleted',
-                deletedAt: 1700000000,
-            })
-
-            const message = createMessage(
-                'session1',
-                [{ type: EventType.FullSnapshot, timestamp: 1000, data: { source: 1 } }],
-                { partition: 1, offset: 42 }
-            )
-
-            const bytesWritten = await record(message)
-
-            expect(bytesWritten).toBe(0)
-        })
-
-        it('should drop messages when session key changes between calls', async () => {
-            const keyA = Buffer.from('key-a')
-            const keyB = Buffer.from('key-b')
-
-            mockSessionTracker.trackSession.mockResolvedValueOnce(true).mockResolvedValueOnce(false)
-
-            mockKeyStore.generateKey.mockResolvedValue({
-                plaintextKey: Buffer.alloc(0),
-                encryptedKey: keyA,
-                sessionState: 'cleartext',
-            })
-            mockKeyStore.getKey.mockResolvedValue({
-                plaintextKey: Buffer.alloc(0),
-                encryptedKey: keyB,
-                sessionState: 'cleartext',
-            })
+        it('should drop messages when the session key changes between calls for the same session', async () => {
+            // The key is resolved upstream; the recorder must reject a second message that arrives
+            // with a different key for a session already in the batch, so a block isn't corrupted by
+            // events encrypted for two different keys.
+            const keyA = createMockSessionKey({ encryptedKey: Buffer.from('key-a') })
+            const keyB = createMockSessionKey({ encryptedKey: Buffer.from('key-b') })
 
             const message1 = createMessage(
                 'session1',
@@ -2134,66 +2054,11 @@ describe('SessionBatchRecorder', () => {
                 { partition: 1, offset: 1 }
             )
 
-            const bytes1 = await record(message1)
-            const bytes2 = await record(message2)
+            const bytes1 = await record(message1, '30d', keyA)
+            const bytes2 = await record(message2, '30d', keyB)
 
             expect(bytes1).toBeGreaterThan(0)
             expect(bytes2).toBe(0)
-        })
-    })
-
-    describe('new session rate limiting', () => {
-        it('should call handleNewSession for new sessions', async () => {
-            mockSessionTracker.trackSession.mockResolvedValue(true)
-
-            const message = createMessage('session1', [
-                { type: EventType.FullSnapshot, timestamp: 1000, data: { source: 1 } },
-            ])
-
-            await record(message)
-
-            expect(mockSessionFilter.handleNewSession).toHaveBeenCalledWith(1, 'session1')
-        })
-
-        it('should not call handleNewSession for existing sessions', async () => {
-            mockSessionTracker.trackSession.mockResolvedValue(false)
-
-            const message = createMessage('session1', [
-                { type: EventType.FullSnapshot, timestamp: 1000, data: { source: 1 } },
-            ])
-
-            await record(message)
-
-            expect(mockSessionFilter.handleNewSession).not.toHaveBeenCalled()
-        })
-
-        it('should drop message when session is blocked after handleNewSession', async () => {
-            mockSessionTracker.trackSession.mockResolvedValue(true)
-            // Simulate handleNewSession blocking the session by having isBlocked return true
-            mockSessionFilter.isBlocked.mockResolvedValue(true)
-
-            const message = createMessage('session1', [
-                { type: EventType.FullSnapshot, timestamp: 1000, data: { source: 1 } },
-            ])
-
-            const bytesWritten = await record(message)
-
-            expect(bytesWritten).toBe(0)
-            expect(mockSessionFilter.handleNewSession).toHaveBeenCalledWith(1, 'session1')
-            expect(mockSessionFilter.isBlocked).toHaveBeenCalledWith(1, 'session1')
-        })
-
-        it('should allow new session when not blocked', async () => {
-            mockSessionTracker.trackSession.mockResolvedValue(true)
-            mockSessionFilter.isBlocked.mockResolvedValue(false)
-
-            const message = createMessage('session1', [
-                { type: EventType.FullSnapshot, timestamp: 1000, data: { source: 1 } },
-            ])
-
-            const bytesWritten = await record(message)
-
-            expect(bytesWritten).toBeGreaterThan(0)
         })
     })
 })

@@ -9,7 +9,6 @@ from dataclasses import asdict
 
 from django.utils import timezone
 
-from drf_spectacular.types import OpenApiTypes
 from drf_spectacular.utils import extend_schema
 from rest_framework import serializers, status, viewsets
 from rest_framework.decorators import action
@@ -333,6 +332,10 @@ class _MetricAnomalyReportSerializer(serializers.Serializer):
     )
 
 
+class _HasMetricsResponseSerializer(serializers.Serializer):
+    hasMetrics = serializers.BooleanField(help_text="Whether the team has ingested any metrics.")
+
+
 class _MetricValuesParamsSerializer(serializers.Serializer):
     value = serializers.CharField(
         required=False,
@@ -436,7 +439,7 @@ class MetricsViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
     scope_object = "metrics"
     serializer_class = _FallbackSerializer
 
-    @extend_schema(responses={200: OpenApiTypes.OBJECT})
+    @extend_schema(responses={200: _HasMetricsResponseSerializer})
     @action(detail=False, methods=["GET"], required_scopes=["metrics:read"])
     def has_metrics(self, request: Request, *args, **kwargs) -> Response:
         tag_queries(product=Product.METRICS, feature=Feature.QUERY)
