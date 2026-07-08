@@ -91,9 +91,11 @@ function IamRoleSetupInstructions({
         return null
     }
 
+    const bucket = managedMigration.s3_bucket
+    const prefix = managedMigration.s3_prefix
     const permissionPolicy = awsIamSetup.permission_policy_template
-        .replaceAll('YOUR_BUCKET', managedMigration.s3_bucket || 'YOUR_BUCKET')
-        .replaceAll('YOUR_PREFIX', managedMigration.s3_prefix || '')
+        .replaceAll('YOUR_BUCKET', bucket || '<YOUR_BUCKET>')
+        .replaceAll('YOUR_PREFIX', prefix || '')
 
     return (
         <div className="border rounded p-4 space-y-3 bg-surface-secondary">
@@ -105,19 +107,32 @@ function IamRoleSetupInstructions({
                     <CodeSnippet language={Language.JSON} compact>
                         {awsIamSetup.trust_policy}
                     </CodeSnippet>
+                    <div className="text-muted mt-1">
+                        The external ID <code>{awsIamSetup.external_id}</code> is unique to this project and must appear
+                        in the trust policy exactly as shown.
+                    </div>
                 </li>
                 <li>
-                    Attach this permission policy to the role:
+                    Attach this permission policy to the role. It fills in automatically from the bucket and prefix
+                    entered above:
                     <CodeSnippet language={Language.JSON} compact>
                         {permissionPolicy}
                     </CodeSnippet>
+                    <div className="text-muted mt-1">
+                        {!bucket
+                            ? 'Enter your bucket above to replace <YOUR_BUCKET> in the policy.'
+                            : prefix
+                              ? `This grants read access to objects under ${prefix} only - nothing else in the bucket.`
+                              : 'No prefix is set, so this grants read access to the whole bucket. Set a prefix above to narrow what PostHog can read.'}
+                    </div>
                 </li>
-                <li>Paste the new role's ARN below.</li>
+                <li>
+                    Paste the new role's ARN:
+                    <LemonField name="role_arn" className="mt-1">
+                        <LemonInput placeholder="arn:aws:iam::123456789012:role/posthog-import" />
+                    </LemonField>
+                </li>
             </ol>
-            <div className="text-sm text-muted">
-                Your external ID is <code>{awsIamSetup.external_id}</code>. It is unique to this project and must appear
-                in the trust policy exactly as shown above.
-            </div>
         </div>
     )
 }
@@ -218,7 +233,23 @@ export function ManagedMigration(): JSX.Element {
                             </LemonField>
                         </div>
 
-                        <LemonField name="s3_prefix" label="S3 Prefix (optional)">
+                        <LemonField
+                            name="s3_prefix"
+                            label="S3 Prefix (optional)"
+                            help={
+                                <>
+                                    Matched as a plain string prefix: <code>exports</code> also matches keys under{' '}
+                                    <code>exports-old/</code>. End with <code>/</code> to match a single folder.
+                                    {usesIamRole && (
+                                        <>
+                                            {' '}
+                                            Must exactly match the prefix in your IAM role's permission policy,
+                                            including any trailing slash.
+                                        </>
+                                    )}
+                                </>
+                            }
+                        >
                             <LemonInput placeholder="path/to/files/" />
                         </LemonField>
 
@@ -229,7 +260,7 @@ export function ManagedMigration(): JSX.Element {
                                     onChange={(value) => setManagedMigrationValue('s3_auth_method', value)}
                                     options={[
                                         { value: 'iam_role', label: 'IAM role (recommended)' },
-                                        { value: 'access_keys', label: 'Access keys (for S3-compatible storage)' },
+                                        { value: 'access_keys', label: 'Access keys' },
                                     ]}
                                     size="small"
                                 />
@@ -237,16 +268,7 @@ export function ManagedMigration(): JSX.Element {
                         )}
 
                         {usesIamRole ? (
-                            <>
-                                <IamRoleSetupInstructions managedMigration={managedMigration} />
-                                <LemonField
-                                    name="role_arn"
-                                    label="IAM role ARN"
-                                    help="The ARN of the role you created above, e.g. arn:aws:iam::123456789012:role/posthog-import"
-                                >
-                                    <LemonInput placeholder="arn:aws:iam::123456789012:role/posthog-import" />
-                                </LemonField>
-                            </>
+                            <IamRoleSetupInstructions managedMigration={managedMigration} />
                         ) : (
                             <LemonField
                                 name="endpoint_url"
