@@ -130,6 +130,30 @@ async def test_unparseable_config_routes_through_handler():
     source.source_for_pipeline.assert_not_called()
 
 
+@pytest.mark.asyncio
+async def test_source_classified_retryable_error_logged_as_warning_not_exception():
+    # A rate-limit / transient error the source retries internally reaches _handle_import_error
+    # only once those retries are exhausted. Temporal retries the whole activity, so it must be
+    # logged at warning (not aexception) to stay out of error tracking as noise, while still
+    # being re-raised for Temporal to retry.
+    error = Exception("Cloudflare API error (retryable): status=429, url=https://api.cloudflare.com/x")
+    source = mock.MagicMock(spec=SimpleSource)
+    source.get_non_retryable_errors.return_value = {}
+    source.get_retryable_errors.return_value = {"Cloudflare API error (retryable)"}
+
+    logger = mock.MagicMock()
+    logger.awarning = mock.AsyncMock()
+    logger.aexception = mock.AsyncMock()
+    logger.adebug = mock.AsyncMock()
+
+    with mock.patch.object(module.SourceRegistry, "get_source", return_value=source):
+        with pytest.raises(Exception, match="retryable"):
+            await module._handle_import_error(mock.MagicMock(), logger, error)
+
+    logger.awarning.assert_awaited_once()
+    logger.aexception.assert_not_awaited()
+
+
 def _incremental_schema(*, is_incremental: bool, lookback_seconds: int | None) -> mock.MagicMock:
     schema = mock.MagicMock()
     schema.should_use_incremental_field = True

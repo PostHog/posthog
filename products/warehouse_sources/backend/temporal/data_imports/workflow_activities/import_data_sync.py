@@ -312,21 +312,31 @@ async def _handle_import_error(
     Errors the source classifies as non-retryable (bad credentials, a deleted or
     misconfigured remote — e.g. a MongoDB ``mongodb+srv://`` hostname whose DNS record no
     longer resolves) are handed to ``handle_non_retryable_error``, which stops the job after
-    a few attempts instead of retrying up to the activity's maximum. Everything else is
-    re-raised so Temporal retries it as usual.
+    a few attempts instead of retrying up to the activity's maximum.
+
+    Errors the source classifies as retryable (rate limits, transient 5xx) that reached us
+    have already exhausted the source's own retries. Temporal retries the whole activity and
+    the error is transient and self-recovering, so we log at ``warning`` rather than
+    ``exception`` to keep this benign, recoverable noise out of error tracking.
+
+    Everything else is logged as an exception and re-raised so Temporal retries it as usual.
     """
     source_cls = SourceRegistry.get_source(job_inputs.job_type)
-    non_retryable_errors = source_cls.get_non_retryable_errors()
     error_msg = str(error)
-    is_non_retryable_error = any(
-        non_retryable_error in error_msg for non_retryable_error in non_retryable_errors.keys()
-    )
-    if is_non_retryable_error:
+
+    non_retryable_errors = source_cls.get_non_retryable_errors()
+    if any(match in error_msg for match in non_retryable_errors):
         await handle_non_retryable_error(job_inputs, error_msg, logger, error)
-    else:
-        await logger.aexception(error_msg)
-        await logger.adebug("Error encountered during import_data_activity - re-raising")
+
+    retryable_errors = source_cls.get_retryable_errors()
+    if any(match in error_msg for match in retryable_errors):
+        await logger.awarning(error_msg)
+        await logger.adebug("Source-classified retryable error - re-raising for Temporal retry")
         raise error
+
+    await logger.aexception(error_msg)
+    await logger.adebug("Error encountered during import_data_activity - re-raising")
+    raise error
 
 
 async def _run(

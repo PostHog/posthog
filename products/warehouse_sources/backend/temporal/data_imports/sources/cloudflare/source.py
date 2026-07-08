@@ -42,6 +42,12 @@ class CloudflareSource(SimpleSource[CloudflareSourceConfig]):
             "403 Client Error: Forbidden for url: https://api.cloudflare.com": "Cloudflare denied access. Please check that your API token has read permissions for this resource.",
         }
 
+    def get_retryable_errors(self) -> set[str]:
+        # A 429 (rate limit) or 5xx is retried internally up to MAX_RETRY_ATTEMPTS honoring
+        # Retry-After; if it still exhausts, it's transient and self-recovering, so let
+        # Temporal retry the activity without surfacing it as tracked exception noise.
+        return {"Cloudflare API error (retryable)"}
+
     @property
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(

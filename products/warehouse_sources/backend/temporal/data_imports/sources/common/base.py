@@ -148,6 +148,19 @@ class _BaseSource(ABC, Generic[ConfigType]):
 
         return {}
 
+    def get_retryable_errors(self) -> set[str]:
+        """Returns partial error messages the source already retries internally.
+
+        A source that exhausts its own retries (rate limits, transient 5xx) and re-raises still
+        lets Temporal retry the whole activity. Those errors are transient and self-recovering,
+        so the import activity logs them at `warning` rather than `exception` — keeping benign,
+        recoverable failures out of error tracking as noise.
+
+        Each entry is a partial error message matched against `str(error)`.
+        """
+
+        return set()
+
     def get_canonical_descriptions(self) -> CanonicalDescriptions:
         """Curated, documentation-sourced descriptions for this source's well-known tables/endpoints.
 
