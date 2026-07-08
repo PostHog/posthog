@@ -308,6 +308,29 @@ impl IssueFingerprintOverride {
         Ok(res)
     }
 
+    // Batch variant of `load` for fingerprint-version selection: one round-trip
+    // for all candidate values instead of one per version.
+    pub async fn load_many<'c, E>(
+        executor: E,
+        team_id: i32,
+        fingerprints: &[String],
+    ) -> Result<Vec<Self>, UnhandledError>
+    where
+        E: sqlx::Executor<'c, Database = sqlx::Postgres>,
+    {
+        let res = sqlx::query_as!(
+            IssueFingerprintOverride,
+            r#"
+            SELECT id, team_id, issue_id, fingerprint, version FROM posthog_errortrackingissuefingerprintv2
+            WHERE team_id = $1 AND fingerprint = ANY($2)
+            "#,
+            team_id,
+            fingerprints
+        ).fetch_all(executor).await?;
+
+        Ok(res)
+    }
+
     pub async fn create_or_load<'c, E>(
         executor: E,
         team_id: i32,
