@@ -92,7 +92,7 @@ fn normalize_version_string(version: &str) -> &str {
 /// silent non-matches into correct matches.
 fn canonicalize_version_string(version: &str) -> String {
     // Split off any pre-release ("-") or build ("+") suffix; the numeric core precedes it.
-    let (core, suffix) = match version.find(|c: char| c == '-' || c == '+') {
+    let (core, suffix) = match version.find(['-', '+']) {
         Some(idx) => version.split_at(idx),
         None => (version, ""),
     };
