@@ -1,0 +1,163 @@
+/*
+ * PROTOTYPE — quill skin for LemonUI (LemonButton only, for now).
+ *
+ * Restyles LemonButton to quill's visual language without touching a single
+ * call site. LemonButton is styled almost entirely through CSS custom
+ * properties (`--lemon-button-*`), so the skin is mostly variable
+ * reassignment: point those vars at quill's semantic tokens (`--primary`,
+ * `--foreground`, `--fill-hover`, …) and the existing markup renders with
+ * quill's look.
+ *
+ * Opt in by putting BOTH attributes on a subtree root:
+ *
+ *     <div data-quill data-quill-skin>…</div>
+ *
+ * `data-quill` brings quill's scoped tokens into scope (tokens.scoped.css
+ * gates all quill vars behind it); `data-quill-skin` opts into this reskin.
+ * Keeping the two separate means existing quill islands (`data-quill` only)
+ * are unaffected. Flipping the whole app would mean setting both attributes
+ * at the root — the "ship the theme before the code migration" strategy this
+ * prototype exists to evaluate.
+ *
+ * See LemonButtonQuillSkin.stories.tsx for a side-by-side of
+ * Lemon today / Lemon + skin (same code) / native quill Button.
+ *
+ * Mapping (Lemon type → quill Button variant):
+ *   primary         → primary      (brand bg, 2px lift + hard shadow — quill
+ *                                    primary uses the same lift mechanic as
+ *                                    Lemon's chrome, expressed via
+ *                                    `--lemon-button-chrome-depth`)
+ *   secondary       → outline      (flat, hairline border, translucent muted bg)
+ *   tertiary        → default      (ghost: transparent, foreground-mix fill on hover)
+ *   status="danger" → destructive  (dark-red text on translucent pink)
+ *
+ * Known gaps, acceptable for a prototype:
+ *   - status="alt" keeps its Lemon styling
+ *   - sideAction buttons inherit the base skin but aren't specifically tuned
+ *   - LemonButton's font stays --font-sans; quill's line-height differs slightly
+ */
+
+/*
+ * Specificity note: Lemon's own variant rules reach (0,3,0) — e.g.
+ * `.LemonButton.LemonButton--secondary:not(…)` — and the import order between
+ * this file and component SCSS chunks isn't guaranteed. The
+ * `[data-quill][data-quill-skin]` prefix (0,2,0) plus the doubled classes on
+ * variant rules keeps everything here safely above Lemon's own declarations.
+ */
+
+/* stylelint-disable no-descending-specificity */
+
+[data-quill][data-quill-skin] .LemonButton {
+    /* Quill's scale: 4px corners, 12px text, 28px default height */
+    --lemon-button-radius: var(--radius-sm);
+    --lemon-button-font-size: 0.75rem;
+    --lemon-button-height: 1.75rem;
+    --lemon-button-icon-size: 0.875rem;
+    --lemon-button-gap: 0.5rem;
+    --lemon-button-padding-horizontal: 0.5rem;
+    --lemon-button-color: var(--foreground);
+    --lemon-button-icon-opacity: 1;
+    --opacity-disabled: 0.5;
+
+    /* Quill buttons are flat by default — no 3D chrome, no hover/press travel */
+    --lemon-button-chrome-depth: 0px;
+    --lemon-button-hover-depth: 0px;
+    --lemon-button-press-depth: 0px;
+
+    /* Tertiary ("ghost") fills read these app vars — point them at quill's */
+    --color-bg-fill-button-tertiary-hover: var(--fill-hover);
+    --color-bg-fill-button-tertiary-active: var(--fill-expanded);
+
+    font-family: var(--font-sans);
+}
+
+/* ── Sizes → quill's xs / sm / default / lg scale ─────────────────────── */
+
+[data-quill][data-quill-skin] .LemonButton.LemonButton--xxsmall,
+[data-quill][data-quill-skin] .LemonButton.LemonButton--xsmall {
+    --lemon-button-height: 1.25rem;
+    --lemon-button-font-size: 0.625rem;
+    --lemon-button-icon-size: 0.625rem;
+    --lemon-button-gap: 0.25rem;
+    --lemon-button-radius: var(--radius-sm);
+    --lemon-button-padding-horizontal: 0.5rem;
+}
+
+[data-quill][data-quill-skin] .LemonButton.LemonButton--small {
+    --lemon-button-height: 1.5rem;
+    --lemon-button-font-size: 0.75rem;
+    --lemon-button-icon-size: 0.75rem;
+    --lemon-button-gap: 0.25rem;
+    --lemon-button-padding-horizontal: 0.5rem;
+}
+
+[data-quill][data-quill-skin] .LemonButton.LemonButton--large {
+    --lemon-button-height: 2rem;
+    --lemon-button-font-size: 0.75rem;
+    --lemon-button-icon-size: 1rem;
+    --lemon-button-gap: 0.5rem;
+    --lemon-button-padding-horizontal: 0.625rem;
+}
+
+/* ── primary → quill primary ──────────────────────────────────────────── */
+
+[data-quill][data-quill-skin] .LemonButton.LemonButton--primary:not(.LemonButton--status-danger) {
+    --lemon-button-bg-color: var(--primary);
+    --lemon-button-bg-color-active: var(--primary);
+    --lemon-button-color: var(--primary-foreground);
+    --button-border-color: transparent;
+    --lemon-button-border-color-hover: transparent;
+
+    /* Quill primary's lift: 2px hard shadow in the brand color at 50% */
+    --lemon-button-frame-bg-color: color-mix(in oklab, var(--primary) 50%, transparent);
+    --lemon-button-chrome-depth: 0.125rem;
+    --lemon-button-hover-depth: 0px;
+    --lemon-button-press-depth: 0.125rem; /* pressing sits the button flat, like quill's :active */
+}
+
+[data-quill][data-quill-skin]
+    .LemonButton.LemonButton--primary:not(.LemonButton--status-danger):hover:not([aria-disabled='true']) {
+    --lemon-button-bg-color: color-mix(in oklab, var(--primary) 98%, black 5%);
+}
+
+/* ── secondary → quill outline ────────────────────────────────────────── */
+
+[data-quill][data-quill-skin] .LemonButton.LemonButton--secondary.LemonButton--secondary {
+    --lemon-button-bg-color: color-mix(in oklab, var(--muted) 30%, transparent);
+    --lemon-button-bg-color-active: var(--fill-expanded);
+    --button-border-color: color-mix(in oklab, var(--foreground) 10%, transparent);
+    --lemon-button-border-color-hover: color-mix(in oklab, var(--foreground) 10%, transparent);
+    --lemon-button-frame-bg-color: transparent;
+    --lemon-button-chrome-depth: 0px;
+}
+
+[data-quill][data-quill-skin]
+    .LemonButton.LemonButton--secondary.LemonButton--secondary:hover:not([aria-disabled='true']) {
+    --lemon-button-bg-color: var(--fill-hover);
+}
+
+[theme='dark'] [data-quill][data-quill-skin] .LemonButton.LemonButton--secondary.LemonButton--secondary {
+    --button-border-color: color-mix(in oklab, var(--foreground) 15%, transparent);
+    --lemon-button-border-color-hover: color-mix(in oklab, var(--foreground) 15%, transparent);
+}
+
+/* ── status="danger" → quill destructive ──────────────────────────────── */
+
+[data-quill][data-quill-skin] .LemonButton.LemonButton--status-danger.LemonButton--status-danger {
+    /* !important matches Lemon's own danger color declaration, which we must out-rank */
+    --lemon-button-color: var(--destructive-foreground) !important;
+    --lemon-button-bg-color: color-mix(in oklab, var(--destructive) 50%, transparent);
+    --lemon-button-bg-color-active: var(--destructive);
+    --button-border-color: transparent;
+    --lemon-button-border-color-hover: transparent;
+    --lemon-button-frame-bg-color: transparent;
+    --lemon-button-chrome-depth: 0px;
+
+    /* Tertiary danger's hover fill reads this app var directly */
+    --danger-highlight: color-mix(in oklab, var(--destructive) 50%, transparent);
+}
+
+[data-quill][data-quill-skin]
+    .LemonButton.LemonButton--status-danger.LemonButton--status-danger:hover:not([aria-disabled='true']) {
+    --lemon-button-bg-color: var(--destructive);
+}
