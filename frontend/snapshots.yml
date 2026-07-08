@@ -3936,6 +3936,10 @@ snapshots:
         hash: v1.k794b7964.0dda5edf3c90441a3314fb162be33ba02438c6236899a15673c258cd02fd9447.Q-Dyq1OyDT8kuUH8dn5lwkGdpRnj_yqZU767KP9sgL8
     lemon-ui-lemon-switch--disabled--light:
         hash: v1.k794b7964.7a07f77443205915d54f15c9102b12f487814d755721bd132fa64f3b0e6371f0.PLzcpvxsLOxEGRAa-G28ZvpeNWk78NTxLZDWAYQ9nnQ
+    lemon-ui-lemon-switch--indeterminate--dark:
+        hash: v1.k794b7964.54e2b4f8325923115070f4493d3fd9043f9bbc7e4d49d49978fdd7418930bf72.TP6egk8otVWsZ2lnGdGirO1Yq1PeihCUt_eTC-kVSS8
+    lemon-ui-lemon-switch--indeterminate--light:
+        hash: v1.k794b7964.db207d14bbd34afcc50b0c8a38cf9aad5199fe0e683aaf9b822d4636bcf72b50.aFxgqsJsNz7GHYQwowEn6jiqS4yrUvmvScBMK9xTt8A
     lemon-ui-lemon-switch--overview--dark:
         hash: v1.k794b7964.872600c303709874583784febe9bad9aef0bb87f9843af9591bfff07058120cc.wimmvYiBqy4yV_njLni26wTERdJq0rnLFYWTIZH-y44
     lemon-ui-lemon-switch--overview--light:
