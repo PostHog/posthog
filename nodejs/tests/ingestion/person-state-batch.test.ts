@@ -324,7 +324,8 @@ describe('PersonState.processEvent()', () => {
             mergeMode,
             false,
             false,
-            mergeEventsConfig ?? { enabled: false, partitionCount: 64 }
+            // These tests cover the enabled/produce path, not the team gate; keep it a no-op here.
+            { ...(mergeEventsConfig ?? { enabled: false, partitionCount: 64 }), isTeamEnabled: () => true }
         )
         return new PersonMergeService(context)
     }

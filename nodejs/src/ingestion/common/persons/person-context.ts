@@ -10,7 +10,7 @@ import {
 import { IngestionOutputs } from '~/common/outputs/ingestion-outputs'
 import { PersonMessage } from '~/common/persons/person-message'
 import { PluginEvent, Properties } from '~/plugin-scaffold'
-import { InternalPerson, Team } from '~/types'
+import { InternalPerson, Team, ValueMatcher } from '~/types'
 
 import { buildPersonMergeEventMessage } from './person-merge-event'
 import { MergeMode } from './person-merge-types'
@@ -20,8 +20,13 @@ export type PersonOutputs = IngestionOutputs<
     PersonsOutput | PersonDistinctIdsOutput | IngestionWarningsOutput | PersonMergeEventsOutput
 >
 
-/** Gate + partition-count for the cross-partition merge-event producer. */
-export type MergeEventsConfig = { enabled: boolean; partitionCount: number }
+/** Gate + partition-count + team allowlist for the cross-partition merge-event producer. */
+export type MergeEventsConfig = {
+    enabled: boolean
+    partitionCount: number
+    /** Only emit merge events for teams this matches. Defaults to team 2 only; '*' allows every team. */
+    isTeamEnabled: ValueMatcher<number>
+}
 
 /**
  * Lightweight data holder containing all the context needed for person processing.
@@ -43,7 +48,11 @@ export class PersonContext {
         public readonly mergeMode: MergeMode,
         public readonly updateAllProperties: boolean = false, // When true, all property changes trigger person updates
         public readonly shouldUpdateLastSeenAt: boolean = false,
-        public readonly mergeEventsConfig: MergeEventsConfig = { enabled: false, partitionCount: 64 }
+        public readonly mergeEventsConfig: MergeEventsConfig = {
+            enabled: false,
+            partitionCount: 64,
+            isTeamEnabled: () => false,
+        }
     ) {
         this.eventProperties = event.properties!
     }
@@ -57,12 +66,21 @@ export class PersonContext {
     }
 
     /**
+     * Whether a person_merge_events message should be emitted for this context's team. Gated by the
+     * global kill switch and scoped to the team allowlist so we do not emit events for teams outside
+     * the cohort-stream-processor's scope.
+     */
+    shouldProduceMergeEvent(): boolean {
+        return this.mergeEventsConfig.enabled && this.mergeEventsConfig.isTeamEnabled(this.team.id)
+    }
+
+    /**
      * Emit a person_merge_events message for the cohort-stream-processor. Resolved no-op when the
-     * gate is off. The message is explicitly partitioned by `(team_id, P_old)` so it reaches the
-     * worker holding P_old's state — see `buildPersonMergeEventMessage`.
+     * gate is off or the team is outside the allowlist. The message is explicitly partitioned by
+     * `(team_id, P_old)` so it reaches the worker holding P_old's state — see `buildPersonMergeEventMessage`.
      */
     async producePersonMergeEvent(sourcePerson: InternalPerson, targetPerson: InternalPerson): Promise<void> {
-        if (!this.mergeEventsConfig.enabled) {
+        if (!this.shouldProduceMergeEvent()) {
             return
         }
         const { key, partition, value } = buildPersonMergeEventMessage(
