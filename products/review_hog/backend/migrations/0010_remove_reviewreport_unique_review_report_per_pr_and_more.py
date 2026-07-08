@@ -36,10 +36,8 @@ class Migration(migrations.Migration):
             name="pr_url",
             field=models.TextField(blank=True),
         ),
-        migrations.AddIndex(
-            model_name="reviewreport",
-            index=models.Index(fields=["signal_report_id"], name="reviewhog_rpt_signal_rpt_idx"),
-        ),
+        # The signal_report_id index is created in 0011 via SafeAddIndexConcurrently — a plain
+        # AddIndex here takes a table lock the migration risk analyzer blocks.
         migrations.AddConstraint(
             model_name="reviewreport",
             constraint=models.UniqueConstraint(

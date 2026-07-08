@@ -23,4 +23,9 @@ class Migration(migrations.Migration):
                 name="reviewhog_rpt_recent_idx",
             ),
         ),
+        # Moved from 0010, where a plain AddIndex took a blocking table lock.
+        SafeAddIndexConcurrently(
+            model_name="reviewreport",
+            index=models.Index(fields=["signal_report_id"], name="reviewhog_rpt_signal_rpt_idx"),
+        ),
     ]
