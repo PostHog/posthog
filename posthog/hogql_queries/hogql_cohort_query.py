@@ -230,6 +230,7 @@ class HogQLCohortQuery:
         cohort: Optional[Cohort] = None,
         team: Optional[Team] = None,
     ):
+        self.is_top_level_negated = False
         if cohort is not None:
             self.hogql_context = HogQLContext(team_id=cohort.team.pk, enable_select_queries=True)
             self.team = team or cohort.team
@@ -649,6 +650,7 @@ class HogQLCohortQuery:
         )
 
     def _get_conditions(self) -> ast.SelectQuery | ast.SelectSetQuery:
+        self.is_top_level_negated = False
         Condition = namedtuple("Condition", ["query", "negation"])
         should_combine_person_properties_and = self._should_combine_person_properties_and()
         should_combine_person_properties_or = self._should_combine_person_properties_or()
@@ -745,8 +747,7 @@ class HogQLCohortQuery:
                     parent_condition_negated = True
                     children = [Condition(query, not negation) for query, negation in children]
 
-            # Sort positive queries first so mixed groups start from matches and subtract exclusions.
-            # Fully negated groups are combined here, then wrapped by the parent condition.
+            # Sort the positive queries first, then subtract the negative queries.
             children.sort(key=lambda query: query[1])  # False before True
             return Condition(
                 ast.SelectSetQuery(
@@ -768,6 +769,7 @@ class HogQLCohortQuery:
 
         condition = build_conditions(self.property_groups)
         if condition.negation:
+            self.is_top_level_negated = True
             return ast.SelectSetQuery(
                 initial_select_query=self.get_all_persons_condition(),
                 subsequent_select_queries=[SelectSetNode(select_query=condition.query, set_operator="EXCEPT")],

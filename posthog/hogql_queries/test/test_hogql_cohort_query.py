@@ -231,6 +231,93 @@ class TestHogQLCohortQuery(ClickhouseTestMixin, APIBaseTest):
         # Should use EXCEPT because one property is negated
         self.assertIn("EXCEPT", query_str)
 
+    @parameterized.expand(
+        [
+            (
+                "and_two_negated_criteria",
+                {
+                    "type": "AND",
+                    "values": [
+                        {
+                            "type": "AND",
+                            "values": [
+                                {
+                                    "key": "email",
+                                    "type": "person",
+                                    "value": "spam",
+                                    "negation": True,
+                                    "operator": "icontains",
+                                }
+                            ],
+                        },
+                        {
+                            "type": "AND",
+                            "values": [
+                                {
+                                    "key": "name",
+                                    "type": "person",
+                                    "value": "bot",
+                                    "negation": True,
+                                    "operator": "icontains",
+                                }
+                            ],
+                        },
+                    ],
+                },
+                "union distinct",
+                1,
+            ),
+            (
+                "or_mixed_negated_and_positive",
+                {
+                    "type": "OR",
+                    "values": [
+                        {
+                            "type": "AND",
+                            "values": [
+                                {
+                                    "key": "email",
+                                    "type": "person",
+                                    "value": "spam",
+                                    "negation": True,
+                                    "operator": "icontains",
+                                }
+                            ],
+                        },
+                        {
+                            "type": "AND",
+                            "values": [
+                                {
+                                    "key": "plan",
+                                    "type": "person",
+                                    "value": "pro",
+                                    "negation": False,
+                                    "operator": "exact",
+                                }
+                            ],
+                        },
+                    ],
+                },
+                "except",
+                2,
+            ),
+        ]
+    )
+    def test_top_level_negation_bubbles_to_all_persons_except(
+        self, _name: str, cohort_filters: dict[str, object], expected_inner_operator: str, minimum_except_count: int
+    ) -> None:
+        cohort = Cohort.objects.create(
+            team=self.team,
+            name=f"Test top-level negation {_name}",
+            filters={"properties": cohort_filters},
+        )
+
+        query_str = HogQLCohortQuery(cohort=cohort).query_str("clickhouse").lower()
+
+        self.assertIn("limit 50000\nexcept\n", query_str)
+        self.assertIn(expected_inner_operator, query_str)
+        self.assertGreaterEqual(query_str.count("except"), minimum_except_count)
+
     def test_negative_only_behavioral_cohort_membership_end_to_end(self) -> None:
         now = dt.datetime(2025, 1, 15, tzinfo=ZoneInfo("UTC"))
         with freeze_time(now):
