@@ -734,7 +734,7 @@ describe('exec tool', () => {
 
         it('rejects an overly long search pattern before compiling the regex', async () => {
             const exec = createExec([makeMockTool()])
-            const longPattern = 'a'.repeat(201)
+            const longPattern = 'a'.repeat(401)
             await expect(exec.handler(mockContext, { command: `search ${longPattern}` })).rejects.toThrow(
                 /pattern too long/i
             )

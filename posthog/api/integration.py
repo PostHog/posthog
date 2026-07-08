@@ -406,7 +406,13 @@ class IntegrationSerializer(serializers.ModelSerializer, UserAccessControlSerial
                 self.context["request"].user, self.context["get_team"]()
             ):
                 raise PermissionDenied("Editing an existing integration requires project admin access.")
-            return instance
+        report_user_action(
+            self.context["request"].user,
+            "integration created",
+            {"integration_kind": kind, "is_overwrite": is_overwrite},
+            team=self.context["get_team"](),
+        )
+        return instance
 
     def _build_integration(self, validated_data: Any) -> Any:
         request = self.context["request"]

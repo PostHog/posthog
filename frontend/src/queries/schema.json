@@ -22255,7 +22255,10 @@
                 "Redis",
                 "Mercury",
                 "Gojiberry",
-                "Teachable"
+                "Teachable",
+                "PeecAI",
+                "Healthchecks",
+                "Impact"
             ],
             "type": "string"
         },
