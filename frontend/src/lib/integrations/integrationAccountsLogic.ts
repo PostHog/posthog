@@ -17,7 +17,7 @@ export const integrationAccountsLogic = kea<integrationAccountsLogicType>([
         accounts: [
             [] as IntegrationAccountApi[],
             {
-                loadAccounts: async (_, breakpoint) => {
+                loadAccounts: async () => {
                     const response = await externalDataSourcesOauthAccountsRetrieve(
                         String(ApiConfig.getCurrentProjectId()),
                         {
@@ -25,7 +25,6 @@ export const integrationAccountsLogic = kea<integrationAccountsLogicType>([
                             integration_id: props.id,
                         }
                     )
-                    breakpoint()
                     return response.accounts
                 },
             },
