@@ -33,6 +33,7 @@ const EndpointCreateSchema = EndpointsCreateBody.omit({
     version: true,
     bucket_overrides: true,
     deleted: true,
+    optional_breakdown_properties: true,
 })
 
 const endpointCreate = (): ToolBase<typeof EndpointCreateSchema, WithPostHogUrl<Schemas.EndpointResponse>> => ({
@@ -244,8 +245,13 @@ const endpointRun = (): ToolBase<typeof EndpointRunSchema, WithPostHogUrl<Schema
 })
 
 const EndpointUpdateSchema = EndpointsPartialUpdateParams.omit({ project_id: true }).extend(
-    EndpointsPartialUpdateBody.omit({ name: true, derived_from_insight: true, bucket_overrides: true, deleted: true })
-        .shape
+    EndpointsPartialUpdateBody.omit({
+        name: true,
+        derived_from_insight: true,
+        bucket_overrides: true,
+        deleted: true,
+        optional_breakdown_properties: true,
+    }).shape
 )
 
 const endpointUpdate = (): ToolBase<typeof EndpointUpdateSchema, WithPostHogUrl<Schemas.EndpointResponse>> => ({

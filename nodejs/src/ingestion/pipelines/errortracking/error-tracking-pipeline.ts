@@ -34,6 +34,7 @@ import { createFetchPersonBatchStep } from '~/ingestion/common/steps/event-proce
 import { createHogTransformEventStep } from '~/ingestion/common/steps/event-processing/hog-transform-event-step'
 import { createReadOnlyProcessGroupsStep } from '~/ingestion/common/steps/event-processing/readonly-process-groups-step'
 import { createRecordIngestionLagStep } from '~/ingestion/common/steps/record-ingestion-lag'
+import { IngestionOverflowMode } from '~/ingestion/config'
 import { BatchPipelineUnwrapper } from '~/ingestion/framework/batch-pipeline-unwrapper'
 import { newBatchPipelineBuilder } from '~/ingestion/framework/builders'
 import { BatchPipelineBuilder } from '~/ingestion/framework/builders/batch-pipeline-builders'
@@ -75,7 +76,7 @@ export interface ErrorTrackingPipelineConfig {
     groupTypeManager: ReadOnlyGroupTypeManager
     cookielessManager: CookielessManager
     eventIngestionRestrictionManager: EventIngestionRestrictionManager
-    overflowEnabled: boolean
+    overflowMode: IngestionOverflowMode
     /**
      * When true, overflow redirects (both restriction-driven force-overflow
      * and rate-limit-to-overflow) keep the original partition key. When
@@ -170,7 +171,7 @@ export function createErrorTrackingPipeline(
         groupTypeManager,
         cookielessManager,
         eventIngestionRestrictionManager,
-        overflowEnabled,
+        overflowMode,
         preservePartitionLocality,
         overflowRedirectService,
         overflowLaneTTLRefreshService,
@@ -194,7 +195,7 @@ export function createErrorTrackingPipeline(
                 .sequentially((b) =>
                     b.pipe(createParseHeadersStep()).pipe(
                         createApplyEventRestrictionsStep(eventIngestionRestrictionManager, {
-                            overflowEnabled,
+                            overflowMode,
                             preservePartitionLocality,
                         })
                     )

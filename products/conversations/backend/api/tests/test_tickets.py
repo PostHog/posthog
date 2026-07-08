@@ -2081,3 +2081,78 @@ class TestTicketReplyAPI(APIBaseTest):
         serializer = TicketReplyRequestSerializer(data={"message": "hi", "rich_content": {"amount": Decimal("1.2")}})
         assert not serializer.is_valid()
         assert "rich_content" in serializer.errors
+
+
+@patch.object(transaction, "on_commit", side_effect=immediate_on_commit)
+class TestAiFeedbackAPI(APIBaseTest):
+    def setUp(self):
+        super().setUp()
+        self.ticket = Ticket.objects.create_with_number(
+            team=self.team,
+            channel_source=Channel.WIDGET,
+            widget_session_id="ai-feedback-session",
+            distinct_id="user-123",
+            status=Status.OPEN,
+            ai_triage={
+                "status": "done",
+                "result": "persisted",
+                "confidence": 0.92,
+                "ai_trace_id": "trace-abc",
+            },
+        )
+        self.url = f"/api/projects/{self.team.id}/conversations/tickets/{self.ticket.id}/ai_feedback/"
+
+    @patch("products.conversations.backend.api.tickets.posthoganalytics.capture")
+    def test_ai_feedback_captures_metric_on_rating(self, mock_capture, mock_on_commit):
+        response = self.client.post(
+            self.url,
+            {"message_id": "msg-1", "rating": "good"},
+            format="json",
+        )
+        assert response.status_code == status.HTTP_202_ACCEPTED
+        mock_capture.assert_called_once()
+        _, kwargs = mock_capture.call_args
+        assert kwargs["event"] == "$ai_metric"
+        assert kwargs["properties"]["$ai_metric_name"] == "reviewer_quality"
+        assert kwargs["properties"]["$ai_metric_value"] == 1
+        assert kwargs["properties"]["$ai_trace_id"] == "trace-abc"
+        assert kwargs["properties"]["ticket_id"] == str(self.ticket.id)
+        assert kwargs["properties"]["message_id"] == "msg-1"
+        assert kwargs["properties"]["ai_triage_result"] == "persisted"
+        assert kwargs["properties"]["confidence"] == 0.92
+
+    @parameterized.expand(
+        [
+            ("bad_without_text", {"message_id": "msg-1", "rating": "bad"}, "$ai_metric", 0),
+            (
+                "bad_with_text",
+                {"message_id": "msg-1", "rating": "bad", "feedback_text": "Wrong answer"},
+                "$ai_feedback",
+                None,
+            ),
+        ]
+    )
+    @patch("products.conversations.backend.api.tickets.posthoganalytics.capture")
+    def test_ai_feedback_metric_vs_text_are_mutually_exclusive(
+        self, _name, payload, expected_event, expected_metric_value, mock_capture, mock_on_commit
+    ):
+        response = self.client.post(self.url, payload, format="json")
+        assert response.status_code == status.HTTP_202_ACCEPTED
+        mock_capture.assert_called_once()
+        _, kwargs = mock_capture.call_args
+        assert kwargs["event"] == expected_event
+        if expected_event == "$ai_metric":
+            assert kwargs["properties"]["$ai_metric_value"] == expected_metric_value
+            assert "$ai_feedback_text" not in kwargs["properties"]
+        else:
+            assert kwargs["properties"]["$ai_feedback_text"] == "Wrong answer"
+            assert "$ai_metric_name" not in kwargs["properties"]
+            assert kwargs["properties"]["$ai_trace_id"] == "trace-abc"
+
+    def test_ai_feedback_rejects_invalid_rating(self, mock_on_commit):
+        response = self.client.post(
+            self.url,
+            {"message_id": "msg-1", "rating": "meh"},
+            format="json",
+        )
+        assert response.status_code == status.HTTP_400_BAD_REQUEST

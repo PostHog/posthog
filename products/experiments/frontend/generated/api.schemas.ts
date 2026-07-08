@@ -1515,7 +1515,7 @@ export interface EndExperimentApi {
      * @nullable
      */
     conclusion_comment?: string | null
-    /** When true, open a draft pull request that removes the experiment's feature-flag code from the linked repository. Only acts for allowlisted teams; ignored otherwise. */
+    /** When true, open a draft pull request that removes the experiment's feature-flag code from the linked repository. Requires the requesting user to have access to PostHog Code (403 otherwise). Only acts for allowlisted teams; ignored otherwise. */
     open_cleanup_pr?: boolean
 }
 
@@ -1681,6 +1681,31 @@ export interface ExperimentMetricsRecalculationApi {
     readonly result_source: ResultSourceEnumApi
     /** Per-metric results computed by this run, scoped by the run's recalc fingerprint */
     readonly results: readonly MetricRecalculationResultApi[]
+    /**
+     * Count of metric queries currently running in ClickHouse (bounded by worker-pool concurrency)
+     * @nullable
+     */
+    running_metrics?: number | null
+    /**
+     * Rows read so far by the currently-running metric queries (monotonic; the live progress signal)
+     * @nullable
+     */
+    rows_read?: number | null
+    /**
+     * ClickHouse's total_rows_approx across running queries. A soft ceiling ClickHouse revises upward mid-scan, so it can exceed or trail rows_read; treat rows_read as the reliable signal
+     * @nullable
+     */
+    estimated_rows_total?: number | null
+    /**
+     * Bytes read so far by the currently-running metric queries
+     * @nullable
+     */
+    bytes_read?: number | null
+    /**
+     * Active CPU time (microseconds) consumed by the currently-running metric queries
+     * @nullable
+     */
+    active_cpu_time?: number | null
 }
 
 export interface ShipVariantApi {
@@ -1698,7 +1723,7 @@ export interface ShipVariantApi {
      * @nullable
      */
     conclusion_comment?: string | null
-    /** When true, open a draft pull request that removes the experiment's feature-flag code from the linked repository. Only acts for allowlisted teams; ignored otherwise. */
+    /** When true, open a draft pull request that removes the experiment's feature-flag code from the linked repository. Requires the requesting user to have access to PostHog Code (403 otherwise). Only acts for allowlisted teams; ignored otherwise. */
     open_cleanup_pr?: boolean
     /** The key of the variant to ship. */
     variant_key: string

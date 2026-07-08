@@ -26,7 +26,14 @@ import {
 
 import type { TicketAssignee } from '../../components/Assignee'
 import { supportTicketCounterLogic } from '../../supportTicketCounterLogic'
-import type { ChatMessage, KnowledgeGapSuggestion, Ticket, TicketPriority, TicketStatus } from '../../types'
+import type {
+    AiReplyFeedbackRating,
+    ChatMessage,
+    KnowledgeGapSuggestion,
+    Ticket,
+    TicketPriority,
+    TicketStatus,
+} from '../../types'
 import { supportTicketsSceneLogic } from '../tickets/supportTicketsSceneLogic'
 import type { supportTicketSceneLogicType } from './supportTicketSceneLogicType'
 
@@ -194,6 +201,16 @@ export const supportTicketSceneLogic = kea<supportTicketSceneLogicType>([
         // Draft message state (persists across tab switches)
         setDraftContent: (content: JSONContent | null) => ({ content }),
         setDraftIsPrivate: (isPrivate: boolean) => ({ isPrivate }),
+
+        submitAiReplyFeedback: (messageId: string, rating: AiReplyFeedbackRating, feedbackText?: string) => ({
+            messageId,
+            rating,
+            feedbackText,
+        }),
+        recordAiReplyFeedback: (messageId: string, rating: AiReplyFeedbackRating) => ({
+            messageId,
+            rating,
+        }),
     }),
     loaders(({ values, props }) => ({
         person: [
@@ -376,6 +393,16 @@ export const supportTicketSceneLogic = kea<supportTicketSceneLogicType>([
                 setDraftIsPrivate: (_, { isPrivate }) => isPrivate,
             },
         ],
+        feedbackByMessageId: [
+            {} as Record<string, AiReplyFeedbackRating>,
+            { persist: true, storageKey: 'conversations_ai_reply_feedback' },
+            {
+                recordAiReplyFeedback: (state, { messageId, rating }) => ({
+                    ...state,
+                    [messageId]: rating,
+                }),
+            },
+        ],
     }),
     selectors({
         emailReplyBlockedReason: [
@@ -480,6 +507,17 @@ export const supportTicketSceneLogic = kea<supportTicketSceneLogicType>([
                     return null
                 }
                 return createExceptionsQuery(ticket.session_id, ticket.created_at)
+            },
+        ],
+        latestAiMessage: [
+            (s) => [s.chatMessages],
+            (chatMessages: ChatMessage[]): ChatMessage | null => {
+                for (let i = chatMessages.length - 1; i >= 0; i--) {
+                    if (chatMessages[i].authorType === 'AI') {
+                        return chatMessages[i]
+                    }
+                }
+                return null
             },
         ],
     }),
@@ -650,6 +688,35 @@ export const supportTicketSceneLogic = kea<supportTicketSceneLogicType>([
                 actions.loadKnowledgeGaps()
             } catch {
                 lemonToast.error('Failed to dismiss suggestion')
+            }
+        },
+        submitAiReplyFeedback: async ({ messageId, rating, feedbackText }) => {
+            const ticket = values.ticket
+            if (!ticket) {
+                return
+            }
+            try {
+                if (feedbackText) {
+                    if (rating !== 'bad') {
+                        return
+                    }
+                    await api.conversationsTickets.submitAiFeedback(ticket.id, {
+                        message_id: messageId,
+                        rating,
+                        feedback_text: feedbackText,
+                    })
+                    return
+                }
+                if (values.feedbackByMessageId[messageId]) {
+                    return
+                }
+                await api.conversationsTickets.submitAiFeedback(ticket.id, {
+                    message_id: messageId,
+                    rating,
+                })
+                actions.recordAiReplyFeedback(messageId, rating)
+            } catch {
+                lemonToast.error('Failed to submit feedback')
             }
         },
     })),

@@ -1,11 +1,10 @@
 import { Message } from 'node-rdkafka'
 
-import { DLQ_OUTPUT, DlqOutput, IngestionWarningsOutput } from '~/common/outputs'
+import { DLQ_OUTPUT, DlqOutput } from '~/common/outputs'
 import { IngestionOutputs } from '~/common/outputs/ingestion-outputs'
 import { logger } from '~/common/utils/logger'
 import { captureException } from '~/common/utils/posthog'
 import { PromiseScheduler } from '~/common/utils/promise-scheduler'
-import { emitIngestionWarning } from '~/ingestion/common/ingestion-warnings'
 
 /**
  * Helper function to copy and extend headers from a Kafka message
@@ -73,7 +72,7 @@ function getEventMetadata(message: Message): { teamId?: string; distinctId?: str
  * Send a Kafka message to the dead letter queue with proper logging and metrics.
  */
 export async function produceMessageToDLQ(
-    outputs: IngestionOutputs<DlqOutput | IngestionWarningsOutput>,
+    outputs: IngestionOutputs<DlqOutput>,
     originalMessage: Message,
     error: unknown,
     stepName: string
@@ -91,22 +90,6 @@ export async function produceMessageToDLQ(
     })
 
     try {
-        if (messageInfo.teamId) {
-            await emitIngestionWarning(
-                outputs,
-                parseInt(messageInfo.teamId, 10),
-                'pipeline_step_dlq',
-                {
-                    distinctId: messageInfo.distinctId || 'unknown',
-                    eventUuid: messageInfo.uuid || 'unknown',
-                    error: error instanceof Error ? error.message : String(error),
-                    event: messageInfo.event || 'unknown',
-                    step,
-                },
-                { alwaysSend: true }
-            )
-        }
-
         await outputs.produce(DLQ_OUTPUT, {
             value: originalMessage.value,
             key: originalMessage.key ?? null,

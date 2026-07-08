@@ -4,7 +4,7 @@ import { memo, useCallback, useEffect, useRef, useState } from 'react'
 import { HedgehogRoboHog } from '@posthog/brand/hoggies'
 import { LemonButton } from '@posthog/lemon-ui'
 
-import { Logo } from 'lib/brand/Logo'
+import { Logo } from 'lib/brand'
 import { useHogfetti } from 'lib/components/Hogfetti/Hogfetti'
 
 import { InterviewExportPayload } from '../types'
@@ -407,7 +407,7 @@ export default function ExporterInterviewScene({
         <div className="max-w-2xl mx-auto px-4 py-12">
             <HogfettiComponent />
             <div className="mb-8">
-                <Logo className="text-lg" />
+                <Logo size="md" />
             </div>
 
             <div className="flex flex-col md:flex-row md:items-start gap-6 md:gap-8 mb-8">

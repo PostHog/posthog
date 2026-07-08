@@ -85,6 +85,8 @@ export function SupportTicketScene({ ticketId }: { ticketId: string }): JSX.Elem
         knowledgeGaps,
         knowledgeGapsLoading,
         emailReplyBlockedReason,
+        latestAiMessage,
+        feedbackByMessageId,
     } = useValues(logic)
     const {
         setStatus,
@@ -98,6 +100,7 @@ export function SupportTicketScene({ ticketId }: { ticketId: string }): JSX.Elem
         setDraftContent,
         setDraftIsPrivate,
         dismissKnowledgeGap,
+        submitAiReplyFeedback,
     } = useActions(logic)
 
     const { user } = useValues(userLogic)
@@ -209,6 +212,10 @@ export function SupportTicketScene({ ticketId }: { ticketId: string }): JSX.Elem
                         replyDisabledReason={replyDisabledReason}
                         minHeight="min(400px, calc(100svh - 20rem))"
                         maxHeight="calc(100svh - 20rem)"
+                        latestAiMessageId={latestAiMessage?.id ?? null}
+                        feedbackByMessageId={feedbackByMessageId}
+                        showAiReplyFeedback={aiSuggestionsEnabled}
+                        onSubmitAiReplyFeedback={submitAiReplyFeedback}
                     />
                     <div className="hidden lg:block">
                         <Resizer {...resizerLogicProps} className="z-20" />

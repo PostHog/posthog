@@ -26,14 +26,14 @@ use metrics::{gauge, histogram};
 use tokio::sync::{OwnedSemaphorePermit, Semaphore};
 use tokio::task::JoinError;
 
-use super::keys::{PendingTransferKey, PersonIndexKey, Stage2Key, TombstoneKey};
-use super::rocks::{CohortStore, StoreError, StoreStats};
+use super::keys::{PendingTransferKey, Stage2Key, TombstoneKey};
+use super::keyspace::{BehavioralKey, PersonPrefix, PersonRecordKey};
+use super::rocks::{CohortStore, EventSnapshotRaw, StoreError, StoreStats};
 use super::staged::StagedBatch;
 use crate::observability::metrics::{
     STORE_OFFLOAD_EXEC_DURATION_SECONDS, STORE_OFFLOAD_INFLIGHT,
     STORE_OFFLOAD_PERMIT_WAIT_DURATION_SECONDS, STORE_OFFLOAD_QUEUE_WAIT_DURATION_SECONDS,
 };
-use crate::stage1::key::{LeafStateKey, Stage1Key};
 
 const LANE_EVENT: &str = "event";
 const LANE_MAINTENANCE: &str = "maintenance";
@@ -260,28 +260,57 @@ impl StoreHandle {
 
     // --- Public async surface. Each method wraps exactly one sync `CohortStore` method. ---
 
-    /// Point-read one `cf_stage1` value. Lane-parameterized: the event fold reads on
+    /// Point-read one `cf_behavioral` value. Lane-parameterized: the event fold reads on
     /// [`ReadLane::Event`], background scans/prefetch on [`ReadLane::Maintenance`].
-    pub async fn get_stage1(
+    pub async fn get_behavioral(
         &self,
-        key: &Stage1Key,
+        key: &BehavioralKey,
         lane: ReadLane,
     ) -> Result<Option<Vec<u8>>, StoreError> {
         let key = *key;
-        self.read("get_stage1", lane, move |store| store.get_stage1(&key))
-            .await
+        self.read("get_behavioral", lane, move |store| {
+            store.get_behavioral(&key)
+        })
+        .await
     }
 
-    /// Batch-read `cf_stage1` values, preserving input order. Lane-parameterized (event fold =
+    /// Batch-read `cf_behavioral` values, preserving input order. Lane-parameterized (event fold =
     /// Event, sweep prefetch = Maintenance). Keys are taken by value so the closure is trivially
     /// `'static`.
-    pub async fn multi_get_stage1(
+    pub async fn multi_get_behavioral(
         &self,
-        keys: Vec<Stage1Key>,
+        keys: Vec<BehavioralKey>,
         lane: ReadLane,
     ) -> Result<Vec<Option<Vec<u8>>>, StoreError> {
-        self.read("multi_get_stage1", lane, move |store| {
-            store.multi_get_stage1(&keys)
+        self.read("multi_get_behavioral", lane, move |store| {
+            store.multi_get_behavioral(&keys)
+        })
+        .await
+    }
+
+    /// Point-read one person's `cf_person_records` value as raw bytes. The event fold reads this on
+    /// the hot path (Event lane); decoding lives with the caller.
+    pub async fn get_person_record(
+        &self,
+        key: &PersonRecordKey,
+    ) -> Result<Option<Vec<u8>>, StoreError> {
+        let key = *key;
+        self.read("get_person_record", ReadLane::Event, move |store| {
+            store.get_person_record(&key)
+        })
+        .await
+    }
+
+    /// Read one event's full state snapshot in a single mixed-CF `multi_get` (behavioral keys plus
+    /// the optional person-record key). The event fold's hot-path read, on the Event lane. Keys are
+    /// taken by value so the closure is trivially `'static`.
+    pub async fn read_event_snapshot(
+        &self,
+        behavioral: Vec<BehavioralKey>,
+        record: Option<PersonRecordKey>,
+    ) -> Result<EventSnapshotRaw, StoreError> {
+        self.read("read_event_snapshot", ReadLane::Event, move |store| {
+            store.read_event_snapshot(&behavioral, record.as_ref())
         })
         .await
     }
@@ -315,18 +344,6 @@ impl StoreHandle {
         .await
     }
 
-    /// Point-read one person-index entry (maintenance/merge path).
-    pub async fn get_person_index(
-        &self,
-        key: &PersonIndexKey,
-    ) -> Result<Vec<LeafStateKey>, StoreError> {
-        let key = *key;
-        self.read("get_person_index", ReadLane::Maintenance, move |store| {
-            store.get_person_index(&key)
-        })
-        .await
-    }
-
     /// Point-read one pending-transfer outbox slot (maintenance/merge path).
     pub async fn get_pending_transfer(
         &self,
@@ -341,16 +358,29 @@ impl StoreHandle {
         .await
     }
 
-    /// Scan a page of one partition's `cf_stage1` slice (boot rebuild, maintenance lane).
-    pub async fn scan_stage1(
+    /// Scan a page of one partition's `cf_behavioral` slice (boot rebuild, maintenance lane).
+    pub async fn scan_behavioral(
         &self,
         partition_id: u16,
         start_after: Option<Vec<u8>>,
         limit: usize,
-    ) -> Result<Vec<(Stage1Key, Vec<u8>)>, StoreError> {
-        self.read("scan_stage1", ReadLane::Maintenance, move |store| {
-            store.scan_stage1(partition_id, start_after.as_deref(), limit)
+    ) -> Result<Vec<(BehavioralKey, Vec<u8>)>, StoreError> {
+        self.read("scan_behavioral", ReadLane::Maintenance, move |store| {
+            store.scan_behavioral(partition_id, start_after.as_deref(), limit)
         })
+        .await
+    }
+
+    /// Scan one person's whole `cf_behavioral` slice in lsk order (merge drain, maintenance lane).
+    pub async fn scan_behavioral_prefix(
+        &self,
+        prefix: PersonPrefix,
+    ) -> Result<Vec<(BehavioralKey, Vec<u8>)>, StoreError> {
+        self.read(
+            "scan_behavioral_prefix",
+            ReadLane::Maintenance,
+            move |store| store.scan_behavioral_prefix(prefix),
+        )
         .await
     }
 
