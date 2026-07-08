@@ -7498,25 +7498,6 @@ export type LinkType = {
     _create_in_folder?: string | null
 }
 
-export interface LineageNode {
-    id: string
-    name: string
-    type: 'view' | 'table'
-    sync_frequency?: DataWarehouseSyncInterval
-    last_run_at?: string
-    status?: string
-}
-
-export interface LineageEdge {
-    source: string
-    target: string
-}
-
-export interface LineageGraph {
-    nodes: LineageNode[]
-    edges: LineageEdge[]
-}
-
 export interface DataWarehouseSourceRowCount {
     breakdown_of_rows_by_source: Record<string, number>
     billing_available: boolean

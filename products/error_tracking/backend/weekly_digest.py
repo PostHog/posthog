@@ -12,6 +12,7 @@ from posthog.schema import HogQLFilters
 from posthog.clickhouse.query_tagging import tag_queries
 from posthog.models import Team
 from posthog.schema_enums import ProductKey
+from posthog.utils import compact_number
 
 logger = structlog.get_logger(__name__)
 
@@ -443,13 +444,26 @@ def build_team_digest_data(team: Team) -> dict[str, Any] | None:
 
 
 def build_team_section_payload(data: dict[str, Any]) -> dict[str, Any]:
-    """JSON-safe project section for the digest workflow webhook payload."""
+    """JSON-safe project section for the digest workflow webhook payload.
+
+    Big counts are pre-formatted here because the email template (Liquid) has no
+    number formatting filter. ingestion_failure_count must stay numeric — the
+    template branches on `> 0` — so it gets a display twin instead. Copies, not
+    in-place mutation: the same data dict is reused across recipients.
+    """
 
     def serialize_issue(issue: dict[str, Any]) -> dict[str, Any]:
-        return {**issue, "id": str(issue["id"])}
+        return {**issue, "id": str(issue["id"]), "occurrence_count": compact_number(issue["occurrence_count"])}
 
     section = {k: v for k, v in data.items() if k != "team"}
     section["team_name"] = data["team"].name
+    section["exception_count"] = compact_number(data["exception_count"])
+    section["ingestion_failure_count_display"] = compact_number(data["ingestion_failure_count"])
+    if data["crash_free"]:
+        section["crash_free"] = {
+            **data["crash_free"],
+            "total_sessions": compact_number(data["crash_free"]["total_sessions"]),
+        }
     section["top_issues"] = [serialize_issue(i) for i in data["top_issues"]]
     section["new_issues"] = [serialize_issue(i) for i in data["new_issues"]]
     return section

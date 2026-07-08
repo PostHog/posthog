@@ -5,7 +5,7 @@ import { useActions, useValues } from 'kea'
 import { combineUrl, router } from 'kea-router'
 
 import { IconBox } from '@posthog/icons'
-import { LemonCard, LemonTable, LemonTag, Link, Tooltip } from '@posthog/lemon-ui'
+import { LemonCard, LemonSkeleton, LemonTable, LemonTag, Link, Tooltip } from '@posthog/lemon-ui'
 
 import { Sparkline } from 'lib/components/Sparkline'
 import { TZLabel } from 'lib/components/TZLabel'
@@ -246,6 +246,7 @@ export function RepoOverviewScene(): JSX.Element {
         defaultBranch,
         notConnected,
         overviewFailed,
+        overviewLoading,
         failingWorkflowCount,
         masterFailuresLoading,
     } = useValues(repoOverviewLogic)
@@ -260,6 +261,10 @@ export function RepoOverviewScene(): JSX.Element {
     } = useValues(engineeringAnalyticsLogic)
     const { loadOverview, loadMasterFailures, loadRepoActivity } = useActions(repoOverviewLogic)
     const { searchParams } = useValues(router)
+
+    // jobsAvailable reads false until the overview payload lands, so "not synced" messaging
+    // during the initial fetch would misread as a broken setup — hold it back while loading.
+    const overviewPending = overviewLoading && !overview
 
     if (notConnected) {
         return <ConnectGitHubSource />
@@ -311,7 +316,9 @@ export function RepoOverviewScene(): JSX.Element {
                     tooltip={
                         jobsAvailable
                             ? `Estimated: ${compactMinutes(overview?.billable_minutes)} billable × runner-tier rate.`
-                            : 'Available once the job-level source is synced.'
+                            : overviewPending
+                              ? undefined
+                              : 'Available once the job-level source is synced.'
                     }
                     value={jobsAvailable ? compactUsd(overview?.estimated_cost_usd) : '—'}
                     delta={
@@ -322,7 +329,7 @@ export function RepoOverviewScene(): JSX.Element {
                             />
                         ) : undefined
                     }
-                    sub={jobsAvailable ? undefined : 'Job-level source not synced'}
+                    sub={jobsAvailable || overviewPending ? undefined : 'Job-level source not synced'}
                 />
                 <MetricTile
                     label="Median PR open→merge"
@@ -465,7 +472,12 @@ export function RepoOverviewScene(): JSX.Element {
             </Section>
 
             <Section id="cost" title="Cost">
-                {jobsAvailable && costPerMergeSeries ? (
+                {overviewPending ? (
+                    <LemonCard hoverEffect={false} className="p-4">
+                        <LemonSkeleton className="mb-3 h-4 w-40" />
+                        <LemonSkeleton className="h-24 w-full" />
+                    </LemonCard>
+                ) : jobsAvailable && costPerMergeSeries ? (
                     <LemonCard hoverEffect={false} className="mb-2 p-4">
                         <h3 className="mb-1 text-xs font-semibold text-secondary">Cost per merged PR</h3>
                         <Sparkline
@@ -485,7 +497,7 @@ export function RepoOverviewScene(): JSX.Element {
                         </div>
                     </LemonCard>
                 ) : null}
-                {jobsAvailable && costByWorkflow.length > 0 ? (
+                {overviewPending ? null : jobsAvailable && costByWorkflow.length > 0 ? (
                     <LemonCard hoverEffect={false} className="p-4">
                         <h3 className="mb-1 text-xs font-semibold text-secondary">By workflow</h3>
                         {costByWorkflow.map((row, i) => (

@@ -8743,6 +8743,39 @@ export namespace Schemas {
       HistogramQuantile: 'histogram_quantile',
     } as const;
 
+    /**
+     * * `good` - good
+     * * `bad` - bad
+     */
+    export type RatingEnum = typeof RatingEnum[keyof typeof RatingEnum];
+
+
+    export const RatingEnum = {
+      Good: 'good',
+      Bad: 'bad',
+    } as const;
+
+    /**
+     * Payload for recording reviewer feedback on an AI reply.
+     */
+    export interface AiFeedbackRequest {
+      /**
+         * ID of the AI message being rated.
+         * @maxLength 200
+         */
+      message_id: string;
+      /** Reviewer rating: good or bad.
+       *
+       * * `good` - good
+       * * `bad` - bad */
+      rating: RatingEnum;
+      /**
+         * Optional text explaining a bad rating.
+         * @maxLength 2000
+         */
+      feedback_text?: string;
+    }
+
     export interface InsightsThresholdBounds {
       /** Alert fires when the value drops below this number. */
       lower?: number | null;
@@ -58192,6 +58225,17 @@ export namespace Schemas {
     search?: string;
     };
 
+    export type EnvironmentsDataModelingNodesLineageRetrieveParams = {
+    /**
+     * Node to build lineage for.
+     */
+    node_id?: string;
+    /**
+     * Saved query to build lineage for, resolved to its node. Alternative to node_id.
+     */
+    saved_query_id?: string;
+    };
+
     export type EnvironmentsDataWarehouseCheckDatabaseNameRetrieveParams = {
     /**
      * Database name to check
@@ -61086,10 +61130,13 @@ export namespace Schemas {
     export type EnvironmentsMetricsValuesRetrieveParams = {
     /**
      * Max number of names to return. Defaults to 100; maximum 1000.
+     * @minimum 1
+     * @maximum 1000
      */
     limit?: number;
     /**
      * Substring filter (case-insensitive) applied to metric names.
+     * @maxLength 255
      */
     value?: string;
     };
@@ -64406,6 +64453,17 @@ export namespace Schemas {
      * A search term.
      */
     search?: string;
+    };
+
+    export type DataModelingNodesLineageRetrieveParams = {
+    /**
+     * Node to build lineage for.
+     */
+    node_id?: string;
+    /**
+     * Saved query to build lineage for, resolved to its node. Alternative to node_id.
+     */
+    saved_query_id?: string;
     };
 
     export type DataWarehouseCheckDatabaseNameRetrieveParams = {
@@ -68281,10 +68339,13 @@ export namespace Schemas {
     export type MetricsValuesRetrieveParams = {
     /**
      * Max number of names to return. Defaults to 100; maximum 1000.
+     * @minimum 1
+     * @maximum 1000
      */
     limit?: number;
     /**
      * Substring filter (case-insensitive) applied to metric names.
+     * @maxLength 255
      */
     value?: string;
     };
