@@ -3,6 +3,7 @@ import json
 import base64
 import dataclasses
 from datetime import datetime, timedelta
+from decimal import Decimal
 from typing import Any
 from uuid import uuid4
 
@@ -41,7 +42,7 @@ from posthog.clickhouse.logs.logs32 import TABLE_NAME as LOGS_LOCAL_TABLE
 from posthog.clickhouse.query_tagging import tag_queries
 from posthog.cloud_utils import TEST_clear_instance_license_cache
 from posthog.hogql_queries.events_query_runner import EventsQueryRunner
-from posthog.models import Organization, Team
+from posthog.models import DuckgresDailyStorageUsage, DuckgresDailyUsage, Organization, Team
 from posthog.models.app_metrics2.sql import TRUNCATE_APP_METRICS2_TABLE_SQL
 from posthog.models.event.util import create_event
 from posthog.models.group.util import create_group
@@ -692,6 +693,9 @@ class TestUsageReport(APIBaseTest, ClickhouseTestMixin, ClickhouseDestroyTablesM
                     "event_explorer_api_rows_read": 0,
                     "event_explorer_api_duration_ms": 0,
                     "rows_synced_in_period": 0,
+                    "managed_warehouse_compute_seconds_in_period": 0,
+                    "managed_warehouse_endpoints_compute_seconds_in_period": 0,
+                    "managed_warehouse_storage_gb_hours_in_period": 0,
                     "exceptions_captured_in_period": 0,
                     "ai_event_count_in_period": 4,
                     "hog_function_calls_in_period": 0,
@@ -768,6 +772,9 @@ class TestUsageReport(APIBaseTest, ClickhouseTestMixin, ClickhouseDestroyTablesM
                             "event_explorer_api_rows_read": 0,
                             "event_explorer_api_duration_ms": 0,
                             "rows_synced_in_period": 0,
+                            "managed_warehouse_compute_seconds_in_period": 0,
+                            "managed_warehouse_endpoints_compute_seconds_in_period": 0,
+                            "managed_warehouse_storage_gb_hours_in_period": 0,
                             "exceptions_captured_in_period": 0,
                             "hog_function_calls_in_period": 0,
                             "hog_function_fetch_calls_in_period": 0,
@@ -838,6 +845,9 @@ class TestUsageReport(APIBaseTest, ClickhouseTestMixin, ClickhouseDestroyTablesM
                             "event_explorer_api_rows_read": 0,
                             "event_explorer_api_duration_ms": 0,
                             "rows_synced_in_period": 0,
+                            "managed_warehouse_compute_seconds_in_period": 0,
+                            "managed_warehouse_endpoints_compute_seconds_in_period": 0,
+                            "managed_warehouse_storage_gb_hours_in_period": 0,
                             "exceptions_captured_in_period": 0,
                             "hog_function_calls_in_period": 0,
                             "hog_function_fetch_calls_in_period": 0,
@@ -931,6 +941,9 @@ class TestUsageReport(APIBaseTest, ClickhouseTestMixin, ClickhouseDestroyTablesM
                     "event_explorer_api_rows_read": 0,
                     "event_explorer_api_duration_ms": 0,
                     "rows_synced_in_period": 0,
+                    "managed_warehouse_compute_seconds_in_period": 0,
+                    "managed_warehouse_endpoints_compute_seconds_in_period": 0,
+                    "managed_warehouse_storage_gb_hours_in_period": 0,
                     "exceptions_captured_in_period": 0,
                     "hog_function_calls_in_period": 0,
                     "hog_function_fetch_calls_in_period": 0,
@@ -1007,6 +1020,9 @@ class TestUsageReport(APIBaseTest, ClickhouseTestMixin, ClickhouseDestroyTablesM
                             "event_explorer_api_rows_read": 0,
                             "event_explorer_api_duration_ms": 0,
                             "rows_synced_in_period": 0,
+                            "managed_warehouse_compute_seconds_in_period": 0,
+                            "managed_warehouse_endpoints_compute_seconds_in_period": 0,
+                            "managed_warehouse_storage_gb_hours_in_period": 0,
                             "active_external_data_schemas_in_period": 0,
                             "active_batch_exports_in_period": 0,
                             "exceptions_captured_in_period": 0,
@@ -2658,6 +2674,133 @@ class TestExternalDataSyncUsageReport(ClickhouseDestroyTablesMixin, TestCase, Cl
 
         assert org_2_report["organization_name"] == "Org 2"
         assert org_2_report["rows_synced_in_period"] == 0
+
+
+@freeze_time("2026-07-09T00:01:00Z")
+class TestManagedWarehouseUsageReport(ClickhouseDestroyTablesMixin, TestCase, ClickhouseTestMixin):
+    """The gathers read the day-keyed staging table maintained by the duckgres
+    poller (posthog/temporal/duckgres_usage/). Billable compute scalar:
+    cpu_seconds + memory_seconds/8, floored; endpoint queries are a separate
+    product split by query_source."""
+
+    def setUp(self) -> None:
+        Team.objects.all().delete()
+        return super().setUp()
+
+    def _setup_teams(self) -> None:
+        self.analytics_org = Organization.objects.create(name="PostHog")
+        self.org_1 = Organization.objects.create(name="Org 1")
+        self.org_2 = Organization.objects.create(name="Org 2")
+
+        self.analytics_team = Team.objects.create(pk=2, organization=self.analytics_org, name="Analytics")
+
+        self.org_1_team_1 = Team.objects.create(pk=3, organization=self.org_1, name="Team 1 org 1")
+        self.org_1_team_2 = Team.objects.create(pk=4, organization=self.org_1, name="Team 2 org 1")
+        self.org_2_team_3 = Team.objects.create(pk=5, organization=self.org_2, name="Team 3 org 2")
+
+    def _usage(
+        self,
+        team: Team,
+        date: datetime.date,
+        query_source: str = "standard",
+        cpu: str = "8",
+        mem_gib: str = "16",
+        cpu_seconds: int = 0,
+        memory_seconds: int = 0,
+    ) -> None:
+        DuckgresDailyUsage.objects.create(
+            date=date,
+            organization_id=team.organization_id,
+            team_id=team.pk,
+            query_source=query_source,
+            cpu=Decimal(cpu),
+            mem_gib=Decimal(mem_gib),
+            cpu_seconds=cpu_seconds,
+            memory_seconds=memory_seconds,
+        )
+
+    @patch("posthog.tasks.usage_report.get_ph_client")
+    @patch("posthog.tasks.usage_report.send_report_to_billing_service")
+    def test_managed_warehouse_compute_fold_and_endpoints_split(
+        self, billing_task_mock: MagicMock, posthog_capture_mock: MagicMock
+    ) -> None:
+        self._setup_teams()
+
+        period = get_previous_day(at=now())
+        period_start, period_end = period
+        report_day = period_start.date()
+
+        # Team 3: two worker sizes fold into one scalar:
+        # (3600 + 1800) + (28800 + 7200) / 8 = 5400 + 4500 = 9900
+        self._usage(self.org_1_team_1, report_day, cpu="8", mem_gib="16", cpu_seconds=3600, memory_seconds=28800)
+        self._usage(self.org_1_team_1, report_day, cpu="1.5", mem_gib="0.5", cpu_seconds=1800, memory_seconds=7200)
+        # Team 3 endpoints: 600 + 1600 / 8 = 800, on its own usage key.
+        self._usage(self.org_1_team_1, report_day, query_source="endpoints", cpu_seconds=600, memory_seconds=1600)
+        # Team 4: fraction floors — 10 + 12/8 = 11.5 -> 11 (under-charge).
+        self._usage(self.org_1_team_2, report_day, cpu_seconds=10, memory_seconds=12)
+        # Org 2 only has usage OUTSIDE the period — must not leak in.
+        self._usage(self.org_2_team_3, report_day - timedelta(days=1), cpu_seconds=999, memory_seconds=999)
+
+        all_reports = _get_all_org_reports(period_start, period_end)
+
+        org_1_report = _get_full_org_usage_report_as_dict(
+            _get_full_org_usage_report(all_reports[str(self.org_1.id)], get_instance_metadata(period))
+        )
+        org_2_report = _get_full_org_usage_report_as_dict(
+            _get_full_org_usage_report(all_reports[str(self.org_2.id)], get_instance_metadata(period))
+        )
+
+        assert org_1_report["managed_warehouse_compute_seconds_in_period"] == 9911
+        assert org_1_report["teams"]["3"]["managed_warehouse_compute_seconds_in_period"] == 9900
+        assert org_1_report["teams"]["4"]["managed_warehouse_compute_seconds_in_period"] == 11
+
+        assert org_1_report["managed_warehouse_endpoints_compute_seconds_in_period"] == 800
+        assert org_1_report["teams"]["3"]["managed_warehouse_endpoints_compute_seconds_in_period"] == 800
+        assert org_1_report["teams"]["4"]["managed_warehouse_endpoints_compute_seconds_in_period"] == 0
+
+        assert org_2_report["managed_warehouse_compute_seconds_in_period"] == 0
+        assert org_2_report["managed_warehouse_endpoints_compute_seconds_in_period"] == 0
+
+    @patch("posthog.tasks.usage_report.get_ph_client")
+    @patch("posthog.tasks.usage_report.send_report_to_billing_service")
+    def test_managed_warehouse_storage_gb_hours_fold(
+        self, billing_task_mock: MagicMock, posthog_capture_mock: MagicMock
+    ) -> None:
+        self._setup_teams()
+
+        period = get_previous_day(at=now())
+        period_start, period_end = period
+        report_day = period_start.date()
+
+        # 360000 GiB-seconds = 386547056640000 byte-seconds
+        # -> // (10^9 * 3600) = 107.37... -> 107 GB-hours (floor, decimal GB)
+        DuckgresDailyStorageUsage.objects.create(
+            date=report_day, organization_id=self.org_1.id, team_id=3, gib_seconds=Decimal("360000")
+        )
+        # The 27-digit-tail value from the live server: 9e15 byte-seconds
+        # -> exactly 2500 GB-hours. Exactness matters: a float64 round-trip
+        # of this value would still land on 2500, but the fold must not rely
+        # on that luck — it recovers integer byte-seconds first.
+        DuckgresDailyStorageUsage.objects.create(
+            date=report_day, organization_id=self.org_1.id, team_id=4, gib_seconds=Decimal("8381903.171539306640625")
+        )
+        # Outside the period — must not leak in.
+        DuckgresDailyStorageUsage.objects.create(
+            date=report_day - timedelta(days=1), organization_id=self.org_2.id, team_id=5, gib_seconds=Decimal("999999")
+        )
+
+        all_reports = _get_all_org_reports(period_start, period_end)
+        org_1_report = _get_full_org_usage_report_as_dict(
+            _get_full_org_usage_report(all_reports[str(self.org_1.id)], get_instance_metadata(period))
+        )
+        org_2_report = _get_full_org_usage_report_as_dict(
+            _get_full_org_usage_report(all_reports[str(self.org_2.id)], get_instance_metadata(period))
+        )
+
+        assert org_1_report["teams"]["3"]["managed_warehouse_storage_gb_hours_in_period"] == 107
+        assert org_1_report["teams"]["4"]["managed_warehouse_storage_gb_hours_in_period"] == 2500
+        assert org_1_report["managed_warehouse_storage_gb_hours_in_period"] == 2607
+        assert org_2_report["managed_warehouse_storage_gb_hours_in_period"] == 0
 
 
 @freeze_time("2022-01-10T00:01:00Z")

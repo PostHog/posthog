@@ -111,6 +111,87 @@ class DuckgresServerTeam(CreatedMetaFields, UpdatedMetaFields, UUIDModel):
         verbose_name_plural = "Duckgres server teams"
 
 
+class DuckgresDailyUsage(UUIDModel):
+    """One UTC day of managed-warehouse compute usage for one (team, query_source, worker size).
+
+    Staging table for duckgres's billing pull API (duckgres
+    `docs/design/billing-pull-api.md`): a Temporal poller replaces the open
+    window's rows on every pull and acks duckgres only at UTC day boundaries,
+    so rows here are always complete day-so-far totals. Usage reports (v1
+    gathers and, later, v2 queries) read from this table; nothing else should
+    write to it.
+    """
+
+    date = models.DateField()
+    organization_id = models.UUIDField()
+    # Not an FK: duckgres attributes usage to the org's default team, rows are
+    # bulk-replaced every poll, and billing staging must survive team deletion.
+    team_id = models.IntegerField()
+    # "standard" | "endpoints" (open set — duckgres session GUC).
+    query_source = models.CharField(max_length=32)
+    # Worker size the usage accrued on, as exact decimals (e.g. 8 / 1.5 / 0.5).
+    cpu = models.DecimalField(max_digits=12, decimal_places=6)
+    mem_gib = models.DecimalField(max_digits=12, decimal_places=6)
+    cpu_seconds = models.BigIntegerField()
+    memory_seconds = models.BigIntegerField()
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        db_table = "posthog_duckgresdailyusage"
+        verbose_name = "Duckgres daily usage"
+        verbose_name_plural = "Duckgres daily usage"
+        constraints = [
+            models.UniqueConstraint(
+                fields=["date", "team_id", "query_source", "cpu", "mem_gib"],
+                name="duckgres_daily_usage_key",
+            )
+        ]
+
+
+class DuckgresDailyStorageUsage(UUIDModel):
+    """One UTC day of managed-warehouse storage usage (footprint integral) per team.
+
+    Sibling of DuckgresDailyUsage for the pull API's `storage` array: one row
+    per (org's default team, day), `gib_seconds` = tracked bytes x seconds /
+    2^30 as duckgres's exact decimal. Maintained by the same poller
+    transaction; read by the storage usage-report gather (which converts to
+    decimal-GB hours — GiB vs GB conversion lives there, not here).
+    """
+
+    date = models.DateField()
+    organization_id = models.UUIDField()
+    team_id = models.IntegerField()
+    # Up to ~13 integer digits (PB-month scale) + exactly 30 fractional digits.
+    gib_seconds = models.DecimalField(max_digits=45, decimal_places=30)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        db_table = "posthog_duckgresdailystorageusage"
+        verbose_name = "Duckgres daily storage usage"
+        verbose_name_plural = "Duckgres daily storage usage"
+        constraints = [
+            models.UniqueConstraint(fields=["date", "team_id"], name="duckgres_daily_storage_key"),
+        ]
+
+
+class DuckgresUsageCursor(models.Model):
+    """Single-row bookkeeping of the last watermark we acked to duckgres.
+
+    Advisory only — duckgres owns the authoritative cursor; this exists so the
+    poller can warn on watermark desync (a duckgres cursor reset would surface
+    as `watermark_low` disagreeing with this row) and so operators can see when
+    custody last advanced. Always addressed as pk=1.
+    """
+
+    last_acked_watermark = models.DateTimeField()
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        db_table = "posthog_duckgresusagecursor"
+        verbose_name = "Duckgres usage cursor"
+        verbose_name_plural = "Duckgres usage cursors"
+
+
 class DuckgresSinkSchemaState(CreatedMetaFields, UpdatedMetaFields, UUIDModel):
     r"""Per-schema lifecycle of the Duckgres v3 batch sink.
 

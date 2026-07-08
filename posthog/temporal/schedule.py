@@ -43,6 +43,7 @@ from posthog.temporal.alerts.schedule import (
 )
 from posthog.temporal.common.client import async_connect
 from posthog.temporal.common.schedule import a_create_schedule, a_delete_schedule, a_schedule_exists, a_update_schedule
+from posthog.temporal.duckgres_usage.types import PollDuckgresUsageInputs
 from posthog.temporal.ducklake.compaction_types import DucklakeCompactionInput
 from posthog.temporal.experiments.schedule import (
     create_experiment_regular_metrics_schedules,
@@ -655,6 +656,41 @@ async def create_run_usage_reports_schedule(client: Client):
         )
 
 
+async def create_poll_duckgres_usage_schedule(client: Client):
+    """Poll duckgres's billing pull API every 10 minutes.
+
+    Pulls managed-warehouse compute usage into the day-keyed staging table
+    (`DuckgresDailyUsage`) that usage reports read from, acking duckgres only
+    at UTC day boundaries. Overlap SKIP is load-bearing: two concurrent polls
+    could apply a stale response after a newer one and regress the open day
+    until the next tick. A failed slot needs no schedule-level retry — every
+    pull is a full-open-window replace, so the next tick supersedes it.
+    """
+    poll_duckgres_usage_schedule = Schedule(
+        action=ScheduleActionStartWorkflow(
+            "poll-duckgres-usage",
+            # Pydantic model, not a dataclass — `dataclasses.asdict` would
+            # TypeError on registration.
+            PollDuckgresUsageInputs().model_dump(mode="json"),
+            id="poll-duckgres-usage-schedule",
+            task_queue=settings.BILLING_TASK_QUEUE,
+            retry_policy=common.RetryPolicy(maximum_attempts=1),
+        ),
+        spec=ScheduleSpec(intervals=[ScheduleIntervalSpec(every=timedelta(minutes=10))]),
+        policy=SchedulePolicy(overlap=ScheduleOverlapPolicy.SKIP),
+    )
+
+    if await a_schedule_exists(client, "poll-duckgres-usage-schedule"):
+        await a_update_schedule(client, "poll-duckgres-usage-schedule", poll_duckgres_usage_schedule)
+    else:
+        await a_create_schedule(
+            client,
+            "poll-duckgres-usage-schedule",
+            poll_duckgres_usage_schedule,
+            trigger_immediately=False,
+        )
+
+
 async def create_finalize_usage_reports_schedule(client: Client):
     """Daily finalizer for the usage reports v2 flow, 02:45 UTC.
 
@@ -838,6 +874,7 @@ if settings.CLOUD_DEPLOYMENT:
     schedules.append(create_replay_vision_gemini_cleanup_sweep_schedule)
     schedules.append(create_run_usage_reports_schedule)
     schedules.append(create_finalize_usage_reports_schedule)
+    schedules.append(create_poll_duckgres_usage_schedule)
 
 if settings.EE_AVAILABLE:
     schedules.append(create_schedule_all_subscriptions_schedule)
