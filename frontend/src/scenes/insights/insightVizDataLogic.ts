@@ -850,10 +850,10 @@ const getActiveUsersMath = (
     return null
 }
 
-/** An ISO date string longer than `YYYY-MM-DD` (10 chars) carries a time component, e.g.
- *  drag-to-zoom on an hourly chart emits `2024-06-10 08:00:00`. A bare date means "that whole day". */
+/** Whether a date string carries a time of day, e.g. drag-to-zoom on an hourly chart emits
+ *  `2024-06-10 08:00:00`. A bare `YYYY-MM-DD` means "that whole day". */
 export function hasTimeComponent(date: string): boolean {
-    return date.length > 10
+    return /^\d{4}-\d{2}-\d{2}[T ]\d{2}:\d{2}/.test(date)
 }
 
 const handleQuerySourceUpdateSideEffects = (

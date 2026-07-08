@@ -28,11 +28,9 @@ import { MCPUseCaseCard } from 'lib/components/MCPHint/MCPUseCaseCard'
 import { Resizer } from 'lib/components/Resizer/Resizer'
 import { type ResizerLogicProps, resizerLogic } from 'lib/components/Resizer/resizerLogic'
 import { TZLabel } from 'lib/components/TZLabel'
-import { FEATURE_FLAGS } from 'lib/constants'
 import { IconTableChart } from 'lib/lemon-ui/icons'
 import { Link } from 'lib/lemon-ui/Link'
 import { LoadingBar } from 'lib/lemon-ui/LoadingBar'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { getAccessControlDisabledReason } from 'lib/utils/accessControlUtils'
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
 import { InsightErrorState, StatelessInsightLoadingState } from 'scenes/insights/EmptyStates'
@@ -908,10 +906,9 @@ function InternalDataTableVisualization(
     const { seriesBreakdownData } = useValues(seriesBreakdownLogic({ key: dataVisualizationProps.key }))
     const { goalLines } = useValues(displayLogic)
 
+    // Flag-gated inside the charts' shared useDateRangeZoom hook.
     const { canZoomDateRange } = useValues(sqlEditorLogic)
     const { zoomDateRange } = useActions(sqlEditorLogic)
-    const { featureFlags } = useValues(featureFlagLogic)
-    const dragToZoomEnabled = !!featureFlags[FEATURE_FLAGS.INSIGHT_DRAG_TO_ZOOM] && canZoomDateRange
 
     let component: JSX.Element | null = null
 
@@ -950,7 +947,7 @@ function InternalDataTableVisualization(
                 dashboardId={dashboardId}
                 goalLines={goalLines}
                 presetChartHeight={presetChartHeight}
-                onDateRangeZoom={dragToZoomEnabled ? zoomDateRange : undefined}
+                onDateRangeZoom={canZoomDateRange ? zoomDateRange : undefined}
             />
         )
     } else if (effectiveVisualizationType === ChartDisplayType.ActionsPie) {

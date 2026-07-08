@@ -219,10 +219,9 @@ function InternalDataTableVisualization(props: DataTableVisualizationProps): JSX
     // insightVizDataLogic.zoomDateRange) pass a handler; dashboards and read-only embeds don't.
     // The gesture also needs the SQL to consume {filters}, or the rewrite would silently no-op.
     const contextZoom = props.context?.onDateRangeZoom
-    const onDateRangeZoom =
-        contextZoom && sourceFeatures.has(QueryFeature.dateRangePicker) && query.source.query.includes('{filters}')
-            ? contextZoom
-            : undefined
+    const sqlConsumesFilters =
+        sourceFeatures.has(QueryFeature.dateRangePicker) && query.source.query.includes('{filters}')
+    const onDateRangeZoom = contextZoom && sqlConsumesFilters ? contextZoom : undefined
 
     let component: JSX.Element | null = null
 

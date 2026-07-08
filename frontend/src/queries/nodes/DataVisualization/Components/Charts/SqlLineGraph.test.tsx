@@ -4,6 +4,8 @@ import { cleanup, configure, fireEvent, screen, waitFor } from '@testing-library
 
 import { dragSelection, setupJsdom, setupSyncRaf } from '@posthog/quill-charts/testing'
 
+import { FEATURE_FLAGS } from 'lib/constants'
+
 import {
     ChartSettings,
     ChartSettingsFormatting,
@@ -525,6 +527,41 @@ describe('SqlLineGraph', () => {
             await dragAcrossChart()
 
             // The filters.dateRange rewrite would silently not apply, so the gesture must stay inert.
+            expect(onDateRangeZoom).not.toHaveBeenCalled()
+        })
+
+        it('ignores drags when the drag-to-zoom flag is off', async () => {
+            const onDateRangeZoom = jest.fn()
+            renderDataVisualization({
+                query: zoomableQuery('SELECT month, pageviews FROM events WHERE {filters} GROUP BY month'),
+                response: fixture(),
+                featureFlags: { [FEATURE_FLAGS.INSIGHT_DRAG_TO_ZOOM]: false },
+                context: { onDateRangeZoom },
+            })
+
+            await dragAcrossChart()
+
+            // A regression dropping the flag gate would ship zoom to everyone.
+            expect(onDateRangeZoom).not.toHaveBeenCalled()
+        })
+
+        it('ignores drags along a non-date x-axis', async () => {
+            const onDateRangeZoom = jest.fn()
+            renderDataVisualization({
+                query: zoomableQuery('SELECT month, pageviews FROM events WHERE {filters} GROUP BY month'),
+                response: {
+                    ...fixture(),
+                    // Same shape, but the x column is a plain string — its values aren't dates.
+                    types: [
+                        ['month', 'String'],
+                        ['pageviews', 'UInt64'],
+                    ],
+                },
+                context: { onDateRangeZoom },
+            })
+
+            await dragAcrossChart()
+
             expect(onDateRangeZoom).not.toHaveBeenCalled()
         })
     })

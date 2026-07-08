@@ -691,6 +691,7 @@ describe('TrendsLineChart', () => {
 
     describe('drag-to-zoom', () => {
         const totalLabels = trendsSeries.pageviews.labels.length
+        const zoomFlag = { [FEATURE_FLAGS.INSIGHT_DRAG_TO_ZOOM]: true }
 
         async function getChartWrapper(): Promise<HTMLElement> {
             const canvas = await screen.findByLabelText(/chart with/i)
@@ -699,7 +700,7 @@ describe('TrendsLineChart', () => {
 
         it('reports the dragged range as day strings to context.onDateRangeZoom', async () => {
             const onDateRangeZoom = jest.fn()
-            renderInsight({ query: buildTrendsQuery(), context: { onDateRangeZoom } })
+            renderInsight({ query: buildTrendsQuery(), context: { onDateRangeZoom }, featureFlags: zoomFlag })
             const wrapper = await getChartWrapper()
 
             dragSelection(wrapper, 1, 3, totalLabels)
@@ -710,8 +711,19 @@ describe('TrendsLineChart', () => {
             })
         })
 
+        it('ignores drags when the drag-to-zoom flag is off', async () => {
+            const onDateRangeZoom = jest.fn()
+            renderInsight({ query: buildTrendsQuery(), context: { onDateRangeZoom } })
+            const wrapper = await getChartWrapper()
+
+            dragSelection(wrapper, 1, 3, totalLabels)
+
+            // A regression dropping the flag gate would ship zoom to everyone.
+            expect(onDateRangeZoom).not.toHaveBeenCalled()
+        })
+
         it('ignores drags when no context handler opts in', async () => {
-            renderInsight({ query: buildTrendsQuery() })
+            renderInsight({ query: buildTrendsQuery(), featureFlags: zoomFlag })
             const wrapper = await getChartWrapper()
 
             dragSelection(wrapper, 1, 3, totalLabels)

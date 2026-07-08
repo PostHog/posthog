@@ -2,10 +2,8 @@ import clsx from 'clsx'
 import { BindLogic, BuiltLogic, Logic, LogicWrapper, useActions, useValues } from 'kea'
 
 import { AccessDenied } from 'lib/components/AccessDenied'
-import { FEATURE_FLAGS } from 'lib/constants'
 import { useFileSystemLogView } from 'lib/hooks/useFileSystemLogView'
 import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { useAttachedLogic } from 'lib/logic/scenes/useAttachedLogic'
 import { InsightModals } from 'scenes/insights/InsightModals'
 import { insightSceneLogic } from 'scenes/insights/insightSceneLogic'
@@ -44,8 +42,6 @@ export function InsightAsScene({ insightId, attachTo }: InsightAsSceneProps): JS
         variablesOverride,
     })
     const { insightProps, accessDeniedToInsight, insightLoading } = useValues(logic)
-    const { featureFlags } = useValues(featureFlagLogic)
-    const dragToZoomEnabled = !!featureFlags[FEATURE_FLAGS.INSIGHT_DRAG_TO_ZOOM]
 
     // insightDataLogic
     const { query, showQueryEditor } = useValues(insightDataLogic(insightProps))
@@ -110,7 +106,8 @@ export function InsightAsScene({ insightId, attachTo }: InsightAsSceneProps): JS
                             showQueryEditor: actuallyShowQueryEditor,
                             showQueryHelp: insightMode === ItemMode.Edit && !containsHogQLQuery(query),
                             insightProps,
-                            onDateRangeZoom: dragToZoomEnabled ? zoomDateRange : undefined,
+                            // Flag-gated inside the charts' shared useDateRangeZoom hook.
+                            onDateRangeZoom: zoomDateRange,
                         }}
                         filtersOverride={filtersOverride}
                         variablesOverride={variablesOverride}
