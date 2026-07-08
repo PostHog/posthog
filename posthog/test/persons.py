@@ -285,8 +285,6 @@ def create_people_bulk(specs: list[dict[str, Any]]) -> list[Person]:
     """
     import json  # noqa: PLC0415
 
-    from django.utils import timezone  # noqa: PLC0415
-
     from posthog.clickhouse.client import sync_execute  # noqa: PLC0415
     from posthog.models.person.sql import BULK_INSERT_PERSON_DISTINCT_ID2, INSERT_PERSON_BULK_SQL  # noqa: PLC0415
 
@@ -328,7 +326,7 @@ def create_people_bulk(specs: list[dict[str, Any]]) -> list[Person]:
                         "team_id": person.team_id,
                         "is_deleted": 0,
                         "version": 0,
-                        "_timestamp": timezone.now().astimezone(dt.UTC).replace(tzinfo=None),
+                        "_timestamp": timestamp,
                         "_offset": 0,
                         "_partition": 0,
                     }
