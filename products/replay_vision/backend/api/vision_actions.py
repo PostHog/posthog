@@ -387,6 +387,14 @@ _RUN_REASON_LABELS = {
 class RunObservationSerializer(serializers.Serializer):
     """One recording an action run included in its summary — the 'recordings included' list on the run detail view."""
 
+    index = serializers.IntegerField(
+        read_only=True,
+        help_text=(
+            "1-based position of this observation in the summary, stable across deletions. The synthesized "
+            "report cites observations by this number (e.g. `[obs 3]`), so consumers use it to resolve a "
+            "citation to its observation."
+        ),
+    )
     id = serializers.UUIDField(
         read_only=True,
         help_text="Observation id; links to the observation detail view.",
@@ -493,7 +501,15 @@ class VisionActionRunSerializer(VisionActionRunListSerializer):
         # Scope to the run's own team (the run itself was fetched team-scoped) so a stray cross-team id
         # in the stored list can never resolve — ReplayObservation isn't fail-closed.
         by_id = {str(o.id): o for o in ReplayObservation.objects.filter(team_id=run.team_id, id__in=ids)}
-        ordered = [by_id[i] for i in ids if i in by_id]
+        # Number by original position in `observation_ids` (what the summary's `[obs N]` markers reference),
+        # then drop any deleted ones — so a deletion leaves a gap rather than renumbering the survivors.
+        ordered = []
+        for position, i in enumerate(ids, start=1):
+            obs = by_id.get(i)
+            if obs is None:
+                continue
+            obs.index = position
+            ordered.append(obs)
         return cast(list[dict[str, Any]], RunObservationSerializer(ordered, many=True, context=self.context).data)
 
 
