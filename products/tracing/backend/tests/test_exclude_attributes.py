@@ -85,3 +85,49 @@ class TestExcludeAttributes(ClickhouseTestMixin, APIBaseTest):
         # Guards the positional-index shift from adding the resource column: the per-trace duration
         # key (the last SELECT column) must still land on the right value.
         self.assertEqual(results[0]["trace_duration"], 5_000_000)
+
+    @parameterized.expand(
+        [
+            # excludeAttributes=True + an attribute filter in the WHERE used to 500: the excluded-map
+            # placeholder was aliased `attributes` / `resource_attributes`, shadowing the physical
+            # columns so the filter's `attributes.<key>` could no longer resolve. Both query builders
+            # (whole-trace `flatSpans=False`, flat `flatSpans=True`) and both attribute kinds must
+            # now return the matching row with the maps emptied.
+            (
+                "whole_trace_span_attr",
+                False,
+                {"key": "http.method", "type": "span_attribute", "operator": "exact", "value": "POST"},
+            ),
+            (
+                "flat_span_attr",
+                True,
+                {"key": "http.method", "type": "span_attribute", "operator": "exact", "value": "POST"},
+            ),
+            (
+                "whole_trace_resource_attr",
+                False,
+                {"key": "service.version", "type": "span_resource_attribute", "operator": "exact", "value": "1.2.3"},
+            ),
+            (
+                "flat_resource_attr",
+                True,
+                {"key": "service.version", "type": "span_resource_attribute", "operator": "exact", "value": "1.2.3"},
+            ),
+        ]
+    )
+    def test_exclude_attributes_with_attribute_filter(self, _name, flat_spans, prop):
+        body = {
+            "query": {
+                "dateRange": {"date_from": DATE_FROM, "date_to": DATE_TO},
+                "rootSpans": False,
+                "flatSpans": flat_spans,
+                "excludeAttributes": True,
+                "filterGroup": [prop],
+            }
+        }
+        res = self.client.post(f"/api/projects/{self.team.id}/tracing/spans/query/", body, format="json")
+        self.assertEqual(res.status_code, 200, res.content)
+        results = res.json()["results"]
+        self.assertEqual(len(results), 1)
+        self.assertEqual(results[0]["attributes"], {})
+        self.assertEqual(results[0]["resource_attributes"], {})

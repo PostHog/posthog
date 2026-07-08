@@ -610,10 +610,15 @@ class TraceSpansQueryRunner(TraceSpansQueryRunnerMixin, AnalyticsQueryRunner[Tra
                 # The attribute maps dominate payload size (db.statement holds multi-KB SQL;
                 # process.command_args etc. bulk up the resource map). When excluded we still
                 # SELECT a column so the positional result mapping stays stable — an empty map
-                # instead of the real one.
-                "attributes": parse_expr("map() AS attributes" if self.query.excludeAttributes else "attributes"),
+                # instead of the real one. The placeholder alias must NOT reuse the physical
+                # column names (`attributes` / `resource_attributes`): a same-named alias shadows
+                # the real column, so a co-occurring span/resource attribute filter in the WHERE
+                # can no longer resolve `attributes.<key>` and the query 500s.
+                "attributes": parse_expr(
+                    "map() AS attributes_excluded" if self.query.excludeAttributes else "attributes"
+                ),
                 "resource_attributes": parse_expr(
-                    "map() AS resource_attributes" if self.query.excludeAttributes else "resource_attributes"
+                    "map() AS resource_attributes_excluded" if self.query.excludeAttributes else "resource_attributes"
                 ),
             },
         )
@@ -716,9 +721,13 @@ class TraceSpansQueryRunner(TraceSpansQueryRunnerMixin, AnalyticsQueryRunner[Tra
         """,
             placeholders={
                 "where": where,
-                "attributes": parse_expr("map() AS attributes" if self.query.excludeAttributes else "attributes"),
+                # Distinct alias so the excluded-map placeholder never shadows the physical
+                # `attributes` / `resource_attributes` columns a WHERE attribute filter resolves against.
+                "attributes": parse_expr(
+                    "map() AS attributes_excluded" if self.query.excludeAttributes else "attributes"
+                ),
                 "resource_attributes": parse_expr(
-                    "map() AS resource_attributes" if self.query.excludeAttributes else "resource_attributes"
+                    "map() AS resource_attributes_excluded" if self.query.excludeAttributes else "resource_attributes"
                 ),
             },
         )
