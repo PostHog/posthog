@@ -1,0 +1,214 @@
+"""Classified parity report: new Rust cohort pipeline vs old Temporal recompute pipeline.
+
+Compares converged membership snapshots — the shadow topic folded to final state per
+(cohort, person) vs the argMax of ClickHouse cohort_membership — and classifies the
+divergences (R-EXCLUDE / R-FRESH / R-WARMUP / residual) so expected skew is separated
+from real bugs. Exits non-zero if any eligible cohort FAILs the residual gate.
+
+Run from a toolbox/web pod (needs KAFKA_INGESTION_HOSTS + the offline ClickHouse host):
+
+    manage.py compare_cohort_membership --team-id 2 --since "2026-07-07T19:11:00Z"
+"""
+
+from __future__ import annotations
+
+import json
+from collections import Counter
+from datetime import UTC, datetime, timedelta
+from typing import Any
+
+from django.core.management.base import BaseCommand, CommandError, CommandParser
+
+from products.cohorts.backend.parity.classifier import ClassifierConfig, CohortComparison, classify_cohort, summarize
+from products.cohorts.backend.parity.eligibility import EMITTING_CLASSES, screen_team
+from products.cohorts.backend.parity.fold import fold_membership_changes
+from products.cohorts.backend.parity.kafka_io import DEFAULT_SHADOW_TOPIC, DrainStats, consumer_config, drain_topic
+from products.cohorts.backend.parity.report import format_notes, format_summary, format_table, to_json
+from products.cohorts.backend.parity.snapshots import load_old_membership, load_realtime_cohorts, make_activity_probe
+
+SHADOW_TOPIC_RETENTION_DAYS = 7
+
+
+def _parse_since(raw: str) -> datetime:
+    try:
+        parsed = datetime.fromisoformat(raw.replace("Z", "+00:00"))
+    except ValueError as err:
+        raise CommandError(f"--since is not ISO8601: {raw!r}") from err
+    if parsed.tzinfo is None:
+        parsed = parsed.replace(tzinfo=UTC)
+    return parsed.astimezone(UTC)
+
+
+class Command(BaseCommand):
+    help = "Compare new-pipeline (shadow topic) vs old-pipeline (ClickHouse) cohort membership for one team"
+
+    def add_arguments(self, parser: CommandParser) -> None:
+        parser.add_argument("--team-id", type=int, required=True)
+        parser.add_argument(
+            "--since",
+            type=str,
+            required=True,
+            help="ISO8601 cutoff; must be the processor store-wipe time. Wrong values poison the fold and the warmup clock.",
+        )
+        parser.add_argument("--cohort-id", type=int, default=None, help="Limit to one cohort")
+        parser.add_argument("--threshold", type=float, default=0.5, help="Max residual %% of union for PASS")
+        parser.add_argument(
+            "--warmup-sample",
+            type=int,
+            default=5000,
+            help="Persons sampled per cohort for the R-WARMUP event check; 0 skips it (cohort-level warmup only)",
+        )
+        parser.add_argument("--no-classify", action="store_true", help="Raw snapshot diff only, no R-* rules")
+        parser.add_argument("--shadow-topic", type=str, default=DEFAULT_SHADOW_TOPIC)
+        parser.add_argument("--new-kafka-hosts", type=str, default=None, help="Override shadow-topic bootstrap servers")
+        parser.add_argument("--security-protocol", type=str, default=None, help="Override Kafka security protocol")
+        parser.add_argument("--format", choices=["table", "json"], default="table")
+        parser.add_argument("--max-messages", type=int, default=None, help="Cap on shadow messages drained")
+
+    def handle(self, *args: Any, **options: Any) -> None:
+        team_id: int = options["team_id"]
+        since = _parse_since(options["since"])
+        now = datetime.now(tz=UTC)
+        if since >= now:
+            raise CommandError("--since is in the future")
+        as_json = options["format"] == "json"
+
+        def log(message: str) -> None:
+            # Keep stdout clean for the JSON document.
+            (self.stderr if as_json else self.stdout).write(message)
+
+        # 1. Universe + eligibility screen (same rows the Rust loader reads). The screen
+        # always covers the whole team so cohort refs resolve, even with --cohort-id.
+        cohorts = list(load_realtime_cohorts(team_id))
+        if options["cohort_id"] is not None:
+            if options["cohort_id"] not in {c.pk for c in cohorts}:
+                raise CommandError(f"cohort {options['cohort_id']} is not a realtime cohort of team {team_id}")
+            selected_ids = [options["cohort_id"]]
+        else:
+            selected_ids = [c.pk for c in cohorts]
+        screened = screen_team({c.pk: c.filters for c in cohorts}, cascade_enabled=True)
+        names = {c.pk: c.name or "Untitled" for c in cohorts}
+        last_calc = {c.pk: c.last_realtime_cohort_calculation_at for c in cohorts}
+
+        histogram = Counter(s.eligibility for s in screened.values())
+        log(f"eligibility histogram (cross-check against cohort_eligibility_total): {dict(histogram)}")
+        excluded = {cid: screened[cid] for cid in selected_ids if screened[cid].eligibility not in EMITTING_CLASSES}
+        for cid, s in sorted(excluded.items()):
+            self.stderr.write(
+                self.style.WARNING(
+                    f"cohort {cid} screened {s.eligibility} (drops: {', '.join(s.drop_reasons) or '-'}) — "
+                    "SKIPPED. If cohort_eligibility_total shows no excluded_* classes, the screen mis-classified "
+                    "it; time to build the processor /debug/catalog endpoint."
+                )
+            )
+
+        # 2. New snapshot: bounded drain of the shadow topic, folded while consuming.
+        config = consumer_config(
+            hosts_override=options["new_kafka_hosts"],
+            security_protocol_override=options["security_protocol"],
+        )
+        log(f"draining {options['shadow_topic']} from {since.isoformat()} via {config['bootstrap.servers']}")
+        drain_stats = DrainStats()
+        messages = drain_topic(
+            options["shadow_topic"],
+            config=config,
+            since=since,
+            stats=drain_stats,
+            max_messages=options["max_messages"],
+        )
+        new_state, fold_stats = fold_membership_changes(messages, team_id=team_id, since=since)
+        log(
+            f"drained {drain_stats.consumed} messages from {drain_stats.partitions_read}/{drain_stats.partitions} "
+            f"partitions; folded {fold_stats.folded} for team {team_id} across {len(fold_stats.cohorts_seen)} cohorts "
+            f"(dropped: {fold_stats.dropped_wrong_team} wrong-team, {fold_stats.dropped_before_since} pre-since, "
+            f"{fold_stats.dropped_malformed} malformed, {drain_stats.undecodable} undecodable)"
+        )
+
+        warnings = self._collect_warnings(drain_stats, fold_stats.cohorts_seen - set(screened), since, now)
+
+        # 3. Old snapshot + classification per eligible cohort.
+        classifier_config = ClassifierConfig(
+            since=since,
+            now=now,
+            threshold_pct=options["threshold"],
+            warmup_sample=options["warmup_sample"],
+            classify=not options["no_classify"],
+            activity_probe=make_activity_probe(team_id),
+        )
+        rows: list[CohortComparison] = []
+        for cid in sorted(selected_ids):
+            s = screened[cid]
+            old_members = load_old_membership(team_id, cid) if s.emits else set()
+            rows.append(
+                classify_cohort(
+                    screened=s,
+                    name=names[cid],
+                    old_members=old_members,
+                    new_state=new_state.get(cid, {}),
+                    last_realtime_calculation_at=last_calc[cid],
+                    config=classifier_config,
+                )
+            )
+
+        summary = summarize(rows, config=classifier_config)
+        summary.warnings.extend(warnings)
+
+        # 4. Report.
+        if as_json:
+            meta = {
+                "team_id": team_id,
+                "since": since.isoformat(),
+                "now": now.isoformat(),
+                "shadow_topic": options["shadow_topic"],
+                "threshold_pct": options["threshold"],
+                "warmup_sample": options["warmup_sample"],
+                "classify": not options["no_classify"],
+            }
+            self.stdout.write(json.dumps(to_json(rows, summary, meta), indent=2))
+        else:
+            self.stdout.write("")
+            self.stdout.write(format_table(rows))
+            notes = format_notes(rows)
+            if notes:
+                self.stdout.write("\nnotes:\n" + notes)
+            self.stdout.write("")
+            self.stdout.write(format_summary(summary))
+
+        if summary.failed:
+            raise CommandError(f"{summary.failed} eligible cohort(s) FAIL the {options['threshold']}% residual gate")
+
+    def _collect_warnings(
+        self,
+        drain_stats: DrainStats,
+        unknown_cohorts: set[int],
+        since: datetime,
+        now: datetime,
+    ) -> list[str]:
+        warnings: list[str] = []
+        if drain_stats.earliest_retained is not None:
+            warnings_needed = bool(drain_stats.maybe_clipped_partitions)
+            message = f"earliest retained shadow message: {drain_stats.earliest_retained.isoformat()}"
+            if warnings_needed:
+                message += (
+                    f" — retention already clipped partitions {sorted(drain_stats.maybe_clipped_partitions)} "
+                    "past --since; the fold may be incomplete"
+                )
+                warnings.append(message)
+            else:
+                self.stderr.write(message)
+        if not drain_stats.reached_end:
+            warnings.append(
+                "drain stopped before the high-watermark snapshot (poll timeout or --max-messages); fold is partial"
+            )
+        retention_deadline = since + timedelta(days=SHADOW_TOPIC_RETENTION_DAYS)
+        if now > retention_deadline - timedelta(days=1):
+            warnings.append(
+                f"fold-from-topic completeness expires ~{retention_deadline.date()} ({SHADOW_TOPIC_RETENTION_DAYS}d "
+                "topic retention) — ship the shadow materializer before then"
+            )
+        if unknown_cohorts:
+            warnings.append(
+                f"shadow topic contains {len(unknown_cohorts)} cohort id(s) absent from the realtime universe "
+                f"(deleted/retyped since?): {sorted(unknown_cohorts)[:20]}"
+            )
+        return warnings
