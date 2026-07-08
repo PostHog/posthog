@@ -116,11 +116,6 @@ export function ReplayScannerSceneComponent(): JSX.Element {
                             </div>
                         ),
                     },
-                    qualityTabEnabled && {
-                        key: ReplayScannerTab.Quality,
-                        label: 'Quality',
-                        content: <ScannerQualityTab scannerId={scannerId} />,
-                    },
                     {
                         key: ReplayScannerTab.OnDemand,
                         label: 'On-demand',
@@ -130,6 +125,11 @@ export function ReplayScannerSceneComponent(): JSX.Element {
                         key: ReplayScannerTab.Configuration,
                         label: 'Configuration',
                         content: <ScannerConfigReadonly scanner={scanner} />,
+                    },
+                    qualityTabEnabled && {
+                        key: ReplayScannerTab.Quality,
+                        label: 'Quality',
+                        content: <ScannerQualityTab scannerId={scannerId} />,
                     },
                     actionsTabEnabled && {
                         key: ReplayScannerTab.Actions,
