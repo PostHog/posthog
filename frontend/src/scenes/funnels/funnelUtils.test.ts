@@ -229,6 +229,15 @@ describe('getClampedFunnelStepRange', () => {
     it('maximum for funnelToStep is 2', () => {
         expect(getClampedFunnelStepRange({ funnelToStep: 4 }, series)).toEqual({ funnelToStep: 2 })
     })
+
+    it('keeps funnelToStep in range for a stale range whose funnelFromStep is now out of bounds', () => {
+        // funnelFromStep exceeds the series and funnelToStep <= funnelFromStep: clamping `to`
+        // against the raw `from` would push it back out of range (to: 6 on a 3-step funnel).
+        expect(getClampedFunnelStepRange({ funnelFromStep: 5, funnelToStep: 1 }, series)).toEqual({
+            funnelFromStep: 1,
+            funnelToStep: 2,
+        })
+    })
 })
 
 describe('parseEventAndProperty', () => {

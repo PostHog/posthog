@@ -466,9 +466,15 @@ export const getClampedFunnelStepRange = (
     const maxStepIndex = Math.max((series?.length || 0) - 1, 1)
     const { funnelFromStep, funnelToStep } = stepRange
 
+    // Clamp `to` against the already-clamped `from`: with a stale range whose `from` now exceeds the
+    // shrunk series, using the raw `from` as the lower bound can push `to` back out of range.
+    const clampedFromStep = funnelFromStep != null ? clamp(funnelFromStep, 0, maxStepIndex - 1) : undefined
+
     return {
-        ...(funnelFromStep != null ? { funnelFromStep: clamp(funnelFromStep, 0, maxStepIndex - 1) } : {}),
-        ...(funnelToStep != null ? { funnelToStep: clamp(funnelToStep, (funnelFromStep || 0) + 1, maxStepIndex) } : {}),
+        ...(clampedFromStep != null ? { funnelFromStep: clampedFromStep } : {}),
+        ...(funnelToStep != null
+            ? { funnelToStep: clamp(funnelToStep, (clampedFromStep ?? 0) + 1, maxStepIndex) }
+            : {}),
     }
 }
 
