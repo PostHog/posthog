@@ -293,6 +293,12 @@ const llmaEvaluationCreate = (): ToolBase<typeof LlmaEvaluationCreateSchema, Sch
         if (params.conditions !== undefined) {
             body['conditions'] = params.conditions
         }
+        if (params.target !== undefined) {
+            body['target'] = params.target
+        }
+        if (params.target_config !== undefined) {
+            body['target_config'] = params.target_config
+        }
         if (params.model_configuration !== undefined) {
             body['model_configuration'] = params.model_configuration
         }
@@ -715,6 +721,12 @@ const llmaEvaluationUpdate = (): ToolBase<typeof LlmaEvaluationUpdateSchema, Sch
         if (params.conditions !== undefined) {
             body['conditions'] = params.conditions
         }
+        if (params.target !== undefined) {
+            body['target'] = params.target
+        }
+        if (params.target_config !== undefined) {
+            body['target_config'] = params.target_config
+        }
         if (params.model_configuration !== undefined) {
             body['model_configuration'] = params.model_configuration
         }
@@ -764,6 +776,9 @@ const llmaPromptCreate = (): ToolBase<typeof LlmaPromptCreateSchema, Schemas.LLM
         }
         if (params.prompt !== undefined) {
             body['prompt'] = params.prompt
+        }
+        if (params.version_description !== undefined) {
+            body['version_description'] = params.version_description
         }
         const result = await context.api.request<Schemas.LLMPrompt>({
             method: 'POST',
@@ -861,6 +876,9 @@ const llmaPromptUpdate = (): ToolBase<typeof LlmaPromptUpdateSchema, Schemas.LLM
         }
         if (params.base_version !== undefined) {
             body['base_version'] = params.base_version
+        }
+        if (params.version_description !== undefined) {
+            body['version_description'] = params.version_description
         }
         const result = await context.api.request<Schemas.LLMPrompt>({
             method: 'PATCH',

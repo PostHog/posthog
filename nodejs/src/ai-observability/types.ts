@@ -3,6 +3,7 @@ import { PropertyFilter } from '../types'
 
 export type EvaluationStatus = 'active' | 'paused' | 'error'
 export type EvaluationStatusReason = 'trial_limit_reached' | 'model_not_allowed' | 'provider_key_deleted'
+export type EvaluationTarget = 'generation' | 'trace'
 
 export interface Evaluation {
     id: string
@@ -17,6 +18,9 @@ export interface Evaluation {
     output_type: string
     output_config: Record<string, any>
     conditions: EvaluationConditionSet[]
+    target: EvaluationTarget
+    // Target-specific settings keyed off `target`. Trace targets carry the aggregation window.
+    target_config: { window_seconds?: number }
     provider_key_id?: string | null
     created_at: string
     updated_at: string

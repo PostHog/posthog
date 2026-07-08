@@ -24,6 +24,8 @@ use cohort_stream_processor::filters::{run_refresh_loop, CatalogHandle};
 use cohort_stream_processor::merge::gc::MergeGcSweeper;
 use cohort_stream_processor::merge::redrive::RedriveSweeper;
 use cohort_stream_processor::observability;
+use cohort_stream_processor::observability::store_stats::StoreStatsSweeper;
+use cohort_stream_processor::observability::tokio_monitor::TokioRuntimeMonitor;
 use cohort_stream_processor::partitions::{
     run_rebalance_worker, CohortConsumerContext, Follower, FollowerSet, OffsetTracker,
     PartitionRouter,
@@ -36,8 +38,8 @@ use cohort_stream_processor::store::durability::{
     run_boot_restore, upload_cadence, CheckpointExporter, CheckpointSweeper, OffsetManifest,
     S3Uploader, TrackedTopic, CHECKPOINT_LOOP_NAME,
 };
-use cohort_stream_processor::store::CohortStore;
-use cohort_stream_processor::sweep::{run_sweep_loop, DispatchSweeper};
+use cohort_stream_processor::store::{CohortStore, StoreHandle};
+use cohort_stream_processor::sweep::{run_sweep_loop, run_sweep_loop_delayed, DispatchSweeper};
 use cohort_stream_processor::workers::MergeWorkerDeps;
 
 common_alloc::used!();
@@ -48,8 +50,12 @@ fn main() -> Result<()> {
     let config = Config::init_from_env()
         .context("Failed to load configuration from environment variables")?;
 
-    let runtime = tokio::runtime::Builder::new_multi_thread()
-        .enable_all()
+    let mut runtime_builder = tokio::runtime::Builder::new_multi_thread();
+    runtime_builder.enable_all();
+    if config.tokio_worker_threads > 0 {
+        runtime_builder.worker_threads(config.tokio_worker_threads);
+    }
+    let runtime = runtime_builder
         .build()
         .context("Failed to build tokio runtime")?;
 
@@ -95,6 +101,11 @@ async fn async_main(config: Config) -> Result<()> {
             ComponentOptions::new().with_graceful_shutdown(Duration::from_secs(30)),
         )
     });
+    // Short graceful window: it holds no state and its next tick is disposable.
+    let tokio_monitor_handle = manager.register(
+        "tokio-runtime-monitor",
+        ComponentOptions::new().with_graceful_shutdown(Duration::from_secs(2)),
+    );
 
     let readiness = manager.readiness_handler();
     let liveness = manager.liveness_handler();
@@ -141,7 +152,10 @@ async fn async_main(config: Config) -> Result<()> {
         "opening RocksDB state store",
     );
     let store = CohortStore::open(&store_config).context("opening RocksDB state store")?;
-    let router = PartitionRouter::new(config.partition_channel_buffer);
+    let router = PartitionRouter::with_intake_cap(
+        config.partition_channel_buffer,
+        config.partition_intake_max_events,
+    );
     let offset_tracker = Arc::new(OffsetTracker::new());
 
     let kafka_config = config.build_kafka_config();
@@ -198,18 +212,23 @@ async fn async_main(config: Config) -> Result<()> {
     });
 
     // Cheap `Arc` clones taken before the originals move into the dispatcher: the checkpoint sweeper
-    // needs its own handle on the store and each per-topic tracker to capture the offset manifest.
+    // needs its own raw-store handle and each per-topic tracker to capture the offset manifest.
     // Captured unconditionally to satisfy the borrow checker; consumed only when `checkpoint_enabled`.
+    // The sweeper keeps the raw `CohortStore` rather than the facade because of its must-not-panic
+    // policy (see checkpoint.rs).
     let store_for_checkpoint = store.clone();
     let events_tracker_for_checkpoint = offset_tracker.clone();
     let merge_tracker_for_checkpoint = merge_deps.merge_tracker.clone();
     let transfer_tracker_for_checkpoint = merge_deps.transfer_tracker.clone();
     let cascade_tracker_for_checkpoint = merge_deps.cascade_tracker.clone();
 
+    let handle = StoreHandle::new(store, config.offload_config());
+    let handle_for_stats = handle.clone();
+
     let dispatcher = Arc::new(EventDispatcher::new(
         router,
         offset_tracker,
-        store,
+        handle,
         catalog.clone(),
         sink,
         merge_deps,
@@ -219,6 +238,8 @@ async fn async_main(config: Config) -> Result<()> {
     if config.durable_restore_enabled {
         dispatcher.enable_durable_restore();
     }
+    // Event-name fan-out gating, likewise set before any worker spawns.
+    dispatcher.set_event_name_gating(config.event_name_gating());
 
     let (context, rebalance_rx) = CohortConsumerContext::new(dispatcher.clone());
     let stream_consumer: StreamConsumer<CohortConsumerContext> = config
@@ -365,7 +386,10 @@ async fn async_main(config: Config) -> Result<()> {
         consumer_handle.shutdown_token(),
     ));
 
-    tokio::spawn(run_sweep_loop(
+    // Hold the first eviction pass past the boot window so its read burst doesn't stack on backlog
+    // catch-up; only the eviction sweep is delayed.
+    tokio::spawn(run_sweep_loop_delayed(
+        config.first_eviction_sweep_delay(),
         DispatchSweeper::new(dispatcher.clone(), config.sweep_safety_margin_ms as i64),
         config.sweep_interval(),
         "eviction",
@@ -389,6 +413,22 @@ async fn async_main(config: Config) -> Result<()> {
         "merge_gc",
         consumer_handle.shutdown_token(),
     ));
+
+    // Publish store cache/size metrics via the sweep machinery, and Tokio runtime metrics via a
+    // separate monitor.
+    tokio::spawn(run_sweep_loop(
+        StoreStatsSweeper::new(handle_for_stats),
+        config.stats_publish_interval(),
+        "store_stats",
+        consumer_handle.shutdown_token(),
+    ));
+    tokio::spawn(
+        TokioRuntimeMonitor::new(
+            &tokio::runtime::Handle::current(),
+            config.stats_publish_interval(),
+        )
+        .start_monitoring(tokio_monitor_handle),
+    );
 
     // Whole-DB checkpoint → PVC + incremental S3 sweep loop. Spawned only when the master gate is on,
     // so a default deploy starts no checkpoint task. The cascade tracker is included only when cascade

@@ -613,6 +613,7 @@ export function InsightMeta({
                     insightId={insight.id}
                     insightShortId={short_id as InsightShortId}
                     canCreateAlertForInsight={canCreateAlertForInsight}
+                    insightQuery={query}
                     deferInitialAlertsLoad
                 />
             ) : null}

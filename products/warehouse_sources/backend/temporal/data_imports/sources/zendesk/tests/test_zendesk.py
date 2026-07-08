@@ -251,16 +251,22 @@ class TestIncrementalResourceWiring:
     `start_time` cursor so incremental sync actually filters data, not just flips write disposition."""
 
     @pytest.mark.parametrize(
-        "endpoint,expected_path,expected_paginator,cursor_path",
+        "endpoint,expected_path,expected_paginator,cursor_path,expected_include",
         [
             pytest.param(
-                "users", "/api/v2/incremental/users/cursor", ZendeskCursorIncrementalPaginator, "updated_at", id="users"
+                "users",
+                "/api/v2/incremental/users/cursor",
+                ZendeskCursorIncrementalPaginator,
+                "updated_at",
+                None,
+                id="users",
             ),
             pytest.param(
                 "organizations",
                 "/api/v2/incremental/organizations",
                 ZendeskIncrementalEndpointPaginator,
                 "updated_at",
+                None,
                 id="organizations",
             ),
             pytest.param(
@@ -268,6 +274,7 @@ class TestIncrementalResourceWiring:
                 "/api/v2/incremental/ticket_events",
                 ZendeskIncrementalEndpointPaginator,
                 "created_at",
+                "comment_events",
                 id="ticket_events",
             ),
             pytest.param(
@@ -275,18 +282,27 @@ class TestIncrementalResourceWiring:
                 "/api/v2/incremental/ticket_metric_events",
                 ZendeskIncrementalEndpointPaginator,
                 "time",
+                None,
                 id="ticket_metric_events",
             ),
         ],
     )
     def test_endpoint_declares_incremental_start_time(
-        self, endpoint: str, expected_path: str, expected_paginator: type, cursor_path: str
+        self,
+        endpoint: str,
+        expected_path: str,
+        expected_paginator: type,
+        cursor_path: str,
+        expected_include: str | None,
     ) -> None:
         resource = get_resource(endpoint, should_use_incremental_field=True)
         endpoint_config = _endpoint(resource)
 
         assert endpoint_config["path"] == expected_path
         assert isinstance(endpoint_config["paginator"], expected_paginator)
+        # Without include=comment_events the ticket_events export strips comment bodies from
+        # child_events — assert the sideload stays wired.
+        assert endpoint_config["params"].get("include") == expected_include
 
         start_time = endpoint_config["params"]["start_time"]
         assert start_time["type"] == "incremental"

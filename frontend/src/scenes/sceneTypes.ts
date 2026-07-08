@@ -169,6 +169,7 @@ export enum Scene {
     EventFiltering = 'EventFiltering',
     Unsubscribe = 'Unsubscribe',
     CodeCanvasLink = 'CodeCanvasLink',
+    CodeChannelLink = 'CodeChannelLink',
     UserInterview = 'UserInterview',
     UserInterviewResponse = 'UserInterviewResponse',
     UserInterviews = 'UserInterviews',
@@ -362,6 +363,10 @@ export const sceneToAccessControlResourceType: Partial<Record<Scene, AccessContr
 
     // Exports
     [Scene.Exports]: AccessControlResourceType.Export,
+
+    // Early access features
+    [Scene.EarlyAccessFeature]: AccessControlResourceType.EarlyAccessFeature,
+    [Scene.EarlyAccessFeatures]: AccessControlResourceType.EarlyAccessFeature,
 
     // Customer analytics (only journey scenes — configuration uses project-level admin)
     [Scene.CustomerJourneyBuilder]: AccessControlResourceType.CustomerAnalytics,

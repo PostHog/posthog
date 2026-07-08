@@ -39,6 +39,12 @@ export const SubscriptionsCreateParams = /* @__PURE__ */ zod.object({
         ),
 })
 
+export const subscriptionsCreateBodyAiPromptConfigOneWindowOneModeDefault = `since_last_sent`
+export const subscriptionsCreateBodyAiPromptConfigOneWindowOneStartDaysAgoMax = 365
+
+export const subscriptionsCreateBodyAiPromptConfigOneWindowOneEndDaysAgoMin = 0
+export const subscriptionsCreateBodyAiPromptConfigOneWindowOneEndDaysAgoMax = 365
+
 export const subscriptionsCreateBodyIntervalMax = 2147483647
 
 export const subscriptionsCreateBodyBysetposMin = -2147483648
@@ -51,7 +57,7 @@ export const subscriptionsCreateBodyTitleMax = 100
 
 export const subscriptionsCreateBodySummaryPromptGuideMax = 500
 
-export const subscriptionsCreateBodyQueryPlanOneStepsItemQueryTypeDefault = `hogql`
+export const subscriptionsCreateBodyAiQueryPlanOneStepsItemQueryTypeDefault = `hogql`
 
 export const SubscriptionsCreateBody = /* @__PURE__ */ zod
     .object({
@@ -74,6 +80,45 @@ export const SubscriptionsCreateBody = /* @__PURE__ */ zod
             .nullish()
             .describe(
                 "Free-text prompt that drives the AI-generated report. Required when resource_type is 'ai_prompt'. Max 4000 characters."
+            ),
+        ai_prompt_config: zod
+            .object({
+                window: zod
+                    .object({
+                        mode: zod
+                            .enum(['since_last_sent', 'last_n_days', 'days_ago_range'])
+                            .describe(
+                                '* `since_last_sent` - Since last report\n* `last_n_days` - Last N days\n* `days_ago_range` - Between X and Y days ago'
+                            )
+                            .default(subscriptionsCreateBodyAiPromptConfigOneWindowOneModeDefault)
+                            .describe(
+                                "What the report analyzes each run:\n* `since_last_sent` (default) — everything since the previous successful scheduled delivery (gap-free; test/manual sends don't move the anchor)\n* `last_n_days` — a fixed trailing window of start_days_ago days\n* `days_ago_range` — the explicit range from start_days_ago to end_days_ago days ago\n\n* `since_last_sent` - Since last report\n* `last_n_days` - Last N days\n* `days_ago_range` - Between X and Y days ago"
+                            ),
+                        start_days_ago: zod
+                            .number()
+                            .min(1)
+                            .max(subscriptionsCreateBodyAiPromptConfigOneWindowOneStartDaysAgoMax)
+                            .nullish()
+                            .describe(
+                                "Lower bound of the analysis window, in days before the run. Required for 'last_n_days' (the N) and 'days_ago_range'; ignored for 'since_last_sent'. 1-365."
+                            ),
+                        end_days_ago: zod
+                            .number()
+                            .min(subscriptionsCreateBodyAiPromptConfigOneWindowOneEndDaysAgoMin)
+                            .max(subscriptionsCreateBodyAiPromptConfigOneWindowOneEndDaysAgoMax)
+                            .nullish()
+                            .describe(
+                                "Upper bound of the analysis window, in days before the run (0 = now). Required for 'days_ago_range' and must be less than start_days_ago; ignored for other modes. 0-365."
+                            ),
+                    })
+                    .optional()
+                    .describe(
+                        "Analysis window for the report. Omitted = 'since_last_sent' (everything since the previous scheduled delivery)."
+                    ),
+            })
+            .optional()
+            .describe(
+                "Configuration for AI report subscriptions (analysis window, future knobs). Only valid when resource_type is 'ai_prompt'. Replaced wholesale on writes."
             ),
         target_type: zod
             .enum(['email', 'slack'])
@@ -152,7 +197,7 @@ export const SubscriptionsCreateBody = /* @__PURE__ */ zod
             .describe(
                 'Optional free-text guidance (max 500 chars) steering the AI summary, e.g. which metrics to emphasize. Only settable when AI summary context is enabled for the organization; clearing it (empty string) is always allowed.'
             ),
-        query_plan: zod
+        ai_query_plan: zod
             .union([
                 zod.object({
                     overall_intent: zod
@@ -167,7 +212,7 @@ export const SubscriptionsCreateBody = /* @__PURE__ */ zod
                                 query_type: zod
                                     .enum(['hogql'])
                                     .describe('* `hogql` - hogql')
-                                    .default(subscriptionsCreateBodyQueryPlanOneStepsItemQueryTypeDefault)
+                                    .default(subscriptionsCreateBodyAiQueryPlanOneStepsItemQueryTypeDefault)
                                     .describe(
                                         "Query language for this step. MVP: always 'hogql'.\n\n* `hogql` - hogql"
                                     ),
@@ -208,6 +253,12 @@ export const SubscriptionsPartialUpdateParams = /* @__PURE__ */ zod.object({
         ),
 })
 
+export const subscriptionsPartialUpdateBodyAiPromptConfigOneWindowOneModeDefault = `since_last_sent`
+export const subscriptionsPartialUpdateBodyAiPromptConfigOneWindowOneStartDaysAgoMax = 365
+
+export const subscriptionsPartialUpdateBodyAiPromptConfigOneWindowOneEndDaysAgoMin = 0
+export const subscriptionsPartialUpdateBodyAiPromptConfigOneWindowOneEndDaysAgoMax = 365
+
 export const subscriptionsPartialUpdateBodyIntervalMax = 2147483647
 
 export const subscriptionsPartialUpdateBodyBysetposMin = -2147483648
@@ -220,7 +271,7 @@ export const subscriptionsPartialUpdateBodyTitleMax = 100
 
 export const subscriptionsPartialUpdateBodySummaryPromptGuideMax = 500
 
-export const subscriptionsPartialUpdateBodyQueryPlanOneStepsItemQueryTypeDefault = `hogql`
+export const subscriptionsPartialUpdateBodyAiQueryPlanOneStepsItemQueryTypeDefault = `hogql`
 
 export const SubscriptionsPartialUpdateBody = /* @__PURE__ */ zod
     .object({
@@ -243,6 +294,45 @@ export const SubscriptionsPartialUpdateBody = /* @__PURE__ */ zod
             .nullish()
             .describe(
                 "Free-text prompt that drives the AI-generated report. Required when resource_type is 'ai_prompt'. Max 4000 characters."
+            ),
+        ai_prompt_config: zod
+            .object({
+                window: zod
+                    .object({
+                        mode: zod
+                            .enum(['since_last_sent', 'last_n_days', 'days_ago_range'])
+                            .describe(
+                                '* `since_last_sent` - Since last report\n* `last_n_days` - Last N days\n* `days_ago_range` - Between X and Y days ago'
+                            )
+                            .default(subscriptionsPartialUpdateBodyAiPromptConfigOneWindowOneModeDefault)
+                            .describe(
+                                "What the report analyzes each run:\n* `since_last_sent` (default) — everything since the previous successful scheduled delivery (gap-free; test/manual sends don't move the anchor)\n* `last_n_days` — a fixed trailing window of start_days_ago days\n* `days_ago_range` — the explicit range from start_days_ago to end_days_ago days ago\n\n* `since_last_sent` - Since last report\n* `last_n_days` - Last N days\n* `days_ago_range` - Between X and Y days ago"
+                            ),
+                        start_days_ago: zod
+                            .number()
+                            .min(1)
+                            .max(subscriptionsPartialUpdateBodyAiPromptConfigOneWindowOneStartDaysAgoMax)
+                            .nullish()
+                            .describe(
+                                "Lower bound of the analysis window, in days before the run. Required for 'last_n_days' (the N) and 'days_ago_range'; ignored for 'since_last_sent'. 1-365."
+                            ),
+                        end_days_ago: zod
+                            .number()
+                            .min(subscriptionsPartialUpdateBodyAiPromptConfigOneWindowOneEndDaysAgoMin)
+                            .max(subscriptionsPartialUpdateBodyAiPromptConfigOneWindowOneEndDaysAgoMax)
+                            .nullish()
+                            .describe(
+                                "Upper bound of the analysis window, in days before the run (0 = now). Required for 'days_ago_range' and must be less than start_days_ago; ignored for other modes. 0-365."
+                            ),
+                    })
+                    .optional()
+                    .describe(
+                        "Analysis window for the report. Omitted = 'since_last_sent' (everything since the previous scheduled delivery)."
+                    ),
+            })
+            .optional()
+            .describe(
+                "Configuration for AI report subscriptions (analysis window, future knobs). Only valid when resource_type is 'ai_prompt'. Replaced wholesale on writes."
             ),
         target_type: zod
             .enum(['email', 'slack'])
@@ -328,7 +418,7 @@ export const SubscriptionsPartialUpdateBody = /* @__PURE__ */ zod
             .describe(
                 'Optional free-text guidance (max 500 chars) steering the AI summary, e.g. which metrics to emphasize. Only settable when AI summary context is enabled for the organization; clearing it (empty string) is always allowed.'
             ),
-        query_plan: zod
+        ai_query_plan: zod
             .union([
                 zod.object({
                     overall_intent: zod
@@ -343,7 +433,7 @@ export const SubscriptionsPartialUpdateBody = /* @__PURE__ */ zod
                                 query_type: zod
                                     .enum(['hogql'])
                                     .describe('* `hogql` - hogql')
-                                    .default(subscriptionsPartialUpdateBodyQueryPlanOneStepsItemQueryTypeDefault)
+                                    .default(subscriptionsPartialUpdateBodyAiQueryPlanOneStepsItemQueryTypeDefault)
                                     .describe(
                                         "Query language for this step. MVP: always 'hogql'.\n\n* `hogql` - hogql"
                                     ),

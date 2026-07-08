@@ -108,6 +108,32 @@ class TestSlackMessageRouting(BaseTest):
 
     @parameterized.expand(
         [
+            ("bare_mention", "<@U0BOT001>", None, False),
+            ("mention_with_whitespace", "<@U0BOT001>   ", None, False),
+            ("mention_with_only_other_mentions", "<@U0BOT001> <@U0USER99>", None, False),
+            ("mention_with_text", "<@U0BOT001> help me", None, True),
+            ("bare_mention_with_files", "<@U0BOT001>", [{"url_private": "https://x/y.png"}], True),
+        ]
+    )
+    @patch(f"{MODULE}.create_or_update_slack_ticket")
+    def test_empty_mention_does_not_create_ticket(self, _name, text, files, should_create, mock_create_or_update):
+        handle_support_mention(
+            {
+                "type": "app_mention",
+                "channel": "C_ANY",
+                "ts": "1700000000.000100",
+                "user": "U123",
+                "text": text,
+                "files": files,
+            },
+            self.team,
+            "T123",
+        )
+
+        assert mock_create_or_update.called is should_create
+
+    @parameterized.expand(
+        [
             # No ticket yet: seed from the thread's parent message and backfill replies.
             (
                 "seeds_from_parent",
@@ -250,6 +276,61 @@ class TestSlackMessageRouting(BaseTest):
 
         mock_create_or_update.assert_not_called()
 
+    @parameterized.expand(
+        [
+            ("channel_join",),
+            ("channel_leave",),
+            ("channel_topic",),
+            ("channel_purpose",),
+            ("pinned_item",),
+            ("message_changed",),
+            ("message_deleted",),
+            # An unrecognized subtype must be treated as noise, not silently ticketed —
+            # this is the whole point of using an allowlist over a blocklist.
+            ("some_future_subtype",),
+        ]
+    )
+    @patch(f"{MODULE}.create_or_update_slack_ticket")
+    def test_system_message_subtype_does_not_create_ticket(self, subtype, mock_create_or_update):
+        handle_support_message(
+            {
+                "type": "message",
+                "subtype": subtype,
+                "channel": "C_CONFIG",
+                "ts": "1700000000.000100",
+                "user": "U123",
+                "text": "<@U123> has joined the channel",
+            },
+            self.team,
+            "T123",
+        )
+
+        mock_create_or_update.assert_not_called()
+
+    @parameterized.expand(
+        [
+            ("file_share",),
+            ("me_message",),
+            ("thread_broadcast",),
+        ]
+    )
+    @patch(f"{MODULE}.create_or_update_slack_ticket")
+    def test_content_bearing_subtype_creates_ticket(self, subtype, mock_create_or_update):
+        handle_support_message(
+            {
+                "type": "message",
+                "subtype": subtype,
+                "channel": "C_CONFIG",
+                "ts": "1700000000.000100",
+                "user": "U123",
+                "text": "I need help with something",
+            },
+            self.team,
+            "T123",
+        )
+
+        mock_create_or_update.assert_called_once()
+
     @patch(f"{MODULE}.get_bot_user_id", return_value="U_OWN_BOT")
     @patch(f"{MODULE}.get_slack_client")
     @patch(f"{MODULE}.create_or_update_slack_ticket")
@@ -358,14 +439,15 @@ class TestSlackMemberAlerts(BaseTest):
 
         mock_get_client.return_value.chat_postMessage.assert_not_called()
 
+    @patch(f"{MODULE}.get_bot_user_id", return_value="U_OWN_BOT")
     @patch(f"{MODULE}.get_slack_client")
-    def test_member_event_no_op_without_alert_channel(self, mock_get_client):
+    def test_member_event_no_alert_without_alert_channel(self, mock_get_client, _mock_bot_id):
         self.team.conversations_settings["slack_alert_channel_id"] = None
         self.team.save()
 
         handle_member_joined_channel({"user": "U123", "channel": "C_SUPPORT"}, self.team, "T123")
 
-        mock_get_client.assert_not_called()
+        mock_get_client.return_value.chat_postMessage.assert_not_called()
 
     @patch(f"{MODULE}.get_bot_user_id", return_value="U_OWN_BOT")
     @patch(f"{MODULE}.get_slack_client")
@@ -409,3 +491,36 @@ class TestSlackMemberAlerts(BaseTest):
         mock_get_client.return_value.chat_postMessage.assert_called_once()
         kwargs = mock_get_client.return_value.chat_postMessage.call_args.kwargs
         assert kwargs["text"] == "<@U123> joined <#C_SUPPORT>"
+
+    @parameterized.expand(
+        [
+            ("unconfigured_channel", [], False),
+            ("configured_channel", ["C_SUPPORT"], True),
+        ]
+    )
+    @patch(f"{MODULE}.report_team_action")
+    @patch(f"{MODULE}.get_bot_user_id", return_value="U_OWN_BOT")
+    @patch(f"{MODULE}.get_slack_client")
+    def test_bot_join_fires_posthog_event(
+        self, _name, channel_ids, expected_is_configured, mock_get_client, _mock_bot_id, mock_report
+    ):
+        self.team.conversations_settings["slack_channel_ids"] = channel_ids
+        self.team.save()
+
+        handle_member_joined_channel({"user": "U_OWN_BOT", "channel": "C_SUPPORT"}, self.team, "T123")
+
+        mock_report.assert_called_once_with(
+            self.team,
+            "support slack bot joined channel",
+            {"slack_team_id": "T123", "slack_channel_id": "C_SUPPORT", "is_configured_channel": expected_is_configured},
+        )
+        # It's analytics only — no Slack alert for the bot's own join.
+        mock_get_client.return_value.chat_postMessage.assert_not_called()
+
+    @patch(f"{MODULE}.report_team_action")
+    @patch(f"{MODULE}.get_bot_user_id", return_value="U_OWN_BOT")
+    @patch(f"{MODULE}.get_slack_client")
+    def test_non_bot_join_does_not_fire_posthog_event(self, _mock_get_client, _mock_bot_id, mock_report):
+        handle_member_joined_channel({"user": "U123", "channel": "C_SUPPORT"}, self.team, "T123")
+
+        mock_report.assert_not_called()

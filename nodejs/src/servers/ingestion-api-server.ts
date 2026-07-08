@@ -26,16 +26,16 @@ import { PubSub } from '~/common/utils/pubsub'
 import { TeamManager } from '~/common/utils/team-manager'
 import { CookielessManager } from '~/ingestion/common/cookieless/cookieless-manager'
 import { BatchWritingGroupStore } from '~/ingestion/common/groups/batch-writing-group-store'
-import { BatchWritingPersonsStore } from '~/ingestion/common/persons/batch-writing-person-store'
-import { PersonsStore } from '~/ingestion/common/persons/persons-store'
-import { createIngestionProducerRegistry } from '~/ingestion/common/producer-registry'
+import { createIngestionProducerRegistry } from '~/ingestion/common/outputs/producer-registry'
 import {
     KafkaDownstreamProducerEnvConfig,
     KafkaUpstreamProducerEnvConfig,
     ProducerName,
     getDefaultKafkaDownstreamProducerEnvConfig,
     getDefaultKafkaUpstreamProducerEnvConfig,
-} from '~/ingestion/common/producers'
+} from '~/ingestion/common/outputs/producers'
+import { BatchWritingPersonsStore } from '~/ingestion/common/persons/batch-writing-person-store'
+import { PersonsStore } from '~/ingestion/common/persons/persons-store'
 import { createOkContext } from '~/ingestion/framework/helpers'
 import { TopHog } from '~/ingestion/framework/tophog'
 import { createAiEventSubpipeline } from '~/ingestion/pipelines/ai'
@@ -59,6 +59,11 @@ import { CommonConfig } from '../common/config'
 import { deserializeKafkaMessage } from '../ingestion/api/kafka-message-converter'
 import { IngestBatchRequest, IngestBatchResponse } from '../ingestion/api/types'
 import { EventFilterManagerComponent } from '../ingestion/common/event-filters'
+import { createFeatureFlagCalledDedupService } from '../ingestion/common/feature-flag-called-dedup/feature-flag-called-dedup-service'
+import { MainLaneOverflowRedirect } from '../ingestion/common/overflow-redirect/main-lane-overflow-redirect'
+import { OverflowLaneOverflowRedirect } from '../ingestion/common/overflow-redirect/overflow-lane-overflow-redirect'
+import { OverflowRedirectService } from '../ingestion/common/overflow-redirect/overflow-redirect-service'
+import { RedisOverflowRepository } from '../ingestion/common/overflow-redirect/overflow-redis-repository'
 import {
     DatabaseConnectionConfig,
     IngestionConsumerConfig,
@@ -69,11 +74,6 @@ import {
     getDefaultIngestionConsumerConfig,
     getDefaultIngestionOutputsConfig,
 } from '../ingestion/config'
-import { createFeatureFlagCalledDedupService } from '../ingestion/utils/feature-flag-called-dedup/feature-flag-called-dedup-service'
-import { MainLaneOverflowRedirect } from '../ingestion/utils/overflow-redirect/main-lane-overflow-redirect'
-import { OverflowLaneOverflowRedirect } from '../ingestion/utils/overflow-redirect/overflow-lane-overflow-redirect'
-import { OverflowRedirectService } from '../ingestion/utils/overflow-redirect/overflow-redirect-service'
-import { RedisOverflowRepository } from '../ingestion/utils/overflow-redirect/overflow-redis-repository'
 import {
     HealthCheckResult,
     HealthCheckResultError,

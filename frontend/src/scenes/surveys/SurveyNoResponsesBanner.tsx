@@ -1,8 +1,10 @@
 import * as motion from 'motion/react-client'
+import { ComponentType } from 'react'
 
+import { HedgehogMagnifyingGlass, HedgehogShocked } from '@posthog/brand/hoggies'
 import { LemonButton } from '@posthog/lemon-ui'
 
-import { DetectiveHog, SurprisedHog, WavingHog } from 'lib/components/hedgehogs'
+import { WavingHog } from 'lib/components/hedgehogs'
 
 interface Props {
     type: 'question' | 'survey'
@@ -21,7 +23,7 @@ interface BannerConfig {
     title: string
     description: string
     bubbleText: string
-    Hog: typeof DetectiveHog
+    Hog: ComponentType<{ className?: string }>
     hogDuration: number
     hogAnimation: Record<string, number[]>
 }
@@ -37,7 +39,7 @@ function getBannerConfig(
                 title: 'No responses match current filters',
                 description: 'Try adjusting your filters to see matching responses.',
                 bubbleText: getFilterBubbleText(activeFilterTypes),
-                Hog: DetectiveHog,
+                Hog: HedgehogMagnifyingGlass,
                 hogDuration: 1.2,
                 hogAnimation: { x: [0, -24, 0, 24, 0], y: [0, -3, 0, -3, 0], rotate: [0, -2, 0, 2, 0] },
             }
@@ -55,7 +57,7 @@ function getBannerConfig(
                 title: `No responses for this ${type}`,
                 description: `Once people start responding to your ${type}, their answers will appear here.`,
                 bubbleText: 'No answers collected yet',
-                Hog: SurprisedHog,
+                Hog: HedgehogShocked,
                 hogDuration: 1.1,
                 hogAnimation: { y: [0, -5, 0, -3, 0], rotate: [0, -4, 0, 2, 0] },
             }
@@ -132,7 +134,7 @@ export function SurveyNoResponsesBanner({
                     animate={hogAnimation}
                     transition={hogTransition as React.ComponentProps<typeof motion.div>['transition']}
                 >
-                    <Hog className="size-36 block" loading="eager" decoding="sync" />
+                    <Hog className="size-36 block" />
                 </motion.div>
             </div>
             <div className="text-center max-w-2xl space-y-1">

@@ -31,7 +31,7 @@ from posthog.event_usage import report_user_action
 from posthog.exceptions_capture import capture_exception
 from posthog.helpers.impersonation import is_impersonated
 from posthog.models import OrganizationMembership
-from posthog.models.activity_logging.activity_log import Change, Detail, log_activity
+from posthog.models.activity_logging.activity_log import Change, Detail, Trigger, log_activity
 from posthog.models.comment import Comment
 from posthog.models.person.person import Person
 from posthog.models.person.util import get_person_by_distinct_id, get_persons_by_distinct_ids
@@ -236,6 +236,7 @@ class TicketSerializer(TaggedItemSerializerMixin, serializers.ModelSerializer):
             "priority",
             "assignee",
             "anonymous_traits",
+            "identity_verified",
             "ai_resolved",
             "escalation_reason",
             "ai_triage",
@@ -259,6 +260,7 @@ class TicketSerializer(TaggedItemSerializerMixin, serializers.ModelSerializer):
             "cc_participants",
             "github_repo",
             "github_issue_number",
+            "zendesk_ticket_id",
             "organization_id",
             "person",
             "tags",
@@ -287,11 +289,21 @@ class TicketSerializer(TaggedItemSerializerMixin, serializers.ModelSerializer):
             "cc_participants",
             "github_repo",
             "github_issue_number",
+            "zendesk_ticket_id",
             "organization_id",
             "person",
             "ai_triage",
+            "identity_verified",
         ]
         extra_kwargs = {
+            "identity_verified": {
+                "help_text": (
+                    "Trust signal indicating whether the ticket's claimed identity was attested by the server "
+                    "(widget HMAC, SPF-authenticated email, or a signature-validated platform webhook). "
+                    "True when verified, false when assessed but not attested, null when unknown "
+                    "(e.g. created before this signal existed)."
+                )
+            },
             "status": {"help_text": "Ticket status: new, open, pending, on_hold, or resolved"},
             "priority": {"help_text": "Ticket priority: low, medium, or high. Null if unset."},
             "sla_due_at": {"help_text": "SLA deadline set via workflows. Null means no SLA."},
@@ -1201,6 +1213,9 @@ class TicketViewSet(TaggedItemViewSetMixin, TeamAndOrgViewSetMixin, viewsets.Mod
                 email_config=email_config,
                 email_from=data["recipient_email"],
                 email_subject=data.get("email_subject", ""),
+                # The recipient hasn't proven control of this address — a team member just typed it —
+                # so leave identity unknown. It's promoted to verified if/when they reply and authenticate.
+                identity_verified=None,
             )
 
             Comment.objects.create(
@@ -1264,7 +1279,9 @@ def validate_assignee_membership(assignee, organization) -> None:
             raise serializers.ValidationError({"assignee": "role does not belong to this organization"})
 
 
-def assign_ticket(ticket: Ticket, assignee, organization, user, team_id, was_impersonated):
+def assign_ticket(
+    ticket: Ticket, assignee, organization, user, team_id, was_impersonated, trigger: Trigger | None = None
+):
     """
     Assign a ticket to a user or role.
 
@@ -1275,6 +1292,7 @@ def assign_ticket(ticket: Ticket, assignee, organization, user, team_id, was_imp
         user: The user making the change
         team_id: The team ID
         was_impersonated: Whether the session is impersonated
+        trigger: Optional Trigger identifying an automated source (e.g. a workflow) that made the change
     """
     validate_assignee(assignee)
     validate_assignee_membership(assignee, organization)
@@ -1318,6 +1336,7 @@ def assign_ticket(ticket: Ticket, assignee, organization, user, team_id, was_imp
                         action="changed",
                     )
                 ],
+                trigger=trigger,
             ),
         )
 

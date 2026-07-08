@@ -154,6 +154,12 @@ async def conn_b(_db_url: str):
         yield c
 
 
+@pytest.fixture
+def sync_conn(_db_url: str):
+    with psycopg.Connection.connect(_db_url, autocommit=True) as c:
+        yield c
+
+
 @pytest.mark.django_db(transaction=True)
 class TestBatchQueueInsert:
     @pytest.mark.asyncio
@@ -247,6 +253,20 @@ class TestBatchQueueGetUnprocessed:
         batches = await _claim(conn, limit=3)
 
         assert [b.schema_id for b in batches] == ["B"]
+        await _release(conn, batches=batches)
+
+    @pytest.mark.asyncio
+    async def test_heavy_team_does_not_monopolize_poll_window(self, conn):
+        # One team's deep, older backlog must not fill the whole LIMIT window under
+        # global FIFO — round-robin interleaving must still admit another team's newer batch.
+        for i in range(5):
+            await _insert_batch(conn, team_id=1, schema_id="heavy", run_uuid="heavy-run", batch_index=i)
+        await _insert_batch(conn, team_id=2, schema_id="light", run_uuid="light-run", batch_index=0)
+        await conn.execute(f"UPDATE {BATCH_TABLE} SET created_at = created_at - interval '1 hour' WHERE team_id = 1")
+
+        batches = await _claim(conn, limit=3)
+
+        assert {b.team_id for b in batches} == {1, 2}
         await _release(conn, batches=batches)
 
     @pytest.mark.asyncio
@@ -473,6 +493,21 @@ class TestBatchQueueLeaseRenewal:
 
 
 @pytest.mark.django_db(transaction=True)
+class TestQueueFreshnessProbe:
+    @pytest.mark.asyncio
+    async def test_reports_only_batches_never_picked_up(self, conn):
+        assert await BatchQueue.get_oldest_unclaimed_batch_age_seconds(conn) is None
+
+        bid = await _insert_batch(conn)
+        age = await BatchQueue.get_oldest_unclaimed_batch_age_seconds(conn)
+        assert age is not None and age >= 0
+
+        # Any status row means the batch was picked up — it must stop counting.
+        await BatchQueue.update_status(conn, batch_id=bid, job_state="executing", attempt=1)
+        assert await BatchQueue.get_oldest_unclaimed_batch_age_seconds(conn) is None
+
+
+@pytest.mark.django_db(transaction=True)
 class TestGroupLeaseRecovery:
     @pytest.mark.asyncio
     async def test_absent_lease_orphan_is_recovered(self, conn):
@@ -627,3 +662,159 @@ class TestPendingBatchToExportSignal:
         assert signal["data_folder"] == "/tmp/data"
         assert signal["primary_keys"] == ["id"]
         assert signal["cdc_write_mode"] == "upsert"
+
+
+@pytest.mark.django_db(transaction=True)
+class TestGetRunActivitySummary:
+    WF_RUN_ID = "wf-run-1"
+
+    def _summary(self, sync_conn: psycopg.Connection[Any]):
+        return BatchQueue.get_run_activity_summary(sync_conn, job_id="job-1", workflow_run_id=self.WF_RUN_ID)
+
+    @pytest.mark.parametrize("age_hours,expect_stale", [(0, False), (7, True)])
+    @pytest.mark.asyncio
+    async def test_unclaimed_batches_are_non_terminal_and_stale_only_after_grace(
+        self, conn, sync_conn, age_hours, expect_stale
+    ):
+        # Unclaimed batches (no status rows yet) must read as live backlog, not batch-less;
+        # only after the grace window with zero activity does the run become stealable.
+        bid = await _insert_batch(conn, metadata={"workflow_run_id": self.WF_RUN_ID})
+        await conn.execute(
+            f"UPDATE {BATCH_TABLE} SET created_at = now() - make_interval(hours => %s) WHERE id = %s",
+            (age_hours, bid),
+        )
+
+        summary = self._summary(sync_conn)
+
+        assert summary.has_batches is True
+        assert summary.has_non_terminal is True
+        assert summary.is_stale is expect_stale
+
+    @pytest.mark.asyncio
+    async def test_partially_loaded_run_counts_unclaimed_backlog(self, conn, sync_conn):
+        # Some batches succeeded, the rest unclaimed: mid-load, not all-terminal.
+        done = await _insert_batch(conn, batch_index=0, metadata={"workflow_run_id": self.WF_RUN_ID})
+        await BatchQueue.update_status(conn, batch_id=done, job_state="succeeded", attempt=1)
+        await _insert_batch(conn, batch_index=1, metadata={"workflow_run_id": self.WF_RUN_ID})
+
+        summary = self._summary(sync_conn)
+
+        assert summary.has_non_terminal is True
+        assert summary.is_stale is False
+
+    @pytest.mark.asyncio
+    async def test_all_terminal_batches_report_no_non_terminal(self, conn, sync_conn):
+        # Every batch terminal but the job still RUNNING (final batch never
+        # enqueued) is genuinely abandoned and must remain stealable.
+        for i in range(2):
+            bid = await _insert_batch(conn, batch_index=i, metadata={"workflow_run_id": self.WF_RUN_ID})
+            await BatchQueue.update_status(conn, batch_id=bid, job_state="succeeded", attempt=1)
+
+        summary = self._summary(sync_conn)
+
+        assert summary.has_batches is True
+        assert summary.has_non_terminal is False
+
+    @pytest.mark.asyncio
+    async def test_other_runs_batches_do_not_count(self, conn, sync_conn):
+        await _insert_batch(conn, metadata={"workflow_run_id": "other-wf-run"})
+
+        summary = self._summary(sync_conn)
+
+        assert summary.has_batches is False
+        assert summary.has_non_terminal is False
+        assert summary.is_stale is True
+
+    @pytest.mark.asyncio
+    async def test_recent_producer_inserts_do_not_reset_staleness(self, conn, sync_conn):
+        # A streaming producer kept dead-loader runs "active" for a whole outage:
+        # only loader progress may reset the staleness clock.
+        old = await _insert_batch(conn, batch_index=0, metadata={"workflow_run_id": self.WF_RUN_ID})
+        await conn.execute(
+            f"UPDATE {BATCH_TABLE} SET created_at = now() - interval '7 hours' WHERE id = %s",
+            (old,),
+        )
+        await _insert_batch(conn, batch_index=1, metadata={"workflow_run_id": self.WF_RUN_ID})
+
+        summary = self._summary(sync_conn)
+
+        assert summary.has_non_terminal is True
+        assert summary.is_stale is True
+
+    @pytest.mark.asyncio
+    async def test_old_status_write_is_stale_despite_new_batches(self, conn, sync_conn):
+        # The loader last made progress hours ago; fresh producer inserts must not hide that.
+        claimed = await _insert_batch(conn, batch_index=0, metadata={"workflow_run_id": self.WF_RUN_ID})
+        await BatchQueue.update_status(conn, batch_id=claimed, job_state="executing", attempt=1)
+        await conn.execute(
+            f"UPDATE {STATUS_TABLE} SET created_at = now() - interval '7 hours' WHERE batch_id = %s",
+            (claimed,),
+        )
+        await _insert_batch(conn, batch_index=1, metadata={"workflow_run_id": self.WF_RUN_ID})
+
+        summary = self._summary(sync_conn)
+
+        assert summary.has_non_terminal is True
+        assert summary.is_stale is True
+
+    @pytest.mark.asyncio
+    async def test_recent_status_write_keeps_old_backlog_active(self, conn, sync_conn):
+        # A slow-but-alive loader (old unclaimed backlog, fresh status writes) must not be stolen from.
+        old = await _insert_batch(conn, batch_index=0, metadata={"workflow_run_id": self.WF_RUN_ID})
+        await conn.execute(
+            f"UPDATE {BATCH_TABLE} SET created_at = now() - interval '7 hours' WHERE id = %s",
+            (old,),
+        )
+        claimed = await _insert_batch(conn, batch_index=1, metadata={"workflow_run_id": self.WF_RUN_ID})
+        await BatchQueue.update_status(conn, batch_id=claimed, job_state="executing", attempt=1)
+
+        summary = self._summary(sync_conn)
+
+        assert summary.has_non_terminal is True
+        assert summary.is_stale is False
+
+
+@pytest.mark.django_db(transaction=True)
+class TestClaimWindowSkipsForeignLeasedGroups:
+    @pytest.mark.asyncio
+    async def test_foreign_leased_group_does_not_occupy_the_window(self, conn, conn_b):
+        # Two claimable groups; A is older so it sits at the head of the window.
+        await _insert_batch(conn, team_id=1, schema_id="schema-A", job_id="job-A", run_uuid="run-A")
+        await _insert_batch(conn, team_id=2, schema_id="schema-B", job_id="job-B", run_uuid="run-B")
+
+        got_b = await _claim(conn_b, owner=OWNER_B, limit=1)
+        assert [b.schema_id for b in got_b] == ["schema-A"]
+
+        # OWNER_A polls with a window of 1. If foreign-leased groups occupied window
+        # slots (the pre-fix behavior), group A would fill the window, its lease claim
+        # would fail, and OWNER_A would get nothing while group B sat claimable —
+        # window starvation. The fix hands the slot to group B instead.
+        got_a = await _claim(conn, owner=OWNER_A, limit=1)
+        assert [b.schema_id for b in got_a] == ["schema-B"]
+
+        # A holder's own live lease keeps its group claimable (group continuation).
+        got_b_again = await _claim(conn_b, owner=OWNER_B, limit=2)
+        assert "schema-A" in {b.schema_id for b in got_b_again}
+
+        # Expired foreign leases stop shielding the group.
+        await conn.execute(f"UPDATE {LEASE_TABLE} SET expires_at = now() - interval '1 second'")
+        got_a_after_expiry = await _claim(conn, owner=OWNER_A, limit=2)
+        assert "schema-A" in {b.schema_id for b in got_a_after_expiry}
+
+
+@pytest.mark.django_db(transaction=True)
+class TestCountBatchesForRun:
+    @pytest.mark.asyncio
+    async def test_counts_unclaimed_batches_and_zero_when_none(self, conn, _db_url):
+        # Freshly inserted batches have no status row until the loader claims them. The count
+        # must still see them: it exists so the CDC orphan reconciler can tell a run that
+        # enqueued nothing (safe to fail) from one whose batches are merely unclaimed (a
+        # status-view JOIN would report the latter as zero and strand a late load).
+        await _insert_batch(conn, job_id="job-A", batch_index=0)
+        await _insert_batch(conn, job_id="job-A", batch_index=1)
+        await _insert_batch(conn, job_id="job-B", batch_index=0)
+
+        with psycopg.Connection.connect(_db_url, autocommit=True) as sync_conn:
+            assert BatchQueue.count_batches_for_run(sync_conn, job_id="job-A") == 2
+            assert BatchQueue.count_batches_for_run(sync_conn, job_id="job-B") == 1
+            assert BatchQueue.count_batches_for_run(sync_conn, job_id="job-missing") == 0

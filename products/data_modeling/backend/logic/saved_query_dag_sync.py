@@ -97,10 +97,17 @@ def resolve_dependency_to_node(
     return node
 
 
+class ManagedDAGError(Exception):
+    """Raised when a user-initiated sync targets a system-managed DAG (e.g. Revenue Analytics)."""
+
+    pass
+
+
 def sync_saved_query_to_dag(
     saved_query: "DataWarehouseSavedQuery",
     extra_properties: dict | None = None,  # TODO(andrew): remove this after backfill
     dag: DAG | None = None,
+    allow_managed: bool = False,
 ) -> Node | None:
     """
     Create or update Node and Edges for a SavedQuery.
@@ -115,9 +122,13 @@ def sync_saved_query_to_dag(
         saved_query: The SavedQuery to sync to the DAG
         extra_properties: Optional dict of properties to merge into created nodes and edges
         dag: Optional DAG to use. If not provided, uses the default team DAG.
+        allow_managed: Whether placement into a system-managed DAG is permitted. Only the
+            internal managed-viewset sync passes this; user-initiated callers must not, so a
+            same-team user can't insert nodes/edges into a managed DAG via the saved-query API.
 
     Returns the Node for the SavedQuery, or None if query parsing fails.
     Raises QueryError or CycleDetectionError if the query would create an invalid DAG.
+    Raises ManagedDAGError if dag is system-managed and allow_managed is False.
     """
     from products.data_modeling.backend.models.datawarehouse_saved_query import DataWarehouseSavedQuery
 
@@ -125,6 +136,8 @@ def sync_saved_query_to_dag(
     team = saved_query.team
     if dag is None:
         dag = DAG.get_or_create_default(team)
+    if dag.is_managed and not allow_managed:
+        raise ManagedDAGError(f"Cannot sync saved query into system-managed DAG: dag_id={dag.id}")
     model_query = saved_query.query.get("query") if saved_query.query else None
     if not model_query:
         raise ValueError(f"DataWarehouseSavedQuery has no query: saved_query_id={saved_query.id}")

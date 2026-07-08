@@ -28,8 +28,7 @@ const DEFAULT_DATE_FILTER: DateFilter = { dateFrom: '-7d', dateTo: null }
 // the time buckets, so the query only needs the doubled date range. `__BUCKET__`
 // is replaced with a dateTrunc at the active interval at call time.
 //
-// Queries key on the canonical, $-prefixed event — PostHog's MCP server dual-emits a
-// legacy `mcp_tool_call` alias, so matching both names would double-count it.
+// Key on the canonical event only — also matching the legacy `mcp_tool_call` alias would double-count.
 const KPI_QUERY = `
 SELECT
     __BUCKET__ AS bucket,
@@ -44,6 +43,23 @@ WHERE event = '$mcp_tool_call'
     AND {filters}
 GROUP BY bucket
 ORDER BY bucket
+`
+
+// Distinct MCP users for the "Users" tile — how many distinct people made tool calls.
+// Counted over the doubled window like the KPI query, then split into the selected period
+// and its equal-length predecessor with a single conditional uniq so the comparison is a
+// true distinct-person count (summing per-bucket distinct users would over-count anyone
+// active on more than one day). `__CUR_START__` is the selected-period boundary, injected
+// as a timezone-aware toDateTime at call time.
+const USERS_QUERY = `
+SELECT
+    uniqIf(person_id, timestamp >= __CUR_START__) AS current_users,
+    uniqIf(person_id, timestamp < __CUR_START__) AS prior_users
+FROM events
+WHERE event = '$mcp_tool_call'
+    AND properties.$mcp_tool_name IS NOT NULL
+    AND properties.$mcp_tool_name != ''
+    AND {filters}
 `
 
 // Per-session rollup powering the Notable sessions block. The selector
@@ -357,6 +373,14 @@ export function buildKpiWindow(dateFilter: DateFilter, timezone: string, interva
     }
 }
 
+// Merge the dashboard's active filters with a doubled comparison window's date range.
+// Shared by the KPI and Users loaders so both tiles are scoped to the exact same window —
+// the tile-parity the reload test asserts. Keep the two loaders reading from here so the
+// window/filter plumbing can't drift between them.
+function kpiWindowFilters(queryFilters: HogQLFilters, kpiWindow: KpiWindow): HogQLFilters {
+    return { ...queryFilters, dateRange: { date_from: kpiWindow.dateFrom, date_to: kpiWindow.dateTo } }
+}
+
 function parseRows(rawRows: unknown[][]): BucketRow[] {
     return rawRows.map((r) => ({
         bucket: String(r[0]),
@@ -461,14 +485,45 @@ export const mcpDashboardOverviewLogic = kea<mcpDashboardOverviewLogicType>([
                     const response = (await api.query({
                         kind: NodeKind.HogQLQuery,
                         query: KPI_QUERY.replace('__BUCKET__', `dateTrunc('${interval}', timestamp)`),
-                        filters: {
-                            ...values.queryFilters,
-                            dateRange: { date_from: kpiWindow.dateFrom, date_to: kpiWindow.dateTo },
-                        },
+                        filters: kpiWindowFilters(values.queryFilters, kpiWindow),
                     })) as HogQLQueryResponse
                     breakpoint()
                     const rows = parseRows((response?.results as unknown[][]) ?? [])
                     return buildKPIs(rows, kpiWindow.currentStartBucket)
+                },
+            },
+        ],
+        users: [
+            EMPTY_METRIC,
+            {
+                loadUsers: async (_: void, breakpoint): Promise<KPIMetric> => {
+                    const { interval, timezone } = values
+                    const kpiWindow = buildKpiWindow(values.dateFilter, timezone, interval)
+                    // Split the doubled window at the selected period's start. currentStartBucket is
+                    // interval-aligned (buildKpiWindow → start.startOf(interval)), so comparing the raw
+                    // `timestamp` against toDateTime(bucket, tz) lands on the same instant as the KPI
+                    // tiles' dateTrunc bucket-string split — keeping this count consistent with them.
+                    // (For rolling sub-day ranges the two halves can differ by up to one interval, the
+                    // same bounded skew the KPI tiles already carry; splitting on the raw start instead
+                    // would equalize the halves but desync Users from the other tiles, so don't.)
+                    const curStart = `toDateTime('${kpiWindow.currentStartBucket}', '${timezone}')`
+                    const response = (await api.query({
+                        kind: NodeKind.HogQLQuery,
+                        query: USERS_QUERY.replace(/__CUR_START__/g, curStart),
+                        filters: kpiWindowFilters(values.queryFilters, kpiWindow),
+                    })) as HogQLQueryResponse
+                    breakpoint()
+                    const row = (response?.results as unknown[][])?.[0] ?? []
+                    const value = Number(row[0] ?? 0)
+                    const previousValue = Number(row[1] ?? 0)
+                    return {
+                        value,
+                        previousValue,
+                        deltaPct: deltaPct(value, previousValue),
+                        // No sparkline: the headline is a window-level distinct count, not a per-bucket series.
+                        sparkline: [],
+                        goodDirection: 'up',
+                    }
                 },
             },
         ],
@@ -648,6 +703,7 @@ export const mcpDashboardOverviewLogic = kea<mcpDashboardOverviewLogicType>([
         },
         reloadAll: () => {
             actions.loadKPIs()
+            actions.loadUsers()
             actions.loadToolRows()
             actions.loadSessionRows()
             actions.loadHarnessRows()

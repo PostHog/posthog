@@ -27,13 +27,13 @@ def create_clickhouse_tables():
     # Create clickhouse tables to default before running test
     # Mostly so that test runs locally work correctly
     from posthog.clickhouse.schema import (
-        CREATE_DATA_QUERIES,
         CREATE_DICTIONARY_QUERIES,
         CREATE_DISTRIBUTED_TABLE_QUERIES,
         CREATE_KAFKA_TABLE_QUERIES,
         CREATE_MERGETREE_TABLE_QUERIES,
         CREATE_MV_TABLE_QUERIES,
         CREATE_VIEW_QUERIES,
+        SEED_DATA_TABLES,
         build_query,
         get_table_name,
     )
@@ -74,8 +74,16 @@ def create_clickhouse_tables():
     if dictionary_queries:
         run_clickhouse_statement_in_parallel(dictionary_queries)
 
-    data_queries = list(map(build_query, CREATE_DATA_QUERIES()))
-    run_clickhouse_statement_in_parallel(data_queries)
+    # Building the exchange-rate INSERT parses a 9 MB CSV and renders a ~100k-row VALUES
+    # string on every pytest invocation. With a reused database the seed data is already
+    # there, so skip the reload per-table (mirroring the `missing()` check above for tables).
+    # Derived from SEED_DATA_TABLES in schema.py, which also drives CREATE_DATA_QUERIES,
+    # so a new seed table added there is automatically picked up here.
+    # TRUNCATE-based resets go through reset_clickhouse_tables, which reloads unconditionally.
+    for table_name, query_fn in SEED_DATA_TABLES:
+        count = sync_execute(f"SELECT count() FROM {table_name}")[0][0]
+        if not count:
+            run_clickhouse_statement_in_parallel([build_query(query_fn)])
 
 
 def reset_clickhouse_tables():
@@ -472,10 +480,16 @@ class _JUnitTimingsPlugin:
     phase. The backend CI uses `-o junit_duration_report=call`, so session and
     module-scoped fixture setup time is excluded from `<testcase time>` and
     instead lives in this pre-first-call gap.
+
+    Also records pytest-rerunfailures retries as a `<testcase>` property: pytest's
+    junitxml appends children only for passed/failed/skipped reports, so a rerun
+    report leaves no trace and a flaky fail-then-pass serializes as a clean
+    `<testcase/>` — invisible to flaky-test telemetry.
     """
 
     _PROPERTY_SETUP = "posthog.setup_seconds"
     _PROPERTY_COLLECTION = "posthog.collection_seconds"
+    _PROPERTY_RERUNS = "posthog.reruns"
 
     def __init__(self) -> None:
         self._session_start: float | None = None
@@ -496,6 +510,18 @@ class _JUnitTimingsPlugin:
     def pytest_runtest_call(self, item: pytest.Item) -> None:
         if self._first_test_call_start is None:
             self._first_test_call_start = time.monotonic()
+
+    # `tryfirst` so the property is on the report before junitxml's own
+    # logreport consumes `user_properties` into the `<testcase>` element.
+    @pytest.hookimpl(tryfirst=True)
+    def pytest_runtest_logreport(self, report: pytest.TestReport) -> None:
+        reruns = getattr(report, "rerun", 0) or 0  # attempt index, set by pytest-rerunfailures
+        # str() widens TestReport.outcome's Literal: "rerun" is assigned by pytest-rerunfailures.
+        if not reruns or report.when != "teardown" or str(report.outcome) == "rerun":
+            return
+        # Appended exactly once: intermediate attempts never log a non-rerun teardown,
+        # and each report owns its own copy of `user_properties`.
+        report.user_properties.append((self._PROPERTY_RERUNS, str(reruns)))
 
     @staticmethod
     def _find_junit_xml_plugin(config: pytest.Config) -> Any:

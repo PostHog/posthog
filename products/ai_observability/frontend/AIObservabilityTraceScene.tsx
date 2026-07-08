@@ -74,6 +74,7 @@ import { JSONValueDisplay } from './components/JSONValueDisplay'
 import { MetricTag } from './components/MetricTag'
 import { SentimentBar } from './components/SentimentTag'
 import { TagsTabContent } from './components/TagsTabContent'
+import { TraceTimeline } from './components/TraceTimeline/TraceTimeline'
 import {
     ConversationDisplayOption,
     ConversationMessagesDisplay,
@@ -442,6 +443,7 @@ function TraceSceneWrapper(): JSX.Element {
     const traceDataLogic = useMountedLogic(aiObservabilityTraceDataLogic)
     useMountedLogic(traceReviewsLazyLoaderLogic)
     const { traceId, searchQuery, commentCount, viewMode } = useValues(traceLogic)
+    const { setEventId } = useActions(traceLogic)
     const { searchParams } = useValues(router)
     const {
         enrichedTree,
@@ -537,6 +539,11 @@ function TraceSceneWrapper(): JSX.Element {
                             </div>
                         </div>
                     </div>
+                    <TraceTimeline
+                        events={trace.events}
+                        selectedEventId={effectiveEventId ?? null}
+                        onSelectEvent={setEventId}
+                    />
                     <div className="flex flex-1 min-h-0 gap-3 flex-col md:flex-row">
                         <TraceSidebar
                             trace={trace}
@@ -1095,10 +1102,7 @@ function TraceSidebar({
     }
 
     return (
-        <aside
-            className="flex flex-col gap-3 w-full md:w-80 md:min-h-0 md:self-start md:max-h-full"
-            id="trace-events-sidebar"
-        >
+        <aside className="flex flex-col gap-3 w-full md:w-80 md:min-h-0" id="trace-events-sidebar">
             <TraceWorkflowPanel traceId={trace.id} />
             <div className="border border-primary bg-surface-primary rounded overflow-hidden flex flex-col flex-1 min-h-0">
                 <h3 className="font-medium text-sm px-2 my-2">Tree</h3>
@@ -1495,7 +1499,7 @@ const EventContent = React.memo(
         }
 
         return (
-            <div className="flex-1 min-h-0 md:min-w-0 md:self-start md:max-h-full bg-surface-primary border rounded flex flex-col border-primary p-4 overflow-y-auto">
+            <div className="flex-1 min-h-0 md:min-w-0 bg-surface-primary border rounded flex flex-col border-primary p-4 overflow-y-auto">
                 {!event ? (
                     <InsightEmptyState heading="Event not found" detail="Check if the event ID is correct." />
                 ) : (

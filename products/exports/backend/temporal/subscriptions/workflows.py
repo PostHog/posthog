@@ -531,24 +531,12 @@ class ProcessAISubscriptionWorkflow(PostHogWorkflow):
             )
             delivery_recipient_results = _to_recipient_dicts(deliver_result.recipient_results)
 
-            # A report whose every generated query failed computed no metrics — recording that as
-            # "completed" misrepresents an empty report, so mark it FAILED with the failure detail
-            # the delivery history surfaces on hover. Partial failures stay COMPLETED; their
-            # per-query diagnostics (generated HogQL + error type) live in content_snapshot for
-            # the delivery detail view.
-            if generate_result.all_queries_failed:
-                final_status = DeliveryStatus.FAILED
-                total = generate_result.total_step_count
-                detail = (
-                    f" ({', '.join(generate_result.query_error_types)})" if generate_result.query_error_types else ""
-                )
-                subject = "The query the AI generated" if total == 1 else f"All {total} queries the AI generated"
-                generation_error = {
-                    "message": f"{subject} failed to run{detail}, so the report could not be computed.",
-                    "type": "AIReportQueryFailure",
-                }
-            else:
-                final_status = DeliveryStatus.COMPLETED
+            # A report whose every generated query failed computed no metrics, so it records FAILED with
+            # the failure detail the delivery history surfaces on hover (see delivered_status). The report
+            # email already went out above (with the leading failure notice), so FAILED here means "empty
+            # report", not "not delivered" — recipient_results can still show successful sends. Partial
+            # failures stay COMPLETED; their per-query diagnostics live in content_snapshot for the viewer.
+            final_status, generation_error = generate_result.delivered_status()
 
         except Exception as e:
             # Preserve recipient outcomes carried in non-retryable delivery errors so the

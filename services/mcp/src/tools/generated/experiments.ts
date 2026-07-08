@@ -332,6 +332,9 @@ const experimentEnd = (): ToolBase<typeof ExperimentEndSchema, WithPostHogUrl<Sc
             if (params.conclusion_comment !== undefined) {
                 body['conclusion_comment'] = params.conclusion_comment
             }
+            if (params.open_cleanup_pr !== undefined) {
+                body['open_cleanup_pr'] = params.open_cleanup_pr
+            }
             const result = await context.api.request<Schemas.Experiment>({
                 method: 'POST',
                 path: `/api/projects/${encodeURIComponent(String(projectId))}/experiments/${encodeURIComponent(String(params.id))}/end/`,
@@ -696,6 +699,9 @@ const experimentSavedMetricsDestroy = (): ToolBase<typeof ExperimentSavedMetrics
 const ExperimentSavedMetricsListSchema = ExperimentSavedMetricsListQueryParams.extend({
     limit: z.preprocess(castStringToInt, ExperimentSavedMetricsListQueryParams.shape['limit']).optional(),
     offset: z.preprocess(castStringToInt, ExperimentSavedMetricsListQueryParams.shape['offset']).optional(),
+    event: ExperimentSavedMetricsListQueryParams.shape['event'].describe(
+        "Filter to shared metrics whose query references this event name — matched directly (an EventsNode) or via the step events of any action the metric references. For finding a reusable metric by what it measures; then confirm the match against each row's 'query'."
+    ),
 })
 
 const experimentSavedMetricsList = (): ToolBase<
@@ -710,6 +716,7 @@ const experimentSavedMetricsList = (): ToolBase<
             method: 'GET',
             path: `/api/projects/${encodeURIComponent(String(projectId))}/experiment_saved_metrics/`,
             query: {
+                event: params.event,
                 limit: params.limit,
                 offset: params.offset,
                 search: params.search,
@@ -795,6 +802,9 @@ const experimentShipVariant = (): ToolBase<typeof ExperimentShipVariantSchema, W
             }
             if (params.conclusion_comment !== undefined) {
                 body['conclusion_comment'] = params.conclusion_comment
+            }
+            if (params.open_cleanup_pr !== undefined) {
+                body['open_cleanup_pr'] = params.open_cleanup_pr
             }
             if (params.variant_key !== undefined) {
                 body['variant_key'] = params.variant_key

@@ -8,8 +8,11 @@ from django.conf import settings
 from django.db import models
 from django.db.models import OuterRef, Subquery
 
+from drf_spectacular.types import OpenApiTypes
+from drf_spectacular.utils import OpenApiParameter, extend_schema
 from rest_framework import filters, request, response, serializers, status, viewsets
 from rest_framework.decorators import action
+from rest_framework.exceptions import PermissionDenied
 from rest_framework.pagination import PageNumberPagination
 from temporalio.common import RetryPolicy
 
@@ -20,7 +23,6 @@ from posthog.ph_client import feature_enabled_or_false
 from posthog.temporal.common.client import sync_connect
 from posthog.temporal.data_modeling.run_workflow import RunWorkflowInputs, Selector
 from posthog.temporal.data_modeling.workflows.execute_dag import ExecuteDAGInputs
-from posthog.temporal.data_modeling.workflows.materialize_view import MaterializeViewWorkflowInputs
 
 from products.data_modeling.backend.facade.models import DAG, Edge, Node, NodeType
 from products.warehouse_sources.backend.facade.models import sync_frequency_interval_to_sync_frequency
@@ -95,13 +97,23 @@ class NodeSerializer(serializers.ModelSerializer):
     def get_dag_name(self, node: Node) -> str:
         return node.dag.name
 
+    def validate(self, attrs: dict[str, Any]) -> dict[str, Any]:
+        # System-managed DAGs (e.g. Revenue Analytics) own their nodes; the internal sync path
+        # maintains them directly via the ORM and bypasses this serializer. Block users from
+        # editing managed nodes or moving any node into a managed DAG via the API.
+        if self.instance is not None and self.instance.dag.is_managed:
+            raise serializers.ValidationError("Nodes belonging to a system-managed DAG cannot be modified.")
+        target_dag = attrs.get("dag")
+        if target_dag is not None and target_dag.is_managed:
+            raise serializers.ValidationError("Nodes cannot be created in or moved into a system-managed DAG.")
+        return attrs
+
 
 class NodePagination(PageNumberPagination):
     page_size = 1000
 
 
 # TODO: consolidate graph traversal logic. similar implementations exist in:
-# - products/data_warehouse/backend/api/lineage.py (get_upstream_dag) should be deleted after new system takes over
 # - posthog/temporal/data_modeling/workflows/execute_dag.py (_get_edge_lookup, _get_downstream_lookup)
 # - products/data_modeling/backend/graph.py (Graph) — shared in-memory graph used by list endpoint
 # the temporal workflow and lineage API should migrate to Graph
@@ -189,6 +201,11 @@ class NodeViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
 
     def get_serializer_context(self) -> dict[str, Any]:
         return super().get_serializer_context()
+
+    def perform_destroy(self, instance: Node) -> None:
+        if instance.dag.is_managed:
+            raise serializers.ValidationError("Nodes belonging to a system-managed DAG cannot be deleted.")
+        instance.delete()
 
     def list(self, request, *args, **kwargs):
         from products.data_modeling.backend.facade.models import Graph
@@ -306,12 +323,51 @@ class NodeViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
 
         return response.Response({"node_ids": list(node_ids)}, status=status.HTTP_200_OK)
 
-    @action(methods=["GET"], detail=True)
+    @extend_schema(
+        parameters=[
+            OpenApiParameter("node_id", OpenApiTypes.UUID, description="Node to build lineage for."),
+            OpenApiParameter(
+                "saved_query_id",
+                OpenApiTypes.UUID,
+                description="Saved query to build lineage for, resolved to its node. Alternative to node_id.",
+            ),
+        ]
+    )
+    @action(methods=["GET"], detail=False)
     def lineage(self, req: request.Request, *args, **kwargs) -> response.Response:
-        """Return the subgraph of nodes and edges reachable from this node (upstream + downstream)."""
+        """Return the subgraph of nodes and edges reachable from a node (upstream + downstream).
+
+        Accepts either node_id or saved_query_id, so a caller holding only a saved query (the SQL
+        editor) doesn't need to resolve the node itself.
+        """
         from products.data_modeling.backend.presentation.views.edge import EdgeSerializer
 
-        node = self.get_object()
+        # NodeViewSet is `scope_object = "INTERNAL"`, so AccessControlPermission does not gate it on
+        # any resource. Lineage exposes warehouse view/table names, types, and edges — the same
+        # metadata the deleted `warehouse_view`-scoped upstream endpoint gated on. Re-apply that gate
+        # here so warehouse RBAC still governs the read (warehouse_view inherits warehouse_objects).
+        if not self.user_access_control.check_access_level_for_resource("warehouse_view", required_level="viewer"):
+            raise PermissionDenied("Reading lineage requires data warehouse read access.")
+
+        node_id = req.query_params.get("node_id")
+        saved_query_id = req.query_params.get("saved_query_id")
+        if not node_id and not saved_query_id:
+            return response.Response(
+                {"error": "node_id or saved_query_id is required"}, status=status.HTTP_400_BAD_REQUEST
+            )
+        # Parse UUIDs up front: unlike the detail route, query params aren't validated by URL
+        # routing, so an invalid string would surface as a 500 from the ORM instead of a 400.
+        try:
+            lookup = {"id": UUID(node_id)} if node_id else {"saved_query_id": UUID(cast(str, saved_query_id))}
+        except ValueError:
+            return response.Response({"error": "Invalid UUID"}, status=status.HTTP_400_BAD_REQUEST)
+
+        # saved_query is a non-unique FK: a saved query synced into multiple DAGs has multiple nodes.
+        # Order for a deterministic pick (the graphs are equivalent for lineage purposes).
+        node = Node.objects.filter(team_id=self.team_id, **lookup).order_by("created_at").first()
+        if node is None:
+            return response.Response({"error": "Node not found"}, status=status.HTTP_404_NOT_FOUND)
+
         upstream_ids = _get_upstream_nodes(node, include_tables=True)
         downstream_ids = _get_downstream_nodes(node)
         all_ids = upstream_ids | downstream_ids | {str(node.id)}
@@ -338,6 +394,8 @@ class NodeViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     @action(methods=["POST"], detail=True)
     def materialize(self, req: request.Request, *args, **kwargs) -> response.Response:
         """Materialize just this single node."""
+        from products.data_modeling.backend.facade.api import start_node_materialization
+
         node = self.get_object()
 
         if node.type == NodeType.TABLE:
@@ -346,36 +404,6 @@ class NodeViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
-        if _is_v2_backend_enabled(cast(User, req.user), self.team):
-            inputs: MaterializeViewWorkflowInputs | RunWorkflowInputs = MaterializeViewWorkflowInputs(
-                team_id=self.team_id,
-                dag_id=str(node.dag_id),
-                node_id=str(node.id),
-            )
-            workflow_name = "data-modeling-materialize-view"
-            workflow_id = f"materialize-view-{node.id}-{uuid4()}"
-        else:
-            inputs = RunWorkflowInputs(
-                team_id=self.team_id,
-                select=[Selector(label=str(node.saved_query_id), ancestors=0, descendants=0)],
-            )
-            workflow_name = "data-modeling-run"
-            workflow_id = f"data-modeling-run-{node.id}-{uuid4()}"
-
-        temporal = sync_connect()
-        asyncio.run(
-            temporal.start_workflow(
-                workflow_name,
-                asdict(inputs),
-                id=workflow_id,
-                task_queue=str(settings.DATA_MODELING_TASK_QUEUE),
-                retry_policy=RetryPolicy(
-                    initial_interval=timedelta(seconds=10),
-                    maximum_interval=timedelta(seconds=60),
-                    maximum_attempts=3,
-                    non_retryable_error_types=["NondeterminismError", "CancelledError"],
-                ),
-            )
-        )
+        start_node_materialization(node, is_v2=_is_v2_backend_enabled(cast(User, req.user), self.team))
 
         return response.Response(status=status.HTTP_200_OK)

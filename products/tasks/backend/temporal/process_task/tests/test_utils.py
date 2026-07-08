@@ -5,10 +5,16 @@ from django.test import TestCase
 from parameterized import parameterized
 
 from products.mcp_store.backend.facade.contracts import ActiveInstallationInfo
+from products.tasks.backend.constants import (
+    DEFAULT_DIRECTORY_RESUME_SNAPSHOT_MOUNT_PATH,
+    DEFAULT_SANDBOX_WORKING_DIR,
+    SNAPSHOT_KIND_DIRECTORY,
+)
 from products.tasks.backend.models import Task
 from products.tasks.backend.temporal.process_task.utils import (
     GitHubCredentialSource,
     McpServerConfig,
+    RunState,
     get_git_identity_env_vars,
     get_github_credential_source,
     get_sandbox_github_token,
@@ -16,6 +22,99 @@ from products.tasks.backend.temporal.process_task.utils import (
     get_user_mcp_server_configs,
     is_caller_token_run,
 )
+
+
+class TestRunStateSnapshotPaths(TestCase):
+    @parameterized.expand(
+        [
+            (
+                "new_directory_snapshot",
+                {"snapshot_kind": SNAPSHOT_KIND_DIRECTORY},
+                DEFAULT_DIRECTORY_RESUME_SNAPSHOT_MOUNT_PATH,
+            ),
+            (
+                "stored_directory_snapshot_path",
+                {"snapshot_kind": SNAPSHOT_KIND_DIRECTORY, "snapshot_mount_path": DEFAULT_SANDBOX_WORKING_DIR},
+                DEFAULT_SANDBOX_WORKING_DIR,
+            ),
+            # A disallowed stored path invalidates the snapshot (None) — it must NOT be remapped
+            # to the default: the snapshot's content layout only fits the path it was captured
+            # from. "/tmp" is the legacy default whose re-mount killed the sandbox.
+            (
+                "legacy_tmp_directory_snapshot",
+                {"snapshot_kind": SNAPSHOT_KIND_DIRECTORY, "snapshot_mount_path": "/tmp"},
+                None,
+            ),
+            (
+                "unsupported_directory_snapshot_path",
+                {"snapshot_kind": SNAPSHOT_KIND_DIRECTORY, "snapshot_mount_path": "/tmp/agent-env"},
+                None,
+            ),
+            ("filesystem_snapshot", {"snapshot_kind": "filesystem"}, None),
+        ]
+    )
+    def test_resume_snapshot_mount_path(self, _name: str, state: dict[str, str], expected_path: str | None) -> None:
+        assert RunState.model_validate(state).resume_snapshot_mount_path() == expected_path
+
+    @parameterized.expand(
+        [
+            (
+                "directory_workspace_path",
+                {"snapshot_kind": SNAPSHOT_KIND_DIRECTORY, "snapshot_mount_path": DEFAULT_SANDBOX_WORKING_DIR},
+                True,
+            ),
+            ("directory_no_path", {"snapshot_kind": SNAPSHOT_KIND_DIRECTORY}, True),
+            (
+                "directory_legacy_tmp_path",
+                {"snapshot_kind": SNAPSHOT_KIND_DIRECTORY, "snapshot_mount_path": "/tmp"},
+                False,
+            ),
+            ("filesystem", {"snapshot_kind": "filesystem"}, True),
+            ("no_kind", {}, True),
+        ]
+    )
+    def test_resume_snapshot_is_usable(self, _name: str, state: dict[str, str], expected: bool) -> None:
+        assert RunState.model_validate(state).resume_snapshot_is_usable() is expected
+
+    @parameterized.expand(
+        [
+            (
+                "directory_full_triple",
+                {
+                    "snapshot_external_id": "im-dir",
+                    "snapshot_kind": SNAPSHOT_KIND_DIRECTORY,
+                    "snapshot_mount_path": DEFAULT_SANDBOX_WORKING_DIR,
+                },
+                {
+                    "snapshot_external_id": "im-dir",
+                    "snapshot_kind": SNAPSHOT_KIND_DIRECTORY,
+                    "snapshot_mount_path": DEFAULT_SANDBOX_WORKING_DIR,
+                },
+            ),
+            (
+                "filesystem_no_mount_path",
+                {"snapshot_external_id": "im-fs", "snapshot_kind": "filesystem"},
+                {"snapshot_external_id": "im-fs", "snapshot_kind": "filesystem"},
+            ),
+            (
+                "legacy_no_kind",
+                {"snapshot_external_id": "im-old"},
+                {"snapshot_external_id": "im-old", "snapshot_kind": "filesystem"},
+            ),
+            (
+                "unusable_directory",
+                {
+                    "snapshot_external_id": "im-dir",
+                    "snapshot_kind": SNAPSHOT_KIND_DIRECTORY,
+                    "snapshot_mount_path": "/tmp",
+                },
+                {},
+            ),
+            ("no_snapshot", {}, {}),
+        ]
+    )
+    def test_resume_snapshot_carry_state(self, _name: str, state: dict[str, str], expected: dict[str, str]) -> None:
+        assert RunState.model_validate(state).resume_snapshot_carry_state() == expected
 
 
 class TestGetSandboxMcpConfigs(TestCase):
@@ -368,6 +467,7 @@ class TestGetGitIdentityEnvVars(TestCase):
         [
             (Task.OriginProduct.ERROR_TRACKING,),
             (Task.OriginProduct.SUPPORT_QUEUE,),
+            (Task.OriginProduct.HOGDESK,),
             (Task.OriginProduct.EVAL_CLUSTERS,),
             (Task.OriginProduct.SESSION_SUMMARIES,),
         ]
@@ -405,6 +505,26 @@ class TestGetGitIdentityEnvVars(TestCase):
         result = get_git_identity_env_vars(task)
         assert result["GIT_AUTHOR_NAME"] == "PostHog User"
         assert result["GIT_AUTHOR_EMAIL"] == "anon@example.com"
+
+
+class TestGetGithubToken(TestCase):
+    def test_raises_credential_unavailable_for_dead_installation_instead_of_stale_token(self):
+        from posthog.models import Integration, Organization, Team
+
+        from products.tasks.backend.exceptions import CredentialUnavailableError
+        from products.tasks.backend.temporal.process_task.utils import get_github_token
+
+        org = Organization.objects.create(name="o")
+        team = Team.objects.create(organization=org, name="t")
+        integration = Integration.objects.create(
+            team=team,
+            kind="github",
+            config={"installation_id": "INSTALL", "installation_unavailable_since": 1700000000},
+            sensitive_config={"access_token": "ghs_stale"},
+        )
+
+        with self.assertRaises(CredentialUnavailableError):
+            get_github_token(integration.id)
 
 
 class TestGetSandboxGitHubToken(TestCase):

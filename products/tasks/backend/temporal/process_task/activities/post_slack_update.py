@@ -65,12 +65,7 @@ def post_slack_update(input: PostSlackUpdateInput) -> None:
         if input.sandbox_cleaned:
             if pr_url:
                 handler.update_reaction("hedgehog")
-                if _is_pr_opened_notified(task_run, pr_url):
-                    handler.delete_progress()
-                    return
-
-                handler.post_pr_opened_sandbox_cleaned(pr_url, task_url)
-                _mark_pr_opened_notified(task_run, pr_url)
+                _post_pr_opened_notification_once(task_run, handler, pr_url, task_url)
             elif task_run.status == TaskRun.Status.CANCELLED:
                 handler.update_reaction("hedgehog")
                 handler.post_cancelled(task_url)
@@ -85,7 +80,10 @@ def post_slack_update(input: PostSlackUpdateInput) -> None:
             if task_run.error_message and "timed out" in task_run.error_message:
                 handler.delete_progress()
                 return
-            handler.post_completion(pr_url, task_url)
+            if pr_url:
+                _post_pr_opened_notification_once(task_run, handler, pr_url, task_url)
+            else:
+                handler.post_completion(task_url)
         elif task_run.status == TaskRun.Status.CANCELLED:
             handler.update_reaction("hedgehog")
             handler.post_cancelled(task_url)
@@ -99,7 +97,6 @@ def post_slack_update(input: PostSlackUpdateInput) -> None:
                 # Task is still running (PR opened mid-run) — keep the :eyes: reaction
                 # so the thread reads as in-progress until it genuinely completes.
                 handler.update_reaction("eyes")
-                handler.delete_progress()
                 return
             stage = _get_stage_from_status(task_run.status, task_run.stage)
             handler.post_or_update_progress(stage, task_url)
@@ -131,35 +128,32 @@ def _post_pr_opened_notification_once(
     from products.slack_app.backend.models import SlackThreadTaskMapping
 
     if _is_pr_opened_notified(task_run, pr_url):
+        # Skip the repost but still clear any lingering progress marker.
+        handler.delete_progress()
         return
 
-    # Resolve the reply target from the live mapping so the PR notification
-    # tags the current actor instead of the thread starter.
+    # Tag the person who started the task. This fires asynchronously (often long
+    # after the PR opened, once the CI follow-up loop settles), so tagging the
+    # latest actor would ping whoever last happened to touch the thread — a casual
+    # joiner — rather than the person who owns the work. Interactive replies still
+    # tag the current speaker; only these milestone pings key on the starter.
     mapping = SlackThreadTaskMapping.objects.filter(task_run=task_run).first()
-    reply_target_slack_user_id = (
-        (mapping.latest_actor_slack_user_id or mapping.mentioning_slack_user_id) if mapping else None
-    )
+    reply_target_slack_user_id = mapping.mentioning_slack_user_id if mapping else None
 
     handler.post_pr_opened(pr_url, task_url, reply_target_slack_user_id=reply_target_slack_user_id)
 
-    _mark_pr_opened_notified(task_run, pr_url)
+    task_run.task.mark_slack_pr_notified(pr_url)
 
 
 def _is_pr_opened_notified(task_run, pr_url: str) -> bool:
-    state = task_run.state or {}
-    if not state.get("slack_pr_opened_notified"):
-        return False
-    notified_url = state.get("slack_notified_pr_url")
-    return notified_url == pr_url if notified_url else True
-
-
-def _mark_pr_opened_notified(task_run, pr_url: str) -> None:
-    from products.tasks.backend.models import TaskRun
-
-    TaskRun.update_state_atomic(
-        task_run.id,
-        updates={
-            "slack_pr_opened_notified": True,
-            "slack_notified_pr_url": pr_url,
-        },
-    )
+    # Dedupe on the Task (the conversation), not the run: a thread spans many runs
+    # and a later one can re-stamp the same pr_url, so per-run state would re-announce.
+    if task_run.task.slack_notified_pr_url == pr_url:
+        return True
+    # Transition fallback: honor the old per-run flag for runs already in flight at
+    # deploy. Drop once none predate the task-level dedupe.
+    legacy_state = task_run.state or {}
+    if legacy_state.get("slack_pr_opened_notified"):
+        legacy_url = legacy_state.get("slack_notified_pr_url")
+        return not legacy_url or legacy_url == pr_url
+    return False

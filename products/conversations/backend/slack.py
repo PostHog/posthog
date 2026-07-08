@@ -20,6 +20,7 @@ from django.db.models import F
 import structlog
 from slack_sdk import WebClient
 
+from posthog.event_usage import report_team_action
 from posthog.models.comment import Comment
 from posthog.models.organization import OrganizationMembership
 from posthog.models.team.team import Team
@@ -34,7 +35,7 @@ from .cache import (
     set_cached_slack_user,
     slack_ticket_create_lock,
 )
-from .formatting import extract_slack_user_ids, slack_to_content_and_rich_content
+from .formatting import extract_slack_user_ids, slack_to_content_and_rich_content, strip_slack_user_mentions
 from .models import Ticket
 from .models.constants import Channel, ChannelDetail, Status
 from .services.attachments import (
@@ -48,6 +49,27 @@ from .support_slack import SUPPORT_SLACK_ALLOWED_HOST_SUFFIXES, get_support_slac
 logger = structlog.get_logger(__name__)
 SLACK_DOWNLOAD_TIMEOUT_SECONDS = 10
 MAX_REDIRECTS = 5
+
+# Slack message subtypes that carry real, user-authored content and may open or update a
+# ticket. A normal message has no subtype at all; these few subtypes also count as content
+# (file uploads, /me, and thread replies echoed to the channel). ``bot_message`` is handled
+# separately via the ``is_bot`` path. Every other subtype is system noise — channel
+# join/leave, topic/purpose/name changes, pins, edits, deletions, huddles, and so on — and
+# must never create a ticket. This is an allowlist on purpose: Slack keeps adding subtypes,
+# so anything unrecognized is treated as noise rather than silently opening tickets.
+# https://docs.slack.dev/reference/events/message/#subtypes
+TICKETABLE_MESSAGE_SUBTYPES = frozenset({"file_share", "me_message", "thread_broadcast"})
+
+
+def _is_ticketable_message(event: dict, *, is_bot: bool) -> bool:
+    """True when a Slack message event carries real user content worth ticketing.
+
+    ``bot_message`` is allowed through here so the caller's bot handling can decide
+    (top-level bot posts are dropped, thread replies from other bots become comments).
+    """
+    subtype = event.get("subtype")
+    return not subtype or subtype in TICKETABLE_MESSAGE_SUBTYPES or is_bot
+
 
 # Slack ID shapes — guard against malformed payloads before interpolating into mrkdwn.
 # Permissive on charset (underscores allowed) but blocks angle brackets, @, #, and spaces.
@@ -486,6 +508,8 @@ def create_or_update_slack_ticket(
             slack_thread_ts=thread_ts,
             slack_team_id=slack_team_id,
             unread_team_count=0 if is_team_member else 1,
+            # Created from a signature-validated Slack webhook — platform-attested identity.
+            identity_verified=True,
         )
 
     Comment.objects.create(
@@ -573,11 +597,11 @@ def handle_support_message(event: dict, team: Team, slack_team_id: str) -> None:
     if not channel:
         return
 
-    # Always skip non-message subtypes
-    if event.get("subtype") in ("message_changed", "message_deleted"):
-        return
-
     is_bot = bool(event.get("bot_id") or event.get("subtype") == "bot_message")
+
+    # Only real user content opens or updates a ticket; system-message subtypes are noise.
+    if not _is_ticketable_message(event, is_bot=is_bot):
+        return
 
     slack_user_id = event.get("user")
     text = event.get("text", "")
@@ -726,6 +750,17 @@ def handle_support_mention(event: dict, team: Team, slack_team_id: str) -> None:
                     _backfill_thread_replies(client, team, ticket, channel, thread_ts)
                 return
 
+    # A bare "@supporthog" (mention only, no message or files) must not create an empty
+    # ticket. The parent-seeding branch above already handled thread-escalation mentions.
+    if not strip_slack_user_mentions(text).strip() and not files:
+        logger.info(
+            "slack_support_mention_empty_skipped",
+            team_id=_get_team_id(team),
+            slack_channel_id=channel,
+            thread_ts=thread_ts,
+        )
+        return
+
     create_or_update_slack_ticket(
         team=team,
         slack_channel_id=channel,
@@ -784,7 +819,8 @@ def _backfill_thread_replies(
     team_message_count = 0
 
     for reply in thread_replies:
-        if reply.get("subtype") in ("message_changed", "message_deleted"):
+        reply_is_bot = bool(reply.get("bot_id") or reply.get("subtype") == "bot_message")
+        if not _is_ticketable_message(reply, is_bot=reply_is_bot):
             continue
 
         # Skip our own bot's messages to prevent loops, but allow other bots
@@ -993,13 +1029,56 @@ def handle_support_reaction(event: dict, team: Team, slack_team_id: str) -> None
         _backfill_thread_replies(client, team, ticket, channel, root_ts, after_ts=message_ts)
 
 
-def _handle_member_event(event: dict, team: Team, *, joined: bool) -> None:
+def _track_bot_joined_channel(event: dict, team: Team, slack_team_id: str, *, own_bot_user_id: str | None) -> None:
+    """Fire an internal PostHog event when our own bot is added to a channel.
+
+    Unlike the human join/leave alerts, this isn't gated on any team setting — it's usage
+    analytics for PostHog, not a customer-facing Slack message. Only the bot's own join is
+    tracked; every other user's join is ignored here.
+
+    There's deliberately no matching "bot left channel" event: Slack delivers
+    ``member_left_channel`` only to remaining channel members, so the bot doesn't reliably
+    receive its own removal.
+    """
+    user = event.get("user")
+    channel = event.get("channel")
+    if not user or not channel:
+        return
+    if not _SLACK_USER_ID_RE.match(user) or not _SLACK_CHANNEL_ID_RE.match(channel):
+        return
+    if not own_bot_user_id or user != own_bot_user_id:
+        return
+
+    settings_dict = team.conversations_settings or {}
+    report_team_action(
+        team,
+        "support slack bot joined channel",
+        {
+            "slack_team_id": slack_team_id,
+            "slack_channel_id": channel,
+            "is_configured_channel": channel in _configured_support_channels(settings_dict),
+        },
+    )
+
+
+def _handle_member_event(
+    event: dict,
+    team: Team,
+    *,
+    joined: bool,
+    client: WebClient | None = None,
+    own_bot_user_id: str | None = None,
+) -> None:
     """Post a join/leave alert to the configured alert channel.
 
     Fires for any channel the bot is in (Slack only delivers member_joined_channel /
     member_left_channel for channels the bot belongs to). Gated per-direction by the
     team's settings. Members of the team's own organization are skipped — the alert is
     meant to surface external participants, not internal teammates.
+
+    ``client``/``own_bot_user_id`` may be supplied by the caller so the join path resolves
+    the bot identity once for both tracking and alerting; when omitted (leave path) they're
+    resolved lazily here, after the gates, so a leave with alerts off does no Slack API work.
     """
     settings_dict = team.conversations_settings or {}
 
@@ -1019,12 +1098,13 @@ def _handle_member_event(event: dict, team: Team, *, joined: bool) -> None:
         logger.warning("slack_member_event_malformed_ids", user=user, channel=channel)
         return
 
-    client = get_slack_client(team)
+    if client is None:
+        client = get_slack_client(team)
+        own_bot_user_id = get_bot_user_id_cached(team, client)
 
     # If we can't resolve the bot's own ID (auth.test failed), bail — without it we can't tell
     # the bot's own join apart from a real user's, and posting a self-referential alert is worse
     # than skipping one alert during a transient auth outage.
-    own_bot_user_id = get_bot_user_id_cached(team, client)
     if not own_bot_user_id:
         logger.warning("slack_member_event_bot_id_unresolved", team_id=_get_team_id(team))
         return
@@ -1064,7 +1144,12 @@ def _handle_member_event(event: dict, team: Team, *, joined: bool) -> None:
 
 def handle_member_joined_channel(event: dict, team: Team, slack_team_id: str) -> None:
     """Handle a Slack 'member_joined_channel' event by alerting the configured channel."""
-    _handle_member_event(event, team, joined=True)
+    # Resolve the bot identity once and share it with both the analytics event and the alert,
+    # since a bot join always needs it for tracking regardless of the alert toggle.
+    client = get_slack_client(team)
+    own_bot_user_id = get_bot_user_id_cached(team, client)
+    _track_bot_joined_channel(event, team, slack_team_id, own_bot_user_id=own_bot_user_id)
+    _handle_member_event(event, team, joined=True, client=client, own_bot_user_id=own_bot_user_id)
 
 
 def handle_member_left_channel(event: dict, team: Team, slack_team_id: str) -> None:

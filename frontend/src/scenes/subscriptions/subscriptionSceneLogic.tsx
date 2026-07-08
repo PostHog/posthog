@@ -161,7 +161,7 @@ export const subscriptionSceneLogic = kea<subscriptionSceneLogicType>([
                         return values.subscription
                     }
                     return await subscriptionsPartialUpdate(String(getCurrentTeamId()), numericId, {
-                        query_plan: plan,
+                        ai_query_plan: plan,
                     })
                 },
             },
@@ -231,7 +231,7 @@ export const subscriptionSceneLogic = kea<subscriptionSceneLogicType>([
         editedQueryPlan: [
             (s) => [s.subscription, s.queryPlanEdits],
             (subscription, queryPlanEdits): QueryPlanApi | null => {
-                const plan = subscription?.query_plan
+                const plan = subscription?.ai_query_plan
                 if (!plan || Object.keys(queryPlanEdits).length === 0) {
                     return null
                 }

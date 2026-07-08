@@ -1,3 +1,5 @@
+from typing import cast
+
 from django.db.models import Count
 
 from rest_framework import serializers, viewsets
@@ -5,7 +7,7 @@ from rest_framework.exceptions import ValidationError
 
 from posthog.api.routing import TeamAndOrgViewSetMixin
 
-from products.data_modeling.backend.facade.models import DAG
+from products.data_modeling.backend.facade.models import DAG, RESERVED_DAG_NAMES
 from products.warehouse_sources.backend.facade.models import (
     sync_frequency_interval_to_sync_frequency,
     sync_frequency_to_sync_frequency_interval,
@@ -56,8 +58,16 @@ class DAGSerializer(serializers.ModelSerializer):
         return value
 
     def validate_name(self, value: str) -> str:
-        if self.instance is not None and self.instance.is_default and value != self.instance.name:
-            raise serializers.ValidationError("The default DAG cannot be renamed.")
+        is_rename = self.instance is not None and value != self.instance.name
+        if is_rename:
+            instance = cast(DAG, self.instance)
+            if instance.is_default:
+                raise serializers.ValidationError("The default DAG cannot be renamed.")
+            if instance.is_managed:
+                raise serializers.ValidationError("System-managed DAGs cannot be renamed.")
+        # Block users from claiming a reserved system name via create or rename.
+        if value in RESERVED_DAG_NAMES and (self.instance is None or is_rename):
+            raise serializers.ValidationError("This name is reserved for system-managed DAGs.")
         return value
 
     def create(self, validated_data: dict) -> DAG:
@@ -68,6 +78,8 @@ class DAGSerializer(serializers.ModelSerializer):
         return super().create(validated_data)
 
     def update(self, instance: DAG, validated_data: dict) -> DAG:
+        if instance.is_managed:
+            raise serializers.ValidationError("System-managed DAGs cannot be edited.")
         sync_frequency = validated_data.pop("sync_frequency", None)
         if sync_frequency is not None:
             validated_data["sync_frequency_interval"] = sync_frequency_to_sync_frequency_interval(sync_frequency)
@@ -86,4 +98,6 @@ class DAGViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     def perform_destroy(self, instance: DAG) -> None:
         if instance.is_default:
             raise ValidationError("The default DAG cannot be deleted.")
+        if instance.is_managed:
+            raise ValidationError("System-managed DAGs cannot be deleted.")
         instance.delete()

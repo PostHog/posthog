@@ -18,6 +18,7 @@ from ci_flake_overseer import (
     is_test_job_failure,
     report_rerun_outcomes,
     rerun_outcome_label,
+    workflow_run_from_object,
 )
 
 
@@ -27,6 +28,7 @@ def make_job(
     run_attempt: int = 1,
     conclusion: str = "failure",
     failed_step: str = "Run Core tests",
+    started_at: str = "2026-06-05T21:00:00Z",
 ) -> Job:
     return Job(
         id=123,
@@ -34,11 +36,14 @@ def make_job(
         conclusion=conclusion,
         run_attempt=run_attempt,
         html_url="https://github.com/PostHog/posthog/actions/runs/1/job/123",
+        started_at=started_at,
         steps=(Step(name=failed_step, conclusion="failure"),),
     )
 
 
-def make_workflow_run(run_attempt: int = 1) -> WorkflowRun:
+def make_workflow_run(
+    run_attempt: int = 1, *, head_branch: str = "", event: str = "pull_request", pr_number: int | None = 12345
+) -> WorkflowRun:
     return WorkflowRun(
         id=999,
         workflow_id=42,
@@ -47,55 +52,74 @@ def make_workflow_run(run_attempt: int = 1) -> WorkflowRun:
         head_sha="abc123",
         run_attempt=run_attempt,
         html_url="https://github.com/PostHog/posthog/actions/runs/999",
+        head_branch=head_branch,
+        event=event,
+        pr_number=pr_number,
     )
 
 
 @pytest.mark.parametrize(
-    ("job", "expected_action", "expected_reason_fragment"),
+    ("job", "expected_action", "expected_reason_fragment", "expected_failure_class"),
     [
         pytest.param(
             make_job("Repo checks (depot-ubuntu-latest)", failed_step="Check module boundaries (tach)"),
             "skip deterministic",
             "deterministic",
+            "repo-checks",
             id="deterministic-repo-checks",
         ),
         pytest.param(
             make_job("Validate OpenAPI types", failed_step="Check and update OpenAPI types"),
             "skip deterministic",
             "deterministic",
+            "openapi",
             id="deterministic-openapi",
         ),
         pytest.param(
             make_job("Frontend lint", failed_step="Lint with Oxlint"),
             "skip deterministic",
             "deterministic",
+            "lint",
             id="deterministic-lint",
         ),
         pytest.param(
             make_job("Validate migrations", failed_step="Check migrations"),
             "skip deterministic",
             "deterministic",
+            "migrations",
             id="deterministic-migrations",
+        ),
+        pytest.param(
+            make_job("Django tests", failed_step="Product facade enforcement"),
+            "skip deterministic",
+            "deterministic",
+            "module-boundaries",
+            id="deterministic-via-step-rule",
         ),
         pytest.param(
             make_job("Build and deploy", failed_step="Compile assets"),
             "skip non-test",
             "not an allowlisted test runner",
+            None,
             id="non-test-job",
         ),
         pytest.param(
             make_job("Django tests - Temporal (1/1)", failed_step="Run Temporal tests"),
             "observe",
             "test job failure",
+            None,
             id="observed-test-job",
         ),
     ],
 )
-def test_classify_job(job: Job, expected_action: str, expected_reason_fragment: str) -> None:
+def test_classify_job(
+    job: Job, expected_action: str, expected_reason_fragment: str, expected_failure_class: str | None
+) -> None:
     decision = classify_job(job)
 
     assert decision.action == expected_action
     assert expected_reason_fragment in decision.reason
+    assert decision.failure_class == expected_failure_class
 
 
 @pytest.mark.parametrize(
@@ -117,18 +141,44 @@ def test_build_decision_events_one_event_per_decision() -> None:
     decisions = (
         classify_job(make_job("Django tests - Temporal (1/1)")),
         classify_job(make_job("Build and deploy", failed_step="Compile assets")),
+        classify_job(make_job("Validate OpenAPI types", failed_step="Check and update OpenAPI types")),
     )
 
     events = build_decision_events("PostHog/posthog", make_workflow_run(), decisions)
 
-    assert [event["event"] for event in events] == [DECISION_EVENT, DECISION_EVENT]
+    assert [event["event"] for event in events] == [DECISION_EVENT, DECISION_EVENT, DECISION_EVENT]
     assert all(event["distinct_id"] == "PostHog/posthog" for event in events)
     first = events[0]["properties"]
     assert first["action"] == "observe"
     assert first["workflow_name"] == "Backend CI"
     assert first["job_name"] == "Django tests - Temporal (1/1)"
     assert first["$groups"] == {"workflow_run": "999"}
+    assert first["classified_via"] == "job_name"
+    assert first["failure_class"] is None
+    assert first["pr_number"] == 12345
+    assert first["job_conclusion"] == "failure"
+    assert first["failed_steps"] == ["Run Core tests"]
+    assert first["$insert_id"] == "decision:999:1:123"
     assert events[1]["properties"]["action"] == "skip non-test"
+    assert events[1]["properties"]["classified_via"] is None
+    assert events[2]["properties"]["action"] == "skip deterministic"
+    assert events[2]["properties"]["failure_class"] == "openapi"
+
+
+@pytest.mark.parametrize(
+    ("pull_requests", "expected"),
+    [
+        pytest.param([{"number": 65581}], 65581, id="same-repo-pr"),
+        pytest.param([], None, id="fork-pr-empty-list"),
+        pytest.param(None, None, id="field-absent"),
+    ],
+)
+def test_workflow_run_pr_number(pull_requests: list[dict[str, object]] | None, expected: int | None) -> None:
+    raw: dict[str, object] = {"id": 1, "workflow_id": 2, "name": "Backend CI"}
+    if pull_requests is not None:
+        raw["pull_requests"] = pull_requests
+
+    assert workflow_run_from_object(raw).pr_number == expected
 
 
 @pytest.mark.parametrize(
@@ -162,10 +212,11 @@ def test_report_rerun_outcomes_attributes_prior_test_failure(
 ) -> None:
     job_name = "Django tests - Temporal (1/1)"
 
-    def fake_fetch_jobs(repo: str, run_id: int, attempt: int) -> tuple[Job, ...]:
+    def fake_fetch_jobs(repo: str, run_id: int, attempt: int, *, strict: bool = False) -> tuple[Job, ...]:
         if attempt == 1:
-            return (make_job(job_name, conclusion="failure"),)
-        return (make_job(job_name, conclusion=current_conclusion),)
+            return (make_job(job_name, conclusion="failure", started_at="2026-06-05T21:00:00Z"),)
+        # Advanced started_at: this attempt genuinely re-executed the job.
+        return (make_job(job_name, conclusion=current_conclusion, started_at="2026-06-05T22:00:00Z"),)
 
     monkeypatch.setattr(ci_flake_overseer, "fetch_jobs", fake_fetch_jobs)
 
@@ -176,12 +227,86 @@ def test_report_rerun_outcomes_attributes_prior_test_failure(
     props = events[0]["properties"]
     assert props["outcome"] == expected_outcome
     assert props["job_name"] == job_name
+    assert props["prior_conclusion"] == "failure"
     assert props["prior_attempt"] == 1
     assert props["attempt"] == 2
+    assert props["$insert_id"] == f"outcome:999:2:{job_name}"
+
+
+def test_report_rerun_outcomes_not_rerun_when_started_at_unchanged(monkeypatch: pytest.MonkeyPatch) -> None:
+    # The regression this fix targets: a failed job carried over (never re-executed) keeps its prior
+    # started_at and conclusion. It must read as `not_rerun`, never `still_failing`.
+    job_name = "Django tests - Temporal (1/1)"
+
+    def fake_fetch_jobs(repo: str, run_id: int, attempt: int, *, strict: bool = False) -> tuple[Job, ...]:
+        return (make_job(job_name, conclusion="failure", started_at="2026-06-05T21:00:00Z"),)
+
+    monkeypatch.setattr(ci_flake_overseer, "fetch_jobs", fake_fetch_jobs)
+
+    events = report_rerun_outcomes("PostHog/posthog", make_workflow_run(run_attempt=2))
+
+    assert len(events) == 1
+    assert events[0]["properties"]["outcome"] == "not_rerun"
+
+
+def test_report_rerun_outcomes_unknown_when_job_absent(monkeypatch: pytest.MonkeyPatch) -> None:
+    job_name = "Django tests - Temporal (1/1)"
+
+    def fake_fetch_jobs(repo: str, run_id: int, attempt: int, *, strict: bool = False) -> tuple[Job, ...]:
+        if attempt == 1:
+            return (make_job(job_name, conclusion="failure"),)
+        return ()  # job missing from the re-run attempt
+
+    monkeypatch.setattr(ci_flake_overseer, "fetch_jobs", fake_fetch_jobs)
+
+    events = report_rerun_outcomes("PostHog/posthog", make_workflow_run(run_attempt=2))
+
+    assert len(events) == 1
+    assert events[0]["properties"]["outcome"] == "unknown"
+
+
+def test_report_rerun_outcomes_unknown_when_current_name_ambiguous(monkeypatch: pytest.MonkeyPatch) -> None:
+    job_name = "Django tests - Temporal (1/1)"
+
+    def fake_fetch_jobs(repo: str, run_id: int, attempt: int, *, strict: bool = False) -> tuple[Job, ...]:
+        if attempt == 1:
+            return (make_job(job_name, conclusion="failure"),)
+        # Two current jobs share a name: ambiguous, so it can't be paired and must read as unknown.
+        return (
+            make_job(job_name, conclusion="success", started_at="2026-06-05T22:00:00Z"),
+            make_job(job_name, conclusion="failure", started_at="2026-06-05T22:00:00Z"),
+        )
+
+    monkeypatch.setattr(ci_flake_overseer, "fetch_jobs", fake_fetch_jobs)
+
+    events = report_rerun_outcomes("PostHog/posthog", make_workflow_run(run_attempt=2))
+
+    assert len(events) == 1
+    assert events[0]["properties"]["outcome"] == "unknown"
+
+
+@pytest.mark.parametrize(
+    ("head_branch", "event", "expected_is_master"),
+    [
+        pytest.param("master", "push", True, id="master-is-master"),
+        pytest.param("main", "push", True, id="main-is-master"),
+        pytest.param("some-feature", "pull_request", False, id="pr-branch-not-master"),
+    ],
+)
+def test_build_decision_events_is_master(head_branch: str, event: str, expected_is_master: bool) -> None:
+    decisions = (classify_job(make_job("Django tests - Temporal (1/1)")),)
+
+    events = build_decision_events(
+        "PostHog/posthog", make_workflow_run(head_branch=head_branch, event=event), decisions
+    )
+
+    props = events[0]["properties"]
+    assert props["is_master"] is expected_is_master
+    assert props["trigger_event"] == event
 
 
 def test_report_rerun_outcomes_ignores_non_test_jobs(monkeypatch: pytest.MonkeyPatch) -> None:
-    def fake_fetch_jobs(repo: str, run_id: int, attempt: int) -> tuple[Job, ...]:
+    def fake_fetch_jobs(repo: str, run_id: int, attempt: int, *, strict: bool = False) -> tuple[Job, ...]:
         return (make_job("Build and deploy", conclusion="failure", failed_step="Compile assets"),)
 
     monkeypatch.setattr(ci_flake_overseer, "fetch_jobs", fake_fetch_jobs)

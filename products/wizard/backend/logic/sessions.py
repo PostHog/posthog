@@ -6,6 +6,7 @@ from products.wizard.backend.facade.contracts import UpsertWizardSessionInput, W
 from products.wizard.backend.facade.enums import RunPhase, TaskStatus
 from products.wizard.backend.logic.pubsub import publish_session_update
 from products.wizard.backend.logic.utils import is_stale
+from products.wizard.backend.metrics import report_session_upserted
 from products.wizard.backend.models import WizardSession
 
 
@@ -18,6 +19,11 @@ def upsert_session(params: UpsertWizardSessionInput) -> tuple[WizardSessionDTO, 
     a brand-new session_id can race the unique constraint and surface as a
     500; the CLI's normal HTTP retry handles that on the next attempt.
     """
+    previous_run_phase = (
+        WizardSession.objects.filter(team_id=params.team_id, session_id=params.session_id)
+        .values_list("run_phase", flat=True)
+        .first()
+    )
     instance, created = WizardSession.objects.update_or_create(
         team_id=params.team_id,
         session_id=params.session_id,
@@ -39,6 +45,7 @@ def upsert_session(params: UpsertWizardSessionInput) -> tuple[WizardSessionDTO, 
         },
     )
     dto = _to_dto(instance)
+    report_session_upserted(previous_run_phase, dto)
     publish_session_update(dto)
     return dto, created
 

@@ -8,7 +8,8 @@ from products.warehouse_sources.backend.types import IncrementalField
 class CampaignMonitorEndpointConfig:
     name: str
     # Path relative to the API base URL. May contain `{client_id}` (filled from the
-    # source config) or `{list_id}` (filled per-parent when fanning out over lists).
+    # source config), `{list_id}` (filled per-parent when fanning out over lists), or
+    # `{campaign_id}` (filled per-parent when fanning out over sent campaigns).
     path: str
     primary_keys: list[str]
     # Whether the endpoint returns a paged envelope (`{"Results": [...], "NumberOfPages": N, ...}`)
@@ -17,6 +18,9 @@ class CampaignMonitorEndpointConfig:
     # Whether this endpoint must be fetched once per subscriber list (fan-out over the
     # client's lists). Each emitted row is annotated with its `ListID`.
     fan_out_over_lists: bool = False
+    # Whether this endpoint must be fetched once per sent campaign (fan-out over the
+    # client's campaigns). Each emitted row is annotated with its `CampaignID`.
+    fan_out_over_campaigns: bool = False
     # Subscriber-state endpoints accept a `date` query param that filters records to those
     # added/changed at-or-after that date. We pass a very early date to fetch full history.
     uses_date_filter: bool = False
@@ -111,6 +115,63 @@ CAMPAIGN_MONITOR_ENDPOINTS: dict[str, CampaignMonitorEndpointConfig] = {
         paginated=True,
         fan_out_over_lists=True,
         uses_date_filter=True,
+        partition_key="Date",
+        order_field="date",
+    ),
+    # Campaign report endpoints — one request (or paginated walk) per sent campaign. The
+    # summary endpoint returns a single JSON object per campaign; the detail endpoints use the
+    # standard paged envelope. Their optional `date` filter is omitted so an unfiltered request
+    # returns full history.
+    "campaign_summary": CampaignMonitorEndpointConfig(
+        name="campaign_summary",
+        path="campaigns/{campaign_id}/summary.json",
+        primary_keys=["CampaignID"],
+        fan_out_over_campaigns=True,
+    ),
+    "campaign_opens": CampaignMonitorEndpointConfig(
+        name="campaign_opens",
+        # A recipient can open a campaign multiple times, so the open timestamp is part of the key.
+        path="campaigns/{campaign_id}/opens.json",
+        primary_keys=["CampaignID", "EmailAddress", "Date"],
+        paginated=True,
+        fan_out_over_campaigns=True,
+        partition_key="Date",
+        order_field="date",
+    ),
+    "campaign_clicks": CampaignMonitorEndpointConfig(
+        name="campaign_clicks",
+        # A recipient can click several links (and the same link several times) per campaign.
+        path="campaigns/{campaign_id}/clicks.json",
+        primary_keys=["CampaignID", "EmailAddress", "URL", "Date"],
+        paginated=True,
+        fan_out_over_campaigns=True,
+        partition_key="Date",
+        order_field="date",
+    ),
+    "campaign_unsubscribes": CampaignMonitorEndpointConfig(
+        name="campaign_unsubscribes",
+        path="campaigns/{campaign_id}/unsubscribes.json",
+        primary_keys=["CampaignID", "EmailAddress"],
+        paginated=True,
+        fan_out_over_campaigns=True,
+        partition_key="Date",
+        order_field="date",
+    ),
+    "campaign_bounces": CampaignMonitorEndpointConfig(
+        name="campaign_bounces",
+        path="campaigns/{campaign_id}/bounces.json",
+        primary_keys=["CampaignID", "EmailAddress"],
+        paginated=True,
+        fan_out_over_campaigns=True,
+        partition_key="Date",
+        order_field="date",
+    ),
+    "campaign_spam_complaints": CampaignMonitorEndpointConfig(
+        name="campaign_spam_complaints",
+        path="campaigns/{campaign_id}/spam.json",
+        primary_keys=["CampaignID", "EmailAddress"],
+        paginated=True,
+        fan_out_over_campaigns=True,
         partition_key="Date",
         order_field="date",
     ),

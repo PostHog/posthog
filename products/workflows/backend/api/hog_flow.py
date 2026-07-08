@@ -1,12 +1,14 @@
 import re
 import json
 import uuid as uuid_mod
+import dataclasses
 from datetime import timedelta
 from typing import Optional, cast
 
 from django.core.exceptions import ValidationError as DjangoValidationError
 from django.db import transaction
 from django.db.models import QuerySet
+from django.http import HttpResponse
 from django.utils import timezone
 from django.utils.dateparse import parse_datetime
 
@@ -14,6 +16,7 @@ import structlog
 import posthoganalytics
 from django_filters import BaseInFilter, CharFilter, FilterSet
 from django_filters.rest_framework import DjangoFilterBackend
+from drf_spectacular.types import OpenApiTypes
 from drf_spectacular.utils import OpenApiParameter, extend_schema, extend_schema_field
 from rest_framework import exceptions, serializers, status, viewsets
 from rest_framework.decorators import action
@@ -26,6 +29,7 @@ from posthog.schema import ProductKey
 
 from posthog.api.app_metrics2 import AppMetricsMixin, fetch_app_metric_totals_by_source
 from posthog.api.documentation import _FallbackSerializer
+from posthog.api.hog_invocation_rerun import HogInvocationRerunRequestSerializer, HogInvocationRerunResponseSerializer
 from posthog.api.hog_invocation_results import (
     HogInvocationResultDetailSerializer,
     HogInvocationResultSerializer,
@@ -49,7 +53,11 @@ from posthog.clickhouse.query_tagging import Feature, tag_queries
 from posthog.event_usage import EventSource, get_event_source
 from posthog.models import Team
 from posthog.models.filters import Filter
-from posthog.plugins.plugin_server_api import create_hog_flow_invocation_test, create_hog_flow_scheduled_invocation
+from posthog.plugins.plugin_server_api import (
+    create_hog_flow_invocation_test,
+    create_hog_flow_scheduled_invocation,
+    rerun_hog_invocations,
+)
 from posthog.utils import relative_date_parse_with_delta_mapping
 
 from products.cdp.backend.models.hog_function_template import HogFunctionTemplate
@@ -64,6 +72,13 @@ from products.notifications.backend.facade.api import publish_resource_edited
 from products.workflows.backend.api.graph_operations import apply_graph_operations
 from products.workflows.backend.api.graph_validation import validate_graph
 from products.workflows.backend.api.hog_flow_batch_job import HogFlowBatchJobSerializer
+from products.workflows.backend.api.message_assets import (
+    MessageAssetContentRequestSerializer,
+    MessageAssetSerializer,
+    MessageAssetsRequestSerializer,
+    fetch_message_asset_html,
+    fetch_message_assets,
+)
 from products.workflows.backend.models.hog_flow.hog_flow import (
     BILLABLE_ACTION_TYPES,
     PERSON_DEPENDENT_ACTION_TYPES,
@@ -469,7 +484,10 @@ class HogFlowActionSerializer(serializers.Serializer):
                         "inputs_schema": input_schema,
                         "inputs": inputs,
                     },
-                    context={"function_type": template.type},
+                    context={
+                        "function_type": template.type,
+                        "is_dwh_source": self.context.get("is_dwh_source", False),
+                    },
                 )
 
                 if not strict:
@@ -846,6 +864,18 @@ class HogFlowSerializer(HogFlowMinimalSerializer):
             status = self.instance.status
         if status != "active":
             self.context["is_draft"] = True
+
+        # Warehouse-table triggers are row-scoped: step inputs may use the `{record.x}` alias for the
+        # synced row. Flag it before child action validation so function-input compilation rewrites it.
+        actions = data.get("actions")
+        if actions is None and self.instance:
+            actions = self.instance.actions
+        self.context["is_dwh_source"] = any(
+            isinstance(action, dict)
+            and action.get("type") == "trigger"
+            and (action.get("config") or {}).get("type") == "data-warehouse-table"
+            for action in (actions or [])
+        )
         return super().to_internal_value(data)
 
     class Meta:
@@ -1160,6 +1190,8 @@ class HogFlowViewSet(TeamAndOrgViewSetMixin, LogEntryMixin, AppMetricsMixin, vie
         "metrics_totals",
         "metrics_global",
         "user_blast_radius",
+        "assets",
+        "asset_content",
     ]
     scope_object_write_actions = [
         "create",
@@ -1169,6 +1201,7 @@ class HogFlowViewSet(TeamAndOrgViewSetMixin, LogEntryMixin, AppMetricsMixin, vie
         "invocations",
         "schedule_detail",
         "bulk_delete",
+        "rerun",
         "graph",
     ]
     queryset = HogFlow.objects.all()
@@ -1197,12 +1230,25 @@ class HogFlowViewSet(TeamAndOrgViewSetMixin, LogEntryMixin, AppMetricsMixin, vie
         # able to enumerate who a workflow ran for.
         if self.action in ("invocation_results", "invocation_result"):
             return ["hog_flow:read", "person:read"]
+        # Assets expose recipient/distinct_id/person_id and the message bytes — require
+        # person:read so a hog_flow:read-only token can't enumerate who got emailed.
+        if self.action in ("assets", "asset_content"):
+            return ["hog_flow:read", "person:read"]
         # A test invocation resolves the event's $groups into real group properties server-side, so a
         # hog_flow:write-only token could branch on group_0.properties and read the returned logs/variables
         # as a group-property oracle. Require group:read on top. The web builder uses session auth, so
         # running tests while editing is unaffected.
         if self.action == "invocations":
             return ["hog_flow:write", "group:read"]
+        # Rerun re-executes stored invocations — it replays up to 30 days of
+        # persisted event/person/group data through the current (possibly
+        # reconfigured) workflow. A `hog_flow:write`-only token could use that to
+        # route historical data it can't otherwise read to a destination it
+        # controls, so gate rerun on person:read + group:read on top of write —
+        # the same data-read scopes invocation inspection requires. (`hog_flow:read`
+        # would be a no-op since :write already satisfies it.)
+        if self.action == "rerun":
+            return ["hog_flow:write", "person:read", "group:read"]
         return None
 
     def get_serializer_class(self) -> type[BaseSerializer]:
@@ -1239,6 +1285,48 @@ class HogFlowViewSet(TeamAndOrgViewSetMixin, LogEntryMixin, AppMetricsMixin, vie
     @staticmethod
     def _is_mcp_request(request: Request) -> bool:
         return request.headers.get("x-posthog-client") == "mcp"
+
+    @extend_schema(
+        request=HogInvocationRerunRequestSerializer,
+        responses={200: HogInvocationRerunResponseSerializer, 400: HogInvocationRerunResponseSerializer},
+    )
+    @action(detail=True, methods=["POST"])
+    def rerun(self, request: Request, *args, **kwargs) -> Response:
+        """
+        Rerun past invocations of this hog flow from their stored payloads.
+
+        Same shape and semantics as the hog function rerun endpoint —
+        proxies through to the CDP worker, which reads matching rows from
+        ClickHouse, rehydrates from `invocation_globals`, and re-enqueues
+        onto cyclotron with `is_retry=1`.
+
+        Because rerun replays historical event/person/group data, it requires
+        `person:read` and `group:read` on top of `hog_flow:write`.
+        """
+        hog_flow = self.get_object()
+
+        serializer = HogInvocationRerunRequestSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+
+        # `serializer.data` runs `to_representation`, which converts the
+        # `DateTimeField`s on `filter.window_start` / `filter.window_end` to
+        # ISO-8601 strings — `requests.post(json=...)` can't serialize raw
+        # `datetime` objects, so passing `validated_data` would 500 every
+        # filter-mode rerun before the request even left Django.
+        res = rerun_hog_invocations(
+            team_id=self.team_id,
+            function_kind="hog_flow",
+            function_id=str(hog_flow.id),
+            payload=serializer.data,
+        )
+
+        if res.status_code != 200:
+            return Response(
+                {"queued_count": 0, "skipped_count": 0, "detail": res.text},
+                status=res.status_code,
+            )
+
+        return Response(res.json())
 
     def _emit_resource_edited(self, instance: HogFlow) -> None:
         # Realtime "edited elsewhere" signal so an open builder (or another tab) can refresh instead of
@@ -1324,7 +1412,7 @@ class HogFlowViewSet(TeamAndOrgViewSetMixin, LogEntryMixin, AppMetricsMixin, vie
 
         with transaction.atomic():
             try:
-                # nosemgrep: semgrep.rules.idor-lookup-without-team (re-fetch of already-authorized instance; locked for the staleness check + save)
+                # nosemgrep: idor-lookup-without-team (re-fetch of already-authorized instance; locked for the staleness check + save)
                 before_update = HogFlow.objects.select_for_update().get(pk=instance_id)
             except HogFlow.DoesNotExist:
                 before_update = None
@@ -1377,7 +1465,7 @@ class HogFlowViewSet(TeamAndOrgViewSetMixin, LogEntryMixin, AppMetricsMixin, vie
         instance = self.get_object()
 
         with transaction.atomic():
-            # nosemgrep: semgrep.rules.idor-lookup-without-team (re-fetch of already-authorized instance, locked for update)
+            # nosemgrep: idor-lookup-without-team (re-fetch of already-authorized instance, locked for update)
             locked = HogFlow.objects.select_for_update().get(pk=instance.pk)
 
             if self._is_mcp_request(request) and locked.status == HogFlow.State.ACTIVE:
@@ -1393,7 +1481,7 @@ class HogFlowViewSet(TeamAndOrgViewSetMixin, LogEntryMixin, AppMetricsMixin, vie
             serializer.context["enforce_graph_structure"] = True
             serializer.is_valid(raise_exception=True)
 
-            # nosemgrep: semgrep.rules.idor-lookup-without-team (re-fetch of already-authorized instance for activity logging)
+            # nosemgrep: idor-lookup-without-team (re-fetch of already-authorized instance for activity logging)
             before_update = HogFlow.objects.get(pk=instance.pk)
             # save() mutates and returns `locked` in place, so it's the saved HogFlow from here on.
             serializer.save()
@@ -1508,6 +1596,79 @@ class HogFlowViewSet(TeamAndOrgViewSetMixin, LogEntryMixin, AppMetricsMixin, vie
         if data is None:
             raise exceptions.NotFound("Invocation not found.")
         return Response(HogInvocationResultDetailSerializer(data).data)
+
+    @extend_schema(
+        operation_id="hog_flows_assets_retrieve",
+        parameters=[MessageAssetsRequestSerializer],
+        responses=MessageAssetSerializer(many=True),
+    )
+    @action(detail=True, methods=["GET"], pagination_class=None, filter_backends=[])
+    def assets(self, request: Request, *args, **kwargs):
+        obj = self.get_object()
+        tag_queries(product=ProductKey.WORKFLOWS, feature=Feature.QUERY)
+
+        param_serializer = MessageAssetsRequestSerializer(data=request.query_params)
+        param_serializer.is_valid(raise_exception=True)
+        params = param_serializer.validated_data
+
+        after_date, _, _ = relative_date_parse_with_delta_mapping(params["after"], self.team.timezone_info)
+        before_date = None
+        if params.get("before"):
+            before_date, _, _ = relative_date_parse_with_delta_mapping(params["before"], self.team.timezone_info)
+
+        data = fetch_message_assets(
+            team_id=self.team_id,
+            function_kind=self.function_kind,
+            function_id=str(obj.id),
+            limit=params["limit"],
+            offset=params["offset"],
+            parent_run_id=params.get("parent_run_id"),
+            action_id=params.get("action_id"),
+            invocation_id=params.get("invocation_id"),
+            distinct_id=params.get("distinct_id"),
+            search=params.get("search"),
+            after=after_date,
+            before=before_date,
+        )
+        enriched = [dataclasses.replace(row, function_name=obj.name or "") for row in data]
+        return Response(MessageAssetSerializer(enriched, many=True).data)
+
+    @extend_schema(
+        operation_id="hog_flows_asset_content_retrieve",
+        parameters=[MessageAssetContentRequestSerializer],
+        responses={(200, "text/html"): OpenApiTypes.STR},
+    )
+    @action(detail=True, methods=["GET"], url_path="assets/content", pagination_class=None, filter_backends=[])
+    def asset_content(self, request: Request, *args, **kwargs):
+        # Ownership-check the HogFlow first so other teams' assets can't be probed.
+        obj = self.get_object()
+
+        param_serializer = MessageAssetContentRequestSerializer(data=request.query_params)
+        param_serializer.is_valid(raise_exception=True)
+        params = param_serializer.validated_data
+
+        tag_queries(product=ProductKey.WORKFLOWS, feature=Feature.QUERY)
+
+        html = fetch_message_asset_html(
+            team_id=self.team_id,
+            function_kind=self.function_kind,
+            function_id=str(obj.id),
+            invocation_id=params["invocation_id"],
+            action_id=params.get("action_id", ""),
+        )
+        if html is None:
+            raise exceptions.NotFound("Asset content is no longer available.")
+        response = HttpResponse(html, content_type="text/html; charset=utf-8")
+        # Enforce sandboxing at the response layer so direct navigation to the asset URL
+        # (bypassing the iframe with `sandbox=""` on the frontend) still can't execute
+        # scripts or make same-origin requests as the viewer. `sandbox` (no allow-list)
+        # is the most restrictive CSP mode; the other directives are defense-in-depth.
+        response["Content-Security-Policy"] = (
+            "sandbox; default-src 'none'; img-src https: data:; style-src 'unsafe-inline'"
+        )
+        response["X-Content-Type-Options"] = "nosniff"
+        response["Referrer-Policy"] = "no-referrer"
+        return response
 
     @extend_schema(
         operation_id="hog_flows_metrics_global_retrieve",
@@ -1780,7 +1941,7 @@ class InternalHogFlowViewSet(TeamAndOrgViewSetMixin, LogEntryMixin, AppMetricsMi
 
         try:
             # 1. Process due schedules (next_run_at <= now)
-            # nosemgrep: semgrep.rules.idor-lookup-without-team (internal endpoint processes all teams)
+            # nosemgrep: idor-lookup-without-team (internal endpoint processes all teams)
             due_schedule_ids = list(
                 HogFlowSchedule.objects.filter(
                     status=HogFlowSchedule.Status.ACTIVE, next_run_at__lte=timezone.now()
@@ -1797,7 +1958,7 @@ class InternalHogFlowViewSet(TeamAndOrgViewSetMixin, LogEntryMixin, AppMetricsMi
                         # Re-checks conditions since the schedule may have been processed
                         # between the ID scan and this lock.
                         schedule = (
-                            # nosemgrep: semgrep.rules.idor-lookup-without-team
+                            # nosemgrep: idor-lookup-without-team
                             HogFlowSchedule.objects.select_for_update(skip_locked=True)
                             .select_related("hog_flow")
                             .filter(
@@ -1848,7 +2009,7 @@ class InternalHogFlowViewSet(TeamAndOrgViewSetMixin, LogEntryMixin, AppMetricsMi
                     failed.append(str(schedule_id))
 
             # 2. Initialize next_run_at for schedules that need it
-            # nosemgrep: semgrep.rules.idor-lookup-without-team (internal endpoint processes all teams)
+            # nosemgrep: idor-lookup-without-team (internal endpoint processes all teams)
             uninitialized_ids = list(
                 HogFlowSchedule.objects.filter(
                     status=HogFlowSchedule.Status.ACTIVE,
@@ -1866,7 +2027,7 @@ class InternalHogFlowViewSet(TeamAndOrgViewSetMixin, LogEntryMixin, AppMetricsMi
                         # Re-checks conditions since the schedule may have been initialized
                         # between the ID scan and this lock.
                         schedule = (
-                            # nosemgrep: semgrep.rules.idor-lookup-without-team
+                            # nosemgrep: idor-lookup-without-team
                             HogFlowSchedule.objects.select_for_update(skip_locked=True)
                             .filter(id=schedule_id, status=HogFlowSchedule.Status.ACTIVE, next_run_at__isnull=True)
                             .first()

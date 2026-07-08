@@ -1,6 +1,95 @@
 {
     "$schema": "https://json-schema.org/draft/2020-12/schema",
     "properties": {
+        "ai_prompt_config": {
+            "description": "Configuration for AI report subscriptions (analysis window, future knobs). Only valid when resource_type is 'ai_prompt'. Replaced wholesale on writes.",
+            "properties": {
+                "window": {
+                    "description": "Analysis window for the report. Omitted = 'since_last_sent' (everything since the previous scheduled delivery).",
+                    "properties": {
+                        "end_days_ago": {
+                            "anyOf": [
+                                {
+                                    "maximum": 365,
+                                    "minimum": 0,
+                                    "type": "number"
+                                },
+                                {
+                                    "type": "null"
+                                }
+                            ],
+                            "description": "Upper bound of the analysis window, in days before the run (0 = now). Required for 'days_ago_range' and must be less than start_days_ago; ignored for other modes. 0-365."
+                        },
+                        "mode": {
+                            "default": "since_last_sent",
+                            "description": "What the report analyzes each run:\n* `since_last_sent` (default) — everything since the previous successful scheduled delivery (gap-free; test/manual sends don't move the anchor)\n* `last_n_days` — a fixed trailing window of start_days_ago days\n* `days_ago_range` — the explicit range from start_days_ago to end_days_ago days ago\n\n* `since_last_sent` - Since last report\n* `last_n_days` - Last N days\n* `days_ago_range` - Between X and Y days ago",
+                            "enum": ["since_last_sent", "last_n_days", "days_ago_range"],
+                            "type": "string"
+                        },
+                        "start_days_ago": {
+                            "anyOf": [
+                                {
+                                    "maximum": 365,
+                                    "minimum": 1,
+                                    "type": "number"
+                                },
+                                {
+                                    "type": "null"
+                                }
+                            ],
+                            "description": "Lower bound of the analysis window, in days before the run. Required for 'last_n_days' (the N) and 'days_ago_range'; ignored for 'since_last_sent'. 1-365."
+                        }
+                    },
+                    "type": "object"
+                }
+            },
+            "type": "object"
+        },
+        "ai_query_plan": {
+            "anyOf": [
+                {
+                    "properties": {
+                        "overall_intent": {
+                            "description": "Plain-English summary of what the report will tell the user.",
+                            "type": "string"
+                        },
+                        "steps": {
+                            "description": "Ordered query steps (1-3) the report runs and synthesizes.",
+                            "items": {
+                                "properties": {
+                                    "description": {
+                                        "description": "One-sentence rationale for running this query step.",
+                                        "type": "string"
+                                    },
+                                    "hogql": {
+                                        "description": "The HogQL SELECT for this step. Uses the {{date_range}} placeholder the executor substitutes with the run's window, so the plan stays window-agnostic.",
+                                        "type": "string"
+                                    },
+                                    "query_type": {
+                                        "default": "hogql",
+                                        "description": "Query language for this step. MVP: always 'hogql'.\n\n* `hogql` - hogql",
+                                        "enum": ["hogql"],
+                                        "type": "string"
+                                    }
+                                },
+                                "required": ["description", "hogql"],
+                                "type": "object"
+                            },
+                            "type": "array"
+                        }
+                    },
+                    "required": ["overall_intent", "steps"],
+                    "type": "object"
+                },
+                {
+                    "type": "null"
+                },
+                {
+                    "type": "null"
+                }
+            ],
+            "description": "Frozen query plan for an AI (prompt) subscription: the steps (description + HogQL) the report runs deterministically. Null until the first delivery plans it. Scrubbed to null for callers without query access. Writable only by callers with query:editor access — editing it overrides the AI-generated plan; clear it (or use the re-plan action) to re-plan from the prompt."
+        },
         "bysetpos": {
             "anyOf": [
                 {
@@ -112,51 +201,6 @@
                 }
             ],
             "description": "Free-text prompt that drives the AI-generated report. Required when resource_type is 'ai_prompt'. Max 4000 characters."
-        },
-        "query_plan": {
-            "anyOf": [
-                {
-                    "properties": {
-                        "overall_intent": {
-                            "description": "Plain-English summary of what the report will tell the user.",
-                            "type": "string"
-                        },
-                        "steps": {
-                            "description": "Ordered query steps (1-3) the report runs and synthesizes.",
-                            "items": {
-                                "properties": {
-                                    "description": {
-                                        "description": "One-sentence rationale for running this query step.",
-                                        "type": "string"
-                                    },
-                                    "hogql": {
-                                        "description": "The HogQL SELECT for this step. Uses the {{date_range}} placeholder the executor substitutes with the run's window, so the plan stays window-agnostic.",
-                                        "type": "string"
-                                    },
-                                    "query_type": {
-                                        "default": "hogql",
-                                        "description": "Query language for this step. MVP: always 'hogql'.\n\n* `hogql` - hogql",
-                                        "enum": ["hogql"],
-                                        "type": "string"
-                                    }
-                                },
-                                "required": ["description", "hogql"],
-                                "type": "object"
-                            },
-                            "type": "array"
-                        }
-                    },
-                    "required": ["overall_intent", "steps"],
-                    "type": "object"
-                },
-                {
-                    "type": "null"
-                },
-                {
-                    "type": "null"
-                }
-            ],
-            "description": "Frozen query plan for an AI (prompt) subscription: the steps (description + HogQL) the report runs deterministically. Null until the first delivery plans it. Scrubbed to null for callers without query access. Writable only by callers with query:editor access — editing it overrides the AI-generated plan; clear it (or use the re-plan action) to re-plan from the prompt."
         },
         "start_date": {
             "description": "When to start delivering (ISO 8601 datetime).",

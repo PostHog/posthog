@@ -72,7 +72,7 @@ const MOCK_AI_SUBSCRIPTION: SubscriptionApi = {
 const MOCK_AI_SUBSCRIPTION_WITH_PLAN: SubscriptionApi = {
     ...MOCK_AI_SUBSCRIPTION,
     id: 3,
-    query_plan: {
+    ai_query_plan: {
         overall_intent: 'Weekly signups',
         steps: [
             { description: 'Daily signups', query_type: 'hogql', hogql: 'SELECT 1' },
@@ -138,6 +138,45 @@ describe('subscriptionSceneLogic', () => {
 
         await expectLogic(logic).toFinishAllListeners()
         expect(deliveriesRequestUrls).toHaveLength(1)
+        logic.unmount()
+    })
+
+    // The failure path matters too: the header button's double-submit guard would stick
+    // if deliveringSubscriptionId reset only on success.
+    it.each([
+        { name: 'success', status: 202, terminalAction: 'deliverSubscriptionSuccess' },
+        { name: 'failure', status: 500, terminalAction: 'deliverSubscriptionFailure' },
+    ])('test delivery ($name) flips deliveringSubscriptionId then resets it', async ({ status, terminalAction }) => {
+        let testDeliveryCalls = 0
+        useMocks({
+            get: {
+                [`/api/projects/${MOCK_TEAM_ID}/subscriptions/1/`]: [200, MOCK_SUBSCRIPTION],
+                [`/api/projects/${MOCK_TEAM_ID}/subscriptions/1/deliveries/`]: [
+                    200,
+                    { results: [], next: null, previous: null },
+                ],
+            },
+            post: {
+                [`/api/projects/${MOCK_TEAM_ID}/subscriptions/1/test-delivery/`]: () => {
+                    testDeliveryCalls += 1
+                    return [status, {}]
+                },
+            },
+        })
+        initKeaTests()
+
+        const logic = subscriptionSceneLogic({ id: '1' })
+        logic.mount()
+        await expectLogic(logic).toFinishAllListeners()
+
+        await expectLogic(logic, () => {
+            logic.actions.deliverSubscription(1)
+        }).toMatchValues({ deliveringSubscriptionId: 1 })
+
+        await expectLogic(logic).toDispatchActions([terminalAction]).toMatchValues({
+            deliveringSubscriptionId: null,
+        })
+        expect(testDeliveryCalls).toEqual(1)
         logic.unmount()
     })
 
@@ -361,7 +400,7 @@ describe('subscriptionSceneLogic', () => {
             patch: {
                 [`/api/projects/${MOCK_TEAM_ID}/subscriptions/3/`]: async (req) => {
                     savedBody = await req.request.json()
-                    return [200, { ...MOCK_AI_SUBSCRIPTION_WITH_PLAN, query_plan: savedBody.query_plan }]
+                    return [200, { ...MOCK_AI_SUBSCRIPTION_WITH_PLAN, ai_query_plan: savedBody.ai_query_plan }]
                 },
             },
         })
@@ -385,7 +424,7 @@ describe('subscriptionSceneLogic', () => {
         await expectLogic(logic, () => {
             logic.actions.saveQueryPlan()
         }).toFinishAllListeners()
-        expect(savedBody.query_plan.steps[1].hogql).toEqual('SELECT 99')
+        expect(savedBody.ai_query_plan.steps[1].hogql).toEqual('SELECT 99')
         // Save success replaces the subscription and clears the pending edits.
         expect(logic.values.queryPlanEdits).toEqual({})
         expect(logic.values.hasQueryPlanEdits).toBe(false)
@@ -402,7 +441,7 @@ describe('subscriptionSceneLogic', () => {
                     200,
                     returnPlan
                         ? MOCK_AI_SUBSCRIPTION_WITH_PLAN
-                        : { ...MOCK_AI_SUBSCRIPTION_WITH_PLAN, query_plan: null },
+                        : { ...MOCK_AI_SUBSCRIPTION_WITH_PLAN, ai_query_plan: null },
                 ],
                 [`/api/projects/${MOCK_TEAM_ID}/subscriptions/3/deliveries/`]: () => [
                     200,
@@ -422,14 +461,14 @@ describe('subscriptionSceneLogic', () => {
         const logic = subscriptionSceneLogic({ id: '3' })
         logic.mount()
         await expectLogic(logic).toFinishAllListeners()
-        expect(logic.values.subscription?.query_plan).toBeTruthy()
+        expect(logic.values.subscription?.ai_query_plan).toBeTruthy()
 
         await expectLogic(logic, () => {
             logic.actions.replanSubscription()
         }).toFinishAllListeners()
         expect(replanCalls).toEqual(1)
         expect(logic.values.replanning).toBe(false)
-        expect(logic.values.subscription?.query_plan).toBeNull()
+        expect(logic.values.subscription?.ai_query_plan).toBeNull()
 
         logic.unmount()
     })

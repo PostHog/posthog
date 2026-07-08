@@ -8,6 +8,7 @@ import { useEffect, useRef } from 'react'
 import { LemonButton, LemonInput, LemonTag } from '@posthog/lemon-ui'
 
 import { getCookie } from 'lib/api'
+import { BridgePage } from 'lib/components/BridgePage/BridgePage'
 import { SSOEnforcedLoginButton, SocialLoginButtons } from 'lib/components/SocialLoginButton/SocialLoginButton'
 import { supportLogic } from 'lib/components/Support/supportLogic'
 import { usePrevious } from 'lib/hooks/usePrevious'
@@ -17,7 +18,6 @@ import { Link } from 'lib/lemon-ui/Link'
 import { Skeleton } from 'lib/ui/quill'
 import { isWebKitBrowser } from 'lib/utils/dom'
 import { isEmail } from 'lib/utils/url'
-import { AuthShell } from 'scenes/authentication/shared/AuthShell'
 import { ERROR_MESSAGES } from 'scenes/authentication/shared/loginErrorMessages'
 import { OtherRegionHint } from 'scenes/authentication/shared/OtherRegionHint'
 import { RedirectIfLoggedInOtherInstance } from 'scenes/authentication/shared/RedirectToLoggedInInstance'
@@ -29,6 +29,7 @@ import { urls } from 'scenes/urls'
 import { LoginMethod } from '~/types'
 
 import { loginLogic } from '../../loginLogic'
+import { SessionRiskBanner } from '../../SessionRiskBanner'
 
 const LAST_LOGIN_METHOD_COOKIE = 'ph_last_login_method'
 
@@ -89,20 +90,11 @@ function Login(): JSX.Element {
     }, [login.email, prevEmail, precheckResponse.status, precheck])
 
     return (
-        <AuthShell
-            view="login"
-            showHedgehog
-            message={
-                <>
-                    Welcome to
-                    <br /> PostHog{preflight?.cloud ? ' Cloud' : ''}!
-                </>
-            }
-            footer={<SupportModalButton />}
-        >
+        <BridgePage view="login" footer={<SupportModalButton />}>
             {preflight?.cloud && <RedirectIfLoggedInOtherInstance />}
             <div className="deprecated-space-y-4">
                 <h2>{loginTitle}</h2>
+                <SessionRiskBanner />
                 {generalError && (
                     <LemonBanner type={generalError.code === 'email_verification_sent' ? 'warning' : 'error'}>
                         <>
@@ -312,7 +304,7 @@ function Login(): JSX.Element {
                     </div>
                 )}
             </div>
-        </AuthShell>
+        </BridgePage>
     )
 }
 

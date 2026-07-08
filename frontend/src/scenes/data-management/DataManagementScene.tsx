@@ -29,6 +29,7 @@ import { RevenueAnalyticsSettings } from 'products/revenue_analytics/frontend/se
 
 import type { dataManagementSceneLogicType } from './DataManagementSceneType'
 import { EventDefinitionsTable } from './events/EventDefinitionsTable'
+import { IngestionWarningsV2View } from './ingestion-warnings-v2/IngestionWarningsV2View'
 import { IngestionWarningsView } from './ingestion-warnings/IngestionWarningsView'
 import { DataWarehouseManagedViewsetsScene } from './managed-viewsets/DataWarehouseManagedViewsetsScene'
 import { PropertyDefinitionsTable } from './properties/PropertyDefinitionsTable'
@@ -44,6 +45,7 @@ export enum DataManagementTab {
     Comments = 'comments',
     History = 'history',
     IngestionWarnings = 'warnings',
+    IngestionWarningsV2 = 'warnings-v2',
     Revenue = 'revenue',
     CoreEvents = 'core-events',
     DataWarehouseManagedViewsets = 'data-warehouse-managed-viewsets',
@@ -172,6 +174,19 @@ const tabs: Record<DataManagementTab, TabConfig> = {
         content: <IngestionWarningsView />,
         tooltipDocLink: 'https://posthog.com/docs/data/ingestion-warnings',
     },
+    [DataManagementTab.IngestionWarningsV2]: {
+        url: urls.ingestionWarningsV2(),
+        label: (
+            <>
+                Event ingestion warnings{' '}
+                <LemonTag type="warning" size="small" className="ml-2">
+                    V2
+                </LemonTag>
+            </>
+        ),
+        content: <IngestionWarningsV2View />,
+        tooltipDocLink: 'https://posthog.com/docs/data/ingestion-warnings',
+    },
     [DataManagementTab.DataWarehouseManagedViewsets]: {
         url: urls.dataWarehouseManagedViewsets(),
         label: 'Managed viewsets',
@@ -257,6 +272,15 @@ const dataManagementSceneLogic = kea<dataManagementSceneLogicType>([
                             key: Scene.IngestionWarnings,
                             name: sceneConfigurations[Scene.IngestionWarnings].name,
                             path: urls.ingestionWarnings(),
+                            iconType: sceneConfigurations[Scene.IngestionWarnings].iconType || 'default_icon_type',
+                        },
+                    ]
+                } else if (tab === DataManagementTab.IngestionWarningsV2) {
+                    return [
+                        {
+                            key: DataManagementTab.IngestionWarningsV2,
+                            name: 'Event ingestion warnings v2',
+                            path: urls.ingestionWarningsV2(),
                             iconType: sceneConfigurations[Scene.IngestionWarnings].iconType || 'default_icon_type',
                         },
                     ]

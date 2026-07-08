@@ -28,6 +28,7 @@ export function buildTrendsBarValueConfig(): BarChartConfig {
     return {
         axisOrientation: 'horizontal',
         showGrid: true,
-        bars: { cornerRadius: 4, fitToHeight: true },
+        barCornerRadius: 4,
+        bars: { fitToHeight: true },
     }
 }

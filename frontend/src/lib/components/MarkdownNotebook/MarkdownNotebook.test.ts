@@ -583,6 +583,29 @@ continued line
         expect(serializeMarkdownNotebook(document)).toEqual(markdown)
     })
 
+    it('breaks component tags out of blockquotes instead of degrading them to quote text', () => {
+        const markdown = [
+            '> Quoted intro',
+            '> <Query query={{"kind":"SavedInsightNode","shortId":"abc123"}} />',
+            '> > <Python code="print(1)" />',
+            '> Quoted outro',
+        ].join('\n')
+        const document = parseMarkdownNotebook(markdown)
+
+        expect(document.errors).toEqual([])
+        expect(document.nodes.map((node) => node.type)).toEqual(['blockquote', 'component', 'component', 'blockquote'])
+        expect(document.nodes[1]).toMatchObject({
+            tagName: 'Query',
+            props: { query: { kind: 'SavedInsightNode', shortId: 'abc123' } },
+        })
+        expect(document.nodes[2]).toMatchObject({ tagName: 'Python', props: { code: 'print(1)' } })
+
+        // The rescued components stay standalone and stable across further saves
+        const serialized = serializeMarkdownNotebook(document)
+        expect(serialized).not.toContain('\\<')
+        expect(serializeMarkdownNotebook(parseMarkdownNotebook(serialized))).toEqual(serialized)
+    })
+
     it('round-trips component string props with reversible escaping', () => {
         const props = {
             src: 'https://posthog.com/embed?one=1&two=2',
@@ -4192,6 +4215,31 @@ aXbc
 Numbers <ref id="${refId}">look</ref> off here`)
     })
 
+    it('creates a comment thread anchored to a selection inside a code block', () => {
+        const onChange = jest.fn()
+        const { container } = render(
+            createElement(MarkdownNotebook, {
+                value: withNotebookTitle('```js\nconst answer = 42\n```'),
+                onChange,
+            })
+        )
+        const codeBlock = container.querySelector('.MarkdownNotebook__code-block') as HTMLElement
+
+        selectTextAcrossNodes(getFirstTextNode(codeBlock), 6, getFirstTextNode(codeBlock), 'const answer'.length, true)
+        fireEvent.click(container.querySelector('button[aria-label="Comment on selection"]') as HTMLButtonElement)
+
+        const markdown = onChange.mock.calls[onChange.mock.calls.length - 1][0] as string
+        const refId = markdown.match(/<Comment ref="([^"]+)" replies={\[\]} \/>/)?.[1]
+        expect(refId).toBeTruthy()
+        expect(markdown).toEqual(`${TEST_NOTEBOOK_TITLE_MARKDOWN}
+
+<Comment ref="${refId}" replies={[]} />
+
+\`\`\`js ref=${refId}:6-12
+const answer = 42
+\`\`\``)
+    })
+
     it('places a comment on the title row below it, keeping the heading first', () => {
         const onChange = jest.fn()
         const { container } = render(
@@ -6235,6 +6283,46 @@ Tail with **bold** text`)
 
         expect(textBlock.textContent).toEqual('Hello bold')
         expect(onChange).toHaveBeenLastCalledWith('# Hello **bold**')
+    })
+
+    it('pastes clipboard files through the external converter after the caret block', () => {
+        const onChange = jest.fn()
+        const convertExternalDataTransferToNodes = jest.fn((dataTransfer: DataTransfer) =>
+            dataTransfer.files.length
+                ? [
+                      {
+                          id: 'pasted-image',
+                          type: 'component' as const,
+                          tagName: 'Image',
+                          props: { src: 'https://example.com/pasted.png', alt: 'pasted' },
+                      },
+                  ]
+                : null
+        )
+        const { container } = render(
+            createElement(MarkdownNotebook, {
+                value: withNotebookTitle('First paragraph\n\nSecond paragraph'),
+                onChange,
+                convertExternalDataTransferToNodes,
+            })
+        )
+        const firstParagraph = getBodyTextBlock(container)
+
+        fireEvent.paste(firstParagraph, {
+            clipboardData: {
+                files: [new File([''], 'pasted.png', { type: 'image/png' })],
+                getData: jest.fn(() => ''),
+            },
+        })
+
+        expect(convertExternalDataTransferToNodes).toHaveBeenCalled()
+        expect(onChange).toHaveBeenLastCalledWith(`${TEST_NOTEBOOK_TITLE_MARKDOWN}
+
+First paragraph
+
+![pasted](https://example.com/pasted.png)
+
+Second paragraph`)
     })
 
     it('undoes pasted markdown blocks as one notebook history step', () => {

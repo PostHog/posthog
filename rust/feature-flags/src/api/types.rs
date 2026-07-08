@@ -600,6 +600,9 @@ impl FlagDetails {
 
                     let type_str = match property.prop_type {
                         crate::properties::property_models::PropertyType::Person => "person",
+                        crate::properties::property_models::PropertyType::PersonMetadata => {
+                            "person_metadata"
+                        }
                         crate::properties::property_models::PropertyType::Group => "group",
                         crate::properties::property_models::PropertyType::Cohort => "cohort",
                         crate::properties::property_models::PropertyType::Flag => "flag",

@@ -70,7 +70,8 @@ function LegacyPieChart({
     // are stamped with 'labels' when the type is picked (see dataVisualizationLogic).
     const sliceContent = chartSettings.pie?.sliceContent ?? 'values'
     // The total is a sum-of-values readout, so default it on only when slices show values.
-    const showPieTotal = chartSettings.pie?.showTotal ?? sliceContent === 'values'
+    // `showPieTotal` is the legacy top-level toggle — honor it for charts saved before `pie`.
+    const showPieTotal = chartSettings.pie?.showTotal ?? chartSettings.showPieTotal ?? sliceContent === 'values'
     const asPercent = (chartSettings.pie?.valueDisplay ?? 'absolute') === 'percentage'
 
     const absoluteFormatter = (value: number): string =>

@@ -7,7 +7,7 @@ from typing import Any
 from urllib.parse import parse_qs, quote, unquote, urlparse, urlunparse
 
 from django.conf import settings
-from django.db import close_old_connections
+from django.db import OperationalError, close_old_connections
 
 import requests
 import structlog
@@ -166,13 +166,42 @@ def suggest_registered_site(site_url: str, registered: collections.abc.Iterable[
     return None
 
 
+def _backoff_sleep(attempt: int) -> None:
+    """Sleep before the next retry: linear growth capped at 30s (2s, 4s, 6s, ...)."""
+    time.sleep(min(2 * attempt, 30))
+
+
+_MAX_INTEGRATION_FETCH_ATTEMPTS = 4
+
+
+def _get_integration(integration_id: int, team_id: int) -> Integration:
+    """Fetch the OAuth ``Integration`` row, retrying a transient DB failure with backoff.
+
+    Temporal activities run in a long-lived worker outside Django's request cycle, and this
+    read happens lazily inside `get_rows` after the connection has often sat idle for minutes.
+    A pooled Postgres connection can be closed server-side while idle, or the connection pooler
+    can reject the query with a wait timeout (`query_wait_timeout`) when the pool is saturated.
+    Both surface as a transient ``OperationalError`` that clears once a healthy connection is
+    used. ``close_old_connections()`` evicts connections already known to be stale (and, after a
+    failed query marks one unusable, drops it), so each attempt runs on a fresh connection; the
+    short backoff also gives a saturated pool time to drain rather than retrying straight back
+    into the same wait timeout. This read is idempotent, so repeating it is safe.
+    ``Integration.DoesNotExist`` is left to propagate.
+    """
+    attempt = 0
+    while True:
+        close_old_connections()
+        try:
+            return Integration.objects.get(id=integration_id, team_id=team_id)
+        except OperationalError:
+            attempt += 1
+            if attempt >= _MAX_INTEGRATION_FETCH_ATTEMPTS:
+                raise
+            _backoff_sleep(attempt)
+
+
 def _credentials(integration_id: int, team_id: int) -> OAuthCredentials:
-    # Temporal activities run in a thread pool where Django DB connections can go
-    # stale between uses (Postgres closes the connection server-side). This is
-    # invoked lazily from inside `get_rows`, so the connection has often been idle
-    # for minutes by the time we reach it — drop any stale connection first.
-    close_old_connections()
-    integration = Integration.objects.get(id=integration_id, team_id=team_id)
+    integration = _get_integration(integration_id, team_id)
     return OAuthCredentials(
         token=None,
         refresh_token=integration.refresh_token,
@@ -275,7 +304,26 @@ def _query_search_analytics(
 
     for attempt in range(QUOTA_MAX_RETRIES + 1):
         _throttle(site_url)
-        response = session.post(url, json=body)
+        try:
+            response = session.post(url, json=body)
+        except requests.ConnectionError:
+            # A dropped connection (RemoteDisconnected / connection reset) is raised before any
+            # response, so the quota/5xx handling below never sees it, and the tracked adapter's
+            # retry skips it because searchAnalytics.query is a POST. It's transient, so retry
+            # inline like a 5xx; once the inline budget is spent, let it bubble so Temporal
+            # retries the activity (resuming from the last saved date).
+            if attempt == QUOTA_MAX_RETRIES:
+                raise
+            wait = QUOTA_BACKOFF_BASE_SECONDS * (2**attempt)
+            logger.warning(
+                "GSC request connection error, backing off",
+                site_url=site_url,
+                attempt=attempt,
+                wait_seconds=wait,
+            )
+            time.sleep(wait)
+            continue
+
         if response.ok:
             return response.json().get("rows", [])
 

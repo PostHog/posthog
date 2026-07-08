@@ -45,8 +45,10 @@ _POSTHOG_CODE_AGENT_MODELS: Final[frozenset[str]] = frozenset(
         "claude-opus-4-6",
         "claude-opus-4-7",
         "claude-opus-4-8",
+        "claude-fable-5",
         "claude-sonnet-4-5",
         "claude-sonnet-4-6",
+        "claude-sonnet-5",
         "claude-haiku-4-5",
         "gpt-5.5",
         "gpt-5.4",
@@ -59,6 +61,14 @@ _POSTHOG_CODE_AGENT_MODELS: Final[frozenset[str]] = frozenset(
 
 PRODUCTS: Final[dict[str, ProductConfig]] = {
     "llm_gateway": ProductConfig(
+        allowed_application_ids=None,
+        allowed_models=None,
+        allow_api_keys=True,
+    ),
+    # CI / end-to-end test runs (e.g. posthog/code agent e2e tests). Authenticates with a
+    # personal API key, allows all models, and keeps CI traffic attributed to its own
+    # ai_product rather than the catch-all llm_gateway bucket.
+    "ci": ProductConfig(
         allowed_application_ids=None,
         allowed_models=None,
         allow_api_keys=True,
@@ -76,7 +86,9 @@ PRODUCTS: Final[dict[str, ProductConfig]] = {
                 "claude-opus-4-6",
                 "claude-opus-4-7",
                 "claude-opus-4-8",
+                "claude-fable-5",
                 "claude-sonnet-4-5",
+                "claude-sonnet-5",
                 "claude-haiku-4-5",
                 "gpt-5.4",
                 "gpt-5.3-codex",
@@ -92,6 +104,17 @@ PRODUCTS: Final[dict[str, ProductConfig]] = {
         allowed_models=_POSTHOG_CODE_AGENT_MODELS | BEDROCK_MODELS,
         allow_api_keys=False,
         billable=True,
+    ),
+    # SherlockHog (https://github.com/PostHog/SherlockHog) — the internal SRE
+    # bot. Authenticates with a personal API key (not OAuth), so no application
+    # IDs are needed. It pins claude-opus-4-8 but can be repointed via
+    # ANTHROPIC_MODEL and uses Bedrock fallback, so all models are permitted.
+    # Internal infra tooling — not billed to a customer credit bucket.
+    "sherlockhog": ProductConfig(
+        allowed_application_ids=None,
+        allowed_models=None,
+        allow_api_keys=True,
+        billable=False,
     ),
     "wizard": ProductConfig(
         allowed_application_ids=frozenset({WIZARD_US_APP_ID, WIZARD_EU_APP_ID}),
@@ -156,8 +179,10 @@ PRODUCTS: Final[dict[str, ProductConfig]] = {
         allow_api_keys=True,
     ),
     "conversations": ProductConfig(
-        allowed_application_ids=None,
-        allowed_models=frozenset({"claude-haiku-4-5", "claude-sonnet-4-6"}),
+        # Sandbox support-reply tasks auth with the array (posthog_code) OAuth app but
+        # route through this product so draft spend rolls up with utility prompts.
+        allowed_application_ids=frozenset({POSTHOG_CODE_US_APP_ID, POSTHOG_CODE_EU_APP_ID, POSTHOG_CODE_DEV_APP_ID}),
+        allowed_models=frozenset({"claude-haiku-4-5", "claude-sonnet-4-6", "claude-sonnet-5"}),
         allow_api_keys=True,
         billable=False,
     ),
