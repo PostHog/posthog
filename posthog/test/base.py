@@ -993,6 +993,7 @@ def stripResponse(response, remove=("action", "label", "persons_urls", "filter")
 def cleanup_materialized_columns():
     try:
         from ee.clickhouse.materialized_columns.columns import (
+            _clear_materialized_columns_cache,
             get_bloom_filter_index_name,
             get_bloom_filter_lower_index_name,
             get_materialized_columns,
@@ -1042,6 +1043,10 @@ def cleanup_materialized_columns():
     optionally_drop("events", lambda name: name not in default_column_names)
     optionally_drop("person")
     optionally_drop("groups")
+    # Raw DROP COLUMN above bypasses drop_column(), which normally self-invalidates the cache.
+    # Clear it explicitly so subsequent lookups in the same process reflect the new schema.
+    for _table in ("events", "person", "groups"):
+        _clear_materialized_columns_cache(_table)  # type: ignore[arg-type]
 
 
 def get_index_from_explain(
@@ -1587,6 +1592,13 @@ class ClickhouseTestMixin(QueryMatchingTest):
 
     @contextmanager
     def capture_queries(self, query_filter: Callable[[str], bool]):
+        """Capture ClickHouse queries that pass query_filter.
+
+        The filter receives the query after stripping leading whitespace and comments (head-only
+        — see _strip_leading_sql_comments). All built-in filters (capture_select_queries,
+        capture_queries_startswith) are head-anchored, so this contract holds for them. Do not
+        pass a filter that matches on mid-statement text; it will not see comments embedded there.
+        """
         queries = []
 
         def execute_wrapper(original_client_execute, query, *args, **kwargs):
@@ -1609,9 +1621,11 @@ class ClickhouseTestMixin(QueryMatchingTest):
 
 
 def run_clickhouse_statement_in_parallel(statements: list[str]):
-    # Test infrastructure always runs against a single ClickHouse node, where `ON CLUSTER`
-    # only adds distributed-DDL keeper round-trips (~0.3-0.5s per statement) without changing
-    # the outcome. Strip it from TRUNCATEs, the statements test resets issue in bulk.
+    # Test infrastructure targets a single-node ClickHouse (CLICKHOUSE_TEST_DB_CLUSTER_MODE is
+    # not set). On that topology, ON CLUSTER only adds distributed-DDL keeper round-trips
+    # (~0.3-0.5s per statement) without changing the outcome, so strip it from TRUNCATEs.
+    # If a CI variant ever runs multi-replica this strip must be removed or gated; without it,
+    # TRUNCATE without ON CLUSTER only touches the connected node and leaves others dirty.
     statements = [
         re.sub(r"\s+ON CLUSTER\s+'?[\w-]+'?", "", stmt) if stmt.lstrip().upper().startswith("TRUNCATE") else stmt
         for stmt in statements

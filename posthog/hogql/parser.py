@@ -263,6 +263,16 @@ _shadow_agreed_in_tests: set[tuple[str, str, str, int | None, bytes]] = set()
 _SHADOW_AGREED_MAX_ENTRIES = 100_000
 
 
+def clear_shadow_agreed_for_tests() -> None:
+    """Reset the TEST-mode dedup set.
+
+    Tests that patch _invoke_parser (or either backend) to force a divergence on a
+    previously-agreed statement must call this first — otherwise the cached agreement
+    short-circuits the shadow run and the forced divergence is never observed.
+    """
+    _shadow_agreed_in_tests.clear()
+
+
 def _run_shadow_comparison(
     rule: ParseRule,
     statement: str,

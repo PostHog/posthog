@@ -445,8 +445,14 @@ def _construct_database_root_node(*, include_posthog_tables: bool) -> TableNode:
 
 @cache
 def _system_table_access_scopes() -> tuple[tuple[str, str], ...]:
-    """(table name, access scope) for the access-controlled Postgres system tables. The set is static per
-    process, and instantiating the full SystemTables model just to read it costs milliseconds per query."""
+    """(table name, access scope) for the access-controlled Postgres system tables.
+
+    Cached for the process lifetime — this result directly gates table visibility in access-control
+    decisions, so every entry here MUST remain process-static. Do NOT make a system table's
+    access_scope dynamic (per-team, per-flag, or env-driven at call time): this cache would silently
+    serve stale scopes and bypass the restriction. Today SystemTables().children is a static
+    class-level dict of module-level PostgresTable constants, which satisfies that invariant.
+    """
     return tuple(
         (name, table_node.table.access_scope)
         for name, table_node in SystemTables().children.items()

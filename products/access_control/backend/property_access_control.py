@@ -297,15 +297,15 @@ def get_restricted_properties_for_team(
 
     :returns: A set of (property_name, property_definition_type) tuples that are restricted.
     """
+    if team is not None and team.pk != team_id:
+        raise ValueError(f"team {team.pk} does not match team_id {team_id}")
+
     cache = _restriction_cache_var.get()
     cache_key = (team_id, user.pk if user is not None else None)
     if cache is not None:
         cached = cache.get(cache_key)
         if cached is not None:
             return cached
-
-    if team is not None and team.pk != team_id:
-        raise ValueError(f"team {team.pk} does not match team_id {team_id}")
 
     # Short-circuit: no PROPERTY_ACCESS_CONTROL means no property access control rules exist
     if not is_property_access_control_enabled(team=team, team_id=team_id):
