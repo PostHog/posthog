@@ -833,6 +833,27 @@ def test_bigquery_get_columns_qualifies_information_schema_with_dataset_project(
     assert fake_client.query.call_args.kwargs["project"] == "dataset-project"
 
 
+@pytest.mark.parametrize("method_name", ["get_primary_keys", "get_leading_index_columns"])
+def test_bigquery_discovery_qualifies_information_schema_with_dataset_project(method_name):
+    """`get_primary_keys` and `get_leading_index_columns` share the same unqualified-reference
+    defect as `get_columns`, but swallow the error and silently lose PK/index detection. Their
+    INFORMATION_SCHEMA references must carry the dataset project too."""
+    config = _make_config(
+        project_id="service-account-project",
+        dataset_id="posthog_export",
+        dataset_project=BigQueryDatasetProjectConfig(dataset_project_id="dataset-project", enabled=True),
+    )
+
+    fake_client = mock.MagicMock()
+    fake_client.query.return_value.result.return_value = []
+
+    getattr(BigQueryImplementation(), method_name)(fake_client, config, tables=["t"])
+
+    sql = fake_client.query.call_args.args[0]
+    assert "`dataset-project.posthog_export`.INFORMATION_SCHEMA" in sql
+    assert fake_client.query.call_args.kwargs["project"] == "dataset-project"
+
+
 def test_bigquery_get_primary_keys_trims_whitespace_in_identifiers():
     fake_client = mock.MagicMock()
     fake_client.query.return_value.result.return_value = []
