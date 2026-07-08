@@ -46,11 +46,6 @@ def backfill_button_tile_type(apps, _) -> None:
 
 
 class Migration(migrations.Migration):
-    """
-    Data-only backfill: no schema change. Idempotent (a tile that already has `type` is left
-    alone), so a `bin/migrate` retry re-running this is harmless.
-    """
-
     dependencies = [
         ("dashboards", "0013_dashboardtile_button_tile_id_idx"),
     ]
