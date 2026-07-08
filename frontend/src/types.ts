@@ -5653,6 +5653,7 @@ export type APIScopeObject =
     | 'heatmap'
     | 'hog_flow'
     | 'hog_function'
+    | 'ingestion_warning'
     | 'insight'
     | 'insight_variable'
     | 'integration'
