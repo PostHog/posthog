@@ -300,6 +300,7 @@ the row lists both.
 | salesforce              | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
 | salesflare              | HTTP                        | requests                                                        | ✅                          |
 | salesloft               | HTTP                        | requests                                                        | ✅                          |
+| savvycal                | HTTP                        | requests                                                        | ✅                          |
 | secoda                  | HTTP                        | requests                                                        | ✅                          |
 | segment                 | HTTP                        | requests                                                        | ✅                          |
 | sendgrid                | HTTP                        | requests                                                        | ✅                          |
@@ -648,7 +649,6 @@ doesn't conflict with concurrent PRs.
 - sap_fieldglass
 - sap_hana
 - sap_successfactors
-- savvycal
 - search_ads_360
 - sendowl
 - sendpulse

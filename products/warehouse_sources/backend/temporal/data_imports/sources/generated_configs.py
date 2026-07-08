@@ -2911,7 +2911,7 @@ class SapSuccessFactorsSourceConfig(config.Config):
 
 @config.config
 class SavvyCalSourceConfig(config.Config):
-    pass
+    api_key: str
 
 
 @config.config
