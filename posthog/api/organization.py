@@ -420,7 +420,8 @@ class OrganizationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
 
     def safely_get_queryset(self, queryset) -> QuerySet:
         user = cast(User, self.request.user)
-        queryset = user.organizations.all()
+        # select_related keeps the enrichment method field from firing a query per org (N+1 on list)
+        queryset = user.organizations.select_related("enrichment_record")
         if isinstance(self.request.successful_authenticator, PersonalAPIKeyAuthentication):
             if scoped_organizations := self.request.successful_authenticator.personal_api_key.scoped_organizations:
                 queryset = queryset.filter(id__in=scoped_organizations)
