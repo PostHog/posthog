@@ -1,7 +1,14 @@
 import { useActions, useMountedLogic, useValues } from 'kea'
 import { useCallback, useEffect, useMemo } from 'react'
 
-import { LemonInputSelect, LemonSegmentedButton, LemonSelect, LemonSwitch, SpinnerOverlay } from '@posthog/lemon-ui'
+import {
+    LemonBanner,
+    LemonInputSelect,
+    LemonSegmentedButton,
+    LemonSelect,
+    LemonSwitch,
+    SpinnerOverlay,
+} from '@posthog/lemon-ui'
 
 import { DateFilter } from 'lib/components/DateFilter/DateFilter'
 import { CUSTOM_OPTION_KEY } from 'lib/components/DateFilter/types'
@@ -101,6 +108,7 @@ export const MetricsViewer = (): JSX.Element => {
         anomalyBadge,
         liveRefresh,
         queryResultsLoading,
+        queryError,
         hasMetricName,
     } = useValues(logic)
     const {
@@ -281,9 +289,17 @@ export const MetricsViewer = (): JSX.Element => {
                         renderLabel={renderLabel}
                     />
                 ) : !queryResultsLoading ? (
-                    <div className="h-full flex items-center justify-center text-secondary text-sm">
-                        No data for this metric in the selected range.
-                    </div>
+                    queryError ? (
+                        <div className="h-full flex items-center justify-center">
+                            <LemonBanner type="error" className="max-w-md">
+                                {queryError}
+                            </LemonBanner>
+                        </div>
+                    ) : (
+                        <div className="h-full flex items-center justify-center text-secondary text-sm">
+                            No data for this metric in the selected range.
+                        </div>
+                    )
                 ) : null}
                 {queryResultsLoading && <SpinnerOverlay />}
             </div>
