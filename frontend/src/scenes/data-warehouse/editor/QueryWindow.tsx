@@ -26,7 +26,7 @@ import { SceneTitlePanelButton } from '~/layout/scenes/components/SceneTitleSect
 import { dataNodeLogic } from '~/queries/nodes/DataNode/dataNodeLogic'
 import { AccessControlLevel, AccessControlResourceType } from '~/types'
 
-import { useAttachedContext } from 'products/posthog_ai/frontend/api/logics'
+import { useAttachedContext, useMcpToolApplyBack } from 'products/posthog_ai/frontend/api/logics'
 
 import { FixErrorButton } from './components/FixErrorButton'
 import { ConnectionSelector } from './ConnectionSelector'
@@ -173,6 +173,17 @@ export function QueryWindow({
             reportAIQueryPromptOpen,
         ]
     )
+    // Sandbox-runtime apply-back for the same tool the legacy MaxTool callback above handles. Reuses
+    // that callback verbatim so the diff-mode gate and filters handling stay shared with legacy.
+    useMcpToolApplyBack({
+        tools: ['execute-sql'],
+        onApply: (_event, { innerInput }) => {
+            if (!innerInput) {
+                return
+            }
+            handleExecuteSqlToolOutput(innerInput)
+        },
+    })
     const sendRawQueryLabel = (
         <span className="inline-flex items-center gap-1">
             <span>Send raw query</span>
