@@ -217,7 +217,7 @@ export function ActionEditorSceneComponent(): JSX.Element {
 
     return (
         <SceneContent>
-            <div className="flex flex-col items-center pt-8 pb-8">
+            <div className="flex flex-col items-center py-8">
                 <div className="w-full max-w-3xl px-4 flex flex-col gap-6">
                     <SceneTitleSection
                         name={title}
