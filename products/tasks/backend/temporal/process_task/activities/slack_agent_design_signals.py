@@ -10,10 +10,12 @@ from django.conf import settings
 import httpx
 import httpx_sse
 import structlog
+import posthoganalytics
 from temporalio import activity
 
 from posthog.temporal.common.utils import close_db_connections
 
+from products.tasks.backend.constants import STREAM_VIA_PROXY_FEATURE_FLAG
 from products.tasks.backend.logic.services.connection_token import create_stream_read_token
 from products.tasks.backend.logic.stream.redis_stream import (
     TaskRunRedisStream,
@@ -102,6 +104,34 @@ def _agent_proxy_base_url() -> str | None:
     return settings.TASKS_AGENT_PROXY_INTERNAL_URL or settings.TASKS_AGENT_PROXY_PUBLIC_URL
 
 
+def _stream_via_proxy_enabled(task_run: TaskRunModel) -> bool:
+    """Whether the read-via-proxy flag is on for this run.
+
+    Mirrors the UI's ``resolve_stream_base_url`` and event_ingest's push gate so the relay reads
+    the proxy leg only when the browser would too — keeping ``tasks-stream-via-proxy`` a runtime
+    kill-switch for both. Local dev disables the analytics SDK, so DEBUG is the opt-in. Fails closed.
+    """
+    if settings.DEBUG:
+        return True
+    user = task_run.task.created_by
+    if user is None:
+        return False
+    organization_id = str(task_run.team.organization_id)
+    try:
+        return bool(
+            posthoganalytics.feature_enabled(
+                STREAM_VIA_PROXY_FEATURE_FLAG,
+                user.distinct_id or f"user_{user.id}",
+                groups={"organization": organization_id},
+                group_properties={"organization": {"id": organization_id}},
+                only_evaluate_locally=False,
+                send_feature_flag_events=False,
+            )
+        )
+    except Exception:
+        return False
+
+
 @activity.defn
 @close_db_connections
 async def relay_agent_design_signals(input: RelayAgentDesignSignalsInput) -> None:
@@ -124,15 +154,20 @@ async def relay_agent_design_signals(input: RelayAgentDesignSignalsInput) -> Non
 
     emitter = SlackAgentDesignSignalEmitter(input.slack_thread_context)
 
+    # Read the live proxy leg only when a proxy is configured AND the read-via-proxy flag is on for
+    # the run — the same decision the task UI makes — so the flag stays a runtime kill-switch for
+    # both. Otherwise tail the Django-side Redis stream.
+    task_run = await TaskRunModel.objects.select_related("task__created_by", "team").aget(id=input.run_id)
     base_url = _agent_proxy_base_url()
-    if base_url:
-        await _relay_from_agent_proxy(base_url, input, emitter, workflow_handle)
+    if base_url and await asyncio.to_thread(_stream_via_proxy_enabled, task_run):
+        await _relay_from_agent_proxy(base_url, task_run, input, emitter, workflow_handle)
     else:
         await _relay_from_redis(input, emitter, workflow_handle)
 
 
 async def _relay_from_agent_proxy(
     base_url: str,
+    task_run: TaskRunModel,
     input: RelayAgentDesignSignalsInput,
     emitter: SlackAgentDesignSignalEmitter,
     workflow_handle: Any,
@@ -142,7 +177,6 @@ async def _relay_from_agent_proxy(
     Reconnects with ``Last-Event-ID`` on transient drops and proxy stream rotations, and stops on
     the terminal ``stream-end`` frame. Failures are non-fatal — the relay is best-effort.
     """
-    task_run = await TaskRunModel.objects.aget(id=input.run_id)
     events_url = f"{base_url.rstrip('/')}/v1/runs/{input.run_id}/stream"
 
     last_event_id: str | None = None
