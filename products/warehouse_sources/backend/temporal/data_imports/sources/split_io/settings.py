@@ -1,6 +1,8 @@
 from dataclasses import dataclass, field
 from typing import Literal
 
+from products.warehouse_sources.backend.types import IncrementalField
+
 # How a list endpoint pages through results:
 # - "offset": `limit`/`offset` params with an `{"objects": [...], "offset", "limit", "totalCount"}` envelope
 # - "marker": `limit`/`after` params with a `{"data": [...], "nextMarker", "previousMarker"}` envelope
@@ -111,4 +113,4 @@ SPLIT_IO_ENDPOINTS: dict[str, SplitIoEndpointConfig] = {
 
 ENDPOINTS = tuple(SPLIT_IO_ENDPOINTS.keys())
 
-INCREMENTAL_FIELDS: dict[str, list[dict[str, str]]] = {}
+INCREMENTAL_FIELDS: dict[str, list[IncrementalField]] = {}
