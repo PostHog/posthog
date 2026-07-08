@@ -51,6 +51,7 @@ from posthog.schema import (
     MCPToolSampleIntentsQuery,
     MCPToolStatsQuery,
     MCPToolTopUsersQuery,
+    MetricsQuery,
     NodeKind,
     PathsQuery,
     PropertyGroupFilter,
@@ -320,6 +321,7 @@ RunnableQueryNode = Union[
     EndpointsUsageOverviewQuery,
     EndpointsUsageTableQuery,
     EndpointsUsageTrendsQuery,
+    MetricsQuery,
     MCPHarnessBreakdownQuery,
     MCPToolTopUsersQuery,
     MCPToolFailuresQuery,
@@ -1201,6 +1203,18 @@ def get_query_runner(
             timings=timings,
             limit_context=limit_context,
             modifiers=modifiers,
+            user=user,
+        )
+
+    if kind == "MetricsQuery":
+        from products.metrics.backend.facade.queries import MetricsQueryRunner
+
+        return MetricsQueryRunner(
+            query=query,
+            team=team,
+            timings=timings,
+            modifiers=modifiers,
+            limit_context=limit_context,
             user=user,
         )
 
