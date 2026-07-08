@@ -23,10 +23,13 @@ export interface ExperimentData {
     archived?: boolean
     created_at?: string
     updated_at?: string
-    parameters?: {
-        feature_flag_variants?: ExperimentVariant[]
-        [key: string]: unknown
-    }
+    feature_flag?: {
+        filters?: {
+            multivariate?: {
+                variants?: ExperimentVariant[]
+            } | null
+        } | null
+    } | null
     metrics?: ExperimentMetric[]
     metrics_secondary?: ExperimentMetric[]
     filters?: Record<string, unknown>

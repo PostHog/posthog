@@ -573,6 +573,7 @@ const experimentList = (): ToolBase<
                         'name',
                         'description',
                         'feature_flag_key',
+                        'feature_flag',
                         'start_date',
                         'end_date',
                         'archived',
