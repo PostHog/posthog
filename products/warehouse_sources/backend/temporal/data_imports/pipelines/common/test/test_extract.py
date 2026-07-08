@@ -137,12 +137,14 @@ class TestHandleCorruptedDeltaLog:
         schema, job = self._schema_and_job(team)
         helper = MagicMock(is_table_corrupted=AsyncMock(return_value=False), reset_table=AsyncMock())
 
-        result = async_to_sync(handle_corrupted_delta_log)(schema, job, helper, self._logger())
+        with patch(f"{_EXTRACT_MODULE}.posthoganalytics") as ph:
+            result = async_to_sync(handle_corrupted_delta_log)(schema, job, helper, self._logger())
 
         assert result is False
         helper.reset_table.assert_not_awaited()
         job.refresh_from_db()
         assert job.billable is True
+        ph.capture.assert_not_called()  # no revival event for a healthy table
 
     def test_corrupt_table_without_salvage_resets_non_billable(self, team):
         # A corrupt table with no recoverable repartition swap is reset for an in-run rebuild, and the job
@@ -150,12 +152,17 @@ class TestHandleCorruptedDeltaLog:
         schema, job = self._schema_and_job(team)  # sync_type_config has no repartition_swap → no salvage path
         helper = MagicMock(is_table_corrupted=AsyncMock(return_value=True), reset_table=AsyncMock())
 
-        result = async_to_sync(handle_corrupted_delta_log)(schema, job, helper, self._logger())
+        with patch(f"{_EXTRACT_MODULE}.posthoganalytics") as ph:
+            result = async_to_sync(handle_corrupted_delta_log)(schema, job, helper, self._logger())
 
         assert result is True
         helper.reset_table.assert_awaited_once()
         job.refresh_from_db()
         assert job.billable is False
+        # A revival must be observable, tagged with how it recovered and that the rebuild was made non-billable.
+        assert ph.capture.call_args.kwargs["event"] == "warehouse_delta_revived"
+        assert ph.capture.call_args.kwargs["properties"]["outcome"] == "reset_rebuild"
+        assert ph.capture.call_args.kwargs["properties"]["made_non_billable"] is True
 
     def test_corrupt_table_with_ready_swap_is_salvaged(self, team):
         # A corrupt table whose interrupted repartition swap left a `ready` temp table is finished from temp
