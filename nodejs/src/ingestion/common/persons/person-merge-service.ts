@@ -43,10 +43,6 @@ export const mergeTxnSuccessCounter = new Counter({
     labelNames: ['call', 'oldPersonIdentified', 'newPersonIdentified'],
 })
 
-export const personMergeEventProducedCounter = new Counter({
-    name: 'person_merge_event_produced_total',
-    help: 'Number of person_merge_events produce attempts after a committed merge (gate-on merges only).',
-})
 // used to prevent identify from being used with generic IDs
 // that we can safely assume stem from a bug or mistake
 const BARE_CASE_INSENSITIVE_ILLEGAL_IDS = [
@@ -525,16 +521,12 @@ export class PersonMergeService {
                 })
                 .inc()
 
-            // Produce-after-commit: the merge event is emitted only after the Postgres txn commits,
-            // alongside the clickhouse_person messages. A crash between commit and ack loses it; the
-            // downstream protocol is idempotent on replay but cannot recover a never-produced event.
-            if (this.context.shouldProduceMergeEvent()) {
-                personMergeEventProducedCounter.inc()
-            }
-            const kafkaAck = Promise.all([
-                this.context.produceMessages(kafkaMessages),
-                this.context.producePersonMergeEvent(currentSourcePerson, mergedPerson),
-            ]).then(() => undefined)
+            // Fire-and-forget after commit: the person_merge_events emission is detached from the ack
+            // chain, so a produce failure can never block, replay, or crash ingestion.
+            // producePersonMergeEvent is best-effort and never throws; the call-site catch is
+            // belt-and-braces against the unhandledRejection handler if that contract is ever broken.
+            const kafkaAck = this.context.produceMessages(kafkaMessages)
+            void this.context.producePersonMergeEvent(currentSourcePerson, mergedPerson).catch(() => {})
             return mergeSuccess(mergedPerson, kafkaAck, true)
         } catch (error) {
             // Map exceptions to result types - these will cause transaction rollback

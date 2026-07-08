@@ -2989,7 +2989,7 @@ describe('PersonState.processEvent()', () => {
             if (!result.success) {
                 throw new Error('Merge should have succeeded')
             }
-            // kafkaAck wraps both the person messages and the merge event; it must resolve.
+            // kafkaAck wraps only the person messages; the merge event is produced fire-and-forget.
             await flushPersonStoreToKafka(kafkaProducer, mergeService.getContext().personStore, result.kafkaAck)
 
             const mergeProduceCalls = produceSpy.mock.calls.filter(
@@ -3011,6 +3011,66 @@ describe('PersonState.processEvent()', () => {
                 schema_version: 1,
             })
             expect(typeof payload.merged_at_ms).toBe('number')
+        })
+
+        it(`detaches the person_merge_events produce from the ack chain: a stuck produce cannot stall kafkaAck`, async () => {
+            mockProducerObserver.resetKafkaProducer()
+            const first = await createPerson(hub, timestamp, {}, {}, {}, teamId, null, false, firstUserUuid, {
+                distinctId: firstUserDistinctId,
+            })
+            const second = await createPerson(hub, timestamp, {}, {}, {}, teamId, null, false, secondUserUuid, {
+                distinctId: secondUserDistinctId,
+            })
+
+            // Hang the shadow-topic produce; person/distinct-id messages still hit the real broker. A
+            // detached kafkaAck resolves regardless, so if this test ever times out, someone re-bundled
+            // the merge event back into the kafkaAck Promise.all and re-coupled it to offset commits.
+            const realProduce = KafkaProducerWrapper.prototype.produce
+            let releaseShadowProduce: () => void = () => {}
+            const shadowProduce = new Promise<void>((resolve) => {
+                releaseShadowProduce = () => resolve()
+            })
+            const produceSpy = jest
+                .spyOn(kafkaProducer, 'produce')
+                .mockImplementation((message) =>
+                    message.topic === KAFKA_PERSON_MERGE_EVENTS
+                        ? shadowProduce
+                        : realProduce.call(kafkaProducer, message)
+                )
+
+            try {
+                const mergeService = personMergeService(
+                    {},
+                    hub,
+                    personRepository,
+                    true,
+                    timestamp,
+                    mainTeam,
+                    createDefaultSyncMergeMode(),
+                    { enabled: true, partitionCount: 64 }
+                )
+                const result = await mergeService.mergePeople({
+                    mergeInto: first,
+                    mergeIntoDistinctId: firstUserDistinctId,
+                    otherPerson: second,
+                    otherPersonDistinctId: secondUserDistinctId,
+                })
+                expect(result.success).toBe(true)
+                if (!result.success) {
+                    throw new Error('Merge should have succeeded')
+                }
+
+                await expect(
+                    flushPersonStoreToKafka(kafkaProducer, mergeService.getContext().personStore, result.kafkaAck)
+                ).resolves.toBeDefined()
+
+                // Person messages were still delivered to the real broker.
+                expect(produceSpy.mock.calls.filter((call) => call[0].topic === KAFKA_PERSON).length).toBeGreaterThan(0)
+            } finally {
+                // Let the fire-and-forget produce settle so it doesn't leak past the test.
+                releaseShadowProduce()
+                await shadowProduce
+            }
         })
 
         it(`does not emit a person_merge_events message when the merge rolls back (moveDistinctIds throws)`, async () => {

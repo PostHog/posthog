@@ -5,7 +5,7 @@ import { PERSON_MERGE_EVENTS_OUTPUT } from '~/common/outputs'
 import { UUIDT } from '~/common/utils/utils'
 import { InternalPerson } from '~/types'
 
-import { MergeEventsConfig, PersonContext } from './person-context'
+import { MergeEventsConfig, PersonContext, personMergeEventProducedCounter } from './person-context'
 import { createDefaultSyncMergeMode } from './person-merge-types'
 
 describe('PersonContext', () => {
@@ -81,5 +81,23 @@ describe('PersonContext', () => {
         } else {
             expect(mockOutputs.produce).not.toHaveBeenCalled()
         }
+    })
+
+    // The produce is detached from ingestion, so a broker failure must never surface to the caller
+    // and must not be counted as a delivered produce (the counter tracks broker acks, not attempts).
+    it('producePersonMergeEvent swallows a produce failure without counting it', async () => {
+        const context = buildContext(2, {
+            enabled: true,
+            partitionCount: 64,
+            isTeamEnabled: buildIntegerMatcher('2', true),
+        })
+        mockOutputs.produce.mockRejectedValue(new Error('broker down'))
+        const producedBefore = (await personMergeEventProducedCounter.get()).values[0]?.value ?? 0
+
+        await expect(context.producePersonMergeEvent(sourcePerson, targetPerson)).resolves.toBeUndefined()
+
+        expect(mockOutputs.produce).toHaveBeenCalledTimes(1)
+        const producedAfter = (await personMergeEventProducedCounter.get()).values[0]?.value ?? 0
+        expect(producedAfter).toBe(producedBefore)
     })
 })

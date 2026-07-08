@@ -143,6 +143,9 @@ export type IngestionConsumerConfig = {
     PERSON_MERGE_ASYNC_ENABLED: boolean
     PERSON_MERGE_SYNC_BATCH_SIZE: number
     // Kill switch for emitting person_merge_events to the cohort-stream-processor.
+    // Enable ordering: (1) create the topic, (2) set INGESTION_OUTPUT_PERSON_MERGE_EVENTS_TOPIC
+    // (startup topic verification is then fatal by design), (3) flip this on. Flipping this on before
+    // the topic env is set is a no-op — see effectivePersonMergeEventsEnabled.
     PERSON_MERGE_EVENTS_ENABLED: boolean
     // Must equal the person_merge_events topic partition count and the Rust COHORT_PARTITION_COUNT.
     PERSON_MERGE_EVENTS_PARTITION_COUNT: number

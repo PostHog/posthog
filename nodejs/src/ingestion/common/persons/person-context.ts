@@ -1,4 +1,5 @@
 import { DateTime } from 'luxon'
+import { Counter } from 'prom-client'
 
 import {
     IngestionWarningsOutput,
@@ -9,12 +10,18 @@ import {
 } from '~/common/outputs'
 import { IngestionOutputs } from '~/common/outputs/ingestion-outputs'
 import { PersonMessage } from '~/common/persons/person-message'
+import { logger } from '~/common/utils/logger'
 import { PluginEvent, Properties } from '~/plugin-scaffold'
 import { InternalPerson, Team, ValueMatcher } from '~/types'
 
 import { buildPersonMergeEventMessage } from './person-merge-event'
 import { MergeMode } from './person-merge-types'
 import { PersonsStoreForBatch } from './persons-store-for-batch'
+
+export const personMergeEventProducedCounter = new Counter({
+    name: 'person_merge_event_produced_total',
+    help: 'Number of person_merge_events messages acked by the broker (gate-on merges only).',
+})
 
 export type PersonOutputs = IngestionOutputs<
     PersonsOutput | PersonDistinctIdsOutput | IngestionWarningsOutput | PersonMergeEventsOutput
@@ -75,26 +82,38 @@ export class PersonContext {
     }
 
     /**
-     * Emit a person_merge_events message for the cohort-stream-processor. Resolved no-op when the
-     * gate is off or the team is outside the allowlist. The message is explicitly partitioned by
+     * Best-effort emit of a person_merge_events message for the cohort-stream-processor. No-op when
+     * the gate is off or the team is outside the allowlist. Never throws: a produce failure is
+     * logged and dropped, so it can never affect ingestion. Delivery is at-most-once; loss is
+     * accepted until the delivery-guarantees milestone. The message is explicitly partitioned by
      * `(team_id, P_old)` so it reaches the worker holding P_old's state — see `buildPersonMergeEventMessage`.
      */
     async producePersonMergeEvent(sourcePerson: InternalPerson, targetPerson: InternalPerson): Promise<void> {
         if (!this.shouldProduceMergeEvent()) {
             return
         }
-        const { key, partition, value } = buildPersonMergeEventMessage(
-            this.team.id,
-            sourcePerson.uuid,
-            targetPerson.uuid,
-            Date.now(),
-            this.mergeEventsConfig.partitionCount
-        )
-        await this.outputs.produce(PERSON_MERGE_EVENTS_OUTPUT, {
-            value,
-            key,
-            partition,
-            teamId: this.team.id,
-        })
+        try {
+            const { key, partition, value } = buildPersonMergeEventMessage(
+                this.team.id,
+                sourcePerson.uuid,
+                targetPerson.uuid,
+                Date.now(),
+                this.mergeEventsConfig.partitionCount
+            )
+            await this.outputs.produce(PERSON_MERGE_EVENTS_OUTPUT, {
+                value,
+                key,
+                partition,
+                teamId: this.team.id,
+            })
+            personMergeEventProducedCounter.inc()
+        } catch (error) {
+            logger.warn('person_merge_events produce failed, dropping', {
+                team_id: this.team.id,
+                source_person_uuid: sourcePerson.uuid,
+                target_person_uuid: targetPerson.uuid,
+                error,
+            })
+        }
     }
 }

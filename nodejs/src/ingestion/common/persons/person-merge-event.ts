@@ -1,4 +1,5 @@
 import { murmur2Partition } from '~/common/kafka/murmur2'
+import { logger } from '~/common/utils/logger'
 
 /**
  * Wire shape of a committed `P_old -> P_new` person merge event.
@@ -60,4 +61,32 @@ export function buildPersonMergeEventMessage(
         partition: murmur2Partition(key, partitionCount),
         value: Buffer.from(JSON.stringify(event)),
     }
+}
+
+let warnedUnconfiguredMergeEventsTopic = false
+
+/**
+ * Effective enable for person_merge_events: the kill switch AND a configured output topic. The topic
+ * defaults to '' (unwired), and producing to an empty topic would warn on every gated merge, so an
+ * unset topic disables emission. Warns once when the gate is on but the topic is unconfigured. The
+ * topic is optional because the ingestion consumer's config type does not surface output topics,
+ * though its runtime config always carries one.
+ */
+export function effectivePersonMergeEventsEnabled(config: {
+    PERSON_MERGE_EVENTS_ENABLED: boolean
+    INGESTION_OUTPUT_PERSON_MERGE_EVENTS_TOPIC?: string
+}): boolean {
+    if (!config.PERSON_MERGE_EVENTS_ENABLED) {
+        return false
+    }
+    if (!config.INGESTION_OUTPUT_PERSON_MERGE_EVENTS_TOPIC) {
+        if (!warnedUnconfiguredMergeEventsTopic) {
+            warnedUnconfiguredMergeEventsTopic = true
+            logger.warn(
+                'PERSON_MERGE_EVENTS_ENABLED is set but INGESTION_OUTPUT_PERSON_MERGE_EVENTS_TOPIC is empty; not emitting person_merge_events'
+            )
+        }
+        return false
+    }
+    return true
 }
