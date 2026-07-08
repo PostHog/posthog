@@ -58,6 +58,11 @@ export { useForegroundStream } from '../hooks/useForegroundStream'
 export { useMcpToolApplyBack } from '../hooks/useMcpToolApplyBack'
 export type { ApplyOn, McpToolApplyContext, UseMcpToolApplyBackOptions } from '../hooks/useMcpToolApplyBack'
 
+// --- Foreground create toasts (headless) ---
+// `usePersistCreateToasts` mounts a global logic that toasts an "Open …" link when the foreground run
+// finishes a create-family persist tool. Mount it from the same surfaces that register foreground.
+export { usePersistCreateToasts } from '../hooks/usePersistCreateToasts'
+
 // --- Panel view state (headless) ---
 // Panel-level view state (active run vs. history vs. composer) for hosts that render chrome — e.g. a
 // header back button — outside the lazy panel chunk (Tier 1 `api/runner`).

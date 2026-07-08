@@ -1,3 +1,7 @@
+// Side-effect: registers the CDP hog-function approval-card previews (cdp-functions-partial-update diff)
+// into the shared PostHog AI tool registry. Imported here so it's registered whenever the config scene loads.
+import './registerHogFunctionToolPreviews'
+
 import clsx from 'clsx'
 import { BindLogic, useValues } from 'kea'
 import { Form } from 'kea-forms'
