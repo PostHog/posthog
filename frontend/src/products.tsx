@@ -2252,7 +2252,7 @@ export const getTreeItemsProducts = (): FileSystemImport[] => [
         iconColor: ['var(--color-product-tracing-light)'] as FileSystemIconColor,
         href: urls.tracing(),
         flag: FEATURE_FLAGS.TRACING,
-        tags: ['alpha'],
+        tags: ['beta'],
         sceneKey: 'Tracing',
         sceneKeys: ['Tracing', 'TracingOperation'],
     },

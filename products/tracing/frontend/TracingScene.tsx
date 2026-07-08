@@ -170,14 +170,14 @@ function TracingSceneContents(): JSX.Element {
             />
             <LemonBanner
                 type="warning"
-                dismissKey="tracing-alpha-notice"
+                dismissKey="tracing-beta-notice"
                 action={{
                     icon: <IconFeedback />,
                     children: 'Share feedback',
                     onClick: onFeedbackClick,
                 }}
             >
-                Tracing is in alpha. Expect bugs, missing features, and breaking changes.
+                Tracing is now in beta. Please share feedback on how to improve the product.
             </LemonBanner>
             <TracingSetupPrompt>
                 <TracingFilterBar />
