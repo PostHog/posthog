@@ -116,8 +116,8 @@ tools:
             table prefix. Call this first when a team may have more than one GitHub source, then pass a chosen id as
             source_id to the pull-requests, workflow-health, ci-cards, or pr-lifecycle tools to read that specific
             source. With a single source you can skip it — the other tools default to the oldest connected source. The
-            prefix also names the underlying warehouse tables — prefix + github_pull_requests / github_workflow_runs /
-            github_workflow_jobs — which you can query directly with SQL or save as SQL insights and subscriptions when
+            prefix also names the underlying warehouse tables (prefix + github_pull_requests / github_workflow_runs /
+            github_workflow_jobs), which you can query directly with SQL or save as SQL insights and subscriptions when
             the named tools don't fit (timestamps land as strings; parse with parseDateTimeBestEffort).
         feature_flag: engineering-analytics
     engineering-analytics-workflow-jobs:

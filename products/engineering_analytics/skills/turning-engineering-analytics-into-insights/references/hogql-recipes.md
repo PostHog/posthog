@@ -73,7 +73,7 @@ FROM (
 )
 ```
 
-`pr_number` is the first entry of the run's `pull_requests` association — `0` when there is none (fork PRs, pushes with no open PR); filter `pr_number > 0` before attributing runs to PRs.
+`pr_number` is the first entry of the run's `pull_requests` association, or `0` when there is none (fork PRs, pushes with no open PR); filter `pr_number > 0` before attributing runs to PRs.
 This association, not `head_sha`, is how the product links CI to a PR across all its pushes.
 
 ## Recipe: weekly open→merge time trend
@@ -93,7 +93,7 @@ GROUP BY week
 ORDER BY week
 ```
 
-Report p50 and p95 side by side — they move independently. This is "open to merge", not cycle time.
+Report p50 and p95 side by side; they move independently. This is "open to merge", not cycle time.
 
 ## Recipe: weekly CI success rate and p95 duration per workflow
 
@@ -113,7 +113,7 @@ HAVING runs >= 5
 ORDER BY week, runs DESC
 ```
 
-Completed runs only — in-flight and stale-conclusion rows would poison the rate.
+Completed runs only: in-flight and stale-conclusion rows would poison the rate.
 For a single-workflow tile, add `AND workflow_name = 'CI'` and drop the group.
 
 ## Recipe: PR throughput per week
@@ -134,7 +134,7 @@ ORDER BY week
 
 ## Recipe: open PRs with failing CI right now
 
-A PR's current CI status is the latest completed run per `(head_sha, workflow_name)` — the one place head SHA is the correct key:
+A PR's current CI status is the latest completed run per `(head_sha, workflow_name)`; this is the one place head SHA is the correct key:
 
 ```sql
 WITH prs AS (<PR base>),
@@ -155,13 +155,14 @@ ci AS (
 SELECT count() AS open_prs_failing_ci
 FROM prs
 INNER JOIN ci ON prs.head_sha = ci.head_sha
-WHERE prs.state = 'open' AND NOT prs.is_draft AND ci.failing > 0
+WHERE prs.state = 'open' AND ci.failing > 0
 ```
 
-A `pending`-heavy result can be sync staleness, not real in-flight CI — treat pending as unsettled, never as failure.
+Drafts and bots stay included here, matching the product's failing-CI card (`ci_cards` only excludes them from the stuck count); add `AND NOT prs.is_draft` only if the user explicitly wants non-draft PRs, and say the number then diverges from the dashboard.
+A `pending`-heavy result can be sync staleness, not real in-flight CI; treat pending as unsettled, never as failure.
 
 ## Job-level recipes (optional table)
 
-`<prefix>github_workflow_jobs` may not be synced — check `engineering-analytics-sources` output or probe with a `LIMIT 1`.
+`<prefix>github_workflow_jobs` may not be synced; check `engineering-analytics-sources` output or probe with a `LIMIT 1`.
 Durations and queue times are honest SQL (`started_at - created_at` is queue wait, `completed_at - started_at` is run time; all string timestamps, parse them).
-**Do not** recompute dollar cost from labels — the runner-tier price ladder lives in product code and drifts; use the `engineering-analytics-pr-cost` / `engineering-analytics-workflow-runner-costs` MCP tools for cost figures.
+**Do not** recompute dollar cost from labels: the runner-tier price ladder lives in product code and drifts; use the `engineering-analytics-pr-cost` / `engineering-analytics-workflow-runner-costs` MCP tools for cost figures.

@@ -108,7 +108,7 @@ CI before merging."
 
 ## Persisting an answer
 
-These tools are ad-hoc reads — they cannot be saved as an insight or subscribed to. When the user wants the same
+These tools are ad-hoc reads; they cannot be saved as an insight or subscribed to. When the user wants the same
 numbers as a saved insight, a dashboard tile, or a scheduled email/Slack delivery, switch to the
 `turning-engineering-analytics-into-insights` skill: the underlying warehouse tables
 (`<prefix>github_pull_requests` / `<prefix>github_workflow_runs`, prefix from `engineering-analytics-sources`)
