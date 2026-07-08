@@ -405,7 +405,12 @@ CLICKHOUSE_ERROR_CODE_LOOKUP: dict[int, ErrorCodeMeta] = {
     ),  # column types don't match expected schema
     123: ErrorCodeMeta("UNKNOWN_TYPE_OF_AST_NODE"),
     124: ErrorCodeMeta("INCORRECT_ELEMENT_OF_SET"),
-    125: ErrorCodeMeta("INCORRECT_RESULT_OF_SCALAR_SUBQUERY"),
+    125: ErrorCodeMeta(
+        "INCORRECT_RESULT_OF_SCALAR_SUBQUERY",
+        user_safe="A subquery used where a single value was expected returned more than one row. "
+        "This usually means a HogQL expression (such as a breakdown or filter) contains a subquery "
+        "that needs to be aggregated to a single value.",
+    ),
     127: ErrorCodeMeta("ILLEGAL_INDEX"),
     128: ErrorCodeMeta("TOO_LARGE_ARRAY_SIZE"),
     129: ErrorCodeMeta("FUNCTION_IS_SPECIAL"),
