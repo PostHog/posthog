@@ -57,6 +57,7 @@ ActivityScope = Literal[
     "LegalDocument",
     "Organization",
     "OrganizationDomain",
+    "IdentityProviderConfig",
     "OrganizationMembership",
     "Role",
     "UserGroup",
@@ -257,6 +258,10 @@ field_with_masked_contents: dict[AuditableScope, list[str]] = {
         "verification_challenge",
         "_saml_x509_cert",
     ],
+    "IdentityProviderConfig": [
+        "scim_bearer_token",
+        "saml_x509_cert",
+    ],
     "User": [
         "email",
         "password",
@@ -303,6 +308,11 @@ field_name_overrides: dict[AuditableScope, dict[str, str]] = {
         "_saml_x509_cert": "SAML X.509 certificate",
         "_scim_enabled": "SCIM provisioning",
         "verified_at": "domain verification",
+    },
+    "IdentityProviderConfig": {
+        "saml_entity_id": "SAML entity ID",
+        "saml_acs_url": "SAML ACS URL",
+        "saml_x509_cert": "SAML X.509 certificate",
     },
 }
 
@@ -391,6 +401,11 @@ field_exclusions: dict[AuditableScope, list[str]] = {
         "scim_provisioned_users",
         # Internal link to the IdP config mirror; the mirrored fields themselves are already logged
         "identity_provider_config",
+    ],
+    "IdentityProviderConfig": [
+        "organization",
+        # Reverse relation from `OrganizationDomain.identity_provider_config`; not a plain field diff.
+        "domains",
     ],
     "Subscription": [
         # Scheduler-derived field; keep it out of user-facing change diffs even when another

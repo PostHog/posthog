@@ -3,12 +3,13 @@ from django.db import models
 
 import structlog
 
+from posthog.models.activity_logging.model_activity import ModelActivityMixin
 from posthog.models.utils import UUIDModel
 
 logger = structlog.get_logger(__name__)
 
 
-class IdentityProviderConfig(UUIDModel):
+class IdentityProviderConfig(ModelActivityMixin, UUIDModel):
     """
     Identity provider (IdP) configuration for an organization.
 
