@@ -301,13 +301,15 @@ describe('runStreamLogic', () => {
         })
         const issueDone = sessionUpdate({ sessionUpdate: 'tool_call_update', toolCallId: 'tse1', status: 'completed' })
 
-        it('publishes started/completed with resolved names for live frames; replay only reaches includeReplay listeners', async () => {
+        it('publishes live tool and turn-complete events while replay only reaches includeReplay tool listeners', async () => {
             const liveListener = jest.fn()
             const replayListener = jest.fn()
+            const turnCompleteListener = jest.fn()
             // The bus is connect-mounted by the stream logic, so listeners can register directly.
             toolStreamEventsLogic.actions.registerToolListener('live', {
                 tools: ['create_issue'],
                 onEvent: liveListener,
+                onTurnComplete: turnCompleteListener,
             })
             toolStreamEventsLogic.actions.registerToolListener('replay', {
                 tools: '*',
@@ -318,6 +320,7 @@ describe('runStreamLogic', () => {
             await expectLogic(logic, () => {
                 logic.actions.ingestAcpFrame(issueCall)
                 logic.actions.ingestAcpFrame(issueDone)
+                logic.actions.ingestAcpFrame(notification('_posthog/turn_complete', {}))
             }).toFinishAllListeners()
 
             expect(liveListener.mock.calls.map(([event]) => [event.phase, event.toolName])).toEqual([
@@ -338,11 +341,14 @@ describe('runStreamLogic', () => {
                     }),
                     'replay'
                 )
+                logic.actions.ingestAcpFrame(notification('_posthog/turn_complete', {}), 'replay')
             }).toFinishAllListeners()
 
             expect(liveListener).not.toHaveBeenCalled()
             expect(replayListener).toHaveBeenCalledTimes(1)
             expect(replayListener.mock.calls[0][0].source).toEqual('replay')
+            expect(turnCompleteListener).toHaveBeenCalledTimes(1)
+            expect(turnCompleteListener).toHaveBeenCalledWith({ streamKey: 'test-conversation' })
         })
 
         it('resolves a live completion against a tool_call ingested during replay with no replay listener', async () => {

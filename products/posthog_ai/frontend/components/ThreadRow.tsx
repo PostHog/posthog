@@ -12,11 +12,11 @@ import { MarkdownMessage } from '../messages/MarkdownMessage'
 import { MessageTemplate } from '../messages/MessageTemplate'
 import { ReasoningAnswer } from '../messages/ReasoningAnswer'
 import type { ProgressStep, ThreadItem } from '../types/streamTypes'
+import { resolveToolCall } from '../utils/toolResolver'
 import { RunActivity } from './RunActivity'
 import { RunAlertActivity } from './RunAlertActivity'
 import { CompactBoundaryItem, StatusItem, TaskNotificationItem } from './ThreadItems'
 import { ToolCallCard } from './tool/ToolCallCard'
-import { resolveToolCall } from './tool/toolResolver'
 
 type ToolInvocations = typeof runStreamLogic.values.toolInvocations
 

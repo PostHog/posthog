@@ -170,8 +170,11 @@ tools, onEvent })`, or kea-natively by connecting to the bus and listening to
 `toolStreamEventsLogic.actionTypes.emitToolEvent`. Replay-sourced events are suppressed unless the
 subscription sets `includeReplay` (a reload must not re-trigger UI reactions). Caveat: for exec-wrapped
 PostHog tools the resolved name may be `__posthog_exec_unknown__` at `started` (the `command` streams in via
-updates) and is reliable by `completed` — match on `completed`, or also check `rawToolName`, when you need
-certainty. Subscriber callbacks are isolated (a throwing listener is captured, never breaks ingestion).
+updates) and is reliable by `completed`. `useMcpToolApplyBack` supports `tool_call_completed` and `turn_end`
+timing.
+The bus also publishes live turn-complete and run-terminal events so apply-back consumers can flush after a
+persistent run's response. Subscriber callbacks are isolated (a throwing listener is captured, never breaks
+ingestion).
 
 ## 4. Conventions
 
