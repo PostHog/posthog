@@ -3113,7 +3113,7 @@ class SparkPostSourceConfig(config.Config):
 
 @config.config
 class SplitIoSourceConfig(config.Config):
-    pass
+    api_key: str
 
 
 @config.config

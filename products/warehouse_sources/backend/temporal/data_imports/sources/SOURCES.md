@@ -316,6 +316,7 @@ the row lists both.
 | snapchat_ads            | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
 | snowflake               | DB protocol                 | snowflake-connector-python                                      | ➖                          |
 | sparkpost               | HTTP                        | requests                                                        | ✅                          |
+| split_io                | HTTP                        | requests                                                        | ✅                          |
 | square                  | HTTP                        | requests                                                        | ✅                          |
 | squarespace             | HTTP                        | requests                                                        | ✅                          |
 | statuspage              | HTTP                        | requests                                                        | ✅                          |
@@ -672,7 +673,6 @@ doesn't conflict with concurrent PRs.
 - smartwaiver
 - solarwinds_service_desk
 - sonar_cloud
-- split_io
 - spotify_ads
 - spotlercrm
 - statsig
