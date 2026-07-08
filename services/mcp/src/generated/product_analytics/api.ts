@@ -205,6 +205,58 @@ export const InsightsCreateBody = /* @__PURE__ */ zod
             .describe(
                 '\n        DEPRECATED. Will be removed in a future release. Use dashboard_tiles instead.\n        A dashboard ID for each of the dashboards that this insight is displayed on.\n        '
             ),
+        new_dashboard_tile_layouts: zod
+            .array(
+                zod.object({
+                    dashboard_id: zod
+                        .number()
+                        .describe('Dashboard the insight is being added to (must appear in the `dashboards` field).'),
+                    layouts: zod
+                        .object({
+                            sm: zod
+                                .object({
+                                    x: zod
+                                        .number()
+                                        .optional()
+                                        .describe('Column position in the dashboard grid (0-indexed).'),
+                                    y: zod
+                                        .number()
+                                        .optional()
+                                        .describe('Row position in the dashboard grid (0-indexed).'),
+                                    w: zod
+                                        .number()
+                                        .optional()
+                                        .describe('Width in grid columns. The desktop grid is 12 columns wide.'),
+                                    h: zod.number().optional().describe('Height in grid rows.'),
+                                })
+                                .optional()
+                                .describe('Layout for the standard (desktop) breakpoint. The grid is 12 columns wide.'),
+                            xs: zod
+                                .object({
+                                    x: zod
+                                        .number()
+                                        .optional()
+                                        .describe('Column position in the dashboard grid (0-indexed).'),
+                                    y: zod
+                                        .number()
+                                        .optional()
+                                        .describe('Row position in the dashboard grid (0-indexed).'),
+                                    w: zod
+                                        .number()
+                                        .optional()
+                                        .describe('Width in grid columns. The desktop grid is 12 columns wide.'),
+                                    h: zod.number().optional().describe('Height in grid rows.'),
+                                })
+                                .optional()
+                                .describe('Layout for the small (mobile) breakpoint. The grid is 1 column wide.'),
+                        })
+                        .describe('Grid layout for the tile created on that dashboard.'),
+                })
+            )
+            .optional()
+            .describe(
+                "Optional grid layout for tiles newly created when this insight is added to dashboards via the `dashboards` field. Only applied to tiles that don't already exist; existing tiles keep their layout. Used to place an inline-inserted tile at a chosen slot instead of the default position."
+            ),
         description: zod.string().max(insightsCreateBodyDescriptionMax).nullish(),
         tags: zod.array(zod.unknown()).optional(),
         favorited: zod.boolean().optional(),
@@ -312,6 +364,58 @@ export const InsightsPartialUpdateBody = /* @__PURE__ */ zod
             .optional()
             .describe(
                 '\n        DEPRECATED. Will be removed in a future release. Use dashboard_tiles instead.\n        A dashboard ID for each of the dashboards that this insight is displayed on.\n        '
+            ),
+        new_dashboard_tile_layouts: zod
+            .array(
+                zod.object({
+                    dashboard_id: zod
+                        .number()
+                        .describe('Dashboard the insight is being added to (must appear in the `dashboards` field).'),
+                    layouts: zod
+                        .object({
+                            sm: zod
+                                .object({
+                                    x: zod
+                                        .number()
+                                        .optional()
+                                        .describe('Column position in the dashboard grid (0-indexed).'),
+                                    y: zod
+                                        .number()
+                                        .optional()
+                                        .describe('Row position in the dashboard grid (0-indexed).'),
+                                    w: zod
+                                        .number()
+                                        .optional()
+                                        .describe('Width in grid columns. The desktop grid is 12 columns wide.'),
+                                    h: zod.number().optional().describe('Height in grid rows.'),
+                                })
+                                .optional()
+                                .describe('Layout for the standard (desktop) breakpoint. The grid is 12 columns wide.'),
+                            xs: zod
+                                .object({
+                                    x: zod
+                                        .number()
+                                        .optional()
+                                        .describe('Column position in the dashboard grid (0-indexed).'),
+                                    y: zod
+                                        .number()
+                                        .optional()
+                                        .describe('Row position in the dashboard grid (0-indexed).'),
+                                    w: zod
+                                        .number()
+                                        .optional()
+                                        .describe('Width in grid columns. The desktop grid is 12 columns wide.'),
+                                    h: zod.number().optional().describe('Height in grid rows.'),
+                                })
+                                .optional()
+                                .describe('Layout for the small (mobile) breakpoint. The grid is 1 column wide.'),
+                        })
+                        .describe('Grid layout for the tile created on that dashboard.'),
+                })
+            )
+            .optional()
+            .describe(
+                "Optional grid layout for tiles newly created when this insight is added to dashboards via the `dashboards` field. Only applied to tiles that don't already exist; existing tiles keep their layout. Used to place an inline-inserted tile at a chosen slot instead of the default position."
             ),
         description: zod.string().max(insightsPartialUpdateBodyDescriptionMax).nullish(),
         tags: zod.array(zod.unknown()).optional(),

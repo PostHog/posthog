@@ -1199,6 +1199,34 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         tile: DashboardTile = DashboardTile.objects.get(dashboard__id=dashboard_id, insight__id=insight_id)
         self.assertIsNotNone(tile)
 
+    @parameterized.expand(["create", "update"])
+    def test_adding_insight_to_dashboard_applies_requested_tile_layout(self, path: str) -> None:
+        # Guards inline insertion: a layout passed with the add must land on the new tile so the
+        # inserted insight appears at the chosen slot instead of the default position.
+        dashboard_id, _ = self.dashboard_api.create_dashboard({})
+        layout = {"sm": {"x": 6, "y": 4, "w": 6, "h": 5}}
+
+        if path == "create":
+            insight_id, _ = self.dashboard_api.create_insight(
+                {
+                    "filters": {"events": [{"id": "$pageview"}]},
+                    "dashboards": [dashboard_id],
+                    "new_dashboard_tile_layouts": [{"dashboard_id": dashboard_id, "layouts": layout}],
+                }
+            )
+        else:
+            insight_id, _ = self.dashboard_api.create_insight({"filters": {"events": [{"id": "$pageview"}]}})
+            self.dashboard_api.update_insight(
+                insight_id,
+                {
+                    "dashboards": [dashboard_id],
+                    "new_dashboard_tile_layouts": [{"dashboard_id": dashboard_id, "layouts": layout}],
+                },
+            )
+
+        tile = DashboardTile.objects.get(dashboard__id=dashboard_id, insight__id=insight_id)
+        self.assertEqual(tile.layouts, layout)
+
     def test_insight_items_on_a_dashboard_ignore_deleted_dashboards(self) -> None:
         dashboard_id, _ = self.dashboard_api.create_dashboard({})
         deleted_dashboard_id, _ = self.dashboard_api.create_dashboard({})

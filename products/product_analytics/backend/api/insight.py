@@ -466,6 +466,34 @@ def _last_refresh_for_shared_gate(insight: Insight, dashboard_tile: DashboardTil
     return cs.last_refresh or cs.created_at
 
 
+# Mirrors dashboards' TileLayoutBoxSerializer/TileLayoutsSerializer. Duplicated rather than imported
+# because products.dashboards.backend.api.dashboard imports InsightSerializer, so importing back would
+# create a circular import.
+class InsightTileLayoutBoxSerializer(serializers.Serializer):
+    x = serializers.IntegerField(required=False, help_text="Column position in the dashboard grid (0-indexed).")
+    y = serializers.IntegerField(required=False, help_text="Row position in the dashboard grid (0-indexed).")
+    w = serializers.IntegerField(
+        required=False, help_text="Width in grid columns. The desktop grid is 12 columns wide."
+    )
+    h = serializers.IntegerField(required=False, help_text="Height in grid rows.")
+
+
+class InsightTileLayoutsSerializer(serializers.Serializer):
+    sm = InsightTileLayoutBoxSerializer(
+        required=False, help_text="Layout for the standard (desktop) breakpoint. The grid is 12 columns wide."
+    )
+    xs = InsightTileLayoutBoxSerializer(
+        required=False, help_text="Layout for the small (mobile) breakpoint. The grid is 1 column wide."
+    )
+
+
+class NewDashboardTileLayoutSerializer(serializers.Serializer):
+    dashboard_id = serializers.IntegerField(
+        help_text="Dashboard the insight is being added to (must appear in the `dashboards` field)."
+    )
+    layouts = InsightTileLayoutsSerializer(help_text="Grid layout for the tile created on that dashboard.")
+
+
 class InsightSerializer(InsightBasicSerializer):
     result = serializers.SerializerMethodField()
     hasMore = serializers.SerializerMethodField()
@@ -513,6 +541,16 @@ class InsightSerializer(InsightBasicSerializer):
     A dashboard tile ID and dashboard_id for each of the dashboards that this insight is displayed on.
     """,
     )
+    new_dashboard_tile_layouts = NewDashboardTileLayoutSerializer(
+        many=True,
+        required=False,
+        write_only=True,
+        help_text=(
+            "Optional grid layout for tiles newly created when this insight is added to dashboards via the "
+            "`dashboards` field. Only applied to tiles that don't already exist; existing tiles keep their "
+            "layout. Used to place an inline-inserted tile at a chosen slot instead of the default position."
+        ),
+    )
     query = QueryFieldSerializer(required=False, allow_null=True)
     query_status = serializers.SerializerMethodField()
     hogql = serializers.SerializerMethodField()
@@ -534,6 +572,7 @@ class InsightSerializer(InsightBasicSerializer):
             "deleted",
             "dashboards",
             "dashboard_tiles",
+            "new_dashboard_tile_layouts",
             "last_refresh",
             "cache_target_age",
             "next_allowed_client_refresh",
@@ -617,6 +656,9 @@ class InsightSerializer(InsightBasicSerializer):
 
         created_by = validated_data.pop("created_by", request.user)
         dashboards = validated_data.pop("dashboards", None)
+        # Write-only, not a model field — pop before Insight.objects.create(**validated_data) below.
+        new_tile_layouts = validated_data.pop("new_dashboard_tile_layouts", None)
+        layouts_by_dashboard_id = {entry["dashboard_id"]: entry["layouts"] for entry in (new_tile_layouts or [])}
 
         # Validate dashboard access before creating anything: create() runs in autocommit,
         # so raising mid-way would otherwise leave an orphaned insight (and emit user actions
@@ -650,7 +692,11 @@ class InsightSerializer(InsightBasicSerializer):
 
         for dashboard in target_dashboards:
             DashboardTile.objects.create(
-                insight=insight, dashboard=dashboard, team_id=dashboard.team_id, last_refresh=now()
+                insight=insight,
+                dashboard=dashboard,
+                team_id=dashboard.team_id,
+                last_refresh=now(),
+                layouts=layouts_by_dashboard_id.get(dashboard.id, {}),
             )
             report_user_action(
                 self.context["request"].user,
@@ -711,6 +757,9 @@ class InsightSerializer(InsightBasicSerializer):
         # update corrects this for older records.
         validated_data.setdefault("saved", True)
 
+        # Write-only, not a model field — pop before super().update() regardless of branch.
+        new_tile_layouts = validated_data.pop("new_dashboard_tile_layouts", None)
+
         if validated_data.keys() & Insight.MATERIAL_INSIGHT_FIELDS:
             instance.last_modified_at = now()
             instance.last_modified_by = self.context["request"].user
@@ -722,7 +771,7 @@ class InsightSerializer(InsightBasicSerializer):
         else:
             dashboards = validated_data.pop("dashboards", None)
             if dashboards is not None:
-                self._update_insight_dashboards(dashboards, instance)
+                self._update_insight_dashboards(dashboards, instance, new_tile_layouts=new_tile_layouts)
 
         updated_insight = super().update(instance, validated_data)
         # Delete linked alerts only when the insight can no longer carry any alert. A switch between
@@ -795,7 +844,11 @@ class InsightSerializer(InsightBasicSerializer):
 
         return []
 
-    def _update_insight_dashboards(self, dashboards: list[Dashboard], instance: Insight) -> None:
+    def _update_insight_dashboards(
+        self, dashboards: list[Dashboard], instance: Insight, new_tile_layouts: list[dict] | None = None
+    ) -> None:
+        # Optional per-dashboard layout for tiles created below, so an inline-inserted tile lands at its slot.
+        layouts_by_dashboard_id = {entry["dashboard_id"]: entry["layouts"] for entry in (new_tile_layouts or [])}
         old_dashboard_ids = [tile.dashboard_id for tile in instance.dashboard_tiles.all()]
         new_dashboard_ids = [d.id for d in dashboards if not d.deleted]
 
@@ -819,10 +872,18 @@ class InsightSerializer(InsightBasicSerializer):
             if dashboard.team != instance.team:
                 raise serializers.ValidationError("Dashboard not found")
 
-            tile, _ = DashboardTile.objects_including_soft_deleted.get_or_create(insight=instance, dashboard=dashboard)
+            requested_layout = layouts_by_dashboard_id.get(dashboard.id)
+            tile, _ = DashboardTile.objects_including_soft_deleted.get_or_create(
+                insight=instance,
+                dashboard=dashboard,
+                defaults={"layouts": requested_layout} if requested_layout else {},
+            )
 
             if tile.deleted:
                 tile.deleted = False
+                # Re-adding a previously removed tile: honor the requested slot if one was given.
+                if requested_layout:
+                    tile.layouts = requested_layout
                 tile.save()
 
             report_user_action(

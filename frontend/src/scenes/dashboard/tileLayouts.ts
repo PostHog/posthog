@@ -29,6 +29,34 @@ export const DEFAULT_INSERTED_TILE_SIZE = { w: 6, h: 5 } as const
 
 export const DEFAULT_TEXT_TILE_SIZE = { w: 2, h: 2 } as const
 
+/**
+ * Default grid size the dashboard gives an insight tile with no stored layout, by insight type.
+ * Shared with the inline insert so an insight can be created at its natural size instead of a
+ * generic fallback. `columnCount` is the breakpoint's column count (paths span the full width).
+ */
+export function getInsightTileDefaultSize(
+    query: ReturnType<typeof getQueryBasedInsightModel> | null,
+    columnCount: number
+): { w: number; h: number } {
+    if (isFunnelsQuery(query)) {
+        return { w: 4, h: 4 }
+    }
+    if (isRetentionQuery(query)) {
+        return { w: 6, h: 7 }
+    }
+    if (isPathsQuery(query)) {
+        // Paths take up so much space that they need to be full width to be readable.
+        return { w: columnCount, h: 7 }
+    }
+    if (isTrendsQuery(query) && query.trendsFilter?.display === ChartDisplayType.BoldNumber) {
+        return { w: 2, h: 2 }
+    }
+    if (isTrendsQuery(query) && query.trendsFilter?.display === ChartDisplayType.Metric) {
+        return { w: 3, h: 3 }
+    }
+    return { w: 6, h: 5 }
+}
+
 type WidgetCatalogLayout = DashboardWidgetCatalogEntry['defaultLayout']
 
 /**
@@ -239,29 +267,10 @@ export const calculateLayouts = (
 
         const layouts = (sortedDashboardTiles || []).map((tile) => {
             const query = tile.insight ? getQueryBasedInsightModel(tile.insight) : null
-            // Base constraints
-            let defaultW = 6
-            let defaultH = 5
             // Content-adjusted constraints (note that widths should be factors of 12)
-            if (tile.text) {
-                defaultW = DEFAULT_TEXT_TILE_SIZE.w
-                defaultH = DEFAULT_TEXT_TILE_SIZE.h
-            } else if (isFunnelsQuery(query)) {
-                defaultW = 4
-                defaultH = 4
-            } else if (isRetentionQuery(query)) {
-                defaultW = 6
-                defaultH = 7
-            } else if (isPathsQuery(query)) {
-                defaultW = columnCount // Paths take up so much space that they need to be full width to be readable
-                defaultH = 7
-            } else if (isTrendsQuery(query) && query.trendsFilter?.display === ChartDisplayType.BoldNumber) {
-                defaultW = 2
-                defaultH = 2
-            } else if (isTrendsQuery(query) && query.trendsFilter?.display === ChartDisplayType.Metric) {
-                defaultW = 3
-                defaultH = 3
-            }
+            const contentSize = tile.text ? DEFAULT_TEXT_TILE_SIZE : getInsightTileDefaultSize(query, columnCount)
+            let defaultW = contentSize.w
+            let defaultH = contentSize.h
             // Single-column layout width override
             if (breakpoint === 'xs') {
                 defaultW = 1

@@ -7529,6 +7529,31 @@ export namespace Schemas {
       deleted?: boolean | null;
     }
 
+    export interface InsightTileLayoutBox {
+      /** Column position in the dashboard grid (0-indexed). */
+      x?: number;
+      /** Row position in the dashboard grid (0-indexed). */
+      y?: number;
+      /** Width in grid columns. The desktop grid is 12 columns wide. */
+      w?: number;
+      /** Height in grid rows. */
+      h?: number;
+    }
+
+    export interface InsightTileLayouts {
+      /** Layout for the standard (desktop) breakpoint. The grid is 12 columns wide. */
+      sm?: InsightTileLayoutBox;
+      /** Layout for the small (mobile) breakpoint. The grid is 1 column wide. */
+      xs?: InsightTileLayoutBox;
+    }
+
+    export interface NewDashboardTileLayout {
+      /** Dashboard the insight is being added to (must appear in the `dashboards` field). */
+      dashboard_id: number;
+      /** Grid layout for the tile created on that dashboard. */
+      layouts: InsightTileLayouts;
+    }
+
     export type EffectivePrivilegeLevelEnum = typeof EffectivePrivilegeLevelEnum[keyof typeof EffectivePrivilegeLevelEnum];
 
 
@@ -7586,6 +7611,8 @@ export namespace Schemas {
        *     A dashboard tile ID and dashboard_id for each of the dashboards that this insight is displayed on.
        *      */
       readonly dashboard_tiles: readonly DashboardTileBasic[];
+      /** Optional grid layout for tiles newly created when this insight is added to dashboards via the `dashboards` field. Only applied to tiles that don't already exist; existing tiles keep their layout. Used to place an inline-inserted tile at a chosen slot instead of the default position. */
+      new_dashboard_tile_layouts?: NewDashboardTileLayout[];
       /**
          *
        *     The datetime this insight's results were generated.
@@ -39395,6 +39422,8 @@ export namespace Schemas {
        *     A dashboard tile ID and dashboard_id for each of the dashboards that this insight is displayed on.
        *      */
       readonly dashboard_tiles?: readonly DashboardTileBasic[];
+      /** Optional grid layout for tiles newly created when this insight is added to dashboards via the `dashboards` field. Only applied to tiles that don't already exist; existing tiles keep their layout. Used to place an inline-inserted tile at a chosen slot instead of the default position. */
+      new_dashboard_tile_layouts?: NewDashboardTileLayout[];
       /**
          *
        *     The datetime this insight's results were generated.

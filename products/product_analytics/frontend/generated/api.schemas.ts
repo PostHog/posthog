@@ -7345,6 +7345,31 @@ export interface DashboardTileBasicApi {
     deleted?: boolean | null
 }
 
+export interface InsightTileLayoutBoxApi {
+    /** Column position in the dashboard grid (0-indexed). */
+    x?: number
+    /** Row position in the dashboard grid (0-indexed). */
+    y?: number
+    /** Width in grid columns. The desktop grid is 12 columns wide. */
+    w?: number
+    /** Height in grid rows. */
+    h?: number
+}
+
+export interface InsightTileLayoutsApi {
+    /** Layout for the standard (desktop) breakpoint. The grid is 12 columns wide. */
+    sm?: InsightTileLayoutBoxApi
+    /** Layout for the small (mobile) breakpoint. The grid is 1 column wide. */
+    xs?: InsightTileLayoutBoxApi
+}
+
+export interface NewDashboardTileLayoutApi {
+    /** Dashboard the insight is being added to (must appear in the `dashboards` field). */
+    dashboard_id: number
+    /** Grid layout for the tile created on that dashboard. */
+    layouts: InsightTileLayoutsApi
+}
+
 /**
  * * `engineering` - Engineering
  * * `data` - Data
@@ -7456,6 +7481,8 @@ export interface InsightApi {
      *     A dashboard tile ID and dashboard_id for each of the dashboards that this insight is displayed on.
      *      */
     readonly dashboard_tiles: readonly DashboardTileBasicApi[]
+    /** Optional grid layout for tiles newly created when this insight is added to dashboards via the `dashboards` field. Only applied to tiles that don't already exist; existing tiles keep their layout. Used to place an inline-inserted tile at a chosen slot instead of the default position. */
+    new_dashboard_tile_layouts?: NewDashboardTileLayoutApi[]
     /**
      *
      *     The datetime this insight's results were generated.
@@ -7576,6 +7603,8 @@ export interface PatchedInsightApi {
      *     A dashboard tile ID and dashboard_id for each of the dashboards that this insight is displayed on.
      *      */
     readonly dashboard_tiles?: readonly DashboardTileBasicApi[]
+    /** Optional grid layout for tiles newly created when this insight is added to dashboards via the `dashboards` field. Only applied to tiles that don't already exist; existing tiles keep their layout. Used to place an inline-inserted tile at a chosen slot instead of the default position. */
+    new_dashboard_tile_layouts?: NewDashboardTileLayoutApi[]
     /**
      *
      *     The datetime this insight's results were generated.

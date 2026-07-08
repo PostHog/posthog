@@ -11,6 +11,8 @@ import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { objectsEqual } from 'lib/utils/objects'
 import { toParams } from 'lib/utils/url'
 import { DashboardLoadAction, dashboardLogic } from 'scenes/dashboard/dashboardLogic'
+import { BREAKPOINT_COLUMN_COUNTS } from 'scenes/dashboard/dashboardUtils'
+import { getInsightTileDefaultSize } from 'scenes/dashboard/tileLayouts'
 import { insightsApi } from 'scenes/insights/utils/api'
 import { teamLogic } from 'scenes/teamLogic'
 import { userLogic } from 'scenes/userLogic'
@@ -222,17 +224,38 @@ export const addSavedInsightsModalLogic = kea<addSavedInsightsModalLogicType>([
         },
 
         addInsightToDashboard: async ({ insight, dashboardId }) => {
+            const logic = dashboardLogic({ id: dashboardId })
+            logic.mount()
             try {
                 actions.setDashboardUpdateLoading(insight.id, true)
+
+                // Inline "+" insertion records a target slot; create the tile there so it lands at the
+                // slot instead of flashing at the top before the follow-up reflow.
+                const slot = logic.values.pendingInsertion
+                const newTileLayouts = slot
+                    ? [
+                          {
+                              dashboard_id: dashboardId,
+                              layouts: {
+                                  sm: (() => {
+                                      const size = getInsightTileDefaultSize(
+                                          getQueryBasedInsightModel(insight),
+                                          BREAKPOINT_COLUMN_COUNTS.sm
+                                      )
+                                      return { x: slot.x, y: slot.y, w: slot.w ?? size.w, h: size.h }
+                                  })(),
+                              },
+                          },
+                      ]
+                    : undefined
+
                 const response = await insightsApi.update(insight.id, {
                     dashboards: [...(insight.dashboards || []), dashboardId],
-                })
+                    ...(newTileLayouts ? { new_dashboard_tile_layouts: newTileLayouts } : {}),
+                } as Partial<QueryBasedInsightModel>)
                 if (response) {
                     actions.updateInsight(response)
-                    const logic = dashboardLogic({ id: dashboardId })
-                    logic.mount()
                     logic.actions.loadDashboard({ action: DashboardLoadAction.Update })
-                    logic.unmount()
                     lemonToast.success('Insight added to dashboard')
                 }
             } catch (e) {
@@ -240,6 +263,7 @@ export const addSavedInsightsModalLogic = kea<addSavedInsightsModalLogicType>([
                 lemonToast.error('Failed to add insight to dashboard')
                 throw e
             } finally {
+                logic.unmount()
                 eventUsageLogic.actions.reportSavedInsightToDashboard(insight, dashboardId)
                 actions.setDashboardUpdateLoading(insight.id, false)
             }

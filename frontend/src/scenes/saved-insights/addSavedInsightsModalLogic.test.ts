@@ -4,6 +4,8 @@ import { expectLogic, partial } from 'kea-test-utils'
 
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { dashboardLogic } from 'scenes/dashboard/dashboardLogic'
+import { insightsApi } from 'scenes/insights/utils/api'
 
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
@@ -261,6 +263,47 @@ describe('addSavedInsightsModalLogic', () => {
                 })
 
             expect(apiCallCount).toBe(1)
+        })
+    })
+
+    describe('inline insertion layout', () => {
+        // When added via the inline "+" bar, the insight's tile must be created at the recorded slot so it
+        // lands there rather than at the top; the header add (no slot) must not send a layout.
+        it.each([
+            {
+                scenario: 'with a pending slot',
+                slot: { x: 6, y: 4, w: null },
+                expectedLayout: { sm: { x: 6, y: 4, w: 6, h: 5 } },
+            },
+            { scenario: 'without a pending slot', slot: null, expectedLayout: undefined },
+        ])('addInsightToDashboard $scenario', async ({ slot, expectedLayout }) => {
+            useMocks({
+                get: {
+                    '/api/environments/:team_id/insights/': () => [200, { count: 0, results: [] }],
+                    '/api/environments/:team_id/dashboards/55/': () => [200, { id: 55, tiles: [] }],
+                },
+            })
+            initKeaTests()
+
+            const dashLogic = dashboardLogic({ id: 55 })
+            dashLogic.mount()
+            if (slot) {
+                dashLogic.actions.setPendingInsertion(slot)
+            }
+
+            const updateSpy = jest.spyOn(insightsApi, 'update').mockResolvedValue(createInsight(1))
+
+            logic = addSavedInsightsModalLogic()
+            logic.mount()
+
+            await expectLogic(logic, () => {
+                logic.actions.addInsightToDashboard(createInsight(1), 55)
+            }).toFinishAllListeners()
+
+            const payload = updateSpy.mock.calls[0][1] as { new_dashboard_tile_layouts?: { layouts: unknown }[] }
+            expect(payload.new_dashboard_tile_layouts?.[0]?.layouts).toEqual(expectedLayout)
+
+            updateSpy.mockRestore()
         })
     })
 })

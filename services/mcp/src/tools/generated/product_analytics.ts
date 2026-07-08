@@ -195,6 +195,7 @@ const InsightCreateSchema = InsightsCreateBody.omit({
     derived_name: true,
     order: true,
     deleted: true,
+    new_dashboard_tile_layouts: true,
     _create_in_folder: true,
 }).extend({
     query: InsightQuery,
@@ -306,8 +307,13 @@ const insightGet = (): ToolBase<typeof InsightGetSchema, WithPostHogUrl<Schemas.
 
 const InsightUpdateSchema = InsightsPartialUpdateParams.omit({ project_id: true })
     .extend(
-        InsightsPartialUpdateBody.omit({ derived_name: true, order: true, deleted: true, _create_in_folder: true })
-            .shape
+        InsightsPartialUpdateBody.omit({
+            derived_name: true,
+            order: true,
+            deleted: true,
+            new_dashboard_tile_layouts: true,
+            _create_in_folder: true,
+        }).shape
     )
     .extend({
         query: InsightQuery.optional(),
