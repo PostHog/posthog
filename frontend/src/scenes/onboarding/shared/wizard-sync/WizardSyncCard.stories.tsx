@@ -50,7 +50,7 @@ function cloudSteps(
 }
 
 function progress(overrides: Partial<InstallationProgress>): InstallationProgress {
-    return { phase: 'running', steps: [], error: null, prUrl: null, isCurrent: true, ...overrides }
+    return { phase: 'running', steps: [], error: null, prUrl: null, isCurrent: true, isSlow: false, ...overrides }
 }
 
 export const Connecting: Story = {

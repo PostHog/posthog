@@ -16,6 +16,14 @@ export type TaskRunConnectionStatus = 'idle' | 'connecting' | 'open' | 'closed' 
 // seconds; minutes of silence means the pipeline isn't running at all.
 export const QUEUED_STALL_MS = 2 * 60 * 1000
 
+// How long an `in_progress` run may go with zero real stream activity before we flag it as stuck.
+// A live agent streams events (tool calls, messages, progress) continuously; keepalives arrive as
+// named SSE events that never reach `onmessage`, so they don't reset this — only genuine activity
+// does. The window is generous so a single long model turn or tool call doesn't trip it; a run
+// silent this long is wedged, and we show a "taking unusually long / retry" signal instead of the
+// synthetic "drafting the PR" message.
+export const IN_PROGRESS_STALL_MS = 10 * 60 * 1000
+
 // Project the REST run snapshot onto the same shape the SSE `task_run_state` events carry, so polling and
 // streaming feed `taskRunStateUpdated` identically and the rest of the logic stays mode-agnostic.
 export function taskRunDetailToStreamState(dto: TaskRunDetailDTOApi): TaskRunStreamState {
@@ -203,6 +211,11 @@ export const taskRunStreamLogic = kea<taskRunStreamLogicType>([
         connectionSkipped: true,
         streamCompleted: true,
         runStalled: true,
+        // A raw stream message arrived (any non-keepalive SSE event). Distinct from the parsed
+        // state/step actions so agent-activity events that we don't otherwise act on still reset
+        // the in-progress staleness timer.
+        streamActivity: true,
+        inProgressStalled: true,
     }),
     reducers({
         taskRunState: [
@@ -254,8 +267,30 @@ export const taskRunStreamLogic = kea<taskRunStreamLogicType>([
                 connect: () => false,
             },
         ],
+        // The run has been `in_progress` with no real stream activity for the whole stall window —
+        // it's wedged. Any activity (or a fresh connect) clears it; surfaces render this as a
+        // "taking unusually long / retry" state instead of a fake progress message.
+        isInProgressStalled: [
+            false,
+            {
+                inProgressStalled: () => true,
+                streamActivity: () => false,
+                connect: () => false,
+            },
+        ],
     }),
     listeners(({ values, actions, props, cache, selectors }) => ({
+        // (Re)arm the in-progress staleness timer. Keyed, so each call replaces the previous timer
+        // (the disposables plugin disposes the old one first) — i.e. any activity resets the clock.
+        streamActivity: () => {
+            if (values.taskRunState?.status !== 'in_progress') {
+                return
+            }
+            cache.disposables.add(() => {
+                const timer = window.setTimeout(() => actions.inProgressStalled(), IN_PROGRESS_STALL_MS)
+                return () => window.clearTimeout(timer)
+            }, 'in-progress-stall')
+        },
         taskRunStateUpdated: ({ state }, _breakpoint, _action, previousState) => {
             // The run's terminal state flows through here no matter which surface is watching (inline
             // install view, sources step, FAB, sidebar button), so this is where the funnel's cloud-run
@@ -272,6 +307,14 @@ export const taskRunStreamLogic = kea<taskRunStreamLogicType>([
                     ...report,
                 })
             }
+            // Arm the in-progress staleness timer once the run starts running; any other status
+            // tears it down (terminal runs and the queued phase have their own handling).
+            if (state.status === 'in_progress') {
+                actions.streamActivity()
+            } else {
+                cache.disposables.dispose('in-progress-stall')
+            }
+
             // Arm a stall timer while the run reports `queued`; any other status disarms it. The timer
             // rides disposables so unmount (and tab-hide) tears it down with everything else.
             if (state.status !== 'queued') {
@@ -326,6 +369,10 @@ export const taskRunStreamLogic = kea<taskRunStreamLogicType>([
                     actions.connectionOpened()
                 }
                 eventSource.onmessage = (event: MessageEvent<string>): void => {
+                    // Every `onmessage` is a real event — keepalives arrive as named SSE events and
+                    // never land here — so this is the liveness signal that resets the in-progress
+                    // stall timer, even for agent-activity events we don't otherwise parse.
+                    actions.streamActivity()
                     try {
                         const message = parseTaskRunStreamMessage(event.data)
                         if (message?.kind === 'step') {
@@ -378,6 +425,7 @@ export const taskRunStreamLogic = kea<taskRunStreamLogicType>([
             logSyncDebug(`run ${String(props.runId ?? '').slice(0, 8)}`, 'disconnect', 'disconnected')
             cache.disposables.dispose('task-run-sync')
             cache.disposables.dispose('queued-stall')
+            cache.disposables.dispose('in-progress-stall')
         },
     })),
 ])

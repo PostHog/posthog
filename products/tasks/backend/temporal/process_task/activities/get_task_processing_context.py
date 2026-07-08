@@ -25,7 +25,7 @@ from products.tasks.backend.logic.services.sandbox_config import (
     MAX_SANDBOX_TTL_SECONDS,
 )
 from products.tasks.backend.models import SandboxCustomImage, SandboxEnvironment, Task, TaskRun
-from products.tasks.backend.temporal.constants import resolve_inactivity_timeout
+from products.tasks.backend.temporal.constants import resolve_inactivity_timeout, resolve_max_run_duration
 from products.tasks.backend.temporal.observability import emit_agent_log, log_with_activity_context
 from products.tasks.backend.temporal.process_task.utils import (
     format_allowed_domains_for_log,
@@ -146,6 +146,18 @@ class TaskProcessingContext:
             Task.OriginProduct.IMAGE_BUILDER.value,
         )
         return resolve_inactivity_timeout(is_user_origin=is_user_origin, state=self.state)
+
+    def max_run_duration(self) -> timedelta | None:
+        """Hard wall-clock cap on total run time, or None when the run is exempt.
+
+        Unlike the inactivity timeout, this is not reset by heartbeats, so it stops a wedged-but-
+        heartbeating agent that would otherwise run forever. Interactive sessions can legitimately
+        stay open for hours under a human, so they are uncapped; autonomous runs (onboarding,
+        signals, automation, …) get the cap as a safety net.
+        """
+        if self.mode == "interactive":
+            return None
+        return resolve_max_run_duration()
 
     def sandbox_resource_overrides(self) -> dict[str, float | int]:
         """Per-task SandboxConfig overrides (compute + TTL), clamped to server-owned bounds.

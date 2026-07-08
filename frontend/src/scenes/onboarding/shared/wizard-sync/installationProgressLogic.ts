@@ -82,6 +82,10 @@ export interface InstallationProgress {
     error: { title: string; detail: string | null } | null
     prUrl: string | null
     isCurrent: boolean
+    /** The run is still `running` but has been silent unusually long (see taskRunStreamLogic's
+     * in-progress stall timer). Surfaces show a "taking longer than expected / retry" hint rather
+     * than the synthetic progress message. Cloud runs only. */
+    isSlow: boolean
 }
 
 export interface InstallationProgressLogicProps {
@@ -121,6 +125,7 @@ export function cloudProgress(
     taskConnectionStatus: string,
     latestSession: WizardSessionDTOApi | null,
     isStalled: boolean = false,
+    isInProgressStalled: boolean = false,
     now: number = Date.now()
 ): InstallationProgress {
     let phase: InstallationPhase
@@ -217,10 +222,15 @@ export function cloudProgress(
 
     const prUrl = taskRunPrUrl(taskRunState, progressSteps)
 
+    // A running run that's gone silent unusually long (no stream activity for the stall window) is
+    // likely wedged — don't keep narrating fake progress. Only meaningful before a PR exists.
+    const isSlow = phase === 'running' && isInProgressStalled && !prUrl
+
     // The pipeline goes quiet between agent start and the PR opening: everything reads completed
     // while the agent is still writing code, committing, and drafting the PR — which looks stalled.
     // Flip the still-pending PR slot to in-progress with an honest detail line for that window; the
-    // real deliver-stage step replaces it when it arrives.
+    // real deliver-stage step replaces it when it arrives. Once the run looks wedged (isSlow), swap
+    // the optimistic "drafting the PR" line for an honest "taking longer than expected" one.
     const allDoneExceptPr = steps.every((s) => s.id.endsWith(':pr') || s.status === 'completed')
     if (phase === 'running' && !prUrl && allDoneExceptPr) {
         steps = steps.map((s) =>
@@ -228,7 +238,9 @@ export function cloudProgress(
                 ? {
                       ...s,
                       status: 'in_progress' as const,
-                      detail: 'The agent is committing its changes and drafting the PR',
+                      detail: isSlow
+                          ? 'This is taking longer than expected'
+                          : 'The agent is committing its changes and drafting the PR',
                   }
                 : s
         )
@@ -249,6 +261,7 @@ export function cloudProgress(
         error,
         prUrl,
         isCurrent: phase !== 'idle',
+        isSlow,
     }
 }
 
@@ -269,6 +282,7 @@ export function localProgress(
             error: null,
             prUrl: null,
             isCurrent: false,
+            isSlow: false,
         }
     }
 
@@ -298,7 +312,7 @@ export function localProgress(
               }
             : null
 
-    return { phase, steps, error, prUrl: null, isCurrent: sessionIsCurrent && !dismissed }
+    return { phase, steps, error, prUrl: null, isCurrent: sessionIsCurrent && !dismissed, isSlow: false }
 }
 
 // A finished local run rendered from its persisted snapshot, after the live session stream has
@@ -313,6 +327,7 @@ export function progressFromFinishedLocalRun(handle: FinishedLocalRunHandle): In
                 : null,
         prUrl: null,
         isCurrent: true,
+        isSlow: false,
     }
 }
 
@@ -333,7 +348,13 @@ export const installationProgressLogic = kea<installationProgressLogicType>([
     connect((props: InstallationProgressLogicProps) => ({
         values: [
             taskRunStreamLogic({ runId: props.runId ?? '', taskId: props.taskId ?? '' }),
-            ['taskRunState', 'progressSteps', 'connectionStatus as taskConnectionStatus', 'isStalled'],
+            [
+                'taskRunState',
+                'progressSteps',
+                'connectionStatus as taskConnectionStatus',
+                'isStalled',
+                'isInProgressStalled',
+            ],
             wizardSessionStreamLogic({ workflowId: WORKFLOW_ID }),
             ['latestSession', 'connectionStatus as sessionConnectionStatus'],
             finishedLocalRunLogic,
@@ -381,6 +402,7 @@ export const installationProgressLogic = kea<installationProgressLogicType>([
                 s.sessionConnectionStatus,
                 s.sessionIsCurrent,
                 s.isStalled,
+                s.isInProgressStalled,
                 s.dismissedSessionId,
                 (_, props) => props.mode,
             ],
@@ -392,11 +414,19 @@ export const installationProgressLogic = kea<installationProgressLogicType>([
                 sessionConnectionStatus,
                 sessionIsCurrent,
                 isStalled,
+                isInProgressStalled,
                 dismissedSessionId,
                 mode
             ): InstallationProgress =>
                 mode === 'cloud'
-                    ? cloudProgress(taskRunState, progressSteps, taskConnectionStatus, latestSession, isStalled)
+                    ? cloudProgress(
+                          taskRunState,
+                          progressSteps,
+                          taskConnectionStatus,
+                          latestSession,
+                          isStalled,
+                          isInProgressStalled
+                      )
                     : localProgress(
                           latestSession,
                           sessionConnectionStatus,

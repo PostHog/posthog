@@ -680,6 +680,78 @@ class TestProcessTaskWorkflowUnit:
         cleanup_sandbox_mock.assert_awaited_once_with("sandbox-123")
 
     @pytest.mark.parametrize(
+        "timeout_event, expected_message, expected_kind",
+        [
+            (
+                process_task_workflow_module.TaskEvent.TIMEOUT_REACHED,
+                "Run timed out due to inactivity",
+                "timeout_reached",
+            ),
+            (
+                process_task_workflow_module.TaskEvent.MAX_DURATION_REACHED,
+                "Run timed out after exceeding the maximum run duration",
+                "max_duration_reached",
+            ),
+        ],
+    )
+    async def test_run_marks_timeouts_as_failed_not_completed(
+        self, monkeypatch, timeout_event, expected_message, expected_kind
+    ):
+        # A timeout is a distinct FAILED outcome — marking it "completed" (the old behavior) made a
+        # silent hang indistinguishable from a real success in the UI and support tooling.
+        workflow = ProcessTaskWorkflow()
+        update_task_run_status_mock = AsyncMock()
+        track_workflow_event_mock = AsyncMock()
+
+        monkeypatch.setattr(
+            workflow, "_get_task_processing_context", AsyncMock(return_value=_build_context(github_integration_id=123))
+        )
+        monkeypatch.setattr(workflow, "_update_task_run_status", update_task_run_status_mock)
+        monkeypatch.setattr(workflow, "_track_workflow_event", track_workflow_event_mock)
+        monkeypatch.setattr(workflow, "_post_slack_update", AsyncMock())
+        monkeypatch.setattr(workflow, "_read_sandbox_logs", AsyncMock())
+        monkeypatch.setattr(workflow, "_cleanup_sandbox", AsyncMock())
+        monkeypatch.setattr(workflow, "_create_resume_snapshot", AsyncMock())
+        monkeypatch.setattr(workflow, "_emit_progress", AsyncMock())
+        monkeypatch.setattr(workflow, "_forward_pending_user_message", AsyncMock())
+        monkeypatch.setattr(
+            workflow,
+            "_get_sandbox_for_repository",
+            AsyncMock(
+                return_value=GetSandboxForRepositoryOutput(
+                    sandbox_id="sandbox-123",
+                    sandbox_url="https://sandbox.example",
+                    connect_token="connect-token",
+                    used_snapshot=False,
+                    should_create_snapshot=False,
+                )
+            ),
+        )
+        monkeypatch.setattr(
+            workflow,
+            "_start_agent_server",
+            AsyncMock(
+                return_value=StartAgentServerOutput(
+                    sandbox_url="https://sandbox.example",
+                    connect_token="connect-token",
+                )
+            ),
+        )
+        monkeypatch.setattr(workflow, "_relay_sandbox_events", AsyncMock())
+        monkeypatch.setattr(workflow, "_wait_for_event", AsyncMock(return_value=timeout_event))
+        monkeypatch.setattr(process_task_workflow_module.workflow, "patched", Mock(return_value=True))
+
+        result = await workflow.run(ProcessTaskInput(run_id="run-id"))
+
+        assert result.success is True
+        update_task_run_status_mock.assert_any_await("failed", error_message=expected_message)
+        timeout_events = [
+            call for call in track_workflow_event_mock.await_args_list if call.args[0] == "task_run_timed_out"
+        ]
+        assert len(timeout_events) == 1
+        assert timeout_events[0].args[1]["timeout_kind"] == expected_kind
+
+    @pytest.mark.parametrize(
         "patched, expected_post_slack_calls",
         [
             (True, 2),  # post-rollout: the provisioning post is skipped (initial + completion remain)

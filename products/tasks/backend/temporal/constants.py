@@ -51,6 +51,28 @@ def resolve_inactivity_timeout(*, is_user_origin: bool = False, state: dict | No
 # don't have task context. The CI follow-up timing lives in `task_management`.
 INACTIVITY_TIMEOUT = resolve_inactivity_timeout()
 
+# Hard wall-clock cap on a single run, measured from workflow start and INDEPENDENT of the
+# inactivity timer. Every agent heartbeat resets the inactivity timer, so an agent that is wedged
+# but still emitting activity never trips it and can run effectively forever. This cap bounds total
+# run time regardless of heartbeats. It only ever fires on a genuine hang, so it sits well above the
+# largest legitimate autonomous run (inactivity grace + the CI follow-up rounds). Interactive
+# sessions — which a human may legitimately keep open for hours — are exempted at the call site.
+# Override via TASKS_MAX_RUN_DURATION_SECONDS for local testing.
+MAX_RUN_DURATION_DEFAULT_SECONDS = 3 * 60 * 60  # 3 hours
+
+# Terminal error messages recorded when a run is stopped by a timeout. Both contain "timed out" so
+# downstream consumers (e.g. the Slack updater) can recognise a timeout by substring.
+INACTIVITY_TIMEOUT_MESSAGE = "Run timed out due to inactivity"
+MAX_DURATION_TIMEOUT_MESSAGE = "Run timed out after exceeding the maximum run duration"
+
+
+def resolve_max_run_duration() -> timedelta:
+    """Effective wall-clock cap for a run: the env override if set, else the production default."""
+    if settings.TASKS_MAX_RUN_DURATION_SECONDS:
+        return timedelta(seconds=settings.TASKS_MAX_RUN_DURATION_SECONDS)
+    return timedelta(seconds=MAX_RUN_DURATION_DEFAULT_SECONDS)
+
+
 WARM_IDLE_TIMEOUT = timedelta(minutes=10)
 
 # CI follow-up cadence after the agent has been idle.

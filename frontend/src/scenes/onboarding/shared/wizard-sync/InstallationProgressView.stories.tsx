@@ -45,7 +45,7 @@ function steps(
 }
 
 function progress(overrides: Partial<InstallationProgress>): InstallationProgress {
-    return { phase: 'running', steps: [], error: null, prUrl: null, isCurrent: true, ...overrides }
+    return { phase: 'running', steps: [], error: null, prUrl: null, isCurrent: true, isSlow: false, ...overrides }
 }
 
 export const Connecting: Story = {
@@ -129,6 +129,28 @@ export const PullRequestReady: Story = {
     },
 }
 
+// The run is still going but has been silent unusually long — surfaces an honest "taking longer than
+// expected" note plus the same self-serve recovery as a failure, without declaring the run dead.
+export const RunningSlow: Story = {
+    args: {
+        progress: progress({
+            phase: 'running',
+            isSlow: true,
+            steps: [
+                { id: 'setup:sandbox', label: 'Set up sandbox', status: 'completed', detail: null },
+                { id: 'setup:clone', label: 'Cloned repository', status: 'completed', detail: null },
+                { id: 'setup:wizard', label: 'Ran PostHog setup wizard', status: 'completed', detail: null },
+                {
+                    id: 'deliver:pr',
+                    label: 'Opening a pull request',
+                    status: 'in_progress',
+                    detail: 'This is taking longer than expected',
+                },
+            ],
+        }),
+    },
+}
+
 export const FailedProvisioning: Story = {
     args: {
         progress: progress({
@@ -199,6 +221,7 @@ export const AllStates: Story = {
             { label: 'Running: provisioning', args: RunningProvisioning.args },
             { label: 'Running: wizard', args: RunningWizard.args },
             { label: 'Pull request ready', args: PullRequestReady.args },
+            { label: 'Running: taking too long', args: RunningSlow.args },
             { label: 'Completed', args: Completed.args },
             { label: 'Completed: local handoff', args: CompletedLocalHandoff.args },
             { label: 'Failed: provisioning', args: FailedProvisioning.args },

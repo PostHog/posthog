@@ -108,6 +108,7 @@ class ProcessTaskOutput:
 class TaskEvent(StrEnum):
     SIGNAL_RECEIVED = "signal_received"
     TIMEOUT_REACHED = "timeout_reached"
+    MAX_DURATION_REACHED = "max_duration_reached"
     CI_FOLLOW_UP = "ci_follow_up"
     SANDBOX_GONE = "sandbox_gone"
 
@@ -124,11 +125,20 @@ from products.tasks.backend.temporal.constants import (  # noqa: E402
     CI_FOLLOW_UP_DELAY,
     DEFAULT_CI_MESSAGE,
     INACTIVITY_TIMEOUT,
+    INACTIVITY_TIMEOUT_MESSAGE,
     MAX_CI_REPETITIONS,
+    MAX_DURATION_TIMEOUT_MESSAGE,
     PENDING_MESSAGE_FORWARD_TIMEOUT_SECONDS,
     RELAY_SANDBOX_EVENTS_START_TO_CLOSE_TIMEOUT,
     WARM_IDLE_TIMEOUT,
 )
+
+# Error message recorded per timeout kind. Both are surfaced to the user/support as the run's
+# failure reason, distinguishing a hang from a success.
+_TIMEOUT_MESSAGES = {
+    TaskEvent.TIMEOUT_REACHED: INACTIVITY_TIMEOUT_MESSAGE,
+    TaskEvent.MAX_DURATION_REACHED: MAX_DURATION_TIMEOUT_MESSAGE,
+}
 
 # Rolling-deploy deprecation bundle (TODO slug: tasks-ci-follow-up-pr-context-cleanup)
 # ---------------------------------------------------------------------------
@@ -247,6 +257,19 @@ class ProcessTaskWorkflow(PostHogWorkflow):
         await workflow.sleep(timeout.total_seconds())
         return TaskEvent.TIMEOUT_REACHED
 
+    async def _wait_for_max_run_duration(self, cap: timedelta):
+        """Hard wall-clock cap, measured from workflow start and never reset by heartbeats.
+
+        The inactivity timer restarts on every heartbeat, so a wedged-but-heartbeating agent never
+        trips it. This ceiling catches that case. ``workflow.info().start_time`` is deterministic
+        across replays, so recomputing the remaining time each loop iteration is replay-safe.
+        """
+        elapsed = workflow.now() - workflow.info().start_time
+        remaining = (cap - elapsed).total_seconds()
+        if remaining > 0:
+            await workflow.sleep(remaining)
+        return TaskEvent.MAX_DURATION_REACHED
+
     async def _wait_for_ci_follow_up(self):
         if self._last_active_time:
             elapsed = workflow.now() - self._last_active_time
@@ -327,6 +350,11 @@ class ProcessTaskWorkflow(PostHogWorkflow):
             asyncio.create_task(self._wait_for_task_external_event()),
             asyncio.create_task(self._wait_for_inactivity(inactivity_timeout)),
         ]
+        # Hard wall-clock cap, independent of the heartbeat-reset inactivity timer. None for runs
+        # exempted from the cap (e.g. interactive sessions a human may keep open for hours).
+        max_run_duration = self.context.max_run_duration()
+        if max_run_duration is not None:
+            possible_events.append(asyncio.create_task(self._wait_for_max_run_duration(max_run_duration)))
         if ci_follow_up_scheduled:
             possible_events.append(asyncio.create_task(self._wait_for_ci_follow_up()))
         done, pending = await workflow.wait(possible_events, return_when=asyncio.FIRST_COMPLETED)
@@ -440,7 +468,7 @@ class ProcessTaskWorkflow(PostHogWorkflow):
     async def run(self, input: ProcessTaskInput) -> ProcessTaskOutput:
         sandbox_id = None
         sandbox_cleaned = False
-        timed_out = False
+        timeout_event: Optional[TaskEvent] = None
         run_id = input.run_id
         self._sandbox_id_for_cleanup = None
         self._slack_thread_context = input.slack_thread_context
@@ -568,7 +596,14 @@ class ProcessTaskWorkflow(PostHogWorkflow):
                 event = await self._wait_for_event()
                 match event:
                     case TaskEvent.TIMEOUT_REACHED:
-                        timed_out = True
+                        timeout_event = event
+                        break
+                    case TaskEvent.MAX_DURATION_REACHED:
+                        workflow.logger.warning(
+                            "max_run_duration_reached",
+                            extra={"run_id": self.context.run_id},
+                        )
+                        timeout_event = event
                         break
                     case TaskEvent.CI_FOLLOW_UP:
                         workflow.logger.info(
@@ -648,8 +683,23 @@ class ProcessTaskWorkflow(PostHogWorkflow):
 
             if self._task_completed:
                 await self._update_task_run_status(self._completion_status, error_message=self._completion_error)
-            elif timed_out:
-                await self._update_task_run_status("completed", error_message="Run timed out due to inactivity")
+            elif timeout_event is not None:
+                # A timeout is a distinct FAILED outcome, not a success: marking it "completed"
+                # (the old behavior) made a silent hang indistinguishable from a real completion in
+                # the UI and support tooling. Emit an analytics event so a hang is queryable too.
+                timeout_message = _TIMEOUT_MESSAGES[timeout_event]
+                await self._track_workflow_event(
+                    "task_run_timed_out",
+                    {
+                        "run_id": run_id,
+                        "task_id": self.context.task_id,
+                        "repository": self.context.repository,
+                        "origin_product": self.context.origin_product,
+                        "team_id": self.context.team_id,
+                        "timeout_kind": timeout_event.value,
+                    },
+                )
+                await self._update_task_run_status("failed", error_message=timeout_message)
 
             # Close out the keep-it-green step so a finished run doesn't show a still-spinning CI step.
             if self._pr_progress_emitted:

@@ -70,14 +70,12 @@ def post_slack_update(input: PostSlackUpdateInput) -> None:
                 handler.update_reaction("hedgehog")
                 handler.post_cancelled(task_url)
             elif task_run.status == TaskRun.Status.FAILED:
-                error = task_run.error_message or "Unknown error"
-                handler.update_reaction("x")
-                handler.post_error(error, task_url)
+                _post_failure_or_timeout(task_run, handler, task_url)
             return
 
         if task_run.status == TaskRun.Status.COMPLETED:
             handler.update_reaction("hedgehog")
-            if task_run.error_message and "timed out" in task_run.error_message:
+            if _is_timeout_failure(task_run):
                 handler.delete_progress()
                 return
             if pr_url:
@@ -88,9 +86,7 @@ def post_slack_update(input: PostSlackUpdateInput) -> None:
             handler.update_reaction("hedgehog")
             handler.post_cancelled(task_url)
         elif task_run.status == TaskRun.Status.FAILED:
-            error = task_run.error_message or "Unknown error"
-            handler.update_reaction("x")
-            handler.post_error(error, task_url)
+            _post_failure_or_timeout(task_run, handler, task_url)
         else:
             if pr_url:
                 _post_pr_opened_notification_once(task_run, handler, pr_url, task_url)
@@ -102,6 +98,26 @@ def post_slack_update(input: PostSlackUpdateInput) -> None:
             handler.post_or_update_progress(stage, task_url)
     except Exception:
         logger.exception("post_slack_update_failed", run_id=input.run_id)
+
+
+def _is_timeout_failure(task_run) -> bool:
+    """A run stopped by an inactivity or wall-clock timeout (see the process_task workflow)."""
+    return bool(task_run.error_message and "timed out" in task_run.error_message)
+
+
+def _post_failure_or_timeout(task_run, handler, task_url: str | None) -> None:
+    """A genuine failure posts an error card; a timeout stays quiet (just clears progress).
+
+    Timeouts are recorded as FAILED so the UI and support tooling can tell a hang apart from a
+    success, but in Slack we don't want to ping a loud error on every idle timeout.
+    """
+    if _is_timeout_failure(task_run):
+        handler.update_reaction("hedgehog")
+        handler.delete_progress()
+        return
+    error = task_run.error_message or "Unknown error"
+    handler.update_reaction("x")
+    handler.post_error(error, task_url)
 
 
 def _get_stage_from_status(status: str, stage: str | None = None) -> str:

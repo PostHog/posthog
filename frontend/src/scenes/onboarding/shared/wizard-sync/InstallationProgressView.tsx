@@ -84,7 +84,7 @@ export function InstallationProgressContent({
      * command). Omitted where no local fallback exists (e.g. the floating FAB), which shows only docs. */
     onRetryLocally?: () => void
 }): JSX.Element {
-    const { phase, steps, error, prUrl } = progress
+    const { phase, steps, error, prUrl, isSlow } = progress
 
     // The PR is opened mid-run: while the run keeps going (keeping CI green), surface it as ready rather
     // than an indefinite "setting up". Terminal phases keep their own headline.
@@ -227,9 +227,18 @@ export function InstallationProgressContent({
                 <div className="text-sm text-danger bg-danger-highlight rounded p-2">{error.detail}</div>
             )}
 
-            {phase === 'error' && (
-                // The cloud run failed — offer self-serve recovery so the user isn't stuck: run the wizard
-                // themselves (switches the install step to the local command) or follow the manual docs.
+            {/* Still running, but silent unusually long — likely wedged. Say so honestly and offer the
+                same self-serve recovery as a failure, without declaring the run dead (it may recover). */}
+            {isSlow && (
+                <div className="text-sm text-warning bg-warning-highlight rounded p-2">
+                    This is taking longer than expected. You can keep waiting, or run the setup yourself.
+                </div>
+            )}
+
+            {(phase === 'error' || isSlow) && (
+                // The cloud run failed or looks stuck — offer self-serve recovery so the user isn't stuck:
+                // run the wizard themselves (switches the install step to the local command) or follow the
+                // manual docs.
                 <div className="flex flex-wrap gap-2">
                     {onRetryLocally && (
                         <LemonButton type="primary" onClick={onRetryLocally} icon={<IconTerminal />}>

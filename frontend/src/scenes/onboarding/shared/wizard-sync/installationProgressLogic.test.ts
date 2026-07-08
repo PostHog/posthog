@@ -335,6 +335,7 @@ describe('installationProgressLogic merge', () => {
                 error: null,
                 prUrl: null,
                 isCurrent: true,
+                isSlow: false,
             })
         })
 
@@ -399,9 +400,44 @@ describe('installationProgressLogic merge', () => {
                 'open',
                 null,
                 false,
+                false,
                 NOW_MS
             )
             expect(result.steps.find((s) => s.id.endsWith(':pr'))?.status ?? 'pending').not.toBe('in_progress')
+        })
+
+        const bridgedSteps = [
+            step({ step: 'sandbox', status: 'completed', label: 'Set up sandbox' }),
+            step({ step: 'clone', status: 'completed', label: 'Cloned repository' }),
+            step({ step: 'wizard', status: 'completed', label: 'Ran setup wizard' }),
+            step({ step: 'agent', status: 'completed', label: 'Started agent' }),
+        ]
+
+        it('narrates the synthetic PR-drafting message while activity is recent', () => {
+            const result = cloudProgress(taskState(), bridgedSteps, 'open', null, false, false)
+            expect(result.isSlow).toBe(false)
+            expect(result.steps.find((s) => s.id.endsWith(':pr'))?.detail).toBe(
+                'The agent is committing its changes and drafting the PR'
+            )
+        })
+
+        it('flags a long-silent run as slow with an honest message instead of the fake one', () => {
+            // The regression: a wedged run would show "drafting the PR" forever with no way out.
+            const result = cloudProgress(taskState(), bridgedSteps, 'open', null, false, true)
+            expect(result.isSlow).toBe(true)
+            expect(result.steps.find((s) => s.id.endsWith(':pr'))?.detail).toBe('This is taking longer than expected')
+        })
+
+        it('is not slow once a PR exists, even after a silence', () => {
+            const result = cloudProgress(
+                taskState(),
+                [step({ step: 'pr', status: 'completed', group: 'deliver', detail: 'https://x/pull/1' })],
+                'open',
+                null,
+                false,
+                true
+            )
+            expect(result.isSlow).toBe(false)
         })
     })
 
@@ -415,13 +451,14 @@ describe('installationProgressLogic merge', () => {
                 tasks: [{ id: 'a', title: 'Old task', status: 'completed' }],
                 error: { message: 'old boom' },
             })
-            const running = cloudProgress(taskState(), [], 'open', stale, false, NOW_MS)
+            const running = cloudProgress(taskState(), [], 'open', stale, false, false, NOW_MS)
             expect(running.steps.filter((s) => s.source === 'wizard')).toEqual([])
             const failed = cloudProgress(
                 taskState({ status: 'failed', error_message: null }),
                 [],
                 'open',
                 stale,
+                false,
                 false,
                 NOW_MS
             )
@@ -437,6 +474,7 @@ describe('installationProgressLogic merge', () => {
                 ],
                 'open',
                 session({ tasks: [{ id: 'a', title: 'Install SDK', status: 'in_progress' }] }),
+                false,
                 false,
                 NOW_MS
             )

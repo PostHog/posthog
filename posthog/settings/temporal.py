@@ -69,6 +69,11 @@ TASKS_USE_MODAL_RESUME_SNAPSHOTS: bool = get_from_env(
 # fast.
 TASKS_INACTIVITY_TIMEOUT_SECONDS: int = get_from_env("TASKS_INACTIVITY_TIMEOUT_SECONDS", 0, type_cast=int)
 
+# Override the process_task workflow's hard wall-clock run cap (default 3 hours). This cap is
+# independent of the inactivity timeout and is NOT reset by heartbeats, so it bounds total run time
+# even while a wedged agent keeps heartbeating. Set low (e.g. 60) for local testing.
+TASKS_MAX_RUN_DURATION_SECONDS: int = get_from_env("TASKS_MAX_RUN_DURATION_SECONDS", 0, type_cast=int)
+
 # Override the delay before the first in-sandbox credential refresh (default 20
 # minutes). Set this low (e.g. 30) for local testing so the refresh loop fires
 # quickly instead of waiting out the GitHub token's lifetime.
