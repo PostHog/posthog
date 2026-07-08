@@ -97,6 +97,37 @@ def test_optional_int_converter_handles_numeric_via_from_dict(value, expected):
     assert cfg.port == expected
 
 
+# A representative Fernet token, as it appears when `job_inputs` decryption fails upstream and the
+# raw ciphertext flows into config parsing. Not a real credential.
+_UNDECRYPTED_TOKEN = (
+    "gAAAAABqTJ0OKLTREfglaXr0DZrJ4eYT7GVcKeA0avLvEzY7k3ll0JuD8VpL--DGJ9Dbt9y3KwyAolvAXit1ceqyuOzwyjTqlg=="
+)
+
+
+@pytest.mark.parametrize(
+    "config_dict",
+    [
+        # The reported crash: an int-converted `port` that never got decrypted would raise the
+        # opaque `invalid literal for int() with base 10: 'gAAAAA...'`.
+        {"host": "db.example.com", "port": _UNDECRYPTED_TOKEN},
+        # A plain string field left encrypted must also fail here, not pass ciphertext downstream.
+        {"host": _UNDECRYPTED_TOKEN, "port": "5432"},
+    ],
+)
+def test_from_dict_raises_clear_error_on_undecrypted_secret(config_dict):
+    """Still-encrypted job inputs must fail with a clear error that does not echo the token."""
+
+    @config.config
+    class TestConfig(config.Config):
+        host: str
+        port: int = config.value(converter=int)
+
+    with pytest.raises(config.UndecryptedConfigError) as exc_info:
+        TestConfig.from_dict(config_dict)
+
+    assert _UNDECRYPTED_TOKEN not in str(exc_info.value)
+
+
 def test_nested_to_config_with_flat_dict():
     """Test `config.to_config` with a nested set of classes.
 
