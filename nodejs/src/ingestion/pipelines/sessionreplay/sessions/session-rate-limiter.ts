@@ -26,8 +26,12 @@ export class SessionRateLimiter {
 
         // Count total events in the message across all windows
         let eventCount = 0
-        for (const events of Object.values(message.eventsByWindowId)) {
-            eventCount += events.length
+        if (message.preSerialized) {
+            eventCount = message.preSerialized.events.length
+        } else {
+            for (const events of Object.values(message.eventsByWindowId)) {
+                eventCount += events.length
+            }
         }
 
         const newCount = (this.eventCounts.get(key) ?? 0) + eventCount

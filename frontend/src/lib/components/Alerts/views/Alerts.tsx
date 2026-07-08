@@ -1,9 +1,10 @@
 import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
 
-import { HedgehogMagnifyingGlass } from '@posthog/brand/hoggies'
+import * as magnifyingGlassPng from '@posthog/brand/hoggies/png/magnifying-glass'
 import { LemonTag, Link, Tooltip } from '@posthog/lemon-ui'
 
+import { pngHoggie } from 'lib/brand/hoggies'
 import { ProductIntroduction } from 'lib/components/ProductIntroduction/ProductIntroduction'
 import { TZLabel } from 'lib/components/TZLabel'
 import { LemonTable, LemonTableColumn, LemonTableColumns } from 'lib/lemon-ui/LemonTable'
@@ -13,6 +14,8 @@ import { urls } from 'scenes/urls'
 
 import { ProductKey } from '~/queries/schema/schema-general'
 
+import { alertIntervalDisplayLabel } from 'products/alerts/frontend/logic/alertIntervalHelpers'
+
 import { AlertState } from '../../../../queries/schema/schema-general'
 import { alertLogic } from '../alertLogic'
 import { AlertsFiltersBar } from '../AlertsFiltersBar'
@@ -20,6 +23,8 @@ import { alertsLogic } from '../alertsLogic'
 import { AlertType } from '../types'
 import { EditAlertModal } from './EditAlertModal'
 import { AlertStateIndicator } from './ManageAlertsModal'
+
+const HedgehogMagnifyingGlass = pngHoggie(magnifyingGlassPng)
 
 interface AlertsProps {
     alertId: AlertType['id'] | null
@@ -63,6 +68,14 @@ export function Alerts({ alertId }: AlertsProps): JSX.Element {
             dataIndex: 'state',
             render: function renderStateIndicator(_, alert: AlertType) {
                 return alert.enabled ? <AlertStateIndicator alert={alert} /> : null
+            },
+        },
+        {
+            title: 'Interval',
+            dataIndex: 'calculation_interval',
+            key: 'calculation_interval',
+            render: function renderInterval(_, alert: AlertType) {
+                return <div className="whitespace-nowrap">{alertIntervalDisplayLabel(alert.calculation_interval)}</div>
             },
         },
         {

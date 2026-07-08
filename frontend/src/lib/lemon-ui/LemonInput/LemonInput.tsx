@@ -230,7 +230,9 @@ export const LemonInput = React.forwardRef<HTMLDivElement, LemonInputProps>(func
                     className="LemonInput__input"
                     ref={mergedInputRef}
                     type={(type === 'password' && passwordVisible ? 'text' : type) || 'text'}
-                    value={value}
+                    // A cleared controlled number input holds NaN; pass '' so the input stays
+                    // controlled instead of feeding NaN to the DOM (undefined stays uncontrolled)
+                    value={type === 'number' && typeof value === 'number' && Number.isNaN(value) ? '' : value}
                     disabled={disabled || !!disabledReason}
                     onChange={(event) => {
                         if (stopPropagation) {

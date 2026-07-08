@@ -85,6 +85,10 @@ class TestFilterFlagsByActiveParam(BaseTest):
     def test_filters_stale(self):
         assert self._filter("STALE") == {"stale", "stale-by-usage", "stale-multivariate", "stale-empty-variants"}
 
+    def test_active_param_is_case_insensitive(self):
+        assert self._filter("True") == self._filter("true")
+        assert self._filter("False") == self._filter("false")
+
     def test_accepts_native_booleans(self):
         assert self._filter(True) == {
             "enabled",

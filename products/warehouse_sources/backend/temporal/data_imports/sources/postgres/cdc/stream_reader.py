@@ -37,6 +37,23 @@ logger = structlog.get_logger(__name__)
 _SLOT_ACTIVE_MARKER = "is active for pid"
 _SLOT_ADVANCE_MAX_ATTEMPTS = 3
 
+# The first fetch of pg_logical_slot_peek_binary_changes acquires the replication slot, which
+# Postgres rejects with SQLSTATE 55006 (ObjectInUse, "... is active for PID ...") while a prior
+# run's connection is still releasing it. The slot frees on its own, so a short in-process retry
+# absorbs the handoff instead of failing — and replaying — the whole extraction attempt.
+_SLOT_READ_MAX_ATTEMPTS = 4
+
+
+def _is_slot_already_ahead_error(exc: psycopg.errors.ObjectNotInPrerequisiteState) -> bool:
+    """Whether Postgres refused a slot advance because the slot is already at or past the target
+    LSN ("cannot advance replication slot to X, minimum is Y" with Y > X).
+
+    Distinct from slot invalidation (``is_slot_invalidation_error``): the slot is healthy and
+    simply ahead of the requested position, so the advance is a benign no-op rather than a failure.
+    """
+    message = str(exc).lower()
+    return "cannot advance replication slot to" in message and "minimum is" in message
+
 
 @dataclass(frozen=True, slots=True)
 class PgCDCConnectionParams:
@@ -140,6 +157,7 @@ class PgCDCStreamReader:
         """
         if self._conn is None:
             raise RuntimeError("Not connected. Call connect() first.")
+        conn = self._conn
 
         self._last_rows_consumed = 0
         upto = sql.Literal(upto_nchanges) if upto_nchanges is not None else sql.SQL("NULL")
@@ -155,20 +173,37 @@ class PgCDCStreamReader:
             pub_name=sql.Literal(self._params.publication_name),
         )
 
-        with self._conn.cursor(name="cdc_stream") as cur:
-            cur.itersize = 1000
-            cur.execute(query)
+        # The named cursor runs the peek lazily, so the slot is acquired on the first fetch — that
+        # is where "... is active for PID ..." surfaces, before any event is yielded. Retry that
+        # handoff in-process so a prior run's still-releasing connection can't fail the whole
+        # attempt. Once a row lands the slot is ours, so never retry past that point; if it stays
+        # held the error propagates to the retryable SLOT_IN_USE path.
+        for attempt in range(_SLOT_READ_MAX_ATTEMPTS):
+            slot_acquired = False
+            try:
+                with conn.cursor(name="cdc_stream") as cur:
+                    cur.itersize = 1000
+                    cur.execute(query)
 
-            for row in cur:
-                self._last_rows_consumed += 1
-                if on_row is not None:
-                    on_row()
+                    for row in cur:
+                        slot_acquired = True
+                        self._last_rows_consumed += 1
+                        if on_row is not None:
+                            on_row()
 
-                lsn_str: str = row[0]
-                data: bytes = row[2]
+                        lsn_str: str = row[0]
+                        data: bytes = row[2]
 
-                events = self._decoder.decode_message(data, lsn_str)
-                yield from events
+                        events = self._decoder.decode_message(data, lsn_str)
+                        yield from events
+                return
+            except psycopg.errors.ObjectInUse as e:
+                conn.rollback()
+                if slot_acquired or _SLOT_ACTIVE_MARKER not in str(e).lower() or attempt == _SLOT_READ_MAX_ATTEMPTS - 1:
+                    raise
+                self._last_rows_consumed = 0
+                logger.warning("slot_read_busy_retry", slot_name=self._params.slot_name, attempt=attempt + 1)
+                time.sleep(0.5 * 2**attempt)
 
     def confirm_position(self, position: str) -> None:
         """Advance the replication slot to the given LSN.
@@ -201,6 +236,14 @@ class PgCDCStreamReader:
         )
         try:
             self._advance_slot(advance_conn, query)
+        except psycopg.errors.ObjectNotInPrerequisiteState as e:
+            if not _is_slot_already_ahead_error(e):
+                raise
+            # The slot's confirmed position already sits at or beyond `position` — a retried or
+            # overlapping run advanced it further — so the WAL up to here is already released and
+            # there is nothing to do. Postgres refuses a backward advance; treat it as a no-op.
+            logger.info("slot_already_ahead", slot_name=self._params.slot_name, position=position)
+            return
         finally:
             advance_conn.close()
 

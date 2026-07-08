@@ -89,10 +89,16 @@ export const sessionRecordingsListPropertiesLogic = kea<sessionRecordingsListPro
                     await breakpoint(100)
 
                     const startTime = performance.now()
-                    const sessionIds = sessions.map((x) => x.id)
+                    // An id-less entry would interpolate `undefined` into the query and throw
+                    const sessionIds = sessions.map((x) => x?.id).filter(Boolean)
+                    if (!sessionIds.length) {
+                        return values.recordingProperties
+                    }
 
-                    const oldestTimestamp = sessions.map((x) => x.start_time).sort()[0]
-                    const newestTimestamp = sessions.map((x) => x.end_time).sort()[sessions.length - 1]
+                    const chronological = (a: string, b: string): number =>
+                        new Date(a).getTime() - new Date(b).getTime()
+                    const oldestTimestamp = sessions.map((x) => x.start_time).sort(chronological)[0]
+                    const newestTimestamp = sessions.map((x) => x.end_time).sort(chronological)[sessions.length - 1]
 
                     const extraSessionProperties = values.extraSessionProperties
                     let response

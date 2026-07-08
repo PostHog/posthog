@@ -1,6 +1,7 @@
 import re
 import json
 import uuid as uuid_mod
+import dataclasses
 from datetime import timedelta
 from typing import Optional, cast
 
@@ -77,7 +78,6 @@ from products.workflows.backend.api.message_assets import (
     MessageAssetsRequestSerializer,
     fetch_message_asset_html,
     fetch_message_assets,
-    workflow_email_assets_ui_enabled,
 )
 from products.workflows.backend.models.hog_flow.hog_flow import (
     BILLABLE_ACTION_TYPES,
@@ -1605,8 +1605,6 @@ class HogFlowViewSet(TeamAndOrgViewSetMixin, LogEntryMixin, AppMetricsMixin, vie
     @action(detail=True, methods=["GET"], pagination_class=None, filter_backends=[])
     def assets(self, request: Request, *args, **kwargs):
         obj = self.get_object()
-        if not workflow_email_assets_ui_enabled(self.team, request.user):
-            raise exceptions.NotFound()
         tag_queries(product=ProductKey.WORKFLOWS, feature=Feature.QUERY)
 
         param_serializer = MessageAssetsRequestSerializer(data=request.query_params)
@@ -1632,7 +1630,8 @@ class HogFlowViewSet(TeamAndOrgViewSetMixin, LogEntryMixin, AppMetricsMixin, vie
             after=after_date,
             before=before_date,
         )
-        return Response(MessageAssetSerializer(data, many=True).data)
+        enriched = [dataclasses.replace(row, function_name=obj.name or "") for row in data]
+        return Response(MessageAssetSerializer(enriched, many=True).data)
 
     @extend_schema(
         operation_id="hog_flows_asset_content_retrieve",
@@ -1643,8 +1642,6 @@ class HogFlowViewSet(TeamAndOrgViewSetMixin, LogEntryMixin, AppMetricsMixin, vie
     def asset_content(self, request: Request, *args, **kwargs):
         # Ownership-check the HogFlow first so other teams' assets can't be probed.
         obj = self.get_object()
-        if not workflow_email_assets_ui_enabled(self.team, request.user):
-            raise exceptions.NotFound()
 
         param_serializer = MessageAssetContentRequestSerializer(data=request.query_params)
         param_serializer.is_valid(raise_exception=True)

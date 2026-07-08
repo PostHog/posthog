@@ -2,10 +2,13 @@ import uuid
 
 from posthog.test.base import APIBaseTest
 
-from django.test import override_settings
+from django.test import SimpleTestCase, override_settings
 
 from parameterized import parameterized
 from rest_framework import status
+
+from posthog.models.instance_setting import override_instance_config
+from posthog.urls import region_host_from_current_instance
 
 
 class TestUrls(APIBaseTest):
@@ -30,6 +33,37 @@ class TestUrls(APIBaseTest):
             "/login?next=/insights/new%3Finterval%3Dday%26display%3DActionsLineGraph%26events%3D%5B%257B%2522id%2522%3A%2522%24pageview%2522%2C%2522name%2522%3A%2522%24pageview%2522%2C%2522type%2522%3A%2522events%2522%2C%2522order%2522%3A0%257D%5D%26properties%3D%5B%5D",
             fetch_redirect_response=False,
         )
+
+    @parameterized.expand(
+        [
+            ("eu", "https://eu.posthog.com", "https://eu.posthog.com/organization/billing"),
+            ("us", "https://us.posthog.com", "https://us.posthog.com/organization/billing"),
+        ]
+    )
+    def test_app_host_deep_link_redirects_to_logged_in_region(self, _name, cookie_value, expected_location):
+        # /organization/billing is behind login_required; the region redirect must fire first,
+        # so a logged-out EU user reaches EU instead of the US login page.
+        self.client.logout()
+        self.client.cookies["ph_current_instance"] = cookie_value
+        response = self.client.get("/organization/billing", HTTP_HOST="app.posthog.com", follow=False)
+        self.assertEqual(response.status_code, status.HTTP_302_FOUND)
+        self.assertEqual(response["Location"], expected_location)
+
+    def test_app_host_deep_link_without_region_cookie_falls_through_to_login(self):
+        self.client.logout()
+        self.client.cookies.pop("ph_current_instance", None)
+        response = self.client.get("/organization/billing", HTTP_HOST="app.posthog.com", follow=False)
+        self.assertEqual(response.status_code, status.HTTP_302_FOUND)
+        self.assertIn("/login", response["Location"])
+
+    def test_app_host_deep_link_without_region_cookie_falls_back_to_us_when_redirect_app_to_us(self):
+        # With no region cookie, REDIRECT_APP_TO_US routes app.posthog.com to US before the auth gate.
+        self.client.logout()
+        self.client.cookies.pop("ph_current_instance", None)
+        with override_instance_config("REDIRECT_APP_TO_US", True):
+            response = self.client.get("/organization/billing", HTTP_HOST="app.posthog.com", follow=False)
+        self.assertEqual(response.status_code, status.HTTP_302_FOUND)
+        self.assertEqual(response["Location"], "https://us.posthog.com/organization/billing")
 
     def test_integration_connect_redirect_authenticated(self):
         response = self.client.get(
@@ -146,3 +180,21 @@ class TestUrls(APIBaseTest):
         #     response,
         #     "Do you want to give the PostHog Toolbar on <strong>https://domain.com/sdf</strong> access to your PostHog data?",
         # )
+
+
+class TestRegionHostFromCurrentInstance(SimpleTestCase):
+    @parameterized.expand(
+        [
+            ("eu", "https://eu.posthog.com", "eu.posthog.com"),
+            ("us", "https://us.posthog.com", "us.posthog.com"),
+            ("with_port", "https://eu.posthog.com:8123", "eu.posthog.com"),
+            ("wrapping_quotes", '"https://eu.posthog.com"', "eu.posthog.com"),
+            ("app_is_not_a_region", "https://app.posthog.com", None),
+            ("unknown_host_is_rejected", "https://evil.example.com", None),
+            ("none", None, None),
+            ("empty", "", None),
+            ("not_a_url", "yo ho ho", None),
+        ]
+    )
+    def test_region_host_from_current_instance(self, _name, cookie_value, expected):
+        self.assertEqual(region_host_from_current_instance(cookie_value), expected)

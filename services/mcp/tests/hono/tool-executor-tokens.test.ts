@@ -1,9 +1,13 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
-const { mockTrackToolCall } = vi.hoisted(() => ({ mockTrackToolCall: vi.fn() }))
+const { mockTrackToolCall, mockTrackExecuteSqlGeneration } = vi.hoisted(() => ({
+    mockTrackToolCall: vi.fn(),
+    mockTrackExecuteSqlGeneration: vi.fn(),
+}))
 
 vi.mock('@/hono/analytics', () => ({
     trackToolCall: mockTrackToolCall,
+    trackExecuteSqlGeneration: mockTrackExecuteSqlGeneration,
 }))
 
 vi.mock('@/resources/internals', () => ({
@@ -50,6 +54,7 @@ function makeState(tools: { name: string }[], overrides: Partial<ResolvedState> 
         clientProfile: {
             capabilities: { supportsInstructions: true },
             isCliModeEnabled: vi.fn(() => false),
+            isClaudeUiHost: vi.fn(() => false),
         } as any,
         requestContext: {
             sessionId: 'sess-1',
@@ -63,6 +68,8 @@ function makeState(tools: { name: string }[], overrides: Partial<ResolvedState> 
         scopeGatedTools: [],
         distinctId: 'test-distinct-id',
         renderUiEnabled: false,
+        metadata: undefined,
+        groupTypes: undefined,
         ...overrides,
     }
 }
@@ -99,12 +106,42 @@ describe('ToolExecutor token estimates', () => {
 
     beforeEach(async () => {
         mockTrackToolCall.mockClear()
+        mockTrackExecuteSqlGeneration.mockClear()
         catalog = new ToolCatalog()
         await catalog.warmup()
         executor = new ToolExecutor(catalog, new InstructionsBuilder(''))
     })
 
     describe('direct tool calls', () => {
+        it('emits the execute-sql generation with the validated args', async () => {
+            vi.spyOn(catalog, 'getToolByName').mockReturnValue({
+                name: 'execute-sql',
+                base: {
+                    schema: z.object({ query: z.string() }),
+                    handler: vi.fn().mockResolvedValue('ok'),
+                },
+            } as any)
+
+            await executor.handleToolCall(
+                { name: 'execute-sql', arguments: { query: 'SELECT 1' } },
+                makeState([{ name: 'execute-sql' }])
+            )
+
+            expect(mockTrackExecuteSqlGeneration).toHaveBeenCalledTimes(1)
+            const [toolName, args, , meta] = mockTrackExecuteSqlGeneration.mock.calls[0]!
+            expect(toolName).toBe('execute-sql')
+            expect(args).toEqual({ query: 'SELECT 1' })
+            expect(meta.isError).toBe(false)
+        })
+
+        it('does not emit a generation for other tools', async () => {
+            vi.spyOn(catalog, 'getToolByName').mockReturnValue(makeFakeTool('my-tool') as any)
+
+            await executor.handleToolCall({ name: 'my-tool', arguments: {} }, makeState([{ name: 'my-tool' }]))
+
+            expect(mockTrackExecuteSqlGeneration).not.toHaveBeenCalled()
+        })
+
         it('measures output tokens from the returned text, not the re-serialized payload', async () => {
             const handlerResult = {
                 rows: [
