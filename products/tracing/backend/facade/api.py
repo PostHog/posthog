@@ -34,6 +34,7 @@ from posthog.schema import (
 )
 
 from products.tracing.backend.attribute_breakdown_query_runner import (
+    FACET_COLUMNS as _FACET_COLUMNS,
     run_attribute_breakdown_query as _run_attribute_breakdown_query,
 )
 from products.tracing.backend.count_query_runner import run_count_query as _run_count_query
@@ -45,6 +46,11 @@ from products.tracing.backend.symbol_stats_query_runner import run_symbol_stats_
 
 if TYPE_CHECKING:
     from posthog.models import Team
+
+
+# Allowlisted top-level span columns for the "span" breakdown type. Re-exported so the
+# presentation layer can validate `breakdownKey` without reaching into the query runner.
+FACET_COLUMNS = _FACET_COLUMNS
 
 
 # --- Converters (model -> frozen dataclass) ---

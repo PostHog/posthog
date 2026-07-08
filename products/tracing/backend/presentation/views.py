@@ -41,8 +41,8 @@ from posthog.clickhouse.query_tagging import Feature, tag_queries
 from posthog.event_usage import report_user_action
 from posthog.hogql_queries.query_runner import ExecutionMode
 
-from ..attribute_breakdown_query_runner import FACET_COLUMNS
 from ..facade.api import (
+    FACET_COLUMNS,
     annotate_self_time,
     run_attribute_breakdown_query,
     run_count_query,
