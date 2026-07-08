@@ -195,10 +195,9 @@ async def handle_llm_request(
     # $ai_generation event. This is the shared chokepoint for every provider (Anthropic,
     # OpenAI chat/responses, Cloudflare), so a single extraction here covers them all, on
     # both success and error events. Read from the request body — the source of truth for
-    # what was actually sent to the model — rather than a caller-supplied header.
-    effort = _extract_effort(request_data)
-    if effort is not None:
-        set_effort(effort)
+    # what was actually sent to the model — rather than a caller-supplied header. Always
+    # set it (None when absent) so a stale value can't leak in if the context is reused.
+    set_effort(_extract_effort(request_data))
 
     structlog.contextvars.bind_contextvars(
         user_id=user.user_id,
