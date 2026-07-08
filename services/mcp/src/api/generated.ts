@@ -12224,6 +12224,32 @@ export namespace Schemas {
       failing_workflows?: string[];
     }
 
+    /**
+     * * `evaluation` - evaluation
+     * * `definitions` - definitions
+     * * `definitions_no_cohorts` - definitions_no_cohorts
+     */
+    export type CacheEnum = typeof CacheEnum[keyof typeof CacheEnum];
+
+
+    export const CacheEnum = {
+      Evaluation: 'evaluation',
+      Definitions: 'definitions',
+      DefinitionsNoCohorts: 'definitions_no_cohorts',
+    } as const;
+
+    /**
+     * * `evaluation` - evaluation
+     * * `definitions` - definitions
+     */
+    export type CachesEnum = typeof CachesEnum[keyof typeof CachesEnum];
+
+
+    export const CachesEnum = {
+      Evaluation: 'evaluation',
+      Definitions: 'definitions',
+    } as const;
+
     export interface EventsHeatMapColumnAggregationResult {
       column: number;
       value: number;
@@ -52595,6 +52621,111 @@ export namespace Schemas {
     } as const;
 
     /**
+     * Raw cached payload as stored in Redis, or null on a miss.
+     * @nullable
+     */
+    export type StaffCacheEntryResponseData = { [key: string]: unknown } | null;
+
+    /**
+     * * `redis` - redis
+     * * `miss` - miss
+     */
+    export type StaffCacheSourceEnum = typeof StaffCacheSourceEnum[keyof typeof StaffCacheSourceEnum];
+
+
+    export const StaffCacheSourceEnum = {
+      Redis: 'redis',
+      Miss: 'miss',
+    } as const;
+
+    export interface StaffCacheEntryResponse {
+      /** Team id. */
+      team_id: number;
+      /** Which cache this entry is for.
+       *
+       * * `evaluation` - evaluation
+       * * `definitions` - definitions
+       * * `definitions_no_cohorts` - definitions_no_cohorts */
+      cache: CacheEnum;
+      /** 'redis' when a warm entry is cached, or 'miss' when nothing is cached in Redis.
+       *
+       * * `redis` - redis
+       * * `miss` - miss */
+      source: StaffCacheSourceEnum;
+      /**
+         * Raw cached payload as stored in Redis, or null on a miss.
+         * @nullable
+         */
+      data: StaffCacheEntryResponseData;
+    }
+
+    export interface StaffCacheEntryStatus {
+      /** 'redis' when a warm entry is cached, or 'miss' when nothing is cached in Redis.
+       *
+       * * `redis` - redis
+       * * `miss` - miss */
+      source: StaffCacheSourceEnum;
+      /**
+         * Number of flags in the cached payload, or null on a miss.
+         * @nullable
+         */
+      flag_count: number | null;
+    }
+
+    export interface StaffCacheMutation {
+      /**
+         * Team ids to act on (max 50 per request).
+         * @maxItems 50
+         */
+      team_ids: number[];
+      /** Which logical caches to act on: 'evaluation' (the /flags cache) and/or 'definitions' (the /flags/definitions local-eval cache). Defaults to both. */
+      caches?: CachesEnum[];
+    }
+
+    export interface StaffCacheMutationResponse {
+      /** Team ids for which the requested action's tasks were enqueued. */
+      queued_team_ids: number[];
+      /** Requested team ids that do not exist. */
+      not_found_team_ids: number[];
+    }
+
+    export interface StaffCacheTeamStatus {
+      /** Team id. */
+      team_id: number;
+      /** Status of the /flags evaluation cache. */
+      evaluation: StaffCacheEntryStatus;
+      /** Status of the /flags/definitions local-eval cache (with-cohorts variant). */
+      definitions: StaffCacheEntryStatus;
+      /** Status of the /flags/definitions local-eval cache (without-cohorts variant, cohort filters transformed to properties for simple SDK clients). */
+      definitions_no_cohorts: StaffCacheEntryStatus;
+    }
+
+    export interface StaffCacheStatusResponse {
+      /** Per-team cache status. */
+      results: StaffCacheTeamStatus[];
+    }
+
+    export interface StaffTeamResult {
+      /** Team id. */
+      id: number;
+      /** Team name. */
+      name: string;
+      /** Team api_token (used as the flags evaluation cache key). */
+      api_token: string;
+      /** Organization uuid that owns the team. */
+      organization_id: string;
+      /** Organization name that owns the team. */
+      organization_name: string;
+      /** Project id the team belongs to. */
+      project_id: number;
+    }
+
+    export interface StaffTeamSearchResponse {
+      /** Matching teams. */
+      results: StaffTeamResult[];
+    }
+
+    /**
      * Response containing a JWT token (and resolved base URL) for reading a task run's live event stream
      */
     export interface StreamReadTokenResponse {
@@ -61663,6 +61794,53 @@ export namespace Schemas {
     };
 
     export type EnvironmentsWebVitalsRetrieve200 = { [key: string]: unknown };
+
+    export type FeatureFlagsStaffCacheListParams = {
+    /**
+     * Team ids to report cache status for (max 50 per request). Repeat the param, e.g. ?team_ids=1&team_ids=2.
+     * @maxItems 50
+     */
+    team_ids: number[];
+    };
+
+    export type FeatureFlagsStaffCacheEntryRetrieveParams = {
+    /**
+     * Which cache to fetch: 'evaluation' (the /flags cache), 'definitions' (the /flags/definitions local-eval cache, with-cohorts variant), or 'definitions_no_cohorts' (the without-cohorts variant served to simple SDK clients).
+     *
+     * * `evaluation` - evaluation
+     * * `definitions` - definitions
+     * * `definitions_no_cohorts` - definitions_no_cohorts
+     * @minLength 1
+     */
+    cache: FeatureFlagsStaffCacheEntryRetrieveCache;
+    /**
+     * Team id to fetch the cache entry for.
+     */
+    team_id: number;
+    };
+
+    export type FeatureFlagsStaffCacheEntryRetrieveCache = typeof FeatureFlagsStaffCacheEntryRetrieveCache[keyof typeof FeatureFlagsStaffCacheEntryRetrieveCache];
+
+
+    export const FeatureFlagsStaffCacheEntryRetrieveCache = {
+      Evaluation: 'evaluation',
+      Definitions: 'definitions',
+      DefinitionsNoCohorts: 'definitions_no_cohorts',
+    } as const;
+
+    export type FeatureFlagsStaffTeamsListParams = {
+    /**
+     * Maximum number of teams to return (default 25, max 100).
+     * @minimum 1
+     * @maximum 100
+     */
+    limit?: number;
+    /**
+     * Search string matched against team id (exact), api_token (exact), team name (partial), or organization name (partial). Non-numeric queries must be at least 2 characters so an empty or single-letter query never returns half the table; a numeric team-id lookup is allowed at a single digit.
+     * @minLength 1
+     */
+    search: string;
+    };
 
     export type LlmAnalyticsPersonalSpendListParams = {
     /**
