@@ -9,7 +9,7 @@ feature: data_management
 url_prefix: /data-management/ingestion-warnings-v2
 ui_apps: {}
 tools:
-    ingestion-warnings-v2-list:
+    ingestion-warnings-list:
         operation: ingestion_warnings_v2_list
         enabled: true
         scopes:

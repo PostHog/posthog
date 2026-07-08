@@ -6,15 +6,15 @@ import { IngestionWarningsV2ListQueryParams } from '@/generated/data_management/
 import { withPostHogUrl, type WithPostHogUrl } from '@/tools/tool-utils'
 import type { Context, ToolBase, ZodObjectAny } from '@/tools/types'
 
-const IngestionWarningsV2ListSchema = IngestionWarningsV2ListQueryParams
+const IngestionWarningsListSchema = IngestionWarningsV2ListQueryParams
 
-const ingestionWarningsV2List = (): ToolBase<
-    typeof IngestionWarningsV2ListSchema,
+const ingestionWarningsList = (): ToolBase<
+    typeof IngestionWarningsListSchema,
     WithPostHogUrl<Schemas.IngestionWarningsV2Summary[]>
 > => ({
-    name: 'ingestion-warnings-v2-list',
-    schema: IngestionWarningsV2ListSchema,
-    handler: async (context: Context, params: z.infer<typeof IngestionWarningsV2ListSchema>) => {
+    name: 'ingestion-warnings-list',
+    schema: IngestionWarningsListSchema,
+    handler: async (context: Context, params: z.infer<typeof IngestionWarningsListSchema>) => {
         const projectId = await context.stateManager.getProjectId()
         const result = await context.api.request<Schemas.IngestionWarningsV2Summary[]>({
             method: 'GET',
@@ -36,5 +36,5 @@ const ingestionWarningsV2List = (): ToolBase<
 })
 
 export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
-    'ingestion-warnings-v2-list': ingestionWarningsV2List,
+    'ingestion-warnings-list': ingestionWarningsList,
 }
