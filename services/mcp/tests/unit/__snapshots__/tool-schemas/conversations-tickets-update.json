@@ -35,6 +35,16 @@
             ],
             "description": "SLA deadline set via workflows. Null means no SLA."
         },
+        "sla_warning_minutes": {
+            "description": "Minutes before sla_due_at at which a $conversation_sla_approaching event fires, e.g. [180, 60]. Empty falls back to the team-level default.",
+            "items": {
+                "maximum": 10080,
+                "minimum": 1,
+                "type": "number"
+            },
+            "maxItems": 20,
+            "type": "array"
+        },
         "snoozed_until": {
             "anyOf": [
                 {
