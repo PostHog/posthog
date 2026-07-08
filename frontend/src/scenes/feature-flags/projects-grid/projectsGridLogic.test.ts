@@ -133,8 +133,8 @@ describe('projectsGridLogic', () => {
 
             logic.actions.bulkCopyFlagsFinished({
                 copied: [
-                    { key: 'flag_2', projectIds: [2] },
-                    { key: 'not_in_grid', projectIds: [2] },
+                    { key: 'flag_2', projectIds: [2], updatedProjectIds: [] },
+                    { key: 'not_in_grid', projectIds: [2], updatedProjectIds: [] },
                 ],
                 failed: [],
                 warnings: [],

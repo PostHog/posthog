@@ -16,6 +16,28 @@ import { organizationLogic } from 'scenes/organizationLogic'
 
 import { BULK_COPY_MAX_TARGET_PROJECTS, BulkCopyFailure, flagSelectionLogic } from './flagSelectionLogic'
 
+function CopiedFlagsList({
+    entries,
+    teamNameById,
+}: {
+    entries: Array<{ key: string; projectIds: number[] }>
+    teamNameById: Map<number, string>
+}): JSX.Element {
+    return (
+        <ul className="list-none pl-6 space-y-1">
+            {entries.map((entry) => (
+                <li key={entry.key} className="text-sm">
+                    <span className="font-medium">{entry.key}</span>
+                    <span className="text-muted">
+                        {' → '}
+                        {entry.projectIds.map((id) => teamNameById.get(id) ?? `Project ${id}`).join(', ')}
+                    </span>
+                </li>
+            ))}
+        </ul>
+    )
+}
+
 function FailureList({
     failures,
     teamNameById,
@@ -76,7 +98,16 @@ export function BulkCopyFlagsModal(): JSX.Element | null {
 
     const pendingApproval = bulkCopyResult?.failed.filter((failure) => failure.approvalPending) ?? []
     const hardFailures = bulkCopyResult?.failed.filter((failure) => !failure.approvalPending) ?? []
-    const copiedProjectCount = new Set(bulkCopyResult?.copied.flatMap((entry) => entry.projectIds) ?? []).size
+    // Split copies into freshly created flags and overwrites of flags that already existed in the target
+    const newCopies = (bulkCopyResult?.copied ?? [])
+        .map((entry) => ({
+            key: entry.key,
+            projectIds: entry.projectIds.filter((id) => !entry.updatedProjectIds.includes(id)),
+        }))
+        .filter((entry) => entry.projectIds.length > 0)
+    const overwrites = (bulkCopyResult?.copied ?? [])
+        .map((entry) => ({ key: entry.key, projectIds: entry.updatedProjectIds }))
+        .filter((entry) => entry.projectIds.length > 0)
 
     const submitDisabledReason =
         bulkCopyTargetProjectIds.length === 0
@@ -126,28 +157,26 @@ export function BulkCopyFlagsModal(): JSX.Element | null {
         >
             {bulkCopyResult ? (
                 <div className="space-y-4">
-                    {bulkCopyResult.copied.length > 0 && (
+                    {newCopies.length > 0 && (
                         <div className="space-y-2">
                             <div className="flex items-center gap-2 text-success font-medium">
                                 <IconCheck className="text-lg" />
-                                <span>
-                                    Copied {pluralize(bulkCopyResult.copied.length, 'flag')} to{' '}
-                                    {pluralize(copiedProjectCount, 'project')}
-                                </span>
+                                <span>Copied {pluralize(newCopies.length, 'new flag')}</span>
                             </div>
-                            <ul className="list-none pl-6 space-y-1">
-                                {bulkCopyResult.copied.map((entry) => (
-                                    <li key={entry.key} className="text-sm">
-                                        <span className="font-medium">{entry.key}</span>
-                                        <span className="text-muted">
-                                            {' → '}
-                                            {entry.projectIds
-                                                .map((id) => teamNameById.get(id) ?? `Project ${id}`)
-                                                .join(', ')}
-                                        </span>
-                                    </li>
-                                ))}
-                            </ul>
+                            <CopiedFlagsList entries={newCopies} teamNameById={teamNameById} />
+                        </div>
+                    )}
+                    {overwrites.length > 0 && (
+                        <div className="space-y-2">
+                            <div className="flex items-center gap-2 text-warning font-medium">
+                                <IconWarning className="text-lg" />
+                                <span>Updated {pluralize(overwrites.length, 'existing flag')}</span>
+                            </div>
+                            <p className="text-sm text-muted pl-6 mb-0">
+                                These flags already existed in the destination project and were overwritten with the
+                                copied configuration.
+                            </p>
+                            <CopiedFlagsList entries={overwrites} teamNameById={teamNameById} />
                         </div>
                     )}
                     {pendingApproval.length > 0 && (

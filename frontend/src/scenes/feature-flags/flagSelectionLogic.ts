@@ -52,7 +52,12 @@ export interface BulkCopyFailure {
 }
 
 export interface BulkCopyResult {
-    copied: Array<{ key: string; projectIds: number[] }>
+    copied: Array<{
+        key: string
+        projectIds: number[]
+        /** Subset of projectIds where a flag with this key already existed and was overwritten. */
+        updatedProjectIds: number[]
+    }>
     failed: BulkCopyFailure[]
     warnings: string[]
     /** Selected flags that no longer resolved to a key (e.g. deleted between selection and submit). */
@@ -247,7 +252,7 @@ export const flagSelectionLogic = kea<flagSelectionLogicType>([
                 return
             }
 
-            const copied: Array<{ key: string; projectIds: number[] }> = []
+            const copied: BulkCopyResult['copied'] = []
             const failed: BulkCopyFailure[] = []
             const warnings = new Set<string>()
 
@@ -265,12 +270,15 @@ export const flagSelectionLogic = kea<flagSelectionLogicType>([
                         disable_copied_flag: values.bulkCopyDisableCopiedFlag,
                     })
                     const failedEntries: CopyFlagsResultApi[] = Array.isArray(response.failed) ? response.failed : []
-                    // Success items don't carry the target project ID, so infer it: every requested
-                    // target that isn't in the failed list was copied.
+                    // Copied targets are inferred as requested-minus-failed (robust to success items
+                    // missing team_id during deploy skew); overwrites come from the per-item flag.
                     const failedProjectIds = new Set(failedEntries.map((entry) => entry.project_id))
                     const copiedProjectIds = targetProjectIds.filter((id) => !failedProjectIds.has(id))
+                    const updatedProjectIds = response.success
+                        .filter((item) => item.updated_existing && item.team_id != null)
+                        .map((item) => item.team_id as number)
                     if (copiedProjectIds.length > 0) {
-                        copied.push({ key, projectIds: copiedProjectIds })
+                        copied.push({ key, projectIds: copiedProjectIds, updatedProjectIds })
                     }
                     for (const entry of failedEntries) {
                         failed.push({
@@ -306,7 +314,10 @@ export const flagSelectionLogic = kea<flagSelectionLogicType>([
 
             const pendingApprovalCount = failed.filter((failure) => failure.approvalPending).length
             const hardFailureCount = failed.length - pendingApprovalCount
-            const summary = `Copied ${pluralize(copied.length, 'flag')} to ${pluralize(targetProjectIds.length, 'project')}`
+            const updatedPairCount = copied.reduce((count, entry) => count + entry.updatedProjectIds.length, 0)
+            const summary =
+                `Copied ${pluralize(copied.length, 'flag')} to ${pluralize(targetProjectIds.length, 'project')}` +
+                (updatedPairCount > 0 ? ` (${pluralize(updatedPairCount, 'existing flag')} overwritten)` : '')
             if (failed.length === 0 && copied.length > 0) {
                 lemonToast.success(summary)
             } else if (copied.length > 0 || pendingApprovalCount > 0) {

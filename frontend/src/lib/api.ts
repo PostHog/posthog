@@ -2609,7 +2609,12 @@ const api = {
             orgId: OrganizationType['id'] = ApiConfig.getCurrentOrganizationId(),
             data: OrganizationFeatureFlagsCopyBody
         ): Promise<{
-            success: (FeatureFlagType & { flag_dependency_warnings?: string[]; schedule_copy_warning?: string })[]
+            success: (FeatureFlagType & {
+                flag_dependency_warnings?: string[]
+                schedule_copy_warning?: string
+                team_id?: number
+                updated_existing?: boolean
+            })[]
             failed: any
         }> {
             return await new ApiRequest().copyOrganizationFeatureFlags(orgId).create({ data })

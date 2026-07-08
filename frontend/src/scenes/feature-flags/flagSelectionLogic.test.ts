@@ -73,8 +73,8 @@ describe('flagSelectionLogic bulk copy', () => {
         ])
         expect(logic.values.bulkCopyResult).toEqual({
             copied: [
-                { key: 'flag-a', projectIds: [TARGET_A, TARGET_B] },
-                { key: 'flag-b', projectIds: [TARGET_A, TARGET_B] },
+                { key: 'flag-a', projectIds: [TARGET_A, TARGET_B], updatedProjectIds: [] },
+                { key: 'flag-b', projectIds: [TARGET_A, TARGET_B], updatedProjectIds: [] },
             ],
             failed: [],
             warnings: [],
@@ -92,7 +92,15 @@ describe('flagSelectionLogic bulk copy', () => {
                     200,
                     {
                         success: [
-                            { id: 1, key: 'flag-a', name: '', active: false, flag_dependency_warnings: ['dropped'] },
+                            {
+                                id: 1,
+                                key: 'flag-a',
+                                name: '',
+                                active: false,
+                                team_id: TARGET_A,
+                                updated_existing: true,
+                                flag_dependency_warnings: ['dropped'],
+                            },
                         ],
                         failed: [
                             {
@@ -108,7 +116,17 @@ describe('flagSelectionLogic bulk copy', () => {
             return [
                 200,
                 {
-                    success: [{ id: 2, key: 'flag-b', name: '', active: true, schedule_copy_warning: 'no schedules' }],
+                    success: [
+                        {
+                            id: 2,
+                            key: 'flag-b',
+                            name: '',
+                            active: true,
+                            team_id: TARGET_B,
+                            updated_existing: false,
+                            schedule_copy_warning: 'no schedules',
+                        },
+                    ],
                     failed: [{ project_id: TARGET_A, error_message: 'Project not found.' }],
                 },
             ]
@@ -123,8 +141,9 @@ describe('flagSelectionLogic bulk copy', () => {
 
         expect(logic.values.bulkCopyResult).toEqual({
             copied: [
-                { key: 'flag-a', projectIds: [TARGET_A] },
-                { key: 'flag-b', projectIds: [TARGET_B] },
+                // flag-a overwrote an existing flag in its surviving target
+                { key: 'flag-a', projectIds: [TARGET_A], updatedProjectIds: [TARGET_A] },
+                { key: 'flag-b', projectIds: [TARGET_B], updatedProjectIds: [] },
             ],
             failed: [
                 { key: 'flag-a', projectId: TARGET_B, errorMessage: 'Approval required', approvalPending: true },
@@ -148,7 +167,9 @@ describe('flagSelectionLogic bulk copy', () => {
         await expectLogic(logic).toFinishAllListeners()
 
         expect(copyRequests).toHaveLength(2)
-        expect(logic.values.bulkCopyResult?.copied).toEqual([{ key: 'flag-b', projectIds: [TARGET_A, TARGET_B] }])
+        expect(logic.values.bulkCopyResult?.copied).toEqual([
+            { key: 'flag-b', projectIds: [TARGET_A, TARGET_B], updatedProjectIds: [] },
+        ])
         expect(logic.values.bulkCopyResult?.failed).toEqual([
             { key: 'flag-a', projectId: TARGET_A, errorMessage: 'Server error' },
             { key: 'flag-a', projectId: TARGET_B, errorMessage: 'Server error' },

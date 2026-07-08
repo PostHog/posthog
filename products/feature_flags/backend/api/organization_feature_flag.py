@@ -73,6 +73,9 @@ class CopyFlagsSuccessItemSerializer(serializers.Serializer):
     name = serializers.CharField(help_text="Name of the feature flag")
     active = serializers.BooleanField(help_text="Whether the flag is active")
     team_id = serializers.IntegerField(help_text="Team ID the flag was copied to")
+    updated_existing = serializers.BooleanField(
+        help_text="True when a flag with the same key already existed in the target project and was overwritten with the copied configuration, false when a new flag was created"
+    )
     flag_dependency_warnings = serializers.ListField(
         child=serializers.CharField(),
         required=False,
@@ -506,6 +509,10 @@ class OrganizationFeatureFlagView(
                         schedule_copy_error = str(e)
 
                 result = feature_flag_serializer.data
+                # FeatureFlagSerializer doesn't expose team_id, but callers need to know which
+                # target each success item belongs to, and whether it overwrote an existing flag.
+                result["team_id"] = saved_flag.team_id
+                result["updated_existing"] = existing_flag is not None
                 if schedule_copy_error:
                     result["schedule_copy_warning"] = f"Flag copied but schedules failed: {schedule_copy_error}"
                 if flag_dependency_warnings:

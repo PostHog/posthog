@@ -466,6 +466,8 @@ class TestOrganizationFeatureFlagCopy(APIBaseTest, QueryMatchingTest):
             "evaluation_runtime": "all",
             "bucketing_identifier": "distinct_id",
             "is_used_in_replay_settings": False,
+            "team_id": target_project.id,
+            "updated_existing": False,
         }
 
         flag_response = response.json()["success"][0]
@@ -561,6 +563,8 @@ class TestOrganizationFeatureFlagCopy(APIBaseTest, QueryMatchingTest):
             "evaluation_runtime": "all",
             "bucketing_identifier": "distinct_id",
             "is_used_in_replay_settings": False,
+            "team_id": target_project.id,
+            "updated_existing": True,
         }
 
         flag_response = response.json()["success"][0]
@@ -701,6 +705,9 @@ class TestOrganizationFeatureFlagCopy(APIBaseTest, QueryMatchingTest):
             "evaluation_runtime": "all",
             "bucketing_identifier": "distinct_id",
             "is_used_in_replay_settings": False,
+            "team_id": target_project.id,
+            # A soft-deleted flag doesn't count as existing: the copy replaces it with a fresh flag
+            "updated_existing": False,
         }
         flag_response = response.json()["success"][0]
 
