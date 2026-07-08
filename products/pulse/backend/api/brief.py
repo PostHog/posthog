@@ -4,8 +4,10 @@ from typing import cast
 
 from django.conf import settings
 from django.db.models import QuerySet
+from django.utils import timezone
 
 import structlog
+import posthoganalytics
 from drf_spectacular.utils import OpenApiResponse, extend_schema
 from rest_framework import serializers, status, viewsets
 from rest_framework.decorators import action
@@ -37,6 +39,11 @@ from products.pulse.backend.temporal.inputs import (
 )
 
 PULSE_FEATURE_FLAG = "pulse"
+AGENT_ENGINE_FLAG = "pulse-agent-engine"
+# Soft rolling-24h cap on sandbox agent runs per team: the count is deliberately cheap and
+# unlocked, so concurrent requests can slip slightly past it. Single-flight per team+config
+# plus the 30-min run_agent activity timeout bound the worst case.
+AGENT_DAILY_RUN_CAP = 10
 
 logger = structlog.get_logger(__name__)
 
@@ -44,6 +51,9 @@ logger = structlog.get_logger(__name__)
 # in temporal/workflow.py is ~18min (gather 2 attempts x 5min + synthesize 5min +
 # mark-failed 3 x 1min); 20 keeps the in-workflow failure path authoritative.
 _WORKFLOW_EXECUTION_TIMEOUT = dt.timedelta(minutes=20)
+# The agent path budgets differently: prepare 2 x 5min + run_agent 30min + validate 2 x 5min
+# + mark-failed 3 x 1min; 45 keeps the in-workflow failure path authoritative there too.
+_AGENT_WORKFLOW_EXECUTION_TIMEOUT = dt.timedelta(minutes=45)
 
 
 class BriefAnchorsSerializer(serializers.Serializer):
@@ -248,6 +258,7 @@ class ProductBriefViewSet(TeamAndOrgViewSetMixin, viewsets.ReadOnlyModelViewSet)
         responses={
             201: ProductBriefSerializer,
             409: OpenApiResponse(description="A generation for this brief is already in progress"),
+            429: OpenApiResponse(description="The team's daily agent brief limit has been reached"),
         },
     )
     @action(methods=["POST"], detail=False, url_path="generate")
@@ -271,6 +282,14 @@ class ProductBriefViewSet(TeamAndOrgViewSetMixin, viewsets.ReadOnlyModelViewSet)
             if config is None:
                 raise ValidationError("Brief config not found.")
 
+        engine = "synthesize"
+        if posthoganalytics.feature_enabled(AGENT_ENGINE_FLAG, str(cast(User, request.user).distinct_id)):
+            engine = "agent"
+            window_start = timezone.now() - dt.timedelta(hours=24)
+            runs_today = ProductBrief.objects.for_team(self.team_id).filter(created_at__gte=window_start).count()
+            if runs_today >= AGENT_DAILY_RUN_CAP:
+                return Response({"detail": "Daily agent brief limit reached"}, status=status.HTTP_429_TOO_MANY_REQUESTS)
+
         brief = ProductBrief.objects.for_team(self.team_id).create(
             team_id=self.team_id,
             config=config,
@@ -290,12 +309,15 @@ class ProductBriefViewSet(TeamAndOrgViewSetMixin, viewsets.ReadOnlyModelViewSet)
                         brief_id=str(brief.id),
                         brief_config_id=str(config.id) if config else None,
                         period_days=period_days,
+                        engine=engine,
                     ),
                     # Keyed on team+config (not brief id) so a second generate while one is
                     # running for the same focus hits WorkflowAlreadyStartedError.
                     id=pulse_brief_workflow_id(self.team_id, str(config.id) if config else None),
                     task_queue=settings.ANALYTICS_PLATFORM_TASK_QUEUE,
-                    execution_timeout=_WORKFLOW_EXECUTION_TIMEOUT,
+                    execution_timeout=(
+                        _AGENT_WORKFLOW_EXECUTION_TIMEOUT if engine == "agent" else _WORKFLOW_EXECUTION_TIMEOUT
+                    ),
                 )
             )
         except WorkflowAlreadyStartedError:
@@ -321,7 +343,12 @@ class ProductBriefViewSet(TeamAndOrgViewSetMixin, viewsets.ReadOnlyModelViewSet)
         report_user_action(
             cast(User, request.user),
             "pulse brief generated",
-            {"config_id": str(config.id) if config else None, "period_days": period_days, "trigger": "on_demand"},
+            {
+                "config_id": str(config.id) if config else None,
+                "period_days": period_days,
+                "trigger": "on_demand",
+                "engine": engine,
+            },
             team=self.team,
         )
         return Response(self.get_serializer(brief).data, status=status.HTTP_201_CREATED)
