@@ -1,11 +1,10 @@
 name: Engineering analytics weekly digest
 
 # Posts a weekly CI digest to #alerts-devex every Monday morning. PULL model: the
-# script reads the engineering_analytics product's own read endpoints (the curated
-# layer behind its MCP tools/UI) and relays a week-over-week summary to Slack — it
-# does not re-derive any metric from the GitHub API. See
-# .github/scripts/eng-analytics-weekly-digest.mjs for what it reports and what is
-# deliberately deferred.
+# script reads the engineering_analytics product's repo_overview endpoint (the
+# curated layer behind its MCP tools/UI) and relays one week-over-week CI cost
+# table to Slack — it does not re-derive any metric from the GitHub API. See
+# .github/scripts/eng-analytics-weekly-digest.mjs for the row definitions.
 #
 # Requires (no-ops with a warning until set, so it never spams failures):
 #   - vars.ENG_ANALYTICS_PROJECT_ID — the PostHog project with the GitHub data
