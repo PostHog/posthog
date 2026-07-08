@@ -809,6 +809,76 @@ class TestForwardPostHogCodeFollowupActivity(TestCase):
         assert new_run.state.get("pending_user_message") == "Bob: fix the tests"
         assert new_run.state.get("initial_prompt_override") == "Bob: fix the tests"
 
+    @patch(
+        "products.tasks.backend.temporal.process_task.utils.user_github_integration_is_usable",
+        return_value=True,
+    )
+    @patch("products.tasks.backend.temporal.process_task.utils.resolve_user_github_integration_for_task")
+    @patch("products.tasks.backend.facade.temporal.execute_task_processing_workflow")
+    @patch("products.slack_app.backend.api.resolve_slack_user")
+    @patch("posthog.models.integration.SlackIntegration")
+    def test_cross_user_resume_reattributes_commits_and_pr_to_actor(
+        self, mock_slack_cls, mock_resolve, mock_execute_workflow, mock_resolve_gh, _mock_usable
+    ):
+        # A thread started by Alice, resumed by Bob: the new run's commits and PR must be
+        # attributed to Bob (the follow-up actor), not the original creator. Bob has a
+        # usable GitHub integration, so attribution redirects to him.
+        self.task_run.status = self.TaskRun.Status.COMPLETED
+        self.task_run.save()
+        self._create_mapping(mentioning_user="U_ALICE")
+        bob = User.objects.create(email="bob@test.com", first_name="Bob")
+        mock_slack_cls.return_value = MagicMock()
+        mock_resolve.return_value = SlackUserContext(user=bob, slack_email="bob@test.com")
+        bob_integration = MagicMock()
+        bob_integration.integration.id = "bob-github-integration"
+        mock_resolve_gh.return_value = bob_integration
+
+        inputs = _make_inputs(self.integration.id)
+        result = forward_posthog_code_followup_activity(
+            inputs, "C123", "1234.5678", "U_BOB", "<@BOT> fix the tests", "1234.5679"
+        )
+
+        assert result is True
+        new_run_id = mock_execute_workflow.call_args.kwargs["run_id"]
+        new_run = self.TaskRun.objects.get(id=new_run_id)
+        assert new_run.state.get("acting_user_id") == bob.id
+        assert new_run.state.get("acting_github_user_integration_id") == "bob-github-integration"
+        assert new_run.state.get("pr_authorship_mode") == "user"
+
+    @patch(
+        "products.tasks.backend.temporal.process_task.utils.user_github_integration_is_usable",
+        return_value=False,
+    )
+    @patch(
+        "products.tasks.backend.temporal.process_task.utils.resolve_user_github_integration_for_task",
+        return_value=None,
+    )
+    @patch("products.tasks.backend.facade.temporal.execute_task_processing_workflow")
+    @patch("products.slack_app.backend.api.resolve_slack_user")
+    @patch("posthog.models.integration.SlackIntegration")
+    def test_cross_user_resume_without_actor_github_integration_keeps_creator(
+        self, mock_slack_cls, mock_resolve, mock_execute_workflow, _mock_resolve_gh, _mock_usable
+    ):
+        # Bob has no usable GitHub integration for the repo. Redirecting attribution to him
+        # would break the push/PR, so we leave the run attributed to the creator.
+        self.task_run.status = self.TaskRun.Status.COMPLETED
+        self.task_run.save()
+        self._create_mapping(mentioning_user="U_ALICE")
+        bob = User.objects.create(email="bob@test.com", first_name="Bob")
+        mock_slack_cls.return_value = MagicMock()
+        mock_resolve.return_value = SlackUserContext(user=bob, slack_email="bob@test.com")
+
+        inputs = _make_inputs(self.integration.id)
+        result = forward_posthog_code_followup_activity(
+            inputs, "C123", "1234.5678", "U_BOB", "<@BOT> fix the tests", "1234.5679"
+        )
+
+        assert result is True
+        new_run_id = mock_execute_workflow.call_args.kwargs["run_id"]
+        new_run = self.TaskRun.objects.get(id=new_run_id)
+        assert "acting_user_id" not in new_run.state
+        assert "acting_github_user_integration_id" not in new_run.state
+
     @patch("posthog.models.integration.SlackIntegration")
     def test_sandbox_not_ready_returns_true_with_message(self, mock_slack_cls):
         self.task_run.state = {}

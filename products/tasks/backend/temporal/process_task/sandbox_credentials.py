@@ -255,7 +255,9 @@ class GitHubSandboxCredential:
         if get_pr_authorship_mode(task, ctx.state) == PrAuthorshipMode.USER and not is_caller_token_run(
             ctx.run_id, ctx.state
         ):
-            integration = resolve_user_github_integration_for_task(task, repository=ctx.repository, allow_refresh=True)
+            integration = resolve_user_github_integration_for_task(
+                task, repository=ctx.repository, allow_refresh=True, state=ctx.state
+            )
 
         if integration is not None:
             return self._refresh_shared_user_integration(sandbox, ctx, task, integration)

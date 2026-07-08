@@ -11,6 +11,7 @@ from django.conf import settings
 from pydantic import BaseModel
 
 from posthog.models.integration import GitHubIntegration, Integration
+from posthog.models.user import User
 from posthog.models.user_integration import ReauthorizationRequired, UserGitHubIntegration, UserIntegration
 from posthog.temporal.oauth import TOKEN_EXPIRATION_SECONDS, PosthogMcpScopes, has_write_scopes
 
@@ -28,8 +29,6 @@ from products.tasks.backend.exceptions import CredentialUnavailableError
 from products.tasks.backend.redis import get_tasks_cache
 
 if TYPE_CHECKING:
-    from posthog.models.user import User
-
     from products.tasks.backend.models import SandboxSnapshot, Task
 
 logger = logging.getLogger(__name__)
@@ -247,6 +246,13 @@ def is_resume_snapshot_usable(kind: SnapshotKind, mount_path: str | None) -> boo
 class RunState(BaseModel, extra="allow"):
     pr_authorship_mode: PrAuthorshipMode | None = None
     github_credential_source: GitHubCredentialSource | None = None
+    # The human whose identity authors this run's commits and GitHub writes, when it
+    # differs from `task.created_by`. A Slack thread can change hands: a teammate other
+    # than the thread starter may drive a later turn, and the resulting commits/PR should
+    # be credited to whoever actually prompted the agent. Unset means fall back to the
+    # task creator.
+    acting_user_id: int | None = None
+    acting_github_user_integration_id: str | None = None
     pr_base_branch: str | None = None
     home_quick_action: str | None = None
     run_source: RunSource | None = None
@@ -593,20 +599,43 @@ def get_user_github_integration(
     return None
 
 
+def resolve_run_authoring_identity(task: Task, state: dict[str, Any] | None = None) -> tuple[User | None, str | None]:
+    """The (user, pinned GitHub UserIntegration id) that should author this run's writes.
+
+    Prefers a run's recorded acting user — a teammate who took over a Slack thread the
+    original creator started — over ``task.created_by``, so generated commits and PRs are
+    credited to whoever actually prompted the agent. Falls back to the task creator when
+    no acting user is recorded or it can no longer be resolved.
+    """
+    run_state = parse_run_state(state)
+    if run_state.acting_user_id is not None:
+        actor = User.objects.filter(id=run_state.acting_user_id).first()
+        if actor is not None:
+            pinned_id = (
+                str(run_state.acting_github_user_integration_id)
+                if run_state.acting_github_user_integration_id
+                else None
+            )
+            return actor, pinned_id
+
+    return task.created_by, (str(task.github_user_integration_id) if task.github_user_integration_id else None)
+
+
 def resolve_user_github_integration_for_task(
     task: Task,
     *,
     repository: str | None = None,
     allow_refresh: bool = False,
+    state: dict[str, Any] | None = None,
 ) -> UserGitHubIntegration | None:
     """Resolve the UserIntegration that should author a task's GitHub writes."""
-    if task.created_by is None:
+    user, selected_id = resolve_run_authoring_identity(task, state)
+    if user is None:
         return None
 
     normalized_repository = _normalize_repository(repository or task.repository)
-    selected_id = str(task.github_user_integration_id) if task.github_user_integration_id else None
     user_github_integration = get_user_github_integration(
-        task.created_by,
+        user,
         github_user_integration_id=selected_id,
         repository=normalized_repository,
         allow_refresh=allow_refresh,
@@ -621,7 +650,7 @@ def resolve_user_github_integration_for_task(
     if team_installation_id:
         integration = (
             UserIntegration.objects.filter(
-                user=task.created_by,
+                user=user,
                 kind="github",
                 integration_id=team_installation_id,
             )
@@ -636,7 +665,7 @@ def resolve_user_github_integration_for_task(
             return UserGitHubIntegration(integration)
 
     return get_user_github_integration(
-        task.created_by,
+        user,
         repository=normalized_repository,
         allow_refresh=allow_refresh,
     )
@@ -733,6 +762,7 @@ def get_sandbox_github_token(
                 task,
                 repository=repository,
                 allow_refresh=True,
+                state=state,
             )
         else:
             user_github_integration = get_user_github_integration(
@@ -861,14 +891,15 @@ def get_pr_authorship_mode(task: Task, state: dict[str, Any] | None = None) -> P
 def get_git_identity_env_vars(task: Task, state: dict[str, Any] | None = None) -> dict[str, str]:
     """Return git author/committer env vars for the sandbox.
 
-    Runs with user authorship are attributed to the user who created the task.
-    Bot-authored runs fall back to the Dockerfile defaults ("PostHog Code" /
-    code@posthog.com).
+    Runs with user authorship are attributed to the run's acting user — the task creator
+    by default, or a teammate who took over the thread on a later turn (see
+    ``resolve_run_authoring_identity``). Bot-authored runs fall back to the Dockerfile
+    defaults ("PostHog Code" / code@posthog.com).
     """
     if get_pr_authorship_mode(task, state) != PrAuthorshipMode.USER:
         return {}
 
-    user = task.created_by
+    user, _ = resolve_run_authoring_identity(task, state)
     if user is None:
         return {}
 

@@ -31,6 +31,7 @@ from products.tasks.backend.temporal.observability import emit_agent_log, log_wi
 from products.tasks.backend.temporal.process_task.utils import (
     format_allowed_domains_for_log,
     get_pr_authorship_mode,
+    resolve_run_authoring_identity,
     resolve_user_github_integration_for_task,
 )
 
@@ -657,9 +658,11 @@ def get_task_processing_context(input: GetTaskProcessingContextInput) -> TaskPro
         "debug",
         f"agent_proxy_keep_stream_open: {agent_proxy_keep_stream_open} for this task run",
     )
-    user_github_integration_id = str(task.github_user_integration_id) if task.github_user_integration_id else None
+    # Prefer the run's acting user (a teammate who took over a Slack thread) over the task
+    # creator, so their GitHub identity authors the push/PR.
+    _, user_github_integration_id = resolve_run_authoring_identity(task, state)
     if user_github_integration_id is None and get_pr_authorship_mode(task, state).value == "user":
-        user_github_integration = resolve_user_github_integration_for_task(task, allow_refresh=False)
+        user_github_integration = resolve_user_github_integration_for_task(task, allow_refresh=False, state=state)
         if user_github_integration is not None:
             user_github_integration_id = str(user_github_integration.integration.id)
 

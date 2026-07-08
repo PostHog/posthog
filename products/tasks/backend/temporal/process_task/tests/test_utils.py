@@ -4,6 +4,8 @@ from django.test import TestCase
 
 from parameterized import parameterized
 
+from posthog.models.user import User
+
 from products.mcp_store.backend.facade.contracts import ActiveInstallationInfo
 from products.tasks.backend.constants import (
     DEFAULT_DIRECTORY_RESUME_SNAPSHOT_MOUNT_PATH,
@@ -505,6 +507,41 @@ class TestGetGitIdentityEnvVars(TestCase):
         result = get_git_identity_env_vars(task)
         assert result["GIT_AUTHOR_NAME"] == "PostHog User"
         assert result["GIT_AUTHOR_EMAIL"] == "anon@example.com"
+
+
+class TestGitIdentityActingUser(TestCase):
+    """A Slack thread can change hands: a teammate other than the thread starter drives a
+    later turn. The run records that actor as `acting_user_id`, and git commit authorship
+    must follow them instead of `task.created_by`."""
+
+    @staticmethod
+    def _make_task(creator: object) -> MagicMock:
+        task = MagicMock(spec=Task)
+        task.origin_product = Task.OriginProduct.SLACK
+        task.created_by = creator
+        task.github_user_integration_id = None
+        return task
+
+    def test_acting_user_overrides_creator_for_git_identity(self) -> None:
+        creator = User.objects.create(email="alice@example.com", first_name="Alice")
+        actor = User.objects.create(email="bob@example.com", first_name="Bob")
+        task = self._make_task(creator)
+        result = get_git_identity_env_vars(task, {"pr_authorship_mode": "user", "acting_user_id": actor.id})
+        assert result == {
+            "GIT_AUTHOR_NAME": "Bob",
+            "GIT_AUTHOR_EMAIL": "bob@example.com",
+            "GIT_COMMITTER_NAME": "Bob",
+            "GIT_COMMITTER_EMAIL": "bob@example.com",
+        }
+
+    def test_unresolvable_acting_user_falls_back_to_creator(self) -> None:
+        creator = User.objects.create(email="alice@example.com", first_name="Alice")
+        task = self._make_task(creator)
+        # A persisted `acting_user_id` whose user no longer exists must not blank out the
+        # git identity — fall back to the creator rather than emitting an empty author.
+        result = get_git_identity_env_vars(task, {"pr_authorship_mode": "user", "acting_user_id": 2_000_000_001})
+        assert result["GIT_AUTHOR_EMAIL"] == "alice@example.com"
+        assert result["GIT_AUTHOR_NAME"] == "Alice"
 
 
 class TestGetGithubToken(TestCase):

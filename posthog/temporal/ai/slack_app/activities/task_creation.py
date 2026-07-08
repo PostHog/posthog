@@ -7,6 +7,7 @@ from django.db import models
 import structlog
 from temporalio import activity
 
+from posthog.models.user import User
 from posthog.temporal.ai.slack_app.helpers import block_if_team_over_quota, safe_react
 from posthog.temporal.ai.slack_app.types import PostHogCodeSlackMentionWorkflowInputs
 from posthog.temporal.common.utils import close_db_connections
@@ -563,12 +564,16 @@ def forward_posthog_code_followup_activity(
     slack = SlackIntegration(integration)
 
     followup_user_text_prefix: str | None = None
+    # The PostHog user driving this turn, when it's a teammate other than the thread
+    # starter. Used to re-attribute a resumed run's commits and PR to whoever actually
+    # prompted the agent, instead of the original `task.created_by`.
+    followup_actor: User | None = None
     if slack_user_id != mapping.mentioning_slack_user_id:
         # The follow-up is from a different Slack user than the one who started the
         # thread. Try to resolve them to a PostHog user with access to the same team
-        # — if so, let them participate; the message is still relayed in the original
-        # author's name (their sandbox token, their identity to the agent), with the
-        # actual sender's name prefixed onto the text so the agent sees who spoke.
+        # — if so, let them participate. On a resumed run their identity authors the
+        # generated commits and PR (see `_resume_task_with_new_run`); the actual
+        # sender's name is also prefixed onto the text so the agent sees who spoke.
         resolved = resolve_slack_user(slack, integration, slack_user_id, channel, thread_ts)
         if not resolved:
             logger.info(
@@ -579,6 +584,7 @@ def forward_posthog_code_followup_activity(
                 actual=slack_user_id,
             )
             return True
+        followup_actor = resolved.user
         # `slack_email` is None on the linked-user resolver path; fall through
         # to the user's PostHog email rather than interpolating literal "None: "
         # into the LLM-forwarded prefix when both name and slack_email are absent.
@@ -621,6 +627,7 @@ def forward_posthog_code_followup_activity(
             event_text,
             user_message_ts,
             user_text_prefix=followup_user_text_prefix,
+            acting_user=followup_actor,
         )
 
     sandbox_url = (task_run.state or {}).get("sandbox_url")
@@ -761,6 +768,55 @@ def forward_posthog_code_followup_activity(
     return True
 
 
+def _apply_acting_user_attribution(
+    extra_state: dict[str, Any],
+    task: Any,
+    created_by: User,
+    acting_user: User | None,
+) -> None:
+    """Attribute a resumed run's commits and PR to the teammate driving this turn.
+
+    When a Slack thread changes hands, the follow-up actor — not the original creator —
+    should author the generated git history. We only redirect attribution when the actor
+    has a usable GitHub integration with access to the repo, so the push/PR opens cleanly
+    under their account; otherwise we leave attribution on the creator (no regression).
+    """
+    from products.tasks.backend.temporal.process_task.utils import (  # noqa: PLC0415
+        PrAuthorshipMode,
+        resolve_user_github_integration_for_task,
+        user_github_integration_is_usable,
+    )
+
+    if acting_user is None or acting_user.id == created_by.id:
+        return
+
+    actor_integration = resolve_user_github_integration_for_task(
+        task,
+        repository=task.repository,
+        allow_refresh=True,
+        state={"acting_user_id": acting_user.id},
+    )
+    if not user_github_integration_is_usable(actor_integration):
+        logger.info(
+            "posthog_code_resume_actor_no_github_integration",
+            task_id=str(task.id),
+            actor_user_id=acting_user.id,
+            creator_user_id=created_by.id,
+        )
+        return
+
+    assert actor_integration is not None
+    extra_state["acting_user_id"] = acting_user.id
+    extra_state["acting_github_user_integration_id"] = str(actor_integration.integration.id)
+    extra_state["pr_authorship_mode"] = PrAuthorshipMode.USER.value
+    logger.info(
+        "posthog_code_resume_reattributed_to_actor",
+        task_id=str(task.id),
+        actor_user_id=acting_user.id,
+        creator_user_id=created_by.id,
+    )
+
+
 def _resume_task_with_new_run(
     mapping: Any,
     previous_run: Any,
@@ -772,6 +828,7 @@ def _resume_task_with_new_run(
     event_text: str,
     user_message_ts: str | None,
     user_text_prefix: str | None = None,
+    acting_user: User | None = None,
 ) -> bool:
     """Create a new run on the same task when a follow-up arrives after the previous run completed."""
     from products.slack_app.backend.services.slack_messages import decode_slack_event_text  # noqa: PLC0415
@@ -802,6 +859,8 @@ def _resume_task_with_new_run(
         # only to auto-allow at the cloud client.
         "initial_permission_mode": "bypassPermissions",
     }
+
+    _apply_acting_user_attribution(extra_state, mapping.task, created_by, acting_user)
 
     previous_state = previous_run.state or {}
     if previous_state.get("slack_thread_url"):
