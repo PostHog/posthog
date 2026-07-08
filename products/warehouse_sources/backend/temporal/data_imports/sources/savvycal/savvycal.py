@@ -86,6 +86,13 @@ def _fetch_page(
     return data["entries"], after if isinstance(after, str) and after else None
 
 
+def _redact(items: list[dict[str, Any]], redact_fields: frozenset[str]) -> list[dict[str, Any]]:
+    """Strip secret-bearing fields from a page before it lands in the warehouse."""
+    if not redact_fields:
+        return items
+    return [{k: v for k, v in item.items() if k not in redact_fields} for item in items]
+
+
 def _base_params(
     endpoint: str,
     should_use_incremental_field: bool,
@@ -137,7 +144,7 @@ def get_rows(
         page_params = {**params, "after": after} if after is not None else params
         items, after = _fetch_page(session, config.path, page_params, logger)
         if items:
-            yield items
+            yield _redact(items, config.redact_fields)
 
         # A null `metadata.after` cursor means we've reached the end of the collection.
         if not after:

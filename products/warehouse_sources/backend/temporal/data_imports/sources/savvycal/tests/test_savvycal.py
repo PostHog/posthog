@@ -154,6 +154,16 @@ class TestGetRows:
         # The re-saved state carries the same original bound forward.
         assert manager.saved[0].from_date == "2026-01-01"
 
+    def test_webhooks_secret_is_redacted(self) -> None:
+        # The webhook signing secret must never reach the warehouse table.
+        manager = _FakeResumableManager()
+        rows, _ = self._collect(
+            manager,
+            {None: ([{"id": "wbhk_1", "url": "https://x", "secret": "whsec_leak"}], None)},
+            endpoint="webhooks",
+        )
+        assert rows == [{"id": "wbhk_1", "url": "https://x"}]
+
     def test_non_events_endpoint_sends_no_event_filters(self) -> None:
         _, params = self._collect(_FakeResumableManager(), {None: ([], None)}, endpoint="links")
         assert params[0] == {"limit": 100}

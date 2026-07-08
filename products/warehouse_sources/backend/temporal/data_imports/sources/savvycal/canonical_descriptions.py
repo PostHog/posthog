@@ -67,7 +67,6 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
             "id": "Unique webhook identifier.",
             "url": "Webhook endpoint URL.",
             "state": "Webhook state.",
-            "secret": "Webhook secret.",
             "version": "Webhook payload version.",
             "created_at": "When the webhook was created.",
         },

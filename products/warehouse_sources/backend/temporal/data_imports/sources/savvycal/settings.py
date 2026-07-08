@@ -14,6 +14,9 @@ class SavvyCalEndpointConfig:
     params: dict[str, str] = field(default_factory=dict)
     # Stable datetime column to partition on (never a mutable field like start_at).
     partition_key: str | None = None
+    # Fields stripped from every row before it lands in the warehouse. Used to keep upstream
+    # secrets (e.g. webhook signing secrets) out of a table any project member can query.
+    redact_fields: frozenset[str] = field(default_factory=frozenset)
 
 
 # SavvyCal v1 REST list endpoints (https://api.savvycal.com/v1/spec). Only `events` supports
@@ -31,7 +34,11 @@ SAVVYCAL_ENDPOINTS: dict[str, SavvyCalEndpointConfig] = {
         partition_key="created_at",
     ),
     "links": SavvyCalEndpointConfig(name="links", path="/links"),
-    "webhooks": SavvyCalEndpointConfig(name="webhooks", path="/webhooks", partition_key="created_at"),
+    # The webhook object carries a `secret` (its signing secret); redact it so it never reaches the
+    # warehouse table.
+    "webhooks": SavvyCalEndpointConfig(
+        name="webhooks", path="/webhooks", partition_key="created_at", redact_fields=frozenset({"secret"})
+    ),
     "workflows": SavvyCalEndpointConfig(name="workflows", path="/workflows", partition_key="created_at"),
 }
 
