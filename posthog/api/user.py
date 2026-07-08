@@ -108,6 +108,7 @@ from posthog.session.activity import (
     sync_current_session_metadata,
 )
 from posthog.session.models import Session
+from posthog.session.reauth import sensitive_action_reference, step_up_required
 from posthog.tasks.email import (
     send_email_change_emails,
     send_password_changed_email,
@@ -375,14 +376,21 @@ class UserSerializer(serializers.ModelSerializer):
         if "request" not in self.context:
             return None
 
-        session_created_at: int = self.context["request"].session.get(settings.SESSION_COOKIE_CREATED_AT_KEY)
+        session = self.context["request"].session
 
-        if not session_created_at:
+        # A pending step-up means sensitive actions are blocked now regardless of age (see
+        # TimeSensitiveActionPermission), so there is no fresh window to report.
+        if step_up_required(session):
+            return None
+
+        reference = sensitive_action_reference(session)
+        if reference is None:
             # This should always be covered by the middleware but just in case
             return None
 
-        # Session expiry is the time when the session was created plus the
-        session_expiry_time = datetime.fromtimestamp(session_created_at) + timedelta(
+        # Sensitive-action window expires at the most recent of session creation
+        # or last step-up re-auth, plus the configured freshness age.
+        session_expiry_time = datetime.fromtimestamp(reference) + timedelta(
             seconds=settings.SESSION_SENSITIVE_ACTIONS_AGE
         )
 

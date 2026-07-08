@@ -2,13 +2,6 @@ import { actions, afterMount, connect, getContext, kea, path, reducers, selector
 import { loaders } from 'kea-loaders'
 import { subscriptions } from 'kea-subscriptions'
 
-import { wizardActiveSessionDetectorLogic } from 'scenes/onboarding/legacy/sdks/OnboardingInstallStep/wizardActiveSessionDetectorLogic'
-import { activeCloudRunLogic } from 'scenes/onboarding/self-driving/sdks/OnboardingInstallStep/activeCloudRunLogic'
-import {
-    InstallationMode,
-    InstallationProgress,
-    installationProgressLogic,
-} from 'scenes/onboarding/self-driving/sdks/OnboardingInstallStep/installationProgressLogic'
 import { teamLogic } from 'scenes/teamLogic'
 
 import { isSharedView } from '~/exporter/exporterViewLogic'
@@ -17,6 +10,13 @@ import { tasksList, tasksRunsList } from 'products/tasks/frontend/generated/api'
 import type { TaskRunDetailDTOApi } from 'products/tasks/frontend/generated/api.schemas'
 
 import type { setupWizardStatusLogicType } from './setupWizardStatusLogicType'
+import { activeCloudRunLogic } from './wizard-sync/activeCloudRunLogic'
+import {
+    InstallationMode,
+    InstallationProgress,
+    installationProgressLogic,
+} from './wizard-sync/installationProgressLogic'
+import { wizardActiveSessionDetectorLogic } from './wizard-sync/wizardActiveSessionDetectorLogic'
 
 export interface SetupPullRequest {
     url: string

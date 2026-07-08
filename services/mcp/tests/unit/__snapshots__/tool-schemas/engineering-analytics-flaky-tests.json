@@ -1,0 +1,30 @@
+{
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "properties": {
+        "date_from": {
+            "description": "Window start: relative ('-7d', '-30d') or ISO8601. Defaults to -7d; the window may span at most 30 days.",
+            "type": "string"
+        },
+        "date_to": {
+            "description": "Window end: relative or ISO8601. Defaults to now.",
+            "type": "string"
+        },
+        "limit": {
+            "description": "Maximum number of tests to return (1-200). Defaults to 50.",
+            "type": "number"
+        },
+        "min_failed_prs": {
+            "description": "A test qualifies once it failed on at least this many distinct pull requests in the window (OR-ed with min_rerun_passes). Minimum 1. Defaults to 3.",
+            "type": "number"
+        },
+        "min_rerun_passes": {
+            "description": "A test qualifies once it passed on retry at least this many times in the window (OR-ed with min_failed_prs). Minimum 1. Defaults to 1.",
+            "type": "number"
+        },
+        "source_id": {
+            "description": "Connected GitHub data warehouse source to read from. Defaults to the oldest connected GitHub source when the team has more than one.",
+            "type": "string"
+        }
+    },
+    "type": "object"
+}

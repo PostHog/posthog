@@ -66,6 +66,8 @@ export interface ProjectTreeProps {
     checkedItemsOverride?: Record<string, boolean>
     /** Override the onItemChecked handler from the internal logic */
     onItemCheckedOverride?: (id: string, checked: boolean) => void
+    /** True while this tree's nav panel is active — refocuses search on panel re-activation. */
+    isActiveInPanel?: boolean
 }
 
 export const PROJECT_TREE_KEY = 'project-tree'
@@ -126,6 +128,7 @@ export function ProjectTree({
     selectModeOverride,
     checkedItemsOverride,
     onItemCheckedOverride,
+    isActiveInPanel,
 }: ProjectTreeProps): JSX.Element {
     const [uniqueKey] = useState(() => `project-tree-${counter++}`)
     const { viableItems, shortcutEntryIdMap } = useValues(projectTreeDataLogic)
@@ -167,7 +170,7 @@ export function ProjectTree({
     const selectMode = selectModeOverride ?? projectTreeSelectMode
     const onItemChecked = onItemCheckedOverride ?? projectTreeOnItemChecked
 
-    const { setPanelTreeRef, resetPanelLayout } = useActions(panelLayoutLogic)
+    const { resetPanelLayout } = useActions(panelLayoutLogic)
     const { mainContentRef } = useValues(panelLayoutLogic)
     const { currentTeamId } = useValues(teamLogic)
     const treeRef = useRef<LemonTreeRef>(null)
@@ -307,10 +310,6 @@ export function ProjectTree({
             }
         }
     }
-
-    useEffect(() => {
-        setPanelTreeRef(treeRef)
-    }, [treeRef, setPanelTreeRef])
 
     useEffect(() => {
         if (projectSortMethod !== (sortMethod ?? 'folder')) {
@@ -751,7 +750,12 @@ export function ProjectTree({
         <PanelLayoutPanel
             searchField={
                 <BindLogic logic={projectTreeLogic} props={projectTreeLogicProps}>
-                    <TreeSearchField root={root} placeholder={searchPlaceholder} />
+                    <TreeSearchField
+                        root={root}
+                        placeholder={searchPlaceholder}
+                        treeRef={treeRef}
+                        isActive={isActiveInPanel}
+                    />
                 </BindLogic>
             }
             filterDropdown={

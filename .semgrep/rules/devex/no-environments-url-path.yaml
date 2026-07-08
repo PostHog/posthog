@@ -1,0 +1,37 @@
+rules:
+    - id: no-environments-url-path
+      message: |
+          Hand-written `path("api/environments/...")` route. `/api/projects/` is the
+          canonical prefix; `/api/environments/` is only a back-compat alias for clients
+          that integrated against it before the project↔environment split was rolled back.
+
+          Register the endpoint under `/api/projects/` instead:
+
+              path("api/projects/<int:team_id>/my_thing/", my_view),
+
+          `EnvironmentsRewriteMiddleware` already serves `/api/environments/*` transparently
+          by rewriting to the matching `/api/projects/*` route, so an env-only path means the
+          project path is never generated and consumers get pinned to the deprecated surface.
+          (This is the manual-`path()` sibling of `no-environments-router-register`, which
+          bans the DRF-router equivalent.)
+
+          If a route genuinely must stay env-only (e.g. a third party posts to a fixed env
+          URL), add `# nosemgrep: no-environments-url-path -- <reason>` on the line.
+      severity: ERROR
+      languages: [python]
+      paths:
+          include:
+              - 'posthog/**/*.py'
+              - 'ee/**/*.py'
+              - 'products/**/*.py'
+      patterns:
+          - pattern-either:
+                - pattern: path($ROUTE, ...)
+                - pattern: re_path($ROUTE, ...)
+          - metavariable-regex:
+                metavariable: $ROUTE
+                regex: '^r?["'']\^?api/environments/'
+      metadata:
+          category: best-practice
+          subcategory:
+              - audit

@@ -115,6 +115,19 @@ class TestFacadeReadsAndMappers(TestCase):
         other_user = User.objects.create(email="other@test.com", distinct_id="other")
         self.assertFalse(facade.is_task_controllable_by_user(task.id, other_user.id))
 
+    def test_count_in_progress_runs_for_github_integration_scopes_to_live_runs_of_that_integration(self):
+        integration = Integration.objects.create(team=self.team, kind="github", config={}, sensitive_config={})
+        other_integration = Integration.objects.create(team=self.team, kind="github", config={}, sensitive_config={})
+
+        live_task = self._make_task(github_integration=integration)
+        TaskRun.objects.create(task=live_task, team=self.team, status=TaskRun.Status.IN_PROGRESS)
+        TaskRun.objects.create(task=live_task, team=self.team, status=TaskRun.Status.COMPLETED)
+        other_task = self._make_task(github_integration=other_integration)
+        TaskRun.objects.create(task=other_task, team=self.team, status=TaskRun.Status.IN_PROGRESS)
+
+        self.assertEqual(facade.count_in_progress_runs_for_github_integration(self.team.id, integration.id), 1)
+        self.assertEqual(facade.count_in_progress_runs_for_github_integration(self.team.id + 999, integration.id), 0)
+
     def test_get_latest_pr_url_and_run_by_task(self):
         task = self._make_task()
         TaskRun.objects.create(
