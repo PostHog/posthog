@@ -48,11 +48,11 @@
     }
 
     &.WordArt--outline {
-        // Normal weight: at 900 the stroke traces both edges of each fat glyph stroke,
-        // which reads as doubled letters at dashboard sizes
-        font-weight: 400;
-        color: transparent;
-        -webkit-text-stroke: 2px #f54e00;
+        // White fill + stroke-under-fill: glyph paths self-intersect (e.g. the bar of "e"),
+        // so a transparent fill would expose internal stroke edges as lines through the letters
+        color: #fff;
+        paint-order: stroke;
+        -webkit-text-stroke: 4px #f54e00;
     }
 
     &.WordArt--extrude {
