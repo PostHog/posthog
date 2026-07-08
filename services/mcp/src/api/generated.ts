@@ -61091,10 +61091,13 @@ export namespace Schemas {
     export type EnvironmentsMetricsValuesRetrieveParams = {
     /**
      * Max number of names to return. Defaults to 100; maximum 1000.
+     * @minimum 1
+     * @maximum 1000
      */
     limit?: number;
     /**
      * Substring filter (case-insensitive) applied to metric names.
+     * @maxLength 255
      */
     value?: string;
     };
@@ -68297,10 +68300,13 @@ export namespace Schemas {
     export type MetricsValuesRetrieveParams = {
     /**
      * Max number of names to return. Defaults to 100; maximum 1000.
+     * @minimum 1
+     * @maximum 1000
      */
     limit?: number;
     /**
      * Substring filter (case-insensitive) applied to metric names.
+     * @maxLength 255
      */
     value?: string;
     };
