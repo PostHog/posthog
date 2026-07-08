@@ -45,7 +45,7 @@ from posthog.models.instance_setting import get_instance_setting
 from posthog.oauth2_urls import urlpatterns as oauth2_urls
 from posthog.temporal.codec_server import decode_payloads
 
-from products.ai_observability.backend.api.personal_spend import personal_spend_eu_redirect
+from products.ai_observability.backend.api.personal_spend import PersonalSpendEUProxyViewSet
 from products.cdp.backend.api import hog_function_template
 from products.data_warehouse.backend.presentation.views.public_source_configs import PublicSourceConfigViewSet
 from products.demo.backend.facade.api import demo_route
@@ -575,16 +575,16 @@ urlpatterns = [
 ]
 
 # Personal LLM spend data only lives in PostHog Cloud US — EU forwards its product
-# LLM telemetry over, so EU callers get a 302 to the US-hosted endpoint instead of
-# a silent 404. Must be inserted *before* the `^api.+` catch-all above; otherwise
-# the catch-all matches first and the redirect is unreachable.
+# LLM telemetry over — so the EU view proxies the query to US server-side. Must be
+# inserted *before* the `^api.+` catch-all above; otherwise the catch-all matches
+# first and the view is unreachable.
 if settings.CLOUD_DEPLOYMENT == "EU":
     urlpatterns.insert(
         0,
         path(
             "api/llm_analytics/@me/spend/",
-            personal_spend_eu_redirect,
-            name="personal_spend_eu_redirect",
+            PersonalSpendEUProxyViewSet.as_view({"get": "list"}),
+            name="personal_spend_eu",
         ),
     )
 
