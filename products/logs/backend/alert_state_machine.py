@@ -6,7 +6,7 @@ control-plane path goes through one of the `apply_*` helpers, and every caller a
 the resulting outcome via `apply_outcome`, which is the only function in the codebase
 that mutates those two fields.
 
-The semgrep rule at `.semgrep/rules/logs-alert-state-must-go-through-state-machine.yaml`
+The semgrep rule at `.semgrep/rules/security/logs-alert-state-must-go-through-state-machine.yaml`
 enforces this invariant in CI.
 """
 

@@ -180,6 +180,64 @@ class TestHasBatchBeenCommitted:
             m.assert_called_once_with({"run_uuid": run_uuid, "batch_index": str(batch_index)})
 
 
+class TestCompactIfFragmented:
+    """Pre-write defensive compaction fires on files-per-partition OR total-files threshold."""
+
+    @pytest.mark.asyncio
+    async def test_skips_when_no_delta_table(self, helper: DeltaTableHelper):
+        with patch.object(helper, "get_delta_table", AsyncMock(return_value=None)):
+            ran = await helper.compact_if_fragmented(partition_count=10)
+        assert ran is False
+
+    # (case_name, file_count, partition_count, threshold_kw, expected_ran)
+    # threshold_kw=None means "use default threshold" — exercises the prod path.
+    _THRESHOLD_CASES: list[tuple[str, int, int | None, int | None, bool]] = [
+        # 100 / 10 = 10 fpp, well below default 200 -> skip
+        ("below_default_threshold", 100, 10, None, False),
+        # 5,000 / 10 = 500 fpp, well above default 200 -> fire
+        ("above_default_threshold", 5_000, 10, None, True),
+        # partition_count=None treated as 1; 250 fpp >> default 200 -> fire
+        ("unpartitioned_above_default", 250, None, None, True),
+        # Custom threshold: 100 / 10 = 10 fpp, threshold=5 -> fire
+        ("custom_threshold_fires", 100, 10, 5, True),
+        # Boundary: exactly at threshold -> `>` not `>=`, so skip
+        ("exactly_at_default_threshold", 2_000, 10, None, False),
+        # Total-files backstop: 6,000 / 100 = 60 fpp (under the per-partition bar) but
+        # total 6,000 > 5,000 default total threshold -> fire. Guards high-partition tables.
+        ("total_cap_fires_under_per_partition", 6_000, 100, None, True),
+        # Under both bars: 4,000 / 100 = 40 fpp and total 4,000 < 5,000 -> skip.
+        ("below_both_thresholds", 4_000, 100, None, False),
+    ]
+
+    @parameterized.expand(_THRESHOLD_CASES)
+    @pytest.mark.asyncio
+    async def test_threshold(
+        self,
+        _name: str,
+        file_count: int,
+        partition_count: int | None,
+        threshold_kw: int | None,
+        expected_ran: bool,
+    ):
+        helper = DeltaTableHelper(resource_name="t", job=MagicMock(), logger=_make_logger())
+        mock_delta = MagicMock()
+        with (
+            patch.object(helper, "get_delta_table", AsyncMock(return_value=mock_delta)),
+            patch.object(helper, "get_file_uris", AsyncMock(return_value=[f"f{i}" for i in range(file_count)])),
+            patch.object(helper, "compact_table", AsyncMock()) as mock_compact,
+        ):
+            kwargs: dict = {"partition_count": partition_count}
+            if threshold_kw is not None:
+                kwargs["threshold"] = threshold_kw
+            ran = await helper.compact_if_fragmented(**kwargs)
+
+        assert ran is expected_ran
+        if expected_ran:
+            mock_compact.assert_called_once()
+        else:
+            mock_compact.assert_not_called()
+
+
 class TestWriteToDeltalakeCommitMetadataPassThrough:
     """Covers that commit_metadata is forwarded to deltalake.write_deltalake as CommitProperties."""
 
@@ -648,3 +706,112 @@ class TestWriteMisalignedDecimalEndToEnd:
         assert set(final.column("amount").to_pylist()) == {5, 7}
         closed = final.filter(pc.equal(final.column("amount"), Decimal("5.00")))
         assert closed.column("valid_to").to_pylist() == [ts2]
+
+
+class TestVacuumIfStale:
+    def _helper(self) -> DeltaTableHelper:
+        return DeltaTableHelper("t", MagicMock(), MagicMock(adebug=AsyncMock(), ainfo=AsyncMock()), False)
+
+    @parameterized.expand(
+        [
+            # (last_vacuum_version, expect_vacuum, expected_return) — current version=150, threshold=100.
+            # First encounter must seed the watermark WITHOUT vacuuming (else every existing table vacuums
+            # at once on deploy); below threshold must skip (else vacuum runs every sync); at/above threshold
+            # must vacuum (else tombstones accumulate forever on tables that never reach post-load compaction).
+            ("first_encounter_seeds_no_vacuum", None, False, 150),
+            ("below_threshold_skips", 100, False, None),
+            ("at_threshold_vacuums", 50, True, 150),
+            ("above_threshold_vacuums", 40, True, 150),
+        ]
+    )
+    @pytest.mark.asyncio
+    async def test_vacuum_cadence(
+        self, _name: str, last_version: int | None, expect_vacuum: bool, expected_return: int | None
+    ):
+        module = "products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.delta_table_helper"
+        helper = self._helper()
+        table = MagicMock()
+        table.version = MagicMock(return_value=150)
+        with (
+            patch.object(helper, "get_delta_table", new=AsyncMock(return_value=table)),
+            patch.object(helper, "vacuum_table", new=AsyncMock()) as vacuum,
+            patch(f"{module}.posthoganalytics") as ph,
+        ):
+            result = await helper.vacuum_if_stale(last_version, 100)
+
+        assert result == expected_return
+        assert vacuum.await_count == (1 if expect_vacuum else 0)
+        # The observability event fires exactly when a vacuum runs — not on seed/skip — so the cadence is measurable.
+        assert ph.capture.call_count == (1 if expect_vacuum else 0)
+        if expect_vacuum:
+            assert ph.capture.call_args.kwargs["event"] == "warehouse_delta_vacuumed"
+
+
+class TestRunMaintenance:
+    """run_maintenance is the single pre-write entry point: compaction supersedes the cadence vacuum."""
+
+    def _helper(self) -> DeltaTableHelper:
+        return DeltaTableHelper("t", MagicMock(), MagicMock(adebug=AsyncMock(), ainfo=AsyncMock()), False)
+
+    @pytest.mark.asyncio
+    async def test_compaction_supersedes_vacuum_and_advances_watermark(self):
+        # Fragmented table: compact runs (and vacuums as part of it), so the cadence vacuum is skipped —
+        # no double vacuum in one run — and the watermark advances to the post-compaction version.
+        helper = self._helper()
+        table = MagicMock(version=MagicMock(return_value=200))
+        with (
+            patch.object(helper, "compact_if_fragmented", new=AsyncMock(return_value=True)),
+            patch.object(helper, "get_delta_table", new=AsyncMock(return_value=table)),
+            patch.object(helper, "vacuum_if_stale", new=AsyncMock()) as vacuum_if_stale,
+        ):
+            result = await helper.run_maintenance(partition_count=10, last_vacuum_version=50, commit_threshold=100)
+
+        assert result == 200
+        vacuum_if_stale.assert_not_awaited()
+
+    @pytest.mark.asyncio
+    async def test_falls_through_to_vacuum_when_not_fragmented(self):
+        # Not fragmented → no compaction; fall through to the commit-cadence vacuum and return its watermark.
+        helper = self._helper()
+        with (
+            patch.object(helper, "compact_if_fragmented", new=AsyncMock(return_value=False)),
+            patch.object(helper, "vacuum_if_stale", new=AsyncMock(return_value=150)) as vacuum_if_stale,
+        ):
+            result = await helper.run_maintenance(partition_count=10, last_vacuum_version=40, commit_threshold=100)
+
+        assert result == 150
+        vacuum_if_stale.assert_awaited_once_with(40, 100)
+
+
+class TestIsTableCorrupted:
+    _MODULE = "products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.delta_table_helper"
+
+    def _helper(self) -> DeltaTableHelper:
+        return DeltaTableHelper("t", MagicMock(), MagicMock(adebug=AsyncMock()), False)
+
+    @parameterized.expand(
+        [
+            # (is_deltatable, open_exception, expected_corrupt) — only DeltaError/FileNotFoundError on a
+            # table whose _delta_log exists count as corrupt; a missing table or an unknown error must NOT,
+            # so we never trigger a destructive revive on a non-existent table or a transient failure.
+            ("not_a_delta_table", False, None, False),
+            ("opens_fine", True, None, False),
+            ("delta_error_is_corrupt", True, deltalake.exceptions.DeltaError("no protocol"), True),
+            ("file_not_found_is_corrupt", True, FileNotFoundError("missing data file"), True),
+            ("unknown_error_not_corrupt", True, ValueError("transient"), False),
+        ]
+    )
+    @pytest.mark.asyncio
+    async def test_is_table_corrupted(self, _name: str, is_delta: bool, open_exc: Exception | None, expected: bool):
+        helper = self._helper()
+        with (
+            patch.object(helper, "_get_delta_table_uri", new=AsyncMock(return_value="s3://b/t")),
+            patch.object(helper, "_get_credentials", return_value={}),
+            patch(f"{self._MODULE}.deltalake.DeltaTable") as mock_dt,
+        ):
+            mock_dt.is_deltatable = MagicMock(return_value=is_delta)
+            if open_exc is not None:
+                mock_dt.side_effect = open_exc
+            result = await helper.is_table_corrupted()
+
+        assert result is expected

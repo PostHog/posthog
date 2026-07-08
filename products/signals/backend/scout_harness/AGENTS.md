@@ -35,9 +35,18 @@ it is exercised via the `run_signals_scout` management command (see `../manageme
   the report tool(s) actually in `allowed_tools` (emit-only, edit-only, or both), and
   drops the author-time sections for an edit-only scout — the report endpoints fail
   closed on the exact tool, so the prompt must never steer a scout toward one it lacks.
+  Orthogonal to the channel fork, the prompt also forks on the skill's origin
+  (`LoadedSkill.origin`, resolved via `lazy_seed.scout_skill_row_origin`): a _custom_ scout —
+  hand-authored, or a seeded canonical row the team has since edited in place (diverged) —
+  gets a self-improvement section inviting evidence-backed `improve:<skill-name>:<topic>`
+  scratchpad suggestions for its own skill body, which the owner reviews via the
+  `exploring-scouts` / `authoring-scouts` meta skills. A pristine canonical scout never sees
+  it — applying such a suggestion would mark the seeded row diverged and cut it off from
+  upstream sync; canonical-skill defects route upstream via the operational-friction
+  (`agent-feedback`) section instead.
 - `skill_loader.py`
   Resolves `signals-scout-*` skills from the team's `LLMSkill` rows. Defines
-  `SIGNALS_SCOUT_SKILL_PREFIX` and `LoadedSkill` (body + version + allowed_tools), plus
+  `SIGNALS_SCOUT_SKILL_PREFIX` and `LoadedSkill` (body + version + allowed_tools + origin), plus
   `REPORT_CHANNEL_TOOLS` / `skill_uses_report_channel` — the shared report-channel opt-in
   predicate the runner (scope posture) and prompt builder (persona fork) both resolve from.
 - `lazy_seed.py`
@@ -106,9 +115,21 @@ ACTIVITY_SLACK_S`, the activity-level ceiling that gates the workflow's
   Annotated for drf-spectacular so the generated MCP tools have informative schemas.
 - `views.py`
   `SignalScoutRunViewSet`, `SignalScoutConfigViewSet`, `SignalScratchpadViewSet`,
-  `SignalProjectProfileViewSet`, `SignalScoutMetadataViewSet`.
+  `SignalProjectProfileViewSet`, `SignalScoutMetadataViewSet`, `SignalScoutMembersViewSet`.
   Routed under `environment_signals_scout_*` basenames in `posthog/api/__init__.py`
   and exposed as `signals-scout-*` MCP tools via `products/signals/mcp/tools.yaml`.
+  `SignalScoutMembersViewSet` (`signals-scout-members-list`) is the reviewer-routing roster:
+  it returns the project's members (those with access to the team) with `user_uuid` / `email` /
+  `github_login` so a report-channel scout can populate `suggested_reviewers` at cold start. The roster
+  is member PII the scout needs to route, gated on the internal `signal_scout_internal` scope object
+  (`scope_object = "signal_scout_internal"`, default `list` → `signal_scout_internal:read`, satisfied by
+  the sandbox token's `…:write`) — so, like `emit-signal`, it is reachable only inside a scout run and
+  never enters a customer's public MCP catalog. (The narrower `signal_scout_report` scope was considered
+  but is transient — kept only while emit-signal and emit-report coexist — so the durable tool stays on
+  `signal_scout_internal`.) Membership is resolved server-side via
+  `report_generation/resolve_reviewers.list_project_members` (through `Team.all_users_with_access()`,
+  so private-project access control is honored), the project-nested path that the org-nested
+  `org-members-list` tool (stripped + 403'd for a scoped-team token) can't provide.
   The config viewset is the no-wait creation path: `create` registers (upserts) a
   config for an already-authored skill with its schedule/emit posture in one call.
   `list` is strictly read-only (its MCP tool is annotated `readOnly`) — it never

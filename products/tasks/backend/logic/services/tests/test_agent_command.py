@@ -224,6 +224,46 @@ class TestSendAgentCommand:
         assert result.status_code == 504
         assert result.retryable
 
+    @pytest.mark.parametrize(
+        "exception,expected_status,expected_turn_in_flight",
+        [
+            # turn_in_flight means "request delivered, sandbox still
+            # processing" — callers (send_followup_to_sandbox) treat it as a
+            # still-running turn, so a ConnectTimeout (never delivered) must
+            # never set it.
+            (requests.ReadTimeout("read timed out"), 504, True),
+            (requests.ConnectTimeout("connect timed out"), 502, False),
+        ],
+        ids=["read_timeout_maps_to_504_in_flight", "connect_timeout_maps_to_502"],
+    )
+    @patch("products.tasks.backend.logic.services.agent_command.validate_sandbox_url", return_value=None)
+    @patch("products.tasks.backend.logic.services.agent_command.requests.post")
+    def test_timeout_kind_disambiguates_delivery(
+        self, mock_post, mock_validate, exception, expected_status, expected_turn_in_flight
+    ):
+        mock_post.side_effect = exception
+        task_run = self._make_task_run(sandbox_url="https://sandbox.modal.run/rpc")
+        result = send_agent_command(task_run, "cancel")
+        assert not result.success
+        assert result.status_code == expected_status
+        assert result.turn_in_flight is expected_turn_in_flight
+
+    @patch("products.tasks.backend.logic.services.agent_command.validate_sandbox_url", return_value=None)
+    @patch("products.tasks.backend.logic.services.agent_command.requests.post")
+    def test_response_504_is_not_turn_in_flight(self, mock_post, mock_validate):
+        # A 504 HTTP *response* (e.g. Modal tunnel gateway timeout) leaves
+        # delivery unknown — it must never be conflated with the read-timeout
+        # "delivered, still running" case.
+        mock_resp = MagicMock()
+        mock_resp.status_code = 504
+        mock_post.return_value = mock_resp
+
+        task_run = self._make_task_run(sandbox_url="https://sandbox.modal.run/rpc")
+        result = send_agent_command(task_run, "cancel")
+        assert not result.success
+        assert result.status_code == 504
+        assert result.turn_in_flight is False
+
     @patch("products.tasks.backend.logic.services.agent_command.validate_sandbox_url", return_value=None)
     @patch("products.tasks.backend.logic.services.agent_command.requests.post")
     def test_5xx_is_retryable(self, mock_post, mock_validate):

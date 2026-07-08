@@ -93,6 +93,7 @@ class MprocsConfig(BaseModel):
 
     procs: dict[str, dict[str, Any]]
     group_order: dict[str, list[str]] = {}  # display order per grouping dimension
+    default_group: str = ""  # grouping dimension the sidebar starts grouped by ("" = ungrouped)
     mouse_scroll_speed: int = 1
     scrollback: int = 10000
     posthog_config: DevenvConfig | None = None  # embedded source config
@@ -105,6 +106,8 @@ class MprocsConfig(BaseModel):
         result["procs"] = self.procs
         if self.group_order:
             result["group_order"] = self.group_order
+        if self.default_group:
+            result["default_group"] = self.default_group
         result["mouse_scroll_speed"] = self.mouse_scroll_speed
         result["scrollback"] = self.scrollback
         return result
@@ -212,6 +215,7 @@ class MprocsGenerator(ConfigGenerator):
         return MprocsConfig(
             procs=procs,
             group_order=global_settings.get("group_order", {}),
+            default_group=global_settings.get("default_group", ""),
             mouse_scroll_speed=global_settings.get("mouse_scroll_speed", 1),
             scrollback=global_settings.get("scrollback", 10000),
             posthog_config=source_config,

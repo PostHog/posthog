@@ -16,6 +16,7 @@ from django.utils import timezone
 
 import pydantic
 import structlog
+import posthoganalytics
 from rest_framework.exceptions import PermissionDenied, ValidationError
 
 from posthog.schema import (
@@ -40,10 +41,11 @@ from posthog.utils import str_to_bool
 from products.actions.backend.models.action import Action
 from products.approvals.backend.policies import PolicyEngine
 from products.cohorts.backend.models.cohort import Cohort
+from products.experiments.backend.flag_cleanup import build_cleanup_prompt, cleanup_plan
 from products.experiments.backend.hogql_queries.base_query_utils import is_threshold_supported_math
 from products.experiments.backend.hogql_queries.experiment_metric_fingerprint import compute_metric_fingerprint
 from products.experiments.backend.hogql_queries.funnel_validation import FunnelDWValidator
-from products.experiments.backend.metric_utils import collect_metric_events_and_action_ids, resolve_action_events
+from products.experiments.backend.metric_utils import filter_metric_group_ids_by_event
 from products.experiments.backend.models.experiment import (
     LEGACY_METRIC_KINDS,
     Experiment,
@@ -57,6 +59,7 @@ from products.experiments.backend.models.experiment import (
 )
 from products.experiments.backend.models.team_experiments_config import TeamExperimentsConfig
 from products.experiments.backend.result_serialization import strip_step_sessions
+from products.experiments.backend.warehouse_access_control import enforce_warehouse_metric_access
 from products.feature_flags.backend.api.feature_flag import (
     FeatureFlagSerializer,
     parse_created_by_ids,
@@ -72,11 +75,18 @@ from products.notifications.backend.facade.api import (
     TargetType,
     create_notification,
 )
+from products.tasks.backend.facade import api as tasks_facade
 
 from ee.clickhouse.views.experiment_saved_metrics import ExperimentToSavedMetricSerializer
 from ee.hogai.context.experiment.format import ExperimentTimeseriesFormatter
 
 logger = structlog.get_logger(__name__)
+
+# Feature flag (in PostHog's internal project) gating which teams auto-open flag-cleanup PRs when an
+# experiment ends. Evaluated as a project-group flag — see _cleanup_pr_flag_enabled.
+EXPERIMENT_CLEANUP_PR_FLAG = "experiment-flag-cleanup-pr"
+# Repository the cleanup PR is opened against. Hardcoded for the dogfood; auto-detection comes later.
+EXPERIMENT_CLEANUP_REPOSITORY = "PostHog/posthog"
 
 DEFAULT_ROLLOUT_PERCENTAGE = 100
 
@@ -514,6 +524,130 @@ class ExperimentService:
                 f"Must be one of: {', '.join(sorted(variant_keys))}"
             )
 
+    # Feature-flag config keys that belong on the linked FeatureFlag (the source of truth). They are
+    # accepted as create/update input to build/sync the flag, projected back into the deprecated
+    # `parameters` API field at read time (see ExperimentBaseSerializer), but never persisted into
+    # the `parameters` column.
+    FEATURE_FLAG_CONFIG_KEYS = (
+        "feature_flag_variants",
+        "rollout_percentage",
+        "aggregation_group_type_index",
+        "feature_flag_payloads",
+        "ensure_experience_continuity",
+    )
+
+    @classmethod
+    def _strip_feature_flag_config(cls, parameters: dict | None) -> dict | None:
+        """Return ``parameters`` without the feature-flag config keys, so they are not stored in the
+        deprecated column. Callers consume those keys earlier to build/sync the flag; reads
+        re-derive them from it. Returns a new dict, leaving the caller's input untouched."""
+        if not parameters:
+            return parameters
+        return {k: v for k, v in parameters.items() if k not in cls.FEATURE_FLAG_CONFIG_KEYS}
+
+    @staticmethod
+    def _parameters_with_variant_detail(experiment: Experiment) -> dict[str, Any]:
+        """Parameters for analytics events: the stored column carries no flag config, so attach
+        the variant detail event consumers expect from the linked flag."""
+        return {**(experiment.parameters or {}), "feature_flag_variants": experiment.feature_flag.variants}
+
+    @staticmethod
+    def feature_flag_config_to_parameters(
+        feature_flag_input: dict, parameters: dict | None, flag: FeatureFlag | None = None
+    ) -> dict:
+        """Translate a ``feature_flag`` config object (the flag's native write shape:
+        ``filters.multivariate.variants``, ``filters.groups``, ``filters.aggregation_group_type_index``,
+        ``filters.payloads``, ``ensure_experience_continuity``) into the legacy ``parameters`` input
+        keys the service still consumes to build/sync the flag.
+
+        The explicit ``feature_flag`` object wins over any matching keys already in ``parameters``.
+        This is the create/update write counterpart to the read projection (see
+        ``ExperimentBaseSerializer``): callers send config through the flag object instead of
+        ``parameters``, and this normalizes it while ``parameters`` remains the internal input shape.
+        Returns a new dict, leaving the caller's input untouched.
+
+        Pass ``flag`` (the experiment's linked flag, on update) to give the object PATCH semantics:
+        config the input omits is backfilled from the flag's current state, because the downstream
+        sync treats a missing variants key as "reset to defaults" and a missing aggregation key as
+        "clear" — a partial object must not silently regress config it never mentioned.
+        """
+        params = dict(parameters or {})
+        # Reject unrecognized keys instead of silently dropping them: applying half an object
+        # (e.g. taking filters but ignoring `active` or `super_groups`) would leave the flag in a
+        # state the caller never asked for. `id` is allowed because clients serializing an optional
+        # id as null still express write intent (a real echo carries a non-null id).
+        unsupported = sorted(set(feature_flag_input) - {"id", "filters", "ensure_experience_continuity"})
+        if unsupported:
+            raise ValidationError(
+                {
+                    "feature_flag": f"Unsupported keys: {', '.join(unsupported)}. The experiment feature_flag "
+                    "input accepts filters and ensure_experience_continuity; edit the feature flag "
+                    "directly for anything else."
+                }
+            )
+        filters = feature_flag_input.get("filters")
+        if filters is not None and not isinstance(filters, dict):
+            raise ValidationError({"feature_flag": "filters must be an object."})
+        filters = filters or {}
+        unsupported_filters = sorted(
+            set(filters) - {"multivariate", "groups", "aggregation_group_type_index", "payloads"}
+        )
+        if unsupported_filters:
+            raise ValidationError(
+                {
+                    "feature_flag": f"Unsupported filters keys: {', '.join(unsupported_filters)}. The experiment "
+                    "feature_flag input accepts filters.multivariate, filters.groups, "
+                    "filters.aggregation_group_type_index, and filters.payloads; edit the feature flag "
+                    "directly for anything else."
+                }
+            )
+        multivariate = filters.get("multivariate")
+        if multivariate is not None and not isinstance(multivariate, dict):
+            raise ValidationError({"feature_flag": "filters.multivariate must be an object."})
+        multivariate = multivariate or {}
+        if "variants" in multivariate:
+            if not isinstance(multivariate["variants"], list):
+                raise ValidationError({"feature_flag": "filters.multivariate.variants must be a list."})
+            params["feature_flag_variants"] = multivariate["variants"]
+        groups = filters.get("groups")
+        if groups is not None:
+            if not isinstance(groups, list) or not all(isinstance(group, dict) for group in groups):
+                raise ValidationError({"feature_flag": "filters.groups must be a list of objects."})
+            # Only groups[0].rollout_percentage is applied; silently dropping release conditions
+            # would leave the experiment exposed to a wider audience than the caller asked for.
+            if len(groups) > 1 or (groups and groups[0].get("properties")):
+                raise ValidationError(
+                    {
+                        "feature_flag": "Release conditions (multiple groups or group properties) are not "
+                        "supported via the experiment feature_flag input. Edit the feature flag directly."
+                    }
+                )
+            # Same rationale inside the group object: a `variant` override or per-group
+            # aggregation would be silently ignored, not applied.
+            unsupported_group_keys = sorted(set(groups[0]) - {"properties", "rollout_percentage"}) if groups else []
+            if unsupported_group_keys:
+                raise ValidationError(
+                    {
+                        "feature_flag": f"Unsupported keys in filters.groups[0]: {', '.join(unsupported_group_keys)}. "
+                        "Only rollout_percentage is applied here; edit the feature flag directly for anything else."
+                    }
+                )
+            if groups:
+                rollout_percentage = groups[0].get("rollout_percentage")
+                if rollout_percentage is not None:
+                    params["rollout_percentage"] = rollout_percentage
+        if "aggregation_group_type_index" in filters:
+            params["aggregation_group_type_index"] = filters["aggregation_group_type_index"]
+        if "payloads" in filters:
+            params["feature_flag_payloads"] = filters["payloads"]
+        if "ensure_experience_continuity" in feature_flag_input:
+            params["ensure_experience_continuity"] = feature_flag_input["ensure_experience_continuity"]
+        if flag is not None:
+            params.setdefault("feature_flag_variants", flag.variants)
+            if "aggregation_group_type_index" not in params and flag.aggregation_group_type_index is not None:
+                params["aggregation_group_type_index"] = flag.aggregation_group_type_index
+        return params
+
     @staticmethod
     def _variant_keys(variants: list | None) -> list[str]:
         """Extract variant keys from a feature_flag_variants list, skipping malformed entries."""
@@ -764,6 +898,15 @@ class ExperimentService:
         if not allow_unknown_events:
             self.validate_metric_event_names(metrics)
             self.validate_metric_event_names(metrics_secondary)
+        enforce_warehouse_metric_access(
+            [
+                *(metrics or []),
+                *(metrics_secondary or []),
+                *self._collect_saved_metric_queries(saved_metrics_ids),
+            ],
+            team=self.team,
+            user=self.user,
+        )
         self.validate_saved_metrics_ids(saved_metrics_ids, self.team.id)
         is_draft = start_date is None
 
@@ -845,7 +988,9 @@ class ExperimentService:
             "name": name,
             "description": description,
             "type": type,
-            "parameters": parameters,
+            # Feature-flag config was already consumed by _ensure_feature_flag above; strip it so it
+            # lives only on the flag, not mirrored into the deprecated `parameters` column.
+            "parameters": self._strip_feature_flag_config(parameters),
             "running_time_calculation": running_time_calculation,
             "excluded_variants": excluded_variants,
             "metrics": metrics if metrics is not None else [],
@@ -878,15 +1023,40 @@ class ExperimentService:
             self._sync_saved_metrics(experiment, saved_metrics_ids, serializer_context)
 
         self._validate_metric_ordering_on_create(experiment)
-        self._report_experiment_created(
-            experiment,
-            serializer_context=serializer_context,
-            event_source=event_source,
-            allow_unknown_events=allow_unknown_events,
-            creation_mode=creation_mode,
+        # Defer the analytics capture until after commit so create_experiment's @transaction.atomic
+        # doesn't hold posthog_experiment / posthog_filesystem locks open across an external SDK call.
+        transaction.on_commit(
+            lambda: self._report_experiment_created_safe(
+                experiment,
+                serializer_context=serializer_context,
+                event_source=event_source,
+                allow_unknown_events=allow_unknown_events,
+                creation_mode=creation_mode,
+            )
         )
 
         return experiment
+
+    def _report_experiment_created_safe(
+        self,
+        experiment: Experiment,
+        *,
+        serializer_context: dict | None,
+        event_source: EventSource | None,
+        allow_unknown_events: bool,
+        creation_mode: ExperimentCreationMode,
+    ) -> None:
+        # Post-commit: the experiment is already persisted, so analytics failures must not break the request.
+        try:
+            self._report_experiment_created(
+                experiment,
+                serializer_context=serializer_context,
+                event_source=event_source,
+                allow_unknown_events=allow_unknown_events,
+                creation_mode=creation_mode,
+            )
+        except Exception:
+            logger.exception("experiment_created_analytics_failed", experiment_id=experiment.id)
 
     # ------------------------------------------------------------------
     # Private helpers
@@ -1080,6 +1250,20 @@ class ExperimentService:
             if sm.query and (uuid := sm.query.get("uuid")):
                 seen.add(uuid)
         return seen
+
+    def _collect_saved_metric_queries(self, saved_metrics_ids: list | None) -> list[dict]:
+        """Query definitions of the attached saved metrics, so their tables get the same warehouse
+        access check as inline metrics."""
+        if not saved_metrics_ids:
+            return []
+        ids = [sm["id"] for sm in saved_metrics_ids if isinstance(sm, dict) and "id" in sm]
+        if not ids:
+            return []
+        return [
+            sm.query
+            for sm in ExperimentSavedMetric.objects.filter(id__in=ids, team_id=self.team.id).only("query")
+            if sm.query
+        ]
 
     @staticmethod
     def _regenerate_all_metric_uuids(metrics: list[dict] | None) -> tuple[list[dict] | None, dict[str, str]]:
@@ -1624,6 +1808,7 @@ class ExperimentService:
         *,
         conclusion: str | None = None,
         conclusion_comment: str | None = None,
+        open_cleanup_pr: bool = False,
         request: Any | None = None,
     ) -> Experiment:
         """End a running experiment: set end_date and mark as stopped.
@@ -1642,22 +1827,90 @@ class ExperimentService:
         experiment.conclusion_comment = conclusion_comment
         experiment.save()
 
-        self._report_experiment_ended(experiment, request=request)
+        self._report_experiment_ended(experiment, request=request, open_cleanup_pr=open_cleanup_pr)
 
         return experiment
+
+    def _cleanup_pr_flag_enabled(self) -> bool:
+        # Our backend's posthoganalytics client points at PostHog's own internal project, so we gate a
+        # customer team by passing it as the "project" group and targeting that group's id on the flag.
+        # Local eval keeps this off the request's hot path (definitions refresh on a short poll).
+        return bool(
+            posthoganalytics.feature_enabled(
+                EXPERIMENT_CLEANUP_PR_FLAG,
+                str(self.team.id),
+                groups={"project": str(self.team.id)},
+                group_properties={"project": {"id": str(self.team.id)}},
+                only_evaluate_locally=True,
+                send_feature_flag_events=False,
+            )
+        )
+
+    def _maybe_open_cleanup_pr(self, experiment: Experiment, open_cleanup_pr: bool) -> None:
+        """When opted in (the checkbox) and the team's gate flag is on, open a draft PR that removes the
+        experiment's feature-flag code, via the Tasks engine.
+
+        Deferred to after commit (so a rolled-back end never opens a PR) and wrapped so it can never
+        break ending an experiment.
+        """
+        try:
+            conclusion = experiment.conclusion or ""
+            if not open_cleanup_pr or not conclusion or not self._cleanup_pr_flag_enabled():
+                return
+
+            flag_key = experiment.get_feature_flag_key()
+            plan = cleanup_plan(conclusion, experiment.feature_flag.variants or [])
+            title, description = build_cleanup_prompt(experiment, flag_key, plan)
+            team = experiment.team
+            user_id = self.user.id
+            experiment_id = experiment.id
+
+            def _open() -> None:
+                try:
+                    tasks_facade.create_and_run_task(
+                        team=team,
+                        title=title,
+                        description=description,
+                        origin_product=tasks_facade.TaskOriginProduct.EXPERIMENTS,
+                        user_id=user_id,
+                        repository=EXPERIMENT_CLEANUP_REPOSITORY,
+                        create_pr=True,
+                        interaction_origin="experiments",
+                        ai_stage="implementation",
+                    )
+                except Exception:
+                    logger.exception("experiment_cleanup_pr_task_failed", experiment_id=experiment_id)
+
+            transaction.on_commit(_open)
+            logger.info(
+                "experiment_cleanup_pr_requested",
+                experiment_id=experiment.id,
+                team_id=experiment.team_id,
+                flag_key=flag_key,
+                keep_variant=plan.keep_variant,
+                remove_variants=plan.remove_variants,
+                confident=plan.confident,
+            )
+        except Exception:
+            logger.exception("experiment_cleanup_pr_failed", experiment_id=experiment.id)
 
     def _report_experiment_ended(
         self,
         experiment: Experiment,
         *,
         request: Any | None = None,
+        open_cleanup_pr: bool = False,
     ) -> None:
+        # The opt-in cleanup PR doesn't depend on the request — run it before the request-gated
+        # analytics below so it behaves the same regardless of call context.
+        self._maybe_open_cleanup_pr(experiment, open_cleanup_pr)
+
         if request is None:
             return
 
         completed_metadata = experiment.get_analytics_metadata()
         completed_metadata["end_date"] = experiment.end_date.isoformat() if experiment.end_date else None
-        completed_metadata["parameters"] = experiment.parameters
+        completed_metadata["parameters"] = self._parameters_with_variant_detail(experiment)
         completed_metadata["stats_method"] = (experiment.stats_config or {}).get("method", "bayesian")
         if experiment.start_date and experiment.end_date:
             completed_metadata["duration"] = int((experiment.end_date - experiment.start_date).total_seconds())
@@ -1799,6 +2052,7 @@ class ExperimentService:
         release_to_everyone: bool = False,
         conclusion: str | None = None,
         conclusion_comment: str | None = None,
+        open_cleanup_pr: bool = False,
         request: Any,
     ) -> Experiment:
         """Ship a variant and (optionally) end the experiment.
@@ -1876,7 +2130,7 @@ class ExperimentService:
             experiment, variant_key=variant_key, release_to_everyone=release_to_everyone, request=request
         )
         if was_running:
-            self._report_experiment_ended(experiment, request=request)
+            self._report_experiment_ended(experiment, request=request, open_cleanup_pr=open_cleanup_pr)
 
         return experiment
 
@@ -1939,7 +2193,7 @@ class ExperimentService:
         metadata = experiment.get_analytics_metadata()
         metadata["variant_key"] = variant_key
         metadata["release_to_everyone"] = release_to_everyone
-        metadata["parameters"] = experiment.parameters
+        metadata["parameters"] = self._parameters_with_variant_detail(experiment)
 
         report_user_action(
             self.user,
@@ -2030,6 +2284,16 @@ class ExperimentService:
             if not allow_unknown_events:
                 self.validate_metric_event_names(update_data["metrics_secondary"])
 
+        enforce_warehouse_metric_access(
+            [
+                *(update_data.get("metrics") or []),
+                *(update_data.get("metrics_secondary") or []),
+                *self._collect_saved_metric_queries(update_data.get("saved_metrics_ids")),
+            ],
+            team=self.team,
+            user=self.user,
+        )
+
         context = serializer_context or self._build_serializer_context()
         feature_flag = experiment.feature_flag
 
@@ -2119,10 +2383,18 @@ class ExperimentService:
                     "aggregation_group_type_index": aggregation_group_type_index,
                     **holdout_filters_for_flag(holdout.id if holdout else None, holdout.filters if holdout else None),
                 }
+                if "feature_flag_payloads" in update_data["parameters"]:
+                    new_filters["payloads"] = update_data["parameters"]["feature_flag_payloads"]
+
+                flag_update_data: dict[str, Any] = {"filters": new_filters}
+                if "ensure_experience_continuity" in update_data["parameters"]:
+                    flag_update_data["ensure_experience_continuity"] = update_data["parameters"][
+                        "ensure_experience_continuity"
+                    ]
 
                 existing_flag_serializer = FeatureFlagSerializer(
                     feature_flag,
-                    data={"filters": new_filters},
+                    data=flag_update_data,
                     partial=True,
                     context=context,
                 )
@@ -2215,6 +2487,10 @@ class ExperimentService:
             feature_flag.save()
 
         # --- apply changes and save ----------------------------------------
+        # Feature-flag config was already synced to the flag above; strip it so it is not mirrored
+        # into the deprecated `parameters` column. Reads re-derive it from the flag.
+        if update_data.get("parameters") is not None:
+            update_data["parameters"] = self._strip_feature_flag_config(update_data["parameters"])
         for attr, value in update_data.items():
             setattr(experiment, attr, value)
         experiment.save()
@@ -2400,11 +2676,19 @@ class ExperimentService:
 
         parameters = deepcopy(source_experiment.parameters) or {}
 
-        # Variants come from the source experiment's feature flag (the source of truth),
-        # not the stale copy denormalized into parameters.
+        # Variants, payloads, and experience continuity come from the source experiment's feature
+        # flag (the source of truth), not any stale copy denormalized into parameters.
         source_variants = source_experiment.feature_flag.variants
         if source_variants:
             parameters["feature_flag_variants"] = deepcopy(source_variants)
+        source_payloads = source_experiment.feature_flag.get_filters().get("payloads")
+        if source_payloads:
+            parameters["feature_flag_payloads"] = deepcopy(source_payloads)
+        else:
+            parameters.pop("feature_flag_payloads", None)
+        # bool() so a NULL continuity clones as off — the create path treats None as "unset" and
+        # would substitute the target team's flags_persistence_default, changing SDK behavior.
+        parameters["ensure_experience_continuity"] = bool(source_experiment.feature_flag.ensure_experience_continuity)
 
         # An existing flag in the target project wins — reuse its variants instead.
         # For cross-project clones we always check the target; for same-project
@@ -2624,28 +2908,14 @@ class ExperimentService:
             if query:
                 saved_queries_by_experiment[experiment_id].append(query)
 
-        per_experiment: list[tuple[int, set[str], set[int]]] = []
-        all_action_ids: set[int] = set()
-        for pk, metrics, metrics_secondary in inline_metrics:
-            combined: list[dict[str, Any]] = [
-                *(metrics or []),
-                *(metrics_secondary or []),
-                *saved_queries_by_experiment.get(pk, []),
-            ]
-            events, action_ids = collect_metric_events_and_action_ids(combined)
-            per_experiment.append((pk, events, action_ids))
-            all_action_ids |= action_ids
-
-        action_events = resolve_action_events(all_action_ids, self.team)
-
-        matching_ids: list[int] = []
-        for pk, events, action_ids in per_experiment:
-            resolved = set(events)
-            for action_id in action_ids:
-                resolved |= action_events.get(action_id, set())
-            if event in resolved:
-                matching_ids.append(pk)
-        return matching_ids
+        metric_groups: list[tuple[int, list[dict[str, Any]]]] = [
+            (
+                pk,
+                [*(metrics or []), *(metrics_secondary or []), *saved_queries_by_experiment.get(pk, [])],
+            )
+            for pk, metrics, metrics_secondary in inline_metrics
+        ]
+        return filter_metric_group_ids_by_event(metric_groups, event, self.team)
 
     def filter_experiments_queryset(
         self,

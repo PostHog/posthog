@@ -233,7 +233,6 @@ export const addSavedInsightsModalLogic = kea<addSavedInsightsModalLogicType>([
                     logic.mount()
                     logic.actions.loadDashboard({ action: DashboardLoadAction.Update })
                     logic.unmount()
-                    eventUsageLogic.actions.reportDashboardTileAdded('insight')
                     lemonToast.success('Insight added to dashboard')
                 }
             } catch (e) {

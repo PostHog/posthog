@@ -30,7 +30,10 @@ from posthog.rate_limit import (
     get_route_from_path,
 )
 
-from products.feature_flags.backend.api.feature_flag import RemoteConfigThrottle
+from products.feature_flags.backend.api.feature_flag import (
+    RemoteConfigProjectSecretApiKeyTeamThrottle,
+    RemoteConfigThrottle,
+)
 
 
 class TestUserAPI(APIBaseTest):
@@ -715,6 +718,26 @@ class TestUserAPI(APIBaseTest):
             self.assertEqual(throttle.rate, "1200/minute")
             self.assertEqual(throttle.num_requests, 1200)
             self.assertEqual(throttle.duration, 60)  # 1 minute in seconds
+
+    def test_remote_config_team_throttle_uses_custom_rate_for_team(self):
+        throttle = RemoteConfigProjectSecretApiKeyTeamThrottle()
+
+        mock_view = Mock()
+        mock_request = Mock()
+
+        with (
+            patch("products.feature_flags.backend.api.feature_flag.REMOTE_CONFIG_RATE_LIMITS", {123: "1200/minute"}),
+            patch.object(throttle, "safely_get_team_id_from_view", return_value=123),
+            patch.object(throttle.__class__.__bases__[0], "allow_request", return_value=True),
+        ):
+            result = throttle.allow_request(mock_request, mock_view)
+
+            self.assertTrue(result)
+            # The per-team throttle must apply the team's REMOTE_CONFIG_RATE_LIMITS override too, not
+            # just the per-key throttle, otherwise a configured per-team cap silently has no effect.
+            self.assertEqual(throttle.rate, "1200/minute")
+            self.assertEqual(throttle.num_requests, 1200)
+            self.assertEqual(throttle.duration, 60)
 
     @parameterized.expand(
         [

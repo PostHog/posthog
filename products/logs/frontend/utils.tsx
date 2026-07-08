@@ -1,9 +1,8 @@
+import { formatDateRangeLabel } from 'lib/components/DateFilter/DateRangePicker/utils'
 import { isValidPropertyFilter } from 'lib/components/PropertyFilters/utils'
 import { capitalizeFirstLetter } from 'lib/utils/strings'
 
 import { AnyPropertyFilter } from '~/types'
-
-import { formatDateRangeLabel } from 'products/logs/frontend/components/LogsViewer/Filters/LogsDateRangePicker/utils'
 
 export function formatFilterGroupValues(filterGroup: Record<string, any> | undefined): string[] {
     const group = filterGroup?.values?.[0]

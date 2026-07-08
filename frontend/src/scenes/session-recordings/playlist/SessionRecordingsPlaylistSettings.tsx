@@ -1,8 +1,9 @@
 import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
+import posthog from 'posthog-js'
 
-import { IconChevronRight, IconEllipsis, IconEye, IconPlus, IconSort, IconTrash } from '@posthog/icons'
-import { LemonBadge, LemonButton, LemonCheckbox, LemonInput, LemonModal, Spinner } from '@posthog/lemon-ui'
+import { IconChevronRight, IconEllipsis, IconEye, IconInfo, IconPlus, IconSort, IconTrash } from '@posthog/icons'
+import { LemonBadge, LemonButton, LemonCheckbox, LemonInput, LemonModal, Spinner, Tooltip } from '@posthog/lemon-ui'
 
 import { FEATURE_FLAGS } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
@@ -41,6 +42,9 @@ const SortingKeyToLabel = {
     surfacing_score: 'Relevance',
 }
 
+const RELEVANCE_SORT_EXPLANATION =
+    'Relevance predicts which sessions are worth watching, using signals like rage clicks, dead clicks, console errors, failed network requests, and in-session activity. The highest-scoring recordings appear first.'
+
 function getLabel(filters: RecordingUniversalFilters): string {
     const order_field = filters.order || 'start_time'
     if (order_field === 'start_time') {
@@ -48,6 +52,24 @@ function getLabel(filters: RecordingUniversalFilters): string {
     }
 
     return SortingKeyToLabel[order_field as keyof typeof SortingKeyToLabel]
+}
+
+type RecordingSort = { order: NonNullable<RecordingUniversalFilters['order']>; order_direction: 'ASC' | 'DESC' }
+
+/** The analytics payload for a sort change, or null when the sort is unchanged so we don't log no-op switches. */
+export function getSortChangedEvent(
+    filters: RecordingUniversalFilters,
+    sort: RecordingSort
+): Record<string, string> | null {
+    if (sort.order === filters.order && sort.order_direction === filters.order_direction) {
+        return null
+    }
+    return {
+        sort_key: sort.order,
+        sort_direction: sort.order_direction,
+        previous_sort_key: filters.order ?? 'start_time',
+        previous_sort_direction: filters.order_direction ?? 'DESC',
+    }
 }
 
 function SortedBy({
@@ -60,18 +82,29 @@ function SortedBy({
     disabledReason?: string
 }): JSX.Element {
     const surfacingScoreEnabled = useFeatureFlag('REPLAY_PLAYLIST_SURFACING_SCORE')
+    const inRelevanceSortExperiment = useFeatureFlag('REPLAY_PLAYLIST_RELEVANCE_SORT_EXPERIMENT', 'test')
+    const showRelevanceSort = surfacingScoreEnabled || inRelevanceSortExperiment
+
+    // Track sort changes for the relevance-sort experiment
+    const changeSort = (sort: RecordingSort): void => {
+        const sortChangedEvent = getSortChangedEvent(filters, sort)
+        if (sortChangedEvent) {
+            posthog.capture('session recording list sort changed', sortChangedEvent)
+        }
+        setFilters(sort)
+    }
+
     return (
         <SettingsMenu
             highlightWhenActive={false}
             disabledReason={disabledReason}
             items={[
-                ...(surfacingScoreEnabled
+                ...(showRelevanceSort
                     ? [
                           {
                               label: SortingKeyToLabel['surfacing_score'],
-                              tooltip:
-                                  'Ranks recordings by a relevance score so the sessions most likely to be worth watching appear first.',
-                              onClick: () => setFilters({ order: 'surfacing_score', order_direction: 'DESC' }),
+                              tooltip: RELEVANCE_SORT_EXPLANATION,
+                              onClick: () => changeSort({ order: 'surfacing_score', order_direction: 'DESC' }),
                               active: filters.order === 'surfacing_score',
                           },
                       ]
@@ -81,25 +114,25 @@ function SortedBy({
                     items: [
                         {
                             label: 'Latest',
-                            onClick: () => setFilters({ order: 'start_time', order_direction: 'DESC' }),
+                            onClick: () => changeSort({ order: 'start_time', order_direction: 'DESC' }),
                             active:
                                 !filters.order || (filters.order === 'start_time' && filters.order_direction !== 'ASC'),
                         },
                         {
                             label: 'Oldest',
-                            onClick: () => setFilters({ order: 'start_time', order_direction: 'ASC' }),
+                            onClick: () => changeSort({ order: 'start_time', order_direction: 'ASC' }),
                             active: filters.order === 'start_time' && filters.order_direction === 'ASC',
                         },
                     ],
                 },
                 {
                     label: SortingKeyToLabel['activity_score'],
-                    onClick: () => setFilters({ order: 'activity_score', order_direction: 'DESC' }),
+                    onClick: () => changeSort({ order: 'activity_score', order_direction: 'DESC' }),
                     active: filters.order === 'activity_score',
                 },
                 {
                     label: SortingKeyToLabel['console_error_count'],
-                    onClick: () => setFilters({ order: 'console_error_count', order_direction: 'DESC' }),
+                    onClick: () => changeSort({ order: 'console_error_count', order_direction: 'DESC' }),
                     active: filters.order === 'console_error_count',
                 },
                 {
@@ -107,17 +140,17 @@ function SortedBy({
                     items: [
                         {
                             label: SortingKeyToLabel['duration'],
-                            onClick: () => setFilters({ order: 'duration', order_direction: 'DESC' }),
+                            onClick: () => changeSort({ order: 'duration', order_direction: 'DESC' }),
                             active: filters.order === 'duration',
                         },
                         {
                             label: SortingKeyToLabel['active_seconds'],
-                            onClick: () => setFilters({ order: 'active_seconds', order_direction: 'DESC' }),
+                            onClick: () => changeSort({ order: 'active_seconds', order_direction: 'DESC' }),
                             active: filters.order === 'active_seconds',
                         },
                         {
                             label: SortingKeyToLabel['inactive_seconds'],
-                            onClick: () => setFilters({ order: 'inactive_seconds', order_direction: 'DESC' }),
+                            onClick: () => changeSort({ order: 'inactive_seconds', order_direction: 'DESC' }),
                             active: filters.order === 'inactive_seconds',
                         },
                     ],
@@ -127,29 +160,40 @@ function SortedBy({
                     items: [
                         {
                             label: SortingKeyToLabel['click_count'],
-                            onClick: () => setFilters({ order: 'click_count', order_direction: 'DESC' }),
+                            onClick: () => changeSort({ order: 'click_count', order_direction: 'DESC' }),
                             active: filters.order === 'click_count',
                         },
                         {
                             label: SortingKeyToLabel['keypress_count'],
-                            onClick: () => setFilters({ order: 'keypress_count', order_direction: 'DESC' }),
+                            onClick: () => changeSort({ order: 'keypress_count', order_direction: 'DESC' }),
                             active: filters.order === 'keypress_count',
                         },
                         {
                             label: SortingKeyToLabel['mouse_activity_count'],
-                            onClick: () => setFilters({ order: 'mouse_activity_count', order_direction: 'DESC' }),
+                            onClick: () => changeSort({ order: 'mouse_activity_count', order_direction: 'DESC' }),
                             active: filters.order === 'mouse_activity_count',
                         },
                     ],
                 },
                 {
                     label: 'Expiration',
-                    onClick: () => setFilters({ order: 'recording_ttl', order_direction: 'ASC' }),
+                    onClick: () => changeSort({ order: 'recording_ttl', order_direction: 'ASC' }),
                     active: filters.order === 'recording_ttl',
                 },
             ]}
             icon={<IconSort className="text-lg" />}
-            label={getLabel(filters)}
+            label={
+                filters.order === 'surfacing_score' ? (
+                    <span className="inline-flex items-center gap-1">
+                        {SortingKeyToLabel['surfacing_score']}
+                        <Tooltip title={RELEVANCE_SORT_EXPLANATION}>
+                            <IconInfo className="text-sm" />
+                        </Tooltip>
+                    </span>
+                ) : (
+                    getLabel(filters)
+                )
+            }
         />
     )
 }

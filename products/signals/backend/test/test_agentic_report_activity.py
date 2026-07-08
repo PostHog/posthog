@@ -5,6 +5,8 @@ from datetime import UTC, datetime
 import pytest
 from unittest.mock import AsyncMock, Mock, patch
 
+from django.db import OperationalError
+
 import pytest_asyncio
 from asgiref.sync import sync_to_async
 
@@ -182,6 +184,35 @@ async def test_select_repository_activity_reuses_previous_selection(monkeypatch,
 
 @pytest.mark.asyncio
 @pytest.mark.django_db
+async def test_select_repository_activity_retries_transient_db_drop(monkeypatch, ateam):
+    # A pooled pgbouncer connection dropped mid-request raises OperationalError on the
+    # activity's early read. The retry-once guard must evict the dead connection and
+    # succeed on the second attempt rather than letting it escape as error-tracking noise.
+    previous = RepoSelectionResult(repository="posthog/posthog", reason="Previously selected")
+    attempts = {"n": 0}
+
+    def flaky_load(report_id):
+        attempts["n"] += 1
+        if attempts["n"] == 1:
+            raise OperationalError("server closed the connection unexpectedly")
+        return previous
+
+    monkeypatch.setattr(
+        "products.signals.backend.temporal.agentic.select_repository._load_previous_repo_selection",
+        flaky_load,
+    )
+
+    with patch("products.signals.backend.temporal.agentic.select_repository.Heartbeater"):
+        result = await select_repository_activity(
+            SelectRepositoryInput(team_id=ateam.id, report_id="test-report-id", signals=_build_signals())
+        )
+
+    assert result is previous
+    assert attempts["n"] == 2
+
+
+@pytest.mark.asyncio
+@pytest.mark.django_db
 async def test_select_repository_activity_no_repo(monkeypatch, ateam):
     monkeypatch.setattr(
         "products.signals.backend.temporal.agentic.select_repository._load_previous_repo_selection",
@@ -216,7 +247,9 @@ async def test_select_repository_activity_does_not_raise_with_only_user_integrat
     # was wired up, this combination raised `RuntimeError("No GitHub integration found ...")` and
     # killed the activity. Now it must resolve a user_id and reach `select_repository_for_report`.
     user = await sync_to_async(User.objects.create)(email=f"posthog-code-{random.randint(1, 99999)}@example.com")
-    await sync_to_async(OrganizationMembership.objects.create)(user=user, organization_id=ateam.organization_id)
+    await sync_to_async(OrganizationMembership.objects.create)(
+        user=user, organization_id=ateam.organization_id, level=OrganizationMembership.Level.OWNER
+    )
     await sync_to_async(UserIntegration.objects.create)(
         user=user,
         kind=UserIntegration.IntegrationKind.GITHUB,

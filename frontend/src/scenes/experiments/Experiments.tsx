@@ -3,11 +3,12 @@ import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
 import { useState } from 'react'
 
+import * as experimentPng from '@posthog/brand/hoggies/png/experiment'
 import { LemonInput, LemonSelect, LemonTag, Tooltip, lemonToast } from '@posthog/lemon-ui'
 
+import { pngHoggie } from 'lib/brand/hoggies'
 import { AccessControlAction } from 'lib/components/AccessControlAction'
 import { ActivityLog } from 'lib/components/ActivityLog/ActivityLog'
-import { ExperimentsHog } from 'lib/components/hedgehogs'
 import { MemberMultiSelect } from 'lib/components/MemberMultiSelect'
 import { ProductIntroduction } from 'lib/components/ProductIntroduction/ProductIntroduction'
 import { Shortcut } from 'lib/components/Shortcuts/Shortcut'
@@ -62,6 +63,8 @@ import { ExperimentVelocityStats } from './ExperimentVelocityStats'
 import { StatusTag } from './ExperimentView/StatusTag'
 import { Holdouts } from './Holdouts'
 import { SharedMetrics } from './SharedMetrics/SharedMetrics'
+
+const HedgehogExperiment = pngHoggie(experimentPng)
 
 export const scene: SceneExport = {
     component: Experiments,
@@ -499,7 +502,7 @@ const ExperimentsTable = ({
                         docsURL="https://posthog.com/docs/experiments"
                         action={() => router.actions.push(urls.experiment('new'))}
                         isEmpty={shouldShowEmptyState}
-                        customHog={ExperimentsHog}
+                        customHog={HedgehogExperiment}
                         className="my-0"
                         mcpSurfaceKey="experiments.create"
                     />

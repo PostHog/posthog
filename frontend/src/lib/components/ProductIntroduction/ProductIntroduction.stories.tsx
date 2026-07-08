@@ -1,10 +1,14 @@
 import { Meta } from '@storybook/react'
 
-import { GraphsHog } from 'lib/components/hedgehogs'
+import * as chartHogPng from '@posthog/brand/hoggies/png/chart-hog'
+
+import { pngHoggie } from 'lib/brand/hoggies'
 
 import { ProductKey } from '~/queries/schema/schema-general'
 
 import { ProductIntroduction, ProductIntroductionProps } from './ProductIntroduction'
+
+const HedgehogChartHog = pngHoggie(chartHogPng)
 
 const meta: Meta<ProductIntroductionProps> = {
     title: 'Components/Product Empty State',
@@ -65,7 +69,7 @@ export function notEmptyWithAction(): JSX.Element {
     )
 }
 
-/** Dashboard empty-state–style intro: matches `EmptyDashboardComponent` copy, with `GraphsHog` + responsive layout. */
+/** Dashboard empty-state-style intro: matches `EmptyDashboardComponent` copy, with `HedgehogChartHog` + responsive layout. */
 function DashboardEmptyResponsiveIntro({
     useMainContentContainerQueries,
 }: Partial<Pick<ProductIntroductionProps, 'useMainContentContainerQueries'>> = {}): JSX.Element {
@@ -78,7 +82,7 @@ function DashboardEmptyResponsiveIntro({
             docsURL="https://posthog.com/docs/product-analytics/dashboards"
             action={() => alert('CTA clicked')}
             isEmpty={true}
-            customHog={GraphsHog}
+            customHog={HedgehogChartHog}
             hogLayout="responsive"
             useMainContentContainerQueries={useMainContentContainerQueries}
         />

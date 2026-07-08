@@ -23,6 +23,7 @@ import { ProductKey } from '~/queries/schema/schema-general'
 import { AssigneeIconDisplay, AssigneeLabelDisplay, AssigneeSelect } from '../../components/Assignee'
 import { ChannelsTag } from '../../components/Channels/ChannelsTag'
 import { ChatView } from '../../components/Chat/ChatView'
+import { IdentityBadge } from '../../components/IdentityBadge/IdentityBadge'
 import { SlaDisplay } from '../../components/SlaDisplay'
 import { TicketTags } from '../../components/TicketTags'
 import {
@@ -36,6 +37,7 @@ import { AIPanel } from './AIPanel'
 import { ExceptionsPanel } from './ExceptionsPanel'
 import { PreviousTicketsPanel } from './PreviousTicketsPanel'
 import { RecentEventsPanel } from './RecentEventsPanel'
+import { RelatedGroupsPanel } from './RelatedGroupsPanel'
 import { SessionRecordingPanel } from './SessionRecordingPanel'
 import { StaffActionsPanel } from './StaffActionsPanel'
 import { supportTicketSceneLogic } from './supportTicketSceneLogic'
@@ -60,6 +62,7 @@ export function SupportTicketScene({ ticketId }: { ticketId: string }): JSX.Elem
     const logic = supportTicketSceneLogic({ id: ticketId || 'new' })
     const {
         ticket,
+        person,
         ticketLoading,
         status,
         priority,
@@ -81,6 +84,8 @@ export function SupportTicketScene({ ticketId }: { ticketId: string }): JSX.Elem
         snoozedUntil,
         knowledgeGaps,
         knowledgeGapsLoading,
+        latestAiMessage,
+        feedbackByMessageId,
     } = useValues(logic)
     const {
         setStatus,
@@ -94,6 +99,7 @@ export function SupportTicketScene({ ticketId }: { ticketId: string }): JSX.Elem
         setDraftContent,
         setDraftIsPrivate,
         dismissKnowledgeGap,
+        submitAiReplyFeedback,
     } = useActions(logic)
 
     const { user } = useValues(userLogic)
@@ -139,9 +145,14 @@ export function SupportTicketScene({ ticketId }: { ticketId: string }): JSX.Elem
     }
 
     return (
-        <SceneContent>
+        <SceneContent className="lg:min-h-0 lg:flex-1">
             <SceneTitleSection
                 name={`Ticket: ${ticket?.ticket_number?.toString() || ticket?.id || ''}`}
+                nameSuffix={
+                    ticket && ticket.identity_verified !== true ? (
+                        <IdentityBadge verified={ticket.identity_verified} />
+                    ) : undefined
+                }
                 description=""
                 resourceType={{ type: 'conversation' }}
                 forceBackTo={{
@@ -151,7 +162,7 @@ export function SupportTicketScene({ ticketId }: { ticketId: string }): JSX.Elem
                 }}
             />
 
-            <div className="flex flex-col lg:flex-row items-start">
+            <div className="flex flex-col lg:flex-row items-start lg:min-h-0 lg:flex-1">
                 <div
                     style={{ width: chatPanelWidth(desiredSize) }}
                     className="relative shrink-0 pr-2 max-w-full lg:max-w-[calc(100%-300px)] mb-4 lg:mb-0"
@@ -173,8 +184,12 @@ export function SupportTicketScene({ ticketId }: { ticketId: string }): JSX.Elem
                         onDraftChange={setDraftContent}
                         isPrivate={draftIsPrivate}
                         onPrivateChange={setDraftIsPrivate}
-                        minHeight="min(400px, calc(100svh - 320px))"
-                        maxHeight="min(600px, calc(100svh - 320px))"
+                        minHeight="min(400px, calc(100svh - 20rem))"
+                        maxHeight="calc(100svh - 20rem)"
+                        latestAiMessageId={latestAiMessage?.id ?? null}
+                        feedbackByMessageId={feedbackByMessageId}
+                        showAiReplyFeedback={aiSuggestionsEnabled}
+                        onSubmitAiReplyFeedback={submitAiReplyFeedback}
                     />
                     <div className="hidden lg:block">
                         <Resizer {...resizerLogicProps} className="z-20" />
@@ -182,7 +197,7 @@ export function SupportTicketScene({ ticketId }: { ticketId: string }): JSX.Elem
                 </div>
 
                 {/* Sidebar with all metadata */}
-                <div className="space-y-4 flex-1 min-w-[300px] pl-2">
+                <div className="space-y-4 flex-1 min-w-[300px] pl-2 lg:h-full lg:min-h-0 lg:overflow-y-auto lg:pb-4">
                     <LemonCard hoverEffect={false} className="p-3">
                         {/* Customer */}
                         {ticket?.distinct_id && (
@@ -200,27 +215,30 @@ export function SupportTicketScene({ ticketId }: { ticketId: string }): JSX.Elem
                                         View person
                                     </LemonButton>
                                 </div>
-                                <PersonDisplay
-                                    person={
-                                        ticket.person
-                                            ? {
-                                                  id: ticket.person.id,
-                                                  distinct_id: ticket.distinct_id,
-                                                  distinct_ids: ticket.person.distinct_ids,
-                                                  // Merge anonymous_traits as fallback for missing person properties
-                                                  properties: {
-                                                      ...ticket.anonymous_traits,
-                                                      ...ticket.person.properties,
-                                                  },
-                                              }
-                                            : {
-                                                  distinct_id: ticket.distinct_id,
-                                                  properties: ticket.anonymous_traits || {},
-                                              }
-                                    }
-                                    withIcon
-                                    withComposeTicketButton
-                                />
+                                <div className="flex items-center gap-2">
+                                    <PersonDisplay
+                                        person={
+                                            ticket.person
+                                                ? {
+                                                      id: ticket.person.id,
+                                                      distinct_id: ticket.distinct_id,
+                                                      distinct_ids: ticket.person.distinct_ids,
+                                                      // Merge anonymous_traits as fallback for missing person properties
+                                                      properties: {
+                                                          ...ticket.anonymous_traits,
+                                                          ...ticket.person.properties,
+                                                      },
+                                                  }
+                                                : {
+                                                      distinct_id: ticket.distinct_id,
+                                                      properties: ticket.anonymous_traits || {},
+                                                  }
+                                        }
+                                        withIcon
+                                        withComposeTicketButton
+                                    />
+                                    <IdentityBadge verified={ticket.identity_verified} />
+                                </div>
                                 <div className="my-3 border-t" />
                             </>
                         )}
@@ -253,14 +271,6 @@ export function SupportTicketScene({ ticketId }: { ticketId: string }): JSX.Elem
                                             detail={ticket.channel_detail}
                                             to={getChannelThreadUrl(ticket)}
                                         />
-                                    </span>
-                                </div>
-                            )}
-                            {ticket?.organization_id && (
-                                <div className="flex justify-between items-start gap-2">
-                                    <span className="text-muted-alt shrink-0">Organization</span>
-                                    <span className="text-xs truncate text-right" title={ticket.organization_id}>
-                                        {ticket.organization_id}
                                     </span>
                                 </div>
                             )}
@@ -317,6 +327,12 @@ export function SupportTicketScene({ ticketId }: { ticketId: string }): JSX.Elem
                                         </Link>
                                     </div>
                                 )}
+                            {ticket?.zendesk_ticket_id && (
+                                <div className="flex justify-between items-center">
+                                    <span className="text-muted-alt">Zendesk ID</span>
+                                    <LemonTag type="highlight">#{ticket.zendesk_ticket_id}</LemonTag>
+                                </div>
+                            )}
                             {ticket?.session_context?.current_url && (
                                 <div className="flex justify-between items-start gap-2">
                                     <span className="text-muted-alt shrink-0">Page URL</span>
@@ -404,6 +420,11 @@ export function SupportTicketScene({ ticketId }: { ticketId: string }): JSX.Elem
                             </LemonButton>
                         </div>
                     </LemonCard>
+
+                    {/* Related Groups Panel */}
+                    {person?.uuid && (
+                        <RelatedGroupsPanel personUuid={person.uuid} organizationId={ticket?.organization_id} />
+                    )}
 
                     {/* Staff Actions Panel */}
                     {user?.is_staff && ticket && <StaffActionsPanel />}

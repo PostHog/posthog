@@ -11,6 +11,7 @@ from temporalio import activity
 from posthog.exceptions_capture import capture_exception
 from posthog.redis import get_async_client
 from posthog.sync import database_sync_to_async_pool
+from posthog.utils import get_machine_id
 
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.common.load import get_incremental_field_value
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.cdp_producer import CDPProducer
@@ -158,6 +159,24 @@ def report_heartbeat_timeout(inputs: "ImportDataActivityInputs", logger: Filteri
                     "attempt": info.attempt,
                 },
             )
+
+            # Durable per-occurrence OOM record for the repartition trigger to read. Best-effort:
+            # a write failure here must never disrupt the sync.
+            try:
+                from products.warehouse_sources.backend.models.oom_event import (  # noqa: PLC0415 — Django models must not be imported at this activity module's load time
+                    ExternalDataSchemaOOMEvent,
+                )
+
+                if inputs.schema_id is not None:
+                    ExternalDataSchemaOOMEvent.objects.for_team(inputs.team_id).create(
+                        team_id=inputs.team_id,
+                        schema_id=inputs.schema_id,
+                        run_id=inputs.run_id,
+                        host=last_heartbeat_host,
+                        gap_seconds=gap_between_beats,
+                    )
+            except Exception as record_error:
+                logger.debug(f"Failed to record OOM event for schema {inputs.schema_id}: {record_error}")
         else:
             logger.debug("Last heartbeat was within the heartbeat timeout window. No action needed.")
     except Exception as e:
@@ -256,6 +275,122 @@ async def handle_reset_or_full_refresh(
         await logger.adebug("Deleting existing table due to sync being full refresh")
         await delta_table_helper.reset_table()
         await database_sync_to_async_pool(schema.update_sync_type_config_for_reset_pipeline)()
+
+
+def _capture_delta_revived(
+    schema: "ExternalDataSchema", job: "ExternalDataJob", *, outcome: str, made_non_billable: bool
+) -> None:
+    """Emit a `warehouse_delta_revived` event so corrupt-log recoveries are observable (how many, salvaged
+    vs reset+rebuild, and whether the rebuild was made non-billable). Best-effort — never blocks the sync."""
+    try:
+        posthoganalytics.capture(
+            distinct_id=get_machine_id(),
+            event="warehouse_delta_revived",
+            properties={
+                "team_id": schema.team_id,
+                "schema_id": str(schema.id),
+                "source_id": str(schema.source_id),
+                "resource_name": schema.name,
+                "job_id": str(job.id),
+                "outcome": outcome,
+                "made_non_billable": made_non_billable,
+            },
+        )
+    except Exception as e:
+        capture_exception(e)
+
+
+async def handle_corrupted_delta_log(
+    schema: "ExternalDataSchema",
+    job: "ExternalDataJob",
+    delta_table_helper: DeltaTableHelper,
+    logger: FilteringBoundLogger,
+) -> bool:
+    """Detect and revive a Delta table whose `_delta_log` is unreadable, before extraction.
+
+    Interrupted repartition swaps and OOM-crashed merges can leave `_delta_log` inconsistent (open raises
+    DeltaError / FileNotFoundError), after which every sync fails to open the table and loops forever.
+    Runs before extraction so the table self-heals in the same run:
+
+    - Salvage: an interrupted repartition swap that left a `ready` temp table is finished from temp (no
+      re-pull from source).
+    - Otherwise the table is reset so this run rebuilds it from source, and the job is marked
+      non-billable — the corruption is our fault, not the customer's.
+
+    Returns True if a revive happened. Best-effort: any failure here must not block the sync.
+    """
+    try:
+        if not await delta_table_helper.is_table_corrupted():
+            return False
+    except Exception as e:
+        capture_exception(e)
+        return False
+
+    await logger.awarning(
+        f"handle_corrupted_delta_log: unreadable delta log detected, reviving schema_id={schema.id}",
+        schema_id=str(schema.id),
+    )
+
+    # Salvage first: finish an interrupted repartition swap from its `ready` temp table (delete the corrupt
+    # live, copy temp into place) rather than re-pull from source. `_resume_swap_with_missing_live` skips
+    # and clears the markers when temp is also gone (the terminal corrupt state), so we then fall to reset.
+    swap = schema.repartition_swap
+    if swap and swap.get("state") == "ready" and swap.get("temp_uri") and swap.get("live_uri"):
+        from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.repartition import (  # noqa: PLC0415 — deferred to avoid an import cycle with the repartition modules
+            _resume_swap_with_missing_live,
+        )
+        from products.warehouse_sources.backend.temporal.data_imports.workflow_activities.repartition_table import (  # noqa: PLC0415 — deferred to avoid an import cycle with the repartition modules
+            RepartitionTarget,
+            _target_from_schema,
+        )
+
+        try:
+            target = (
+                RepartitionTarget.from_dict(schema.repartition_pending)
+                if schema.repartition_pending is not None
+                else _target_from_schema(schema)
+            )
+            result = await _resume_swap_with_missing_live(
+                helper=delta_table_helper,
+                schema=schema,
+                target=target,
+                temp_uri=swap["temp_uri"],
+                live_uri=swap["live_uri"],
+                storage_options=delta_table_helper._get_credentials(),
+                logger=logger,
+            )
+            if result.get("outcome") == "completed":
+                await logger.ainfo(
+                    f"handle_corrupted_delta_log: salvaged from interrupted swap schema_id={schema.id}",
+                    schema_id=str(schema.id),
+                )
+                _capture_delta_revived(schema, job, outcome="salvaged", made_non_billable=False)
+                return True
+        except Exception as e:
+            capture_exception(e)
+            await logger.aexception(f"handle_corrupted_delta_log: salvage failed, resetting: {e}", exc_info=e)
+
+    # Reset + rebuild from source in this run, marked non-billable — we caused the corruption.
+    from products.warehouse_sources.backend.models.external_data_schema import (  # noqa: PLC0415 — Django model import kept off this activity module's load path
+        update_sync_type_config_keys,
+    )
+
+    await delta_table_helper.reset_table()
+    await database_sync_to_async_pool(schema.update_sync_type_config_for_reset_pipeline)()
+    await database_sync_to_async_pool(update_sync_type_config_keys)(
+        schema.id, schema.team_id, removes=["repartition_pending", "repartition_swap"]
+    )
+    was_billable = bool(job.billable)
+    if job.billable:
+        job.billable = False
+        await database_sync_to_async_pool(job.save)(update_fields=["billable"])
+
+    _capture_delta_revived(schema, job, outcome="reset_rebuild", made_non_billable=was_billable)
+    await logger.awarning(
+        f"handle_corrupted_delta_log: reset corrupt table for non-billable rebuild schema_id={schema.id}",
+        schema_id=str(schema.id),
+    )
+    return True
 
 
 def cleanup_memory(pa_memory_pool: pa.MemoryPool, py_table: pa.Table | None = None) -> None:
@@ -399,3 +534,46 @@ async def cdp_producer_clear_chunks(cdp_producer: CDPProducer):
 async def write_chunk_for_cdp_producer(cdp_producer: CDPProducer, index: int, pa_table: pa.Table):
     if await cdp_producer.should_produce_table():
         await cdp_producer.write_chunk_for_cdp_producer(chunk=index, table=pa_table)
+
+
+async def run_pre_write_defensive_compact(
+    delta_table_helper: DeltaTableHelper,
+    schema: "ExternalDataSchema",
+    resource: SourceResponse,
+    logger: FilteringBoundLogger,
+) -> None:
+    """Best-effort pre-write compact + vacuum at the start of a sync run.
+
+    Delegates to `DeltaTableHelper.run_maintenance`, which compacts a fragmented Delta
+    target (a sync that arrived fragmented because earlier attempts failed before
+    reaching `_post_run_operations` — keeping the subsequent per-partition merge scans
+    cheap) and otherwise vacuums on a commit-count cadence so a table that OOMs its merge
+    every run and never reaches post-load compaction still sheds tombstones (the
+    ~99%-dead-file tables). The helper returns the single vacuum watermark to persist, so
+    this function is the sole writer of `last_vacuum_version`. Wrapped in try/except so a
+    maintenance failure never blocks the actual sync; the original error path is unaffected.
+
+    Used by both `PipelineNonDLT.run` (v2) and `PipelineV3.run` to keep the behaviour
+    identical across pipelines without each having to know how to look up `partition_count`
+    or how to swallow maintenance errors.
+    """
+    try:
+        from products.warehouse_sources.backend.models.external_data_schema import (  # noqa: PLC0415 — Django model import kept off this activity module's load path
+            update_sync_type_config_keys,
+        )
+
+        partition_count_for_compact = schema.partition_count or resource.partition_count
+        last_vacuum_version = (schema.sync_type_config or {}).get("last_vacuum_version")
+        commit_threshold = int(getattr(settings, "DATA_WAREHOUSE_VACUUM_COMMIT_THRESHOLD", 100))
+        new_version = await delta_table_helper.run_maintenance(
+            partition_count=partition_count_for_compact,
+            last_vacuum_version=last_vacuum_version,
+            commit_threshold=commit_threshold,
+        )
+        if new_version is not None and new_version != last_vacuum_version:
+            await database_sync_to_async_pool(update_sync_type_config_keys)(
+                schema.id, schema.team_id, updates={"last_vacuum_version": new_version}
+            )
+    except Exception as e:
+        capture_exception(e)
+        await logger.aexception(f"Pre-write maintenance failed: {e}", exc_info=e)

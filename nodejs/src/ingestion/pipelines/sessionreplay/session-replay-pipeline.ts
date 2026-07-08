@@ -5,21 +5,32 @@ import { IngestionOutputs } from '~/common/outputs/ingestion-outputs'
 import { EventIngestionRestrictionManager } from '~/common/utils/event-ingestion-restrictions'
 import { PromiseScheduler } from '~/common/utils/promise-scheduler'
 import { createApplyEventRestrictionsStep, createParseHeadersStep } from '~/ingestion/common/steps/event-preprocessing'
-import { BatchPipelineUnwrapper } from '~/ingestion/framework/batch-pipeline-unwrapper'
+import { IngestionOverflowMode } from '~/ingestion/config'
+import { BatchPipeline } from '~/ingestion/framework/batch-pipeline.interface'
 import { newBatchPipelineBuilder } from '~/ingestion/framework/builders'
 import { TopHogRegistry, createTopHogWrapper, sum, timer } from '~/ingestion/framework/extensions/tophog'
-import { createBatch, createUnwrapper } from '~/ingestion/framework/helpers'
+import { createBatch } from '~/ingestion/framework/helpers'
 import { PipelineConfig } from '~/ingestion/framework/result-handling-pipeline'
 import { ParsedMessageData } from '~/ingestion/pipelines/sessionreplay/kafka/types'
 import { SessionBatchManager } from '~/ingestion/pipelines/sessionreplay/sessions/session-batch-manager'
+import { SessionFilter } from '~/ingestion/pipelines/sessionreplay/sessions/session-filter'
+import { SessionTracker } from '~/ingestion/pipelines/sessionreplay/sessions/session-tracker'
+import { RetentionService } from '~/ingestion/pipelines/sessionreplay/shared/retention/retention-service'
 import { TeamService } from '~/ingestion/pipelines/sessionreplay/shared/teams/team-service'
+import { KeyStore } from '~/ingestion/pipelines/sessionreplay/shared/types'
 import { TeamForReplay } from '~/ingestion/pipelines/sessionreplay/teams/types'
 import { ValueMatcher } from '~/types'
 
 import { createLibVersionMonitorStep } from './lib-version-monitor-step'
 import { createParseMessageStep } from './parse-message-step'
+import { MessageContext } from './pipeline-types'
 import { createRecordSessionEventStep } from './record-session-event-step'
+import { createMarkSeenStep } from './session-batch-mark-seen-step'
+import { createResolveRetentionStep } from './session-batch-resolve-retention-step'
+import { createTrackAndGateStep } from './session-batch-track-and-gate-step'
+import { createResolveKeyStep } from './session-resolve-key-step'
 import { createTeamFilterStep } from './team-filter-step'
+import { createValidateSessionReplayHeadersStep } from './validate-headers-step'
 
 export interface SessionReplayPipelineInput {
     message: Message
@@ -33,9 +44,19 @@ export interface SessionReplayPipelineOutput {
 export interface SessionReplayPipelineConfig {
     outputs: IngestionOutputs<IngestionWarningsOutput | DlqOutput | OverflowOutput>
     eventIngestionRestrictionManager: EventIngestionRestrictionManager
-    overflowEnabled: boolean
+    overflowMode: IngestionOverflowMode
     promiseScheduler: PromiseScheduler
     teamService: TeamService
+    /** Resolves per-session retention before recording, so keys and storage route correctly */
+    retentionService: RetentionService
+    /** Detects newly-seen sessions during the pre-record session-key resolution. */
+    sessionTracker: SessionTracker
+    /** Blocks and rate-limits new sessions during the pre-record session-key resolution. */
+    sessionFilter: SessionFilter
+    /** Resolves per-session encryption keys before recording. */
+    keyStore: KeyStore
+    /** Caps how many sessions resolve their encryption key concurrently, bounding KMS/DynamoDB fan-out. */
+    sessionKeyResolutionMaxConcurrency: number
     /** TopHog registry for tracking metrics. */
     topHog: TopHogRegistry
     /** Session batch manager for recording sessions. */
@@ -56,18 +77,24 @@ export interface SessionReplayPipelineConfig {
  */
 export function createSessionReplayPipeline(
     config: SessionReplayPipelineConfig
-): BatchPipelineUnwrapper<
+): BatchPipeline<
     SessionReplayPipelineInput,
     SessionReplayPipelineOutput,
-    { message: Message },
+    MessageContext,
+    MessageContext,
     OverflowOutput
 > {
     const {
         outputs,
         eventIngestionRestrictionManager,
-        overflowEnabled,
+        overflowMode,
         promiseScheduler,
         teamService,
+        retentionService,
+        sessionTracker,
+        sessionFilter,
+        keyStore,
+        sessionKeyResolutionMaxConcurrency,
         topHog,
         sessionBatchManager,
         isDebugLoggingEnabled,
@@ -80,7 +107,7 @@ export function createSessionReplayPipeline(
 
     const topHogWrapper = createTopHogWrapper(topHog)
 
-    const pipeline = newBatchPipelineBuilder<SessionReplayPipelineInput, { message: Message }>()
+    const pipeline = newBatchPipelineBuilder<SessionReplayPipelineInput, MessageContext>()
         .messageAware((b) =>
             b
                 .sequentially((b) =>
@@ -89,13 +116,52 @@ export function createSessionReplayPipeline(
                         .pipe(createParseHeadersStep())
                         .pipe(
                             createApplyEventRestrictionsStep(eventIngestionRestrictionManager, {
-                                overflowEnabled,
+                                overflowMode,
                                 preservePartitionLocality: true, // Sessions must stay on the same partition
                             })
                         )
+                        // Validate the headers capture guarantees (DLQ if missing) and narrow the type
+                        .pipe(createValidateSessionReplayHeadersStep())
                         // Validate team ownership and enrich with team context
                         .pipe(createTeamFilterStep(teamService))
                 )
+                // Resolve retention for the whole batch in one call, before the message is parsed and
+                // recorded — keyed on the (validated) session_id header. Sessions with unresolvable
+                // retention are dropped before any parse or write.
+                .gather()
+                .pipeBatchWithRetry(createResolveRetentionStep(retentionService, sessionBatchManager), {
+                    tries: 3,
+                    sleepMs: 100,
+                })
+                // Track sessions and rate-limit new ones for the whole batch, tagging the survivors with
+                // isNewSession and dropping the blocked ones right here (they carry no key, so nothing
+                // downstream acts on them). Its own retry scope means a later key-resolution failure never
+                // re-runs the rate limiter and double-charges the budget.
+                .pipeBatchWithRetry(createTrackAndGateStep(sessionTracker, sessionFilter), {
+                    tries: 3,
+                    sleepMs: 100,
+                })
+                // Resolve each session's encryption key. Grouped by session so it runs once per session
+                // (the cached keystore fans the key to its other messages) and concurrently across
+                // sessions, capped to bound KMS/DynamoDB fan-out. Per-session retry isolates a transient
+                // keystore blip to that one session. Deleted sessions are dropped here.
+                .groupBy((element) => `${element.team.teamId}:${element.headers.session_id}`)
+                .concurrently(
+                    (group) =>
+                        group.sequentially((b) =>
+                            b.retry((rb) => rb.pipe(createResolveKeyStep(keyStore)), {
+                                name: 'resolve_session_key',
+                                tries: 3,
+                                sleepMs: 100,
+                            })
+                        ),
+                    { maxConcurrency: sessionKeyResolutionMaxConcurrency }
+                )
+                // Re-collect the per-session groups into one batch — both to mark the whole batch seen
+                // in a single Redis write and as the barrier that guarantees every key is resolved first.
+                .gather()
+                // Mark the surviving new sessions seen, now that every key is durably resolved.
+                .pipeBatch(createMarkSeenStep(sessionTracker))
                 // Map TeamForReplay.teamId to context.team.id for handleIngestionWarnings
                 .filterMap(
                     (element) => ({
@@ -122,7 +188,6 @@ export function createSessionReplayPipeline(
                                             )
                                             // Monitor library version and emit warnings for old versions
                                             .pipe(createLibVersionMonitorStep())
-                                            // Record to session batch
                                             .pipe(
                                                 topHogWrapper(
                                                     createRecordSessionEventStep({
@@ -156,37 +221,51 @@ export function createSessionReplayPipeline(
         .gather()
         .build()
 
-    return createUnwrapper(pipeline)
+    return pipeline
 }
 
 /**
- * Runs a batch of messages through the session replay pipeline.
+ * Runs a batch of messages through the session replay pipeline and returns the highest Kafka offset
+ * reached per partition.
  *
- * Returns parsed messages for the existing team filtering/processing flow to continue.
- * In future commits, the pipeline will handle all processing internally.
+ * Every message ends the pipeline with a terminal result — OK (recorded), DROP, DLQ, or REDIRECT —
+ * and each result still carries its source message in the context. Draining them here and taking the
+ * max offset per partition is the single place Kafka progress is tracked: the recorder no longer
+ * tracks offsets while recording, and drop/dlq steps no longer have to remember to. The caller feeds
+ * the returned offsets to the offset manager, which commits them on the next flush.
+ *
+ * Relies on the pipeline draining the whole fed batch before it returns null, so every fed message
+ * yields exactly one terminal result here.
  */
 export async function runSessionReplayPipeline(
-    pipeline: BatchPipelineUnwrapper<
+    pipeline: BatchPipeline<
         SessionReplayPipelineInput,
         SessionReplayPipelineOutput,
+        { message: Message },
         { message: Message },
         OverflowOutput
     >,
     messages: Message[]
-): Promise<SessionReplayPipelineOutput[]> {
+): Promise<Map<number, number>> {
+    const maxOffsetByPartition = new Map<number, number>()
     if (messages.length === 0) {
-        return []
+        return maxOffsetByPartition
     }
 
     const batch = createBatch(messages.map((message) => ({ message })))
     pipeline.feed(batch)
 
-    const allResults: SessionReplayPipelineOutput[] = []
     let results = await pipeline.next()
     while (results !== null) {
-        allResults.push(...results)
+        for (const { context } of results) {
+            const { partition, offset } = context.message
+            const current = maxOffsetByPartition.get(partition)
+            if (current === undefined || offset > current) {
+                maxOffsetByPartition.set(partition, offset)
+            }
+        }
         results = await pipeline.next()
     }
 
-    return allResults
+    return maxOffsetByPartition
 }

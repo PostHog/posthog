@@ -10,6 +10,7 @@ from pydantic import BaseModel, Field, ValidationError
 from posthog.models import Team
 from posthog.sync import database_sync_to_async
 
+from products.signals.backend.agent_runtime import STEP_CUSTOM_AGENT, resolve_agent_runtime
 from products.signals.backend.artefact_schemas import ArtefactContent, artefact_type_for
 from products.signals.backend.auto_start import maybe_autostart_from_report_artefacts
 from products.signals.backend.custom_agent.persistence import (
@@ -602,13 +603,18 @@ Return only a JSON object matching this schema. Do not include markdown fences o
                 SIGNALS_REPORT_RESEARCH_ENV_NAME,
                 tasks_facade.SandboxNetworkAccessLevel.TRUSTED,
             )
+            agent_runtime = await database_sync_to_async(resolve_agent_runtime, thread_sensitive=False)(
+                self.team_id, STEP_CUSTOM_AGENT
+            )
             context = CustomPromptSandboxContext(
                 team_id=self.team_id,
                 user_id=self.user_id,
                 repository=self.repository,
                 sandbox_environment_id=sandbox_environment_id,
                 posthog_mcp_scopes="read_only",
-                model=self.model,
+                model=agent_runtime.model or self.model,
+                runtime_adapter=agent_runtime.runtime_adapter,
+                reasoning_effort=agent_runtime.reasoning_effort,
             )
             session, raw_text = await MultiTurnSession.start_raw(
                 prompt=prompt,

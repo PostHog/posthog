@@ -14,6 +14,9 @@
 //! cargo test -p cohort-stream-processor --test merge_durability -- --ignored --test-threads=1
 //! ```
 
+// Tests seed and assert through `CohortStore` directly — the sanctioned direct-store test surface.
+#![allow(clippy::disallowed_methods)]
+
 use std::collections::HashSet;
 use std::future::Future;
 use std::panic::AssertUnwindSafe;
@@ -47,7 +50,8 @@ use cohort_stream_processor::store::durability::{
     OffsetManifest, RestoreSource, S3Uploader,
 };
 use cohort_stream_processor::store::{
-    CohortStore, LeafStateKey, Stage1Key, StoreConfig, TombstoneKey,
+    BehavioralKey, CohortStore, LeafStateKey, OffloadConfig, OffloadMode, StoreConfig, StoreHandle,
+    TombstoneKey,
 };
 use cohort_stream_processor::sweep::Sweeper;
 use cohort_stream_processor::workers::{
@@ -511,14 +515,9 @@ fn stage1_state(
     lsk: LeafStateKey,
     person: Uuid,
 ) -> Option<Stage1State> {
-    let key = Stage1Key {
-        partition_id,
-        team_id: TEAM as u64,
-        leaf_state_key: lsk,
-        person_id: person,
-    };
+    let key = BehavioralKey::new(partition_id, TEAM as u64, person, lsk);
     store
-        .get_stage1(&key)
+        .get_behavioral(&key)
         .unwrap()
         .map(|bytes| StatefulRecord::decode(&bytes).unwrap().state)
 }
@@ -614,6 +613,17 @@ fn register_instance(manager: &mut Manager, name: &str) -> [Handle; 4] {
     ]
 }
 
+fn test_handle(store: &CohortStore) -> StoreHandle {
+    StoreHandle::new(
+        store.clone(),
+        OffloadConfig {
+            mode: OffloadMode::All,
+            event_read_permits: 16,
+            maintenance_permits: 6,
+        },
+    )
+}
+
 struct Instance {
     store: CohortStore,
     dispatcher: Arc<EventDispatcher>,
@@ -705,7 +715,7 @@ async fn spawn_instance(
     let dispatcher = Arc::new(EventDispatcher::new(
         PartitionRouter::new(64),
         events_tracker,
-        store.clone(),
+        test_handle(&store),
         Arc::new(catalog),
         membership_sink,
         merge_deps,

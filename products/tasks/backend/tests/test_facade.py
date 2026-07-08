@@ -17,7 +17,8 @@ from products.tasks.backend.facade import (
     contracts,
     warm as warm_facade,
 )
-from products.tasks.backend.models import SandboxEnvironment, Task, TaskRun
+from products.tasks.backend.models import SandboxCustomImage, SandboxEnvironment, Task, TaskRun
+from products.tasks.backend.prompts import WIZARD_PR_AGENT_PROMPT
 
 FACADE_MODULES = [
     "products.tasks.backend.facade.api",
@@ -109,10 +110,23 @@ class TestFacadeReadsAndMappers(TestCase):
         task = self._make_task()
         self.assertTrue(facade.task_exists(task.id, self.team.id))
         self.assertFalse(facade.task_exists(task.id, self.team.id + 999))
-        # Creator can see it; an unrelated user cannot.
-        self.assertTrue(facade.is_task_visible_to_user(task.id, self.user.id))
+        # Creator can control it; an unrelated user cannot.
+        self.assertTrue(facade.is_task_controllable_by_user(task.id, self.user.id))
         other_user = User.objects.create(email="other@test.com", distinct_id="other")
-        self.assertFalse(facade.is_task_visible_to_user(task.id, other_user.id))
+        self.assertFalse(facade.is_task_controllable_by_user(task.id, other_user.id))
+
+    def test_count_in_progress_runs_for_github_integration_scopes_to_live_runs_of_that_integration(self):
+        integration = Integration.objects.create(team=self.team, kind="github", config={}, sensitive_config={})
+        other_integration = Integration.objects.create(team=self.team, kind="github", config={}, sensitive_config={})
+
+        live_task = self._make_task(github_integration=integration)
+        TaskRun.objects.create(task=live_task, team=self.team, status=TaskRun.Status.IN_PROGRESS)
+        TaskRun.objects.create(task=live_task, team=self.team, status=TaskRun.Status.COMPLETED)
+        other_task = self._make_task(github_integration=other_integration)
+        TaskRun.objects.create(task=other_task, team=self.team, status=TaskRun.Status.IN_PROGRESS)
+
+        self.assertEqual(facade.count_in_progress_runs_for_github_integration(self.team.id, integration.id), 1)
+        self.assertEqual(facade.count_in_progress_runs_for_github_integration(self.team.id + 999, integration.id), 0)
 
     def test_get_latest_pr_url_and_run_by_task(self):
         task = self._make_task()
@@ -194,12 +208,23 @@ class TestFacadeReadsAndMappers(TestCase):
         task = self._make_task()
         fresh = TaskRun.objects.create(task=task, team=self.team, status=TaskRun.Status.QUEUED)
         stale = TaskRun.objects.create(task=task, team=self.team, status=TaskRun.Status.QUEUED)
+        stale_local = TaskRun.objects.create(
+            task=task, team=self.team, status=TaskRun.Status.QUEUED, environment=TaskRun.Environment.LOCAL
+        )
         past = django_timezone.now() - timedelta(hours=48)
-        TaskRun.objects.filter(pk=stale.pk).update(updated_at=past)
+        TaskRun.objects.filter(pk__in=[stale.pk, stale_local.pk]).update(updated_at=past)
 
         stale_ids = facade.get_stale_queued_task_run_ids(older_than=timedelta(hours=24), limit=100)
         self.assertIn(stale.id, stale_ids)
+        # The unrestricted sweep (24h killer) still reaps abandoned local runs.
+        self.assertIn(stale_local.id, stale_ids)
         self.assertNotIn(fresh.id, stale_ids)
+
+        # The dispatch reconciler must never see local (desktop-driven) runs — re-dispatching
+        # one starts a cloud workflow that hijacks and eventually fails the live local session.
+        cloud_ids = facade.get_stale_queued_task_run_ids(older_than=timedelta(hours=24), limit=100, cloud_only=True)
+        self.assertIn(stale.id, cloud_ids)
+        self.assertNotIn(stale_local.id, cloud_ids)
 
         with patch("products.tasks.backend.push_dispatcher.notify_task_run_failed"):
             self.assertTrue(facade.fail_task_run(stale.id, "boom"))
@@ -208,6 +233,90 @@ class TestFacadeReadsAndMappers(TestCase):
         stale.refresh_from_db()
         self.assertEqual(stale.status, TaskRun.Status.FAILED.value)
         self.assertEqual(stale.error_message, "boom")
+
+    @parameterized.expand(
+        [
+            # A directory snapshot captured at a still-allowed path is carried into the new run.
+            ("workspace_path", "/tmp/workspace", True),
+            # A legacy "/tmp" capture is unusable (its content only fits that path, and mounting
+            # over the live /tmp killed sandboxes) — resuming must drop it, not carry it forward
+            # with the path stripped, or downstream defaulting would remount mismatched content.
+            ("legacy_tmp_path", "/tmp", False),
+        ]
+    )
+    def test_run_task_resume_carries_only_usable_directory_snapshots(
+        self, _name: str, prior_mount_path: str, expect_carried: bool
+    ):
+        task = self._make_task()
+        previous_run = TaskRun.objects.create(
+            task=task,
+            team=self.team,
+            status=TaskRun.Status.COMPLETED,
+            state={
+                "snapshot_external_id": "im-dir",
+                "snapshot_kind": "directory",
+                "snapshot_mount_path": prior_mount_path,
+            },
+        )
+
+        with patch("products.tasks.backend.facade.api._trigger_task_processing_workflow"):
+            result = facade.run_task(
+                task.id,
+                self.team.id,
+                self.user.id,
+                validated_data={"mode": "interactive", "resume_from_run_id": str(previous_run.id)},
+            )
+
+        assert result is not None and result.error is None
+        new_run = task.runs.exclude(id=previous_run.id).get()
+        if expect_carried:
+            self.assertEqual(new_run.state.get("snapshot_external_id"), "im-dir")
+            self.assertEqual(new_run.state.get("snapshot_kind"), "directory")
+            self.assertEqual(new_run.state.get("snapshot_mount_path"), prior_mount_path)
+        else:
+            self.assertNotIn("snapshot_external_id", new_run.state)
+            self.assertNotIn("snapshot_kind", new_run.state)
+            self.assertNotIn("snapshot_mount_path", new_run.state)
+
+    @parameterized.expand(
+        [
+            ("ready", SandboxCustomImage.Status.READY, "posthog-sandbox-custom-1-abc:latest", True),
+            ("not_ready", SandboxCustomImage.Status.BUILDING, "", False),
+        ]
+    )
+    def test_run_task_resume_drops_carried_custom_image_when_not_ready(
+        self, _name: str, status: str, modal_image_name: str, expect_carried: bool
+    ):
+        task = self._make_task()
+        image = SandboxCustomImage(
+            team=self.team,
+            created_by=self.user,
+            name="img",
+            status=status,
+            modal_image_name=modal_image_name,
+        )
+        image.save()
+        previous_run = TaskRun.objects.create(
+            task=task,
+            team=self.team,
+            status=TaskRun.Status.COMPLETED,
+            state={"custom_image_id": str(image.id)},
+        )
+
+        with patch("products.tasks.backend.facade.api._trigger_task_processing_workflow"):
+            result = facade.run_task(
+                task.id,
+                self.team.id,
+                self.user.id,
+                validated_data={"mode": "interactive", "resume_from_run_id": str(previous_run.id)},
+            )
+
+        assert result is not None and result.error is None
+        new_run = task.runs.exclude(id=previous_run.id).get()
+        if expect_carried:
+            self.assertEqual(new_run.state.get("custom_image_id"), str(image.id))
+        else:
+            self.assertNotIn("custom_image_id", new_run.state)
 
     def test_stale_queued_created_at_hard_cap(self):
         task = self._make_task()
@@ -239,24 +348,39 @@ class TestFacadeReadsAndMappers(TestCase):
         self.assertEqual(run.state.get("foo"), "bar")
 
     def test_collect_task_run_state_metrics(self):
+        def collect():
+            return facade.collect_task_run_state_metrics(
+                open_statuses=["queued", "in_progress"],
+                age_statuses=["queued", "in_progress"],
+                terminal_statuses=["completed", "failed", "cancelled"],
+                window_seconds=3600,
+            )
+
+        # These are global gauges (no team filter) bucketed by environment too, so other tests' rows can
+        # share a (status, origin_product) key across environments. Measure the delta this test contributes
+        # by summing matching rows across all environments, not an absolute count or a single bucket.
+        def status_total(rows, status, origin_product):
+            return sum(r.value for r in rows if r.status == status and r.origin_product == origin_product)
+
+        queued = (TaskRun.Status.QUEUED.value, Task.OriginProduct.USER_CREATED.value)
+        completed = (TaskRun.Status.COMPLETED.value, Task.OriginProduct.USER_CREATED.value)
+
+        before = collect()
+        created_before = sum(r.value for r in before.created_recently)
+        queued_before = status_total(before.runs_in_status, *queued)
+        terminal_before = status_total(before.terminal_recently, *completed)
+
         task = self._make_task()
         TaskRun.objects.create(task=task, team=self.team, status=TaskRun.Status.QUEUED)
         TaskRun.objects.create(task=task, team=self.team, status=TaskRun.Status.QUEUED)
         TaskRun.objects.create(task=task, team=self.team, status=TaskRun.Status.COMPLETED)
 
-        metrics = facade.collect_task_run_state_metrics(
-            open_statuses=["queued", "in_progress"],
-            age_statuses=["queued", "in_progress"],
-            terminal_statuses=["completed", "failed", "cancelled"],
-            window_seconds=3600,
-        )
-        open_counts = {(r.status, r.origin_product): r.value for r in metrics.runs_in_status}
-        self.assertEqual(open_counts[(TaskRun.Status.QUEUED.value, Task.OriginProduct.USER_CREATED.value)], 2)
-        # COMPLETED is terminal, not open
-        self.assertNotIn((TaskRun.Status.COMPLETED.value, Task.OriginProduct.USER_CREATED.value), open_counts)
-        terminal_counts = {(r.status, r.origin_product): r.value for r in metrics.terminal_recently}
-        self.assertEqual(terminal_counts[(TaskRun.Status.COMPLETED.value, Task.OriginProduct.USER_CREATED.value)], 1)
-        self.assertEqual(sum(r.value for r in metrics.created_recently), 3)
+        metrics = collect()
+        self.assertEqual(status_total(metrics.runs_in_status, *queued) - queued_before, 2)
+        # COMPLETED is terminal, so it never appears in the open runs_in_status gauge
+        self.assertNotIn(completed, {(r.status, r.origin_product) for r in metrics.runs_in_status})
+        self.assertEqual(status_total(metrics.terminal_recently, *completed) - terminal_before, 1)
+        self.assertEqual(sum(r.value for r in metrics.created_recently) - created_before, 3)
         self.assertTrue(all(r.value >= 0 for r in metrics.oldest_open_age_seconds))
 
     def test_upsert_internal_sandbox_env(self):
@@ -292,3 +416,37 @@ class TestFacadeReadsAndMappers(TestCase):
         self.assertTrue(Task.objects.filter(id=created.task_id).exists())
         assert created.latest_run is not None
         self.assertEqual(created.latest_run.task_id, created.task_id)
+
+    @patch("products.tasks.backend.temporal.client.execute_task_processing_workflow")
+    def test_create_and_run_persists_dispatch_params_for_reconcile(self, _mock_workflow):
+        # The reconciler re-dispatches lost runs from the row alone, so the dispatch params
+        # must be committed onto the run — not left only in the in-memory on_commit closure.
+        Integration.objects.create(team=self.team, kind="github", config={})
+        created = facade.create_and_run_task(
+            team=self.team,
+            title="Created via facade",
+            description="desc",
+            origin_product=facade.TaskOriginProduct.USER_CREATED,
+            user_id=self.user.id,
+            repository="posthog/posthog",
+            create_pr=False,
+            posthog_mcp_scopes="full",
+        )
+        assert created.latest_run is not None
+        run = TaskRun.objects.get(id=created.latest_run.id)
+        self.assertEqual(run.state["pending_dispatch"]["create_pr"], False)
+        self.assertEqual(run.state["pending_dispatch"]["posthog_mcp_scopes"], "full")
+        self.assertEqual(run.state["pending_dispatch"]["user_id"], self.user.id)
+
+    @patch("products.tasks.backend.temporal.client.execute_task_processing_workflow")
+    def test_create_wizard_cloud_run_seeds_pending_user_message(self, _mock_workflow):
+        Integration.objects.create(team=self.team, kind="github", config={})
+        created = facade.create_wizard_cloud_run(
+            team=self.team,
+            user_id=self.user.id,
+            repository="acme-co/web",
+        )
+        run = TaskRun.objects.get(task_id=created.task_id)
+        # The agent server boots idle; forward_pending_user_message only kicks it off if the run state
+        # carries the prompt. Without this the cloud wizard stalls right after "Started agent".
+        self.assertEqual(run.state.get("pending_user_message"), WIZARD_PR_AGENT_PROMPT)

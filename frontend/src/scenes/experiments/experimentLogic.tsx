@@ -36,7 +36,7 @@ import { urls } from 'scenes/urls'
 import { refreshTreeItem } from '~/layout/panel-layout/ProjectTree/projectTreeLogic'
 import { cohortsModel } from '~/models/cohortsModel'
 import { groupsModel } from '~/models/groupsModel'
-import { QUERY_TIMEOUT_ERROR_MESSAGE, performQuery } from '~/queries/query'
+import { performQuery } from '~/queries/query'
 import {
     AnyEntityNode,
     Breakdown,
@@ -107,11 +107,14 @@ import { modalsLogic } from './modalsLogic'
 import { SharedMetric } from './SharedMetrics/sharedMetricLogic'
 import { sharedMetricsLogic } from './SharedMetrics/sharedMetricsLogic'
 import {
+    type ExperimentUpdatePayload,
     featureFlagEligibleForExperiment,
     getExperimentVariants,
     getOrderedMetricsWithResults,
     initializeMetricOrdering,
     isLegacyExperiment,
+    toExperimentWritePayload,
+    toFlagVariantsInput,
 } from './utils'
 
 export const NEW_EXPERIMENT: Experiment = {
@@ -241,16 +244,6 @@ interface MetricLoadingSummary {
     cachedCount: number
 }
 
-const OUT_OF_MEMORY_ERROR_CODES = new Set(['memory_limit_exceeded', 'query_memory_limit_exceeded'])
-
-function isOutOfMemoryError(errorCode: string | null, errorMessage: string | null): boolean {
-    if (errorCode && OUT_OF_MEMORY_ERROR_CODES.has(errorCode)) {
-        return true
-    }
-
-    return !!errorMessage && /(out of memory|memory limit exceeded|exceeded memory limit)/i.test(errorMessage)
-}
-
 function parseMetricErrorDetail(error: any): { detail: any; hasDiagnostics: boolean } {
     const errorDetailText = typeof error.detail === 'string' ? error.detail : null
     const errorDetailMatch = errorDetailText?.match(/\{.*\}/)
@@ -264,88 +257,6 @@ function parseMetricErrorDetail(error: any): { detail: any; hasDiagnostics: bool
     } catch {
         return { detail: error.detail || error.message, hasDiagnostics: false }
     }
-}
-
-// Coerces the parsed error detail into a flat string suitable for telemetry:
-// prefers DRF's `{"detail": "..."}` shape over a raw JSON blob so values group
-// readably in property breakdowns.
-export function extractErrorDetailString(errorDetail: unknown): string | null {
-    if (errorDetail == null) {
-        return null
-    }
-    if (typeof errorDetail === 'string') {
-        return errorDetail
-    }
-    if (typeof errorDetail === 'object' && typeof (errorDetail as { detail?: unknown }).detail === 'string') {
-        return (errorDetail as { detail: string }).detail
-    }
-    try {
-        return JSON.stringify(errorDetail)
-    } catch {
-        return null
-    }
-}
-
-function isTimeoutError(errorDetail: unknown, errorMessage: string | null, statusCode: number | null): boolean {
-    if (statusCode === 504 || statusCode === 408) {
-        return true
-    }
-
-    return errorDetail === QUERY_TIMEOUT_ERROR_MESSAGE || errorMessage === QUERY_TIMEOUT_ERROR_MESSAGE
-}
-
-const NETWORK_ERROR_MESSAGE_PATTERN = /(NetworkError|Failed to fetch|Load failed|Failed to execute 'fetch')/i
-
-function isNetworkError(errorCode: string | null, errorMessage: string | null, statusCode: number | null): boolean {
-    if (errorCode === 'network_error' || statusCode === 0) {
-        return true
-    }
-    // Only treat as network error when no HTTP response was received
-    return statusCode === null && !!errorMessage && NETWORK_ERROR_MESSAGE_PATTERN.test(errorMessage)
-}
-
-export type ExperimentMetricErrorType =
-    | 'timeout'
-    | 'out_of_memory'
-    | 'server_error'
-    | 'network_error'
-    | 'not_found'
-    | 'authentication'
-    | 'authorization'
-    | 'validation_error'
-    | 'unknown'
-
-export function classifyError(
-    errorDetail: unknown,
-    errorMessage: string | null,
-    errorCode: string | null,
-    statusCode: number | null
-): ExperimentMetricErrorType {
-    if (isTimeoutError(errorDetail, errorMessage, statusCode)) {
-        return 'timeout'
-    }
-    if (isOutOfMemoryError(errorCode, errorMessage)) {
-        return 'out_of_memory'
-    }
-    if (statusCode !== null && statusCode >= 500) {
-        return 'server_error'
-    }
-    if (isNetworkError(errorCode, errorMessage, statusCode)) {
-        return 'network_error'
-    }
-    if (statusCode === 404) {
-        return 'not_found'
-    }
-    if (statusCode === 401 || errorCode === 'not_authenticated') {
-        return 'authentication'
-    }
-    if (statusCode === 403 || errorCode === 'permission_denied') {
-        return 'authorization'
-    }
-    if (statusCode === 400) {
-        return 'validation_error'
-    }
-    return 'unknown'
 }
 
 /**
@@ -483,18 +394,10 @@ const loadMetrics = async ({
                     }
                 )
             } catch (error: any) {
-                const durationMs = Math.round(performance.now() - startTime)
                 const errorCode = typeof error.code === 'string' ? error.code : null
                 const statusCode = typeof error.status === 'number' ? error.status : null
-                const errorMessage =
-                    typeof error.detail === 'string'
-                        ? error.detail
-                        : typeof error.message === 'string'
-                          ? error.message
-                          : null
                 const { detail: errorDetail, hasDiagnostics } = parseMetricErrorDetail(error)
                 const queryId = response?.query_status?.id || error.queryId || null
-                const errorType = classifyError(errorDetail, errorMessage, errorCode, statusCode)
 
                 currentErrors[originalIndex] = {
                     detail: errorDetail,
@@ -508,19 +411,9 @@ const loadMetrics = async ({
 
                 erroredCount++
 
-                eventUsageLogic.actions.reportExperimentMetricError(experimentId, metric, teamId, queryId, {
-                    duration_ms: durationMs,
-                    metric_index: metricIndex,
-                    is_primary: isPrimary,
-                    is_retry: isRetry,
-                    refresh_id: refreshId,
-                    metric_kind: metricKind,
-                    error_type: errorType,
-                    error_code: errorCode,
-                    error_message: errorMessage,
-                    error_detail: extractErrorDetailString(errorDetail),
-                    status_code: statusCode,
-                })
+                // No telemetry here: the terminal `experiment metric error` event is emitted by the
+                // backend (see products/experiments/backend/hogql_queries/error_handling.py), which
+                // classifies from typed exceptions instead of HTTP status codes.
 
                 onSetResults([...results])
             }
@@ -703,15 +596,17 @@ export const experimentLogic = kea<experimentLogicType>([
         changeExperimentStartDate: (startDate: string) => ({ startDate }),
         changeExperimentEndDate: (endDate: string) => ({ endDate }),
         launchExperiment: true,
-        endExperiment: true,
-        endExperimentWithoutShipping: true,
+        endExperiment: (openCleanupPr: boolean = false) => ({ openCleanupPr }),
+        endExperimentWithoutShipping: (openCleanupPr: boolean = false) => ({ openCleanupPr }),
         finishExperiment: ({
             selectedVariantKey,
             releaseToEveryone,
+            openCleanupPr,
         }: {
             selectedVariantKey: string
             releaseToEveryone: boolean
-        }) => ({ selectedVariantKey, releaseToEveryone }),
+            openCleanupPr?: boolean
+        }) => ({ selectedVariantKey, releaseToEveryone, openCleanupPr: openCleanupPr ?? false }),
         pauseExperiment: true,
         resumeExperiment: true,
         archiveExperiment: (disableFeatureFlag: boolean = false) => ({ disableFeatureFlag }),
@@ -1368,7 +1263,9 @@ export const experimentLogic = kea<experimentLogicType>([
                     response = await api.update(
                         `api/projects/${values.currentProjectId}/experiments/${values.experimentId}`,
                         {
-                            ...values.experiment,
+                            // Sends variant split and rollout through the feature_flag object,
+                            // dropping the deprecated flag-config parameters keys.
+                            ...toExperimentWritePayload(values.experiment),
                             running_time_calculation: {
                                 ...values.experiment?.running_time_calculation,
                                 recommended_running_time: recommendedRunningTime,
@@ -1399,7 +1296,13 @@ export const experimentLogic = kea<experimentLogicType>([
                     }
                 } else {
                     response = await api.create(`api/projects/${values.currentProjectId}/experiments`, {
-                        ...values.experiment,
+                        // A pre-existing flag is linked as-is: the API rejects explicit flag
+                        // config for it, so only send config when the flag will be created.
+                        // Key-aware so a stale match for a previously typed key can't suppress
+                        // config for a fresh key.
+                        ...toExperimentWritePayload(values.experiment, {
+                            omitFlagConfig: values.validExistingFeatureFlag?.key === values.experiment.feature_flag_key,
+                        }),
                         running_time_calculation:
                             /**
                              * only if we are creating a new experiment we need to reset
@@ -1509,7 +1412,7 @@ export const experimentLogic = kea<experimentLogicType>([
             values.experiment && eventUsageLogic.actions.reportExperimentEndDateChange(values.experiment, endDate)
             actions.refreshExperimentResults(true, 'config_change')
         },
-        endExperiment: async () => {
+        endExperiment: async ({ openCleanupPr }) => {
             actions.setEndExperimentLoading(true)
             try {
                 const response: Experiment = await api.create(
@@ -1517,6 +1420,7 @@ export const experimentLogic = kea<experimentLogicType>([
                     {
                         conclusion: values.experiment.conclusion,
                         conclusion_comment: values.experiment.conclusion_comment,
+                        open_cleanup_pr: openCleanupPr,
                     }
                 )
                 actions.setExperiment(response)
@@ -1527,8 +1431,8 @@ export const experimentLogic = kea<experimentLogicType>([
                 actions.setEndExperimentLoading(false)
             }
         },
-        endExperimentWithoutShipping: async () => {
-            actions.endExperiment()
+        endExperimentWithoutShipping: async ({ openCleanupPr }) => {
+            actions.endExperiment(openCleanupPr)
             actions.closeFinishExperimentModal()
             lemonToast.success('Experiment ended successfully')
 
@@ -1807,7 +1711,7 @@ export const experimentLogic = kea<experimentLogicType>([
                 })
             }
         },
-        finishExperiment: async ({ selectedVariantKey, releaseToEveryone }) => {
+        finishExperiment: async ({ selectedVariantKey, releaseToEveryone, openCleanupPr }) => {
             actions.setEndExperimentLoading(true)
             try {
                 const response: Experiment = await api.create(
@@ -1817,6 +1721,7 @@ export const experimentLogic = kea<experimentLogicType>([
                         release_to_everyone: releaseToEveryone,
                         conclusion: values.experiment.conclusion,
                         conclusion_comment: values.experiment.conclusion_comment,
+                        open_cleanup_pr: openCleanupPr,
                     }
                 )
                 actions.setExperiment(response)
@@ -1888,12 +1793,14 @@ export const experimentLogic = kea<experimentLogicType>([
             }
         },
         updateDistribution: async ({ variants, rolloutPercentage }) => {
-            const { rollout_percentage: _, ...otherParams } = values.experiment?.parameters || {}
             actions.updateExperiment({
-                parameters: {
-                    ...otherParams,
-                    feature_flag_variants: variants,
-                    ...(rolloutPercentage !== undefined ? { rollout_percentage: rolloutPercentage } : {}),
+                feature_flag: {
+                    filters: {
+                        multivariate: { variants: toFlagVariantsInput(variants) },
+                        ...(rolloutPercentage !== undefined
+                            ? { groups: [{ properties: [], rollout_percentage: rolloutPercentage }] }
+                            : {}),
+                    },
                 },
                 holdout_id: values.experiment.holdout_id,
                 update_feature_flag_params: true,
@@ -2608,7 +2515,7 @@ export const experimentLogic = kea<experimentLogicType>([
         experimentUpdate: [
             null as Experiment | null,
             {
-                updateExperiment: async (update: Partial<Experiment> & { update_feature_flag_params?: boolean }) => {
+                updateExperiment: async (update: ExperimentUpdatePayload) => {
                     const response: Experiment = await api.update(
                         `api/projects/${values.currentProjectId}/experiments/${values.experimentId}`,
                         update
@@ -2640,7 +2547,8 @@ export const experimentLogic = kea<experimentLogicType>([
                     const { experiment, usesNewQueryRunner } = values
 
                     if (!usesNewQueryRunner) {
-                        return
+                        // A bare `return` would make kea error ("Reducer returned undefined")
+                        return values.exposures
                     }
 
                     const query = setLatestVersionsOnQuery({

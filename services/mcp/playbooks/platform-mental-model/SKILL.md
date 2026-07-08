@@ -44,8 +44,6 @@ the revision row. It declares:
 - `mcps[]` — runtime MCP servers the agent connects to at session
   start (these expose remote tools)
 - `skills[]` — markdown skills the model can load on demand
-- `integrations[]` — team-level integrations the agent expects
-  (e.g. `slack`)
 - `secrets[]` — names of encrypted env keys the agent uses
 - `limits` — per-session caps (`max_turns`, `max_tool_calls`,
   `max_wall_seconds`)
@@ -148,15 +146,30 @@ The skill body is in the bundle at the declared `path`. Skills can
 be short (a few hundred lines) because the platform pays for them
 only when loaded. Push depth into skills, keep `agent.md` lean.
 
-## Secrets vs integrations
+Store skills are canonical. To edit a skill's body, use `skill-update`
+(PATCH) and manage its bundled files with `skill-file-create` /
+`skill-file-delete` / `skill-file-rename` — the inline
+`skills/<id>/SKILL.md` you see in a revision's bundle is a snapshot,
+not the editable source. Reference a store skill from a revision with
+`agent-applications-revisions-skill-refs-set`; browse and read store
+skills via `skill-list` / `skill-get`.
+
+## Secrets and remote credentials
 
 - **Secrets** (`spec.secrets[]`) are per-application encrypted env
   values the agent uses (e.g. a specific Stripe API key). Set via
   the punch-out flow — you never see the value.
-- **Integrations** (`spec.integrations[]`) are team-wide OAuth
-  connections (e.g. `slack`). Resolved at session start from the
-  team's integration table. You don't issue them; the team
-  installs them via the PostHog integrations UI.
+- For a remote service the agent talks to, connect an MCP server and
+  reference it with `mcps[].connection` (one shared credential the
+  owner connects once), or wire an `identity_providers[]` entry for
+  per-asker OAuth. There is no team-wide `integrations[]` spec field.
+
+When you curate a connection-based MCP's per-agent tool permissions
+(`spec.mcps[].tools[].level` + `default_tool_approval`), FIRST call
+`mcp-connection-tools-list` with the connection id (discover ids via
+`mcp-connections-list`) to load that connection's REAL tool names.
+Never guess tool names from a past session or from skill prose — the
+catalog is the only authority for what the server actually exposes.
 
 ## Revisions vs sessions — the lifetime distinction
 

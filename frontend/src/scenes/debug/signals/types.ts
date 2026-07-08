@@ -1,34 +1,21 @@
 import type * as d3 from 'd3'
 
-// ── Signal data types ──────────────────────────────────────────────────────────
+import type {
+    MatchedMetadataApi,
+    NoMatchMetadataApi,
+    SignalMatchMetadataApi,
+    SignalNodeApi,
+} from 'products/signals/frontend/generated/api.schemas'
 
-export interface MatchedMetadata {
-    parent_signal_id: string
-    match_query: string
-    reason: string
-}
+// ── Signal data types (aliases of the OpenAPI-generated shapes) ────────────────
 
-export interface NoMatchMetadata {
-    reason: string
-    rejected_signal_ids: string[]
-}
-
-export type SignalMatchMetadata = MatchedMetadata | NoMatchMetadata
+export type MatchedMetadata = MatchedMetadataApi
+export type NoMatchMetadata = NoMatchMetadataApi
+export type SignalMatchMetadata = SignalMatchMetadataApi
+export type SignalNode = SignalNodeApi
 
 export function isMatchedMetadata(m: SignalMatchMetadata): m is MatchedMetadata {
     return 'parent_signal_id' in m
-}
-
-export interface SignalNode {
-    signal_id: string
-    content: string
-    source_product: string
-    source_type: string
-    source_id: string
-    weight: number
-    timestamp: string
-    extra: Record<string, unknown>
-    match_metadata?: SignalMatchMetadata | null
 }
 
 // ── Layout / graph types ───────────────────────────────────────────────────────

@@ -20,6 +20,7 @@ import type {
 import { deriveTrackProgress } from './achievementProgress'
 import { isWebAnalyticsAchievementsEnabled } from './gating'
 import type { webAnalyticsAchievementsLogicType } from './webAnalyticsAchievementsLogicType'
+import { webAnalyticsAchievementsPreferencesLogic } from './webAnalyticsAchievementsPreferencesLogic'
 
 const celebrationKey = (trackKey: string, stage: number): string => `${trackKey}:${stage}`
 
@@ -41,7 +42,14 @@ function sortByCloseness(
 export const webAnalyticsAchievementsLogic = kea<webAnalyticsAchievementsLogicType>([
     path(['scenes', 'web-analytics', 'achievements', 'webAnalyticsAchievementsLogic']),
     connect(() => ({
-        values: [teamLogic, ['currentProjectId'], featureFlagLogic, ['featureFlags']],
+        values: [
+            teamLogic,
+            ['currentProjectId'],
+            featureFlagLogic,
+            ['featureFlags'],
+            webAnalyticsAchievementsPreferencesLogic,
+            ['achievementsOptOut', 'preferences'],
+        ],
     })),
     actions({
         openModal: true,
@@ -195,9 +203,14 @@ export const webAnalyticsAchievementsLogic = kea<webAnalyticsAchievementsLogicTy
                 posthog.captureException(error)
             }
         },
+        [webAnalyticsAchievementsPreferencesLogic.actionTypes.loadPreferencesSuccess]: () => {
+            if (isWebAnalyticsAchievementsEnabled(values.featureFlags, values.achievementsOptOut)) {
+                actions.loadAchievements()
+            }
+        },
     })),
     afterMount(({ actions, values }) => {
-        if (isWebAnalyticsAchievementsEnabled(values.featureFlags)) {
+        if (values.preferences && isWebAnalyticsAchievementsEnabled(values.featureFlags, values.achievementsOptOut)) {
             actions.loadAchievements()
         }
     }),
