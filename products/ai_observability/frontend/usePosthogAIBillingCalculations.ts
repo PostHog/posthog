@@ -7,14 +7,9 @@ import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { EnrichedTraceTreeNode } from './aiObservabilityTraceDataLogic'
 import { isLLMEvent } from './utils'
 
-// AI billing markup: 20% markup on top of cost. Some products bill model costs as
-// pure pass-through (no markup) — keep in sync with posthog/tasks/usage_report.py.
+// AI billing markup: 20% on top of cost, except posthog_code which bills model costs
+// at cost (pass-through) — keep in sync with posthog/tasks/usage_report.py.
 const AI_COST_MARKUP_PERCENT = 0.2
-const PASS_THROUGH_AI_PRODUCTS = new Set(['posthog_code'])
-
-export function getMarkupPercentForProduct(aiProduct: unknown): number {
-    return typeof aiProduct === 'string' && PASS_THROUGH_AI_PRODUCTS.has(aiProduct) ? 0 : AI_COST_MARKUP_PERCENT
-}
 
 export function computeBillingTotals(enrichedTree: EnrichedTraceTreeNode[]): {
     totalCostUsd: number
@@ -28,7 +23,7 @@ export function computeBillingTotals(enrichedTree: EnrichedTraceTreeNode[]): {
             const cost = Number(ev.properties.$ai_total_cost_usd ?? 0)
             if (!isNaN(cost)) {
                 totalCostUsd += cost
-                markupUsd += cost * getMarkupPercentForProduct(ev.properties.ai_product)
+                markupUsd += ev.properties.ai_product === 'posthog_code' ? 0 : cost * AI_COST_MARKUP_PERCENT
             }
         }
         if (node.children) {

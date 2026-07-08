@@ -64,7 +64,7 @@ _TRUNCATABLE_FIELDS = ("$ai_output_choices", "$ai_input")
 
 
 def _is_product_billable(product: str) -> bool:
-    """A product is billable iff it bills into a credit bucket in the central
+    """A product is billable if it bills into a credit bucket in the central
     registry. False for unknown products so we never accidentally bill calls we
     can't attribute.
     """
