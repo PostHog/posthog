@@ -31,13 +31,13 @@ _ORIGIN_POSTHOG = "posthog"
 _ORIGIN_WAREHOUSE = "warehouse"
 
 
-def get_frequency_target(node: Node) -> timedelta | None:
+def get_declared_target(node: Node) -> timedelta | None:
     """Return the node's declared freshness target, or None if it has none."""
     seconds = (node.properties or {}).get(_SYSTEM_KEY, {}).get(_FREQUENCY_KEY, {}).get(_TARGET_SECONDS_KEY)
     return timedelta(seconds=seconds) if seconds is not None else None
 
 
-def set_frequency_target(node: Node, target: timedelta | None) -> None:
+def set_declared_target(node: Node, target: timedelta | None) -> None:
     """Set (or clear, with None) the node's declared target without touching sibling system state."""
     properties = node.properties or {}
     frequency = properties.setdefault(_SYSTEM_KEY, {}).setdefault(_FREQUENCY_KEY, {})
@@ -82,6 +82,10 @@ def _resolve_warehouse_source_intervals(nodes: list[Node]) -> dict[str, timedelt
         table_id = (node.properties or {}).get(_WAREHOUSE_TABLE_ID_KEY)
         node_table = tables_by_id.get((node.team_id, str(table_id))) if table_id else None
         if node_table is None:
+            # Best-effort fallback: name is not unique per team, and on a collision the
+            # index above kept an arbitrary row, so this may resolve to the wrong table.
+            # Acceptable because an unresolvable/wrong match only widens the best-effort
+            # set; never treat this path as authoritative.
             node_table = tables_by_name.get((node.team_id, node.name))
         node_schema = schemas_by_table_id.get(node_table.id) if node_table is not None else None
         if node_schema is None or not node_schema.should_sync:
@@ -129,7 +133,7 @@ class FrequencyGraph:
 
     nodes: set[str]  # schedulable (non-TABLE) node ids
     edges: list[tuple[str, str]]  # (upstream_id, downstream_id), includes source tables
-    targets: dict[str, timedelta]  # declared per-node targets
+    declared_targets: dict[str, timedelta]  # declared per-node targets
     source_intervals: dict[str, timedelta]  # per source (TABLE) node
     best_effort_source_ids: set[str]  # sources treated as STREAMING but not guaranteed
 
@@ -143,11 +147,11 @@ def build_frequency_graph(dag: DAG) -> FrequencyGraph:
     ]
 
     schedulable = {str(node.id) for node in nodes if node.type != NodeType.TABLE}
-    targets: dict[str, timedelta] = {}
+    declared_targets: dict[str, timedelta] = {}
     for node in nodes:
-        target = get_frequency_target(node)
+        target = get_declared_target(node)
         if target is not None:
-            targets[str(node.id)] = target
+            declared_targets[str(node.id)] = target
 
     source_nodes = [node for node in nodes if node.type == NodeType.TABLE]
     source_intervals, best_effort = resolve_source_intervals(source_nodes)
@@ -155,7 +159,7 @@ def build_frequency_graph(dag: DAG) -> FrequencyGraph:
     return FrequencyGraph(
         nodes=schedulable,
         edges=edges,
-        targets=targets,
+        declared_targets=declared_targets,
         source_intervals=source_intervals,
         best_effort_source_ids=best_effort,
     )

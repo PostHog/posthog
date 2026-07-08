@@ -7,14 +7,17 @@ from unittest import TestCase, mock
 from parameterized import parameterized
 from temporalio.client import ScheduleListActionStartWorkflow
 
+from posthog.temporal.common.search_attributes import POSTHOG_SCHEDULE_TYPE_KEY
+
 from products.data_modeling.backend.logic.cohort_scheduling import tier_schedule_id
 from products.data_modeling.backend.logic.freshness import STREAMING, UnsupportedFrequencyTargetError
-from products.data_modeling.backend.logic.node_frequency import FrequencyGraph, set_frequency_target
+from products.data_modeling.backend.logic.node_frequency import FrequencyGraph, set_declared_target
 from products.data_modeling.backend.logic.schedule_reconcile import _find_unsatisfiable, reconcile_dag_schedules
 from products.data_modeling.backend.models.dag import DAG
 from products.data_modeling.backend.models.datawarehouse_saved_query import DataWarehouseSavedQuery
 from products.data_modeling.backend.models.edge import Edge
 from products.data_modeling.backend.models.node import Node, NodeType
+from products.data_modeling.backend.schedule import DATA_MODELING_EXECUTE_DAG_WORKFLOW
 
 M15 = timedelta(minutes=15)
 H1 = timedelta(hours=1)
@@ -46,7 +49,7 @@ class TestReconcileDagSchedules(BaseTest):
         endpoint = _saved_query_node(self.team, dag, "ep", NodeType.ENDPOINT)
         Edge.objects.create(team=self.team, dag=dag, source=source, target=matview)
         Edge.objects.create(team=self.team, dag=dag, source=matview, target=endpoint)
-        set_frequency_target(endpoint, M15)
+        set_declared_target(endpoint, M15)
 
         dag_id = str(dag.id)
         stale_id = tier_schedule_id(dag_id, H1)
@@ -75,6 +78,11 @@ class TestReconcileDagSchedules(BaseTest):
         created_inputs = create.call_args.kwargs["schedule"].action.args[0]
         self.assertEqual(sorted(created_inputs["node_ids"]), sorted([str(matview.id), str(endpoint.id)]))
 
+        # tagged with the schedule type: get_v2_scheduled_dag_ids' unscoped sweep filters on it,
+        # so an untagged tier schedule would make its DAG look un-migrated
+        created_attrs = {pair.key.name: pair.value for pair in create.call_args.kwargs["search_attributes"]}
+        self.assertEqual(created_attrs[POSTHOG_SCHEDULE_TYPE_KEY.name], DATA_MODELING_EXECUTE_DAG_WORKFLOW)
+
         # the stale H1 schedule is removed; nothing to update
         update.assert_not_called()
         delete.assert_called_once_with(temporal, schedule_id=stale_id)
@@ -86,7 +94,7 @@ class TestReconcileDagSchedules(BaseTest):
         endpoint = _saved_query_node(self.team, dag, "ep", NodeType.ENDPOINT)
         Edge.objects.create(team=self.team, dag=dag, source=source, target=matview)
         Edge.objects.create(team=self.team, dag=dag, source=matview, target=endpoint)
-        set_frequency_target(endpoint, M15)
+        set_declared_target(endpoint, M15)
 
         dag_id = str(dag.id)
         existing_id = tier_schedule_id(dag_id, M15)
@@ -122,8 +130,8 @@ class TestReconcileDagSchedules(BaseTest):
         ep_slow = _saved_query_node(self.team, dag, "slow", NodeType.ENDPOINT)
         Edge.objects.create(team=self.team, dag=dag, source=source, target=ep_fast)
         Edge.objects.create(team=self.team, dag=dag, source=source, target=ep_slow)
-        set_frequency_target(ep_fast, M15)
-        set_frequency_target(ep_slow, H6)
+        set_declared_target(ep_fast, M15)
+        set_declared_target(ep_slow, H6)
 
         legacy_id = str(dag.id)  # migration-era single schedule, slated for deletion once tiers exist
 
@@ -165,7 +173,7 @@ class TestReconcileDagSchedules(BaseTest):
         source = _table_node(self.team, dag, "events", {"origin": "posthog"})
         endpoint = _saved_query_node(self.team, dag, "ep", NodeType.ENDPOINT)
         Edge.objects.create(team=self.team, dag=dag, source=source, target=endpoint)
-        set_frequency_target(endpoint, timedelta(minutes=45))
+        set_declared_target(endpoint, timedelta(minutes=45))
 
         module = "products.data_modeling.backend.logic.schedule_reconcile"
         with mock.patch(f"{module}.async_connect", new=mock.AsyncMock()) as connect:
@@ -191,7 +199,7 @@ class TestFindUnsatisfiable(TestCase):
         graph = FrequencyGraph(
             nodes={"a"},
             edges=[("src", "a")],
-            targets={"a": effective},
+            declared_targets={"a": effective},
             source_intervals={"src": source_interval},
             best_effort_source_ids=set(),
         )
@@ -199,12 +207,16 @@ class TestFindUnsatisfiable(TestCase):
         if flagged:
             self.assertEqual(len(result), 1)
             self.assertEqual(result[0].node_id, "a")
-            self.assertEqual(result[0].floor, source_interval)
+            self.assertEqual(result[0].source_floor, source_interval)
         else:
             self.assertEqual(result, [])
 
     def test_unscheduled_node_is_never_flagged(self):
         graph = FrequencyGraph(
-            nodes={"a"}, edges=[("src", "a")], targets={}, source_intervals={"src": H6}, best_effort_source_ids=set()
+            nodes={"a"},
+            edges=[("src", "a")],
+            declared_targets={},
+            source_intervals={"src": H6},
+            best_effort_source_ids=set(),
         )
         self.assertEqual(_find_unsatisfiable(graph, {"a": None}, {}), [])
