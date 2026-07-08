@@ -55,6 +55,12 @@ def get_annotations_for_ai_context(
                 "tag__name", flat=True
             )
         )
+        # Insights also inherit the tags of dashboards they're tiled on, mirroring the chart overlay.
+        target_tags.update(
+            TaggedItem.objects.filter(dashboard__tiles__insight_id__in=insight_ids, tag__team_id=team.id).values_list(
+                "tag__name", flat=True
+            )
+        )
     if target_tags:
         scopes |= Q(scope=Annotation.Scope.TAG, tagged_items__tag__name__in=target_tags)
 

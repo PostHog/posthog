@@ -12,6 +12,7 @@ import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
 import { teamLogic } from 'scenes/teamLogic'
 
 import { AnnotationDataWithoutInsight, annotationsModel } from '~/models/annotationsModel'
+import { dashboardsModel } from '~/models/dashboardsModel'
 import { BreakdownFilter } from '~/queries/schema/schema-general'
 import {
     AnnotationScope,
@@ -85,6 +86,8 @@ export const annotationsOverlayLogic = kea<annotationsOverlayLogicType>([
             ['interval', 'properties', 'breakdownFilter'],
             annotationsModel,
             ['annotations', 'annotationsLoading'],
+            dashboardsModel,
+            ['rawDashboards'],
             teamLogic,
             ['timezone'],
             featureFlagLogic,
@@ -167,6 +170,7 @@ export const annotationsOverlayLogic = kea<annotationsOverlayLogicType>([
                 s.savedInsight,
                 s.properties,
                 s.breakdownFilter,
+                s.rawDashboards,
                 // Read as a selector input (not in the compute body) so tag matching recomputes
                 // when the dashboard - which loads asynchronously - arrives or its tags change.
                 (_, props: AnnotationsOverlayLogicProps) =>
@@ -184,6 +188,7 @@ export const annotationsOverlayLogic = kea<annotationsOverlayLogicType>([
                 savedInsight,
                 properties,
                 breakdownFilter,
+                rawDashboards,
                 dashboardTags
             ) => {
                 // This assumes that there are no more annotations in the project than AnnotationsViewSet
@@ -191,9 +196,15 @@ export const annotationsOverlayLogic = kea<annotationsOverlayLogicType>([
                 // where 3 projects exceed this limit. To accommodate those, we should always make a request for the
                 // date range of the graph, and not rely on the annotations in the store.
 
-                // A tag-scoped annotation shows on any surface sharing one of its tags: insight tags come from
-                // the saved insight, dashboard tags from the dashboard being viewed (if on a dashboard).
-                const surfaceTags = new Set<string>([...(savedInsight?.tags ?? []), ...(dashboardTags ?? [])])
+                // A tag-scoped annotation shows on any surface sharing one of its tags: the insight's own tags,
+                // plus - mirroring how Dashboard scope behaves - the current dashboard's tags when on a dashboard,
+                // or the tags of every dashboard the insight is tiled on when viewed standalone.
+                const tiledDashboardTags = !dashboardId
+                    ? (savedInsight?.dashboard_tiles ?? []).flatMap(
+                          ({ dashboard_id }) => rawDashboards[dashboard_id]?.tags ?? []
+                      )
+                    : (dashboardTags ?? [])
+                const surfaceTags = new Set<string>([...(savedInsight?.tags ?? []), ...tiledDashboardTags])
 
                 const filteredAnnotations = dateRange
                     ? annotations.filter(
