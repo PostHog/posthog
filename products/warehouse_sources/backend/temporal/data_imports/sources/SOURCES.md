@@ -498,6 +498,7 @@ doesn't conflict with concurrent PRs.
 - greythr
 - gusto
 - harness
+- healthchecks
 - heap
 - helpscout
 - hibob
@@ -510,6 +511,7 @@ doesn't conflict with concurrent PRs.
 - ikas
 - illumina_basespace
 - imagga
+- impact
 - infor_nexus
 - insightful
 - instagram
@@ -591,6 +593,7 @@ doesn't conflict with concurrent PRs.
 - payfit
 - paylocity
 - paypal
+- peec_ai
 - pendo
 - pennylane
 - perigon
