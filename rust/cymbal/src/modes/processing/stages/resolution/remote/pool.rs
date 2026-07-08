@@ -5,7 +5,7 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex as StdMutex};
 use std::time::{Duration, Instant};
 
-use rand::{seq::SliceRandom, Rng};
+use rand::Rng;
 use sha2::{Digest, Sha256};
 use thiserror::Error;
 use tokio::sync::{Mutex, Notify};
@@ -481,12 +481,18 @@ impl EndpointPool {
             if snapshot.draining {
                 continue;
             }
+            let local_in_flight = state
+                .in_flight
+                .load(Ordering::Acquire)
+                .min(u32::MAX as usize) as u32;
+            let estimated_in_flight = snapshot.in_flight.max(local_in_flight);
             candidates.push(Candidate {
                 addr: *addr,
                 channel: state.channel.clone(),
                 mux: state.mux.clone(),
                 counter: state.in_flight.clone(),
                 endpoint_label: state.endpoint_label.clone(),
+                load_weight: available_capacity_weight(estimated_in_flight, snapshot.max_in_flight),
             });
         }
 
@@ -513,8 +519,8 @@ impl EndpointPool {
         }
 
         let chosen = match strategy {
-            SelectionStrategy::Random => match candidates.choose(&mut rand::thread_rng()) {
-                Some(candidate) => candidate.clone(),
+            SelectionStrategy::Random => match choose_load_weighted_candidate(candidates) {
+                Some(candidate) => candidate,
                 None => {
                     return Err(EndpointPoolError::Empty(classify_empty_reason(
                         active_endpoint_count,
@@ -527,12 +533,12 @@ impl EndpointPool {
                 // Score each candidate once (O(n)) rather than re-hashing inside
                 // the comparator (O(n log n) hashes). Rank by score desc with a
                 // deterministic addr-asc tie-break, then discard the scores.
-                let mut scored: Vec<(u64, Candidate)> = candidates
+                let mut scored: Vec<(f64, Candidate)> = candidates
                     .into_iter()
-                    .map(|c| (rendezvous_score(routing_key, &c.endpoint_label), c))
+                    .map(|c| (load_adjusted_rendezvous_score(routing_key, &c), c))
                     .collect();
                 scored.sort_by(|(a_score, a), (b_score, b)| {
-                    b_score.cmp(a_score).then(a.addr.cmp(&b.addr))
+                    b_score.total_cmp(a_score).then(a.addr.cmp(&b.addr))
                 });
                 let ranked: Vec<Candidate> = scored.into_iter().map(|(_, c)| c).collect();
                 match choose_ranked_candidate(ranked, self.config.routing_jitter) {
@@ -692,6 +698,7 @@ struct Candidate {
     mux: ResolveMux,
     counter: Arc<AtomicUsize>,
     endpoint_label: Arc<str>,
+    load_weight: f64,
 }
 
 enum SelectionStrategy<'a> {
@@ -727,6 +734,18 @@ fn rendezvous_score(routing_key: &str, addr_label: &str) -> u64 {
     hasher.update(addr_label.as_bytes());
     let digest = hasher.finalize();
     u64::from_be_bytes(digest[0..8].try_into().expect("sha256 digest has 8 bytes"))
+}
+
+fn load_adjusted_rendezvous_score(routing_key: &str, candidate: &Candidate) -> f64 {
+    rendezvous_score(routing_key, &candidate.endpoint_label) as f64 * candidate.load_weight
+}
+
+fn available_capacity_weight(in_flight: u32, max_in_flight: u32) -> f64 {
+    const MIN_WEIGHT: f64 = 0.01;
+
+    let capacity = max_in_flight.max(1) as f64;
+    let saturation = (in_flight as f64 / capacity).clamp(0.0, 1.0);
+    (1.0 - saturation).max(MIN_WEIGHT).powi(2)
 }
 
 #[derive(Clone, Copy)]
@@ -810,24 +829,59 @@ fn choose_ranked_candidate(candidates: Vec<Candidate>, routing_jitter: f64) -> O
     if routing_jitter <= 0.0 || candidates.len() == 1 {
         return Some(top_ranked);
     }
-    if routing_jitter >= 1.0 {
-        return candidates.choose(&mut rand::thread_rng()).cloned();
+
+    let weights = candidates
+        .iter()
+        .enumerate()
+        .map(|(rank, candidate)| rank_weight(rank, routing_jitter) * candidate.load_weight)
+        .collect::<Vec<_>>();
+
+    choose_weighted_candidate(candidates, &weights)
+}
+
+fn choose_load_weighted_candidate(candidates: Vec<Candidate>) -> Option<Candidate> {
+    let weights = candidates
+        .iter()
+        .map(|candidate| candidate.load_weight)
+        .collect::<Vec<_>>();
+    choose_weighted_candidate(candidates, &weights)
+}
+
+fn choose_weighted_candidate(candidates: Vec<Candidate>, weights: &[f64]) -> Option<Candidate> {
+    if candidates.is_empty() || candidates.len() != weights.len() {
+        return None;
     }
 
-    let weights = (0..candidates.len())
-        .map(|rank| routing_jitter.powi(rank as i32))
-        .collect::<Vec<_>>();
-    let total_weight = weights.iter().sum::<f64>();
+    let fallback = candidates.first().cloned();
+    let total_weight = weights
+        .iter()
+        .copied()
+        .filter(|weight| *weight > 0.0)
+        .sum::<f64>();
+    if total_weight <= 0.0 || !total_weight.is_finite() {
+        return fallback;
+    }
+
     let mut draw = rand::thread_rng().gen_range(0.0..total_weight);
 
-    for (candidate, weight) in candidates.into_iter().zip(weights) {
+    for (candidate, weight) in candidates.into_iter().zip(weights.iter().copied()) {
+        if weight <= 0.0 {
+            continue;
+        }
         if draw < weight {
             return Some(candidate);
         }
         draw -= weight;
     }
 
-    Some(top_ranked)
+    fallback
+}
+
+fn rank_weight(rank: usize, routing_jitter: f64) -> f64 {
+    if routing_jitter >= 1.0 {
+        return 1.0;
+    }
+    routing_jitter.powi(rank as i32)
 }
 
 #[cfg(test)]
@@ -952,8 +1006,18 @@ mod test {
     fn fresh_snapshot() -> LoadSnapshot {
         LoadSnapshot {
             draining: false,
+            in_flight: 0,
+            max_in_flight: 64,
             observed_at: Instant::now(),
             sequence: 1,
+        }
+    }
+
+    fn loaded_snapshot(in_flight: u32, max_in_flight: u32) -> LoadSnapshot {
+        LoadSnapshot {
+            in_flight,
+            max_in_flight,
+            ..fresh_snapshot()
         }
     }
 
@@ -1077,6 +1141,8 @@ mod test {
         .unwrap();
         let stale = LoadSnapshot {
             draining: false,
+            in_flight: 0,
+            max_in_flight: 64,
             observed_at: Instant::now() - Duration::from_secs(10),
             sequence: 1,
         };
@@ -1138,6 +1204,27 @@ mod test {
                 .addr;
             assert_eq!(next, first);
         }
+    }
+
+    #[tokio::test]
+    async fn select_for_key_penalizes_saturated_preferred_endpoint() {
+        let addrs = [
+            addr("10.0.0.1:50061"),
+            addr("10.0.0.2:50061"),
+            addr("10.0.0.3:50061"),
+        ];
+        let pool = EndpointPool::from_addrs_without_subscriptions(mock_config(), &addrs).unwrap();
+        inject_uniform_fresh_snapshots(&pool, &addrs).await;
+
+        let key = "team:1:symbol:bundle-a";
+        let preferred = pool.select_for_key(key, &[]).await.unwrap().addr;
+        assert!(
+            pool.inject_load_snapshot_for_test(preferred, loaded_snapshot(64, 64))
+                .await
+        );
+
+        let next = pool.select_for_key(key, &[]).await.unwrap().addr;
+        assert_ne!(next, preferred);
     }
 
     #[tokio::test]
@@ -1239,6 +1326,17 @@ mod test {
         assert!((ranked_selection_probability(1, 4, 0.5) - (0.5 / total_weight)).abs() < 1e-12);
         assert!((ranked_selection_probability(2, 4, 0.5) - (0.25 / total_weight)).abs() < 1e-12);
         assert!((ranked_selection_probability(3, 4, 0.5) - (0.125 / total_weight)).abs() < 1e-12);
+    }
+
+    #[test]
+    fn available_capacity_weight_drops_as_endpoint_saturates() {
+        let empty = available_capacity_weight(0, 64);
+        let half = available_capacity_weight(32, 64);
+        let full = available_capacity_weight(64, 64);
+
+        assert!(empty > half);
+        assert!(half > full);
+        assert!(full > 0.0);
     }
 
     #[tokio::test]

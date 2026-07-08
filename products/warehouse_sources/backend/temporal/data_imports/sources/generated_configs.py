@@ -806,7 +806,8 @@ class ConcordSourceConfig(config.Config):
 
 @config.config
 class ConfigCatSourceConfig(config.Config):
-    pass
+    basic_auth_username: str
+    basic_auth_password: str
 
 
 @config.config
@@ -1521,7 +1522,7 @@ class HeapSourceConfig(config.Config):
 
 @config.config
 class HeightSourceConfig(config.Config):
-    pass
+    api_key: str
 
 
 @config.config
@@ -1580,7 +1581,7 @@ class HumanitixSourceConfig(config.Config):
 
 @config.config
 class HuntrSourceConfig(config.Config):
-    pass
+    access_token: str
 
 
 @config.config
@@ -1611,7 +1612,8 @@ class IncidentIoSourceConfig(config.Config):
 
 @config.config
 class InflowinventorySourceConfig(config.Config):
-    pass
+    company_id: str
+    api_key: str
 
 
 @config.config
@@ -1691,7 +1693,7 @@ class JiraSourceConfig(config.Config):
 
 @config.config
 class JobNimbusSourceConfig(config.Config):
-    pass
+    api_key: str
 
 
 @config.config
@@ -1719,7 +1721,7 @@ class JustCallSourceConfig(config.Config):
 
 @config.config
 class JustSiftSourceConfig(config.Config):
-    pass
+    api_key: str
 
 
 @config.config
@@ -2091,7 +2093,7 @@ class MuxSourceConfig(config.Config):
 
 @config.config
 class MyHoursSourceConfig(config.Config):
-    pass
+    api_key: str
 
 
 @config.config
@@ -2282,7 +2284,7 @@ class OpenWeatherSourceConfig(config.Config):
 
 @config.config
 class OpinionStageSourceConfig(config.Config):
-    pass
+    api_key: str
 
 
 @config.config
@@ -2389,7 +2391,8 @@ class PardotSourceConfig(config.Config):
 
 @config.config
 class PartnerStackSourceConfig(config.Config):
-    pass
+    public_key: str
+    private_key: str
 
 
 @config.config
@@ -2440,7 +2443,7 @@ class PerkSourceConfig(config.Config):
 
 @config.config
 class PersistIqSourceConfig(config.Config):
-    pass
+    api_key: str
 
 
 @config.config
@@ -2530,7 +2533,7 @@ class PlanetScaleSourceConfig(config.Config):
 
 @config.config
 class PlanhatSourceConfig(config.Config):
-    pass
+    api_key: str
 
 
 @config.config
@@ -2634,7 +2637,8 @@ class QontoSourceConfig(config.Config):
 
 @config.config
 class QualarooSourceConfig(config.Config):
-    pass
+    api_key: str
+    api_secret: str
 
 
 @config.config
@@ -2691,7 +2695,8 @@ class RecreationSourceConfig(config.Config):
 
 @config.config
 class RecruiteeSourceConfig(config.Config):
-    pass
+    company_id: str
+    api_token: str
 
 
 @config.config
@@ -2735,7 +2740,7 @@ class ReferralHeroSourceConfig(config.Config):
 
 @config.config
 class RentCastSourceConfig(config.Config):
-    pass
+    api_key: str
 
 
 @config.config
@@ -2791,7 +2796,7 @@ class RocketChatSourceConfig(config.Config):
 
 @config.config
 class RocketlaneSourceConfig(config.Config):
-    pass
+    api_key: str
 
 
 @config.config
@@ -2811,7 +2816,7 @@ class RssSourceConfig(config.Config):
 
 @config.config
 class RuddrSourceConfig(config.Config):
-    pass
+    api_key: str
 
 
 @config.config
@@ -2851,7 +2856,7 @@ class SalesLoftSourceConfig(config.Config):
 
 @config.config
 class SalesflareSourceConfig(config.Config):
-    pass
+    api_key: str
 
 
 @config.config
@@ -2901,7 +2906,7 @@ class SearchAds360SourceConfig(config.Config):
 
 @config.config
 class SecodaSourceConfig(config.Config):
-    pass
+    api_key: str
 
 
 @config.config
@@ -3020,12 +3025,12 @@ class SimFinSourceConfig(config.Config):
 
 @config.config
 class SimpleCastSourceConfig(config.Config):
-    pass
+    api_key: str
 
 
 @config.config
 class SimplesatSourceConfig(config.Config):
-    pass
+    api_key: str
 
 
 @config.config
@@ -3045,7 +3050,7 @@ class SmartEngageSourceConfig(config.Config):
 
 @config.config
 class SmartreachSourceConfig(config.Config):
-    pass
+    api_key: str
 
 
 @config.config
@@ -3193,7 +3198,7 @@ class SurvicateSourceConfig(config.Config):
 
 @config.config
 class SvixSourceConfig(config.Config):
-    pass
+    api_key: str
 
 
 @config.config
@@ -3240,7 +3245,7 @@ class TeachableSourceConfig(config.Config):
 
 @config.config
 class TeamtailorSourceConfig(config.Config):
-    pass
+    api_key: str
 
 
 @config.config
@@ -3529,7 +3534,8 @@ class WrikeSourceConfig(config.Config):
 
 @config.config
 class WufooSourceConfig(config.Config):
-    pass
+    subdomain: str
+    api_key: str
 
 
 @config.config
@@ -3671,7 +3677,8 @@ class ZohoInvoiceSourceConfig(config.Config):
 
 @config.config
 class ZonkaFeedbackSourceConfig(config.Config):
-    pass
+    auth_token: str
+    data_center: Literal["us1", "e", "in"] = config.value(default="us1")
 
 
 @config.config
