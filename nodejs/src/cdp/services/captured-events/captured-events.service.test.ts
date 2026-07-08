@@ -1,9 +1,14 @@
 import { InternalCaptureEvent, InternalCaptureService } from '~/common/services/internal-capture'
+import { captureException } from '~/common/utils/posthog'
 import { TeamManager } from '~/common/utils/team-manager'
 
 import { Team } from '../../../types'
 import { CyclotronJobInvocationResult, HogFunctionCapturedEvent } from '../../types'
 import { CapturedEventsService } from './captured-events.service'
+
+jest.mock('~/common/utils/posthog', () => ({
+    captureException: jest.fn(),
+}))
 
 const buildTeam = (id: number, apiToken: string): Team =>
     ({
@@ -32,6 +37,7 @@ describe('CapturedEventsService', () => {
     let service: CapturedEventsService
 
     beforeEach(() => {
+        jest.mocked(captureException).mockClear()
         internalCaptureService = {
             capture: jest.fn().mockResolvedValue({ status: 200 }),
         } as unknown as jest.Mocked<InternalCaptureService>
@@ -97,7 +103,7 @@ describe('CapturedEventsService', () => {
             expect(internalCaptureService.capture).not.toHaveBeenCalled()
         })
 
-        it('swallows errors from internalCaptureService.capture', async () => {
+        it('swallows errors from internalCaptureService.capture and reports real ones to error tracking', async () => {
             internalCaptureService.capture.mockRejectedValueOnce(new Error('boom'))
             service.queue([
                 { team_token: 'token-a', event: 'a', distinct_id: 'u1' },
@@ -106,6 +112,31 @@ describe('CapturedEventsService', () => {
 
             await expect(service.flush()).resolves.toBeUndefined()
             expect(internalCaptureService.capture).toHaveBeenCalledTimes(2)
+            expect(captureException).toHaveBeenCalledTimes(1)
+        })
+
+        const dnsError = (init: { code?: string; message?: string; cause?: unknown }): Error => {
+            const err = new Error(init.message ?? 'request failed') as NodeJS.ErrnoException & { cause?: unknown }
+            if (init.code) {
+                err.code = init.code
+            }
+            if (init.cause) {
+                err.cause = init.cause
+            }
+            return err
+        }
+
+        it.each([
+            ['EAI_AGAIN code', dnsError({ code: 'EAI_AGAIN', message: 'getaddrinfo EAI_AGAIN capture.posthog.svc' })],
+            ['ENOTFOUND code', dnsError({ code: 'ENOTFOUND', message: 'getaddrinfo ENOTFOUND capture.posthog.svc' })],
+            ['getaddrinfo message only', dnsError({ message: 'getaddrinfo ENOTFOUND capture.posthog.svc' })],
+            ['wrapped in cause chain', dnsError({ message: 'fetch failed', cause: dnsError({ code: 'ENOTFOUND' }) })],
+        ])('does not report transient DNS failures to error tracking (%s)', async (_label, error) => {
+            internalCaptureService.capture.mockRejectedValueOnce(error)
+            service.queue([{ team_token: 'token-a', event: 'a', distinct_id: 'u1' }])
+
+            await expect(service.flush()).resolves.toBeUndefined()
+            expect(captureException).not.toHaveBeenCalled()
         })
     })
 
