@@ -590,7 +590,7 @@ jobs:
                   path: .typegen
                   key: ${{ runner.os }}-typegen-${{ hashFiles('pnpm-lock.yaml') }}
 
-            - name: Run typescript check (tsgo)
+            - name: Run typescript check (tsc)
               run: pnpm --filter=@posthog/frontend typescript:check
 
             - name: Check if schema.json and validators.js are up to date

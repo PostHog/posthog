@@ -9,7 +9,7 @@
         "build": "tsx scripts/build-agent-proxy.ts",
         "dev": "tsx scripts/dev-agent-proxy.ts | pino-pretty --colorize --ignore pid,hostname --messageKey event --translateTime SYS:HH:MM:ss.l",
         "test": "vitest",
-        "typecheck": "tsc --noEmit",
+        "typecheck": "tsc6 --noEmit",
         "format": "oxlint --fix --fix-suggestions --fix-dangerously --quiet && oxfmt \"./**/*.{js,mjs,ts,tsx,json,yaml,yml,css,scss}\""
     },
     "dependencies": {

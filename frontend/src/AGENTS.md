@@ -48,7 +48,7 @@ Covered by the root `AGENTS.md` (Code Style → Frontend). The discovery hint fo
 
 These are slow; run them at the right moment, not after every edit.
 
-- **TypeScript check** — `pnpm --filter=@posthog/frontend typescript:check` (runs `tsgo --noEmit` over the whole app). Rely on the editor/LSP while editing; run the full check **once before you call the work done**, not per-edit.
+- **TypeScript check** — `pnpm --filter=@posthog/frontend typescript:check` (runs `tsc --noEmit` over the whole app). Rely on the editor/LSP while editing; run the full check **once before you call the work done**, not per-edit.
 - **kea typegen** (`*Type.ts` files) — regenerates automatically via `typegen:watch` while the dev server runs (`./bin/start` / `hogli start`). If you must regen one logic without the server, use `pnpm --filter=@posthog/frontend typegen:file <path>`. **Don't routinely run the full `typegen:write`** — it's a heavy whole-repo pass (multi-GB heap).
 - **`hogli build:openapi`** — only needed when you changed a **backend serializer/viewset**. A pure `.tsx`/`.ts` change never needs it. Don't run it speculatively.
 

@@ -139,7 +139,7 @@ jobs:
             - name: Build package
               run: cd services/mcp && pnpm build
 
-            - name: Type check (tsgo)
+            - name: Type check (tsc)
               run: cd services/mcp && pnpm typecheck
 
             - name: Check MCP schema is up to date

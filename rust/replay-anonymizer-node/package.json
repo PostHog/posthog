@@ -12,8 +12,8 @@
         "build:move-lib:dev": "TARGET_DIR=${CARGO_TARGET_DIR:-../target} && cp \"$TARGET_DIR/debug/libreplay_anonymizer_node.dylib\" index.node 2>/dev/null || cp \"$TARGET_DIR/debug/libreplay_anonymizer_node.so\" index.node || (echo \"No valid library file found in $TARGET_DIR/debug/\" && exit 1)",
         "build:cargo": "cargo build -p replay-anonymizer-node --message-format=json > cargo.log",
         "build:cargo:debug": "pnpm run build:cargo",
-        "build:typescript": "tsc",
-        "typecheck": "tsc --noEmit",
+        "build:typescript": "tsc6",
+        "typecheck": "tsc6 --noEmit",
         "clean": "rm -rf index.node dist",
         "package": "NODE_ENV=development pnpm --filter=@posthog/replay-anonymizer run build"
     },
