@@ -58186,6 +58186,17 @@ export namespace Schemas {
     search?: string;
     };
 
+    export type EnvironmentsDataModelingNodesLineageRetrieveParams = {
+    /**
+     * Node to build lineage for.
+     */
+    node_id?: string;
+    /**
+     * Saved query to build lineage for, resolved to its node. Alternative to node_id.
+     */
+    saved_query_id?: string;
+    };
+
     export type EnvironmentsDataWarehouseCheckDatabaseNameRetrieveParams = {
     /**
      * Database name to check
@@ -64400,6 +64411,17 @@ export namespace Schemas {
      * A search term.
      */
     search?: string;
+    };
+
+    export type DataModelingNodesLineageRetrieveParams = {
+    /**
+     * Node to build lineage for.
+     */
+    node_id?: string;
+    /**
+     * Saved query to build lineage for, resolved to its node. Alternative to node_id.
+     */
+    saved_query_id?: string;
     };
 
     export type DataWarehouseCheckDatabaseNameRetrieveParams = {
