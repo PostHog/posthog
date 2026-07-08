@@ -172,6 +172,7 @@ jobs:
                       BIN=${{ matrix.bin || matrix.image }}
                       BUILD_FEATURES=${{ matrix.features || '' }}
                       EXTRA_RUSTFLAGS=${{ matrix.extra_rustflags || '' }}
+                      EXTRA_CFLAGS=${{ matrix.extra_cflags || '' }}
                       SCCACHE_WEBDAV_KEY_PREFIX=${{ steps.sccache.outputs.cache-key-prefix }}
                   secrets: |
                       SCCACHE_WEBDAV_ENDPOINT=${{ steps.sccache.outputs.endpoint }}
