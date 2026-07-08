@@ -3,7 +3,12 @@ from typing import Any
 import pytest
 from unittest.mock import AsyncMock, patch
 
-from products.review_hog.backend.reviewer.constants import DEDUP_ONESHOT_MAX_FINDINGS
+from products.review_hog.backend.reviewer.constants import (
+    DEDUP_MODEL,
+    DEDUP_ONESHOT_MAX_FINDINGS,
+    DEDUP_REASONING_EFFORT,
+    DEDUP_RUNTIME_ADAPTER,
+)
 from products.review_hog.backend.reviewer.models.github_meta import PRComment, PRMetadata
 from products.review_hog.backend.reviewer.models.issue_deduplicator import DuplicateIssue, IssueDeduplication
 from products.review_hog.backend.reviewer.models.issues_review import Issue, IssuePriority, LineRange
@@ -234,6 +239,15 @@ async def test_dedup_llm_call_routes_by_oneshot_gate(
     assert len(result) == issue_count
     assert mock_oneshot.called is expects_oneshot
     assert mock_sandbox.called is not expects_oneshot
+    if not expects_oneshot:
+        # The pin kwargs default to None, so dropping them at this call site would silently fall
+        # back to the sandbox default model — same contract as the chunking and review pin tests.
+        kwargs = mock_sandbox.call_args.kwargs
+        assert (kwargs["runtime_adapter"], kwargs["model"], kwargs["reasoning_effort"]) == (
+            DEDUP_RUNTIME_ADAPTER,
+            DEDUP_MODEL,
+            DEDUP_REASONING_EFFORT,
+        )
 
 
 @pytest.mark.asyncio

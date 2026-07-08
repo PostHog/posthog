@@ -282,8 +282,9 @@ schema-failure class, killed structurally by structured outputs).
 
 - **Gates (`reviewer/constants.py`, 0 = disabled):** `CHUNKING_ONESHOT_MAX_ADDITIONS = 5000` (reviewable
   added lines, consistent with the other chunking gates) / `DEDUP_ONESHOT_MAX_FINDINGS = 50` (issues
-  entering dedup, inclusive). Above a gate the stage takes the previous sandbox path unchanged (same
-  prompt, agent-default model).
+  entering dedup, inclusive). Above a gate the stage takes the previous sandbox path with the same
+  prompt, pinned to the one-shot model via the `CHUNKING_*` / `DEDUP_*` trios (Sonnet 5 @ xhigh) — so
+  the delivery path never changes which model judges the stage.
 - **Executor:** `reviewer/sandbox/direct_llm.py` → `run_oneshot_review(...)` —
   `get_async_anthropic_gateway_client(product="review_hog")` (product registered in
   `posthog/llm/gateway_client.py` + the llm-gateway config), `ONESHOT_MODEL = "claude-sonnet-5"` with
@@ -3096,7 +3097,9 @@ pr_metadata.head_branch` is threaded (as explicit kwargs, alongside `team_id` / 
    into logically reviewable chunks ordered by review priority. Within
    `CHUNKING_ONESHOT_MAX_ADDITIONS` (5000 reviewable added lines) the call is a **one-shot gateway call**
    (`run_oneshot_review`, Sonnet 5 @ xhigh, structured outputs — the prompt embeds metadata + comments +
-   patches inline, so no repo access is needed); above the gate it stays a sandbox call. Returns the
+   patches inline, so no repo access is needed); above the gate it stays a sandbox call, pinned to the
+   same Sonnet 5 @ xhigh via the `CHUNKING_*` constants (identical prompt — the sandbox only adds repo
+   access the agent may not use). Returns the
    `ChunksList`; persists a `chunk_set` row (and resumes from it on a re-run of the same head).
 5. **Parallel perspective review** — `review_chunks` runs **three independent specialist perspectives
    concurrently** per chunk (one sandbox activity per `(perspective × chunk)`, bounded by the child workflow's `asyncio.Semaphore`),
@@ -3122,7 +3125,8 @@ pr_metadata.head_branch` is threaded (as explicit kwargs, alongside `team_id` / 
    another issue or **any prior inline comment** can be duplicates, so isolated issues survive **without** an LLM
    call (and a zero-candidate run skips the LLM entirely). Colliding candidates go to the single LLM dedupe call
    (`IssueDeduplication`) — a **one-shot gateway call** within `DEDUP_ONESHOT_MAX_FINDINGS` (50 issues entering
-   dedup; the prompt is pure text), the sandbox path above it — which also drops findings any prior inline
+   dedup; the prompt is pure text), the sandbox path above it pinned to the same Sonnet 5 @ xhigh via the
+   `DEDUP_*` constants — which also drops findings any prior inline
    comment already raised — every reviewer (bot
    or human, ReviewHog's own included) treated uniformly, the author handle passed through for context (step 14).
    Returns the canonical post-dedup `list[Issue]`; `persist_findings` mirrors them to

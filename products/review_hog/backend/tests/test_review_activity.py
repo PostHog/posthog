@@ -5,7 +5,10 @@ from temporalio.testing import ActivityEnvironment
 
 from products.review_hog.backend.reviewer.artefact_content import PRSnapshotArtefact
 from products.review_hog.backend.reviewer.constants import (
+    CHUNKING_MODEL,
     CHUNKING_ONESHOT_MAX_ADDITIONS,
+    CHUNKING_REASONING_EFFORT,
+    CHUNKING_RUNTIME_ADAPTER,
     REVIEW_MODEL,
     REVIEW_REASONING_EFFORT,
     REVIEW_RUNTIME_ADAPTER,
@@ -128,6 +131,15 @@ async def test_split_chunks_activity_routes_llm_chunking_by_oneshot_gate(additio
     assert chunk_ids == [1]
     assert mock_oneshot.called is expects_oneshot
     assert mock_sandbox.called is not expects_oneshot
+    if not expects_oneshot:
+        # The pin kwargs default to None, so dropping them at this call site would silently fall
+        # back to the sandbox default model — same contract as the review-pin test below.
+        kwargs = mock_sandbox.call_args.kwargs
+        assert (kwargs["runtime_adapter"], kwargs["model"], kwargs["reasoning_effort"]) == (
+            CHUNKING_RUNTIME_ADAPTER,
+            CHUNKING_MODEL,
+            CHUNKING_REASONING_EFFORT,
+        )
 
 
 @pytest.mark.asyncio

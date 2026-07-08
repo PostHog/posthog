@@ -1,7 +1,12 @@
 import json
 import logging
 
-from products.review_hog.backend.reviewer.constants import DEDUP_ONESHOT_MAX_FINDINGS
+from products.review_hog.backend.reviewer.constants import (
+    DEDUP_MODEL,
+    DEDUP_ONESHOT_MAX_FINDINGS,
+    DEDUP_REASONING_EFFORT,
+    DEDUP_RUNTIME_ADAPTER,
+)
 from products.review_hog.backend.reviewer.models.github_meta import PRComment, PRMetadata
 from products.review_hog.backend.reviewer.models.issue_deduplicator import IssueDeduplication
 from products.review_hog.backend.reviewer.models.issues_review import Issue, LineRange
@@ -129,6 +134,9 @@ async def deduplicate_issues(
             model_to_validate=IssueDeduplication,
             step_name="dedup",
             workflow_id_prefix=workflow_id_prefix,
+            runtime_adapter=DEDUP_RUNTIME_ADAPTER,
+            model=DEDUP_MODEL,
+            reasoning_effort=DEDUP_REASONING_EFFORT,
         )
     # `unique` issues always survive; only positional candidates can be dropped by the LLM.
     duplicate_ids = {dup.id for dup in deduplication_result.duplicates}

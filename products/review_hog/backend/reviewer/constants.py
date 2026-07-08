@@ -17,6 +17,20 @@ VALIDATION_MODEL: str | None = "claude-opus-4-8"
 VALIDATION_REASONING_EFFORT: ReasoningEffort | None = ReasoningEffort.XHIGH
 VALIDATION_INITIAL_PERMISSION_MODE: str | None = None
 
+# CHUNKING MODEL
+# Pins for the sandbox chunking turn (PRs over the one-shot gate), matching the one-shot pin below —
+# chunking is organization, not judgment, so both delivery paths run the same cheaper model.
+CHUNKING_RUNTIME_ADAPTER = RuntimeAdapter.CLAUDE
+CHUNKING_MODEL = "claude-sonnet-5"
+CHUNKING_REASONING_EFFORT = ReasoningEffort.XHIGH
+
+# DEDUP MODEL
+# Pins for the sandbox dedup turn (finding sets over the one-shot gate) — same rationale as the
+# chunking pins: keep both delivery paths of a mechanical stage on the one-shot model.
+DEDUP_RUNTIME_ADAPTER = RuntimeAdapter.CLAUDE
+DEDUP_MODEL = "claude-sonnet-5"
+DEDUP_REASONING_EFFORT = ReasoningEffort.XHIGH
+
 # SANDBOX
 # Per-child-workflow fan-out width: each Temporal fan-out (review / validate) bounds its concurrent
 # sandbox-turn activities with a fresh `asyncio.Semaphore(MAX_CONCURRENT_SANDBOXES)`. The true global

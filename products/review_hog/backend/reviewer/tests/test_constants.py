@@ -1,4 +1,12 @@
+import pytest
+
 from products.review_hog.backend.reviewer.constants import (
+    CHUNKING_MODEL,
+    CHUNKING_REASONING_EFFORT,
+    CHUNKING_RUNTIME_ADAPTER,
+    DEDUP_MODEL,
+    DEDUP_REASONING_EFFORT,
+    DEDUP_RUNTIME_ADAPTER,
     REVIEW_INITIAL_PERMISSION_MODE,
     REVIEW_MODEL,
     REVIEW_REASONING_EFFORT,
@@ -9,6 +17,8 @@ from products.review_hog.backend.reviewer.constants import (
 )
 from products.tasks.backend.facade.run_config import (
     LLMProvider,
+    ReasoningEffort,
+    RuntimeAdapter,
     get_provider_for_runtime_adapter,
     get_reasoning_effort_error,
 )
@@ -30,6 +40,22 @@ def test_validation_runtime_is_a_registry_supported_combo_when_pinned() -> None:
         assert VALIDATION_REASONING_EFFORT is None
         return
     assert get_reasoning_effort_error(VALIDATION_RUNTIME_ADAPTER, VALIDATION_MODEL, VALIDATION_REASONING_EFFORT) is None
+
+
+@pytest.mark.parametrize(
+    "adapter,model,effort",
+    [
+        pytest.param(CHUNKING_RUNTIME_ADAPTER, CHUNKING_MODEL, CHUNKING_REASONING_EFFORT, id="chunking"),
+        pytest.param(DEDUP_RUNTIME_ADAPTER, DEDUP_MODEL, DEDUP_REASONING_EFFORT, id="dedup"),
+    ],
+)
+def test_sandbox_fallback_runtime_is_a_registry_supported_combo(
+    adapter: RuntimeAdapter, model: str, effort: ReasoningEffort
+) -> None:
+    # Same lock as the review combo, for the chunking/dedup sandbox-fallback pins. A bad combo only
+    # surfaces over the one-shot gate — the rarely-exercised path — after the stage spend before it.
+    assert get_reasoning_effort_error(adapter, model, effort) is None
+    assert get_provider_for_runtime_adapter(adapter) == LLMProvider.ANTHROPIC
 
 
 def test_review_permission_mode_defaults_to_sandbox_bypass() -> None:

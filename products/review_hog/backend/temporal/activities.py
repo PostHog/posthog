@@ -29,7 +29,10 @@ from posthog.temporal.common.utils import close_db_connections
 
 from products.review_hog.backend.models import ReviewReport, ReviewUserSettings
 from products.review_hog.backend.reviewer.constants import (
+    CHUNKING_MODEL,
     CHUNKING_ONESHOT_MAX_ADDITIONS,
+    CHUNKING_REASONING_EFFORT,
+    CHUNKING_RUNTIME_ADAPTER,
     REVIEW_INITIAL_PERMISSION_MODE,
     REVIEW_MODEL,
     REVIEW_REASONING_EFFORT,
@@ -650,6 +653,9 @@ async def split_chunks_activity(input: SandboxStageInput) -> list[int]:
                 model_to_validate=ChunksList,
                 step_name="chunking",
                 workflow_id_prefix=_sandbox_workflow_id_prefix("chunking"),
+                runtime_adapter=CHUNKING_RUNTIME_ADAPTER,
+                model=CHUNKING_MODEL,
+                reasoning_effort=CHUNKING_REASONING_EFFORT,
             )
     await database_sync_to_async(persist_chunk_set, thread_sensitive=False)(
         team_id=input.team_id, report_id=input.report_id, head_sha=input.head_sha, chunks=chunks
