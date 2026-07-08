@@ -62,6 +62,8 @@ RUN --mount=type=secret,id=SCCACHE_WEBDAV_ENDPOINT,required=false \
 
 # Upload native debug symbols (with source context) to PostHog error tracking,
 # so panics and exceptions captured by common-posthog symbolicate server-side.
+# They go to the internal PostHog project (POSTHOG_CLI_ENV_ID=2 on US cloud),
+# the same project the frontend sourcemap upload in the root Dockerfile targets.
 # Runs only when CI mounts the upload token (master builds on the canonical
 # deploy repo — see _rust-build-images.yml); PR and local builds skip it.
 # Upload failures warn instead of failing the build: symbols must never block

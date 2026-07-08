@@ -99,6 +99,10 @@ jobs:
         secrets:
             POSTHOG_API_TOKEN: ${{ secrets.POSTHOG_API_TOKEN }}
             POSTHOG_DEVEX_PROJECT_API_TOKEN: ${{ secrets.POSTHOG_DEVEX_PROJECT_API_TOKEN }}
+            # Deliberately reuses the frontend sourcemap upload key: sourcemaps and
+            # native symbols go through the same symbol-set upload API on the same
+            # internal project, so there is no separate org secret to create.
+            # Rotating POSTHOG_UPLOAD_SOURCEMAPS_CLI_API_KEY affects both uploads.
             POSTHOG_UPLOAD_SYMBOLS_CLI_API_KEY: ${{ secrets.POSTHOG_UPLOAD_SOURCEMAPS_CLI_API_KEY }}
         permissions:
             id-token: write
