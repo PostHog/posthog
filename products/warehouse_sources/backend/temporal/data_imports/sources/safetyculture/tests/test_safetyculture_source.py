@@ -1,6 +1,8 @@
 import pytest
 from unittest import mock
 
+from parameterized import parameterized
+
 from posthog.schema import ReleaseStatus, SourceFieldInputConfig, SourceFieldInputConfigType
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
@@ -77,30 +79,27 @@ class TestSafetyCultureSource:
         tables = self.source.get_documented_tables()
         assert {t["name"] for t in tables} == set(ENDPOINTS)
 
-    @pytest.mark.parametrize(
-        "observed_error",
+    @parameterized.expand(
         [
-            "401 Client Error: Unauthorized for url: https://api.safetyculture.io/feed/users",
-            "403 Client Error: Forbidden for url: https://api.safetyculture.io/feed/inspections?archived=both",
-        ],
+            ("401 Client Error: Unauthorized for url: https://api.safetyculture.io/feed/users",),
+            ("403 Client Error: Forbidden for url: https://api.safetyculture.io/feed/inspections?archived=both",),
+        ]
     )
     def test_non_retryable_errors_match_auth_failures(self, observed_error: str) -> None:
         non_retryable = self.source.get_non_retryable_errors()
         assert any(key in observed_error for key in non_retryable)
 
-    @pytest.mark.parametrize(
-        "unrelated_error",
+    @parameterized.expand(
         [
-            "500 Server Error: Internal Server Error for url: https://api.safetyculture.io/feed/users",
-            "429 Client Error: Too Many Requests for url: https://api.safetyculture.io/feed/inspections",
-        ],
+            ("500 Server Error: Internal Server Error for url: https://api.safetyculture.io/feed/users",),
+            ("429 Client Error: Too Many Requests for url: https://api.safetyculture.io/feed/inspections",),
+        ]
     )
     def test_non_retryable_errors_ignore_transient(self, unrelated_error: str) -> None:
         non_retryable = self.source.get_non_retryable_errors()
         assert not any(key in unrelated_error for key in non_retryable)
 
-    @pytest.mark.parametrize(
-        "status, expected_valid, expected_message",
+    @parameterized.expand(
         [
             (200, True, None),
             (401, False, "Invalid SafetyCulture API token"),
@@ -109,15 +108,15 @@ class TestSafetyCultureSource:
             (403, True, None),
             (500, False, "SafetyCulture returned HTTP 500"),
             (0, False, "Could not connect to SafetyCulture: boom"),
-        ],
+        ]
     )
     @mock.patch("products.warehouse_sources.backend.temporal.data_imports.sources.safetyculture.source.check_access")
     def test_validate_credentials_at_source_create(
         self,
-        mock_check: mock.MagicMock,
         status: int,
         expected_valid: bool,
         expected_message: str | None,
+        mock_check: mock.MagicMock,
     ) -> None:
         message = (
             "SafetyCulture returned HTTP 500"
@@ -129,10 +128,10 @@ class TestSafetyCultureSource:
         assert is_valid is expected_valid
         assert returned == expected_message
 
-    @pytest.mark.parametrize("status, expected_valid", [(200, True), (401, False), (403, False)])
+    @parameterized.expand([(200, True), (401, False), (403, False)])
     @mock.patch("products.warehouse_sources.backend.temporal.data_imports.sources.safetyculture.source.check_access")
     def test_validate_credentials_for_schema_probes_that_feed(
-        self, mock_check: mock.MagicMock, status: int, expected_valid: bool
+        self, status: int, expected_valid: bool, mock_check: mock.MagicMock
     ) -> None:
         mock_check.return_value = (status, None)
         is_valid, _ = self.source.validate_credentials(self.config, self.team_id, schema_name="inspections")

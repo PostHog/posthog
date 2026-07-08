@@ -2,6 +2,7 @@ from datetime import UTC, date, datetime
 from typing import Any
 
 import pytest
+from unittest import mock
 from unittest.mock import MagicMock
 
 import requests
@@ -224,36 +225,32 @@ class TestFetchPage:
 
 
 class TestCheckAccess:
-    def _patch_session(self, monkeypatch: Any, response: Any) -> MagicMock:
+    def _patch_session(self, response: Any) -> Any:
         session = MagicMock()
         if isinstance(response, Exception):
             session.get.side_effect = response
         else:
             session.get.return_value = response
-        monkeypatch.setattr(safetyculture, "make_tracked_session", lambda **_: session)
-        return session
+        return mock.patch.object(safetyculture, "make_tracked_session", return_value=session)
 
-    @pytest.mark.parametrize(
-        "status, ok, expected_status, expected_message",
+    @parameterized.expand(
         [
             (200, True, 200, None),
             (401, False, 401, None),
             (403, False, 403, None),
             (500, False, 500, "SafetyCulture returned HTTP 500"),
-        ],
+        ]
     )
-    def test_status_mapping(
-        self, status: int, ok: bool, expected_status: int, expected_message: str | None, monkeypatch: Any
-    ) -> None:
+    def test_status_mapping(self, status: int, ok: bool, expected_status: int, expected_message: str | None) -> None:
         response = MagicMock()
         response.status_code = status
         response.ok = ok
-        self._patch_session(monkeypatch, response)
-        assert check_access("sc-token") == (expected_status, expected_message)
+        with self._patch_session(response):
+            assert check_access("sc-token") == (expected_status, expected_message)
 
-    def test_connection_error_maps_to_zero(self, monkeypatch: Any) -> None:
-        self._patch_session(monkeypatch, requests.ConnectionError("boom"))
-        status, message = check_access("sc-token")
+    def test_connection_error_maps_to_zero(self) -> None:
+        with self._patch_session(requests.ConnectionError("boom")):
+            status, message = check_access("sc-token")
         assert status == 0
         assert message is not None and "boom" in message
 
