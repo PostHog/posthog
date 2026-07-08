@@ -259,9 +259,15 @@ class TestErrorHandling(TestCase):
         assert outcome.consecutive_failures == 2
 
     def test_error_after_expired_snooze_stays_snoozed(self) -> None:
+        # An error keeps the persisted SNOOZED label (only a successful check moves
+        # it out), but still counts as a failure and notifies once on the 0 -> 1 edge.
+        # The scheduler excludes on `state == SNOOZED AND snooze_until > now`, so an
+        # expired snooze keeps getting checked and won't stall in this label.
         snapshot = _snapshot(state=SNOOZED, snooze_until=NOW - timedelta(minutes=1))
         outcome = evaluate_alert_check(snapshot, _check(error="timeout"), NOW)
         assert outcome.new_state == SNOOZED
+        assert outcome.notification == NotificationAction.ERROR
+        assert outcome.consecutive_failures == 1
 
     # Legacy rows: alerts persisted as ERRORED before errors stopped moving state.
     def test_errored_recovery_with_breach(self) -> None:
