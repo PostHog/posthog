@@ -6,7 +6,6 @@ from products.warehouse_sources.backend.types import IncrementalField, Increment
 
 @dataclass
 class TremendousEndpointConfig:
-    name: str
     path: str
     # Top-level key the list of records is nested under in the response body (e.g. {"orders": [...]}).
     data_key: str
@@ -28,7 +27,6 @@ class TremendousEndpointConfig:
 # deliberately excluded until a reliable composite key is confirmed.
 TREMENDOUS_ENDPOINTS: dict[str, TremendousEndpointConfig] = {
     "orders": TremendousEndpointConfig(
-        name="orders",
         path="/orders",
         data_key="orders",
         paginated=True,
@@ -44,7 +42,6 @@ TREMENDOUS_ENDPOINTS: dict[str, TremendousEndpointConfig] = {
         ],
     ),
     "rewards": TremendousEndpointConfig(
-        name="rewards",
         path="/rewards",
         data_key="rewards",
         paginated=True,
@@ -52,19 +49,16 @@ TREMENDOUS_ENDPOINTS: dict[str, TremendousEndpointConfig] = {
         partition_key="created_at",
     ),
     "invoices": TremendousEndpointConfig(
-        name="invoices",
         path="/invoices",
         data_key="invoices",
         paginated=True,
         page_size=10,  # /invoices caps `limit` at 10
         partition_key="created_at",
     ),
-    "members": TremendousEndpointConfig(name="members", path="/members", data_key="members"),
-    "campaigns": TremendousEndpointConfig(name="campaigns", path="/campaigns", data_key="campaigns"),
-    "products": TremendousEndpointConfig(name="products", path="/products", data_key="products"),
-    "funding_sources": TremendousEndpointConfig(
-        name="funding_sources", path="/funding_sources", data_key="funding_sources"
-    ),
+    "members": TremendousEndpointConfig(path="/members", data_key="members"),
+    "campaigns": TremendousEndpointConfig(path="/campaigns", data_key="campaigns"),
+    "products": TremendousEndpointConfig(path="/products", data_key="products"),
+    "funding_sources": TremendousEndpointConfig(path="/funding_sources", data_key="funding_sources"),
 }
 
 ENDPOINTS = tuple(TREMENDOUS_ENDPOINTS.keys())
