@@ -20,7 +20,7 @@ WHERE ranked_reports.row_number > 1
 
 class Migration(migrations.Migration):
     dependencies = [
-        ("ai_observability", "0015_deduplicate_evaluation_reports"),
+        ("ai_observability", "0018_deduplicate_evaluation_reports"),
     ]
 
     operations = [
