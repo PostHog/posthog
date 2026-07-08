@@ -61216,6 +61216,10 @@ export namespace Schemas {
 
     export type EnvironmentsLogsAlertsEventsListParams = {
     /**
+     * Narrow the event history to a single event kind.
+     */
+    kind?: EnvironmentsLogsAlertsEventsListKind;
+    /**
      * Number of results to return per page.
      */
     limit?: number;
@@ -61224,6 +61228,20 @@ export namespace Schemas {
      */
     offset?: number;
     };
+
+    export type EnvironmentsLogsAlertsEventsListKind = typeof EnvironmentsLogsAlertsEventsListKind[keyof typeof EnvironmentsLogsAlertsEventsListKind];
+
+
+    export const EnvironmentsLogsAlertsEventsListKind = {
+      Check: 'check',
+      Reset: 'reset',
+      Enable: 'enable',
+      Disable: 'disable',
+      Snooze: 'snooze',
+      Unsnooze: 'unsnooze',
+      ThresholdChange: 'threshold_change',
+      BrokenConfig: 'broken_config',
+    } as const;
 
     export type EnvironmentsLogsAttributesRetrieveParams = {
     /**
@@ -68423,6 +68441,10 @@ export namespace Schemas {
 
     export type LogsAlertsEventsListParams = {
     /**
+     * Narrow the event history to a single event kind.
+     */
+    kind?: LogsAlertsEventsListKind;
+    /**
      * Number of results to return per page.
      */
     limit?: number;
@@ -68431,6 +68453,20 @@ export namespace Schemas {
      */
     offset?: number;
     };
+
+    export type LogsAlertsEventsListKind = typeof LogsAlertsEventsListKind[keyof typeof LogsAlertsEventsListKind];
+
+
+    export const LogsAlertsEventsListKind = {
+      Check: 'check',
+      Reset: 'reset',
+      Enable: 'enable',
+      Disable: 'disable',
+      Snooze: 'snooze',
+      Unsnooze: 'unsnooze',
+      ThresholdChange: 'threshold_change',
+      BrokenConfig: 'broken_config',
+    } as const;
 
     export type LogsAttributesRetrieveParams = {
     /**

@@ -8,7 +8,7 @@ from django.db import models, transaction
 from django.db.models import F, OuterRef, Prefetch, Q, QuerySet, Subquery
 from django.utils import timezone
 
-from drf_spectacular.utils import extend_schema, extend_schema_field
+from drf_spectacular.utils import OpenApiParameter, extend_schema, extend_schema_field
 from pydantic import ValidationError as PydanticValidationError
 from rest_framework import serializers, viewsets
 from rest_framework.decorators import action
@@ -940,6 +940,15 @@ class LogsAlertViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     @extend_schema(
         request=None,
         responses={200: LogsAlertEventSerializer(many=True)},
+        parameters=[
+            OpenApiParameter(
+                name="kind",
+                location=OpenApiParameter.QUERY,
+                required=False,
+                enum=LogsAlertEvent.Kind.values,
+                description="Narrow the event history to a single event kind.",
+            ),
+        ],
         description=(
             "Paginated event history for this alert, newest first. Returns state transitions, "
             "errored checks, and user-initiated control-plane rows (reset, enable/disable, "
