@@ -18,6 +18,7 @@ from django.db import (
 import psycopg
 import pyarrow as pa
 import structlog
+from parameterized import parameterized
 from psycopg import sql
 
 import products.warehouse_sources.backend.temporal.data_imports.sources.postgres.partitioned_tables as partitioned_tables_pkg
@@ -5044,21 +5045,39 @@ class TestHasDuplicatePrimaryKeys:
             result = _has_duplicate_primary_keys(cast(Any, dj_cursor), "public", "test_dup_table", ["id"], logger)
             assert result is True
 
-    def test_reraises_connection_errors_without_capturing(self):
+    @parameterized.expand(
+        [
+            # postgres_fdw surfaces a saturated foreign server while executing the probe query: the
+            # remote connection couldn't be established, so the probe never ran. Transient, stays
+            # retryable — re-raised as its OperationalError base.
+            (
+                "connection_error",
+                psycopg.errors.SqlclientUnableToEstablishSqlconnection(
+                    'could not connect to server "posthog_fdw_payment"\n'
+                    'DETAIL:  connection to server at "10.0.0.1", port 5432 failed: '
+                    'FATAL:  too many connections for role "posthog_fdw_reader"'
+                ),
+                psycopg.OperationalError,
+            ),
+            # The sync role lacks SELECT on the table (SQLSTATE 42501). Already non-retryable via
+            # get_non_retryable_errors, so the probe must propagate it rather than capture it.
+            (
+                "permission_denied",
+                psycopg.errors.InsufficientPrivilege("permission denied for table orders"),
+                psycopg.errors.InsufficientPrivilege,
+            ),
+        ]
+    )
+    def test_reraises_without_capturing(self, _name, side_effect, expected_exception):
+        # A probe failure that means the query never ran, or that is already non-retryable, must
+        # propagate — not be swallowed as "no duplicate keys" and captured as error-tracking noise.
         logger = structlog.get_logger()
         cursor = MagicMock()
-        # postgres_fdw surfaces a saturated foreign server while executing the probe query: the
-        # remote connection couldn't be established, so the probe never ran. This must propagate
-        # (transient, stays retryable), not be swallowed as "no duplicate keys" + captured as noise.
-        cursor.execute.side_effect = psycopg.errors.SqlclientUnableToEstablishSqlconnection(
-            'could not connect to server "posthog_fdw_payment"\n'
-            'DETAIL:  connection to server at "10.0.0.1", port 5432 failed: '
-            'FATAL:  too many connections for role "posthog_fdw_reader"'
-        )
+        cursor.execute.side_effect = side_effect
         with patch(
             "products.warehouse_sources.backend.temporal.data_imports.sources.postgres.postgres.capture_exception"
         ) as mock_capture:
-            with pytest.raises(psycopg.OperationalError):
+            with pytest.raises(expected_exception):
                 _has_duplicate_primary_keys(cast(Any, cursor), "public", "orders", ["id"], logger)
         mock_capture.assert_not_called()
 
