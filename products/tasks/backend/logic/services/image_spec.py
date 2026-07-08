@@ -99,12 +99,24 @@ class SandboxImageSpec(BaseModel):
         return yaml.safe_dump(self.model_dump(), sort_keys=False)
 
 
+_REPOSITORY_PATTERN = re.compile(r"^[A-Za-z0-9](?:[A-Za-z0-9-]*[A-Za-z0-9])?/[A-Za-z0-9._-]+$")
+
+
+def validate_image_repository(repository: str) -> None:
+    if not _REPOSITORY_PATTERN.match(repository):
+        raise SandboxImageSpecError(
+            f"Invalid repository {repository!r}: expected owner/repo with alphanumeric, '-', '_', '.' characters"
+        )
+
+
 def validate_spec_buildable(spec: SandboxImageSpec, repository: str) -> None:
     if spec.repo_setup_commands and not repository:
         raise SandboxImageSpecError(
             "The spec has repo_setup_commands but the image has no linked repository to run them in; "
             "link a repository to the image or remove repo_setup_commands"
         )
+    if repository:
+        validate_image_repository(repository)
 
 
 def parse_image_spec_yaml(raw: str) -> SandboxImageSpec:

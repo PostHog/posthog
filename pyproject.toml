@@ -571,6 +571,7 @@ ignore_imports = [
     # directly. Thin it to parse -> facade -> serialize and delete each entry.
     # backend:contract-check stays off until this list is empty.
     "products.notebooks.backend.presentation.views.notebook -> products.notebooks.backend.activity_logging",
+    "products.notebooks.backend.presentation.views.notebook -> products.notebooks.backend.analytics",
     "products.notebooks.backend.presentation.views.notebook -> products.notebooks.backend.collab",
     "products.notebooks.backend.presentation.views.notebook -> products.notebooks.backend.collab_stream",
     "products.notebooks.backend.presentation.views.notebook -> products.notebooks.backend.kernel_runtime",
