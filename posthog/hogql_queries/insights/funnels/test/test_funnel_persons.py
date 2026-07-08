@@ -289,6 +289,30 @@ class TestFunnelPersons(ClickhouseTestMixin, APIBaseTest):
         # self.assertCountEqual([val[0]["id"] for val in results], [person2.uuid])
         self.assertCountEqual([results[0][0]], [person2.uuid])
 
+    @parameterized.expand(
+        [
+            ("chrome_v95", "95", "person1"),
+            ("safari_v14", "14", "person2"),
+        ]
+    )
+    def test_first_step_numeric_breakdown_persons(self, _name: str, breakdown_value: str, expected: str):
+        # A numeric breakdown column (here a HogQL breakdown resolving to an integer) leaves `prop`
+        # typed as Array(UInt64), while the drill-down value arrives as a string. The step-condition
+        # filter must coerce both sides to a common type or ClickHouse aborts the actors query.
+        person1, person2 = self._create_browser_breakdown_events()
+        query = FunnelsQuery(
+            series=[EventsNode(event="sign up"), EventsNode(event="play movie"), EventsNode(event="buy")],
+            interval="day",
+            dateRange=DateRange(date_from="2020-01-01", date_to="2020-01-08"),
+            funnelsFilter=FunnelsFilter(funnelWindowIntervalUnit="day", funnelWindowInterval=7),
+            breakdownFilter=BreakdownFilter(breakdown_type="hogql", breakdown="toInt(properties.$browser_version)"),
+        )
+
+        results = get_actors(query, self.team, funnel_step=1, funnel_step_breakdown=[breakdown_value])
+
+        expected_uuid = person1.uuid if expected == "person1" else person2.uuid
+        self.assertCountEqual([row[0] for row in results], [expected_uuid])
+
     @also_test_with_materialized_columns(person_properties=["$country"])
     def test_first_step_breakdown_person(self):
         person1, person2 = self._create_browser_breakdown_events()
