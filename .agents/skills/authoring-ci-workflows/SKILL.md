@@ -7,7 +7,8 @@ description: >
   groups, `timeout-minutes`, `paths` filters, caching, or runner choice. Covers
   PostHog's workflow-authoring conventions and the reasons behind them: the
   500-runs/10s dispatch cap, shallow vs full clone, per-SHA push concurrency,
-  and dedicated App-token rate-limit buckets. Points to the linters
+  dedicated App-token rate-limit buckets, and fork-safe secrets on a public repo.
+  Points to the linters
   (`bin/hogli lint:workflows`, actionlint) that enforce the mechanical rules,
   and to the narrower skills for production deploys, secrets, and Depot runners.
   Not for debugging red CI (use debugging-ci-failures) or wiring a new secret
@@ -71,11 +72,13 @@ just work done** — draft status doesn't help, runs dispatch before skip logic 
       paths:
         - '.github/workflows/ci-x.yml'
         - 'path/to/product/**'
+    merge_group:
     workflow_dispatch:
   ```
 
-  There is no active merge queue — the repo's scattered `merge_group:` triggers are
-  dormant. Don't add `merge_group:` to a new workflow unless the queue is re-enabled.
+  `merge_group:` currently no-ops — no merge queue is enabled right now — but it's
+  harmless and forward-compatible, so keep it on merge-gate workflows for when a
+  queue returns.
 
 - **Judgment call — trigger `paths:` vs a runtime `dorny/paths-filter` job.** Use
   trigger `paths:` for a workflow that is _skippable as a whole_. Never put a
@@ -179,6 +182,17 @@ headroom plus blast-radius isolation.
 - Cross-repo tokens set explicit `owner:` + `repositories:` (least privilege).
 - Creating the app + secret is out of scope here — use `/managing-github-actions-secrets`.
 
+## Forks and untrusted PRs (public repo)
+
+Fork `pull_request` runs (and Dependabot) get a read-only `GITHUB_TOKEN` and no
+secrets. Make those runs pass, and never let untrusted code reach a secret.
+
+- Guard secret-needing steps with `if: github.event.pull_request.head.repo.full_name == github.repository`, and degrade rather than fail (`|| github.token`, or the raw test outcome).
+- Secret-injecting builds (BuildKit `--secret`, registry login) must skip forks — gate **both** the `changes` job and any `always()` build job ([block fork PRs from rust image build](https://github.com/PostHog/posthog/pull/68628)).
+- Comment or label only on same-repo PRs — the fork token can't write.
+- To act on a fork PR with secrets/write (reviewer or label bots), use `pull_request_target`: base-repo permissions, but it must **never check out and run fork code**. That's why those workflows can't fold into a `pull_request` parent.
+- First-time contributors need maintainer approval before workflows run (`action_required`) — expected.
+
 ## Timeouts
 
 Every job sets `timeout-minutes`, sized ~2-3x observed max; gate/aggregation
@@ -230,6 +244,7 @@ promote to blocking.
 - [ ] Checkout is shallow, or bounded `1000 + blob:none` for base diffing.
 - [ ] Third-party actions SHA-pinned; Node from `.nvmrc`; `setup-uv` version pinned.
 - [ ] High-volume API calls on a dedicated App token with `|| github.token` fork fallback.
+- [ ] Fork PRs handled: secret-needing steps guarded with the same-repo `if:`; no secret-injecting build runs on forks.
 - [ ] Caching through the shared composites; writes gated to master.
 - [ ] Prod image push / deploy dispatch gated per `/gating-production-deploys`.
 - [ ] `bin/hogli lint:workflows` and `actionlint` pass locally.
