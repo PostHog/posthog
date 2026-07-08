@@ -598,6 +598,11 @@ export interface TaskWriteApi {
      */
     pending_user_artifact_ids?: string[]
     /**
+     * When true, the cloud run agent pushes its work and opens a draft pull request on completion without waiting for an explicit ask. Write-only and not persisted on the task: persisted into the reused warm Run's state when creation activates one, so resumes of that Run honor it. Ignored when no warm Run is reused — cold creation takes it via the run start endpoint instead.
+     * @nullable
+     */
+    auto_publish?: boolean | null
+    /**
      * Channel this task is owned by (the channel it was kicked off in).
      * @nullable
      */
@@ -705,6 +710,11 @@ export interface PatchedTaskWriteApi {
      * @items.maxLength 128
      */
     pending_user_artifact_ids?: string[]
+    /**
+     * When true, the cloud run agent pushes its work and opens a draft pull request on completion without waiting for an explicit ask. Write-only and not persisted on the task: persisted into the reused warm Run's state when creation activates one, so resumes of that Run honor it. Ignored when no warm Run is reused — cold creation takes it via the run start endpoint instead.
+     * @nullable
+     */
+    auto_publish?: boolean | null
     /**
      * Channel this task is owned by (the channel it was kicked off in).
      * @nullable
@@ -818,6 +828,11 @@ export interface ClaudeTaskRunCreateSchemaApi {
      * * `user` - user
      * * `bot` - bot */
     pr_authorship_mode?: PrAuthorshipModeEnumApi
+    /**
+     * When true, the cloud run agent pushes its work and opens a draft pull request on completion without waiting for an explicit ask.
+     * @nullable
+     */
+    auto_publish?: boolean | null
     /** High-level source that triggered this run, used to distinguish manual and signal-based cloud runs.
      *
      * * `manual` - manual
@@ -905,6 +920,11 @@ export interface CodexTaskRunCreateSchemaApi {
      * * `user` - user
      * * `bot` - bot */
     pr_authorship_mode?: PrAuthorshipModeEnumApi
+    /**
+     * When true, the cloud run agent pushes its work and opens a draft pull request on completion without waiting for an explicit ask.
+     * @nullable
+     */
+    auto_publish?: boolean | null
     /** High-level source that triggered this run, used to distinguish manual and signal-based cloud runs.
      *
      * * `manual` - manual
@@ -1351,6 +1371,11 @@ export interface TaskRunBootstrapCreateRequestApi {
      * * `user` - user
      * * `bot` - bot */
     pr_authorship_mode?: PrAuthorshipModeEnumApi
+    /**
+     * When true, the cloud run agent pushes its work and opens a draft pull request on completion without waiting for an explicit ask.
+     * @nullable
+     */
+    auto_publish?: boolean | null
     /** High-level source that triggered this run, used to distinguish manual and signal-based cloud runs.
      *
      * * `manual` - manual

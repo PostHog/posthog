@@ -492,6 +492,19 @@ class TaskWriteSerializer(serializers.Serializer):
             "created cold. Ignored when no warm Run is matched."
         ),
     )
+    auto_publish = serializers.BooleanField(
+        required=False,
+        allow_null=True,
+        default=None,
+        write_only=True,
+        help_text=(
+            "When true, the cloud run agent pushes its work and opens a draft pull request on "
+            "completion without waiting for an explicit ask. Write-only and not persisted on the "
+            "task: persisted into the reused warm Run's state when creation activates one, so "
+            "resumes of that Run honor it. Ignored when no warm Run is reused — cold creation "
+            "takes it via the run start endpoint instead."
+        ),
+    )
     channel = TeamScopedPrimaryKeyRelatedField(  # nosemgrep: unscoped-primary-key-related-field
         queryset=Integration.objects.none(),
         required=False,
@@ -1231,6 +1244,15 @@ class TaskRunCreateRequestSerializer(serializers.Serializer):
         default=None,
         help_text="Whether pull requests for this run should be authored by the user or the bot.",
     )
+    auto_publish = serializers.BooleanField(
+        required=False,
+        allow_null=True,
+        default=None,
+        help_text=(
+            "When true, the cloud run agent pushes its work and opens a draft pull request on "
+            "completion without waiting for an explicit ask."
+        ),
+    )
     run_source = serializers.ChoiceField(
         choices=RUN_SOURCE_CHOICES,
         required=False,
@@ -1382,6 +1404,15 @@ class TaskRunBootstrapCreateRequestSerializer(serializers.Serializer):
         required=False,
         default=None,
         help_text="Whether pull requests for this run should be authored by the user or the bot.",
+    )
+    auto_publish = serializers.BooleanField(
+        required=False,
+        allow_null=True,
+        default=None,
+        help_text=(
+            "When true, the cloud run agent pushes its work and opens a draft pull request on "
+            "completion without waiting for an explicit ask."
+        ),
     )
     run_source = serializers.ChoiceField(
         choices=RUN_SOURCE_CHOICES,
