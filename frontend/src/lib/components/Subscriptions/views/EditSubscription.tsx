@@ -169,7 +169,9 @@ const AI_WINDOW_MODE_OPTIONS = [
         labelInMenu: (
             <div className="flex flex-col">
                 <span>Since last report</span>
-                <span className="text-xs text-secondary">Everything new since the previous scheduled report (no gaps)</span>
+                <span className="text-xs text-secondary">
+                    Everything new since the previous scheduled report (no gaps)
+                </span>
             </div>
         ),
     },
