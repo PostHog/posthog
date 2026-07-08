@@ -534,15 +534,15 @@ def create_from_template(
                 transparent_background=template_tile.get("transparent_background"),
             )
         elif tile_type == "BUTTON":
-            button = template_tile.get("button_tile") or {}
+            button = {**(template_tile.get("button_tile") or {}), **template_tile}
             _create_tile_for_button(
                 dashboard,
                 color=template_tile.get("color"),
                 layouts=template_tile.get("layouts"),
-                url=template_tile.get("url", button.get("url", "")),
-                text=template_tile.get("text", button.get("text", "")),
-                placement=template_tile.get("placement", button.get("placement", "left")),
-                style=template_tile.get("style", button.get("style", "primary")),
+                url=button.get("url", ""),
+                text=button.get("text", ""),
+                placement=button.get("placement", "left"),
+                style=button.get("style", "primary"),
                 transparent_background=template_tile.get("transparent_background"),
             )
         elif tile_type == "WIDGET":
