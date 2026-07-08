@@ -133,7 +133,7 @@ export function ReplayScannerSceneComponent(): JSX.Element {
                     },
                     actionsTabEnabled && {
                         key: ReplayScannerTab.Actions,
-                        label: 'Actions',
+                        label: 'Summaries and alerts',
                         content: <VisionActionsTab scannerId={scannerId} />,
                     },
                 ]}
