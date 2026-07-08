@@ -46,14 +46,13 @@ jobs:
                   node-version-file: .nvmrc
 
             - name: Build and post weekly CI digest
+              # POSTHOG_HOST and SLACK_CHANNEL (#alerts-devex) ride the script's defaults.
               env:
-                  POSTHOG_HOST: https://us.posthog.com
                   POSTHOG_PROJECT_ID: ${{ vars.ENG_ANALYTICS_PROJECT_ID }}
                   POSTHOG_API_KEY: ${{ secrets.ENG_ANALYTICS_POSTHOG_API_KEY }}
                   # Optional: pin a specific GitHub source if the project has more than one.
                   ENG_ANALYTICS_SOURCE_ID: ${{ vars.ENG_ANALYTICS_SOURCE_ID }}
                   SLACK_BOT_TOKEN: ${{ secrets.SLACK_DEVEX_BOT_TOKEN }}
-                  SLACK_CHANNEL: C0AS64N6DJL # #alerts-devex
-                  # Manual runs default to dry-run; the scheduled run posts.
-                  DRY_RUN: ${{ inputs.dry_run || '' }}
+                  # Manual runs default to dry-run; the scheduled run posts (empty on schedule events).
+                  DRY_RUN: ${{ inputs.dry_run }}
               run: node .github/scripts/eng-analytics-weekly-digest.mjs

@@ -35,7 +35,10 @@ const DRY_RUN = ['1', 'true', 'yes'].includes((process.env.DRY_RUN || '').toLowe
 
 const GITHUB_SERVER_URL = process.env.GITHUB_SERVER_URL || 'https://github.com'
 const GITHUB_REPOSITORY = process.env.GITHUB_REPOSITORY || ''
-const WORKFLOW_PATH = '.github/workflows/eng-analytics-weekly-digest.yml'
+// 'owner/repo/.github/workflows/x.yml@refs/heads/master' — set by Actions on every run,
+// so the digest's self-link survives a rename of this workflow file.
+const GITHUB_WORKFLOW_REF = process.env.GITHUB_WORKFLOW_REF || ''
+const GITHUB_REF_NAME = process.env.GITHUB_REF_NAME || 'master'
 
 const WEEK_MS = 7 * 24 * 60 * 60 * 1000
 
@@ -65,21 +68,18 @@ async function api(action, params = {}) {
     return parsed
 }
 
-// Minutes at CI-bill scale: '3.04M' past a million, thousands-separated below.
-function fmtMinutes(minutes) {
-    if (minutes >= 1_000_000) {
-        return `${(minutes / 1_000_000).toFixed(2)}M`
-    }
-    return Math.round(minutes).toLocaleString('en-US')
-}
-
 function fmtInt(n) {
     return Math.round(n).toLocaleString('en-US')
 }
 
+// Minutes at CI-bill scale: '3.04M' past a million, thousands-separated below.
+function fmtMinutes(minutes) {
+    return minutes >= 1_000_000 ? `${(minutes / 1_000_000).toFixed(2)}M` : fmtInt(minutes)
+}
+
 // Estimated dollars, no cents ('$13,160').
 function fmtUsd(amount) {
-    return `$${Math.round(amount).toLocaleString('en-US')}`
+    return `$${fmtInt(amount)}`
 }
 
 // PR-lifecycle durations: seconds → '3d4h' / '7h55m' / '42m'.
@@ -125,39 +125,35 @@ function cell(text) {
 // not-yet-synced jobs source degrades to fewer rows instead of a broken message.
 function tableRows(cur, prev) {
     const rows = []
-    const add = (metric, curValue, prevValue, format, delta) => {
+    const add = (metric, curValue, prevValue, format) => {
         if (curValue == null || prevValue == null) {
             return
         }
-        rows.push([cell(metric), cell(format(curValue)), cell(format(prevValue)), cell(delta(curValue, prevValue))])
+        rows.push([cell(metric), cell(format(curValue)), cell(format(prevValue)), cell(fmtDelta(curValue, prevValue))])
     }
-    add('CI minutes', cur.billable_minutes, prev.billable_minutes, fmtMinutes, fmtDelta)
-    const curMerges = sumMerges(cur)
-    const prevMerges = sumMerges(prev)
-    if (cur.billable_minutes != null && prev.billable_minutes != null && curMerges && prevMerges) {
-        add('min / merged PR', cur.billable_minutes / curMerges, prev.billable_minutes / prevMerges, fmtInt, fmtDelta)
-    }
-    add('est. Depot $', cur.estimated_cost_usd, prev.estimated_cost_usd, fmtUsd, fmtDelta)
-    add('open→merge median', cur.median_open_to_merge_seconds, prev.median_open_to_merge_seconds, fmtLongDuration, fmtDelta)
-    add('re-run cycles', cur.rerun_cycles, prev.rerun_cycles, fmtInt, fmtDelta)
+    // Null-propagating so `add`'s missing-value guard stays the only degradation path.
+    const perPr = (minutes, merges) => (minutes != null && merges ? minutes / merges : null)
+    add('CI minutes', cur.billable_minutes, prev.billable_minutes, fmtMinutes)
+    add('min / merged PR', perPr(cur.billable_minutes, sumMerges(cur)), perPr(prev.billable_minutes, sumMerges(prev)), fmtInt)
+    add('est. Depot $', cur.estimated_cost_usd, prev.estimated_cost_usd, fmtUsd)
+    add('open→merge median', cur.median_open_to_merge_seconds, prev.median_open_to_merge_seconds, fmtLongDuration)
+    add('re-run cycles', cur.rerun_cycles, prev.rerun_cycles, fmtInt)
     return rows
 }
 
-function buildBlocks(now, cur, prev) {
+function buildBlocks(now, rows) {
     const dateLabel = now.toISOString().slice(0, 10)
     const blocks = [
         { type: 'section', text: { type: 'mrkdwn', text: `*Weekly CI — ${dateLabel}* _(vs prior week)_` } },
         {
             type: 'table',
             column_settings: [{ align: 'left' }, { align: 'right' }, { align: 'right' }, { align: 'right' }],
-            rows: [
-                [cell('metric'), cell('last week'), cell('prior week'), cell('Δ')],
-                ...tableRows(cur, prev),
-            ],
+            rows: [[cell('metric'), cell('last week'), cell('prior week'), cell('Δ')], ...rows],
         },
     ]
-    if (GITHUB_REPOSITORY) {
-        const editUrl = `${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/edit/master/${WORKFLOW_PATH}`
+    const workflowPath = GITHUB_WORKFLOW_REF.split('@')[0].replace(`${GITHUB_REPOSITORY}/`, '')
+    if (GITHUB_REPOSITORY && workflowPath) {
+        const editUrl = `${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/edit/${GITHUB_REF_NAME}/${workflowPath}`
         blocks.push({ type: 'context', elements: [{ type: 'mrkdwn', text: `<${editUrl}|edit this workflow>` }] })
     }
     return blocks
@@ -195,12 +191,13 @@ async function main() {
         api('repo_overview', { date_from: thisFrom, date_to: now.toISOString() }),
         api('repo_overview', { date_from: priorFrom, date_to: thisFrom }),
     ])
-    const blocks = buildBlocks(now, cur, prev)
-    if (blocks[1].rows.length < 2) {
-        // Header row only: every metric was null (key valid but nothing synced). Fail the
-        // job so the breakage is visible instead of posting an empty table.
+    const rows = tableRows(cur, prev)
+    if (rows.length === 0) {
+        // Every metric was null (key valid but nothing synced). Fail the job so the
+        // breakage is visible instead of posting an empty table.
         throw new Error('repo_overview returned no usable metrics — not posting. Check the connected source.')
     }
+    const blocks = buildBlocks(now, rows)
     if (DRY_RUN) {
         console.log(JSON.stringify(blocks, null, 2))
         return
