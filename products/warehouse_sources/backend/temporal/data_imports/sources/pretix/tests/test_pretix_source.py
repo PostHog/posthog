@@ -1,6 +1,8 @@
 import pytest
 from unittest import mock
 
+from parameterized import parameterized
+
 from posthog.schema import SourceFieldInputConfig, SourceFieldInputConfigType
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import PretixSourceConfig
@@ -84,14 +86,16 @@ class TestPretixSource:
 
         assert [schema.name for schema in schemas] == ["events"]
 
-    @pytest.mark.parametrize(
-        "validation_result",
-        [(True, None), (False, "Invalid pretix API token")],
+    @parameterized.expand(
+        [
+            ((True, None),),
+            ((False, "Invalid pretix API token"),),
+        ]
     )
     @mock.patch(
         "products.warehouse_sources.backend.temporal.data_imports.sources.pretix.source.validate_pretix_credentials"
     )
-    def test_validate_credentials_delegates_to_transport(self, mock_validate, validation_result):
+    def test_validate_credentials_delegates_to_transport(self, validation_result, mock_validate):
         mock_validate.return_value = validation_result
 
         assert self.source.validate_credentials(self.config, self.team_id) == validation_result

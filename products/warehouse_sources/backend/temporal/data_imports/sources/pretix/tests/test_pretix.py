@@ -5,6 +5,8 @@ from urllib.parse import parse_qs, urlparse
 import pytest
 from unittest import mock
 
+from parameterized import parameterized
+
 from products.warehouse_sources.backend.temporal.data_imports.sources.pretix import pretix as px
 from products.warehouse_sources.backend.temporal.data_imports.sources.pretix.pretix import (
     HOST_NOT_ALLOWED_ERROR,
@@ -52,8 +54,7 @@ def _page(items: list[dict[str, Any]], next_url: Optional[str]) -> dict[str, Any
 
 
 class TestNormalizeBaseUrl:
-    @pytest.mark.parametrize(
-        "raw, expected",
+    @parameterized.expand(
         [
             (None, "https://pretix.eu/api/v1"),
             ("", "https://pretix.eu/api/v1"),
@@ -63,40 +64,38 @@ class TestNormalizeBaseUrl:
             ("https://tickets.example.com/", "https://tickets.example.com/api/v1"),
             ("https://tickets.example.com/api/v1", "https://tickets.example.com/api/v1"),
             ("http://tickets.example.com", "http://tickets.example.com/api/v1"),
-        ],
+        ]
     )
     def test_normalize_base_url(self, raw: Optional[str], expected: str) -> None:
         assert normalize_base_url(raw) == expected
 
 
 class TestFormatModifiedSince:
-    @pytest.mark.parametrize(
-        "value, expected",
+    @parameterized.expand(
         [
             (datetime(2026, 3, 4, 2, 58, 14, tzinfo=UTC), "2026-03-04T02:58:14Z"),
             (datetime(2026, 3, 4, 2, 58, 14), "2026-03-04T02:58:14Z"),
             (date(2026, 3, 4), "2026-03-04T00:00:00Z"),
             ("2026-03-04T02:58:14Z", "2026-03-04T02:58:14Z"),
-        ],
+        ]
     )
     def test_format_modified_since(self, value: object, expected: str) -> None:
         assert _format_modified_since(value) == expected
 
 
 class TestQuoteOrganizer:
-    @pytest.mark.parametrize(
-        "raw, expected",
+    @parameterized.expand(
         [
             ("my-organizer", "my-organizer"),
             (" my-organizer ", "my-organizer"),
             ("/my-organizer/", "my-organizer"),
             ("a/../b", "a%2F..%2Fb"),
-        ],
+        ]
     )
     def test_quotes_path_segments(self, raw: str, expected: str) -> None:
         assert _quote_organizer(raw) == expected
 
-    @pytest.mark.parametrize("raw", ["", "  ", "/"])
+    @parameterized.expand([("",), ("  ",), ("/",)])
     def test_rejects_empty(self, raw: str) -> None:
         with pytest.raises(ValueError, match=INVALID_ORGANIZER_ERROR):
             _quote_organizer(raw)
@@ -152,14 +151,13 @@ class TestFetchPage:
         with pytest.raises(PretixRetryableError):
             _fetch_page_impl(session, "https://pretix.eu/api/v1/x/", LOGGER)
 
-    @pytest.mark.parametrize(
-        "headers, expected",
+    @parameterized.expand(
         [
             ({"Retry-After": "7"}, 7.0),
             ({"Retry-After": "999"}, 60.0),
             ({"Retry-After": "Wed, 21 Oct 2026 07:28:00 GMT"}, None),
             ({}, None),
-        ],
+        ]
     )
     def test_parse_retry_after(self, headers: dict[str, str], expected: float | None) -> None:
         assert _parse_retry_after(_response(status_code=429, headers=headers)) == expected
@@ -196,23 +194,22 @@ class TestGetRowsOrganizerScope:
         assert query["modified_since"] == ["2026-01-01T00:00:00Z"]
         assert query["ordering"] == ["last_modified"]
 
-    @pytest.mark.parametrize(
-        "should_use, incremental_field",
+    @parameterized.expand(
         [
             (False, "last_modified"),
             # A user-selected cursor the server filter doesn't target must not be silently rewritten
             # into a `modified_since` filter.
             (True, "datetime"),
-        ],
+        ]
     )
     @mock.patch.object(px, "_fetch_page")
     def test_no_modified_since_when_not_applicable(
         self,
+        should_use: bool,
+        incremental_field: str,
         mock_fetch: mock.MagicMock,
         _session: mock.MagicMock,
         _host: mock.MagicMock,
-        should_use: bool,
-        incremental_field: str,
     ) -> None:
         mock_fetch.return_value = ([], None)
 
@@ -440,23 +437,22 @@ class TestGetRowsEventFanOut:
 
 @mock.patch.object(px, "_is_host_safe", return_value=(True, None))
 class TestValidateCredentials:
-    @pytest.mark.parametrize(
-        "status_code, expected_valid, message_fragment",
+    @parameterized.expand(
         [
             (200, True, None),
             (401, False, "Invalid pretix API token"),
             (403, False, "does not have access to this organizer"),
             (500, False, "HTTP 500"),
-        ],
+        ]
     )
     @mock.patch.object(px, "make_tracked_session")
     def test_status_mapping(
         self,
-        session_factory: mock.MagicMock,
-        _host: mock.MagicMock,
         status_code: int,
         expected_valid: bool,
         message_fragment: str | None,
+        session_factory: mock.MagicMock,
+        _host: mock.MagicMock,
     ) -> None:
         session = mock.MagicMock()
         session.get.return_value = _response(status_code=status_code)
@@ -535,8 +531,7 @@ class TestPretixSourceResponse:
         assert response.partition_keys == ["datetime"]
         assert response.sort_mode == "asc"
 
-    @pytest.mark.parametrize(
-        "endpoint, primary_keys",
+    @parameterized.expand(
         [
             ("events", ["slug"]),
             ("invoices", ["event", "number"]),
@@ -544,7 +539,7 @@ class TestPretixSourceResponse:
             ("gift_cards", ["id"]),
             ("items", ["event_slug", "id"]),
             ("vouchers", ["event_slug", "id"]),
-        ],
+        ]
     )
     def test_primary_keys_per_endpoint(self, endpoint: str, primary_keys: list[str]) -> None:
         response = self._source(endpoint)
