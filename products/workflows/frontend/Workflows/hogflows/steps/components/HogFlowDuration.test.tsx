@@ -22,4 +22,19 @@ describe('HogFlowDuration', () => {
         render(<HogFlowDuration value="d" onChange={jest.fn()} />)
         expect(screen.getByRole('spinbutton')).toHaveValue(null)
     })
+
+    it('floors a stored decimal value on display so old data upgrades to a whole number', () => {
+        render(<HogFlowDuration value="1.5d" onChange={jest.fn()} />)
+        expect(screen.getByRole('spinbutton')).toHaveValue(1)
+    })
+
+    it('floors a fractional value emitted by the input to a whole number', () => {
+        const onChange = jest.fn()
+        render(<HogFlowDuration value="3d" onChange={onChange} />)
+
+        const input = screen.getByRole('spinbutton')
+        fireEvent.change(input, { target: { value: '2.7' } })
+
+        expect(onChange).toHaveBeenCalledWith('2d')
+    })
 })
