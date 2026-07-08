@@ -67,6 +67,8 @@ export const teamLogic = kea<teamLogicType>([
             ['loadCurrentOrganization'],
             customProductsLogic,
             ['loadCustomProducts'],
+            projectLogic,
+            ['loadCurrentProjectSuccess'],
         ],
     })),
     actions({
@@ -117,12 +119,20 @@ export const teamLogic = kea<teamLogicType>([
                         api.update(`api/environments/${values.currentTeam.id}`, payload),
                         undefined,
                     ]
-                    if (Object.keys(payload).length === 1 && payload.name && values.currentProject) {
-                        // If we're only updating the name, update the project name as well for equivalence
-                        promises[1] = api.update(`api/projects/${values.currentProject.id}`, { name: payload.name })
+                    if (Object.keys(payload).length === 1 && payload.name && values.currentTeam.project_id) {
+                        // If we're only updating the name, update the project name as well for equivalence.
+                        // Use project_id from the team, as currentProject may not be loaded yet
+                        promises[1] = api.update(`api/projects/${values.currentTeam.project_id}`, {
+                            name: payload.name,
+                        })
                     }
-                    const [patchedTeam] = await Promise.all(promises)
+                    const [patchedTeam, patchedProject] = await Promise.all(promises)
                     breakpoint()
+
+                    if (patchedProject) {
+                        // Sync projectLogic too, as surfaces like the project switcher read currentProject.name
+                        actions.loadCurrentProjectSuccess(patchedProject)
+                    }
 
                     // We need to reload current org (which lists its teams) in organizationLogic
                     actions.loadCurrentOrganization()
