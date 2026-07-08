@@ -7,6 +7,7 @@ import { Image } from '@tiptap/extension-image'
 import { Link } from '@tiptap/extension-link'
 import { Underline } from '@tiptap/extension-underline'
 import { Placeholder } from '@tiptap/extensions'
+import { Plugin, PluginKey } from '@tiptap/pm/state'
 import {
     EditorContent,
     Extension,
@@ -169,6 +170,52 @@ const LinkExtension = Link.configure({
     },
 })
 
+/** True when the whole string is a single http(s) URL with no whitespace. */
+function isSingleHttpUrl(text: string): boolean {
+    if (!text || /\s/.test(text)) {
+        return false
+    }
+    try {
+        const { protocol } = new URL(text)
+        return protocol === 'http:' || protocol === 'https:'
+    } catch {
+        return false
+    }
+}
+
+// TipTap's built-in linkOnPaste only wraps the selection when linkify matches the
+// clipboard text exactly, which it fails to do for some long URLs, leaving the
+// selection overwritten with plain text instead of hyperlinked. Handle the
+// "URL pasted over a selection" case ourselves so URL length doesn't matter.
+const LinkOnPasteExtension = Extension.create({
+    name: 'supportLinkOnPaste',
+    priority: 150, // Run before the Link extension's own paste handler
+    addProseMirrorPlugins() {
+        const linkType = this.editor.schema.marks.link
+        return [
+            new Plugin({
+                key: new PluginKey('supportLinkOnPaste'),
+                props: {
+                    handlePaste: (view, event) => {
+                        const { selection } = view.state
+                        if (selection.empty || !linkType) {
+                            return false
+                        }
+                        const text = event.clipboardData?.getData('text/plain').trim()
+                        if (!text || !isSingleHttpUrl(text)) {
+                            return false
+                        }
+                        view.dispatch(
+                            view.state.tr.addMark(selection.from, selection.to, linkType.create({ href: text }))
+                        )
+                        return true
+                    },
+                },
+            }),
+        ]
+    },
+})
+
 export const SUPPORT_EXTENSIONS = [
     MentionsExtension,
     RichContentNodeMention,
@@ -195,6 +242,7 @@ export const SUPPORT_EXTENSIONS = [
     Underline, // Cmd+U
     ImageExtension,
     LinkExtension,
+    LinkOnPasteExtension,
     SupportCodeBlockExtension,
 ]
 
