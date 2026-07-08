@@ -12,12 +12,14 @@ import { SparklineData } from './hogInvocationsLogic'
 interface InvocationsSparklineProps {
     data: SparklineData | null
     loading: boolean
+    errored: boolean
     onDateRangeChange: (dateFrom: string, dateTo: string | undefined) => void
 }
 
 export function InvocationsSparkline({
     data,
     loading,
+    errored,
     onDateRangeChange,
 }: InvocationsSparklineProps): JSX.Element | null {
     const [collapsed, setCollapsed] = useState(false)
@@ -98,6 +100,10 @@ export function InvocationsSparkline({
                             hideZerosInTooltip
                             sortTooltipByCount
                         />
+                    ) : errored && !loading ? (
+                        <div className="h-full text-muted text-xs flex items-center justify-center">
+                            Couldn't load volume chart
+                        </div>
                     ) : !loading ? (
                         <div className="h-full text-muted text-xs flex items-center justify-center">
                             No invocations in this window

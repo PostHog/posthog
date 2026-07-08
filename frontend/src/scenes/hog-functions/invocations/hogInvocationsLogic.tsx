@@ -1,4 +1,4 @@
-import { actions, kea, key, listeners, path, props, reducers, selectors } from 'kea'
+import { actions, isBreakpoint, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 import { actionToUrl, router, urlToAction } from 'kea-router'
 
@@ -659,6 +659,7 @@ export const hogInvocationsLogic = kea<hogInvocationsLogicType>([
         rerunInvocations: (invocationIds: string[]) => ({ invocationIds }),
         bulkRerun: (params: BulkRerunParams) => ({ params }),
         setHasMore: (hasMore: boolean) => ({ hasMore }),
+        setSparklineErrored: (errored: boolean) => ({ errored }),
     }),
 
     reducers({
@@ -711,6 +712,15 @@ export const hogInvocationsLogic = kea<hogInvocationsLogicType>([
             false,
             {
                 setHasMore: () => true,
+            },
+        ],
+        // Fail-soft flag for the sparkline query. Reset when a new load starts so a
+        // recovered query clears the errored state; set when `fetchSparkline` throws.
+        sparklineErrored: [
+            false,
+            {
+                loadSparkline: () => false,
+                setSparklineErrored: (_, { errored }) => errored,
             },
         ],
     }),
@@ -775,9 +785,24 @@ export const hogInvocationsLogic = kea<hogInvocationsLogicType>([
             {
                 loadSparkline: async (_, breakpoint) => {
                     await breakpoint(100)
-                    const data = await fetchSparkline(props, values.filters)
-                    breakpoint()
-                    return data
+                    try {
+                        const data = await fetchSparkline(props, values.filters)
+                        breakpoint()
+                        return data
+                    } catch (e) {
+                        // Breakpoints (superseded load / unmount) must propagate so kea can
+                        // cancel this run — only a real query failure should fail soft.
+                        if (isBreakpoint(e as Error)) {
+                            throw e
+                        }
+                        // The sparkline is a secondary visualization: a failed query here
+                        // (e.g. a query timeout or ClickHouse error) shouldn't surface as an
+                        // unhandled "A server error occurred." toast + captured exception.
+                        // Flag the error so the chart can render an inline errored state, and
+                        // keep the previous data so the chart doesn't blank out on a transient blip.
+                        actions.setSparklineErrored(true)
+                        return values.sparkline
+                    }
                 },
             },
         ],

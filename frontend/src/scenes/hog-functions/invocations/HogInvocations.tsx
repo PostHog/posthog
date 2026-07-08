@@ -240,6 +240,7 @@ export function HogInvocations({ id, functionKind, renderLogMessage }: HogInvoca
         personPropertiesById,
         sparkline,
         sparklineLoading,
+        sparklineErrored,
     } = useValues(logic)
     const {
         loadMore,
@@ -469,6 +470,7 @@ export function HogInvocations({ id, functionKind, renderLogMessage }: HogInvoca
             <InvocationsSparkline
                 data={sparkline}
                 loading={sparklineLoading}
+                errored={sparklineErrored}
                 onDateRangeChange={(date_from, date_to) => setFilters({ date_from, date_to })}
             />
             <div className="flex flex-wrap items-center gap-2 justify-between">
