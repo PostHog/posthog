@@ -283,6 +283,7 @@ def enqueue_process_query_task(
     _test_only_bypass_celery: bool = False,
     is_query_service: bool = False,
     is_posthog_ai: bool = False,
+    limit_context: Optional[LimitContext] = None,
     analytics_props: Optional["AnalyticsProps"] = None,
 ) -> QueryStatus:
     if not query_id:
@@ -344,7 +345,8 @@ def enqueue_process_query_task(
     # module loads at django.setup() via posthog.clickhouse.client — keep the task graph off it.
     from posthog.tasks.tasks import process_query_task  # noqa: PLC0415
 
-    limit_context = LimitContext.POSTHOG_AI if is_posthog_ai else LimitContext.QUERY_ASYNC
+    if limit_context is None:
+        limit_context = LimitContext.POSTHOG_AI if is_posthog_ai else LimitContext.QUERY_ASYNC
     task_signature = process_query_task.si(
         team.id,
         user_id,

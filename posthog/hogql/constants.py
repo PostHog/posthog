@@ -31,6 +31,9 @@ MAX_SELECT_RETENTION_LIMIT = 100000  # 100k
 MAX_SELECT_HEATMAPS_LIMIT = 1000000  # 1m datapoints
 # Max limit for all cohort calculations
 MAX_SELECT_COHORT_CALCULATION_LIMIT = 1000000000  # 1b persons
+# Max limit for notebook dataframe materialization (the sandbox kernel fetching a whole
+# frame). Sync with _MATERIALIZE_ROW_CAP in products/notebooks/backend/sandbox/kernel/executor.py.
+MAX_SELECT_NOTEBOOK_MATERIALIZE_LIMIT = 2000000  # 2m rows
 # Max limit for LLM traces
 MAX_SELECT_TRACES_LIMIT_EXPORT = 10000  # 10k traces
 # Max limit for PostHog AI queries
@@ -64,6 +67,7 @@ class LimitContext(StrEnum):
     EXPORT = "export"
     COHORT_CALCULATION = "cohort_calculation"
     HEATMAPS = "heatmaps"
+    NOTEBOOK_MATERIALIZE = "notebook_materialize"
     SAVED_QUERY = "saved_query"
     RETENTION = "retention"
     POSTHOG_AI = "posthog_ai"
@@ -81,6 +85,8 @@ def get_max_limit_for_context(limit_context: LimitContext) -> int:
         return MAX_SELECT_HEATMAPS_LIMIT  # 1M
     elif limit_context == LimitContext.COHORT_CALCULATION:
         return MAX_SELECT_COHORT_CALCULATION_LIMIT  # 1b
+    elif limit_context == LimitContext.NOTEBOOK_MATERIALIZE:
+        return MAX_SELECT_NOTEBOOK_MATERIALIZE_LIMIT  # 2m
     elif limit_context == LimitContext.RETENTION:
         return MAX_SELECT_RETENTION_LIMIT  # 100k
     elif limit_context == LimitContext.SAVED_QUERY:
@@ -103,6 +109,8 @@ def get_default_limit_for_context(limit_context: LimitContext) -> int:
         return MAX_SELECT_HEATMAPS_LIMIT  # 1M
     elif limit_context == LimitContext.COHORT_CALCULATION:
         return MAX_SELECT_COHORT_CALCULATION_LIMIT  # 1b
+    elif limit_context == LimitContext.NOTEBOOK_MATERIALIZE:
+        return MAX_SELECT_NOTEBOOK_MATERIALIZE_LIMIT  # 2m
     elif limit_context == LimitContext.SAVED_QUERY:
         return sys.maxsize  # Max python int
     else:
