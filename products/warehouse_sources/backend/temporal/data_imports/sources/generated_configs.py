@@ -2091,7 +2091,7 @@ class MuxSourceConfig(config.Config):
 
 @config.config
 class MyHoursSourceConfig(config.Config):
-    pass
+    api_key: str
 
 
 @config.config
