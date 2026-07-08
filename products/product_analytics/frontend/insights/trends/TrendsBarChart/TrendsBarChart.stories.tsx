@@ -6,6 +6,8 @@ import { insightLogic } from 'scenes/insights/insightLogic'
 import { TrendInsight } from 'scenes/trends/Trends'
 
 import { mswDecorator } from '~/mocks/browser'
+import trendsValueFixture from '~/mocks/fixtures/api/projects/team_id/insights/trendsValue.json'
+import trendsValueBreakdownFixture from '~/mocks/fixtures/api/projects/team_id/insights/trendsValueBreakdown.json'
 import { dataNodeLogic } from '~/queries/nodes/DataNode/dataNodeLogic'
 import type { DataNodeLogicProps } from '~/queries/nodes/DataNode/dataNodeLogic'
 import { insightVizDataNodeKey } from '~/queries/nodes/InsightViz/InsightViz'
@@ -555,4 +557,13 @@ const BAR_VALUE_SINGLE_BREAKDOWN_INSIGHT = {
 
 export const BarValueSingleBreakdown: Story = {
     render: () => renderTrendInsight(BAR_VALUE_SINGLE_BREAKDOWN_INSIGHT),
+}
+
+// Plain bar-value display (aggregated totals per series, no breakdown)
+export const BarValue: Story = {
+    render: () => renderTrendInsight(trendsValueFixture),
+}
+
+export const BarValueBreakdown: Story = {
+    render: () => renderTrendInsight(trendsValueBreakdownFixture),
 }

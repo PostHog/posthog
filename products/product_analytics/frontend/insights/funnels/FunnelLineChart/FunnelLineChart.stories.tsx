@@ -2,10 +2,12 @@ import { Meta, StoryObj } from '@storybook/react'
 import { BindLogic } from 'kea'
 import { useState } from 'react'
 
+import { FEATURE_FLAGS } from 'lib/constants'
 import { insightLogic } from 'scenes/insights/insightLogic'
 
 import { mswDecorator } from '~/mocks/browser'
 import funnelHistoricalTrendsFixture from '~/mocks/fixtures/api/projects/team_id/insights/funnelHistoricalTrends.json'
+import funnelHistoricalTrendsCompareFixture from '~/mocks/fixtures/api/projects/team_id/insights/funnelHistoricalTrendsCompare.json'
 import { dataNodeLogic } from '~/queries/nodes/DataNode/dataNodeLogic'
 import type { DataNodeLogicProps } from '~/queries/nodes/DataNode/dataNodeLogic'
 import { insightVizDataNodeKey } from '~/queries/nodes/InsightViz/InsightViz'
@@ -124,4 +126,12 @@ export const GoalLine: Story = {
         renderFunnelLineChart(funnelHistoricalTrendsFixture, {
             goalLines: [{ label: 'Target', value: 10, displayIfCrossed: true }],
         }),
+}
+
+// Compare to previous: the current and previous period conversion rates render as separate
+// series. The funnels-compare flag gates the toggle — without it the dual-period data degrades
+// back to the single-period rendering.
+export const Compare: Story = {
+    render: () => renderFunnelLineChart(funnelHistoricalTrendsCompareFixture),
+    parameters: { featureFlags: [FEATURE_FLAGS.PRODUCT_ANALYTICS_FUNNELS_COMPARE] },
 }

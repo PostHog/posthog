@@ -5,6 +5,8 @@ import { useState } from 'react'
 import { insightLogic } from 'scenes/insights/insightLogic'
 
 import { mswDecorator } from '~/mocks/browser'
+import trendsAreaFixture from '~/mocks/fixtures/api/projects/team_id/insights/trendsArea.json'
+import trendsAreaBreakdownFixture from '~/mocks/fixtures/api/projects/team_id/insights/trendsAreaBreakdown.json'
 import trendsLineFixture from '~/mocks/fixtures/api/projects/team_id/insights/trendsLine.json'
 import trendsLineBreakdownFixture from '~/mocks/fixtures/api/projects/team_id/insights/trendsLineBreakdown.json'
 import trendsLineMultiFixture from '~/mocks/fixtures/api/projects/team_id/insights/trendsLineMulti.json'
@@ -120,4 +122,13 @@ export const SingleSeries: Story = {
 
 export const Breakdown: Story = {
     render: () => renderTrendsLineChart(trendsLineBreakdownFixture),
+}
+
+// The area display renders through the same line chart component with filled series
+export const Area: Story = {
+    render: () => renderTrendsLineChart(trendsAreaFixture),
+}
+
+export const AreaBreakdown: Story = {
+    render: () => renderTrendsLineChart(trendsAreaBreakdownFixture),
 }

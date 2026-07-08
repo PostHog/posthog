@@ -9,6 +9,8 @@ import { mswDecorator } from '~/mocks/browser'
 
 import __userPaths from '../../mocks/fixtures/api/projects/team_id/insights/userPaths.json'
 
+// One edit-mode scene story for the paths editor — the paths viz itself is covered by the
+// component-level story in scenes/paths/Paths.stories.tsx.
 type Story = StoryObj<{}>
 const meta: Meta = {
     title: 'Scenes-App/Insights/User Paths',
@@ -41,14 +43,6 @@ const meta: Meta = {
 export default meta
 /* eslint-disable @typescript-eslint/no-var-requires */
 
-// User Paths
-
-export const UserPaths: Story = createInsightStory(__userPaths as any)
-UserPaths.parameters = {
-    testOptions: {
-        waitForSelector: ['[data-attr=path-node-card-button]:nth-child(7)', '[data-attr=paths-viz][data-stable]'],
-    },
-}
 // The Paths component uses useResizeObserver to measure canvasWidth/canvasHeight, then destroys
 // and recreates the SVG when they change (or when theme/data changes). Dimension updates are
 // debounced to reduce recreations. The canvas div gets data-stable removed during recreation
@@ -89,7 +83,6 @@ const waitForPathsCanvasToStabilize: NonNullable<Story['play']> = async ({ canva
         { timeout: 8000, interval: 200 }
     )
 }
-UserPaths.play = waitForPathsCanvasToStabilize
 
 export const UserPathsEdit: Story = createInsightStory(__userPaths as any, 'edit')
 UserPathsEdit.parameters = {
@@ -98,14 +91,4 @@ UserPathsEdit.parameters = {
     },
 }
 UserPathsEdit.play = waitForPathsCanvasToStabilize
-
-export const UserPathsEditViewports: Story = createInsightStory(__userPaths as any, 'edit')
-UserPathsEditViewports.parameters = {
-    testOptions: {
-        waitForSelector: ['[data-attr=path-node-card-button]:nth-child(7)', '[data-attr=paths-viz][data-stable]'],
-        viewportWidths: ['medium', 'wide', 'superwide'],
-        snapshotBrowsers: [],
-    },
-}
-UserPathsEditViewports.play = waitForPathsCanvasToStabilize
 /* eslint-enable @typescript-eslint/no-var-requires */
