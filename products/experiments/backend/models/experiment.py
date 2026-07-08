@@ -164,7 +164,7 @@ class Experiment(FileSystemSyncMixin, ModelActivityMixin, RootTeamMixin, models.
         # Frozen exposure is not stored on the experiment — it is the running state with the linked flag's
         # release groups narrowed to a static snapshot of the already-exposed cohort. We detect it from the
         # structured key stamped on each group when the cohort condition was AND'd in — the same predicate
-        # the JSONB-containment filter uses in the experiments list endpoint.
+        # the experiments list endpoint uses.
         if not self.is_running or self.feature_flag_id is None:
             return False
         # Paused takes precedence: a deactivated flag serves no one, so reporting "frozen" would
@@ -172,8 +172,10 @@ class Experiment(FileSystemSyncMixin, ModelActivityMixin, RootTeamMixin, models.
         # paused). The group stamps survive, so resuming lands back in the frozen state.
         if not self.feature_flag.active:
             return False
+        # Enrollment is closed only when EVERY release group is stamped, so that add/edit groups
+        # surfaces as the experiment reverting to "running".
         groups = (self.feature_flag.filters or {}).get("groups", [])
-        return any(group.get(EXPOSURE_FROZEN_GROUP_KEY) is True for group in groups)
+        return bool(groups) and all(group.get(EXPOSURE_FROZEN_GROUP_KEY) is True for group in groups)
 
     @property
     def computed_status(self) -> "Experiment.Status":

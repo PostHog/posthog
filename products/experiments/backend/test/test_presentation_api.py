@@ -232,6 +232,44 @@ class TestExperimentCRUD(APILicensedTest):
         self.assertEqual(response.json()["count"], 1)
         self.assertEqual(response.json()["results"][0]["status"], expected_status)
 
+    def test_status_filter_treats_partially_stamped_flag_as_running(self) -> None:
+        # A frozen flag with a manually-added unstamped group reopens enrollment through that group.
+        # The status filter must classify it the same way Experiment.is_exposure_frozen does (all groups
+        # stamped, not just some): running, not exposure_frozen. Guards the list query against regressing
+        # to a "some group is stamped" JSONB-containment match.
+        create_response = self.client.post(
+            f"/api/projects/{self.team.id}/experiments/",
+            {
+                "name": "Reopened experiment",
+                "feature_flag_key": "reopened-filter-flag",
+                "start_date": "2021-12-01T10:23",
+                "parameters": None,
+            },
+        )
+        experiment_id = create_response.json()["id"]
+        flag = FeatureFlag.objects.get(team=self.team, key="reopened-filter-flag")
+        flag.filters = {
+            **flag.filters,
+            "groups": [
+                *(
+                    {**group, EXPOSURE_FROZEN_GROUP_KEY: True, "description": EXPOSURE_FROZEN_GROUP_MARKER}
+                    for group in flag.filters.get("groups", [])
+                ),
+                {"properties": [], "rollout_percentage": 100},
+            ],
+        }
+        flag.save()
+
+        frozen_ids = [e["id"] for e in self._status_filter_results("exposure_frozen")]
+        running_ids = [e["id"] for e in self._status_filter_results("running")]
+        assert experiment_id not in frozen_ids
+        assert experiment_id in running_ids
+
+    def _status_filter_results(self, status_filter: str) -> list[dict[str, Any]]:
+        response = self.client.get(f"/api/projects/{self.team.id}/experiments/?status={status_filter}")
+        assert response.status_code == status.HTTP_200_OK
+        return response.json()["results"]
+
     def _create_experiment_with_metric_event(self, name: str, flag_key: str, event: str) -> Experiment:
         flag = FeatureFlag.objects.create(
             team=self.team,

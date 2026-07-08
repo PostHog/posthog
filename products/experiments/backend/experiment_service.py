@@ -10,7 +10,8 @@ from uuid import uuid4
 from zoneinfo import ZoneInfo
 
 from django.db import transaction
-from django.db.models import Case, CharField, Count, F, Prefetch, Q, QuerySet, Value, When
+from django.db.models import BooleanField, Case, CharField, Count, F, Prefetch, Q, QuerySet, Value, When
+from django.db.models.expressions import RawSQL
 from django.db.models.functions import Coalesce, Now, NullIf
 from django.utils import timezone
 
@@ -3480,9 +3481,25 @@ class ExperimentService:
                     launched_unfinished = Q(status=Experiment.Status.RUNNING) | Q(
                         status__isnull=True, start_date__isnull=False, end_date__isnull=True
                     )
-                    # Same detection as Experiment.is_exposure_frozen: some release group carries the
-                    # structured freeze key. JSONB containment scopes the match to groups[] entries.
-                    exposure_frozen = Q(feature_flag__filters__contains={"groups": [{EXPOSURE_FROZEN_GROUP_KEY: True}]})
+                    # Frozen means EVERY release group is stamped (mirrors Experiment.is_exposure_frozen);
+                    # JSONB containment only tests "some group", so require that no group lacks the stamp.
+                    # nosemgrep: python.django.security.audit.raw-query.avoid-raw-sql
+                    all_groups_stamped = RawSQL(
+                        """EXISTS (
+                            SELECT 1 FROM posthog_featureflag ff
+                            WHERE ff.id = posthog_experiment.feature_flag_id
+                              AND jsonb_typeof(ff.filters -> 'groups') = 'array'
+                              AND jsonb_array_length(ff.filters -> 'groups') > 0
+                              AND NOT EXISTS (
+                                  SELECT 1 FROM jsonb_array_elements(ff.filters -> 'groups') AS grp
+                                  WHERE NOT (grp @> jsonb_build_object(%s, true))
+                              )
+                        )""",
+                        [EXPOSURE_FROZEN_GROUP_KEY],
+                        output_field=BooleanField(),
+                    )
+                    queryset = queryset.annotate(_all_groups_stamped=all_groups_stamped)
+                    exposure_frozen = Q(_all_groups_stamped=True)
 
                     if status_enum == ExperimentQueryStatus.DRAFT:
                         queryset = queryset.filter(

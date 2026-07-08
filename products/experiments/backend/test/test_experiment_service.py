@@ -3299,6 +3299,27 @@ class TestExperimentService(APIBaseTest):
         assert flag.filters["groups"][0][EXPOSURE_FROZEN_GROUP_KEY] is True
         assert frozen.is_exposure_frozen is True
 
+    def test_flag_update_adding_unstamped_group_reopens_exposure(self):
+        experiment = self._create_running_experiment(name="Freeze Then Add Group", feature_flag_key="freeze-add-flag")
+        with self._stub_freeze_population():
+            frozen = self._service().freeze_exposure(experiment, request=self._make_request())
+        flag = frozen.feature_flag
+        flag.refresh_from_db()
+
+        # Release groups are OR'd, so a manually-added group without the freeze stamp (and without the
+        # snapshot-cohort condition) lets new users enroll again. Freezing stamps every group, so the
+        # experiment must report unfrozen the moment one unstamped group exists — otherwise the badge
+        # keeps saying "exposure frozen" while enrollment is actually open.
+        edited_filters = deepcopy(flag.filters)
+        edited_filters["groups"].append({"properties": [], "rollout_percentage": 100})
+        self._update_flag_filters(flag, edited_filters)
+
+        frozen.refresh_from_db()
+        # The original group keeps its stamp — only the freshly added group is unstamped.
+        assert flag.filters["groups"][0][EXPOSURE_FROZEN_GROUP_KEY] is True
+        assert EXPOSURE_FROZEN_GROUP_KEY not in flag.filters["groups"][1]
+        assert frozen.is_exposure_frozen is False
+
     @parameterized.expand(
         [
             ("timeout", ClickHouseQueryTimeOut),
