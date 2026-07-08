@@ -433,7 +433,6 @@ class Task(FileSystemSyncMixin, DeletedMetaFields, models.Model):
         inactivity_timeout_seconds: int | None = None,
         wizard_config: dict | None = None,
         pending_user_message: str | None = None,
-        mcp_installation_ids: list[str] | None = None,
         custom_image_builder_id: str | None = None,
         custom_image_id: str | None = None,
     ) -> tuple["Task", dict[str, Any]]:
@@ -600,9 +599,6 @@ class Task(FileSystemSyncMixin, DeletedMetaFields, models.Model):
         if pending_user_message:
             extra_state["pending_user_message"] = pending_user_message
 
-        if mcp_installation_ids is not None:
-            extra_state["mcp_installation_ids"] = mcp_installation_ids
-
         # Builder sessions must run on the exact VM base that custom images layer on.
         if custom_image_builder_id:
             extra_state["custom_image_builder_id"] = custom_image_builder_id
@@ -687,7 +683,6 @@ class Task(FileSystemSyncMixin, DeletedMetaFields, models.Model):
         ai_stage: str | None = None,
         wizard_config: dict | None = None,
         pending_user_message: str | None = None,
-        mcp_installation_ids: list[str] | None = None,
         custom_image_builder_id: str | None = None,
         custom_image_id: str | None = None,
     ) -> "Task":
@@ -718,7 +713,6 @@ class Task(FileSystemSyncMixin, DeletedMetaFields, models.Model):
             ai_stage=ai_stage,
             wizard_config=wizard_config,
             pending_user_message=pending_user_message,
-            mcp_installation_ids=mcp_installation_ids,
             custom_image_builder_id=custom_image_builder_id,
             custom_image_id=custom_image_id,
         )

@@ -105,8 +105,6 @@ class CustomPromptSandboxContext:
     SandboxConfig defaults (4 cores / 16 GB)."""
     sandbox_timeout_seconds: int | None = None
     """Override the sandbox's max lifetime (Modal TTL). Falls back to SANDBOX_TTL_SECONDS."""
-    mcp_installation_ids: list[str] | None = None
-    """Subset of the creator's MCP Store installations to mount. ``None`` = all; ``[]`` = none."""
 
 
 class EmptyAgentTurnError(RuntimeError):
@@ -155,7 +153,6 @@ async def create_task_and_trigger(
         internal=internal,
         sandbox_resources=context.sandbox_resources,
         sandbox_timeout_seconds=context.sandbox_timeout_seconds,
-        mcp_installation_ids=context.mcp_installation_ids,
     )
     # lambda wrap: task.latest_run is a lazy ORM property; sync_to_async needs a callable
     task_run = await sync_to_async(lambda: task.latest_run)()

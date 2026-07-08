@@ -5,7 +5,6 @@ from uuid import UUID
 
 from temporalio import activity
 
-from posthog.models.team.team import Team
 from posthog.sync import database_sync_to_async
 from posthog.temporal.common.heartbeat import Heartbeater
 from posthog.temporal.common.utils import close_db_connections
@@ -30,21 +29,25 @@ from products.conversations.backend.temporal.helpers import (
     get_or_create_support_sandbox_env,
     resolve_user_id_for_support,
 )
+from products.mcp_store.backend.facade.api import get_active_installations
 from products.tasks.backend.facade import api as tasks_facade
 from products.tasks.backend.facade.agents import MultiTurnSession
 
 
-def _get_mcp_installation_ids(team_id: int) -> list[str]:
-    team = Team.objects.get(id=team_id)
-    conversations_settings = team.conversations_settings or {}
-    installation_ids = conversations_settings.get("ai_mcp_installation_ids")
-    if installation_ids is None:
-        # Unset means no store MCPs until an admin explicitly opts in — matches the UI
-        # (unchecked boxes) and avoids mounting every install into the untrusted-ticket sandbox.
-        return []
-    if isinstance(installation_ids, list):
-        return [str(item) for item in installation_ids]
-    return []
+def _get_store_mcp_names_for_prompt(team_id: int, user_id: int) -> list[str]:
+    """Names of active MCP Store installs for the run-as user (prompt hint only; sandbox mounts all)."""
+    return [installation.name for installation in get_active_installations(team_id, user_id)]
+
+
+def _format_store_mcp_prompt_block(store_mcp_names: list[str]) -> str:
+    if not store_mcp_names:
+        return ""
+    names = ", ".join(store_mcp_names)
+    return f"""
+EXTERNAL MCP TOOLS (via MCP Store — use when the ticket clearly needs one of these systems, ignore otherwise):
+- Available integrations: {names}
+- Pick the relevant tools when the customer's question is about that system (e.g. orders or fulfillment → a commerce MCP). Do not call them for generic PostHog how-to questions covered by docs-search or business knowledge.
+"""
 
 
 def _hydrate_chunks(team_id: int, chunk_ids: list[str]) -> list[dict[str, Any]]:
@@ -105,7 +108,9 @@ async def _draft_async(
     chunks = await database_sync_to_async(_hydrate_chunks, thread_sensitive=False)(team_id, chunk_ids)
     user_id = await database_sync_to_async(resolve_user_id_for_support, thread_sensitive=False)(team_id)
     env_id = await database_sync_to_async(get_or_create_support_sandbox_env, thread_sensitive=False)(team_id)
-    mcp_installation_ids = await database_sync_to_async(_get_mcp_installation_ids, thread_sensitive=False)(team_id)
+    store_mcp_names = await database_sync_to_async(_get_store_mcp_names_for_prompt, thread_sensitive=False)(
+        team_id, user_id
+    )
 
     # Customer-data read tools (execute-sql, session recordings, logs, persons, error tracking)
     # are granted only when the org opted in AND this reply won't be auto-sent to the author.
@@ -126,7 +131,6 @@ async def _draft_async(
         posthog_mcp_scopes=mcp_scopes,
         model=DRAFT_MODEL,
         runtime_adapter=DRAFT_RUNTIME_ADAPTER,
-        mcp_installation_ids=mcp_installation_ids,
     )
 
     chunks_text = "\n\n".join(
@@ -182,6 +186,8 @@ DIAGNOSTIC INVESTIGATION (this ticket reports something broken — investigate t
 - Form a hypothesis from the ticket, verify it against the data, and base your reply on what the data shows — not on guesses.
 """
 
+    store_mcp_block = _format_store_mcp_prompt_block(store_mcp_names)
+
     prompt = f"""You are a support agent drafting a reply to a customer ticket.
 
 SECURITY:
@@ -203,7 +209,7 @@ KNOWLEDGE BASE RESULTS:
 {chunks_text[:12000]}{refinement}
 
 TICKET TYPE: {ticket_type} — {TICKET_TYPE_HINTS.get(ticket_type, "")}
-{data_safety_block}{diagnostic_block}
+{data_safety_block}{diagnostic_block}{store_mcp_block}
 INSTRUCTIONS:
 - Draft a helpful, accurate reply to the customer's question. Lead with the answer, be concise and friendly.
 - The KNOWLEDGE BASE RESULTS above are a starting point, not a ceiling. Use your tools to search for additional information:

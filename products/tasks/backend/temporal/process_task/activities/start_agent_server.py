@@ -218,7 +218,6 @@ def _prepare_launch(ctx: TaskProcessingContext, scopes: PosthogMcpScopes) -> _La
             team_id=ctx.team_id,
             user_id=task.created_by_id,
             interaction_origin=ctx.interaction_origin,
-            installation_ids=ctx.mcp_installation_ids,
         )
         if user_mcp_configs:
             mcp_configs = mcp_configs + user_mcp_configs

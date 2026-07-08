@@ -108,28 +108,52 @@ class TestResolveUserIdForSupport:
 
 
 @pytest.mark.django_db
-class TestGetMcpInstallationIds:
-    def test_unset_returns_empty_list(self):
+class TestGetStoreMcpNamesForPrompt:
+    def test_returns_empty_when_no_installations(self):
+        from posthog.models import User
         from posthog.models.organization import Organization
         from posthog.models.team.team import Team
 
-        from products.conversations.backend.temporal.ai_reply.activities.draft import _get_mcp_installation_ids
+        from products.conversations.backend.temporal.ai_reply.activities.draft import _get_store_mcp_names_for_prompt
 
         org = Organization.objects.create(name="Test Org")
         team = Team.objects.create(organization=org, name="Test Team")
+        user = User.objects.create_and_join(org, "admin@posthog.com", "password")
 
-        assert _get_mcp_installation_ids(team.id) == []
+        assert _get_store_mcp_names_for_prompt(team.id, user.id) == []
 
-    def test_stored_ids_are_returned(self):
+    def test_returns_installation_names(self):
+        from posthog.models import User
         from posthog.models.organization import Organization
         from posthog.models.team.team import Team
 
-        from products.conversations.backend.temporal.ai_reply.activities.draft import _get_mcp_installation_ids
+        from products.conversations.backend.temporal.ai_reply.activities.draft import _get_store_mcp_names_for_prompt
+        from products.mcp_store.backend.models import MCPServerInstallation
 
         org = Organization.objects.create(name="Test Org")
         team = Team.objects.create(organization=org, name="Test Team")
-        installation_id = "11111111-1111-4111-8111-111111111111"
-        team.conversations_settings = {"ai_mcp_installation_ids": [installation_id]}
-        team.save()
+        user = User.objects.create_and_join(org, "admin@posthog.com", "password")
+        MCPServerInstallation.objects.create(
+            team=team,
+            user=user,
+            url="https://shopify.example/mcp",
+            display_name="Shopify",
+            auth_type="api_key",
+            sensitive_configuration={"api_key": "secret"},
+        )
 
-        assert _get_mcp_installation_ids(team.id) == [installation_id]
+        assert _get_store_mcp_names_for_prompt(team.id, user.id) == ["Shopify"]
+
+
+class TestFormatStoreMcpPromptBlock:
+    def test_empty_when_no_names(self):
+        from products.conversations.backend.temporal.ai_reply.activities.draft import _format_store_mcp_prompt_block
+
+        assert _format_store_mcp_prompt_block([]) == ""
+
+    def test_lists_available_integrations(self):
+        from products.conversations.backend.temporal.ai_reply.activities.draft import _format_store_mcp_prompt_block
+
+        block = _format_store_mcp_prompt_block(["Shopify", "Linear"])
+        assert "Shopify, Linear" in block
+        assert "EXTERNAL MCP TOOLS" in block

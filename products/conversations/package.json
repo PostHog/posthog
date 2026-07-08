@@ -21,7 +21,6 @@
     "peerDependencies": {
         "@posthog/icons": "catalog:",
         "@posthog/lemon-ui": "*",
-        "@posthog/products-mcp-store": "workspace:*",
         "@testing-library/jest-dom": "*",
         "@testing-library/react": "*",
         "@testing-library/user-event": "*",

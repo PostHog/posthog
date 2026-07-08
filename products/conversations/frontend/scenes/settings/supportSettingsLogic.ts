@@ -1,9 +1,6 @@
 import { actions, afterMount, connect, kea, listeners, path, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 
-import { mcpServerInstallationsList } from '@posthog/products-mcp-store/frontend/generated/api'
-import type { MCPServerInstallationApi } from '@posthog/products-mcp-store/frontend/generated/api.schemas'
-
 import api from 'lib/api'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { teamLogic } from 'scenes/teamLogic'
@@ -135,8 +132,6 @@ export const supportSettingsLogic = kea<supportSettingsLogicType>([
             ticketType,
             mode,
         }),
-        setAiMcpInstallations: (ids: string[]) => ({ ids }),
-        setAiMcpInstallationsLoading: (loading: boolean) => ({ loading }),
     }),
     reducers({
         conversationsEnabledLoading: [
@@ -320,14 +315,6 @@ export const supportSettingsLogic = kea<supportSettingsLogicType>([
                 updateCurrentTeamFailure: () => false,
             },
         ],
-        aiMcpInstallationsLoading: [
-            false,
-            {
-                setAiMcpInstallationsLoading: (_, { loading }) => loading,
-                updateCurrentTeamSuccess: () => false,
-                updateCurrentTeamFailure: () => false,
-            },
-        ],
         slackTicketEmojiValue: [
             null as string | null,
             {
@@ -431,24 +418,6 @@ export const supportSettingsLogic = kea<supportSettingsLogicType>([
                     } catch {
                         lemonToast.error('Failed to load Teams channels')
                         return values.teamsChannels
-                    }
-                },
-            },
-        ],
-        mcpInstallations: [
-            [] as MCPServerInstallationApi[],
-            {
-                loadMcpInstallations: async () => {
-                    const projectId = values.currentTeam?.id
-                    if (!projectId) {
-                        return []
-                    }
-                    try {
-                        const response = await mcpServerInstallationsList(String(projectId))
-                        return response.results ?? []
-                    } catch {
-                        lemonToast.error('Failed to load MCP installations')
-                        return values.mcpInstallations
                     }
                 },
             },
@@ -614,10 +583,6 @@ export const supportSettingsLogic = kea<supportSettingsLogicType>([
             (currentTeam): Record<string, Record<string, 'private_note' | 'bot_reply'>> => {
                 return currentTeam?.conversations_settings?.ai_reply_modes ?? {}
             },
-        ],
-        aiMcpInstallationIds: [
-            (s) => [s.currentTeam],
-            (currentTeam): string[] => currentTeam?.conversations_settings?.ai_mcp_installation_ids ?? [],
         ],
     }),
     listeners(({ values, actions }) => ({
@@ -1003,15 +968,15 @@ export const supportSettingsLogic = kea<supportSettingsLogicType>([
         },
         setAiSuggestionsEnabled: ({ enabled }) => {
             actions.setAiSuggestionsLoading(true)
-            actions.updateCurrentTeam({
-                conversations_settings: {
-                    ...values.currentTeam?.conversations_settings,
-                    ai_suggestions_enabled: enabled,
-                },
-            })
-            if (enabled) {
-                actions.loadMcpInstallations()
+            const userId = values.user?.id
+            const conversationsSettings = {
+                ...values.currentTeam?.conversations_settings,
+                ai_suggestions_enabled: enabled,
             }
+            if (enabled && userId && conversationsSettings.ai_mcp_run_as_user_id == null) {
+                conversationsSettings.ai_mcp_run_as_user_id = userId
+            }
+            actions.updateCurrentTeam({ conversations_settings: conversationsSettings })
         },
         setAiDiagnosticsEnabled: ({ enabled }) => {
             actions.setAiDiagnosticsLoading(true)
@@ -1037,20 +1002,6 @@ export const supportSettingsLogic = kea<supportSettingsLogicType>([
                 conversations_settings: {
                     ...values.currentTeam?.conversations_settings,
                     ai_reply_modes: { ...current, [channel]: channelModes },
-                },
-            })
-        },
-        setAiMcpInstallations: ({ ids }) => {
-            const userId = values.user?.id
-            if (!userId || values.aiMcpInstallationsLoading) {
-                return
-            }
-            actions.setAiMcpInstallationsLoading(true)
-            actions.updateCurrentTeam({
-                conversations_settings: {
-                    ...values.currentTeam?.conversations_settings,
-                    ai_mcp_installation_ids: ids,
-                    ai_mcp_run_as_user_id: userId,
                 },
             })
         },
@@ -1119,9 +1070,6 @@ export const supportSettingsLogic = kea<supportSettingsLogicType>([
         actions.loadGithubIntegrations()
         if (values.githubConnected) {
             actions.loadGithubRepos()
-        }
-        if (values.aiSuggestionsEnabled) {
-            actions.loadMcpInstallations()
         }
     }),
 ])

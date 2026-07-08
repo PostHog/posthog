@@ -1565,33 +1565,14 @@ def team_api_test_factory():
             assert settings["widget_greeting_text"] == "Hello!"
             assert settings["widget_color"] == "#ff0000"
 
-        def test_conversations_settings_accepts_ai_mcp_installation_ids(self):
-            installation_id = "11111111-1111-4111-8111-111111111111"
+        def test_conversations_settings_accepts_ai_mcp_run_as_user_id(self):
             response = self.client.patch(
                 "/api/environments/@current/",
-                {
-                    "conversations_settings": {
-                        "ai_mcp_installation_ids": [installation_id],
-                        "ai_mcp_run_as_user_id": self.user.id,
-                    }
-                },
+                {"conversations_settings": {"ai_mcp_run_as_user_id": self.user.id}},
             )
             assert response.status_code == status.HTTP_200_OK
             settings = response.json()["conversations_settings"]
-            assert settings["ai_mcp_installation_ids"] == [installation_id]
             assert settings["ai_mcp_run_as_user_id"] == self.user.id
-
-        def test_conversations_settings_rejects_invalid_ai_mcp_installation_ids(self):
-            response = self.client.patch(
-                "/api/environments/@current/",
-                {"conversations_settings": {"ai_mcp_installation_ids": ["not-a-uuid"]}},
-            )
-            assert response.status_code == status.HTTP_400_BAD_REQUEST
-            body = response.json()
-            assert (
-                body.get("attr") == "conversations_settings__ai_mcp_installation_ids"
-                or "ai_mcp_installation_ids" in body
-            )
 
         def test_conversations_settings_rejects_non_member_run_as_user(self):
             from posthog.models import User
