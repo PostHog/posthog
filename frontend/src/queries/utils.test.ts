@@ -7,7 +7,7 @@ import { teamLogic } from 'scenes/teamLogic'
 import { DataTableNode, DataVisualizationNode, NodeKind } from '~/queries/schema/schema-general'
 import type { InsightQueryNode } from '~/queries/schema/schema-general'
 import { initKeaTests } from '~/test/init'
-import { AppContext, ChartDisplayType, TeamType } from '~/types'
+import { AppContext, ChartDisplayType, FunnelVizType, TeamType } from '~/types'
 
 import {
     convertDataTableNodeToDataVisualizationNode,
@@ -15,6 +15,7 @@ import {
     escapeHogQLString,
     escapePropertyAsHogQLIdentifier,
     hogql,
+    queryVizRendersToCanvas,
     supportsBarValueStacking,
 } from './utils'
 
@@ -249,5 +250,53 @@ describe('supportsBarValueStacking', () => {
         { name: 'null query', query: null, expected: false },
     ])('returns $expected for $name', ({ query, expected }) => {
         expect(supportsBarValueStacking(query)).toBe(expected)
+    })
+})
+
+describe('queryVizRendersToCanvas', () => {
+    const insightViz = (source: InsightQueryNode): any => ({ kind: NodeKind.InsightVizNode, source })
+    const trends = (display?: ChartDisplayType): InsightQueryNode =>
+        ({ kind: NodeKind.TrendsQuery, series: [], trendsFilter: display ? { display } : {} }) as InsightQueryNode
+
+    it.each([
+        { name: 'HogQL data table', query: { kind: NodeKind.DataTableNode } as any, expected: false },
+        {
+            name: 'SQL viz as chart',
+            query: { kind: NodeKind.DataVisualizationNode, display: ChartDisplayType.ActionsLineGraph } as any,
+            expected: true,
+        },
+        {
+            name: 'SQL viz as table (no display)',
+            query: { kind: NodeKind.DataVisualizationNode } as any,
+            expected: false,
+        },
+        { name: 'trends line chart', query: insightViz(trends(ChartDisplayType.ActionsLineGraph)), expected: true },
+        { name: 'trends default display', query: insightViz(trends()), expected: true },
+        { name: 'trends bold number', query: insightViz(trends(ChartDisplayType.BoldNumber)), expected: false },
+        { name: 'trends table', query: insightViz(trends(ChartDisplayType.ActionsTable)), expected: false },
+        { name: 'trends world map', query: insightViz(trends(ChartDisplayType.WorldMap)), expected: false },
+        {
+            name: 'funnel steps (default)',
+            query: insightViz({ kind: NodeKind.FunnelsQuery, series: [] } as InsightQueryNode),
+            expected: true,
+        },
+        {
+            name: 'funnel flow (Sankey)',
+            query: insightViz({
+                kind: NodeKind.FunnelsQuery,
+                series: [],
+                funnelsFilter: { funnelVizType: FunnelVizType.Flow },
+            } as InsightQueryNode),
+            expected: false,
+        },
+        {
+            name: 'retention',
+            query: insightViz({ kind: NodeKind.RetentionQuery } as InsightQueryNode),
+            expected: false,
+        },
+        { name: 'paths', query: insightViz({ kind: NodeKind.PathsQuery } as InsightQueryNode), expected: false },
+        { name: 'null query', query: null, expected: true },
+    ])('returns $expected for $name', ({ query, expected }) => {
+        expect(queryVizRendersToCanvas(query)).toBe(expected)
     })
 })
