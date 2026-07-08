@@ -91,22 +91,6 @@ class AnthropicConfig:
         "claude-sonnet-4-0",
     ]
 
-    # Anthropic deprecated the sampling parameters (`temperature`/`top_p`/`top_k`) starting
-    # with Opus 4.7: setting them to a non-default value returns a 400. Their guidance is to
-    # omit them and steer via prompting. We never send a temperature unless a caller explicitly
-    # sets one; this list guards that explicit case so it degrades gracefully instead of 400ing.
-    # https://platform.claude.com/docs/en/about-claude/model-deprecations
-    MODELS_WITHOUT_TEMPERATURE: list[str] = [
-        "claude-opus-4-8",
-        "claude-opus-4-7",
-        "claude-sonnet-5",
-        "claude-fable-5",
-    ]
-
-    @classmethod
-    def supports_temperature(cls, model: str) -> bool:
-        return model not in cls.MODELS_WITHOUT_TEMPERATURE
-
 
 class AnthropicAdapter:
     """Anthropic provider implementing the unified Client interface."""
@@ -154,8 +138,10 @@ class AnthropicAdapter:
             **(self._build_analytics_kwargs(analytics, client)),
         }
 
-        # Only forward temperature when a caller explicitly set one and the model still accepts it.
-        if request.temperature is not None and AnthropicConfig.supports_temperature(request.model):
+        # Anthropic deprecated the sampling params (temperature/top_p/top_k) on newer models and
+        # recommends omitting them (https://platform.claude.com/docs/en/about-claude/model-deprecations).
+        # Forward temperature only when a caller explicitly set one.
+        if request.temperature is not None:
             create_kwargs["temperature"] = request.temperature
 
         if use_structured:
@@ -264,8 +250,8 @@ class AnthropicAdapter:
                 "stream": True,
             }
 
-            # Only forward temperature when a caller explicitly set one and the model still accepts it.
-            if request.temperature is not None and AnthropicConfig.supports_temperature(model_id):
+            # See complete(): forward temperature only when a caller explicitly set one.
+            if request.temperature is not None:
                 common_kwargs["temperature"] = request.temperature
 
             if analytics.capture:

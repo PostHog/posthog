@@ -100,14 +100,10 @@ class TestAnthropicTemperature:
 
     @parameterized.expand(["claude-haiku-4-5", "claude-opus-4-8", "claude-fable-5"])
     def test_temperature_omitted_when_not_set(self, model: str):
-        # Evals never set a temperature; we must not inject one (Anthropic's guidance is to omit)
+        # Evals never set a temperature; we must not inject one (Anthropic's guidance is to omit,
+        # and injecting temperature=0 is what 400'd on models where it's deprecated)
         assert "temperature" not in self._complete_with_model(model, temperature=None)
 
-    @parameterized.expand(["claude-haiku-4-5", "claude-sonnet-4-6", "claude-opus-4-6"])
-    def test_explicit_temperature_sent_for_models_that_accept_it(self, model: str):
+    @parameterized.expand(["claude-haiku-4-5", "claude-opus-4-6"])
+    def test_explicit_temperature_forwarded(self, model: str):
         assert self._complete_with_model(model, temperature=0.5)["temperature"] == 0.5
-
-    @parameterized.expand(["claude-opus-4-8", "claude-opus-4-7", "claude-sonnet-5", "claude-fable-5"])
-    def test_explicit_temperature_dropped_for_models_that_reject_it(self, model: str):
-        # These 400 with "temperature is deprecated for this model" if we send it
-        assert "temperature" not in self._complete_with_model(model, temperature=0.5)
