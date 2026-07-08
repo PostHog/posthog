@@ -26,6 +26,7 @@ export const fromNodeTypeToLabel: Omit<
     [NotebookNodeType.Person]: 'Persons',
     [NotebookNodeType.Query]: 'Queries',
     [NotebookNodeType.Python]: 'Python',
+    [NotebookNodeType.PythonV2]: 'Python (v2)',
     [NotebookNodeType.DuckSQL]: 'SQL (DuckDB)',
     [NotebookNodeType.HogQLSQL]: 'SQL (HogQL)',
     [NotebookNodeType.SQLV2]: 'SQL (v2)',

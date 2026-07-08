@@ -21,6 +21,7 @@ import '../Nodes/NotebookNodePersonFeed/NotebookNodePersonFeed'
 import '../Nodes/NotebookNodePersonProperties'
 import '../Nodes/NotebookNodePlaylist'
 import '../Nodes/NotebookNodePython'
+import '../Nodes/NotebookNodePythonV2'
 import '../Nodes/NotebookNodeQuery'
 import '../Nodes/NotebookNodeRecording'
 import '../Nodes/NotebookNodeRelatedGroups'
@@ -111,6 +112,7 @@ const MARKDOWN_NODE_ATTRIBUTE_LABELS: Partial<Record<NotebookNodeType, Record<st
 export const MARKDOWN_TAG_TO_NOTEBOOK_NODE_TYPE: Partial<Record<string, NotebookNodeType>> = {
     Query: NotebookNodeType.Query,
     Python: NotebookNodeType.Python,
+    PythonV2: NotebookNodeType.PythonV2,
     DuckSQL: NotebookNodeType.DuckSQL,
     HogQLSQL: NotebookNodeType.HogQLSQL,
     SQLV2: NotebookNodeType.SQLV2,
@@ -152,13 +154,18 @@ export const MARKDOWN_NODE_DEFINITIONS: {
     insertCommand?: NotebookComponentDefinition['insertCommand']
 }[] = [
     { tagName: 'Query', category: 'Insight' },
-    // Inserts the revamped (sandbox-kernel) Python cell; gated like SQLV2 below.
+    // Legacy in-browser-kernel Python cell: still renders where it exists, but new cells
+    // are always the revamped PythonV2 below, so it has no insertCommand.
+    { tagName: 'Python', category: 'Code' },
+    // The revamped (sandbox-kernel) Python cell; insertion gated like SQLV2 in
+    // getMarkdownRegistryForFeatureFlags.
     {
-        tagName: 'Python',
+        tagName: 'PythonV2',
         category: 'Code',
+        label: 'Python',
         insertCommand: {
             aliases: ['python', 'py'],
-            defaultProps: () => ({ ...getDefaultPropsForNodeType(NotebookNodeType.Python), nodeId: uuid() }),
+            defaultProps: () => ({ ...getDefaultPropsForNodeType(NotebookNodeType.PythonV2), nodeId: uuid() }),
         },
     },
     { tagName: 'DuckSQL', category: 'SQL', label: 'SQL (DuckDB)' },
@@ -259,7 +266,7 @@ export const NOTEBOOK_MARKDOWN_REGISTRY: NotebookComponentRegistry = createMarkd
 export function getMarkdownRegistryForFeatureFlags(featureFlags: FeatureFlagsSet): NotebookComponentRegistry {
     const hiddenTags: string[] = []
     if (!featureFlags[FEATURE_FLAGS.REVAMPED_PY_NOTEBOOKS]) {
-        hiddenTags.push('SQLV2', 'Python')
+        hiddenTags.push('SQLV2', 'PythonV2')
     }
 
     if (hiddenTags.length === 0) {
@@ -308,6 +315,7 @@ export function getMarkdownNotebookNodeTitle(
     }
     if (
         nodeType === NotebookNodeType.Python ||
+        nodeType === NotebookNodeType.PythonV2 ||
         nodeType === NotebookNodeType.DuckSQL ||
         nodeType === NotebookNodeType.HogQLSQL
     ) {
