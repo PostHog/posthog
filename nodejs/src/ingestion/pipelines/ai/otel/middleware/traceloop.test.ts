@@ -128,6 +128,53 @@ describe('traceloop middleware', () => {
             expect(event.properties!['$ai_input']).toEqual([{ role: 'user', content: 'Hello' }])
         })
 
+        it('maps the Go SDK llm.* key variants (messages, model, tokens, vendor)', () => {
+            // go-openllmetry emits llm.prompts/llm.completions/llm.usage.*
+            // where the Python SDK emits gen_ai.* — a span from the Go SDK
+            // must not land stripped down to latency only.
+            const event = createEvent('$ai_generation', {
+                'llm.request.type': 'chat',
+                'llm.vendor': 'anthropic',
+                'llm.request.model': 'claude-haiku-4-5',
+                'llm.response.model': 'claude-haiku-4-5-20251001',
+                'llm.usage.prompt_tokens': 20,
+                'llm.usage.completion_tokens': 4,
+                'llm.prompts.0.role': 'system',
+                'llm.prompts.0.content': 'Be terse.',
+                'llm.prompts.1.role': 'user',
+                'llm.prompts.1.content': 'Capital of France?',
+                'llm.completions.0.role': 'assistant',
+                'llm.completions.0.content': 'Paris.',
+            })
+            traceloop.process(event, () => mapOtelAttributes(event))
+
+            const props = event.properties!
+            expect(props['$ai_input']).toEqual([
+                { role: 'system', content: 'Be terse.' },
+                { role: 'user', content: 'Capital of France?' },
+            ])
+            expect(props['$ai_output_choices']).toEqual([{ role: 'assistant', content: 'Paris.' }])
+            expect(props['$ai_model']).toBe('claude-haiku-4-5-20251001')
+            expect(props['$ai_provider']).toBe('anthropic')
+            expect(props['$ai_input_tokens']).toBe(20)
+            expect(props['$ai_output_tokens']).toBe(4)
+            expect(props['llm.prompts.0.role']).toBeUndefined()
+            expect(props['llm.usage.prompt_tokens']).toBeUndefined()
+            expect(props['llm.vendor']).toBeUndefined()
+        })
+
+        it('does not let Go SDK fallbacks override values the base mapping set', () => {
+            const event = createEvent('$ai_generation', {
+                'llm.request.type': 'chat',
+                'llm.request.model': 'stale-model',
+                $ai_model: 'canonical-model',
+            })
+            traceloop.process(event, () => mapOtelAttributes(event))
+
+            expect(event.properties!['$ai_model']).toBe('canonical-model')
+            expect(event.properties!['llm.request.model']).toBeUndefined()
+        })
+
         it('reassembles completions into $ai_output_choices', () => {
             const event = createEvent('$ai_generation', {
                 'llm.request.type': 'chat',

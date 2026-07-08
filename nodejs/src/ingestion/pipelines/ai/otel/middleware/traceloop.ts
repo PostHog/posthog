@@ -116,6 +116,17 @@ export function reassembleIndexedAttributes(
     return result.length > 0 ? result : undefined
 }
 
+// The Go SDK (go-openllmetry) emits `llm.*` variants of the keys the Python
+// SDK spells `gen_ai.*`: `llm.prompts.{i}.*` / `llm.completions.{i}.*` for
+// messages plus flat `llm.request.model` / `llm.usage.*` for metadata.
+const GO_SDK_FALLBACK_MAP: [string, string][] = [
+    ['llm.response.model', '$ai_model'],
+    ['llm.request.model', '$ai_model'],
+    ['llm.usage.prompt_tokens', '$ai_input_tokens'],
+    ['llm.usage.completion_tokens', '$ai_output_tokens'],
+    ['llm.vendor', '$ai_provider'],
+]
+
 function process(event: PluginEvent, next: () => void): void {
     if (!event.properties) {
         return next()
@@ -125,22 +136,28 @@ function process(event: PluginEvent, next: () => void): void {
     next()
 
     if (props['$ai_input'] === undefined) {
-        const messages = reassembleIndexedAttributes(
-            props,
-            'gen_ai.prompt.',
-            ['role', 'content', 'tool_call_id'],
-            ['tool_calls']
-        )
+        const messages =
+            reassembleIndexedAttributes(props, 'gen_ai.prompt.', ['role', 'content', 'tool_call_id'], ['tool_calls']) ??
+            reassembleIndexedAttributes(props, 'llm.prompts.', ['role', 'content', 'tool_call_id'], ['tool_calls'])
         if (messages) {
             props['$ai_input'] = messages
         }
     }
 
     if (props['$ai_output_choices'] === undefined) {
-        const completions = reassembleIndexedAttributes(props, 'gen_ai.completion.', ['role', 'content'], [])
+        const completions =
+            reassembleIndexedAttributes(props, 'gen_ai.completion.', ['role', 'content'], []) ??
+            reassembleIndexedAttributes(props, 'llm.completions.', ['role', 'content'], ['tool_calls'])
         if (completions) {
             props['$ai_output_choices'] = completions
         }
+    }
+
+    for (const [otelKey, phKey] of GO_SDK_FALLBACK_MAP) {
+        if (props[otelKey] !== undefined && props[phKey] === undefined) {
+            props[phKey] = props[otelKey]
+        }
+        delete props[otelKey]
     }
 
     if (props['$ai_tools'] === undefined) {

@@ -9,6 +9,9 @@ use uuid::Uuid;
 const SPAN_DISTINCT_ID_KEYS: &[&str] = &[
     "ai.telemetry.metadata.posthog_distinct_id",
     "posthog.distinct_id",
+    // Traceloop SDKs own their TracerProvider, so users can't set resource
+    // attributes; association properties are their per-call metadata channel.
+    "traceloop.association.properties.distinct_id",
     "user.id",
 ];
 
@@ -117,6 +120,18 @@ mod tests {
         assert_eq!(
             extract_distinct_id_for_span(&span_attrs, None, "fallback"),
             "metadata"
+        );
+    }
+
+    #[test]
+    fn test_traceloop_association_distinct_id_wins_over_user_id() {
+        let span_attrs = vec![
+            string_kv("user.id", "user-id-value"),
+            string_kv("traceloop.association.properties.distinct_id", "tl-user"),
+        ];
+        assert_eq!(
+            extract_distinct_id_for_span(&span_attrs, None, "fallback"),
+            "tl-user"
         );
     }
 

@@ -15,6 +15,10 @@ const ATTRIBUTE_MAP: Record<string, string> = {
     'gen_ai.usage.cache_creation.input_tokens': '$ai_cache_creation_input_tokens',
     'gen_ai.response.model': '$ai_model',
     'gen_ai.provider.name': '$ai_provider',
+    // `gen_ai.tool.definitions` is the semconv name; `gen_ai.request.tools`
+    // is the widespread pre-spec variant (LangWatch, OpenLLMetry JS).
+    'gen_ai.tool.definitions': '$ai_tools',
+    'gen_ai.request.tools': '$ai_tools',
     'server.address': '$ai_base_url',
     'telemetry.sdk.name': '$ai_lib',
     'telemetry.sdk.version': '$ai_lib_version',
@@ -37,7 +41,7 @@ const STRIP_ATTRIBUTES = new Set([
     'llm.request.type',
 ])
 
-const JSON_PARSE_PROPERTIES = new Set(['$ai_input', '$ai_output_choices'])
+const JSON_PARSE_PROPERTIES = new Set(['$ai_input', '$ai_output_choices', '$ai_tools'])
 
 // Older OTel GenAI spec emits messages as span events rather than
 // `gen_ai.input.messages` / `gen_ai.output.messages` attributes. Logfire
@@ -104,6 +108,7 @@ export function mapOtelAttributes(event: PluginEvent): void {
 
     convertOlderSpecEvents(event)
     convertSystemInstructions(event)
+    convertFinishReasons(event)
     normalizeGroups(event)
 
     computeLatency(event)
@@ -111,6 +116,25 @@ export function mapOtelAttributes(event: PluginEvent): void {
 
     for (const key of STRIP_ATTRIBUTES) {
         delete event.properties[key]
+    }
+}
+
+// `gen_ai.response.finish_reasons` is a string[] per the semconv (one entry
+// per choice). Single-choice responses — the overwhelming case — unwrap to a
+// plain string to match what SDK-ingested events put in $ai_stop_reason.
+function convertFinishReasons(event: PluginEvent): void {
+    const props = event.properties!
+    const raw = props['gen_ai.response.finish_reasons']
+    delete props['gen_ai.response.finish_reasons']
+    if (raw === undefined || props['$ai_stop_reason'] !== undefined) {
+        return
+    }
+    if (Array.isArray(raw)) {
+        if (raw.length > 0) {
+            props['$ai_stop_reason'] = raw.length === 1 ? raw[0] : raw
+        }
+    } else {
+        props['$ai_stop_reason'] = raw
     }
 }
 

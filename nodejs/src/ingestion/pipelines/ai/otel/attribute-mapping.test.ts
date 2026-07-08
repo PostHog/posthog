@@ -27,6 +27,8 @@ describe('mapOtelAttributes', () => {
         ['gen_ai.usage.cache_creation.input_tokens', '$ai_cache_creation_input_tokens'],
         ['gen_ai.response.model', '$ai_model'],
         ['gen_ai.provider.name', '$ai_provider'],
+        ['gen_ai.tool.definitions', '$ai_tools'],
+        ['gen_ai.request.tools', '$ai_tools'],
         ['server.address', '$ai_base_url'],
         ['telemetry.sdk.name', '$ai_lib'],
         ['telemetry.sdk.version', '$ai_lib_version'],
@@ -46,6 +48,35 @@ describe('mapOtelAttributes', () => {
         mapOtelAttributes(event)
         expect(event.properties!.$ai_input).toEqual([{ role: 'user', content: 'Hello' }])
         expect(event.properties!.$ai_output_choices).toEqual([{ role: 'assistant', content: 'Hi' }])
+    })
+
+    it('JSON-parses stringified tool definitions into $ai_tools', () => {
+        // LangWatch serializes gen_ai.request.tools as a JSON string; the raw
+        // string is useless to the trace view's tools panel.
+        const tools = [{ type: 'function', function: { name: 'get_weather', parameters: { type: 'object' } } }]
+        const event = createEvent('$ai_generation', { 'gen_ai.request.tools': JSON.stringify(tools) })
+        mapOtelAttributes(event)
+        expect(event.properties!.$ai_tools).toEqual(tools)
+    })
+
+    it.each([
+        ['single-element array unwraps to string', ['stop'], 'stop'],
+        ['multi-element array passes through', ['stop', 'length'], ['stop', 'length']],
+        ['plain string passes through', 'end_turn', 'end_turn'],
+    ])('maps gen_ai.response.finish_reasons to $ai_stop_reason: %s', (_label, input, expected) => {
+        const event = createEvent('$ai_generation', { 'gen_ai.response.finish_reasons': input })
+        mapOtelAttributes(event)
+        expect(event.properties!.$ai_stop_reason).toEqual(expected)
+        expect(event.properties!['gen_ai.response.finish_reasons']).toBeUndefined()
+    })
+
+    it('does not overwrite an existing $ai_stop_reason with finish_reasons', () => {
+        const event = createEvent('$ai_generation', {
+            $ai_stop_reason: 'canonical',
+            'gen_ai.response.finish_reasons': ['stop'],
+        })
+        mapOtelAttributes(event)
+        expect(event.properties!.$ai_stop_reason).toBe('canonical')
     })
 
     it('keeps original string when JSON parsing fails', () => {

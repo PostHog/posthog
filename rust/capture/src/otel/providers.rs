@@ -74,6 +74,22 @@ const PYDANTIC_AI: SupportedProvider = SupportedProvider {
     classify: |_| "$ai_span",
 };
 
+/// Arize OpenInference conventions (`openinference.span.kind` plus `llm.*`,
+/// `input.value`, `output.value`). Every OpenInference instrumentation stamps
+/// `openinference.span.kind` on each span, so the prefix doubles as the
+/// classification key. Non-model kinds (CHAIN, TOOL, AGENT, RETRIEVER, …)
+/// stay `$ai_span`.
+const OPENINFERENCE: SupportedProvider = SupportedProvider {
+    prefixes: &["openinference."],
+    classify: |attrs| {
+        classify_by_key(attrs, "openinference.span.kind", |kind| match kind {
+            "LLM" => "$ai_generation",
+            "EMBEDDING" => "$ai_embedding",
+            _ => "$ai_span",
+        })
+    },
+};
+
 /// Providers are matched in order — first prefix match wins. More specific
 /// matchers must come before less specific ones to avoid shadowing. For example,
 /// Vercel AI spans carry both `ai.*` and `gen_ai.*` attributes; if GEN_AI were
@@ -85,6 +101,7 @@ const SUPPORTED_PROVIDERS: &[SupportedProvider] = &[
     PYDANTIC_AI,
     // 2. Spec variations — alternative telemetry standards with distinct classification keys
     TRACELOOP,
+    OPENINFERENCE,
     // 3. Generic catch-all — standard OpenTelemetry semantic conventions (gen_ai.*)
     GEN_AI,
 ];
@@ -158,6 +175,34 @@ mod tests {
                 "ai.operationId={op_id}"
             );
         }
+    }
+
+    #[test]
+    fn test_from_openinference_span_kind() {
+        for (kind, expected) in [
+            ("LLM", "$ai_generation"),
+            ("EMBEDDING", "$ai_embedding"),
+            ("CHAIN", "$ai_span"),
+            ("TOOL", "$ai_span"),
+            ("AGENT", "$ai_span"),
+            ("UNKNOWN", "$ai_span"),
+        ] {
+            assert_eq!(
+                get_event_name(&attrs_with("openinference.span.kind", kind)),
+                Some(expected),
+                "openinference.span.kind={kind}"
+            );
+        }
+    }
+
+    #[test]
+    fn test_openinference_llm_attrs_alone_are_not_accepted() {
+        // OpenInference `llm.*` keys without the span-kind marker must not
+        // match any provider — `llm.model_name` is not `llm.request.type`.
+        assert_eq!(
+            get_event_name(&attrs_with("llm.model_name", "claude")),
+            None
+        );
     }
 
     #[test]

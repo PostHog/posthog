@@ -77,13 +77,18 @@ pub(super) fn attributes_to_map(attrs: &[KeyValue]) -> Map<String, Value> {
 /// pass through since they don't match these prefixes.
 const NOISY_RESOURCE_PREFIXES: &[&str] = &["host.", "process.", "os.", "telemetry."];
 
+/// Exceptions to the noisy-prefix filter. Ingestion maps these to
+/// `$ai_lib` / `$ai_lib_version`, so they must survive the `telemetry.` cut.
+const RESOURCE_ATTRIBUTE_KEEPLIST: &[&str] = &["telemetry.sdk.name", "telemetry.sdk.version"];
+
 fn filter_resource_attributes(attrs: &[KeyValue]) -> Map<String, Value> {
     attrs
         .iter()
         .filter_map(|kv| {
-            if NOISY_RESOURCE_PREFIXES
-                .iter()
-                .any(|prefix| kv.key.starts_with(prefix))
+            if !RESOURCE_ATTRIBUTE_KEEPLIST.contains(&kv.key.as_str())
+                && NOISY_RESOURCE_PREFIXES
+                    .iter()
+                    .any(|prefix| kv.key.starts_with(prefix))
             {
                 return None;
             }
@@ -400,6 +405,18 @@ mod tests {
                             "posthog.ai.debug",
                             any_value::Value::StringValue("true".to_string()),
                         ),
+                        make_kv(
+                            "telemetry.sdk.name",
+                            any_value::Value::StringValue("opentelemetry".to_string()),
+                        ),
+                        make_kv(
+                            "telemetry.sdk.version",
+                            any_value::Value::StringValue("1.44.0".to_string()),
+                        ),
+                        make_kv(
+                            "telemetry.sdk.language",
+                            any_value::Value::StringValue("go".to_string()),
+                        ),
                     ],
                     dropped_attributes_count: 0,
                 }),
@@ -430,6 +447,10 @@ mod tests {
         assert!(!props.contains_key("process.pid"));
         assert_eq!(props["user.id"], "user-123");
         assert_eq!(props["posthog.ai.debug"], "true");
+        // Keeplisted so ingestion can map them to $ai_lib / $ai_lib_version.
+        assert_eq!(props["telemetry.sdk.name"], "opentelemetry");
+        assert_eq!(props["telemetry.sdk.version"], "1.44.0");
+        assert!(!props.contains_key("telemetry.sdk.language"));
     }
 
     #[test]
