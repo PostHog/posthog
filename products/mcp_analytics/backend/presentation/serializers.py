@@ -346,7 +346,10 @@ class MCPActivityStatsSerializer(serializers.Serializer):
 class MCPActivityToolRowSerializer(serializers.Serializer):
     tool = serializers.CharField(read_only=True, help_text="MCP tool name ($mcp_tool_name).")
     calls = serializers.IntegerField(read_only=True, help_text="Tool calls in the window.")
-    errors = serializers.IntegerField(read_only=True, help_text="Of those calls, how many errored.")
+    # The name shadows Serializer.errors, which is fine for a read-only output field.
+    errors = serializers.IntegerField(  # type: ignore[assignment]
+        read_only=True, help_text="Of those calls, how many errored."
+    )
 
 
 class MCPActivityClientRowSerializer(serializers.Serializer):
