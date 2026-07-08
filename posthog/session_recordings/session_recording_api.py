@@ -917,7 +917,7 @@ class SessionRecordingViewSet(
                 with tracer.start_as_current_span("convert_filters"):
                     query = filter_from_params_to_query(params)
 
-                gate_surfacing_score_order(query, cast(User, request.user))
+                gate_surfacing_score_order(query, self.team)
 
                 if query.comment_text:
                     with tracer.start_as_current_span("search_comments"):

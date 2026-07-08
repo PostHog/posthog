@@ -8,7 +8,7 @@ from rest_framework import exceptions
 from posthog.schema import PropertyFilterType, RecordingOrder, RecordingsQuery
 
 if TYPE_CHECKING:
-    from posthog.models import User
+    from posthog.models import Team
 
 SURFACING_SCORE_ORDER_FLAG = "replay-playlist-surfacing-score"
 RELEVANCE_SORT_EXPERIMENT_FLAG = "replay-playlist-relevance-sort-experiment"
@@ -24,26 +24,28 @@ def recordings_query_has_event_filters(query: RecordingsQuery) -> bool:
     return bool(query.events) or bool(query.actions) or has_event_properties
 
 
-def gate_surfacing_score_order(query: RecordingsQuery, user: "User | None") -> None:
+def gate_surfacing_score_order(query: RecordingsQuery, team: "Team | None") -> None:
     """`surfacing_score` ordering is gated behind a feature flag. It's exposed to clients via the
     generated RecordingOrder enum (both the REST list endpoint and the MCP query), so the gate has to
-    be enforced server-side, not just in the UI. When neither the surfacing-score rollout nor the
-    relevance-sort experiment's test arm is enabled (or there's no user to evaluate against), fall back
-    to the default ordering rather than erroring on an otherwise valid request."""
+    be enforced server-side, not just in the UI. The gate is evaluated against the team, not the
+    requesting user, so a team's shared recordings list is deterministic across colleagues: two users
+    with identical permissions must get the same ordering (and therefore the same paginated set of
+    recordings). When neither the surfacing-score rollout nor the relevance-sort experiment's test arm
+    is enabled for the team (or there's no team to evaluate against), fall back to the default ordering
+    rather than erroring on an otherwise valid request."""
     if query.order != RecordingOrder.SURFACING_SCORE:
         return
 
-    if user is None or not _can_order_by_surfacing_score(user):
+    if team is None or not _can_order_by_surfacing_score(team):
         query.order = RecordingOrder.START_TIME
 
 
-def _can_order_by_surfacing_score(user: "User") -> bool:
-    distinct_id = str(user.distinct_id)
-    person_properties = {"email": user.email}
+def _can_order_by_surfacing_score(team: "Team") -> bool:
+    # Scope to the team so the flag/experiment arm is the same for everyone viewing this team's list.
+    distinct_id = str(team.id)
     if posthoganalytics.feature_enabled(
         SURFACING_SCORE_ORDER_FLAG,
         distinct_id,
-        person_properties=person_properties,
         send_feature_flag_events=False,
     ):
         return True
@@ -53,7 +55,6 @@ def _can_order_by_surfacing_score(user: "User") -> bool:
         posthoganalytics.get_feature_flag(
             RELEVANCE_SORT_EXPERIMENT_FLAG,
             distinct_id,
-            person_properties=person_properties,
             send_feature_flag_events=False,
         )
         == "test"
