@@ -84,6 +84,29 @@ class TestKernelSessionRunNode(SimpleTestCase):
         self.assertEqual(envelope["status"], "error")
         self.assertIn("never_made", envelope["error"])
 
+    def test_python_output_name_binds_the_result_for_downstream_nodes(self):
+        # Journey 5 step 3: the cell's code never assigns the output name itself — the
+        # kernel must bind the last-expression frame so a later SQL node can read it.
+        self._run("import pandas as pd\nevents_df = pd.DataFrame({'a': [1, 2, 3]})")
+        envelope = self._run("events_df.head(2)", output_name="top_events_df")
+        self.assertEqual(envelope["status"], "ok")
+        self.assertIn("top_events_df", self.session.shell.user_ns)
+        sql = self._run_duckdb(
+            "select count(*) as c from top_events_df", inputs=[{"name": "top_events_df", "kind": "local"}]
+        )
+        self.assertEqual(sql["status"], "ok")
+        self.assertEqual(sql["first_page"], [[2]])
+
+    def test_python_rerun_shows_the_fresh_result_not_the_previously_bound_frame(self):
+        # The output binding must not shadow a rerun: after upstream data changes, running
+        # the same cell again has to preview and bind this run's result, not the old frame.
+        self._run("import pandas as pd\nevents_df = pd.DataFrame({'a': [1]})")
+        first = self._run("events_df.head(10)", output_name="top_events_df")
+        self._run("import pandas as pd\nevents_df = pd.DataFrame({'a': [1, 2, 3]})")
+        second = self._run("events_df.head(10)", output_name="top_events_df")
+        self.assertEqual(first["row_count"], 1)
+        self.assertEqual(second["row_count"], 3)
+
     def test_oversized_stdout_is_truncated(self):
         envelope = self._run("print('x' * 100_000)")
         self.assertLess(len(envelope["stdout"]), 33_000)

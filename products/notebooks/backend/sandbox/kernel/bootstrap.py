@@ -107,7 +107,10 @@ class KernelSession:
             return self._run_duckdb_node(node, preview_rows)
 
         self._plt.close("all")  # start from a clean figure state so we only capture this run's plots
-        with capture_output() as captured:
+        # display=False: only stdout/stderr are consumed (figures come from matplotlib
+        # directly). Capturing display would also swap the ZMQ shell's display machinery,
+        # which silently drops run_cell's last-expression result inside an ipykernel.
+        with capture_output(display=False) as captured:
             execution = self.shell.run_cell(node.get("code") or "", store_history=False)
 
         media, omitted_figures = self._collect_media()
@@ -127,7 +130,19 @@ class KernelSession:
                 media=media,
             )
 
-        result_df = self._result_frame(node.get("output_name"), execution.result)
+        output_name = str(node.get("output_name") or "")
+        result_df = self._result_frame(output_name, execution.result)
+        if output_name:
+            if result_df is not None:
+                # Bind for downstream nodes: pandas in the namespace (Python) and a DuckDB
+                # entry (SQL) — the same contract as a DuckDB node's output_name.
+                self.shell.user_ns[output_name] = result_df
+                self._register_duck(output_name, result_df)
+            else:
+                # No frame this run: drop any stale DuckDB registration so SQL can't keep
+                # reading a previous run's rows. The namespace is left to the user's code —
+                # it may hold a deliberate non-frame value under this name.
+                self._unregister_duck(output_name)
         columns, types, rows, row_count, has_more = self._preview(result_df, preview_rows)
         # result_id keys the on-disk frame for paging — only advertise one that actually exists.
         result_id = self._write_result_frame(result_df) if result_df is not None else None
@@ -223,15 +238,18 @@ class KernelSession:
         )
 
     def _result_frame(self, output_name: str | None, last_expression: Any) -> "pd.DataFrame | None":
-        # Prefer the explicitly named output; fall back to the cell's last-expression value.
-        if output_name:
-            candidate = self.shell.user_ns.get(output_name)
-            if isinstance(candidate, pd.DataFrame):
-                return candidate
+        # Prefer this run's last-expression value; the named output in the namespace is only
+        # a fallback (it covers cells whose last line is an assignment, which yields no
+        # expression value). Namespace-first would resurface the frame a previous run bound
+        # under output_name instead of this run's fresh result.
         if isinstance(last_expression, pd.DataFrame):
             return last_expression
         if isinstance(last_expression, pd.Series):
             return last_expression.to_frame()
+        if output_name:
+            candidate = self.shell.user_ns.get(output_name)
+            if isinstance(candidate, pd.DataFrame):
+                return candidate
         return None
 
     def _preview(
