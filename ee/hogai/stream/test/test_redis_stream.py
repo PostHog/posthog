@@ -346,6 +346,24 @@ class TestRedisStream(BaseTest):
             self.assertEqual(mock_client.xadd.call_count, 2)
 
     @pytest.mark.asyncio
+    async def test_write_to_stream_preserves_underlying_cause(self):
+        # StreamError must chain the original exception so error tracking fingerprints on the
+        # real cause instead of fragmenting into distinct issues per DB touchpoint.
+        underlying = ValueError("connection to server failed")
+        with patch.object(self.redis_stream, "_redis_client") as mock_client:
+            mock_client.expire = AsyncMock()
+            mock_client.xadd = AsyncMock()
+
+            async def test_generator():
+                raise underlying
+                yield  # unreachable, makes this an async generator
+
+            with self.assertRaises(StreamError) as context:
+                await self.redis_stream.write_to_stream(test_generator())
+
+            self.assertIs(context.exception.__cause__, underlying)
+
+    @pytest.mark.asyncio
     async def test_write_to_stream_empty_generator(self):
         with patch.object(self.redis_stream, "_redis_client") as mock_client:
             mock_client.xadd = AsyncMock()
