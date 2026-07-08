@@ -40,6 +40,7 @@ from posthog.temporal.ai.slack_app.types import (
     PostHogCodeSlackMentionCommandWorkflowInputs,
     PostHogCodeSlackMentionWorkflowInputs,
     PostHogSlackInboxOnboardingInputs,
+    SlackAppMentionWorkflowInputs,
     SlackRepoSelectionOutcome,
 )
 
@@ -78,6 +79,7 @@ __all__ = [
     "PostHogCodeSlackMentionWorkflowInputs",
     "PostHogSlackInboxOnboardingInputs",
     "SLACK_APP_ACTIVITIES",
+    "SlackAppMentionWorkflowInputs",
     "SlackRepoSelectionOutcome",
     "block_posthog_code_task_if_no_personal_github_activity",
     "cascade_posthog_code_repository_activity",
