@@ -53,16 +53,14 @@ const deniedPaths = [
 // edges are cut at the source (.agents/toolbar-migration.md), denying them at resolve time
 // keeps them out of the artifact set entirely — bin/check-toolbar-graph.mjs asserts absence.
 const deniedThirdPartyPackages = [
-    // mermaid diagram rendering (via LemonMarkdownWithMermaid). Denying the entry cascades to
-    // its exclusive deps: katex, cytoscape, @mermaid-js/parser, dagre-d3-es, layout/cose-base.
-    /^mermaid(\/|$)/,
     // chart.js + its annotation plugin (via Sparkline). Charts in the toolbar go through the
     // already-denied LineGraph.
     /^chart\.js(\/|$)/,
     /^chartjs-plugin-annotation(\/|$)/,
-    // hls.js needs no deny anymore: its only path in was @posthog/replay-shared, whose last
-    // importer (~/types' SnapshotSourceType value re-export) is now type-only. Reintroduction
-    // is caught by FORBIDDEN_PACKAGES in bin/check-toolbar-graph.mjs.
+    // hls.js and mermaid need no deny anymore: hls.js's only path in was @posthog/replay-shared,
+    // whose last importer (~/types' SnapshotSourceType value re-export) is now type-only, and
+    // mermaid's was the LemonMarkdown barrel, which no longer re-exports the mermaid variant.
+    // Reintroduction is caught by FORBIDDEN_PACKAGES in bin/check-toolbar-graph.mjs.
 ]
 
 const deniedPatterns = [

@@ -4,6 +4,7 @@ import { useCallback, useMemo, useRef, useState } from 'react'
 
 import { IconCheck, IconLetter, IconPlusSmall, IconSearch, IconX } from '@posthog/icons'
 
+import { KeyboardShortcut } from 'lib/components/KeyboardShortcut/KeyboardShortcut'
 import { upgradeModalLogic } from 'lib/components/UpgradeModal/upgradeModalLogic'
 import { IconBlank } from 'lib/lemon-ui/icons'
 import { ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
@@ -16,7 +17,6 @@ import { isAuthenticatedTeam, teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
 import { globalModalsLogic } from '~/layout/globalModalsLogic'
-import { KeyboardShortcut } from '~/layout/navigation-3000/components/KeyboardShortcut'
 import { AvailableFeature, TeamBasicType } from '~/types'
 
 import { ScrollableShadows } from '../ScrollableShadows/ScrollableShadows'

@@ -4,9 +4,9 @@ This file is the committed source of truth for the toolbar bundle modernization 
 
 ## Status
 
-- **Current step**: Steps 1–4 all implemented and in review as a 5-deep Graphite stack (drafts). Next: merge the base of the stack before extending further (per repo stacking guidance), then remaining Step 5/6 edges and Step 7 lazy boundaries.
+- **Current step**: Steps 1–4 and 7 implemented and in review as a Graphite stack (drafts), plus a seventh PR batching the simple Step 5/6 moves (PanelSettings, UrlMatchingHints, KeyboardShortcut, LemonMarkdown mermaid barrel — baseline 31 → 25 edges, mermaid deny retired). Next: merge the base of the stack before extending further, then the remaining Step 6 seams (Link→DraggableToNotebook, LemonColor, eventUsageLogic) and Step 8.
 - **Last updated**: 2026-07-07
-- **PRs**: Step 1 — `rafa/toolbar-migration-1-graph-guard` (#69045); Step 3 — `rafa/toolbar-migration-2-products-urls-split` (#69071); chain cuts + shim-leak fix — `rafa/toolbar-migration-3-shim-leak-and-chain-cuts` (#69088); Step 2 — `rafa/toolbar-migration-4-loader-esm-splitting` (#69093); Step 4 — `rafa/toolbar-migration-5-types-replay-shared-cut` (each stacked on the previous)
+- **PRs**: Step 1 — `rafa/toolbar-migration-1-graph-guard` (#69045); Step 3 — `rafa/toolbar-migration-2-products-urls-split` (#69071); chain cuts + shim-leak fix — `rafa/toolbar-migration-3-shim-leak-and-chain-cuts` (#69088); Step 2 — `rafa/toolbar-migration-4-loader-esm-splitting` (#69093); Step 4 — `rafa/toolbar-migration-5-types-replay-shared-cut` (#69106); Step 7 — `rafa/toolbar-migration-6-lazy-menus` (#69113); Step 5/6 batch — `rafa/toolbar-migration-7-simple-edge-cuts` (#69122) (each stacked on the previous)
 - **Reorder note (resolved)**: a trial Step 2 build emitted **487 dead chunks** — with `products.tsx` reachable, every product scene's dynamic import becomes a real chunk in `dist/toolbar/`. The gate was: flip the format only once `products.tsx` leaves the graph. That's now done via two moves in the third PR. First, the remaining chains all funneled through one root cause: the kea shims only matched exact alias strings (`scenes/teamLogic`), so relative imports (`dataThemeLogic` → `./teamLogic`) and `~/`-prefixed imports pulled the REAL logics and their whole app graph — fixed with relative + `~/` matching in `createToolbarModulePlugin`, disconnecting `products.tsx`, `scenes.ts`, `teamLogic`, `PersonDisplay`, and `experimentsLogic` in one move. Second, `scenes/urls` itself (imported by lib components shared with the app) is shimmed to the toolbar's parity-tested `~/toolbar/urls` duplicate from Step 3, taking the last products-manifest path out. Bundle graph 8448 → ~1000 files (99 → ~13.5 MiB source), shipped `dist/toolbar.js` 9.95 MB → ~4 MB (was just under the 10 MB CloudFront cliff). Graph budget ratcheted 110 MB → 18 MB.
 - **posthog-js prerequisite**: DONE — release pipeline is layout-agnostic and verified as a no-op against today's build. Nothing blocks any step. See Step 0 for the constraints it imposes on the build here.
 
@@ -99,17 +99,18 @@ Approach (revised on review): rather than restructuring the generated products m
 ### Step 5 — toolbar-owned direct edges
 
 - [x] `toolbar/experiments/experimentsTabLogic.tsx`: stopped importing `scenes/experiments/experimentsLogic` — the pure status helpers (`getExperimentStatus`/`isLaunched`/`isExperimentPaused`/`hasEnded`) moved to leaf module `scenes/experiments/experimentStatus.ts` (re-exported from experimentsLogic for app importers); data fetching already went via `toolbarApi`
-- [ ] `toolbar/debug/EventDebugMenu.tsx`: move `PanelSettings` from `scenes/session-recordings/components/` to `lib/components/`
-- [ ] `toolbar/debug/eventDebugMenuLogic.ts`: drop/trim the 339KB `core-filter-definitions-by-group.json` taxonomy import
-- [ ] `toolbar/actions/StepField.tsx`: move `products/actions/frontend/utils/hints` to `lib/` (or allowlist — it's ~0KB)
+- [x] `toolbar/debug/EventDebugMenu.tsx`: `PanelSettings` moved from `scenes/session-recordings/components/` to `lib/components/PanelSettings/` (its deps were already all-lib)
+- [ ] `toolbar/debug/eventDebugMenuLogic.ts`: drop/trim the 339KB `core-filter-definitions-by-group.json` taxonomy import — deprioritized: Step 7 made the debugger menu (and this JSON) lazy, so it's deferred-bytes only
+- [x] `toolbar/actions/StepField.tsx`: `products/actions/frontend/utils/hints` moved to `lib/components/UrlMatchingHints.tsx` (shared by the actions product's ActionStep and the toolbar)
 
 ### Step 6 — shared lib → scenes back-edges (each also helps the main app)
 
 - [ ] `lib/lemon-ui/Link/Link.tsx` → `DraggableToNotebook` (drags notebooks → tiptap): invert with a registry/context seam (the flagship shim→DI replacement)
 - [ ] `lib/lemon-ui/LemonColor/*` → `scenes/dataThemeLogic` (its `./teamLogic` import is now shimmed, so this edge is boundary-only, not a leak): theme via props/context
-- [ ] `lib/lemon-ui/LemonMarkdown/index.ts`: stop re-exporting `LemonMarkdownWithMermaid` from the barrel (retires the `mermaid` deny for both bundles)
+- [x] `lib/lemon-ui/LemonMarkdown/index.ts`: the barrel no longer re-exports `LemonMarkdownWithMermaid` (the one product user imports the module directly); the `mermaid` deny in `toolbar-config.mjs` is retired, reintroduction caught by FORBIDDEN_PACKAGES
 - [x] `HeatmapEventsPanel` → `PersonDisplay`: replaced with a plain span (PersonDisplay renders exactly that for a distinct_id-only person with `noPopover`); `TZLabel` → teamLogic edge now shimmed at resolve time (`~/scenes/teamLogic` matching)
-- [ ] `TZLabel` → urls; `eventUsageLogic` → preflight/web-analytics edges; move `KeyboardShortcut` out of `layout/navigation-3000` into `lib/`
+- [x] `KeyboardShortcut` moved out of `layout/navigation-3000/components/` into `lib/components/KeyboardShortcut/` (25 importers repointed; cuts the 4 lemon-ui → layout edges)
+- [ ] `TZLabel` → urls (already shim-resolved to `~/toolbar/urls`; boundary-only); `eventUsageLogic` → preflight/web-analytics/product-tours edges
 
 ### Step 7 — lazy boundaries in toolbar source (in review: `rafa/toolbar-migration-6-lazy-menus`)
 

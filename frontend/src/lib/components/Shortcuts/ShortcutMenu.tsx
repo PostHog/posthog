@@ -4,6 +4,7 @@ import { createPortal } from 'react-dom'
 
 import { IconArrowRight } from '@posthog/icons'
 
+import { KeyboardShortcut } from 'lib/components/KeyboardShortcut/KeyboardShortcut'
 import { IconAction } from 'lib/lemon-ui/icons'
 import { LemonSwitch } from 'lib/lemon-ui/LemonSwitch'
 import { ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
@@ -14,7 +15,6 @@ import { cn } from 'lib/utils/css-classes'
 import { sceneLogic } from 'scenes/sceneLogic'
 import { Scene } from 'scenes/sceneTypes'
 
-import { KeyboardShortcut } from '~/layout/navigation-3000/components/KeyboardShortcut'
 import { Combobox } from '~/lib/ui/Combobox/Combobox'
 
 import { ShortcutType, shortcutLogic } from './shortcutLogic'
