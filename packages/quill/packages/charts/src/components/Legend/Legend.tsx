@@ -55,7 +55,9 @@ export function Legend({
         <div className={`flex ${layout} ${className ?? ''}`} data-attr={dataAttr}>
             {items.map((item) => {
                 const dimmed = hidden?.has(item.key) ? ' opacity-40' : ''
-                const rowClass = `inline-flex items-center gap-1.5 text-xs leading-none${dimmed}`
+                // leading-4 (not leading-none): the line box must contain descenders — the layout slot
+                // wrapping the legend is a scroll container, which clips glyphs that poke below the line box.
+                const rowClass = `inline-flex items-center gap-1.5 text-xs leading-4${dimmed}`
                 const inner = (
                     <>
                         <span
