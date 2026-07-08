@@ -13,6 +13,7 @@ from posthog.hogql.escape_sql import escape_hogql_identifier, escape_hogql_strin
 from posthog.hogql.visitor import TraversingVisitor
 
 from posthog.models import EventDefinition, PropertyDefinition, Team
+from posthog.taxonomy.taxonomy import CORE_FILTER_DEFINITIONS_BY_GROUP
 
 logger = getLogger(__name__)
 
@@ -28,6 +29,15 @@ DYNAMIC_PROPERTY_PREFIXES = (
     "$feature_enrollment/",
     "$survey_responded/",
     "$survey_dismissed/",
+)
+
+# Virtual event properties (e.g. `$virt_traffic_type`, `$virt_is_bot`) are computed at query time from
+# event data and never persisted as PropertyDefinition rows, so they must be treated as known. This mirrors
+# how the taxonomy tool (read_taxonomy) merges them into its property listings. See posthog/taxonomy/taxonomy.py.
+VIRTUAL_EVENT_PROPERTY_NAMES = frozenset(
+    name
+    for name, definition in CORE_FILTER_DEFINITIONS_BY_GROUP["event_properties"].items()
+    if definition.get("virtual") is True
 )
 
 
@@ -116,7 +126,7 @@ def validate_taxonomy_references(
 
         if visitor.property_names:
             property_references = [
-                reference for reference in visitor.property_names if not _is_dynamic_property(reference.name)
+                reference for reference in visitor.property_names if not _is_known_computed_property(reference.name)
             ]
             if property_references:
                 warnings.extend(
@@ -141,8 +151,10 @@ def _is_properties_field(node: ast.Expr) -> bool:
     return isinstance(node, ast.Field) and len(node.chain) == 1 and node.chain[0] == "properties"
 
 
-def _is_dynamic_property(name: str) -> bool:
-    return any(name.startswith(prefix) for prefix in DYNAMIC_PROPERTY_PREFIXES)
+def _is_known_computed_property(name: str) -> bool:
+    # Properties that legitimately never appear in PropertyDefinition and so must not be flagged as unknown:
+    # dynamic id-encoding prefixes (feature flags, survey ids) and virtual properties computed at query time.
+    return name in VIRTUAL_EVENT_PROPERTY_NAMES or any(name.startswith(prefix) for prefix in DYNAMIC_PROPERTY_PREFIXES)
 
 
 def _event_literal_from_equality(field_node: ast.Expr, value_node: ast.Expr) -> TaxonomyReference | None:

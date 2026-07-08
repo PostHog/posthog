@@ -6,6 +6,8 @@ from unittest.mock import patch
 from django.db import DatabaseError
 from django.test import override_settings
 
+from parameterized import parameterized
+
 from posthog.schema import (
     HogLanguage,
     HogQLMetadata,
@@ -278,6 +280,29 @@ class TestMetadata(ClickhouseTestMixin, APIBaseTest):
         PropertyDefinition.objects.create(team=self.team, name="$geoip_country_code")
 
         metadata = self._select("SELECT properties['$feature/my-flag'] FROM events")
+
+        taxonomy_warnings = [warning for warning in metadata.warnings if "project taxonomy" in warning.message]
+        self.assertEqual(taxonomy_warnings, [])
+
+    @parameterized.expand(
+        [
+            (event, prop)
+            for event in ("$pageview", "$exception")
+            for prop in (
+                "$virt_traffic_type",
+                "$virt_traffic_category",
+                "$virt_bot_name",
+                "$virt_bot_operator",
+                "$virt_is_bot",
+            )
+        ]
+    )
+    def test_metadata_does_not_warn_for_virtual_property(self, event: str, prop: str):
+        # Virtual properties are computed at query time and never stored as PropertyDefinition rows, so
+        # they must not be flagged as unknown even though read_taxonomy lists them.
+        EventDefinition.objects.create(team=self.team, name=event)
+
+        metadata = self._select(f"SELECT properties.{prop} FROM events WHERE event = '{event}'")
 
         taxonomy_warnings = [warning for warning in metadata.warnings if "project taxonomy" in warning.message]
         self.assertEqual(taxonomy_warnings, [])
