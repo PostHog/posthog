@@ -34,6 +34,8 @@ export interface ChatViewProps {
     onPrivateChange?: (isPrivate: boolean) => void
     /** Extra actions rendered next to the send button in MessageInput */
     extraActions?: React.ReactNode
+    /** Blocks sending customer-facing messages (private notes stay available) */
+    replyDisabledReason?: string | JSX.Element
 }
 
 export function ChatView({
@@ -55,6 +57,7 @@ export function ChatView({
     isPrivate,
     onPrivateChange,
     extraActions,
+    replyDisabledReason,
 }: ChatViewProps): JSX.Element {
     const listMinHeight = minHeight ?? '400px'
     const listMaxHeight = maxHeight ?? '600px'
@@ -84,6 +87,7 @@ export function ChatView({
                     isPrivate={isPrivate}
                     onPrivateChange={onPrivateChange}
                     extraActions={extraActions}
+                    replyDisabledReason={replyDisabledReason}
                 />
             </div>
         </LemonCard>
