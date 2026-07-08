@@ -39,7 +39,6 @@ describe('getDashboardTileDisplayName', () => {
 
 describe('dashboardToSaveableTemplate', () => {
     it('serializes a button tile with a BUTTON type discriminator', () => {
-        // Without the discriminator the backend reader hits KeyError: 'type' when instantiating the template.
         const dashboard = {
             name: 'My dashboard',
             description: '',

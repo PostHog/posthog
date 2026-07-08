@@ -2693,9 +2693,7 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
 
     @parameterized.expand(
         [
-            # Backend seed templates inline the button fields.
             ("inline_fields", {"type": "BUTTON", "url": "/replay/home", "text": "Watch replays", "layouts": {}}),
-            # Save-as-template nests them under `button_tile`.
             (
                 "nested_button_tile",
                 {"type": "BUTTON", "button_tile": {"url": "/replay/home", "text": "Watch replays"}, "layouts": {}},

@@ -513,8 +513,6 @@ def create_from_template(
     dashboard.save()
 
     for template_tile in template.tiles or []:
-        # Read `type` rather than indexing it: unknown or typeless tiles are logged and skipped below,
-        # not fatal (that used to KeyError mid-creation and leave a half-populated dashboard).
         tile_type = template_tile.get("type")
         if tile_type == "INSIGHT":
             query = template_tile.get("query", None)
