@@ -17,7 +17,13 @@ import { type Noun, groupsModel } from '~/models/groupsModel'
 import { OrganizationFeatureFlag, OrganizationType } from '~/types'
 
 import { organizationLogic } from '../organizationLogic'
-import { featureFlagLogic, hasDirectFlagDependency, hasStaticCohortDependency } from './featureFlagLogic'
+import {
+    dependencyActionLabel,
+    dependencyDisabledReason,
+    featureFlagLogic,
+    hasDirectFlagDependency,
+    hasStaticCohortDependency,
+} from './featureFlagLogic'
 import { groupFilters } from './FeatureFlags'
 
 const getColumns = ({
@@ -138,20 +144,14 @@ function FeatureFlagCopySection(): JSX.Element {
     const hasFlagDependency = hasDirectFlagDependency(featureFlag)
     const copiedDependencyCount = copyDependencyRequirements?.copied_dependency_keys.length ?? 0
     const copiedDependencyLabel = copiedDependencyCount === 1 ? 'dependency' : 'dependencies'
-    const dependencyActionLabel =
-        copyDependencyRequirementsLoading || !copyDependencyRequirements
-            ? 'Checking'
-            : copyDependencyRequirements.can_copy_dependencies
-              ? `${copiedDependencyCount} missing`
-              : copyDependencyRequirements.warnings.length > 0
-                ? 'Unavailable'
-                : 'Already satisfied'
-    const dependencyDisabledReason =
-        copyDependencyRequirementsLoading || !copyDependencyRequirements
-            ? 'Checking dependency availability'
-            : !copyDependencyRequirements.can_copy_dependencies
-              ? copyDependencyRequirements.reason
-              : undefined
+    const copyDependencyActionLabel = dependencyActionLabel(
+        copyDependencyRequirementsLoading,
+        copyDependencyRequirements
+    )
+    const copyDependencyDisabledReason = dependencyDisabledReason(
+        copyDependencyRequirementsLoading,
+        copyDependencyRequirements
+    )
     const copyLoading = featureFlagCopyLoading || (copyDependencies && copyDependencyRequirementsLoading)
 
     const openCopyDependenciesDialog = (): void => {
@@ -183,8 +183,8 @@ function FeatureFlagCopySection(): JSX.Element {
                     {copyDependencyRequirements.warnings.length > 0 && (
                         <LemonBanner type="warning">
                             <div className="space-y-1">
-                                {copyDependencyRequirements.warnings.map((warning) => (
-                                    <div key={warning}>{warning}</div>
+                                {copyDependencyRequirements.warnings.map((warning, index) => (
+                                    <div key={index}>{warning}</div>
                                 ))}
                             </div>
                         </LemonBanner>
@@ -256,8 +256,8 @@ function FeatureFlagCopySection(): JSX.Element {
                             onChange={(checked) =>
                                 checked ? openCopyDependenciesDialog() : setCopyDependencies(false)
                             }
-                            disabledReason={dependencyDisabledReason}
-                            label={dependencyActionLabel}
+                            disabledReason={copyDependencyDisabledReason}
+                            label={copyDependencyActionLabel}
                             className="h-10 flex items-center"
                         />
                     </div>

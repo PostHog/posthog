@@ -22,6 +22,7 @@ import {
 import { FeatureFlagFilters } from '~/types'
 
 import { TemplateKey } from 'products/feature_flags/frontend/featureFlagTemplateConstants'
+import type { CopyFlagsDependencyRequirementsResponseApi } from 'products/feature_flags/frontend/generated/api.schemas'
 
 import * as defaultReleaseConditionsModule from './defaultReleaseConditionsLogic'
 import {
@@ -33,6 +34,8 @@ import { detectFeatureFlagChanges } from './featureFlagConfirmationLogic'
 import {
     NEW_FLAG,
     convertIndexBasedPayloadsToVariantKeys,
+    dependencyActionLabel,
+    dependencyDisabledReason,
     featureFlagLogic,
     hasDirectFlagDependency,
     hasMultipleVariantsActive,
@@ -1244,6 +1247,7 @@ describe('featureFlagLogic', () => {
         })
 
         it('ignores stale dependency requirements when the destination changes before the first request resolves', async () => {
+            jest.useFakeTimers()
             const firstTargetProjectId = MOCK_DEFAULT_PROJECT.id + 1
             const secondTargetProjectId = MOCK_DEFAULT_PROJECT.id + 2
             type DependencyRequirementsMockResponse = [number, Record<string, unknown>]
@@ -1253,7 +1257,7 @@ describe('featureFlagLogic', () => {
                     if (pendingRequests.has(projectId)) {
                         return
                     }
-                    await new Promise((resolve) => setTimeout(resolve, 0))
+                    await Promise.resolve()
                 }
                 throw new Error(`Missing dependency requirements request for project ${projectId}`)
             }
@@ -1294,9 +1298,11 @@ describe('featureFlagLogic', () => {
             })
 
             logic.actions.setCopyDestinationProject(firstTargetProjectId)
+            await jest.advanceTimersByTimeAsync(300)
             await waitForPendingRequest(firstTargetProjectId)
 
             logic.actions.setCopyDestinationProject(secondTargetProjectId)
+            await jest.advanceTimersByTimeAsync(300)
             await waitForPendingRequest(secondTargetProjectId)
 
             pendingRequests.get(secondTargetProjectId)?.([
@@ -1332,6 +1338,7 @@ describe('featureFlagLogic', () => {
         })
 
         it('ignores stale dependency requirement failures after the destination changes', async () => {
+            jest.useFakeTimers()
             const firstTargetProjectId = MOCK_DEFAULT_PROJECT.id + 1
             const secondTargetProjectId = MOCK_DEFAULT_PROJECT.id + 2
             type DependencyRequirementsMockResponse = [number, Record<string, unknown>]
@@ -1341,7 +1348,7 @@ describe('featureFlagLogic', () => {
                     if (pendingRequests.has(projectId)) {
                         return
                     }
-                    await new Promise((resolve) => setTimeout(resolve, 0))
+                    await Promise.resolve()
                 }
                 throw new Error(`Missing dependency requirements request for project ${projectId}`)
             }
@@ -1382,9 +1389,11 @@ describe('featureFlagLogic', () => {
             })
 
             logic.actions.setCopyDestinationProject(firstTargetProjectId)
+            await jest.advanceTimersByTimeAsync(300)
             await waitForPendingRequest(firstTargetProjectId)
 
             logic.actions.setCopyDestinationProject(secondTargetProjectId)
+            await jest.advanceTimersByTimeAsync(300)
             await waitForPendingRequest(secondTargetProjectId)
 
             pendingRequests.get(secondTargetProjectId)?.([
@@ -1690,6 +1699,115 @@ describe('hasDirectFlagDependency', () => {
     ])('returns $expected when $desc', ({ filters, expected }) => {
         expect(hasDirectFlagDependency({ ...MOCK_FEATURE_FLAG, filters: filters as FeatureFlagFilters })).toBe(expected)
     })
+})
+
+describe('dependency copy labels', () => {
+    const dependencyRequirements = (
+        overrides: Partial<CopyFlagsDependencyRequirementsResponseApi> = {}
+    ): CopyFlagsDependencyRequirementsResponseApi => ({
+        can_copy_dependencies: true,
+        dependency_count: 1,
+        copied_dependency_keys: ['parent-flag'],
+        reused_dependency_keys: [],
+        warnings: [],
+        reason: '1 dependency flag can be copied.',
+        ...overrides,
+    })
+
+    const actionLabelCases: {
+        desc: string
+        loading: boolean
+        req: CopyFlagsDependencyRequirementsResponseApi | null
+        expected: string
+    }[] = [
+        {
+            desc: 'requirements are loading',
+            loading: true,
+            req: dependencyRequirements({ can_copy_dependencies: false, reason: 'Dependency copying is disabled.' }),
+            expected: 'Copy dependencies: Checking',
+        },
+        {
+            desc: 'requirements are missing',
+            loading: false,
+            req: null,
+            expected: 'Copy dependencies: Checking',
+        },
+        {
+            desc: 'dependencies can be copied',
+            loading: false,
+            req: dependencyRequirements({ copied_dependency_keys: ['parent-flag', 'grandparent-flag'] }),
+            expected: 'Copy dependencies: 2 missing',
+        },
+        {
+            desc: 'dependency copying has warnings',
+            loading: false,
+            req: dependencyRequirements({
+                can_copy_dependencies: false,
+                copied_dependency_keys: [],
+                warnings: ['Dependency copying is unavailable.'],
+                reason: 'Dependency copying is unavailable.',
+            }),
+            expected: 'Copy dependencies: Unavailable',
+        },
+        {
+            desc: 'all dependencies already exist',
+            loading: false,
+            req: dependencyRequirements({
+                can_copy_dependencies: false,
+                copied_dependency_keys: [],
+                reused_dependency_keys: ['parent-flag'],
+                warnings: [],
+                reason: 'All dependencies already exist in the destination project.',
+            }),
+            expected: 'Copy dependencies: Already satisfied',
+        },
+    ]
+
+    const disabledReasonCases: {
+        desc: string
+        loading: boolean
+        req: CopyFlagsDependencyRequirementsResponseApi | null
+        expected: string | undefined
+    }[] = [
+        {
+            desc: 'requirements are loading',
+            loading: true,
+            req: dependencyRequirements({ can_copy_dependencies: false, reason: 'Dependency copying is disabled.' }),
+            expected: 'Checking dependency availability',
+        },
+        {
+            desc: 'requirements are missing',
+            loading: false,
+            req: null,
+            expected: 'Checking dependency availability',
+        },
+        {
+            desc: 'dependencies can be copied',
+            loading: false,
+            req: dependencyRequirements(),
+            expected: undefined,
+        },
+        {
+            desc: 'dependency copying is unavailable',
+            loading: false,
+            req: dependencyRequirements({
+                can_copy_dependencies: false,
+                reason: 'Dependency copying is unavailable.',
+            }),
+            expected: 'Dependency copying is unavailable.',
+        },
+    ]
+
+    it.each(actionLabelCases)('returns "$expected" as the action label when $desc', ({ loading, req, expected }) => {
+        expect(dependencyActionLabel(loading, req)).toBe(expected)
+    })
+
+    it.each(disabledReasonCases)(
+        'returns "$expected" as the disabled reason when $desc',
+        ({ loading, req, expected }) => {
+            expect(dependencyDisabledReason(loading, req)).toBe(expected)
+        }
+    )
 })
 
 describe('hasStaticCohortDependency', () => {

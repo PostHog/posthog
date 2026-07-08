@@ -117,6 +117,36 @@ export function hasDirectFlagDependency(featureFlag: FeatureFlagType): boolean {
     })
 }
 
+export function dependencyActionLabel(
+    loading: boolean,
+    req: CopyFlagsDependencyRequirementsResponseApi | null
+): string {
+    if (loading || !req) {
+        return 'Copy dependencies: Checking'
+    }
+
+    if (req.can_copy_dependencies) {
+        return `Copy dependencies: ${req.copied_dependency_keys.length} missing`
+    }
+
+    if (req.warnings.length > 0) {
+        return 'Copy dependencies: Unavailable'
+    }
+
+    return 'Copy dependencies: Already satisfied'
+}
+
+export function dependencyDisabledReason(
+    loading: boolean,
+    req: CopyFlagsDependencyRequirementsResponseApi | null
+): string | undefined {
+    if (loading || !req) {
+        return 'Checking dependency availability'
+    }
+
+    return req.can_copy_dependencies ? undefined : req.reason
+}
+
 export function hasStaticCohortDependency(featureFlag: FeatureFlagType, cohorts: CohortType[]): boolean {
     const staticCohortIds = new Set(cohorts.filter((cohort) => cohort.is_static).map((cohort) => cohort.id))
     const groups = featureFlag.filters?.groups
@@ -1816,6 +1846,12 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
                 values.featureFlag.key !== requestedFeatureFlagKey
 
             try {
+                await breakpoint(300)
+                if (hasRequestContextChanged()) {
+                    actions.loadCopyDependencyRequirementsSuccess(values.copyDependencyRequirements)
+                    return
+                }
+
                 const copyDependencyRequirements = await featureFlagsCopyFlagsDependencyRequirementsCreate(
                     String(currentOrganizationId),
                     {
