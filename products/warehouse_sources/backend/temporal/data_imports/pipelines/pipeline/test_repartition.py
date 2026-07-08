@@ -41,6 +41,17 @@ def _schema(**kwargs):
     return SimpleNamespace(**defaults)
 
 
+def _delta_helper(**kwargs):
+    # Stand-in for DeltaTableHelper; untyped on purpose so callers can pass it to the real signature.
+    defaults = {
+        "get_table_uri": AsyncMock(return_value="s3://bucket/live"),
+        "get_storage_options": Mock(return_value={}),
+        "get_delta_table": AsyncMock(return_value=None),
+    }
+    defaults.update(kwargs)
+    return SimpleNamespace(**defaults)
+
+
 def _write_month_partitioned(path: str, rows: list[tuple[int, datetime.datetime]]) -> deltalake.DeltaTable:
     table = pa.table(
         {
@@ -257,15 +268,8 @@ class TestResumeSwapWithMissingLive:
     intact. The repartition must finish the swap from temp, not take the `no_delta_table` early return
     (which would strand the markers forever and let the next sync bootstrap an empty table)."""
 
-    def _helper(self):
-        return SimpleNamespace(
-            get_table_uri=AsyncMock(return_value="s3://bucket/live"),
-            get_storage_options=Mock(return_value={}),
-            get_delta_table=AsyncMock(return_value=None),
-        )
-
     def test_routes_to_recovery_when_swap_marker_present(self):
-        helper = self._helper()
+        helper = _delta_helper()
         schema = _schema(
             id="s1",
             repartition_swap={
@@ -286,7 +290,7 @@ class TestResumeSwapWithMissingLive:
         assert result == recovered
 
     def test_skips_when_no_swap_marker(self):
-        helper = self._helper()
+        helper = _delta_helper()
         schema = _schema(id="s1", repartition_swap=None)
         target = RepartitionTarget(partition_keys=["created_at"], trigger_reason="resume")
 
@@ -299,7 +303,7 @@ class TestResumeSwapWithMissingLive:
     def test_recovery_clears_markers_and_skips_when_temp_unrecoverable(self):
         # Both live and a usable temp are lost (temp missing OR its log is corrupt): nothing left to
         # recover, so clear the markers and skip rather than loop on a swap that can never complete.
-        helper = self._helper()
+        helper = _delta_helper()
         schema = _schema(id="s1", clear_repartition_swap=Mock(), clear_repartition_pending=Mock())
         target = RepartitionTarget(partition_keys=["created_at"], trigger_reason="resume")
 
@@ -319,6 +323,54 @@ class TestResumeSwapWithMissingLive:
         schema.clear_repartition_swap.assert_called_once()
         schema.clear_repartition_pending.assert_called_once()
         assert result == {"outcome": "skipped", "reason": "no_delta_table"}
+
+
+class TestLiveUnreadable:
+    """`get_delta_table()` *raising* (a DeltaError/FileNotFoundError from an OOM-crashed merge or an
+    interrupted swap) is distinct from it returning None. When not resuming we skip with a dedicated
+    `live_unreadable` reason so the import activity's handle_corrupted_delta_log revives it — without
+    counting it as a repartition failure. When a swap marker is set the raise must instead route to the
+    missing-live recovery (temp is still the durable source of truth), exactly as a None live would."""
+
+    @parameterized.expand(
+        [
+            ("delta_error", deltalake.exceptions.DeltaError("corrupt log")),
+            ("file_not_found", FileNotFoundError("gone")),
+        ]
+    )
+    def test_skips_with_live_unreadable_when_not_resuming(self, _name, exc):
+        helper = _delta_helper(get_delta_table=AsyncMock(side_effect=exc))
+        schema = _schema(id="s1", repartition_swap=None)
+        target = RepartitionTarget(partition_keys=["created_at"], trigger_reason="resume")
+
+        with patch.object(repartition_module, "_resume_swap_with_missing_live", new=AsyncMock()) as recover:
+            result = asyncio.run(repartition_table_in_place(helper=helper, schema=schema, target=target, logger=logger))
+
+        recover.assert_not_awaited()
+        assert result == {"outcome": "skipped", "reason": "live_unreadable"}
+
+    def test_routes_to_recovery_when_unreadable_while_resuming(self):
+        # A "ready" swap marker means temp was already built and validated, so an unreadable live is the
+        # interrupted-swap window: recover from temp rather than skipping (which would strand the marker).
+        helper = _delta_helper(get_delta_table=AsyncMock(side_effect=deltalake.exceptions.DeltaError("corrupt log")))
+        schema = _schema(
+            id="s1",
+            repartition_swap={
+                "state": "ready",
+                "temp_uri": "s3://bucket/live__repartitioned",
+                "live_uri": "s3://bucket/live",
+            },
+        )
+        target = RepartitionTarget(partition_keys=["created_at"], trigger_reason="resume")
+
+        recovered = {"outcome": "completed", "recovered": True}
+        with patch.object(
+            repartition_module, "_resume_swap_with_missing_live", new=AsyncMock(return_value=recovered)
+        ) as recover:
+            result = asyncio.run(repartition_table_in_place(helper=helper, schema=schema, target=target, logger=logger))
+
+        recover.assert_awaited_once()
+        assert result == recovered
 
 
 class TestValidDeltaRowCount:
@@ -373,11 +425,7 @@ class TestResumeWithInvalidTemp:
         live = _write_month_partitioned(
             str(tmp_path / "live"), [(1, datetime.datetime(2024, 1, 5)), (2, datetime.datetime(2024, 2, 2))]
         )
-        helper = SimpleNamespace(
-            get_table_uri=AsyncMock(return_value="s3://bucket/live"),
-            get_storage_options=Mock(return_value={}),
-            get_delta_table=AsyncMock(return_value=live),
-        )
+        helper = _delta_helper(get_delta_table=AsyncMock(return_value=live))
         target = RepartitionTarget(
             partition_keys=["created_at"], trigger_reason="resume", partition_mode="datetime", partition_format="day"
         )
