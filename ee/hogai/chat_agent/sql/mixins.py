@@ -186,6 +186,14 @@ class HogQLOutputParserMixin(HogQLDatabaseMixin):
                 parsed_query = cast(ast.SelectQuery, replace_variables(parsed_query, variables, self._team))
 
             prepare_and_print_ast(parsed_query, context=hogql_context, dialect="clickhouse")
+        except RecursionError:
+            # Parsing/resolving walks the AST via the visitor pattern, so a deeply nested query can
+            # blow past Python's recursion limit. Surface it as a recoverable error the agent can act
+            # on instead of letting it escape to the generic error handler.
+            raise PydanticOutputParserException(
+                llm_output=cleaned_query,
+                validation_message="HogQL parsing error: this query is too deeply nested. Simplify it by reducing the levels of nested subqueries, expressions, or parentheses.",
+            )
         except (ExposedHogQLError, HogQLNotImplementedError, QueryError, ResolutionError) as err:
             err_msg = str(err)
             # Both the antlr-based cpp parser and the hand-rolled rust-py parser produce
