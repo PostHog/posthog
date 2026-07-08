@@ -58,13 +58,13 @@ describe('accountsCustomPropertyFilters', () => {
             'date before',
             'date',
             { operator: PropertyOperator.IsDateBefore, value: '2026-01-15' },
-            `parseDateTimeBestEffortOrNull(${TEXT_COLUMN}) < parseDateTimeBestEffortOrNull('2026-01-15')`,
+            `parseDateTimeBestEffort(${TEXT_COLUMN}) < parseDateTimeBestEffort('2026-01-15')`,
         ],
         [
             'datetime exact',
             'datetime',
             { operator: PropertyOperator.IsDateExact, value: '2026-01-15 10:00:00' },
-            `parseDateTimeBestEffortOrNull(${TEXT_COLUMN}) = parseDateTimeBestEffortOrNull('2026-01-15 10:00:00')`,
+            `parseDateTimeBestEffort(${TEXT_COLUMN}) = parseDateTimeBestEffort('2026-01-15 10:00:00')`,
         ],
     ])('%s', (_name, displayType, filterOverrides, expected) => {
         expect(

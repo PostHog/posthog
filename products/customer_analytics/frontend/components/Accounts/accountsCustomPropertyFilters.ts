@@ -63,7 +63,7 @@ function normalizeFilterValues(filter: AccountCustomPropertyFilter): (string | n
 }
 
 // The join coalesces every value to a string, so equality/ILIKE work on the column directly;
-// numeric and date comparisons re-type it (toFloatOrNull / parseDateTimeBestEffortOrNull) —
+// numeric and date comparisons re-type it (toFloatOrNull / parseDateTimeBestEffort) —
 // the same casts the overview tiles use for aggregation.
 export function customPropertyFilterToExpression(
     filter: AccountCustomPropertyFilter,
@@ -129,9 +129,11 @@ export function customPropertyFilterToExpression(
         case PropertyOperator.IsDateExact:
         case PropertyOperator.IsDateBefore:
         case PropertyOperator.IsDateAfter:
-            return `parseDateTimeBestEffortOrNull(${column}) ${
+            // parseDateTimeBestEffort is the HogQL name (it maps to the ClickHouse
+            // ...OrNull variant); the OrNull-suffixed name isn't registered in HogQL.
+            return `parseDateTimeBestEffort(${column}) ${
                 DATE_OPERATOR_SYMBOLS[operator]
-            } parseDateTimeBestEffortOrNull(${escapeHogQLString(String(values[0]))})`
+            } parseDateTimeBestEffort(${escapeHogQLString(String(values[0]))})`
         default:
             return null
     }
