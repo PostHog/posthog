@@ -17,8 +17,11 @@ import {
 } from '@posthog/lemon-ui'
 
 import { pngHoggie } from 'lib/brand/hoggies'
+import { NotFound } from 'lib/components/NotFound'
+import { FEATURE_FLAGS } from 'lib/constants'
 import { LemonDialog } from 'lib/lemon-ui/LemonDialog'
 import { LemonField } from 'lib/lemon-ui/LemonField'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { useAttachedLogic } from 'lib/logic/scenes/useAttachedLogic'
 import { SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
@@ -55,6 +58,11 @@ export function ScannerEditorSceneComponent(): JSX.Element {
     const { scanner, scannerLoading, isScannerSubmitting, scannerValidationErrors, showScannerErrors } =
         useValues(scannerLogic)
     const { submitScanner, setSubmitIntent } = useActions(scannerLogic)
+    const { featureFlags } = useValues(featureFlagLogic)
+
+    if (!featureFlags[FEATURE_FLAGS.REPLAY_VISION]) {
+        return <NotFound object="page" />
+    }
 
     if (step !== 'template' && (scannerLoading || !scanner)) {
         return (

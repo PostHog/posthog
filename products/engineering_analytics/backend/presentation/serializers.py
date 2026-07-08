@@ -655,11 +655,14 @@ class WorkflowHealthItemSerializer(DataclassSerializer):
                 "allow_null": True,
             },
             "p50_seconds": {
-                "help_text": "Median duration of completed runs, in seconds. Null if none completed.",
+                "help_text": "Median duration in seconds over successful runs only — cancelled (superseded) and "
+                "failed runs end early and would bias the percentile. Null if no run succeeded in the window.",
                 "allow_null": True,
             },
             "p95_seconds": {
-                "help_text": "95th-percentile duration of completed runs, in seconds. Null if none completed.",
+                "help_text": "95th-percentile duration in seconds over successful runs only — cancelled "
+                "(superseded) and failed runs end early and would bias the percentile. Null if no run succeeded "
+                "in the window.",
                 "allow_null": True,
             },
             "last_failure_at": {
@@ -839,11 +842,13 @@ class WorkflowJobAggregateSerializer(DataclassSerializer):
                 "allow_null": True,
             },
             "p50_seconds": {
-                "help_text": "Median duration of completed job instances, in seconds. Null if none completed.",
+                "help_text": "Median duration of successful job instances, in seconds — cancelled and failed "
+                "instances end early and would bias the percentile. Null if none succeeded.",
                 "allow_null": True,
             },
             "p95_seconds": {
-                "help_text": "95th-percentile duration of completed job instances, in seconds. Null if none completed.",
+                "help_text": "95th-percentile duration of successful job instances, in seconds — cancelled and "
+                "failed instances end early and would bias the percentile. Null if none succeeded.",
                 "allow_null": True,
             },
             "failure_rate": {

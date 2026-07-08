@@ -68,6 +68,10 @@ GITHUB_SECRET_ALERT_RELAY_URL: str | None = get_from_env("GITHUB_SECRET_ALERT_RE
 # Override in tests via @override_settings to point at a per-test team.
 LLM_ANALYTICS_INTERNAL_TEAM_ID: int = 2
 
+# Shared secret for EU→US personal-spend proxy calls (products/ai_observability).
+# Must hold the same value in both regions; unset disables the proxy.
+PERSONAL_SPEND_CROSS_REGION_SECRET: str = get_from_env("PERSONAL_SPEND_CROSS_REGION_SECRET", "")
+
 # Override for the AI observability trial-eval deprecation cutoff
 AI_OBSERVABILITY_TRIAL_EVAL_DEPRECATION_DATE: str | None = get_from_env(
     "AI_OBSERVABILITY_TRIAL_EVAL_DEPRECATION_DATE", optional=True
