@@ -4404,6 +4404,12 @@ snapshots:
         hash: v1.k794b7964.5c33ba0a4dbe6cf279197eadea244d7b9838b99d80b8ba2b899df7ca881e066b.GNSIWjjq4NaJTgY9UUDYIXoxNuzz74X5yRL5TuFPO_Y
     mcp-apps-lifecycle--stacked--light:
         hash: v1.k794b7964.ba05f9228b85cb77c43ddf41d7c4612123546422dc1ab7adea5c2f0ac57fede1.5HaCtwm-U2r0pTewvvTY96rwrsRFfyk9dh5liLtVxkI
+    mcp-apps-query-results--single-number--light:
+        hash: v1.k794b7964.b53e77f7c428fe5d86903e3bee082eb7c752f67fb3225c043229e4b713debe69.hhBuSmExHBpDioDG9Ij-4qfvVhG77IC5FNYierdlZq8
+    mcp-apps-query-results--table--light:
+        hash: v1.k794b7964.902b5373ca5305edcf1bd3440def4e5e2918ae9ddc32f21c780a3bb4a006b9a7.zBD1FDF7WTERVfwWCIZhb5T9D8FPJNbD3_UFCWB8mhc
+    mcp-apps-query-results--time-series--light:
+        hash: v1.k794b7964.db641b56d0ea4fbeda26aa548d2490f69b1e4cc3702f8462d44ac550e6759644.tIrsyH43vI28LEEGZKQKzbZAx3QQz44eLcqYpEYVW08
     mcp-apps-retention-actors--daily--light:
         hash: v1.k794b7964.98ed364bc169b666ee69ff6e44c7fa385360df9410875c5ee3cd85ff2e53104f.-p5rL3gbD8LRZ-kriXkNM3NHeYm8nf0v0VfVq5XWZFs
     mcp-apps-stickiness--multiple-series--light:
