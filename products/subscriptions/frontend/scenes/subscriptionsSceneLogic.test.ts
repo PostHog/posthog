@@ -3,8 +3,6 @@ import { MOCK_DEFAULT_USER, MOCK_USER_UUID } from 'lib/api.mock'
 import { router } from 'kea-router'
 import { expectLogic } from 'kea-test-utils'
 
-import { TargetTypeEnumApi } from '@posthog/products-subscriptions/frontend/generated/api.schemas'
-
 import { sceneLogic } from 'scenes/sceneLogic'
 import { Scene } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
@@ -12,6 +10,8 @@ import { userLogic } from 'scenes/userLogic'
 
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
+
+import { TargetTypeEnumApi } from 'products/subscriptions/frontend/generated/api.schemas'
 
 import { subscriptionsSceneLogic, SubscriptionsTab } from './subscriptionsSceneLogic'
 

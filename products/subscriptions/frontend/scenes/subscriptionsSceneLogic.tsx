@@ -3,19 +3,7 @@ import { loaders } from 'kea-loaders'
 import { router, urlToAction } from 'kea-router'
 
 import { Sorting } from '@posthog/lemon-ui'
-import {
-    subscriptionsList,
-    subscriptionsTestDeliveryCreate,
-} from '@posthog/products-subscriptions/frontend/generated/api'
-import {
-    SubscriptionsListResourceType,
-    TargetTypeEnumApi,
-    type PaginatedSubscriptionListApi,
-    type SubscriptionsListTargetType,
-} from '@posthog/products-subscriptions/frontend/generated/api.schemas'
 
-import { runSubscriptionTestDelivery } from 'lib/components/Subscriptions/runSubscriptionTestDelivery'
-import { toggleSubscriptionEnabled } from 'lib/components/Subscriptions/toggleSubscriptionEnabled'
 import { trackedActionToUrl } from 'lib/logic/scenes/trackedActionToUrl'
 import { getCurrentTeamId } from 'lib/utils/getAppContext'
 import { sceneConfigurations } from 'scenes/scenes'
@@ -25,6 +13,16 @@ import { userLogic } from 'scenes/userLogic'
 
 import { Breadcrumb } from '~/types'
 
+import { subscriptionsList, subscriptionsTestDeliveryCreate } from 'products/subscriptions/frontend/generated/api'
+import {
+    SubscriptionsListResourceType,
+    TargetTypeEnumApi,
+    type PaginatedSubscriptionListApi,
+    type SubscriptionsListTargetType,
+} from 'products/subscriptions/frontend/generated/api.schemas'
+
+import { runSubscriptionTestDelivery } from '../components/Subscriptions/runSubscriptionTestDelivery'
+import { toggleSubscriptionEnabled } from '../components/Subscriptions/toggleSubscriptionEnabled'
 import type { subscriptionsSceneLogicType } from './subscriptionsSceneLogicType'
 
 const PAGE_SIZE = 20

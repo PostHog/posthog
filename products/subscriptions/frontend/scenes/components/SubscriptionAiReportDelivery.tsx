@@ -1,12 +1,13 @@
 import { LemonCollapse, LemonTag, Tooltip } from '@posthog/lemon-ui'
-import type {
-    AIReportQueryDiagnosticApi,
-    SubscriptionDeliveryApi,
-} from '@posthog/products-subscriptions/frontend/generated/api.schemas'
-import { SubscriptionDeliveryStatusEnumApi } from '@posthog/products-subscriptions/frontend/generated/api.schemas'
 
 import { CodeSnippet, Language } from 'lib/components/CodeSnippet'
 import { LemonMarkdown } from 'lib/lemon-ui/LemonMarkdown'
+
+import type {
+    AIReportQueryDiagnosticApi,
+    SubscriptionDeliveryApi,
+} from 'products/subscriptions/frontend/generated/api.schemas'
+import { SubscriptionDeliveryStatusEnumApi } from 'products/subscriptions/frontend/generated/api.schemas'
 
 /** A completed AI delivery whose report couldn't compute some queries still shipped — but with missing
  * metrics — so it reads as "Partial", not a clean "Completed". Derived from the (query:viewer-gated)

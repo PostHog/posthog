@@ -1,12 +1,13 @@
 import { useActions, useValues } from 'kea'
 
 import { LemonInput, LemonSelect } from '@posthog/lemon-ui'
+
+import { MemberSelect } from 'lib/components/MemberSelect'
+
 import {
     TargetTypeEnumApi,
     type SubscriptionsListTargetType,
-} from '@posthog/products-subscriptions/frontend/generated/api.schemas'
-
-import { MemberSelect } from 'lib/components/MemberSelect'
+} from 'products/subscriptions/frontend/generated/api.schemas'
 
 import { SubscriptionsTab, subscriptionsSceneLogic } from '../subscriptionsSceneLogic'
 

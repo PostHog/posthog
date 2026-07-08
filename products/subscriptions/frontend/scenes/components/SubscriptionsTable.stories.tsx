@@ -4,12 +4,13 @@ import { useState, type ComponentProps } from 'react'
 import { IconEllipsis } from '@posthog/icons'
 import { LemonButton } from '@posthog/lemon-ui'
 import type { PaginationManual } from '@posthog/lemon-ui'
-import type { SubscriptionApi } from '@posthog/products-subscriptions/frontend/generated/api.schemas'
+
+import type { SubscriptionApi } from 'products/subscriptions/frontend/generated/api.schemas'
 import {
     RecurrenceIntervalEnumApi,
     ResourceTypeEnumApi,
     TargetTypeEnumApi,
-} from '@posthog/products-subscriptions/frontend/generated/api.schemas'
+} from 'products/subscriptions/frontend/generated/api.schemas'
 
 import { SubscriptionsTable } from './SubscriptionsTable'
 

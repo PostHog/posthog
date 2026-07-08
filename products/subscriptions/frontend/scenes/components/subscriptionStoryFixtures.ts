@@ -5,7 +5,7 @@ import {
     TargetTypeEnumApi,
     type SubscriptionApi,
     type SubscriptionDeliveryApi,
-} from '@posthog/products-subscriptions/frontend/generated/api.schemas'
+} from 'products/subscriptions/frontend/generated/api.schemas'
 
 export const MOCK_SUBSCRIPTION_USER = {
     id: 1,

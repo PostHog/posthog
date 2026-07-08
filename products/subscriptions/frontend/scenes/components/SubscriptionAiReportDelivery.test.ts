@@ -1,8 +1,8 @@
 import type {
     AIReportQueryDiagnosticApi,
     SubscriptionDeliveryApi,
-} from '@posthog/products-subscriptions/frontend/generated/api.schemas'
-import { SubscriptionDeliveryStatusEnumApi } from '@posthog/products-subscriptions/frontend/generated/api.schemas'
+} from 'products/subscriptions/frontend/generated/api.schemas'
+import { SubscriptionDeliveryStatusEnumApi } from 'products/subscriptions/frontend/generated/api.schemas'
 
 import { isPartialDelivery, queryFailureReason, queryStatusLabel } from './SubscriptionAiReportDelivery'
 

@@ -4,16 +4,16 @@ import { router } from 'kea-router'
 import { expectLogic } from 'kea-test-utils'
 import posthog from 'posthog-js'
 
+import { useMocks } from '~/mocks/jest'
+import { initKeaTests } from '~/test/init'
+
 import {
     RecurrenceIntervalEnumApi,
     ResourceTypeEnumApi,
     SubscriptionsDeliveriesListStatus,
     TargetTypeEnumApi,
-} from '@posthog/products-subscriptions/frontend/generated/api.schemas'
-import type { SubscriptionApi } from '@posthog/products-subscriptions/frontend/generated/api.schemas'
-
-import { useMocks } from '~/mocks/jest'
-import { initKeaTests } from '~/test/init'
+} from 'products/subscriptions/frontend/generated/api.schemas'
+import type { SubscriptionApi } from 'products/subscriptions/frontend/generated/api.schemas'
 
 import { subscriptionSceneLogic } from './subscriptionSceneLogic'
 
