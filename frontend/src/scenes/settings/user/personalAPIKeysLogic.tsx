@@ -28,7 +28,7 @@ import type { personalAPIKeysLogicType } from './personalAPIKeysLogicType'
 
 export type EditingKeyFormValues = Pick<
     PersonalAPIKeyType,
-    'label' | 'scopes' | 'scoped_organizations' | 'scoped_teams'
+    'label' | 'description' | 'scopes' | 'scoped_organizations' | 'scoped_teams'
 > & {
     preset?: string
     access_type?: 'all' | 'organizations' | 'teams'
@@ -54,6 +54,7 @@ export const personalAPIKeysLogic = kea<personalAPIKeysLogicType>([
         setScopeRadioValue: (key: string, action: string) => ({ key, action }),
         resetScopes: true,
         loadAllTeams: true,
+        showDescriptionField: true,
     }),
 
     reducers({
@@ -67,6 +68,14 @@ export const personalAPIKeysLogic = kea<personalAPIKeysLogicType>([
             '' as string,
             {
                 setSearchTerm: (_, { searchTerm }) => searchTerm,
+            },
+        ],
+        // The description field is hidden behind an "Add description" button until used
+        isDescriptionFieldVisible: [
+            false,
+            {
+                showDescriptionField: () => true,
+                setEditingKeyId: () => false,
             },
         ],
     }),
@@ -110,6 +119,7 @@ export const personalAPIKeysLogic = kea<personalAPIKeysLogicType>([
         editingKey: {
             defaults: {
                 label: '',
+                description: '',
                 scopes: [],
                 scoped_organizations: [],
                 scoped_teams: [],
@@ -439,6 +449,7 @@ export const personalAPIKeysLogic = kea<personalAPIKeysLogicType>([
                 const key = values.keys.find((key) => key.id === id)
                 const formValues: EditingKeyFormValues = {
                     label: key?.label ?? '',
+                    description: key?.description ?? '',
                     scopes: key?.scopes ?? [],
                     preset: key?.scopes.includes('*') ? 'all_access' : undefined,
                     scoped_organizations: key?.scoped_organizations ?? [],
@@ -453,6 +464,9 @@ export const personalAPIKeysLogic = kea<personalAPIKeysLogicType>([
                 }
 
                 actions.resetEditingKey(formValues)
+                if (key?.description) {
+                    actions.showDescriptionField()
+                }
                 actions.setSearchTerm('')
             } else {
                 actions.setSearchTerm('')

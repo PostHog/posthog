@@ -13,12 +13,14 @@ import {
     LemonSelect,
     LemonTableColumn,
     LemonTag,
+    LemonTextArea,
     Tooltip,
 } from '@posthog/lemon-ui'
 
 import { IconErrorOutline } from 'lib/lemon-ui/icons'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonField } from 'lib/lemon-ui/LemonField'
+import { Link } from 'lib/lemon-ui/Link'
 import { API_KEY_SCOPE_PRESETS, MAX_API_KEYS_PER_USER } from 'lib/scopes'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 
@@ -46,9 +48,17 @@ export function EditKeyModal({ zIndex }: EditKeyModalProps): JSX.Element {
         allOrganizations,
         filteredScopes,
         searchTerm,
+        isDescriptionFieldVisible,
     } = useValues(personalAPIKeysLogic)
-    const { setEditingKeyId, setScopeRadioValue, submitEditingKey, resetScopes, setSearchTerm, rollKey } =
-        useActions(personalAPIKeysLogic)
+    const {
+        setEditingKeyId,
+        setScopeRadioValue,
+        submitEditingKey,
+        resetScopes,
+        setSearchTerm,
+        rollKey,
+        showDescriptionField,
+    } = useActions(personalAPIKeysLogic)
     const { isCloudOrDev } = useValues(preflightLogic)
 
     const isNew = editingKeyId === 'new'
@@ -135,6 +145,28 @@ export function EditKeyModal({ zIndex }: EditKeyModalProps): JSX.Element {
                     <LemonField name="label" label="Label">
                         <LemonInput placeholder='For example "Reports bot" or "Zapier"' maxLength={40} />
                     </LemonField>
+                    {isDescriptionFieldVisible ? (
+                        <LemonField name="description" label="Description" showOptional className="mt-2">
+                            <LemonTextArea
+                                placeholder="What is this key used for, and where? For example a link to the integration using it"
+                                maxLength={1000}
+                                minRows={2}
+                                data-attr="personal-api-key-description"
+                            />
+                        </LemonField>
+                    ) : (
+                        <div className="mt-1">
+                            <LemonButton
+                                type="tertiary"
+                                size="xsmall"
+                                icon={<IconPlus />}
+                                onClick={() => showDescriptionField()}
+                                data-attr="personal-api-key-add-description"
+                            >
+                                Add description
+                            </LemonButton>
+                        </div>
+                    )}
                     <ScopeAccessSelector
                         accessType={editingKey.access_type}
                         organizations={allOrganizations}
@@ -486,6 +518,22 @@ function PersonalAPIKeysTable(): JSX.Element {
                 showActions
                 rowClassName={(key) => (isPersonalApiKeyIdDisabled(key.id) ? 'opacity-50' : '')}
                 deleteDescription="This action cannot be undone. Make sure to have removed the key from any live integrations first."
+                renderLabel={(key) => (
+                    <div className="flex flex-col">
+                        <Link
+                            subtle
+                            className="text-left font-semibold truncate"
+                            onClick={() => setEditingKeyId(key.id)}
+                        >
+                            {key.label}
+                        </Link>
+                        {key.description && (
+                            <Tooltip title={key.description}>
+                                <span className="text-muted text-xs truncate max-w-60">{key.description}</span>
+                            </Tooltip>
+                        )}
+                    </div>
+                )}
                 renderMaskValue={(key) =>
                     key.mask_value ? (
                         <span className="font-mono ph-no-capture">{key.mask_value}</span>
