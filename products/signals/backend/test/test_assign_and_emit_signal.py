@@ -84,13 +84,14 @@ def _build_input(
     team_id: int,
     match_result: ExistingReportMatch | NewReportMatch,
     weight: float = 0.5,
+    source_product: str = "conversations",
 ) -> AssignAndEmitSignalInput:
     return AssignAndEmitSignalInput(
         team_id=team_id,
         signal_id=str(uuid.uuid4()),
         description="A test signal description",
         weight=weight,
-        source_product="conversations",
+        source_product=source_product,
         source_type="ticket",
         source_id=f"src-{uuid.uuid4()}",
         extra={},
@@ -132,6 +133,51 @@ async def test_new_match_creates_and_immediately_promotes_when_above_threshold(a
     report = await database_sync_to_async(SignalReport.objects.get)(id=result.report_id)
     assert report.status == SignalReport.Status.CANDIDATE
     assert report.promoted_at is not None
+
+
+# ---------------------------------------------------------------------------
+# Billing exemption: PostHog-system signal sources
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+@pytest.mark.django_db
+@pytest.mark.parametrize(
+    "source_product,expected_reason",
+    [
+        ("health_checks", SignalReport.BillingExemptReason.POSTHOG_HEALTH_CHECK),
+        ("conversations", None),
+    ],
+)
+async def test_new_report_billing_exemption_follows_source_product(ateam, source_product, expected_reason):
+    """A report formed from a PostHog-system signal (health checks) is stamped never-billable at
+    creation; reports from customer sources stay billable."""
+    input_ = _build_input(ateam.id, _new_match(), source_product=source_product)
+
+    result = await assign_and_emit_signal_activity(input_)
+
+    report = await database_sync_to_async(SignalReport.objects.get)(id=result.report_id)
+    assert report.billing_exempt_reason == expected_reason
+
+
+@pytest.mark.asyncio
+@pytest.mark.django_db
+async def test_exempt_source_signal_joining_existing_report_never_flips_it(ateam):
+    """The exemption is frozen at formation: a health-check signal grouped into a customer-origin
+    report must not make that report free (and would silently exempt paid work if it did)."""
+    report = await database_sync_to_async(SignalReport.objects.create)(
+        team=ateam,
+        status=SignalReport.Status.POTENTIAL,
+        total_weight=0.2,
+        signal_count=1,
+    )
+    input_ = _build_input(ateam.id, _existing_match(str(report.id)), source_product="health_checks")
+
+    await assign_and_emit_signal_activity(input_)
+
+    refreshed = await database_sync_to_async(SignalReport.objects.get)(id=report.id)
+    assert refreshed.billing_exempt_reason is None
+    assert refreshed.signal_count == 2
 
 
 # ---------------------------------------------------------------------------

@@ -29,6 +29,7 @@ from posthog.sync import database_sync_to_async
 from posthog.temporal.common.scoped import scoped_temporal
 from posthog.temporal.common.utils import close_db_connections
 
+from products.signals.backend.billing import BILLING_EXEMPT_SOURCE_PRODUCTS
 from products.signals.backend.models import SignalReport
 from products.signals.backend.temporal import metrics
 from products.signals.backend.temporal.drop_telemetry import capture_signal_dropped
@@ -739,6 +740,10 @@ async def assign_and_emit_signal_activity(input: AssignAndEmitSignalInput) -> As
                     signal_count=1,
                     title=match_result.title,
                     summary=match_result.summary,
+                    # A report born from a PostHog-system signal (e.g. health checks) must never
+                    # bill the customer. Only this founding signal decides: signals that join the
+                    # report later (the branch above) leave the exemption unchanged either way.
+                    billing_exempt_reason=BILLING_EXEMPT_SOURCE_PRODUCTS.get(input.source_product),
                 )
 
             # Promotion rules by status:

@@ -47,6 +47,7 @@ from django.utils import timezone
 from dateutil.relativedelta import relativedelta
 
 from products.signals.backend.artefact_schemas import TASK_RUN_TYPE_IMPLEMENTATION
+from products.signals.backend.enums import SignalSourceProduct
 from products.signals.backend.models import SignalReport, SignalReportRefund, SignalReportTask, SignalScoutRun
 
 if TYPE_CHECKING:
@@ -102,6 +103,16 @@ class BillingExemptionError(Exception):
 # runs' `emitted_report_ids` tally (report-channel scouts author their reports directly).
 BILLING_EXEMPT_SCOUT_SKILLS: dict[str, str] = {
     "signals-scout-health-checks": SignalReport.BillingExemptReason.POSTHOG_HEALTH_CHECK,
+}
+
+# Same policy for the signal channel: sources owned by PostHog systems (e.g. the temporal
+# health-checks pipeline, `posthog/temporal/health_checks/signal_emitter.py`). Per-signal
+# source_product never reaches Postgres, so this map is enforced where the report row is
+# formed — the grouping activity stamps `billing_exempt_reason` at creation. Formation-time
+# only: an exempt-origin signal joining an existing report never flips it (and vice versa),
+# mirroring `mark_report_billing_exempt`'s first-reason-wins freeze.
+BILLING_EXEMPT_SOURCE_PRODUCTS: dict[str, str] = {
+    SignalSourceProduct.HEALTH_CHECKS: SignalReport.BillingExemptReason.POSTHOG_HEALTH_CHECK,
 }
 
 
