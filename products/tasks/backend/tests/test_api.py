@@ -2351,6 +2351,8 @@ class TestTaskAPI(BaseTaskAPITest):
             ("low",),
             ("medium",),
             ("high",),
+            # xhigh is load-bearing: ReviewHog pins it for its one-shot and review runs.
+            ("xhigh",),
         ]
     )
     @patch("products.tasks.backend.temporal.client.execute_task_processing_workflow")
@@ -2378,17 +2380,18 @@ class TestTaskAPI(BaseTaskAPITest):
 
     @patch("products.tasks.backend.presentation.serializers.posthoganalytics.capture")
     @patch("products.tasks.backend.temporal.client.execute_task_processing_workflow")
-    def test_run_endpoint_rejects_unsupported_claude_sonnet_5_reasoning_effort(self, mock_workflow, mock_capture):
-        # claude-sonnet-5 supports low/medium/high (unlike claude-sonnet-4-5, which supports
-        # none) - this pins the "Supported values: <non-empty list>" message and confirms the
-        # rejection capture also fires for a model that has some supported efforts.
+    def test_run_endpoint_rejects_unsupported_claude_sonnet_4_6_reasoning_effort(self, mock_workflow, mock_capture):
+        # claude-sonnet-4-6 supports low/medium/high but not xhigh (claude-sonnet-5 accepts the
+        # full set, ReviewHog pins its xhigh) - this pins the "Supported values: <non-empty list>"
+        # message and confirms the rejection capture also fires for a model with some supported
+        # efforts.
         task = self.create_task()
 
         response = self.client.post(
             f"/api/projects/@current/tasks/{task.id}/run/",
             {
                 "runtime_adapter": "claude",
-                "model": "claude-sonnet-5",
+                "model": "claude-sonnet-4-6",
                 "reasoning_effort": "xhigh",
             },
             format="json",
@@ -2400,7 +2403,7 @@ class TestTaskAPI(BaseTaskAPITest):
             "code": "invalid_input",
             "detail": (
                 "Reasoning effort 'xhigh' is not supported for runtime_adapter 'claude' "
-                "and model 'claude-sonnet-5'. Supported values: low, medium, high."
+                "and model 'claude-sonnet-4-6'. Supported values: low, medium, high."
             ),
             "attr": "reasoning_effort",
         }
@@ -2412,11 +2415,11 @@ class TestTaskAPI(BaseTaskAPITest):
             event="task run reasoning effort rejected",
             properties={
                 "runtime_adapter": "claude",
-                "model": "claude-sonnet-5",
+                "model": "claude-sonnet-4-6",
                 "reasoning_effort": "xhigh",
                 "error": (
                     "Reasoning effort 'xhigh' is not supported for runtime_adapter 'claude' "
-                    "and model 'claude-sonnet-5'. Supported values: low, medium, high."
+                    "and model 'claude-sonnet-4-6'. Supported values: low, medium, high."
                 ),
             },
             groups=ANY,
