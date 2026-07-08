@@ -354,9 +354,14 @@ describe('accountsLogic', () => {
     })
 
     describe('selectColumns', () => {
-        it('starts with the default select and includes the mandatory name column', () => {
+        it('defaults to the base columns plus one column per definition, name column included', () => {
             const config = accountsColumnConfigLogic.findMounted()
-            expect(config?.values.selectColumns).toEqual(ACCOUNTS_HOGQL_DEFAULT_SELECT)
+            expect(config?.values.selectColumns).toEqual([
+                ...ACCOUNTS_HOGQL_DEFAULT_SELECT,
+                'csm',
+                'account_executive',
+                'account_owner',
+            ])
             expect(config?.values.selectColumns).toContain(ACCOUNTS_NAME_COLUMN)
         })
 
@@ -391,6 +396,9 @@ describe('accountsLogic', () => {
             ])
             expect(config.values.selectColumns).toEqual([
                 ...ACCOUNTS_HOGQL_DEFAULT_SELECT,
+                'csm',
+                'account_executive',
+                'account_owner',
                 `accounts.relationships.values.\`def-os\` AS ${relationshipAlias('def-os')}`,
             ])
         })

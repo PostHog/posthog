@@ -26,10 +26,10 @@ import type { accountsColumnConfigLogicType } from './accountsColumnConfigLogicT
 // row identity (id) and copy-able external_id ride along with the display name.
 export const ACCOUNTS_NAME_COLUMN = 'name'
 
-// The three role columns predate relationship definitions, so saved views, shared
-// URLs, and the default column set store them as bare names. They map by name onto
-// the team's seeded relationship definitions and translate into the relationships
-// lazy join at query-build time (`translateSelectColumns`).
+// The three role columns predate relationship definitions, so saved views and shared
+// URLs store them as bare names. They map by name onto the team's seeded relationship
+// definitions and translate into the relationships lazy join at query-build time
+// (`translateSelectColumns`).
 export const LEGACY_ROLE_COLUMNS = {
     csm: 'CSM',
     account_executive: 'Account executive',
@@ -42,17 +42,12 @@ export function isLegacyRoleColumn(column: string): column is AccountRoleKey {
     return column in LEGACY_ROLE_COLUMNS
 }
 
-const ACCOUNTS_HOGQL_BASE_SELECT: string[] = [
+// Pre-load seed only — `defaultSelectColumns` appends one relationship column per
+// definition once the team's definitions load.
+export const ACCOUNTS_HOGQL_DEFAULT_SELECT: string[] = [
     ACCOUNTS_NAME_COLUMN,
     'accounts.tags.names AS tag_names',
     'accounts.notebooks.count AS notebook_count',
-]
-
-// Only a pre-load seed: once definitions load, pristine columns are upgraded to
-// `defaultSelectColumns` so defaults aren't coupled to the legacy role names.
-export const ACCOUNTS_HOGQL_DEFAULT_SELECT: string[] = [
-    ...ACCOUNTS_HOGQL_BASE_SELECT,
-    ...Object.keys(LEGACY_ROLE_COLUMNS),
 ]
 
 function ensureNameColumn(columns: string[]): string[] {
@@ -388,17 +383,14 @@ export const accountsColumnConfigLogic = kea<accountsColumnConfigLogicType>([
         // shared URLs dedupe against them.
         defaultSelectColumns: [
             (s) => [s.relationshipDefinitions],
-            (relationshipDefinitions: AccountRelationshipDefinitionApi[]): string[] =>
-                relationshipDefinitions.length === 0
-                    ? [...ACCOUNTS_HOGQL_DEFAULT_SELECT]
-                    : [
-                          ...ACCOUNTS_HOGQL_BASE_SELECT,
-                          ...relationshipDefinitions.map(
-                              (definition) =>
-                                  ROLE_KEY_BY_NAME[definition.name] ??
-                                  relationshipExpression(definition, relationshipAlias(definition.id))
-                          ),
-                      ],
+            (relationshipDefinitions: AccountRelationshipDefinitionApi[]): string[] => [
+                ...ACCOUNTS_HOGQL_DEFAULT_SELECT,
+                ...relationshipDefinitions.map(
+                    (definition) =>
+                        ROLE_KEY_BY_NAME[definition.name] ??
+                        relationshipExpression(definition, relationshipAlias(definition.id))
+                ),
+            ],
         ],
         roleKeyToDefinition: [
             (s) => [s.relationshipDefinitions],
@@ -458,12 +450,13 @@ export const accountsColumnConfigLogic = kea<accountsColumnConfigLogicType>([
             }),
         ],
     }),
-    listeners(({ actions, values }) => ({
+    listeners(({ actions, values, selectors }) => ({
         // Customized columns (user edits, saved view, shared URL) no longer equal the
-        // static default, so only pristine defaults get upgraded.
-        loadRelationshipDefinitionsSuccess: () => {
+        // default they diverged from, so only still-default columns get upgraded.
+        loadRelationshipDefinitionsSuccess: (_, __, ___, previousState) => {
+            const previousDefault = selectors.defaultSelectColumns(previousState)
             if (
-                objectsEqual(values.selectColumns, ACCOUNTS_HOGQL_DEFAULT_SELECT) &&
+                objectsEqual(values.selectColumns, previousDefault) &&
                 !objectsEqual(values.defaultSelectColumns, values.selectColumns)
             ) {
                 actions.setSelectColumns(values.defaultSelectColumns)
