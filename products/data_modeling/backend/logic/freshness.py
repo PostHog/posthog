@@ -43,11 +43,9 @@ from products.data_modeling.backend.logic.graph_traversal import reachable
 # floor: a descendant may be as tight as the buckets allow. Imported sources instead
 # carry their real sync interval.
 #
-# Loud invariant: STREAMING overloads timedelta(0). A timedelta in this module means
-# one of three things depending on where it flows: a real interval, timedelta(0) for
-# "streaming, no floor" (sorts below every real interval so min/max propagation just
-# works), and None elsewhere for "unscheduled". Do not compare against timedelta(0)
-# directly; compare against STREAMING so the intent stays searchable.
+# STREAMING overloads timedelta(0): it sorts below every real interval, so min/max
+# propagation needs no special case. Compare against STREAMING rather than a bare
+# timedelta(0) so the intent stays searchable; None (elsewhere) means "unscheduled".
 STREAMING = timedelta(0)
 
 # Intervals build_schedule_spec can realize exactly (minute buckets must divide 60, hour
