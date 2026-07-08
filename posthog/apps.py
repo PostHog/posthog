@@ -8,6 +8,7 @@ import posthoganalytics
 from asgiref.sync import async_to_sync
 from posthoganalytics.client import Client
 
+from posthog.exception_autocapture_filter import drop_user_query_errors
 from posthog.git import get_git_branch, get_git_commit_short
 from posthog.utils import (
     _build_flag_provider,
@@ -67,6 +68,10 @@ class PostHogConfig(AppConfig):
         posthoganalytics.poll_interval = 90  # ty: ignore[invalid-assignment]
         posthoganalytics.enable_exception_autocapture = True  # ty: ignore[invalid-assignment]
         posthoganalytics.log_captured_exceptions = True  # ty: ignore[invalid-assignment]
+        # Drop user-input HogQL query errors (invalid query, unknown table, ...) that
+        # autocapture would otherwise report from paths running user HogQL outside the
+        # query runner's capture-suppressing context. They're 4xx user mistakes, not faults.
+        posthoganalytics.before_send = drop_user_query_errors  # ty: ignore[invalid-assignment]
         posthoganalytics.super_properties = {  # ty: ignore[invalid-assignment]
             "region": get_instance_region(),
             "service": settings.OTEL_SERVICE_NAME,
