@@ -315,8 +315,10 @@ class InternalMigrationMatrixRowSerializer(serializers.Serializer):
             "v1_flag_excluded",
             "no_dags",
         ],
+        allow_null=True,
         help_text="Derived label across the three switches; v2_scheduled_flag_excluded is the "
-        "'Sync now' storm cohort (scheduled on v2 but excluded from the v2 flag).",
+        "'Sync now' storm cohort (scheduled on v2 but excluded from the v2 flag). Null when "
+        "Temporal was unreachable — switch B is unknown, so no label would be trustworthy.",
     )
 
 
