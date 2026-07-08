@@ -460,8 +460,8 @@ class TestSQLV2PageDispatch(APIBaseTest):
                 code="select event from events",
             )
 
-    def _create_runtime(self) -> None:
-        KernelRuntime.objects.create(
+    def _create_runtime(self) -> KernelRuntime:
+        return KernelRuntime.objects.create(
             team=self.team,
             notebook=self.notebook,
             notebook_short_id=self.notebook.short_id,
@@ -470,6 +470,7 @@ class TestSQLV2PageDispatch(APIBaseTest):
             backend=KernelRuntime.Backend.DOCKER,
             sandbox_id="sbx-1",
             server_url="http://localhost:12345",
+            server_connect_token="connect-tok",
         )
 
     def test_raises_without_running_kernel(self):
@@ -480,9 +481,18 @@ class TestSQLV2PageDispatch(APIBaseTest):
     def test_posts_run_code_and_paging_to_kernel(self, mock_post):
         mock_post.return_value.status_code = 200
         mock_post.return_value.json.return_value = {"columns": [], "types": [], "rows": [], "has_more": False}
-        self._create_runtime()
+        runtime = self._create_runtime()
         fetch_sql_v2_page(self.notebook, self.user, self.node_run, offset=100, limit=25)
         self.assertIn("/page", mock_post.call_args.args[0])
+        # Credentials ride headers, never the URL — a query-string token lands in access logs.
+        self.assertNotIn("?", mock_post.call_args.args[0])
+        headers = mock_post.call_args.kwargs["headers"]
+        self.assertEqual(headers["Authorization"], "Bearer connect-tok")
+        self.assertTrue(
+            kernel_auth.verify_command_token(
+                kernel_server_secret(str(runtime.id)), str(self.node_run.id), headers["X-Command-Token"]
+            )
+        )
         payload = mock_post.call_args.kwargs["json"]
         # The kernel must page the code that produced the result, not whatever the editor holds now.
         self.assertEqual(payload["code"], "select event from events")
@@ -597,7 +607,7 @@ class TestSQLV2Activities(APIBaseTest):
     def test_dispatch_activity_posts_to_ready_server(self, mock_post, mock_version):
         mock_version.return_value = kernel_package_bytes_and_hash()[1]  # server already at the deployed version
         run = self._create_run()
-        KernelRuntime.objects.create(
+        runtime = KernelRuntime.objects.create(
             team=self.team,
             notebook=self.notebook,
             notebook_short_id=self.notebook.short_id,
@@ -606,10 +616,20 @@ class TestSQLV2Activities(APIBaseTest):
             backend=KernelRuntime.Backend.DOCKER,
             sandbox_id="sbx-1",
             server_url="http://localhost:12345",
+            server_connect_token="connect-tok",
         )
         dispatch_sql_v2_run_activity(self._run_input(run))
         mock_post.assert_called_once()
         self.assertIn("/run", mock_post.call_args.args[0])
+        # Credentials ride headers, never the URL — a query-string token lands in access logs.
+        self.assertNotIn("?", mock_post.call_args.args[0])
+        headers = mock_post.call_args.kwargs["headers"]
+        self.assertEqual(headers["Authorization"], "Bearer connect-tok")
+        self.assertTrue(
+            kernel_auth.verify_command_token(
+                kernel_server_secret(str(runtime.id)), str(run.id), headers["X-Command-Token"]
+            )
+        )
         payload = mock_post.call_args.kwargs["json"]
         self.assertEqual(payload["code"], "select 1")
         # Dropping cache_limit silently degrades every page fetch into a ClickHouse re-query.
@@ -840,11 +860,14 @@ class TestSQLV2KernelServerHTTP(SimpleTestCase):
         threading.Thread(target=httpd.serve_forever, daemon=True).start()
         base = f"http://127.0.0.1:{httpd.server_address[1]}"
 
-        def post(path: str, token: str):
+        def post(path: str, token: str, token_header: str = "X-Command-Token"):
+            # X-Command-Token is the primary transport; Authorization stays a fallback for
+            # backends that predate the split (Authorization now carries Modal tunnel auth).
+            token_value = f"Bearer {token}" if token_header == "Authorization" else token
             request = urllib.request.Request(
                 f"{base}{path}",
                 data=json.dumps({"run_id": "run-1"}).encode(),
-                headers={"Authorization": f"Bearer {token}", "Content-Type": "application/json"},
+                headers={token_header: token_value, "Content-Type": "application/json"},
                 method="POST",
             )
             return urllib.request.urlopen(request, timeout=5)
@@ -863,6 +886,14 @@ class TestSQLV2KernelServerHTTP(SimpleTestCase):
                 with post("/run", token=token) as response:
                     self.assertEqual(response.status, 202)
                 self.assertTrue(ran.wait(5))  # the run must execute off the request thread
+
+            # An older backend sends the command token as a bearer Authorization — the
+            # fallback must keep verifying it while mixed versions roll out.
+            ran.clear()
+            with patch.object(kernel_server, "execute_run", side_effect=lambda _p: ran.set()):
+                with post("/run", token=token, token_header="Authorization") as response:
+                    self.assertEqual(response.status, 202)
+                self.assertTrue(ran.wait(5))
 
             page = {"columns": ["a"], "types": [], "rows": [[1]], "has_more": False}
             with patch.object(kernel_server, "fetch_page", return_value=page):

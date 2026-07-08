@@ -32,11 +32,12 @@ import '../Nodes/NotebookNodeUsageMetrics'
 import '../Nodes/NotebookNodeZendeskTickets'
 
 import clsx from 'clsx'
-import { BindLogic, useMountedLogic } from 'kea'
+import { BindLogic, useMountedLogic, useValues } from 'kea'
+import posthog from 'posthog-js'
 import { type CSSProperties, type PointerEvent as ReactPointerEvent, useCallback, useMemo, useRef } from 'react'
 
-import { IconComment } from '@posthog/icons'
-import { LemonInput, LemonTextArea } from '@posthog/lemon-ui'
+import { IconComment, IconImage } from '@posthog/icons'
+import { LemonButton, LemonInput, LemonTextArea, lemonToast } from '@posthog/lemon-ui'
 
 import { createMarkdownNotebookRegistry } from 'lib/components/MarkdownNotebook'
 import { wasNotebookNodeJustInserted } from 'lib/components/MarkdownNotebook/freshlyInserted'
@@ -51,8 +52,12 @@ import {
 } from 'lib/components/MarkdownNotebook/types'
 import { isNotebookPropValue, toSerializablePropValue } from 'lib/components/MarkdownNotebook/utils'
 import { FEATURE_FLAGS } from 'lib/constants'
+import { useUploadFiles } from 'lib/hooks/useUploadFiles'
+import { LemonFileInput } from 'lib/lemon-ui/LemonFileInput'
+import { Spinner } from 'lib/lemon-ui/Spinner'
 import { type FeatureFlagsSet } from 'lib/logic/featureFlagLogic'
 import { uuid } from 'lib/utils/dom'
+import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 
 import { NODE_ICONS } from '../nodeIcons'
 import { NotebookNodeContext } from '../Nodes/NotebookNodeContext'
@@ -630,9 +635,41 @@ export function MountedRealNotebookNodeComponent({
 export function ImageEdit({ node, updateProps }: NotebookComponentRenderProps): JSX.Element {
     const src = typeof node.props.src === 'string' ? node.props.src : ''
     const alt = typeof node.props.alt === 'string' ? node.props.alt : ''
+    const formRef = useRef<HTMLDivElement | null>(null)
+    const { objectStorageAvailable } = useValues(preflightLogic)
+    const { setFilesToUpload, filesToUpload, uploading } = useUploadFiles({
+        onUpload: (url, fileName) => {
+            updateProps({ src: url, ...(alt ? {} : { alt: fileName }) })
+            posthog.capture('notebook image uploaded', { name: fileName })
+        },
+        onError: (detail) => {
+            posthog.capture('notebook image upload failed', { error: detail })
+            lemonToast.error(`Error uploading image: ${detail}`)
+        },
+    })
 
     return (
-        <div className="MarkdownNotebook__component-form">
+        <div className="MarkdownNotebook__component-form" ref={formRef}>
+            <LemonFileInput
+                accept="image/*"
+                multiple={false}
+                value={filesToUpload}
+                onChange={setFilesToUpload}
+                loading={uploading}
+                showUploadedFiles={false}
+                alternativeDropTargetRef={formRef}
+                callToAction={
+                    <LemonButton
+                        size="small"
+                        type="secondary"
+                        icon={uploading ? <Spinner className="text-lg" textColored /> : <IconImage />}
+                        disabledReason={objectStorageAvailable ? undefined : 'Enable object storage to upload images'}
+                        tooltip={objectStorageAvailable ? 'Click here or drag and drop to upload an image' : null}
+                    >
+                        Upload image
+                    </LemonButton>
+                }
+            />
             <LemonInput
                 value={src}
                 onChange={(value) => updateProps({ src: value })}

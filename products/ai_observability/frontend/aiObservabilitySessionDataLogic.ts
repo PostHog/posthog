@@ -13,8 +13,8 @@ import {
     LLMTrace,
     LLMTraceEvent,
     NodeKind,
+    SessionQueryResponse,
     TraceQuery,
-    TracesQueryResponse,
 } from '~/queries/schema/schema-general'
 import { InsightLogicProps } from '~/types'
 
@@ -31,15 +31,6 @@ export interface TraceSummary {
     loading: boolean
     error: string | null
 }
-
-// Eager-load the first N traces on mount; later turns render a "Show conversation"
-// button. Picking first N and not first and last N, because cross-trace dedup walks
-// chronologically and accumulates `seenSignatures`; any gap in loaded turns would
-// let the later turns' running history show as "new" content.
-// Kept small because each trace is a separate query fired in parallel — a single
-// session open must stay well under the per-org concurrent-query budget. The proper
-// fix is one bulk query for the first N traces' events.
-const AUTO_LOAD_LIMIT = 5
 
 type SessionDateRange = { dateFrom: string | null; dateTo: string | null } | null
 
@@ -255,7 +246,7 @@ export const aiObservabilitySessionDataLogic = kea<aiObservabilitySessionDataLog
         traces: [
             (s) => [s.response],
             (response: AnyResponseType | null): LLMTrace[] => {
-                const tracesResponse = response as TracesQueryResponse | null
+                const tracesResponse = response as SessionQueryResponse | null
                 // Reverse to chronological order (oldest first) for session view
                 return [...(tracesResponse?.results || [])].reverse()
             },
@@ -270,13 +261,7 @@ export const aiObservabilitySessionDataLogic = kea<aiObservabilitySessionDataLog
             (traceSummaries: Record<string, TraceSummary>): boolean =>
                 Object.values(traceSummaries).some((s) => s.loading),
         ],
-        // Stay "loading" until the trace list AND the auto-loaded full traces settle,
-        // so the conversation appears at once instead of a second per-turn spinner.
-        initialLoading: [
-            (s) => [s.responseLoading, s.traces, s.loadingFullTraces],
-            (responseLoading: boolean, traces: LLMTrace[], loadingFullTraces: Set<string>): boolean =>
-                responseLoading || traces.slice(0, AUTO_LOAD_LIMIT).some((t) => loadingFullTraces.has(t.id)),
-        ],
+        initialLoading: [(s) => [s.responseLoading], (responseLoading: boolean): boolean => responseLoading],
     }),
 
     listeners(({ actions, values }) => {
@@ -401,7 +386,7 @@ export const aiObservabilitySessionDataLogic = kea<aiObservabilitySessionDataLog
                 }
 
                 try {
-                    // First fetch the full trace with all events (session query only has direct children)
+                    // If a trace is missing from the session response, fetch it directly as a fallback.
                     let fullTrace: LLMTrace | undefined = values.fullTraces[traceId]
                     if (!fullTrace) {
                         const dateRange = getTraceQueryDateRange(values.dateRange)
@@ -445,14 +430,15 @@ export const aiObservabilitySessionDataLogic = kea<aiObservabilitySessionDataLog
             if (traces.length === 0) {
                 return
             }
+            const dateRangeCacheKey = getDateRangeCacheKey(values.dateRange)
+            for (const trace of traces) {
+                if (trace.events?.length > 0 && values.fullTraceDateRangeCacheKeys[trace.id] !== dateRangeCacheKey) {
+                    actions.loadFullTraceSuccess(trace.id, trace, dateRangeCacheKey)
+                }
+            }
             // Cache lookup for existing trace summaries
             if (Object.keys(values.traceSummaries).length === 0) {
                 actions.loadCachedSummaries(traces.map((t) => t.id))
-            }
-            for (const trace of traces.slice(0, AUTO_LOAD_LIMIT)) {
-                if (!values.fullTraces[trace.id] && !values.loadingFullTraces.has(trace.id)) {
-                    actions.loadFullTrace(trace.id)
-                }
             }
         },
     })),
