@@ -51,6 +51,16 @@ import { insightVizDataLogic } from '../insightVizDataLogic'
 import { SampleDataState, SampleDataVariant } from './SampleDataState'
 import { sampleDataStateLogic } from './sampleDataStateLogic'
 
+// The leading `!` makes the AI side panel auto-submit the prompt on open (see parseCommandString in scenes/max/maxLogic).
+const MEMORY_LIMIT_AI_PROMPT =
+    "!This insight ran out of memory before it could finish. Help me work out why it's scanning so much data and how to fix it — e.g. a shorter date range, narrower filters, or materializing the data."
+
+// Fallback for query paths that don't propagate the error code yet — keep in sync with the backend
+// ClickHouseQueryMemoryLimitExceeded.default_detail copy.
+const MEMORY_LIMIT_DETAIL_MARKER = 'ran out of memory'
+
+const DETAIL_URL_REGEX = /(https?:\/\/[^\s]+)/g
+
 export function InsightEmptyState({
     heading,
     detail,
@@ -517,22 +527,7 @@ export function InsightTimeoutState({ queryId }: { queryId?: string | null }): J
     )
 }
 
-// Prompt that opens the PostHog AI side panel primed to debug an out-of-memory insight. The
-// leading `!` is a command understood by the side panel (see parseCommandString in
-// scenes/max/maxLogic): it means "auto-submit this prompt on open" instead of just pre-filling
-// the composer, so the user lands on an answer in progress rather than an unsent draft.
-const MEMORY_LIMIT_AI_PROMPT =
-    "!This insight ran out of memory before it could finish. Help me work out why it's scanning so much data and how to fix it — e.g. a shorter date range, narrower filters, or materializing the data."
-
-// Substring of the backend ClickHouseQueryMemoryLimitExceeded.default_detail. Async query paths
-// don't carry the error code yet, so we fall back to matching this in the message; keep it in sync
-// with that copy (or better, propagate the code through QueryStatus and drop the fallback).
-const MEMORY_LIMIT_DETAIL_MARKER = 'ran out of memory'
-
-// Render a plain error string with any embedded URLs (e.g. a docs link the backend includes)
-// as clickable links rather than bare text.
-const DETAIL_URL_REGEX = /(https?:\/\/[^\s]+)/g
-
+// Render embedded URLs (e.g. a docs link the backend includes) as clickable links.
 function renderDetailWithLinks(detail: string): (string | JSX.Element)[] {
     return detail.split(DETAIL_URL_REGEX).map((part, index) =>
         /^https?:\/\//.test(part) ? (
@@ -560,8 +555,7 @@ export function InsightValidationError({
 }): JSX.Element {
     const { openSidePanel } = useActions(sidePanelStateLogic)
     const debugWithAI = (): void => openSidePanel(SidePanelTab.Max, MEMORY_LIMIT_AI_PROMPT)
-    // Prefer the stable backend error code. Some query paths (e.g. async dashboard tiles) don't
-    // propagate a code yet, so fall back to matching the message there until QueryStatus carries one.
+    // Async query paths don't propagate an error code yet, so fall back to message matching there.
     const isMemoryLimitError = validationErrorCode
         ? validationErrorCode === CLICKHOUSE_MEMORY_LIMIT_ERROR_CODE
         : detail.includes(MEMORY_LIMIT_DETAIL_MARKER)
