@@ -413,11 +413,11 @@ describe('insightVizDataLogic', () => {
         })
 
         it.each([
-            // Sub-day span with a time component (drag-to-zoom on an hourly chart) goes minute
             ['2024-06-10 08:00:00', '2024-06-10 14:00:00', 'minute'],
             // A bare same-day pair means "that whole day" and must stay hourly, not 1440 minute buckets
             ['2024-06-10', '2024-06-10', 'hour'],
-            ['2024-06-10', '2024-06-12', 'hour'],
+            // A time-carrying range over 12 hours must not go sub-hour
+            ['2024-06-10 08:00:00', '2024-06-11 20:00:00', 'hour'],
             ['2024-06-01', '2024-07-15', 'day'],
         ])('auto-adjusts interval for absolute range %s..%s to %s', async (dateFrom, dateTo, expectedInterval) => {
             await expectLogic(builtInsightDataLogic, () => {
@@ -429,14 +429,18 @@ describe('insightVizDataLogic', () => {
     })
 
     describe('zoomDateRange', () => {
-        it('updates the date range of an insight query', async () => {
+        it.each([
+            ['2024-06-10', '2024-06-12', false],
+            ['2024-06-10 08:00:00', '2024-06-10 14:00:00', true],
+        ])('zooms %s..%s with explicitDate=%s', async (dateFrom, dateTo, explicitDate) => {
             await expectLogic(builtInsightDataLogic, () => {
-                builtInsightVizDataLogic.actions.zoomDateRange('2024-06-10', '2024-06-12')
+                builtInsightVizDataLogic.actions.zoomDateRange(dateFrom, dateTo)
             }).toFinishAllListeners()
 
-            expect(builtInsightVizDataLogic.values.dateRange).toMatchObject({
-                date_from: '2024-06-10',
-                date_to: '2024-06-12',
+            expect(builtInsightVizDataLogic.values.dateRange).toEqual({
+                date_from: dateFrom,
+                date_to: dateTo,
+                explicitDate,
             })
         })
     })

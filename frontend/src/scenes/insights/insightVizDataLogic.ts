@@ -1073,22 +1073,19 @@ const handleQuerySourceUpdateSideEffects = (
     // If the user changes the interval to 'minute' and the date_range is more than 12 hours, reset it to 1 hour
     if (kind == NodeKind.TrendsQuery && (mergedUpdate as TrendsQuery)?.interval == 'minute' && interval !== 'minute') {
         const { date_from, date_to } = { ...currentState.dateRange, ...update.dateRange }
+        const isAbsoluteRange = !!date_from && !!date_to && dayjs(date_from).isValid() && dayjs(date_to).isValid()
 
         if (
             // When insights are created, they might not have an explicit dateRange set. Change it to an hour if the interval is minute.
             (!date_from && !date_to) ||
             // If the interval is set manually to a range greater than 12 hours, change it to an hour
-            (date_from &&
-                date_to &&
-                dayjs(date_from).isValid() &&
-                dayjs(date_to).isValid() &&
-                dayjs(date_to).diff(dayjs(date_from), 'hour') > 12)
+            (isAbsoluteRange && dayjs(date_to).diff(dayjs(date_from), 'hour') > 12) ||
+            // Relative ranges (e.g. -7d) must be 12 hours or less; an absolute range that reaches
+            // here already passed the >12h check above, so it stays (is12HoursOrLess only parses
+            // relative strings and would wrongly reset it).
+            (!isAbsoluteRange && !is12HoursOrLess(date_from))
         ) {
             ;(mergedUpdate as TrendsQuery).dateRange = oneHourDateRange
-        } else {
-            if (!is12HoursOrLess(date_from)) {
-                ;(mergedUpdate as TrendsQuery).dateRange = oneHourDateRange
-            }
         }
     }
 
