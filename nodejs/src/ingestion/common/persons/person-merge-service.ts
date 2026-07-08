@@ -181,8 +181,6 @@ export class PersonMergeService {
                     distinctId: mergeIntoDistinctId,
                     eventUuid: this.context.event.uuid,
                 },
-                category: 'merge',
-                severity: 'warning',
                 pipelineStep: 'person-merge',
                 alwaysSend: true,
             })
@@ -197,8 +195,6 @@ export class PersonMergeService {
                     distinctId: mergeIntoDistinctId,
                     eventUuid: this.context.event.uuid,
                 },
-                category: 'merge',
-                severity: 'warning',
                 pipelineStep: 'person-merge',
                 alwaysSend: true,
             })
@@ -373,8 +369,6 @@ export class PersonMergeService {
                     personId: mergeInto.uuid,
                     otherPersonId: otherPerson.uuid,
                 },
-                category: 'merge',
-                severity: 'warning',
                 pipelineStep: 'person-merge',
                 alwaysSend: true,
             })
@@ -435,8 +429,6 @@ export class PersonMergeService {
                     personId: mergeInto.uuid,
                     otherPersonId: otherPerson.uuid,
                 },
-                category: 'merge',
-                severity: 'error',
                 pipelineStep: 'person-merge',
                 alwaysSend: true,
             })

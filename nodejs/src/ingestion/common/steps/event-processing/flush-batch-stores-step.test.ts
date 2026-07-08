@@ -299,8 +299,6 @@ describe('flush-batch-stores-step', () => {
                     distinctId: 'user1',
                     step: 'flushBatchStoresStep',
                 },
-                category: 'size',
-                severity: 'error',
                 pipelineStep: 'flush',
             })
         })

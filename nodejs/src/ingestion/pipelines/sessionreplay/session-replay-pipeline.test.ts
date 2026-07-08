@@ -905,6 +905,8 @@ describe('session-replay-pipeline', () => {
             expect(parseJSON(messageValue.details)).toEqual({
                 libVersion: '1.74.0',
                 parsedVersion: { major: 1, minor: 74 },
+                category: 'replay',
+                severity: 'info',
             })
         })
 

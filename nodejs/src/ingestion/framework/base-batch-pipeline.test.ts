@@ -401,7 +401,7 @@ describe('BaseBatchPipeline', () => {
             const batch = createBatch(messages.map((message) => ({ message })))
             const rootPipeline = createNewBatchPipeline().build()
 
-            const stepWarning = { type: 'test_warning', details: { message: 'step warning' } }
+            const stepWarning = { type: 'merge_race_condition', details: { message: 'step warning' } }
             const pipeline = new BaseBatchPipeline((items: any[]) => {
                 return Promise.resolve(items.map(() => ok({ processed: 'result' }, [], [stepWarning])))
             }, rootPipeline)
@@ -416,7 +416,7 @@ describe('BaseBatchPipeline', () => {
         it('should merge context warnings with step warnings', async () => {
             const messages: Message[] = [createTestMessage({ value: Buffer.from('test1'), offset: 1 })]
 
-            const contextWarning = { type: 'context_warning', details: { message: 'from context' } }
+            const contextWarning = { type: 'client_ingestion_warning', details: { message: 'from context' } }
             const batch = [
                 createOkContext(
                     { message: messages[0] },
@@ -430,7 +430,7 @@ describe('BaseBatchPipeline', () => {
 
             const rootPipeline = createNewBatchPipeline().build()
 
-            const stepWarning = { type: 'step_warning', details: { message: 'from step' } }
+            const stepWarning = { type: 'schema_validation_failed', details: { message: 'from step' } }
             const pipeline = new BaseBatchPipeline((items: any[]) => {
                 return Promise.resolve(items.map(() => ok({ processed: 'result' }, [], [stepWarning])))
             }, rootPipeline)
@@ -449,8 +449,8 @@ describe('BaseBatchPipeline', () => {
                 createTestMessage({ value: Buffer.from('item3'), offset: 3 }),
             ]
 
-            const contextWarning1 = { type: 'context_warning_1', details: { idx: 1 } }
-            const contextWarning2 = { type: 'context_warning_2', details: { idx: 2 } }
+            const contextWarning1 = { type: 'ignored_invalid_timestamp', details: { idx: 1 } }
+            const contextWarning2 = { type: 'invalid_heatmap_data', details: { idx: 2 } }
 
             const batch = [
                 createOkContext(
@@ -481,9 +481,9 @@ describe('BaseBatchPipeline', () => {
 
             const rootPipeline = createNewBatchPipeline().build()
 
-            const stepWarning1 = { type: 'step_warning_1', details: { result: 1 } }
-            const stepWarning3a = { type: 'step_warning_3a', details: { result: 3 } }
-            const stepWarning3b = { type: 'step_warning_3b', details: { result: 3 } }
+            const stepWarning1 = { type: 'message_size_too_large', details: { result: 1 } }
+            const stepWarning3a = { type: 'group_key_too_long', details: { result: 3 } }
+            const stepWarning3b = { type: 'event_dropped_too_old', details: { result: 3 } }
             const pipeline = new BaseBatchPipeline((_: any[]) => {
                 return Promise.resolve([
                     ok({ processed: 'result1' }, [], [stepWarning1]),
@@ -513,7 +513,7 @@ describe('BaseBatchPipeline', () => {
                 createTestMessage({ value: Buffer.from('drop'), offset: 2 }),
             ]
 
-            const contextWarning = { type: 'context_warning', details: { message: 'existing' } }
+            const contextWarning = { type: 'client_ingestion_warning', details: { message: 'existing' } }
             const batch = [
                 createOkContext(
                     { message: messages[0] },

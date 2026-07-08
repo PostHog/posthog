@@ -20,18 +20,23 @@
  * 1. Steps add warnings to results using the third parameter of `ok()`
  * 2. Warnings accumulate through the pipeline in context
  * 3. `handleIngestionWarnings()` converts warnings to side effects
- * 4. Side effects send warnings to Kafka for display in the UI
+ * 4. Side effects send warnings to Kafka; category and severity are resolved
+ *    from `INGESTION_WARNING_TYPES` at serialization time
  *
  * ## Warning Structure
  *
  * ```typescript
  * interface PipelineWarning {
- *     type: string              // Warning category (e.g., 'missing_field')
+ *     type: IngestionWarningType    // Must be registered in INGESTION_WARNING_TYPES
+ *                                   // (ingestion/common/ingestion-warnings.ts)
  *     details: Record<string, any>  // Additional context
  *     key?: string              // Optional key for debouncing
  *     alwaysSend?: boolean      // Bypass debouncing for critical warnings
  * }
  * ```
+ *
+ * New warning types must be added to the registry first — the registry fixes the
+ * type's category and severity so every emission is consistently classified.
  *
  * ## Team Context Requirement
  *
@@ -74,7 +79,7 @@ describe('Warning Basics', () => {
 
                         if (!item.properties) {
                             warnings.push({
-                                type: 'missing_properties',
+                                type: 'schema_validation_failed',
                                 details: { eventName: item.name },
                             })
                         }
@@ -97,7 +102,7 @@ describe('Warning Basics', () => {
         expect(isOkResult(results![0].result)).toBe(true)
         expect(results![0].context.warnings).toHaveLength(1)
         expect(results![0].context.warnings[0]).toEqual({
-            type: 'missing_properties',
+            type: 'schema_validation_failed',
             details: { eventName: 'pageview' },
         })
     })
@@ -120,7 +125,7 @@ describe('Warning Basics', () => {
                         const warnings: PipelineWarning[] = []
                         if (!item.timestamp) {
                             warnings.push({
-                                type: 'missing_timestamp',
+                                type: 'ignored_invalid_timestamp',
                                 details: { eventName: item.name },
                             })
                         }
@@ -137,7 +142,7 @@ describe('Warning Basics', () => {
                         const warnings: PipelineWarning[] = []
                         if (!item.properties) {
                             warnings.push({
-                                type: 'missing_properties',
+                                type: 'schema_validation_failed',
                                 details: { eventName: item.name },
                             })
                         }
@@ -160,7 +165,10 @@ describe('Warning Basics', () => {
 
         // Both warnings from both steps are accumulated
         expect(results![0].context.warnings).toHaveLength(2)
-        expect(results![0].context.warnings.map((w) => w.type)).toEqual(['missing_timestamp', 'missing_properties'])
+        expect(results![0].context.warnings.map((w) => w.type)).toEqual([
+            'ignored_invalid_timestamp',
+            'schema_validation_failed',
+        ])
     })
 
     /**
@@ -180,21 +188,21 @@ describe('Warning Basics', () => {
 
                         if (item.name.length > 50) {
                             warnings.push({
-                                type: 'event_name_too_long',
+                                type: 'group_key_too_long',
                                 details: { length: item.name.length, max: 50 },
                             })
                         }
 
                         if (Object.keys(item.properties).length > 100) {
                             warnings.push({
-                                type: 'too_many_properties',
+                                type: 'person_properties_size_violation',
                                 details: { count: Object.keys(item.properties).length, max: 100 },
                             })
                         }
 
                         if (item.properties['$ip'] && typeof item.properties['$ip'] !== 'string') {
                             warnings.push({
-                                type: 'invalid_ip_type',
+                                type: 'invalid_process_person_profile',
                                 details: { received: typeof item.properties['$ip'] },
                             })
                         }
@@ -224,9 +232,9 @@ describe('Warning Basics', () => {
         const results = await pipeline.next()
 
         expect(results![0].context.warnings).toHaveLength(3)
-        expect(results![0].context.warnings.map((w) => w.type)).toContain('event_name_too_long')
-        expect(results![0].context.warnings.map((w) => w.type)).toContain('too_many_properties')
-        expect(results![0].context.warnings.map((w) => w.type)).toContain('invalid_ip_type')
+        expect(results![0].context.warnings.map((w) => w.type)).toContain('group_key_too_long')
+        expect(results![0].context.warnings.map((w) => w.type)).toContain('person_properties_size_violation')
+        expect(results![0].context.warnings.map((w) => w.type)).toContain('invalid_process_person_profile')
     })
 })
 
@@ -247,7 +255,9 @@ describe('Handling Ingestion Warnings', () => {
         function createWarningStep(): BatchProcessingStep<Event, Event> {
             return function warningStep(items) {
                 return Promise.resolve(
-                    items.map((item) => ok(item, [], [{ type: 'test_warning', details: { eventName: item.name } }]))
+                    items.map((item) =>
+                        ok(item, [], [{ type: 'client_ingestion_warning', details: { eventName: item.name } }])
+                    )
                 )
             }
         }
@@ -291,7 +301,7 @@ describe('Handling Ingestion Warnings', () => {
                 return Promise.resolve(
                     items.map((item) => {
                         const sideEffect = Promise.resolve().then(() => sideEffectLog.push(`processed: ${item.name}`))
-                        const warnings: PipelineWarning[] = [{ type: 'info', details: {} }]
+                        const warnings: PipelineWarning[] = [{ type: 'client_ingestion_warning', details: {} }]
                         return ok(item, [sideEffect], warnings)
                     })
                 )
@@ -338,7 +348,7 @@ describe('Warning Debouncing', () => {
                             [],
                             [
                                 {
-                                    type: 'user_rate_limited',
+                                    type: 'cannot_merge_already_identified',
                                     details: { distinctId: item.distinctId },
                                     key: item.distinctId, // Debounce by user
                                 },
@@ -358,7 +368,7 @@ describe('Warning Debouncing', () => {
         const results = await pipeline.next()
 
         expect(results![0].context.warnings[0]).toEqual({
-            type: 'user_rate_limited',
+            type: 'cannot_merge_already_identified',
             details: { distinctId: 'user-123' },
             key: 'user-123',
         })
@@ -382,7 +392,7 @@ describe('Warning Debouncing', () => {
                             [],
                             [
                                 {
-                                    type: 'quota_exceeded',
+                                    type: 'message_size_too_large',
                                     details: { eventName: item.name },
                                     key: 'quota',
                                     alwaysSend: true, // Always send, never debounce
@@ -403,7 +413,7 @@ describe('Warning Debouncing', () => {
         const results = await pipeline.next()
 
         expect(results![0].context.warnings[0]).toEqual({
-            type: 'quota_exceeded',
+            type: 'message_size_too_large',
             details: { eventName: 'important_event' },
             key: 'quota',
             alwaysSend: true,

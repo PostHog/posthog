@@ -96,8 +96,6 @@ export class PersonCreateService {
                         eventUuid: creatorEventUuid,
                         message: 'Person properties exceeds size limit and was rejected',
                     },
-                    category: 'size',
-                    severity: 'error',
                     pipelineStep: 'person-store',
                 })
                 throw error
