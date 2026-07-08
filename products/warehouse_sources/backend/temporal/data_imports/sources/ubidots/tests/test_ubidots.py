@@ -91,7 +91,10 @@ class TestGetRows:
     def test_follows_next_url_cursor_until_null(self, monkeypatch: Any) -> None:
         manager = _FakeResumableManager()
         second = f"{DEFAULT_UBIDOTS_API_BASE_URL}/api/v2.0/devices/?page=2&page_size=200"
-        pages = {DEVICES_FIRST_URL: ([{"id": "a"}], second), second: ([{"id": "b"}], None)}
+        pages: dict[str, tuple[list[dict], Optional[str]]] = {
+            DEVICES_FIRST_URL: ([{"id": "a"}], second),
+            second: ([{"id": "b"}], None),
+        }
         rows = self._collect(manager, monkeypatch, pages)
         assert rows == [{"id": "a"}, {"id": "b"}]
         # State is saved once — after the first page, pointing at the next cursor — then we stop.
@@ -136,7 +139,7 @@ class TestGetValuesRows:
 
     def test_fans_out_per_variable_and_injects_variable_id(self, monkeypatch: Any) -> None:
         manager = _FakeResumableManager()
-        pages = {
+        pages: dict[str, tuple[list[dict], Optional[str]]] = {
             VARIABLES_FIRST_URL: ([{"id": "var1"}, {"id": "var2"}], None),
             _values_url("var1"): ([{"timestamp": 2, "value": 1.0}], None),
             _values_url("var2"): ([{"timestamp": 3, "value": 2.0}], None),
@@ -152,7 +155,7 @@ class TestGetValuesRows:
 
     def test_incremental_watermark_is_passed_as_start(self, monkeypatch: Any) -> None:
         manager = _FakeResumableManager()
-        pages = {
+        pages: dict[str, tuple[list[dict], Optional[str]]] = {
             VARIABLES_FIRST_URL: ([{"id": "var1"}], None),
             # A URL without &start= is absent from this map, so dropping the server-side filter
             # would KeyError here rather than silently re-fetching full history.
@@ -178,7 +181,7 @@ class TestGetValuesRows:
         self, should_use_incremental_field: bool, last_value: Any, monkeypatch: Any
     ) -> None:
         manager = _FakeResumableManager()
-        pages = {
+        pages: dict[str, tuple[list[dict], Optional[str]]] = {
             VARIABLES_FIRST_URL: ([{"id": "var1"}], None),
             _values_url("var1"): ([{"timestamp": 5}], None),
         }
@@ -196,7 +199,7 @@ class TestGetValuesRows:
         manager = _FakeResumableManager(
             UbidotsResumeConfig(next_url=var2_page2, current_variable_id="var2", completed_variable_ids=["var1"])
         )
-        pages = {
+        pages: dict[str, tuple[list[dict], Optional[str]]] = {
             VARIABLES_FIRST_URL: ([{"id": "var1"}, {"id": "var2"}, {"id": "var3"}], None),
             # var1 is complete and var2 resumes mid-pagination — their first-page URLs must never
             # be fetched again.
@@ -212,7 +215,7 @@ class TestGetValuesRows:
     def test_mid_variable_state_saved_after_yield(self, monkeypatch: Any) -> None:
         page2 = f"{DEFAULT_UBIDOTS_API_BASE_URL}/api/v1.6/variables/var1/values?page=2&page_size=200"
         manager = _FakeResumableManager()
-        pages = {
+        pages: dict[str, tuple[list[dict], Optional[str]]] = {
             VARIABLES_FIRST_URL: ([{"id": "var1"}], None),
             _values_url("var1"): ([{"timestamp": 2}], page2),
             page2: ([{"timestamp": 1}], None),
@@ -228,7 +231,7 @@ class TestGetValuesRows:
         page2 = f"{DEFAULT_UBIDOTS_API_BASE_URL}/api/v1.6/variables/var1/values?page=2&page_size=200"
         manager = _FakeResumableManager()
         logger = MagicMock()
-        pages = {
+        pages: dict[str, tuple[list[dict], Optional[str]]] = {
             VARIABLES_FIRST_URL: ([{"id": "var1"}], None),
             # page2 is absent from the map — fetching past the cap would KeyError.
             _values_url("var1"): ([{"timestamp": 2}], page2),
@@ -242,7 +245,7 @@ class TestGetValuesRows:
     def test_variables_list_pagination_is_followed(self, monkeypatch: Any) -> None:
         variables_page2 = f"{DEFAULT_UBIDOTS_API_BASE_URL}/api/v2.0/variables/?page=2&page_size=200"
         manager = _FakeResumableManager()
-        pages = {
+        pages: dict[str, tuple[list[dict], Optional[str]]] = {
             VARIABLES_FIRST_URL: ([{"id": "var1"}], variables_page2),
             variables_page2: ([{"id": "var2"}], None),
             _values_url("var1"): ([{"timestamp": 1}], None),

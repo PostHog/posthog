@@ -155,9 +155,9 @@ def _iter_variable_ids(
     while url:
         items, url = _fetch_page(session, url, logger)
         for item in items:
-            variable_id = item.get("id")
-            if variable_id:
-                yield str(variable_id)
+            # Direct access on purpose: a variable without an id would otherwise silently drop its
+            # whole time series from the sync — better to fail loudly on a malformed page.
+            yield str(item["id"])
 
 
 def _initial_values_url(base_url: str, variable_id: str, start: Optional[int]) -> str:
