@@ -87,6 +87,10 @@ class QuotaResource(Enum):
     WORKFLOW_EMAILS = "workflow_emails"
     WORKFLOW_DESTINATIONS = "workflow_destinations_dispatched"
     LOGS_MB_INGESTED = "logs_mb_ingested"
+    # Managed data warehouse storage. Usage and limit both come from the billing sync (not a
+    # ClickHouse query), so todays_usage is always 0. Billing sends a limit only when storage
+    # should be enforced (free tier); paid storage is alert-only and arrives with limit=None.
+    MANAGED_WAREHOUSE_STORAGE = "managed_warehouse_storage_gb_hours"
 
 
 class QuotaLimitingCaches(Enum):
@@ -110,6 +114,7 @@ OVERAGE_BUFFER = {
     QuotaResource.WORKFLOW_EMAILS: 0,
     QuotaResource.WORKFLOW_DESTINATIONS: 0,
     QuotaResource.LOGS_MB_INGESTED: 0,
+    QuotaResource.MANAGED_WAREHOUSE_STORAGE: 0,  # free tier is a hard 100 GB line, no buffer
 }
 
 # These resources are exempt from any grace periods, whether trust-based or never_drop_data
@@ -136,6 +141,9 @@ class UsageCounters(TypedDict):
     workflow_emails: int
     workflow_destinations_dispatched: int
     logs_mb_ingested: int
+    # Storage has no daily ClickHouse delta (it's a billing-computed level), so today's usage is
+    # always 0 here; the billing-synced period usage in organization.usage carries the full signal.
+    managed_warehouse_storage_gb_hours: int
 
 
 # -------------------------------------------------------------------------------------------------
@@ -976,6 +984,8 @@ def update_all_orgs_billing_quotas(
             workflow_emails=all_data["teams_with_workflow_emails_sent_in_period"].get(team.id, 0),
             workflow_destinations_dispatched=all_data["teams_with_workflow_destinations_in_period"].get(team.id, 0),
             logs_mb_ingested=all_data["teams_with_logs_mb_in_period"].get(team.id, 0),
+            # Billing-computed level, no daily ClickHouse delta — see QuotaResource.
+            managed_warehouse_storage_gb_hours=0,
         )
 
         org_id = str(team.organization.id)

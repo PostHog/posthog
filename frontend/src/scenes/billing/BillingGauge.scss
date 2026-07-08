@@ -38,6 +38,12 @@
         &.BillingGaugeItem--within-usage-limit {
             background: var(--brand-blue);
         }
+
+        // Alert-only products (e.g. storage) are never blocked, so being over the threshold is a
+        // warning, not an error — surface it yellow rather than red.
+        &.BillingGaugeItem--alert-only:not(.BillingGaugeItem--within-usage-limit) {
+            background: var(--warning);
+        }
     }
 
     &.BillingGaugeItem--projected_usage {
@@ -57,6 +63,17 @@
                 var(--data-color-1) 0.5rem,
                 var(--data-color-1-hover) 0.5rem,
                 var(--data-color-1-hover) 1rem
+            );
+        }
+
+        // Alert-only products: warning-striped projection when over, matching the current-usage warning.
+        &.BillingGaugeItem--alert-only:not(.BillingGaugeItem--within-usage-limit) {
+            background: repeating-linear-gradient(
+                -45deg,
+                var(--warning),
+                var(--warning) 0.5rem,
+                var(--warning-dark) 0.5rem,
+                var(--warning-dark) 1rem
             );
         }
     }

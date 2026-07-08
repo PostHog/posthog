@@ -56,6 +56,7 @@ export function Billing(): JSX.Element {
         showBillingHero,
         minimumBillingAccessLevel,
         hasSupportAddonPlan,
+        groupedProducts,
     } = useValues(billingLogic)
     const { reportBillingShown } = useActions(billingLogic)
     const { preflight, isCloudOrDev } = useValues(preflightLogic)
@@ -119,7 +120,9 @@ export function Billing(): JSX.Element {
         )
     }
 
-    const products = billing?.products
+    // Card list uses the grouped view (MDW storage nested under compute for one-card display).
+    // billing.products stays flat/truthful for other consumers (e.g. the usage-limit banner).
+    const products = groupedProducts
     const platformAndSupportProduct = products?.find((product) => product.type === ProductKey.PLATFORM_AND_SUPPORT)
 
     return (

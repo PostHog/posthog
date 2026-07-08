@@ -219,7 +219,17 @@ class BillingManager:
                 current_usage = billing_reported_usage + todays_usage
 
             product["current_usage"] = current_usage
-            product["percentage_usage"] = current_usage / usage_limit if usage_limit else 0
+            # The usage_summary limit is the ENFORCEMENT signal — None for alert-only products
+            # (whose limit is an alert threshold) and for every product during a trial. Keep
+            # billing's own percentage_usage only for alert-only products, so their alert banners
+            # and gauges work; zero it otherwise (trials must not surface over-limit UI — nothing
+            # is enforced there).
+            if usage_limit:
+                product["percentage_usage"] = current_usage / usage_limit
+            elif product.get("alert_only") and product.get("subscribed"):
+                product["percentage_usage"] = product.get("percentage_usage") or 0
+            else:
+                product["percentage_usage"] = 0
 
         return response
 
@@ -454,6 +464,9 @@ class BillingManager:
                     data["billing_period"]["current_period_end"],
                 ],
             )
+            # Conditionally present — see the NotRequired note on OrganizationUsageInfo.
+            if "managed_warehouse_storage_gb_hours" in usage_summary:
+                usage_info["managed_warehouse_storage_gb_hours"] = usage_summary["managed_warehouse_storage_gb_hours"]
 
             had_quota_limiting_markers = _has_quota_limiting_markers(organization.usage)
             usage_changed = set_org_usage_summary(organization, new_usage=usage_info)

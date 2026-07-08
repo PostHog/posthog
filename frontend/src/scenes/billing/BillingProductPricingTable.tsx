@@ -14,6 +14,7 @@ import {
     createProductValueFormatter,
     formatWithDecimals,
     hasDisplayFormatting,
+    HOURS_PER_MONTH,
     isProductVariantPrimary,
 } from './billing-utils'
 import { billingLogic } from './billingLogic'
@@ -45,6 +46,13 @@ export const BillingProductPricingTable = ({
         prod: BillingProductV2Type | BillingProductV2AddonType
     ): string => {
         const price = parseFloat(unitAmountUsd || '0')
+        // Storage bills per GB-hour, but that $ is tiny — show the readable $/GB-month equivalent
+        // (× 744 h/mo), labeled inline since the volume column header is in GB-hours. Padded to a
+        // fixed 4 dp (e.g. $0.0400) to match the public pricing table's formatting. Other
+        // display-divisor products render their converted rate unrounded here.
+        if (prod.type === 'managed_data_warehouse_storage') {
+            return `$${(Math.round(price * HOURS_PER_MONTH * 1e4) / 1e4).toFixed(4)}/GB-month`
+        }
         const adjusted = hasDisplayFormatting(prod) && prod.display_divisor ? price * prod.display_divisor : price
         return `$${formatWithDecimals(adjusted)}`
     }
@@ -250,6 +258,12 @@ export const BillingProductPricingTable = ({
                             rowExpandable: (row) => !!row.subrows?.rows?.length,
                         }}
                     />
+                    {product.type === 'managed_data_warehouse_storage' && (
+                        <LemonBanner type="info" className="text-sm pt-2 mt-2">
+                            Storage is billed per GB-hour. 744 GB-hours ≈ 1 GB held for a full month, so the 100 GB free
+                            tier = 74,400 GB-hours.
+                        </LemonBanner>
+                    )}
                     <LemonBanner type="warning" className="text-sm pt-2 mt-2">
                         Tier breakdowns are updated once daily and may differ from the gauge above.
                     </LemonBanner>

@@ -35,6 +35,7 @@ import {
     buildUsageLimitExceededMessage,
     canAccessBilling as canAccessBillingUtil,
     getMinimumBillingAccessLevel,
+    isAlertOnlyProduct,
 } from './billing-utils'
 import type { billingLogicType } from './billingLogicType'
 import { DEFAULT_ESTIMATED_MONTHLY_CREDIT_AMOUNT_USD } from './CreditCTAHero'
@@ -198,6 +199,8 @@ export const billingLogic = kea<billingLogicType>([
             ['resetDismissKey as resetUsageLimitExceededKey'],
             lemonBannerLogic({ dismissKey: 'usage-limit-approaching' }),
             ['resetDismissKey as resetUsageLimitApproachingKey'],
+            lemonBannerLogic({ dismissKey: 'usage-limit-storage-alert' }),
+            ['resetDismissKey as resetStorageAlertKey'],
         ],
     })),
     reducers({
@@ -517,6 +520,31 @@ export const billingLogic = kea<billingLogicType>([
         ],
     })),
     selectors({
+        // Products with Managed Data Warehouse presented as ONE card: storage nested under
+        // compute's addons, its standalone entry dropped. Presentation-only — `billing.products`
+        // stays truthful (both top-level) so other consumers (e.g. the usage-limit banner) can
+        // treat storage as its own product. Card consumers should read this selector.
+        groupedProducts: [
+            (s) => [s.billing],
+            (billing: BillingType | null): BillingProductV2Type[] => {
+                const products = billing?.products
+                if (!products) {
+                    return []
+                }
+                const compute = products.find((p) => p.type === 'managed_data_warehouse')
+                const storage = products.find((p) => p.type === 'managed_data_warehouse_storage')
+                if (!compute || !storage) {
+                    return products
+                }
+                const groupedCompute: BillingProductV2Type = {
+                    ...compute,
+                    addons: [...(compute.addons || []), storage as unknown as BillingProductV2AddonType],
+                }
+                return products
+                    .filter((p) => p.type !== 'managed_data_warehouse_storage')
+                    .map((p) => (p.type === 'managed_data_warehouse' ? groupedCompute : p))
+            },
+        ],
         minimumBillingAccessLevel: [
             (s) => [s.featureFlags],
             (featureFlags): OrganizationMembershipLevel =>
@@ -879,6 +907,12 @@ export const billingLogic = kea<billingLogicType>([
                     if (x.percentage_usage <= 1 || !x.usage_key) {
                         return false
                     }
+                    // Paid alert-only products are never hard-capped — they get their own alert
+                    // banner below. Free-tier storage is enforced (level-based via the quota signal,
+                    // folded into percentage_usage), so it falls through like any free-tier product.
+                    if (isAlertOnlyProduct(x) && x.subscribed) {
+                        return false
+                    }
                     const hideProductFlag = `billing_hide_product_${x.type}`
                     if (values.featureFlags[hideProductFlag as FeatureFlagKey] === true) {
                         return false
@@ -923,6 +957,10 @@ export const billingLogic = kea<billingLogicType>([
                     if (x.percentage_usage <= ALLOCATION_THRESHOLD_ALERT || x.percentage_usage > 1) {
                         return false
                     }
+                    // Same rule as the exceeded filter above: alert-only handled separately.
+                    if (isAlertOnlyProduct(x) && x.subscribed) {
+                        return false
+                    }
                     const hideProductFlag = `billing_hide_product_${x.type}`
                     if (values.featureFlags[hideProductFlag as FeatureFlagKey] === true) {
                         return false
@@ -965,7 +1003,55 @@ export const billingLogic = kea<billingLogicType>([
                 return
             }
 
+            // MDW storage is alert-only (never hard-capped) for paid customers. Surface a dedicated,
+            // lower-priority alert banner — only when no real limit banner above has claimed the slot
+            // — with wording that makes clear nothing is blocked. Gated to subscribed storage: a free
+            // customer's percentage_usage is cumulative-GB-hours / free_allocation (so it can exceed 1
+            // when they pass the free tier), and showing them "storage is never blocked" would be the
+            // wrong message — their free-tier overage is handled by the quota signal, not this alert.
+            const storageAlert = values.billing.products?.find((x: BillingProductV2Type) => {
+                if (!isAlertOnlyProduct(x) || !x.subscribed || !x.usage_key || x.percentage_usage <= 1) {
+                    return false
+                }
+                return !isBillingAlertDismissed(
+                    values.currentOrganizationId,
+                    x.type,
+                    billingPeriodEnd,
+                    '-storage-alert'
+                )
+            })
+
+            if (storageAlert) {
+                // Limits can be keyed by product type OR usage_key (mirrors billingProductLogic.customLimitUsd).
+                const limitUsd =
+                    values.billing.custom_limits_usd?.[storageAlert.type] ??
+                    (storageAlert.usage_key ? values.billing.custom_limits_usd?.[storageAlert.usage_key] : undefined)
+                actions.setBillingAlert({
+                    // `warning` (amber), not `info` (neutral surface color) — a crossed spend threshold
+                    // should stand out. It's not an `error`: storage is never blocked (message says so).
+                    status: 'warning',
+                    title: 'Storage usage alert',
+                    message: `You've passed your storage usage alert${
+                        limitUsd ? ` of $${limitUsd}` : ''
+                    }. Storage is never blocked — you keep your data.`,
+                    // Own dismissKey so dismissing this never suppresses the real approaching-limit banner.
+                    dismissKey: 'usage-limit-storage-alert',
+                    onClose: () => {
+                        const periodEnd = values.billing?.billing_period?.current_period_end?.format('YYYY-MM-DD')
+                        storeBillingAlertDismissal(
+                            values.currentOrganizationId,
+                            storageAlert.type,
+                            periodEnd,
+                            '-storage-alert'
+                        )
+                        actions.setBillingAlert(null)
+                    },
+                })
+                return
+            }
+
             actions.resetUsageLimitApproachingKey()
+            actions.resetStorageAlertKey()
         },
         setCreditFormValue: ({ name, value }) => {
             if (name === 'creditInput' || (name as FieldNamePath)?.[0] === 'creditInput') {

@@ -18,10 +18,40 @@ import type { BillingFilters, BillingSeriesForCsv, BillingUsageInteractionProps,
 import { BillingGaugeItemKind, BillingGaugeItemType } from './types'
 
 export const isProductVariantPrimary = (productType: string): boolean =>
-    ['session_replay', 'realtime_destinations', 'data_warehouse', 'workflows_emails'].includes(productType)
+    [
+        'session_replay',
+        'realtime_destinations',
+        'data_warehouse',
+        'workflows_emails',
+        'managed_data_warehouse',
+    ].includes(productType)
 
 export const isProductVariantSecondary = (productType: string): boolean =>
-    ['mobile_replay', 'batch_exports', 'data_warehouse_historical', 'workflows_destinations'].includes(productType)
+    [
+        'mobile_replay',
+        'batch_exports',
+        'data_warehouse_historical',
+        'workflows_destinations',
+        'managed_data_warehouse_storage',
+    ].includes(productType)
+
+// Hours in the longest (31-day) month — converts MDW storage's billed GB-hours to the "N GB held
+// all month" framing used in labels (100 GB free tier = 74,400 GB-hours).
+export const HOURS_PER_MONTH = 744
+
+// MDW storage is a top-level billing product nested under compute's addons for DISPLAY only (see
+// billingLogic.groupedProducts). Unlike real addons its spend is NOT folded into the parent's
+// amounts — use this helper so consumers can't miss that special-casing.
+export const getSyntheticStorageAddon = (product: BillingProductV2Type): BillingProductV2AddonType | undefined =>
+    product.addons?.find((addon) => addon.type === 'managed_data_warehouse_storage')
+
+// Products whose billing limit is an ALERT threshold only — usage is never hard-capped (e.g. MDW
+// storage, which is billed on what you keep). Their gauge shows the limit as a "Spend alert" marker
+// and turns warning-yellow rather than danger-red when exceeded, since nothing is actually blocked.
+// Prefers the billing API's `alert_only` flag (product config); the type list is a fallback for
+// responses that predate the flag.
+export const isAlertOnlyProduct = (product: { type: string; alert_only?: boolean | null }): boolean =>
+    product.alert_only ?? ['managed_data_warehouse_storage'].includes(product.type)
 
 export const calculateFreeTier = (product: BillingProductV2Type | BillingProductV2AddonType): number => {
     // If subscribed and has tiers, check if the first tier is free
@@ -43,24 +73,36 @@ export const createGaugeItems = (
     } = {}
 ): BillingGaugeItemType[] => {
     const freeTier = calculateFreeTier(product)
+    // Alert-only products (e.g. MDW storage) are rendered as secondary variants via
+    // createGaugeItems() without options, so default their marker from the product's own
+    // usage_limit. SUBSCRIBED only: for unsubscribed products usage_limit is the free allocation,
+    // which would duplicate the free-tier marker under a wrong "Spend alert" label. Everything
+    // else keeps the old behavior (marker only when the caller passes billingLimitAsUsage) —
+    // otherwise every secondary variant with a populated usage_limit (mobile_replay et al.)
+    // would sprout a spurious 'Billing limit' marker.
+    const billingLimitAsUsage =
+        options.billingLimitAsUsage ??
+        (isAlertOnlyProduct(product) && product.subscribed ? product.usage_limit || 0 : 0)
 
     return [
-        // Billing limit (only for main products, excl. product variants setup)
-        options.billingLimitAsUsage &&
-        options.billing?.discount_percent !== 100 &&
-        !isProductVariantPrimary(product.type)
+        // Billing limit / spend alert (only for main products, excl. product variants setup)
+        billingLimitAsUsage && options.billing?.discount_percent !== 100 && !isProductVariantPrimary(product.type)
             ? {
                   type: BillingGaugeItemKind.BillingLimit,
-                  text: 'Billing limit',
-                  value: options.billingLimitAsUsage || 0,
+                  text: isAlertOnlyProduct(product) ? 'Spend alert' : 'Billing limit',
+                  value: billingLimitAsUsage,
               }
             : undefined,
 
-        // Free tier
+        // Free tier. Storage's free tier is a LEVEL, so surface the "100 GB" framing in the label
+        // (the value stays in GB-hours — the gauge's current/projected markers share that axis).
         freeTier
             ? {
                   type: BillingGaugeItemKind.FreeTier,
-                  text: 'Free tier limit',
+                  text:
+                      product.type === 'managed_data_warehouse_storage'
+                          ? `Free tier limit (${Math.round(freeTier / HOURS_PER_MONTH).toLocaleString()} GB)`
+                          : 'Free tier limit',
                   value: freeTier,
               }
             : undefined,

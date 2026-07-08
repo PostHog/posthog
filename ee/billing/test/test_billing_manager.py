@@ -74,6 +74,90 @@ class TestBillingManager(BaseTest):
             "https://billing.posthog.com/api/products-v2", params={"plan": "standard"}, headers={}
         )
 
+    @patch("ee.billing.billing_manager.requests.get")
+    def test_get_billing_percentage_usage_without_enforcement_limit(self, billing_get_mock):
+        organization = self.organization
+        license = super(LicenseManager, cast(LicenseManager, License.objects)).create(
+            key="key123::key123",
+            plan="enterprise",
+            valid_until=datetime.datetime(2038, 1, 19, 3, 14, 7, tzinfo=datetime.UTC),
+        )
+        TEST_clear_instance_license_cache()
+
+        billing_response = {
+            "license": {"type": "scale"},
+            "customer": {
+                "customer_id": "cus_123",
+                "has_active_subscription": True,
+                "products": [
+                    {
+                        "type": "managed_data_warehouse_storage",
+                        "usage_key": "managed_warehouse_storage_gb_hours",
+                        # billing computed this vs the customer's $ alert — must survive
+                        "percentage_usage": 1.11,
+                        "usage_limit": 130200,
+                        "alert_only": True,
+                        "subscribed": True,
+                    },
+                    {
+                        # UNSUBSCRIBED alert-only (trial edge: limits nulled for everything) —
+                        # must zero like any other product, not surface billing's >1 percentage
+                        "type": "managed_data_warehouse_endpoints",
+                        "usage_key": "managed_warehouse_endpoints_compute_seconds",
+                        "percentage_usage": 2.2,
+                        "usage_limit": 180000,
+                        "alert_only": True,
+                        "subscribed": False,
+                    },
+                    {
+                        "type": "product_analytics",
+                        "usage_key": "events",
+                        "percentage_usage": 0.5,
+                        "usage_limit": 1000,
+                    },
+                    {
+                        # NOT alert-only: limit=None here means a trial (billing nulls all limits) —
+                        # billing's >1 percentage must be zeroed, or trial orgs get over-limit banners
+                        "type": "session_replay",
+                        "usage_key": "recordings",
+                        "percentage_usage": 2.5,
+                        "usage_limit": 5000,
+                    },
+                ],
+                "usage_summary": {
+                    # alert-only: no enforcement limit exported
+                    "managed_warehouse_storage_gb_hours": {"usage": 144000, "limit": None},
+                    "managed_warehouse_endpoints_compute_seconds": {"usage": 400000, "limit": None},
+                    # enforced: recompute from the enforcement limit as before
+                    "events": {"usage": 900, "limit": 1000},
+                    # standard keys update_org_details requires
+                    "exceptions": {"usage": 0, "limit": None},
+                    "recordings": {"usage": 0, "limit": None},
+                    "rows_synced": {"usage": 0, "limit": None},
+                    "feature_flag_requests": {"usage": 0, "limit": None},
+                    "api_queries_read_bytes": {"usage": 0, "limit": None},
+                },
+                "billing_period": {
+                    "current_period_start": "2024-01-01T00:00:00Z",
+                    "current_period_end": "2024-01-31T23:59:59Z",
+                },
+            },
+        }
+        billing_get_mock.return_value = MagicMock(status_code=200, json=MagicMock(return_value=billing_response))
+
+        response = BillingManager(license).get_billing(organization)
+
+        by_type = {p["type"]: p for p in response["products"]}
+        storage = by_type["managed_data_warehouse_storage"]
+        assert storage["percentage_usage"] == 1.11, "billing's percentage must be preserved when limit is None"
+        assert storage["current_usage"] == 144000
+        events = by_type["product_analytics"]
+        assert events["percentage_usage"] == 900 / 1000, "enforced products still recompute from the summary"
+        replay = by_type["session_replay"]
+        assert replay["percentage_usage"] == 0, "non-alert-only products without an enforcement limit zero out"
+        endpoints = by_type["managed_data_warehouse_endpoints"]
+        assert endpoints["percentage_usage"] == 0, "UNSUBSCRIBED alert-only products zero out too"
+
     @patch(
         "ee.billing.billing_manager.requests.patch",
         return_value=MagicMock(status_code=200, json=MagicMock(return_value={"text": "ok"})),
