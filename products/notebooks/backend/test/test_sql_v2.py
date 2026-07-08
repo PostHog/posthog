@@ -774,6 +774,15 @@ class TestSQLV2DataPlaneEndpoint(APIBaseTest):
         _columns, rows, _types = decode_arrow_stream(response.content)
         self.assertEqual(rows, [(2,), (3,), (4,)])
 
+    def test_materialize_scale_limit_is_accepted(self):
+        # The kernel executor fetches whole frames with limit=_MATERIALIZE_ROW_CAP (2M, not
+        # importable here: the executor module needs jupyter_client). The serializer once
+        # capped limit at 1000, rejecting every python-node materialization with a 400.
+        response = self._run_to_completion({"query": "select number from numbers(5)", "limit": 2_000_000})
+        self.assertEqual(response.status_code, 200, response.content)
+        _columns, rows, _types = decode_arrow_stream(response.content)
+        self.assertEqual(len(rows), 5)
+
     def test_execution_error_surfaces_through_status(self):
         # Valid syntax but fails at execution — the error must reach the sandbox via the poll.
         response = self._run_to_completion({"query": "select nonexistent_column from events"})
