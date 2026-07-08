@@ -4,6 +4,10 @@ import { Badge, Card, CardContent, CardHeader, CardTitle, CardDescription } from
 
 import { PropertyFilterList, type PropertyFilter } from './PropertyFilterList'
 
+// Matches SUPER_CONDITION_INDEX in rust/feature-flags/src/api/types.rs: the early-access
+// enrollment super condition has no position among the zero-based release conditions.
+const SUPER_CONDITION_INDEX = -1
+
 export interface ConditionAnalysis {
     index: number
     matched: boolean
@@ -79,7 +83,13 @@ export function FeatureFlagTestingView({ flag }: FeatureFlagTestingViewProps): R
                         {flag.condition_index !== null && (
                             <div className="text-sm">
                                 <span className="font-medium">Matched condition: </span>
-                                <span className="text-secondary">#{flag.condition_index + 1}</span>
+                                <span className="text-secondary">
+                                    {flag.reason === 'super_condition_value'
+                                        ? 'Early access enrollment'
+                                        : flag.reason === 'holdout_condition_value'
+                                          ? 'Holdout'
+                                          : `#${flag.condition_index + 1}`}
+                                </span>
                             </div>
                         )}
                         {flag.payload != null && (
@@ -124,12 +134,12 @@ export function FeatureFlagTestingView({ flag }: FeatureFlagTestingViewProps): R
                         </CardHeader>
                         <CardContent>
                             <div className="flex flex-col gap-1">
-                                {flag.conditions.map((condition, index) => (
-                                    <Card key={index}>
+                                {flag.conditions.map((condition) => (
+                                    <Card key={condition.index}>
                                         <CardContent>
                                             <div className="flex items-center gap-2">
                                                 <span className="text-sm font-medium">
-                                                    {condition.index < 0
+                                                    {condition.index === SUPER_CONDITION_INDEX
                                                         ? 'Early access enrollment:'
                                                         : `Condition #${condition.index + 1}:`}
                                                 </span>
@@ -137,7 +147,7 @@ export function FeatureFlagTestingView({ flag }: FeatureFlagTestingViewProps): R
                                                     {condition.matched ? 'Matched' : 'No match'}
                                                 </Badge>
                                                 {/* enrollment super condition has no rollout */}
-                                                {condition.index >= 0 && (
+                                                {condition.index !== SUPER_CONDITION_INDEX && (
                                                     <Badge>{condition.rollout_percentage}% rollout</Badge>
                                                 )}
                                                 {condition.variant && <Badge variant="info">{condition.variant}</Badge>}

@@ -595,8 +595,9 @@ impl FlagDetails {
             let mut property_analyses = Vec::new();
             let mut condition_matched = false;
 
-            // Only a real ConditionMatch wins a release condition. Super-condition (enrollment) and
-            // holdout wins also report condition_index Some(0), but must not be attributed here.
+            // Only a real ConditionMatch wins a release condition. Enrollment wins report
+            // condition_index Some(0) and holdout wins report None, but neither is a ConditionMatch,
+            // so gating on the reason keeps both from being attributed to a release condition here.
             if flag_match.matches
                 && matches!(flag_match.reason, FeatureFlagMatchReason::ConditionMatch)
             {
@@ -841,19 +842,19 @@ impl FlagDetails {
             (
                 true,
                 format!("Property '{enrollment_key}' is true (opted in)"),
-                "Enrolled in the early access feature — overrides all release conditions and enables the flag".to_string(),
+                "Enrolled in the early access feature. This overrides all release conditions and enables the flag".to_string(),
             )
         } else if opted_out {
             (
                 false,
                 format!("Property '{enrollment_key}' is set but not true (opted out)"),
-                "Opted out of the early access feature — overrides all release conditions and disables the flag".to_string(),
+                "Opted out of the early access feature. This overrides all release conditions and disables the flag".to_string(),
             )
         } else {
             (
                 false,
                 format!("Property '{enrollment_key}' is not set (not enrolled)"),
-                "Not enrolled in the early access feature — the release conditions below are evaluated normally".to_string(),
+                "Not enrolled in the early access feature. The release conditions below are evaluated normally".to_string(),
             )
         };
 

@@ -14,6 +14,10 @@ import { PropertyDefinitionType } from '~/types'
 import type { ConditionAnalysis } from './featureFlagTestingLogic'
 import { featureFlagTestingLogic } from './featureFlagTestingLogic'
 
+// Matches SUPER_CONDITION_INDEX in rust/feature-flags/src/api/types.rs: the early-access
+// enrollment super condition has no position among the zero-based release conditions.
+const SUPER_CONDITION_INDEX = -1
+
 const CONDITION_DISPLAY_STYLES = {
     success: {
         card: 'border-success bg-success-highlight',
@@ -335,9 +339,9 @@ export function FeatureFlagTestingTab({ featureFlag }: { featureFlag: FeatureFla
                                                     >
                                                         <div className="flex items-center gap-2 mb-2">
                                                             <h6 className="font-medium text-sm">
-                                                                {condition.index < 0
+                                                                {condition.index === SUPER_CONDITION_INDEX
                                                                     ? 'Early access enrollment'
-                                                                    : `Condition #${condition.index}`}
+                                                                    : `Condition #${condition.index + 1}`}
                                                             </h6>
                                                             {condition.display.label && (
                                                                 <span
