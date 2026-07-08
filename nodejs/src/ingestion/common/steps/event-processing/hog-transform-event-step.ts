@@ -47,8 +47,6 @@ export function createHogTransformEventStep<T extends HogTransformEventInput>(
                     transformationId: result.droppedBy?.id,
                     transformationName: result.droppedBy?.name,
                 },
-                category: 'transformation',
-                severity: 'info',
                 pipelineStep: 'hog-transform',
                 // Debounce per transformation so each dropping transformation surfaces
                 key: result.droppedBy?.id,

@@ -25,7 +25,7 @@ WHERE ranked_reports.row_number > 1
 
 class Migration(migrations.Migration):
     dependencies = [
-        ("ai_observability", "0015_llmprompt_version_description"),
+        ("ai_observability", "0017_relabel_terminal_status_reasons"),
     ]
 
     operations = [

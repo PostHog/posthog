@@ -1062,6 +1062,7 @@ class Database(BaseModel):
         timings: HogQLTimings | None = None,
         connection_id: str | None = None,
         bypass_warehouse_access_control: bool = False,
+        build_postgres_foreign_keys: bool = True,
     ) -> "Database":
         if timings is None:
             timings = HogQLTimings()
@@ -1076,7 +1077,9 @@ class Database(BaseModel):
             connection_id=connection_id,
             bypass_warehouse_access_control=bypass_warehouse_access_control,
         )
-        return Database._build_from_sources(sources, timings=timings)
+        return Database._build_from_sources(
+            sources, timings=timings, build_postgres_foreign_keys=build_postgres_foreign_keys
+        )
 
     @staticmethod
     def _fetch_sources(
@@ -1330,7 +1333,11 @@ class Database(BaseModel):
         )
 
     @staticmethod
-    def _build_from_sources(sources: HogQLDatabaseSources, timings: HogQLTimings | None = None) -> "Database":
+    def _build_from_sources(
+        sources: HogQLDatabaseSources,
+        timings: HogQLTimings | None = None,
+        build_postgres_foreign_keys: bool = True,
+    ) -> "Database":
         """Construct the HogQL Database purely from already-fetched sources. Performs no I/O: every
         Postgres query and feature-flag check was done up front in Database._fetch_sources."""
         if timings is None:
@@ -1767,14 +1774,15 @@ class Database(BaseModel):
         database._add_warehouse_self_managed_tables(self_managed_warehouse_tables)
         database._add_views(views)
 
-        with timings.measure("warehouse_foreign_keys", emit_span=True):
-            for hogql_table, warehouse_table_model in warehouse_tables_to_process:
-                add_postgres_foreign_key_lazy_joins(
-                    hogql_table=hogql_table,
-                    warehouse_table=warehouse_table_model,
-                    database=database,
-                    schemas=_get_active_external_data_schemas(warehouse_table_model),
-                )
+        if build_postgres_foreign_keys:
+            with timings.measure("warehouse_foreign_keys", emit_span=True):
+                for hogql_table, warehouse_table_model in warehouse_tables_to_process:
+                    add_postgres_foreign_key_lazy_joins(
+                        hogql_table=hogql_table,
+                        warehouse_table=warehouse_table_model,
+                        database=database,
+                        schemas=_get_active_external_data_schemas(warehouse_table_model),
+                    )
 
         with timings.measure("data_warehouse_joins", emit_span=True):
             for join in sources.data_warehouse_joins:

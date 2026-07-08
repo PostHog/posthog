@@ -7,7 +7,7 @@ import { urls } from 'scenes/urls'
 import { initKeaTests } from '~/test/init'
 import { expectLogic } from '~/test/keaTestUtils'
 
-import { endpointSceneLogic, EndpointTab } from './endpointSceneLogic'
+import { endpointSceneLogic, EndpointTab, extractBreakdownPropertyNames } from './endpointSceneLogic'
 import { endpointsMaterializationSuggestionCreate } from './generated/api'
 
 jest.mock('lib/api', () => ({
@@ -144,6 +144,68 @@ describe('endpointSceneLogic', () => {
         expect(router.values.location.pathname).toContain(urls.endpoint('test-endpoint'))
         expect(router.values.searchParams).toMatchObject({
             version: 2,
+        })
+    })
+
+    describe('extractBreakdownPropertyNames', () => {
+        // Must match the backend's iter_breakdowns, which stringifies every entry (str(name)),
+        // so numeric legacy breakdowns (e.g. cohort IDs) land in the OpenAPI required set as strings
+        test.each([
+            ['legacy string', { breakdown: '$browser', breakdown_type: 'event' }, ['$browser']],
+            ['legacy numeric cohort', { breakdown: 2, breakdown_type: 'cohort' }, ['2']],
+            ['legacy numeric list', { breakdown: [2, 5], breakdown_type: 'cohort' }, ['2', '5']],
+            ['breakdowns form', { breakdowns: [{ property: '$browser' }, { property: 7 }] }, ['$browser', '7']],
+        ])('%s', (_name, breakdownFilter, expected) => {
+            expect(extractBreakdownPropertyNames({ kind: 'TrendsQuery', breakdownFilter })).toEqual(expected)
+        })
+    })
+
+    describe('optionalBreakdownProperties reducer', () => {
+        it('seeds from the loaded endpoint', async () => {
+            const endpointWithOptional = { ...endpoint, optional_breakdown_properties: ['$browser'] }
+            await expectLogic(logic, () => {
+                logic.actions.loadEndpointSuccess(endpointWithOptional)
+            }).toFinishAllListeners()
+
+            expect(logic.values.optionalBreakdownProperties).toEqual(['$browser'])
+        })
+
+        it('toggleBreakdownOptional flips a single property both ways', async () => {
+            await expectLogic(logic, () => {
+                logic.actions.toggleBreakdownOptional('$browser')
+            }).toMatchValues({ optionalBreakdownProperties: ['$browser'] })
+
+            await expectLogic(logic, () => {
+                logic.actions.toggleBreakdownOptional('$browser')
+            }).toMatchValues({ optionalBreakdownProperties: [] })
+        })
+
+        it('toggleBreakdownOptional preserves order across independent properties', async () => {
+            await expectLogic(logic, () => {
+                logic.actions.toggleBreakdownOptional('$browser')
+                logic.actions.toggleBreakdownOptional('$os')
+            }).toMatchValues({ optionalBreakdownProperties: ['$browser', '$os'] })
+
+            await expectLogic(logic, () => {
+                logic.actions.toggleBreakdownOptional('$browser')
+            }).toMatchValues({ optionalBreakdownProperties: ['$os'] })
+        })
+
+        it('resetOptionalBreakdownProperties wins on version switch', async () => {
+            await expectLogic(logic, () => {
+                logic.actions.toggleBreakdownOptional('$browser')
+            }).toMatchValues({ optionalBreakdownProperties: ['$browser'] })
+
+            const versionData = {
+                ...endpoint,
+                version: 2,
+                optional_breakdown_properties: ['$os'],
+            }
+            await expectLogic(logic, () => {
+                logic.actions.setViewingVersion(versionData)
+            }).toFinishAllListeners()
+
+            expect(logic.values.optionalBreakdownProperties).toEqual(['$os'])
         })
     })
 

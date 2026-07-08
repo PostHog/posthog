@@ -438,6 +438,7 @@ export interface PaginatedTaskDetailDTOListApi {
  * * `signals_scout` - Signals Scout
  * * `support_reply` - Support Reply
  * * `hogdesk` - HogDesk
+ * * `image_builder` - Image Builder
  */
 export type OriginProductEnumApi = (typeof OriginProductEnumApi)[keyof typeof OriginProductEnumApi]
 
@@ -456,6 +457,7 @@ export const OriginProductEnumApi = {
     SignalsScout: 'signals_scout',
     SupportReply: 'support_reply',
     Hogdesk: 'hogdesk',
+    ImageBuilder: 'image_builder',
 } as const
 
 /**
@@ -528,7 +530,8 @@ export interface TaskWriteApi {
      * * `signal_report` - Signal Report
      * * `signals_scout` - Signals Scout
      * * `support_reply` - Support Reply
-     * * `hogdesk` - HogDesk */
+     * * `hogdesk` - HogDesk
+     * * `image_builder` - Image Builder */
     origin_product?: OriginProductEnumApi
     /**
      * Target GitHub repository in `organization/repo` format (e.g. `posthog/posthog-js`).
@@ -597,6 +600,11 @@ export interface TaskWriteApi {
      * @items.maxLength 128
      */
     pending_user_artifact_ids?: string[]
+    /**
+     * When true, the cloud run agent pushes its work and opens a draft pull request on completion without waiting for an explicit ask. Write-only and not persisted on the task: persisted into the reused warm Run's state when creation activates one, so resumes of that Run honor it. Ignored when no warm Run is reused — cold creation takes it via the run start endpoint instead.
+     * @nullable
+     */
+    auto_publish?: boolean | null
     /**
      * Channel this task is owned by (the channel it was kicked off in).
      * @nullable
@@ -636,7 +644,8 @@ export interface PatchedTaskWriteApi {
      * * `signal_report` - Signal Report
      * * `signals_scout` - Signals Scout
      * * `support_reply` - Support Reply
-     * * `hogdesk` - HogDesk */
+     * * `hogdesk` - HogDesk
+     * * `image_builder` - Image Builder */
     origin_product?: OriginProductEnumApi
     /**
      * Target GitHub repository in `organization/repo` format (e.g. `posthog/posthog-js`).
@@ -705,6 +714,11 @@ export interface PatchedTaskWriteApi {
      * @items.maxLength 128
      */
     pending_user_artifact_ids?: string[]
+    /**
+     * When true, the cloud run agent pushes its work and opens a draft pull request on completion without waiting for an explicit ask. Write-only and not persisted on the task: persisted into the reused warm Run's state when creation activates one, so resumes of that Run honor it. Ignored when no warm Run is reused — cold creation takes it via the run start endpoint instead.
+     * @nullable
+     */
+    auto_publish?: boolean | null
     /**
      * Channel this task is owned by (the channel it was kicked off in).
      * @nullable
@@ -818,6 +832,11 @@ export interface ClaudeTaskRunCreateSchemaApi {
      * * `user` - user
      * * `bot` - bot */
     pr_authorship_mode?: PrAuthorshipModeEnumApi
+    /**
+     * When true, the cloud run agent pushes its work and opens a draft pull request on completion without waiting for an explicit ask.
+     * @nullable
+     */
+    auto_publish?: boolean | null
     /** High-level source that triggered this run, used to distinguish manual and signal-based cloud runs.
      *
      * * `manual` - manual
@@ -905,6 +924,11 @@ export interface CodexTaskRunCreateSchemaApi {
      * * `user` - user
      * * `bot` - bot */
     pr_authorship_mode?: PrAuthorshipModeEnumApi
+    /**
+     * When true, the cloud run agent pushes its work and opens a draft pull request on completion without waiting for an explicit ask.
+     * @nullable
+     */
+    auto_publish?: boolean | null
     /** High-level source that triggered this run, used to distinguish manual and signal-based cloud runs.
      *
      * * `manual` - manual
@@ -1351,6 +1375,11 @@ export interface TaskRunBootstrapCreateRequestApi {
      * * `user` - user
      * * `bot` - bot */
     pr_authorship_mode?: PrAuthorshipModeEnumApi
+    /**
+     * When true, the cloud run agent pushes its work and opens a draft pull request on completion without waiting for an explicit ask.
+     * @nullable
+     */
+    auto_publish?: boolean | null
     /** High-level source that triggered this run, used to distinguish manual and signal-based cloud runs.
      *
      * * `manual` - manual

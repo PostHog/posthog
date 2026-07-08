@@ -12940,6 +12940,11 @@ export namespace Schemas {
        * * `user` - user
        * * `bot` - bot */
       pr_authorship_mode?: PrAuthorshipModeEnum;
+      /**
+         * When true, the cloud run agent pushes its work and opens a draft pull request on completion without waiting for an explicit ask.
+         * @nullable
+         */
+      auto_publish?: boolean | null;
       /** High-level source that triggered this run, used to distinguish manual and signal-based cloud runs.
        *
        * * `manual` - manual
@@ -13287,6 +13292,11 @@ export namespace Schemas {
        * * `user` - user
        * * `bot` - bot */
       pr_authorship_mode?: PrAuthorshipModeEnum;
+      /**
+         * When true, the cloud run agent pushes its work and opens a draft pull request on completion without waiting for an explicit ask.
+         * @nullable
+         */
+      auto_publish?: boolean | null;
       /** High-level source that triggered this run, used to distinguish manual and signal-based cloud runs.
        *
        * * `manual` - manual
@@ -21094,6 +21104,7 @@ export namespace Schemas {
     } as const;
 
     /**
+     * * `provider_key_required` - No provider API key configured
      * * `trial_limit_reached` - Trial evaluation limit reached
      * * `model_not_allowed` - Model not available on the trial plan
      * * `provider_key_deleted` - Provider API key was deleted
@@ -21109,6 +21120,7 @@ export namespace Schemas {
 
 
     export const StatusReasonEnum = {
+      ProviderKeyRequired: 'provider_key_required',
       TrialLimitReached: 'trial_limit_reached',
       ModelNotAllowed: 'model_not_allowed',
       ProviderKeyDeleted: 'provider_key_deleted',
@@ -21327,6 +21339,10 @@ export namespace Schemas {
       readonly trial_evals_used: number;
       /** Trial runs remaining — a getting-started affordance only; evals should use the team's own provider key. */
       readonly trial_evals_remaining: number;
+      /** True while this team keeps PostHog-funded trial inference during the deprecation window (i.e. it is mid-trial and the cutoff has not passed). False means the team must use its own provider key. */
+      readonly trial_grandfathered: boolean;
+      /** Timestamp after which trial evaluations are fully removed and every team must use its own provider key. */
+      readonly trial_deprecation_date: string;
       /** Provider key used to run llm_judge evals; null if none configured yet. */
       readonly active_provider_key: LLMProviderKey | null;
       /** Timestamp when the evaluation config row was created. */
@@ -29063,7 +29079,7 @@ export namespace Schemas {
     export interface LLMModelInfo {
       /** Provider-specific model identifier (e.g. 'gpt-4o-mini', 'claude-3-5-sonnet-20241022'). */
       id: string;
-      /** True if the model can run without a provider key — for getting-started testing only; real evals should use the team's own key. */
+      /** True if the model can run without a provider key on PostHog-funded trial credits. Only true for teams still grandfathered into the deprecating trial; every other team must use its own key. */
       posthog_available: boolean;
     }
 
@@ -32143,6 +32159,7 @@ export namespace Schemas {
      * * `signals_scout` - Signals Scout
      * * `support_reply` - Support Reply
      * * `hogdesk` - HogDesk
+     * * `image_builder` - Image Builder
      */
     export type OriginProductEnum = typeof OriginProductEnum[keyof typeof OriginProductEnum];
 
@@ -32162,6 +32179,7 @@ export namespace Schemas {
       SignalsScout: 'signals_scout',
       SupportReply: 'support_reply',
       Hogdesk: 'hogdesk',
+      ImageBuilder: 'image_builder',
     } as const;
 
     /**
@@ -43220,7 +43238,8 @@ export namespace Schemas {
        * * `signal_report` - Signal Report
        * * `signals_scout` - Signals Scout
        * * `support_reply` - Support Reply
-       * * `hogdesk` - HogDesk */
+       * * `hogdesk` - HogDesk
+       * * `image_builder` - Image Builder */
       origin_product?: OriginProductEnum;
       /**
          * Target GitHub repository in `organization/repo` format (e.g. `posthog/posthog-js`).
@@ -43289,6 +43308,11 @@ export namespace Schemas {
          * @items.maxLength 128
          */
       pending_user_artifact_ids?: string[];
+      /**
+         * When true, the cloud run agent pushes its work and opens a draft pull request on completion without waiting for an explicit ask. Write-only and not persisted on the task: persisted into the reused warm Run's state when creation activates one, so resumes of that Run honor it. Ignored when no warm Run is reused — cold creation takes it via the run start endpoint instead.
+         * @nullable
+         */
+      auto_publish?: boolean | null;
       /**
          * Channel this task is owned by (the channel it was kicked off in).
          * @nullable
@@ -54231,6 +54255,11 @@ export namespace Schemas {
        * * `user` - user
        * * `bot` - bot */
       pr_authorship_mode?: PrAuthorshipModeEnum;
+      /**
+         * When true, the cloud run agent pushes its work and opens a draft pull request on completion without waiting for an explicit ask.
+         * @nullable
+         */
+      auto_publish?: boolean | null;
       /** High-level source that triggered this run, used to distinguish manual and signal-based cloud runs.
        *
        * * `manual` - manual
@@ -54579,7 +54608,8 @@ export namespace Schemas {
        * * `signal_report` - Signal Report
        * * `signals_scout` - Signals Scout
        * * `support_reply` - Support Reply
-       * * `hogdesk` - HogDesk */
+       * * `hogdesk` - HogDesk
+       * * `image_builder` - Image Builder */
       origin_product?: OriginProductEnum;
       /**
          * Target GitHub repository in `organization/repo` format (e.g. `posthog/posthog-js`).
@@ -54648,6 +54678,11 @@ export namespace Schemas {
          * @items.maxLength 128
          */
       pending_user_artifact_ids?: string[];
+      /**
+         * When true, the cloud run agent pushes its work and opens a draft pull request on completion without waiting for an explicit ask. Write-only and not persisted on the task: persisted into the reused warm Run's state when creation activates one, so resumes of that Run honor it. Ignored when no warm Run is reused — cold creation takes it via the run start endpoint instead.
+         * @nullable
+         */
+      auto_publish?: boolean | null;
       /**
          * Channel this task is owned by (the channel it was kicked off in).
          * @nullable
