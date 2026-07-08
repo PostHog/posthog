@@ -5,8 +5,6 @@ import pytest
 from posthog.test.base import APIBaseTest
 from unittest.mock import MagicMock, patch
 
-from parameterized import parameterized
-
 from posthog.helpers.slack_scopes import REQUIRED_SLACK_SCOPES
 
 from products.exports.backend.models.subscription import Subscription, SubscriptionDelivery
@@ -312,18 +310,19 @@ class TestLastSuccessfulDeliveryAnchor(APIBaseTest):
             start_date=datetime(2026, 1, 1, tzinfo=UTC),
         )
 
-    @parameterized.expand(
-        [
-            # Only completed SCHEDULED sends move the anchor: a manual "Test delivery" (or a
-            # target-change confirmation) right before a run must not shrink its window to near-empty.
-            (SubscriptionTriggerType.MANUAL,),
-            (SubscriptionTriggerType.TARGET_CHANGE,),
-        ]
-    )
-    def test_non_scheduled_deliveries_do_not_move_the_anchor(self, trigger_type: str) -> None:
+    def test_non_scheduled_deliveries_do_not_move_the_anchor(self) -> None:
+        # Only completed SCHEDULED sends move the anchor: a manual "Test delivery" or a target-change
+        # confirmation right before a run must not shrink its window to near-empty.
         scheduled_at = datetime(2026, 6, 22, 12, 0, tzinfo=UTC)
         self._delivery(SubscriptionTriggerType.SCHEDULED, SubscriptionDelivery.Status.COMPLETED, scheduled_at)
-        self._delivery(trigger_type, SubscriptionDelivery.Status.COMPLETED, scheduled_at + timedelta(days=2))
+        self._delivery(
+            SubscriptionTriggerType.MANUAL, SubscriptionDelivery.Status.COMPLETED, scheduled_at + timedelta(days=1)
+        )
+        self._delivery(
+            SubscriptionTriggerType.TARGET_CHANGE,
+            SubscriptionDelivery.Status.COMPLETED,
+            scheduled_at + timedelta(days=2),
+        )
 
         assert _last_successful_delivery_finished_at(self.subscription) == scheduled_at
 
