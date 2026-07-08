@@ -67,6 +67,8 @@ Do not invent a different format.
 Always fill the `## 🤖 Agent context` section when creating PRs.
 NEVER share sensitive information in a PR description. Users may share sensitive data in an agent session, but those should never surface to a PR description, or comments.
 
+**Screenshots:** Upload frontend/visual changes with `hogli pr:upload-image <file>` (PostHog employees only; writes to the public `PostHog/pr-assets`) and embed the returned markdown. Public and permanent, so NEVER upload customer data, secrets, or internal info.
+
 ### Rules
 
 - Scope is optional but encouraged when the change is specific to a feature area
