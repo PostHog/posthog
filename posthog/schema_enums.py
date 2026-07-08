@@ -136,6 +136,8 @@ class Style(StrEnum):
     NUMBER = "number"
     SHORT = "short"
     PERCENT = "percent"
+    DURATION = "duration"
+    DURATION_MS = "duration_ms"
 
 
 class AssistantDataVisualizationDisplayType(StrEnum):

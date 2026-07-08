@@ -334,6 +334,10 @@ export interface AssistantTrendsEventsNode extends Omit<
      * - Count distinct values: `count(distinct properties.$session_id)`
      * - Conditional count: `countIf(toFloat(properties.duration) > 30)`
      * - Percentile: `quantile(0.95)(toFloat(properties.response_time))`
+     *
+     * Do NOT bake display/unit conversion into this expression (e.g. `sum(ceil(toFloat(properties.foo_seconds)/60))`
+     * to show minutes). Aggregate the raw property (`sum(toFloat(properties.foo_seconds))`) and handle presentation
+     * with the axis format (e.g. `aggregationAxisFormat: duration`) instead.
      */
     math_hogql?: string
 }
@@ -369,6 +373,10 @@ export interface AssistantTrendsActionsNode extends Omit<
      * - Count distinct values: `count(distinct properties.$session_id)`
      * - Conditional count: `countIf(toFloat(properties.duration) > 30)`
      * - Percentile: `quantile(0.95)(toFloat(properties.response_time))`
+     *
+     * Do NOT bake display/unit conversion into this expression (e.g. `sum(ceil(toFloat(properties.foo_seconds)/60))`
+     * to show minutes). Aggregate the raw property (`sum(toFloat(properties.foo_seconds))`) and handle presentation
+     * with the axis format (e.g. `aggregationAxisFormat: duration`) instead.
      */
     math_hogql?: string
 }
@@ -496,6 +504,7 @@ export interface AssistantTrendsFilter {
      * `numeric` - no formatting. Prefer this option by default.
      * `duration` - formats the value in seconds to a human-readable duration, e.g., `132` becomes `2 minutes 12 seconds`. Use this option only if you are sure that the values are in seconds.
      * `duration_ms` - formats the value in miliseconds to a human-readable duration, e.g., `1050` becomes `1 second 50 milliseconds`. Use this option only if you are sure that the values are in miliseconds.
+     * When a property holds a duration in seconds (or milliseconds) and the user wants it shown in minutes/hours, aggregate the raw property directly (e.g. `math: sum` with `math_property` set to that property) and set this to `duration` (or `duration_ms`). Do NOT convert the units inside a `math_hogql` expression (e.g. `sum(ceil(toFloat(properties.foo_seconds)/60))`) and add a ` mins` postfix - let this formatting handle the display.
      * `percentage` - adds a percentage sign to the value, e.g., `50` becomes `50%`.
      * `percentage_scaled` - formats the value as a percentage scaled to 0-100, e.g., `0.5` becomes `50%`.
      * `currency` - formats the value as a currency, e.g., `1000` becomes `$1,000`.
@@ -997,6 +1006,10 @@ export interface AssistantStickinessEventsNode extends Pick<
      * - Count distinct values: `count(distinct properties.$session_id)`
      * - Conditional count: `countIf(toFloat(properties.duration) > 30)`
      * - Percentile: `quantile(0.95)(toFloat(properties.response_time))`
+     *
+     * Do NOT bake display/unit conversion into this expression (e.g. `sum(ceil(toFloat(properties.foo_seconds)/60))`
+     * to show minutes). Aggregate the raw property (`sum(toFloat(properties.foo_seconds))`) and handle presentation
+     * with the axis format (e.g. `aggregationAxisFormat: duration`) instead.
      */
     math_hogql?: string
 }
@@ -1032,6 +1045,10 @@ export interface AssistantStickinessActionsNode extends Pick<
      * - Count distinct values: `count(distinct properties.$session_id)`
      * - Conditional count: `countIf(toFloat(properties.duration) > 30)`
      * - Percentile: `quantile(0.95)(toFloat(properties.response_time))`
+     *
+     * Do NOT bake display/unit conversion into this expression (e.g. `sum(ceil(toFloat(properties.foo_seconds)/60))`
+     * to show minutes). Aggregate the raw property (`sum(toFloat(properties.foo_seconds))`) and handle presentation
+     * with the axis format (e.g. `aggregationAxisFormat: duration`) instead.
      */
     math_hogql?: string
 }
@@ -1749,8 +1766,13 @@ export interface AssistantDataVisualizationAxisFormatting {
      * - `number` — thousands separators (e.g. `1,234`).
      * - `short` — abbreviated large numbers (e.g. `1.2k`, `3.4M`).
      * - `percent` — render the value as a percentage.
+     * - `duration` — render a value in seconds as a human-readable duration (e.g. `132` becomes `2m 12s`).
+     * - `duration_ms` — render a value in milliseconds as a human-readable duration.
+     *
+     * For time values, prefer selecting the raw seconds/milliseconds column and setting `duration`/`duration_ms`
+     * here, rather than converting units inside the SQL (e.g. `.../60`) and appending a manual `suffix` like ` mins`.
      */
-    style?: 'none' | 'number' | 'short' | 'percent'
+    style?: 'none' | 'number' | 'short' | 'percent' | 'duration' | 'duration_ms'
     /** Number of decimal places to display. */
     decimalPlaces?: number
 }

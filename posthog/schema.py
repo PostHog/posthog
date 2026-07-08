@@ -361,7 +361,12 @@ class AssistantDataVisualizationAxisFormatting(BaseModel):
             "Number formatting style.\n- `none` — no formatting.\n- `number` —"
             " thousands separators (e.g. `1,234`).\n- `short` — abbreviated large"
             " numbers (e.g. `1.2k`, `3.4M`).\n- `percent` — render the value as a"
-            " percentage."
+            " percentage.\n- `duration` — render a value in seconds as a human-readable"
+            " duration (e.g. `132` becomes `2m 12s`).\n- `duration_ms` — render a value"
+            " in milliseconds as a human-readable duration.\n\nFor time values, prefer"
+            " selecting the raw seconds/milliseconds column and setting"
+            " `duration`/`duration_ms` here, rather than converting units inside the"
+            " SQL (e.g. `.../60`) and appending a manual `suffix` like ` mins`."
         ),
     )
     suffix: str | None = Field(default=None, description="Text appended to each value (e.g. `%` or ` ms`).")
@@ -815,7 +820,15 @@ class ChartSettingsFormatting(BaseModel):
     )
     decimalPlaces: float | None = None
     prefix: str | None = None
-    style: Style | None = None
+    style: Style | None = Field(
+        default=None,
+        description=(
+            "`duration` renders a value in seconds as a human-readable duration (e.g."
+            " `132` becomes `2m 12s`); `duration_ms` does the same for a value in"
+            " milliseconds. Use these instead of converting units inside the query and"
+            " appending a manual suffix."
+        ),
+    )
     suffix: str | None = None
 
 
@@ -3833,10 +3846,17 @@ class AssistantTrendsFilter(BaseModel):
             " seconds. `duration_ms` - formats the value in miliseconds to a"
             " human-readable duration, e.g., `1050` becomes `1 second 50 milliseconds`."
             " Use this option only if you are sure that the values are in miliseconds."
-            " `percentage` - adds a percentage sign to the value, e.g., `50` becomes"
-            " `50%`. `percentage_scaled` - formats the value as a percentage scaled to"
-            " 0-100, e.g., `0.5` becomes `50%`. `currency` - formats the value as a"
-            " currency, e.g., `1000` becomes `$1,000`."
+            " When a property holds a duration in seconds (or milliseconds) and the"
+            " user wants it shown in minutes/hours, aggregate the raw property directly"
+            " (e.g. `math: sum` with `math_property` set to that property) and set this"
+            " to `duration` (or `duration_ms`). Do NOT convert the units inside a"
+            " `math_hogql` expression (e.g."
+            " `sum(ceil(toFloat(properties.foo_seconds)/60))`) and add a ` mins`"
+            " postfix - let this formatting handle the display. `percentage` - adds a"
+            " percentage sign to the value, e.g., `50` becomes `50%`."
+            " `percentage_scaled` - formats the value as a percentage scaled to 0-100,"
+            " e.g., `0.5` becomes `50%`. `currency` - formats the value as a currency,"
+            " e.g., `1000` becomes `$1,000`."
         ),
     )
     aggregationAxisPostfix: str | None = Field(
@@ -8820,7 +8840,12 @@ class AssistantStickinessActionsNode(BaseModel):
             " `avg(toFloat(properties.load_time))`\n- Count distinct values:"
             " `count(distinct properties.$session_id)`\n- Conditional count:"
             " `countIf(toFloat(properties.duration) > 30)`\n- Percentile:"
-            " `quantile(0.95)(toFloat(properties.response_time))`"
+            " `quantile(0.95)(toFloat(properties.response_time))`\n\nDo NOT bake"
+            " display/unit conversion into this expression (e.g."
+            " `sum(ceil(toFloat(properties.foo_seconds)/60))` to show minutes)."
+            " Aggregate the raw property (`sum(toFloat(properties.foo_seconds))`) and"
+            " handle presentation with the axis format (e.g. `aggregationAxisFormat:"
+            " duration`) instead."
         ),
     )
     math_multiplier: float | None = None
@@ -8881,7 +8906,12 @@ class AssistantStickinessEventsNode(BaseModel):
             " `avg(toFloat(properties.load_time))`\n- Count distinct values:"
             " `count(distinct properties.$session_id)`\n- Conditional count:"
             " `countIf(toFloat(properties.duration) > 30)`\n- Percentile:"
-            " `quantile(0.95)(toFloat(properties.response_time))`"
+            " `quantile(0.95)(toFloat(properties.response_time))`\n\nDo NOT bake"
+            " display/unit conversion into this expression (e.g."
+            " `sum(ceil(toFloat(properties.foo_seconds)/60))` to show minutes)."
+            " Aggregate the raw property (`sum(toFloat(properties.foo_seconds))`) and"
+            " handle presentation with the axis format (e.g. `aggregationAxisFormat:"
+            " duration`) instead."
         ),
     )
     math_multiplier: float | None = None
@@ -9050,7 +9080,12 @@ class AssistantTrendsActionsNode(BaseModel):
             " `avg(toFloat(properties.load_time))`\n- Count distinct values:"
             " `count(distinct properties.$session_id)`\n- Conditional count:"
             " `countIf(toFloat(properties.duration) > 30)`\n- Percentile:"
-            " `quantile(0.95)(toFloat(properties.response_time))`"
+            " `quantile(0.95)(toFloat(properties.response_time))`\n\nDo NOT bake"
+            " display/unit conversion into this expression (e.g."
+            " `sum(ceil(toFloat(properties.foo_seconds)/60))` to show minutes)."
+            " Aggregate the raw property (`sum(toFloat(properties.foo_seconds))`) and"
+            " handle presentation with the axis format (e.g. `aggregationAxisFormat:"
+            " duration`) instead."
         ),
     )
     math_multiplier: float | None = None
@@ -9113,7 +9148,12 @@ class AssistantTrendsEventsNode(BaseModel):
             " `avg(toFloat(properties.load_time))`\n- Count distinct values:"
             " `count(distinct properties.$session_id)`\n- Conditional count:"
             " `countIf(toFloat(properties.duration) > 30)`\n- Percentile:"
-            " `quantile(0.95)(toFloat(properties.response_time))`"
+            " `quantile(0.95)(toFloat(properties.response_time))`\n\nDo NOT bake"
+            " display/unit conversion into this expression (e.g."
+            " `sum(ceil(toFloat(properties.foo_seconds)/60))` to show minutes)."
+            " Aggregate the raw property (`sum(toFloat(properties.foo_seconds))`) and"
+            " handle presentation with the axis format (e.g. `aggregationAxisFormat:"
+            " duration`) instead."
         ),
     )
     math_multiplier: float | None = None

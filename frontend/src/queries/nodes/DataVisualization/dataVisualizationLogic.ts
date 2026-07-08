@@ -18,6 +18,7 @@ import mergeObject from 'lodash.merge'
 import { dayjs } from 'lib/dayjs'
 import { RGBToHex, lightenDarkenColor } from 'lib/utils/colors'
 import { uuid } from 'lib/utils/dom'
+import { humanFriendlyDuration } from 'lib/utils/durations'
 import { compactNumber } from 'lib/utils/numbers'
 import { objectsEqual } from 'lib/utils/objects'
 import { sceneLogic } from 'scenes/sceneLogic'
@@ -161,6 +162,14 @@ export const formatDataWithSettings = (
 
         if (settings?.formatting?.style === 'percent') {
             dataAsString = `${data.toLocaleString(undefined, { maximumFractionDigits: decimalPlaces })}%`
+        }
+
+        if (settings?.formatting?.style === 'duration') {
+            dataAsString = humanFriendlyDuration(data)
+        }
+
+        if (settings?.formatting?.style === 'duration_ms') {
+            dataAsString = humanFriendlyDuration(data / 1000, { secondsFixed: 1 })
         }
     }
 

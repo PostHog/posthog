@@ -212,6 +212,8 @@ const FORMATTING_STYLE_LABELS: Record<string, string> = {
     number: 'Number',
     short: 'Short Number',
     percent: 'Percentage',
+    duration: 'Duration (s)',
+    duration_ms: 'Duration (ms)',
 }
 
 const FORMATTING_STYLE_SHORT_LABELS: Record<string, string> = {
@@ -219,6 +221,8 @@ const FORMATTING_STYLE_SHORT_LABELS: Record<string, string> = {
     number: '',
     short: INSIGHT_UNIT_OPTIONS_SHORT.short,
     percent: INSIGHT_UNIT_OPTIONS_SHORT.percentage,
+    duration: INSIGHT_UNIT_OPTIONS_SHORT.duration,
+    duration_ms: INSIGHT_UNIT_OPTIONS_SHORT.duration_ms,
 }
 
 const SeriesFormattingTag = ({ style }: { style?: string }): JSX.Element | null => {
@@ -408,10 +412,12 @@ export const YSeriesFormattingTab = ({ ySeriesLogicProps }: { ySeriesLogicProps:
                     {({ value, onChange }) => (
                         <LemonSelect
                             value={value}
-                            options={['none', 'number', 'short', 'percent'].map((optionValue) => ({
-                                value: optionValue,
-                                label: FORMATTING_STYLE_LABELS[optionValue] ?? optionValue,
-                            }))}
+                            options={['none', 'number', 'short', 'percent', 'duration', 'duration_ms'].map(
+                                (optionValue) => ({
+                                    value: optionValue,
+                                    label: FORMATTING_STYLE_LABELS[optionValue] ?? optionValue,
+                                })
+                            )}
                             onChange={(newValue) => {
                                 onChange(newValue)
                                 updateFormatting({

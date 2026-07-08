@@ -1172,7 +1172,12 @@ export interface ChartAxis {
 export interface ChartSettingsFormatting {
     prefix?: string
     suffix?: string
-    style?: 'none' | 'number' | 'short' | 'percent'
+    /**
+     * `duration` renders a value in seconds as a human-readable duration (e.g. `132` becomes `2m 12s`);
+     * `duration_ms` does the same for a value in milliseconds. Use these instead of converting units inside
+     * the query and appending a manual suffix.
+     */
+    style?: 'none' | 'number' | 'short' | 'percent' | 'duration' | 'duration_ms'
     decimalPlaces?: number
 }
 

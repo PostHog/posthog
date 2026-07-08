@@ -117,6 +117,7 @@ Axis guidance:
 - Set `y_axis` to only the final numeric metric columns the user cares about. If the SQL computes helper columns like numerator, denominator, totals, or counts only to derive a rate, do not include those helper columns in `y_axis`.
 - Set `series_breakdown_column` when a result column should create multiple colored series, such as plan, country, browser, model, or status.
 - For rates and percentages, return decimal/rate values in SQL when practical and set `y_axis_format` to `percent`; use decimal places and suffix/prefix when they make the chart readable.
+- For durations, return the raw value in the query (seconds or milliseconds) and set `y_axis_format` to `duration` (seconds) or `duration_ms` (milliseconds). Do NOT convert the unit inside the SQL (e.g. dividing seconds by 60) and append a manual suffix like ` mins` - the format renders a human-readable duration for you.
 - Show a legend when there is more than one y-axis series or when `series_breakdown_column` is set.
 
 ABSOLUTE CONSTRAINTS ON OUTPUT FORMAT:{{=<% %>=}}
