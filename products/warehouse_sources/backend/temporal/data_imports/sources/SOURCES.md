@@ -304,6 +304,7 @@ the row lists both.
 | shipstation             | HTTP                        | requests                                                        | ✅                          |
 | shopify                 | HTTP                        | requests                                                        | ✅                          |
 | shortcut                | HTTP                        | requests                                                        | ✅                          |
+| simplecast              | HTTP                        | requests                                                        | ✅                          |
 | simplesat               | HTTP                        | requests                                                        | ✅                          |
 | slack                   | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
 | smartsheet              | HTTP                        | requests                                                        | ✅                          |
@@ -658,6 +659,7 @@ doesn't conflict with concurrent PRs.
 - signnow
 - simfin
 - simplecast
+- simplesat
 - smaily
 - smartengage
 - smartreach

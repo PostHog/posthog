@@ -3025,7 +3025,7 @@ class SimFinSourceConfig(config.Config):
 
 @config.config
 class SimpleCastSourceConfig(config.Config):
-    pass
+    api_key: str
 
 
 @config.config
