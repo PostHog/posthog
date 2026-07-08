@@ -2163,7 +2163,7 @@ snapshots:
     exporter-interview--default--narrow--dark:
         hash: v1.k794b7964.2f716502bb598dedb9b366e98c961ad5e2f99ad75a0e9ede5c98aff64d2aa589.-r_pAMuI2zuW4Zu5OYX5QIqGni51eKkqvdPuoYz2hQg
     exporter-interview--default--narrow--light:
-        hash: v1.k794b7964.b0a2eed0e0a9322f76c74a4c94ff3a99fdb6c1dab39dbedcd866de4d57f88a5b.wI8H0FCyGVrhmZ7GRdeiFzhIFzYD_xUU2fhGLhTKfEo
+        hash: v1.k794b7964.e93badddb191156d7db361aeb8e86e80ef73ffb786917b6a01e8057900a6a7c9.7gZVreffAo4JregS44grSN183cy71r3G5GQujlG2kz0
     exporter-interview--default--superwide--dark:
         hash: v1.k794b7964.02f4202114cd37bc37385c013ab6fff7f285d771606abd120e59fb1e0835e97d.Nv3UGGZoo8KbeuuRFe8dALRIbEUWk0MByYWfT9PQgpM
     exporter-interview--default--superwide--light:
@@ -4416,6 +4416,12 @@ snapshots:
         hash: v1.k794b7964.5c33ba0a4dbe6cf279197eadea244d7b9838b99d80b8ba2b899df7ca881e066b.GNSIWjjq4NaJTgY9UUDYIXoxNuzz74X5yRL5TuFPO_Y
     mcp-apps-lifecycle--stacked--light:
         hash: v1.k794b7964.ba05f9228b85cb77c43ddf41d7c4612123546422dc1ab7adea5c2f0ac57fede1.5HaCtwm-U2r0pTewvvTY96rwrsRFfyk9dh5liLtVxkI
+    mcp-apps-query-results--single-number--light:
+        hash: v1.k794b7964.b53e77f7c428fe5d86903e3bee082eb7c752f67fb3225c043229e4b713debe69.hhBuSmExHBpDioDG9Ij-4qfvVhG77IC5FNYierdlZq8
+    mcp-apps-query-results--table--light:
+        hash: v1.k794b7964.902b5373ca5305edcf1bd3440def4e5e2918ae9ddc32f21c780a3bb4a006b9a7.zBD1FDF7WTERVfwWCIZhb5T9D8FPJNbD3_UFCWB8mhc
+    mcp-apps-query-results--time-series--light:
+        hash: v1.k794b7964.db641b56d0ea4fbeda26aa548d2490f69b1e4cc3702f8462d44ac550e6759644.tIrsyH43vI28LEEGZKQKzbZAx3QQz44eLcqYpEYVW08
     mcp-apps-retention-actors--daily--light:
         hash: v1.k794b7964.98ed364bc169b666ee69ff6e44c7fa385360df9410875c5ee3cd85ff2e53104f.-p5rL3gbD8LRZ-kriXkNM3NHeYm8nf0v0VfVq5XWZFs
     mcp-apps-stickiness--multiple-series--light:
@@ -6035,7 +6041,7 @@ snapshots:
     scenes-app-insights-trendsslopegraph--trends-slope-graph--dark:
         hash: v1.k794b7964.7b6bb33aaba2c334ded0898f97b7e316248e1639144c49e2039c880a16672ce3.RFWxmLTjalbL8Nszbl4hySEvS8xYi28uZJp2_E9EtxQ
     scenes-app-insights-trendsslopegraph--trends-slope-graph--light:
-        hash: v1.k794b7964.2aa9edc0701e25a08dc51f5d8ab61e2390b0d1a8dfb56f53153832a1ab5dd864._ZxWCehsllN_1Y0FGVmNeCTABpxnEoOiO3d6RUjOqXA
+        hash: v1.k794b7964.435ec6cacedc635d128f46c84567002eae11aa76758c130c39ff877197a75542.B6jsuSizg7bPm8wDE8N62O1k-C5CPomtRNXHXkSzwK8
     scenes-app-insights-trendsslopegraph--trends-slope-graph-edit--dark:
         hash: v1.k794b7964.a79e9f9b09872c1379566cac070987db5158b3f47129fe653ff1a4ec94e51ce5.WmkWzqWIPX_nHjS0tiGL8wPflEpxIM0itFt1G_ULgFM
     scenes-app-insights-trendsslopegraph--trends-slope-graph-edit--light:

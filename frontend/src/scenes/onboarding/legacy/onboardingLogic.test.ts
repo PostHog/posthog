@@ -537,6 +537,35 @@ describe('onboardingLogic — flow composition', () => {
             expect(logic.values.stepId).toBe('authorized_domains:web_analytics')
         })
 
+        it('keeps passthrough params separate from ?step= when navigating (GitHub-callback params)', async () => {
+            // The GitHub App install callback returns to onboarding with extra query params
+            // (integration_id, installation_id). Advancing a step must keep them as separate
+            // params — a naive path+search concat fused them into the step value
+            // (step=configure:x?integration_id=14), which no flow step resolves, leaving the
+            // host on a spinner forever.
+            router.actions.push('/onboarding/product_analytics?step=install:product_analytics&integration_id=14')
+            await expectLogic(logic).toDispatchActions(['setStepId'])
+            await expectLogic(logic, () => {
+                logic.actions.goToNextStep()
+            }).toDispatchActions(['setStepId'])
+            expect(router.values.searchParams).toMatchObject({
+                step: 'configure:product_analytics',
+                integration_id: 14,
+            })
+            expect(logic.values.currentFlowStep?.id).toBe('configure:product_analytics')
+        })
+
+        it('self-corrects a step id with fused query params instead of treating it as namespaced', async () => {
+            router.actions.push(
+                `/onboarding/product_analytics?step=${encodeURIComponent('configure:product_analytics?integration_id=14')}`
+            )
+            await expectLogic(logic).toDispatchActions(['setStepId'])
+            // The mangled id contains ':' but must not count as a known step key — it resolves
+            // to '' (flow[0]) rather than leaving currentFlowStep null and the host spinning.
+            expect(logic.values.stepId).toBe('')
+            expect(logic.values.currentFlowStep?.id).toBe('install:product_analytics')
+        })
+
         it('sets subscribedDuringOnboarding when ?success=true is present', async () => {
             await expectLogic(logic, () => {
                 router.actions.push('/onboarding/web_analytics?success=true')

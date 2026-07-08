@@ -1,6 +1,7 @@
-import { HedgehogMagnifyingGlass } from '@posthog/brand/hoggies'
+import * as magnifyingGlassPng from '@posthog/brand/hoggies/png/magnifying-glass'
 import { LemonButton, Spinner } from '@posthog/lemon-ui'
 
+import { pngHoggie } from 'lib/brand/hoggies'
 import { CommandBlock } from 'lib/components/CommandBlock/CommandBlock'
 import { WavingHog } from 'lib/components/hedgehogs'
 
@@ -11,6 +12,8 @@ import {
     MCPListeningIndicator,
     useMCPAnalyticsWizardCommand,
 } from './onboarding/MCPAnalyticsInstall'
+
+const HedgehogMagnifyingGlass = pngHoggie(magnifyingGlassPng)
 
 /** Branded loading state shown while we work out whether the project has MCP events yet. */
 export function MCPAnalyticsLoading(): JSX.Element {

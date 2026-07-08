@@ -1516,6 +1516,11 @@ class HarnessSourceConfig(config.Config):
 
 
 @config.config
+class HealthchecksSourceConfig(config.Config):
+    pass
+
+
+@config.config
 class HeapSourceConfig(config.Config):
     pass
 
@@ -1602,6 +1607,11 @@ class IlluminaBasespaceSourceConfig(config.Config):
 
 @config.config
 class ImaggaSourceConfig(config.Config):
+    pass
+
+
+@config.config
+class ImpactSourceConfig(config.Config):
     pass
 
 
@@ -2418,6 +2428,11 @@ class PaylocitySourceConfig(config.Config):
 @config.config
 class PaystackSourceConfig(config.Config):
     secret_api_key: str
+
+
+@config.config
+class PeecAISourceConfig(config.Config):
+    pass
 
 
 @config.config
@@ -3963,6 +3978,7 @@ def get_config_for_source(source: ExternalDataSourceType):
         ExternalDataSourceType.GURU: GuruSourceConfig,
         ExternalDataSourceType.GUSTO: GustoSourceConfig,
         ExternalDataSourceType.HARNESS: HarnessSourceConfig,
+        ExternalDataSourceType.HEALTHCHECKS: HealthchecksSourceConfig,
         ExternalDataSourceType.HEAP: HeapSourceConfig,
         ExternalDataSourceType.HEIGHT: HeightSourceConfig,
         ExternalDataSourceType.HELLOBATON: HellobatonSourceConfig,
@@ -3980,6 +3996,7 @@ def get_config_for_source(source: ExternalDataSourceType):
         ExternalDataSourceType.IKAS: IkasSourceConfig,
         ExternalDataSourceType.ILLUMINABASESPACE: IlluminaBasespaceSourceConfig,
         ExternalDataSourceType.IMAGGA: ImaggaSourceConfig,
+        ExternalDataSourceType.IMPACT: ImpactSourceConfig,
         ExternalDataSourceType.INCIDENTIO: IncidentIoSourceConfig,
         ExternalDataSourceType.INFLOWINVENTORY: InflowinventorySourceConfig,
         ExternalDataSourceType.INFORNEXUS: InforNexusSourceConfig,
@@ -4132,6 +4149,7 @@ def get_config_for_source(source: ExternalDataSourceType):
         ExternalDataSourceType.PAYPAL: PayPalSourceConfig,
         ExternalDataSourceType.PAYLOCITY: PaylocitySourceConfig,
         ExternalDataSourceType.PAYSTACK: PaystackSourceConfig,
+        ExternalDataSourceType.PEECAI: PeecAISourceConfig,
         ExternalDataSourceType.PENDO: PendoSourceConfig,
         ExternalDataSourceType.PENNYLANE: PennylaneSourceConfig,
         ExternalDataSourceType.PERIGON: PerigonSourceConfig,
