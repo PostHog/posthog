@@ -16,6 +16,62 @@ pub struct Config {
     #[envconfig(default = "9102")]
     pub metrics_port: u16,
 
+    // ── gRPC server ──────────────────────────────────────────────
+    /// Interval between HTTP/2 keepalive pings sent by the gRPC server (0 = disabled)
+    #[envconfig(default = "30")]
+    pub grpc_keepalive_interval_secs: u64,
+
+    /// Timeout for a keepalive ping ack before considering the connection dead
+    #[envconfig(default = "10")]
+    pub grpc_keepalive_timeout_secs: u64,
+
+    /// Maximum gRPC message size to encode (send), in bytes. Defaults to 128 MiB.
+    #[envconfig(default = "134217728")]
+    pub grpc_max_send_message_size: usize,
+
+    /// Maximum gRPC message size to decode (receive), in bytes.
+    #[envconfig(default = "134217728")]
+    pub grpc_max_recv_message_size: usize,
+
+    /// Maximum age of a gRPC server connection before it is gracefully
+    /// closed (GOAWAY), guarding against half-dead long-lived connections.
+    /// 0 = disabled (connections live indefinitely).
+    #[envconfig(default = "300")]
+    pub grpc_max_connection_age_secs: u64,
+
+    /// Maximum concurrent in-flight gRPC requests before the server sheds
+    /// load with RESOURCE_EXHAUSTED so the router retries on another pod.
+    /// 0 = disabled.
+    #[envconfig(default = "0")]
+    pub max_concurrent_requests: usize,
+
+    // ── Response compression ─────────────────────────────────────
+    /// When true, gzip-compress responses for clients that advertise gzip
+    /// in `grpc-accept-encoding`. Compression runs on a blocking thread
+    /// pool instead of the tokio runtime.
+    #[envconfig(default = "false")]
+    pub gzip_response_compression: bool,
+
+    /// Gzip compression level (1–9). Lower is faster, higher compresses more.
+    #[envconfig(default = "6")]
+    pub gzip_compression_level: u32,
+
+    /// Minimum response payload size in bytes to compress. Payloads smaller
+    /// than this pass through uncompressed.
+    #[envconfig(default = "256")]
+    pub gzip_min_payload_size: usize,
+
+    /// Log a warning when a response exceeds this size in bytes, even
+    /// for uncompressed passthrough. 0 = disabled. Default 4 MiB.
+    #[envconfig(default = "4194304")]
+    pub gzip_max_response_size: usize,
+
+    /// When true, responses exceeding `gzip_max_response_size` are rejected
+    /// with RESOURCE_EXHAUSTED; when false, the oversized
+    /// response is delivered normally (monitor mode).
+    #[envconfig(default = "false")]
+    pub gzip_max_response_size_enforce: bool,
+
     // ── Kafka durability ─────────────────────────────────────────
     #[envconfig(nested = true)]
     pub kafka: KafkaConfig,
@@ -102,6 +158,30 @@ pub struct Config {
 }
 
 impl Config {
+    pub fn grpc_keepalive_interval(&self) -> Option<Duration> {
+        if self.grpc_keepalive_interval_secs == 0 {
+            None
+        } else {
+            Some(Duration::from_secs(self.grpc_keepalive_interval_secs))
+        }
+    }
+
+    pub fn grpc_keepalive_timeout(&self) -> Option<Duration> {
+        if self.grpc_keepalive_timeout_secs == 0 {
+            None
+        } else {
+            Some(Duration::from_secs(self.grpc_keepalive_timeout_secs))
+        }
+    }
+
+    pub fn grpc_max_connection_age(&self) -> Option<Duration> {
+        if self.grpc_max_connection_age_secs == 0 {
+            None
+        } else {
+            Some(Duration::from_secs(self.grpc_max_connection_age_secs))
+        }
+    }
+
     pub fn etcd_endpoint_list(&self) -> Vec<String> {
         self.etcd_endpoints
             .split(',')
