@@ -11,21 +11,17 @@ use tonic::Code;
 use crate::backend::{LeaderBackend, StashedRequest};
 use crate::grpc_http::{grpc_error_response, grpc_status_code, is_grpc_error_response};
 
-/// gRPC method name for stashed writes — the stash buffers only the write
-/// path, so every replayed frame targets `UpdatePersonProperties`.
-const UPDATE_METHOD: &str = "UpdatePersonProperties";
-
 /// Stash handler for the router. Reacts to handoff phase transitions:
 ///
 /// * `Freezing` / `Draining` / `Warming` → `begin_stash`: start (or
-///   re-confirm) buffering writes for the partition in the shared
-///   `StashTable`. The routing-table layer calls `begin_stash` on
+///   re-confirm) buffering leader-path requests — writes and strong
+///   reads — for the partition in the shared `StashTable`. The routing-table layer calls `begin_stash` on
 ///   every non-terminal phase the router observes, so the call must
 ///   be idempotent — `StashTable::begin_stash` no-ops if the entry is
 ///   already live. New writes park in a per-partition queue while the
 ///   handoff progresses through `Freezing → Draining → Warming`.
-/// * `Complete` → `drain_stash`: forward the buffered writes to the
-///   new owner. The drain runs as a loop over the queue; any request
+/// * `Complete` → `drain_stash`: forward the buffered requests to the
+///   new owner, each to the method it arrived on. The drain runs as a loop over the queue; any request
 ///   that arrives during drain (the dashmap entry is still live until
 ///   drain observes the queue empty under the lock) is picked up by
 ///   the next iteration, preserving FIFO ordering across the cutover.
@@ -127,7 +123,7 @@ async fn forward_one(
     // headers, so no body poll is needed to classify them).
     let (response, outcome) = match leader_backend
         .forward_raw(
-            UPDATE_METHOD,
+            stashed_req.method,
             partition,
             &stashed_req.headers,
             &stashed_req.frame,
