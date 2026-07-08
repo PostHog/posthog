@@ -29,9 +29,7 @@ class Migration(migrations.Migration):
                 ),
                 (
                     "suggested_prompt",
-                    models.TextField(
-                        help_text="The full rewritten prompt, ready to apply to the scanner."
-                    ),
+                    models.TextField(help_text="The full rewritten prompt, ready to apply to the scanner."),
                 ),
                 (
                     "base_prompt",
