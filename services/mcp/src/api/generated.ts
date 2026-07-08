@@ -1859,6 +1859,26 @@ export namespace Schemas {
       hideAggregation?: boolean | null;
     }
 
+    export interface ActivateVersionRequest {
+      /** Version number to activate. Must reference an existing version of this app. */
+      version_number: number;
+    }
+
+    export interface StreamlitAppVersion {
+      readonly id: string;
+      readonly version_number: number;
+      readonly zip_hash: string;
+      /** @nullable */
+      readonly snapshot_id: string | null;
+      readonly created_by: UserBasic;
+      readonly created_at: string;
+    }
+
+    export interface ActivateVersionResponse {
+      /** The version that is now active for the app. */
+      active_version: StreamlitAppVersion;
+    }
+
     /**
      * Schema for a single active breakpoint
      */
@@ -34956,6 +34976,28 @@ export namespace Schemas {
       quarantined_count?: number;
     }
 
+    export interface StreamlitAppMinimal {
+      readonly id: string;
+      readonly short_id: string;
+      readonly name: string;
+      readonly description: string;
+      readonly cpu_cores: number;
+      readonly memory_gb: number;
+      readonly status: string;
+      readonly created_by: UserBasic;
+      readonly created_at: string;
+      readonly updated_at: string;
+    }
+
+    export interface PaginatedStreamlitAppMinimalList {
+      count: number;
+      /** @nullable */
+      next?: string | null;
+      /** @nullable */
+      previous?: string | null;
+      results: StreamlitAppMinimal[];
+    }
+
     /**
      * * `starting` - Starting
      * * `completed` - Completed
@@ -42245,6 +42287,51 @@ export namespace Schemas {
       readonly updated_at?: string;
       /** @nullable */
       readonly status?: string | null;
+    }
+
+    /**
+     * * `starting` - Starting
+     * * `running` - Running
+     * * `stopping` - Stopping
+     * * `stopped` - Stopped
+     * * `error` - Error
+     */
+    export type StreamlitAppSandboxStatusEnum = typeof StreamlitAppSandboxStatusEnum[keyof typeof StreamlitAppSandboxStatusEnum];
+
+
+    export const StreamlitAppSandboxStatusEnum = {
+      Starting: 'starting',
+      Running: 'running',
+      Stopping: 'stopping',
+      Stopped: 'stopped',
+      Error: 'error',
+    } as const;
+
+    export interface StreamlitAppSandbox {
+      readonly status: StreamlitAppSandboxStatusEnum;
+      readonly restart_count: number;
+      readonly last_error: string;
+      /** @nullable */
+      readonly started_at: string | null;
+      /** @nullable */
+      readonly last_activity_at: string | null;
+      readonly version_number: number;
+    }
+
+    export interface PatchedStreamlitApp {
+      readonly id?: string;
+      readonly short_id?: string;
+      /** @maxLength 255 */
+      name?: string;
+      description?: string;
+      cpu_cores?: number;
+      memory_gb?: number;
+      readonly active_version?: StreamlitAppVersion;
+      readonly sandbox?: StreamlitAppSandbox;
+      readonly status?: string;
+      readonly created_by?: UserBasic;
+      readonly created_at?: string;
+      readonly updated_at?: string;
     }
 
     /**
@@ -53165,6 +53252,58 @@ export namespace Schemas {
       stream_base_url: string | null;
     }
 
+    export interface StreamlitApp {
+      readonly id: string;
+      readonly short_id: string;
+      /** @maxLength 255 */
+      name: string;
+      description?: string;
+      cpu_cores?: number;
+      memory_gb?: number;
+      readonly active_version: StreamlitAppVersion;
+      readonly sandbox: StreamlitAppSandbox;
+      readonly status: string;
+      readonly created_by: UserBasic;
+      readonly created_at: string;
+      readonly updated_at: string;
+    }
+
+    export interface StreamlitAppStatus {
+      /** Sandbox lifecycle status, or 'stopped' when no sandbox exists. */
+      status: string;
+      /** Number of times the app's sandbox has been restarted. */
+      restart_count: number;
+      /** Most recent sandbox error message, empty when there is none. */
+      last_error: string;
+      /**
+         * When the current sandbox started, null when stopped.
+         * @nullable
+         */
+      started_at: string | null;
+      /**
+         * Timestamp of the last recorded viewer activity, null when none.
+         * @nullable
+         */
+      last_activity_at: string | null;
+      /**
+         * Version number the running sandbox was booted from.
+         * @nullable
+         */
+      version_number?: number | null;
+    }
+
+    export interface StreamlitAppVersionList {
+      /** Most recent versions of the app, newest first (capped at 50). */
+      results: StreamlitAppVersion[];
+    }
+
+    export interface StreamlitConnectInfo {
+      /** Authenticated URL to embed the running app in an iframe. */
+      iframe_url: string;
+      /** Seconds until the embedded session credential expires. */
+      expires_in: number;
+    }
+
     export interface SummaryBullet {
       text: string;
       line_refs: string;
@@ -55218,6 +55357,11 @@ export namespace Schemas {
          * @nullable
          */
       color?: string | null;
+    }
+
+    export interface UploadVersionRequest {
+      /** Zip archive containing the Streamlit app sources (max 10 MB). */
+      file: string;
     }
 
     /**
@@ -63064,6 +63208,7 @@ export namespace Schemas {
      * * `InstanceSetting` - InstanceSetting
      * * `SignalReport` - SignalReport
      * * `SignalScoutConfig` - SignalScoutConfig
+     * * `StreamlitApp` - StreamlitApp
      * @minLength 1
      */
     scope?: ActivityLogListScope;
@@ -63147,6 +63292,7 @@ export namespace Schemas {
       InstanceSetting: 'InstanceSetting',
       SignalReport: 'SignalReport',
       SignalScoutConfig: 'SignalScoutConfig',
+      StreamlitApp: 'StreamlitApp',
     } as const;
 
     /**
@@ -63216,6 +63362,7 @@ export namespace Schemas {
      * * `InstanceSetting` - InstanceSetting
      * * `SignalReport` - SignalReport
      * * `SignalScoutConfig` - SignalScoutConfig
+     * * `StreamlitApp` - StreamlitApp
      */
     export type ActivityLogListScopesItem = typeof ActivityLogListScopesItem[keyof typeof ActivityLogListScopesItem];
 
@@ -63287,6 +63434,7 @@ export namespace Schemas {
       InstanceSetting: 'InstanceSetting',
       SignalReport: 'SignalReport',
       SignalScoutConfig: 'SignalScoutConfig',
+      StreamlitApp: 'StreamlitApp',
     } as const;
 
     export type AdvancedActivityLogsListParams = {
@@ -69517,6 +69665,17 @@ export namespace Schemas {
       Success: 'success',
       Unknown: 'unknown',
     } as const;
+
+    export type StreamlitAppsListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number;
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number;
+    };
 
     export type SubscriptionsListParams = {
     /**
