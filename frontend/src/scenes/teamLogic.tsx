@@ -115,23 +115,21 @@ export const teamLogic = kea<teamLogicType>([
                         }
                     }
 
-                    const promises: [Promise<TeamType>, Promise<ProjectType> | undefined] = [
-                        api.update(`api/environments/${values.currentTeam.id}`, payload),
-                        undefined,
-                    ]
+                    let patchedTeam: TeamType | TeamPublicType
                     if (Object.keys(payload).length === 1 && payload.name && values.currentTeam.project_id) {
-                        // If we're only updating the name, update the project name as well for equivalence.
-                        // Use project_id from the team, as currentProject may not be loaded yet
-                        promises[1] = api.update(`api/projects/${values.currentTeam.project_id}`, {
-                            name: payload.name,
-                        })
-                    }
-                    const [patchedTeam, patchedProject] = await Promise.all(promises)
-                    breakpoint()
-
-                    if (patchedProject) {
+                        // Renames go through /api/projects, which mirrors the name onto the passthrough
+                        // team server-side. /api/environments is deprecated, don't add calls to it
+                        const patchedProject = await api.update<ProjectType>(
+                            `api/projects/${values.currentTeam.project_id}`,
+                            { name: payload.name }
+                        )
+                        breakpoint()
                         // Sync projectLogic too, as surfaces like the project switcher read currentProject.name
                         actions.loadCurrentProjectSuccess(patchedProject)
+                        patchedTeam = { ...values.currentTeam, name: patchedProject.name }
+                    } else {
+                        patchedTeam = await api.update(`api/environments/${values.currentTeam.id}`, payload)
+                        breakpoint()
                     }
 
                     // We need to reload current org (which lists its teams) in organizationLogic

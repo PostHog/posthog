@@ -43,10 +43,8 @@ describe('teamLogic', () => {
                     '/api/projects/@current': () => [500, {}],
                 },
                 patch: {
-                    '/api/environments/:id': async ({ request }) => [
-                        200,
-                        { ...MOCK_DEFAULT_TEAM, ...((await request.json()) as Record<string, any>) },
-                    ],
+                    // Only /api/projects is mocked: a name-only update must not hit the
+                    // deprecated /api/environments endpoint
                     '/api/projects/:id': async ({ request }) => [
                         200,
                         { ...MOCK_DEFAULT_PROJECT, ...((await request.json()) as Record<string, any>) },
@@ -62,11 +60,11 @@ describe('teamLogic', () => {
             expect(projectLogic.values.currentProject).toBeNull()
 
             await expectLogic(logic, () => {
-                logic.actions.updateCurrentTeam({ name: 'Compliance Dashboard Prod' })
+                logic.actions.updateCurrentTeam({ name: 'Renamed project' })
             }).toDispatchActions([projectLogic.actionTypes.loadCurrentProjectSuccess, 'updateCurrentTeamSuccess'])
 
-            expect(logic.values.currentTeam?.name).toBe('Compliance Dashboard Prod')
-            expect(projectLogic.values.currentProject?.name).toBe('Compliance Dashboard Prod')
+            expect(logic.values.currentTeam?.name).toBe('Renamed project')
+            expect(projectLogic.values.currentProject?.name).toBe('Renamed project')
         })
     })
 
