@@ -45,14 +45,18 @@ from posthog.models.instance_setting import get_instance_setting
 from posthog.oauth2_urls import urlpatterns as oauth2_urls
 from posthog.temporal.codec_server import decode_payloads
 
-from products.ai_observability.backend.api.personal_spend import personal_spend_eu_redirect
+from products.ai_observability.backend.api.personal_spend import PersonalSpendEUProxyViewSet
 from products.cdp.backend.api import hog_function_template
 from products.data_warehouse.backend.presentation.views.public_source_configs import PublicSourceConfigViewSet
 from products.demo.backend.facade.api import demo_route
 from products.early_access_features.backend.api import early_access_features
 from products.legal_documents.backend.presentation.webhook import legal_document_pandadoc_webhook
 from products.messaging.backend.api.customerio_webhook import CustomerIOWebhookView
-from products.notebooks.backend.facade.sql_v2 import notebook_sql_v2_callback, notebook_sql_v2_data_plane
+from products.notebooks.backend.facade.sql_v2 import (
+    notebook_sql_v2_callback,
+    notebook_sql_v2_data_plane,
+    notebook_sql_v2_data_plane_status,
+)
 from products.product_tours.backend.api import product_tours
 from products.signals.backend import views as signals_views
 from products.signals.backend.views import SignalUserAutonomyConfigView as signals_user_autonomy_view
@@ -463,6 +467,10 @@ urlpatterns = [
         "internal/notebooks/data_plane/query/",
         csrf_exempt(notebook_sql_v2_data_plane),
     ),
+    path(
+        "internal/notebooks/data_plane/query/<str:query_id>/",
+        csrf_exempt(notebook_sql_v2_data_plane_status),
+    ),
     # Internal service-to-service endpoints (authenticated with POSTHOG_INTERNAL_SERVICE_TOKEN)
     path(
         "api/projects/<str:team_id>/internal/hog_flows/user_blast_radius",
@@ -567,16 +575,16 @@ urlpatterns = [
 ]
 
 # Personal LLM spend data only lives in PostHog Cloud US — EU forwards its product
-# LLM telemetry over, so EU callers get a 302 to the US-hosted endpoint instead of
-# a silent 404. Must be inserted *before* the `^api.+` catch-all above; otherwise
-# the catch-all matches first and the redirect is unreachable.
+# LLM telemetry over — so the EU view proxies the query to US server-side. Must be
+# inserted *before* the `^api.+` catch-all above; otherwise the catch-all matches
+# first and the view is unreachable.
 if settings.CLOUD_DEPLOYMENT == "EU":
     urlpatterns.insert(
         0,
         path(
             "api/llm_analytics/@me/spend/",
-            personal_spend_eu_redirect,
-            name="personal_spend_eu_redirect",
+            PersonalSpendEUProxyViewSet.as_view({"get": "list"}),
+            name="personal_spend_eu",
         ),
     )
 

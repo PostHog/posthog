@@ -55,6 +55,25 @@ class TestLinkedInAdsSource:
         assert error_message is not None
         assert "Account ID and LinkedIn Ads integration are required" in error_message
 
+    @pytest.mark.parametrize(
+        "invalid_account_id",
+        [
+            "Reed Lnkedin",
+            "https://www.linkedin.com/company/recruiteasy-ca",
+            " 789",
+            "789 ",
+            "acc-789",
+        ],
+    )
+    def test_validate_credentials_non_numeric_account_id(self, invalid_account_id):
+        invalid_config = LinkedinAdsSourceConfig(linkedin_ads_integration_id=456, account_id=invalid_account_id)
+
+        is_valid, error_message = self.source.validate_credentials(invalid_config, self.team_id)
+
+        assert is_valid is False
+        assert error_message is not None
+        assert "numeric account ID" in error_message
+
     @mock.patch("products.warehouse_sources.backend.temporal.data_imports.sources.linkedin_ads.source.Integration")
     def test_validate_credentials_integration_not_found(self, mock_integration_model):
         """Test credential validation when integration doesn't exist."""

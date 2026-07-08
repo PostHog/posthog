@@ -614,8 +614,13 @@ class TestWeeklyDigestWorkflowDelivery(ClickhouseTestMixin, APIBaseTest):
             assert digest["org_name"] == self.organization.name
             section = digest["project_sections"][0]
             assert section["team_name"] == self.team.name
-            assert section["exception_count"] == 1
+            assert section["exception_count"] == "1"
             assert section["top_issues"][0]["id"] == str(issue.id)
+            assert section["top_issues"][0]["occurrence_count"] == "1"
+            # The email template branches on `ingestion_failure_count > 0`, so it
+            # must stay numeric; the formatted value ships as the display twin.
+            assert section["ingestion_failure_count"] == 0
+            assert section["ingestion_failure_count_display"] == "0"
             assert "team" not in section
 
             # Retry of the org task must not send the same campaign twice (MessagingRecord dedupe)

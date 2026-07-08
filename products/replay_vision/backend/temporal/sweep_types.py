@@ -34,6 +34,11 @@ class FindScannerCandidatesOutput(BaseModel, frozen=True):
     saturated: bool
 
 
+class RefreshPromptSuggestionInputs(BaseModel, frozen=True):
+    scanner_id: UUID
+    team_id: int
+
+
 class AdvanceScannerWatermarkInputs(BaseModel, frozen=True):
     scanner_id: UUID
     new_last_swept_at: dt.datetime

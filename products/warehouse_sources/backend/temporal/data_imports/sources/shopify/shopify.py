@@ -290,6 +290,9 @@ def normalize_store_id(raw: str) -> str:
         store_id = store_id.removeprefix("admin.shopify.com/store/")
     # Drop any path/query/fragment that rode along with a pasted URL.
     store_id = store_id.split("/", 1)[0].split("?", 1)[0].split("#", 1)[0]
+    # A trailing dot (FQDN form, e.g. "my-store.myshopify.com.") otherwise defeats the suffix
+    # strip below and leaves a value the subdomain regex rejects.
+    store_id = store_id.rstrip(".")
     # Strip the domain suffix, looping to collapse an accidental double suffix.
     while store_id.endswith(".myshopify.com"):
         store_id = store_id.removesuffix(".myshopify.com")
