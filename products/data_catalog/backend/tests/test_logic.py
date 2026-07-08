@@ -8,9 +8,21 @@ from rest_framework.exceptions import ValidationError
 
 from products.data_catalog.backend.facade.enums import CreatedSource, MetricStatus
 from products.data_catalog.backend.logic import metrics
-from products.data_catalog.backend.logic.metrics import soft_delete_metric, update_metric, upsert_metric
+from products.data_catalog.backend.logic.drift import compute_drift
+from products.data_catalog.backend.logic.exceptions import MetricDrifted, SourceInsightUnavailable
+from products.data_catalog.backend.logic.metrics import (
+    approve_metric,
+    refresh_metric_from_insight,
+    soft_delete_metric,
+    update_metric,
+    upsert_metric,
+)
 from products.data_catalog.backend.logic.validation import validate_metric_definition
 from products.data_catalog.backend.models import Metric
+from products.product_analytics.backend.models.insight import Insight
+
+_HOGQL_A = {"kind": "HogQLQuery", "query": "select count() from events"}
+_HOGQL_B = {"kind": "HogQLQuery", "query": "select count() from persons"}
 
 
 class TestMetricUpsert(BaseTest):
@@ -139,3 +151,126 @@ class TestValidateMetricDefinition(BaseTest):
     def test_rejects_invalid_definitions(self, _name: str, definition: dict) -> None:
         with self.assertRaises(ValidationError):
             validate_metric_definition(definition, self.team, self.user)
+
+
+class TestCreateFromInsight(BaseTest):
+    def _insight(self, query: dict | None = None) -> Insight:
+        return Insight.objects.create(team=self.team, created_by=self.user, query=query or _HOGQL_A)
+
+    def test_snapshots_query_and_is_not_drifted(self) -> None:
+        insight = self._insight()
+        metric = upsert_metric(
+            team=self.team, user=self.user, name="mrr", description="d", source_insight_short_id=insight.short_id
+        )
+        assert metric.definition is not None
+        assert metric.definition["kind"] == "HogQLQuery"
+        assert metric.source_insight_short_id == insight.short_id
+        assert metric.source_insight_query_hash
+        assert compute_drift([metric])[metric.id] is False
+
+    def test_definition_and_source_are_mutually_exclusive(self) -> None:
+        insight = self._insight()
+        with self.assertRaises(ValidationError):
+            upsert_metric(
+                team=self.team,
+                user=self.user,
+                name="mrr",
+                description="d",
+                definition=_HOGQL_A,
+                source_insight_short_id=insight.short_id,
+            )
+
+    def test_missing_insight_rejected(self) -> None:
+        with self.assertRaises(ValidationError):
+            upsert_metric(team=self.team, user=self.user, name="mrr", description="d", source_insight_short_id="nope")
+
+    def test_reordered_insight_query_is_not_drift(self) -> None:
+        insight = self._insight(query={"kind": "HogQLQuery", "query": "select 1"})
+        metric = upsert_metric(
+            team=self.team, user=self.user, name="mrr", description="d", source_insight_short_id=insight.short_id
+        )
+        # Same query, keys reordered: canonicalization (sort_keys + upgrade) must not read as drift.
+        Insight.objects.filter(pk=insight.pk).update(query={"query": "select 1", "kind": "HogQLQuery"})
+        assert compute_drift([metric])[metric.id] is False
+
+
+class TestApproveMetric(BaseTest):
+    def _insight(self, query: dict | None = None) -> Insight:
+        return Insight.objects.create(team=self.team, created_by=self.user, query=query or _HOGQL_A)
+
+    def test_approve_sets_status_and_approver(self) -> None:
+        metric = upsert_metric(team=self.team, user=self.user, name="mrr", description="d", definition=_HOGQL_A)
+        approved = approve_metric(metric, self.user)
+        assert approved.status == MetricStatus.APPROVED
+        assert approved.approved_by_id == self.user.id
+
+    def test_approve_is_idempotent(self) -> None:
+        metric = upsert_metric(team=self.team, user=self.user, name="mrr", description="d", definition=_HOGQL_A)
+        approve_metric(metric, self.user)
+        again = approve_metric(metric, self.user)
+        assert again.status == MetricStatus.APPROVED
+
+    def test_approve_blocked_while_drifted(self) -> None:
+        insight = self._insight()
+        metric = upsert_metric(
+            team=self.team, user=self.user, name="mrr", description="d", source_insight_short_id=insight.short_id
+        )
+        Insight.objects.filter(pk=insight.pk).update(query=_HOGQL_B)
+        with self.assertRaises(MetricDrifted):
+            approve_metric(metric, self.user)
+
+
+class TestRefreshFromInsight(BaseTest):
+    def _insight(self, query: dict | None = None) -> Insight:
+        return Insight.objects.create(team=self.team, created_by=self.user, query=query or _HOGQL_A)
+
+    def test_refresh_resnapshots_and_resets_approval(self) -> None:
+        insight = self._insight()
+        metric = upsert_metric(
+            team=self.team, user=self.user, name="mrr", description="d", source_insight_short_id=insight.short_id
+        )
+        approve_metric(metric, self.user)
+        Insight.objects.filter(pk=insight.pk).update(query=_HOGQL_B)
+
+        refreshed = refresh_metric_from_insight(metric, self.user)
+        assert refreshed.status == MetricStatus.PROPOSED
+        assert refreshed.definition is not None
+        assert "persons" in refreshed.definition["query"]
+        assert compute_drift([refreshed])[refreshed.id] is False
+
+    def test_refresh_deleted_insight_errors(self) -> None:
+        insight = self._insight()
+        metric = upsert_metric(
+            team=self.team, user=self.user, name="mrr", description="d", source_insight_short_id=insight.short_id
+        )
+        Insight.objects.filter(pk=insight.pk).update(deleted=True)
+        with self.assertRaises(SourceInsightUnavailable):
+            refresh_metric_from_insight(metric, self.user)
+
+
+class TestUpdateResetsApproval(BaseTest):
+    def test_editing_definition_resets_approval(self) -> None:
+        metric = upsert_metric(team=self.team, user=self.user, name="mrr", description="d", definition=_HOGQL_A)
+        approve_metric(metric, self.user)
+        updated = update_metric(metric, team=self.team, user=self.user, definition=_HOGQL_B)
+        assert updated.status == MetricStatus.PROPOSED
+        assert updated.approved_by_id is None
+
+    def test_non_definition_edit_keeps_approval(self) -> None:
+        metric = upsert_metric(team=self.team, user=self.user, name="mrr", description="d", definition=_HOGQL_A)
+        approve_metric(metric, self.user)
+        updated = update_metric(metric, team=self.team, user=self.user, display_name="MRR")
+        assert updated.status == MetricStatus.APPROVED
+
+    def test_refine_definition_resets_approval(self) -> None:
+        metric = upsert_metric(team=self.team, user=self.user, name="mrr", description="d", definition=_HOGQL_A)
+        approve_metric(metric, self.user)
+        refined = upsert_metric(team=self.team, user=self.user, name="mrr", description="d", definition=_HOGQL_B)
+        assert refined.status == MetricStatus.PROPOSED
+        assert refined.approved_by_id is None
+
+    def test_refine_without_definition_change_keeps_approval(self) -> None:
+        metric = upsert_metric(team=self.team, user=self.user, name="mrr", description="d", definition=_HOGQL_A)
+        approve_metric(metric, self.user)
+        refined = upsert_metric(team=self.team, user=self.user, name="mrr", description="clarified")
+        assert refined.status == MetricStatus.APPROVED

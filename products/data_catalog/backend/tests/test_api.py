@@ -1,11 +1,18 @@
 from posthog.test.base import APIBaseTest
 
+from parameterized import parameterized
 from rest_framework import status
 
+from posthog.models.personal_api_key import PersonalAPIKey
 from posthog.models.team import Team
+from posthog.models.utils import generate_random_token_personal, hash_key_value
 
 from products.data_catalog.backend.facade.enums import MetricStatus
+from products.data_catalog.backend.logic.metrics import upsert_metric
 from products.data_catalog.backend.models import Metric
+from products.product_analytics.backend.models.insight import Insight
+
+_HOGQL = {"kind": "HogQLQuery", "query": "select count() from events"}
 
 
 class TestMetricAPI(APIBaseTest):
@@ -94,3 +101,71 @@ class TestMetricAPI(APIBaseTest):
 
         names = [row["name"] for row in self.client.get(self.url).json()["results"]]
         assert names == ["mine"]
+
+
+class TestMetricLifecycleAPI(APIBaseTest):
+    def setUp(self) -> None:
+        super().setUp()
+        self.url = f"/api/projects/{self.team.id}/data_catalog/metrics/"
+
+    def _insight(self, query: dict | None = None) -> Insight:
+        return Insight.objects.create(team=self.team, created_by=self.user, query=query or _HOGQL)
+
+    def test_session_user_can_approve(self) -> None:
+        upsert_metric(team=self.team, user=self.user, name="mrr", description="d", definition=_HOGQL)
+        response = self.client.post(f"{self.url}mrr/approve/")
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        assert response.json()["status"] == MetricStatus.APPROVED
+
+    def test_create_from_insight_snapshots_definition(self) -> None:
+        insight = self._insight()
+        response = self.client.post(
+            self.url, {"name": "mrr", "description": "d", "source_insight_short_id": insight.short_id}, format="json"
+        )
+        assert response.status_code == status.HTTP_201_CREATED, response.json()
+        body = response.json()
+        assert body["definition"]["kind"] == "HogQLQuery"
+        assert body["is_drifted"] is False
+
+    def test_approve_returns_409_while_drifted(self) -> None:
+        insight = self._insight()
+        self.client.post(
+            self.url, {"name": "mrr", "description": "d", "source_insight_short_id": insight.short_id}, format="json"
+        )
+        Insight.objects.filter(pk=insight.pk).update(
+            query={"kind": "HogQLQuery", "query": "select count() from persons"}
+        )
+        assert self.client.get(f"{self.url}mrr/").json()["is_drifted"] is True
+        assert self.client.post(f"{self.url}mrr/approve/").status_code == status.HTTP_409_CONFLICT
+
+    def test_refresh_then_approve_succeeds(self) -> None:
+        insight = self._insight()
+        self.client.post(
+            self.url, {"name": "mrr", "description": "d", "source_insight_short_id": insight.short_id}, format="json"
+        )
+        Insight.objects.filter(pk=insight.pk).update(
+            query={"kind": "HogQLQuery", "query": "select count() from persons"}
+        )
+        assert self.client.post(f"{self.url}mrr/refresh_from_insight/").status_code == status.HTTP_200_OK
+        assert self.client.post(f"{self.url}mrr/approve/").status_code == status.HTTP_200_OK
+
+    def _bearer(self, scopes: list[str]) -> dict:
+        raw = generate_random_token_personal()
+        PersonalAPIKey.objects.create(label="k", user=self.user, secure_value=hash_key_value(raw), scopes=scopes)
+        return {"HTTP_AUTHORIZATION": f"Bearer {raw}"}
+
+    @parameterized.expand(
+        [
+            ("without_approval_scope", ["data_catalog:read", "data_catalog:write"], status.HTTP_403_FORBIDDEN),
+            (
+                "with_approval_scope",
+                ["data_catalog:read", "data_catalog:write", "data_catalog_approval:write"],
+                status.HTTP_200_OK,
+            ),
+        ]
+    )
+    def test_token_needs_approval_scope_to_approve(self, _name: str, scopes: list[str], expected: int) -> None:
+        upsert_metric(team=self.team, user=self.user, name="mrr", description="d", definition=_HOGQL)
+        self.client.logout()  # force the personal API key authenticator, not the session
+        response = self.client.post(f"{self.url}mrr/approve/", **self._bearer(scopes))
+        assert response.status_code == expected, response.json()

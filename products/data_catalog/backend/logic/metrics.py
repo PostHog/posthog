@@ -1,8 +1,10 @@
-"""Metric write path — upsert with reserved-name semantics, partial update, soft delete.
+"""Metric write path and approval lifecycle.
 
-Names are reserved forever per team: creating with an existing name refines that metric, and
-creating with a soft-deleted name resurrects the row as ``proposed`` rather than minting a new
-identity. Concurrent same-name creates collapse to one row via the unique constraint + retry.
+Names are reserved forever per team: creating with an existing name refines that metric, and creating
+with a soft-deleted name resurrects the row as ``proposed``. A metric can be created from an insight
+(its query is snapshotted server-side and drift is flagged for re-review). Promotion to ``approved``
+is blocked while a metric is drifted. All transitions emit capture events for success-criteria
+measurement.
 """
 
 import re
@@ -14,11 +16,14 @@ from django.utils import timezone
 
 from rest_framework.exceptions import ValidationError
 
+from posthog.event_usage import report_user_action
 from posthog.models import Team, User
 from posthog.models.scoping import team_scope
 
 from ..facade.enums import CreatedSource, MetricStatus
 from ..models import METRIC_NAME_REGEX, Metric
+from .drift import canonical_query_hash, compute_drift, effective_insight_query, fetch_insight
+from .exceptions import MetricDrifted, SourceInsightUnavailable
 from .validation import validate_metric_definition
 
 
@@ -33,6 +38,23 @@ class _Unset:
 _UNSET = _Unset()
 
 
+def _capture(user: Optional[User], team: Team, event: str, metric: Metric) -> None:
+    if user is None:
+        return
+    report_user_action(
+        user=user,
+        event=event,
+        team=team,
+        properties={
+            "metric_id": str(metric.id),
+            "metric_name": metric.name,
+            "definition_kind": metric.definition_kind,
+            "status": metric.status,
+            "created_source": metric.created_source,
+        },
+    )
+
+
 def _canonical_definition(
     definition: Optional[dict], team: Team, user: Optional[User]
 ) -> tuple[Optional[dict], list[str]]:
@@ -41,13 +63,73 @@ def _canonical_definition(
     return validate_metric_definition(definition, team, user)
 
 
+def _snapshot_from_insight(team: Team, short_id: str) -> tuple[dict, str]:
+    """Snapshot a live insight's query and its canonical hash for drift tracking."""
+    insight = fetch_insight(team.id, short_id)
+    if insight is None:
+        raise ValidationError({"source_insight_short_id": "Insight not found."})
+    query = effective_insight_query(insight)
+    if not query:
+        raise ValidationError(
+            {"source_insight_short_id": "Could not convert this insight's query. Define the metric manually."}
+        )
+    return query, canonical_query_hash(query)
+
+
+def _resolve_definition_fields(
+    definition: dict | None | _Unset,
+    source_insight_short_id: str | None | _Unset,
+    team: Team,
+    user: Optional[User],
+) -> dict[str, object]:
+    """Derive the definition / insight-link fields to write, honoring the definition-XOR-insight rule.
+
+    Returns only the keys the caller actually engaged, so a refine that supplies neither writes
+    nothing (leaving a stored definition and its insight link untouched). A supplied definition
+    validates and extracts referenced tables; a non-empty insight id snapshots the query; a
+    supplied-but-empty insight id clears the link and its snapshot hash.
+    """
+    insight_supplied = not isinstance(source_insight_short_id, _Unset)
+
+    if not isinstance(source_insight_short_id, _Unset) and source_insight_short_id:
+        if not isinstance(definition, _Unset) and definition is not None:
+            raise ValidationError({"definition": "Provide a definition or a source insight, not both."})
+        snapshot_def, snapshot_hash = _snapshot_from_insight(team, source_insight_short_id)
+        canonical_def, referenced = _canonical_definition(snapshot_def, team, user)
+        return {
+            "definition": canonical_def,
+            "referenced_table_names": referenced,
+            "source_insight_short_id": source_insight_short_id,
+            "source_insight_query_hash": snapshot_hash,
+        }
+
+    result: dict[str, object] = {}
+    if not isinstance(definition, _Unset):
+        canonical_def, referenced = _canonical_definition(definition, team, user)
+        result["definition"] = canonical_def
+        result["referenced_table_names"] = referenced
+
+    if insight_supplied:
+        # Supplied but empty (the truthy case returned above): unlink and drop the snapshot hash.
+        result["source_insight_short_id"] = None
+        result["source_insight_query_hash"] = None
+
+    return result
+
+
+def _definition_hash(definition: Optional[dict]) -> Optional[str]:
+    return canonical_query_hash(definition) if definition else None
+
+
 def _resurrect_or_refine(metric: Metric, fields: dict) -> None:
     if metric.deleted:
         metric.deleted = False
         metric.deleted_at = None
-        metric.status = MetricStatus.PROPOSED
-        metric.approved_by = None
-        metric.approved_at = None
+        _reset_to_proposed(metric)
+    elif "definition" in fields and _definition_hash(fields["definition"]) != _definition_hash(metric.definition):
+        # Refining an approved metric's definition changes what it computes; its review no longer
+        # holds, so drop back to proposed (matching update_metric's PATCH behavior).
+        _reset_to_proposed(metric)
     for key, value in fields.items():
         setattr(metric, key, value)
     metric.save()
@@ -63,6 +145,7 @@ def upsert_metric(
     unit: str | _Unset = _UNSET,
     owner: User | None | _Unset = _UNSET,
     definition: dict | None | _Unset = _UNSET,
+    source_insight_short_id: str | None | _Unset = _UNSET,
     created_source: CreatedSource | _Unset = _UNSET,
     ai_model: str | _Unset = _UNSET,
     confidence: float | None | _Unset = _UNSET,
@@ -73,6 +156,9 @@ def upsert_metric(
     Refine is a partial merge: only the fields the caller supplies are written, so a refine that
     omits a field leaves that field (a stored ``definition``, provenance, ...) untouched rather than
     resetting it. On create, omitted fields fall back to the model defaults (``owner`` to ``user``).
+
+    Accepts a ``definition`` XOR a ``source_insight_short_id`` (create-from-insight snapshots the
+    insight's query server-side). Always lands ``proposed``.
     """
     if not re.match(METRIC_NAME_REGEX, name or ""):
         raise ValidationError(
@@ -92,10 +178,7 @@ def upsert_metric(
         if not isinstance(value, _Unset):
             fields[key] = value
 
-    if not isinstance(definition, _Unset):
-        canonical_def, referenced = _canonical_definition(definition, team, user)
-        fields["definition"] = canonical_def
-        fields["referenced_table_names"] = referenced
+    fields.update(_resolve_definition_fields(definition, source_insight_short_id, team, user))
 
     # team_scope so the ModelActivityMixin's before-update lookup (via the fail-closed manager)
     # works regardless of caller context (viewset, Celery, MCP, tests).
@@ -103,16 +186,18 @@ def upsert_metric(
         try:
             with transaction.atomic():
                 existing = Metric.objects.for_team(team.id).filter(name=name).select_for_update().first()
+                created = existing is None
                 if existing is not None:
                     _resurrect_or_refine(existing, fields)
-                    return existing
-                return Metric.objects.for_team(team.id).create(
-                    team=team,
-                    name=name,
-                    created_by=user,
-                    status=MetricStatus.PROPOSED,
-                    **{"owner": user, **fields},
-                )
+                    metric = existing
+                else:
+                    metric = Metric.objects.for_team(team.id).create(
+                        team=team,
+                        name=name,
+                        created_by=user,
+                        status=MetricStatus.PROPOSED,
+                        **{"owner": user, **fields},
+                    )
         except IntegrityError:
             # A concurrent writer created (team, name) first; refine that row instead of failing.
             with transaction.atomic():
@@ -120,31 +205,98 @@ def upsert_metric(
                 if existing is None:
                     raise
                 _resurrect_or_refine(existing, fields)
-                return existing
+                metric, created = existing, False
 
-
-def update_metric(metric: Metric, *, team: Team, user: Optional[User], **fields) -> Metric:
-    """Partially update a metric. Name is write-once. Definition changes are re-validated."""
-    if "name" in fields:
-        raise ValidationError({"name": "Metric name is write-once and cannot be changed."})
-
-    if "definition" in fields:
-        canonical_def, referenced = _canonical_definition(fields["definition"], team, user)
-        fields["definition"] = canonical_def
-        fields["referenced_table_names"] = referenced
-
-    for key, value in fields.items():
-        setattr(metric, key, value)
-    with team_scope(team.id):
-        metric.save()
+    _capture(user, team, "data catalog metric created" if created else "data catalog metric updated", metric)
     return metric
 
 
-def soft_delete_metric(metric: Metric) -> None:
+def update_metric(metric: Metric, *, team: Team, user: Optional[User], **fields) -> Metric:
+    """Partially update a metric. Name is write-once; editing an approved definition resets approval."""
+    if "name" in fields:
+        raise ValidationError({"name": "Metric name is write-once and cannot be changed."})
+
+    definition_changed = False
+    if "definition" in fields:
+        canonical_def, referenced = _canonical_definition(fields["definition"], team, user)
+        old_hash = canonical_query_hash(metric.definition) if metric.definition else None
+        new_hash = canonical_query_hash(canonical_def) if canonical_def else None
+        definition_changed = old_hash != new_hash
+        fields["definition"] = canonical_def
+        fields["referenced_table_names"] = referenced
+
+    if "source_insight_short_id" in fields and not fields["source_insight_short_id"]:
+        # Unlinking from the insight also clears the snapshot hash so drift no longer applies.
+        fields["source_insight_short_id"] = None
+        fields["source_insight_query_hash"] = None
+
+    for key, value in fields.items():
+        setattr(metric, key, value)
+
+    if definition_changed and metric.status == MetricStatus.APPROVED:
+        _reset_to_proposed(metric)
+
+    with team_scope(team.id):
+        metric.save()
+    _capture(user, team, "data catalog metric updated", metric)
+    return metric
+
+
+def approve_metric(metric: Metric, user: Optional[User]) -> Metric:
+    """Bless a metric as canonical. Blocked (409) while drifted. Idempotent on an already-approved metric."""
+    if metric.status == MetricStatus.APPROVED:
+        return metric
+    if compute_drift([metric])[metric.id]:
+        raise MetricDrifted()
+    metric.status = MetricStatus.APPROVED
+    metric.approved_by = user
+    metric.approved_at = timezone.now()
+    with team_scope(metric.team_id):
+        metric.save()
+    _capture(user, metric.team, "data catalog metric approved", metric)
+    return metric
+
+
+def refresh_metric_from_insight(metric: Metric, user: Optional[User]) -> Metric:
+    """Re-snapshot the linked insight's current query; a changed definition resets approval."""
+    if not metric.source_insight_short_id:
+        raise ValidationError({"source_insight_short_id": "This metric is not linked to an insight."})
+
+    insight = fetch_insight(metric.team_id, metric.source_insight_short_id, include_deleted=True)
+    if insight is None or insight.deleted:
+        raise SourceInsightUnavailable()
+    query = effective_insight_query(insight)
+    if not query:
+        raise SourceInsightUnavailable("Could not convert the source insight's query. Edit the definition or unlink.")
+
+    canonical_def, referenced = validate_metric_definition(query, metric.team, user)
+    new_hash = canonical_query_hash(query)
+    changed = new_hash != metric.source_insight_query_hash
+
+    metric.definition = canonical_def
+    metric.referenced_table_names = referenced
+    metric.source_insight_query_hash = new_hash
+    if changed and metric.status == MetricStatus.APPROVED:
+        _reset_to_proposed(metric)
+
+    with team_scope(metric.team_id):
+        metric.save()
+    _capture(user, metric.team, "data catalog metric updated", metric)
+    return metric
+
+
+def soft_delete_metric(metric: Metric, user: Optional[User] = None) -> None:
     metric.deleted = True
     metric.deleted_at = timezone.now()
     with team_scope(metric.team_id):
         metric.save()
+    _capture(user, metric.team, "data catalog metric deleted", metric)
+
+
+def _reset_to_proposed(metric: Metric) -> None:
+    metric.status = MetricStatus.PROPOSED
+    metric.approved_by = None
+    metric.approved_at = None
 
 
 def metrics_for_team(team: Team) -> QuerySet[Metric]:

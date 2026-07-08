@@ -15575,13 +15575,18 @@ export namespace Schemas {
       readonly referenced_table_names: unknown;
       /** Persisted lifecycle state: 'proposed' or 'approved'. Drift is reported separately. */
       readonly status: string;
+      /** True when the definition has drifted from its linked source insight (or the insight is gone). */
+      readonly is_drifted: boolean;
       /** @nullable */
       readonly approved_at: string | null;
+      /** User who approved this metric as canonical, or null. */
+      readonly approved_by: UserBasic | null;
       /**
-         * Short ID of the insight this metric was created from, for drift detection.
+         * Create the metric from this insight's query (snapshotted server-side). Set to null to unlink. Mutually exclusive with definition.
+         * @maxLength 12
          * @nullable
          */
-      readonly source_insight_short_id: string | null;
+      source_insight_short_id?: string | null;
       /**
          * When the metric was last run (30-minute throttle).
          * @nullable
@@ -39513,13 +39518,18 @@ export namespace Schemas {
       readonly referenced_table_names?: unknown;
       /** Persisted lifecycle state: 'proposed' or 'approved'. Drift is reported separately. */
       readonly status?: string;
+      /** True when the definition has drifted from its linked source insight (or the insight is gone). */
+      readonly is_drifted?: boolean;
       /** @nullable */
       readonly approved_at?: string | null;
+      /** User who approved this metric as canonical, or null. */
+      readonly approved_by?: UserBasic | null;
       /**
-         * Short ID of the insight this metric was created from, for drift detection.
+         * Create the metric from this insight's query (snapshotted server-side). Set to null to unlink. Mutually exclusive with definition.
+         * @maxLength 12
          * @nullable
          */
-      readonly source_insight_short_id?: string | null;
+      source_insight_short_id?: string | null;
       /**
          * When the metric was last run (30-minute throttle).
          * @nullable

@@ -11,6 +11,7 @@ from rest_framework import serializers
 
 from posthog.api.shared import UserBasicSerializer
 
+from ..facade import api
 from ..facade.enums import CreatedSource
 from ..facade.models import Metric
 
@@ -36,6 +37,9 @@ class MetricSerializer(serializers.ModelSerializer):
         read_only=True,
         help_text="Persisted lifecycle state: 'proposed' or 'approved'. Drift is reported separately.",
     )
+    is_drifted = serializers.SerializerMethodField(
+        help_text="True when the definition has drifted from its linked source insight (or the insight is gone).",
+    )
     created_source = serializers.ChoiceField(
         choices=[(s.value, s.value) for s in CreatedSource],
         required=False,
@@ -45,6 +49,9 @@ class MetricSerializer(serializers.ModelSerializer):
         help_text="Email of the human accountable for this metric, or null.",
     )
     created_by = UserBasicSerializer(read_only=True, help_text="User who first created this metric.")
+    approved_by = UserBasicSerializer(
+        read_only=True, allow_null=True, help_text="User who approved this metric as canonical, or null."
+    )
 
     class Meta:
         model = Metric
@@ -59,7 +66,9 @@ class MetricSerializer(serializers.ModelSerializer):
             "definition_kind",
             "referenced_table_names",
             "status",
+            "is_drifted",
             "approved_at",
+            "approved_by",
             "source_insight_short_id",
             "last_run_at",
             "created_source",
@@ -74,8 +83,8 @@ class MetricSerializer(serializers.ModelSerializer):
             "id",
             "status",
             "approved_at",
+            "approved_by",
             "referenced_table_names",
-            "source_insight_short_id",
             "last_run_at",
             "created_by",
             "created_at",
@@ -83,6 +92,11 @@ class MetricSerializer(serializers.ModelSerializer):
         ]
         extra_kwargs = {
             "name": {"help_text": "Identifier-safe run handle, unique per team and reserved forever. Write-once."},
+            "source_insight_short_id": {
+                "required": False,
+                "help_text": "Create the metric from this insight's query (snapshotted server-side). "
+                "Set to null to unlink. Mutually exclusive with definition.",
+            },
             "display_name": {"help_text": "Human-friendly label. Mutable, unlike name."},
             "description": {"help_text": "What the metric means and how to interpret it."},
             "unit": {"help_text": "Unit of the result, e.g. usd, percent, cents."},
@@ -94,3 +108,9 @@ class MetricSerializer(serializers.ModelSerializer):
     @extend_schema_field(serializers.CharField(allow_null=True))
     def get_owner(self, obj: Metric) -> str | None:
         return obj.owner.email if obj.owner else None
+
+    @extend_schema_field(OpenApiTypes.BOOL)
+    def get_is_drifted(self, obj: Metric) -> bool:
+        # compute_drift short-circuits (no query) for metrics without a source insight, so this is
+        # free for the common unlinked case and one bounded query for the linked ones.
+        return api.compute_drift([obj])[obj.id]
