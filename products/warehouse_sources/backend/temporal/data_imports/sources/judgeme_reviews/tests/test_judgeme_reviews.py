@@ -8,11 +8,13 @@ from parameterized import parameterized
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.judgeme_reviews import judgeme_reviews
 from products.warehouse_sources.backend.temporal.data_imports.sources.judgeme_reviews.judgeme_reviews import (
+    MAX_RETRY_AFTER_SECONDS,
     PAGE_SIZE,
     JudgeMeReviewsResumeConfig,
     JudgeMeReviewsRetryableError,
     _normalize_shop_domain,
     _parse_retry_after,
+    _retry_wait,
     check_access,
     get_rows,
     judgeme_reviews_source,
@@ -164,12 +166,11 @@ class TestFetchPage:
         with pytest.raises(requests.HTTPError):
             _fetch_page_unwrapped(session, "/reviews", "example.myshopify.com", 1, MagicMock())
 
-    def test_rate_limit_sleeps_for_retry_after(self) -> None:
+    def test_rate_limit_carries_retry_after_on_exception(self) -> None:
         session = self._session_returning(429, headers={"Retry-After": "7"})
-        with patch.object(judgeme_reviews.time, "sleep") as mock_sleep:
-            with pytest.raises(JudgeMeReviewsRetryableError):
-                _fetch_page_unwrapped(session, "/reviews", "example.myshopify.com", 1, MagicMock())
-        mock_sleep.assert_called_once_with(7)
+        with pytest.raises(JudgeMeReviewsRetryableError) as exc_info:
+            _fetch_page_unwrapped(session, "/reviews", "example.myshopify.com", 1, MagicMock())
+        assert exc_info.value.retry_after == 7
 
     def test_success_returns_json_body(self) -> None:
         body = _page([{"id": 1}])
@@ -198,6 +199,25 @@ class TestFetchPage:
     )
     def test_parse_retry_after(self, _name: str, value: str | None, expected: int | None) -> None:
         assert _parse_retry_after(value) == expected
+
+
+class TestRetryWait:
+    @staticmethod
+    def _state(exc: Exception | None) -> Any:
+        state = MagicMock()
+        state.outcome.exception.return_value = exc
+        return state
+
+    @parameterized.expand([("under_cap", 7, 7), ("capped", 120, MAX_RETRY_AFTER_SECONDS)])
+    def test_429_waits_exactly_retry_after_capped(self, _name: str, retry_after: int, expected: int) -> None:
+        # The whole point of the fix: honor Retry-After precisely, never Retry-After + jitter.
+        exc = JudgeMeReviewsRetryableError("rate limited", retry_after=retry_after)
+        assert _retry_wait(self._state(exc)) == expected
+
+    def test_falls_back_to_exponential_without_retry_after(self, monkeypatch: Any) -> None:
+        monkeypatch.setattr(judgeme_reviews, "_exponential_wait", lambda state: 99.0)
+        assert _retry_wait(self._state(requests.ReadTimeout())) == 99.0
+        assert _retry_wait(self._state(JudgeMeReviewsRetryableError("boom"))) == 99.0
 
 
 class TestNormalizeShopDomain:
@@ -247,8 +267,16 @@ class TestCheckAccess:
     @parameterized.expand(
         [
             (200, True, None),
-            (401, False, "Invalid Judge.me shop domain or API token"),
-            (403, False, "Invalid Judge.me shop domain or API token"),
+            (
+                401,
+                False,
+                "Your Judge.me shop domain or API token is invalid. Check both under Settings → Integrations → Judge.me API in the Judge.me admin, then reconnect.",
+            ),
+            (
+                403,
+                False,
+                "Your Judge.me API token does not have access to this data. Make sure you are using the private token, then reconnect.",
+            ),
             (500, False, "Judge.me returned HTTP 500"),
         ]
     )

@@ -1,11 +1,10 @@
-import time
 import dataclasses
 from collections.abc import Iterator
 from typing import Any, Optional
 
 import requests
 from structlog.types import FilteringBoundLogger
-from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_exponential_jitter
+from tenacity import RetryCallState, retry, retry_if_exception_type, stop_after_attempt, wait_exponential_jitter
 
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.typings import SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
@@ -28,7 +27,24 @@ DEFAULT_PROBE_PATH = "/reviews/count"
 
 
 class JudgeMeReviewsRetryableError(Exception):
-    pass
+    def __init__(self, message: str, retry_after: int | None = None) -> None:
+        super().__init__(message)
+        # When set (from a 429 Retry-After), the retry wait honors it exactly instead of
+        # adding exponential backoff on top.
+        self.retry_after = retry_after
+
+
+# Backoff for connection errors and 5xx, where the server gives no explicit delay.
+_exponential_wait = wait_exponential_jitter(initial=1, max=30)
+
+
+def _retry_wait(retry_state: RetryCallState) -> float:
+    # A 429 already tells us exactly when to retry via Retry-After, so wait precisely that long
+    # (capped) rather than Retry-After plus jitter, which would compound the API's requested delay.
+    exc = retry_state.outcome.exception() if retry_state.outcome else None
+    if isinstance(exc, JudgeMeReviewsRetryableError) and exc.retry_after is not None:
+        return min(exc.retry_after, MAX_RETRY_AFTER_SECONDS)
+    return _exponential_wait(retry_state)
 
 
 @dataclasses.dataclass
@@ -60,7 +76,7 @@ def _make_session(api_token: str) -> requests.Session:
 @retry(
     retry=retry_if_exception_type((JudgeMeReviewsRetryableError, requests.ReadTimeout, requests.ConnectionError)),
     stop=stop_after_attempt(5),
-    wait=wait_exponential_jitter(initial=1, max=30),
+    wait=_retry_wait,
     reraise=True,
 )
 def _fetch_page(
@@ -78,9 +94,9 @@ def _fetch_page(
 
     if response.status_code == 429:
         retry_after = _parse_retry_after(response.headers.get("Retry-After"))
-        if retry_after is not None:
-            time.sleep(min(retry_after, MAX_RETRY_AFTER_SECONDS))
-        raise JudgeMeReviewsRetryableError(f"Judge.me API rate limited: status=429, path={path}")
+        raise JudgeMeReviewsRetryableError(
+            f"Judge.me API rate limited: status=429, path={path}", retry_after=retry_after
+        )
 
     if response.status_code >= 500:
         raise JudgeMeReviewsRetryableError(
@@ -203,6 +219,16 @@ def validate_credentials(api_token: str, shop_domain: str) -> tuple[bool, str | 
     status, message = check_access(api_token, shop_domain)
     if status == 200:
         return True, None
-    if status in (401, 403):
-        return False, "Invalid Judge.me shop domain or API token"
+    # 401 means the token/shop domain pair is wrong; 403 typically means a valid but public token
+    # that can't read reviews. Keep these messages in sync with `source.py`'s non-retryable errors.
+    if status == 401:
+        return (
+            False,
+            "Your Judge.me shop domain or API token is invalid. Check both under Settings → Integrations → Judge.me API in the Judge.me admin, then reconnect.",
+        )
+    if status == 403:
+        return (
+            False,
+            "Your Judge.me API token does not have access to this data. Make sure you are using the private token, then reconnect.",
+        )
     return False, message or "Could not validate Judge.me credentials"
