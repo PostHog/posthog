@@ -3015,7 +3015,7 @@ class ShortcutSourceConfig(config.Config):
 
 @config.config
 class ShortioSourceConfig(config.Config):
-    pass
+    api_key: str
 
 
 @config.config
