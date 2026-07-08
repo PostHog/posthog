@@ -1,5 +1,5 @@
 import uuid
-from typing import Any, NoReturn, cast
+from typing import Any, NoReturn, cast, get_args
 
 from django.db import IntegrityError, transaction
 from django.db.models import QuerySet
@@ -33,6 +33,7 @@ from products.replay_vision.backend.models.vision_action import (
     VisionActionRunStatus,
 )
 from products.replay_vision.backend.rrule import validate_rrule, validate_timezone
+from products.replay_vision.backend.temporal.scanners.monitor import MonitorVerdict
 
 logger = structlog.get_logger(__name__)
 
@@ -53,43 +54,39 @@ class TriggerConfigSerializer(serializers.Serializer):
 
 
 class SelectionSerializer(serializers.Serializer):
-    """Observation filter applied at synthesis time. All keys optional; this typed shape is the
-    allowlist, so unknown input keys are dropped rather than persisted."""
+    """The action's targeting predicate ("run this on…") applied when gathering observations. All keys
+    optional; this typed shape is the allowlist, so unknown input keys are dropped rather than persisted."""
 
-    scanner_type = serializers.CharField(
-        required=False,
-        help_text="Filter observations by scanner type (monitor/classifier/scorer/summarizer).",
-    )
     scanner_ids = serializers.ListField(
         child=serializers.CharField(),
         required=False,
-        help_text="Restrict to observations produced by these scanner IDs.",
+        help_text="Restrict to observations produced by these scanner IDs. Defaults to the bound scanner.",
     )
-    verdict = serializers.CharField(
+    verdict = serializers.ListField(
+        child=serializers.ChoiceField(choices=[(v, v) for v in get_args(MonitorVerdict)]),
         required=False,
-        help_text="Filter to observations with this monitor verdict.",
+        help_text="Only run on monitor observations with one of these verdicts (yes/no/inconclusive).",
     )
     tags = serializers.ListField(
         child=serializers.CharField(),
         required=False,
-        help_text="Filter to observations carrying any of these classifier tags.",
+        help_text="Only run on classifier observations carrying any of these tags (fixed or freeform).",
     )
     min_score = serializers.FloatField(
         required=False,
-        help_text="Lower bound (inclusive) on scorer score.",
+        help_text="Only run on scorer observations with a score at or above this value (inclusive).",
     )
     max_score = serializers.FloatField(
         required=False,
-        help_text="Upper bound (inclusive) on scorer score.",
+        help_text="Only run on scorer observations with a score at or below this value (inclusive).",
     )
-    status = serializers.CharField(
-        required=False,
-        help_text="Filter to observations with this processing status.",
-    )
-    window_days = serializers.IntegerField(
-        required=False,
-        help_text="Lookback window in days for the observations gathered at synthesis time.",
-    )
+
+    def validate(self, attrs: dict[str, Any]) -> dict[str, Any]:
+        min_score = attrs.get("min_score")
+        max_score = attrs.get("max_score")
+        if min_score is not None and max_score is not None and min_score > max_score:
+            raise serializers.ValidationError({"min_score": "min_score cannot exceed max_score."})
+        return attrs
 
 
 class SynthesisConfigSerializer(serializers.Serializer):
@@ -147,7 +144,7 @@ class VisionActionSerializer(serializers.ModelSerializer):
     )
     selection = SelectionSerializer(
         required=False,
-        help_text="Observation filter applied at synthesis time.",
+        help_text="Targeting predicate: which of the scanner's observations this action runs on.",
     )
     synthesis_config = SynthesisConfigSerializer(
         required=False,
