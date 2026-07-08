@@ -173,22 +173,19 @@ class TestCheckAccess:
         monkeypatch.setattr(simplecast, "make_tracked_session", lambda **kwargs: session)
         return session
 
-    @parameterized.expand(
+    # These cases use the pytest `monkeypatch` fixture, which parameterized.expand cannot inject
+    # (same limitation as async tests), so pytest.mark.parametrize is required here.
+    @pytest.mark.parametrize(
+        "status, ok, expected_status, expected_message",
         [
-            ("ok", 200, True, 200, None),
-            ("unauthorized", 401, False, 401, None),
-            ("forbidden", 403, False, 403, None),
-            ("server_error", 500, False, 500, "Simplecast returned HTTP 500"),
-        ]
+            (200, True, 200, None),
+            (401, False, 401, None),
+            (403, False, 403, None),
+            (500, False, 500, "Simplecast returned HTTP 500"),
+        ],
     )
     def test_status_mapping(
-        self,
-        _name: str,
-        status: int,
-        ok: bool,
-        expected_status: int,
-        expected_message: str | None,
-        monkeypatch: Any,
+        self, status: int, ok: bool, expected_status: int, expected_message: str | None, monkeypatch: Any
     ) -> None:
         response = MagicMock()
         response.status_code = status
@@ -202,16 +199,18 @@ class TestCheckAccess:
         assert status == 0
         assert message is not None and "boom" in message
 
-    @parameterized.expand(
+    # Uses the `monkeypatch` fixture, so pytest.mark.parametrize is required (see note above).
+    @pytest.mark.parametrize(
+        "status, expected_valid, expected_message",
         [
-            ("ok", 200, True, None),
-            ("unauthorized", 401, False, "Invalid Simplecast API token"),
-            ("forbidden", 403, False, "Invalid Simplecast API token"),
-            ("server_error", 500, False, "Simplecast returned HTTP 500"),
-        ]
+            (200, True, None),
+            (401, False, "Invalid Simplecast API token"),
+            (403, False, "Invalid Simplecast API token"),
+            (500, False, "Simplecast returned HTTP 500"),
+        ],
     )
     def test_validate_credentials(
-        self, _name: str, status: int, expected_valid: bool, expected_message: str | None, monkeypatch: Any
+        self, status: int, expected_valid: bool, expected_message: str | None, monkeypatch: Any
     ) -> None:
         response = MagicMock()
         response.status_code = status
