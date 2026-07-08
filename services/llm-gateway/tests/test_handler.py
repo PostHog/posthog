@@ -1,10 +1,11 @@
+from collections.abc import Iterator
 from typing import Any
 
 import pytest
 
 from llm_gateway.api.handler import ANTHROPIC_CONFIG, _extract_effort, handle_llm_request
 from llm_gateway.auth.models import AuthenticatedUser
-from llm_gateway.request_context import get_posthog_properties, request_context_var
+from llm_gateway.request_context import effort_var, get_effort
 
 
 class TestExtractEffort:
@@ -43,59 +44,48 @@ class TestExtractEffort:
 
 
 class TestEffortInstrumentation:
-    @pytest.fixture
-    def mock_user(self) -> AuthenticatedUser:
-        return AuthenticatedUser(
-            user_id=123,
-            team_id=456,
-            auth_method="personal_api_key",
-            distinct_id="test-distinct-id",
-            scopes=["llm_gateway:read"],
-        )
-
     @pytest.fixture(autouse=True)
-    def reset_context(self):
-        token = request_context_var.set(None)
+    def reset_effort(self) -> Iterator[None]:
+        token = effort_var.set(None)
         yield
-        request_context_var.reset(token)
+        effort_var.reset(token)
 
     @pytest.mark.asyncio
-    async def test_effort_lands_on_request_context(self, mock_user: AuthenticatedUser) -> None:
+    async def test_effort_lands_on_request_context(self, authenticated_user: AuthenticatedUser) -> None:
         captured: dict[str, Any] = {}
 
         async def mock_llm_call(**kwargs: Any) -> dict[str, Any]:
-            # set_posthog_properties runs before the provider call, so the effort
-            # is visible on the context the PostHog callback later reads.
-            captured["properties"] = get_posthog_properties()
+            # set_effort runs before the provider call, so the effort is visible on the
+            # context the PostHog callback later reads.
+            captured["effort"] = get_effort()
             return {"ok": True}
 
         await handle_llm_request(
             request_data={"model": "test", "messages": [], "output_config": {"effort": "medium"}},
-            user=mock_user,
+            user=authenticated_user,
             model="test-model",
             is_streaming=False,
             provider_config=ANTHROPIC_CONFIG,
             llm_call=mock_llm_call,
         )
 
-        assert captured["properties"]["$ai_effort"] == "medium"
+        assert captured["effort"] == "medium"
 
     @pytest.mark.asyncio
-    async def test_no_effort_property_when_absent(self, mock_user: AuthenticatedUser) -> None:
+    async def test_no_effort_when_absent(self, authenticated_user: AuthenticatedUser) -> None:
         captured: dict[str, Any] = {}
 
         async def mock_llm_call(**kwargs: Any) -> dict[str, Any]:
-            captured["properties"] = get_posthog_properties()
+            captured["effort"] = get_effort()
             return {"ok": True}
 
         await handle_llm_request(
             request_data={"model": "test", "messages": []},
-            user=mock_user,
+            user=authenticated_user,
             model="test-model",
             is_streaming=False,
             provider_config=ANTHROPIC_CONFIG,
             llm_call=mock_llm_call,
         )
 
-        properties = captured["properties"] or {}
-        assert "$ai_effort" not in properties
+        assert captured["effort"] is None

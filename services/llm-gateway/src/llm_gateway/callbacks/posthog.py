@@ -14,6 +14,7 @@ from llm_gateway.products.config import get_product_config
 from llm_gateway.rate_limiting.cost_refresh import normalize_metric_labels
 from llm_gateway.request_context import (
     get_auth_user,
+    get_effort,
     get_posthog_flags,
     get_posthog_properties,
     get_product,
@@ -278,6 +279,12 @@ class PostHogCallback(InstrumentedCallback):
         if time_to_first_token is not None:
             properties["$ai_time_to_first_token"] = time_to_first_token
 
+        # The gateway resolves effort from the request body (see handler._extract_effort);
+        # stamp it after the caller-property merge so it can't be spoofed via a header.
+        effort = get_effort()
+        if effort is not None:
+            properties["$ai_effort"] = effort
+
         properties = _truncate_for_capture(properties)
 
         capture_kwargs: dict[str, Any] = {
@@ -341,6 +348,11 @@ class PostHogCallback(InstrumentedCallback):
                 properties[f"$feature/{flag_key}"] = variant
 
         _apply_owned_event_properties(properties, product, team_id)
+
+        # Stamp effort on errors too, so effort-level error rates are analyzable.
+        effort = get_effort()
+        if effort is not None:
+            properties["$ai_effort"] = effort
 
         capture_kwargs: dict[str, Any] = {
             "distinct_id": distinct_id,
