@@ -9,8 +9,7 @@ import { useEffect, useRef } from 'react'
 import useResizeObserver from 'use-resize-observer'
 
 import { preflightLogic } from 'lib/logic/preflightLogic'
-
-import { themeLogic } from '~/layout/navigation-3000/themeLogic'
+import { themeLogic } from 'lib/logic/themeLogic'
 
 const protocol = new Protocol()
 maplibregl.addProtocol('pmtiles', protocol.tile)

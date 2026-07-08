@@ -5,8 +5,7 @@ import type { ChartTheme, DateRangeZoomData } from '@posthog/quill-charts'
 
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-
-import { themeLogic } from '~/layout/navigation-3000/themeLogic'
+import { themeLogic } from 'lib/logic/themeLogic'
 
 import { buildTheme } from './utils/theme'
 
