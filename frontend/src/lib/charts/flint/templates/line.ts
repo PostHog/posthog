@@ -90,7 +90,13 @@ function instantiateLine(area: boolean, spec: Record<string, unknown>, ctx: Inst
     const interpolate = ctx.chartProperties?.interpolate
     const config: LineChartConfig = {
         showGrid: true,
-        curve: interpolate === 'monotone' || interpolate === 'basis' ? 'monotone' : 'linear',
+        // Only pin the curve when the spec asked for an interpolation — an explicit
+        // value here would override app-level styling defaults in the renderer
+        curve: interpolate
+            ? interpolate === 'monotone' || interpolate === 'basis'
+                ? 'monotone'
+                : 'linear'
+            : undefined,
         // Flint's zero decision: zero !== false means the axis includes 0
         floatBaseline: yCS.zero?.zero === false,
         yTickFormatter: makeTickFormatter(yCS.format),

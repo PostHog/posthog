@@ -54,7 +54,9 @@ function instantiateBar(
         barLayout,
         axisOrientation: horizontal ? 'horizontal' : 'vertical',
         showGrid: true,
-        barCornerRadius: typeof ctx.chartProperties?.cornerRadius === 'number' ? ctx.chartProperties.cornerRadius : 0,
+        // Left undefined unless the spec asks, so app-level styling defaults apply
+        barCornerRadius:
+            typeof ctx.chartProperties?.cornerRadius === 'number' ? ctx.chartProperties.cornerRadius : undefined,
         // Quill's value axis is y for vertical bars and x for horizontal ones,
         // but yTickFormatter always formats the value axis
         yTickFormatter: valueFormatter,

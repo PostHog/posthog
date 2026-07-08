@@ -3,7 +3,7 @@ import { useMemo } from 'react'
 
 import { BarChart, LineChart, PieChart } from '@posthog/quill-charts'
 
-import { useChartTheme } from 'lib/charts/hooks'
+import { useChartConfig, useChartTheme } from 'lib/charts/hooks'
 
 import { assembleQuill } from './assembleQuill'
 import type { QuillChartSpec } from './types'
@@ -29,6 +29,9 @@ export function FlintQuillChart({ input, className, dataAttr }: FlintQuillChartP
             return { ok: false, error: e instanceof Error ? e.message : String(e) }
         }
     }, [input])
+    // Layer the app-level chart styling (refreshed style: axis lines, tick marks,
+    // crosshair, monotone curve) under the assembled config, like every other app chart
+    const config = useChartConfig(() => (result.ok ? result.spec.config : undefined), [result])
 
     if (!result.ok) {
         return <div className="text-danger text-sm p-2">Could not render chart: {result.error}</div>
@@ -41,7 +44,7 @@ export function FlintQuillChart({ input, className, dataAttr }: FlintQuillChartP
                 <BarChart
                     series={spec.series}
                     labels={spec.labels}
-                    config={spec.config}
+                    config={config}
                     theme={theme}
                     className={className}
                     dataAttr={dataAttr}
@@ -52,7 +55,7 @@ export function FlintQuillChart({ input, className, dataAttr }: FlintQuillChartP
                 <LineChart
                     series={spec.series}
                     labels={spec.labels}
-                    config={spec.config}
+                    config={config}
                     theme={theme}
                     className={className}
                     dataAttr={dataAttr}
@@ -62,7 +65,7 @@ export function FlintQuillChart({ input, className, dataAttr }: FlintQuillChartP
             return (
                 <PieChart
                     series={spec.series}
-                    config={spec.config}
+                    config={config}
                     theme={theme}
                     className={className}
                     dataAttr={dataAttr}
