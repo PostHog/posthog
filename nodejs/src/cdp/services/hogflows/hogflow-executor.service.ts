@@ -3,6 +3,7 @@ import { DateTime } from 'luxon'
 
 import { HogFlow, HogFlowAction } from '~/cdp/schema/hogflow'
 import { logger } from '~/common/utils/logger'
+import { captureException } from '~/common/utils/posthog'
 import { UUIDT } from '~/common/utils/utils'
 
 import {
@@ -569,6 +570,13 @@ export class HogFlowExecutorService {
                 }
             }
         } catch (err) {
+            captureException(err, {
+                tags: {
+                    team_id: result.invocation.hogFlow.team_id,
+                    hogflow_id: result.invocation.hogFlow.id,
+                    action_id: result.invocation.state?.currentAction?.id ?? null,
+                },
+            })
             logger.error('Error trying to continue to next action on error', { error: err })
         }
     }
