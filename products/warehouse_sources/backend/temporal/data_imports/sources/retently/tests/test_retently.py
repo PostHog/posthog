@@ -164,19 +164,20 @@ class TestPagination:
         rows, _ = _collect("feedback", bodies)
         assert rows == []
 
-    def test_unpaginated_endpoints_make_one_request_without_page_params(self) -> None:
-        cases = {
-            "campaigns": {"campaigns": [{"id": "c1"}]},
-            "templates": {"templates": [{"id": "t1"}]},
-            "reports": {"data": [{"campaignId": "c1"}]},
-        }
-        for endpoint, body in cases.items():
-            rows, session = _collect(endpoint, [body])
-            assert len(rows) == 1, endpoint
-            assert len(session.requests) == 1, endpoint
-            _, params = session.requests[0]
-            assert "page" not in params, endpoint
-            assert "limit" not in params, endpoint
+    @parameterized.expand(
+        [
+            ("campaigns", {"campaigns": [{"id": "c1"}]}),
+            ("templates", {"templates": [{"id": "t1"}]}),
+            ("reports", {"data": [{"campaignId": "c1"}]}),
+        ]
+    )
+    def test_unpaginated_endpoints_make_one_request_without_page_params(self, endpoint: str, body: Any) -> None:
+        rows, session = _collect(endpoint, [body])
+        assert len(rows) == 1
+        assert len(session.requests) == 1
+        _, params = session.requests[0]
+        assert "page" not in params
+        assert "limit" not in params
 
     def test_requests_ascending_sort_for_page_stability(self) -> None:
         bodies = [{"data": {"surveys": [{"customerId": "1"}], "pages": 1}}]
@@ -249,10 +250,18 @@ class TestResume:
 
 
 class TestRetries:
-    @parameterized.expand([("rate_limited", 429), ("server_error", 500)])
-    def test_transient_statuses_are_retried(self, _name: str, status_code: int) -> None:
+    @parameterized.expand(
+        [
+            ("rate_limited", _FakeResponse({}, status_code=429)),
+            ("server_error", _FakeResponse({}, status_code=500)),
+            # A transiently malformed payload (e.g. an HTML error page from a proxy) must retry the
+            # single request, not fail the sync — extraction runs inside the retried scope.
+            ("malformed_payload", "<html>bad gateway</html>"),
+        ]
+    )
+    def test_transient_failures_are_retried(self, _name: str, first_response: Any) -> None:
         bodies = [
-            _FakeResponse({}, status_code=status_code),
+            first_response,
             {"data": {"responses": [{"id": "1"}], "pages": 1}},
         ]
         with (
@@ -332,9 +341,9 @@ class TestSourceResponse:
             assert response.partition_keys == [partition_key]
             assert response.partition_mode == "datetime"
 
-    def test_every_declared_endpoint_builds_a_response(self) -> None:
-        for endpoint in ENDPOINTS:
-            response = retently_source(
-                api_key="key", endpoint=endpoint, logger=MagicMock(), resumable_source_manager=MagicMock()
-            )
-            assert response.name == endpoint
+    @parameterized.expand(ENDPOINTS)
+    def test_every_declared_endpoint_builds_a_response(self, endpoint: str) -> None:
+        response = retently_source(
+            api_key="key", endpoint=endpoint, logger=MagicMock(), resumable_source_manager=MagicMock()
+        )
+        assert response.name == endpoint

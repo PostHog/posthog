@@ -115,7 +115,7 @@ def get_rows(
         wait=wait_exponential_jitter(initial=1, max=60),
         reraise=True,
     )
-    def fetch_page(params: dict[str, Any]) -> Any:
+    def fetch_page(params: dict[str, Any]) -> tuple[list[dict[str, Any]], dict[str, Any]]:
         response = session.get(
             f"{RETENTLY_BASE_URL}{config.path}",
             params=params,
@@ -132,7 +132,10 @@ def get_rows(
             logger.error(f"Retently API error: status={response.status_code}, body={response.text}, path={config.path}")
             response.raise_for_status()
 
-        return response.json()
+        body = response.json()
+        # Extraction happens inside the retried scope so a transiently malformed payload (e.g. an
+        # HTML error page from a proxy) retries this one request instead of failing the sync.
+        return _extract_items(body, config), body
 
     base_params: dict[str, Any] = {}
     if config.paginated:
@@ -145,8 +148,7 @@ def get_rows(
         base_params["startDate"] = _format_start_date(db_incremental_field_last_value)
 
     if not config.paginated:
-        body = fetch_page(base_params)
-        items = _extract_items(body, config)
+        items, _ = fetch_page(base_params)
         if items:
             yield items
         return
@@ -157,8 +159,7 @@ def get_rows(
         logger.debug(f"Retently: resuming {endpoint} from page {page}")
 
     while True:
-        body = fetch_page({**base_params, "page": page})
-        items = _extract_items(body, config)
+        items, body = fetch_page({**base_params, "page": page})
         if items:
             yield items
 
