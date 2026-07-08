@@ -79,7 +79,7 @@ class TestAnthropicTemperature:
         mock_response.usage.output_tokens = 1
         return mock_response
 
-    def _complete_with_model(self, model: str):
+    def _complete_with_model(self, model: str, temperature: float | None = None):
         with patch("products.ai_observability.backend.llm.providers.anthropic.anthropic.Anthropic") as mock_cls:
             mock_client = MagicMock()
             mock_cls.return_value = mock_client
@@ -91,17 +91,23 @@ class TestAnthropicTemperature:
                     messages=[{"role": "user", "content": "hi"}],
                     provider="anthropic",
                     system="s",
+                    temperature=temperature,
                 ),
                 api_key="sk-ant-test",
                 analytics=AnalyticsContext(capture=False),
             )
             return mock_client.messages.create.call_args.kwargs
 
-    @parameterized.expand(["claude-opus-4-8", "claude-opus-4-7", "claude-sonnet-5", "claude-fable-5"])
-    def test_temperature_omitted_for_models_that_reject_it(self, model: str):
-        # Newer models 400 with "temperature is deprecated for this model" if we send it
-        assert "temperature" not in self._complete_with_model(model)
+    @parameterized.expand(["claude-haiku-4-5", "claude-opus-4-8", "claude-fable-5"])
+    def test_temperature_omitted_when_not_set(self, model: str):
+        # Evals never set a temperature; we must not inject one (Anthropic's guidance is to omit)
+        assert "temperature" not in self._complete_with_model(model, temperature=None)
 
     @parameterized.expand(["claude-haiku-4-5", "claude-sonnet-4-6", "claude-opus-4-6"])
-    def test_temperature_sent_for_models_that_accept_it(self, model: str):
-        assert self._complete_with_model(model)["temperature"] == AnthropicConfig.TEMPERATURE
+    def test_explicit_temperature_sent_for_models_that_accept_it(self, model: str):
+        assert self._complete_with_model(model, temperature=0.5)["temperature"] == 0.5
+
+    @parameterized.expand(["claude-opus-4-8", "claude-opus-4-7", "claude-sonnet-5", "claude-fable-5"])
+    def test_explicit_temperature_dropped_for_models_that_reject_it(self, model: str):
+        # These 400 with "temperature is deprecated for this model" if we send it
+        assert "temperature" not in self._complete_with_model(model, temperature=0.5)

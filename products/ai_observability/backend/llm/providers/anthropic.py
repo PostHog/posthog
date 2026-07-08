@@ -39,7 +39,6 @@ def _is_quota_or_billing_error(error: Exception) -> bool:
 class AnthropicConfig:
     MAX_TOKENS: int = 8192
     MAX_THINKING_TOKENS: int = 4096
-    TEMPERATURE: float = 0
     # Timeout in seconds for API calls. Set high to accommodate slow reasoning models.
     # Note: Infrastructure-level timeouts (load balancers, proxies) may still limit actual request duration.
     TIMEOUT: float = 300.0
@@ -92,8 +91,11 @@ class AnthropicConfig:
         "claude-sonnet-4-0",
     ]
 
-    # Newer models reject the `temperature` parameter with a 400
-    # ("temperature is deprecated for this model"). Skip sending it for these.
+    # Anthropic deprecated the sampling parameters (`temperature`/`top_p`/`top_k`) starting
+    # with Opus 4.7: setting them to a non-default value returns a 400. Their guidance is to
+    # omit them and steer via prompting. We never send a temperature unless a caller explicitly
+    # sets one; this list guards that explicit case so it degrades gracefully instead of 400ing.
+    # https://platform.claude.com/docs/en/about-claude/model-deprecations
     MODELS_WITHOUT_TEMPERATURE: list[str] = [
         "claude-opus-4-8",
         "claude-opus-4-7",
@@ -152,10 +154,9 @@ class AnthropicAdapter:
             **(self._build_analytics_kwargs(analytics, client)),
         }
 
-        if AnthropicConfig.supports_temperature(request.model):
-            create_kwargs["temperature"] = (
-                request.temperature if request.temperature is not None else AnthropicConfig.TEMPERATURE
-            )
+        # Only forward temperature when a caller explicitly set one and the model still accepts it.
+        if request.temperature is not None and AnthropicConfig.supports_temperature(request.model):
+            create_kwargs["temperature"] = request.temperature
 
         if use_structured:
             assert request.response_format is not None
@@ -238,7 +239,6 @@ class AnthropicAdapter:
 
         reasoning_on = model_id in AnthropicConfig.SUPPORTED_MODELS_WITH_THINKING and request.thinking
 
-        effective_temperature = request.temperature if request.temperature is not None else AnthropicConfig.TEMPERATURE
         effective_max_tokens = request.max_tokens if request.max_tokens is not None else AnthropicConfig.MAX_TOKENS
 
         tools = self._convert_tools(request.tools) if request.tools else None
@@ -264,8 +264,9 @@ class AnthropicAdapter:
                 "stream": True,
             }
 
-            if AnthropicConfig.supports_temperature(model_id):
-                common_kwargs["temperature"] = effective_temperature
+            # Only forward temperature when a caller explicitly set one and the model still accepts it.
+            if request.temperature is not None and AnthropicConfig.supports_temperature(model_id):
+                common_kwargs["temperature"] = request.temperature
 
             if analytics.capture:
                 common_kwargs["posthog_distinct_id"] = analytics.distinct_id
