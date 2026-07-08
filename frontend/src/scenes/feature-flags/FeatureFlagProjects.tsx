@@ -1,7 +1,15 @@
 import { useActions, useValues } from 'kea'
 
 import { IconArrowRight } from '@posthog/icons'
-import { LemonBanner, LemonButton, LemonCheckbox, LemonSelect, LemonTag } from '@posthog/lemon-ui'
+import {
+    LemonBanner,
+    LemonButton,
+    LemonCheckbox,
+    LemonDialog,
+    LemonSelect,
+    LemonSwitch,
+    LemonTag,
+} from '@posthog/lemon-ui'
 
 import { OrganizationMembershipLevel } from 'lib/constants'
 import { useOnMountEffect } from 'lib/hooks/useOnMountEffect'
@@ -42,10 +50,14 @@ const getColumns = ({
     aggregationLabel,
     currentTeamId,
     currentOrganization,
+    projectFlagsToggling,
+    onToggleFlagActive,
 }: {
     aggregationLabel: (groupTypeIndex: number | null | undefined, deferToUserWording?: boolean) => Noun
     currentTeamId: number | null
     currentOrganization: OrganizationType | null
+    projectFlagsToggling: Record<string, boolean>
+    onToggleFlagActive: (record: OrganizationFeatureFlag, active: boolean) => void
 }): LemonTableColumns<OrganizationFeatureFlag> => {
     return [
         {
@@ -89,15 +101,33 @@ const getColumns = ({
         {
             title: 'Status',
             dataIndex: 'active',
-            render: (dataValue) => {
-                return dataValue ? (
-                    <LemonTag type="success" className="uppercase">
-                        Enabled
-                    </LemonTag>
-                ) : (
-                    <LemonTag type="default" className="uppercase">
-                        Disabled
-                    </LemonTag>
+            render: (_, record) => {
+                const toggling =
+                    record.team_id !== null &&
+                    record.flag_id !== null &&
+                    projectFlagsToggling[`${record.team_id}:${record.flag_id}`]
+                return (
+                    <div className="flex items-center gap-2">
+                        {record.team_id !== null && record.flag_id !== null && (
+                            <LemonSwitch
+                                checked={record.active}
+                                onChange={(active) => onToggleFlagActive(record, active)}
+                                size="small"
+                                loading={!!toggling}
+                                disabledReason={toggling ? 'Updating…' : undefined}
+                                data-attr="feature-flag-projects-toggle"
+                            />
+                        )}
+                        {record.active ? (
+                            <LemonTag type="success" className="uppercase">
+                                Enabled
+                            </LemonTag>
+                        ) : (
+                            <LemonTag type="default" className="uppercase">
+                                Disabled
+                            </LemonTag>
+                        )}
+                    </div>
                 )
             },
         },
@@ -229,8 +259,8 @@ function FeatureFlagCopySection(): JSX.Element {
 }
 
 export default function FeatureFlagProjects(): JSX.Element {
-    const { projectsWithCurrentFlag, featureFlag } = useValues(featureFlagLogic)
-    const { loadProjectsWithCurrentFlag, loadScheduledChanges } = useActions(featureFlagLogic)
+    const { projectsWithCurrentFlag, featureFlag, projectFlagsToggling } = useValues(featureFlagLogic)
+    const { loadProjectsWithCurrentFlag, loadScheduledChanges, toggleProjectFlagActive } = useActions(featureFlagLogic)
     const { currentTeamId } = useValues(teamLogic)
     const { currentOrganization } = useValues(organizationLogic)
     const { aggregationLabel } = useValues(groupsModel)
@@ -242,6 +272,32 @@ export default function FeatureFlagProjects(): JSX.Element {
         }
     })
 
+    const onToggleFlagActive = (record: OrganizationFeatureFlag, active: boolean): void => {
+        if (record.team_id === null || record.flag_id === null) {
+            return
+        }
+        const teamId = record.team_id
+        const flagId = record.flag_id
+        const teamName = currentOrganization?.teams?.find((t) => t.id === teamId)?.name ?? `Project ${teamId}`
+        LemonDialog.open({
+            title: `${active ? 'Enable' : 'Disable'} this flag in ${teamName}?`,
+            description: `This flag will be immediately ${
+                active ? 'rolled out to' : 'rolled back from'
+            } the users matching the release conditions in ${teamName}.`,
+            primaryButton: {
+                children: 'Confirm',
+                type: 'primary',
+                size: 'small',
+                onClick: () => toggleProjectFlagActive(teamId, flagId, active),
+            },
+            secondaryButton: {
+                children: 'Cancel',
+                type: 'tertiary',
+                size: 'small',
+            },
+        })
+    }
+
     return (
         <div>
             <InfoBanner />
@@ -249,7 +305,13 @@ export default function FeatureFlagProjects(): JSX.Element {
             <LemonTable
                 loading={false}
                 dataSource={projectsWithCurrentFlag}
-                columns={getColumns({ currentTeamId, currentOrganization, aggregationLabel })}
+                columns={getColumns({
+                    currentTeamId,
+                    currentOrganization,
+                    aggregationLabel,
+                    projectFlagsToggling,
+                    onToggleFlagActive,
+                })}
                 emptyState="This feature flag is not being used in any other project."
             />
         </div>

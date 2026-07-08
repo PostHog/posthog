@@ -89,6 +89,7 @@ import { uniformAggregationGroupTypeIndex } from './defaultReleaseConditionsUtil
 import { checkFeatureFlagConfirmation } from './featureFlagConfirmationLogic'
 import type { FlagIntent } from './featureFlagIntentWarningLogic'
 import type { featureFlagLogicType } from './featureFlagLogicType'
+import { updateFlagActiveInProject } from './updateFlagActiveInProject'
 
 const VALID_INTENTS: FlagIntent[] = ['local-eval', 'first-page-load']
 
@@ -645,6 +646,8 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
         createPairedSchedule: true,
         setAccessDeniedToFeatureFlag: true,
         toggleFeatureFlagActive: (active: boolean) => ({ active }),
+        toggleProjectFlagActive: (teamId: number, flagId: number, active: boolean) => ({ teamId, flagId, active }),
+        projectFlagActiveToggleFinished: (teamId: number, flagId: number) => ({ teamId, flagId }),
         submitFeatureFlagWithValidation: (featureFlag: Partial<FeatureFlagType>) => ({ featureFlag }),
         setBucketingIdentifier: (bucketingIdentifier: FeatureFlagBucketingIdentifier | null) => ({
             bucketingIdentifier,
@@ -977,6 +980,16 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
             null as number | null,
             {
                 setCopyDestinationProject: (_, { id }) => id,
+            },
+        ],
+        projectFlagsToggling: [
+            {} as Record<string, boolean>,
+            {
+                toggleProjectFlagActive: (state, { teamId, flagId }) => ({ ...state, [`${teamId}:${flagId}`]: true }),
+                projectFlagActiveToggleFinished: (state, { teamId, flagId }) => {
+                    const { [`${teamId}:${flagId}`]: _, ...rest } = state
+                    return rest
+                },
             },
         ],
         copySchedule: [
@@ -1559,7 +1572,12 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
                 const orgId = values.currentOrganizationId
                 const flagKey = values.featureFlag.key
 
-                const organizationFeatureFlags = await api.organizationFeatureFlags.get(orgId, flagKey)
+                // The wrapper is typed as `OrganizationFeatureFlags` (a legacy name), but the
+                // endpoint actually returns a list of `OrganizationFeatureFlag`. Narrow once here.
+                const organizationFeatureFlags = (await api.organizationFeatureFlags.get(
+                    orgId,
+                    flagKey
+                )) as unknown as OrganizationFeatureFlag[]
                 const teamIdsInCurrentProject =
                     values.currentOrganization?.teams
                         .filter((t) => t.project_id === values.currentProjectId)
@@ -1568,10 +1586,10 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
                 // Put current project first. We need teamIdsInCurrentProject here, because as of Feb 2025,
                 // FeatureFlag only has `team_id`, but not `project_id`
                 return organizationFeatureFlags.sort((a, b) => {
-                    if (teamIdsInCurrentProject.includes(a.team_id)) {
+                    if (a.team_id !== null && teamIdsInCurrentProject.includes(a.team_id)) {
                         return -1
                     }
-                    if (teamIdsInCurrentProject.includes(b.team_id)) {
+                    if (b.team_id !== null && teamIdsInCurrentProject.includes(b.team_id)) {
                         return 1
                     }
                     return 0
@@ -1944,6 +1962,24 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
                 actions.setFeatureFlag(featureFlagActiveUpdate)
                 actions.updateFlag(featureFlagActiveUpdate)
             }
+        },
+        toggleProjectFlagActive: async ({ teamId, flagId, active }) => {
+            const updatedFlag = await updateFlagActiveInProject({ teamId, flagId, active })
+            if (updatedFlag) {
+                const newActive = updatedFlag.active ?? active
+                actions.loadProjectsWithCurrentFlagSuccess(
+                    values.projectsWithCurrentFlag.map((p) =>
+                        p.team_id === teamId && p.flag_id === flagId ? { ...p, active: newActive } : p
+                    )
+                )
+                // Keep the flag page and the flags list in sync when the toggled row is the current project's flag.
+                if (flagId === values.featureFlag.id && teamId === values.currentTeamId) {
+                    const syncedFlag = { ...values.featureFlag, active: newActive }
+                    actions.setFeatureFlag(syncedFlag)
+                    actions.updateFlag(syncedFlag)
+                }
+            }
+            actions.projectFlagActiveToggleFinished(teamId, flagId)
         },
         updateFeatureFlagArchivedSuccess: ({ featureFlagActiveUpdate }) => {
             if (featureFlagActiveUpdate) {

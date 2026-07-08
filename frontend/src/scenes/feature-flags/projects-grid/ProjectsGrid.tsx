@@ -1,7 +1,7 @@
 import { useActions, useValues } from 'kea'
 import { useEffect, useMemo, useRef } from 'react'
 
-import { LemonSkeleton } from '@posthog/lemon-ui'
+import { LemonDialog, LemonSkeleton } from '@posthog/lemon-ui'
 
 import { LemonTable, LemonTableColumns } from 'lib/lemon-ui/LemonTable'
 import { LemonTableLink } from 'lib/lemon-ui/LemonTable/LemonTableLink'
@@ -65,8 +65,9 @@ export function ProjectsGrid(): JSX.Element {
         accessibleTeamIds,
         siblingsByFlagKey,
         siblingsLoadingKeys,
+        togglingFlagIds,
     } = useValues(projectsGridLogic)
-    const { loadMoreFlags } = useActions(projectsGridLogic)
+    const { loadMoreFlags, toggleFlagActive } = useActions(projectsGridLogic)
     const { currentOrganization } = useValues(organizationLogic)
     const { currentTeamId } = useValues(teamLogic)
 
@@ -124,18 +125,47 @@ export function ProjectsGrid(): JSX.Element {
             ),
             key: `project-${teamId}`,
             width: columnWidth,
-            render: (_: unknown, flag: OrganizationFeatureFlagRow) => (
-                <ProjectsGridCell
-                    state={cellStateFor(
-                        flag,
-                        teamId,
-                        currentTeamId,
-                        accessibleTeamIds,
-                        siblingsByFlagKey[flag.key],
-                        siblingsLoadingKeys.includes(flag.key)
-                    )}
-                />
-            ),
+            render: (_: unknown, flag: OrganizationFeatureFlagRow) => {
+                const state = cellStateFor(
+                    flag,
+                    teamId,
+                    currentTeamId,
+                    accessibleTeamIds,
+                    siblingsByFlagKey[flag.key],
+                    siblingsLoadingKeys.includes(flag.key)
+                )
+                const flagId = state.kind === 'present' ? state.sibling.flag_id : null
+                return (
+                    <ProjectsGridCell
+                        state={state}
+                        toggling={flagId !== null ? togglingFlagIds[`${teamId}:${flagId}`] : false}
+                        onToggle={
+                            flagId !== null
+                                ? (active) => {
+                                      const teamName = teamsById.get(teamId)?.name ?? `Project ${teamId}`
+                                      LemonDialog.open({
+                                          title: `${active ? 'Enable' : 'Disable'} this flag in ${teamName}?`,
+                                          description: `This flag will be immediately ${
+                                              active ? 'rolled out to' : 'rolled back from'
+                                          } the users matching the release conditions in ${teamName}.`,
+                                          primaryButton: {
+                                              children: 'Confirm',
+                                              type: 'primary',
+                                              size: 'small',
+                                              onClick: () => toggleFlagActive(flag.key, teamId, flagId, active),
+                                          },
+                                          secondaryButton: {
+                                              children: 'Cancel',
+                                              type: 'tertiary',
+                                              size: 'small',
+                                          },
+                                      })
+                                  }
+                                : undefined
+                        }
+                    />
+                )
+            },
         })),
     ]
 
