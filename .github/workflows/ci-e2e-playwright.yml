@@ -102,14 +102,16 @@ jobs:
             # blob:none, the post-fetch `git checkout` lazy-fetches every blob in HEAD
             # and the per-blob credential lookup intermittently fails with "could not
             # read Username for github.com" (e.g. #59779 on 2026-05-23, blocked merge
-            # until the job was retried). Materializing only the one file this job
-            # reads collapses the lazy fetch to a handful of blobs.
+            # until the job was retried). Materializing only the files this job reads
+            # (plus the local paths-filter action, which must exist on disk to run)
+            # collapses the lazy fetch to a handful of blobs.
             - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
               with:
                   fetch-depth: 1000
                   filter: blob:none
                   clean: false
                   sparse-checkout: |
+                      .github/actions/paths-filter
                       .github/clickhouse-versions.json
                       docker-compose.base.yml
                   sparse-checkout-cone-mode: false
