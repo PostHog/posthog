@@ -2334,7 +2334,13 @@ function MarkdownNotebookEditor({
                     ...currentDocument,
                     nodes: nodes.map((currentNode) =>
                         currentNode.id === node.id && isTextBlockNode(currentNode)
-                            ? { ...currentNode, type: 'paragraph', level: undefined }
+                            ? {
+                                  ...currentNode,
+                                  // A quoted heading downgrades to quote text, staying in the quote
+                                  type: currentNode.blockquote ? 'blockquote' : 'paragraph',
+                                  level: undefined,
+                                  blockquote: undefined,
+                              }
                             : currentNode
                     ),
                 })
@@ -3655,9 +3661,19 @@ function MarkdownNotebookEditor({
                     }
                 }
                 if (typeof style === 'number') {
-                    return { ...node, type: 'heading', level: style }
+                    // A heading applied inside a quote keeps its quote membership
+                    return {
+                        ...node,
+                        type: 'heading',
+                        level: style,
+                        blockquote: node.type === 'blockquote' || node.blockquote ? true : undefined,
+                    }
                 }
-                return { ...node, type: style, level: undefined }
+                if (style === 'blockquote' && node.type === 'heading') {
+                    // Quoting a heading keeps it a heading, mirroring list quote membership
+                    return { ...node, blockquote: true }
+                }
+                return { ...node, type: style, level: undefined, blockquote: undefined }
             }),
         })
     }

@@ -4465,6 +4465,74 @@ Body text`)
 > Quote outro`)
     })
 
+    it('round-trips headings inside blockquotes as quoted headings', () => {
+        const markdown = `> Quote intro
+> ## Quoted heading
+> Quote outro`
+
+        const document = parseMarkdownNotebook(markdown)
+
+        expect(document.nodes.map((node) => node.type)).toEqual(['blockquote', 'heading', 'blockquote'])
+        expect(document.nodes[1].type === 'heading' && document.nodes[1].level).toEqual(2)
+        expect(document.nodes[1].type === 'heading' && document.nodes[1].blockquote).toBe(true)
+        expect(serializeMarkdownNotebook(document)).toEqual(`> Quote intro
+
+> ## Quoted heading
+
+> Quote outro`)
+    })
+
+    it('keeps quote text that looks like a heading as escaped literal text', () => {
+        const document = parseMarkdownNotebook('> \\## literal marker')
+
+        expect(document.nodes.map((node) => node.type)).toEqual(['blockquote'])
+        expect(serializeMarkdownNotebook(document)).toEqual('> \\## literal marker')
+    })
+
+    it('renders blockquoted headings inside the blockquote group', () => {
+        const { container } = render(
+            createElement(MarkdownNotebook, {
+                value: withNotebookTitle('> Quote intro\n> ## Quoted heading'),
+            })
+        )
+        const quotedHeading = container.querySelector('.MarkdownNotebook__blockquote-group h2')
+
+        expect(quotedHeading).toBeInstanceOf(HTMLElement)
+        expect(quotedHeading?.textContent).toEqual('Quoted heading')
+    })
+
+    it('applies a heading style inside a blockquote without leaving the quote', () => {
+        const onChange = jest.fn()
+        const { container } = render(
+            createElement(MarkdownNotebook, {
+                value: withNotebookTitle('> Quoted text'),
+                onChange,
+            })
+        )
+        const quoteBlock = getEditableTextBlocks(container)[1]
+
+        selectTextNode(getFirstTextNode(quoteBlock), 0, 'Quoted'.length, true)
+        fireEvent.click(getFormattingStyleButton(container, 'Heading 2'))
+
+        expect(onChange).toHaveBeenLastCalledWith(`${TEST_NOTEBOOK_TITLE_MARKDOWN}\n\n> ## Quoted text`)
+    })
+
+    it('downgrades a quoted heading to quote text with Backspace at its start', () => {
+        const onChange = jest.fn()
+        const { container } = render(
+            createElement(MarkdownNotebook, {
+                value: withNotebookTitle('> ## Quoted heading'),
+                onChange,
+            })
+        )
+        const headingBlock = getEditableTextBlocks(container)[1]
+
+        selectTextInElement(headingBlock, 0, 0)
+        fireEvent.keyDown(headingBlock, { key: 'Backspace' })
+
+        expect(onChange).toHaveBeenLastCalledWith(`${TEST_NOTEBOOK_TITLE_MARKDOWN}\n\n> Quoted heading`)
+    })
+
     it('renders blockquoted lists inside the blockquote group', () => {
         const { container } = render(
             createElement(MarkdownNotebook, {
