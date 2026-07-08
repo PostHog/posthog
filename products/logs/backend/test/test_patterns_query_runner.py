@@ -14,7 +14,13 @@ from posthog.schema import DateRange, FilterLogicalOperator, LogsQuery, Property
 from posthog.clickhouse.client import sync_execute
 from posthog.hogql_queries.query_runner import ExecutionMode
 
-from products.logs.backend.patterns_query_runner import PatternsQueryRunner, _sample_divisor, _time_slices
+from products.logs.backend.patterns_query_runner import (
+    DEFAULT_PATTERNS_LIMIT,
+    MAX_PATTERNS_LIMIT,
+    PatternsQueryRunner,
+    _sample_divisor,
+    _time_slices,
+)
 
 _FROZEN_NOW = "2026-06-23T13:00:00Z"
 _WINDOW = DateRange(date_from="2026-06-23T00:00:00Z", date_to="2026-06-23T13:00:00Z")
@@ -40,6 +46,7 @@ class TestPatternsQueryRunner(ClickhouseTestMixin, APIBaseTest):
             severityLevels=overrides.pop("severityLevels", []),
             serviceNames=overrides.pop("serviceNames", []),
             searchTerm=overrides.pop("searchTerm", None),
+            limit=overrides.pop("limit", None),
         )
         response = PatternsQueryRunner(team=self.team, query=query).run(ExecutionMode.CALCULATE_BLOCKING_ALWAYS)
         return response.results
@@ -207,6 +214,45 @@ class TestPatternsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         assert results["scanned_count"] == 0
         assert results["total_count"] == 0
         assert results["sampled"] is False
+
+    @freeze_time(_FROZEN_NOW)
+    def test_limit_bounds_returned_patterns_to_top_n(self) -> None:
+        # Five distinct templates with descending frequency; limit must return the top-2 by count.
+        self._insert(
+            [self._log("alpha event fired") for _ in range(5)]
+            + [self._log("beta event fired") for _ in range(4)]
+            + [self._log("gamma event fired") for _ in range(3)]
+            + [self._log("delta event fired") for _ in range(2)]
+            + [self._log("epsilon event fired")]
+        )
+
+        results = self._run(limit=2)
+        patterns = results["patterns"]
+
+        assert len(patterns) == 2
+        assert [p["pattern"] for p in patterns] == ["alpha event fired", "beta event fired"]
+        # Bounding the page must not change the full-window totals.
+        assert results["total_count"] == 15
+
+    @parameterized.expand(
+        [
+            ("default_when_unset", None, DEFAULT_PATTERNS_LIMIT),
+            ("passthrough_in_range", 10, 10),
+            ("clamped_to_hard_cap", MAX_PATTERNS_LIMIT + 500, MAX_PATTERNS_LIMIT),
+            ("clamped_to_at_least_one", 0, 1),
+        ]
+    )
+    def test_max_patterns_clamps_requested_limit(self, _name: str, requested: int | None, expected: int) -> None:
+        query = LogsQuery(
+            dateRange=_WINDOW,
+            filterGroup=PropertyGroupFilter(type=FilterLogicalOperator.AND_, values=[]),
+            severityLevels=[],
+            serviceNames=[],
+            searchTerm=None,
+            limit=requested,
+        )
+        runner = PatternsQueryRunner(team=self.team, query=query)
+        assert runner._max_patterns == expected
 
     def test_blocks_generic_query_runner_access(self) -> None:
         from posthog.rbac.user_access_control import UserAccessControlError

@@ -21,6 +21,12 @@ if TYPE_CHECKING:
 
 _TimeSlice = tuple[dt.datetime, dt.datetime]
 
+# The whole point of mining is a small, readable summary. 200 templates overflow a single
+# consumer read (e.g. an MCP client's token budget), so the default page is deliberately
+# small; callers pass `limit` to widen it up to the hard cap.
+DEFAULT_PATTERNS_LIMIT = 50
+MAX_PATTERNS_LIMIT = 200
+
 
 class PatternsQueryRunner(AnalyticsQueryRunner[LogsQueryResponse], LogsQueryRunnerMixin):
     """Mines log templates (Drain3) from a bounded, deterministic sample of the matching logs.
@@ -80,6 +86,15 @@ class PatternsQueryRunner(AnalyticsQueryRunner[LogsQueryResponse], LogsQueryRunn
     def _sparkline_bucket_count(self) -> int:
         return _env("LOGS_PATTERNS_SPARKLINE_BUCKETS", 24, int)
 
+    @cached_property
+    def _max_patterns(self) -> int:
+        # `query.limit` is the caller's requested page size; clamp it to a sane range so a
+        # missing/garbage value falls back to the default and no caller can exceed the hard cap.
+        requested = self.query.limit
+        if requested is None:
+            return DEFAULT_PATTERNS_LIMIT
+        return max(1, min(requested, MAX_PATTERNS_LIMIT))
+
     def validate_query_runner_access(self, user: "User") -> bool:
         # Defensive: this runner is invoked directly via the logs API, never through the generic
         # /api/projects/:id/query/ endpoint. Mirror LogsQueryRunner and refuse user-initiated
@@ -123,7 +138,7 @@ class PatternsQueryRunner(AnalyticsQueryRunner[LogsQueryResponse], LogsQueryRunn
                 self.query_date_range.date_from(), self.query_date_range.date_to(), self._sparkline_bucket_count
             )
         )
-        patterns = mine_patterns(samples, buckets=buckets)
+        patterns = mine_patterns(samples, buckets=buckets, max_patterns=self._max_patterns)
         # `sampled` mirrors the exact condition `_serialize` uses to extrapolate: it's True
         # whenever fewer rows were scanned than the window held (hash-mod sampling OR time-slice
         # bounding), so the flag can never diverge from whether the reported counts are estimates.

@@ -63,7 +63,7 @@ from products.logs.backend.logs_query_runner import (
     LogsQueryResponse,
     LogsQueryRunner,
 )
-from products.logs.backend.patterns_query_runner import PatternsQueryRunner
+from products.logs.backend.patterns_query_runner import DEFAULT_PATTERNS_LIMIT, MAX_PATTERNS_LIMIT, PatternsQueryRunner
 from products.logs.backend.presentation.views.alerts_api import LogsAlertViewSet
 from products.logs.backend.presentation.views.explain import LogExplainViewSet
 from products.logs.backend.presentation.views.sampling_api import LogsSamplingRuleViewSet
@@ -690,6 +690,17 @@ class _LogsPatternsBodySerializer(serializers.Serializer):
         default=list,
         help_text="Property filters applied before mining. Same shape as the query-logs endpoint.",
     )
+    limit = serializers.IntegerField(
+        required=False,
+        default=DEFAULT_PATTERNS_LIMIT,
+        min_value=1,
+        max_value=MAX_PATTERNS_LIMIT,
+        help_text=(
+            f"Maximum number of patterns to return, ordered by frequency (most frequent first). "
+            f"Defaults to {DEFAULT_PATTERNS_LIMIT}; raise it up to {MAX_PATTERNS_LIMIT} to see more, "
+            f"lower it to keep the response small. Narrows only the returned page, not the mining."
+        ),
+    )
 
 
 class _LogsPatternsRequestSerializer(serializers.Serializer):
@@ -1315,6 +1326,7 @@ class LogsViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet):
             serviceNames=query_data.get("serviceNames", []),
             searchTerm=query_data.get("searchTerm", None),
             filterGroup=self._normalize_filter_group(query_data.get("filterGroup", None)),
+            limit=query_data.get("limit"),
         )
 
         runner = PatternsQueryRunner(team=self.team, query=query)

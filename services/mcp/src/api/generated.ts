@@ -56426,6 +56426,12 @@ export namespace Schemas {
       searchTerm?: string;
       /** Property filters applied before mining. Same shape as the query-logs endpoint. */
       filterGroup?: _LogPropertyFilter[];
+      /**
+         * Maximum number of patterns to return, ordered by frequency (most frequent first). Defaults to 50; raise it up to 200 to see more, lower it to keep the response small. Narrows only the returned page, not the mining.
+         * @minimum 1
+         * @maximum 200
+         */
+      limit?: number;
     }
 
     export interface _LogsPatternsRequest {

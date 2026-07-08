@@ -1,6 +1,6 @@
 Mine recurring log templates ("patterns") from the logs matching a filter set, ordered by frequency. Each pattern is a message template with the variable parts masked — e.g. `Connected to <ip> in <num>ms` — plus occurrence estimates, severity mix, the services it appears in, and a ready-made predicate for fetching its matching lines.
 
-This is the fastest way to understand what a log stream is _saying_ without reading raw rows: one call summarizes millions of lines into at most 200 templates.
+This is the fastest way to understand what a log stream is _saying_ without reading raw rows: one call summarizes millions of lines into a handful of templates (50 by default, `limit` up to 200).
 
 All parameters must be nested inside a `query` object.
 
@@ -62,6 +62,10 @@ Full-text search over log bodies applied before mining. Useful to mine only the 
 ## query.filterGroup
 
 Property filters applied before mining. Same format as `query-logs` filters.
+
+## query.limit
+
+Maximum number of patterns to return, ordered by frequency (most frequent first). Defaults to 50, max 200. Lower it to keep the response small (patterns are ranked, so the top ones are the highest-volume templates); raise it when you need the long tail. This narrows only the returned page, not the mining, so the counts and estimates for the returned patterns are unaffected.
 
 # Examples
 

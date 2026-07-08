@@ -4003,6 +4003,9 @@ export const LogsPatternsCreateParams = /* @__PURE__ */ zod.object({
         ),
 })
 
+export const logsPatternsCreateBodyQueryOneLimitDefault = 50
+export const logsPatternsCreateBodyQueryOneLimitMax = 200
+
 export const LogsPatternsCreateBody = /* @__PURE__ */ zod.object({
     query: zod
         .object({
@@ -4081,6 +4084,14 @@ export const LogsPatternsCreateBody = /* @__PURE__ */ zod.object({
                 )
                 .optional()
                 .describe('Property filters applied before mining. Same shape as the query-logs endpoint.'),
+            limit: zod
+                .number()
+                .min(1)
+                .max(logsPatternsCreateBodyQueryOneLimitMax)
+                .default(logsPatternsCreateBodyQueryOneLimitDefault)
+                .describe(
+                    'Maximum number of patterns to return, ordered by frequency (most frequent first). Defaults to 50; raise it up to 200 to see more, lower it to keep the response small. Narrows only the returned page, not the mining.'
+                ),
         })
         .describe('The patterns query to execute.'),
 })
