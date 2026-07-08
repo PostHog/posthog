@@ -40,6 +40,9 @@ tools:
             with its tool distribution, error rate, routing entropy, and journey paths. Returns an empty idle snapshot
             when no clustering run has happened yet — trigger one with mcp-analytics-intent-clusters-recompute.
         feature_flag: mcp-analytics
+    mcp-analytics-sessions-activity-overview:
+        operation: mcp_analytics_sessions_activity_overview
+        enabled: false
     mcp-analytics-sessions-generate-intent:
         operation: mcp_analytics_sessions_generate_intent
         enabled: true
