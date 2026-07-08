@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 from typing import TYPE_CHECKING
 
 from asgiref.sync import async_to_sync
@@ -8,6 +9,13 @@ from temporalio.service import RPCError, RPCStatusCode
 
 if TYPE_CHECKING:
     from temporalio.common import TypedSearchAttributes
+
+# Temporal's frontend can return transient RPC failures (e.g. a "downstream duration timeout"
+# surfaces as DEADLINE_EXCEEDED) that are safe to retry. NOT_FOUND is intentionally excluded:
+# it is a definitive "schedule missing" answer, not a transient failure.
+TRANSIENT_RPC_STATUS_CODES = frozenset({RPCStatusCode.DEADLINE_EXCEEDED, RPCStatusCode.UNAVAILABLE})
+SCHEDULE_EXISTS_MAX_ATTEMPTS = 3
+SCHEDULE_EXISTS_INITIAL_BACKOFF_SECONDS = 0.1
 
 
 @async_to_sync
@@ -158,22 +166,36 @@ async def a_trigger_schedule(temporal: Client, schedule_id: str, note: str | Non
 
 @async_to_sync
 async def schedule_exists(temporal: Client, schedule_id: str) -> bool:
-    """Check whether a schedule exists."""
-    try:
-        await temporal.get_schedule_handle(schedule_id).describe()
-        return True
-    except RPCError as e:
-        if e.status == RPCStatusCode.NOT_FOUND:
-            return False
-        raise
+    """Check whether a schedule exists. See :func:`a_schedule_exists`."""
+    return await a_schedule_exists(temporal, schedule_id)
 
 
-async def a_schedule_exists(temporal: Client, schedule_id: str) -> bool:
-    """Check whether a schedule exists. See :func:`schedule_exists`."""
-    try:
-        await temporal.get_schedule_handle(schedule_id).describe()
-        return True
-    except RPCError as e:
-        if e.status == RPCStatusCode.NOT_FOUND:
-            return False
-        raise
+async def a_schedule_exists(
+    temporal: Client,
+    schedule_id: str,
+    max_attempts: int = SCHEDULE_EXISTS_MAX_ATTEMPTS,
+    initial_backoff_seconds: float = SCHEDULE_EXISTS_INITIAL_BACKOFF_SECONDS,
+) -> bool:
+    """Check whether a schedule exists.
+
+    A NOT_FOUND response is the definitive "schedule missing" answer and returns ``False``.
+    Transient frontend failures (see :data:`TRANSIENT_RPC_STATUS_CODES`) are retried with
+    exponential backoff so a momentary Temporal blip doesn't fault the caller; any other
+    RPCError still propagates.
+    """
+    backoff = initial_backoff_seconds
+    for attempt in range(max_attempts):
+        try:
+            await temporal.get_schedule_handle(schedule_id).describe()
+            return True
+        except RPCError as e:
+            if e.status == RPCStatusCode.NOT_FOUND:
+                return False
+            is_last_attempt = attempt == max_attempts - 1
+            if e.status in TRANSIENT_RPC_STATUS_CODES and not is_last_attempt:
+                await asyncio.sleep(backoff)
+                backoff *= 2
+                continue
+            raise
+
+    raise AssertionError("unreachable: loop returns or raises on every attempt")
