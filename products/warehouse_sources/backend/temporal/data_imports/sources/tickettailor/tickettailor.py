@@ -66,18 +66,20 @@ def _fetch_page(
     )
 
     if response.status_code == 429 or response.status_code >= 500:
+        logger.warning("Ticket Tailor API error (retryable)", status=response.status_code, path=path)
         raise TicketTailorRetryableError(
             f"Ticket Tailor API error (retryable): status={response.status_code}, path={path}"
         )
 
     if not response.ok:
-        logger.error(f"Ticket Tailor API error: status={response.status_code}, body={response.text}, path={path}")
+        logger.error("Ticket Tailor API error", status=response.status_code, body=response.text, path=path)
         response.raise_for_status()
 
     body = response.json()
     # List endpoints wrap records in {"data": [...], "links": {"next": ..., "previous": ...}},
     # where `links.next` is null on the last page.
     if not isinstance(body, dict) or not isinstance(body.get("data"), list):
+        logger.warning("Ticket Tailor returned an unexpected payload", body_type=type(body).__name__, path=path)
         raise TicketTailorRetryableError(
             f"Ticket Tailor returned an unexpected payload for {path}: {type(body).__name__}"
         )
@@ -100,7 +102,7 @@ def get_rows(
     resume = resumable_source_manager.load_state() if resumable_source_manager.can_resume() else None
     cursor = resume.cursor if resume else None
     if resume and resume.cursor is not None:
-        logger.debug(f"Ticket Tailor: resuming {endpoint} from cursor {cursor}")
+        logger.debug("Ticket Tailor: resuming from saved cursor", endpoint=endpoint, cursor=cursor)
 
     while True:
         items, has_more = _fetch_page(session, config.path, cursor, PAGE_SIZE, logger)
