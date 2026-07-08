@@ -7427,6 +7427,7 @@ dependencies = [
  "health",
  "lifecycle",
  "metrics",
+ "personhog-common",
  "personhog-coordination",
  "personhog-proto",
  "prost 0.13.5",
@@ -11321,6 +11322,7 @@ dependencies = [
  "axum 0.7.9",
  "base64 0.22.1",
  "bytes",
+ "flate2",
  "h2 0.4.13",
  "http 1.4.0",
  "http-body 1.0.1",
@@ -11338,7 +11340,6 @@ dependencies = [
  "tower-layer",
  "tower-service",
  "tracing",
- "zstd",
 ]
 
 [[package]]
