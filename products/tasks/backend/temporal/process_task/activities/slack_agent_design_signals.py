@@ -98,10 +98,17 @@ class RelayAgentDesignSignalsInput:
 def _agent_proxy_base_url() -> str | None:
     """Base URL for the agent-proxy stream read leg, or ``None`` to read Redis directly.
 
-    Prefer the in-cluster URL: it skips the ingress/CDN round-trip and exists on environments
-    that have no public proxy FQDN yet. Fall back to the public URL the browser uses.
+    Prefer the in-cluster URL (skips the ingress/CDN round-trip, and exists on envs without a
+    public proxy FQDN), then the public URL the browser uses, then the ingest URL. The ingest URL
+    is the single local opt-in — ``_is_sandbox_event_ingest_enabled`` keys off it and mprocs runs
+    the proxy on :8003 — and the proxy serves ingest and stream on the same host, so it doubles as
+    a read base locally.
     """
-    return settings.TASKS_AGENT_PROXY_INTERNAL_URL or settings.TASKS_AGENT_PROXY_PUBLIC_URL
+    return (
+        settings.TASKS_AGENT_PROXY_INTERNAL_URL
+        or settings.TASKS_AGENT_PROXY_PUBLIC_URL
+        or settings.TASKS_AGENT_PROXY_INGEST_URL
+    )
 
 
 def _stream_via_proxy_enabled(task_run: TaskRunModel) -> bool:
