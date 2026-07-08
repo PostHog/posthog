@@ -79,13 +79,15 @@ impl FrameResolver {
     /// expanded from the same address).
     ///
     /// The lead resolves through the normal per-frame path. When its address
-    /// symbolicates, the server-side expansion supersedes the client's — the
-    /// inline members are dropped so the chain isn't duplicated. When it
-    /// doesn't, the client expansion passes through verbatim: the lead comes
-    /// back as a fallback frame carrying its client fields plus the
-    /// resolve_failure, and each member passes through the per-frame path
-    /// too (their `inline` marker makes them resolution-free), keeping the
-    /// per-frame cache and stored-record invariants intact.
+    /// symbolicates to an expansion at least as deep as the client's, the
+    /// server-side expansion supersedes the whole group, so the chain isn't
+    /// duplicated. Otherwise the client expansion passes through verbatim,
+    /// with each member going through the per-frame path too (their `inline`
+    /// marker makes them resolution-free), keeping the per-frame cache and
+    /// stored-record invariants intact. A shallower server expansion loses
+    /// against the client: it typically means the uploaded symbols carry no
+    /// inline debug info (e.g. a stripped binary that kept its build id), and
+    /// the client saw the richer truth at capture time.
     async fn resolve_frame_unit(
         team_id: i32,
         unit: &[RawFrame],
@@ -102,12 +104,28 @@ impl FrameResolver {
         }
 
         let server_resolved = frames.first().is_some_and(|f| f.resolved);
-        if server_resolved {
+        if server_resolved && frames.len() >= unit.len() {
             metrics::counter!(NATIVE_INLINE_GROUPS, "outcome" => "replaced").increment(1);
             return Ok(frames);
         }
 
-        metrics::counter!(NATIVE_INLINE_GROUPS, "outcome" => "kept").increment(1);
+        if server_resolved {
+            // Resolved, but shallower than the client's expansion: discard the
+            // server frames and keep the client group. The lead passes through
+            // directly (its per-frame path would return the server expansion
+            // again); the resolution stays cached, so repeat events take this
+            // branch consistently.
+            let RawFrame::Native(lead_native) = lead else {
+                return Ok(frames);
+            };
+            metrics::counter!(NATIVE_INLINE_GROUPS, "outcome" => "kept_deeper_client").increment(1);
+            let mut lead_frame: Frame = lead_native.into();
+            lead_frame.frame_id = lead.frame_id(team_id, 0, debug_images);
+            frames = vec![lead_frame];
+        } else {
+            metrics::counter!(NATIVE_INLINE_GROUPS, "outcome" => "kept").increment(1);
+        }
+
         for member in members {
             frames.extend(
                 FrameResolver::resolve_frame(team_id, member, debug_images, ctx.clone()).await?,
@@ -279,16 +297,21 @@ mod test {
     }
 
     #[test]
-    fn partition_orphan_inline_and_address_mismatch_stay_single() {
+    fn partition_orphan_inline_and_mismatches_stay_single() {
         // An inline frame with no preceding physical frame (e.g. malformed
-        // input) stays alone, and a member with a different address does not
-        // join the preceding group.
+        // input) stays alone, and a member with a different address or a
+        // different image does not join the preceding group.
         let frames = vec![
             client_frame(0x10, 0x1, true, "orphan"),
             client_frame(0x20, 0x1, false, "lead"),
-            client_frame(0x21, 0x1, true, "stray"),
+            client_frame(0x21, 0x1, true, "stray_addr"),
+            client_frame(0x30, 0x1, false, "lead_2"),
+            client_frame(0x30, 0x2, true, "stray_image"),
         ];
-        assert_eq!(unit_sizes(&partition_into_units(frames)), vec![1, 1, 1]);
+        assert_eq!(
+            unit_sizes(&partition_into_units(frames)),
+            vec![1, 1, 1, 1, 1]
+        );
     }
 
     #[test]
@@ -360,14 +383,14 @@ mod test {
     async fn client_expanded_group_is_replaced_by_server_expansion(db: sqlx::PgPool) {
         let catalog = catalog_for_chunk(&db, INLINE_CHUNK_ID, zip_fixture(INLINE_ELF, None)).await;
         let stage = resolution_stage(&db, catalog);
-        let debug_images = vec![debug_image_at(INLINE_CHUNK_ID, SLIDE_BASE)];
+        let debug_images = Arc::new(vec![debug_image_at(INLINE_CHUNK_ID, SLIDE_BASE)]);
 
         let group = client_expanded_group();
         let lead = group[0].clone();
         let exc = exception_with(group);
 
         let frames = resolved_frames(
-            FrameResolver::resolve_exception_frames(1, exc, &debug_images, stage)
+            FrameResolver::resolve_exception_frames(1, exc, debug_images.clone(), stage)
                 .await
                 .unwrap(),
         );
@@ -398,12 +421,12 @@ mod test {
     async fn client_expanded_group_is_kept_when_symbols_are_missing(db: sqlx::PgPool) {
         let catalog = catalog_without_symbols(&db);
         let stage = resolution_stage(&db, catalog);
-        let debug_images = vec![debug_image_at(INLINE_CHUNK_ID, SLIDE_BASE)];
+        let debug_images = Arc::new(vec![debug_image_at(INLINE_CHUNK_ID, SLIDE_BASE)]);
 
         let exc = exception_with(client_expanded_group());
 
         let frames = resolved_frames(
-            FrameResolver::resolve_exception_frames(1, exc, &debug_images, stage)
+            FrameResolver::resolve_exception_frames(1, exc, debug_images.clone(), stage)
                 .await
                 .unwrap(),
         );
@@ -424,5 +447,121 @@ mod test {
         assert!(frames[1..].iter().all(|f| f.resolved));
         assert!(frames[1..].iter().all(|f| f.resolve_failure.is_none()));
         assert!(frames.iter().all(|f| f.line == Some(10)));
+    }
+
+    /// A resolved-but-shallower server expansion loses to the client's deeper
+    /// group: uploading symbols without inline debug info (e.g. a stripped
+    /// binary that kept its build id) must not downgrade stacks that captured
+    /// the full chain.
+    #[sqlx::test(migrations = "./tests/test_migrations")]
+    async fn client_expanded_group_survives_shallower_server_expansion(db: sqlx::PgPool) {
+        let catalog = catalog_for_chunk(&db, INLINE_CHUNK_ID, zip_fixture(INLINE_ELF, None)).await;
+        let stage = resolution_stage(&db, catalog);
+        let debug_images = Arc::new(vec![debug_image_at(INLINE_CHUNK_ID, SLIDE_BASE)]);
+
+        // Four client layers against an address whose uploaded symbols only
+        // expand to three: the client saw a deeper chain than the symbols can
+        // reproduce, so its expansion wins.
+        let mut group = client_expanded_group();
+        group.push(client_frame(
+            INLINE_ADDR,
+            SLIDE_BASE,
+            true,
+            "client_deepest",
+        ));
+        let exc = exception_with(group);
+
+        let frames = resolved_frames(
+            FrameResolver::resolve_exception_frames(1, exc, debug_images.clone(), stage)
+                .await
+                .unwrap(),
+        );
+
+        let names: Vec<_> = frames
+            .iter()
+            .map(|f| f.resolved_name.as_deref().unwrap())
+            .collect();
+        assert_eq!(
+            names,
+            [
+                "client_outer",
+                "client_inner",
+                "client_leaf",
+                "client_deepest"
+            ],
+            "expected the deeper client expansion to be kept"
+        );
+    }
+
+    /// The same crash must fingerprint identically under the v2 normalizing
+    /// algorithm whether its inline group was kept (no symbols uploaded) or
+    /// replaced by the server expansion: v2 hashes every frame and only the
+    /// file-name component of sources, so the client's absolute paths and the
+    /// server's short names agree. (v1 stays frozen and splits on the path
+    /// spelling, which is why new issues key on v2.)
+    #[sqlx::test(migrations = "./tests/test_migrations")]
+    async fn kept_and_replaced_groups_fingerprint_identically_under_v2(db: sqlx::PgPool) {
+        use crate::fingerprinting::FingerprintVersion;
+
+        // Server-parity names (what posthog-rs actually sends) plus an
+        // absolute capture-host path for the fixture's source file.
+        let client_group = || -> Vec<RawFrame> {
+            [
+                ("outer_function", false),
+                ("inner_function", true),
+                ("inlined_leaf", true),
+            ]
+            .into_iter()
+            .map(|(function, inline)| {
+                let RawFrame::Native(mut frame) =
+                    client_frame(INLINE_ADDR, SLIDE_BASE, inline, function)
+                else {
+                    unreachable!("client_frame builds native frames");
+                };
+                frame.filename =
+                    Some("/build/host/cymbal_tests/native/test_binary_inline.c".to_string());
+                frame.meta.in_app = true;
+                RawFrame::Native(frame)
+            })
+            .collect()
+        };
+        let debug_images = Arc::new(vec![debug_image_at(INLINE_CHUNK_ID, SLIDE_BASE)]);
+
+        // Distinct team ids so the two runs don't share cached frame records.
+        let kept_stage = resolution_stage(&db, catalog_without_symbols(&db));
+        let kept = FrameResolver::resolve_exception_frames(
+            2,
+            exception_with(client_group()),
+            debug_images.clone(),
+            kept_stage,
+        )
+        .await
+        .unwrap();
+
+        let replaced_catalog =
+            catalog_for_chunk(&db, INLINE_CHUNK_ID, zip_fixture(INLINE_ELF, None)).await;
+        let replaced_stage = resolution_stage(&db, replaced_catalog);
+        let replaced = FrameResolver::resolve_exception_frames(
+            1,
+            exception_with(client_group()),
+            debug_images.clone(),
+            replaced_stage,
+        )
+        .await
+        .unwrap();
+
+        // Sanity: the two paths really did produce different representations.
+        let kept_frames = resolved_frames(kept.clone());
+        let replaced_frames = resolved_frames(replaced.clone());
+        assert!(kept_frames[0].resolve_failure.is_some());
+        assert!(replaced_frames.iter().all(|f| f.resolved));
+
+        let kept_fp = FingerprintVersion::V2.compute(&vec![kept].into());
+        let replaced_fp = FingerprintVersion::V2.compute(&vec![replaced].into());
+        assert_eq!(
+            kept_fp.value, replaced_fp.value,
+            "kept: {:#?}\nreplaced: {:#?}",
+            kept_fp.record, replaced_fp.record
+        );
     }
 }
