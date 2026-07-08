@@ -18,7 +18,7 @@ import {
 } from 'products/experiments/frontend/generated/api'
 import type {
     ExperimentMetricsRecalculationApi,
-    ExperimentRecalculationTriggerEnumApi,
+    TriggerEnumApi,
 } from 'products/experiments/frontend/generated/api.schemas'
 
 import type { experimentMetricsLogicType } from './experimentMetricsLogicType'
@@ -156,7 +156,7 @@ export const experimentMetricsLogic = kea<experimentMetricsLogicType>([
     actions({
         setCurrentRecalculation: (recalculation: ExperimentMetricsRecalculationApi | null) => ({ recalculation }),
         loadLatestRecalculation: true,
-        triggerRecalculation: (trigger: ExperimentRecalculationTriggerEnumApi = 'manual') => ({ trigger }),
+        triggerRecalculation: (trigger: TriggerEnumApi = 'manual') => ({ trigger }),
         pollRecalculation: (recalculationId: string) => ({ recalculationId }),
         setPrimaryMetricsResults: (results: CachedNewExperimentQueryResponse[]) => ({ results }),
         setSecondaryMetricsResults: (results: CachedNewExperimentQueryResponse[]) => ({ results }),

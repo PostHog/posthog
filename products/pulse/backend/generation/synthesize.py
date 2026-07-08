@@ -7,7 +7,7 @@ from posthog.sync import database_sync_to_async
 from products.pulse.backend.generation.prompts import SYNTHESIZE_PROMPT
 from products.pulse.backend.generation.schemas import KIND_DESCRIPTIONS, BriefOut
 from products.pulse.backend.models import BriefConfig
-from products.pulse.backend.sources.base import SourceItem
+from products.pulse.backend.sources.base import SourceItem, format_evidence_ref
 
 from ee.hogai.llm import MaxChatOpenAI
 
@@ -32,7 +32,7 @@ def _render_items(items: list[SourceItem]) -> str:
     blocks = []
     for item in items:
         numbers = ", ".join(f"{k}={v}" for k, v in item.numbers.items())
-        refs = ", ".join(f"{e['type']}:{e['ref']}" for e in item.evidence)
+        refs = ", ".join(format_evidence_ref(e) for e in item.evidence)
         blocks.append(
             f"- [{item.source}/{item.kind}] {item.title}\n"
             f"  numbers: {numbers}\n  evidence_refs: {refs}\n  fingerprint_hint: {item.fingerprint_hint}\n"
@@ -47,8 +47,11 @@ async def synthesize_brief(
     # Quiet periods must cost ~nothing: no items, no LLM call.
     if not items:
         return BriefOut(sections=[], opportunities=[])
+    focus_prompt = (config.focus_prompt if config else "") or "the whole product"
     rendered = SYNTHESIZE_PROMPT.format(
-        focus_prompt=(config.focus_prompt if config else "") or "the whole product",
+        # The focus text is fenced in a <team_focus> block; strip the closing tag so
+        # user configuration can't break out of it.
+        focus_prompt=focus_prompt.replace("</team_focus>", ""),
         period_days=period_days,
         max_opportunities=MAX_OPPORTUNITIES,
         kind_descriptions=", ".join(f'"{kind}" = {description}' for kind, description in KIND_DESCRIPTIONS.items()),

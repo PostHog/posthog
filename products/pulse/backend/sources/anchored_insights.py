@@ -6,6 +6,7 @@ import structlog
 
 from posthog.api.services.query import ExecutionMode
 from posthog.caching.calculate_results import calculate_for_query_based_insight
+from posthog.exceptions_capture import capture_exception
 from posthog.models.team import Team
 
 from products.dashboards.backend.models.dashboard import Dashboard
@@ -51,10 +52,11 @@ class AnchoredInsightsSource:
         for insight in self._anchor_insights(team, config)[:MAX_ANCHOR_INSIGHTS]:
             try:
                 items.extend(self._items_for_insight(insight, team, period_days))
-            except Exception:
+            except Exception as exc:
                 # One broken insight must not kill the brief; the future resource-health
                 # source is what reports on failing insights.
                 logger.exception("pulse_anchored_insight_failed", team_id=team.id, insight_short_id=insight.short_id)
+                capture_exception(exc, {"team_id": team.id, "insight_short_id": insight.short_id, "product": "pulse"})
         return items
 
     def _anchor_insights(self, team: Team, config: BriefConfig | None) -> QuerySet[Insight]:

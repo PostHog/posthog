@@ -52,6 +52,7 @@ class TestPulseAPI(APIBaseTest):
         assert brief.period_days == 14
         client.start_workflow.assert_called_once()
         assert client.start_workflow.call_args.kwargs["task_queue"] == settings.ANALYTICS_PLATFORM_TASK_QUEUE
+        assert client.start_workflow.call_args.kwargs["execution_timeout"] is not None
 
     def test_generate_while_running_returns_409_without_orphan_brief(
         self, mock_connect: MagicMock, _mock_flag: MagicMock
@@ -122,5 +123,33 @@ class TestPulseAPI(APIBaseTest):
         delete_response = self.client.delete(f"/api/projects/{self.team.id}/pulse/brief_configs/{config_id}/")
         assert delete_response.status_code == status.HTTP_204_NO_CONTENT
         assert self.client.get(f"/api/projects/{self.team.id}/pulse/brief_configs/").json()["results"] == []
+        # Soft delete: brief history keeps its config pointer and the row is recoverable.
         brief.refresh_from_db()
-        assert brief.config_id is None  # config deletion must not destroy brief history
+        assert str(brief.config_id) == config_id
+        restore_response = self.client.patch(
+            f"/api/projects/{self.team.id}/pulse/brief_configs/{config_id}/", {"deleted": False}
+        )
+        assert restore_response.status_code == status.HTTP_200_OK
+        assert [
+            row["id"] for row in self.client.get(f"/api/projects/{self.team.id}/pulse/brief_configs/").json()["results"]
+        ] == [config_id]
+
+    def test_generate_with_soft_deleted_config_returns_400(
+        self, mock_connect: MagicMock, _mock_flag: MagicMock
+    ) -> None:
+        with team_scope(self.team.pk, canonical=True):
+            config = BriefConfig.objects.create(team=self.team, name="gone", deleted=True)
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/pulse/briefs/generate/", {"config_id": str(config.id)}
+        )
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert "Brief config not found." in str(response.json())
+        mock_connect.assert_not_called()
+
+    def test_config_focus_prompt_length_capped(self, _mock_connect: MagicMock, _mock_flag: MagicMock) -> None:
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/pulse/brief_configs/",
+            {"name": "too long", "focus_prompt": "x" * 2001},
+        )
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert response.json()["attr"] == "focus_prompt"

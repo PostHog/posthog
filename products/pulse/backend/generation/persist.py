@@ -2,7 +2,7 @@ from django.db import transaction
 
 from products.pulse.backend.generation.schemas import BriefOut, OpportunityOut
 from products.pulse.backend.models import Opportunity, ProductBrief
-from products.pulse.backend.sources.base import EvidenceRef, SourceItem
+from products.pulse.backend.sources.base import EvidenceRef, SourceItem, parse_evidence_ref
 
 _FINGERPRINT_MAX_LENGTH = Opportunity._meta.get_field("fingerprint").max_length or 512
 _TITLE_MAX_LENGTH = Opportunity._meta.get_field("title").max_length or 400
@@ -13,12 +13,8 @@ def _fingerprint(kind: str, hint: str) -> str:
 
 
 def _fallback_evidence(evidence_refs: list[str]) -> list[EvidenceRef]:
-    # Only for refs the LLM emitted that resolve to no gathered item: parse the "type:ref" string.
-    evidence: list[EvidenceRef] = []
-    for ref in evidence_refs:
-        prefix, sep, rest = ref.partition(":")
-        evidence.append(EvidenceRef(type=prefix, ref=rest if sep else prefix, label=""))
-    return evidence
+    # Only for refs the LLM emitted that resolve to no gathered item.
+    return [parse_evidence_ref(ref) for ref in evidence_refs]
 
 
 def _build_opportunity(brief: ProductBrief, opp: OpportunityOut, item: SourceItem | None) -> Opportunity:

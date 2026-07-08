@@ -32,9 +32,10 @@ class Migration(migrations.Migration):
                     ),
                 ),
                 ("name", models.CharField(max_length=400)),
-                ("focus_prompt", models.TextField(blank=True, default="")),
+                ("focus_prompt", models.TextField(blank=True, default="", max_length=2000)),
                 ("anchors", models.JSONField(default=dict)),
                 ("enabled", models.BooleanField(default=True)),
+                ("deleted", models.BooleanField(default=False)),
                 (
                     "created_by",
                     models.ForeignKey(

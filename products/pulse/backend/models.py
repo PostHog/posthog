@@ -27,10 +27,13 @@ class PulseModel(TeamScopedRootMixin, CreatedMetaFields, UpdatedMetaFields, UUID
 
 class BriefConfig(PulseModel):
     name = models.CharField(max_length=400)
-    focus_prompt = models.TextField(blank=True, default="")
-    # {"dashboards": [int], "insights": [short_id str]}
+    # Free text steering the LLM; capped because it is interpolated into the synthesis prompt.
+    focus_prompt = models.TextField(blank=True, default="", max_length=2000)
+    # Shape: BriefAnchorsSerializer (api/brief.py) — {"dashboards": [int], "insights": [short_id str]}
     anchors = models.JSONField(default=dict)
     enabled = models.BooleanField(default=True)
+    # Soft delete: configs are recoverable and brief history keeps pointing at them.
+    deleted = models.BooleanField(default=False)
 
 
 class ProductBrief(PulseModel):
@@ -44,12 +47,14 @@ class ProductBrief(PulseModel):
         ON_DEMAND = "on_demand"
         SCHEDULED = "scheduled"
 
-    # SET_NULL: deleting a config must not destroy the brief history generated from it.
+    # Configs soft-delete in normal operation; SET_NULL is the backstop for hard deletes
+    # (e.g. via admin) so brief history survives those too.
     config = models.ForeignKey(BriefConfig, on_delete=models.SET_NULL, null=True, blank=True)
     status = models.CharField(max_length=20, choices=Status.choices, default=Status.GENERATING)
     trigger = models.CharField(max_length=20, choices=Trigger.choices)
+    # Lookback window: the brief covers the last N days, compared against the N days before.
     period_days = models.IntegerField(default=7)
-    # list[{"kind": str, "title": str, "markdown": str, "citations": list, "confidence": float}]
+    # Shape: list[SectionOut] — see generation/schemas.py (the LLM structured-output schema).
     sections = models.JSONField(default=list)
     sources_used = models.JSONField(default=list)
     error = models.TextField(null=True, blank=True)
@@ -74,7 +79,7 @@ class Opportunity(PulseModel):
     title = models.CharField(max_length=400)
     summary = models.TextField()
     suggested_action = models.TextField(blank=True, default="")
-    # list[{"type": "insight"|"dashboard"|"annotation", "ref": str, "label": str}]
+    # Shape: list[EvidenceRef] — see sources/base.py.
     evidence = models.JSONField(default=list)
     # {"insight_short_id": str, "series_index": int} | null
     metric_ref = models.JSONField(null=True, blank=True)

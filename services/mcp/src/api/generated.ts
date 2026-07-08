@@ -11642,12 +11642,17 @@ export namespace Schemas {
          * @maxLength 400
          */
       name: string;
-      /** Free-text focus steering gathering and tone, e.g. "we're the feature flags team". */
+      /**
+         * Free-text focus steering gathering and tone, e.g. "we're the feature flags team". Max 2000 characters.
+         * @maxLength 2000
+         */
       focus_prompt?: string;
       /** Anchor resources the brief gathers movements from. Empty anchors fall back to the team's most recently accessed dashboards. */
       anchors?: BriefAnchors;
       /** Whether this config generates briefs. */
       enabled?: boolean;
+      /** Soft-delete flag. Deleted configs are hidden from lists but recoverable by patching this back to false. */
+      deleted?: boolean;
       readonly created_at: string;
       /** User who created the config. */
       readonly created_by: UserBasic | null;
@@ -22240,10 +22245,10 @@ export namespace Schemas {
      * * `experiment_stop` - Experiment Stop
      * * `experiment_update` - Experiment Update
      */
-    export type ExperimentRecalculationTriggerEnum = typeof ExperimentRecalculationTriggerEnum[keyof typeof ExperimentRecalculationTriggerEnum];
+    export type TriggerEnum = typeof TriggerEnum[keyof typeof TriggerEnum];
 
 
-    export const ExperimentRecalculationTriggerEnum = {
+    export const TriggerEnum = {
       Manual: 'manual',
       ColdRun: 'cold_run',
       StaleRefresh: 'stale_refresh',
@@ -22334,7 +22339,7 @@ export namespace Schemas {
        * * `experiment_launch` - Experiment Launch
        * * `experiment_stop` - Experiment Stop
        * * `experiment_update` - Experiment Update */
-      readonly trigger: ExperimentRecalculationTriggerEnum;
+      readonly trigger: TriggerEnum;
       /** When the job was created */
       readonly created_at: string;
       /**
@@ -36814,12 +36819,17 @@ export namespace Schemas {
          * @maxLength 400
          */
       name?: string;
-      /** Free-text focus steering gathering and tone, e.g. "we're the feature flags team". */
+      /**
+         * Free-text focus steering gathering and tone, e.g. "we're the feature flags team". Max 2000 characters.
+         * @maxLength 2000
+         */
       focus_prompt?: string;
       /** Anchor resources the brief gathers movements from. Empty anchors fall back to the team's most recently accessed dashboards. */
       anchors?: BriefAnchors;
       /** Whether this config generates briefs. */
       enabled?: boolean;
+      /** Soft-delete flag. Deleted configs are hidden from lists but recoverable by patching this back to false. */
+      deleted?: boolean;
       readonly created_at?: string;
       /** User who created the config. */
       readonly created_by?: UserBasic | null;
@@ -47995,7 +48005,7 @@ export namespace Schemas {
        * * `experiment_launch` - Experiment Launch
        * * `experiment_stop` - Experiment Stop
        * * `experiment_update` - Experiment Update */
-      trigger?: ExperimentRecalculationTriggerEnum;
+      trigger?: TriggerEnum;
     }
 
     export interface RecapHighlight {

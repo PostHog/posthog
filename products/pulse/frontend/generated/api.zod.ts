@@ -11,12 +11,17 @@ import * as zod from 'zod'
 
 export const pulseBriefConfigsCreateBodyNameMax = 400
 
+export const pulseBriefConfigsCreateBodyFocusPromptMax = 2000
+
 export const PulseBriefConfigsCreateBody = /* @__PURE__ */ zod.object({
     name: zod.string().max(pulseBriefConfigsCreateBodyNameMax).describe('Human-readable name for this brief focus.'),
     focus_prompt: zod
         .string()
+        .max(pulseBriefConfigsCreateBodyFocusPromptMax)
         .optional()
-        .describe('Free-text focus steering gathering and tone, e.g. \"we\'re the feature flags team\".'),
+        .describe(
+            'Free-text focus steering gathering and tone, e.g. \"we\'re the feature flags team\". Max 2000 characters.'
+        ),
     anchors: zod
         .object({
             dashboards: zod.array(zod.number()).optional().describe('IDs of the dashboards this brief is anchored on.'),
@@ -30,16 +35,27 @@ export const PulseBriefConfigsCreateBody = /* @__PURE__ */ zod.object({
             "Anchor resources the brief gathers movements from. Empty anchors fall back to the team's most recently accessed dashboards."
         ),
     enabled: zod.boolean().optional().describe('Whether this config generates briefs.'),
+    deleted: zod
+        .boolean()
+        .optional()
+        .describe(
+            'Soft-delete flag. Deleted configs are hidden from lists but recoverable by patching this back to false.'
+        ),
 })
 
 export const pulseBriefConfigsUpdateBodyNameMax = 400
+
+export const pulseBriefConfigsUpdateBodyFocusPromptMax = 2000
 
 export const PulseBriefConfigsUpdateBody = /* @__PURE__ */ zod.object({
     name: zod.string().max(pulseBriefConfigsUpdateBodyNameMax).describe('Human-readable name for this brief focus.'),
     focus_prompt: zod
         .string()
+        .max(pulseBriefConfigsUpdateBodyFocusPromptMax)
         .optional()
-        .describe('Free-text focus steering gathering and tone, e.g. \"we\'re the feature flags team\".'),
+        .describe(
+            'Free-text focus steering gathering and tone, e.g. \"we\'re the feature flags team\". Max 2000 characters.'
+        ),
     anchors: zod
         .object({
             dashboards: zod.array(zod.number()).optional().describe('IDs of the dashboards this brief is anchored on.'),
@@ -53,9 +69,17 @@ export const PulseBriefConfigsUpdateBody = /* @__PURE__ */ zod.object({
             "Anchor resources the brief gathers movements from. Empty anchors fall back to the team's most recently accessed dashboards."
         ),
     enabled: zod.boolean().optional().describe('Whether this config generates briefs.'),
+    deleted: zod
+        .boolean()
+        .optional()
+        .describe(
+            'Soft-delete flag. Deleted configs are hidden from lists but recoverable by patching this back to false.'
+        ),
 })
 
 export const pulseBriefConfigsPartialUpdateBodyNameMax = 400
+
+export const pulseBriefConfigsPartialUpdateBodyFocusPromptMax = 2000
 
 export const PulseBriefConfigsPartialUpdateBody = /* @__PURE__ */ zod.object({
     name: zod
@@ -65,8 +89,11 @@ export const PulseBriefConfigsPartialUpdateBody = /* @__PURE__ */ zod.object({
         .describe('Human-readable name for this brief focus.'),
     focus_prompt: zod
         .string()
+        .max(pulseBriefConfigsPartialUpdateBodyFocusPromptMax)
         .optional()
-        .describe('Free-text focus steering gathering and tone, e.g. \"we\'re the feature flags team\".'),
+        .describe(
+            'Free-text focus steering gathering and tone, e.g. \"we\'re the feature flags team\". Max 2000 characters.'
+        ),
     anchors: zod
         .object({
             dashboards: zod.array(zod.number()).optional().describe('IDs of the dashboards this brief is anchored on.'),
@@ -80,6 +107,12 @@ export const PulseBriefConfigsPartialUpdateBody = /* @__PURE__ */ zod.object({
             "Anchor resources the brief gathers movements from. Empty anchors fall back to the team's most recently accessed dashboards."
         ),
     enabled: zod.boolean().optional().describe('Whether this config generates briefs.'),
+    deleted: zod
+        .boolean()
+        .optional()
+        .describe(
+            'Soft-delete flag. Deleted configs are hidden from lists but recoverable by patching this back to false.'
+        ),
 })
 
 export const pulseBriefsGenerateCreateBodyPeriodDaysDefault = 7

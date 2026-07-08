@@ -4,6 +4,7 @@ import structlog
 import temporalio.activity
 from temporalio.exceptions import ApplicationError
 
+from posthog.exceptions_capture import capture_exception
 from posthog.models.team import Team
 from posthog.sync import database_sync_to_async
 
@@ -21,6 +22,10 @@ from products.pulse.backend.temporal.inputs import (
 logger = structlog.get_logger(__name__)
 
 MAX_ITEMS = 50
+
+
+class BriefGenerationFailed(Exception):
+    """Carries workflow failures into error tracking; the full stack lives in Temporal."""
 
 
 def _get_team(team_id: int) -> Team:
@@ -79,6 +84,11 @@ async def synthesize_brief_activity(inputs: SynthesizeActivityInputs) -> str:
 @temporalio.activity.defn
 async def mark_brief_failed_activity(inputs: MarkBriefFailedInputs) -> None:
     logger.error("pulse_brief_generation_failed", team_id=inputs.team_id, brief_id=inputs.brief_id, error=inputs.error)
+    # The workflow sandbox can't reach error tracking, so failure volume is captured here.
+    capture_exception(
+        BriefGenerationFailed(inputs.error),
+        {"team_id": inputs.team_id, "brief_id": inputs.brief_id, "product": "pulse"},
+    )
     await database_sync_to_async(_mark_brief_failed, thread_sensitive=False)(
         inputs.team_id, inputs.brief_id, inputs.error
     )

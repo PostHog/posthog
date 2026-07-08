@@ -1,9 +1,11 @@
 import asyncio
+import datetime as dt
 from typing import cast
 
 from django.conf import settings
 from django.db.models import QuerySet
 
+import structlog
 from drf_spectacular.utils import OpenApiResponse, extend_schema
 from rest_framework import serializers, status, viewsets
 from rest_framework.decorators import action
@@ -14,6 +16,7 @@ from temporalio.exceptions import WorkflowAlreadyStartedError
 
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
+from posthog.event_usage import report_user_action
 from posthog.models import User
 from posthog.permissions import PostHogFeatureFlagPermission
 from posthog.temporal.common.client import sync_connect
@@ -22,6 +25,12 @@ from products.pulse.backend.models import BriefConfig, ProductBrief
 from products.pulse.backend.temporal.inputs import GENERATE_BRIEF_WORKFLOW_NAME, GenerateBriefWorkflowInputs
 
 PULSE_FEATURE_FLAG = "pulse"
+
+logger = structlog.get_logger(__name__)
+
+# Caps total wall-clock across Temporal retries/re-executions, comfortably above the
+# per-activity timeouts in temporal/workflow.py.
+_WORKFLOW_EXECUTION_TIMEOUT = dt.timedelta(minutes=15)
 
 
 class BriefAnchorsSerializer(serializers.Serializer):
@@ -46,14 +55,27 @@ class BriefConfigSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = BriefConfig
-        fields = ["id", "name", "focus_prompt", "anchors", "enabled", "created_at", "created_by", "updated_at"]
+        fields = [
+            "id",
+            "name",
+            "focus_prompt",
+            "anchors",
+            "enabled",
+            "deleted",
+            "created_at",
+            "created_by",
+            "updated_at",
+        ]
         read_only_fields = ["id", "created_at", "created_by", "updated_at"]
         extra_kwargs = {
             "name": {"help_text": "Human-readable name for this brief focus."},
             "focus_prompt": {
-                "help_text": 'Free-text focus steering gathering and tone, e.g. "we\'re the feature flags team".'
+                "help_text": 'Free-text focus steering gathering and tone, e.g. "we\'re the feature flags team". Max 2000 characters.'
             },
             "enabled": {"help_text": "Whether this config generates briefs."},
+            "deleted": {
+                "help_text": "Soft-delete flag. Deleted configs are hidden from lists but recoverable by patching this back to false."
+            },
         }
 
 
@@ -130,10 +152,19 @@ class BriefConfigViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     queryset = BriefConfig.objects.unscoped()
 
     def safely_get_queryset(self, queryset: QuerySet[BriefConfig]) -> QuerySet[BriefConfig]:
-        return BriefConfig.objects.for_team(self.team_id).select_related("created_by").order_by("-created_at")
+        configs = BriefConfig.objects.for_team(self.team_id).select_related("created_by").order_by("-created_at")
+        # Lists hide soft-deleted configs; detail routes keep them reachable so a
+        # PATCH {"deleted": false} can restore one.
+        if self.action == "list":
+            configs = configs.filter(deleted=False)
+        return configs
 
     def perform_create(self, serializer: serializers.BaseSerializer) -> None:
         serializer.save(team=self.team, created_by=cast(User, self.request.user))
+
+    def perform_destroy(self, instance: BriefConfig) -> None:
+        instance.deleted = True
+        instance.save(update_fields=["deleted", "updated_at"])
 
 
 class ProductBriefViewSet(TeamAndOrgViewSetMixin, viewsets.ReadOnlyModelViewSet):
@@ -172,7 +203,7 @@ class ProductBriefViewSet(TeamAndOrgViewSetMixin, viewsets.ReadOnlyModelViewSet)
 
         config = None
         if config_id is not None:
-            config = BriefConfig.objects.for_team(self.team_id).filter(id=config_id).first()
+            config = BriefConfig.objects.for_team(self.team_id).filter(id=config_id, deleted=False).first()
             if config is None:
                 raise ValidationError("Brief config not found.")
 
@@ -200,6 +231,7 @@ class ProductBriefViewSet(TeamAndOrgViewSetMixin, viewsets.ReadOnlyModelViewSet)
                     # running for the same focus hits WorkflowAlreadyStartedError.
                     id=f"pulse-brief-{self.team_id}-{config.id if config else 'default'}",
                     task_queue=settings.ANALYTICS_PLATFORM_TASK_QUEUE,
+                    execution_timeout=_WORKFLOW_EXECUTION_TIMEOUT,
                 )
             )
         except WorkflowAlreadyStartedError:
@@ -207,9 +239,16 @@ class ProductBriefViewSet(TeamAndOrgViewSetMixin, viewsets.ReadOnlyModelViewSet)
             return Response({"detail": "Brief generation already in progress"}, status=status.HTTP_409_CONFLICT)
         except Exception as exc:
             # Dispatch never reached Temporal — mark the row FAILED so it can't strand in GENERATING.
+            logger.exception("pulse_brief_dispatch_failed", team_id=self.team_id, brief_id=str(brief.id))
             ProductBrief.objects.for_team(self.team_id).filter(id=brief.id).update(
                 status=ProductBrief.Status.FAILED, error=str(exc)
             )
             raise
 
+        report_user_action(
+            cast(User, request.user),
+            "pulse brief generated",
+            {"config_id": str(config.id) if config else None, "period_days": period_days, "trigger": "on_demand"},
+            team=self.team,
+        )
         return Response(ProductBriefSerializer(brief).data, status=status.HTTP_201_CREATED)

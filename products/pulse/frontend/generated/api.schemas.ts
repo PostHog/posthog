@@ -76,12 +76,17 @@ export interface BriefConfigApi {
      * @maxLength 400
      */
     name: string
-    /** Free-text focus steering gathering and tone, e.g. "we're the feature flags team". */
+    /**
+     * Free-text focus steering gathering and tone, e.g. "we're the feature flags team". Max 2000 characters.
+     * @maxLength 2000
+     */
     focus_prompt?: string
     /** Anchor resources the brief gathers movements from. Empty anchors fall back to the team's most recently accessed dashboards. */
     anchors?: BriefAnchorsApi
     /** Whether this config generates briefs. */
     enabled?: boolean
+    /** Soft-delete flag. Deleted configs are hidden from lists but recoverable by patching this back to false. */
+    deleted?: boolean
     readonly created_at: string
     /** User who created the config. */
     readonly created_by: UserBasicApi | null
@@ -105,12 +110,17 @@ export interface PatchedBriefConfigApi {
      * @maxLength 400
      */
     name?: string
-    /** Free-text focus steering gathering and tone, e.g. "we're the feature flags team". */
+    /**
+     * Free-text focus steering gathering and tone, e.g. "we're the feature flags team". Max 2000 characters.
+     * @maxLength 2000
+     */
     focus_prompt?: string
     /** Anchor resources the brief gathers movements from. Empty anchors fall back to the team's most recently accessed dashboards. */
     anchors?: BriefAnchorsApi
     /** Whether this config generates briefs. */
     enabled?: boolean
+    /** Soft-delete flag. Deleted configs are hidden from lists but recoverable by patching this back to false. */
+    deleted?: boolean
     readonly created_at?: string
     /** User who created the config. */
     readonly created_by?: UserBasicApi | null
