@@ -44,9 +44,6 @@ logger = _LazyDagsterLogger()
 
 
 def ON_CLUSTER_CLAUSE(on_cluster=True):
-    # TRUNCATE helpers pass `not TEST`: the test ClickHouse is single-node, where ON CLUSTER
-    # only adds distributed-DDL keeper round-trips (tens of ms per statement) without changing
-    # the outcome, and test setup/teardown issues truncates in bulk.
     return f"ON CLUSTER '{CLICKHOUSE_CLUSTER}'" if on_cluster else ""
 
 

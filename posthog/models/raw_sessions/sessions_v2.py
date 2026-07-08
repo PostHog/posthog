@@ -14,7 +14,7 @@ def WRITABLE_RAW_SESSIONS_DATA_TABLE():
     return f"writable_{TABLE_BASE_NAME}"
 
 
-def TRUNCATE_RAW_SESSIONS_TABLE_SQL(on_cluster: bool = not settings.TEST):
+def TRUNCATE_RAW_SESSIONS_TABLE_SQL(on_cluster: bool = settings.CLICKHOUSE_IS_IN_CLUSTER):
     return f"TRUNCATE TABLE IF EXISTS {SHARDED_RAW_SESSIONS_DATA_TABLE()} {ON_CLUSTER_CLAUSE(on_cluster)}"
 
 

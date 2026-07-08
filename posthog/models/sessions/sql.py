@@ -12,7 +12,7 @@ def SESSIONS_DATA_TABLE():
     return f"sharded_{TABLE_BASE_NAME}"
 
 
-def TRUNCATE_SESSIONS_TABLE_SQL(on_cluster: bool = not settings.TEST):
+def TRUNCATE_SESSIONS_TABLE_SQL(on_cluster: bool = settings.CLICKHOUSE_IS_IN_CLUSTER):
     return f"TRUNCATE TABLE IF EXISTS {SESSIONS_DATA_TABLE()} {ON_CLUSTER_CLAUSE(on_cluster)}"
 
 

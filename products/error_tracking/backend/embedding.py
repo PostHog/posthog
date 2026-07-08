@@ -142,7 +142,7 @@ FROM {database}.{kafka_table}
     )
 
 
-def TRUNCATE_DOCUMENT_EMBEDDINGS_TABLE_SQL(on_cluster: bool = not settings.TEST):
+def TRUNCATE_DOCUMENT_EMBEDDINGS_TABLE_SQL(on_cluster: bool = settings.CLICKHOUSE_IS_IN_CLUSTER):
     return f"TRUNCATE TABLE IF EXISTS {PARTITIONED_SHARDED_DOCUMENT_EMBEDDINGS} {ON_CLUSTER_CLAUSE(on_cluster)}"
 
 

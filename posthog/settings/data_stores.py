@@ -305,6 +305,10 @@ CLICKHOUSE_USER: str = os.getenv("CLICKHOUSE_USER", "default")
 CLICKHOUSE_PASSWORD: str = os.getenv("CLICKHOUSE_PASSWORD", "")
 CLICKHOUSE_DATABASE: str = CLICKHOUSE_TEST_DB if TEST else os.getenv("CLICKHOUSE_DATABASE", "default")
 CLICKHOUSE_CLUSTER: str = os.getenv("CLICKHOUSE_CLUSTER", "posthog")
+# Whether the connected ClickHouse is a multi-node cluster. The test harness runs a single
+# node, where ON CLUSTER DDL only adds distributed-DDL keeper round-trips (tens of ms per
+# statement) without changing the outcome, so the TRUNCATE helpers skip the clause off it.
+CLICKHOUSE_IS_IN_CLUSTER: bool = get_from_env("CLICKHOUSE_IS_IN_CLUSTER", not TEST, type_cast=str_to_bool)
 CLICKHOUSE_MIGRATIONS_CLUSTER: str = os.getenv("CLICKHOUSE_MIGRATIONS_CLUSTER", "posthog_migrations")
 CLICKHOUSE_SATELLITE_CLUSTERS: list[str] = [
     s.strip() for s in os.getenv("CLICKHOUSE_SATELLITE_CLUSTERS", "ai_events,aux,ops,sessions").split(",") if s.strip()

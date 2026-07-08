@@ -24,7 +24,7 @@ def WRITABLE_EVENTS_DATA_TABLE():
     return "writable_events"
 
 
-def TRUNCATE_EVENTS_TABLE_SQL(on_cluster: bool = not settings.TEST):
+def TRUNCATE_EVENTS_TABLE_SQL(on_cluster: bool = settings.CLICKHOUSE_IS_IN_CLUSTER):
     return f"TRUNCATE TABLE IF EXISTS {EVENTS_DATA_TABLE()} {ON_CLUSTER_CLAUSE(on_cluster)}"
 
 
@@ -329,7 +329,7 @@ def DROP_EVENTS_RECENT_MV_TABLE_SQL():
     return f"DROP TABLE IF EXISTS events_recent_json_mv"
 
 
-def TRUNCATE_EVENTS_RECENT_TABLE_SQL(on_cluster: bool = not settings.TEST):
+def TRUNCATE_EVENTS_RECENT_TABLE_SQL(on_cluster: bool = settings.CLICKHOUSE_IS_IN_CLUSTER):
     return f"TRUNCATE TABLE IF EXISTS {EVENTS_RECENT_DATA_TABLE()} {ON_CLUSTER_CLAUSE(on_cluster)}"
 
 
