@@ -58,6 +58,13 @@ export interface CheckDatabaseNameResponseApi {
     available: boolean
 }
 
+export interface DeleteWarehouseOrgResponseApi {
+    /** Deletion lifecycle message from the provisioner */
+    status?: string
+    /** duckgres org identifier (the PostHog organization id) */
+    org?: string
+}
+
 export interface DeprovisionWarehouseResponseApi {
     /** Deprovisioning lifecycle message, e.g. 'deprovisioning started' */
     status: string

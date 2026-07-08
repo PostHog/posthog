@@ -74,6 +74,11 @@ jobs:
                   # doesn't break stamphog (and vice versa). The env var name
                   # stays ANTHROPIC_API_KEY — that's what the Claude Agent SDK reads.
                   ANTHROPIC_API_KEY: ${{ secrets.STAMPHOG_ANTHROPIC_API_KEY }}
+                  # ai-gateway cutover: when both are set, the review routes through
+                  # the Go ai-gateway (phs_ secret) instead of Anthropic directly.
+                  # Unset = direct path, so setting them is the cutover.
+                  AI_GATEWAY_URL: ${{ secrets.STAMPHOG_AI_GATEWAY_URL }}
+                  AI_GATEWAY_API_KEY: ${{ secrets.STAMPHOG_AI_GATEWAY_API_KEY }}
                   POSTHOG_API_KEY: ${{ secrets.POSTHOG_API_TOKEN }}
                   GH_TOKEN: ${{ steps.app-token.outputs.token }}
               run: |
@@ -97,7 +102,10 @@ jobs:
                   PR=${{ github.event.pull_request.number }}
                   REPO=${{ github.repository }}
                   VERDICT=$(jq -r '.final_verdict // ""' /tmp/review.json 2>/dev/null || echo "")
-                  REASONING=$(jq -r '.reviewer.reasoning // ""' /tmp/review.json 2>/dev/null || echo "")
+                  # Prefer the structured comment body (reasoning + judgment
+                  # bullets + folded gate mechanics); fall back to the bare
+                  # reasoning when the script predates the field.
+                  REASONING=$(jq -r '.review_body // .reviewer.reasoning // ""' /tmp/review.json 2>/dev/null || echo "")
                   REVIEWED_SHA=$(jq -r '.head_sha // ""' /tmp/review.json 2>/dev/null || echo "")
 
                   # Lock the review to the sha the LLM actually saw — `gh pr

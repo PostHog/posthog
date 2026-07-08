@@ -480,10 +480,10 @@ tools:
         title: Get my LLM spend analysis
         description: >
             Retrieve the current user's personal LLM spend analysis across PostHog products over the last N days
-            (default 30, max 90). Returns a summary plus breakdowns by product, tool, model, and top traces. The
-            `product` query param is required and scopes the tool / model / trace breakdowns to a single product;
-            currently only `posthog_code` is supported. `by_product` always returns the cross-product view. Pass
-            `refresh=true` to bypass the 5-minute cache.
+            (default 30, max 90). Returns a summary plus breakdowns by product, tool, model and UTC day. The `product`
+            query param is required and scopes the tool / model / day breakdowns to a single product; currently only
+            `posthog_code` is supported. `by_product` always returns the cross-product view, and `by_day` is a
+            day-ascending series for spend-over-time questions. Pass `refresh=true` to bypass the 5-minute cache.
     llma-prompt-archive:
         operation: llm_prompts_name_archive_create
         enabled: false
@@ -503,6 +503,7 @@ tools:
         include_params:
             - name
             - prompt
+            - version_description
     llma-prompt-duplicate:
         operation: llm_prompts_name_duplicate_create
         enabled: true
@@ -570,11 +571,13 @@ tools:
             You can either provide the full prompt content via 'prompt', or use 'edits' for incremental
             find/replace updates. Each edit must have 'old' (text to find, must match exactly once) and
             'new' (replacement text). Edits are applied sequentially. Only one of 'prompt' or 'edits'
-            may be provided.
+            may be provided. Pass 'version_description' with a short note on what changed and why —
+            it is shown in the prompt's version history.
         include_params:
             - prompt
             - edits
             - base_version
+            - version_description
     llma-provider-key-assign:
         operation: llm_analytics_provider_keys_assign_create
         enabled: false

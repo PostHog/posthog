@@ -11,6 +11,7 @@ import { ParsedMessageData } from '~/ingestion/pipelines/sessionreplay/kafka/typ
 import { SessionRecordingIngesterMetrics } from '~/ingestion/pipelines/sessionreplay/metrics'
 
 import { ParseMessageStepInput, ParseMessageStepOutput, getContentEncoding, isGzipped } from './parse-message-step'
+import { TeamForReplay } from './shared/teams/types'
 
 const MESSAGE_TIMESTAMP_DIFF_THRESHOLD_DAYS = 7
 
@@ -44,10 +45,9 @@ const DLQ_REASONS = new Set([
  * unencrypted ML bucket. Failure classification matches the TS parse step so DLQ/drop behavior and
  * ingestion warnings are unchanged.
  */
-export function createParseAndAnonymizeMessageStep<T extends ParseMessageStepInput>(): ProcessingStep<
-    T,
-    T & ParseMessageStepOutput
-> {
+export function createParseAndAnonymizeMessageStep<
+    T extends ParseMessageStepInput & { team: TeamForReplay },
+>(): ProcessingStep<T, T & ParseMessageStepOutput> {
     return async function parseAndAnonymizeMessageStep(input) {
         const { message, headers } = input
 
@@ -65,7 +65,11 @@ export function createParseAndAnonymizeMessageStep<T extends ParseMessageStepInp
         const t0 = performance.now()
         let result
         try {
-            result = await getRustAnonymizer().anonymizeKafkaPayload(message.value, contentEncoding)
+            result = await getRustAnonymizer().anonymizeKafkaPayload(
+                message.value,
+                contentEncoding,
+                input.team.firstPartyHosts
+            )
         } catch (error) {
             // A rejected promise (native panic, addon load failure) must fail closed.
             logger.warn('🙈', 'anonymize_event_failed', { error: String(error) })

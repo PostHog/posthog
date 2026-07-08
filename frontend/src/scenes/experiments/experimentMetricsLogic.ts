@@ -3,7 +3,6 @@ import { actions, afterMount, connect, kea, key, listeners, path, props, reducer
 import { lemonToast } from '@posthog/lemon-ui'
 
 import { FEATURE_FLAGS } from 'lib/constants'
-import { dayjs } from 'lib/dayjs'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { projectLogic } from 'scenes/projectLogic'
@@ -40,7 +39,6 @@ export interface ExperimentMetricsLogicProps {
 }
 
 const RECALCULATION_POLL_INTERVAL_MS = 2000
-const RECALCULATION_STALE_AFTER_HOURS = 24
 const MAX_POLL_RETRIES = 5
 
 export const RECALCULATION_STATUSES = {
@@ -51,13 +49,6 @@ export const RECALCULATION_STATUSES = {
 } as const
 
 export type RecalculationStatuses = (typeof RECALCULATION_STATUSES)[keyof typeof RECALCULATION_STATUSES]
-
-const isRecalculationStale = (recalculation: ExperimentMetricsRecalculationApi): boolean => {
-    if (!recalculation.completed_at) {
-        return false
-    }
-    return dayjs().diff(dayjs(recalculation.completed_at), 'hours') >= RECALCULATION_STALE_AFTER_HOURS
-}
 
 /**
  * transform shared metrics into experiment metrics.
@@ -230,7 +221,30 @@ export const experimentMetricsLogic = kea<experimentMetricsLogicType>([
                 total: recalc?.total_metrics ?? 0,
             }),
         ],
+        // Total metrics on the experiment itself, independent of whether a recalculation run exists yet.
+        // Sourced from the experiment so the count is truthful on first render, before the first run loads.
+        totalMetricsCount: [
+            () => [(_, props) => props.experiment],
+            (experiment: Experiment): number =>
+                metricsInOrder(experiment, 'primary').length + metricsInOrder(experiment, 'secondary').length,
+        ],
         lastRefresh: [(s) => [s.currentRecalculation], (recalc): string | null => recalc?.query_to ?? null],
+        recalculationDisplayState: [
+            (s) => [s.recalculationLoading, s.currentRecalculation],
+            (recalculationLoading, recalculation): 'initial' | 'cold' | 'refreshing' | 'partial' | 'resting' => {
+                if (!recalculation) {
+                    return recalculationLoading ? 'initial' : 'resting'
+                }
+                const inFlight =
+                    recalculationLoading ||
+                    recalculation.status === RECALCULATION_STATUSES.pending ||
+                    recalculation.status === RECALCULATION_STATUSES.in_progress
+                if (inFlight) {
+                    return (recalculation.results?.length ?? 0) > 0 ? 'refreshing' : 'cold'
+                }
+                return recalculation.failed_metrics > 0 ? 'partial' : 'resting'
+            },
+        ],
         // Predicate the table uses to dim a metric whose stale value is still being refreshed.
         isMetricRecalculating: [
             (s) => [s.recalculatingMetricUuids],
@@ -422,14 +436,6 @@ export const experimentMetricsLogic = kea<experimentMetricsLogicType>([
                     ) {
                         actions.triggerRecalculation('config_change')
                         return
-                    }
-
-                    /**
-                     * if the recalculation resutls are stale, trigger a new recalculation
-                     * without hiding the existing resutls.
-                     */
-                    if (isRecalculationStale(recalculation)) {
-                        actions.triggerRecalculation('stale_refresh')
                     }
                 } catch (error: any) {
                     if (error?.status === 404) {

@@ -55,6 +55,9 @@ from products.exports.backend.temporal.subscriptions.ai_subscription.spec_genera
     sanitize_prompt,
 )
 from products.exports.backend.temporal.subscriptions.types import (
+    AI_REPORT_DIAGNOSTICS_KEY,
+    AI_REPORT_PROMPT_SNAPSHOT_KEY,
+    AI_REPORT_SNAPSHOT_KEY,
     ProcessSubscriptionWorkflowInputs,
     SubscriptionTriggerType,
 )
@@ -1089,11 +1092,46 @@ class SubscriptionViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.M
         return Response(status=status.HTTP_202_ACCEPTED)
 
 
+class AIReportQueryDiagnosticSerializer(serializers.Serializer):
+    # Per-step query diagnostics persisted alongside the report markdown. Query-derived (the generated
+    # HogQL is here), so it is scrubbed for callers without query access — never shipped to recipients.
+    description = serializers.CharField(help_text="What this query step was meant to compute.")
+    hogql = serializers.CharField(help_text="The HogQL the assistant generated for this step.")
+    ok = serializers.BooleanField(help_text="Whether the query ran successfully.")
+    error_type = serializers.CharField(
+        allow_null=True, help_text="Exception class name when the query failed; null on success."
+    )
+    human_readable_error = serializers.CharField(
+        allow_null=True,
+        required=False,
+        help_text="Human-readable failure reason, present only for query errors safe to surface to the "
+        "subscription owner (e.g. an unresolved field name); null on success and for internal errors, "
+        "which expose error_type only.",
+    )
+
+
 class SubscriptionDeliverySerializer(serializers.ModelSerializer):
     # Delivery fields that embed the query-derived AI report, mapped to the value each returns when
-    # scrubbed for a caller without query access (content_snapshot is a non-null object, change_summary
-    # nullable text). Single source of truth — keep in sync when adding AI-derived delivery fields.
-    AI_REPORT_SCRUBBED: ClassVar[dict[str, dict | None]] = {"content_snapshot": {}, "change_summary": None}
+    # scrubbed for a caller without query access (content_snapshot is a non-null object, the rest
+    # nullable). Single source of truth — keep in sync when adding AI-derived delivery fields.
+    # ai_report_prompt is user-authored (not query-derived) and already readable on the parent
+    # subscription, so it is intentionally not scrubbed.
+    AI_REPORT_SCRUBBED: ClassVar[dict[str, object | None]] = {
+        "content_snapshot": {},
+        "change_summary": None,
+        "ai_report": None,
+        "ai_report_diagnostics": None,
+    }
+
+    ai_report = serializers.SerializerMethodField(
+        help_text="AI-generated report markdown delivered by this run. Null for non-AI deliveries or runs without a persisted report."
+    )
+    ai_report_diagnostics = serializers.SerializerMethodField(
+        help_text="Per-step query diagnostics (generated HogQL + failure type) for this report. Null for non-AI deliveries or runs without persisted diagnostics."
+    )
+    ai_report_prompt = serializers.SerializerMethodField(
+        help_text="The subscription's prompt as it was when this report was generated. Null for older deliveries and non-AI deliveries."
+    )
 
     class Meta:
         model = SubscriptionDelivery
@@ -1115,6 +1153,9 @@ class SubscriptionDeliverySerializer(serializers.ModelSerializer):
             "last_updated_at",
             "finished_at",
             "change_summary",
+            "ai_report",
+            "ai_report_diagnostics",
+            "ai_report_prompt",
         ]
         read_only_fields = fields
         extra_kwargs = {
@@ -1144,13 +1185,52 @@ class SubscriptionDeliverySerializer(serializers.ModelSerializer):
             "change_summary": {"help_text": "AI-generated summary included in this delivery, when one was produced."},
         }
 
+    def _content_snapshot_text(self, delivery: SubscriptionDelivery, key: str) -> Optional[str]:
+        snapshot = delivery.content_snapshot
+        if not isinstance(snapshot, dict):
+            return None
+        value = snapshot.get(key)
+        return value if isinstance(value, str) and value else None
+
+    @extend_schema_field(serializers.CharField(allow_null=True))
+    def get_ai_report(self, delivery: SubscriptionDelivery) -> Optional[str]:
+        return self._content_snapshot_text(delivery, AI_REPORT_SNAPSHOT_KEY)
+
+    @extend_schema_field(serializers.CharField(allow_null=True))
+    def get_ai_report_prompt(self, delivery: SubscriptionDelivery) -> Optional[str]:
+        return self._content_snapshot_text(delivery, AI_REPORT_PROMPT_SNAPSHOT_KEY)
+
+    @extend_schema_field(AIReportQueryDiagnosticSerializer(many=True, allow_null=True))
+    def get_ai_report_diagnostics(self, delivery: SubscriptionDelivery) -> Optional[list[dict]]:
+        snapshot = delivery.content_snapshot
+        if not isinstance(snapshot, dict):
+            return None
+        diagnostics = snapshot.get(AI_REPORT_DIAGNOSTICS_KEY)
+        return diagnostics if isinstance(diagnostics, list) else None
+
     def to_representation(self, instance):
         data = super().to_representation(instance)
         # The viewset sets this flag when an AI prompt delivery is read by a caller without query
         # access; scrub the query-derived report so subscription:read (or a self-granted query:read
-        # scope) can't read analytics the user isn't allowed to run themselves.
+        # scope) can't read analytics the user isn't allowed to run themselves. ai_report_prompt is
+        # user-authored and already readable on the subscription, so it is deliberately not scrubbed.
         if self.context.get("hide_ai_report"):
             data.update(self.AI_REPORT_SCRUBBED)
+            return data
+        # The AI report now ships via the typed ai_report / ai_report_diagnostics / ai_report_prompt
+        # fields, so drop the same keys from content_snapshot to avoid shipping the report twice.
+        # The non-AI scaffold (insights, dashboard, total_insight_count) stays intact.
+        snapshot = data.get("content_snapshot")
+        if isinstance(snapshot, dict) and (
+            AI_REPORT_SNAPSHOT_KEY in snapshot
+            or AI_REPORT_PROMPT_SNAPSHOT_KEY in snapshot
+            or AI_REPORT_DIAGNOSTICS_KEY in snapshot
+        ):
+            data["content_snapshot"] = {
+                key: value
+                for key, value in snapshot.items()
+                if key not in (AI_REPORT_SNAPSHOT_KEY, AI_REPORT_PROMPT_SNAPSHOT_KEY, AI_REPORT_DIAGNOSTICS_KEY)
+            }
         return data
 
 

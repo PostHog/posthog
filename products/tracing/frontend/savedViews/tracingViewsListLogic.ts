@@ -1,14 +1,15 @@
 import { actions, connect, kea, listeners, path, reducers } from 'kea'
 
-import { tracingFiltersLogic } from '../tracingFiltersLogic'
+import { TRACING_SCENE_VIEWER_ID, tracingFiltersLogic } from '../tracingFiltersLogic'
 import type { tracingViewsListLogicType } from './tracingViewsListLogicType'
 import { tracingViewsLogic } from './tracingViewsLogic'
 
 export const tracingViewsListLogic = kea<tracingViewsListLogicType>([
     path(['products', 'tracing', 'frontend', 'savedViews', 'tracingViewsListLogic']),
 
+    // Saved views are a /tracing scene feature — always bind the scene's viewer instance.
     connect(() => ({
-        values: [tracingFiltersLogic, ['filters']],
+        values: [tracingFiltersLogic({ id: TRACING_SCENE_VIEWER_ID }), ['filters']],
         actions: [tracingViewsLogic, ['createView', 'createViewSuccess', 'loadView', 'loadViews']],
     })),
 

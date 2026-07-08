@@ -44,10 +44,12 @@ class TeamInline(TabularInlinePaginated):
             "internal_properties",
             "delete_recordings",
             "remote_config_cache_actions",
+            "flags_staff_tools_link",
             "api_token_display",
             "admit_state",
             "ai_gateway_actions",
             "ai_gateway_wallet",
+            "ai_gateway_credit_history",
             "policy_cache_blob",
             "group_type_mappings_display",
         )

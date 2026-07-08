@@ -47,6 +47,8 @@ from posthog.temporal.common.logger import configure_logger, get_logger
 from posthog.temporal.common.worker import ManagedWorker, create_worker
 from posthog.temporal.data_modeling import (
     ACTIVITIES as DATA_MODELING_ACTIVITIES,
+    SEMANTIC_ENRICHMENT_ACTIVITIES,
+    SEMANTIC_ENRICHMENT_WORKFLOWS,
     WORKFLOWS as DATA_MODELING_WORKFLOWS,
 )
 from posthog.temporal.delete_persons import (
@@ -253,8 +255,8 @@ _task_queue_specs = [
     ),
     (
         settings.DATA_WAREHOUSE_METADATA_TASK_QUEUE,
-        DATA_WAREHOUSE_METADATA_WORKFLOWS,
-        DATA_WAREHOUSE_METADATA_ACTIVITIES,
+        DATA_WAREHOUSE_METADATA_WORKFLOWS + SEMANTIC_ENRICHMENT_WORKFLOWS,
+        DATA_WAREHOUSE_METADATA_ACTIVITIES + SEMANTIC_ENRICHMENT_ACTIVITIES,
     ),
     (
         settings.DATA_MODELING_TASK_QUEUE,
