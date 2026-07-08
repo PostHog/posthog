@@ -52,4 +52,22 @@ describe('metricsViewerLogic', () => {
         logic.actions.setMetricName('mystery_metric')
         expect(logic.values.aggregation).toBe('increase')
     })
+
+    // The chip parser must match the two-char operators before the bare '=', and never let the
+    // value slice swallow the operator characters.
+    it.each([
+        ['env=prod', { key: 'env', op: 'eq', value: 'prod' }],
+        ['env!=prod', { key: 'env', op: 'neq', value: 'prod' }],
+        ['svc=~checkout.*', { key: 'svc', op: 'regex', value: 'checkout.*' }],
+        ['path!~/health', { key: 'path', op: 'not_regex', value: '/health' }],
+        ['  env = prod ', { key: 'env', op: 'eq', value: 'prod' }],
+    ])('parses filter chip %s into the right operator', (chip, expected) => {
+        logic.actions.setFilterStrings([chip])
+        expect(logic.values.queryFilters).toEqual([expected])
+    })
+
+    it('drops malformed filter chips with no operator or empty key', () => {
+        logic.actions.setFilterStrings(['noop', '=orphan', 'env=prod'])
+        expect(logic.values.queryFilters).toEqual([{ key: 'env', op: 'eq', value: 'prod' }])
+    })
 })

@@ -56,13 +56,30 @@ const ANOMALY_WINDOW_FRACTION = 0.2
 export const LIVE_REFRESH_MS = 15_000
 const LIVE_REFRESH_KEY = 'metricsLiveRefresh'
 
-// Parse a "key=value" chip into an equality filter. Returns null for malformed input (no key before '=').
+// Chip operators map to the backend FilterOp values. Two-char operators are matched
+// before the bare '=' so "path!~/health" and "svc=~checkout.*" parse the way PromQL users expect.
+const FILTER_OPERATORS: { token: string; op: _MetricFilterApi['op'] }[] = [
+    { token: '!~', op: 'not_regex' },
+    { token: '=~', op: 'regex' },
+    { token: '!=', op: 'neq' },
+    { token: '=', op: 'eq' },
+]
+
+// Parse a filter chip ("key=value", "key!=value", "key=~pattern", "key!~pattern") into a filter,
+// scanning left to right for the first operator. Returns null for malformed input (no operator, or empty key).
 const parseFilter = (raw: string): _MetricFilterApi | null => {
-    const eq = raw.indexOf('=')
-    if (eq <= 0) {
-        return null
+    for (let i = 0; i < raw.length; i++) {
+        const match = FILTER_OPERATORS.find((o) => raw.startsWith(o.token, i))
+        if (!match) {
+            continue
+        }
+        const key = raw.slice(0, i).trim()
+        if (!key) {
+            return null
+        }
+        return { key, op: match.op, value: raw.slice(i + match.token.length).trim() }
     }
-    return { key: raw.slice(0, eq).trim(), op: 'eq', value: raw.slice(eq + 1).trim() }
+    return null
 }
 
 const resolveDate = (value: string | null | undefined): string | null => {

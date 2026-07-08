@@ -217,7 +217,7 @@ export const MetricsViewer = (): JSX.Element => {
                     value={filterStrings}
                     onChange={setFilterStrings}
                     options={[]}
-                    placeholder="Filter attribute=value…"
+                    placeholder="Filter e.g. env=prod, path!~/health…"
                     className="min-w-[14rem]"
                 />
                 <DateFilter
