@@ -3415,7 +3415,10 @@ class USCensusSourceConfig(config.Config):
 
 @config.config
 class UbidotsSourceConfig(config.Config):
-    pass
+    api_token: str
+    api_base_url: Literal["https://industrial.api.ubidots.com", "https://things.ubidots.com"] | None = config.value(
+        default="https://industrial.api.ubidots.com"
+    )
 
 
 @config.config

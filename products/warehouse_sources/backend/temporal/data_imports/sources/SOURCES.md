@@ -334,6 +334,7 @@ the row lists both.
 | trello                  | HTTP                        | requests                                                        | ✅                          |
 | twilio                  | HTTP                        | requests                                                        | ✅                          |
 | typeform                | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
+| ubidots                 | HTTP                        | requests                                                        | ✅                          |
 | vercel                  | HTTP                        | requests                                                        | ✅                          |
 | vitally                 | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
 | webflow                 | HTTP                        | requests                                                        | ✅                          |
@@ -709,7 +710,6 @@ doesn't conflict with concurrent PRs.
 - twitter
 - twitter_ads
 - tyntec_sms
-- ubidots
 - unleash
 - uppromote
 - uptick
