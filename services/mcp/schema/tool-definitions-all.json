@@ -221,7 +221,7 @@
         }
     },
     "actions-get-all": {
-        "description": "Get actions in the project. Actions are reusable event definitions that can combine multiple trigger conditions (page views, clicks, form submissions) into a single trackable event for use in insights and funnels. Supports pagination with `limit` and `offset`, and case-insensitive name filtering with `search`. Projects can have thousands of actions, so pass `limit` (and `search` when looking for a specific action by name) rather than fetching every action at once.",
+        "description": "Get actions in the project. Actions are reusable event definitions that can combine multiple trigger conditions (page views, clicks, form submissions) into a single trackable event for use in insights and funnels. Supports pagination with `limit` and `offset`, case-insensitive name filtering with `search`, filtering by creator with `created_by` (comma-separated user ids), filtering by tag with `tags` (a JSON-encoded array of tag names), and sorting with `ordering`. Projects can have thousands of actions, so pass `limit` plus the relevant filters rather than fetching every action at once.",
         "category": "Actions",
         "feature": "actions",
         "summary": "Get all actions",
@@ -711,6 +711,21 @@
         },
         "feature_flag": "agent-platform"
     },
+    "agent-applications-revisions-tools-dry-run-create": {
+        "description": "Execute the persisted `compiled.js` for one tool in a single-shot sandbox with caller-supplied args and a stubbed ctx — the authoring loop's \"test this tool\" button. Body `{ args, mock_secrets? }`: `args` is free-form JSON (NOT validated against the tool's `args_schema`); `mock_secrets` is an optional `{name → placeholder}` map the sandbox plumbs into `ctx.secrets.ref(name)` so the tool body can run without \"secret not provisioned\". The real secret value never enters the sandbox. Returns `{ ok, tool_id, result?, error?, duration_ms }`: `ok:true` + `result` when the tool returned cleanly, `ok:false` + `error` when the tool threw or the sandbox rejected. Requires the tool to have been PUT first (it runs the persisted bytes, not a fresh source). Draft-only. Per-call lifecycle — no warm pool today. Playbook: read the `editing-agents-safely` playbook via `agent-resolve-resource` for the broader branch → validate → freeze → promote workflow.",
+        "category": "Agent stack",
+        "feature": "agent_platform",
+        "summary": "Dry-run a custom tool",
+        "title": "Dry-run a custom tool",
+        "required_scopes": ["agents:write"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": false,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        },
+        "feature_flag": "agent-platform"
+    },
     "agent-applications-revisions-tools-update": {
         "description": "Body `{ description, args_schema, source }`. `source` is the TypeScript tool source — the janitor runs an AST shape check + esbuild compile synchronously and rejects a bad shape with structured diagnostics in the 422 response. Required shape: `export default { actions: { default: async (args, ctx) => { ... } } }`. Do NOT include `compiled.js` — it's generated. Tool id comes from the URL. Draft-only. Playbook: read the `editing-agents-safely` playbook via `agent-resolve-resource` for the branch → validate → freeze → promote workflow.",
         "category": "Agent stack",
@@ -973,7 +988,7 @@
         }
     },
     "annotations-list": {
-        "description": "List annotations in the current project, newest first. Use this to review existing deployment markers and analysis notes before adding new annotations.",
+        "description": "List annotations in the current project, newest first. Use this to review existing deployment markers and analysis notes before adding new annotations. Results are paginated (default 100 per page) — use `limit` and `offset` to page through, and `search` to filter by annotation content. Each row's `created_by` is trimmed to `{id, email}`.",
         "category": "Annotations",
         "feature": "annotations",
         "summary": "List annotations",
@@ -2315,6 +2330,20 @@
             "readOnlyHint": true
         }
     },
+    "elements-stats-retrieve": {
+        "description": "Counts of autocapture clicks, rage clicks, and dead clicks grouped by page element, ordered by count. Each result carries the parsed element chain (tag, text, href, attributes) of the clicked element. Filter by date range, event types, URL or other event/person properties, and the project's internal-test-account filters. This powers heatmap/clickmap views; use it to answer \"what do users click most\" and \"which elements get rage or dead clicks\". Responses can be very large on busy projects — always pass a small `limit` (e.g. 100) and paginate with `offset` if you need more results.",
+        "category": "Product analytics",
+        "feature": "product_analytics",
+        "summary": "Get element click stats",
+        "title": "Get element click stats",
+        "required_scopes": ["element:read"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        }
+    },
     "endpoint-create": {
         "description": "Create a new API endpoint from a HogQL or insight query. The name must be URL-safe (letters, numbers, hyphens, underscores, starts with a letter, max 128 chars). Materialization is auto-enabled if the query is eligible.",
         "category": "Endpoints",
@@ -2371,6 +2400,21 @@
             "readOnlyHint": true
         }
     },
+    "endpoint-materialization-conditions": {
+        "description": "Get the source code of the live checks that decide whether an endpoint query can be materialized, plus the rewrite contract a fix must obey. Use this to rewrite a rejected query yourself: fetch the conditions, produce a semantically equivalent query that passes every check (same results for all variable values, keep every variable placeholder unchanged), update the endpoint with it, then confirm with the materialization status tool. Alternatively, call the materialization suggestion tool to have PostHog produce a validated rewrite for you.",
+        "category": "Endpoints",
+        "feature": "endpoints",
+        "summary": "Get materialization conditions",
+        "title": "Get materialization conditions",
+        "required_scopes": ["endpoint:read"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        },
+        "feature_flag": "endpoints-ai-materialization-fix"
+    },
     "endpoint-materialization-status": {
         "description": "Get lightweight materialization status for an endpoint without fetching full endpoint data. Returns whether materialization is possible, current status, last run time, and any errors. Supports ?version=N.",
         "category": "Endpoints",
@@ -2384,6 +2428,21 @@
             "openWorldHint": true,
             "readOnlyHint": true
         }
+    },
+    "endpoint-materialization-suggestion": {
+        "description": "Ask PostHog AI to rewrite a SQL endpoint's query into a semantically equivalent form that passes the materialization checks. The suggestion is validated against the live checks before being returned; nothing is saved — apply it with the update endpoint tool if it looks right. Only for SQL (HogQL) endpoints whose materialization status reports can_materialize false. Requires the organization's AI data processing approval. Statuses: ok (validated rewrite), cannot_fix (no equivalent rewrite exists), invalid (attempts exhausted; last attempt returned), model_error. To rewrite the query yourself instead, use the materialization conditions tool.",
+        "category": "Endpoints",
+        "feature": "endpoints",
+        "summary": "Suggest materialization fix",
+        "title": "Suggest materialization fix",
+        "required_scopes": ["endpoint:read"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": false,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        },
+        "feature_flag": "endpoints-ai-materialization-fix"
     },
     "endpoint-openapi-spec": {
         "description": "Get the OpenAPI 3.0 specification for an endpoint. Returns a JSON spec that can be used with SDK generators like openapi-generator or @hey-api/openapi-ts to create typed API clients. Supports ?version=N to generate a spec for a specific version.",
@@ -2489,6 +2548,20 @@
         "feature": "engineering_analytics",
         "summary": "CI failure logs for a PR",
         "title": "CI failure logs for a PR",
+        "required_scopes": ["engineering_analytics:read"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        }
+    },
+    "engineering-analytics-flaky-tests": {
+        "description": "Backend tests ranked by flakiness signal over a window (date_from default -7d, maximum 30 days), from the per-test CI spans. A test qualifies by passing on an automatic retry at least min_rerun_passes times (default 1) OR failing on at least min_failed_prs distinct pull requests (default 3). Use this for \"which tests are flaky right now\" and to pick quarantine candidates. Read the counts as absolute signal, never rates — fast passing runs are not emitted, so there is no honest denominator. rerun_passed_count only flows from CI lanes running with retries enabled; in other lanes a flake surfaces as a plain failure, which failed_pr_count catches. xfailed_count > 0 means the test is already quarantined but still failing. nodeid is a best-effort reconstruction (no '.py' suffix, the file/class boundary folded into '/'), so convert before using it as a pytest selector.",
+        "category": "Engineering analytics",
+        "feature": "engineering_analytics",
+        "summary": "Flaky test leaderboard",
+        "title": "Flaky test leaderboard",
         "required_scopes": ["engineering_analytics:read"],
         "annotations": {
             "destructiveHint": false,
@@ -2635,6 +2708,48 @@
             "idempotentHint": true,
             "openWorldHint": true,
             "readOnlyHint": true
+        }
+    },
+    "error-tracking-bypass-rules-create": {
+        "description": "Create a rate limit bypass rule for the current project. Exception events matching the rule skip both the project-wide and per-issue exception rate limits and are always ingested. Provide `filters` with at least one condition — empty match-all rules are rejected; to stop rate limiting entirely, update the rate limits via error-tracking-settings-update instead. Keep filters scoped to the specific errors that must never be dropped: bypassed events are ingested and billed even during error spikes, so a broad rule can cause unbounded volume.",
+        "category": "Error tracking",
+        "feature": "error_tracking",
+        "summary": "Create error tracking bypass rule",
+        "title": "Create error tracking bypass rule",
+        "required_scopes": ["error_tracking:write"],
+        "annotations": {
+            "destructiveHint": true,
+            "idempotentHint": false,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        }
+    },
+    "error-tracking-bypass-rules-list": {
+        "description": "List rate limit bypass rules for the current project. Exception events matching a rule skip the project-wide and per-issue exception rate limits. Returns rules in evaluation order with their filters and disabled state. Supports pagination with `limit` and `offset`.",
+        "category": "Error tracking",
+        "feature": "error_tracking",
+        "summary": "List error tracking bypass rules",
+        "title": "List error tracking bypass rules",
+        "required_scopes": ["error_tracking:read"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        }
+    },
+    "error-tracking-bypass-rules-update": {
+        "description": "Update a rate limit bypass rule's `filters` by ID. Omit `filters` to leave them unchanged. Editing the rule also clears any auto-disable state so the rule is re-enabled. Broadening filters exempts more exception events from rate limiting, which can increase ingested (and billed) volume during error spikes — keep them scoped to the specific errors that must never be dropped.",
+        "category": "Error tracking",
+        "feature": "error_tracking",
+        "summary": "Update error tracking bypass rule",
+        "title": "Update error tracking bypass rule",
+        "required_scopes": ["error_tracking:write"],
+        "annotations": {
+            "destructiveHint": true,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": false
         }
     },
     "error-tracking-external-references-create": {
@@ -5002,7 +5117,7 @@
         }
     },
     "llma-personal-spend": {
-        "description": "Retrieve the current user's personal LLM spend analysis across PostHog products over the last N days (default 30, max 90). Returns a summary plus breakdowns by product, tool, model, and top traces. The `product` query param is required and scopes the tool / model / trace breakdowns to a single product; currently only `posthog_code` is supported. `by_product` always returns the cross-product view. Pass `refresh=true` to bypass the 5-minute cache.",
+        "description": "Retrieve the current user's personal LLM spend analysis across PostHog products over the last N days (default 30, max 90). Returns a summary plus breakdowns by product, tool, model and UTC day. The `product` query param is required and scopes the tool / model / day breakdowns to a single product; currently only `posthog_code` is supported. `by_product` always returns the cross-product view, and `by_day` is a day-ascending series for spend-over-time questions. Pass `refresh=true` to bypass the 5-minute cache.",
         "category": "AI observability",
         "feature": "llm_analytics",
         "summary": "Get my LLM spend analysis",
@@ -5795,6 +5910,21 @@
             "readOnlyHint": true
         }
     },
+    "logs-patterns": {
+        "description": "Mine recurring log templates (\"patterns\") from the logs matching a filter set, ordered by frequency. Each pattern is a message template with the variable parts masked — e.g. `Connected to <ip> in <num>ms` — plus occurrence estimates, severity mix, the services it appears in, and a ready-made predicate for fetching its matching lines.\n\nThis is the fastest way to understand what a log stream is _saying_ without reading raw rows: one call summarizes millions of lines into at most 200 templates.\n\nAll parameters must be nested inside a `query` object.\n\n# When to use\n\n- To triage an unfamiliar or noisy stream: mine the last hour, scan the top templates by `estimated_count`, and look for anything with a non-zero error share in `severity_counts`.\n- To find what's new or dominant during an incident window: mine with `severityLevels: [\"error\", \"fatal\"]` and a `dateRange` covering the incident.\n- As the entry point of a drill-down loop: mine → pick a suspicious pattern → filter logs to exactly its lines using `match_regex` (see below) → read the raw rows with `query-logs`.\n- To quantify repetition before proposing log sampling or cleanup: `volume_share_pct` tells you how much of the stream one template accounts for.\n\n## Pick the right tool\n\n- Raw log lines matching a filter → `query-logs`.\n- A single number (how many logs match) → `logs-count`; per-time-bucket counts → `logs-count-ranges`.\n- Distribution of a dimension (which services emit the errors?) → `logs-facet-values-create`.\n- Use **this** tool to summarize message _content_ — what distinct things the logs say and how often.\n\n# Reading the response\n\n- `pattern` — the mined template. Masked tokens: `<uuid>`, `<ip>`, `<hex>`, `<num>`, and `<*>` for any word position that varied.\n- `estimated_count` / `estimated_error_count` — occurrences extrapolated to the full window. When `sampled` is false these are exact.\n- `severity_counts` — sampled occurrences per severity. A template split across `info` and `error` often means the same code path logging both outcomes.\n- `services` — up to 4 service names the pattern was seen in.\n- `match_regex` — a regex over raw log bodies that matches this pattern's lines, pre-validated against the pattern's own sampled lines. Null when no trustworthy regex could be compiled.\n- `match_literal` — longest literal run of the template, a plain-text fallback when `match_regex` is null.\n\nMining samples the window (`sampled: true` when it did): counts are estimates, and rare patterns (below roughly 1 in `scanned_count` of the volume) may be missing entirely. Narrow the `dateRange` or filters to mine a finer-grained sample.\n\n## Pivoting to a pattern's raw lines\n\nTo fetch the lines behind a pattern, call `query-logs` with a message filter in `filterGroup`:\n\n- If `match_regex` is set: `{ \"key\": \"message\", \"value\": \"<match_regex>\", \"operator\": \"regex\", \"type\": \"log\" }`\n- Else if `match_literal` is set: `{ \"key\": \"message\", \"value\": \"<match_literal>\", \"operator\": \"icontains\", \"type\": \"log\" }`\n\nAlso pass the pattern's `services` as `serviceNames` and (when every entry is one of trace/debug/info/warn/error/fatal) the keys of `severity_counts` as `severityLevels` — both make the query dramatically cheaper.\n\n# Parameters\n\n## query.dateRange\n\nDate range to mine. Defaults to the last hour (`-1h`).\n\n- `date_from`: ISO 8601 timestamp or relative format: `-1h`, `-6h`, `-1d`, `-7d`.\n- `date_to`: Same format. Omit or null for \"now\".\n\n## query.severityLevels\n\nMine only these severities: `trace`, `debug`, `info`, `warn`, `error`, `fatal`. Omit to include all levels.\n\n## query.serviceNames\n\nRestrict mining to these services. Recommended once you know the target service — it prunes the scan and spends the whole sample budget on one service's templates.\n\n## query.searchTerm\n\nFull-text search over log bodies applied before mining. Useful to mine only the sub-stream around a keyword (e.g. `timeout`).\n\n## query.filterGroup\n\nProperty filters applied before mining. Same format as `query-logs` filters.\n\n# Examples\n\n## What is this stream saying? (last hour, everything)\n\n```json\n{ \"query\": { \"dateRange\": { \"date_from\": \"-1h\" } } }\n```\n\n## Dominant error templates during an incident\n\n```json\n{\n  \"query\": {\n    \"severityLevels\": [\"error\", \"fatal\"],\n    \"dateRange\": { \"date_from\": \"2024-01-15T09:00:00Z\", \"date_to\": \"2024-01-15T11:00:00Z\" }\n  }\n}\n```\n\n## Mine one service's logs around a keyword\n\n```json\n{\n  \"query\": {\n    \"serviceNames\": [\"checkout\"],\n    \"searchTerm\": \"payment\",\n    \"dateRange\": { \"date_from\": \"-6h\" }\n  }\n}\n```",
+        "category": "Logs",
+        "feature": "logs",
+        "summary": "Mine log patterns",
+        "title": "Mine log patterns",
+        "required_scopes": ["logs:read"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        },
+        "feature_flag": "logs-patterns-view"
+    },
     "logs-services-create": {
         "description": "Return the top-25 services by log volume in the window, each with log_count, error_count, and error_rate, plus a per-service sparkline. Use this as the entry point when triaging which services are worth alerting on — high volume × non-zero error_rate is the natural alert candidate. Far cheaper than walking attribute-values + per-service counts.",
         "category": "Logs",
@@ -5990,6 +6120,21 @@
         },
         "feature_flag": "mcp-analytics"
     },
+    "mcp-analytics-sessions-tool-calls": {
+        "description": "List a single session's $mcp_tool_call events in chronological order — the drill-down for a session found via mcp-analytics-sessions-list. Pass the session's session_id (the {id} path param); for sessions older than the default 7-day lookback, also pass its session_start as date_from so the event scan reaches them. Each call has tool_name, intent, timestamp, duration_ms, and is_error / error_message. Pages with limit (defaults to 500 — the whole page, since sessions rarely have more — max 500) and offset; the response's has_next flag indicates whether more calls remain.",
+        "category": "MCP analytics",
+        "feature": "mcp_analytics",
+        "summary": "List session tool calls",
+        "title": "List session tool calls",
+        "required_scopes": ["mcp_analytics:read"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        },
+        "feature_flag": "mcp-analytics"
+    },
     "mcp-connection-tools-list": {
         "description": "Load a connected MCP server's live tool catalog by connection `id` (from mcp-connections-list). Returns each tool's `tool_name`, `description`, `input_schema`, and `approval_state`. ALWAYS call this to load a connection's REAL tool names before curating per-agent MCP tool permissions (an agent's `spec.mcps[].tools[]` with `level` / `default_tool_approval`) — never invent or guess tool names from past sessions or skill prose.",
         "category": "MCP Store",
@@ -6065,7 +6210,7 @@
         "system_prompt_hint": "Discover which server/infrastructure metrics exist before querying them"
     },
     "notebook-edit": {
-        "description": "Edit part of a notebook's content. Use this for any change inside a notebook — text, headings, attributes, whole paragraphs. Call `notebooks-retrieve` first to see what to target.\n\nMatching is by content. The tool finds `old_value` anywhere in the notebook and swaps it for `new_value` in place.\n\nOn success, returns the updated notebook with the new content and bumped version. On a 409 or 410 error, the notebook has changed since you loaded it — call `notebooks-retrieve` and re-apply your edit against the latest content.",
+        "description": "Edit part of a notebook's content by short_id.\n\nFor markdown notebooks, use `execute-sql` to read the current markdown from `system.notebooks.markdown`, then edit with `old_markdown` / `new_markdown`. These are plain markdown strings; do not copy or construct the nested `ph-markdown-notebook` JSON wrapper.\n\nFor legacy rich-text notebooks, inspect the JSON content from `system.notebooks.content`, then edit with `old_value` / `new_value` JSON subtree replacement. Matching is by content: the tool finds `old_value` anywhere in the notebook and swaps it for `new_value` in place.\n\nOn success, returns the updated notebook with the new content and bumped version. On a 409 or 410 error, the notebook has changed since you loaded it; reload the latest markdown or JSON content and re-apply your edit.",
         "category": "Notebooks",
         "feature": "notebooks",
         "summary": "Edit part of a notebook's content.",
@@ -6610,7 +6755,7 @@
         "system_prompt_hint": "LLM/AI trace listing and inspection"
     },
     "query-logs": {
-        "description": "Query log entries with filtering by severity, service name, date range, search term, and structured attribute filters. Supports cursor-based pagination. The response schema (see the tool's typed output) lists every returned field — prefer `severity_text` over `severity_number` / `level`, and be aware that `trace_id` and `span_id` return zero-padded strings rather than null when unset.\n\nUse `logs-attributes-list` and `logs-attribute-values-list` to discover available attributes before building filters.\n\n# Workflow — follow this order every time\n\n1. **Discover services first.** Call `logs-attribute-values-list` with `key: \"service.name\"` and `attribute_type: \"resource\"` to see available services.\n2. **Explore resource attributes.** Call `logs-attributes-list` with `attribute_type: \"resource\"` to discover resource-level attributes (e.g. `k8s.pod.name`, `k8s.namespace.name`). Then call `logs-attribute-values-list` with `attribute_type: \"resource\"` for relevant attributes to validate what data exists.\n3. **Explore log attributes if needed.** Call `logs-attributes-list` (defaults to log attributes) and `logs-attribute-values-list` to discover log-level attributes.\n4. **Size the total volume with `logs-count`.** Call `logs-count` with the discovered `serviceNames` and filters. If it exceeds `query-logs`'s max `limit` of 1000 — or if the user's question is about _when_ something happened — continue to step 5.\n5. **Find where the volume sits with `logs-count-ranges`.** Call `logs-count-ranges` to get time-bucketed counts. Each bucket carries explicit `date_from`/`date_to` you can pass straight back as the next call's `dateRange` to drill into a sub-range. Recurse up to 3–4 levels to narrow onto a spike or a specific window. Stop when the bucket width drops below your precision goal (e.g. 1 minute).\n6. **Only then query logs.** Once the count is in range and the window is right-sized, call `query-logs` with `serviceNames` and any additional filters.\n\nMany cheap calls (attribute/value queries, counts, count-ranges) beat one expensive `query-logs`. Prefer thorough exploration over speculative log searches.\n\nCRITICAL: Be minimalist. Only include filters and settings that are essential to answer the user's specific question. Default settings are usually sufficient unless the user explicitly requests customization.\n\nMANDATORY: Never call query-logs without setting `serviceNames` or at least one `log_resource_attribute` filter. Unfiltered log queries are too broad, expensive, and noisy. If the user hasn't specified a service, use the workflow above to discover services first, then ask or infer.\n\nAll parameters must be nested inside a `query` object.\n\n# Data narrowing\n\n## Property filters\n\nUse property filters via the `query.filterGroup` field to narrow results. Only include property filters when they are essential to directly answer the user's question.\n\nWhen using a property filter, you should:\n\n- **Choose the right type.** Log property types are:\n  - `log` — filters the log body/message. Use key \"message\" for this type.\n  - `log_attribute` — filters log-level attributes (e.g. \"k8s.container.name\", \"http.method\").\n  - `log_resource_attribute` — filters resource-level attributes (e.g. k8s labels, deployment info).\n- **Use `logs-attributes-list` to discover available attribute keys** before building filters.\n- **Use `logs-attribute-values-list` to discover valid values** for a specific attribute key.\n- **Find the suitable operator for the value type** (see supported operators below).\n\n**Important:** The `logs-attributes-list` and `logs-attribute-values-list` tools default to `attribute_type: \"log\"` (log-level attributes). To search resource-level attributes (e.g. `k8s.pod.name`, `k8s.namespace.name`), you must explicitly pass `attribute_type: \"resource\"`. Forgetting this will return log-level attributes when you intended resource-level ones.\n\nSupported operators:\n\n- String: `exact`, `is_not`, `icontains`, `not_icontains`, `regex`, `not_regex`\n- Numeric: `exact`, `gt`, `lt`\n- Date: `is_date_exact`, `is_date_before`, `is_date_after`\n- Existence (no value needed): `is_set`, `is_not_set`\n\nThe `value` field accepts a string, number, or array of strings depending on the operator. Omit `value` for `is_set`/`is_not_set`.\n\n## Filtering logs by a PostHog person\n\nWhen the user references a person — by `distinct_id`, name, email, or via a prior `persons-retrieve` call — filter logs to that person via a `log_attribute` filter. The attribute key is configurable per project (it defaults to `distinct_id`); read `logs_distinct_id_attribute_key` from the team config (returned on `projects-retrieve` / `environments-retrieve`, or via the `/api/projects/:id/logs_config/` endpoint) and use that as the filter `key`.\n\nIf the team has not configured a custom key, use `distinct_id`. If a person has multiple `distinct_ids`, pass the array as the filter `value` with operator `exact` (matches any of them).\n\n```json\n{\n  \"query\": {\n    \"serviceNames\": [\"<service>\"],\n    \"filterGroup\": [\n      {\n        \"key\": \"distinct_id\",\n        \"operator\": \"exact\",\n        \"type\": \"log_attribute\",\n        \"value\": [\"<distinct_id_1>\", \"<distinct_id_2>\"]\n      }\n    ]\n  }\n}\n```\n\nDo not invent a different attribute key based on what looks plausible — use the configured key. If the configured key returns zero results, the customer's logs pipeline may not stamp person identity at all; tell the user rather than guessing.\n\n## Time period\n\nUse the `query.dateRange` field to control the time window. If the question doesn't mention time, the default is the last hour (`-1h`). Examples of relative dates: `-1h`, `-6h`, `-1d`, `-7d`, `-30d`.\n\n# Parameters\n\nAll parameters go inside `query`.\n\n## query.severityLevels\n\nFilter by log severity: `trace`, `debug`, `info`, `warn`, `error`, `fatal`. Omit to include all levels.\n\nThis filter is an **exact match against the response's `severity_text` field** using these six lowercase buckets — it is _not_ a numeric range and _not_ case-insensitive. If a service ingests non-canonical severity strings (e.g. `\"ERROR\"`, `\"Warning\"`, `\"err\"`), `severityLevels: [\"error\"]` will not match them and you will get zero rows. When a severity filter returns nothing unexpectedly, discover the actual stored values with `logs-attribute-values-list { key: \"severity_text\" }` and either filter on the value you find or fall back to a `searchTerm`. See \"Severity fields in the response\" below for the `severity_text` / `severity_number` / `level` mapping.\n\n## query.serviceNames\n\nFilter by service names. Use `logs-attribute-values-list` with `key: \"service.name\"` and `attribute_type: \"resource\"` to discover available services.\n\n## query.searchTerm\n\nFull-text search across log bodies. Use this when the user is looking for specific text in log messages.\n\n## query.orderBy\n\nSort by timestamp: `latest` (default) or `earliest`.\n\n## query.filterGroup\n\nA list of property filters to narrow results. Each filter specifies `key`, `operator`, `type` (log/log_attribute/log_resource_attribute), and optionally `value`. See the \"Property filters\" section above.\n\n## query.dateRange\n\nDate range to filter results. Defaults to the last hour (`-1h`).\n\n- `date_from`: Start of the range. Accepts ISO 8601 timestamps or relative formats: `-1h`, `-6h`, `-1d`, `-7d`, `-30d`.\n- `date_to`: End of the range. Same format. Omit or null for \"now\".\n\n## query.limit\n\nMaximum number of results (1-1000). Defaults to 100.\n\n## query.after\n\nCursor for pagination. Use the `nextCursor` value from the previous response.\n\n## query.excludeAttributes\n\nSet `true` to drop the per-log `attributes` and `resource_attributes` maps from results (the maps stay present but empty). These maps can hold large values, so excluding them keeps big result sets compact — set it when you only need `body`, `severity_text`, `timestamp`, and `service`-level fields and not the full attribute maps. Defaults to false.\n\n# Examples\n\n## List recent error logs\n\n```json\n{\n  \"query\": {\n    \"severityLevels\": [\"error\", \"fatal\"],\n    \"serviceNames\": [\"<service>\"]\n  }\n}\n```\n\n## Search for a specific log message\n\n```json\n{\n  \"query\": {\n    \"searchTerm\": \"connection refused\",\n    \"serviceNames\": [\"<service>\"],\n    \"dateRange\": { \"date_from\": \"-6h\" }\n  }\n}\n```\n\n## Filter logs from a specific service\n\n```json\n{\n  \"query\": {\n    \"serviceNames\": [\"api-gateway\"],\n    \"dateRange\": { \"date_from\": \"-1d\" }\n  }\n}\n```\n\n## Filter by a log attribute\n\n```json\n{\n  \"query\": {\n    \"serviceNames\": [\"<service>\"],\n    \"filterGroup\": [{ \"key\": \"http.status_code\", \"operator\": \"exact\", \"type\": \"log_attribute\", \"value\": \"500\" }],\n    \"dateRange\": { \"date_from\": \"-1d\" }\n  }\n}\n```\n\n## Combine severity and attribute filters\n\n```json\n{\n  \"query\": {\n    \"severityLevels\": [\"error\"],\n    \"filterGroup\": [\n      { \"key\": \"k8s.container.name\", \"operator\": \"exact\", \"type\": \"log_resource_attribute\", \"value\": \"web\" }\n    ],\n    \"dateRange\": { \"date_from\": \"-12h\" }\n  }\n}\n```\n\n## Filter by log body content using property filter\n\n```json\n{\n  \"query\": {\n    \"serviceNames\": [\"<service>\"],\n    \"filterGroup\": [{ \"key\": \"message\", \"operator\": \"icontains\", \"type\": \"log\", \"value\": \"timeout\" }]\n  }\n}\n```\n\n## Check if an attribute exists\n\n```json\n{\n  \"query\": {\n    \"serviceNames\": [\"<service>\"],\n    \"filterGroup\": [{ \"key\": \"trace_id\", \"operator\": \"is_set\", \"type\": \"log_attribute\" }]\n  }\n}\n```\n\n# Severity fields in the response\n\nEach returned log row carries three overlapping severity fields. Read and report `severity_text`; treat the other two as redundant:\n\n| Field             | What it is                                                      | Use it for                                                            |\n| ----------------- | --------------------------------------------------------------- | --------------------------------------------------------------------- |\n| `severity_text`   | Canonical severity string. **Prefer this.**                     | Filtering (`severityLevels`), grouping, and anything you show a user. |\n| `severity_number` | OpenTelemetry numeric severity (1–24). Redundant with the text. | Sorting by exact severity, or interop with OTel tooling.              |\n| `level`           | ClickHouse alias for `severity_text`. Redundant.                | Ignore — prefer `severity_text`.                                      |\n\n`severity_number` maps to the `severityLevels` buckets by OTel range. Use this when you only have a number and need the bucket, or vice-versa:\n\n| Bucket  | `severity_number` range | Canonical `severity_text` |\n| ------- | ----------------------- | ------------------------- |\n| `trace` | 1–4                     | `trace`                   |\n| `debug` | 5–8                     | `debug`                   |\n| `info`  | 9–12                    | `info`                    |\n| `warn`  | 13–16                   | `warn`                    |\n| `error` | 17–20                   | `error`                   |\n| `fatal` | 21–24                   | `fatal`                   |\n\nWhen the user asks for \"warnings and above\", that is `severityLevels: [\"warn\", \"error\", \"fatal\"]` — there is no numeric `>=` operator on the top-level severity filter.\n\n# If the query fails (500 / timeout)\n\nA `query-logs` call that returns a 500 almost always means the query scanned too much data and timed out server-side — it is rarely a bug in your filters. Do not retry the same call. Instead, narrow and re-size:\n\n1. Shorten `dateRange` (e.g. `-1h` instead of `-1d`).\n2. Add `serviceNames` or a `log_resource_attribute` filter to reduce the scan.\n3. Size the volume with `logs-count`, then locate the busy window with `logs-count-ranges`, before pulling rows again.\n\n# Reminders\n\n- Always set `serviceNames` or a resource attribute filter. Never run a broad unfiltered log query.\n- Limit `dateRange` to at most `-1d` (24 hours) unless the user explicitly requests a longer range.\n- When using `logs-attributes-list` or `logs-attribute-values-list`, remember they default to `attribute_type: \"log\"`. Pass `attribute_type: \"resource\"` to search resource-level attributes.\n- Ensure that any property filters are directly relevant to the user's question. Avoid unnecessary filtering.\n- Use `logs-attributes-list` and `logs-attribute-values-list` to discover attributes before guessing filter keys/values.\n- Prefer `searchTerm` for simple text matching; use `filterGroup` with type `log` and key `message` for regex or exact matching.",
+        "description": "Query log entries with filtering by severity, service name, date range, search term, and structured attribute filters. Supports cursor-based pagination. The response schema (see the tool's typed output) lists every returned field — prefer `severity_text` over `severity_number` / `level`, and be aware that `trace_id` and `span_id` return zero-padded strings rather than null when unset.\n\nUse `logs-attributes-list` and `logs-attribute-values-list` to discover available attributes before building filters.\n\n# Workflow — follow this order every time\n\n1. **Discover services first.** Call `logs-attribute-values-list` with `key: \"service.name\"` and `attribute_type: \"resource\"` to see available services.\n2. **Explore resource attributes.** Call `logs-attributes-list` with `attribute_type: \"resource\"` to discover resource-level attributes (e.g. `k8s.pod.name`, `k8s.namespace.name`). Then call `logs-attribute-values-list` with `attribute_type: \"resource\"` for relevant attributes to validate what data exists.\n3. **Explore log attributes if needed.** Call `logs-attributes-list` (defaults to log attributes) and `logs-attribute-values-list` to discover log-level attributes.\n4. **Size the total volume with `logs-count`.** Call `logs-count` with the discovered `serviceNames` and filters. If it exceeds `query-logs`'s max `limit` of 1000 — or if the user's question is about _when_ something happened — continue to step 5.\n5. **Find where the volume sits with `logs-count-ranges`.** Call `logs-count-ranges` to get time-bucketed counts. Each bucket carries explicit `date_from`/`date_to` you can pass straight back as the next call's `dateRange` to drill into a sub-range. Recurse up to 3–4 levels to narrow onto a spike or a specific window. Stop when the bucket width drops below your precision goal (e.g. 1 minute).\n6. **Only then query logs.** Once the count is in range and the window is right-sized, call `query-logs` with `serviceNames` and any additional filters.\n\nMany cheap calls (attribute/value queries, counts, count-ranges) beat one expensive `query-logs`. Prefer thorough exploration over speculative log searches.\n\nCRITICAL: Be minimalist. Only include filters and settings that are essential to answer the user's specific question. Default settings are usually sufficient unless the user explicitly requests customization.\n\nMANDATORY: Never call query-logs without setting `serviceNames` or at least one `log_resource_attribute` filter. Unfiltered log queries are too broad, expensive, and noisy. If the user hasn't specified a service, use the workflow above to discover services first, then ask or infer.\n\nMANDATORY: Always pass `query.dateRange` explicitly (e.g. `{ \"date_from\": \"-1h\" }`). Omitting it fails with a 400 `parse_error` (\"Input should be a valid dictionary or instance of DateRange\") — the server does not fall back to a default window.\n\nAll parameters must be nested inside a `query` object.\n\n# Data narrowing\n\n## Property filters\n\nUse property filters via the `query.filterGroup` field to narrow results. Only include property filters when they are essential to directly answer the user's question.\n\nWhen using a property filter, you should:\n\n- **Choose the right type.** Log property types are:\n  - `log` — filters the log body/message. Use key \"message\" for this type.\n  - `log_attribute` — filters log-level attributes (e.g. \"k8s.container.name\", \"http.method\").\n  - `log_resource_attribute` — filters resource-level attributes (e.g. k8s labels, deployment info).\n- **Use `logs-attributes-list` to discover available attribute keys** before building filters.\n- **Use `logs-attribute-values-list` to discover valid values** for a specific attribute key.\n- **Find the suitable operator for the value type** (see supported operators below).\n\n**Important:** The `logs-attributes-list` and `logs-attribute-values-list` tools default to `attribute_type: \"log\"` (log-level attributes). To search resource-level attributes (e.g. `k8s.pod.name`, `k8s.namespace.name`), you must explicitly pass `attribute_type: \"resource\"`. Forgetting this will return log-level attributes when you intended resource-level ones.\n\nSupported operators:\n\n- String: `exact`, `is_not`, `icontains`, `not_icontains`, `regex`, `not_regex`\n- Numeric: `exact`, `gt`, `lt`\n- Date: `is_date_exact`, `is_date_before`, `is_date_after`\n- Existence (no value needed): `is_set`, `is_not_set`\n\nThe `value` field accepts a string, number, or array of strings depending on the operator. Omit `value` for `is_set`/`is_not_set`.\n\n## Filtering logs by a PostHog person\n\nWhen the user references a person — by `distinct_id`, name, email, or via a prior `persons-retrieve` call — filter logs to that person via a `log_attribute` filter. The attribute key is configurable per project (it defaults to `distinct_id`); read `logs_distinct_id_attribute_key` from the team config (returned on `projects-retrieve` / `environments-retrieve`, or via the `/api/projects/:id/logs_config/` endpoint) and use that as the filter `key`.\n\nIf the team has not configured a custom key, use `distinct_id`. If a person has multiple `distinct_ids`, pass the array as the filter `value` with operator `exact` (matches any of them).\n\n```json\n{\n  \"query\": {\n    \"serviceNames\": [\"<service>\"],\n    \"filterGroup\": [\n      {\n        \"key\": \"distinct_id\",\n        \"operator\": \"exact\",\n        \"type\": \"log_attribute\",\n        \"value\": [\"<distinct_id_1>\", \"<distinct_id_2>\"]\n      }\n    ]\n  }\n}\n```\n\nDo not invent a different attribute key based on what looks plausible — use the configured key. If the configured key returns zero results, the customer's logs pipeline may not stamp person identity at all; tell the user rather than guessing.\n\n## Time period\n\nUse the `query.dateRange` field to control the time window — pass it on every call. If the question doesn't mention time, use the last hour: `{ \"date_from\": \"-1h\" }`. Examples of relative dates: `-1h`, `-6h`, `-1d`, `-7d`, `-30d`.\n\n# Parameters\n\nAll parameters go inside `query`.\n\n## query.severityLevels\n\nFilter by log severity: `trace`, `debug`, `info`, `warn`, `error`, `fatal`. Omit to include all levels.\n\nThis filter is an **exact match against the response's `severity_text` field** using these six lowercase buckets — it is _not_ a numeric range and _not_ case-insensitive. If a service ingests non-canonical severity strings (e.g. `\"ERROR\"`, `\"Warning\"`, `\"err\"`), `severityLevels: [\"error\"]` will not match them and you will get zero rows. When a severity filter returns nothing unexpectedly, discover the actual stored values with `logs-attribute-values-list { key: \"severity_text\" }` and either filter on the value you find or fall back to a `searchTerm`. See \"Severity fields in the response\" below for the `severity_text` / `severity_number` / `level` mapping.\n\n## query.serviceNames\n\nFilter by service names. Use `logs-attribute-values-list` with `key: \"service.name\"` and `attribute_type: \"resource\"` to discover available services.\n\n## query.searchTerm\n\nFull-text search across log bodies. Use this when the user is looking for specific text in log messages.\n\n## query.orderBy\n\nSort by timestamp: `latest` (default) or `earliest`.\n\n## query.filterGroup\n\nA list of property filters to narrow results. Each filter specifies `key`, `operator`, `type` (log/log_attribute/log_resource_attribute), and optionally `value`. See the \"Property filters\" section above.\n\n## query.dateRange\n\nDate range to filter results. Required in practice: omitting it fails with a 400 `parse_error`, so always pass it (use `{ \"date_from\": \"-1h\" }` when the question doesn't mention time).\n\n- `date_from`: Start of the range. Accepts ISO 8601 timestamps or relative formats: `-1h`, `-6h`, `-1d`, `-7d`, `-30d`.\n- `date_to`: End of the range. Same format. Omit or null for \"now\".\n\n## query.limit\n\nMaximum number of results (1-1000). Defaults to 100.\n\n## query.after\n\nCursor for pagination. Use the `nextCursor` value from the previous response.\n\n## query.excludeAttributes\n\nSet `true` to drop the per-log `attributes` and `resource_attributes` maps from results (the maps stay present but empty). These maps can hold large values, so excluding them keeps big result sets compact — set it when you only need `body`, `severity_text`, `timestamp`, and `service`-level fields and not the full attribute maps. Defaults to false.\n\n# Examples\n\n## List recent error logs\n\n```json\n{\n  \"query\": {\n    \"severityLevels\": [\"error\", \"fatal\"],\n    \"serviceNames\": [\"<service>\"],\n    \"dateRange\": { \"date_from\": \"-1h\" }\n  }\n}\n```\n\n## Search for a specific log message\n\n```json\n{\n  \"query\": {\n    \"searchTerm\": \"connection refused\",\n    \"serviceNames\": [\"<service>\"],\n    \"dateRange\": { \"date_from\": \"-6h\" }\n  }\n}\n```\n\n## Filter logs from a specific service\n\n```json\n{\n  \"query\": {\n    \"serviceNames\": [\"api-gateway\"],\n    \"dateRange\": { \"date_from\": \"-1d\" }\n  }\n}\n```\n\n## Filter by a log attribute\n\n```json\n{\n  \"query\": {\n    \"serviceNames\": [\"<service>\"],\n    \"filterGroup\": [{ \"key\": \"http.status_code\", \"operator\": \"exact\", \"type\": \"log_attribute\", \"value\": \"500\" }],\n    \"dateRange\": { \"date_from\": \"-1d\" }\n  }\n}\n```\n\n## Combine severity and attribute filters\n\n```json\n{\n  \"query\": {\n    \"severityLevels\": [\"error\"],\n    \"filterGroup\": [\n      { \"key\": \"k8s.container.name\", \"operator\": \"exact\", \"type\": \"log_resource_attribute\", \"value\": \"web\" }\n    ],\n    \"dateRange\": { \"date_from\": \"-12h\" }\n  }\n}\n```\n\n## Filter by log body content using property filter\n\n```json\n{\n  \"query\": {\n    \"serviceNames\": [\"<service>\"],\n    \"filterGroup\": [{ \"key\": \"message\", \"operator\": \"icontains\", \"type\": \"log\", \"value\": \"timeout\" }],\n    \"dateRange\": { \"date_from\": \"-1h\" }\n  }\n}\n```\n\n## Check if an attribute exists\n\n```json\n{\n  \"query\": {\n    \"serviceNames\": [\"<service>\"],\n    \"filterGroup\": [{ \"key\": \"trace_id\", \"operator\": \"is_set\", \"type\": \"log_attribute\" }],\n    \"dateRange\": { \"date_from\": \"-1h\" }\n  }\n}\n```\n\n# Severity fields in the response\n\nEach returned log row carries three overlapping severity fields. Read and report `severity_text`; treat the other two as redundant:\n\n| Field             | What it is                                                      | Use it for                                                            |\n| ----------------- | --------------------------------------------------------------- | --------------------------------------------------------------------- |\n| `severity_text`   | Canonical severity string. **Prefer this.**                     | Filtering (`severityLevels`), grouping, and anything you show a user. |\n| `severity_number` | OpenTelemetry numeric severity (1–24). Redundant with the text. | Sorting by exact severity, or interop with OTel tooling.              |\n| `level`           | ClickHouse alias for `severity_text`. Redundant.                | Ignore — prefer `severity_text`.                                      |\n\n`severity_number` maps to the `severityLevels` buckets by OTel range. Use this when you only have a number and need the bucket, or vice-versa:\n\n| Bucket  | `severity_number` range | Canonical `severity_text` |\n| ------- | ----------------------- | ------------------------- |\n| `trace` | 1–4                     | `trace`                   |\n| `debug` | 5–8                     | `debug`                   |\n| `info`  | 9–12                    | `info`                    |\n| `warn`  | 13–16                   | `warn`                    |\n| `error` | 17–20                   | `error`                   |\n| `fatal` | 21–24                   | `fatal`                   |\n\nWhen the user asks for \"warnings and above\", that is `severityLevels: [\"warn\", \"error\", \"fatal\"]` — there is no numeric `>=` operator on the top-level severity filter.\n\n# If the query fails (500 / timeout)\n\nA `query-logs` call that returns a 500 almost always means the query scanned too much data and timed out server-side — it is rarely a bug in your filters. Do not retry the same call. Instead, narrow and re-size:\n\n1. Shorten `dateRange` (e.g. `-1h` instead of `-1d`).\n2. Add `serviceNames` or a `log_resource_attribute` filter to reduce the scan.\n3. Size the volume with `logs-count`, then locate the busy window with `logs-count-ranges`, before pulling rows again.\n\n# Reminders\n\n- Always set `serviceNames` or a resource attribute filter. Never run a broad unfiltered log query.\n- Limit `dateRange` to at most `-1d` (24 hours) unless the user explicitly requests a longer range.\n- When using `logs-attributes-list` or `logs-attribute-values-list`, remember they default to `attribute_type: \"log\"`. Pass `attribute_type: \"resource\"` to search resource-level attributes.\n- Ensure that any property filters are directly relevant to the user's question. Avoid unnecessary filtering.\n- Use `logs-attributes-list` and `logs-attribute-values-list` to discover attributes before guessing filter keys/values.\n- Prefer `searchTerm` for simple text matching; use `filterGroup` with type `log` and key `message` for regex or exact matching.",
         "category": "Logs",
         "feature": "logs",
         "summary": "Query logs",
@@ -7173,8 +7318,22 @@
             "readOnlyHint": false
         }
     },
+    "session-recording-bulk-delete": {
+        "description": "Delete a batch of session recordings by session ID, up to 100 per call. Deletion is permanent and cannot be undone — confirm with the user before deleting. Prefer this over `session-recording-delete` whenever more than one recording needs deleting: find the target IDs with `query-session-recordings-list`, then delete in batches. Pass `date_from` (e.g. '-30d') when the recordings' age is known — it makes the lookup much faster. IDs with no matching recording are skipped, so a `deleted_count` below `total_requested` is normal when some recordings were already deleted or never existed.",
+        "category": "Session replays",
+        "feature": "replay",
+        "summary": "Bulk delete session recordings",
+        "title": "Bulk delete session recordings",
+        "required_scopes": ["session_recording:write"],
+        "annotations": {
+            "destructiveHint": true,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        }
+    },
     "session-recording-delete": {
-        "description": "Delete a session recording by ID. This permanently removes the recording data. Use for privacy or compliance workflows.",
+        "description": "Delete a session recording by ID. This permanently removes the recording data. Use for privacy or compliance workflows. To delete more than one recording, use `session-recording-bulk-delete` instead of calling this repeatedly.",
         "category": "Session replays",
         "feature": "replay",
         "summary": "Delete session recording",
@@ -7792,7 +7951,7 @@
         }
     },
     "subscriptions-deliveries-list": {
-        "description": "List delivery history for a subscription — one row per send attempt. Each entry includes status (starting, completed, failed, skipped), trigger_type (scheduled, manual, target_change), and timestamps (created_at, finished_at). Filter with status=failed to quickly surface failed deliveries. Results are cursor-paginated newest first. content_snapshot, recipient_results, and error are excluded to match what the web UI exposes and to avoid leaking recipient identifiers or upstream response bodies that may contain tokens / PII.",
+        "description": "List delivery history for a subscription — one row per send attempt. Each entry includes status (starting, completed, failed, skipped), trigger_type (scheduled, manual, target_change), and timestamps (created_at, finished_at). Filter with status=failed to quickly surface failed deliveries. Results are cursor-paginated newest first. content_snapshot, recipient_results, and error are excluded to avoid leaking recipient identifiers or upstream response bodies that may contain tokens / PII. ai_report (the full report markdown) and ai_report_diagnostics (per-query debug detail) are also excluded here to keep list responses small — fetch a single delivery with subscriptions-deliveries-retrieve to read the report.",
         "category": "Subscriptions",
         "feature": "subscriptions",
         "summary": "List subscription deliveries",
@@ -7806,7 +7965,7 @@
         }
     },
     "subscriptions-deliveries-retrieve": {
-        "description": "Fetch a single subscription delivery attempt by id. Returns status, trigger_type, target_type, target_value, timestamps, workflow/idempotency metadata, and exported_asset_ids. content_snapshot (the frozen dashboard/insight state at send time) is not returned — use the insight/dashboard tools for current state. recipient_results and error are also excluded to match what the web UI exposes and to avoid leaking recipient identifiers or upstream response bodies that may contain tokens / PII.",
+        "description": "Fetch a single subscription delivery attempt by id. Returns status, trigger_type, target_type, target_value, timestamps, workflow/idempotency metadata, and exported_asset_ids. content_snapshot (the frozen dashboard/insight state at send time) is not returned — use the insight/dashboard tools for current state. recipient_results and error are also excluded to avoid leaking recipient identifiers or upstream response bodies that may contain tokens / PII. Unlike the list tool, ai_report (the full report markdown for AI-prompt subscriptions) is returned here, alongside ai_report_prompt (the prompt it was generated from). ai_report_diagnostics (per-query generated HogQL + failure types) is excluded to keep the response focused on the report itself.",
         "category": "Subscriptions",
         "feature": "subscriptions",
         "summary": "Get subscription delivery",
@@ -8558,7 +8717,7 @@
         }
     },
     "view-create": {
-        "description": "Create a new data warehouse saved query (view). If a view with the same name already exists, it will be updated instead (upsert behavior). The query must be valid HogQL. After creation, the view can be referenced by name in other HogQL queries.",
+        "description": "Create a new data warehouse saved query (view). If a view with the same name already exists, it will be updated instead (upsert behavior). The query must be valid HogQL. After creation, the view can be referenced by name in other HogQL queries. Set `description` to record what the view represents (a semantic description surfaced to agents); per-column descriptions are set via the saved-query column annotation tools.",
         "category": "Data warehouse",
         "feature": "data_warehouse",
         "summary": "Create saved query",
@@ -8586,7 +8745,7 @@
         }
     },
     "view-get": {
-        "description": "Get a specific data warehouse saved query (view) by ID. Returns the full view definition including the HogQL query, column schema, materialization status, sync frequency, and run history metadata.",
+        "description": "Get a specific data warehouse saved query (view) by ID. Returns the full view definition including the HogQL query, column schema, materialization status, sync frequency, and run history metadata. Also returns the view's semantic `description` and a `description` on each entry of `columns` when set — use this to see what a view and its columns mean.",
         "category": "Data warehouse",
         "feature": "data_warehouse",
         "summary": "Get saved query",
@@ -8600,7 +8759,7 @@
         }
     },
     "view-list": {
-        "description": "List all data warehouse saved queries (views) in the project. Returns each view's name, materialization status, sync frequency, column schema, latest error, and last run timestamp. Use this to discover available views before querying them in HogQL.",
+        "description": "List all data warehouse saved queries (views) in the project. Returns each view's name, materialization status, sync frequency, column schema, latest error, and last run timestamp. Each view also includes its semantic `description` and a `description` on each entry of `columns` when set. Use this to discover available views and what they mean before querying them in HogQL.",
         "category": "Data warehouse",
         "feature": "data_warehouse",
         "summary": "List saved queries",
@@ -8670,7 +8829,7 @@
         }
     },
     "view-update": {
-        "description": "Update an existing data warehouse saved query (view). Can change the name, HogQL query, or sync frequency. Changing the query triggers column re-inference and sets the status to 'modified'. Use sync_frequency to control materialization schedule: '15min' (the fastest cadence), '30min', '1hour', '6hour', '12hour', '24hour', '7day', '30day', or 'never' to pause scheduled materialization. IMPORTANT: when updating the query field, you must first retrieve the view to get its latest_history_id, then pass that value as edited_history_id for conflict detection.",
+        "description": "Update an existing data warehouse saved query (view). Can change the name, HogQL query, sync frequency, or `description`. To set what the view represents (the semantic description surfaced to agents), pass `description` — an empty string clears it; per-column descriptions are set via the saved-query column annotation tools. Changing the query triggers column re-inference and sets the status to 'modified'. Use sync_frequency to control materialization schedule: '15min' (the fastest cadence), '30min', '1hour', '6hour', '12hour', '24hour', '7day', '30day', or 'never' to pause scheduled materialization. IMPORTANT: when updating the query field, you must first retrieve the view to get its latest_history_id, then pass that value as edited_history_id for conflict detection.",
         "category": "Data warehouse",
         "feature": "data_warehouse",
         "summary": "Update saved query",

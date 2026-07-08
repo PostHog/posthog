@@ -61,6 +61,20 @@ export const ServerError: Story = {
                     )
                 },
             },
+            post: {
+                // The query path must fail like the legacy endpoints above — otherwise the
+                // default query mock succeeds and renders a freshness bar over the error state.
+                '/api/environments/:team_id/query/:kind/': async () => {
+                    await delay(100)
+                    return HttpResponse.json(
+                        {
+                            type: 'server_error',
+                            detail: 'There is nothing you can do to stop the impending catastrophe.',
+                        },
+                        { status: 500 }
+                    )
+                },
+            },
         })
 
         return <App />
@@ -113,6 +127,18 @@ export const ValidationError: Story = {
             },
             post: {
                 '/api/environments/:team_id/insights/:id': async () => {
+                    await delay(100)
+                    return HttpResponse.json(
+                        {
+                            type: 'validation_error',
+                            detail: 'You forgot to hug the person next to you. Please do that now.',
+                        },
+                        { status: 400 }
+                    )
+                },
+                // Fail the query path too, so the default query mock doesn't succeed and
+                // render a freshness bar over the error state.
+                '/api/environments/:team_id/query/:kind/': async () => {
                     await delay(100)
                     return HttpResponse.json(
                         {

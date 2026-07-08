@@ -5,7 +5,9 @@ from typing import Any
 import pytest
 from unittest.mock import MagicMock, patch
 
-from products.tasks.backend.exceptions import SandboxExecutionError
+from parameterized import parameterized
+
+from products.tasks.backend.exceptions import SandboxExecutionError, SandboxProvisionError
 from products.tasks.backend.logic.services.docker_sandbox import DockerSandbox
 from products.tasks.backend.logic.services.sandbox import (
     ExecutionResult,
@@ -43,25 +45,36 @@ def is_ci() -> bool:
     return os.environ.get("GITHUB_ACTIONS") is not None or os.environ.get("CI") is not None
 
 
+class TestSandboxProviderGuard:
+    """The docker/modal_docker provider guards run at module import time. They must block
+    production (neither DEBUG nor TEST) but never trip test collection, where settings load
+    with DEBUG off but TEST on. No Docker daemon needed, so this runs in CI unlike the classes below."""
+
+    @parameterized.expand(
+        [
+            ("docker_production_blocked", "docker", False, False, True),
+            ("docker_local_dev_debug", "docker", True, False, False),
+            ("docker_test_context", "docker", False, True, False),
+            # MODAL_DOCKER blocked in production — the guard fires before the modal import.
+            ("modal_docker_production_blocked", "MODAL_DOCKER", False, False, True),
+        ]
+    )
+    @patch("products.tasks.backend.logic.services.sandbox.settings")
+    def test_provider_guard(self, _name, provider, debug, test, expect_raise, mock_settings):
+        mock_settings.SANDBOX_PROVIDER = provider
+        mock_settings.DEBUG = debug
+        mock_settings.TEST = test
+
+        if expect_raise:
+            with pytest.raises(RuntimeError, match="for local development only"):
+                get_sandbox_class()
+        else:
+            assert get_sandbox_class() is DockerSandbox
+
+
 @pytest.mark.skipif(is_ci() or not docker_available(), reason="Docker sandbox tests only run locally, not in CI")
 class TestSandboxFactory:
     """Tests for sandbox factory and production safety."""
-
-    @patch("products.tasks.backend.logic.services.sandbox.settings")
-    def test_docker_sandbox_blocked_in_production(self, mock_settings):
-        mock_settings.SANDBOX_PROVIDER = "docker"
-        mock_settings.DEBUG = False
-
-        with pytest.raises(RuntimeError, match="DockerSandbox cannot be used in production"):
-            get_sandbox_class()
-
-    @patch("products.tasks.backend.logic.services.sandbox.settings")
-    def test_docker_sandbox_opt_in_with_debug(self, mock_settings):
-        mock_settings.SANDBOX_PROVIDER = "docker"
-        mock_settings.DEBUG = True
-
-        sandbox_class = get_sandbox_class()
-        assert sandbox_class == DockerSandbox
 
     @patch("products.tasks.backend.logic.services.sandbox.settings")
     def test_modal_sandbox_default_in_debug(self, mock_settings):
@@ -169,6 +182,23 @@ class TestDockerSandboxUnit:
         assert "OTEL_EXPORTER_OTLP_LOGS_ENDPOINT=http://host.docker.internal:8000/i/v1/logs" in env_args
         # Non-URL env vars must pass through untouched.
         assert "POSTHOG_TEAM_ID=1" in env_args
+
+    @patch("products.tasks.backend.logic.services.docker_sandbox.subprocess.run")
+    def test_create_raises_clear_error_when_image_missing(self, mock_run):
+        # `docker image inspect` returns non-zero when the local-only sandbox image was
+        # never built. create() must fail with a clear SandboxProvisionError naming the
+        # image instead of letting `docker run` attempt an unpullable registry pull.
+        mock_run.return_value = MagicMock(stdout="", stderr="No such image", returncode=1)
+
+        config = SandboxConfig(name="test-sandbox", template=SandboxTemplate.DEFAULT_BASE)
+
+        with patch.object(DockerSandbox, "_get_image", return_value="posthog-sandbox-base"):
+            with pytest.raises(SandboxProvisionError) as exc:
+                DockerSandbox.create(config)
+
+        assert exc.value.context["image"] == "posthog-sandbox-base"
+        # Surfaced before `docker run` is ever attempted, so no doomed pull happens.
+        assert not any("run" in call.args[0] for call in mock_run.call_args_list)
 
     @patch("products.tasks.backend.logic.services.docker_sandbox.subprocess.run")
     def test_get_status_running(self, mock_run):

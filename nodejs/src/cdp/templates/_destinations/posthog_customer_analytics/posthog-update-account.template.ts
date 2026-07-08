@@ -16,17 +16,22 @@ if (empty(inputs.external_id)) {
 }
 
 let updates := {}
+let relationships := {}
 
 if (not empty(inputs.csm)) {
-  updates.csm := inputs.csm
+  relationships['CSM'] := inputs.csm
 }
 
 if (not empty(inputs.account_executive)) {
-  updates.account_executive := inputs.account_executive
+  relationships['Account executive'] := inputs.account_executive
 }
 
 if (not empty(inputs.account_owner)) {
-  updates.account_owner := inputs.account_owner
+  relationships['Account owner'] := inputs.account_owner
+}
+
+if (not empty(relationships)) {
+  updates.relationships := relationships
 }
 
 if (not empty(inputs.tags)) {

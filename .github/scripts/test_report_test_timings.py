@@ -35,12 +35,36 @@ def _testcase(
         nodeid=f"m::{name}",
         classname="m",
         name=name,
+        selector=f"m.py::{name}",
         duration_seconds=duration,
         start=test_start,
         end=test_start + timedelta(seconds=duration),
         outcome=outcome,
         attempts=attempts,
     )
+
+
+@pytest.mark.parametrize(
+    "file,classname,name,expected",
+    [
+        # Class-based: the file's module prefix is stripped from classname, leaving the class.
+        (
+            "posthog/hogql/test/test_resolver.py",
+            "posthog.hogql.test.test_resolver.TestResolver",
+            "test_x",
+            "posthog/hogql/test/test_resolver.py::TestResolver::test_x",
+        ),
+        # Module-level test: classname equals the module, so no class segment.
+        ("pkg/test_a.py", "pkg.test_a", "test_y", "pkg/test_a.py::test_y"),
+        # No classname at all also collapses to file::name.
+        ("pkg/test_a.py", "", "test_y", "pkg/test_a.py::test_y"),
+        # No file (external shard) or an unexpected classname shape yields '' — caller uses the nodeid.
+        ("", "pkg.test_a.TestA", "test_y", ""),
+        ("pkg/test_a.py", "totally.unrelated.Thing", "test_y", ""),
+    ],
+)
+def test_to_selector(file: str, classname: str, name: str, expected: str) -> None:
+    assert report_test_timings.to_selector(file, classname, name) == expected
 
 
 # ---------- artifact name parsing ----------
@@ -50,8 +74,8 @@ def _testcase(
     "dir_name,expected",
     [
         ("junit-results-backend-core-29", ("backend", "core", 29)),
-        ("junit-results-async-migrations", ("async-migrations", "async-migrations", None)),
         ("junit-results-llm-gateway", ("llm-gateway", "llm-gateway", None)),
+        ("junit-results-hogli", ("hogli", "hogli", None)),
     ],
 )
 def test_derive_suite_segment_and_group(dir_name: str, expected: tuple[str, str, int | None]) -> None:
@@ -460,7 +484,7 @@ def _artifact(suite: str, segment: str, group: int | None) -> report_test_timing
     [
         ("backend", "core", 29, "Backend CI / core (29)"),
         ("backend", "temporal", 1, "Backend CI / temporal (1)"),
-        ("async-migrations", "async-migrations", None, "Backend CI / async-migrations"),
+        ("llm-gateway", "llm-gateway", None, "Backend CI / llm-gateway"),
     ],
 )
 def test_job_trace_name(suite: str, segment: str, group: int | None, expected: str) -> None:

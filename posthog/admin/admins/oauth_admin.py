@@ -8,7 +8,6 @@ from django import forms
 from django.contrib import admin
 from django.contrib.admin import helpers
 from django.template.response import TemplateResponse
-from django.urls import reverse
 from django.utils.html import format_html
 
 from oauth2_provider.generators import generate_client_id, generate_client_secret
@@ -65,19 +64,15 @@ class OAuthApplicationForm(forms.ModelForm):
 class OAuthApplicationAdmin(admin.ModelAdmin):  # nosemgrep: admin-modeladmin-needs-register-decorator
     form = OAuthApplicationForm
     list_display = (
-        "id",
         "name",
         "client_id",
-        "auth_brand",
-        "is_verified",
-        "is_dcr_client",
-        "is_cimd_client",
-        "is_first_party",
-        "user_link",
-        "organization_link",
-        "authorization_grant_type",
+        "cimd_url",
+        "verified",
+        "dcr",
+        "cimd",
+        "first_party",
     )
-    list_display_links = ("id", "name")
+    list_display_links = ("name", "client_id")
     list_filter = (
         "authorization_grant_type",
         "is_verified",
@@ -89,7 +84,7 @@ class OAuthApplicationAdmin(admin.ModelAdmin):  # nosemgrep: admin-modeladmin-ne
         "provisioning_auth_method",
         "provisioning_partner_type",
     )
-    search_fields = ("name", "client_id", "user__email", "organization__name")
+    search_fields = ("name", "client_id", "cimd_metadata_url", "user__email", "organization__name")
     autocomplete_fields = ("user", "organization")
     ordering = ("name",)
     actions = ("revoke_all_sessions",)
@@ -216,22 +211,28 @@ class OAuthApplicationAdmin(admin.ModelAdmin):  # nosemgrep: admin-modeladmin-ne
 
         return form
 
-    @admin.display(description="User")
-    def user_link(self, obj: OAuthApplication):
-        if not obj.user:
+    @admin.display(description="CIMD URL")
+    def cimd_url(self, obj: OAuthApplication):
+        if not obj.cimd_metadata_url:
             return "–"
         return format_html(
-            '<a href="{}">{}</a>',
-            reverse("admin:posthog_user_change", args=[obj.user.pk]),
-            obj.user.email,
+            '<a href="{}" target="_blank" rel="noopener noreferrer">{}</a>',
+            obj.cimd_metadata_url,
+            obj.cimd_metadata_url,
         )
 
-    @admin.display(description="Organization")
-    def organization_link(self, obj: OAuthApplication):
-        if not obj.organization:
-            return "–"
-        return format_html(
-            '<a href="{}">{}</a>',
-            reverse("admin:posthog_organization_change", args=[obj.organization.pk]),
-            obj.organization.name,
-        )
+    @admin.display(description="Verified", boolean=True, ordering="is_verified")
+    def verified(self, obj: OAuthApplication):
+        return obj.is_verified
+
+    @admin.display(description="DCR", boolean=True, ordering="is_dcr_client")
+    def dcr(self, obj: OAuthApplication):
+        return obj.is_dcr_client
+
+    @admin.display(description="CIMD", boolean=True, ordering="is_cimd_client")
+    def cimd(self, obj: OAuthApplication):
+        return obj.is_cimd_client
+
+    @admin.display(description="First party", boolean=True, ordering="is_first_party")
+    def first_party(self, obj: OAuthApplication):
+        return obj.is_first_party

@@ -44,6 +44,7 @@ import { featureFlagLogic, getFeatureFlagPayload } from 'lib/logic/featureFlagLo
 import { accessLevelSatisfied } from 'lib/utils/accessControlUtils'
 import { clearDOMTextSelection, getJSHeapMemory, uuid } from 'lib/utils/dom'
 import { DashboardEventSource, eventUsageLogic } from 'lib/utils/eventUsageLogic'
+import { objectsEqual } from 'lib/utils/objects'
 import { shouldCancelQuery } from 'lib/utils/requests'
 import { toParams } from 'lib/utils/url'
 import { BREAKPOINTS, dashboardToSaveableTemplate, getDashboardTileDisplayName } from 'scenes/dashboard/dashboardUtils'
@@ -1858,7 +1859,14 @@ export const dashboardLogic = kea<dashboardLogicType>([
                 return size
             },
         ],
-        layouts: [(s) => [s.tiles], (tiles) => calculateLayouts(tiles)],
+        layouts: [
+            (s) => [s.tiles],
+            (tiles) => calculateLayouts(tiles),
+            // Tile refreshes replace `tiles` once per insight response without touching geometry;
+            // keeping the result reference stable stops react-grid-layout re-laying-out every tile
+            // N times per dashboard refresh cycle.
+            { resultEqualityCheck: objectsEqual },
+        ],
         layout: [
             (s) => [s.layouts, s.sizeKey],
             (layouts: ResponsiveLayouts, sizeKey: DashboardLayoutSize | undefined) =>

@@ -52,7 +52,6 @@ const completedRecalculation = {
     status: 'completed',
     completed_metrics: 2,
     started_at: new Date().toISOString(),
-    // Fresh by default (within the 24h window) so tests using this fixture don't auto-trigger.
     completed_at: new Date().toISOString(),
     query_to: '2026-06-10T00:05:00Z',
     results: [
@@ -61,11 +60,6 @@ const completedRecalculation = {
     ],
 }
 
-// completed_at far in the past → older than the 24h staleness threshold.
-const staleCompletedRecalculation = {
-    ...completedRecalculation,
-    completed_at: '2020-01-01T00:00:00Z',
-}
 const freshCompletedRecalculation = completedRecalculation
 
 const pendingRecalculation = { ...baseRecalculation, id: 'recalc-2', status: 'pending' }
@@ -383,36 +377,9 @@ describe('experimentMetricsLogic', () => {
             expect(capturedBody).toEqual({ trigger: 'cold_run' })
         })
 
-        it('auto-triggers a stale_refresh recalculation when the latest completed run is stale (>24h)', async () => {
-            let capturedBody: any
-            useMocks({
-                get: {
-                    '/api/projects/:team_id/experiments/:id/metrics_recalculation/latest/': () => [
-                        200,
-                        staleCompletedRecalculation,
-                    ],
-                },
-                post: {
-                    // Return a terminal run so triggerRecalculation finishes without arming a poll timer.
-                    '/api/projects/:team_id/experiments/:id/metrics_recalculation/': async ({ request }) => {
-                        capturedBody = await request.json()
-                        return [201, completedRecalculation2]
-                    },
-                },
-            })
-            mountLogic()
-
-            // Stale results still load, but a fresh run is kicked off in the background.
-            await expectLogic(logic)
-                .toDispatchActions(['setCurrentRecalculation', 'triggerRecalculation'])
-                .toFinishAllListeners()
-            expect(logic.values.primaryMetricsResults[0]).toEqual(primaryResult)
-            expect(capturedBody).toEqual({ trigger: 'stale_refresh' })
-        })
-
-        it('does not auto-trigger when the latest completed run is fresh', async () => {
-            // freshCompletedRecalculation has result_source 'recalculation' (a real run), so neither the
-            // staleness path nor the timeseries-fallback path fires.
+        it('does not auto-trigger when the latest completed run is healthy', async () => {
+            // freshCompletedRecalculation has result_source 'recalculation' (a real run) with all metrics
+            // resolved, so neither the config-change heal path nor the timeseries-fallback path fires.
             useMocks({
                 get: {
                     '/api/projects/:team_id/experiments/:id/metrics_recalculation/latest/': () => [
