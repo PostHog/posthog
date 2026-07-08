@@ -12,7 +12,10 @@ from posthog.hogql import ast
 
 from products.engineering_analytics.backend.facade.contracts import RepoOverview
 from products.engineering_analytics.backend.logic.queries._curated import CuratedGitHubSource, opt_float
-from products.engineering_analytics.backend.logic.queries.pr_cost import query_workflow_window_costs_with_prev
+from products.engineering_analytics.backend.logic.queries.pr_cost import (
+    query_cost_per_merge_series,
+    query_workflow_window_costs_with_prev,
+)
 
 _RUNS_SELECT = """
     SELECT
@@ -118,6 +121,10 @@ def query_repo_overview(
     cost_usd = sum(c.estimated_cost_usd or 0.0 for c in cost_cur.values()) if cost_cur else None
     cost_usd_prev = sum(c.estimated_cost_usd or 0.0 for c in cost_prev.values()) if cost_prev else None
 
+    cost_series_granularity, cost_series = query_cost_per_merge_series(
+        curated=curated, date_from=date_from, date_to=date_to
+    )
+
     return RepoOverview(
         run_count=run_count,
         run_count_prev=run_count_prev,
@@ -133,4 +140,6 @@ def query_repo_overview(
         estimated_cost_usd_prev=opt_float(cost_usd_prev),
         jobs_available=jobs_available,
         default_branch=default_branch,
+        cost_series=cost_series,
+        cost_series_granularity=cost_series_granularity,
     )

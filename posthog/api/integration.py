@@ -6,6 +6,7 @@ from urllib.parse import urlencode
 
 from django.conf import settings
 from django.core.cache import cache
+from django.db import transaction
 from django.http import HttpResponse
 from django.shortcuts import redirect
 from django.utils import timezone
@@ -91,6 +92,7 @@ from posthog.tasks.email import send_integration_access_request
 from posthog.utils import is_relative_url
 
 from products.cdp.backend.services.integration_usage import get_enabled_hog_functions_using_integration
+from products.tasks.backend.facade.api import count_in_progress_runs_for_github_integration
 from products.workflows.backend.services.integration_usage import get_active_hog_flows_using_integration
 
 logger = structlog.get_logger(__name__)
@@ -408,6 +410,28 @@ class IntegrationSerializer(serializers.ModelSerializer, UserAccessControlSerial
         return value
 
     def create(self, validated_data: Any) -> Any:
+        team_id = self.context["team_id"]
+        kind = validated_data["kind"]
+
+        # `create` is a POST with upsert semantics: each kind's helper does an `update_or_create`
+        # keyed on (team, kind, integration_id), so re-submitting the same resource overwrites the
+        # existing integration instead of adding a new one. Adding is allowed for any project
+        # member, but overwriting an existing integration is an edit and requires admin. If a
+        # non-admin's request resolves to an integration that already existed, roll the write back
+        # and reject.
+        with transaction.atomic():
+            existing_integration_ids = set(
+                Integration.objects.filter(team_id=team_id, kind=kind).values_list("integration_id", flat=True)
+            )
+            instance = self._build_integration(validated_data)
+            is_overwrite = instance.integration_id in existing_integration_ids
+            if is_overwrite and not github_callback_state.has_team_management_access(
+                self.context["request"].user, self.context["get_team"]()
+            ):
+                raise PermissionDenied("Editing an existing integration requires project admin access.")
+            return instance
+
+    def _build_integration(self, validated_data: Any) -> Any:
         request = self.context["request"]
         team_id = self.context["team_id"]
 
@@ -887,22 +911,19 @@ class IntegrationViewSet(
         return super().handle_exception(exc)
 
     def dangerously_get_permissions(self):
+        base_permissions = [
+            IsAuthenticated(),
+            APIScopePermission(),
+            AccessControlPermission(),
+            TeamMemberAccessPermission(),
+        ]
+        # Adding (connecting) an integration only requires project membership; editing or removing
+        # one still requires admin, enforced by the default TeamMemberStrictManagementPermission.
+        # The GitHub browser callback applies the same create-vs-modify split (see github_callback).
+        if self.action in ("create", "github_link_existing", "github_oauth_authorize", "request_access"):
+            return base_permissions
         if self.action == "refresh_github_repos":
-            return [
-                IsAuthenticated(),
-                APIScopePermission(),
-                AccessControlPermission(),
-                TeamMemberAccessPermission(),
-                TeamMemberLightManagementPermission(),
-            ]
-        # Any project member may ask an admin to connect an integration — connecting still requires admin.
-        if self.action == "request_access":
-            return [
-                IsAuthenticated(),
-                APIScopePermission(),
-                AccessControlPermission(),
-                TeamMemberAccessPermission(),
-            ]
+            return [*base_permissions, TeamMemberLightManagementPermission()]
         raise NotImplementedError()
 
     def get_throttles(self):
@@ -931,6 +952,17 @@ class IntegrationViewSet(
                 f"This integration is used by {' and '.join(used_by)}. "
                 "Update them to use a different integration before disconnecting it."
             )
+
+        if instance.kind == "github":
+            live_run_count = count_in_progress_runs_for_github_integration(
+                team_id=instance.team_id, integration_id=instance.id
+            )
+            if live_run_count:
+                raise ValidationError(
+                    f"This GitHub integration is being used by {live_run_count} in-progress background agent "
+                    f"run{'s' if live_run_count != 1 else ''}. Wait for them to finish or cancel them before "
+                    "disconnecting it."
+                )
 
         if instance.kind == "stripe":
             try:

@@ -2,10 +2,11 @@ import {
     ensureEditableNotebookDocument,
     getMarkdownNotebookVisualGroups,
     removeNotebookNodesWithRefCleanup,
+    updateNotebookCodeBlockText,
 } from './documentModel'
 import { removeInlineRefMark, setInlineRefMark } from './inlineContent'
 import { parseMarkdownNotebook, serializeMarkdownNotebook } from './markdown'
-import { NotebookDocument } from './types'
+import { NotebookCodeBlockNode, NotebookCodeRefMark, NotebookDocument } from './types'
 
 describe('discussion comments', () => {
     const parse = (markdown: string): NotebookDocument => parseMarkdownNotebook(markdown)
@@ -171,6 +172,58 @@ describe('discussion comments', () => {
             const result = removeNotebookNodesWithRefCleanup(document, new Set([titleNode.id]))
 
             expect(serializeMarkdownNotebook(result)).toContain('<ref id="banana">look off</ref>')
+        })
+
+        it('deleting a thread anchored in a code block clears the code anchor', () => {
+            const document = parse(
+                ['# Title', '', '<Comment ref="c1" replies={[]} />', '', '```js ref=c1:0-5\nconst x = 1\n```'].join(
+                    '\n'
+                )
+            )
+            const commentNode = document.nodes.find((node) => node.type === 'component')
+
+            const result = removeNotebookNodesWithRefCleanup(document, new Set([commentNode!.id]))
+
+            expect(serializeMarkdownNotebook(result)).toEqual('# Title\n\n```js\nconst x = 1\n```')
+        })
+    })
+
+    describe('updateNotebookCodeBlockText', () => {
+        const codeNode = (text: string, refs?: NotebookCodeRefMark[]): NotebookCodeBlockNode => ({
+            id: 'c',
+            type: 'code',
+            text,
+            refs,
+        })
+
+        it.each<[string, string, NotebookCodeRefMark[], string, NotebookCodeRefMark[] | undefined]>([
+            [
+                'shifts anchors past an insertion before them',
+                'const x = 1',
+                [{ id: 'a', start: 6, end: 7 }],
+                'let y\nconst x = 1',
+                [{ id: 'a', start: 12, end: 13 }],
+            ],
+            [
+                'keeps anchors put when the edit happens after them',
+                'const x = 1',
+                [{ id: 'a', start: 6, end: 7 }],
+                'const x = 1 + 2',
+                [{ id: 'a', start: 6, end: 7 }],
+            ],
+            [
+                'keeps insertions at the anchor edges outside the anchor',
+                'abcd',
+                [{ id: 'a', start: 1, end: 3 }],
+                'aXbcYd',
+                [{ id: 'a', start: 2, end: 4 }],
+            ],
+            ['drops an anchor whose range was deleted', 'abcdef', [{ id: 'a', start: 2, end: 4 }], 'abef', undefined],
+        ])('%s', (_name, baseText, refs, nextText, expectedRefs) => {
+            const result = updateNotebookCodeBlockText(codeNode(baseText, refs), nextText)
+
+            expect(result.text).toEqual(nextText)
+            expect(result.refs).toEqual(expectedRefs)
         })
     })
 })

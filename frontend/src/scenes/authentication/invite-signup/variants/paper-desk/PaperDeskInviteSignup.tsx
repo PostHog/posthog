@@ -4,7 +4,7 @@ import { type ReactNode, useEffect } from 'react'
 
 import { HedgehogJudge } from '@posthog/brand/hoggies'
 
-import { PostHogLogo } from 'lib/brand/v2'
+import { Logomark } from 'lib/brand'
 import PasswordStrength from 'lib/components/PasswordStrength'
 import SignupRoleSelect from 'lib/components/SignupRoleSelect'
 import passkeyLogo from 'lib/components/SocialLoginButton/passkey.svg'
@@ -117,7 +117,7 @@ function InviteNewUser({ invite }: { invite: PrevalidatedInvite }): JSX.Element 
             <div className="flex gap-3 items-center">
                 <OrgTile name={org} />
                 <span className="PaperDesk__inviteHeader-mark inline-flex opacity-90">
-                    <PostHogLogo wordmark={false} className="h-7 w-auto" />
+                    <Logomark variant="gradient" size="md" />
                 </span>
             </div>
             <div className="text-center">

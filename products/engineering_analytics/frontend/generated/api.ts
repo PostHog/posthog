@@ -14,6 +14,7 @@ import type {
     EngineeringAnalyticsAuthorWorkflowCostsParams,
     EngineeringAnalyticsCiCardsParams,
     EngineeringAnalyticsCiFailureLogsParams,
+    EngineeringAnalyticsFlakyTestsParams,
     EngineeringAnalyticsJobAggregatesParams,
     EngineeringAnalyticsMasterFailuresParams,
     EngineeringAnalyticsPrCostParams,
@@ -22,6 +23,7 @@ import type {
     EngineeringAnalyticsPullRequestsParams,
     EngineeringAnalyticsQuarantineParams,
     EngineeringAnalyticsRepoOverviewParams,
+    EngineeringAnalyticsRepoRunActivityParams,
     EngineeringAnalyticsRunFailureLogsParams,
     EngineeringAnalyticsWorkflowHealthParams,
     EngineeringAnalyticsWorkflowJobsParams,
@@ -29,6 +31,7 @@ import type {
     EngineeringAnalyticsWorkflowRunParams,
     EngineeringAnalyticsWorkflowRunnerCostsParams,
     EngineeringAnalyticsWorkflowRunsParams,
+    FlakyTestListApi,
     GitHubSourceApi,
     MasterFailureGroupApi,
     PRCostSummaryApi,
@@ -139,6 +142,39 @@ export const engineeringAnalyticsCiFailureLogs = async (
     options?: RequestInit
 ): Promise<CIFailureLogsApi> => {
     return apiMutator<CIFailureLogsApi>(getEngineeringAnalyticsCiFailureLogsUrl(projectId, params), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getEngineeringAnalyticsFlakyTestsUrl = (
+    projectId: string,
+    params?: EngineeringAnalyticsFlakyTestsParams
+) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/engineering_analytics/flaky_tests/?${stringifiedParams}`
+        : `/api/projects/${projectId}/engineering_analytics/flaky_tests/`
+}
+
+/**
+ * The flaky-test leaderboard: backend tests ranked by flakiness signal from the per-test CI spans, over a window (default -7d, maximum 30 days). A test qualifies by passing on retry at least min_rerun_passes times OR failing on at least min_failed_prs distinct PRs. All figures are absolute counts, never rates: fast passing runs are not emitted, so denominators are biased. Pass-on-retry counts only flow from CI lanes running with reruns enabled; in other lanes a flake surfaces as a plain failure, which the distinct-PR count catches.
+ */
+export const engineeringAnalyticsFlakyTests = async (
+    projectId: string,
+    params?: EngineeringAnalyticsFlakyTestsParams,
+    options?: RequestInit
+): Promise<FlakyTestListApi> => {
+    return apiMutator<FlakyTestListApi>(getEngineeringAnalyticsFlakyTestsUrl(projectId, params), {
         ...options,
         method: 'GET',
     })
@@ -419,6 +455,39 @@ export const engineeringAnalyticsRepoOverview = async (
     options?: RequestInit
 ): Promise<RepoOverviewApi> => {
     return apiMutator<RepoOverviewApi>(getEngineeringAnalyticsRepoOverviewUrl(projectId, params), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getEngineeringAnalyticsRepoRunActivityUrl = (
+    projectId: string,
+    params?: EngineeringAnalyticsRepoRunActivityParams
+) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/engineering_analytics/repo_run_activity/?${stringifiedParams}`
+        : `/api/projects/${projectId}/engineering_analytics/repo_run_activity/`
+}
+
+/**
+ * Default-branch health as compact chart points over a window (default -30d), newest first, for the repo-hub run-activity chart. All of a commit's workflow runs are collapsed into ONE point per commit (head SHA): its earliest workflow start, wall-clock duration until the last workflow settled (null while any is still running), and an overall conclusion that is 'failure' if any workflow decisively failed, else 'success' when at least one passed, else 'neutral'. `branch` overrides the detected default branch. `truncated` is true when more commits matched than the cap, so the chart covers only the most recent commits.
+ */
+export const engineeringAnalyticsRepoRunActivity = async (
+    projectId: string,
+    params?: EngineeringAnalyticsRepoRunActivityParams,
+    options?: RequestInit
+): Promise<WorkflowRunActivityApi> => {
+    return apiMutator<WorkflowRunActivityApi>(getEngineeringAnalyticsRepoRunActivityUrl(projectId, params), {
         ...options,
         method: 'GET',
     })

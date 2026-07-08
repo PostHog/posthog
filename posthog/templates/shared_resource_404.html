@@ -2,53 +2,9 @@
 <html lang="en">
 <head>
     {% include "head.html" %}
-    <link rel="preload" href="/static/RoundHog.woff2" as="font" type="font/woff2"
-          crossorigin="anonymous">
-    <link rel="preload" href="/static/RoundHog-SemiBold.woff2" as="font" type="font/woff2"
-          crossorigin="anonymous">
     <style>
-        /* RoundHog; bold (800); latin */
-        @font-face {
-            font-family: RoundHog;
-            font-style: normal;
-            font-weight: 800;
-
-            src: url('/static/RoundHog-Bold.woff2') format('woff2');
-            font-display: swap;
-        }
-
-        /* RoundHog; semibold (700); latin */
-        @font-face {
-            font-family: RoundHog;
-            font-style: normal;
-            font-weight: 700;
-
-            src: url('/static/RoundHog-SemiBold.woff2') format('woff2');
-            font-display: swap;
-        }
-
-        /* RoundHog; medium (500); latin */
-        @font-face {
-            font-family: RoundHog;
-            font-style: normal;
-            font-weight: 500;
-
-            src: url('/static/RoundHog-Medium.woff2') format('woff2');
-            font-display: swap;
-        }
-
-        /* RoundHog; regular (400); latin */
-        @font-face {
-            font-family: RoundHog;
-            font-style: normal;
-            font-weight: 400;
-
-            src: url('/static/RoundHog.woff2') format('woff2');
-            font-display: swap;
-        }
-
         html, body, iframe {
-            font-family: "RoundHog", -apple-system, BlinkMacSystemFont, avenir next, avenir, segoe ui, helvetica, sans-serif;
+            font-family: -apple-system, BlinkMacSystemFont, avenir next, avenir, segoe ui, helvetica, sans-serif;
             width: 100%;
             height: 100%;
             margin: 0;

@@ -255,18 +255,33 @@ def org_quota_limited_until(
     summary = organization.usage.get(resource.value, {})
     if not summary:
         return None
-    usage = summary.get("usage", 0)
-    todays_usage = summary.get("todays_usage", 0)
+    usage = summary.get("usage") or 0
+    todays_usage = summary.get("todays_usage") or 0
     limit = summary.get("limit")
+    quota_limited_until = summary.get("quota_limited_until", None)
+    quota_limiting_suspended_until = summary.get("quota_limiting_suspended_until", None)
 
     if limit is None:
+        if quota_limiting_suspended_until is not None or quota_limited_until is not None:
+            report_organization_action(
+                organization,
+                "org_quota_limited_until",
+                properties={
+                    "event": "limit removed",
+                    "current_usage": usage + todays_usage,
+                    "resource": resource.value,
+                    "quota_limited_until": quota_limited_until,
+                    "quota_limiting_suspended_until": quota_limiting_suspended_until,
+                },
+            )
+            update_organization_usage_fields(
+                organization, resource, {"quota_limited_until": None, "quota_limiting_suspended_until": None}
+            )
         return None
 
     is_over_limit = usage + todays_usage >= limit + OVERAGE_BUFFER[resource]
     billing_period_start = round(dateutil.parser.isoparse(organization.usage["period"][0]).timestamp())
     billing_period_end = round(dateutil.parser.isoparse(organization.usage["period"][1]).timestamp())
-    quota_limited_until = summary.get("quota_limited_until", None)
-    quota_limiting_suspended_until = summary.get("quota_limiting_suspended_until", None)
 
     # - customer_trust_scores can be empty {} for orgs not yet synced from billing. Default to 0 (no grace period)
     # - customer_trust_scores in posthog_organization use usage_key values (matching QuotaResource values)

@@ -43,24 +43,7 @@ registerActionNodeCategory({
             getDefaultInputs: getAccountExternalIdDefaultInputs,
             output_variable: [
                 { key: 'account', result_path: null, label: 'Account' },
-                { key: 'account_csm_email', result_path: 'properties.csm.email', label: 'CSM email' },
-                { key: 'account_csm_id', result_path: 'properties.csm.id', label: 'CSM ID' },
-                {
-                    key: 'account_executive_email',
-                    result_path: 'properties.account_executive.email',
-                    label: 'Account executive email',
-                },
-                {
-                    key: 'account_executive_id',
-                    result_path: 'properties.account_executive.id',
-                    label: 'Account executive ID',
-                },
-                {
-                    key: 'account_owner_email',
-                    result_path: 'properties.account_owner.email',
-                    label: 'Account owner email',
-                },
-                { key: 'account_owner_id', result_path: 'properties.account_owner.id', label: 'Account owner ID' },
+                { key: 'account_relationships', result_path: 'relationships', label: 'Relationships' },
                 {
                     key: 'account_stripe_customer_id',
                     result_path: 'properties.stripe_customer_id',

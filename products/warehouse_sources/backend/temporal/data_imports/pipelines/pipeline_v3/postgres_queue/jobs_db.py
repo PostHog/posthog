@@ -46,6 +46,12 @@ PARTITION_PRUNING_INTERVAL = "14 days"
 # abandoned. Must exceed worst-case loader backlog latency — an unclaimed backlog is still live.
 TAKEOVER_STALE_THRESHOLD_SECONDS = 6 * 60 * 60
 
+# Lookback for the queue-freshness probe. Bounds both the probe's cost and the
+# reported age: an unclaimed batch older than this saturates the gauge at the
+# window, which is already far past any sane alert threshold.
+FRESHNESS_WINDOW_SECONDS = 48 * 60 * 60
+FRESHNESS_WINDOW = f"{FRESHNESS_WINDOW_SECONDS} seconds"
+
 
 def pending_batch_select_columns(status_alias: str) -> str:
     return f"""
@@ -82,6 +88,43 @@ def latest_status_lateral(batch_alias: str, status_alias: str, *, join: str = "L
             ORDER BY created_at DESC, id DESC
             LIMIT 1
         ) {status_alias} ON true
+    """
+
+
+def pending_batch_predicate(status_alias: str) -> str:
+    """A batch is pending (still actionable) when it has no status row yet or its latest state is non-terminal."""
+    return f"({status_alias}.batch_id IS NULL OR {status_alias}.job_state IN ('waiting', 'waiting_retry', 'executing'))"
+
+
+# Shared between the async consumer path and the sync ops command so both agree
+# on what counts as a pending (fail-able) batch.
+FAIL_RUN_SQL = f"""
+    INSERT INTO {STATUS_TABLE} (batch_id, job_state, attempt, exec_time, error_response, created_at)
+    SELECT b.id, 'failed', 0, now(), %(error_response)s, now()
+    FROM {BATCH_TABLE} b
+    {latest_status_lateral("b", "s")}
+    WHERE
+        b.created_at > now() - interval '{PARTITION_PRUNING_INTERVAL}'
+        AND b.run_uuid = %(run_uuid)s
+        AND {pending_batch_predicate("s")}
+"""
+
+
+def _stale_executing_sql(scope_sql: str = "") -> str:
+    """Shared body of the stale-executing sweep (async consumer and its sync ops twin)."""
+    return f"""
+        SELECT
+            {pending_batch_select_columns("s")}
+        FROM {BATCH_TABLE} b
+        {latest_status_lateral("b", "s", join="INNER")}
+        LEFT JOIN {LEASE_TABLE} l ON l.team_id = b.team_id AND l.schema_id = b.schema_id
+        WHERE
+            b.created_at > now() - interval '{PARTITION_PRUNING_INTERVAL}'
+            AND s.job_state = 'executing'
+            AND s.created_at <= now() - make_interval(secs => %(grace)s)
+            AND (l.team_id IS NULL OR l.expires_at <= now())
+            {scope_sql}
+        ORDER BY b.created_at ASC, b.batch_index ASC
     """
 
 
@@ -181,6 +224,37 @@ class RunActivitySummary:
     has_batches: bool
     has_non_terminal: bool
     is_stale: bool
+    # Ages behind the staleness verdict, surfaced so takeover logs are diagnosable.
+    last_status_write_age_seconds: float | None = None
+    oldest_unclaimed_age_seconds: float | None = None
+
+
+@dataclass(frozen=True, slots=True)
+class ActiveRunRef:
+    """Per-run aggregate of queue batches, used by the ops management command."""
+
+    run_uuid: str
+    job_id: str
+    team_id: int
+    schema_id: str
+    source_id: str
+    workflow_run_id: str | None
+    pending_batches: int
+    total_batches: int
+    latest_activity_at: datetime | None
+
+
+@dataclass(frozen=True, slots=True)
+class GroupLease:
+    """A ``sourcegrouplease`` row plus computed liveness, for ops inspection."""
+
+    team_id: int
+    schema_id: str
+    owner_token: str
+    acquired_at: datetime
+    updated_at: datetime
+    expires_at: datetime
+    is_live: bool
 
 
 class BatchQueue:
@@ -507,22 +581,7 @@ class BatchQueue:
         this threshold before the batch is considered orphaned.
         """
         async with conn.cursor(row_factory=dict_row) as cur:
-            await cur.execute(
-                f"""
-                SELECT
-                    {pending_batch_select_columns("s")}
-                FROM {BATCH_TABLE} b
-                {latest_status_lateral("b", "s", join="INNER")}
-                LEFT JOIN {LEASE_TABLE} l ON l.team_id = b.team_id AND l.schema_id = b.schema_id
-                WHERE
-                    b.created_at > now() - interval '{PARTITION_PRUNING_INTERVAL}'
-                    AND s.job_state = 'executing'
-                    AND s.created_at <= now() - make_interval(secs => %(grace)s)
-                    AND (l.team_id IS NULL OR l.expires_at <= now())
-                ORDER BY b.created_at ASC, b.batch_index ASC
-                """,
-                {"grace": grace_seconds},
-            )
+            await cur.execute(_stale_executing_sql(), {"grace": grace_seconds})
             rows = await cur.fetchall()
 
         return [PendingBatch(**row) for row in rows]
@@ -536,6 +595,45 @@ class BatchQueue:
     ) -> int:
         """Mark every pending batch in a run as failed. Returns the count of batches failed."""
         cursor = await conn.execute(
+            FAIL_RUN_SQL,
+            {
+                "run_uuid": run_uuid,
+                "error_response": json.dumps({"error": reason}),
+            },
+        )
+        return cursor.rowcount or 0
+
+    @staticmethod
+    def fail_run_sync(
+        conn: psycopg.Connection[Any],
+        *,
+        run_uuid: str,
+        reason: str,
+    ) -> int:
+        """Sync twin of ``fail_run`` for the ops management command."""
+        cursor = conn.execute(
+            FAIL_RUN_SQL,
+            {
+                "run_uuid": run_uuid,
+                "error_response": json.dumps({"error": reason}),
+            },
+        )
+        return cursor.rowcount or 0
+
+    @staticmethod
+    def fail_batches_for_job_sync(
+        conn: psycopg.Connection[Any],
+        *,
+        job_id: str,
+        reason: str,
+    ) -> int:
+        """Mark every non-terminal batch of a job as failed, across all its runs.
+
+        Takeover uses this before force-failing the job: leftover claimable
+        batches would otherwise load after the takeover and stale-overwrite
+        newer data or flip the FAILED job back to COMPLETED via the final batch.
+        """
+        cursor = conn.execute(
             f"""
             INSERT INTO {STATUS_TABLE} (batch_id, job_state, attempt, exec_time, error_response, created_at)
             SELECT b.id, 'failed', 0, now(), %(error_response)s, now()
@@ -543,11 +641,11 @@ class BatchQueue:
             {latest_status_lateral("b", "s")}
             WHERE
                 b.created_at > now() - interval '{PARTITION_PRUNING_INTERVAL}'
-                AND b.run_uuid = %(run_uuid)s
+                AND b.job_id = %(job_id)s
                 AND (s.batch_id IS NULL OR s.job_state IN ('waiting', 'waiting_retry', 'executing'))
             """,
             {
-                "run_uuid": run_uuid,
+                "job_id": job_id,
                 "error_response": json.dumps({"error": reason}),
             },
         )
@@ -632,6 +730,37 @@ class BatchQueue:
         ]
 
     @staticmethod
+    async def get_oldest_unclaimed_batch_age_seconds(
+        conn: psycopg.AsyncConnection[Any],
+    ) -> float | None:
+        """Age in seconds of the oldest batch no consumer has ever picked up, or None when none are waiting.
+
+        A batch with no status row has never been claimed — this is the queue's
+        data-freshness signal, and it rises whenever loading stalls regardless
+        of the cause. Bounded to ``FRESHNESS_WINDOW`` so the probe stays cheap
+        on a healthy queue and the reported age saturates instead of scanning
+        unbounded history.
+        """
+        async with conn.cursor() as cur:
+            await cur.execute(
+                f"""
+                SELECT EXTRACT(EPOCH FROM (now() - min(b.created_at)))
+                FROM {BATCH_TABLE} b
+                WHERE b.created_at > now() - interval '{FRESHNESS_WINDOW}'
+                  AND NOT EXISTS (
+                      SELECT 1
+                      FROM {STATUS_TABLE} s
+                      WHERE s.batch_id = b.id
+                        AND s.created_at > now() - interval '{FRESHNESS_WINDOW}'
+                  )
+                """
+            )
+            row = await cur.fetchone()
+        if row is None or row[0] is None:
+            return None
+        return float(row[0])
+
+    @staticmethod
     async def unlock_for_batches(
         conn: psycopg.AsyncConnection[Any],
         *,
@@ -683,8 +812,11 @@ class BatchQueue:
 
         Used by the lock takeover decision matrix to distinguish genuinely stale
         RUNNING jobs from ones the loader still has work for. Unclaimed batches
-        (no status row yet — hence the LEFT JOIN) count as non-terminal, and both
-        batch inserts and status writes count as activity.
+        (no status row yet — hence the LEFT JOIN) count as non-terminal.
+        Staleness reflects loader progress only: status writes, or — when the
+        loader has never claimed anything — how long the oldest batch has sat
+        unclaimed. Batch inserts are producer activity and must not reset the
+        clock, or a streaming producer keeps a dead loader "active" forever.
         """
         with conn.cursor(row_factory=dict_row) as cur:
             cur.execute(
@@ -695,7 +827,8 @@ class BatchQueue:
                         WHERE s.batch_id IS NULL
                             OR s.job_state NOT IN ('succeeded', 'failed')
                     ) AS non_terminal_count,
-                    GREATEST(MAX(s.created_at), MAX(b.created_at)) AS latest_activity_at
+                    MAX(s.created_at) AS last_status_write_at,
+                    MIN(b.created_at) FILTER (WHERE s.batch_id IS NULL) AS oldest_unclaimed_at
                 FROM {BATCH_TABLE} b
                 {latest_status_lateral("b", "s")}
                 WHERE
@@ -707,17 +840,24 @@ class BatchQueue:
             )
             row = cur.fetchone()
 
-        if row is None or row["batch_count"] == 0 or row["latest_activity_at"] is None:
+        if row is None or row["batch_count"] == 0:
             return RunActivitySummary(has_batches=False, has_non_terminal=False, is_stale=True)
 
-        non_terminal_count: int = row["non_terminal_count"]
-        latest_activity_at: datetime = row["latest_activity_at"]
-        age_seconds = (datetime.now(latest_activity_at.tzinfo) - latest_activity_at).total_seconds()
+        def _age(moment: datetime | None) -> float | None:
+            if moment is None:
+                return None
+            return (datetime.now(moment.tzinfo) - moment).total_seconds()
+
+        last_status_write_age = _age(row["last_status_write_at"])
+        oldest_unclaimed_age = _age(row["oldest_unclaimed_at"])
+        loader_progress_age = last_status_write_age if last_status_write_age is not None else oldest_unclaimed_age
 
         return RunActivitySummary(
             has_batches=True,
-            has_non_terminal=non_terminal_count > 0,
-            is_stale=age_seconds > TAKEOVER_STALE_THRESHOLD_SECONDS,
+            has_non_terminal=row["non_terminal_count"] > 0,
+            is_stale=loader_progress_age is None or loader_progress_age > TAKEOVER_STALE_THRESHOLD_SECONDS,
+            last_status_write_age_seconds=last_status_write_age,
+            oldest_unclaimed_age_seconds=oldest_unclaimed_age,
         )
 
     @staticmethod
@@ -748,3 +888,173 @@ class BatchQueue:
             )
             row = cur.fetchone()
         return int(row["batch_count"]) if row else 0
+
+    # -- ops / management command helpers (sync) --------------------------------
+
+    @staticmethod
+    def get_active_runs(
+        conn: psycopg.Connection[Any],
+        *,
+        team_id: int | None = None,
+        schema_ids: list[str] | None = None,
+        run_uuid: str | None = None,
+        only_pending: bool = True,
+    ) -> list[ActiveRunRef]:
+        """Aggregate queue batches per run within the targeting scope.
+
+        ``only_pending=True`` keeps only runs with at least one non-terminal
+        batch (no status row yet, or waiting/waiting_retry/executing) — the runs
+        an operator can still act on. ``only_pending=False`` is for direct
+        ``run_uuid`` lookups where a fully-terminal run should still be visible.
+        """
+        scope_sql, params = _scope_filters(team_id=team_id, schema_ids=schema_ids, run_uuid=run_uuid)
+        having = f"HAVING COUNT(*) FILTER (WHERE {pending_batch_predicate('s')}) > 0"
+        with conn.cursor(row_factory=dict_row) as cur:
+            cur.execute(
+                f"""
+                SELECT
+                    b.run_uuid,
+                    b.team_id,
+                    b.schema_id,
+                    MAX(b.job_id) AS job_id,
+                    MAX(b.source_id) AS source_id,
+                    MAX(b.metadata->>'workflow_run_id') AS workflow_run_id,
+                    COUNT(*) FILTER (
+                        WHERE {pending_batch_predicate("s")}
+                    ) AS pending_batches,
+                    COUNT(*) AS total_batches,
+                    GREATEST(MAX(s.created_at), MAX(b.created_at)) AS latest_activity_at
+                FROM {BATCH_TABLE} b
+                {latest_status_lateral("b", "s")}
+                WHERE b.created_at > now() - interval '{PARTITION_PRUNING_INTERVAL}'
+                {scope_sql}
+                GROUP BY b.run_uuid, b.team_id, b.schema_id
+                {having if only_pending else ""}
+                ORDER BY latest_activity_at ASC
+                """,
+                params,
+            )
+            rows = cur.fetchall()
+        return [ActiveRunRef(**row) for row in rows]
+
+    @staticmethod
+    def get_state_summary(
+        conn: psycopg.Connection[Any],
+        *,
+        team_id: int | None = None,
+        schema_ids: list[str] | None = None,
+    ) -> list[dict[str, Any]]:
+        """Batch counts by latest state within the scope; ``state='unclaimed'`` means no status row yet.
+
+        Each row carries the oldest ``created_at`` in its state so the caller
+        can derive freshness signals (e.g. age of the oldest unclaimed batch).
+        """
+        scope_sql, params = _scope_filters(team_id=team_id, schema_ids=schema_ids)
+        with conn.cursor(row_factory=dict_row) as cur:
+            cur.execute(
+                f"""
+                SELECT
+                    COALESCE(s.job_state, 'unclaimed') AS state,
+                    COUNT(*) AS batch_count,
+                    MIN(b.created_at) AS oldest_created_at
+                FROM {BATCH_TABLE} b
+                {latest_status_lateral("b", "s")}
+                WHERE b.created_at > now() - interval '{PARTITION_PRUNING_INTERVAL}'
+                {scope_sql}
+                GROUP BY 1
+                ORDER BY 1
+                """,
+                params,
+            )
+            return cur.fetchall()
+
+    @staticmethod
+    def get_leases(
+        conn: psycopg.Connection[Any],
+        *,
+        team_id: int | None = None,
+        schema_ids: list[str] | None = None,
+    ) -> list[GroupLease]:
+        """Group leases within the scope, with computed liveness."""
+        scope_sql, params = _scope_filters(team_id=team_id, schema_ids=schema_ids, alias="l")
+        with conn.cursor(row_factory=dict_row) as cur:
+            cur.execute(
+                f"""
+                SELECT team_id, schema_id, owner_token, acquired_at, updated_at, expires_at,
+                       expires_at > now() AS is_live
+                FROM {LEASE_TABLE} l
+                WHERE true
+                {scope_sql}
+                ORDER BY team_id, schema_id
+                """,
+                params,
+            )
+            rows = cur.fetchall()
+        return [GroupLease(**row) for row in rows]
+
+    @staticmethod
+    def force_release_leases(
+        conn: psycopg.Connection[Any],
+        *,
+        pairs: list[tuple[int, str]],
+    ) -> int:
+        """Delete group leases for ``pairs`` regardless of owner. Ops override only.
+
+        Unlike ``unlock_for_batches`` there is deliberately no ``owner_token``
+        predicate: the operator has decided the holder is dead. Deleting a live
+        lease makes its holder's next ``renew_lease`` return False and abort the
+        group, so callers must gate live leases behind explicit confirmation.
+        """
+        if not pairs:
+            return 0
+        cursor = conn.execute(
+            f"""
+            DELETE FROM {LEASE_TABLE}
+            WHERE (team_id, schema_id) IN (
+                SELECT * FROM unnest(%(team_ids)s::bigint[], %(schema_ids)s::varchar[])
+            )
+            """,
+            {
+                "team_ids": [team_id for team_id, _ in pairs],
+                "schema_ids": [schema_id for _, schema_id in pairs],
+            },
+        )
+        return cursor.rowcount or 0
+
+    @staticmethod
+    def get_stale_executing_sync(
+        conn: psycopg.Connection[Any],
+        *,
+        grace_seconds: int = 0,
+        team_id: int | None = None,
+        schema_ids: list[str] | None = None,
+    ) -> list[PendingBatch]:
+        """Sync, scope-filtered twin of ``get_stale_executing`` for ops inspection."""
+        scope_sql, params = _scope_filters(team_id=team_id, schema_ids=schema_ids)
+        params["grace"] = grace_seconds
+        with conn.cursor(row_factory=dict_row) as cur:
+            cur.execute(_stale_executing_sql(scope_sql), params)
+            rows = cur.fetchall()
+        return [PendingBatch(**row) for row in rows]
+
+
+def _scope_filters(
+    *,
+    team_id: int | None = None,
+    schema_ids: list[str] | None = None,
+    run_uuid: str | None = None,
+    alias: str = "b",
+) -> tuple[str, dict[str, Any]]:
+    """Build optional AND-clauses for the ops helpers' targeting scope."""
+    clauses: list[str] = []
+    params: dict[str, Any] = {}
+    if team_id is not None:
+        clauses.append(f"AND {alias}.team_id = %(scope_team_id)s")
+        params["scope_team_id"] = team_id
+    if schema_ids is not None:
+        clauses.append(f"AND {alias}.schema_id = ANY(%(scope_schema_ids)s)")
+        params["scope_schema_ids"] = schema_ids
+    if run_uuid is not None:
+        clauses.append(f"AND {alias}.run_uuid = %(scope_run_uuid)s")
+        params["scope_run_uuid"] = run_uuid
+    return "\n".join(clauses), params
