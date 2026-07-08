@@ -99,7 +99,7 @@ def _split_text_into_chunks(text: str, limit: int = SLACK_MRKDWN_SECTION_LIMIT) 
     return chunks
 
 
-def _last_successful_delivery_finished_at(subscription: Subscription) -> datetime | None:
+def _last_scheduled_report_cutoff(subscription: Subscription) -> datetime | None:
     try:
         row = (
             SubscriptionDelivery.objects.filter(
@@ -145,14 +145,14 @@ def _resolve_subscription_context(subscription: Subscription) -> tuple[Team, Use
     # here keeps all ORM access (and the timezone math) off the event loop in one sync hop.
     team = subscription.team
     # Day-based window modes don't anchor to delivery history — skip the lookup for them.
-    last_successful_delivery_at = (
-        _last_successful_delivery_finished_at(subscription)
+    last_scheduled_cutoff = (
+        _last_scheduled_report_cutoff(subscription)
         if subscription.ai_window_mode == Subscription.AIWindowMode.SINCE_LAST_SENT
         else None
     )
     window = compute_report_window(
         team=team,
-        last_successful_delivery_at=last_successful_delivery_at,
+        last_scheduled_cutoff=last_scheduled_cutoff,
         now=datetime.now(tz=UTC),
         window_days=subscription.ai_report_window_days,
         mode=subscription.ai_window_mode,

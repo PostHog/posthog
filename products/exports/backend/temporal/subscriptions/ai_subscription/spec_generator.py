@@ -109,21 +109,21 @@ def _in_tz(dt: datetime, tz: tzinfo) -> datetime:
 
 def compute_report_window(
     team: Team,
-    last_successful_delivery_at: Optional[datetime],
+    last_scheduled_cutoff: Optional[datetime],
     now: datetime,
     window_days: int,
     mode: str = Subscription.AIWindowMode.SINCE_LAST_SENT,
     start_days_ago: Optional[int] = None,
     end_days_ago: Optional[int] = None,
 ) -> ReportWindow:
-    """Compute the `[start, end)` analysis window for a run. Pure — callers resolve the delivery
-    anchor and `now` and pass them in.
+    """Compute the `[start, end)` analysis window for a run. Pure — callers resolve the cutoff
+    and `now` and pass them in.
 
     Mode shapes and defaults are documented on `AIPromptConfigSerializer` (the write-side schema);
-    day values arrive pre-validated via `Subscription.normalize_ai_window`. SINCE_LAST_SENT anchors
-    to the last successful delivery (gap-free "since last send"), falling back to
-    `end - window_days`; a day-based mode missing its values degrades to that same fallback, with
-    a warning so the ignored config is diagnosable.
+    day values arrive pre-validated via `Subscription.normalize_ai_window`. SINCE_LAST_SENT starts
+    where the previous scheduled report's coverage ended (gap-free "since last report"), falling
+    back to `end - window_days`; a day-based mode missing its values degrades to that same
+    fallback, with a warning so the ignored config is diagnosable.
     """
     tz = team.timezone_info
     run_now = _in_tz(now, tz)
@@ -147,7 +147,7 @@ def compute_report_window(
         )
 
     end = run_now
-    start = _in_tz(last_successful_delivery_at, tz) if last_successful_delivery_at is not None else None
+    start = _in_tz(last_scheduled_cutoff, tz) if last_scheduled_cutoff is not None else None
     if start is None or start >= end:
         start = end - timedelta(days=window_days)
 

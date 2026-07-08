@@ -11,7 +11,7 @@ from products.exports.backend.models.subscription import Subscription, Subscript
 from products.exports.backend.temporal.subscriptions.ai_subscription.delivery import (
     SLACK_MRKDWN_SECTION_LIMIT,
     _build_ai_slack_message,
-    _last_successful_delivery_finished_at,
+    _last_scheduled_report_cutoff,
     _split_text_into_chunks,
     render_ai_email_html,
     send_email_ai_subscription_report,
@@ -327,7 +327,7 @@ class TestLastSuccessfulDeliveryAnchor(APIBaseTest):
             scheduled_at + timedelta(days=2),
         )
 
-        assert _last_successful_delivery_finished_at(self.subscription) == scheduled_at
+        assert _last_scheduled_report_cutoff(self.subscription) == scheduled_at
 
     def test_anchor_prefers_the_persisted_window_end(self) -> None:
         # finished_at trails the run's window end by the generation+send time; anchoring there leaves
@@ -341,7 +341,7 @@ class TestLastSuccessfulDeliveryAnchor(APIBaseTest):
             snapshot={AI_REPORT_WINDOW_END_KEY: window_end.isoformat()},
         )
 
-        assert _last_successful_delivery_finished_at(self.subscription) == window_end
+        assert _last_scheduled_report_cutoff(self.subscription) == window_end
 
     def test_anchor_falls_back_to_finished_at_without_window_end(self) -> None:
         # Rows written before the key existed (or with a garbled value) anchor on finished_at as before.
@@ -353,11 +353,11 @@ class TestLastSuccessfulDeliveryAnchor(APIBaseTest):
             snapshot={AI_REPORT_WINDOW_END_KEY: "not-a-date"},
         )
 
-        assert _last_successful_delivery_finished_at(self.subscription) == finished_at
+        assert _last_scheduled_report_cutoff(self.subscription) == finished_at
 
     def test_no_scheduled_delivery_yields_none(self) -> None:
         self._delivery(
             SubscriptionTriggerType.MANUAL, SubscriptionDelivery.Status.COMPLETED, datetime(2026, 6, 22, tzinfo=UTC)
         )
 
-        assert _last_successful_delivery_finished_at(self.subscription) is None
+        assert _last_scheduled_report_cutoff(self.subscription) is None
