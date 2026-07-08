@@ -545,6 +545,8 @@ export interface HogFunctionInvocationApi {
     readonly status: string
     /** Execution logs from the test invocation. */
     readonly logs: readonly unknown[]
+    /** Error messages surfaced from the plugin server when the test invocation fails. */
+    readonly errors: readonly string[]
     /**
      * Optional invocation ID for correlation.
      * @nullable
