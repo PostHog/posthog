@@ -2497,8 +2497,6 @@ class ExperimentService:
         serializes with freeze_exposure's phase 2: a freeze committing mid-reset would otherwise
         stamp the flag after this method saw it stamp-free, leaving a draft experiment born frozen.
         """
-        if experiment.feature_flag_id is None:
-            return
         flag = (
             FeatureFlag.objects.select_for_update()
             .filter(pk=experiment.feature_flag_id, team_id=experiment.team_id)

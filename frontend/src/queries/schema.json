@@ -22316,6 +22316,14 @@
                 "description": {
                     "type": ["string", "null"]
                 },
+                "exposure_frozen": {
+                    "description": "Stamped by the experiment exposure freeze: the group carries a machine-added snapshot-cohort condition.",
+                    "type": "boolean"
+                },
+                "exposure_frozen_cohort": {
+                    "description": "Snapshot cohort the exposure freeze AND'd into this group's properties.",
+                    "type": "number"
+                },
                 "properties": {
                     "items": {
                         "$ref": "#/definitions/AnyPropertyFilter"
