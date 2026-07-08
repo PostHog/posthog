@@ -404,6 +404,28 @@ jobs:
             SHA: ${{ needs.announce.outputs.sha }}
             DEP: ${{ needs.announce.outputs.deployment_id }}
         steps:
+            # SECURITY GATE — same fork check as build-frontend, duplicated here
+            # because deploy no longer `needs` that job: without its own guard, a
+            # dispatched FORK PR number would reach the tailnet join + token mint
+            # below (and stand up a box running fork code) before build-frontend's
+            # guard eventually failed the wait step. Runs first, before anything
+            # sensitive comes online.
+            - name: Guard dispatch against fork PRs
+              if: github.event_name == 'workflow_dispatch'
+              uses: actions/github-script@f28e40c7f34bde8b3046d885e986cb6290c5673b # v7.1.0
+              with:
+                  script: |
+                      const pr = Number(process.env.PR);
+                      const { data } = await github.rest.pulls.get({ ...context.repo, pull_number: pr });
+                      const head = data.head?.repo?.full_name;
+                      const base = `${context.repo.owner}/${context.repo.repo}`;
+                      if (head !== base) {
+                          core.setFailed(
+                              `Refusing to build a preview for PR #${pr}: its head is ${head || '(deleted fork)'}, ` +
+                              `not ${base}. Manual dispatch only runs same-repo PRs — fork code must never run ` +
+                              `with the hogland token in scope.`);
+                      }
+
             # Trusted checkout: the tool code that runs with HOG_TOKEN comes from
             # the default branch, never the PR.
             - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
@@ -471,14 +493,17 @@ jobs:
               with:
                   script: |
                       const jobName = 'build PR frontend';
-                      // Ceiling covers build-frontend's own 30m timeout given its
-                      // ~6m head start under the bring-up; deploy's job timeout is 40m.
-                      const deadline = Date.now() + 25 * 60 * 1000;
+                      // Ceiling must cover build-frontend's own 30m timeout PLUS
+                      // queue time, minus the ~6m of bring-up already elapsed;
+                      // 32m keeps us inside deploy's 40m job timeout with margin.
+                      const deadline = Date.now() + 32 * 60 * 1000;
                       let conclusion = null;
                       while (Date.now() < deadline) {
-                          const jobs = await github.paginate(github.rest.actions.listJobsForWorkflowRun,
+                          // No pagination: a preview run has a handful of jobs, so
+                          // one per_page:100 call always sees them all.
+                          const { data } = await github.rest.actions.listJobsForWorkflowRun(
                               { ...context.repo, run_id: context.runId, per_page: 100 });
-                          const job = jobs.find(j => j.name === jobName);
+                          const job = data.jobs.find(j => j.name === jobName);
                           if (job && job.status === 'completed') { conclusion = job.conclusion; break; }
                           await new Promise(r => setTimeout(r, 10000));
                       }
@@ -495,9 +520,9 @@ jobs:
                       // Only a success can have produced a dist artifact; skipped never does.
                       let swap = false;
                       if (conclusion === 'success') {
-                          const arts = await github.paginate(github.rest.actions.listWorkflowRunArtifacts,
+                          const { data: artData } = await github.rest.actions.listWorkflowRunArtifacts(
                               { ...context.repo, run_id: context.runId, per_page: 100 });
-                          swap = arts.some(a => a.name === 'hogbox-preview-frontend-dist');
+                          swap = artData.artifacts.some(a => a.name === 'hogbox-preview-frontend-dist');
                       }
                       core.info(`frontend swap needed: ${swap}`);
                       core.setOutput('swap', swap ? 'true' : 'false');
@@ -563,7 +588,7 @@ jobs:
                           `| 🔗 **Link** | **stable across rebuilds** — a re-push swaps the box underneath, the URL stays |\n` +
                           `| 🔒 **Access** | tailnet only (PostHog VPN) |\n` +
                           `| 💤 **Idle** | sleeps after ~30 min idle (snapshot to S3, zero node cost) and wakes on your next visit in ~30s, behind a brief "waking up" screen |\n\n` +
-                          `<sub>commit \`${(process.env.SHA || '').slice(0, 7)}\` &middot; box \`${process.env.BOX}\` &middot; up in ${secs}s &middot; ` +
+                          `<sub>commit \`${(process.env.SHA || '').slice(0, 7)}\` &middot; box \`${process.env.BOX}\` &middot; ready in ${secs}s (push → usable) &middot; ` +
                           `<a href="${runUrl}">build log</a> &middot; rebuilds on every push, torn down on close</sub>`;
                       const { data: comments } = await github.rest.issues.listComments({ ...context.repo, issue_number: pr });
                       const ex = comments.find(c => c.body.includes(marker));

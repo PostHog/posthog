@@ -440,7 +440,9 @@ class HoglandBackend(PreviewBackend):
             return self._client.get(self._box_id)
         if self.name:
             try:
-                pen = self._client.get_pen(self.name)
+                # Reuse an already-loaded pen (attach() fetches it just before
+                # calling here) instead of a second GET for the same name.
+                pen = self._pen if self._pen is not None else self._client.get_pen(self.name)
                 if pen.current_box_id:
                     return self._client.get(pen.current_box_id)
             except NotFoundError:
