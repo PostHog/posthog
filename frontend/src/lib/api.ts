@@ -2850,6 +2850,9 @@ const api = {
             hasMore: boolean
             nextCursor?: string
             maxExportableLogs: number
+            // Aliases for the requested customColumns, in request order; rows carry
+            // their custom values under these keys. Null without custom columns.
+            columns?: string[] | null
         }> {
             return new ApiRequest().logsQuery().create({ signal, data: { query } })
         },

@@ -132,13 +132,13 @@ export const logsViewerDataLogic = kea<logsViewerDataLogicType>([
             logsViewerFiltersLogic({ id }),
             ['setDateRange', 'setFilterGroup', 'setFilters', 'setSearchTerm', 'setSeverityLevels', 'setServiceNames'],
             logsViewerConfigLogic({ id }),
-            ['setSparklineBreakdownBy', 'setOrderBy'],
+            ['setSparklineBreakdownBy', 'setOrderBy', 'setColumns', 'addColumn', 'removeColumn'],
         ],
         values: [
             logsViewerFiltersLogic({ id }),
             ['filters', 'utcDateRange', 'filterGroup', 'queryFilterGroup'],
             logsViewerConfigLogic({ id }),
-            ['sparklineBreakdownBy', 'orderBy'],
+            ['sparklineBreakdownBy', 'orderBy', 'customColumns'],
         ],
     })),
 
@@ -175,6 +175,9 @@ export const logsViewerDataLogic = kea<logsViewerDataLogicType>([
         setInitialLogsLimit: (initialLogsLimit: number | null) => ({ initialLogsLimit }),
         pollForNewLogs: true,
         setMaxExportableLogs: (maxExportableLogs: number) => ({ maxExportableLogs }),
+        // Aliases for the requested customColumns, echoed by the server in request order —
+        // rows carry their custom values under these keys (see response `columns`)
+        setCustomColumnAliases: (customColumnAliases: string[] | null) => ({ customColumnAliases }),
     }),
 
     reducers({
@@ -290,9 +293,16 @@ export const logsViewerDataLogic = kea<logsViewerDataLogicType>([
                 setMaxExportableLogs: (_, { maxExportableLogs }) => maxExportableLogs,
             },
         ],
+        customColumnAliases: [
+            null as string[] | null,
+            {
+                setCustomColumnAliases: (_, { customColumnAliases }) => customColumnAliases,
+                clearLogs: () => null,
+            },
+        ],
     }),
 
-    loaders(({ values, actions }) => ({
+    loaders(({ values, actions, cache }) => ({
         logs: [
             [] as LogMessage[],
             {
@@ -312,6 +322,7 @@ export const logsViewerDataLogic = kea<logsViewerDataLogicType>([
                             filterGroup: values.queryFilterGroup as PropertyGroupFilter,
                             severityLevels: values.filters.severityLevels,
                             serviceNames: values.filters.serviceNames,
+                            customColumns: values.customColumns,
                         },
                         signal,
                     })
@@ -319,6 +330,8 @@ export const logsViewerDataLogic = kea<logsViewerDataLogicType>([
                     actions.setHasMoreLogsToLoad(!!response.hasMore)
                     actions.setNextCursor(response.nextCursor ?? null)
                     actions.setMaxExportableLogs(response.maxExportableLogs)
+                    actions.setCustomColumnAliases(response.columns ?? null)
+                    cache.lastSentCustomColumns = JSON.stringify(values.customColumns ?? null)
                     // The checkpoint (fixed per query, identical on every row) marks the latest
                     // timestamp ingestion is known to have fully caught up to — used to flag the
                     // still-loading tail of the sparkline.
@@ -346,6 +359,7 @@ export const logsViewerDataLogic = kea<logsViewerDataLogicType>([
                             filterGroup: values.queryFilterGroup as PropertyGroupFilter,
                             severityLevels: values.filters.severityLevels,
                             serviceNames: values.filters.serviceNames,
+                            customColumns: values.customColumns,
                             after: values.nextCursor,
                         },
                         signal,
@@ -620,6 +634,23 @@ export const logsViewerDataLogic = kea<logsViewerDataLogicType>([
         setSparklineBreakdownBy: () => {
             actions.fetchSparkline()
         },
+        // Structural column changes refetch only when the lowered wire value differs from what
+        // the last query sent — resizing or reordering columns never re-runs the query.
+        setColumns: () => {
+            if (JSON.stringify(values.customColumns ?? null) !== cache.lastSentCustomColumns) {
+                actions.runQuery()
+            }
+        },
+        addColumn: () => {
+            if (JSON.stringify(values.customColumns ?? null) !== cache.lastSentCustomColumns) {
+                actions.runQuery()
+            }
+        },
+        removeColumn: () => {
+            if (JSON.stringify(values.customColumns ?? null) !== cache.lastSentCustomColumns) {
+                actions.runQuery()
+            }
+        },
         fetchLogsFailure: ({ error, errorObject }) => {
             if (isUserInitiatedError(error)) {
                 return
@@ -734,6 +765,7 @@ export const logsViewerDataLogic = kea<logsViewerDataLogicType>([
                         filterGroup: values.queryFilterGroup as PropertyGroupFilter,
                         severityLevels: values.filters.severityLevels,
                         serviceNames: values.filters.serviceNames,
+                        customColumns: values.customColumns,
                         liveLogsCheckpoint: values.liveLogsCheckpoint ?? undefined,
                     },
                     signal,
