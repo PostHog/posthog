@@ -29,16 +29,32 @@ def slack_event_props(integration: Integration, *, slack_user_id: str | None = N
     return props
 
 
+def slack_user_distinct_id(workspace_id: str, slack_user_id: str) -> str:
+    """Stable per-Slack-user distinct_id for events that must chain into per-user funnels.
+    Deliberately synthetic (not the linked PostHog user's distinct_id): it is computable at
+    every capture site — interactivity handlers, home opens before user resolution, Temporal
+    activities — so every step of a flow lands on the same person."""
+    return f"slack:{workspace_id}:{slack_user_id}"
+
+
 def capture_slack_event(
-    integration: Integration, event: str, *, slack_user_id: str | None = None, **props: object
+    integration: Integration,
+    event: str,
+    *,
+    slack_user_id: str | None = None,
+    distinct_id: str | None = None,
+    **props: object,
 ) -> None:
-    """Capture a Slack app event, keyed on the team (``distinct_id`` = team uuid) with org/team groups.
-    Best-effort: analytics never breaks the flow."""
+    """Capture a Slack app event with org/team groups. Best-effort: analytics never breaks the flow.
+
+    ``distinct_id`` defaults to the team uuid, which collapses every user in a workspace into one
+    person — fine for volume counts, useless for funnels. Flows that need per-user conversion
+    tracking must pass ``slack_user_distinct_id(...)``."""
     try:
         team = integration.team
         with ph_scoped_capture() as capture:
             capture(
-                distinct_id=str(team.uuid),
+                distinct_id=distinct_id or str(team.uuid),
                 event=event,
                 properties=slack_event_props(integration, slack_user_id=slack_user_id, **props),
                 groups=groups(team.organization, team),
