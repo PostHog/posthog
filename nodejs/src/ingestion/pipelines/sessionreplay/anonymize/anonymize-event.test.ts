@@ -49,6 +49,38 @@ describe('anonymize/event router', () => {
         expect(anonymizeEvent(ctx, event)).toBe(false)
     })
 
+    const onePxPng =
+        'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAABAAAAAQCAIAAACQkWg2AAAACXBIWXMAAAPoAAAD6AG1e1JrAAAAJUlEQVQokWN4plEBRyInbOAIlzjDINRAjCJk8cGoYRAG60iMBwA8H08Qor0ygQAAAABJRU5ErkJggg=='
+    test.each([
+        [
+            'StyleSheetRule adds/replace/replaceSync',
+            {
+                source: 8,
+                id: 1,
+                adds: [{ rule: `.a{background:url(${onePxPng})}` }],
+                replace: `.b{background:url(${onePxPng})}`,
+                replaceSync: `.c{background:url(${onePxPng})}`,
+            },
+        ],
+        [
+            'StyleDeclaration set value',
+            { source: 13, id: 1, index: [0], set: { property: 'background', value: `url(${onePxPng})` } },
+        ],
+        [
+            'AdoptedStyleSheet rules',
+            {
+                source: 15,
+                id: 1,
+                styleIds: [1],
+                styles: [{ styleId: 1, rules: [{ rule: `.a{background:url(${onePxPng})}` }] }],
+            },
+        ],
+    ])('scrubs css data images in incremental stylesheet events: %s', (_name, data) => {
+        const event: any = { type: 3, timestamp: 1, data }
+        expect(anonymizeEvent(ctx, event)).toBe(true)
+        expect(JSON.stringify(event)).not.toContain(onePxPng)
+    })
+
     it('scrubs console plugin payload strings', () => {
         const event: any = {
             type: 6,

@@ -163,6 +163,9 @@ export const llmPromptLogic = kea<llmPromptLogicType>([
         toggleOutlineExpanded: true,
         cancelEditing: true,
         setPublishConflict: (publishConflict: PublishConflict | null) => ({ publishConflict }),
+        requestPublish: true,
+        openPublishReview: true,
+        closePublishReview: true,
     }),
 
     reducers(({ props }) => ({
@@ -232,6 +235,17 @@ export const llmPromptLogic = kea<llmPromptLogicType>([
                 setPublishConflict: (_, { publishConflict }) => publishConflict,
                 setMode: () => null,
                 loadPromptSuccess: () => null,
+            },
+        ],
+        isPublishReviewOpen: [
+            false,
+            {
+                openPublishReview: () => true,
+                closePublishReview: () => false,
+                submitPromptFormSuccess: () => false,
+                // A publish conflict (409) needs the editor visible again to show the banner
+                setPublishConflict: () => false,
+                setMode: () => false,
             },
         ],
     })),
@@ -672,6 +686,16 @@ export const llmPromptLogic = kea<llmPromptLogicType>([
     }),
 
     listeners(({ actions, props, values }) => ({
+        requestPublish: () => {
+            // New prompts publish directly (v1, nothing to diff against); an empty form
+            // goes through submit so kea-forms surfaces the validation errors.
+            if (values.isNewPrompt || !values.promptForm.prompt?.trim()) {
+                actions.submitPromptForm()
+                return
+            }
+            actions.openPublishReview()
+        },
+
         cancelEditing: () => {
             const exitEditMode = (): void => {
                 if (values.isNewPrompt) {

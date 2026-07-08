@@ -20,6 +20,7 @@ import { urls } from 'scenes/urls'
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { AccessControlLevel, AccessControlResourceType } from '~/types'
 
+import { ClickmapSettings } from './ClickmapSettings'
 import { FilterPanel } from './FilterPanel'
 import { heatmapsBrowserLogic } from './heatmapsBrowserLogic'
 import { IframeHeatmapBrowser } from './IframeHeatmapBrowser'
@@ -349,8 +350,7 @@ export function HeatmapsBrowser(): JSX.Element {
     const clickmapLogic = recordingClickmapLogic({ iframeRef })
 
     const { displayUrl, isBrowserUrlAuthorized, hasValidReplayIframeData, isBrowserUrlValid } = useValues(logic)
-    const { clickmapEnabled, clickmapAvailable } = useValues(clickmapLogic)
-    const { setClickmapEnabled } = useActions(clickmapLogic)
+    const { clickmapAvailable } = useValues(clickmapLogic)
 
     return (
         <BindLogic logic={heatmapsBrowserLogic} props={logicProps}>
@@ -360,9 +360,10 @@ export function HeatmapsBrowser(): JSX.Element {
                     <UrlSearchHeader iframeRef={iframeRef} />
                     <LemonDivider className="my-4" />
                     <FilterPanel
-                        clickmapEnabled={hasValidReplayIframeData && clickmapAvailable ? clickmapEnabled : undefined}
-                        onClickmapEnabledChange={
-                            hasValidReplayIframeData && clickmapAvailable ? setClickmapEnabled : undefined
+                        clickmapSettings={
+                            hasValidReplayIframeData && clickmapAvailable ? (
+                                <ClickmapSettings iframeRef={iframeRef} />
+                            ) : undefined
                         }
                     />
                     <LemonDivider className="my-4" />

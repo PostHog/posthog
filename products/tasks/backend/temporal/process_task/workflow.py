@@ -398,7 +398,7 @@ class ProcessTaskWorkflow(PostHogWorkflow):
             self._pr_progress_emitted = True
             await self._emit_progress("pr", "completed", "Opened pull request", "setup", detail=pr_context.pr_url)
             await self._emit_progress("ci", "in_progress", "Keeping CI green", "setup")
-        if pr_context.pr_state == "closed":
+        if pr_context.pr_state in ("closed", "merged"):
             workflow.logger.info(
                 "PR is closed, skipping CI follow-up",
                 extra={
