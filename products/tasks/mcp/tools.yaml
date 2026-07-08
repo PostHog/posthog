@@ -60,6 +60,9 @@ tools:
     task-channels-partial-update:
         operation: task_channels_partial_update
         enabled: false
+    task-mentions-list:
+        operation: task_mentions_list
+        enabled: false
     tasks-create:
         operation: tasks_create
         enabled: false

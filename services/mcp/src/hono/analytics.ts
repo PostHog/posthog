@@ -1,3 +1,5 @@
+import { randomUUID } from 'node:crypto'
+
 import type { MCPAnalyticsIntentSource } from '@posthog/mcp-analytics'
 
 import { MCP_ANALYTICS_SOURCE, MCP_SERVER_NAME, MCP_SERVER_VERSION } from '@/lib/constants'
@@ -8,6 +10,7 @@ import {
     MCP_ANALYTICS_VERSION,
     type MCPAnalyticsContext,
 } from '@/lib/posthog/analytics'
+import { EXECUTE_SQL_TOOL_NAME } from '@/tools/posthogAiTools/executeSql'
 import { getToolCategory } from '@/tools/toolDefinitions'
 
 import { buildMCPSessionAnalyticsProperties } from './mcp-context'
@@ -134,6 +137,59 @@ export async function trackToolCall(
                 tool_name: toolName,
                 ...(toolCategory ? { $mcp_tool_category: toolCategory } : {}),
                 ...extraProperties,
+            },
+        })
+    } catch {
+        // never break the request for analytics
+    }
+}
+
+export interface ExecuteSqlGenerationMeta {
+    durationMs: number
+    isError: boolean
+    errorMessage?: string
+}
+
+/**
+ * Manually captures an `$ai_generation` per `execute-sql` call — the client's LLM
+ * authored the query; this server is the observer that sees intent and output
+ * together. Lands in LLM analytics, where online evaluations (LLM judge / Hog) can
+ * score it for anti-patterns on live traffic. `$ai_trace_id` is the MCP session
+ * uuid, so a session's queries group into one trace.
+ */
+export async function trackExecuteSqlGeneration(
+    toolName: string,
+    args: unknown,
+    state: ResolvedState,
+    meta: ExecuteSqlGenerationMeta,
+    intentMeta?: ToolCallIntentMeta
+): Promise<void> {
+    if (toolName !== EXECUTE_SQL_TOOL_NAME) {
+        return
+    }
+    const query = (args as { query?: unknown } | null | undefined)?.query
+    if (typeof query !== 'string' || query.length === 0) {
+        return
+    }
+    try {
+        const analyticsContext = await state.reqCtx.safelyGetAnalyticsContext(state.context)
+        const sessionUuid = await state.reqCtx.getEffectiveSessionUuid(state.requestContext)
+        const { properties, groups } = buildBaseProperties(state, analyticsContext)
+
+        getPostHogClient().capture({
+            distinctId: state.distinctId,
+            event: '$ai_generation',
+            groups,
+            properties: {
+                ...properties,
+                ...(sessionUuid ? { $session_id: sessionUuid } : {}),
+                $ai_trace_id: sessionUuid ?? randomUUID(),
+                $ai_span_name: EXECUTE_SQL_TOOL_NAME,
+                $ai_input: [{ role: 'user', content: intentMeta?.intent ?? '' }],
+                $ai_output_choices: [{ role: 'assistant', content: query }],
+                $ai_latency: meta.durationMs / 1000,
+                $ai_is_error: meta.isError,
+                ...(meta.errorMessage ? { $ai_error: meta.errorMessage } : {}),
             },
         })
     } catch {

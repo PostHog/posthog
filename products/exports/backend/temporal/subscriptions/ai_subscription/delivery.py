@@ -1,5 +1,5 @@
 import uuid
-from datetime import datetime
+from datetime import UTC, datetime
 from urllib.parse import urlencode
 
 import nh3
@@ -8,6 +8,7 @@ from markdown_it import MarkdownIt
 from markdown_to_mrkdwn import SlackMarkdownConverter
 
 from posthog.email import EmailMessage
+from posthog.exceptions_capture import capture_exception
 from posthog.helpers.markdown_safety import strip_external_links_markdown
 from posthog.helpers.slack_subscription_explore import build_explore_hint
 from posthog.models import Team, User
@@ -15,12 +16,17 @@ from posthog.models.integration import Integration
 from posthog.sync import database_sync_to_async
 from posthog.utils import absolute_uri
 
-from products.exports.backend.models.subscription import Subscription, get_unsubscribe_token
+from products.exports.backend.models.subscription import Subscription, SubscriptionDelivery, get_unsubscribe_token
 from products.exports.backend.temporal.subscriptions.ai_subscription.report_pipeline import (
     AiReportResult,
     generate_ai_report,
 )
-from products.exports.backend.temporal.subscriptions.ai_subscription.spec_generator import PromptRejectedError
+from products.exports.backend.temporal.subscriptions.ai_subscription.spec_generator import (
+    PromptRejectedError,
+    ReportWindow,
+    compute_report_window,
+)
+from products.exports.backend.temporal.subscriptions.types import AI_REPORT_WINDOW_END_KEY, SubscriptionTriggerType
 
 from ee.tasks.subscriptions.slack_subscriptions import (
     UTM_TAGS_BASE,
@@ -93,13 +99,73 @@ def _split_text_into_chunks(text: str, limit: int = SLACK_MRKDWN_SECTION_LIMIT) 
     return chunks
 
 
-def _resolve_subscription_actors(subscription: Subscription) -> tuple[Team, User | None]:
-    # team/created_by are FK relations; reading them may hit the DB, so this runs off the event loop
-    return subscription.team, subscription.created_by
+def _last_scheduled_report_cutoff(subscription: Subscription) -> datetime | None:
+    try:
+        row = (
+            SubscriptionDelivery.objects.filter(
+                subscription_id=subscription.id,
+                status=SubscriptionDelivery.Status.COMPLETED,
+                # Only real scheduled sends move the anchor: a manual "Test delivery" (or an immediate
+                # target-change confirmation) right before a run would otherwise shrink its window to
+                # near-empty — a test is a preview, not a send.
+                trigger_type=SubscriptionTriggerType.SCHEDULED,
+                finished_at__isnull=False,
+            )
+            .order_by("-finished_at")
+            .values_list("finished_at", "content_snapshot")
+            .first()
+        )
+        if row is None:
+            return None
+        finished_at, snapshot = row
+        # Prefer the run's persisted window end: anchoring on finished_at leaves the run's own
+        # generation+send time uncovered. Rows written before the key existed fall back.
+        window_end = (snapshot or {}).get(AI_REPORT_WINDOW_END_KEY)
+        if isinstance(window_end, str):
+            try:
+                return datetime.fromisoformat(window_end)
+            except ValueError:
+                pass
+        return finished_at
+    except Exception as exc:
+        # A transient DB error on this one lookup shouldn't fail the whole delivery — None falls
+        # back to the cadence window (which may re-cover already-sent data, never drop any).
+        logger.warning(
+            "ai_report.last_delivery_lookup_failed",
+            subscription_id=subscription.id,
+            team_id=subscription.team_id,
+            exc_info=True,
+        )
+        capture_exception(exc, {"subscription_id": subscription.id, "feature": "ai_subscription"})
+        return None
+
+
+def _resolve_subscription_context(subscription: Subscription) -> tuple[Team, User | None, ReportWindow]:
+    # team/created_by are FK relations and the last-delivery lookup hits the DB; resolving the window
+    # here keeps all ORM access (and the timezone math) off the event loop in one sync hop.
+    team = subscription.team
+    # Day-based window modes don't anchor to delivery history — skip the lookup for them.
+    last_scheduled_cutoff = (
+        _last_scheduled_report_cutoff(subscription)
+        if subscription.ai_window_mode == Subscription.AIWindowMode.SINCE_LAST_SENT
+        else None
+    )
+    window = compute_report_window(
+        team=team,
+        last_scheduled_cutoff=last_scheduled_cutoff,
+        now=datetime.now(tz=UTC),
+        window_days=subscription.ai_report_window_days,
+        mode=subscription.ai_window_mode,
+        start_days_ago=subscription.ai_window_start_days_ago,
+        end_days_ago=subscription.ai_window_end_days_ago,
+    )
+    return team, subscription.created_by, window
 
 
 async def build_ai_subscription_report(subscription: Subscription) -> AiReportResult:
-    team, user = await database_sync_to_async(_resolve_subscription_actors, thread_sensitive=False)(subscription)
+    team, user, window = await database_sync_to_async(_resolve_subscription_context, thread_sensitive=False)(
+        subscription
+    )
     # created_by is FK SET_NULL; the pipeline requires a non-None user
     if user is None:
         raise PromptRejectedError("AI subscription has no creator (created_by deleted); cannot deliver.")
@@ -108,7 +174,7 @@ async def build_ai_subscription_report(subscription: Subscription) -> AiReportRe
         team=team,
         user=user,
         prompt=subscription.prompt,
-        window_days=subscription.ai_report_window_days,
+        window=window,
         trace_correlation_id=subscription.id,
     )
 

@@ -389,6 +389,8 @@ mod tests {
                 ),
             )],
             forward_hops: 0,
+
+            person_dedup: None,
         }
     }
 

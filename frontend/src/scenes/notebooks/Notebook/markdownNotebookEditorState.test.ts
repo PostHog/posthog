@@ -67,7 +67,10 @@ describe('notebookLogic markdown editor state', () => {
         await expectLogic(logic).toDispatchActions(['loadNotebookSuccess']).toFinishAllListeners()
     })
 
-    afterEach(() => {
+    afterEach(async () => {
+        // Remounting notebookLogic kicks off membersLogic loaders — let them settle before the
+        // kea context is torn down, otherwise they resume against reset state and crash
+        await expectLogic(logic).toFinishAllListeners()
         logic?.unmount()
         jest.restoreAllMocks()
     })

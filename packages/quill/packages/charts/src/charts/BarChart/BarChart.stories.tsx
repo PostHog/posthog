@@ -50,7 +50,7 @@ export const Grouped: Story = {
 export const WithBarTrack: Story = {
     render: () => {
         const theme = useReactiveTheme()
-        const config: BarChartConfig = { barLayout: 'grouped', showGrid: true, bars: { track: true, cornerRadius: 6 } }
+        const config: BarChartConfig = { barLayout: 'grouped', showGrid: true, barCornerRadius: 6, bars: { track: true } }
         return (
             <Stage>
                 <BarChart series={THREE_SERIES} labels={DAYS} config={config} theme={theme} />
@@ -72,7 +72,8 @@ export const WithBarTrackCeiling: Story = {
         const config: BarChartConfig = {
             barLayout: 'grouped',
             showGrid: true,
-            bars: { track: true, cornerRadius: 6, valueDomain: [0, 100] },
+            barCornerRadius: 6,
+            bars: { track: true, valueDomain: [0, 100] },
         }
         return (
             <Stage>
@@ -97,7 +98,8 @@ export const StackedWithTrackCeiling: Story = {
             barLayout: 'stacked',
             axisOrientation: 'horizontal',
             showGrid: true,
-            bars: { cornerRadius: 6, valueDomain: [0, 100] },
+            barCornerRadius: 6,
+            bars: { valueDomain: [0, 100] },
         }
         return (
             <Stage height={120}>
@@ -168,7 +170,8 @@ export const HorizontalWideValueLabels: Story = {
             axisOrientation: 'horizontal',
             showGrid: true,
             yTickFormatter: (v) => v.toLocaleString('en-US'),
-            bars: { cornerRadius: 4, fitToHeight: true },
+            barCornerRadius: 4,
+            bars: { fitToHeight: true },
         }
         const labels = ['/pricing', '/signup', '/product', '/docs', '/blog']
         const series: Series[] = [
@@ -316,7 +319,7 @@ export const LargeDataset: Story = {
 export const CustomCornerRadius: Story = {
     render: () => {
         const theme = useReactiveTheme()
-        const config: BarChartConfig = { barLayout: 'grouped', showGrid: true, bars: { cornerRadius: 12 } }
+        const config: BarChartConfig = { barLayout: 'grouped', showGrid: true, barCornerRadius: 12 }
         return (
             <Stage>
                 <BarChart series={TWO_SERIES} labels={DAYS} config={config} theme={theme} />
@@ -344,7 +347,8 @@ function FillStyleColumn({ title, fillStyle }: { title: string; fillStyle: BarFi
         barLayout: 'grouped',
         showGrid: true,
         axisOrientation: 'horizontal',
-        bars: { cornerRadius: 4, fillStyle },
+        barCornerRadius: 4,
+        bars: { fillStyle },
     }
     return (
         // eslint-disable-next-line react/forbid-dom-props

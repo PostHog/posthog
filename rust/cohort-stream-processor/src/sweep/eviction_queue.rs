@@ -30,9 +30,9 @@ type Coord = (i64, u64);
 
 /// A deadline-ordered queue of keys, drained soonest-first by [`pop_due`](Self::pop_due).
 ///
-/// Single-threaded by design: each partition worker owns one `EvictionQueue<Stage1Key>` and is the
-/// only mutator, so no internal synchronization is needed. Generic over `K` purely so the structure
-/// can be unit-tested in isolation from `Stage1Key`.
+/// Single-threaded by design: each partition worker owns one `EvictionQueue<BehavioralKey>` and is
+/// the only mutator, so no internal synchronization is needed. Generic over `K` purely so the
+/// structure can be unit-tested in isolation from `BehavioralKey`.
 ///
 /// Invariant, upheld by every method: `by_deadline` and `index` hold exactly the same set of keys,
 /// so `by_deadline.len() == index.len() == ` the live-key count, and each key maps to exactly one

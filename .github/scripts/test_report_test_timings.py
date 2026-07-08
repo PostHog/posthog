@@ -35,12 +35,36 @@ def _testcase(
         nodeid=f"m::{name}",
         classname="m",
         name=name,
+        selector=f"m.py::{name}",
         duration_seconds=duration,
         start=test_start,
         end=test_start + timedelta(seconds=duration),
         outcome=outcome,
         attempts=attempts,
     )
+
+
+@pytest.mark.parametrize(
+    "file,classname,name,expected",
+    [
+        # Class-based: the file's module prefix is stripped from classname, leaving the class.
+        (
+            "posthog/hogql/test/test_resolver.py",
+            "posthog.hogql.test.test_resolver.TestResolver",
+            "test_x",
+            "posthog/hogql/test/test_resolver.py::TestResolver::test_x",
+        ),
+        # Module-level test: classname equals the module, so no class segment.
+        ("pkg/test_a.py", "pkg.test_a", "test_y", "pkg/test_a.py::test_y"),
+        # No classname at all also collapses to file::name.
+        ("pkg/test_a.py", "", "test_y", "pkg/test_a.py::test_y"),
+        # No file (external shard) or an unexpected classname shape yields '' — caller uses the nodeid.
+        ("", "pkg.test_a.TestA", "test_y", ""),
+        ("pkg/test_a.py", "totally.unrelated.Thing", "test_y", ""),
+    ],
+)
+def test_to_selector(file: str, classname: str, name: str, expected: str) -> None:
+    assert report_test_timings.to_selector(file, classname, name) == expected
 
 
 # ---------- artifact name parsing ----------

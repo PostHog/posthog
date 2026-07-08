@@ -1,5 +1,6 @@
 import { expectLogic } from 'kea-test-utils'
 
+import { resumeKeaLoadersErrors, silenceKeaLoadersErrors } from '~/initKea'
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
 
@@ -25,6 +26,7 @@ jest.mock('lib/utils/async', () => ({
 }))
 
 describe('logsIngestionLogic', () => {
+    afterEach(resumeKeaLoadersErrors)
     let logic: ReturnType<typeof logsIngestionLogic.build>
 
     beforeEach(() => {
@@ -73,6 +75,7 @@ describe('logsIngestionLogic', () => {
         })
 
         it('handles API failure and sets teamHasLogsCheckFailed', async () => {
+            silenceKeaLoadersErrors()
             useMocks({
                 get: {
                     '/api/environments/:team_id/logs/has_logs/': () => [500, { detail: 'Server error' }],
@@ -107,6 +110,7 @@ describe('logsIngestionLogic', () => {
         })
 
         it('resets teamHasLogsCheckFailed on new load attempt', async () => {
+            silenceKeaLoadersErrors()
             let callCount = 0
             useMocks({
                 get: {

@@ -21,6 +21,7 @@ from products.tasks.backend.facade.contracts import (
     SandboxEnvironmentDTO,
     TaskAutomationDTO,
     TaskDetailDTO,
+    TaskMentionDTO,
     TaskRunDetailDTO,
     TaskSummaryDTO,
     TaskThreadMessageDTO,
@@ -1081,6 +1082,41 @@ class TaskThreadMessageWriteSerializer(serializers.Serializer):
     """Request body for posting a thread message."""
 
     content = serializers.CharField(help_text="Message text.")
+
+
+class TaskMentionQuerySerializer(serializers.Serializer):
+    """Query parameters for listing mentions."""
+
+    since = serializers.DateTimeField(
+        required=False, help_text="Only return mentions created after this ISO 8601 timestamp."
+    )
+    limit = serializers.IntegerField(
+        required=False,
+        default=100,
+        min_value=1,
+        max_value=500,
+        help_text="Maximum number of mentions to return (newest first).",
+    )
+
+
+class TaskMentionSerializer(DataclassSerializer):
+    """Response shape for one @-mention of the requester in a task's thread."""
+
+    author = TaskUserBasicInfoSerializer(allow_null=True, required=False)
+
+    class Meta:
+        dataclass = TaskMentionDTO
+        fields = [
+            "id",
+            "message_id",
+            "task_id",
+            "task_title",
+            "channel_id",
+            "channel_name",
+            "author",
+            "content",
+            "created_at",
+        ]
 
 
 class TaskRepositoriesResponseSerializer(serializers.Serializer):

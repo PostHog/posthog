@@ -35,13 +35,15 @@ function HeatmapMouseInfo({
     onHasValue?: (hasValue: boolean) => void
 }): JSX.Element | null {
     const shiftPressed = useShiftKeyPressed()
-    const { heatmapTooltipLabel, rawHeatmapLoading } = useValues(heatmapDataLogic({ context }))
+    const { heatmapTooltipLabel, rawHeatmapLoading, heatmapTooltipSuppressed } = useValues(
+        heatmapDataLogic({ context })
+    )
 
     const containerMousePosition = useMousePosition(containerRef?.current)
     const viewportMousePosition = useMousePosition()
     const value = heatmapJsRef.current?.getValueAt(containerMousePosition)
 
-    const hasValue = !!(containerMousePosition && (value || shiftPressed))
+    const hasValue = !!(containerMousePosition && (value || shiftPressed)) && !heatmapTooltipSuppressed
 
     useEffect(() => {
         onHasValue?.(hasValue)
