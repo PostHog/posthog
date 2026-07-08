@@ -27,6 +27,7 @@ import {
     ACCOUNTS_HOGQL_DEFAULT_SELECT,
     ACCOUNTS_NAME_COLUMN,
     accountsColumnConfigLogic,
+    relationshipAlias,
 } from './accountsColumnConfigLogic'
 import { DEFAULT_ACCOUNT_TAB, accountsExpansionLogic } from './accountsExpansionLogic'
 import { accountsLogic, savingRoleKey } from './accountsLogic'
@@ -380,6 +381,28 @@ describe('accountsLogic', () => {
                 'accounts.notebooks.count AS notebook_count',
             ])
             expect(logic.values.visibleColumnNames).toEqual([ACCOUNTS_NAME_COLUMN, 'tag_names', 'notebook_count'])
+        })
+
+        it('materializes pristine defaults into one column per definition once definitions load', () => {
+            const config = accountsColumnConfigLogic.findMounted()!
+            config.actions.loadRelationshipDefinitionsSuccess([
+                ...DEFINITIONS,
+                { id: 'def-os', name: 'Onboarding specialist', description: null, is_single_holder: true },
+            ])
+            expect(config.values.selectColumns).toEqual([
+                ...ACCOUNTS_HOGQL_DEFAULT_SELECT,
+                `accounts.relationships.values.\`def-os\` AS ${relationshipAlias('def-os')}`,
+            ])
+        })
+
+        it('leaves customized columns alone when definitions load', () => {
+            const config = accountsColumnConfigLogic.findMounted()!
+            config.actions.setSelectColumns([ACCOUNTS_NAME_COLUMN, 'csm'])
+            config.actions.loadRelationshipDefinitionsSuccess([
+                ...DEFINITIONS,
+                { id: 'def-os', name: 'Onboarding specialist', description: null, is_single_holder: true },
+            ])
+            expect(config.values.selectColumns).toEqual([ACCOUNTS_NAME_COLUMN, 'csm'])
         })
 
         it('refuses to remove the name column via unselectColumn', () => {

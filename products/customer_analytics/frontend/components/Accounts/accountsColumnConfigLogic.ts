@@ -1,4 +1,4 @@
-import { actions, afterMount, connect, kea, path, reducers, selectors } from 'kea'
+import { actions, afterMount, connect, kea, listeners, path, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 
 import { objectsEqual } from 'lib/utils/objects'
@@ -42,13 +42,17 @@ export function isLegacyRoleColumn(column: string): column is AccountRoleKey {
     return column in LEGACY_ROLE_COLUMNS
 }
 
-export const ACCOUNTS_HOGQL_DEFAULT_SELECT: string[] = [
+const ACCOUNTS_HOGQL_BASE_SELECT: string[] = [
     ACCOUNTS_NAME_COLUMN,
     'accounts.tags.names AS tag_names',
     'accounts.notebooks.count AS notebook_count',
-    'csm',
-    'account_executive',
-    'account_owner',
+]
+
+// Only a pre-load seed: once definitions load, pristine columns are upgraded to
+// `defaultSelectColumns` so defaults aren't coupled to the legacy role names.
+export const ACCOUNTS_HOGQL_DEFAULT_SELECT: string[] = [
+    ...ACCOUNTS_HOGQL_BASE_SELECT,
+    ...Object.keys(LEGACY_ROLE_COLUMNS),
 ]
 
 function ensureNameColumn(columns: string[]): string[] {
@@ -104,7 +108,7 @@ function relationshipExpression(definition: AccountRelationshipDefinitionApi, al
     return `accounts.relationships.values.\`${definition.id}\` AS ${alias}`
 }
 
-const ROLE_KEY_BY_NAME: Record<string, AccountRoleKey> = Object.fromEntries(
+export const ROLE_KEY_BY_NAME: Record<string, AccountRoleKey> = Object.fromEntries(
     Object.entries(LEGACY_ROLE_COLUMNS).map(([key, name]) => [name, key as AccountRoleKey])
 )
 
@@ -380,6 +384,22 @@ export const accountsColumnConfigLogic = kea<accountsColumnConfigLogicType>([
         ],
     })),
     selectors({
+        // Seeded definitions keep their legacy bare name so existing saved views and
+        // shared URLs dedupe against them.
+        defaultSelectColumns: [
+            (s) => [s.relationshipDefinitions],
+            (relationshipDefinitions: AccountRelationshipDefinitionApi[]): string[] =>
+                relationshipDefinitions.length === 0
+                    ? [...ACCOUNTS_HOGQL_DEFAULT_SELECT]
+                    : [
+                          ...ACCOUNTS_HOGQL_BASE_SELECT,
+                          ...relationshipDefinitions.map(
+                              (definition) =>
+                                  ROLE_KEY_BY_NAME[definition.name] ??
+                                  relationshipExpression(definition, relationshipAlias(definition.id))
+                          ),
+                      ],
+        ],
         roleKeyToDefinition: [
             (s) => [s.relationshipDefinitions],
             (
@@ -438,6 +458,23 @@ export const accountsColumnConfigLogic = kea<accountsColumnConfigLogicType>([
             }),
         ],
     }),
+    listeners(({ actions, values }) => ({
+        // Customized columns (user edits, saved view, shared URL) no longer equal the
+        // static default, so only pristine defaults get upgraded.
+        loadRelationshipDefinitionsSuccess: () => {
+            if (
+                objectsEqual(values.selectColumns, ACCOUNTS_HOGQL_DEFAULT_SELECT) &&
+                !objectsEqual(values.defaultSelectColumns, values.selectColumns)
+            ) {
+                actions.setSelectColumns(values.defaultSelectColumns)
+            }
+        },
+        resetColumns: () => {
+            if (!objectsEqual(values.selectColumns, values.defaultSelectColumns)) {
+                actions.setSelectColumns(values.defaultSelectColumns)
+            }
+        },
+    })),
     afterMount(({ actions, values }) => {
         // Lazily fetch the database schema only if it isn't already in flight / loaded.
         // databaseTableListLogic dedupes concurrent calls internally.

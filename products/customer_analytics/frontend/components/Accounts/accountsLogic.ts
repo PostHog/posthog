@@ -26,12 +26,7 @@ import {
     CUSTOMER_ANALYTICS_DEFAULT_QUERY_TAGS,
 } from '../../constants'
 import { customerAnalyticsSceneLogic } from '../../customerAnalyticsSceneLogic'
-import {
-    ACCOUNTS_HOGQL_DEFAULT_SELECT,
-    ACCOUNTS_NAME_COLUMN,
-    accountsColumnConfigLogic,
-    isLegacyRoleColumn,
-} from './accountsColumnConfigLogic'
+import { ACCOUNTS_NAME_COLUMN, accountsColumnConfigLogic, isLegacyRoleColumn } from './accountsColumnConfigLogic'
 import {
     ACCOUNT_EXPANSION_TABS,
     AccountExpansionTab,
@@ -153,7 +148,13 @@ export const accountsLogic = kea<accountsLogicType>([
             userLogic,
             ['user'],
             accountsColumnConfigLogic,
-            ['selectColumns', 'visibleColumnNames', 'querySelectColumns', 'aliasToRelationshipDefinition'],
+            [
+                'selectColumns',
+                'defaultSelectColumns',
+                'visibleColumnNames',
+                'querySelectColumns',
+                'aliasToRelationshipDefinition',
+            ],
             accountsOverviewTilesLogic,
             ['metrics as overviewMetrics', 'tileFilter'],
             customerAnalyticsSceneLogic,
@@ -318,6 +319,7 @@ export const accountsLogic = kea<accountsLogicType>([
                 s.assignedToFilter,
                 s.sortOrder,
                 s.selectColumns,
+                s.defaultSelectColumns,
                 s.tileFilter,
             ],
             (
@@ -327,6 +329,7 @@ export const accountsLogic = kea<accountsLogicType>([
                 assignedToFilter: RoleFilterValue,
                 sortOrder: AccountSortOrder,
                 selectColumns: string[],
+                defaultSelectColumns: string[],
                 tileFilter: TileFilter | null
             ): AccountsViewUrlState => {
                 const state: AccountsViewUrlState = {}
@@ -346,7 +349,7 @@ export const accountsLogic = kea<accountsLogicType>([
                 if (sortOrder) {
                     state.sort = sortOrder
                 }
-                if (!objectsEqual(selectColumns, ACCOUNTS_HOGQL_DEFAULT_SELECT)) {
+                if (!objectsEqual(selectColumns, defaultSelectColumns)) {
                     state.columns = selectColumns
                 }
                 if (tileFilter) {
