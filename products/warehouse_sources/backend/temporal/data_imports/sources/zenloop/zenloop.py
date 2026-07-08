@@ -76,7 +76,7 @@ def get_rows(
 
     resume = resumable_source_manager.load_state() if resumable_source_manager.can_resume() else None
     page = resume.next_page if resume else 1
-    if resume and resume.next_page > 1:
+    if resume:
         logger.debug(f"Zenloop: resuming {endpoint} from page {page}")
 
     while True:
