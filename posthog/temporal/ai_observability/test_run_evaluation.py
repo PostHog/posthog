@@ -205,8 +205,18 @@ class TestRunEvaluationWorkflow:
             assert result["reasoning"] == "The answer is correct"
             mock_client.complete.assert_called_once()
 
+    @pytest.mark.parametrize(
+        "oversized_input",
+        [
+            pytest.param(
+                [{"role": "user", "content": f"message {i}: " + "x" * 200} for i in range(3000)],
+                id="many_lines",
+            ),
+            pytest.param([{"role": "user", "content": "x" * 600_000}], id="single_line_blob"),
+        ],
+    )
     @pytest.mark.django_db(transaction=True)
-    def test_execute_llm_judge_activity_bounds_oversized_input(self, setup_data):
+    def test_execute_llm_judge_activity_bounds_oversized_input(self, oversized_input, setup_data):
         team = setup_data["team"]
         evaluation_obj = setup_data["evaluation"]
 
@@ -220,7 +230,6 @@ class TestRunEvaluationWorkflow:
             "team_id": team.id,
         }
 
-        oversized_input = [{"role": "user", "content": f"message {i}: " + "x" * 200} for i in range(3000)]
         event_data = create_mock_event_data(
             team.id,
             properties={

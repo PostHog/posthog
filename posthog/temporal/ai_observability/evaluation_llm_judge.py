@@ -39,7 +39,7 @@ from products.ai_observability.backend.llm.errors import (
     RateLimitError,
     StructuredOutputParseError,
 )
-from products.ai_observability.backend.text_repr.formatters import reduce_by_uniform_sampling
+from products.ai_observability.backend.text_repr.formatters import add_line_numbers, reduce_by_uniform_sampling
 
 logger = structlog.get_logger(__name__)
 
@@ -234,7 +234,12 @@ def _execute_llm_judge_activity(inputs: ExecuteLLMJudgeInputs) -> EvaluationActi
         sections.append(f"Tools available:\n{tools_data}")
     sections.append(f"Output: {output_data}")
     user_prompt = "\n\n".join(sections)
-    user_prompt, _ = reduce_by_uniform_sampling(user_prompt, JUDGE_EVENT_MAX_CHARS)
+    if len(user_prompt) > JUDGE_EVENT_MAX_CHARS:
+        # Line-number first so the sampler's "gaps indicate omitted content" header is truthful,
+        # then hard-truncate to guarantee the cap for low-newline payloads the sampler leaves whole.
+        user_prompt = add_line_numbers(user_prompt)
+        user_prompt, _ = reduce_by_uniform_sampling(user_prompt, JUDGE_EVENT_MAX_CHARS)
+        user_prompt = user_prompt[:JUDGE_EVENT_MAX_CHARS]
 
     return call_llm_judge(
         evaluation=evaluation,
