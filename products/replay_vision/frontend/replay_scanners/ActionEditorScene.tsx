@@ -209,7 +209,7 @@ export function ActionEditorSceneComponent(): JSX.Element {
         ? scannerName
             ? `New summary for ${scannerName}`
             : 'New summary'
-        : loadedAction?.name || 'Edit action'
+        : loadedAction?.name || 'Edit summary'
     const noDays = actionForm.cadence.weekdays.length === 0
     const backTo = isNew
         ? `${urls.replayVision(effectiveScannerId)}?tab=actions`

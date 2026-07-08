@@ -1,4 +1,4 @@
-import { actions, kea, listeners, path, reducers, selectors } from 'kea'
+import { actions, isBreakpoint, kea, listeners, path, reducers, selectors } from 'kea'
 import { forms } from 'kea-forms'
 import { router, urlToAction } from 'kea-router'
 
@@ -80,12 +80,13 @@ export const actionEditorSceneLogic = kea<actionEditorSceneLogicType>([
             (scannerId: string, loadedAction: VisionActionApi | null): string => loadedAction?.scanner || scannerId,
         ],
         breadcrumbs: [
-            (s) => [s.isNew, s.actionId, s.effectiveScannerId, s.loadedAction],
+            (s) => [s.isNew, s.actionId, s.effectiveScannerId, s.loadedAction, s.scannerName],
             (
                 isNew: boolean,
                 actionId: string,
                 effectiveScannerId: string,
-                loadedAction: VisionActionApi | null
+                loadedAction: VisionActionApi | null,
+                scannerName: string
             ): Breadcrumb[] => {
                 const crumbs: Breadcrumb[] = [
                     {
@@ -99,7 +100,7 @@ export const actionEditorSceneLogic = kea<actionEditorSceneLogicType>([
                     if (effectiveScannerId) {
                         crumbs.push({
                             key: `scanner-${effectiveScannerId}`,
-                            name: 'Scanner',
+                            name: scannerName || 'Scanner',
                             path: `${urls.replayVision(effectiveScannerId)}?tab=actions`,
                         })
                     }
@@ -157,8 +158,12 @@ export const actionEditorSceneLogic = kea<actionEditorSceneLogicType>([
         },
     })),
 
-    listeners(({ actions }) => ({
+    listeners(({ actions, values }) => ({
         setScannerId: async ({ scannerId }, breakpoint) => {
+            // Only fetch the scanner name on the new-action route — the edit title uses the action name instead.
+            if (!values.isNew) {
+                return
+            }
             const teamId = teamLogic.values.currentTeamId
             if (!scannerId || !teamId) {
                 return
@@ -172,7 +177,7 @@ export const actionEditorSceneLogic = kea<actionEditorSceneLogicType>([
             }
         },
 
-        loadAction: async ({ actionId }) => {
+        loadAction: async ({ actionId }, breakpoint) => {
             const teamId = teamLogic.values.currentTeamId
             if (!teamId) {
                 actions.loadActionFailure()
@@ -180,8 +185,12 @@ export const actionEditorSceneLogic = kea<actionEditorSceneLogicType>([
             }
             try {
                 const action = await visionActionsRetrieve(String(teamId), actionId)
+                breakpoint()
                 actions.loadActionSuccess(action)
             } catch (error: any) {
+                if (isBreakpoint(error)) {
+                    throw error
+                }
                 lemonToast.error(`Failed to load summary${error.detail ? `: ${error.detail}` : ''}`)
                 actions.loadActionFailure()
             }
@@ -204,7 +213,7 @@ export const actionEditorSceneLogic = kea<actionEditorSceneLogicType>([
         },
     })),
 
-    urlToAction(({ actions, values }) => ({
+    urlToAction(({ actions }) => ({
         [urls.replayVisionActionNew(':scannerId')]: ({ scannerId }) => {
             actions.setActionId('new')
             actions.setScannerId(scannerId || '')
@@ -212,10 +221,8 @@ export const actionEditorSceneLogic = kea<actionEditorSceneLogicType>([
         },
         [urls.replayVisionActionEdit(':actionId')]: ({ actionId }) => {
             const id = actionId || 'new'
-            if (id !== values.actionId || !values.loadedAction) {
-                actions.setActionId(id)
-                actions.loadAction(id)
-            }
+            actions.setActionId(id)
+            actions.loadAction(id)
         },
     })),
 ])
