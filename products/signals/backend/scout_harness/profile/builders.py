@@ -29,7 +29,7 @@ import logging
 from datetime import timedelta
 from typing import Any
 
-from django.db.models import Count, F, Max, Q
+from django.db.models import Count, F, Max, OuterRef, Q, Subquery
 from django.utils import timezone
 
 from posthog.hogql import ast
@@ -61,7 +61,7 @@ from products.notebooks.backend.facade import api as notebooks
 from products.signals.backend.models import SignalReport, SignalSourceConfig
 from products.signals.backend.scout_harness.profile.schema import Inventory
 from products.surveys.backend.models import Survey
-from products.warehouse_sources.backend.facade.models import ExternalDataSource
+from products.warehouse_sources.backend.facade.models import ExternalDataJob, ExternalDataSchema, ExternalDataSource
 from products.workflows.backend.models.hog_flow.hog_flow import HogFlow
 
 logger = logging.getLogger(__name__)
@@ -217,12 +217,30 @@ def _external_data_sources(team: Team) -> list[dict[str, Any]]:
     """Connected warehouse sources (Stripe, Postgres, BigQuery, etc.).
 
     Excludes soft-deleted rows. `status` and `prefix` give the agent enough context to
-    spot a stuck or recently-added source without exposing credentials.
+    spot a recently-added source without exposing credentials. `last_run_at` and
+    `latest_error` are what let a scout tell a healthy source apart from one stuck in
+    `Running`: source-level `status` conflates "sync in progress" with "never succeeded",
+    so a source that has never completed a sync reads as `Running` just like a healthy one.
+    `last_run_at` is the timestamp of the most recent completed sync job (null = never
+    synced); `latest_error` surfaces the newest schema-level error, if any. Both mirror the
+    semantics of the `external-data-sources-list` API so a scout can spot a dead source from
+    the profile alone without a follow-up list call.
     """
+    # Newest schema-level error across the source's non-deleted schemas. Ordered by most
+    # recently updated so a scout sees the freshest failure, matching the list API's intent.
+    latest_error = Subquery(
+        ExternalDataSchema.objects.filter(source_id=OuterRef("pk"), deleted=False, latest_error__isnull=False)
+        .order_by("-updated_at")
+        .values("latest_error")[:1]
+    )
     rows = (
         ExternalDataSource.objects.filter(team=team, deleted=False)
+        .annotate(
+            last_run_at=Max("jobs__created_at", filter=Q(jobs__status=ExternalDataJob.Status.COMPLETED)),
+            latest_error=latest_error,
+        )
         .order_by("source_type", "id")
-        .values("source_type", "status", "prefix", "created_at")
+        .values("source_type", "status", "prefix", "created_at", "last_run_at", "latest_error")
     )
     return [
         {
@@ -230,6 +248,8 @@ def _external_data_sources(team: Team) -> list[dict[str, Any]]:
             "status": row["status"],
             "prefix": row["prefix"] or "",
             "created_at": row["created_at"].isoformat() if row.get("created_at") else None,
+            "last_run_at": row["last_run_at"].isoformat() if row.get("last_run_at") else None,
+            "latest_error": row.get("latest_error"),
         }
         for row in rows
     ]
