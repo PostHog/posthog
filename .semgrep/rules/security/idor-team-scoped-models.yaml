@@ -211,7 +211,9 @@ rules:
                               |QuickFilter
                               |QuickFilterContext
                               |ReplayObservation
+                              |ReplayObservationLabel
                               |ReplayScanner
+                              |ReplayScannerPromptSuggestion
                               |Repo
                               |RepoRoutingRule
                               |SandboxEnvironment
@@ -488,7 +490,9 @@ rules:
                         |QuickFilter
                         |QuickFilterContext
                         |ReplayObservation
+                        |ReplayObservationLabel
                         |ReplayScanner
+                        |ReplayScannerPromptSuggestion
                         |Repo
                         |RepoRoutingRule
                         |SandboxEnvironment

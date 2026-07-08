@@ -1,5 +1,6 @@
+import dataclasses
 from collections.abc import Sequence
-from typing import Any, cast
+from typing import TYPE_CHECKING, Any, Optional, cast
 
 from django.db import models
 from django.db.models import Prefetch, Q, QuerySet, prefetch_related_objects
@@ -10,9 +11,14 @@ from rest_framework.viewsets import GenericViewSet
 
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.utils import action
+from posthog.helpers.impersonation import is_impersonated
 from posthog.models import Tag, TaggedItem
+from posthog.models.activity_logging.activity_log import Change, Detail, LogActivityEntry, bulk_log_activity
 from posthog.models.tag import tagify
 from posthog.rbac.user_access_control import access_level_satisfied_for_resource
+
+if TYPE_CHECKING:
+    from posthog.models.user import User
 
 
 def set_tags_on_object(tags: list[str], obj: Any) -> list[TaggedItem]:
@@ -42,17 +48,45 @@ def cleanup_orphan_tags(team_id: int) -> None:
     Tag.objects.filter(Q(team_id=team_id) & Q(tagged_items__isnull=True)).delete()
 
 
-def apply_bulk_tag_changes(objects: Sequence, tag_action: str, tags: list[str]) -> list[dict[str, Any]]:
+@dataclasses.dataclass(frozen=True)
+class BulkTagActivityContext:
+    """Context needed to write an activity-log entry for each object mutated in bulk.
+
+    ``scope`` is the resource's ``ActivityScope`` (e.g. ``"FeatureFlag"``) and ``activity`` is the
+    verb its single-object update path uses ("updated" for flags/insights/dashboards, "changed" for
+    event definitions), so a bulk entry matches what that path already writes. Passing this to
+    ``apply_bulk_tag_changes`` makes the bulk path leave the same audit trail; omitting it preserves
+    the old silent behavior.
+    """
+
+    scope: str
+    user: "User"
+    was_impersonated: bool
+    activity: str
+
+
+def apply_bulk_tag_changes(
+    objects: Sequence,
+    tag_action: str,
+    tags: list[str],
+    *,
+    activity_context: Optional[BulkTagActivityContext] = None,
+) -> list[dict[str, Any]]:
     """Apply an add/remove/set tag mutation to each object and return a per-object result.
 
     Callers are responsible for team-scoping and access-checking ``objects`` first. When a
     ``prefetched_tags`` attribute is present it is used to avoid a per-object tag query.
     Orphaned tags are cleaned up per affected team, since ``objects`` may span multiple teams
     when the caller scopes by project (e.g. event definitions across environments).
+
+    When ``activity_context`` is provided, an activity-log entry carrying a ``tags`` diff is
+    recorded for every object whose tags actually change, mirroring the single-object update path
+    so the bulk endpoint leaves the same audit trail.
     """
     normalized_tags = {tagify(t) for t in tags}
     updated: list[dict[str, Any]] = []
     team_ids: set[int] = set()
+    activity_entries: list[LogActivityEntry] = []
 
     for obj in objects:
         team_ids.add(obj.team_id)
@@ -73,10 +107,43 @@ def apply_bulk_tag_changes(objects: Sequence, tag_action: str, tags: list[str]) 
         set_tags_on_object(list(new_tags), obj)
         updated.append({"id": obj.id, "tags": sorted(new_tags)})
 
+        if activity_context is not None and current_tags != new_tags:
+            activity_entries.append(
+                _bulk_tag_activity_entry(obj, sorted(current_tags), sorted(new_tags), activity_context)
+            )
+
     for team_id in team_ids:
         cleanup_orphan_tags(team_id)
 
+    if activity_entries:
+        bulk_log_activity(activity_entries)
+
     return updated
+
+
+def _bulk_tag_activity_entry(
+    obj: Any, before: list[str], after: list[str], context: BulkTagActivityContext
+) -> LogActivityEntry:
+    """Build an activity-log entry for a single bulk-tagged object.
+
+    ``organization_id`` is left ``None`` (the team is enough to scope the entry, and ``objects``
+    can span teams within a project), matching the single-object update path.
+    """
+    return LogActivityEntry(
+        organization_id=None,
+        team_id=obj.team_id,
+        user=context.user,
+        was_impersonated=context.was_impersonated,
+        item_id=str(obj.id),
+        scope=context.scope,
+        activity=context.activity,
+        detail=Detail(
+            name=getattr(obj, "name", None) or getattr(obj, "key", None),
+            # short_id is how insights are linked in the activity feed; None (and ignored) elsewhere.
+            short_id=getattr(obj, "short_id", None),
+            changes=[Change(type=context.scope, action="changed", field="tags", before=before, after=after)],
+        ),
+    )
 
 
 class TaggedItemSerializerMixin(serializers.Serializer):
@@ -210,6 +277,22 @@ def _prefetch_tags_for_instances(instances: Sequence) -> None:
 
 
 class TaggedItemViewSetMixin(viewsets.GenericViewSet):
+    # Set to the resource's ActivityScope (e.g. "FeatureFlag") to record an activity-log entry per
+    # object whose tags change via ``bulk_update_tags``. Left ``None`` for resources that don't log
+    # bulk tag edits, which leaves their behavior unchanged.
+    bulk_tag_activity_scope: Optional[str] = None
+
+    def _bulk_tag_activity_context(self) -> Optional[BulkTagActivityContext]:
+        if not self.bulk_tag_activity_scope:
+            return None
+        return BulkTagActivityContext(
+            scope=self.bulk_tag_activity_scope,
+            user=cast("User", self.request.user),
+            was_impersonated=is_impersonated(self.request),
+            # Flags, insights, and dashboards log single-object updates under the "updated" verb.
+            activity="updated",
+        )
+
     def prefetch_tagged_items_if_available(self, queryset: QuerySet | models.query.RawQuerySet) -> QuerySet:
         if isinstance(queryset, models.query.RawQuerySet):
             return queryset  # type: ignore[return-value]  # ty: ignore[invalid-return-type]
@@ -296,7 +379,9 @@ class TaggedItemViewSetMixin(viewsets.GenericViewSet):
             if obj_id not in found_ids:
                 errors.append({"id": obj_id, "reason": "Not found"})
 
-        updated = apply_bulk_tag_changes(editable_objects, tag_action, tags)
+        updated = apply_bulk_tag_changes(
+            editable_objects, tag_action, tags, activity_context=self._bulk_tag_activity_context()
+        )
         return response.Response({"updated": updated, "skipped": errors})
 
 

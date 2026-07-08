@@ -33,11 +33,15 @@ from products.notebooks.backend.sandbox.kernel import (
 from products.notebooks.backend.sandbox.kernel.data_plane import DataPlaneError, decode_arrow_stream
 from products.notebooks.backend.sql_v2 import (
     SQLV2KernelNotRunning,
+    SQLV2PageError,
+    dispatch_sql_v2_run,
     ensure_sql_v2_server,
+    fetch_sql_v2_page,
     kernel_server_secret,
     mint_callback_token,
     mint_command_token,
     mint_data_plane_token,
+    sql_v2_page_lock_key,
     verify_data_plane_token,
 )
 from products.notebooks.backend.sql_v2_data_plane import _rows_to_arrow_bytes
@@ -165,6 +169,8 @@ class TestSQLV2Run(APIBaseTest):
         run_id = response.json()["run_id"]
         run = NotebookNodeRun.objects.for_team(self.team.id).get(id=run_id)
         self.assertEqual(run.status, NotebookNodeRun.Status.RUNNING)
+        # Paging re-queries the run's stored code, so losing it here breaks every page fetch.
+        self.assertEqual(run.code, "select 1")
         mock_start.assert_called_once()
         self.assertEqual(str(mock_start.call_args.args[0].run_id), run_id)
 
@@ -253,7 +259,7 @@ class TestSQLV2EnsureServer(APIBaseTest):
         self.assertEqual(self.sandbox.files, {})
 
     def test_stale_server_is_redeployed(self):
-        # Missing this redeploy strands sandboxes on old kernel code.
+        # Missing this redeploy strands sandboxes on old kernel code (e.g. no /page route).
         runtime = self._create_runtime(server_url="http://localhost:1")
         result = self._ensure(reported_version="some-old-version")
         package, _version = kernel_package_bytes_and_hash()
@@ -280,6 +286,173 @@ class TestSQLV2EnsureServer(APIBaseTest):
     def test_no_running_runtime_raises(self):
         with self.assertRaises(SQLV2KernelNotRunning):
             self._ensure(reported_version=None)
+
+
+class TestSQLV2RunPage(APIBaseTest):
+    def setUp(self):
+        super().setUp()
+        self.notebook = Notebook.objects.create(team=self.team, short_id="nbpage1")
+
+    def _create_run(self, status=NotebookNodeRun.Status.DONE, node_id="n1", code="select 1") -> NotebookNodeRun:
+        with team_scope(self.team.id):
+            return NotebookNodeRun.objects.create(
+                team=self.team, notebook=self.notebook, node_id=node_id, status=status, code=code
+            )
+
+    def _get(self, run_id: str, offset=50, limit=50):
+        return self.client.get(
+            f"/api/projects/{self.team.id}/notebooks/{self.notebook.short_id}/sql_v2/runs/{run_id}/page/",
+            {"offset": offset, "limit": limit},
+        )
+
+    @patch("products.notebooks.backend.presentation.views.notebook.fetch_sql_v2_page")
+    @patch("products.notebooks.backend.presentation.views.notebook.is_sql_v2_enabled", return_value=True)
+    def test_returns_page_from_kernel(self, _mock_enabled, mock_fetch):
+        mock_fetch.return_value = {"columns": ["a"], "types": [["a", "Int64"]], "rows": [[51]], "has_more": False}
+        run = self._create_run()
+        response = self._get(str(run.id))
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json()["rows"], [[51]])
+        self.assertEqual(mock_fetch.call_args.kwargs["offset"], 50)
+        self.assertEqual(mock_fetch.call_args.kwargs["limit"], 50)
+
+    @patch("products.notebooks.backend.presentation.views.notebook.fetch_sql_v2_page")
+    @patch("products.notebooks.backend.presentation.views.notebook.is_sql_v2_enabled", return_value=True)
+    def test_stale_run_is_rejected(self, _mock_enabled, mock_fetch):
+        # A newer completed run supersedes this result — paging it would mix two executions.
+        old_run = self._create_run()
+        self._create_run()  # newer DONE run for the same node
+        response = self._get(str(old_run.id))
+        self.assertEqual(response.status_code, 409)
+        self.assertEqual(response.json()["detail"], "stale")
+        mock_fetch.assert_not_called()
+
+    @patch("products.notebooks.backend.presentation.views.notebook.is_sql_v2_enabled", return_value=True)
+    def test_kernel_not_running_returns_503(self, _mock_enabled):
+        # No KernelRuntime exists, so the real fetch path raises SQLV2KernelNotRunning.
+        run = self._create_run()
+        response = self._get(str(run.id))
+        self.assertEqual(response.status_code, 503)
+
+    @patch("products.notebooks.backend.presentation.views.notebook.fetch_sql_v2_page")
+    @patch("products.notebooks.backend.presentation.views.notebook.is_sql_v2_enabled", return_value=True)
+    def test_empty_code_run_is_rejected_before_reaching_the_kernel(self, _mock_enabled, mock_fetch):
+        # Pre-migration runs stored code="" — paging must fail clearly, not round-trip to an opaque error.
+        run = self._create_run(code="")
+        response = self._get(str(run.id))
+        self.assertEqual(response.status_code, 400)
+        self.assertIn("re-run", response.json()["detail"])
+        mock_fetch.assert_not_called()
+
+    @parameterized.expand(
+        [
+            ("running_run", NotebookNodeRun.Status.RUNNING, 400),
+            ("failed_run", NotebookNodeRun.Status.FAILED, 400),
+        ]
+    )
+    @patch("products.notebooks.backend.presentation.views.notebook.is_sql_v2_enabled", return_value=True)
+    def test_non_done_run_is_rejected(self, _name, status, expected, _mock_enabled):
+        run = self._create_run(status=status)
+        self.assertEqual(self._get(str(run.id)).status_code, expected)
+
+    @patch("products.notebooks.backend.presentation.views.notebook.fetch_sql_v2_page")
+    @patch("products.notebooks.backend.presentation.views.notebook.is_sql_v2_enabled", return_value=True)
+    def test_query_restricted_member_cannot_page(self, _mock_enabled, mock_fetch):
+        # Paging returns analytics rows, so a query-denied notebook reader must not fetch pages.
+        run = self._create_run()
+        _restrict_query_access(self)
+        self.assertEqual(self._get(str(run.id)).status_code, 403)
+        mock_fetch.assert_not_called()
+
+    @patch("products.notebooks.backend.presentation.views.notebook.fetch_sql_v2_page")
+    @patch("products.notebooks.backend.presentation.views.notebook.is_sql_v2_enabled", return_value=True)
+    def test_one_in_flight_page_fetch_per_user(self, _mock_enabled, mock_fetch):
+        # Each out-of-cache page fetch holds a web worker for up to the kernel timeout, so a
+        # user with a fetch already in flight must be rejected instead of stacking workers.
+        mock_fetch.return_value = {"columns": [], "types": [], "rows": [], "has_more": False}
+        run = self._create_run()
+        lock_key = sql_v2_page_lock_key(self.team.id, self.user.id)
+        cache.add(lock_key, True, timeout=10)
+        try:
+            response = self._get(str(run.id))
+            self.assertEqual(response.status_code, 429)
+            mock_fetch.assert_not_called()
+        finally:
+            cache.delete(lock_key)
+        # A finished fetch releases the lock, so back-to-back sequential pages keep working.
+        self.assertEqual(self._get(str(run.id)).status_code, 200)
+        self.assertEqual(self._get(str(run.id)).status_code, 200)
+
+
+class TestSQLV2PageDispatch(APIBaseTest):
+    def setUp(self):
+        super().setUp()
+        self.notebook = Notebook.objects.create(team=self.team, short_id="nbpgd01")
+        with team_scope(self.team.id):
+            self.node_run = NotebookNodeRun.objects.create(
+                team=self.team,
+                notebook=self.notebook,
+                node_id="n1",
+                status=NotebookNodeRun.Status.DONE,
+                code="select event from events",
+            )
+
+    def _create_runtime(self) -> KernelRuntime:
+        return KernelRuntime.objects.create(
+            team=self.team,
+            notebook=self.notebook,
+            notebook_short_id=self.notebook.short_id,
+            user=self.user,
+            status=KernelRuntime.Status.RUNNING,
+            backend=KernelRuntime.Backend.DOCKER,
+            sandbox_id="sbx-1",
+            server_url="http://localhost:12345",
+            server_connect_token="connect-tok",
+        )
+
+    def test_raises_without_running_kernel(self):
+        with self.assertRaises(SQLV2KernelNotRunning):
+            fetch_sql_v2_page(self.notebook, self.user, self.node_run, offset=50, limit=50)
+
+    @patch("products.notebooks.backend.sql_v2.requests.post")
+    def test_posts_run_code_and_paging_to_kernel(self, mock_post):
+        mock_post.return_value.status_code = 200
+        mock_post.return_value.json.return_value = {"columns": [], "types": [], "rows": [], "has_more": False}
+        runtime = self._create_runtime()
+        fetch_sql_v2_page(self.notebook, self.user, self.node_run, offset=100, limit=25)
+        self.assertIn("/page", mock_post.call_args.args[0])
+        # Credentials ride headers, never the URL — a query-string token lands in access logs.
+        self.assertNotIn("?", mock_post.call_args.args[0])
+        headers = mock_post.call_args.kwargs["headers"]
+        self.assertEqual(headers["Authorization"], "Bearer connect-tok")
+        self.assertTrue(
+            kernel_auth.verify_command_token(
+                kernel_server_secret(str(runtime.id)), str(self.node_run.id), headers["X-Command-Token"]
+            )
+        )
+        payload = mock_post.call_args.kwargs["json"]
+        # The kernel must page the code that produced the result, not whatever the editor holds now.
+        self.assertEqual(payload["code"], "select event from events")
+        self.assertEqual((payload["offset"], payload["limit"]), (100, 25))
+
+    @parameterized.expand(
+        [
+            ("outdated_kernel_404", 404, None, SQLV2KernelNotRunning),
+            # Token expiry / kernel redeploy — a re-run reissues the token, so it's "re-run" (503), not a query error.
+            ("stale_token_401", 401, None, SQLV2KernelNotRunning),
+            ("forbidden_403", 403, None, SQLV2KernelNotRunning),
+            ("query_error_400", 400, {"error": "no such column"}, SQLV2PageError),
+            # Any other non-200 is infrastructure, not a bad query.
+            ("kernel_error_500", 500, None, SQLV2KernelNotRunning),
+        ]
+    )
+    @patch("products.notebooks.backend.sql_v2.requests.post")
+    def test_kernel_error_statuses_map_to_exceptions(self, _name, status_code, body, expected_exception, mock_post):
+        mock_post.return_value.status_code = status_code
+        mock_post.return_value.json.return_value = body
+        self._create_runtime()
+        with self.assertRaises(expected_exception):
+            fetch_sql_v2_page(self.notebook, self.user, self.node_run, offset=0, limit=50)
 
 
 class TestSQLV2RunResult(APIBaseTest):
@@ -371,7 +544,7 @@ class TestSQLV2Activities(APIBaseTest):
     def test_dispatch_activity_posts_to_ready_server(self, mock_post, mock_version):
         mock_version.return_value = kernel_package_bytes_and_hash()[1]  # server already at the deployed version
         run = self._create_run()
-        KernelRuntime.objects.create(
+        runtime = KernelRuntime.objects.create(
             team=self.team,
             notebook=self.notebook,
             notebook_short_id=self.notebook.short_id,
@@ -380,12 +553,24 @@ class TestSQLV2Activities(APIBaseTest):
             backend=KernelRuntime.Backend.DOCKER,
             sandbox_id="sbx-1",
             server_url="http://localhost:12345",
+            server_connect_token="connect-tok",
         )
         dispatch_sql_v2_run_activity(self._run_input(run))
         mock_post.assert_called_once()
         self.assertIn("/run", mock_post.call_args.args[0])
+        # Credentials ride headers, never the URL — a query-string token lands in access logs.
+        self.assertNotIn("?", mock_post.call_args.args[0])
+        headers = mock_post.call_args.kwargs["headers"]
+        self.assertEqual(headers["Authorization"], "Bearer connect-tok")
+        self.assertTrue(
+            kernel_auth.verify_command_token(
+                kernel_server_secret(str(runtime.id)), str(run.id), headers["X-Command-Token"]
+            )
+        )
         payload = mock_post.call_args.kwargs["json"]
         self.assertEqual(payload["code"], "select 1")
+        # Dropping cache_limit silently degrades every page fetch into a ClickHouse re-query.
+        self.assertGreater(payload["cache_limit"], payload["page_limit"])
         # The kernel needs both legs to complete a run: the data plane to fetch, the callback to report.
         short_id, team_id, _user_id = verify_data_plane_token(payload["data_plane_token"])
         self.assertEqual((short_id, team_id), (self.notebook.short_id, self.team.id))
@@ -452,8 +637,22 @@ class TestSQLV2DataPlaneEndpoint(APIBaseTest):
     def _token(self, short_id: str | None = None) -> str:
         return mint_data_plane_token(short_id or self.notebook.short_id, self.team.id, self.user.id)
 
+    def _get_status(self, query_id: str, token: str | None = None):
+        return self.client.get(
+            f"{self.URL}{query_id}/",
+            HTTP_AUTHORIZATION=f"Bearer {token or self._token()}",
+        )
+
+    def _run_to_completion(self, body: dict):
+        # Celery is eager in tests, so the enqueue executes inline and the first
+        # status poll is already terminal — the same protocol the kernel follows.
+        response = self._post(body, token=self._token())
+        self.assertEqual(response.status_code, 202, response.content)
+        query_id = response.json()["query_id"]
+        return self._get_status(query_id)
+
     def test_runs_query_and_returns_arrow(self):
-        response = self._post({"query": "select 1 as answer"}, token=self._token())
+        response = self._run_to_completion({"query": "select 1 as answer"})
         self.assertEqual(response.status_code, 200, response.content)
         self.assertEqual(response["Content-Type"], "application/vnd.apache.arrow.stream")
         columns, rows, types = decode_arrow_stream(response.content)
@@ -464,10 +663,27 @@ class TestSQLV2DataPlaneEndpoint(APIBaseTest):
         self.assertIn("Int", types[0][1])
 
     def test_outer_limit_and_offset_cap_the_page(self):
-        response = self._post({"query": "select number from numbers(10)", "limit": 3, "offset": 2}, token=self._token())
+        response = self._run_to_completion({"query": "select number from numbers(10)", "limit": 3, "offset": 2})
         self.assertEqual(response.status_code, 200, response.content)
         _columns, rows, _types = decode_arrow_stream(response.content)
         self.assertEqual(rows, [(2,), (3,), (4,)])
+
+    def test_execution_error_surfaces_through_status(self):
+        # Valid syntax but fails at execution — the error must reach the sandbox via the poll.
+        response = self._run_to_completion({"query": "select nonexistent_column from events"})
+        self.assertEqual(response.status_code, 400, response.content)
+        self.assertTrue(response.json()["error"])
+
+    def test_status_rejects_bad_auth_and_unknown_query(self):
+        self.assertEqual(self.client.get(f"{self.URL}deadbeef/").status_code, 401)
+        self.assertEqual(self._get_status("deadbeef").status_code, 404)
+
+    def test_status_is_team_scoped(self):
+        # A leaked query_id plus a token for another team must not read the result.
+        response = self._post({"query": "select 1"}, token=self._token())
+        query_id = response.json()["query_id"]
+        other_team_token = mint_data_plane_token(self.notebook.short_id, self.team.id + 999, None)
+        self.assertEqual(self._get_status(query_id, token=other_team_token).status_code, 404)
 
     def test_hogql_error_is_surfaced(self):
         response = self._post({"query": "select ceci n'est pas une query"}, token=self._token())
@@ -488,10 +704,90 @@ class TestSQLV2DataPlaneEndpoint(APIBaseTest):
         response = self._post({"query": "select 1"}, token=self._token(short_id="nope999"))
         self.assertEqual(response.status_code, 404)
 
+    @parameterized.expand(
+        [
+            # The wrapper nests the user's query as a subquery; these are the shapes
+            # that break naive wrapping (inner LIMIT interacting with the outer one,
+            # and set queries that must stay parenthesized).
+            ("inner_limit_caps_before_outer", "select number from numbers(10) limit 4", 3, 2, [(2,), (3,)]),
+            ("union_set_query", "select 1 as n union all select 2 as n", 10, 0, [(1,), (2,)]),
+        ]
+    )
+    def test_query_shapes_survive_the_wrapper(self, _name, query, limit, offset, expected_rows):
+        response = self._run_to_completion({"query": query, "limit": limit, "offset": offset})
+        self.assertEqual(response.status_code, 200, response.content)
+        _columns, rows, _types = decode_arrow_stream(response.content)
+        self.assertEqual(sorted(rows), expected_rows)
+
+
+class TestSQLV2RunContract(APIBaseTest):
+    def test_dispatch_payload_drives_the_kernel_and_its_callback_round_trips(self):
+        # Closes the seams the unit tests can't see: the dispatch payload's keys must
+        # match what the kernel runner reads, the runner's envelope must satisfy the
+        # callback serializer, and the callback token/URL minted at dispatch must be
+        # accepted by the callback endpoint. A renamed payload or envelope key passes
+        # every per-component test and breaks only here.
+        notebook = Notebook.objects.create(team=self.team, short_id="nbctr01")
+        with team_scope(self.team.id):
+            run = NotebookNodeRun.objects.create(
+                team=self.team,
+                notebook=notebook,
+                node_id="n1",
+                status=NotebookNodeRun.Status.RUNNING,
+                code="select 1",
+            )
+        KernelRuntime.objects.create(
+            team=self.team,
+            notebook=notebook,
+            notebook_short_id=notebook.short_id,
+            user=self.user,
+            status=KernelRuntime.Status.RUNNING,
+            backend=KernelRuntime.Backend.DOCKER,
+            sandbox_id="sbx-1",
+            server_url="http://localhost:1",
+        )
+
+        with (
+            patch(
+                "products.notebooks.backend.sql_v2._server_version",
+                return_value=kernel_package_bytes_and_hash()[1],
+            ),
+            patch("products.notebooks.backend.sql_v2.requests.post") as mock_post,
+        ):
+            dispatch_sql_v2_run(notebook, self.user, run, "select 1")
+        payload = mock_post.call_args.kwargs["json"]
+
+        delivered: dict = {}
+        with (
+            patch(
+                "products.notebooks.backend.sandbox.kernel.data_plane.fetch_query_page",
+                return_value=(["a"], [(1,)], [["a", "Int64"]]),
+            ),
+            patch.object(
+                kernel_runner,
+                "_post_callback",
+                side_effect=lambda url, token, env: delivered.update({"url": url, "envelope": env}),
+            ),
+        ):
+            kernel_runner.execute_run(payload)
+
+        self.assertTrue(delivered["url"].endswith(f"/internal/notebooks/runs/{run.id}/result/"))
+        response = self.client.post(
+            f"/internal/notebooks/runs/{run.id}/result/",
+            data=json.dumps({"envelope": delivered["envelope"]}),
+            content_type="application/json",
+            HTTP_AUTHORIZATION=f"Bearer {payload['callback_token']}",
+        )
+        self.assertEqual(response.status_code, 200, response.content)
+        stored = NotebookNodeRun.objects.for_team(self.team.id).get(id=run.id)
+        self.assertEqual(stored.status, NotebookNodeRun.Status.DONE)
+        self.assertEqual(stored.envelope["first_page"], [[1]])
+        self.assertEqual(stored.envelope["types"], [["a", "Int64"]])
+
 
 class TestSQLV2KernelServerHTTP(SimpleTestCase):
-    # The kernel HTTP layer (routing + command-token auth) has no other CI coverage —
-    # it only runs inside the sandbox. Loopback-only, stubbed runner.
+    # The kernel HTTP layer (routing, auth wiring, async-run vs sync-page split) has no
+    # other CI coverage — it only runs inside the sandbox. Loopback-only, stubbed runner.
     def test_routes_auth_and_dispatch(self):
         from products.notebooks.backend.sandbox.kernel import server as kernel_server
 
@@ -501,11 +797,14 @@ class TestSQLV2KernelServerHTTP(SimpleTestCase):
         threading.Thread(target=httpd.serve_forever, daemon=True).start()
         base = f"http://127.0.0.1:{httpd.server_address[1]}"
 
-        def post(path: str, token: str):
+        def post(path: str, token: str, token_header: str = "X-Command-Token"):
+            # X-Command-Token is the primary transport; Authorization stays a fallback for
+            # backends that predate the split (Authorization now carries Modal tunnel auth).
+            token_value = f"Bearer {token}" if token_header == "Authorization" else token
             request = urllib.request.Request(
                 f"{base}{path}",
                 data=json.dumps({"run_id": "run-1"}).encode(),
-                headers={"Authorization": f"Bearer {token}", "Content-Type": "application/json"},
+                headers={token_header: token_value, "Content-Type": "application/json"},
                 method="POST",
             )
             return urllib.request.urlopen(request, timeout=5)
@@ -524,6 +823,20 @@ class TestSQLV2KernelServerHTTP(SimpleTestCase):
                 with post("/run", token=token) as response:
                     self.assertEqual(response.status, 202)
                 self.assertTrue(ran.wait(5))  # the run must execute off the request thread
+
+            # An older backend sends the command token as a bearer Authorization — the
+            # fallback must keep verifying it while mixed versions roll out.
+            ran.clear()
+            with patch.object(kernel_server, "execute_run", side_effect=lambda _p: ran.set()):
+                with post("/run", token=token, token_header="Authorization") as response:
+                    self.assertEqual(response.status, 202)
+                self.assertTrue(ran.wait(5))
+
+            page = {"columns": ["a"], "types": [], "rows": [[1]], "has_more": False}
+            with patch.object(kernel_server, "fetch_page", return_value=page):
+                with post("/page", token=token) as response:
+                    self.assertEqual(response.status, 200)  # pages are synchronous
+                    self.assertEqual(json.loads(response.read())["rows"], [[1]])
 
             with self.assertRaises(urllib.error.HTTPError) as unknown:
                 post("/nope", token=token)
@@ -583,6 +896,109 @@ class TestSQLV2KernelPackage(SimpleTestCase):
             kernel_runner.execute_run(payload)
         self.assertEqual(delivered["status"], "error")
         self.assertEqual(delivered["error"], "no such table")
+
+    def _run_and_cache(self, run_id: str, rows_returned: int, cache_limit: int = 300):
+        payload = {
+            "run_id": run_id,
+            "code": "select 1",
+            "callback_url": "http://backend/cb",
+            "callback_token": "t",
+            "data_plane_url": "u",
+            "data_plane_token": "t",
+            "page_limit": 50,
+            "cache_limit": cache_limit,
+        }
+        mock_fetch = patch(
+            "products.notebooks.backend.sandbox.kernel.data_plane.fetch_query_page",
+            return_value=(["n"], [(i,) for i in range(rows_returned)], [["n", "Int64"]]),
+        )
+        with mock_fetch as fetch:
+            result = kernel_runner._build_envelope(payload)
+        return payload, result, fetch
+
+    def test_pages_within_the_cache_never_requery(self):
+        # The whole point of the cache: paging must not re-run the query on ClickHouse.
+        payload, result, _ = self._run_and_cache("r-cache-1", rows_returned=301)
+        self.assertEqual(len(result["first_page"]), 50)
+        self.assertTrue(result["has_more"])
+        with patch("products.notebooks.backend.sandbox.kernel.data_plane.fetch_query_page") as fetch:
+            page = kernel_runner.fetch_page({**payload, "offset": 250, "limit": 50})
+        fetch.assert_not_called()
+        self.assertEqual(page["rows"][0], [250])
+        self.assertEqual(len(page["rows"]), 50)
+        self.assertTrue(page["has_more"])  # cache is incomplete — more rows exist beyond it
+
+    def test_page_beyond_incomplete_cache_falls_back_to_requery(self):
+        payload, _result, _ = self._run_and_cache("r-cache-2", rows_returned=301)
+        with patch(
+            "products.notebooks.backend.sandbox.kernel.data_plane.fetch_query_page",
+            return_value=(["n"], [(i,) for i in range(10)], [["n", "Int64"]]),
+        ) as fetch:
+            kernel_runner.fetch_page({**payload, "offset": 290, "limit": 50})
+        self.assertEqual(fetch.call_args.kwargs["offset"], 290)
+
+    def test_complete_cache_reports_no_more_rows(self):
+        payload, result, _ = self._run_and_cache("r-cache-3", rows_returned=120)
+        self.assertTrue(result["has_more"])  # 120 rows > the 50-row first page
+        with patch("products.notebooks.backend.sandbox.kernel.data_plane.fetch_query_page") as fetch:
+            page = kernel_runner.fetch_page({**payload, "offset": 100, "limit": 50})
+        fetch.assert_not_called()
+        self.assertEqual(len(page["rows"]), 20)
+        self.assertFalse(page["has_more"])
+
+    @parameterized.expand(
+        [
+            ("more_rows_exist", 6, True, 5),  # limit+1 rows came back → has_more, trimmed to limit
+            ("exact_page", 5, False, 5),
+            ("short_page", 2, False, 2),
+        ]
+    )
+    def test_fetch_page_has_more_via_limit_plus_one(self, _name, rows_returned, expected_has_more, expected_rows):
+        payload = {"code": "select 1", "data_plane_url": "u", "data_plane_token": "t", "offset": 10, "limit": 5}
+        with patch(
+            "products.notebooks.backend.sandbox.kernel.data_plane.fetch_query_page",
+            return_value=(["n"], [(i,) for i in range(rows_returned)], [["n", "Int64"]]),
+        ) as mock_fetch:
+            page = kernel_runner.fetch_page(payload)
+        self.assertEqual(mock_fetch.call_args.kwargs["limit"], 6)  # fetches limit+1
+        self.assertEqual(mock_fetch.call_args.kwargs["offset"], 10)
+        self.assertEqual(page["has_more"], expected_has_more)
+        self.assertEqual(len(page["rows"]), expected_rows)
+
+    def test_kernel_polls_until_the_arrow_result_arrives(self):
+        # The kernel must follow the enqueue → poll protocol: accept the 202 query_id,
+        # keep polling through "running" responses, and decode the eventual Arrow 200.
+        from products.notebooks.backend.sandbox.kernel import data_plane as kernel_data_plane
+
+        class _FakeResponse(io.BytesIO):
+            def __init__(self, content_type: str, body: bytes):
+                super().__init__(body)
+                self.headers = {"Content-Type": content_type}
+
+            def __exit__(self, *args):
+                return False  # keep readable after the with-block, like a drained HTTP response
+
+        arrow_bytes = _rows_to_arrow_bytes(["n"], [(7,)], [["n", "Int64"]])
+        responses = iter(
+            [
+                _FakeResponse("application/json", b'{"query_id": "q1"}'),
+                _FakeResponse("application/json", b'{"status": "running"}'),
+                _FakeResponse("application/vnd.apache.arrow.stream", arrow_bytes),
+            ]
+        )
+        polled_urls: list[str] = []
+
+        def fake_urlopen(request, timeout=None):
+            polled_urls.append(request.full_url)
+            return next(responses)
+
+        with (
+            patch.object(kernel_data_plane.urllib.request, "urlopen", side_effect=fake_urlopen),
+            patch.object(kernel_data_plane.time, "sleep"),
+        ):
+            columns, rows, _types = kernel_data_plane.fetch_query_page("http://backend/dp", "t", "select 1", limit=5)
+        self.assertEqual((columns, rows), (["n"], [(7,)]))
+        self.assertEqual(polled_urls[1:], ["http://backend/dp/q1/", "http://backend/dp/q1/"])
 
     def test_tarball_contains_the_package(self):
         package, version = kernel_package_bytes_and_hash()

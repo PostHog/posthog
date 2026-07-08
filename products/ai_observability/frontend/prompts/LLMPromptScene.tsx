@@ -24,6 +24,7 @@ import {
     PromptUsage,
     PromptVersionSidebar,
     PromptViewDetails,
+    PublishReviewModal,
     cleanPromptSearchParams,
 } from './promptSceneComponents'
 import { openArchivePromptDialog } from './utils'
@@ -62,8 +63,15 @@ export function LLMPromptScene(): JSX.Element {
     const activeViewTab =
         searchParams?.tab === 'usage' ? 'usage' : searchParams?.tab === 'experiments' ? 'experiments' : 'overview'
 
-    const { submitPromptForm, deletePrompt, setMode, setPromptFormValues, loadMoreVersions, cancelEditing } =
-        useActions(llmPromptLogic)
+    const {
+        submitPromptForm,
+        requestPublish,
+        deletePrompt,
+        setMode,
+        setPromptFormValues,
+        loadMoreVersions,
+        cancelEditing,
+    } = useActions(llmPromptLogic)
     const sourcePromptName = !isNewPrompt && prompt && isPrompt(prompt) ? prompt.name : null
     const sourcePromptVersion = isHistoricalVersion && isPrompt(prompt) ? prompt.version : null
     const openInPlaygroundUrl = sourcePromptName
@@ -249,8 +257,13 @@ export function LLMPromptScene(): JSX.Element {
                             >
                                 <LemonButton
                                     type="primary"
-                                    onClick={submitPromptForm}
+                                    onClick={isNewPrompt ? submitPromptForm : requestPublish}
                                     loading={isPromptFormSubmitting}
+                                    disabledReason={
+                                        !isNewPrompt && !isHistoricalVersion && !isPromptFormDirty
+                                            ? 'No changes to publish'
+                                            : undefined
+                                    }
                                     size="small"
                                     data-attr={isNewPrompt ? 'prompt-create-button' : 'prompt-save-button'}
                                 >
@@ -289,6 +302,7 @@ export function LLMPromptScene(): JSX.Element {
                             isHistoricalVersion={isHistoricalVersion}
                             selectedVersion={isPrompt(prompt) ? prompt.version : null}
                         />
+                        <PublishReviewModal />
                     </div>
 
                     {!isNewPrompt && (

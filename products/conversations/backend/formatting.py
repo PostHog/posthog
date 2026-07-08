@@ -153,6 +153,11 @@ def extract_slack_user_ids(text: str, blocks: list[JSON] | None = None) -> set[s
     return ids
 
 
+def strip_slack_user_mentions(text: str) -> str:
+    """Remove ``<@USERID>`` mention tokens, leaving only the message's own text."""
+    return _RE_SLACK_USER_MENTION.sub("", text)
+
+
 def content_to_slack_mrkdwn(content: str) -> str:
     """Convert markdown comment content to Slack mrkdwn text."""
     if not content:

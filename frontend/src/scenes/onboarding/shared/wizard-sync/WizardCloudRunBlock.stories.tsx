@@ -80,7 +80,7 @@ const githubReposResponse = {
 }
 
 const meta: Meta = {
-    title: 'Scenes-Other/Onboarding/Wizard Cloud Run',
+    title: 'Scenes-Other/Onboarding/Shared/Wizard Cloud Run',
     parameters: {
         layout: 'fullscreen',
         viewMode: 'story',
