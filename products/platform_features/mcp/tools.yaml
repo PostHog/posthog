@@ -9,41 +9,6 @@ feature: platform_features
 url_prefix: /
 ui_apps: {}
 tools:
-    activity-log-list:
-        operation: activity_log_list
-        enabled: true
-        scopes:
-            - activity_log:read
-        annotations:
-            readOnly: true
-            destructive: false
-            idempotent: true
-        list: true
-        title: List recent activity in the project.
-        description: >
-            List recent activity log entries for the project. Shows who did what and when — feature flag changes,
-            dashboard edits, experiment launches, etc. Supports filtering by scope, user, and date range.
-        param_overrides:
-            page_size:
-                default: 10
-                cast: string-int
-            page:
-                cast: string-int
-        url_prefix: /activity
-        response:
-            include:
-                - id
-                - user.id
-                - user.first_name
-                - user.last_name
-                - user.email
-                - activity
-                - scope
-                - item_id
-                - detail.name
-                - detail.short_id
-                - detail.type
-                - created_at
     advanced-activity-logs-export:
         operation: advanced_activity_logs_export_create
         enabled: false
@@ -71,10 +36,12 @@ tools:
             destructive: false
             idempotent: true
         list: true
-        title: List activity logs with advanced filtering.
+        title: List activity in the project.
         description: >
-            List activity log entries with advanced filtering, sorting, and field-level diffs. Supports filtering by
-            scope, activity type, user, date range, and search text.
+            List activity log entries — who changed what and when (feature flag changes, dashboard edits,
+            experiment launches, insight edits, etc.), with field-level diffs. Filter by scope, activity type,
+            user, item, date range, and free-text search. Use this to audit a specific resource's history or to
+            see what changed recently across the project.
         param_overrides:
             page_size:
                 default: 10

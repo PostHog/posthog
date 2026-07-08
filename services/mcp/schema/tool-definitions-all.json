@@ -234,20 +234,6 @@
             "readOnlyHint": true
         }
     },
-    "activity-log-list": {
-        "description": "List recent activity log entries for the project. Shows who did what and when — feature flag changes, dashboard edits, experiment launches, etc. Supports filtering by scope, user, and date range.",
-        "category": "Platform Features",
-        "feature": "platform_features",
-        "summary": "List recent activity in the project.",
-        "title": "List recent activity in the project.",
-        "required_scopes": ["activity_log:read"],
-        "annotations": {
-            "destructiveHint": false,
-            "idempotentHint": true,
-            "openWorldHint": true,
-            "readOnlyHint": true
-        }
-    },
     "advanced-activity-logs-filters": {
         "description": "Get the available filter options for activity logs — scopes, activity types, and users that have logged activity. Useful for building filter UIs or understanding what kinds of activity are tracked.",
         "category": "Platform Features",
@@ -263,11 +249,11 @@
         }
     },
     "advanced-activity-logs-list": {
-        "description": "List activity log entries with advanced filtering, sorting, and field-level diffs. Supports filtering by scope, activity type, user, date range, and search text.",
+        "description": "List activity log entries — who changed what and when (feature flag changes, dashboard edits, experiment launches, insight edits, etc.), with field-level diffs. Filter by scope, activity type, user, item, date range, and free-text search. Use this to audit a specific resource's history or to see what changed recently across the project.",
         "category": "Platform Features",
         "feature": "platform_features",
-        "summary": "List activity logs with advanced filtering.",
-        "title": "List activity logs with advanced filtering.",
+        "summary": "List activity in the project.",
+        "title": "List activity in the project.",
         "required_scopes": ["activity_log:read"],
         "annotations": {
             "destructiveHint": false,
