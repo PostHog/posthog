@@ -59,7 +59,7 @@ export const WARNING_TYPE_TO_DOCS_ANCHOR: Record<string, string> = {
     invalid_heatmap_data: 'invalid-heatmap-data',
 }
 
-const WARNING_TYPE_RENDERER = {
+export const WARNING_TYPE_RENDERER = {
     cannot_merge_already_identified: function Render(warning: IngestionWarning): JSX.Element {
         const details = warning.details as {
             sourcePersonDistinctId: string
