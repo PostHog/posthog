@@ -2,10 +2,11 @@ import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
 import { useMemo } from 'react'
 
-import { HedgehogGreek } from '@posthog/brand/hoggies'
+import * as greekPng from '@posthog/brand/hoggies/png/greek'
 import { IconLetter } from '@posthog/icons'
 import { LemonButton, LemonCollapse, LemonSelect, ProfilePicture, Spinner } from '@posthog/lemon-ui'
 
+import { pngHoggie } from 'lib/brand/hoggies'
 import { getColorVar } from 'lib/colors'
 import { AppMetricsFilters } from 'lib/components/AppMetrics/AppMetricsFilters'
 import { appMetricsLogic } from 'lib/components/AppMetrics/appMetricsLogic'
@@ -22,6 +23,8 @@ import { HogFlowBatchJob } from './hogflows/types'
 import { WorkflowLogicProps, workflowLogic } from './workflowLogic'
 import { WorkflowMetricsSummary } from './WorkflowMetricsSummary'
 import { type EmailMetric, buildEmailMetricLogSearchParams } from './workflowMetricsSummaryLogic'
+
+const HedgehogGreek = pngHoggie(greekPng)
 
 const OVERVIEW_OPTION_VALUE = '__workflow_overview__'
 
