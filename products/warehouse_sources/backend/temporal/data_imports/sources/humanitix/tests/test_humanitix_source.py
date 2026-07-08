@@ -1,6 +1,8 @@
 import pytest
 from unittest import mock
 
+from parameterized import parameterized
+
 from posthog.schema import ReleaseStatus, SourceFieldInputConfig, SourceFieldInputConfigType
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
@@ -70,46 +72,47 @@ class TestHumanitixSource:
         assert {t["name"] for t in tables} == set(ENDPOINTS)
         assert all("Full refresh" in t["sync_methods"] for t in tables)
 
-    @pytest.mark.parametrize(
-        "observed_error",
+    @parameterized.expand(
         [
-            "401 Client Error: Unauthorized for url: https://api.humanitix.com/v1/events?page=1&pageSize=100",
-            "403 Client Error: Forbidden for url: https://api.humanitix.com/v1/tags?page=2&pageSize=100",
-        ],
+            (
+                "unauthorized",
+                "401 Client Error: Unauthorized for url: https://api.humanitix.com/v1/events?page=1&pageSize=100",
+            ),
+            ("forbidden", "403 Client Error: Forbidden for url: https://api.humanitix.com/v1/tags?page=2&pageSize=100"),
+        ]
     )
-    def test_non_retryable_errors_match_auth_failures(self, observed_error: str) -> None:
+    def test_non_retryable_errors_match_auth_failures(self, _name: str, observed_error: str) -> None:
         non_retryable = self.source.get_non_retryable_errors()
         assert any(key in observed_error for key in non_retryable)
 
-    @pytest.mark.parametrize(
-        "unrelated_error",
+    @parameterized.expand(
         [
-            "500 Server Error: Internal Server Error for url: https://api.humanitix.com/v1/events",
-            "HTTPSConnectionPool(host='api.humanitix.com', port=443): Read timed out.",
-            "429 Client Error: Too Many Requests for url: https://api.humanitix.com/v1/tags",
-        ],
+            ("server_error", "500 Server Error: Internal Server Error for url: https://api.humanitix.com/v1/events"),
+            ("read_timeout", "HTTPSConnectionPool(host='api.humanitix.com', port=443): Read timed out."),
+            ("rate_limited", "429 Client Error: Too Many Requests for url: https://api.humanitix.com/v1/tags"),
+        ]
     )
-    def test_non_retryable_errors_ignore_transient(self, unrelated_error: str) -> None:
+    def test_non_retryable_errors_ignore_transient(self, _name: str, unrelated_error: str) -> None:
         non_retryable = self.source.get_non_retryable_errors()
         assert not any(key in unrelated_error for key in non_retryable)
 
-    @pytest.mark.parametrize(
-        "status, expected_valid, expected_message",
+    @parameterized.expand(
         [
-            (200, True, None),
-            (401, False, "Invalid Humanitix API key"),
-            (403, False, "Invalid Humanitix API key"),
-            (500, False, "Humanitix returned HTTP 500"),
-            (0, False, "Could not connect to Humanitix: boom"),
-        ],
+            ("ok", 200, True, None),
+            ("unauthorized", 401, False, "Invalid Humanitix API key"),
+            ("forbidden", 403, False, "Invalid Humanitix API key"),
+            ("server_error", 500, False, "Humanitix returned HTTP 500"),
+            ("connection_error", 0, False, "Could not connect to Humanitix: boom"),
+        ]
     )
     @mock.patch("products.warehouse_sources.backend.temporal.data_imports.sources.humanitix.source.check_access")
     def test_validate_credentials(
         self,
-        mock_check: mock.MagicMock,
+        _name: str,
         status: int,
         expected_valid: bool,
         expected_message: str | None,
+        mock_check: mock.MagicMock,
     ) -> None:
         message = (
             "Humanitix returned HTTP 500"
