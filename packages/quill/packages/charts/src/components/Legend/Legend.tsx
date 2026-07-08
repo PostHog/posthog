@@ -67,7 +67,9 @@ export function Legend({
         >
             {items.map((item) => {
                 const dimmed = hidden?.has(item.key) ? ' opacity-40' : ''
-                const rowClass = `${rowWidth} min-w-0 items-center gap-1.5 text-xs leading-none${dimmed}`
+                // leading-4, not leading-none: the truncating label clips its overflow, and a line box with
+                // no slack cuts off descenders (the tail of a "g").
+                const rowClass = `${rowWidth} min-w-0 items-center gap-1.5 text-xs leading-4${dimmed}`
                 const inner = (
                     <>
                         <span
