@@ -135,6 +135,11 @@ class TestBatchImportConfigBuilder(BaseTest):
                 "both_auth_methods",
                 {"role_arn": TEST_ROLE_ARN, "external_id": "eid", "access_key_id": "ak", "secret_access_key": "sk"},
             ),
+            (
+                "role_with_partial_keys",
+                {"role_arn": TEST_ROLE_ARN, "external_id": "eid", "access_key_id": "ak"},
+            ),
+            ("partial_keys_only", {"access_key_id": "ak"}),
             ("no_auth", {}),
         ]
     )
