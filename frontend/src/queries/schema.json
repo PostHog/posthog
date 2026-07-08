@@ -45149,6 +45149,9 @@
                 "response": {
                     "$ref": "#/definitions/TracesQueryResponse"
                 },
+                "searchTerm": {
+                    "type": "string"
+                },
                 "showColumnConfigurator": {
                     "type": "boolean"
                 },

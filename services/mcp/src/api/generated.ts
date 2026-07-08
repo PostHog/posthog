@@ -7084,6 +7084,7 @@ export namespace Schemas {
       /** Use random ordering instead of timestamp DESC. Useful for representative sampling to avoid recency bias. */
       randomOrder?: boolean | null;
       response?: TracesQueryResponse | null;
+      searchTerm?: string | null;
       showColumnConfigurator?: boolean | null;
       tags?: QueryLogTags | null;
       /** version of the node, used for schema migrations */
