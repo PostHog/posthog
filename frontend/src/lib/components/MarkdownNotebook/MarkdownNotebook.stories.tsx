@@ -64,6 +64,28 @@ const embedsNotebook = `# Embeds
 
 <Latex content="E=mc^2" />`
 
+const mermaidNotebook = `# Release flow
+
+A \`\`\`mermaid\`\`\` fence renders as a diagram in view mode while the source stays editable.
+
+\`\`\`mermaid
+flowchart LR
+    A[Start] --> B{Tests pass?}
+    B -->|Yes| C[Ship it]
+    B -->|No| D[Fix it]
+    D --> A
+\`\`\``
+
+const invalidMermaidNotebook = `# Broken diagram
+
+Invalid mermaid falls back to the plain source instead of crashing.
+
+\`\`\`mermaid
+flowchart LR
+    A --> B -->
+    this is not valid mermaid ]]]
+\`\`\``
+
 const malformedNotebook = `# Broken input
 
 <Query query={{"kind":`
@@ -204,6 +226,20 @@ export const ComponentCatalog: Story = {
 export const Embeds: Story = {
     args: {
         value: embedsNotebook,
+    },
+}
+
+export const MermaidDiagram: Story = {
+    args: {
+        value: mermaidNotebook,
+        mode: 'view',
+    },
+}
+
+export const MermaidDiagramFallback: Story = {
+    args: {
+        value: invalidMermaidNotebook,
+        mode: 'view',
     },
 }
 
