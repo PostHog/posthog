@@ -700,7 +700,7 @@ jobs:
               env:
                   COMPOSE_FILE: docker-compose.dev.yml:docker-compose.profiles.yml
                   COMPOSE_PROFILES: temporal,azure
-                  CLICKHOUSE_SERVER_IMAGE: clickhouse/clickhouse-server:26.3.10.60
+                  CLICKHOUSE_SERVER_IMAGE: clickhouse/clickhouse-server:26.6.1.1193
               run: |
                   cp posthog/user_scripts/latest_user_defined_function.xml docker/clickhouse/user_defined_function.xml
                   # nohup detaches the launch so it survives Depot's step-shell teardown
@@ -749,7 +749,7 @@ jobs:
               env:
                   COMPOSE_FILE: docker-compose.dev.yml:docker-compose.profiles.yml
                   COMPOSE_PROFILES: temporal,azure
-                  CLICKHOUSE_SERVER_IMAGE: clickhouse/clickhouse-server:26.3.10.60
+                  CLICKHOUSE_SERVER_IMAGE: clickhouse/clickhouse-server:26.6.1.1193
                   WAIT_FOR_DOCKER_TIMEOUT: 900
               run: |
                   bin/ci-wait-for-docker wait objectstorage \
