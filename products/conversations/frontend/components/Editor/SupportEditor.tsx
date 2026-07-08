@@ -170,20 +170,17 @@ const LinkExtension = Link.configure({
     },
 })
 
-// Whitespace is allowed: some PostHog URLs (e.g. the SQL editor's) carry spaces and
-// newlines in the query/fragment before encoding. We let `new URL` validate and
-// normalize (which percent-encodes any whitespace), and only require an http(s)
-// scheme so the whole clipboard must be a single URL rather than arbitrary prose.
-function parseSingleHttpUrl(text: string): string | null {
-    try {
-        const url = new URL(text)
-        if (url.protocol === 'http:' || url.protocol === 'https:') {
-            return url.href
-        }
-    } catch {
-        // not a URL
+/** True when the whole string is a single http(s) URL with no whitespace. */
+function isSingleHttpUrl(text: string): boolean {
+    if (!text || /\s/.test(text)) {
+        return false
     }
-    return null
+    try {
+        const { protocol } = new URL(text)
+        return protocol === 'http:' || protocol === 'https:'
+    } catch {
+        return false
+    }
 }
 
 // TipTap's built-in linkOnPaste only wraps the selection when linkify matches the
@@ -205,11 +202,12 @@ const LinkOnPasteExtension = Extension.create({
                             return false
                         }
                         const text = event.clipboardData?.getData('text/plain').trim()
-                        const href = text ? parseSingleHttpUrl(text) : null
-                        if (!href) {
+                        if (!text || !isSingleHttpUrl(text)) {
                             return false
                         }
-                        view.dispatch(view.state.tr.addMark(selection.from, selection.to, linkType.create({ href })))
+                        view.dispatch(
+                            view.state.tr.addMark(selection.from, selection.to, linkType.create({ href: text }))
+                        )
                         return true
                     },
                 },
