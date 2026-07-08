@@ -189,21 +189,8 @@ class EncryptedJSONStringField(EncryptedFieldMixin, models.JSONField):
     This means you can only decrypt / encrypt the entire object but that is fine for most use cases.
     """
 
-    def __init__(self, encrypt_empty=False, **kwargs):
-        # With encrypt_empty, an empty dict/list is encrypted and round-trips instead of
-        # collapsing to NULL - needed when the column is NOT NULL and non-Django readers
-        # expect a decryptable value.
-        self.encrypt_empty = encrypt_empty
-        super().__init__(**kwargs)
-
-    def deconstruct(self):
-        name, path, args, kwargs = super().deconstruct()
-        if self.encrypt_empty:
-            kwargs["encrypt_empty"] = True
-        return name, path, args, kwargs
-
     def get_prep_value(self, value):
-        if value is None or (not value and not self.encrypt_empty):
+        if not value:
             return None
         # Here we just want to json dump the value to a string
         stringified_value = json.dumps(value, cls=self.encoder)

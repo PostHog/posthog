@@ -1,1 +1,1 @@
-0002_alter_batchimport_secrets
+0002_alter_batchimport_secrets_nullable

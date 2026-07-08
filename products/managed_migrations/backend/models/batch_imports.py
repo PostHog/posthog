@@ -57,9 +57,7 @@ class BatchImport(ModelActivityMixin, UUIDTModel):
     display_status_message = models.TextField(null=True, blank=True)
     state = models.JSONField(null=True, blank=True)
     import_config = models.JSONField()
-    # encrypt_empty: role-auth imports have no secrets, but the column is NOT NULL and the
-    # Rust worker always decrypts it, so {} must round-trip instead of collapsing to NULL
-    secrets = EncryptedJSONStringField(encrypt_empty=True)
+    secrets = EncryptedJSONStringField(null=True, blank=True)
     # Exponential backoff state (used by rust worker). Mirrors columns used by the worker.
     backoff_attempt = models.IntegerField(default=0)
     backoff_until = models.DateTimeField(null=True, blank=True)
@@ -82,7 +80,7 @@ class BatchImportConfigBuilder:
         self.batch_import = batch_import
         if initialize_empty:
             self.batch_import.import_config = {}
-            self.batch_import.secrets = {}
+            self.batch_import.secrets = None
 
     def json_lines(self, content_type: ContentType, skip_blanks: bool = True) -> Self:
         self.batch_import.import_config["data_format"] = {
@@ -105,6 +103,8 @@ class BatchImportConfigBuilder:
             "allow_internal_ips": allow_internal_ips,
             "timeout_seconds": timeout_seconds,
         }
+        if self.batch_import.secrets is None:
+            self.batch_import.secrets = {}
         self.batch_import.secrets[urls_key] = urls
         return self
 
@@ -142,6 +142,8 @@ class BatchImportConfigBuilder:
         else:
             source["access_key_id_key"] = access_key_id_key
             source["secret_access_key_key"] = secret_access_key_key
+            if self.batch_import.secrets is None:
+                self.batch_import.secrets = {}
             self.batch_import.secrets[access_key_id_key] = access_key_id
             self.batch_import.secrets[secret_access_key_key] = secret_access_key
         if endpoint_url:
@@ -273,6 +275,8 @@ class BatchImportConfigBuilder:
             "base_url": base_url,
             **additional_config,
         }
+        if self.batch_import.secrets is None:
+            self.batch_import.secrets = {}
         self.batch_import.secrets[access_key_key] = access_key
         self.batch_import.secrets[secret_key_key] = secret_key
         return self

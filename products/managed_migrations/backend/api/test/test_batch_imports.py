@@ -119,7 +119,7 @@ class TestBatchImportConfigBuilder(BaseTest):
         self.assertEqual(source["external_id"], "posthog-us-some-team-uuid")
         self.assertNotIn("access_key_id_key", source)
         self.assertNotIn("secret_access_key_key", source)
-        self.assertEqual(self.batch_import.secrets, {})
+        self.assertIsNone(self.batch_import.secrets)
 
     @parameterized.expand(
         [
@@ -747,7 +747,7 @@ class TestBatchImportAPI(APIBaseTest):
         # The external id shown during setup must be exactly what the import runs with
         self.assertEqual(source["external_id"], external_id)
         self.assertNotIn("access_key_id_key", source)
-        self.assertEqual(batch_import.secrets, {})
+        self.assertIsNone(batch_import.secrets)
 
     def test_s3_import_role_and_keys_rejected(self):
         response = self.client.post(
