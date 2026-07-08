@@ -175,9 +175,10 @@ export const logsViewerDataLogic = kea<logsViewerDataLogicType>([
         setInitialLogsLimit: (initialLogsLimit: number | null) => ({ initialLogsLimit }),
         pollForNewLogs: true,
         setMaxExportableLogs: (maxExportableLogs: number) => ({ maxExportableLogs }),
-        // Aliases for the requested customColumns, echoed by the server in request order —
-        // rows carry their custom values under these keys (see response `columns`)
-        setCustomColumnAliases: (customColumnAliases: string[] | null) => ({ customColumnAliases }),
+        // Aliases for the requested customColumns, keyed by the expression that produced them —
+        // rows carry their custom values under these keys (see response `columns`). Keying by
+        // expression (not position) keeps the mapping valid when columns are reordered without a re-fetch.
+        setCustomColumnAliases: (customColumnAliases: Record<string, string> | null) => ({ customColumnAliases }),
     }),
 
     reducers({
@@ -294,7 +295,7 @@ export const logsViewerDataLogic = kea<logsViewerDataLogicType>([
             },
         ],
         customColumnAliases: [
-            null as string[] | null,
+            null as Record<string, string> | null,
             {
                 setCustomColumnAliases: (_, { customColumnAliases }) => customColumnAliases,
                 clearLogs: () => null,
@@ -330,7 +331,16 @@ export const logsViewerDataLogic = kea<logsViewerDataLogicType>([
                     actions.setHasMoreLogsToLoad(!!response.hasMore)
                     actions.setNextCursor(response.nextCursor ?? null)
                     actions.setMaxExportableLogs(response.maxExportableLogs)
-                    actions.setCustomColumnAliases(response.columns ?? null)
+                    // Server echoes aliases in request order, so pair each with the expression that
+                    // produced it. Keying by expression survives column reorders that don't re-fetch.
+                    const sentExpressions = values.customColumns ?? []
+                    const aliasByExpression =
+                        response.columns && response.columns.length > 0
+                            ? Object.fromEntries(
+                                  response.columns.map((alias, index) => [sentExpressions[index], alias])
+                              )
+                            : null
+                    actions.setCustomColumnAliases(aliasByExpression)
                     cache.lastSentCustomColumns = JSON.stringify(values.customColumns ?? null)
                     // The checkpoint (fixed per query, identical on every row) marks the latest
                     // timestamp ingestion is known to have fully caught up to — used to flag the

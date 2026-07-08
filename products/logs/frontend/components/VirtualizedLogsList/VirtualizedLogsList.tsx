@@ -196,11 +196,11 @@ export function VirtualizedLogsList({
 
     const { customColumnAliases } = useValues(logsViewerDataLogic({ id }))
 
-    // Server aliases arrive in request order, which matches the order custom columns are
-    // lowered from the config — zip them positionally to key each column into row values.
+    // Server aliases are keyed by the expression that produced them, so map each custom column
+    // to its alias by expression. This stays correct when columns are reordered without a re-fetch.
     const aliasById = useMemo(() => {
         const customConfigs = columnConfigs.filter((config) => config.type === 'custom' && !!config.expression?.trim())
-        return new Map(customConfigs.map((config, index) => [config.id, customColumnAliases?.[index]]))
+        return new Map(customConfigs.map((config) => [config.id, customColumnAliases?.[config.expression!.trim()]]))
     }, [columnConfigs, customColumnAliases])
 
     // Columns memoized on structural deps only — per-row state (selection,
