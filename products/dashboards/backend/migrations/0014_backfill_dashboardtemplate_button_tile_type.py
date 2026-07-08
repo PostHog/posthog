@@ -5,11 +5,20 @@ import structlog
 
 
 def backfill_button_tile_type(apps, _) -> None:
+    """
+    Older save-as-template rows stored a button tile as `{"button_tile": {...}}` with no
+    top-level `type`, unlike text/insight/widget tiles which always had one. The template
+    reader (`create_from_template`) used to hard-index `template_tile["type"]`, so instantiating
+    one of these templates raised `KeyError: 'type'` and left a half-created dashboard behind.
+    The reader and the frontend serializer are now both fixed, but rows saved before that fix
+    still have the old shape sitting in the DB - this walks every DashboardTemplate and adds the
+    missing `"type": "BUTTON"` in place, so those templates instantiate cleanly too.
+    """
     logger = structlog.get_logger(__name__)
     DashboardTemplate = apps.get_model("dashboards", "DashboardTemplate")
 
     templates = DashboardTemplate.objects.order_by("id").all()
-    paginator = Paginator(templates, 500)
+    paginator = Paginator(templates, 500)  # process in pages so a huge tiles list doesn't sit in memory all at once
     updated_count = 0
 
     for page_number in paginator.page_range:
@@ -28,6 +37,7 @@ def backfill_button_tile_type(apps, _) -> None:
             if changed:
                 updated_templates.append(template)
 
+        # One bulk_update per page: touches only the templates that actually needed a fix.
         if updated_templates:
             DashboardTemplate.objects.bulk_update(updated_templates, ["tiles"])
             updated_count += len(updated_templates)
@@ -36,6 +46,11 @@ def backfill_button_tile_type(apps, _) -> None:
 
 
 class Migration(migrations.Migration):
+    """
+    Data-only backfill: no schema change. Idempotent (a tile that already has `type` is left
+    alone), so a `bin/migrate` retry re-running this is harmless.
+    """
+
     dependencies = [
         ("dashboards", "0013_dashboardtile_button_tile_id_idx"),
     ]
