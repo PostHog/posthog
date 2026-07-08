@@ -1130,8 +1130,8 @@ def get_workspace_disk_size(workspace: dict[str, Any]) -> int | None:
     instance fails to launch from the captured AMI (``InvalidBlockDeviceMapping``).
     """
     value = _workspace_metadata_value(workspace, DISK_METADATA_KEY)
-    match = re.search(r"\d+", value) if value else None
-    return int(match.group(0)) if match else None
+    match = re.search(r"^(\d+)\s*GiB$", value.strip()) if value else None
+    return int(match.group(1)) if match else None
 
 
 def _list_template_presets(template: str) -> list[str]:
