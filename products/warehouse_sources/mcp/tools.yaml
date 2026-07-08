@@ -417,6 +417,24 @@ tools:
             - prefix
             - description
             - job_inputs
+    external-data-sources-repair-cdc-create:
+        operation: external_data_sources_repair_cdc_create
+        enabled: true
+        scopes:
+            - external_data_source:write
+        annotations:
+            readOnly: false
+            destructive: true
+            idempotent: true
+        title: Repair CDC on a source
+        description: >
+            Repair change data capture on a source whose replication slot or publication was lost — use when
+            'external-data-sources-cdc-status-retrieve' shows slot_exists=false or publication_exists=false, or the
+            source reports a CDC error about a missing slot. Recreates the replication resources from the stored CDC
+            config, resets every active CDC schema to a fresh snapshot (a full re-sync — changes made while the slot
+            was gone cannot be recovered), and resumes the paused sync schedules. Refuses with a 400 if CDC looks
+            healthy (both slot and publication exist) so it cannot accidentally force a re-sync, and with a 409 if a
+            repair is already running. Safe to retry after a failure. Returns {success, schemas_reset}.
     external-data-sources-reload:
         operation: external_data_sources_reload_create
         enabled: true

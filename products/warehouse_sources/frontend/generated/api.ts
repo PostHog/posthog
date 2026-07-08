@@ -677,10 +677,14 @@ export const getExternalDataSourcesRepairCdcCreateUrl = (projectId: string, id: 
 /**
  * Repair CDC on a source whose replication resources were lost.
  *
- * Recreates the engine-side slot/publication against the stored CDC config, resets
- * every active CDC schema to snapshot mode for a full re-sync (changes since the old
- * slot died are unrecoverable), clears the broken markers, and resumes the paused
- * schedules. Idempotent: safe to retry after a partial failure.
+ * Only proceeds on evidence of breakage (a persisted broken marker, or a live probe
+ * showing the slot/publication missing) — repairing a healthy source would drop its
+ * slot and force a full re-sync. Cancels running CDC jobs, recreates the engine-side
+ * slot/publication against the stored CDC config, resets every active CDC schema to
+ * snapshot mode for a full re-sync (changes since the old slot died are
+ * unrecoverable), clears the broken markers, and resumes the paused schedules.
+ * Idempotent: safe to retry after a partial failure. Concurrent repairs of the same
+ * source are rejected with a 409.
  */
 export const externalDataSourcesRepairCdcCreate = async (
     projectId: string,

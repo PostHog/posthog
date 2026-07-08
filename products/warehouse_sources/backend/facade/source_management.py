@@ -20,6 +20,7 @@ _LAZY = {
     "get_cdc_adapter": "cdc.adapters",
     "source_type_supports_cdc": "cdc.adapters",
     "CDCRepairError": "cdc.repair",
+    "CDCRepairInProgress": "cdc.repair",
     "repair_cdc_source": "cdc.repair",
     "ClickHouseSource": "sources.clickhouse.source",
     "AnySource": "sources.common.base",

@@ -123,6 +123,7 @@ from products.warehouse_sources.backend.facade.source_management import (
     PREVIEW_MAX_ROWS,
     AnySource,
     CDCRepairError,
+    CDCRepairInProgress,
     CDCSourceAdapter,
     ClickHouseSource,
     Config,
@@ -3592,17 +3593,24 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
                 },
                 description="CDC repaired; schemas_reset CDC schemas will fully re-sync.",
             ),
-            400: OpenApiResponse(description="CDC not enabled, nothing to repair, or engine-side recreation failed."),
+            400: OpenApiResponse(
+                description="CDC not enabled, no active CDC schemas, source looks healthy, or engine-side recreation failed."
+            ),
+            409: OpenApiResponse(description="A repair is already running for this source."),
         },
     )
     @action(methods=["POST"], detail=True)
     def repair_cdc(self, request: Request, *arg: Any, **kwargs: Any):
         """Repair CDC on a source whose replication resources were lost.
 
-        Recreates the engine-side slot/publication against the stored CDC config, resets
-        every active CDC schema to snapshot mode for a full re-sync (changes since the old
-        slot died are unrecoverable), clears the broken markers, and resumes the paused
-        schedules. Idempotent: safe to retry after a partial failure.
+        Only proceeds on evidence of breakage (a persisted broken marker, or a live probe
+        showing the slot/publication missing) — repairing a healthy source would drop its
+        slot and force a full re-sync. Cancels running CDC jobs, recreates the engine-side
+        slot/publication against the stored CDC config, resets every active CDC schema to
+        snapshot mode for a full re-sync (changes since the old slot died are
+        unrecoverable), clears the broken markers, and resumes the paused schedules.
+        Idempotent: safe to retry after a partial failure. Concurrent repairs of the same
+        source are rejected with a 409.
         """
         instance: ExternalDataSource = self.get_object()
 
@@ -3620,6 +3628,8 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
 
         try:
             schemas_reset = repair_cdc_source(instance)
+        except CDCRepairInProgress as e:
+            return Response(status=status.HTTP_409_CONFLICT, data={"message": str(e)})
         except CDCRepairError as e:
             return Response(status=status.HTTP_400_BAD_REQUEST, data={"message": str(e)})
         except (OperationalError, BaseSSHTunnelForwarderError, SSLRequiredError) as e:
