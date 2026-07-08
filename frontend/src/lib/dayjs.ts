@@ -33,9 +33,12 @@ dayjs.extend(quarterOfYear)
 dayjs.extend(weekOfYear)
 dayjs.extend(updateLocale)
 
-// The base add/subtract accept ManipulateType (has week, no quarter) and quarterOfYear adds a
-// QUnitType overload (has quarter, no week) — neither alone accepts a union like IntervalType,
-// so merge one overload that takes both.
+// The base add/subtract accept ManipulateType (has week, no quarter) and the quarterOfYear plugin
+// adds a QUnitType overload (has quarter, no week). Neither alone accepts a union spanning both
+// (e.g. IntervalType), so merge one overload that takes both. Casting to a single side instead
+// would be unsound: `x as QUnitType` lies when x is 'week'. The aliased Dayjs* imports are
+// required: this file's own ManipulateType/QUnitType (declared below) shadow dayjs's inside the
+// augmentation and are file-private there, which fails declaration emit with TS4075.
 declare module 'dayjs' {
     interface Dayjs {
         add(value: number, unit?: DayjsManipulateType | DayjsQUnitType): DayjsOriginal

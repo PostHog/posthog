@@ -1,3 +1,5 @@
+import { Logo } from 'lib/brand'
+
 export function IconUnderline(): JSX.Element {
     return (
         <svg width="1em" height="1em" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
@@ -65,4 +67,6 @@ export function IconAlignRight(): JSX.Element {
     )
 }
 
-export { PostHogWordmarkLogo as PostHogLogo } from 'lib/brand/PostHogWordmarkLogo'
+// The product-tour editor preview mimics what posthog-js renders in tours; scss supplies the mono
+// `color` and a 14px height. Preview may diverge from real tours until posthog-js adopts the new mark.
+export const PostHogLogo = (): JSX.Element => <Logo variant="mono" />

@@ -46,7 +46,7 @@ sequenceDiagram
 
     Worker->>Workflow: wrap execute (latency + finished counter)
     Workflow->>Activity: discover all metrics, stamp query_to once
-    Workflow->>Activity: per metric (worker pool of 4, 1 attempt each, requeue on transient failure)
+    Workflow->>Activity: per metric (worker pool of MAX_CONCURRENT_METRICS, 1 attempt each, requeue on transient failure)
     Worker->>Activity: wrap execute (latency + success/failure counters)
     Activity->>Result: upsert recalc-fingerprinted row
     Activity->>DB: merge metric_errors on failure
@@ -118,7 +118,7 @@ The split is intentional: Grafana tells you about the worker process, PostHog te
 
 ## Performance notes
 
-- **Worker pool of 4, retries owned by the workflow.** The workflow runs `MAX_CONCURRENT_METRICS=4` worker coroutines that drain a shared requeue queue, rather than firing all metrics under a semaphore. The cap is 4 (not higher) because these offline queries share the org's `app:query:per-org` ClickHouse budget (default 20, halved/quartered under cluster load) with the org's live queries; staying at 4 keeps a single run under the budget even when it drops to 5, avoiding `ClickHouseAtCapacity` throttling.
+- **Worker pool per run, retries owned by the workflow.** The workflow runs `MAX_CONCURRENT_METRICS=14` worker coroutines that drain a shared requeue queue, rather than firing all metrics under a semaphore. The constant sizes the per-run fan-out so a typical experiment recalculates in a single concurrent wave; cross-run ClickHouse load is bounded separately by the dedicated recalc worker's activity-slot cap, not by this constant. The workflow runs on its own `experiments-recalculation-task-queue` (see `EXPERIMENTS_RECALCULATION_TASK_QUEUE`), served by a dedicated worker deployment, so recalc load can be scaled and throttled independently of the general-purpose worker.
 
   Crucially, the calc activity runs with `RetryPolicy(maximum_attempts=1)`: the workflow owns retries, not Temporal. Why: a single `execute_activity(..., retry_policy=...)` await does not resolve until the whole retry chain finishes (Temporal handles backoff at the service level and the workflow stays suspended). With the old `asyncio.Semaphore` + `maximum_attempts=5`, a failing metric held its concurrency slot for the entire ~75s backoff chain (5s, 10s, 20s, 40s), starving healthy metrics queued behind it and wrecking perceived load time when several metrics failed. Note this was a _workflow-level_ semaphore problem; Temporal frees the _worker_ activity slot during backoff, so the starvation was self-inflicted by the semaphore, not by Temporal's concurrency.
 

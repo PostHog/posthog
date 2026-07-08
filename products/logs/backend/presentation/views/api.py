@@ -43,6 +43,13 @@ from products.logs.backend.count_ranges_query_runner import (
     MAX_TARGET_BUCKETS,
     CountRangesQueryRunner,
 )
+from products.logs.backend.group_by_query_runner import (
+    DEFAULT_GROUP_LIMIT,
+    GROUP_SOURCES,
+    MAX_GROUP_LIMIT,
+    ORDER_FIELDS,
+    LogsGroupByQueryRunner,
+)
 from products.logs.backend.has_logs_query_runner import team_has_logs
 from products.logs.backend.log_attributes_query_runner import LogAttributesQueryRunner
 from products.logs.backend.log_facet_values_query_runner import FACET_FIELDS, LogFacetValuesQueryRunner
@@ -661,6 +668,18 @@ class _LogsPatternsRequestSerializer(serializers.Serializer):
     query = _LogsPatternsBodySerializer(help_text="The patterns query to execute.")
 
 
+class _LogPatternExampleSerializer(serializers.Serializer):
+    body = serializers.CharField(
+        help_text=(
+            "Log body as the miner saw it: whitespace-collapsed and truncated to the mining "
+            "length cap, not the raw stored line."
+        ),
+    )
+    severity_text = serializers.CharField(help_text='Severity of the sampled line, e.g. "info", "error".')
+    service_name = serializers.CharField(help_text="Service that emitted the sampled line.")
+    timestamp = serializers.CharField(help_text="ISO 8601 timestamp of the sampled line.")
+
+
 class _LogPatternSerializer(serializers.Serializer):
     pattern = serializers.CharField(
         help_text=(
@@ -694,9 +713,12 @@ class _LogPatternSerializer(serializers.Serializer):
     )
     first_seen = serializers.CharField(help_text="ISO 8601 timestamp of the earliest sampled occurrence.")
     last_seen = serializers.CharField(help_text="ISO 8601 timestamp of the latest sampled occurrence.")
-    examples = serializers.ListField(
-        child=serializers.CharField(),
-        help_text="Up to 3 distinct raw log bodies (truncated) that produced this pattern.",
+    examples = _LogPatternExampleSerializer(
+        many=True,
+        help_text=(
+            "Up to 10 distinct sampled log lines that produced this pattern, with severity, "
+            "service, and timestamp for display."
+        ),
     )
     services = serializers.ListField(
         child=serializers.CharField(),
@@ -708,6 +730,29 @@ class _LogPatternSerializer(serializers.Serializer):
             "Estimated occurrences per time bucket, aligned index-for-index with the response's "
             "`sparkline_buckets`. Extrapolated from the sample like `estimated_count`, so it shows "
             "the volume shape over the window, not exact per-bucket tallies."
+        ),
+    )
+    severity_counts = serializers.DictField(
+        child=serializers.IntegerField(),
+        help_text=(
+            'Sampled occurrences keyed by lowercased severity ("trace" through "fatal"). Raw sample '
+            "counts, not extrapolated — severity dominance is a proportion, so scaling would not change it."
+        ),
+    )
+    match_regex = serializers.CharField(
+        allow_null=True,
+        help_text=(
+            "RE2-safe regex over raw log bodies that matches lines of this pattern, compiled from "
+            "the template and validated against the pattern's own examples before being offered. "
+            "Null when the template lacks literal content or validation failed — never trust an "
+            "unvalidated predicate. Use with the message/regex log property filter."
+        ),
+    )
+    match_literal = serializers.CharField(
+        allow_null=True,
+        help_text=(
+            "Longest literal run in the template, for plain-text (icontains) filtering when "
+            "`match_regex` is null. Null when the template has no usable literal content."
         ),
     )
 
@@ -751,6 +796,93 @@ class _LogsPatternsResponseSerializer(serializers.Serializer):
             "time slices, the buckets are the slices themselves (evenly spaced, gaps between them "
             "were never eligible for sampling); otherwise they divide the window uniformly."
         ),
+    )
+
+
+class _LogsGroupByBodySerializer(serializers.Serializer):
+    dateRange = _DateRangeSerializer(
+        required=False,
+        help_text="Date range to aggregate over. Defaults to last hour.",
+    )
+    severityLevels = serializers.ListField(
+        child=serializers.ChoiceField(choices=["trace", "debug", "info", "warn", "error", "fatal"]),
+        required=False,
+        default=list,
+        help_text="Filter by log severity levels before grouping.",
+    )
+    serviceNames = serializers.ListField(
+        child=serializers.CharField(),
+        required=False,
+        default=list,
+        help_text="Restrict grouping to these service names.",
+    )
+    searchTerm = serializers.CharField(
+        required=False, help_text="Full-text search term to filter log bodies before grouping."
+    )
+    filterGroup = serializers.ListField(
+        child=_LogPropertyFilterSerializer(),
+        required=False,
+        default=list,
+        help_text="Property filters applied before grouping. Same shape as the query-logs endpoint.",
+    )
+    groupBy = serializers.CharField(
+        help_text=(
+            'The key to group logs by — an attribute key (e.g. "session_id", "service.name") or, '
+            'when groupBySource is "column", one of the top-level log fields: '
+            '"severity_level", "trace_id", "span_id".'
+        ),
+    )
+    groupBySource = serializers.ChoiceField(
+        choices=list(GROUP_SOURCES),
+        default="log",
+        help_text=(
+            'Where the grouping key lives: "log" for log-level attributes, "resource" for '
+            'resource-level attributes, "column" for top-level log fields.'
+        ),
+    )
+    orderGroupsBy = serializers.ChoiceField(
+        choices=list(ORDER_FIELDS),
+        default="log_count",
+        help_text=(
+            'Aggregate to rank groups by (descending): "log_count" for the noisiest groups, '
+            '"error_count" for the most failing, "last_seen" for the most recent.'
+        ),
+    )
+    limit = serializers.IntegerField(
+        required=False,
+        default=DEFAULT_GROUP_LIMIT,
+        min_value=1,
+        max_value=MAX_GROUP_LIMIT,
+        help_text=f"Maximum number of groups to return (top-N by orderGroupsBy). Defaults to {DEFAULT_GROUP_LIMIT}.",
+    )
+
+
+class _LogsGroupByRequestSerializer(serializers.Serializer):
+    query = _LogsGroupByBodySerializer(help_text="The group-by query to execute.")
+
+
+class _LogsGroupByGroupSerializer(serializers.Serializer):
+    value = serializers.CharField(help_text="The grouped attribute value identifying this group.")
+    log_count = serializers.IntegerField(help_text="Number of matching logs in this group.")
+    error_count = serializers.IntegerField(
+        help_text='Number of matching logs in this group at severity "error" or "fatal".',
+    )
+    last_seen = serializers.CharField(help_text="ISO 8601 timestamp of the most recent matching log in this group.")
+
+
+class _LogsGroupByResponseSerializer(serializers.Serializer):
+    groups = _LogsGroupByGroupSerializer(
+        many=True,
+        help_text="Top groups ordered by the requested aggregate, descending. Capped at `limit`.",
+    )
+    total_groups = serializers.IntegerField(
+        help_text="Total distinct group values matching the filters, before the top-N cap.",
+    )
+    total_logs = serializers.IntegerField(
+        help_text="Total matching logs across all groups (rows without the grouping key are excluded).",
+    )
+    truncated = serializers.BooleanField(
+        help_text="True when more groups matched than were returned (total_groups > groups length).",
     )
 
 
@@ -1159,6 +1291,55 @@ class LogsViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet):
                 if isinstance(response.results, dict)
                 else 0,
                 "sampled": response.results.get("sampled") if isinstance(response.results, dict) else None,
+                "has_search_term": bool(query_data.get("searchTerm")),
+                "severity_levels_count": len(query_data.get("severityLevels", [])),
+                "service_names_count": len(query_data.get("serviceNames", [])),
+            },
+            team=self.team,
+            request=request,
+        )
+
+        return Response(response.results, status=status.HTTP_200_OK)
+
+    @extend_schema(request=_LogsGroupByRequestSerializer, responses={200: _LogsGroupByResponseSerializer})
+    @action(detail=False, methods=["POST"], required_scopes=["logs:read"], url_path="group-by")
+    def group_by(self, request: Request, *args, **kwargs) -> Response:
+        tag_queries(product=Product.LOGS, feature=Feature.QUERY)
+        query_data = request.data.get("query", {})
+
+        query = LogsQuery(
+            dateRange=self.get_model(query_data.get("dateRange"), DateRange),
+            severityLevels=query_data.get("severityLevels", []),
+            serviceNames=query_data.get("serviceNames", []),
+            searchTerm=query_data.get("searchTerm", None),
+            filterGroup=self._normalize_filter_group(query_data.get("filterGroup", None)),
+        )
+
+        try:
+            runner = LogsGroupByQueryRunner(
+                team=self.team,
+                query=query,
+                group_by=query_data.get("groupBy", ""),
+                group_by_source=query_data.get("groupBySource", "log"),
+                order_groups_by=query_data.get("orderGroupsBy", "log_count"),
+                group_limit=int(query_data.get("limit", DEFAULT_GROUP_LIMIT)),
+            )
+        except (ValueError, TypeError) as e:
+            return Response({"error": str(e)}, status=status.HTTP_400_BAD_REQUEST)
+
+        # calculate() bypasses the query cache on purpose: the group-by parameters are runner
+        # args, not query-model fields, so they can't participate in the cache key.
+        response = runner.calculate()
+
+        results = response.results if isinstance(response.results, dict) else {}
+        report_user_action(
+            request.user,
+            "logs group by queried",
+            {
+                "group_by_source": query_data.get("groupBySource", "log"),
+                "order_groups_by": query_data.get("orderGroupsBy", "log_count"),
+                "groups_count": len(results.get("groups", [])),
+                "truncated": results.get("truncated"),
                 "has_search_term": bool(query_data.get("searchTerm")),
                 "severity_levels_count": len(query_data.get("severityLevels", [])),
                 "service_names_count": len(query_data.get("serviceNames", [])),

@@ -39,6 +39,7 @@ from products.warehouse_sources.backend.models.external_data_source import (
 from products.warehouse_sources.backend.models.pending_source_credential import PendingSourceCredential
 from products.warehouse_sources.backend.models.ssh_tunnel import SSHTunnel
 from products.warehouse_sources.backend.models.table import (
+    SERIALIZED_FIELD_TO_CLICKHOUSE_MAPPING,
     DataWarehouseTable,
     DataWarehouseTableColumns,
     acreate_datawarehousetable,
@@ -49,6 +50,9 @@ from products.warehouse_sources.backend.models.util import (
     mysql_columns_to_dwh_columns,
     postgres_column_to_dwh_column,
     postgres_columns_to_dwh_columns,
+    remove_named_tuples,
+    snowflake_column_to_dwh_column,
+    snowflake_columns_to_dwh_columns,
     validate_source_prefix,
     validate_warehouse_table_url_pattern,
 )
@@ -62,6 +66,7 @@ __all__ = [
     "ExternalDataSchema",
     "ExternalDataSource",
     "PendingSourceCredential",
+    "SERIALIZED_FIELD_TO_CLICKHOUSE_MAPPING",
     "SSHTunnel",
     "WarehouseColumnAnnotation",
     "WarehouseColumnStatistics",
@@ -76,6 +81,9 @@ __all__ = [
     "mysql_columns_to_dwh_columns",
     "postgres_column_to_dwh_column",
     "postgres_columns_to_dwh_columns",
+    "remove_named_tuples",
+    "snowflake_column_to_dwh_column",
+    "snowflake_columns_to_dwh_columns",
     "sync_frequency_interval_to_sync_frequency",
     "sync_frequency_to_sync_frequency_interval",
     "sync_old_schemas_with_new_schemas",

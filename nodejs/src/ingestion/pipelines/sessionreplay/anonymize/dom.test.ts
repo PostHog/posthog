@@ -232,6 +232,17 @@ describe('anonymize/dom', () => {
         expect(event.data.node.childNodes[0].childNodes[0].textContent).toBe(cssText)
     })
 
+    it('neutralizes data-image backgrounds in an inlined stylesheet (_cssText)', () => {
+        const onePxPng =
+            'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAABAAAAAQCAIAAACQkWg2AAAACXBIWXMAAAPoAAAD6AG1e1JrAAAAJUlEQVQokWN4plEBRyInbOAIlzjDINRAjCJk8cGoYRAG60iMBwA8H08Qor0ygQAAAABJRU5ErkJggg=='
+        const attrs: Record<string, unknown> = {
+            rel: 'stylesheet',
+            _cssText: `.a{background:url(${onePxPng})}`,
+        }
+        expect(scrubMutation(ctx, { source: 0, attributes: [{ id: 2, attributes: attrs }] })).toBe(true)
+        expect(attrs._cssText).not.toContain(onePxPng)
+    })
+
     it('blurs canvas pixels inlined as rr_dataURL in a FullSnapshot', () => {
         const blurCtx = { allow: defaultAllowLists(), blurJobs: [] as any[] }
         const onePxPng =

@@ -35,8 +35,8 @@ class SearchMatchTypeSerializerMixin(serializers.Serializer):
         read_only=True,
         help_text=(
             "How this row matched the `search` query parameter: `exact` (the term is a "
-            "case-insensitive substring of a searched field) or `similar` (a fuzzy trigram match "
-            "only). Results are ordered exact-first. Null when the list is not filtered by `search`."
+            "case-insensitive substring of a searched field) or `similar` (a fuzzy trigram match, "
+            "returned only when no exact match exists). Null when the list is not filtered by `search`."
         ),
     )
 

@@ -44,9 +44,9 @@ import {
 import { AccessControlLevel, AccessControlResourceType, Realm } from '~/types'
 
 import { AISection } from 'products/conversations/frontend/scenes/settings/AISection'
-import { ChannelsSection } from 'products/conversations/frontend/scenes/settings/ChannelsSection'
 import { GeneralSection } from 'products/conversations/frontend/scenes/settings/GeneralSection'
 import { NotificationsSection } from 'products/conversations/frontend/scenes/settings/NotificationsSection'
+import { ZendeskImportSection } from 'products/conversations/frontend/scenes/settings/ZendeskImportSection'
 import { CustomerAnalyticsAccountConfig } from 'products/customer_analytics/frontend/scenes/CustomerAnalyticsConfigurationScene/account/CustomerAnalyticsAccountConfig'
 import { CustomerAnalyticsDashboardEvents } from 'products/customer_analytics/frontend/scenes/CustomerAnalyticsConfigurationScene/events/CustomerAnalyticsDashboardEvents'
 import { ExceptionAutocaptureToggle } from 'products/error_tracking/frontend/scenes/ErrorTrackingConfigurationScene/exception_autocapture/ExceptionAutocaptureSettings'
@@ -1112,19 +1112,6 @@ export const SETTINGS_MAP: SettingSection[] = [
                     'domain',
                     'identity',
                     'secret',
-                ],
-            },
-            {
-                id: 'conversations-channels',
-                title: 'Channels',
-                description: 'Choose where customers can reach you. Each channel can be configured independently.',
-                component: <ChannelsSection />,
-                allowForTeam: (t) => !!t?.conversations_enabled,
-                keywords: [
-                    'conversation',
-                    'ticket',
-                    'message',
-                    'support',
                     'channel',
                     'widget',
                     'email',
@@ -1160,6 +1147,15 @@ export const SETTINGS_MAP: SettingSection[] = [
                 flag: 'PRODUCT_SUPPORT_AI_SUGGESTION',
                 allowForTeam: (t) => !!t?.conversations_enabled,
                 keywords: ['ai', 'suggestion', 'auto', 'reply', 'support', 'conversation'],
+            },
+            {
+                id: 'conversations-imports',
+                title: 'Imports',
+                description: 'Import historical support data from external tools into Conversations.',
+                component: <ZendeskImportSection />,
+                flag: 'PRODUCT_SUPPORT_IMPORT_TICKETS',
+                allowForTeam: (t) => !!t?.conversations_enabled,
+                keywords: ['import', 'zendesk', 'migrate', 'ticket', 'support', 'conversation'],
             },
         ],
     },

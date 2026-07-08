@@ -2,8 +2,8 @@ import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
 import posthog from 'posthog-js'
 
-import { IconChevronRight, IconEllipsis, IconEye, IconPlus, IconSort, IconTrash } from '@posthog/icons'
-import { LemonBadge, LemonButton, LemonCheckbox, LemonInput, LemonModal, Spinner } from '@posthog/lemon-ui'
+import { IconChevronRight, IconEllipsis, IconEye, IconInfo, IconPlus, IconSort, IconTrash } from '@posthog/icons'
+import { LemonBadge, LemonButton, LemonCheckbox, LemonInput, LemonModal, Spinner, Tooltip } from '@posthog/lemon-ui'
 
 import { FEATURE_FLAGS } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
@@ -41,6 +41,9 @@ const SortingKeyToLabel = {
     recording_ttl: 'Expiration',
     surfacing_score: 'Relevance',
 }
+
+const RELEVANCE_SORT_EXPLANATION =
+    'Relevance predicts which sessions are worth watching, using signals like rage clicks, dead clicks, console errors, failed network requests, and in-session activity. The highest-scoring recordings appear first.'
 
 function getLabel(filters: RecordingUniversalFilters): string {
     const order_field = filters.order || 'start_time'
@@ -100,8 +103,7 @@ function SortedBy({
                     ? [
                           {
                               label: SortingKeyToLabel['surfacing_score'],
-                              tooltip:
-                                  'Ranks recordings by a relevance score so the sessions most likely to be worth watching appear first.',
+                              tooltip: RELEVANCE_SORT_EXPLANATION,
                               onClick: () => changeSort({ order: 'surfacing_score', order_direction: 'DESC' }),
                               active: filters.order === 'surfacing_score',
                           },
@@ -180,7 +182,18 @@ function SortedBy({
                 },
             ]}
             icon={<IconSort className="text-lg" />}
-            label={getLabel(filters)}
+            label={
+                filters.order === 'surfacing_score' ? (
+                    <span className="inline-flex items-center gap-1">
+                        {SortingKeyToLabel['surfacing_score']}
+                        <Tooltip title={RELEVANCE_SORT_EXPLANATION}>
+                            <IconInfo className="text-sm" />
+                        </Tooltip>
+                    </span>
+                ) : (
+                    getLabel(filters)
+                )
+            }
         />
     )
 }
