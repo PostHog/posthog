@@ -12,6 +12,7 @@ export interface SurveyStatEntry {
 export interface SurveyStatsData {
     survey_id?: string
     stats?: Record<string, { total_count: number; unique_persons: number }>
+    // Rates come from the API already scaled to a percentage (0-100), e.g. 21.7 means 21.7%.
     rates?: { response_rate?: number; dismissal_rate?: number }
     _posthogUrl?: string
 }
@@ -49,10 +50,10 @@ export function SurveyStatsView({ data }: SurveyStatsViewProps): ReactElement {
                                         <div className="flex justify-between text-sm mb-1">
                                             <span className="text-muted-foreground">Response rate</span>
                                             <span className="tabular-nums">
-                                                {(data.rates.response_rate * 100).toFixed(1)}%
+                                                {data.rates.response_rate.toFixed(1)}%
                                             </span>
                                         </div>
-                                        <Progress value={data.rates.response_rate * 100} variant="success" />
+                                        <Progress value={data.rates.response_rate} variant="success" />
                                     </div>
                                 )}
                                 {data.rates.dismissal_rate != null && (
@@ -60,10 +61,10 @@ export function SurveyStatsView({ data }: SurveyStatsViewProps): ReactElement {
                                         <div className="flex justify-between text-sm mb-1">
                                             <span className="text-muted-foreground">Dismissal rate</span>
                                             <span className="tabular-nums">
-                                                {(data.rates.dismissal_rate * 100).toFixed(1)}%
+                                                {data.rates.dismissal_rate.toFixed(1)}%
                                             </span>
                                         </div>
-                                        <Progress value={data.rates.dismissal_rate * 100} variant="warning" />
+                                        <Progress value={data.rates.dismissal_rate} variant="warning" />
                                     </div>
                                 )}
                             </div>
