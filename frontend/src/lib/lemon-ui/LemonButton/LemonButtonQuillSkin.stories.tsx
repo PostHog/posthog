@@ -14,6 +14,13 @@ import { LemonButton } from './LemonButton'
  */
 const meta: Meta = {
     title: 'Lemon UI/Lemon Button Quill Skin',
+    parameters: {
+        testOptions: {
+            // The story intentionally shows always-loading buttons, whose spinners
+            // would otherwise time out the snapshot runner's loader wait
+            waitForLoadersToDisappear: false,
+        },
+    },
 }
 export default meta
 
