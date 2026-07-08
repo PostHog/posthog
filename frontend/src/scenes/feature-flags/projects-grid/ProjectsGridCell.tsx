@@ -1,11 +1,10 @@
 import { IconLock } from '@posthog/icons'
-import { LemonSkeleton, LemonTag, Tooltip } from '@posthog/lemon-ui'
-
-import { LemonTableLink } from 'lib/lemon-ui/LemonTable/LemonTableLink'
+import { LemonSkeleton, LemonTag, Link, Tooltip } from '@posthog/lemon-ui'
 
 import { OrganizationFeatureFlag } from '~/types'
 
 import { groupFilters } from '../FeatureFlags'
+import { FlagActiveToggleTag } from '../FlagActiveToggleTag'
 
 export type CellState =
     | { kind: 'loading' }
@@ -13,7 +12,15 @@ export type CellState =
     | { kind: 'no-access' }
     | { kind: 'present'; sibling: OrganizationFeatureFlag }
 
-export function ProjectsGridCell({ state }: { state: CellState }): JSX.Element {
+export function ProjectsGridCell({
+    state,
+    onToggle,
+    toggling,
+}: {
+    state: CellState
+    onToggle?: (active: boolean) => void
+    toggling?: boolean
+}): JSX.Element {
     if (state.kind === 'loading') {
         return <LemonSkeleton className="h-6 w-24" data-attr="projects-grid-cell-loading" />
     }
@@ -44,18 +51,22 @@ export function ProjectsGridCell({ state }: { state: CellState }): JSX.Element {
     const evals = typeof sibling.evaluations_7d === 'number' ? sibling.evaluations_7d.toLocaleString() : '—'
 
     return (
-        <LemonTableLink
-            to={`/project/${sibling.team_id}/feature_flags/${sibling.flag_id}`}
-            title={
-                <LemonTag type={sibling.active ? 'success' : 'default'} className="uppercase">
-                    {sibling.active ? 'Enabled' : 'Disabled'}
-                </LemonTag>
-            }
-            description={
+        <div className="flex flex-col items-start py-1">
+            <FlagActiveToggleTag
+                active={sibling.active}
+                toggling={toggling}
+                onToggle={onToggle}
+                data-attr="projects-grid-cell-toggle"
+            />
+            <Link
+                subtle
+                to={`/project/${sibling.team_id}/feature_flags/${sibling.flag_id}`}
+                className="text-xs text-tertiary mt-1"
+            >
                 <span data-attr="projects-grid-cell-present">
                     {rollout} · {evals} evals · 7d
                 </span>
-            }
-        />
+            </Link>
+        </div>
     )
 }

@@ -43,10 +43,9 @@ endpoint is also excluded from new routing in that cymbal process. Repeated
 overloads double the endpoint cooldown up to
 `CYMBAL_REMOTE_RESOLUTION_OVERLOAD_EJECTION_MAX_MS`, and a quiet
 `CYMBAL_REMOTE_RESOLUTION_OVERLOAD_EJECTION_DECAY_MS` window resets it.
-`LoadEvent` is only a freshness/draining signal for endpoint routing, not an
-overload or dynamic batch-size control plane. `CYMBAL_REMOTE_RESOLUTION_ROUTING_JITTER`
-flattens traffic across the rendezvous-ranked candidate list: `0.0` sends all traffic to
-the top-ranked endpoint, `1.0` is uniform across candidates, and intermediate values decay by rank.
+`LoadEvent` carries freshness, draining, and item-concurrency load (`in_flight` / `max_in_flight`).
+Cymbal uses that load as a soft routing bias: busier endpoints are less likely to win the rendezvous-ranked candidate list, while stale or draining endpoints remain excluded.
+`CYMBAL_REMOTE_RESOLUTION_ROUTING_JITTER` flattens traffic across the load-adjusted rendezvous-ranked candidate list: `0.0` sends traffic to the top load-adjusted endpoint, `1.0` makes selection load-weighted across candidates, and intermediate values decay by rank.
 
 See [`docs/compatibility.md`](docs/compatibility.md) for the Node consumer
 compatibility checklist and [`src/modes/resolution/README.md`](src/modes/resolution/README.md)

@@ -15,6 +15,7 @@ import { OrganizationFeatureFlag, OrganizationFeatureFlagRow } from '~/types'
 
 import { BulkCopyFlagsModal } from '../BulkCopyFlagsModal'
 import { BULK_COPY_MAX_FLAGS, flagSelectionLogic } from '../flagSelectionLogic'
+import { confirmFlagActiveToggleInProject, flagToggleKey } from '../updateFlagActiveInProject'
 import { CellState, ProjectsGridCell } from './ProjectsGridCell'
 import { projectsGridLogic } from './projectsGridLogic'
 import { ProjectsGridToolbar } from './ProjectsGridToolbar'
@@ -68,8 +69,9 @@ export function ProjectsGrid(): JSX.Element {
         accessibleTeamIds,
         siblingsByFlagKey,
         siblingsLoadingKeys,
+        togglingFlagIds,
     } = useValues(projectsGridLogic)
-    const { loadMoreFlags } = useActions(projectsGridLogic)
+    const { loadMoreFlags, toggleFlagActive } = useActions(projectsGridLogic)
     const { currentOrganization } = useValues(organizationLogic)
     const { currentTeamId } = useValues(teamLogic)
     const { openBulkCopyModal } = useActions(flagSelectionLogic)
@@ -128,18 +130,33 @@ export function ProjectsGrid(): JSX.Element {
             ),
             key: `project-${teamId}`,
             width: columnWidth,
-            render: (_: unknown, flag: OrganizationFeatureFlagRow) => (
-                <ProjectsGridCell
-                    state={cellStateFor(
-                        flag,
-                        teamId,
-                        currentTeamId,
-                        accessibleTeamIds,
-                        siblingsByFlagKey[flag.key],
-                        siblingsLoadingKeys.includes(flag.key)
-                    )}
-                />
-            ),
+            render: (_: unknown, flag: OrganizationFeatureFlagRow) => {
+                const state = cellStateFor(
+                    flag,
+                    teamId,
+                    currentTeamId,
+                    accessibleTeamIds,
+                    siblingsByFlagKey[flag.key],
+                    siblingsLoadingKeys.includes(flag.key)
+                )
+                const flagId = state.kind === 'present' ? state.sibling.flag_id : null
+                return (
+                    <ProjectsGridCell
+                        state={state}
+                        toggling={flagId !== null ? togglingFlagIds[flagToggleKey(teamId, flagId)] : false}
+                        onToggle={
+                            flagId !== null
+                                ? (active) =>
+                                      confirmFlagActiveToggleInProject({
+                                          teamName: teamsById.get(teamId)?.name ?? `Project ${teamId}`,
+                                          active,
+                                          onConfirm: () => toggleFlagActive(flag.key, teamId, flagId, active),
+                                      })
+                                : undefined
+                        }
+                    />
+                )
+            },
         })),
     ]
 

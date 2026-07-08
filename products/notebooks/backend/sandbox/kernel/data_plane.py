@@ -1,18 +1,26 @@
 """Client for the backend data plane — the sandbox's only read path to PostHog data.
 
 POSTs a HogQL query to the backend's data-plane endpoint (authed with the
-run-scoped data-plane token) and decodes the Arrow stream response. Uses urllib
-so the only third-party dependency is pyarrow (present in the sandbox image).
+run-scoped data-plane token), which enqueues it on the backend's async query
+manager and returns a query_id; this client then polls the status endpoint until
+the rows come back as an Arrow stream. No backend web worker waits on ClickHouse
+— and this thread is the kernel's own, invisible to the user. Uses urllib so the
+only third-party dependency is pyarrow (present in the sandbox image).
 """
 
 import json
+import time
 import urllib.error
 import urllib.request
 from typing import Any
 
 import pyarrow as pa
 
-_REQUEST_TIMEOUT_SECONDS = 120
+_REQUEST_TIMEOUT_SECONDS = 30
+# Total budget for one query: enqueue + Celery pickup + ClickHouse execution.
+_POLL_DEADLINE_SECONDS = 180
+_POLL_INITIAL_INTERVAL_SECONDS = 0.3
+_POLL_MAX_INTERVAL_SECONDS = 2.0
 
 
 class DataPlaneError(Exception):
@@ -33,13 +41,48 @@ def fetch_query_page(
         # url is the backend's own data-plane endpoint from the signed run payload, never user-controlled.
         # nosemgrep: python.lang.security.audit.dynamic-urllib-use-detected.dynamic-urllib-use-detected
         with urllib.request.urlopen(request, timeout=_REQUEST_TIMEOUT_SECONDS) as response:
-            return decode_arrow_stream(response)
+            if _is_arrow(response):
+                # A pre-async-manager backend answers the POST with the rows directly.
+                return decode_arrow_stream(response)
+            body = json.loads(response.read() or b"{}")
     except urllib.error.HTTPError as exc:
         raise DataPlaneError(_error_detail(exc)) from exc
     except urllib.error.URLError as exc:
         raise DataPlaneError(f"Could not reach the data plane: {exc.reason}") from exc
     except pa.ArrowInvalid as exc:
         raise DataPlaneError(f"Invalid Arrow response from the data plane: {exc}") from exc
+
+    query_id = body.get("query_id")
+    if not query_id:
+        raise DataPlaneError("Data plane did not accept the query")
+    return _poll_for_result(f"{url.rstrip('/')}/{query_id}/", token)
+
+
+def _poll_for_result(status_url: str, token: str) -> tuple[list[str], list[tuple[Any, ...]], list[list[str]]]:
+    request = urllib.request.Request(status_url, headers={"Authorization": f"Bearer {token}"}, method="GET")
+    deadline = time.monotonic() + _POLL_DEADLINE_SECONDS
+    interval = _POLL_INITIAL_INTERVAL_SECONDS
+    while time.monotonic() < deadline:
+        try:
+            # status_url is the backend's own data-plane endpoint from the signed run payload, not user input.
+            # nosemgrep: python.lang.security.audit.dynamic-urllib-use-detected.dynamic-urllib-use-detected
+            with urllib.request.urlopen(request, timeout=_REQUEST_TIMEOUT_SECONDS) as response:
+                if _is_arrow(response):
+                    return decode_arrow_stream(response)
+                # 202 — still running.
+        except urllib.error.HTTPError as exc:
+            raise DataPlaneError(_error_detail(exc)) from exc
+        except urllib.error.URLError as exc:
+            raise DataPlaneError(f"Could not reach the data plane: {exc.reason}") from exc
+        except pa.ArrowInvalid as exc:
+            raise DataPlaneError(f"Invalid Arrow response from the data plane: {exc}") from exc
+        time.sleep(interval)
+        interval = min(interval * 1.5, _POLL_MAX_INTERVAL_SECONDS)
+    raise DataPlaneError("Timed out waiting for the query to finish")
+
+
+def _is_arrow(response: Any) -> bool:
+    return "arrow" in (response.headers.get("Content-Type") or "")
 
 
 def decode_arrow_stream(source: Any) -> tuple[list[str], list[tuple[Any, ...]], list[list[str]]]:

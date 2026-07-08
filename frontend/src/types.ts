@@ -79,6 +79,7 @@ import type {
 } from '~/queries/schema/schema-general'
 import { QueryContext } from '~/queries/types'
 
+import type { AIPromptConfigApi } from 'products/subscriptions/frontend/generated/api.schemas'
 import { CyclotronInputType } from 'products/workflows/frontend/Workflows/hogflows/steps/types'
 import type { HogFlow } from 'products/workflows/frontend/Workflows/hogflows/types'
 
@@ -753,6 +754,7 @@ export interface ConversationsSettings {
     slack_notify_on_join?: boolean
     slack_notify_on_leave?: boolean
     slack_alert_channel_id?: string | null
+    slack_nudge_enabled?: boolean
     email_enabled?: boolean
     teams_enabled?: boolean
     teams_team_id?: string | null
@@ -2549,6 +2551,8 @@ export interface EndpointType extends WithAccessControl {
     columns?: { name: string; type: string }[]
     bucket_overrides?: Record<string, string> | null
     tags?: string[]
+    /** Breakdown property names that may be omitted on /run. Defaults to [] — every breakdown variable is required. */
+    optional_breakdown_properties?: string[]
 }
 
 /** Extends EndpointType with version-specific fields when fetching a specific version */
@@ -2959,7 +2963,7 @@ export type BreakdownType =
     | 'data_warehouse'
     | 'data_warehouse_person_property'
     | 'revenue_analytics'
-export type IntervalType = 'second' | 'minute' | 'hour' | 'day' | 'week' | 'month'
+export type IntervalType = 'second' | 'minute' | 'hour' | 'day' | 'week' | 'month' | 'quarter' | 'year'
 export type SimpleIntervalType = 'day' | 'month'
 export type SmoothingType = number
 export type InsightSceneSource = 'web-analytics' | 'llm-analytics' | 'endpoints'
@@ -4342,12 +4346,6 @@ export interface OrganizationFeatureFlagsCopyBody {
     disable_copied_flag?: boolean
 }
 
-export type OrganizationFeatureFlags = {
-    flag_id: FeatureFlagType['id']
-    team_id: TeamType['id']
-    active: FeatureFlagType['active']
-}[]
-
 export enum FeatureFlagStatus {
     ACTIVE = 'active',
     STALE = 'stale',
@@ -5320,6 +5318,7 @@ export interface SubscriptionType {
     dashboard_export_insights?: number[]
     integration_id?: number | null
     prompt?: string | null
+    ai_prompt_config?: AIPromptConfigApi | null
     target_type: string
     target_value: string
     frequency: 'daily' | 'weekly' | 'monthly' | 'yearly'
@@ -5653,6 +5652,7 @@ export type APIScopeObject =
     | 'heatmap'
     | 'hog_flow'
     | 'hog_function'
+    | 'ingestion_warning'
     | 'insight'
     | 'insight_variable'
     | 'integration'
@@ -7493,25 +7493,6 @@ export type LinkType = {
     created_at: string
     updated_at: string
     _create_in_folder?: string | null
-}
-
-export interface LineageNode {
-    id: string
-    name: string
-    type: 'view' | 'table'
-    sync_frequency?: DataWarehouseSyncInterval
-    last_run_at?: string
-    status?: string
-}
-
-export interface LineageEdge {
-    source: string
-    target: string
-}
-
-export interface LineageGraph {
-    nodes: LineageNode[]
-    edges: LineageEdge[]
 }
 
 export interface DataWarehouseSourceRowCount {

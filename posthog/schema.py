@@ -22069,14 +22069,18 @@ class AccountsQuery(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
-    allRolesUnassigned: bool | None = None
+    allRolesUnassigned: bool | None = Field(
+        default=None,
+        description="Match accounts with no active relationship of any definition.",
+    )
     assignedToUserIds: list[int] | None = Field(
         default=None,
         description=(
-            "Match accounts where any of these user ids is the CSM or the account"
-            ' executive (OR over both roles). Drives the "My accounts" shortcut (the'
-            ' current user\'s id) and the shareable "Assigned to" filter — the ids are'
-            " explicit so a shared URL resolves identically for every viewer."
+            "Match accounts where any of these user ids actively holds any relationship"
+            ' (CSM, Account executive, or a custom definition). Drives the "My'
+            ' accounts" shortcut (the current user\'s id) and the shareable "Assigned'
+            ' to" filter — the ids are explicit so a shared URL resolves identically'
+            " for every viewer."
         ),
     )
     filterExpression: str | None = Field(
@@ -25021,6 +25025,17 @@ class LogsQuery(BaseModel):
         extra="forbid",
     )
     after: str | None = Field(default=None, description="Cursor for fetching the next page of results")
+    customColumns: list[str] | None = Field(
+        default=None,
+        description=(
+            "Custom column expressions evaluated per log row. Each entry is either a"
+            " source-prefixed shorthand (`attributes.<key>`,"
+            " `resource_attributes.<key>`, `body.<json.path>`) or a scalar HogQL"
+            " expression (`upper(level)`, `coalesce(attributes['a'],"
+            " attributes['b'])`). Values come back on each result row keyed by the"
+            " aliases in `LogsQueryResponse.columns`."
+        ),
+    )
     dateRange: DateRange
     excludeAttributes: bool | None = Field(
         default=None,

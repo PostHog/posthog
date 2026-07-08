@@ -109,6 +109,21 @@ class TestColumnToExpr(SimpleTestCase):
             ("nested_aggregate", "upper(toString(sum(1)))"),
             ("subquery", "(SELECT 1)"),
             ("placeholder", "{cursor}"),
+            # Row-multiplying functions would expand a per-row column into many rows — a low-friction DoS.
+            ("array_join_row_multiplier", "arrayJoin(range(1000000000))"),
+            ("array_join_case_insensitive", "ARRAYJOIN([1, 2, 3])"),
+            ("nested_array_join", "toString(arrayJoin(range(10)))"),
+            # Value-generating functions build a huge per-row value from a small constant argument without
+            # multiplying rows — the row-multiplier check above misses them.
+            ("range_generator", "range(1000000000)"),
+            ("range_case_insensitive", "RANGE(10)"),
+            ("nested_range_generator", "length(range(1000000000))"),
+            ("repeat_generator", "repeat(body, 1000000000)"),
+            ("arraywithconstant_generator", "arrayWithConstant(1000000000, 'x')"),
+            # Window functions evaluate over a frame of rows, forcing ClickHouse to process every
+            # matching log before the page limit applies — same availability risk as aggregations.
+            ("window_row_number", "row_number() over (order by timestamp)"),
+            ("window_aggregate_over", "min(timestamp) over ()"),
         ]
     )
     def test_non_scalar_expressions_are_rejected(self, _name, text):
