@@ -109,7 +109,16 @@ export const systemStatusLogic = kea<systemStatusLogicType>([
         queries: [
             null as SystemStatusQueriesResult | null,
             {
-                loadQueries: async () => (await api.get('api/instance_status/queries')).results,
+                loadQueries: async (): Promise<SystemStatusQueriesResult | null> => {
+                    try {
+                        return (await api.get('api/instance_status/queries')).results
+                    } catch (error) {
+                        // Staff-only diagnostics tab: a transient backend failure shouldn't throw
+                        // an uncaught error into capture. Degrade to an empty result instead.
+                        lemonToast.error('Failed to load running queries')
+                        return { postgres_running: [], errors: { load: String(error) } }
+                    }
+                },
             },
         ],
     })),
