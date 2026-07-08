@@ -1,17 +1,24 @@
 import uuid
+from datetime import UTC, datetime, timedelta
 
 import pytest
+from posthog.test.base import APIBaseTest
 from unittest.mock import MagicMock, patch
+
+from parameterized import parameterized
 
 from posthog.helpers.slack_scopes import REQUIRED_SLACK_SCOPES
 
+from products.exports.backend.models.subscription import Subscription, SubscriptionDelivery
 from products.exports.backend.temporal.subscriptions.ai_subscription.delivery import (
     SLACK_MRKDWN_SECTION_LIMIT,
     _build_ai_slack_message,
+    _last_successful_delivery_finished_at,
     _split_text_into_chunks,
     render_ai_email_html,
     send_email_ai_subscription_report,
 )
+from products.exports.backend.temporal.subscriptions.types import SubscriptionTriggerType
 
 from ee.tasks.subscriptions.slack_subscriptions import SlackMessageData
 
@@ -277,3 +284,52 @@ class TestFeedbackFooter:
             )
         context = email_message.call_args.kwargs["template_context"]
         assert context[f"feedback_{feedback}_url"] == _feedback_url(feedback, "email")
+
+
+class TestLastSuccessfulDeliveryAnchor(APIBaseTest):
+    def _delivery(self, trigger_type: str, status: str, finished_at: datetime | None) -> None:
+        SubscriptionDelivery.objects.create(
+            subscription=self.subscription,
+            team=self.team,
+            temporal_workflow_id="wf",
+            idempotency_key=str(uuid.uuid4()),
+            trigger_type=trigger_type,
+            target_type="email",
+            target_value="a@posthog.com",
+            status=status,
+            finished_at=finished_at,
+        )
+
+    def setUp(self) -> None:
+        super().setUp()
+        self.subscription = Subscription.objects.create(
+            team=self.team,
+            prompt="p?",
+            target_type="email",
+            target_value="a@posthog.com",
+            frequency="weekly",
+            interval=1,
+            start_date=datetime(2026, 1, 1, tzinfo=UTC),
+        )
+
+    @parameterized.expand(
+        [
+            # Only completed SCHEDULED sends move the anchor: a manual "Test delivery" (or a
+            # target-change confirmation) right before a run must not shrink its window to near-empty.
+            (SubscriptionTriggerType.MANUAL,),
+            (SubscriptionTriggerType.TARGET_CHANGE,),
+        ]
+    )
+    def test_non_scheduled_deliveries_do_not_move_the_anchor(self, trigger_type: str) -> None:
+        scheduled_at = datetime(2026, 6, 22, 12, 0, tzinfo=UTC)
+        self._delivery(SubscriptionTriggerType.SCHEDULED, SubscriptionDelivery.Status.COMPLETED, scheduled_at)
+        self._delivery(trigger_type, SubscriptionDelivery.Status.COMPLETED, scheduled_at + timedelta(days=2))
+
+        assert _last_successful_delivery_finished_at(self.subscription) == scheduled_at
+
+    def test_no_scheduled_delivery_yields_none(self) -> None:
+        self._delivery(
+            SubscriptionTriggerType.MANUAL, SubscriptionDelivery.Status.COMPLETED, datetime(2026, 6, 22, tzinfo=UTC)
+        )
+
+        assert _last_successful_delivery_finished_at(self.subscription) is None

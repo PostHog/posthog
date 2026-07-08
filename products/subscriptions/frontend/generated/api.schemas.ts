@@ -35,7 +35,7 @@ export const AIWindowConfigModeEnumApi = {
 
 export interface AIWindowConfigApi {
     /** What the report analyzes each run:
-     * * `since_last_sent` (default) — everything since the previous successful delivery (gap-free)
+     * * `since_last_sent` (default) — everything since the previous successful scheduled delivery (gap-free; test/manual sends don't move the anchor)
      * * `last_n_days` — a fixed trailing window of start_days_ago days
      * * `days_ago_range` — the explicit range from start_days_ago to end_days_ago days ago
      *
@@ -60,7 +60,7 @@ export interface AIWindowConfigApi {
 }
 
 export interface AIPromptConfigApi {
-    /** Analysis window for the report. Omitted = 'since_last_sent' (everything since the previous delivery). */
+    /** Analysis window for the report. Omitted = 'since_last_sent' (everything since the previous scheduled delivery). */
     window?: AIWindowConfigApi
 }
 

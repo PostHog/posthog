@@ -134,7 +134,7 @@ class AIWindowConfigSerializer(serializers.Serializer):
         default=Subscription.AIWindowMode.SINCE_LAST_SENT,
         help_text=(
             "What the report analyzes each run:\n"
-            "* `since_last_sent` (default) — everything since the previous successful delivery (gap-free)\n"
+            "* `since_last_sent` (default) — everything since the previous successful scheduled delivery (gap-free; test/manual sends don't move the anchor)\n"
             "* `last_n_days` — a fixed trailing window of start_days_ago days\n"
             "* `days_ago_range` — the explicit range from start_days_ago to end_days_ago days ago"
         ),
@@ -191,7 +191,7 @@ class AIWindowConfigSerializer(serializers.Serializer):
 class AIPromptConfigSerializer(serializers.Serializer):
     window = AIWindowConfigSerializer(
         required=False,
-        help_text="Analysis window for the report. Omitted = 'since_last_sent' (everything since the previous delivery).",
+        help_text="Analysis window for the report. Omitted = 'since_last_sent' (everything since the previous scheduled delivery).",
     )
 
 

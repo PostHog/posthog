@@ -26,6 +26,7 @@ from products.exports.backend.temporal.subscriptions.ai_subscription.spec_genera
     ReportWindow,
     compute_report_window,
 )
+from products.exports.backend.temporal.subscriptions.types import SubscriptionTriggerType
 
 from ee.tasks.subscriptions.slack_subscriptions import (
     UTM_TAGS_BASE,
@@ -104,6 +105,10 @@ def _last_successful_delivery_finished_at(subscription: Subscription) -> datetim
             SubscriptionDelivery.objects.filter(
                 subscription_id=subscription.id,
                 status=SubscriptionDelivery.Status.COMPLETED,
+                # Only real scheduled sends move the anchor: a manual "Test delivery" (or an immediate
+                # target-change confirmation) right before a run would otherwise shrink its window to
+                # near-empty — a test is a preview, not a send.
+                trigger_type=SubscriptionTriggerType.SCHEDULED,
                 finished_at__isnull=False,
             )
             .order_by("-finished_at")
