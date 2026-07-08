@@ -15,7 +15,7 @@ import type { SubscriptionApi } from '@posthog/products-subscriptions/frontend/g
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
 
-import { subscriptionSceneLogic } from './subscriptionSceneLogic'
+import { PREVIEW_POLL_INTERVAL_MS, subscriptionSceneLogic } from './subscriptionSceneLogic'
 
 const MOCK_USER = {
     id: 1,
@@ -346,12 +346,16 @@ describe('subscriptionSceneLogic', () => {
         captureSpy.mockRestore()
     })
 
-    it('runs a preview and clears it without touching delivery', async () => {
-        const previewBody = {
-            report: '# Weekly report',
-            diagnostics: [{ description: 'Daily signups', hogql: 'SELECT 1', ok: true, error_type: null }],
+    it('dispatches a preview and polls the delivery row until it finishes', async () => {
+        const startingRow = { id: 'd-prev', status: 'starting', ai_report: null, ai_report_diagnostics: null }
+        const completedRow = {
+            id: 'd-prev',
+            status: 'completed',
+            ai_report: '# Weekly report',
+            ai_report_diagnostics: [{ description: 'Daily signups', hogql: 'SELECT 1', ok: true, error_type: null }],
         }
         let previewCalls = 0
+        let pollCalls = 0
         useMocks({
             get: {
                 [`/api/projects/${MOCK_TEAM_ID}/subscriptions/3/`]: () => [200, MOCK_AI_SUBSCRIPTION_WITH_PLAN],
@@ -359,11 +363,15 @@ describe('subscriptionSceneLogic', () => {
                     200,
                     { results: [], next: null, previous: null },
                 ],
+                [`/api/projects/${MOCK_TEAM_ID}/subscriptions/3/deliveries/d-prev/`]: () => {
+                    pollCalls += 1
+                    return [200, pollCalls === 1 ? startingRow : completedRow]
+                },
             },
             post: {
                 [`/api/projects/${MOCK_TEAM_ID}/subscriptions/3/preview/`]: () => {
                     previewCalls += 1
-                    return [200, previewBody]
+                    return [202, { delivery_id: 'd-prev' }]
                 },
             },
         })
@@ -373,16 +381,65 @@ describe('subscriptionSceneLogic', () => {
         logic.mount()
         await expectLogic(logic).toFinishAllListeners()
 
-        await expectLogic(logic, () => {
-            logic.actions.previewSubscription()
-        }).toFinishAllListeners()
+        // Fake timers so the poll's breakpoint delays are driven by the test, not real time.
+        jest.useFakeTimers()
+        logic.actions.previewSubscription()
+        await jest.advanceTimersByTimeAsync(0)
+        for (let i = 0; i < 2; i++) {
+            await jest.advanceTimersByTimeAsync(PREVIEW_POLL_INTERVAL_MS)
+        }
+        jest.useRealTimers()
+        await expectLogic(logic).toFinishAllListeners()
+
         expect(previewCalls).toEqual(1)
-        expect(logic.values.preview?.report).toEqual('# Weekly report')
+        expect(pollCalls).toEqual(2)
+        expect(logic.values.preview?.ai_report).toEqual('# Weekly report')
+        expect(logic.values.previewLoading).toBe(false)
 
         await expectLogic(logic, () => {
             logic.actions.clearPreview()
         }).toFinishAllListeners()
         expect(logic.values.preview).toBeNull()
+
+        logic.unmount()
+    })
+
+    it('clears the preview when the preview run fails', async () => {
+        const failedRow = {
+            id: 'd-prev',
+            status: 'failed',
+            ai_report: null,
+            ai_report_diagnostics: null,
+            error: { message: 'The prompt was rejected', type: 'PreviewFailed' },
+        }
+        useMocks({
+            get: {
+                [`/api/projects/${MOCK_TEAM_ID}/subscriptions/3/`]: () => [200, MOCK_AI_SUBSCRIPTION_WITH_PLAN],
+                [`/api/projects/${MOCK_TEAM_ID}/subscriptions/3/deliveries/`]: () => [
+                    200,
+                    { results: [], next: null, previous: null },
+                ],
+                [`/api/projects/${MOCK_TEAM_ID}/subscriptions/3/deliveries/d-prev/`]: () => [200, failedRow],
+            },
+            post: {
+                [`/api/projects/${MOCK_TEAM_ID}/subscriptions/3/preview/`]: () => [202, { delivery_id: 'd-prev' }],
+            },
+        })
+        initKeaTests()
+
+        const logic = subscriptionSceneLogic({ id: '3' })
+        logic.mount()
+        await expectLogic(logic).toFinishAllListeners()
+
+        jest.useFakeTimers()
+        logic.actions.previewSubscription()
+        await jest.advanceTimersByTimeAsync(0)
+        await jest.advanceTimersByTimeAsync(PREVIEW_POLL_INTERVAL_MS)
+        jest.useRealTimers()
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(logic.values.preview).toBeNull()
+        expect(logic.values.previewLoading).toBe(false)
 
         logic.unmount()
     })
@@ -421,6 +478,7 @@ describe('subscriptionSceneLogic', () => {
         // Only the edited step changes; the other keeps its original HogQL.
         expect(logic.values.editedQueryPlan?.steps.map((s) => s.hogql)).toEqual(['SELECT 1', 'SELECT 99'])
 
+        const captureSpy = jest.spyOn(posthog, 'capture')
         await expectLogic(logic, () => {
             logic.actions.saveQueryPlan()
         }).toFinishAllListeners()
@@ -428,31 +486,27 @@ describe('subscriptionSceneLogic', () => {
         // Save success replaces the subscription and clears the pending edits.
         expect(logic.values.queryPlanEdits).toEqual({})
         expect(logic.values.hasQueryPlanEdits).toBe(false)
+        // Manual plan edits get a named event so adoption is distinguishable from other updates.
+        expect(captureSpy).toHaveBeenCalledWith('subscription query plan saved', { subscription_id: 3 })
 
         logic.unmount()
+        captureSpy.mockRestore()
     })
 
-    it('re-plan clears the frozen plan and reloads', async () => {
-        let replanCalls = 0
-        let returnPlan = true
+    it('regenerate plan PATCHes query_plan null and clears pending edits', async () => {
+        let patchBody: any = null
         useMocks({
             get: {
-                [`/api/projects/${MOCK_TEAM_ID}/subscriptions/3/`]: () => [
-                    200,
-                    returnPlan
-                        ? MOCK_AI_SUBSCRIPTION_WITH_PLAN
-                        : { ...MOCK_AI_SUBSCRIPTION_WITH_PLAN, query_plan: null },
-                ],
+                [`/api/projects/${MOCK_TEAM_ID}/subscriptions/3/`]: () => [200, MOCK_AI_SUBSCRIPTION_WITH_PLAN],
                 [`/api/projects/${MOCK_TEAM_ID}/subscriptions/3/deliveries/`]: () => [
                     200,
                     { results: [], next: null, previous: null },
                 ],
             },
-            post: {
-                [`/api/projects/${MOCK_TEAM_ID}/subscriptions/3/re-plan/`]: () => {
-                    replanCalls += 1
-                    returnPlan = false // the next reload sees a cleared plan
-                    return [202, {}]
+            patch: {
+                [`/api/projects/${MOCK_TEAM_ID}/subscriptions/3/`]: async (req) => {
+                    patchBody = await req.request.json()
+                    return [200, { ...MOCK_AI_SUBSCRIPTION_WITH_PLAN, query_plan: null }]
                 },
             },
         })
@@ -464,11 +518,14 @@ describe('subscriptionSceneLogic', () => {
         expect(logic.values.subscription?.query_plan).toBeTruthy()
 
         await expectLogic(logic, () => {
-            logic.actions.replanSubscription()
+            logic.actions.setQueryPlanStepHogql(0, 'SELECT edited')
+            logic.actions.regeneratePlan()
         }).toFinishAllListeners()
-        expect(replanCalls).toEqual(1)
-        expect(logic.values.replanning).toBe(false)
+        expect(patchBody).toEqual({ query_plan: null })
         expect(logic.values.subscription?.query_plan).toBeNull()
+        // A regenerated plan invalidates pending edits and any rendered preview.
+        expect(logic.values.queryPlanEdits).toEqual({})
+        expect(logic.values.preview).toBeNull()
 
         logic.unmount()
     })

@@ -29,10 +29,6 @@ from products.exports.backend.models.subscription import (
     Subscription,
     SubscriptionDelivery,
 )
-from products.exports.backend.temporal.subscriptions.ai_subscription.report_pipeline import (
-    AiReportResult,
-    QueryStepDiagnostic,
-)
 from products.exports.backend.temporal.subscriptions.types import (
     AI_REPORT_DIAGNOSTICS_KEY,
     AI_REPORT_PROMPT_SNAPSHOT_KEY,
@@ -2852,8 +2848,6 @@ class TestAISubscriptionAPI(APILicensedTest):
         assert patch_resp.status_code == status.HTTP_400_BAD_REQUEST, patch_resp.json()
         assert "prompt" in str(patch_resp.json()).lower(), patch_resp.json()
 
-    # --- PR H: re-plan, preview, and frozen query_plan read/write ---
-
     def _valid_query_plan(self) -> dict:
         return {
             "overall_intent": "Weekly event growth",
@@ -2866,86 +2860,97 @@ class TestAISubscriptionAPI(APILicensedTest):
             ],
         }
 
-    def test_re_plan_clears_frozen_query_plan(self, mock_is_cloud, mock_flag, mock_sync):
-        # The whole point of re-plan: a frozen plan is cleared so the next run re-plans via the LLM.
+    def test_patch_null_clears_frozen_query_plan_and_unrelated_patch_does_not(
+        self, mock_is_cloud, mock_flag, mock_sync
+    ):
+        # Clearing the plan is an explicit {query_plan: null} write; a PATCH that merely omits the field
+        # must leave the frozen plan untouched (that would silently discard the deterministic plan).
         self._mock_temporal(mock_sync)
         sub_id = self._create_subscription_for("ai_prompt")
         Subscription.objects.filter(pk=sub_id).update(ai_query_plan=self._valid_query_plan())
 
-        response = self.client.post(f"/api/projects/{self.team.id}/subscriptions/{sub_id}/re-plan/")
+        unrelated = self.client.patch(
+            f"/api/projects/{self.team.id}/subscriptions/{sub_id}", {"title": "still planned"}, format="json"
+        )
+        assert unrelated.status_code == status.HTTP_200_OK, unrelated.json()
+        assert Subscription.objects.get(pk=sub_id).ai_query_plan is not None
 
-        assert response.status_code == status.HTTP_202_ACCEPTED, response.json()
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/subscriptions/{sub_id}", {"query_plan": None}, format="json"
+        )
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        assert response.json()["query_plan"] is None
         assert Subscription.objects.get(pk=sub_id).ai_query_plan is None
 
-    def test_re_plan_rejects_non_ai_subscription(self, mock_is_cloud, mock_flag, mock_sync):
+    def test_patch_null_query_plan_rejected_for_non_ai_subscription(self, mock_is_cloud, mock_flag, mock_sync):
+        # The key's presence (any value, including null) is what's gated — a non-AI sub has no plan.
         self._mock_temporal(mock_sync)
         sub_id = self._create_subscription_for("insight")
-        response = self.client.post(f"/api/projects/{self.team.id}/subscriptions/{sub_id}/re-plan/")
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/subscriptions/{sub_id}", {"query_plan": None}, format="json"
+        )
         assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
 
-    def test_re_plan_requires_query_access(self, mock_is_cloud, mock_flag, mock_sync):
-        # Same query-viewer RBAC gate as create/test-delivery — re-plan affects the AI pipeline's plan.
-        self._mock_temporal(mock_sync)
-        sub_id = self._create_subscription_for("ai_prompt")
-        self._restrict_query_access()
-        response = self.client.post(f"/api/projects/{self.team.id}/subscriptions/{sub_id}/re-plan/")
-        assert response.status_code == status.HTTP_403_FORBIDDEN, response.json()
-
-    @patch("ee.api.subscription.preview_ai_subscription_report")
-    def test_preview_returns_report_and_diagnostics_without_delivering(
-        self, mock_preview, mock_is_cloud, mock_flag, mock_sync
-    ):
-        # Preview must return the generated report + per-step diagnostics and NOT deliver: the start_workflow
-        # mock proves no Temporal delivery is dispatched, and we run the real (mocked) generation seam.
+    def test_preview_dispatches_workflow_and_returns_delivery_id(self, mock_is_cloud, mock_flag, mock_sync):
+        # Preview is async: 202 + a delivery row id to poll, one preview workflow dispatched, and no
+        # delivery workflow ("handle-subscription-value-change") anywhere in sight.
         mock_client = self._mock_temporal(mock_sync)
         sub_id = self._create_subscription_for("ai_prompt")
         mock_client.start_workflow.reset_mock()  # ignore the create-time workflow
-        mock_preview.return_value = AiReportResult(
-            markdown="# Weekly report\nThings went well.",
-            diagnostics=(
-                QueryStepDiagnostic(description="Daily counts", hogql="SELECT 1", ok=True, error_type=None),
-                QueryStepDiagnostic(description="Errors", hogql="SELECT bad", ok=False, error_type="ExposedHogQLError"),
-            ),
-        )
 
         response = self.client.post(f"/api/projects/{self.team.id}/subscriptions/{sub_id}/preview/")
 
-        assert response.status_code == status.HTTP_200_OK, response.json()
-        data = response.json()
-        assert data["report"] == "# Weekly report\nThings went well."
-        assert [d["ok"] for d in data["diagnostics"]] == [True, False]
-        assert data["diagnostics"][1]["error_type"] == "ExposedHogQLError"
-        mock_client.start_workflow.assert_not_called()
+        assert response.status_code == status.HTTP_202_ACCEPTED, response.json()
+        delivery = SubscriptionDelivery.objects.get(pk=response.json()["delivery_id"])
+        assert delivery.trigger_type == "preview"
+        assert delivery.status == SubscriptionDelivery.Status.STARTING
+        assert delivery.temporal_workflow_id == f"preview-ai-subscription-{sub_id}"
+        mock_client.start_workflow.assert_awaited_once()
+        call = mock_client.start_workflow.await_args
+        assert call.args[0] == "preview-ai-subscription"
+        assert call.args[1].delivery_id == delivery.id
+        assert call.kwargs["id"] == f"preview-ai-subscription-{sub_id}"
 
-    @patch("ee.api.subscription.preview_ai_subscription_report")
-    def test_preview_does_not_persist_query_plan(self, mock_preview, mock_is_cloud, mock_flag, mock_sync):
-        # Preview is read-only: even when the (mocked) generation reports a freshly-planned plan, the
-        # endpoint must not freeze it — re-plan/edit are the only write paths.
-        self._mock_temporal(mock_sync)
+    @parameterized.expand(
+        [
+            ("already_running", WorkflowAlreadyStartedError("wf", "preview-ai-subscription"), status.HTTP_409_CONFLICT),
+            ("dispatch_error", RuntimeError("temporal down"), status.HTTP_500_INTERNAL_SERVER_ERROR),
+        ]
+    )
+    def test_preview_dispatch_failure_deletes_pending_delivery_row(
+        self, mock_is_cloud, mock_flag, mock_sync, _name, dispatch_error, expected_status
+    ):
+        # A failed dispatch must not leave an orphaned "starting" row behind — the frontend would poll
+        # it forever and the history would show a run that never existed.
+        mock_client = self._mock_temporal(mock_sync)
         sub_id = self._create_subscription_for("ai_prompt")
-        mock_preview.return_value = AiReportResult(
-            markdown="# r",
-            diagnostics=(),
-            plan_to_persist=self._valid_query_plan(),
-        )
+        mock_client.start_workflow.side_effect = dispatch_error
 
         response = self.client.post(f"/api/projects/{self.team.id}/subscriptions/{sub_id}/preview/")
 
-        assert response.status_code == status.HTTP_200_OK, response.json()
-        assert Subscription.objects.get(pk=sub_id).ai_query_plan is None
+        assert response.status_code == expected_status, response.json()
+        assert not SubscriptionDelivery.objects.filter(subscription_id=sub_id, trigger_type="preview").exists()
 
-    def test_preview_rejects_non_ai_subscription(self, mock_is_cloud, mock_flag, mock_sync):
-        self._mock_temporal(mock_sync)
-        sub_id = self._create_subscription_for("insight")
-        response = self.client.post(f"/api/projects/{self.team.id}/subscriptions/{sub_id}/preview/")
-        assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
+    @parameterized.expand(
+        [
+            ("deleted", "ai_prompt", "deleted", status.HTTP_404_NOT_FOUND),
+            ("non_ai", "insight", None, status.HTTP_400_BAD_REQUEST),
+            ("no_query_access", "ai_prompt", "restrict_query_access", status.HTTP_403_FORBIDDEN),
+        ]
+    )
+    def test_preview_guards(self, mock_is_cloud, mock_flag, mock_sync, _name, resource_kind, setup, expected_status):
+        mock_client = self._mock_temporal(mock_sync)
+        sub_id = self._create_subscription_for(resource_kind)
+        if setup == "deleted":
+            Subscription.objects.filter(pk=sub_id).update(deleted=True)
+        elif setup == "restrict_query_access":
+            self._restrict_query_access()
+        mock_client.start_workflow.reset_mock()
 
-    def test_preview_requires_query_access(self, mock_is_cloud, mock_flag, mock_sync):
-        self._mock_temporal(mock_sync)
-        sub_id = self._create_subscription_for("ai_prompt")
-        self._restrict_query_access()
         response = self.client.post(f"/api/projects/{self.team.id}/subscriptions/{sub_id}/preview/")
-        assert response.status_code == status.HTTP_403_FORBIDDEN, response.json()
+
+        assert response.status_code == expected_status, response.json()
+        mock_client.start_workflow.assert_not_awaited()
 
     def test_query_plan_readable_for_query_viewer(self, mock_is_cloud, mock_flag, mock_sync):
         self._mock_temporal(mock_sync)
@@ -3029,21 +3034,27 @@ class TestAISubscriptionAPI(APILicensedTest):
         )
         cache.clear()
 
-    def test_query_plan_write_rejected_for_query_viewer_without_editor(self, mock_is_cloud, mock_flag, mock_sync):
-        # A query VIEWER clears the read gate (so the request reaches validate()) but must NOT edit the
-        # plan's HogQL — that needs editor. This exercises the editor branch the "none"-access test above
-        # can't reach (it's rejected one layer earlier at the viewer gate).
+    @parameterized.expand([("edit", "valid_plan"), ("clear", None)])
+    def test_query_plan_write_rejected_for_query_viewer_without_editor(
+        self, mock_is_cloud, mock_flag, mock_sync, _name, plan_value
+    ):
+        # A query VIEWER clears the read gate (so the request reaches validate()) but must NOT edit —
+        # or clear — the plan; both regenerate query content on the next run, so both need editor.
+        # This exercises the editor branch the "none"-access test above can't reach (that one is
+        # rejected a layer earlier at the viewer gate).
         self._mock_temporal(mock_sync)
         sub_id = self._create_subscription_for("ai_prompt")
+        existing_plan = self._valid_query_plan()
+        Subscription.objects.filter(pk=sub_id).update(ai_query_plan=existing_plan)
         self._grant_query_viewer_only()
         response = self.client.patch(
             f"/api/projects/{self.team.id}/subscriptions/{sub_id}",
-            {"query_plan": self._valid_query_plan()},
+            {"query_plan": self._valid_query_plan() if plan_value == "valid_plan" else None},
             format="json",
         )
         assert response.status_code == status.HTTP_403_FORBIDDEN, response.json()
         assert "query editor access" in response.json()["detail"]
-        assert Subscription.objects.get(pk=sub_id).ai_query_plan is None
+        assert Subscription.objects.get(pk=sub_id).ai_query_plan == existing_plan
 
     @parameterized.expand(
         [

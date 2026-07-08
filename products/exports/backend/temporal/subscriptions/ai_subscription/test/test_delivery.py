@@ -17,11 +17,15 @@ from products.exports.backend.temporal.subscriptions.ai_subscription.delivery im
     _persist_ai_query_plan,
     _split_text_into_chunks,
     build_ai_subscription_report,
+    preview_ai_subscription_report,
     render_ai_email_html,
     send_email_ai_subscription_report,
 )
 from products.exports.backend.temporal.subscriptions.ai_subscription.report_pipeline import AiReportResult
-from products.exports.backend.temporal.subscriptions.ai_subscription.spec_generator import ReportWindow
+from products.exports.backend.temporal.subscriptions.ai_subscription.spec_generator import (
+    PromptRejectedError,
+    ReportWindow,
+)
 from products.exports.backend.temporal.subscriptions.types import AI_REPORT_WINDOW_END_KEY, SubscriptionTriggerType
 
 from ee.tasks.subscriptions.slack_subscriptions import SlackMessageData
@@ -486,3 +490,61 @@ class TestFreezePlanPersistence:
         assert mock_gen.await_args is not None
         assert mock_gen.await_args.kwargs["ai_query_plan"] == frozen
         mock_ctx.assert_called_once()
+
+
+class TestPreviewSeam:
+    """preview_ai_subscription_report forwards the frozen plan into generation and never freezes a
+    fresh one — the no-persistence contract the preview endpoint's side-effect-freedom relies on."""
+
+    def _subscription(self, ai_query_plan: dict | None) -> MagicMock:
+        sub = MagicMock()
+        sub.id = 42
+        sub.team_id = 7
+        sub.prompt = "how are exports doing?"
+        sub.ai_query_plan = ai_query_plan
+        return sub
+
+    def _context(self, sub: MagicMock) -> tuple[MagicMock, MagicMock, ReportWindow, dict | None]:
+        end = datetime(2026, 6, 29, 16, 0, tzinfo=UTC)
+        window = ReportWindow(start=end - timedelta(days=1), end=end)
+        return MagicMock(), MagicMock(), window, sub.ai_query_plan
+
+    async def test_forwards_frozen_plan_and_never_persists(self) -> None:
+        frozen = {"overall_intent": "i", "steps": [{"description": "d", "query_type": "hogql", "hogql": "SELECT 1"}]}
+        sub = self._subscription(ai_query_plan=frozen)
+        fresh_plan = {
+            "overall_intent": "new",
+            "steps": [{"description": "n", "query_type": "hogql", "hogql": "SELECT 2"}],
+        }
+        with (
+            patch(f"{_DELIVERY}._resolve_subscription_context", return_value=self._context(sub)),
+            patch(
+                f"{_DELIVERY}.generate_ai_report",
+                new=AsyncMock(
+                    return_value=AiReportResult(
+                        markdown="# R",
+                        diagnostics=(),
+                        window_end_utc="2026-06-29T16:00:00+00:00",
+                        plan_to_persist=fresh_plan,
+                    )
+                ),
+            ) as mock_gen,
+            patch(f"{_DELIVERY}._persist_ai_query_plan") as mock_persist,
+        ):
+            result = await preview_ai_subscription_report(sub)
+
+        # Even when generation re-planned (plan_to_persist set), preview must not freeze it.
+        mock_persist.assert_not_called()
+        assert result.markdown == "# R"
+        assert mock_gen.await_args is not None
+        assert mock_gen.await_args.kwargs["ai_query_plan"] == frozen
+        assert mock_gen.await_args.kwargs["prompt"] == sub.prompt
+
+    async def test_missing_creator_rejects(self) -> None:
+        sub = self._subscription(ai_query_plan=None)
+        _, _, window, plan = self._context(sub)
+        with (
+            patch(f"{_DELIVERY}._resolve_subscription_context", return_value=(MagicMock(), None, window, plan)),
+            pytest.raises(PromptRejectedError),
+        ):
+            await preview_ai_subscription_report(sub)

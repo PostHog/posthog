@@ -80,6 +80,8 @@ const DELIVERY_TRIGGER_LABELS: Record<string, string> = {
     scheduled: 'Scheduled',
     manual: 'Test delivery',
     target_change: 'Subscription updated',
+    // Preview runs land in the history too (the row is what the preview UI polls) but are never sent.
+    preview: 'Preview',
 }
 
 function deliveryTriggerLabel(triggerType: string): string {

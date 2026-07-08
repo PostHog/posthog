@@ -88,7 +88,7 @@ export function deliveryRowHasExpandableContent(row: SubscriptionDeliveryApi): b
  * Per-query accordion: one compact header per generated query (status + description); expand a query for its
  * SQL. Failed queries are open by default so a degraded report stays loud and debuggable.
  */
-function GeneratedQueries({ diagnostics }: { diagnostics: readonly AIReportQueryDiagnosticApi[] }): JSX.Element {
+export function GeneratedQueries({ diagnostics }: { diagnostics: readonly AIReportQueryDiagnosticApi[] }): JSX.Element {
     return (
         <div className="flex flex-col gap-1">
             <div className="text-secondary">{diagnosticsSummary(diagnostics)}</div>

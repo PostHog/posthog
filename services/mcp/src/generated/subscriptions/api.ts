@@ -57,7 +57,14 @@ export const subscriptionsCreateBodyTitleMax = 100
 
 export const subscriptionsCreateBodySummaryPromptGuideMax = 500
 
-export const subscriptionsCreateBodyQueryPlanOneStepsItemQueryTypeDefault = `hogql`
+export const subscriptionsCreateBodyQueryPlanOverallIntentMax = 500
+
+export const subscriptionsCreateBodyQueryPlanStepsItemDescriptionMax = 500
+
+export const subscriptionsCreateBodyQueryPlanStepsItemQueryTypeDefault = `hogql`
+export const subscriptionsCreateBodyQueryPlanStepsItemHogqlMax = 5000
+
+export const subscriptionsCreateBodyQueryPlanStepsMax = 25
 
 export const SubscriptionsCreateBody = /* @__PURE__ */ zod
     .object({
@@ -198,39 +205,34 @@ export const SubscriptionsCreateBody = /* @__PURE__ */ zod
                 'Optional free-text guidance (max 500 chars) steering the AI summary, e.g. which metrics to emphasize. Only settable when AI summary context is enabled for the organization; clearing it (empty string) is always allowed.'
             ),
         query_plan: zod
-            .union([
-                zod.object({
-                    overall_intent: zod
-                        .string()
-                        .describe('Plain-English summary of what the report will tell the user.'),
-                    steps: zod
-                        .array(
-                            zod.object({
-                                description: zod
-                                    .string()
-                                    .describe('One-sentence rationale for running this query step.'),
-                                query_type: zod
-                                    .enum(['hogql'])
-                                    .describe('* `hogql` - hogql')
-                                    .default(subscriptionsCreateBodyQueryPlanOneStepsItemQueryTypeDefault)
-                                    .describe(
-                                        "Query language for this step. MVP: always 'hogql'.\n\n* `hogql` - hogql"
-                                    ),
-                                hogql: zod
-                                    .string()
-                                    .describe(
-                                        "The HogQL SELECT for this step. Uses the {{date_range}} placeholder the executor substitutes with the run's window, so the plan stays window-agnostic."
-                                    ),
-                            })
-                        )
-                        .describe('Ordered query steps (1-3) the report runs and synthesizes.'),
-                }),
-                zod.null(),
-                zod.null(),
-            ])
-            .optional()
+            .object({
+                overall_intent: zod
+                    .string()
+                    .max(subscriptionsCreateBodyQueryPlanOverallIntentMax)
+                    .describe('Plain-English summary of what the report will tell the user.'),
+                steps: zod
+                    .array(
+                        zod.object({
+                            description: zod
+                                .string()
+                                .max(subscriptionsCreateBodyQueryPlanStepsItemDescriptionMax)
+                                .describe('One-sentence rationale for running this query.'),
+                            query_type: zod
+                                .literal('hogql')
+                                .default(subscriptionsCreateBodyQueryPlanStepsItemQueryTypeDefault)
+                                .describe("MVP: always 'hogql'."),
+                            hogql: zod
+                                .string()
+                                .max(subscriptionsCreateBodyQueryPlanStepsItemHogqlMax)
+                                .describe("A HogQL SELECT statement scoped to the team's events."),
+                        })
+                    )
+                    .min(1)
+                    .max(subscriptionsCreateBodyQueryPlanStepsMax),
+            })
+            .nullish()
             .describe(
-                'Frozen query plan for an AI (prompt) subscription: the steps (description + HogQL) the report runs deterministically. Null until the first delivery plans it. Scrubbed to null for callers without query access. Writable only by callers with query:editor access — editing it overrides the AI-generated plan; clear it (or use the re-plan action) to re-plan from the prompt.'
+                'Frozen query plan for an AI (prompt) subscription: the steps (description + HogQL) the report runs deterministically. Null until the first delivery plans it. Scrubbed to null for callers without query access. Writable only by callers with query:editor access — editing it overrides the AI-generated plan; writing null clears it so the next run re-plans from the prompt.'
             ),
     })
     .describe('Standard Subscription serializer.')
@@ -271,7 +273,14 @@ export const subscriptionsPartialUpdateBodyTitleMax = 100
 
 export const subscriptionsPartialUpdateBodySummaryPromptGuideMax = 500
 
-export const subscriptionsPartialUpdateBodyQueryPlanOneStepsItemQueryTypeDefault = `hogql`
+export const subscriptionsPartialUpdateBodyQueryPlanOverallIntentMax = 500
+
+export const subscriptionsPartialUpdateBodyQueryPlanStepsItemDescriptionMax = 500
+
+export const subscriptionsPartialUpdateBodyQueryPlanStepsItemQueryTypeDefault = `hogql`
+export const subscriptionsPartialUpdateBodyQueryPlanStepsItemHogqlMax = 5000
+
+export const subscriptionsPartialUpdateBodyQueryPlanStepsMax = 25
 
 export const SubscriptionsPartialUpdateBody = /* @__PURE__ */ zod
     .object({
@@ -419,39 +428,34 @@ export const SubscriptionsPartialUpdateBody = /* @__PURE__ */ zod
                 'Optional free-text guidance (max 500 chars) steering the AI summary, e.g. which metrics to emphasize. Only settable when AI summary context is enabled for the organization; clearing it (empty string) is always allowed.'
             ),
         query_plan: zod
-            .union([
-                zod.object({
-                    overall_intent: zod
-                        .string()
-                        .describe('Plain-English summary of what the report will tell the user.'),
-                    steps: zod
-                        .array(
-                            zod.object({
-                                description: zod
-                                    .string()
-                                    .describe('One-sentence rationale for running this query step.'),
-                                query_type: zod
-                                    .enum(['hogql'])
-                                    .describe('* `hogql` - hogql')
-                                    .default(subscriptionsPartialUpdateBodyQueryPlanOneStepsItemQueryTypeDefault)
-                                    .describe(
-                                        "Query language for this step. MVP: always 'hogql'.\n\n* `hogql` - hogql"
-                                    ),
-                                hogql: zod
-                                    .string()
-                                    .describe(
-                                        "The HogQL SELECT for this step. Uses the {{date_range}} placeholder the executor substitutes with the run's window, so the plan stays window-agnostic."
-                                    ),
-                            })
-                        )
-                        .describe('Ordered query steps (1-3) the report runs and synthesizes.'),
-                }),
-                zod.null(),
-                zod.null(),
-            ])
-            .optional()
+            .object({
+                overall_intent: zod
+                    .string()
+                    .max(subscriptionsPartialUpdateBodyQueryPlanOverallIntentMax)
+                    .describe('Plain-English summary of what the report will tell the user.'),
+                steps: zod
+                    .array(
+                        zod.object({
+                            description: zod
+                                .string()
+                                .max(subscriptionsPartialUpdateBodyQueryPlanStepsItemDescriptionMax)
+                                .describe('One-sentence rationale for running this query.'),
+                            query_type: zod
+                                .literal('hogql')
+                                .default(subscriptionsPartialUpdateBodyQueryPlanStepsItemQueryTypeDefault)
+                                .describe("MVP: always 'hogql'."),
+                            hogql: zod
+                                .string()
+                                .max(subscriptionsPartialUpdateBodyQueryPlanStepsItemHogqlMax)
+                                .describe("A HogQL SELECT statement scoped to the team's events."),
+                        })
+                    )
+                    .min(1)
+                    .max(subscriptionsPartialUpdateBodyQueryPlanStepsMax),
+            })
+            .nullish()
             .describe(
-                'Frozen query plan for an AI (prompt) subscription: the steps (description + HogQL) the report runs deterministically. Null until the first delivery plans it. Scrubbed to null for callers without query access. Writable only by callers with query:editor access — editing it overrides the AI-generated plan; clear it (or use the re-plan action) to re-plan from the prompt.'
+                'Frozen query plan for an AI (prompt) subscription: the steps (description + HogQL) the report runs deterministically. Null until the first delivery plans it. Scrubbed to null for callers without query access. Writable only by callers with query:editor access — editing it overrides the AI-generated plan; writing null clears it so the next run re-plans from the prompt.'
             ),
     })
     .describe('Standard Subscription serializer.')

@@ -151,7 +151,8 @@ def _query_plan_openapi_schema() -> dict:
 
     inlined = inline(schema)
     assert "$ref" not in str(inlined), "QueryPlan schema still contains unresolved $refs"
-    return {**inlined, "nullable": True}
+    # No explicit nullable here — drf-spectacular derives it from the field's allow_null.
+    return inlined
 
 
 @extend_schema_field(_query_plan_openapi_schema())

@@ -48,6 +48,7 @@ from products.exports.backend.temporal.subscriptions.ai_subscription.activities 
     _CREDIT_RESET_FALLBACK_DAYS,
     _ai_credit_reset_date,
     _skip_ai_delivery_over_credit_limit_sync,
+    generate_ai_subscription_preview,
     generate_ai_subscription_report,
 )
 from products.exports.backend.temporal.subscriptions.ai_subscription.report_pipeline import AiReportResult
@@ -2121,6 +2122,76 @@ async def test_generate_ai_report_persists_report_for_delivery(team, user):
     # The report is handed to delivery via the row, not the activity return value.
     refreshed = await sync_to_async(SubscriptionDelivery.objects.get)(pk=delivery.id)
     assert refreshed.content_snapshot["ai_report"] == "# Report"
+
+
+_PREVIEW_REPORT = (
+    "products.exports.backend.temporal.subscriptions.ai_subscription.activities.preview_ai_subscription_report"
+)
+
+
+async def test_generate_ai_preview_persists_report_without_touching_subscription(team, user):
+    await _set_ai_consent(team, True)
+    sub = await _create_ai_subscription(team, user)
+    delivery = await _create_ai_delivery(sub)
+
+    with patch(
+        _PREVIEW_REPORT,
+        return_value=AiReportResult(markdown="# Preview", diagnostics=(), window_end_utc="2026-06-25T12:00:00+00:00"),
+    ):
+        result = await ActivityEnvironment().run(
+            generate_ai_subscription_preview, GenerateAIReportInputs(subscription_id=sub.id, delivery_id=delivery.id)
+        )
+
+    assert result.total_step_count == 0
+    refreshed = await sync_to_async(SubscriptionDelivery.objects.get)(pk=delivery.id)
+    assert refreshed.content_snapshot["ai_report"] == "# Preview"
+    # Preview is side-effect-free on the subscription: no plan frozen, nothing disabled.
+    await sync_to_async(sub.refresh_from_db)()
+    assert sub.ai_query_plan is None
+    assert sub.enabled is True
+
+
+async def test_generate_ai_preview_short_circuits_on_existing_report(team, user):
+    # Temporal redispatch must not re-bill the LLM when a prior attempt already produced the report.
+    await _set_ai_consent(team, True)
+    sub = await _create_ai_subscription(team, user)
+    delivery = await _create_ai_delivery(sub, report="# Already there")
+
+    with patch(_PREVIEW_REPORT) as mock_preview:
+        await ActivityEnvironment().run(
+            generate_ai_subscription_preview, GenerateAIReportInputs(subscription_id=sub.id, delivery_id=delivery.id)
+        )
+
+    mock_preview.assert_not_called()
+
+
+async def test_generate_ai_preview_terminal_failures_raise_without_disabling(team, user):
+    # Unlike scheduled delivery, preview must never auto-disable the subscription the owner is
+    # actively debugging — terminal conditions surface as non-retryable errors on the delivery row.
+    sub = await _create_ai_subscription(team, user)
+
+    await _set_ai_consent(team, False)
+    delivery = await _create_ai_delivery(sub)
+    with pytest.raises(ApplicationError) as consent_exc:
+        await ActivityEnvironment().run(
+            generate_ai_subscription_preview, GenerateAIReportInputs(subscription_id=sub.id, delivery_id=delivery.id)
+        )
+    assert consent_exc.value.non_retryable is True
+
+    await _set_ai_consent(team, True)
+    delivery = await _create_ai_delivery(sub)
+    with (
+        patch(_PREVIEW_REPORT, side_effect=PromptRejectedError("Prompt is empty.")),
+        pytest.raises(ApplicationError) as rejected_exc,
+    ):
+        await ActivityEnvironment().run(
+            generate_ai_subscription_preview, GenerateAIReportInputs(subscription_id=sub.id, delivery_id=delivery.id)
+        )
+    assert rejected_exc.value.non_retryable is True
+    assert "Prompt is empty." in str(rejected_exc.value)
+
+    await sync_to_async(sub.refresh_from_db)()
+    assert sub.enabled is True
 
 
 async def test_deliver_ai_subscription_sends_persisted_report_to_email(team, user):
