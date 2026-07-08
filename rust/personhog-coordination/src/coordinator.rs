@@ -11,6 +11,7 @@ use k8s_awareness::types::ControllerKind;
 use k8s_awareness::{DepartureReason, K8sAwareness};
 
 use crate::error::{Error, Result};
+use crate::protocol::{drain_satisfied, freeze_quorum_met, warm_satisfied};
 use crate::store::{self, PersonhogStore};
 use crate::strategy::AssignmentStrategy;
 use crate::types::{
@@ -408,30 +409,9 @@ impl Coordinator {
                 let routers = store.list_routers().await?;
                 let freeze_acks = store.list_freeze_acks(partition).await?;
 
-                // Identity-based quorum: every currently registered router
-                // must have acked this partition's freeze. A count
-                // comparison would let a stale ack from a departed router
-                // (acks are not lease-bound) stand in for a live router
-                // that hasn't stashed yet — advancing to Draining while
-                // that router still forwards writes to the old owner.
-                // Only acks echoing this handoff's id count: an ack left
-                // over from a previous handoff of the same partition
-                // proves nothing about this one.
-                //
-                // With zero routers there is no traffic to stash, so the
-                // freeze quorum is vacuously met. This keeps bootstrap and
-                // router-less configurations (e.g. tests exercising only
-                // the coordinator+pod) unblocked.
-                let acked: HashSet<&str> = freeze_acks
-                    .iter()
-                    .filter(|a| a.handoff_id == handoff.handoff_id)
-                    .map(|a| a.router_name.as_str())
-                    .collect();
-                let all_routers_frozen = routers
-                    .iter()
-                    .all(|r| acked.contains(r.router_name.as_str()));
-
-                if all_routers_frozen {
+                // Quorum semantics live in `protocol::freeze_quorum_met`
+                // (shared with the stateright model).
+                if freeze_quorum_met(&routers, &freeze_acks, &handoff) {
                     // Initial assignments (no old owner) skip Draining
                     // entirely — there's no inflight to wait for. Advance
                     // straight to Warming.
@@ -455,38 +435,11 @@ impl Coordinator {
                 }
             }
             HandoffPhase::Draining => {
-                let old_owner_condition = match &handoff.old_owner {
-                    // Defensive: a handoff that reached Draining without
-                    // an old owner shouldn't exist (Freezing skips
-                    // Draining when old_owner is None), but if it does,
-                    // there's nothing to drain.
-                    None => true,
-                    Some(name) => {
-                        // "Alive" here means the pod's etcd registration key
-                        // still exists (its lease hasn't expired) — not just
-                        // that it's `Ready`. A `Draining` pod is shutting
-                        // down gracefully but is still capable of running its
-                        // handoff handler and writing a `DrainedAck`, and may
-                        // still have inflight handlers. Bypassing the drain
-                        // requirement for such a pod would let the
-                        // coordinator advance to Warming while the old owner
-                        // is still producing — breaking the protocol's core
-                        // invariant. Only treat the old owner as drained
-                        // when its key is genuinely absent.
-                        let pods = store.list_pods().await?;
-                        let old_owner_present = pods.iter().any(|p| p.pod_name == *name);
-                        if !old_owner_present {
-                            true
-                        } else {
-                            let drained_acks = store.list_drained_acks(partition).await?;
-                            drained_acks
-                                .iter()
-                                .any(|a| a.pod_name == *name && a.handoff_id == handoff.handoff_id)
-                        }
-                    }
-                };
-
-                if old_owner_condition {
+                // Drain semantics live in `protocol::drain_satisfied`
+                // (shared with the stateright model).
+                let pods = store.list_pods().await?;
+                let drained_acks = store.list_drained_acks(partition).await?;
+                if drain_satisfied(&pods, &drained_acks, &handoff) {
                     let advanced = store
                         .cas_handoff_phase(partition, HandoffPhase::Draining, HandoffPhase::Warming)
                         .await?;
@@ -501,11 +454,7 @@ impl Coordinator {
             }
             HandoffPhase::Warming => {
                 let warmed = store.list_warmed_acks(partition).await?;
-                let new_owner_warmed = warmed
-                    .iter()
-                    .any(|a| a.pod_name == handoff.new_owner && a.handoff_id == handoff.handoff_id);
-
-                if new_owner_warmed {
+                if warm_satisfied(&warmed, &handoff) {
                     tracing::info!(
                         partition,
                         new_owner = %handoff.new_owner,
