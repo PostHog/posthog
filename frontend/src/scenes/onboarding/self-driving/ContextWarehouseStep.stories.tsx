@@ -106,7 +106,7 @@ function OnboardingCard({ children }: { children: React.ReactNode }): JSX.Elemen
 }
 
 const meta: Meta<typeof ContextWarehouseStep> = {
-    title: 'Scenes-Other/Onboarding/Connect data',
+    title: 'Scenes-Other/Onboarding/Self-Driving/Connect data',
     component: ContextWarehouseStep,
     parameters: {
         layout: 'fullscreen',
