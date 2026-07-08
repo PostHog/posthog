@@ -1576,3 +1576,28 @@ def _provision_and_complete(ctx: _FlowContext, channel_id: str, channel_name: st
         **{key: value for key, value in readiness.items() if key != "ready_details"},
     )
     _republish_home(ctx.integration, ctx.slack_user_id)
+    _start_first_patrol_digest(ctx, results, channel_name)
+
+
+def _start_first_patrol_digest(ctx: _FlowContext, results: list, channel_name: str) -> None:
+    """Kick the delayed first-patrol digest workflow — best-effort, never user-visible on failure."""
+    config_ids = [result.config_id for result in results if result.config_id and not result.channel_conflict]
+    if not config_ids:
+        return
+    try:
+        from products.slack_app.backend.first_patrol import (  # noqa: PLC0415 — keeps the temporal graph off the slack import path
+            start_first_patrol_digest_workflow,
+        )
+
+        start_first_patrol_digest_workflow(
+            team_id=ctx.integration.team_id,
+            integration_id=ctx.integration.id,
+            slack_user_id=ctx.slack_user_id,
+            dm_channel_id=str(ctx.state.get("dm_channel_id") or ""),
+            thread_ts=ctx.state.get("thread_ts"),
+            channel_name=channel_name,
+            scout_config_ids=config_ids,
+            provisioned_at_iso=timezone.now().isoformat(),
+        )
+    except Exception:
+        logger.warning("persona_onboarding_digest_dispatch_failed", exc_info=True)

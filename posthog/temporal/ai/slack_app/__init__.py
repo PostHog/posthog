@@ -14,6 +14,7 @@ from posthog.temporal.ai.slack_app.activities import (
     classify_message_is_agent_directed,
     classify_posthog_code_task_needs_repo_activity,
     classify_untagged_followup_activity,
+    collect_first_patrol_digest_activity,
     collect_posthog_code_thread_messages_activity,
     create_posthog_code_routing_rule_activity,
     create_posthog_code_task_for_repo_activity,
@@ -23,6 +24,7 @@ from posthog.temporal.ai.slack_app.activities import (
     forward_posthog_code_followup_activity,
     handle_posthog_code_rules_command_activity,
     handle_posthog_code_slack_mention_command_activity,
+    post_first_patrol_digest_activity,
     post_posthog_code_internal_error_activity,
     post_posthog_code_no_repos_activity,
     post_posthog_code_picker_timeout_activity,
@@ -61,6 +63,8 @@ SLACK_APP_ACTIVITIES = [
     create_posthog_code_routing_rule_activity,
     handle_posthog_code_slack_mention_command_activity,
     run_posthog_slack_inbox_onboarding_activity,
+    collect_first_patrol_digest_activity,
+    post_first_patrol_digest_activity,
 ]
 
 __all__ = [

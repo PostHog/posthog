@@ -110,3 +110,15 @@ class PostHogCodeSlackMentionCommandResult:
     status: str  # "done" | "needs_picker"
     pending_rule_text: str | None = None
     target_integration_id: int | None = None
+
+
+@dataclass
+class PostHogSlackFirstPatrolInputs:
+    team_id: int
+    integration_id: int
+    slack_user_id: str
+    dm_channel_id: str
+    thread_ts: str | None
+    channel_name: str
+    scout_config_ids: list[str]
+    provisioned_at_iso: str

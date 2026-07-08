@@ -32,6 +32,7 @@ PROVISION = "products.signals.backend.facade.api.provision_persona_scouts"
 WEBCLIENT = "posthog.models.integration.WebClient"
 
 CSM_SKILL_NAMES = [spec.skill_name for spec in persona_onboarding.PERSONA_SCOUT_CATALOG[persona_onboarding.PERSONA_CSM]]
+DIGEST_START = "products.slack_app.backend.first_patrol.start_first_patrol_digest_workflow"
 
 
 def _template(name: str, *, redirect: bool = True) -> TemplateInfo:
@@ -53,6 +54,14 @@ ALL_TEMPLATES = [
     _template("Jira"),
     _template("Stripe"),
 ]
+
+
+@pytest.fixture(autouse=True)
+def _no_temporal_digest_dispatch():
+    # The completion path enqueues the first-patrol digest workflow; without this patch the
+    # tests wait out a real Temporal connection attempt (~80s of timeout across the module).
+    with patch(DIGEST_START) as mock_start:
+        yield mock_start
 
 
 @pytest.fixture(autouse=True)

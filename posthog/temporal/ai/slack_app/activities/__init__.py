@@ -6,6 +6,10 @@ from posthog.temporal.ai.slack_app.activities.classifiers import (
     classify_task_needs_repo,
     classify_untagged_followup_activity,
 )
+from posthog.temporal.ai.slack_app.activities.first_patrol import (
+    collect_first_patrol_digest_activity,
+    post_first_patrol_digest_activity,
+)
 from posthog.temporal.ai.slack_app.activities.messaging import (
     POSTHOG_CODE_SLACK_MENTION_PICKER_GUIDANCE,
     POSTHOG_CODE_SLACK_RULES_ADD_PICKER_GUIDANCE,
@@ -64,6 +68,8 @@ __all__ = [
     "post_posthog_code_repo_picker_activity",
     "resolve_posthog_code_slack_command_user_activity",
     "resolve_posthog_code_slack_user_activity",
+    "collect_first_patrol_digest_activity",
+    "post_first_patrol_digest_activity",
     "run_posthog_slack_inbox_onboarding",
     "run_posthog_slack_inbox_onboarding_activity",
 ]
