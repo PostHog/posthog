@@ -260,6 +260,7 @@ the row lists both.
 | pagerduty               | HTTP                        | requests                                                        | ✅                          |
 | pandadoc                | HTTP                        | requests                                                        | ✅                          |
 | papersign               | HTTP                        | requests                                                        | ✅                          |
+| partnerstack            | HTTP                        | requests                                                        | ✅                          |
 | paystack                | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
 | pendo                   | HTTP                        | requests                                                        | ✅                          |
 | persistiq               | HTTP                        | requests                                                        | ✅                          |
@@ -578,7 +579,6 @@ doesn't conflict with concurrent PRs.
 - paperform
 - pardot
 - partnerize
-- partnerstack
 - payfit
 - paylocity
 - paypal

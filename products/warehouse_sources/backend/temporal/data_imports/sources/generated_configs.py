@@ -2391,7 +2391,8 @@ class PardotSourceConfig(config.Config):
 
 @config.config
 class PartnerStackSourceConfig(config.Config):
-    pass
+    public_key: str
+    private_key: str
 
 
 @config.config
