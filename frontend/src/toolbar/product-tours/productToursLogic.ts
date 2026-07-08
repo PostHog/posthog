@@ -121,7 +121,15 @@ export function getStepElement(step: TourStep): HTMLElement | null {
         }
     }
 
-    return findElement(step.inferenceData)
+    try {
+        // findElement (posthog-js) normalizes stored element text/tag with toLowerCase; captured
+        // inference data from arbitrary customer pages can be absent or malformed, so a throw here
+        // must degrade to "not found" like the selector branches above rather than crash the toolbar
+        return findElement(step.inferenceData)
+    } catch {
+        toolbarLogger.warn('product_tours', 'Failed to resolve element from inference data')
+        return null
+    }
 }
 
 function buildDraftPayload(form: TourForm, tours: ProductTour[]): Record<string, unknown> {
