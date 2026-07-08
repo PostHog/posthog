@@ -122,6 +122,7 @@ export const productScenes: Record<string, () => Promise<any>> = {
     ErrorTrackingIssueFingerprints: () =>
         import('../../products/error_tracking/frontend/scenes/ErrorTrackingFingerprintsScene/ErrorTrackingIssueFingerprintsScene'),
     FeatureFlagTemplates: () => import('../../products/feature_flags/frontend/FeatureFlagTemplatesScene'),
+    FeatureFlagsStaffTools: () => import('../../products/feature_flags/frontend/staff/FeatureFlagsStaffToolsScene'),
     Game368Hedgehogs: () => import('../../products/games/368Hedgehogs/368Hedgehogs'),
     FlappyHog: () => import('../../products/games/FlappyHog/FlappyHog'),
     IdentityMatching: () => import('../../products/growth/frontend/IdentityMatchingScene'),
@@ -148,6 +149,7 @@ export const productScenes: Record<string, () => Promise<any>> = {
     ReplayVisionScannerEditor: () => import('../../products/replay_vision/frontend/replay_scanners/ScannerEditorScene'),
     ReplayVisionObservation: () => import('../../products/replay_vision/frontend/observations/ReplayObservation'),
     ReplayVisionAction: () => import('../../products/replay_vision/frontend/replay_scanners/VisionActionScene'),
+    ReplayVisionActionEditor: () => import('../../products/replay_vision/frontend/replay_scanners/ActionEditorScene'),
     ReplayVisionActionRun: () => import('../../products/replay_vision/frontend/replay_scanners/VisionActionRunScene'),
     RevenueAnalytics: () => import('../../products/revenue_analytics/frontend/RevenueAnalyticsScene'),
     SessionGroupSummariesTable: () => import('../../products/session_summaries/frontend/SessionGroupSummariesTable'),
@@ -269,6 +271,7 @@ export const productRoutes: Record<string, [string, string]> = {
     '/error_tracking/alerts/:id': ['HogFunction', 'errorTrackingAlert'],
     '/error_tracking/alerts/new/:templateId': ['HogFunction', 'errorTrackingAlertNew'],
     '/feature_flags/templates': ['FeatureFlagTemplates', 'featureFlagTemplates'],
+    '/feature_flags/staff': ['FeatureFlagsStaffTools', 'featureFlagsStaffTools'],
     '/games/368hedgehogs': ['Game368Hedgehogs', 'game368Hedgehogs'],
     '/games/flappyhog': ['FlappyHog', 'flappyHog'],
     '/identity-matching': ['IdentityMatching', 'identityMatching'],
@@ -284,6 +287,7 @@ export const productRoutes: Record<string, [string, string]> = {
     '/logs/drop-rules/:id': ['LogsSamplingDetail', 'logsSamplingDetail'],
     '/managed_migrations': ['ManagedMigration', 'managedMigration'],
     '/managed_migrations/new': ['ManagedMigration', 'managedMigration'],
+    '/mcp-analytics/activity': ['MCPAnalytics', 'mcpAnalyticsActivity'],
     '/mcp-analytics/dashboard': ['MCPAnalytics', 'mcpAnalyticsDashboard'],
     '/mcp-analytics/sessions': ['MCPAnalytics', 'mcpAnalyticsSessions'],
     '/mcp-analytics/tool-quality': ['MCPAnalytics', 'mcpAnalyticsToolQuality'],
@@ -295,7 +299,9 @@ export const productRoutes: Record<string, [string, string]> = {
     '/replay-vision': ['ReplayVision', 'replayVision'],
     '/replay-vision/observations/:observationId': ['ReplayVisionObservation', 'replayVisionObservation'],
     '/replay-vision/actions/:actionId/runs/:runId': ['ReplayVisionActionRun', 'replayVisionActionRun'],
+    '/replay-vision/actions/:actionId/edit': ['ReplayVisionActionEditor', 'replayVisionActionEdit'],
     '/replay-vision/actions/:actionId': ['ReplayVisionAction', 'replayVisionAction'],
+    '/replay-vision/:scannerId/actions/new': ['ReplayVisionActionEditor', 'replayVisionActionNew'],
     '/replay-vision/:id/template': ['ReplayVisionScannerEditor', 'replayVisionScannerTemplate'],
     '/replay-vision/:id/configure': ['ReplayVisionScannerEditor', 'replayVisionScannerConfigure'],
     '/replay-vision/:id/triggers': ['ReplayVisionScannerEditor', 'replayVisionScannerTriggers'],
@@ -472,7 +478,7 @@ export const productRedirects: Record<
     '/logs/sampling/:id': (params, searchParams, hashParams) =>
         combineUrl(`/logs/drop-rules/${params.id}`, searchParams, hashParams).url,
     '/mcp-analytics': (_params, searchParams, hashParams) =>
-        combineUrl(urls.mcpAnalyticsDashboard(), searchParams, hashParams).url,
+        combineUrl(urls.mcpAnalyticsDashboard(), { ...searchParams, landing: 'auto' }, hashParams).url,
     '/replay-vision/templates': '/replay-vision/new/template',
     '/prompt-management/skills': (_params, searchParams, hashParams) =>
         combineUrl(urls.skills(), searchParams, hashParams).url,
@@ -713,6 +719,7 @@ export const productConfiguration: Record<string, any> = {
     ErrorTrackingIssue: { projectBased: true, name: 'Error tracking issue', layout: 'app-raw' },
     ErrorTrackingIssueFingerprints: { projectBased: true, name: 'Error tracking issue fingerprints' },
     FeatureFlagTemplates: { projectBased: true, name: 'Feature flag templates' },
+    FeatureFlagsStaffTools: { instanceLevel: true, name: 'Flags staff tools' },
     Game368Hedgehogs: { name: '368Hedgehogs', projectBased: true, activityScope: 'Games' },
     FlappyHog: { name: 'FlappyHog', projectBased: true, activityScope: 'Games' },
     IdentityMatching: {
@@ -766,7 +773,11 @@ export const productConfiguration: Record<string, any> = {
         activityScope: ActivityScope.LOG,
         layout: 'app-container',
     },
-    ManagedMigration: { name: 'Managed migrations', projectBased: true },
+    ManagedMigration: {
+        name: 'Managed migrations',
+        description: 'Managed migrations provide an automated way to migrate your historical data into PostHog.',
+        projectBased: true,
+    },
     ManagedMigrationNew: { name: 'Managed migrations', projectBased: true },
     MCPAnalytics: {
         projectBased: true,
@@ -825,6 +836,12 @@ export const productConfiguration: Record<string, any> = {
     },
     ReplayVisionAction: {
         name: 'Replay vision action',
+        projectBased: true,
+        iconType: 'replay_vision',
+        layout: 'app-container',
+    },
+    ReplayVisionActionEditor: {
+        name: 'Replay vision action editor',
         projectBased: true,
         iconType: 'replay_vision',
         layout: 'app-container',
@@ -1013,7 +1030,7 @@ export const productUrls = {
     dashboardSubscription: (id: string | number, subscriptionId: string): string =>
         `/dashboard/${id}/subscriptions/${subscriptionId}`,
     sharedDashboard: (shareToken: string): string => `/shared_dashboard/${shareToken}`,
-    dataOps: (tab?: string): string => (tab ? `/data-warehouse?tab=${tab}` : '/data-ops'),
+    dataOps: (tab?: string): string => (tab ? `/data-ops?tab=${tab}` : '/data-ops'),
     models: (tab?: ModelsSceneTab): string => `/models${tab ? `/${tab}` : ''}`,
     nodeDetail: (id: string): string => `/models/${id}`,
     sources: (): string => '/data-management/sources',
@@ -1143,6 +1160,7 @@ export const productUrls = {
     featureFlag: (id: string | number): string => `/feature_flags/${id}`,
     featureFlags: (tab?: string): string => `/feature_flags${tab ? `?tab=${tab}` : ''}`,
     featureFlagTemplates: (): string => '/feature_flags/templates',
+    featureFlagsStaffTools: (teamId?: number): string => `/feature_flags/staff${teamId ? `?team_id=${teamId}` : ''}`,
     featureFlagNew: ({
         type,
         sourceId,
@@ -1191,6 +1209,7 @@ export const productUrls = {
     managedMigration: (): string => '/managed_migrations',
     managedMigrationNew: (): string => '/managed_migrations/new',
     marketingAnalyticsApp: (): string => '/marketing',
+    mcpAnalyticsActivity: (): string => '/mcp-analytics/activity',
     mcpAnalyticsDashboard: (): string => '/mcp-analytics/dashboard',
     mcpAnalyticsSessions: (): string => '/mcp-analytics/sessions',
     mcpAnalyticsToolQuality: (): string => '/mcp-analytics/tool-quality',
@@ -1308,6 +1327,8 @@ export const productUrls = {
     replayVisionAction: (actionId: string): string => `/replay-vision/actions/${actionId}`,
     replayVisionActionRun: (actionId: string, runId: string): string =>
         `/replay-vision/actions/${actionId}/runs/${runId}`,
+    replayVisionActionNew: (scannerId: string): string => `/replay-vision/${scannerId}/actions/new`,
+    replayVisionActionEdit: (actionId: string): string => `/replay-vision/actions/${actionId}/edit`,
     revenueAnalytics: (): string => '/revenue_analytics',
     sessionSummaries: (): string => '/session-summaries',
     sessionSummary: (sessionGroupId: string): string => `/session-summaries/${sessionGroupId}`,
@@ -2404,6 +2425,14 @@ export const getTreeItemsMetadata = (): FileSystemImport[] => [
         href: urls.ingestionWarnings(),
         sceneKey: 'IngestionWarnings',
         sceneKeys: ['IngestionWarnings'],
+    },
+    {
+        path: 'Managed migrations',
+        category: 'Pipeline',
+        iconType: 'data_pipeline_metadata',
+        href: urls.managedMigration(),
+        sceneKey: 'ManagedMigration',
+        sceneKeys: ['ManagedMigration', 'ManagedMigrationNew'],
     },
     {
         path: 'Managed viewsets',

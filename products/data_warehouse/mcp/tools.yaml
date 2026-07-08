@@ -90,9 +90,6 @@ tools:
     insight-variables-update:
         operation: insight_variables_update
         enabled: false
-    lineage-get-upstream-retrieve:
-        operation: lineage_get_upstream_retrieve
-        enabled: false
     managed-viewsets-retrieve:
         operation: managed_viewsets_retrieve
         enabled: false

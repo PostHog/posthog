@@ -448,6 +448,24 @@ describe('MCPClientProfile', () => {
         })
     })
 
+    describe('isInlineExecUiHost()', () => {
+        it.each([['ClaudeCode'], ['Cowork']])('is true for the %s vendor client', (vendorClient) => {
+            expect(new MCPClientProfile({ vendorClient }).isInlineExecUiHost()).toBe(true)
+        })
+
+        // Claude.ai renders via the separate render-ui tool, not the inline exec payload.
+        it.each([['ClaudeAI'], ['ClaudeDesign'], ['some-random-tool'], ['']])(
+            'is false for the %s vendor client',
+            (vendorClient) => {
+                expect(new MCPClientProfile({ vendorClient }).isInlineExecUiHost()).toBe(false)
+            }
+        )
+
+        it('is false when no vendor client is set (the user-agent is not a fallback here)', () => {
+            expect(new MCPClientProfile({ userAgent: 'Claude-User' }).isInlineExecUiHost()).toBe(false)
+        })
+    })
+
     describe('capabilities.supportsInstructions', () => {
         it.each([['codex'], ['Codex'], ['CODEX'], ['codex-cli'], ['Codex CLI'], ['codex/1.2.3'], ['openai-codex']])(
             'is false for Codex variant %s',

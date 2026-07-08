@@ -17,7 +17,7 @@ from products.tasks.backend.facade import (
     contracts,
     warm as warm_facade,
 )
-from products.tasks.backend.models import SandboxEnvironment, Task, TaskRun
+from products.tasks.backend.models import SandboxCustomImage, SandboxEnvironment, Task, TaskRun
 from products.tasks.backend.prompts import WIZARD_PR_AGENT_PROMPT
 
 FACADE_MODULES = [
@@ -277,6 +277,46 @@ class TestFacadeReadsAndMappers(TestCase):
             self.assertNotIn("snapshot_external_id", new_run.state)
             self.assertNotIn("snapshot_kind", new_run.state)
             self.assertNotIn("snapshot_mount_path", new_run.state)
+
+    @parameterized.expand(
+        [
+            ("ready", SandboxCustomImage.Status.READY, "posthog-sandbox-custom-1-abc:latest", True),
+            ("not_ready", SandboxCustomImage.Status.BUILDING, "", False),
+        ]
+    )
+    def test_run_task_resume_drops_carried_custom_image_when_not_ready(
+        self, _name: str, status: str, modal_image_name: str, expect_carried: bool
+    ):
+        task = self._make_task()
+        image = SandboxCustomImage(
+            team=self.team,
+            created_by=self.user,
+            name="img",
+            status=status,
+            modal_image_name=modal_image_name,
+        )
+        image.save()
+        previous_run = TaskRun.objects.create(
+            task=task,
+            team=self.team,
+            status=TaskRun.Status.COMPLETED,
+            state={"custom_image_id": str(image.id)},
+        )
+
+        with patch("products.tasks.backend.facade.api._trigger_task_processing_workflow"):
+            result = facade.run_task(
+                task.id,
+                self.team.id,
+                self.user.id,
+                validated_data={"mode": "interactive", "resume_from_run_id": str(previous_run.id)},
+            )
+
+        assert result is not None and result.error is None
+        new_run = task.runs.exclude(id=previous_run.id).get()
+        if expect_carried:
+            self.assertEqual(new_run.state.get("custom_image_id"), str(image.id))
+        else:
+            self.assertNotIn("custom_image_id", new_run.state)
 
     def test_stale_queued_created_at_hard_cap(self):
         task = self._make_task()

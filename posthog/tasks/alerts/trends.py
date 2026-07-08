@@ -67,6 +67,10 @@ def _date_range_override_for_intervals(query: TrendsQuery, last_x_intervals: int
             date_from = f"-{last_x_intervals}w"
         case IntervalType.MONTH:
             date_from = f"-{last_x_intervals}m"
+        case IntervalType.QUARTER:
+            date_from = f"-{last_x_intervals}q"
+        case IntervalType.YEAR:
+            date_from = f"-{last_x_intervals}y"
         case _:
             date_from = f"-{last_x_intervals}h"
 
