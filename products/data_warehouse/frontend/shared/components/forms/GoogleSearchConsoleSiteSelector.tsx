@@ -121,7 +121,7 @@ function GoogleSearchConsoleSiteFieldWithSuggestions({ integrationId }: { integr
                             suggestions={siteUrls}
                             suggestionsLoading={sitesLoading}
                             searchPlaceholder="Filter verified properties…"
-                            emptyMessage="No properties accessible by this account."
+                            emptyMessage="No properties found for this Google account. In Google Search Console, grant the connected account access to a verified property, then reconnect."
                             loadingMessage="Loading from Google…"
                         />
                         {savedValueMissing && (
