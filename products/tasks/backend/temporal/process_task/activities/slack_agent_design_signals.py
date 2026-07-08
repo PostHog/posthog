@@ -1,13 +1,20 @@
 from __future__ import annotations
 
+import json
+import asyncio
 from dataclasses import dataclass
 from typing import Any
 
+from django.conf import settings
+
+import httpx
+import httpx_sse
 import structlog
 from temporalio import activity
 
 from posthog.temporal.common.utils import close_db_connections
 
+from products.tasks.backend.logic.services.connection_token import create_stream_read_token
 from products.tasks.backend.logic.stream.redis_stream import (
     TaskRunRedisStream,
     TaskRunStreamError,
@@ -18,8 +25,7 @@ from products.tasks.backend.models import TaskRun as TaskRunModel
 from ee.hogai.sandbox import is_turn_complete
 
 # Reuse the ACP event helpers and signal dispatcher from relay_sandbox_events so the SSE relay
-# and this stream-tailing relay derive and emit signals from identical logic. Only the event
-# source differs.
+# and this relay derive and emit signals from identical logic. Only the event source differs.
 from .relay_sandbox_events import (
     _extract_agent_message_text,
     _extract_tool_call_step,
@@ -30,6 +36,14 @@ from .relay_sandbox_events import (
 logger = structlog.get_logger(__name__)
 
 HEARTBEAT_INTERVAL_SECONDS = 30
+
+# agent-proxy SSE leg tuning. Its ingress route disables Envoy's request-body buffer, so events
+# arrive per-turn — unlike the Django/Redis leg, which fills in a burst at turn-end.
+SSE_CONNECT_TIMEOUT_SECONDS = 30
+SSE_READ_TIMEOUT_SECONDS = 300
+MAX_RECONNECT_ATTEMPTS = 5
+# Terminal SSE frame name emitted when the run's stream is complete (matches the stream endpoints).
+STREAM_END_EVENT_NAME = "stream-end"
 
 
 class SlackAgentDesignSignalEmitter:
@@ -79,16 +93,24 @@ class RelayAgentDesignSignalsInput:
     slack_thread_context: dict[str, Any] | None = None
 
 
+def _agent_proxy_base_url() -> str | None:
+    """Base URL for the agent-proxy stream read leg, or ``None`` to read Redis directly.
+
+    Prefer the in-cluster URL: it skips the ingress/CDN round-trip and exists on environments
+    that have no public proxy FQDN yet. Fall back to the public URL the browser uses.
+    """
+    return settings.TASKS_AGENT_PROXY_INTERNAL_URL or settings.TASKS_AGENT_PROXY_PUBLIC_URL
+
+
 @activity.defn
 @close_db_connections
 async def relay_agent_design_signals(input: RelayAgentDesignSignalsInput) -> None:
-    """Tail the run's Redis event stream and emit the Slack agent-design per-turn signals.
+    """Relay a run's event stream into the Slack agent-design per-turn signals.
 
-    This is the sequenced-ingest counterpart to the agent-design fan-out in
-    ``relay_sandbox_events``: when ``sandbox_event_ingest_enabled`` is on, the sandbox POSTs
-    its events to the Django ingest endpoint (which writes them to this Redis stream) instead
-    of holding an SSE connection open for the relay. Here we read that stream and drive the
-    same signals, so the Slack thread streams turns on DEV/PROD just as it does locally.
+    Prefers the agent-proxy SSE leg (the live stream the task UI reads) so the Slack thread
+    streams turns as they happen. When no proxy is configured — local dev, or an environment
+    without a proxy FQDN — it falls back to tailing the Django-side Redis stream, which still
+    works but arrives batched at turn-end behind the buffering ingress.
     """
     try:
         from posthog.temporal.common.client import async_connect
@@ -101,10 +123,97 @@ async def relay_agent_design_signals(input: RelayAgentDesignSignalsInput) -> Non
         return
 
     emitter = SlackAgentDesignSignalEmitter(input.slack_thread_context)
-    # Match the ingest endpoint's stream construction (default, non-dedicated client) so we
-    # read from exactly the key the sandbox events are written to.
-    redis_stream = TaskRunRedisStream(get_task_run_stream_key(input.run_id))
 
+    base_url = _agent_proxy_base_url()
+    if base_url:
+        await _relay_from_agent_proxy(base_url, input, emitter, workflow_handle)
+    else:
+        await _relay_from_redis(input, emitter, workflow_handle)
+
+
+async def _relay_from_agent_proxy(
+    base_url: str,
+    input: RelayAgentDesignSignalsInput,
+    emitter: SlackAgentDesignSignalEmitter,
+    workflow_handle: Any,
+) -> None:
+    """Consume the run's live agent-proxy SSE stream and drive the Slack signals.
+
+    Reconnects with ``Last-Event-ID`` on transient drops and proxy stream rotations, and stops on
+    the terminal ``stream-end`` frame. Failures are non-fatal — the relay is best-effort.
+    """
+    task_run = await TaskRunModel.objects.aget(id=input.run_id)
+    events_url = f"{base_url.rstrip('/')}/v1/runs/{input.run_id}/stream"
+
+    last_event_id: str | None = None
+    reconnect_count = 0
+    while True:
+        # Re-mint per connection: the read token is short-lived and a run can outlast it.
+        headers = {
+            "Authorization": f"Bearer {create_stream_read_token(task_run)}",
+            "Accept": "text/event-stream",
+        }
+        if last_event_id:
+            headers["Last-Event-ID"] = last_event_id
+
+        made_progress = False
+        error: Exception | None = None
+        try:
+            async with httpx.AsyncClient(
+                timeout=httpx.Timeout(
+                    connect=SSE_CONNECT_TIMEOUT_SECONDS,
+                    read=SSE_READ_TIMEOUT_SECONDS,
+                    write=30.0,
+                    pool=30.0,
+                )
+            ) as client:
+                async with httpx_sse.aconnect_sse(client, "GET", events_url, headers=headers) as event_source:
+                    event_source.response.raise_for_status()
+                    async for sse_event in event_source.aiter_sse():
+                        activity.heartbeat()
+                        made_progress = True
+                        if sse_event.id:
+                            last_event_id = sse_event.id
+                        if sse_event.event == STREAM_END_EVENT_NAME:
+                            logger.info(
+                                "relay_agent_design_signals_stream_ended", run_id=input.run_id, reason="stream-end"
+                            )
+                            return
+                        if not sse_event.data:
+                            continue
+                        try:
+                            event_data = json.loads(sse_event.data)
+                        except json.JSONDecodeError:
+                            continue
+                        for signal_name, arg in emitter.process(event_data):
+                            await _signal_safely(workflow_handle, signal_name, arg)
+        except (httpx.TransportError, httpx.HTTPStatusError, httpx_sse.SSEError) as e:
+            error = e
+
+        # A clean close without a stream-end frame is a proxy stream rotation — reconnect and
+        # resume. Only consecutive no-progress attempts count toward giving up, so a healthy
+        # long-lived stream reconnects indefinitely while a genuinely broken one stops.
+        if made_progress:
+            reconnect_count = 0
+        else:
+            reconnect_count += 1
+            if reconnect_count > MAX_RECONNECT_ATTEMPTS:
+                logger.warning(
+                    "relay_agent_design_signals_proxy_gave_up",
+                    run_id=input.run_id,
+                    error=str(error) if error else "clean close with no events",
+                )
+                return
+        await asyncio.sleep(min(2**reconnect_count, 30))
+
+
+async def _relay_from_redis(
+    input: RelayAgentDesignSignalsInput,
+    emitter: SlackAgentDesignSignalEmitter,
+    workflow_handle: Any,
+) -> None:
+    """Fallback: tail the Django-side Redis stream. Works without a proxy, but arrives batched."""
+    redis_stream = TaskRunRedisStream(get_task_run_stream_key(input.run_id))
     try:
         async for item in redis_stream.read_stream_entries(
             start_id="0",
