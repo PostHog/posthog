@@ -56,12 +56,15 @@ export const sceneLayoutLogic = kea<sceneLayoutLogicType>([
     }),
     listeners(({ values }) => ({
         registerScenePanelElement: () => {
-            // The memoized selector only recomputes when evaluated, and once the
-            // last ScenePanel unmounts nothing subscribes to it — so without this
-            // read its cached result keeps the previous (now detached) panel
-            // container alive, which pins the departed scene's entire fiber and
-            // DOM tree via the element's React fiber expandos.
-            void values.scenePanelElement
+            refreshScenePanelElementSelectorCache(values)
         },
     })),
 ])
+
+// The memoized `scenePanelElement` selector only recomputes when evaluated, and once
+// the last ScenePanel unmounts nothing subscribes to it — so without this read its
+// cached result keeps the previous (now detached) panel container alive, which pins
+// the departed scene's entire fiber and DOM tree via the element's React fiber expandos.
+function refreshScenePanelElementSelectorCache(values: sceneLayoutLogicType['values']): void {
+    void values.scenePanelElement
+}

@@ -22,6 +22,9 @@ describe('sceneLayoutLogic', () => {
 
         logic.actions.registerScenePanelElement(null)
 
+        // `lastResult` is a reselect 5 internal, not a public API — if a future
+        // kea/reselect upgrade renames it, this cast fails mechanically (TypeError),
+        // it isn't a behavioural regression in the fix itself.
         const lastResult = (logic.selectors.scenePanelElement as unknown as { lastResult: () => HTMLElement | null })
             .lastResult
         expect(lastResult()).toBe(null)

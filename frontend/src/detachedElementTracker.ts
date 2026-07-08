@@ -134,8 +134,9 @@ export function startDetachedElementTracking(posthog: Capturable): void {
     }, IDLE_TIMEOUT_MS)
 }
 
-// Dev-only console helpers for hunting detached-DOM retainers. Holds no strong
-// element refs itself — `el(i)` derefs on demand so the hook can't become a leak.
+// Dev-only console helpers for hunting detached-DOM retainers. The convenience
+// accessors (`el(i)`, `detached()`) deref WeakRefs on demand rather than holding
+// elements; `scanner` is the raw MemLens instance and keeps its own tracking state.
 function exposeLeakHunterDevHelpers(scan: MemLensScanner): void {
     const leakHunter = {
         scanner: scan,
