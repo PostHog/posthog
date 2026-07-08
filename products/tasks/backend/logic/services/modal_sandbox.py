@@ -949,6 +949,10 @@ class ModalSandbox(SandboxBase):
             mcp_json = json.dumps([c.to_dict() for c in mcp_configs])
             mcp_servers_arg = f" --mcpServers {shlex.quote(mcp_json)}"
 
+        if auto_publish and not self.agent_server_supports_auto_publish():
+            logger.warning(f"Installed agent-server in sandbox {self.id} predates --autoPublish; starting review-first")
+            auto_publish = False
+
         command = self._build_agent_server_command(
             repo_path,
             task_id,

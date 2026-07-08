@@ -323,6 +323,58 @@ class TestModalSandboxAgentShWrapping(TestCase):
         else:
             self.assertNotIn("--autoPublish", cmd)
 
+    @parameterized.expand(
+        [
+            ("modal", True),
+            ("modal", False),
+            ("docker", True),
+            ("docker", False),
+        ]
+    )
+    def test_start_agent_server_drops_auto_publish_when_binary_lacks_support(self, provider, supported):
+        from products.tasks.backend.logic.services.docker_sandbox import DockerSandbox
+        from products.tasks.backend.logic.services.modal_sandbox import ModalSandbox
+        from products.tasks.backend.logic.services.sandbox import ExecutionResult
+
+        # Snapshots restored from old images carry an agent-server that rejects unknown
+        # options; the launch probe must drop --autoPublish instead of crashing the run.
+        launched: list[str] = []
+
+        def execute(command: str, timeout_seconds: int | None = None) -> ExecutionResult:
+            if "--taskId" in command:
+                launched.append(command)
+                return ExecutionResult(stdout="", stderr="", exit_code=0)
+            self.assertIn("grep", command)
+            return ExecutionResult(stdout="", stderr="", exit_code=0 if supported else 1)
+
+        sandbox: ModalSandbox | DockerSandbox
+        if provider == "modal":
+            sandbox = ModalSandbox.__new__(ModalSandbox)
+        else:
+            sandbox = DockerSandbox.__new__(DockerSandbox)
+            sandbox._host_port = 8080
+        sandbox.id = "sb-test"
+        cast_sandbox: Any = sandbox
+        cast_sandbox.is_running = Mock(return_value=True)
+        cast_sandbox._agent_server_is_healthy = Mock(return_value=False)
+        cast_sandbox._free_agent_server_port = Mock()
+        cast_sandbox.write_file = Mock()
+        cast_sandbox.execute = execute
+
+        sandbox.start_agent_server(
+            repository="org/repo",
+            task_id="test-task",
+            run_id="test-run",
+            auto_publish=True,
+            wait_for_health=False,
+        )
+
+        self.assertEqual(len(launched), 1)
+        if supported:
+            self.assertIn("--autoPublish true", launched[0])
+        else:
+            self.assertNotIn("--autoPublish", launched[0])
+
     def test_command_includes_allowed_domains(self):
         from products.tasks.backend.logic.services.modal_sandbox import ModalSandbox
 
