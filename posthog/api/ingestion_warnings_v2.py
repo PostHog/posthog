@@ -18,6 +18,13 @@ from posthog.utils import relative_date_parse
 
 DEFAULT_SAMPLES_PER_TYPE = 5
 MAX_SAMPLES_PER_TYPE = 50
+DEFAULT_SINCE = "-24h"
+DEFAULT_ORDER_BY = "count"
+DEFAULT_LIMIT = 100
+
+# Closed set enforced by the producers (IngestionWarning.severity in the nodejs pipeline);
+# the ClickHouse schema defaults missing severities to 'warning'.
+INGESTION_WARNING_SEVERITIES = ["info", "warning", "error"]
 
 # Windows up to this size get hourly sparkline buckets; anything wider gets daily buckets.
 HOURLY_BUCKET_MAX_WINDOW = timedelta(days=2)
@@ -44,9 +51,10 @@ class IngestionWarningsV2FilterSerializer(serializers.Serializer):
         help_text="Only return warnings of this type (e.g. 'message_size_too_large', "
         "'cannot_merge_already_identified').",
     )
-    severity = serializers.CharField(
+    severity = serializers.ChoiceField(
+        choices=INGESTION_WARNING_SEVERITIES,
         required=False,
-        help_text="Only return warnings with this severity ('info', 'warning' or 'error'). "
+        help_text="Only return warnings with this severity. "
         "Warnings from producers that don't yet emit a severity have severity 'warning'.",
     )
     q = serializers.CharField(
@@ -54,9 +62,11 @@ class IngestionWarningsV2FilterSerializer(serializers.Serializer):
         help_text="Only return warnings whose type or details contain this substring (case-sensitive). "
         "Useful for finding warnings about a specific distinct ID, event or property.",
     )
+    # These fields deliberately use required=False + a view-side fallback instead of default=:
+    # a serializer default becomes a Zod .default() downstream, which some JSON-schema
+    # conversions render as a required parameter for MCP clients.
     since = serializers.CharField(
         required=False,
-        default="-24h",
         help_text="Start of the time range, as an ISO 8601 datetime (e.g. '2026-07-01T00:00:00Z') or a "
         "relative duration (e.g. '-24h', '-7d'). Defaults to 24 hours ago. Warnings are retained for 90 days.",
     )
@@ -68,22 +78,21 @@ class IngestionWarningsV2FilterSerializer(serializers.Serializer):
     order_by = serializers.ChoiceField(
         choices=["count", "last_seen"],
         required=False,
-        default="count",
-        help_text="Sort order for warning types: 'count' (most frequent first) or 'last_seen' (most recent first).",
+        help_text="Sort order for warning types: 'count' (most frequent first, the default) or "
+        "'last_seen' (most recent first).",
     )
     limit = serializers.IntegerField(
         required=False,
-        default=100,
         min_value=1,
         max_value=500,
-        help_text="Maximum number of warning types to return.",
+        help_text="Maximum number of warning types to return (default 100).",
     )
     samples = serializers.IntegerField(
         required=False,
-        default=DEFAULT_SAMPLES_PER_TYPE,
         min_value=1,
         max_value=MAX_SAMPLES_PER_TYPE,
-        help_text="Maximum number of recent sample warnings to return per warning type.",
+        help_text=f"Maximum number of recent sample warnings to return per warning type "
+        f"(default {DEFAULT_SAMPLES_PER_TYPE}).",
     )
 
 
@@ -210,7 +219,7 @@ class IngestionWarningsV2ViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
         filters = filter_serializer.validated_data
 
         timezone_info = self.team.timezone_info
-        since = relative_date_parse(filters["since"], timezone_info)
+        since = relative_date_parse(filters.get("since", DEFAULT_SINCE), timezone_info)
         until = relative_date_parse(filters["until"], timezone_info) if filters.get("until") else now()
         if since >= until:
             raise serializers.ValidationError({"since": "The 'since' timestamp must be before 'until'."})
@@ -219,8 +228,8 @@ class IngestionWarningsV2ViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
             "team_id": self.team_id,
             "since": since.astimezone(ZoneInfo("UTC")).strftime("%Y-%m-%d %H:%M:%S"),
             "until": until.astimezone(ZoneInfo("UTC")).strftime("%Y-%m-%d %H:%M:%S"),
-            "limit": filters["limit"],
-            "samples": filters["samples"],
+            "limit": filters.get("limit", DEFAULT_LIMIT),
+            "samples": filters.get("samples", DEFAULT_SAMPLES_PER_TYPE),
         }
 
         filter_clauses = []
@@ -236,7 +245,7 @@ class IngestionWarningsV2ViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
             table=DISTRIBUTED_TABLE_NAME,
             bucket_fn="toStartOfHour" if until - since <= HOURLY_BUCKET_MAX_WINDOW else "toStartOfDay",
             filter_clauses=" ".join(filter_clauses),
-            order_by_clause=ORDER_BY_CLAUSES[filters["order_by"]],
+            order_by_clause=ORDER_BY_CLAUSES[filters.get("order_by", DEFAULT_ORDER_BY)],
         )
         with tags_context(product=Product.INGESTION, feature=Feature.INGESTION_WARNINGS, team_id=self.team_id):
             rows = sync_execute(query, query_params)
