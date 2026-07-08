@@ -642,6 +642,9 @@ BOT_DEFINITIONS: dict[str, BotDefinition] = {
     "OzDocsCrawler": BotDefinition("OzDocs", "ai_crawler", "AI Agent", "Unknown"),
     "polygazer": BotDefinition("polygazer", "ai_crawler", "AI Agent", "Unknown"),
     "BIC-Probe": BotDefinition("BIC Probe", "ai_crawler", "AI Agent", "pracharvedam.ai"),
+    "ref-tools-crawler": BotDefinition(
+        "Ref Tools", "ai_crawler", "AI Agent", "Ref", documentation_url="https://ref.tools/"
+    ),
     # SEO / marketing crawlers
     "MBCrawler": BotDefinition(
         "Monitor Backlinks",
@@ -671,5 +674,13 @@ BOT_DEFINITIONS: dict[str, BotDefinition] = {
     # Social crawler (well-known bot not yet vendored here)
     "Discordbot": BotDefinition(
         "Discord", "social_crawler", "Bot", "Discord", documentation_url="https://discord.com/"
+    ),
+    # Link-preview/unfurl bot for the Lantern chat platform (self-declares "bot")
+    "Lantern/": BotDefinition(
+        "Lantern", "social_crawler", "Bot", "Lantern Chat", documentation_url="https://github.com/Lantern-chat"
+    ),
+    # HTTP / automation clients (named, self-declared via +https://)
+    "Yoinka-Events": BotDefinition(
+        "Yoinka Events", "http_client", "Bot", "Yoinka", documentation_url="https://yoinka.app"
     ),
 }
