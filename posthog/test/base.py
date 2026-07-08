@@ -20,7 +20,7 @@ from django.apps import apps
 from django.conf import settings
 from django.core.cache import cache
 from django.core.management import call_command
-from django.db import connection, connections
+from django.db import connection, connections, transaction
 from django.db.migrations.executor import MigrationExecutor
 from django.test import SimpleTestCase, TestCase, TransactionTestCase, override_settings
 from django.test.utils import CaptureQueriesContext
@@ -868,6 +868,80 @@ class BaseTest(PostHogTestCase, ErrorResponsesMixin, TestCase):
     pass
 
 
+# Infrastructure tables whose rows must survive a selective flush: emptying
+# django_content_type / auth_permission would require re-emitting post_migrate
+# (the expensive half of the stock flush command) to repopulate them, and
+# django_migrations / sqlx bookkeeping must never be emptied.
+_SELECTIVE_FLUSH_PRESERVED_TABLES = frozenset({"django_migrations", "django_content_type", "auth_permission"})
+
+# (db alias, include_django_tables) -> flushable table names, resolved once per process
+_selective_flush_tables: dict[tuple[str, bool], list[str]] = {}
+
+
+def _selective_flush(db_name: str, *, reset_sequences: bool, include_django_tables: bool) -> None:
+    """Empty only the tables that contain rows, instead of Django's stock ``flush``.
+
+    The stock command TRUNCATEs every table Django knows about (hundreds, almost
+    all already empty after a typical test) and then emits ``post_migrate`` to
+    recreate content types and permissions. Probing for non-empty tables and
+    DELETE-ing just those is an order of magnitude faster, and preserving content
+    types and permissions makes the ``post_migrate`` signal unnecessary. FK
+    triggers are disabled via ``session_replication_role`` so deletion order
+    doesn't matter; that is safe because every non-empty table is emptied, so no
+    dangling references can remain.
+    """
+    conn = connections[db_name]
+    cache_key = (db_name, include_django_tables)
+    tables = _selective_flush_tables.get(cache_key)
+    with transaction.atomic(using=db_name), conn.cursor() as cursor:
+        if tables is None:
+            cursor.execute(
+                """
+                SELECT tablename
+                FROM pg_tables
+                WHERE schemaname = 'public'
+                  AND tablename NOT LIKE 'pg_%'
+                  AND tablename NOT LIKE '_sqlx_%'
+                  AND tablename != '_persons_migrations'
+                """
+            )
+            tables = [
+                name
+                for (name,) in cursor.fetchall()
+                if name not in _SELECTIVE_FLUSH_PRESERVED_TABLES
+                and (include_django_tables or not name.startswith("django_"))
+            ]
+            _selective_flush_tables[cache_key] = tables
+
+        dirty: list[str] = []
+        chunk_size = 150
+        for start in range(0, len(tables), chunk_size):
+            chunk = tables[start : start + chunk_size]
+            cursor.execute(" UNION ALL ".join(f"SELECT '{name}', EXISTS (SELECT FROM \"{name}\")" for name in chunk))
+            dirty.extend(name for name, has_rows in cursor.fetchall() if has_rows)
+
+        if not dirty:
+            return
+
+        cursor.execute("SET LOCAL session_replication_role = replica")
+        for name in dirty:
+            cursor.execute(f'DELETE FROM "{name}"')
+
+        if reset_sequences:
+            cursor.execute(
+                """
+                SELECT seq.relname
+                FROM pg_class seq
+                JOIN pg_depend dep ON dep.objid = seq.oid AND dep.deptype IN ('a', 'i')
+                JOIN pg_class tbl ON tbl.oid = dep.refobjid
+                WHERE seq.relkind = 'S' AND tbl.relname = ANY(%s)
+                """,
+                [dirty],
+            )
+            for (seq_name,) in cursor.fetchall():
+                cursor.execute(f'ALTER SEQUENCE "{seq_name}" RESTART')
+
+
 class NonAtomicBaseTest(PostHogTestCase, ErrorResponsesMixin, TransactionTestCase):
     """
     Django wraps tests in TestCase inside atomic transactions to speed up the run time. TransactionTestCase is the base
@@ -880,17 +954,20 @@ class NonAtomicBaseTest(PostHogTestCase, ErrorResponsesMixin, TransactionTestCas
         cls.setUpTestData()
 
     def _fixture_teardown(self):
-        # Override to use CASCADE when truncating tables.
-        # Required when models are moved between Django apps, as PostgreSQL
-        # needs CASCADE to handle FK constraints across app boundaries.
         for db_name in cast(Any, self)._databases_names(include_mirrors=False):
-            call_command("flush", verbosity=0, interactive=False, database=db_name, allow_cascade=True)
+            try:
+                _selective_flush(db_name, reset_sequences=True, include_django_tables=True)
+            except Exception:
+                # Fall back to the stock flush, with CASCADE: required when models
+                # are moved between Django apps, as PostgreSQL needs CASCADE to
+                # handle FK constraints across app boundaries.
+                call_command("flush", verbosity=0, interactive=False, database=db_name, allow_cascade=True)
 
 
 class NonAtomicBaseTestKeepIdentities(PostHogTestCase, ErrorResponsesMixin, TransactionTestCase):
     """
-    Like NonAtomicBaseTest but uses TRUNCATE without RESTART IDENTITY, so PG
-    sequences keep incrementing across tests. Useful when ClickHouse data from
+    Like NonAtomicBaseTest but keeps PG sequences incrementing across tests
+    instead of restarting them. Useful when ClickHouse data from
     earlier tests is scoped by auto-incrementing IDs (e.g. team_id) and you
     need later tests to get fresh, non-overlapping values.
     """
@@ -901,18 +978,21 @@ class NonAtomicBaseTestKeepIdentities(PostHogTestCase, ErrorResponsesMixin, Tran
 
     def _fixture_teardown(self):
         for db_name in cast(Any, self)._databases_names(include_mirrors=False):
-            conn = connections[db_name]
-            with conn.cursor() as cursor:
-                cursor.execute("""
-                               SELECT tablename
-                               FROM pg_tables
-                               WHERE schemaname = 'public'
-                                 AND tablename NOT LIKE 'pg_%'
-                                 AND tablename NOT LIKE 'django_%'
-                               """)
-                tables = [row[0] for row in cursor.fetchall()]
-                if tables:
-                    cursor.execute(f"TRUNCATE TABLE {', '.join(tables)} CASCADE")
+            try:
+                _selective_flush(db_name, reset_sequences=False, include_django_tables=False)
+            except Exception:
+                conn = connections[db_name]
+                with conn.cursor() as cursor:
+                    cursor.execute("""
+                                   SELECT tablename
+                                   FROM pg_tables
+                                   WHERE schemaname = 'public'
+                                     AND tablename NOT LIKE 'pg_%'
+                                     AND tablename NOT LIKE 'django_%'
+                                   """)
+                    tables = [row[0] for row in cursor.fetchall()]
+                    if tables:
+                        cursor.execute(f"TRUNCATE TABLE {', '.join(tables)} CASCADE")
 
 
 class APIBaseTest(PostHogTestCase, ErrorResponsesMixin, DRFTestCase):
