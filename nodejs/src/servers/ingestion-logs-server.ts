@@ -1,5 +1,6 @@
 import { defaultConfig, overrideConfigWithEnv } from '~/common/config/config'
 import { createPosthogRedisConnectionConfig } from '~/common/config/redis-pools'
+import { startInternalMetricsExporterFromEnv, stopInternalMetricsExporter } from '~/common/internal-metrics-exporter'
 import { KafkaProducerRegistry } from '~/common/outputs/kafka-producer-registry'
 import { QuotaLimiting } from '~/common/services/quota-limiting.service'
 import { PostgresRouter } from '~/common/utils/db/postgres'
@@ -121,6 +122,10 @@ export class IngestionLogsServer implements NodeServer {
 
         const readyServices = await Promise.all(serviceLoaders.map((loader) => loader()))
         this.lifecycle.services.push(...readyServices)
+
+        // Dogfooding: also ship this process's prometheus metrics to the PostHog
+        // Metrics product. No-op unless POSTHOG_INTERNAL_METRICS_TOKEN is set.
+        startInternalMetricsExporterFromEnv('logs-ingestion')
     }
 
     private getCleanupResources(): CleanupResources {
@@ -129,6 +134,7 @@ export class IngestionLogsServer implements NodeServer {
             redisPools: [this.posthogRedisPool].filter(Boolean) as RedisPool[],
             postgres: this.postgres,
             additionalCleanup: async () => {
+                stopInternalMetricsExporter()
                 await this.producerRegistry?.disconnectAll()
             },
         }
