@@ -1,6 +1,8 @@
 from dataclasses import is_dataclass
 from typing import Any, Optional
 
+import django.db
+
 import temporalio.exceptions
 from opentelemetry import trace
 from posthoganalytics import api_key, capture_exception
@@ -19,6 +21,42 @@ from posthog.temporal.common.interceptor import ALL_TASK_QUEUES
 from posthog.temporal.common.logger import get_write_only_logger
 
 logger = get_write_only_logger()
+
+
+# Substrings (matched case-insensitively) that identify a transient failure to reach our own
+# Postgres — DNS resolution blips, refused/reset/dropped connections, connect timeouts. These are
+# self-healing: Temporal retries the activity and the next attempt opens a fresh, healthy pooler
+# connection, so they are infrastructure noise rather than defects worth an error-tracking issue.
+_TRANSIENT_DB_CONNECTION_MARKERS = (
+    "name or service not known",  # DNS getaddrinfo failure (errno -2)
+    "temporary failure in name resolution",  # DNS getaddrinfo failure (errno -3)
+    "could not translate host name",
+    "could not connect to server",
+    "connection refused",
+    "connection reset",
+    "connection timed out",
+    "timeout expired",
+    "no route to host",
+    "network is unreachable",
+    "server closed the connection unexpectedly",
+    "the connection is closed",
+    "connection already closed",
+    "ssl connection has been closed unexpectedly",
+    "consuming input failed",
+    "terminating connection due to administrator command",
+)
+
+
+def _is_transient_db_connection_error(e: BaseException) -> bool:
+    """True for a transient failure to reach our own Postgres that Temporal will retry.
+
+    Scoped to connection/DNS-level ``OperationalError``/``InterfaceError`` (matched on the message)
+    so genuine query defects that also surface as ``OperationalError`` (statement timeout, deadlock,
+    integrity issues) are still reported."""
+    if not isinstance(e, django.db.OperationalError | django.db.InterfaceError):
+        return False
+    message = str(e).lower()
+    return any(marker in message for marker in _TRANSIENT_DB_CONNECTION_MARKERS)
 
 
 def _tag_team_id_on_current_span(input: ExecuteActivityInput | ExecuteWorkflowInput) -> None:
@@ -66,11 +104,17 @@ class _PostHogClientActivityInboundInterceptor(ActivityInboundInterceptor):
         try:
             return await super().execute_activity(input)
         except Exception as e:
-            # Cancellations (worker drain, activity timeout, workflow cancellation) and our own
+            # Cancellations (worker drain, activity timeout, workflow cancellation), our own
             # egress-budget backpressure (a deliberate "defer and retry later" signal that our
-            # rate limiter already records via record_outbound_decision) are expected control flow,
-            # not defects — re-raise without reporting them to error tracking.
-            if temporalio.exceptions.is_cancelled_exception(e) or isinstance(e, EgressBudgetExhausted):
+            # rate limiter already records via record_outbound_decision), and transient failures to
+            # reach our own Postgres (DNS/connection blips that Temporal retries on a fresh
+            # connection) are expected control flow, not defects — re-raise without reporting them
+            # to error tracking.
+            if (
+                temporalio.exceptions.is_cancelled_exception(e)
+                or isinstance(e, EgressBudgetExhausted)
+                or _is_transient_db_connection_error(e)
+            ):
                 raise
             activity_info = activity.info()
             capture_kwargs = {
