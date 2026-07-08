@@ -126,7 +126,7 @@ export function initKea({
                         typeof errorMessage === 'string' &&
                         errorMessage.startsWith('Request was throttled')
                     ) {
-                        errorMessage = `Rate limit exceeded. Please try again ${error.formattedRetryAfter || 'later'}.`
+                        errorMessage = `Rate limit exceeded. Please try again ${error.formattedRetryAfter}.`
                     }
                     if (isTwoFactorError || isSensitiveActionError) {
                         errorMessage = null
