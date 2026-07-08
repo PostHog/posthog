@@ -1,11 +1,25 @@
 from enum import Enum
-from typing import Self
+from typing import TYPE_CHECKING, Self
 
+from django.conf import settings
 from django.db import models
 
 from posthog.helpers.encrypted_fields import EncryptedJSONStringField
 from posthog.models.activity_logging.model_activity import ModelActivityMixin
 from posthog.models.utils import UUIDTModel
+
+if TYPE_CHECKING:
+    from posthog.models.team import Team
+
+
+def get_aws_external_id(team: "Team") -> str:
+    """The sts:ExternalId customers pin in their IAM role's trust policy.
+
+    Stable per team so a customer configures their role once; PostHog-generated so one
+    team can never present another team's external id (confused-deputy guard).
+    """
+    region = (settings.CLOUD_DEPLOYMENT or "dev").lower()
+    return f"posthog-{region}-{team.uuid}"
 
 
 class DateRangeExportSource(str, Enum):
@@ -43,7 +57,7 @@ class BatchImport(ModelActivityMixin, UUIDTModel):
     display_status_message = models.TextField(null=True, blank=True)
     state = models.JSONField(null=True, blank=True)
     import_config = models.JSONField()
-    secrets = EncryptedJSONStringField()
+    secrets = EncryptedJSONStringField(null=True, blank=True)
     # Exponential backoff state (used by rust worker). Mirrors columns used by the worker.
     backoff_attempt = models.IntegerField(default=0)
     backoff_until = models.DateTimeField(null=True, blank=True)
@@ -66,7 +80,13 @@ class BatchImportConfigBuilder:
         self.batch_import = batch_import
         if initialize_empty:
             self.batch_import.import_config = {}
+            self.batch_import.secrets = None
+
+    def _store_secret(self, key: str, value: str | list[str]) -> None:
+        # secrets starts as None so imports that never store one persist NULL
+        if self.batch_import.secrets is None:
             self.batch_import.secrets = {}
+        self.batch_import.secrets[key] = value
 
     def json_lines(self, content_type: ContentType, skip_blanks: bool = True) -> Self:
         self.batch_import.import_config["data_format"] = {
@@ -89,7 +109,48 @@ class BatchImportConfigBuilder:
             "allow_internal_ips": allow_internal_ips,
             "timeout_seconds": timeout_seconds,
         }
-        self.batch_import.secrets[urls_key] = urls
+        self._store_secret(urls_key, urls)
+        return self
+
+    def _s3_source(
+        self,
+        source_type: str,
+        bucket: str,
+        prefix: str,
+        region: str,
+        access_key_id: str | None,
+        secret_access_key: str | None,
+        role_arn: str | None,
+        external_id: str | None,
+        endpoint_url: str | None,
+        access_key_id_key: str,
+        secret_access_key_key: str,
+    ) -> Self:
+        source: dict = {
+            "type": source_type,
+            "bucket": bucket,
+            "prefix": prefix,
+            "region": region,
+        }
+        if role_arn:
+            if access_key_id is not None or secret_access_key is not None:
+                raise ValueError("Exactly one of access keys or role_arn must be provided for S3 sources")
+            if endpoint_url:
+                raise ValueError("IAM role authentication only works with AWS S3 endpoints")
+            if not external_id:
+                raise ValueError("external_id is required for IAM role authentication")
+            source["role_arn"] = role_arn
+            source["external_id"] = external_id
+        else:
+            if access_key_id is None or secret_access_key is None:
+                raise ValueError("Exactly one of access keys or role_arn must be provided for S3 sources")
+            source["access_key_id_key"] = access_key_id_key
+            source["secret_access_key_key"] = secret_access_key_key
+            self._store_secret(access_key_id_key, access_key_id)
+            self._store_secret(secret_access_key_key, secret_access_key)
+        if endpoint_url:
+            source["endpoint_url"] = endpoint_url
+        self.batch_import.import_config["source"] = source
         return self
 
     def from_s3(
@@ -97,52 +158,54 @@ class BatchImportConfigBuilder:
         bucket: str,
         prefix: str,
         region: str,
-        access_key_id: str,
-        secret_access_key: str,
+        access_key_id: str | None = None,
+        secret_access_key: str | None = None,
+        role_arn: str | None = None,
+        external_id: str | None = None,
         endpoint_url: str | None = None,
         access_key_id_key: str = "aws_access_key_id",
         secret_access_key_key: str = "aws_secret_access_key",
     ) -> Self:
-        source: dict = {
-            "type": "s3",
-            "bucket": bucket,
-            "prefix": prefix,
-            "region": region,
-            "access_key_id_key": access_key_id_key,
-            "secret_access_key_key": secret_access_key_key,
-        }
-        if endpoint_url:
-            source["endpoint_url"] = endpoint_url
-        self.batch_import.import_config["source"] = source
-        self.batch_import.secrets[access_key_id_key] = access_key_id
-        self.batch_import.secrets[secret_access_key_key] = secret_access_key
-        return self
+        return self._s3_source(
+            "s3",
+            bucket,
+            prefix,
+            region,
+            access_key_id,
+            secret_access_key,
+            role_arn,
+            external_id,
+            endpoint_url,
+            access_key_id_key,
+            secret_access_key_key,
+        )
 
     def from_s3_gzip(
         self,
         bucket: str,
         prefix: str,
         region: str,
-        access_key_id: str,
-        secret_access_key: str,
+        access_key_id: str | None = None,
+        secret_access_key: str | None = None,
+        role_arn: str | None = None,
+        external_id: str | None = None,
         endpoint_url: str | None = None,
         access_key_id_key: str = "aws_access_key_id",
         secret_access_key_key: str = "aws_secret_access_key",
     ) -> Self:
-        source: dict = {
-            "type": "s3_gzip",
-            "bucket": bucket,
-            "prefix": prefix,
-            "region": region,
-            "access_key_id_key": access_key_id_key,
-            "secret_access_key_key": secret_access_key_key,
-        }
-        if endpoint_url:
-            source["endpoint_url"] = endpoint_url
-        self.batch_import.import_config["source"] = source
-        self.batch_import.secrets[access_key_id_key] = access_key_id
-        self.batch_import.secrets[secret_access_key_key] = secret_access_key
-        return self
+        return self._s3_source(
+            "s3_gzip",
+            bucket,
+            prefix,
+            region,
+            access_key_id,
+            secret_access_key,
+            role_arn,
+            external_id,
+            endpoint_url,
+            access_key_id_key,
+            secret_access_key_key,
+        )
 
     def from_date_range(
         self,
@@ -214,8 +277,8 @@ class BatchImportConfigBuilder:
             "base_url": base_url,
             **additional_config,
         }
-        self.batch_import.secrets[access_key_key] = access_key
-        self.batch_import.secrets[secret_key_key] = secret_key
+        self._store_secret(access_key_key, access_key)
+        self._store_secret(secret_key_key, secret_key)
         return self
 
     def to_stdout(self, as_json: bool = True) -> Self:

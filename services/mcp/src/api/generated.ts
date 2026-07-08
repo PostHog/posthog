@@ -11695,6 +11695,22 @@ export namespace Schemas {
       readonly import_config: unknown;
     }
 
+    /**
+     * Values a customer needs to configure cross-account IAM role access for S3 imports
+     */
+    export interface BatchImportAWSIAMSetup {
+      /** Whether IAM role authentication is available on this PostHog deployment. */
+      available: boolean;
+      /** External ID to pin in the role trust policy's sts:ExternalId condition. Stable per project. */
+      external_id: string;
+      /** ARN of PostHog's import role - the principal your role must trust. */
+      posthog_role_arn: string;
+      /** Ready-to-paste IAM trust policy JSON for the role in your AWS account. */
+      trust_policy: string;
+      /** IAM permission policy JSON template; replace YOUR_BUCKET and YOUR_PREFIX with your values. */
+      permission_policy_template: string;
+    }
+
     export type EventPropFilterTypeEnum = typeof EventPropFilterTypeEnum[keyof typeof EventPropFilterTypeEnum];
 
 
