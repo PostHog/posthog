@@ -127,6 +127,25 @@ describe('projectsGridLogic', () => {
             expect(maxInFlight).toBe(1)
         })
 
+        it('re-fetches siblings of loaded rows after a bulk copy finishes', async () => {
+            await expectLogic(logic).toFinishAllListeners()
+            callOrder = []
+
+            logic.actions.bulkCopyFlagsFinished({
+                copied: [
+                    { key: 'flag_2', projectIds: [2] },
+                    { key: 'not_in_grid', projectIds: [2] },
+                ],
+                failed: [],
+                warnings: [],
+                skippedFlagCount: 0,
+            })
+            await expectLogic(logic).toFinishAllListeners()
+
+            // Only the key shown in the grid is re-fetched; keys outside the loaded rows are skipped.
+            expect(callOrder).toEqual(['flag_2'])
+        })
+
         it('resets sibling queue when search changes', async () => {
             await expectLogic(logic).toFinishAllListeners()
             expect(logic.values.siblingQueue).toHaveLength(0)
