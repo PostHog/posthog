@@ -144,6 +144,8 @@ class QueryStepDiagnostic:
 class AiReportResult:
     markdown: str
     diagnostics: tuple[QueryStepDiagnostic, ...]
+    # The window's end as a UTC ISO instant — persisted so the next run can anchor exactly here.
+    window_end_utc: str
 
 
 async def generate_ai_report(
@@ -198,7 +200,11 @@ async def generate_ai_report(
             # deterministic notice (not left to the synthesis LLM) so the recipient gets a clear signal
             # instead of a confident-looking but empty report.
             report = _all_queries_failed_notice(total_steps) + report
-        return AiReportResult(markdown=report, diagnostics=tuple(diagnostics))
+        return AiReportResult(
+            markdown=report,
+            diagnostics=tuple(diagnostics),
+            window_end_utc=window.end.astimezone(UTC).isoformat(),
+        )
 
 
 async def _plan(

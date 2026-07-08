@@ -16,7 +16,7 @@ from products.exports.backend.temporal.subscriptions.ai_subscription.delivery im
     render_ai_email_html,
     send_email_ai_subscription_report,
 )
-from products.exports.backend.temporal.subscriptions.types import SubscriptionTriggerType
+from products.exports.backend.temporal.subscriptions.types import AI_REPORT_WINDOW_END_KEY, SubscriptionTriggerType
 
 from ee.tasks.subscriptions.slack_subscriptions import SlackMessageData
 
@@ -285,7 +285,9 @@ class TestFeedbackFooter:
 
 
 class TestLastSuccessfulDeliveryAnchor(APIBaseTest):
-    def _delivery(self, trigger_type: str, status: str, finished_at: datetime | None) -> None:
+    def _delivery(
+        self, trigger_type: str, status: str, finished_at: datetime | None, snapshot: dict | None = None
+    ) -> None:
         SubscriptionDelivery.objects.create(
             subscription=self.subscription,
             team=self.team,
@@ -296,6 +298,7 @@ class TestLastSuccessfulDeliveryAnchor(APIBaseTest):
             target_value="a@posthog.com",
             status=status,
             finished_at=finished_at,
+            content_snapshot=snapshot or {},
         )
 
     def setUp(self) -> None:
@@ -325,6 +328,32 @@ class TestLastSuccessfulDeliveryAnchor(APIBaseTest):
         )
 
         assert _last_successful_delivery_finished_at(self.subscription) == scheduled_at
+
+    def test_anchor_prefers_the_persisted_window_end(self) -> None:
+        # finished_at trails the run's window end by the generation+send time; anchoring there leaves
+        # that interval uncovered. The persisted window end closes the gap exactly.
+        window_end = datetime(2026, 6, 22, 12, 0, tzinfo=UTC)
+        finished_at = window_end + timedelta(minutes=3)
+        self._delivery(
+            SubscriptionTriggerType.SCHEDULED,
+            SubscriptionDelivery.Status.COMPLETED,
+            finished_at,
+            snapshot={AI_REPORT_WINDOW_END_KEY: window_end.isoformat()},
+        )
+
+        assert _last_successful_delivery_finished_at(self.subscription) == window_end
+
+    def test_anchor_falls_back_to_finished_at_without_window_end(self) -> None:
+        # Rows written before the key existed (or with a garbled value) anchor on finished_at as before.
+        finished_at = datetime(2026, 6, 22, 12, 3, tzinfo=UTC)
+        self._delivery(
+            SubscriptionTriggerType.SCHEDULED,
+            SubscriptionDelivery.Status.COMPLETED,
+            finished_at,
+            snapshot={AI_REPORT_WINDOW_END_KEY: "not-a-date"},
+        )
+
+        assert _last_successful_delivery_finished_at(self.subscription) == finished_at
 
     def test_no_scheduled_delivery_yields_none(self) -> None:
         self._delivery(

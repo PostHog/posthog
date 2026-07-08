@@ -26,7 +26,7 @@ from products.exports.backend.temporal.subscriptions.ai_subscription.spec_genera
     ReportWindow,
     compute_report_window,
 )
-from products.exports.backend.temporal.subscriptions.types import SubscriptionTriggerType
+from products.exports.backend.temporal.subscriptions.types import AI_REPORT_WINDOW_END_KEY, SubscriptionTriggerType
 
 from ee.tasks.subscriptions.slack_subscriptions import (
     UTM_TAGS_BASE,
@@ -101,7 +101,7 @@ def _split_text_into_chunks(text: str, limit: int = SLACK_MRKDWN_SECTION_LIMIT) 
 
 def _last_successful_delivery_finished_at(subscription: Subscription) -> datetime | None:
     try:
-        return (
+        row = (
             SubscriptionDelivery.objects.filter(
                 subscription_id=subscription.id,
                 status=SubscriptionDelivery.Status.COMPLETED,
@@ -112,9 +112,21 @@ def _last_successful_delivery_finished_at(subscription: Subscription) -> datetim
                 finished_at__isnull=False,
             )
             .order_by("-finished_at")
-            .values_list("finished_at", flat=True)
+            .values_list("finished_at", "content_snapshot")
             .first()
         )
+        if row is None:
+            return None
+        finished_at, snapshot = row
+        # Prefer the run's persisted window end: anchoring on finished_at leaves the run's own
+        # generation+send time uncovered. Rows written before the key existed fall back.
+        window_end = (snapshot or {}).get(AI_REPORT_WINDOW_END_KEY)
+        if isinstance(window_end, str):
+            try:
+                return datetime.fromisoformat(window_end)
+            except ValueError:
+                pass
+        return finished_at
     except Exception as exc:
         # A transient DB error on this one lookup shouldn't fail the whole delivery — None falls
         # back to the cadence window (which may re-cover already-sent data, never drop any).
