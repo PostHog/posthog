@@ -30,26 +30,31 @@ export interface HoggiePngModule {
  * A hoggie illustration as an `<img>` backed by the package's PNG export. Drop-in for the
  * SVG barrel component: accepts the same `className`/`style`/`size`/`title` props, reserves
  * layout via the intrinsic aspect ratio, and stays decorative (`alt=""`) unless titled.
+ *
+ * `aspect-ratio` and `object-fit` are inline styles, so utility classes can't override
+ * them - use the `style` prop for that.
  */
 export function pngHoggie({ src, aspectRatio }: HoggiePngModule): ComponentType<AssetSvgProps> {
     function HoggiePng({ className, style, size, title, width, height, ...rest }: AssetSvgProps): JSX.Element {
-        // Mirror the SVG components' sizing: `size` wins, then explicit width/height, then
-        // fill the container - the last only when no className is given, because inline
-        // style beats utility classes (the SVG version used a width *attribute*, which
-        // classes could override; an inline 100% would silently defeat w-*/h-* classes).
+        // Mirror the SVG components' sizing: `size` (any CSS length) wins, then explicit
+        // width/height, then fill the container - the last only when no className is given,
+        // because inline style beats utility classes (the SVG version used a width
+        // *attribute*, which classes could override; an inline 100% would silently defeat
+        // w-*/h-* classes). width/height stay element attributes for the same reason - and
+        // because call sites pass unitless strings ("100"), valid as attributes but not CSS.
         const sizing =
             size != null
                 ? { width: size }
-                : width != null || height != null
-                  ? { width, height }
-                  : className
-                    ? undefined
-                    : { width: '100%' }
+                : width == null && height == null && !className
+                  ? { width: '100%' }
+                  : undefined
         return (
             <img
                 src={src}
                 alt={title ?? ''}
                 className={className}
+                width={width}
+                height={height}
                 style={{ aspectRatio: String(aspectRatio), objectFit: 'contain', ...sizing, ...style }}
                 // Decorative illustrations: don't fetch until near the viewport, don't block
                 // paint on decode, and never compete with real content for bandwidth.

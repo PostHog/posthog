@@ -123,6 +123,10 @@
                     {
                         "name": "@posthog/brand/hoggies/svg",
                         "message": "Inline-SVG hoggies bundle up to ~1 MB of JS each. Use the PNG export instead: import * as name from '@posthog/brand/hoggies/png/<name>' and wrap with pngHoggie from lib/brand/hoggies. If you truly need vector output, add an oxlint-disable comment stating why."
+                    },
+                    {
+                        "name": "@posthog/brand/hoggies/png",
+                        "message": "Import the per-asset stub instead: import * as name from '@posthog/brand/hoggies/png/<name>'. The barrel pulls every hoggie's stub into the graph."
                     }
                 ],
                 "patterns": [

@@ -205,6 +205,10 @@ export const commonConfig = {
                     { filter: /@posthog[\\/]brand[\\/]dist[\\/].*[\\/]png[\\/][^\\/]+\.mjs$/ },
                     async (args) => {
                         const source = await fs.readFile(args.path, 'utf8')
+                        if (!source.includes('.png')) {
+                            // png/index.mjs barrels only re-export the leaf stubs - nothing to rewrite.
+                            return undefined
+                        }
                         const contents = source.replace(
                             /const src = new URL\((".*?\.png"), import\.meta\.url\)\.href;?/,
                             'import src from $1;'

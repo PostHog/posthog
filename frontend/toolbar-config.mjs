@@ -25,8 +25,8 @@ const shimmedModules = {
     'scenes/sceneLogic': 'src/toolbar/shims/sceneLogic.ts',
     'scenes/teamLogic': 'src/toolbar/shims/teamLogic.ts',
     'lib/logic/featureFlagLogic': 'src/toolbar/shims/featureFlagLogic.ts',
-    // The real lazyHoggie dynamically imports the whole hoggie barrel; the toolbar's IIFE
-    // build inlines dynamic imports, so without this shim every hoggie SVG lands in the bundle.
+    // Hoggie illustrations are decorative; the shim renders null so no PNG assets or image
+    // requests reach the toolbar bundle that runs on customer sites (asset URLs are CSP-relevant).
     'lib/brand/hoggies': 'src/toolbar/shims/hoggies.tsx',
 }
 
