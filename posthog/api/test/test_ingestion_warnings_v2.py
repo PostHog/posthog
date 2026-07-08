@@ -161,6 +161,7 @@ class TestIngestionWarningsV2API(ClickhouseTestMixin, APIBaseTest):
         [
             ({"limit": 0},),
             ({"since": "2026-07-07T11:00:00Z", "until": "2026-07-07T10:00:00Z"},),
+            ({"severity": "critical"},),
         ]
     )
     def test_invalid_params_return_400(self, params: dict):

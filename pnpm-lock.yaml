@@ -2801,6 +2801,9 @@ importers:
       '@tiptap/extensions':
         specifier: '*'
         version: 3.20.1(@tiptap/core@3.20.1(@tiptap/pm@3.20.1))(@tiptap/pm@3.20.1)
+      '@tiptap/pm':
+        specifier: '*'
+        version: 3.20.1
       '@tiptap/react':
         specifier: '*'
         version: 3.20.1(@floating-ui/dom@1.7.6)(@tiptap/core@3.20.1(@tiptap/pm@3.20.1))(@tiptap/pm@3.20.1)(@types/react-dom@18.3.7(@types/react@18.3.27))(@types/react@18.3.27)(react-dom@18.3.1(react@18.3.1))(react@18.3.1)
@@ -3131,6 +3134,10 @@ importers:
       react:
         specifier: 18.3.1
         version: 18.3.1
+    devDependencies:
+      '@storybook/react':
+        specifier: 'catalog:'
+        version: 10.4.6(@types/react-dom@18.3.7(@types/react@18.3.27))(@types/react@18.3.27)(react-dom@18.3.1(react@18.3.1))(react@18.3.1)(storybook@10.4.6(@testing-library/dom@10.4.0)(@types/react@18.3.27)(prettier@3.8.2)(react-dom@18.3.1(react@18.3.1))(react@18.3.1))(typescript@6.0.3)
 
   products/engineering_analytics:
     dependencies:

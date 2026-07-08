@@ -80,8 +80,6 @@ describe('createHogTransformEventStep', () => {
                         transformationId: 'hog-fn-1',
                         transformationName: 'Drop internal users',
                     },
-                    category: 'transformation',
-                    severity: 'info',
                     pipelineStep: 'hog-transform',
                     key: 'hog-fn-1',
                 },

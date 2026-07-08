@@ -217,7 +217,7 @@ export interface SuggestionPayload {
     acceptText?: string
     rejectText?: string
     diffShowRunButton?: boolean
-    source?: 'max_ai' | 'hogql_fixer'
+    source?: 'max_ai' | 'hogql_fixer' | 'materialization_fix'
     onAccept: (
         shouldRunQuery: boolean,
         actions: sqlEditorLogicType['actions'],
@@ -986,8 +986,10 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
                 editor.focus()
             },
             setSuggestedQueryInput: ({ suggestedQueryInput, source }) => {
-                // If there's no active tab, create one first to ensure Monaco Editor is available
-                if (!values.activeTab) {
+                // If there's no active tab, create one first to ensure Monaco Editor is available.
+                // Embedded mode has no tabs at all — falling into createTab would replace the query
+                // outright instead of showing the accept/reject diff.
+                if (!values.activeTab && !values.isEmbeddedMode) {
                     actions.createTab(suggestedQueryInput)
                     return
                 }

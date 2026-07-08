@@ -4916,7 +4916,7 @@ const api = {
         },
         async sqlV2Run(
             notebookId: NotebookType['short_id'],
-            data: { node_id: string; code: string }
+            data: { node_id: string; code: string; refs?: Record<string, string> }
         ): Promise<{ run_id: string }> {
             return await new ApiRequest().notebook(notebookId).withAction('sql_v2/run').create({ data })
         },
@@ -7099,6 +7099,13 @@ const api = {
                 .withAction('bulk_update_status')
                 .create({ data: { ids, status: ticketStatus } })
         },
+
+        async submitAiFeedback(
+            ticketId: string,
+            data: { message_id: string; rating: 'good' | 'bad'; feedback_text?: string }
+        ): Promise<void> {
+            await new ApiRequest().conversationsTicket(ticketId).withAction('ai_feedback').create({ data })
+        },
     },
 
     llmPrompts: {
@@ -7130,7 +7137,7 @@ const api = {
 
         async update(
             promptName: string,
-            data: { prompt: LLMPrompt['prompt']; base_version: number }
+            data: { prompt: LLMPrompt['prompt']; base_version: number; version_description?: string }
         ): Promise<LLMPrompt> {
             return await new ApiRequest().llmPromptByName(promptName).update({ data })
         },

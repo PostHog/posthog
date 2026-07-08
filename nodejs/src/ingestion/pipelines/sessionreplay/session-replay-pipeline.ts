@@ -5,6 +5,7 @@ import { IngestionOutputs } from '~/common/outputs/ingestion-outputs'
 import { EventIngestionRestrictionManager } from '~/common/utils/event-ingestion-restrictions'
 import { PromiseScheduler } from '~/common/utils/promise-scheduler'
 import { createApplyEventRestrictionsStep, createParseHeadersStep } from '~/ingestion/common/steps/event-preprocessing'
+import { IngestionOverflowMode } from '~/ingestion/config'
 import { BatchPipeline } from '~/ingestion/framework/batch-pipeline.interface'
 import { newBatchPipelineBuilder } from '~/ingestion/framework/builders'
 import { TopHogRegistry, createTopHogWrapper, sum, timer } from '~/ingestion/framework/extensions/tophog'
@@ -43,7 +44,7 @@ export interface SessionReplayPipelineOutput {
 export interface SessionReplayPipelineConfig {
     outputs: IngestionOutputs<IngestionWarningsOutput | DlqOutput | OverflowOutput>
     eventIngestionRestrictionManager: EventIngestionRestrictionManager
-    overflowEnabled: boolean
+    overflowMode: IngestionOverflowMode
     promiseScheduler: PromiseScheduler
     teamService: TeamService
     /** Resolves per-session retention before recording, so keys and storage route correctly */
@@ -86,7 +87,7 @@ export function createSessionReplayPipeline(
     const {
         outputs,
         eventIngestionRestrictionManager,
-        overflowEnabled,
+        overflowMode,
         promiseScheduler,
         teamService,
         retentionService,
@@ -115,7 +116,7 @@ export function createSessionReplayPipeline(
                         .pipe(createParseHeadersStep())
                         .pipe(
                             createApplyEventRestrictionsStep(eventIngestionRestrictionManager, {
-                                overflowEnabled,
+                                overflowMode,
                                 preservePartitionLocality: true, // Sessions must stay on the same partition
                             })
                         )
