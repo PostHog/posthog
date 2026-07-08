@@ -145,6 +145,7 @@ class OrganizationSerializer(
     projects = serializers.SerializerMethodField()
     metadata = serializers.SerializerMethodField()
     member_count = serializers.SerializerMethodField()
+    enrichment = serializers.SerializerMethodField()
     logo_media_id = OrgScopedPrimaryKeyRelatedField(
         queryset=UploadedMedia.objects.all(), required=False, allow_null=True
     )
@@ -192,6 +193,7 @@ class OrganizationSerializer(
             "is_active",
             "is_not_active_reason",
             "is_pending_deletion",
+            "enrichment",
         ]
         read_only_fields = [
             "id",
@@ -213,6 +215,7 @@ class OrganizationSerializer(
             "is_ai_training_locked",
             "is_ai_training_cta_shown",
             "is_hipaa",
+            "enrichment",
         ]
         extra_kwargs = {
             "slug": {
@@ -347,6 +350,11 @@ class OrganizationSerializer(
     @tracer.start_as_current_span("organization_serializer.member_count")
     def get_member_count(self, organization: Organization) -> int:
         return _cached_per_org("member_count", str(organization.id), lambda: _fetch_member_count(organization))
+
+    @extend_schema_field(serializers.DictField())
+    def get_enrichment(self, organization: Organization) -> dict:
+        record = getattr(organization, "enrichment_record", None)
+        return record.data if record else {}
 
     @tracer.start_as_current_span("organization_serializer.to_representation")
     def to_representation(self, instance):

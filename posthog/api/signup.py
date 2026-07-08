@@ -32,8 +32,17 @@ from posthog.api.webauthn import (
 from posthog.email import is_email_available
 from posthog.event_usage import alias_invite_id, report_user_joined_organization, report_user_signed_up
 from posthog.exceptions_capture import capture_exception
+from posthog.helpers.company_type import classify_company_type
 from posthog.helpers.email_utils import EmailValidationHelper, validate_display_name
-from posthog.models import InviteExpiredException, Organization, OrganizationDomain, OrganizationInvite, Team, User
+from posthog.models import (
+    InviteExpiredException,
+    Organization,
+    OrganizationDomain,
+    OrganizationEnrichment,
+    OrganizationInvite,
+    Team,
+    User,
+)
 from posthog.models.organization_invite import INVITE_DAYS_VALIDITY
 from posthog.models.webauthn_credential import WebauthnCredential
 from posthog.permissions import CanCreateOrg
@@ -191,6 +200,17 @@ class SignupSerializer(serializers.Serializer):
         domain = self.validated_data.get("email", "").split("@")[-1].lower()
         return domain in settings.EMAIL_VERIFICATION_SKIP_FOR_DOMAINS
 
+    def _record_company_type(self, email: str) -> None:
+        # Groundwork for onboarding routing by company type; must never break signup.
+        try:
+            with transaction.atomic():
+                OrganizationEnrichment.objects.create(
+                    organization=self._organization,
+                    data={"company_type_deterministic": classify_company_type(email).value},
+                )
+        except Exception as e:
+            capture_exception(e)
+
     def create(self, validated_data, **kwargs):
         if settings.DEMO:
             return self.enter_demo(validated_data)
@@ -246,6 +266,8 @@ class SignupSerializer(serializers.Serializer):
                     role_at_organization=role_at_organization,
                     **validated_data,
                 )
+
+                self._record_company_type(validated_data["email"])
 
                 # Create WebauthnCredential from session data for passkey signup
                 if passkey_credential:

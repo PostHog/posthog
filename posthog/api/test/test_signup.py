@@ -126,6 +126,29 @@ class TestSignupAPI(APIBaseTest):
 
     @pytest.mark.skip_on_multitenancy
     @patch("posthoganalytics.capture")
+    def test_api_sign_up_records_company_type_enrichment(self, mock_capture):
+        response = self.client.post(
+            "/api/signup/",
+            {
+                "first_name": "Founder",
+                "email": "founder@stripe.com",
+                "password": VALID_TEST_PASSWORD,
+                "organization_name": "Stripe",
+                "role_at_organization": "product",
+            },
+        )
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+
+        user = cast(User, User.objects.order_by("-pk")[0])
+        organization = cast(Organization, user.organization)
+
+        self.assertEqual(organization.enrichment_record.data, {"company_type_deterministic": "yc"})
+
+        me = self.client.get("/api/users/@me/")
+        self.assertEqual(me.json()["organization"]["enrichment"], {"company_type_deterministic": "yc"})
+
+    @pytest.mark.skip_on_multitenancy
+    @patch("posthoganalytics.capture")
     def test_api_sign_up_with_ai_referral_source(self, mock_capture):
         response = self.client.post(
             "/api/signup/",
