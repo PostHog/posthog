@@ -36,7 +36,8 @@ export function SubscriptionsModal(props: SubscriptionsModalProps): JSX.Element 
         ?.filter((tile) => !tile.deleted && tile.insight && !tile.insight.deleted)
         .map((tile) => tile.insight?.id)
         .filter((id): id is number => typeof id === 'number')
-    const useTabbedOverview = !!featureFlags[FEATURE_FLAGS.SUBSCRIPTION_TABBED_OVERVIEW]
+    // Experiment-gated: the flag resolves to a variant string, so only the test variant gets the new UI.
+    const useTabbedOverview = featureFlags[FEATURE_FLAGS.SUBSCRIPTION_TABBED_OVERVIEW] === 'test'
 
     if (userLoading) {
         return <Spinner className="text-2xl" />

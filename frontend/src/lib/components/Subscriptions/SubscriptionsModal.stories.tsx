@@ -156,7 +156,10 @@ export const SubscriptionsNewFreeAtLimit: Story = {
 // Tabbed overview (feature flag on), dashboard context: This dashboard / Insights / AI prompt reports tabs.
 export const SubscriptionsTabbed: Story = {
     parameters: {
-        featureFlags: [FEATURE_FLAGS.SUBSCRIPTION_TABBED_OVERVIEW, FEATURE_FLAGS.SUBSCRIPTION_AI_PROMPT],
+        featureFlags: {
+            [FEATURE_FLAGS.SUBSCRIPTION_TABBED_OVERVIEW]: 'test',
+            [FEATURE_FLAGS.SUBSCRIPTION_AI_PROMPT]: true,
+        },
     },
     args: {
         dashboard: {
