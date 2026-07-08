@@ -8696,6 +8696,39 @@ export namespace Schemas {
       HistogramQuantile: 'histogram_quantile',
     } as const;
 
+    /**
+     * * `good` - good
+     * * `bad` - bad
+     */
+    export type RatingEnum = typeof RatingEnum[keyof typeof RatingEnum];
+
+
+    export const RatingEnum = {
+      Good: 'good',
+      Bad: 'bad',
+    } as const;
+
+    /**
+     * Payload for recording reviewer feedback on an AI reply.
+     */
+    export interface AiFeedbackRequest {
+      /**
+         * ID of the AI message being rated.
+         * @maxLength 200
+         */
+      message_id: string;
+      /** Reviewer rating: good or bad.
+       *
+       * * `good` - good
+       * * `bad` - bad */
+      rating: RatingEnum;
+      /**
+         * Optional text explaining a bad rating.
+         * @maxLength 2000
+         */
+      feedback_text?: string;
+    }
+
     export interface InsightsThresholdBounds {
       /** Alert fires when the value drops below this number. */
       lower?: number | null;
