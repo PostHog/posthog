@@ -946,6 +946,7 @@ mod tests {
 #[cfg(test)]
 mod rejection_metrics_tests {
     use super::*;
+    use crate::endpoints::datadog::{export_datadog_logs_http, DatadogQueryParams};
     use crate::internal_metrics::InternalMetricsRecorder;
     use crate::kafka::KafkaSink;
     use std::collections::HashMap;
@@ -977,93 +978,227 @@ mod rejection_metrics_tests {
 
     // The edge is the only stage that sees rejected traffic; if a rejection
     // branch stops counting (or mislabels its reason), "where did my logs go"
-    // incidents lose their first diagnostic. Each case drives a real handler.
-    #[test]
-    fn rejection_branches_count_endpoint_and_reason() {
-        let recorder = InternalMetricsRecorder::new();
-        metrics::with_local_recorder(&recorder, || {
-            let rt = tokio::runtime::Builder::new_current_thread()
-                .enable_all()
-                .build()
-                .unwrap();
-            rt.block_on(async {
-                let service = test_service("dropped-token").await;
+    // incidents lose their first diagnostic. Each case drives a real handler,
+    // parameterized over (endpoint, reason) so a failure names the exact branch.
 
-                // missing token -> 401
-                let res = export_logs_http(
-                    State(service.clone()),
-                    Query(QueryParams { token: None }),
-                    HeaderMap::new(),
-                    Bytes::new(),
-                )
-                .await;
-                assert_eq!(res.unwrap_err().0, StatusCode::UNAUTHORIZED);
-
-                // dropped token -> 401
-                let mut headers = HeaderMap::new();
-                headers.insert("Authorization", "Bearer dropped-token".parse().unwrap());
-                let res = export_logs_http(
-                    State(service.clone()),
-                    Query(QueryParams { token: None }),
-                    headers.clone(),
-                    Bytes::new(),
-                )
-                .await;
-                assert_eq!(res.unwrap_err().0, StatusCode::UNAUTHORIZED);
-
-                // undecodable body with a valid token -> 400
-                let mut ok_headers = HeaderMap::new();
-                ok_headers.insert("Authorization", "Bearer good-token".parse().unwrap());
-                let res = export_logs_http(
-                    State(service.clone()),
-                    Query(QueryParams { token: None }),
-                    ok_headers.clone(),
-                    Bytes::from_static(b"not otlp at all"),
-                )
-                .await;
-                assert_eq!(res.unwrap_err().0, StatusCode::BAD_REQUEST);
-
-                // same taxonomy fires per-endpoint: traces + metrics missing token
-                let res = export_traces_http(
-                    State(service.clone()),
-                    Query(QueryParams { token: None }),
-                    HeaderMap::new(),
-                    Bytes::new(),
-                )
-                .await;
-                assert_eq!(res.unwrap_err().0, StatusCode::UNAUTHORIZED);
-                let res = export_metrics_http(
-                    State(service.clone()),
-                    Query(QueryParams { token: None }),
-                    HeaderMap::new(),
-                    Bytes::new(),
-                )
-                .await;
-                assert_eq!(res.unwrap_err().0, StatusCode::UNAUTHORIZED);
-            });
-        });
-
-        let counts = drained(&recorder);
-        let rej = "capture_logs_rejections_total".to_string();
-        assert_eq!(
-            counts[&(rej.clone(), "logs".into(), "missing_token".into())],
-            1.0
-        );
-        assert_eq!(
-            counts[&(rej.clone(), "logs".into(), "token_dropped".into())],
-            1.0
-        );
-        assert_eq!(
-            counts[&(rej.clone(), "logs".into(), "decode_failed".into())],
-            1.0
-        );
-        assert_eq!(
-            counts[&(rej.clone(), "traces".into(), "missing_token".into())],
-            1.0
-        );
-        assert_eq!(
-            counts[&(rej, "metrics".into(), "missing_token".into())],
-            1.0
-        );
+    fn bearer(token: &str) -> HeaderMap {
+        let mut headers = HeaderMap::new();
+        headers.insert("Authorization", format!("Bearer {token}").parse().unwrap());
+        headers
     }
+
+    fn empty_datadog_query() -> DatadogQueryParams {
+        DatadogQueryParams {
+            token: None,
+            ddtags: None,
+            ddsource: None,
+            service: None,
+            hostname: None,
+            message: None,
+            status: None,
+            extra: HashMap::new(),
+        }
+    }
+
+    async fn call_handler(
+        endpoint: &str,
+        service: Service,
+        headers: HeaderMap,
+        body: Bytes,
+    ) -> StatusCode {
+        let query = Query(QueryParams { token: None });
+        match endpoint {
+            "logs" => {
+                export_logs_http(State(service), query, headers, body)
+                    .await
+                    .unwrap_err()
+                    .0
+            }
+            "traces" => {
+                export_traces_http(State(service), query, headers, body)
+                    .await
+                    .unwrap_err()
+                    .0
+            }
+            "metrics" => {
+                export_metrics_http(State(service), query, headers, body)
+                    .await
+                    .unwrap_err()
+                    .0
+            }
+            "datadog_logs" => {
+                export_datadog_logs_http(
+                    State(service),
+                    None,
+                    Query(empty_datadog_query()),
+                    headers,
+                    body,
+                )
+                .await
+                .unwrap_err()
+                .0
+            }
+            other => panic!("unknown endpoint {other}"),
+        }
+    }
+
+    macro_rules! rejection_case {
+        ($name:ident, $endpoint:expr, $reason:expr, $status:expr, $headers:expr, $body:expr) => {
+            #[test]
+            fn $name() {
+                let recorder = InternalMetricsRecorder::new();
+                let status = metrics::with_local_recorder(&recorder, || {
+                    let rt = tokio::runtime::Builder::new_current_thread()
+                        .enable_all()
+                        .build()
+                        .unwrap();
+                    rt.block_on(async {
+                        let service = test_service("dropped-token").await;
+                        call_handler($endpoint, service, $headers, $body).await
+                    })
+                });
+                assert_eq!(status, $status);
+                let counts = drained(&recorder);
+                assert_eq!(
+                    counts[&(
+                        "capture_logs_rejections_total".to_string(),
+                        $endpoint.to_string(),
+                        $reason.to_string()
+                    )],
+                    1.0
+                );
+            }
+        };
+    }
+
+    rejection_case!(
+        logs_missing_token,
+        "logs",
+        "missing_token",
+        StatusCode::UNAUTHORIZED,
+        HeaderMap::new(),
+        Bytes::new()
+    );
+    rejection_case!(
+        logs_dropped_token,
+        "logs",
+        "token_dropped",
+        StatusCode::UNAUTHORIZED,
+        bearer("dropped-token"),
+        Bytes::new()
+    );
+    rejection_case!(
+        logs_undecodable_body,
+        "logs",
+        "decode_failed",
+        StatusCode::BAD_REQUEST,
+        bearer("good-token"),
+        Bytes::from_static(b"not otlp at all")
+    );
+    rejection_case!(
+        traces_missing_token,
+        "traces",
+        "missing_token",
+        StatusCode::UNAUTHORIZED,
+        HeaderMap::new(),
+        Bytes::new()
+    );
+    rejection_case!(
+        traces_dropped_token,
+        "traces",
+        "token_dropped",
+        StatusCode::UNAUTHORIZED,
+        bearer("dropped-token"),
+        Bytes::new()
+    );
+    rejection_case!(
+        traces_undecodable_body,
+        "traces",
+        "decode_failed",
+        StatusCode::BAD_REQUEST,
+        bearer("good-token"),
+        Bytes::from_static(b"not otlp at all")
+    );
+    rejection_case!(
+        metrics_missing_token,
+        "metrics",
+        "missing_token",
+        StatusCode::UNAUTHORIZED,
+        HeaderMap::new(),
+        Bytes::new()
+    );
+    rejection_case!(
+        metrics_dropped_token,
+        "metrics",
+        "token_dropped",
+        StatusCode::UNAUTHORIZED,
+        bearer("dropped-token"),
+        Bytes::new()
+    );
+    rejection_case!(
+        metrics_undecodable_body,
+        "metrics",
+        "decode_failed",
+        StatusCode::BAD_REQUEST,
+        bearer("good-token"),
+        Bytes::from_static(b"not otlp at all")
+    );
+    rejection_case!(
+        datadog_missing_token,
+        "datadog_logs",
+        "missing_token",
+        StatusCode::UNAUTHORIZED,
+        HeaderMap::new(),
+        Bytes::new()
+    );
+    rejection_case!(
+        datadog_dropped_token,
+        "datadog_logs",
+        "token_dropped",
+        StatusCode::UNAUTHORIZED,
+        bearer("dropped-token"),
+        Bytes::new()
+    );
+    rejection_case!(
+        datadog_undecodable_body,
+        "datadog_logs",
+        "decode_failed",
+        StatusCode::BAD_REQUEST,
+        bearer("good-token"),
+        Bytes::from_static(b"{not json")
+    );
+    // Bodies carrying the gzip magic header but corrupt gzip data fail inside
+    // decode_body_if_gzip_magic, before OTLP/JSON decoding.
+    rejection_case!(
+        logs_corrupt_gzip_body,
+        "logs",
+        "decompress_failed",
+        StatusCode::BAD_REQUEST,
+        bearer("good-token"),
+        Bytes::from_static(b"\x1f\x8b\x08 not actually gzip")
+    );
+    rejection_case!(
+        traces_corrupt_gzip_body,
+        "traces",
+        "decompress_failed",
+        StatusCode::BAD_REQUEST,
+        bearer("good-token"),
+        Bytes::from_static(b"\x1f\x8b\x08 not actually gzip")
+    );
+    rejection_case!(
+        metrics_corrupt_gzip_body,
+        "metrics",
+        "decompress_failed",
+        StatusCode::BAD_REQUEST,
+        bearer("good-token"),
+        Bytes::from_static(b"\x1f\x8b\x08 not actually gzip")
+    );
+    rejection_case!(
+        datadog_corrupt_gzip_body,
+        "datadog_logs",
+        "decompress_failed",
+        StatusCode::BAD_REQUEST,
+        bearer("good-token"),
+        Bytes::from_static(b"\x1f\x8b\x08 not actually gzip")
+    );
 }
