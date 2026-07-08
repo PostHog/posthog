@@ -99,7 +99,7 @@ function LogsViewerContent({
         clearSelection,
         togglePrettifyLog,
     } = useActions(logsViewerLogic)
-    const { orderBy, sparklineBreakdownBy, sparklineCollapsed, facetRailCollapsed, viewMode, groupBy } =
+    const { orderBy, sparklineBreakdownBy, sparklineCollapsed, facetRailCollapsed, viewMode } =
         useValues(logsViewerConfigLogic)
     const { setOrderBy, setSparklineBreakdownBy, toggleSparklineCollapsed } = useActions(logsViewerConfigLogic)
     const {
@@ -339,17 +339,15 @@ function LogsViewerContent({
         </>
     )
 
-    // Patterns is a mode of the Viewer, not a separate tab: it swaps only the results region
-    // and reuses the same filter bar / FacetRail / date range (shared via logsViewerFiltersLogic).
-    // Gate on the flag too, so the patterns query stays unreachable when the flag is off regardless
-    // of the (non-persisted) viewMode state.
+    // Patterns and Group are modes of the Viewer, not separate tabs: they swap only the results
+    // region and reuse the same filter bar / FacetRail / date range (shared via
+    // logsViewerFiltersLogic). Each gates on its flag too, so its query stays unreachable when
+    // the flag is off regardless of the (non-persisted) viewMode state.
     const inPatternsMode = showPatternsView && viewMode === 'patterns'
-    // Group-by (logs-group-by flag): an active grouping swaps the Logs lens's results
-    // for the grouped table. Double-gated like Patterns so it's unreachable with the flag off.
-    const inGroupByMode = showGroupBy && !inPatternsMode && groupBy !== null
+    const inGroupByMode = showGroupBy && viewMode === 'group'
     const resultsRegion = inPatternsMode ? (
         <LogsPatterns id={id} />
-    ) : inGroupByMode && groupBy ? (
+    ) : inGroupByMode ? (
         <LogsGroupByResults id={id} />
     ) : (
         logList

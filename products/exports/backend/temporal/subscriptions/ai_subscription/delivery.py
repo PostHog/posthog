@@ -140,9 +140,12 @@ def _last_scheduled_report_cutoff(subscription: Subscription) -> datetime | None
         return None
 
 
-def _resolve_subscription_context(subscription: Subscription) -> tuple[Team, User | None, ReportWindow]:
+def _resolve_subscription_context(
+    subscription: Subscription,
+) -> tuple[Team, User | None, ReportWindow, dict | None]:
     # team/created_by are FK relations and the last-delivery lookup hits the DB; resolving the window
-    # here keeps all ORM access (and the timezone math) off the event loop in one sync hop.
+    # here keeps all ORM access (and the timezone math) off the event loop in one sync hop. The frozen
+    # plan (if any) is read here too so the generation path stays free of ORM access.
     team = subscription.team
     # Day-based window modes don't anchor to delivery history — skip the lookup for them.
     last_scheduled_cutoff = (
@@ -159,24 +162,50 @@ def _resolve_subscription_context(subscription: Subscription) -> tuple[Team, Use
         start_days_ago=subscription.ai_window_start_days_ago,
         end_days_ago=subscription.ai_window_end_days_ago,
     )
-    return team, subscription.created_by, window
+    return team, subscription.created_by, window, subscription.ai_query_plan
+
+
+def _persist_ai_query_plan(subscription_id: int, team_id: int, prompt: str | None, plan: dict) -> None:
+    # Targeted update, never a full save() — that would re-emit the activity-log/analytics signals.
+    # Filtering on the planning-time prompt closes a race: a prompt edited mid-generation clears the
+    # plan via Subscription.save(), and this no-ops instead of re-freezing a plan for the old prompt.
+    Subscription.objects.filter(id=subscription_id, team_id=team_id, prompt=prompt).update(ai_query_plan=plan)
 
 
 async def build_ai_subscription_report(subscription: Subscription) -> AiReportResult:
-    team, user, window = await database_sync_to_async(_resolve_subscription_context, thread_sensitive=False)(
-        subscription
-    )
+    team, user, window, ai_query_plan = await database_sync_to_async(
+        _resolve_subscription_context, thread_sensitive=False
+    )(subscription)
     # created_by is FK SET_NULL; the pipeline requires a non-None user
     if user is None:
         raise PromptRejectedError("AI subscription has no creator (created_by deleted); cannot deliver.")
 
-    return await generate_ai_report(
+    result = await generate_ai_report(
         team=team,
         user=user,
         prompt=subscription.prompt,
         window=window,
+        ai_query_plan=ai_query_plan,
         trace_correlation_id=subscription.id,
     )
+
+    if result.plan_to_persist is not None:
+        try:
+            await database_sync_to_async(_persist_ai_query_plan, thread_sensitive=False)(
+                subscription.id, subscription.team_id, subscription.prompt, result.plan_to_persist
+            )
+        except Exception as exc:
+            # The frozen plan is an optimization — losing this write must not abort the delivery (the
+            # report is already generated; failing here would burn the LLM run and retry from scratch).
+            logger.warning(
+                "ai_report.query_plan_persist_failed",
+                subscription_id=subscription.id,
+                team_id=subscription.team_id,
+                exc_info=True,
+            )
+            capture_exception(exc, {"subscription_id": subscription.id, "feature": "ai_subscription"})
+
+    return result
 
 
 def _build_feedback_url(subscription_url: str, delivery_id: uuid.UUID, feedback: str, source: str) -> str:

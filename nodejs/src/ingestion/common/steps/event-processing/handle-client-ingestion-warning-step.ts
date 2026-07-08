@@ -49,8 +49,6 @@ export function createHandleClientIngestionWarningStep<TInput extends HandleClie
                 distinctId: event.distinct_id,
                 message: event.properties?.$$client_ingestion_warning_message,
             },
-            category: 'event',
-            severity: 'info',
             pipelineStep: 'client-emit',
             alwaysSend: true,
         }).then((emitted) => (emitted ? ingestedInfo : null))

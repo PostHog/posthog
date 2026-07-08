@@ -754,6 +754,7 @@ export interface ConversationsSettings {
     slack_notify_on_join?: boolean
     slack_notify_on_leave?: boolean
     slack_alert_channel_id?: string | null
+    slack_nudge_enabled?: boolean
     email_enabled?: boolean
     teams_enabled?: boolean
     teams_team_id?: string | null
@@ -2550,6 +2551,8 @@ export interface EndpointType extends WithAccessControl {
     columns?: { name: string; type: string }[]
     bucket_overrides?: Record<string, string> | null
     tags?: string[]
+    /** Breakdown property names that may be omitted on /run. Defaults to [] — every breakdown variable is required. */
+    optional_breakdown_properties?: string[]
 }
 
 /** Extends EndpointType with version-specific fields when fetching a specific version */
@@ -7496,25 +7499,6 @@ export type LinkType = {
     created_at: string
     updated_at: string
     _create_in_folder?: string | null
-}
-
-export interface LineageNode {
-    id: string
-    name: string
-    type: 'view' | 'table'
-    sync_frequency?: DataWarehouseSyncInterval
-    last_run_at?: string
-    status?: string
-}
-
-export interface LineageEdge {
-    source: string
-    target: string
-}
-
-export interface LineageGraph {
-    nodes: LineageNode[]
-    edges: LineageEdge[]
 }
 
 export interface DataWarehouseSourceRowCount {

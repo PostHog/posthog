@@ -146,8 +146,6 @@ describe('PersonCreateService', () => {
                     teamId: teamId,
                     message: 'Person properties exceeds size limit and was rejected',
                 },
-                category: 'size',
-                severity: 'error',
                 pipelineStep: 'person-store',
             })
         })

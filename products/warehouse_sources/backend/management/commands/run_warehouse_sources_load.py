@@ -49,6 +49,8 @@ def build_consumer_config(options: dict) -> ConsumerConfig:
         kwargs["recovery_grace_seconds"] = options["recovery_grace"]
     if options.get("poll_failure_liveness_threshold") is not None:
         kwargs["poll_failure_liveness_threshold"] = options["poll_failure_liveness_threshold"] or None
+    if options.get("claim_path") is not None:
+        kwargs["claim_path"] = options["claim_path"]
     return ConsumerConfig(**kwargs)
 
 
@@ -158,6 +160,16 @@ class Command(BaseCommand):
                 "0 disables the trip"
             ),
         )
+        parser.add_argument(
+            "--claim-path",
+            choices=["legacy", "state"],
+            default=None,
+            help=(
+                "Queue reader source: 'legacy' derives batch state from the status log per poll; "
+                "'state' reads the denormalized columns (requires migration 0006 + backfill). "
+                "Writes always dual-write, so flipping back is a complete rollback"
+            ),
+        )
 
     def handle(self, *args, **options):
         health_port = options["health_port"]
@@ -178,6 +190,7 @@ class Command(BaseCommand):
             connect_timeout=config.connect_timeout_seconds,
             lease_ttl=config.lease_ttl_seconds,
             recovery_grace=config.recovery_grace_seconds,
+            claim_path=config.claim_path,
             poll_failure_liveness_threshold=config.poll_failure_liveness_threshold,
         )
 
