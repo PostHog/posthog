@@ -212,7 +212,7 @@ class TestPersistBriefOutput(BaseTest):
             proposed_experiment=_proposed_experiment(insight.short_id),
             evidence_refs=[f"insight:{insight.short_id}"],
         )
-        persist_brief_output(brief=self._brief(), out=out, items=[], findings=[], results_cache=spent_cache)
+        persist_brief_output(brief=self._brief(), out=out, items=[], results_cache=spent_cache)
         opportunity = self._opportunities().get()
         assert opportunity.metric_ref is None
         assert opportunity.baseline is None
