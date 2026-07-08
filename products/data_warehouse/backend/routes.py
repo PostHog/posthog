@@ -14,6 +14,7 @@ from products.data_warehouse.backend.presentation.views import (
     saved_query,
     saved_query_column_annotation,
     saved_query_draft,
+    sql_flint_spec,
     table,
     view_link,
 )
