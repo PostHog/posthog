@@ -82,6 +82,7 @@ def load_old_membership(team_id: int, cohort_id: int, *, page_size: int = 500_00
             workload=Workload.OFFLINE,
             team_id=team_id,
         )
+        # Lowercased to match the fold's person-id normalization (see fold.py).
         members.update(str(row[0]).lower() for row in rows)
         if len(rows) < page_size:
             return members
@@ -102,6 +103,7 @@ def make_activity_probe(team_id: int) -> Callable[[Sequence[str], datetime], set
                 workload=Workload.OFFLINE,
                 team_id=team_id,
             )
+            # Lowercased to match the fold's person-id normalization (see fold.py).
             active.update(str(row[0]).lower() for row in rows)
         return active
 

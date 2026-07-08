@@ -80,6 +80,8 @@ def fold_membership_changes(
         # Match the old side's argMax(status, last_updated): timestamp order, not arrival
         # order, so an out-of-order replay cannot shadow a newer record.
         bucket = state.setdefault(cohort_id, {})
+        # Person ids compare case-insensitively: every membership source lowercases at
+        # its boundary (here and both readers in snapshots.py) or the sets stop matching.
         key = person_id.lower()
         prior = bucket.get(key)
         if prior is None or last_updated >= prior.last_updated:

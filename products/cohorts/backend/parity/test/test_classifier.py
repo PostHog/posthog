@@ -96,6 +96,29 @@ class TestClassifier(SimpleTestCase):
         self.assertEqual(probe_calls, [])
         self.assertFalse(row.gated)
 
+    def test_warming_cohort_still_gates_on_unexplained_only_new(self) -> None:
+        stale_over_inclusion = classify_cohort(
+            screened=_screened(window=30),
+            name="x",
+            old_members={"a"},
+            new_state=_entered(["a"], at=NOW) | _entered(["b"], at=LAST_CALC - timedelta(minutes=5)),
+            last_realtime_calculation_at=LAST_CALC,
+            config=_config(),
+        )
+        self.assertEqual(stale_over_inclusion.residual_new, 1)
+        self.assertEqual(stale_over_inclusion.verdict, VERDICT_FAIL)
+
+        fresh_only = classify_cohort(
+            screened=_screened(window=30),
+            name="x",
+            old_members={"a"},
+            new_state=_entered(["a"], at=NOW) | _entered(["b"], at=NOW),
+            last_realtime_calculation_at=LAST_CALC,
+            config=_config(),
+        )
+        self.assertEqual(fresh_only.residual_new, 0)
+        self.assertEqual(fresh_only.verdict, VERDICT_WARMUP)
+
     def test_person_level_warmup_explains_inactive_only_old(self) -> None:
         seen_cutoffs: list[datetime] = []
 

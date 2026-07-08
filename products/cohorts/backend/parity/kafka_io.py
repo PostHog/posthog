@@ -58,7 +58,9 @@ def consumer_config(
     security_protocol = security_protocol_override or profile.security_protocol
     if security_protocol:
         config["security.protocol"] = security_protocol
-    if security_protocol in ("SASL_PLAINTEXT", "SASL_SSL"):
+    # Only forward the profile's SASL creds to the profile's own hosts; an explicit host
+    # override is a local/dev target that must not receive the production credential.
+    if security_protocol in ("SASL_PLAINTEXT", "SASL_SSL") and hosts_override is None:
         config["sasl.mechanism"] = profile.sasl_mechanism
         config["sasl.username"] = profile.sasl_user
         config["sasl.password"] = profile.sasl_password
@@ -70,6 +72,44 @@ def _broker_ts(message: Any) -> Optional[datetime]:
     if ts_ms is None or ts_ms <= 0:
         return None
     return datetime.fromtimestamp(ts_ms / 1000, tz=UTC)
+
+
+def _resolve_start_offsets(
+    consumer: Consumer, topic: str, since: datetime, stats: DrainStats
+) -> tuple[list[TopicPartition], dict[int, int], set[int], dict[int, int]]:
+    """Per-partition drain bounds: (assignment at start offsets, partition → exclusive
+    high-watermark end, partitions starting at their low watermark, partition → low)."""
+    metadata = consumer.list_topics(topic, timeout=15)
+    topic_meta = metadata.topics.get(topic)
+    if topic_meta is None or topic_meta.error is not None:
+        raise RuntimeError(f"topic {topic!r} not found: {topic_meta.error if topic_meta else 'no metadata'}")
+    stats.partitions = len(topic_meta.partitions)
+
+    since_ms = int(since.timestamp() * 1000)
+    lows: dict[int, int] = {}
+    highs: dict[int, int] = {}
+    for partition in topic_meta.partitions:
+        low, high = consumer.get_watermark_offsets(TopicPartition(topic, partition), timeout=15)
+        lows[partition], highs[partition] = low, high
+
+    start_requests = [TopicPartition(topic, p, since_ms) for p in sorted(lows) if highs[p] > lows[p]]
+    starts = consumer.offsets_for_times(start_requests, timeout=15) if start_requests else []
+
+    assignment: list[TopicPartition] = []
+    remaining: dict[int, int] = {}
+    at_low: set[int] = set()
+    for tp in starts:
+        if tp.error is not None:
+            raise RuntimeError(f"offsets_for_times failed for partition {tp.partition}: {tp.error}")
+        if tp.offset < 0 or tp.offset == OFFSET_END or tp.offset >= highs[tp.partition]:
+            continue  # no retained message at/after --since in this partition
+        if tp.offset == lows[tp.partition]:
+            at_low.add(tp.partition)
+        remaining[tp.partition] = highs[tp.partition]
+        assignment.append(TopicPartition(topic, tp.partition, tp.offset))
+
+    stats.partitions_read = len(assignment)
+    return assignment, remaining, at_low, lows
 
 
 def drain_topic(
@@ -84,36 +124,7 @@ def drain_topic(
     """Yield JSON-decoded messages from `since` up to the start-time high watermark."""
     consumer = Consumer(config)
     try:
-        metadata = consumer.list_topics(topic, timeout=15)
-        topic_meta = metadata.topics.get(topic)
-        if topic_meta is None or topic_meta.error is not None:
-            raise RuntimeError(f"topic {topic!r} not found: {topic_meta.error if topic_meta else 'no metadata'}")
-        stats.partitions = len(topic_meta.partitions)
-
-        since_ms = int(since.timestamp() * 1000)
-        lows: dict[int, int] = {}
-        highs: dict[int, int] = {}
-        for partition in topic_meta.partitions:
-            low, high = consumer.get_watermark_offsets(TopicPartition(topic, partition), timeout=15)
-            lows[partition], highs[partition] = low, high
-
-        start_requests = [TopicPartition(topic, p, since_ms) for p in sorted(lows) if highs[p] > lows[p]]
-        starts = consumer.offsets_for_times(start_requests, timeout=15) if start_requests else []
-
-        assignment: list[TopicPartition] = []
-        remaining: dict[int, int] = {}  # partition → exclusive end offset (high-watermark snapshot)
-        at_low: set[int] = set()  # partitions read from their low watermark (earliest retained data)
-        for tp in starts:
-            if tp.error is not None:
-                raise RuntimeError(f"offsets_for_times failed for partition {tp.partition}: {tp.error}")
-            if tp.offset < 0 or tp.offset == OFFSET_END or tp.offset >= highs[tp.partition]:
-                continue  # no retained message at/after --since in this partition
-            if tp.offset == lows[tp.partition]:
-                at_low.add(tp.partition)
-            remaining[tp.partition] = highs[tp.partition]
-            assignment.append(TopicPartition(topic, tp.partition, tp.offset))
-
-        stats.partitions_read = len(assignment)
+        assignment, remaining, at_low, lows = _resolve_start_offsets(consumer, topic, since, stats)
         if not assignment:
             stats.reached_end = True
             return
@@ -131,6 +142,8 @@ def drain_topic(
                 raise RuntimeError(str(error))
 
             partition = message.partition()
+            if partition not in remaining:
+                continue  # already past this partition's start-time high watermark
             if partition in at_low and partition not in first_seen:
                 first_seen.add(partition)
                 ts = _broker_ts(message)
@@ -152,7 +165,7 @@ def drain_topic(
             if max_messages is not None and stats.consumed >= max_messages:
                 return
             offset = message.offset()
-            if partition in remaining and offset is not None and offset + 1 >= remaining[partition]:
+            if offset is not None and offset + 1 >= remaining[partition]:
                 del remaining[partition]
         stats.reached_end = True
     finally:

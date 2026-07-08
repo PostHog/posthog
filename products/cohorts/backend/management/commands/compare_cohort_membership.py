@@ -30,10 +30,46 @@ SHADOW_TOPIC_RETENTION_DAYS = 7
 
 # Deliberate coverage limits, restated with every report so a clean run is not over-read.
 COVERAGE_CAVEATS = (
-    "WARMUP cohorts are reported but never gated (their behavioral window predates the pipeline)",
+    "WARMUP cohorts attribute all only_old to warmup (window predates the pipeline); they gate only on unexplained only_new",
     "cohorts the old pipeline never recomputed count all only_new as fresh (residual_new is 0 there)",
     "a partial drain (poll timeout or --max-messages) understates the new side and biases toward FAIL",
 )
+
+
+def _collect_warnings(
+    drain_stats: DrainStats,
+    unknown_cohorts: set[int],
+    since: datetime,
+    now: datetime,
+) -> tuple[list[str], list[str]]:
+    """Pure: derive operator (warnings, info lines) from drain results and the clock."""
+    warnings: list[str] = []
+    infos: list[str] = []
+    if drain_stats.earliest_retained is not None:
+        message = f"earliest retained shadow message: {drain_stats.earliest_retained.isoformat()}"
+        if drain_stats.maybe_clipped_partitions:
+            warnings.append(
+                message + f" — retention already clipped partitions {sorted(drain_stats.maybe_clipped_partitions)} "
+                "past --since; the fold may be incomplete"
+            )
+        else:
+            infos.append(message)
+    if not drain_stats.reached_end:
+        warnings.append(
+            "drain stopped before the high-watermark snapshot (poll timeout or --max-messages); fold is partial"
+        )
+    retention_deadline = since + timedelta(days=SHADOW_TOPIC_RETENTION_DAYS)
+    if now > retention_deadline - timedelta(days=1):
+        warnings.append(
+            f"fold-from-topic completeness expires ~{retention_deadline.date()} ({SHADOW_TOPIC_RETENTION_DAYS}d "
+            "topic retention) — ship the shadow materializer before then"
+        )
+    if unknown_cohorts:
+        warnings.append(
+            f"shadow topic contains {len(unknown_cohorts)} cohort id(s) absent from the realtime universe "
+            f"(deleted/retyped since?): {sorted(unknown_cohorts)[:20]}"
+        )
+    return warnings, infos
 
 
 def _parse_since(raw: str) -> datetime:
@@ -131,7 +167,9 @@ class Command(BaseCommand):
             f"{fold_stats.dropped_malformed} malformed, {drain_stats.undecodable} undecodable)"
         )
 
-        warnings = self._collect_warnings(drain_stats, fold_stats.cohorts_seen - set(screened), since, now)
+        warnings, infos = _collect_warnings(drain_stats, fold_stats.cohorts_seen - set(screened), since, now)
+        for info in infos:
+            self.stderr.write(info)
 
         # 3. Old snapshot + classification per eligible cohort.
         classifier_config = ClassifierConfig(
@@ -187,39 +225,3 @@ class Command(BaseCommand):
 
         if summary.failed:
             raise CommandError(f"{summary.failed} eligible cohort(s) FAIL the {options['threshold']}% residual gate")
-
-    def _collect_warnings(
-        self,
-        drain_stats: DrainStats,
-        unknown_cohorts: set[int],
-        since: datetime,
-        now: datetime,
-    ) -> list[str]:
-        warnings: list[str] = []
-        if drain_stats.earliest_retained is not None:
-            warnings_needed = bool(drain_stats.maybe_clipped_partitions)
-            message = f"earliest retained shadow message: {drain_stats.earliest_retained.isoformat()}"
-            if warnings_needed:
-                message += (
-                    f" — retention already clipped partitions {sorted(drain_stats.maybe_clipped_partitions)} "
-                    "past --since; the fold may be incomplete"
-                )
-                warnings.append(message)
-            else:
-                self.stderr.write(message)
-        if not drain_stats.reached_end:
-            warnings.append(
-                "drain stopped before the high-watermark snapshot (poll timeout or --max-messages); fold is partial"
-            )
-        retention_deadline = since + timedelta(days=SHADOW_TOPIC_RETENTION_DAYS)
-        if now > retention_deadline - timedelta(days=1):
-            warnings.append(
-                f"fold-from-topic completeness expires ~{retention_deadline.date()} ({SHADOW_TOPIC_RETENTION_DAYS}d "
-                "topic retention) — ship the shadow materializer before then"
-            )
-        if unknown_cohorts:
-            warnings.append(
-                f"shadow topic contains {len(unknown_cohorts)} cohort id(s) absent from the realtime universe "
-                f"(deleted/retyped since?): {sorted(unknown_cohorts)[:20]}"
-            )
-        return warnings

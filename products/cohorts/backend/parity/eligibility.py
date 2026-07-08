@@ -7,6 +7,11 @@ Mirrors `rust/cohort-stream-processor/src/filters/{leaf_classifier,tree,cohort_g
 and `src/stage1/pick_state.rs` + `src/stage2/eligibility.rs` — including known quirks
 (e.g. a string `time_value` reads as absent), because the screen must predict what the
 processor actually emits, not what it ideally should.
+
+Mirrored at Rust commit 659e670e917; when those files change, re-check this module and
+the golden fixture against the Rust unit tests. This screen is a stopgap: retire it in
+favor of a processor `/debug/catalog` endpoint once one exists (building that endpoint
+is already the plan if `excluded_*` classes ever appear in `cohort_eligibility_total`).
 """
 
 from __future__ import annotations
@@ -116,18 +121,26 @@ class _Window:
     days: float
 
 
-def _relative_offset_to_window(raw: str) -> Optional[tuple[Optional[_Window]]]:
-    """Mirror of pick_state.rs relative_offset_to_window.
+# Mirror of the Rust Option<Option<EvictionWindow>>: `is_relative=False` means the
+# string is not a relative offset at all; `is_relative=True, window=None` means a
+# recognized relative grammar with no representable window (q/s units → leaf drops).
+@dataclass(frozen=True)
+class _RelativeParse:
+    is_relative: bool
+    window: Optional[_Window] = None
 
-    None = not a relative offset; a 1-tuple wraps the parsed window, where an inner
-    None = recognized relative grammar with no representable window (q/s units).
-    """
+
+_NOT_RELATIVE = _RelativeParse(is_relative=False)
+
+
+def _relative_offset_to_window(raw: str) -> _RelativeParse:
+    """Mirror of pick_state.rs relative_offset_to_window."""
     if not raw.startswith("-"):
-        return None
+        return _NOT_RELATIVE
     rest = raw[1:]
     split = next((i for i, c in enumerate(rest) if not c.isdigit()), None)
     if split is None:
-        return None
+        return _NOT_RELATIVE
     digits, tail = rest[:split], rest[split:]
     for suffix in ("Start", "End"):
         if tail.endswith(suffix):
@@ -136,26 +149,26 @@ def _relative_offset_to_window(raw: str) -> Optional[tuple[Optional[_Window]]]:
     try:
         count = int(digits)
     except ValueError:
-        return None
+        return _NOT_RELATIVE
     if count > _I32_MAX:
-        return None
+        return _NOT_RELATIVE
     if tail in ("q", "s"):
-        return (None,)  # relative but unrepresentable → leaf drops
+        return _RelativeParse(is_relative=True, window=None)
     unit_days = _RELATIVE_UNIT_DAYS.get(tail)
     if unit_days is None:
-        return None
+        return _NOT_RELATIVE
     if tail in ("h", "M"):
-        return (_Window("seconds", count * unit_days),)
-    return (_Window("days", float(count * unit_days)),)
+        return _RelativeParse(is_relative=True, window=_Window("seconds", count * unit_days))
+    return _RelativeParse(is_relative=True, window=_Window("days", float(count * unit_days)))
 
 
 def _classify_bound(raw: str) -> tuple[str, Optional[_Window]]:
     """One explicit_datetime bound → ("absolute"|"relative"|"unparseable", window)."""
     if _is_absolute_datetime(raw):
         return "absolute", None
-    relative = _relative_offset_to_window(raw)
-    if relative is not None:
-        return "relative", relative[0]
+    parsed = _relative_offset_to_window(raw)
+    if parsed.is_relative:
+        return "relative", parsed.window
     return "unparseable", None
 
 
@@ -343,7 +356,11 @@ def _classify_cohort(parsed: _Parsed) -> str:
 
 
 def _find_cycles(edges: Mapping[int, set[int]]) -> set[int]:
-    """Nodes in a ref cycle (SCC of size > 1, or self-loop), over all-ref edges."""
+    """Nodes in a ref cycle (SCC of size > 1, or self-loop), over all-ref edges.
+
+    Iterative Tarjan SCC (explicit work stack instead of recursion), matching the Rust
+    side's petgraph tarjan_scc.
+    """
     in_cycle: set[int] = {n for n, targets in edges.items() if n in targets}
     index_counter = [0]
     stack: list[int] = []
@@ -408,27 +425,42 @@ def screen_team(
     edges = {cid: p.flags.all_ref_targets for cid, p in parsed.items() if p is not None and p.flags.all_ref_targets}
     in_cycle = _find_cycles(edges) if edges else set()
 
-    # Ref refinement (stage2/eligibility.rs refine_ref_bearing), targets-before-referrers via memo.
+    # Ref refinement (stage2/eligibility.rs refine_ref_bearing), targets-before-referrers
+    # via memo. Iterative with an explicit stack: a long acyclic reference chain must not
+    # hit Python's recursion limit and crash the report.
     final: dict[int, str] = {}
+    resolvable = {SINGLE_LEAF, STAGE2_COMPOSABLE, STAGE2_COMPOSABLE_REF, EXCLUDED_HAS_COHORT_REF}
 
     def refine(cid: int) -> str:
-        if cid in final:
-            return final[cid]
-        cls = base.get(cid)
-        if cls != EXCLUDED_HAS_COHORT_REF:
-            final[cid] = cls if cls is not None else PARSE_ERROR
-            return final[cid]
-        if cid in in_cycle:
-            final[cid] = EXCLUDED_CYCLE_DETECTED
-            return final[cid]
-        p = parsed[cid]
-        assert p is not None
-        resolvable = {SINGLE_LEAF, STAGE2_COMPOSABLE, STAGE2_COMPOSABLE_REF, EXCLUDED_HAS_COHORT_REF}
-        for target in sorted(p.flags.positive_ref_targets):
-            if target not in base or refine(target) not in resolvable:
-                final[cid] = EXCLUDED_UNRESOLVED_REF
-                return final[cid]
-        final[cid] = STAGE2_COMPOSABLE_REF if cascade_enabled else EXCLUDED_HAS_COHORT_REF
+        stack = [cid]
+        while stack:
+            current = stack[-1]
+            if current in final:
+                stack.pop()
+                continue
+            cls = base.get(current)
+            if cls != EXCLUDED_HAS_COHORT_REF:
+                final[current] = cls if cls is not None else PARSE_ERROR
+                stack.pop()
+                continue
+            if current in in_cycle:
+                final[current] = EXCLUDED_CYCLE_DETECTED
+                stack.pop()
+                continue
+            p = parsed[current]
+            assert p is not None
+            targets = sorted(p.flags.positive_ref_targets)
+            # Refine known targets first; revisit `current` once they are all final.
+            # Terminates because every true reference cycle is pre-marked in `in_cycle`.
+            pending = [t for t in targets if t in base and t not in final]
+            if pending:
+                stack.extend(pending)
+                continue
+            if any(t not in base or final[t] not in resolvable for t in targets):
+                final[current] = EXCLUDED_UNRESOLVED_REF
+            else:
+                final[current] = STAGE2_COMPOSABLE_REF if cascade_enabled else EXCLUDED_HAS_COHORT_REF
+            stack.pop()
         return final[cid]
 
     result: dict[int, ScreenedCohort] = {}

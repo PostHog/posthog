@@ -7,6 +7,7 @@ whatever remains is the gated residual.
 
 from __future__ import annotations
 
+import heapq
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta
@@ -90,7 +91,7 @@ def classify_cohort(
     both = old_members & new_members
     only_old = old_members - new_members
     only_new = new_members - old_members
-    union_size = len(old_members | new_members)
+    union_size = len(both) + len(only_old) + len(only_new)
     raw_pct = _pct(len(only_old) + len(only_new), union_size)
     notes: list[str] = []
 
@@ -116,7 +117,7 @@ def classify_cohort(
             # R-WARMUP, person-level: only_old persons invisible to the stream (no event
             # since the discovery cutoff) are expected skew. Sampled; extrapolated.
             cutoff = config.since if window is None else max(config.since, config.now - timedelta(days=window))
-            sample = sorted(only_old)[: config.warmup_sample]
+            sample = heapq.nsmallest(config.warmup_sample, only_old)
             active = config.activity_probe(sample, cutoff)
             sample_warmup = sum(1 for p in sample if p not in active)
             warmup = round(sample_warmup / len(sample) * len(only_old))
@@ -127,7 +128,10 @@ def classify_cohort(
     residual_new = max(len(only_new) - fresh, 0)
     residual_pct = _pct(residual_old + residual_new, union_size)
 
-    if cohort_warmup:
+    # A warming cohort's only_old is fully attributed to warmup, but its residual (all
+    # only_new there) is unexplained over-inclusion and must still gate — otherwise the
+    # WARMUP verdict masks new-pipeline bugs exactly while parity testing matters most.
+    if cohort_warmup and residual_pct <= config.threshold_pct:
         verdict = VERDICT_WARMUP
     elif residual_pct <= config.threshold_pct:
         verdict = VERDICT_PASS
