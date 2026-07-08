@@ -8,7 +8,7 @@ import MaxTool from 'scenes/max/MaxTool'
 import { ErrorTrackingIssueFilteringToolOutput } from '~/queries/schema/schema-general'
 import { FilterLogicalOperator, UniversalFiltersGroup } from '~/types'
 
-import { useAttachedContext } from 'products/posthog_ai/frontend/api/logics'
+import { useAttachedContext, useMcpToolApplyBack } from 'products/posthog_ai/frontend/api/logics'
 
 import { errorTrackingSceneLogic } from '../scenes/ErrorTrackingScene/errorTrackingSceneLogic'
 import { TAXONOMIC_FILTER_LOGIC_KEY, TAXONOMIC_GROUP_TYPES } from './IssueFilters/consts'
@@ -105,6 +105,19 @@ export function ErrorTrackingIssueFilteringTool(): JSX.Element {
             setFilterGroup(updatedFilterGroup)
         }
     }
+
+    // Apply the PostHog AI surface's suggest-error-tracking-filters echo to the open page, reusing the
+    // same callback the legacy MaxTool uses. Applies immediately per completion (idempotent view state).
+    useMcpToolApplyBack({
+        tools: ['suggest-error-tracking-filters'],
+        applyOn: 'completed',
+        onApply: (_event, { innerInput }) => {
+            if (!innerInput) {
+                return
+            }
+            callback(innerInput as unknown as ErrorTrackingIssueFilteringToolOutput)
+        },
+    })
 
     return (
         <MaxTool

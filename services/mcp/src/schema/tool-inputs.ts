@@ -753,3 +753,87 @@ export const EmailTemplateDesignPatchSchema = z.object({
                 'otherwise the template is left unchanged. Reference blocks by id so you never resend the whole design.'
         ),
 })
+
+// Permissive echo schemas for the PostHog AI surface's frontend-applied filter tools
+// (suggest-*-filters). They mirror the shape the legacy langgraph filter tools produced and echo it
+// back to the caller; the browser side panel that applies the filters is the real consumer, so
+// individual filter entries stay loose records instead of re-encoding every property-filter union.
+const LooseFilter = z.record(z.string(), z.unknown())
+
+export const SuggestWebAnalyticsFiltersSchema = z.object({
+    properties: z
+        .array(LooseFilter)
+        .describe(
+            'The complete set of web analytics property filters (event, person, session, or cohort). Send the full ' +
+                'set the page should end up with, not a delta. An empty array clears all property filters.'
+        ),
+    date_from: z
+        .string()
+        .nullable()
+        .optional()
+        .describe('Start of the date range (relative like "-7d" or absolute ISO date). Null leaves it unset.'),
+    date_to: z.string().nullable().optional().describe('End of the date range. Null means "now".'),
+    doPathCleaning: z.boolean().nullable().optional().describe('Whether URL path cleaning (normalization) is enabled.'),
+    compareFilter: LooseFilter.nullable()
+        .optional()
+        .describe('Comparison configuration (e.g. previous period), or null to disable comparison.'),
+})
+
+export const SuggestRevenueAnalyticsFiltersSchema = z.object({
+    properties: z
+        .array(LooseFilter)
+        .describe(
+            'The complete set of revenue analytics property filters. An empty array clears all property filters.'
+        ),
+    breakdown: z
+        .array(LooseFilter)
+        .describe('The complete set of revenue analytics breakdowns. An empty array clears all breakdowns.'),
+    date_from: z
+        .string()
+        .nullable()
+        .optional()
+        .describe('Start of the date range (relative like "-30d" or absolute ISO date). Null leaves it unset.'),
+    date_to: z.string().nullable().optional().describe('End of the date range. Null means "now".'),
+})
+
+export const SuggestErrorTrackingFiltersSchema = z
+    .object({
+        newFilters: z
+            .array(LooseFilter)
+            .optional()
+            .describe('Property filters to append to the current issue filter group.'),
+        removedFilterIndexes: z
+            .array(z.number().int())
+            .optional()
+            .describe('Indexes of existing filters (in the first filter group) to remove.'),
+        dateRange: LooseFilter.optional().describe('Date range to apply, as { date_from, date_to }.'),
+        filterTestAccounts: z.boolean().optional().describe('Whether to filter out internal/test accounts.'),
+        orderBy: z.string().optional().describe('Field to order issues by (e.g. "last_seen", "occurrences").'),
+        orderDirection: z.string().optional().describe('Order direction: "ASC" or "DESC".'),
+        status: z.string().optional().describe('Issue status to filter by (e.g. "active", "resolved", "all").'),
+        searchQuery: z.string().optional().describe('Free-text search applied to issues.'),
+    })
+    .describe('An incremental patch to the current error tracking issue filters. Only the provided fields are applied.')
+
+const SuggestSessionRecordingUniversalFilters = z.object({
+    duration: z
+        .array(LooseFilter)
+        .describe('Recording duration filters. An empty array applies no duration constraint.'),
+    filter_group: LooseFilter.describe('The nested universal filter group (type + values) for the recordings list.'),
+    date_from: z
+        .string()
+        .nullable()
+        .optional()
+        .describe('Start of the date range (relative like "-24h" or absolute ISO date). Null leaves it unset.'),
+    date_to: z.string().nullable().optional().describe('End of the date range. Null means "now".'),
+    filter_test_accounts: z.boolean().nullable().optional().describe('Whether to filter out internal/test accounts.'),
+    limit: z.number().int().nullable().optional().describe('How many recordings to request, when the user asked.'),
+    order: z.string().nullable().optional().describe('Field to order recordings by (e.g. "start_time").'),
+    order_direction: z.string().nullable().optional().describe('Order direction: "ASC" or "DESC".'),
+})
+
+export const SuggestSessionRecordingFiltersSchema = z.object({
+    recordings_filters: SuggestSessionRecordingUniversalFilters.describe(
+        'The complete session recordings universal filter set to apply to the open recordings list.'
+    ),
+})

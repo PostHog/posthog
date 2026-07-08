@@ -8,6 +8,7 @@ from posthog.temporal.oauth import (
     MCP_READ_SCOPES,
     MCP_WRITE_SCOPES,
     POSTHOG_AI_APP_CLIENT_ID_DEV,
+    POSTHOG_AI_FRONTEND_SCOPES,
     SCOUT_INTERNAL_SCOPES,
     SCOUT_USER_WRITE_SCOPES,
     create_oauth_access_token_for_user,
@@ -118,6 +119,36 @@ class TestResolveScopes(SimpleTestCase):
         )
 
 
+class TestResolveScopesPosthogAiApplication(SimpleTestCase):
+    @parameterized.expand(
+        [
+            # posthog_ai tokens carry the reserved frontend filter scope across every posture,
+            # including read-only, because the tools are read-only echoes, so a read-only conversation
+            # must still see them.
+            ("read_only_posthog_ai", "read_only", "posthog_ai", True),
+            ("full_posthog_ai", "full", "posthog_ai", True),
+            ("custom_posthog_ai", ["feature_flag:read"], "posthog_ai", True),
+            # array (/tasks) tokens must NEVER carry it, since the tools are reserved to the PostHog AI
+            # conversation sandbox.
+            ("read_only_array", "read_only", "array", False),
+            ("full_array", "full", "array", False),
+            ("custom_array", ["feature_flag:read"], "array", False),
+        ]
+    )
+    def test_frontend_scope_granted_only_for_posthog_ai_application(
+        self, _name: str, scopes, application: str, expected: bool
+    ) -> None:
+        result = resolve_scopes(scopes, application=application)  # type: ignore[arg-type]
+        assert ("posthog_ai_frontend:read" in result) is expected
+        for scope in POSTHOG_AI_FRONTEND_SCOPES:
+            assert (scope in result) is expected
+
+    def test_frontend_scope_dropped_when_internal_scopes_excluded(self) -> None:
+        # Reserved as an internal scope, it follows include_internal_scopes like the scout scopes.
+        result = resolve_scopes("read_only", include_internal_scopes=False, application="posthog_ai")
+        assert "posthog_ai_frontend:read" not in result
+
+
 class TestHasWriteScopes(SimpleTestCase):
     @parameterized.expand(
         [
@@ -161,6 +192,8 @@ class TestCreateOAuthAccessTokenForUser(TestCase):
         access_token = OAuthAccessToken.objects.get(token=token)
         assert access_token.application_id == app.id
         assert access_token.scoped_teams == [team.id]
+        # Wiring guard: the reserved frontend filter scope reaches the minted token for posthog_ai apps.
+        assert "posthog_ai_frontend:read" in access_token.scope.split()
 
     @override_settings(CLOUD_DEPLOYMENT="DEV")
     def test_posthog_ai_application_requires_existing_app(self) -> None:

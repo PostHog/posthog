@@ -33,6 +33,11 @@ import {
     externalDataSourcesPreview,
     externalDataSyncLogs,
     readDataSchema,
+    readDataWarehouseSchema,
+    suggestErrorTrackingFilters,
+    suggestRevenueAnalyticsFilters,
+    suggestSessionRecordingFilters,
+    suggestWebAnalyticsFilters,
 } from './posthogAiTools'
 // Projects
 import getProjects from './projects/getProjects'
@@ -101,6 +106,13 @@ export const TOOL_MAP: Record<string, () => ToolBase<ZodObjectAny>> = {
     // PostHog AI tools
     [EXECUTE_SQL_TOOL_NAME]: executeSql,
     'read-data-schema': readDataSchema,
+
+    // PostHog AI surface filter tools: schema-echo, reserved to the conversation sandbox via
+    // the `posthog_ai_frontend:read` scope. The browser side panel applies the returned filters.
+    'suggest-web-analytics-filters': suggestWebAnalyticsFilters,
+    'suggest-revenue-analytics-filters': suggestRevenueAnalyticsFilters,
+    'suggest-error-tracking-filters': suggestErrorTrackingFilters,
+    'suggest-session-recording-filters': suggestSessionRecordingFilters,
 
     // Replay
     'session-recording-summarize': sessionRecordingSummarize,

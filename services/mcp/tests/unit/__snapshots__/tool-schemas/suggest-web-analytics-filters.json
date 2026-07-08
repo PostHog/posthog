@@ -1,0 +1,66 @@
+{
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "properties": {
+        "compareFilter": {
+            "anyOf": [
+                {
+                    "additionalProperties": {},
+                    "propertyNames": {
+                        "type": "string"
+                    },
+                    "type": "object"
+                },
+                {
+                    "type": "null"
+                }
+            ],
+            "description": "Comparison configuration (e.g. previous period), or null to disable comparison."
+        },
+        "date_from": {
+            "anyOf": [
+                {
+                    "type": "string"
+                },
+                {
+                    "type": "null"
+                }
+            ],
+            "description": "Start of the date range (relative like \"-7d\" or absolute ISO date). Null leaves it unset."
+        },
+        "date_to": {
+            "anyOf": [
+                {
+                    "type": "string"
+                },
+                {
+                    "type": "null"
+                }
+            ],
+            "description": "End of the date range. Null means \"now\"."
+        },
+        "doPathCleaning": {
+            "anyOf": [
+                {
+                    "type": "boolean"
+                },
+                {
+                    "type": "null"
+                }
+            ],
+            "description": "Whether URL path cleaning (normalization) is enabled."
+        },
+        "properties": {
+            "description": "The complete set of web analytics property filters (event, person, session, or cohort). Send the full set the page should end up with, not a delta. An empty array clears all property filters.",
+            "items": {
+                "additionalProperties": {},
+                "propertyNames": {
+                    "type": "string"
+                },
+                "type": "object"
+            },
+            "type": "array"
+        }
+    },
+    "required": ["properties"],
+    "type": "object"
+}

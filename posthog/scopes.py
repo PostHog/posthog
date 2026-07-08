@@ -85,6 +85,7 @@ APIScopeObject = Literal[
     "organization_member",
     "person",
     "plugin",
+    "posthog_ai_frontend",
     "product_enablement",
     "product_tour",
     "project",
@@ -156,6 +157,14 @@ INTERNAL_API_SCOPE_OBJECTS: frozenset[APIScopeObject] = frozenset(
         # opted into the report tools (via the `signals_scout_reports` posture) — every
         # other scout's token lacks it, so the MCP server strips those tools entirely.
         "signal_scout_report",
+        # Sandbox-only read scope that gates the PostHog AI surface's frontend-applied filter
+        # tools (suggest-*-filters). Granted only to tokens minted under the `posthog_ai`
+        # OAuth application (never `/tasks` sandboxes); see `resolve_scopes` in
+        # `posthog/temporal/oauth.py`. Kept internal so it can't be requested via OAuth
+        # consent or a PAK, mirroring `signal_scout_internal`. Named `_frontend` because the
+        # sole consumer is the PostHog AI browser side panel, which applies the echoed filters
+        # to the open scene; nothing persists server-side.
+        "posthog_ai_frontend",
     }
 )
 

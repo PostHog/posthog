@@ -33,7 +33,7 @@ import { Scene } from 'scenes/sceneTypes'
 import { ReloadAll } from '~/queries/nodes/DataNode/Reload'
 import { PropertyFilterType, PropertyMathType } from '~/types'
 
-import { useAttachedContext } from 'products/posthog_ai/frontend/api/logics'
+import { useAttachedContext, useMcpToolApplyBack } from 'products/posthog_ai/frontend/api/logics'
 
 import { ProductTab, faviconUrl } from './common'
 import { webAnalyticsDateMapping } from './constants'
@@ -177,6 +177,35 @@ const WebAnalyticsAIFilters = ({ children }: { children: JSX.Element }): JSX.Ele
         },
     ])
 
+    const applyFilters = (toolOutput: Record<string, any>): void => {
+        if (toolOutput.properties !== undefined) {
+            const flattenedProperties = convertPropertyGroupToProperties(toolOutput.properties)
+            setWebAnalyticsFilters(flattenedProperties?.filter(isEventPersonOrSessionPropertyFilter) ?? [])
+        }
+        if (toolOutput.date_from !== undefined && toolOutput.date_to !== undefined) {
+            setDates(toolOutput.date_from, toolOutput.date_to)
+        }
+        if (toolOutput.doPathCleaning !== undefined) {
+            setIsPathCleaningEnabled(toolOutput.doPathCleaning)
+        }
+        if (toolOutput.compareFilter !== undefined) {
+            setCompareFilter(toolOutput.compareFilter)
+        }
+    }
+
+    // Apply the PostHog AI surface's suggest-web-analytics-filters echo to the open page, reusing the
+    // same callback the legacy MaxTool uses. Applies immediately per completion (idempotent view state).
+    useMcpToolApplyBack({
+        tools: ['suggest-web-analytics-filters'],
+        applyOn: 'completed',
+        onApply: (_event, { innerInput }) => {
+            if (!innerInput) {
+                return
+            }
+            applyFilters(innerInput)
+        },
+    })
+
     return (
         <MaxTool
             identifier="filter_web_analytics"
@@ -193,21 +222,7 @@ const WebAnalyticsAIFilters = ({ children }: { children: JSX.Element }): JSX.Ele
                 text: 'Current filters',
                 icon: <IconFilter />,
             }}
-            callback={(toolOutput: Record<string, any>) => {
-                if (toolOutput.properties !== undefined) {
-                    const flattenedProperties = convertPropertyGroupToProperties(toolOutput.properties)
-                    setWebAnalyticsFilters(flattenedProperties?.filter(isEventPersonOrSessionPropertyFilter) ?? [])
-                }
-                if (toolOutput.date_from !== undefined && toolOutput.date_to !== undefined) {
-                    setDates(toolOutput.date_from, toolOutput.date_to)
-                }
-                if (toolOutput.doPathCleaning !== undefined) {
-                    setIsPathCleaningEnabled(toolOutput.doPathCleaning)
-                }
-                if (toolOutput.compareFilter !== undefined) {
-                    setCompareFilter(toolOutput.compareFilter)
-                }
-            }}
+            callback={applyFilters}
             initialMaxPrompt="Filter web analytics data for "
             suggestions={[
                 'Show mobile traffic from last 30 days for the US',

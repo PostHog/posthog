@@ -65,7 +65,7 @@ import {
     UniversalFiltersGroup,
 } from '~/types'
 
-import { useAttachedContext } from 'products/posthog_ai/frontend/api/logics'
+import { useAttachedContext, useMcpToolApplyBack } from 'products/posthog_ai/frontend/api/logics'
 import type { AttachedContextItem } from 'products/posthog_ai/frontend/api/types'
 
 import { sessionRecordingSavedFiltersLogic } from '../filters/sessionRecordingSavedFiltersLogic'
@@ -150,6 +150,25 @@ export const RecordingsUniversalFiltersEmbedButton = ({
             : []),
     ] as AttachedContextItem[])
 
+    const applyFilters = (toolOutput: Record<string, any>): void => {
+        // Improve type
+        setFilters(toolOutput.recordings_filters)
+        setIsFiltersExpanded(true)
+    }
+
+    // Apply the PostHog AI surface's suggest-session-recording-filters echo to the open page, reusing the
+    // same callback the legacy MaxTool uses. Applies immediately per completion (idempotent view state).
+    useMcpToolApplyBack({
+        tools: ['suggest-session-recording-filters'],
+        applyOn: 'completed',
+        onApply: (_event, { innerInput }) => {
+            if (!innerInput) {
+                return
+            }
+            applyFilters(innerInput)
+        },
+    })
+
     return (
         <>
             <div className="flex gap-2">
@@ -159,11 +178,7 @@ export const RecordingsUniversalFiltersEmbedButton = ({
                         current_filters: filters,
                         current_session_id: currentSessionRecordingId,
                     }}
-                    callback={(toolOutput: Record<string, any>) => {
-                        // Improve type
-                        setFilters(toolOutput.recordings_filters)
-                        setIsFiltersExpanded(true)
-                    }}
+                    callback={applyFilters}
                     initialMaxPrompt="Show me recordings where "
                     suggestions={[
                         'Show recordings of people who visited signup in the last 24 hours',

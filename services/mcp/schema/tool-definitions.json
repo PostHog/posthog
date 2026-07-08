@@ -647,6 +647,78 @@
             "readOnlyHint": true
         }
     },
+    "read-data-warehouse-schema": {
+        "description": "Use this tool to retrieve the core data warehouse schemas for PostHog tables (events, groups, persons, sessions) and the available data warehouse tables, views, and system tables. Use this to understand the data model before writing HogQL queries.",
+        "category": "Data schema",
+        "feature": "data_schema",
+        "summary": "Read core data warehouse schemas and table lists.",
+        "title": "Read data warehouse schema",
+        "required_scopes": ["warehouse_table:read", "warehouse_view:read"],
+        "feature_flag": "mcp-sql-schema-discovery",
+        "feature_flag_behavior": "disable",
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        }
+    },
+    "suggest-web-analytics-filters": {
+        "description": "Apply web analytics filters to the web analytics page the user has open in the PostHog AI side panel. Only call this while the user is viewing the web analytics page. The PostHog AI browser client applies the returned filters to that open scene and nothing is saved server-side. Send the complete filter set the page should end up with (property filters, date range, path cleaning, comparison), not a delta. Returns the applied filter set.",
+        "category": "Web analytics",
+        "feature": "web_analytics",
+        "summary": "Apply web analytics filters to the user's open web analytics page.",
+        "title": "Suggest web analytics filters",
+        "required_scopes": ["posthog_ai_frontend:read"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": false,
+            "readOnlyHint": true
+        }
+    },
+    "suggest-revenue-analytics-filters": {
+        "description": "Apply revenue analytics filters to the revenue analytics page the user has open in the PostHog AI side panel. Only call this while the user is viewing the revenue analytics page. The PostHog AI browser client applies the returned filters to that open scene and nothing is saved server-side. Send the complete filter set the page should end up with (property filters, breakdowns, date range), not a delta. Returns the applied filter set.",
+        "category": "Revenue analytics",
+        "feature": "revenue_analytics",
+        "summary": "Apply revenue analytics filters to the user's open revenue analytics page.",
+        "title": "Suggest revenue analytics filters",
+        "required_scopes": ["posthog_ai_frontend:read"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": false,
+            "readOnlyHint": true
+        }
+    },
+    "suggest-error-tracking-filters": {
+        "description": "Apply error tracking issue filters to the error tracking page the user has open in the PostHog AI side panel. Only call this while the user is viewing the error tracking issues page. The PostHog AI browser client applies the returned filters to that open scene and nothing is saved server-side. This is an incremental patch: only the fields you provide (new/removed filters, date range, ordering, status, search) are applied. Returns the applied patch.",
+        "category": "Error tracking",
+        "feature": "error_tracking",
+        "summary": "Apply error tracking issue filters to the user's open error tracking page.",
+        "title": "Suggest error tracking filters",
+        "required_scopes": ["posthog_ai_frontend:read"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": false,
+            "readOnlyHint": true
+        }
+    },
+    "suggest-session-recording-filters": {
+        "description": "Apply session recording filters to the session replay page the user has open in the PostHog AI side panel. Only call this while the user is viewing the session recordings list. The PostHog AI browser client applies the returned filters to that open scene and nothing is saved server-side. Send the complete universal recordings filter set the page should end up with under `recordings_filters`, not a delta. Returns the applied filter set.",
+        "category": "Session replay",
+        "feature": "session_recording",
+        "summary": "Apply session recording filters to the user's open session replay page.",
+        "title": "Suggest session recording filters",
+        "required_scopes": ["posthog_ai_frontend:read"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": false,
+            "readOnlyHint": true
+        }
+    },
     "workflows-enable": {
         "description": "Enable / activate a draft workflow and start processing events. From then on it runs on real people: test it first with workflows-test-run and get the user's explicit approval before invoking - don't enable on your own initiative. Once live, content edits stage as a draft you publish with workflows-publish; if draft editing isn't enabled for the project yet, a live change means recreating the workflow as a new draft.",
         "category": "Workflows",

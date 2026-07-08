@@ -1,0 +1,101 @@
+{
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "properties": {
+        "recordings_filters": {
+            "description": "The complete session recordings universal filter set to apply to the open recordings list.",
+            "properties": {
+                "date_from": {
+                    "anyOf": [
+                        {
+                            "type": "string"
+                        },
+                        {
+                            "type": "null"
+                        }
+                    ],
+                    "description": "Start of the date range (relative like \"-24h\" or absolute ISO date). Null leaves it unset."
+                },
+                "date_to": {
+                    "anyOf": [
+                        {
+                            "type": "string"
+                        },
+                        {
+                            "type": "null"
+                        }
+                    ],
+                    "description": "End of the date range. Null means \"now\"."
+                },
+                "duration": {
+                    "description": "Recording duration filters. An empty array applies no duration constraint.",
+                    "items": {
+                        "additionalProperties": {},
+                        "propertyNames": {
+                            "type": "string"
+                        },
+                        "type": "object"
+                    },
+                    "type": "array"
+                },
+                "filter_group": {
+                    "additionalProperties": {},
+                    "description": "The nested universal filter group (type + values) for the recordings list.",
+                    "propertyNames": {
+                        "type": "string"
+                    },
+                    "type": "object"
+                },
+                "filter_test_accounts": {
+                    "anyOf": [
+                        {
+                            "type": "boolean"
+                        },
+                        {
+                            "type": "null"
+                        }
+                    ],
+                    "description": "Whether to filter out internal/test accounts."
+                },
+                "limit": {
+                    "anyOf": [
+                        {
+                            "maximum": 9007199254740991,
+                            "minimum": -9007199254740991,
+                            "type": "integer"
+                        },
+                        {
+                            "type": "null"
+                        }
+                    ],
+                    "description": "How many recordings to request, when the user asked."
+                },
+                "order": {
+                    "anyOf": [
+                        {
+                            "type": "string"
+                        },
+                        {
+                            "type": "null"
+                        }
+                    ],
+                    "description": "Field to order recordings by (e.g. \"start_time\")."
+                },
+                "order_direction": {
+                    "anyOf": [
+                        {
+                            "type": "string"
+                        },
+                        {
+                            "type": "null"
+                        }
+                    ],
+                    "description": "Order direction: \"ASC\" or \"DESC\"."
+                }
+            },
+            "required": ["duration", "filter_group"],
+            "type": "object"
+        }
+    },
+    "required": ["recordings_filters"],
+    "type": "object"
+}

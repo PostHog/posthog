@@ -1,0 +1,55 @@
+{
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "description": "An incremental patch to the current error tracking issue filters. Only the provided fields are applied.",
+    "properties": {
+        "dateRange": {
+            "additionalProperties": {},
+            "description": "Date range to apply, as { date_from, date_to }.",
+            "propertyNames": {
+                "type": "string"
+            },
+            "type": "object"
+        },
+        "filterTestAccounts": {
+            "description": "Whether to filter out internal/test accounts.",
+            "type": "boolean"
+        },
+        "newFilters": {
+            "description": "Property filters to append to the current issue filter group.",
+            "items": {
+                "additionalProperties": {},
+                "propertyNames": {
+                    "type": "string"
+                },
+                "type": "object"
+            },
+            "type": "array"
+        },
+        "orderBy": {
+            "description": "Field to order issues by (e.g. \"last_seen\", \"occurrences\").",
+            "type": "string"
+        },
+        "orderDirection": {
+            "description": "Order direction: \"ASC\" or \"DESC\".",
+            "type": "string"
+        },
+        "removedFilterIndexes": {
+            "description": "Indexes of existing filters (in the first filter group) to remove.",
+            "items": {
+                "maximum": 9007199254740991,
+                "minimum": -9007199254740991,
+                "type": "integer"
+            },
+            "type": "array"
+        },
+        "searchQuery": {
+            "description": "Free-text search applied to issues.",
+            "type": "string"
+        },
+        "status": {
+            "description": "Issue status to filter by (e.g. \"active\", \"resolved\", \"all\").",
+            "type": "string"
+        }
+    },
+    "type": "object"
+}

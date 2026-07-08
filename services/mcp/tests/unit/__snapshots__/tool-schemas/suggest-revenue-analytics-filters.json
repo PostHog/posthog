@@ -1,0 +1,51 @@
+{
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "properties": {
+        "breakdown": {
+            "description": "The complete set of revenue analytics breakdowns. An empty array clears all breakdowns.",
+            "items": {
+                "additionalProperties": {},
+                "propertyNames": {
+                    "type": "string"
+                },
+                "type": "object"
+            },
+            "type": "array"
+        },
+        "date_from": {
+            "anyOf": [
+                {
+                    "type": "string"
+                },
+                {
+                    "type": "null"
+                }
+            ],
+            "description": "Start of the date range (relative like \"-30d\" or absolute ISO date). Null leaves it unset."
+        },
+        "date_to": {
+            "anyOf": [
+                {
+                    "type": "string"
+                },
+                {
+                    "type": "null"
+                }
+            ],
+            "description": "End of the date range. Null means \"now\"."
+        },
+        "properties": {
+            "description": "The complete set of revenue analytics property filters. An empty array clears all property filters.",
+            "items": {
+                "additionalProperties": {},
+                "propertyNames": {
+                    "type": "string"
+                },
+                "type": "object"
+            },
+            "type": "array"
+        }
+    },
+    "required": ["properties", "breakdown"],
+    "type": "object"
+}

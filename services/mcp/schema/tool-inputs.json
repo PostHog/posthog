@@ -1000,6 +1000,275 @@
             ],
             "description": "Immutable scorer configuration. Pick the shape matching the scorer kind: categorical (options + selection_mode), numeric (min/max/step), or boolean (true_label/false_label). The server validates the shape against the kind on the parent scorer and returns 400 on a mismatch."
         },
+        "SuggestErrorTrackingFiltersSchema": {
+            "type": "object",
+            "properties": {
+                "newFilters": {
+                    "description": "Property filters to append to the current issue filter group.",
+                    "type": "array",
+                    "items": {
+                        "type": "object",
+                        "propertyNames": {
+                            "type": "string"
+                        },
+                        "additionalProperties": {}
+                    }
+                },
+                "removedFilterIndexes": {
+                    "description": "Indexes of existing filters (in the first filter group) to remove.",
+                    "type": "array",
+                    "items": {
+                        "type": "integer",
+                        "minimum": -9007199254740991,
+                        "maximum": 9007199254740991
+                    }
+                },
+                "dateRange": {
+                    "description": "Date range to apply, as { date_from, date_to }.",
+                    "type": "object",
+                    "propertyNames": {
+                        "type": "string"
+                    },
+                    "additionalProperties": {}
+                },
+                "filterTestAccounts": {
+                    "description": "Whether to filter out internal/test accounts.",
+                    "type": "boolean"
+                },
+                "orderBy": {
+                    "description": "Field to order issues by (e.g. \"last_seen\", \"occurrences\").",
+                    "type": "string"
+                },
+                "orderDirection": {
+                    "description": "Order direction: \"ASC\" or \"DESC\".",
+                    "type": "string"
+                },
+                "status": {
+                    "description": "Issue status to filter by (e.g. \"active\", \"resolved\", \"all\").",
+                    "type": "string"
+                },
+                "searchQuery": {
+                    "description": "Free-text search applied to issues.",
+                    "type": "string"
+                }
+            },
+            "description": "An incremental patch to the current error tracking issue filters. Only the provided fields are applied."
+        },
+        "SuggestRevenueAnalyticsFiltersSchema": {
+            "type": "object",
+            "properties": {
+                "properties": {
+                    "type": "array",
+                    "items": {
+                        "type": "object",
+                        "propertyNames": {
+                            "type": "string"
+                        },
+                        "additionalProperties": {}
+                    },
+                    "description": "The complete set of revenue analytics property filters. An empty array clears all property filters."
+                },
+                "breakdown": {
+                    "type": "array",
+                    "items": {
+                        "type": "object",
+                        "propertyNames": {
+                            "type": "string"
+                        },
+                        "additionalProperties": {}
+                    },
+                    "description": "The complete set of revenue analytics breakdowns. An empty array clears all breakdowns."
+                },
+                "date_from": {
+                    "description": "Start of the date range (relative like \"-30d\" or absolute ISO date). Null leaves it unset.",
+                    "anyOf": [
+                        {
+                            "type": "string"
+                        },
+                        {
+                            "type": "null"
+                        }
+                    ]
+                },
+                "date_to": {
+                    "description": "End of the date range. Null means \"now\".",
+                    "anyOf": [
+                        {
+                            "type": "string"
+                        },
+                        {
+                            "type": "null"
+                        }
+                    ]
+                }
+            },
+            "required": ["properties", "breakdown"]
+        },
+        "SuggestSessionRecordingFiltersSchema": {
+            "type": "object",
+            "properties": {
+                "recordings_filters": {
+                    "type": "object",
+                    "properties": {
+                        "duration": {
+                            "type": "array",
+                            "items": {
+                                "type": "object",
+                                "propertyNames": {
+                                    "type": "string"
+                                },
+                                "additionalProperties": {}
+                            },
+                            "description": "Recording duration filters. An empty array applies no duration constraint."
+                        },
+                        "filter_group": {
+                            "type": "object",
+                            "propertyNames": {
+                                "type": "string"
+                            },
+                            "additionalProperties": {},
+                            "description": "The nested universal filter group (type + values) for the recordings list."
+                        },
+                        "date_from": {
+                            "description": "Start of the date range (relative like \"-24h\" or absolute ISO date). Null leaves it unset.",
+                            "anyOf": [
+                                {
+                                    "type": "string"
+                                },
+                                {
+                                    "type": "null"
+                                }
+                            ]
+                        },
+                        "date_to": {
+                            "description": "End of the date range. Null means \"now\".",
+                            "anyOf": [
+                                {
+                                    "type": "string"
+                                },
+                                {
+                                    "type": "null"
+                                }
+                            ]
+                        },
+                        "filter_test_accounts": {
+                            "description": "Whether to filter out internal/test accounts.",
+                            "anyOf": [
+                                {
+                                    "type": "boolean"
+                                },
+                                {
+                                    "type": "null"
+                                }
+                            ]
+                        },
+                        "limit": {
+                            "description": "How many recordings to request, when the user asked.",
+                            "anyOf": [
+                                {
+                                    "type": "integer",
+                                    "minimum": -9007199254740991,
+                                    "maximum": 9007199254740991
+                                },
+                                {
+                                    "type": "null"
+                                }
+                            ]
+                        },
+                        "order": {
+                            "description": "Field to order recordings by (e.g. \"start_time\").",
+                            "anyOf": [
+                                {
+                                    "type": "string"
+                                },
+                                {
+                                    "type": "null"
+                                }
+                            ]
+                        },
+                        "order_direction": {
+                            "description": "Order direction: \"ASC\" or \"DESC\".",
+                            "anyOf": [
+                                {
+                                    "type": "string"
+                                },
+                                {
+                                    "type": "null"
+                                }
+                            ]
+                        }
+                    },
+                    "required": ["duration", "filter_group"],
+                    "description": "The complete session recordings universal filter set to apply to the open recordings list."
+                }
+            },
+            "required": ["recordings_filters"]
+        },
+        "SuggestWebAnalyticsFiltersSchema": {
+            "type": "object",
+            "properties": {
+                "properties": {
+                    "type": "array",
+                    "items": {
+                        "type": "object",
+                        "propertyNames": {
+                            "type": "string"
+                        },
+                        "additionalProperties": {}
+                    },
+                    "description": "The complete set of web analytics property filters (event, person, session, or cohort). Send the full set the page should end up with, not a delta. An empty array clears all property filters."
+                },
+                "date_from": {
+                    "description": "Start of the date range (relative like \"-7d\" or absolute ISO date). Null leaves it unset.",
+                    "anyOf": [
+                        {
+                            "type": "string"
+                        },
+                        {
+                            "type": "null"
+                        }
+                    ]
+                },
+                "date_to": {
+                    "description": "End of the date range. Null means \"now\".",
+                    "anyOf": [
+                        {
+                            "type": "string"
+                        },
+                        {
+                            "type": "null"
+                        }
+                    ]
+                },
+                "doPathCleaning": {
+                    "description": "Whether URL path cleaning (normalization) is enabled.",
+                    "anyOf": [
+                        {
+                            "type": "boolean"
+                        },
+                        {
+                            "type": "null"
+                        }
+                    ]
+                },
+                "compareFilter": {
+                    "description": "Comparison configuration (e.g. previous period), or null to disable comparison.",
+                    "anyOf": [
+                        {
+                            "type": "object",
+                            "propertyNames": {
+                                "type": "string"
+                            },
+                            "additionalProperties": {}
+                        },
+                        {
+                            "type": "null"
+                        }
+                    ]
+                }
+            },
+            "required": ["properties"]
+        },
         "UsageMetricFiltersSchema": {
             "anyOf": [
                 {

@@ -25,7 +25,7 @@ import { ReloadAll } from '~/queries/nodes/DataNode/Reload'
 import { RevenueAnalyticsBreakdown } from '~/queries/schema/schema-general'
 import { DateMappingOption } from '~/types'
 
-import { useAttachedContext } from 'products/posthog_ai/frontend/api/logics'
+import { useAttachedContext, useMcpToolApplyBack } from 'products/posthog_ai/frontend/api/logics'
 
 import { DisplayMode, revenueAnalyticsLogic } from './revenueAnalyticsLogic'
 
@@ -171,6 +171,26 @@ const RevenueAnalyticsPropertyFilters = (): JSX.Element => {
         },
     ])
 
+    const applyFilters = (toolOutput: Record<string, any>): void => {
+        // Types suck here, but they *should* be correct if pydantic does its job correctly
+        setRevenueAnalyticsFilters(toolOutput.properties)
+        setDates(toolOutput.date_from, toolOutput.date_to)
+        setBreakdownProperties(toolOutput.breakdown)
+    }
+
+    // Apply the PostHog AI surface's suggest-revenue-analytics-filters echo to the open page, reusing the
+    // same callback the legacy MaxTool uses. Applies immediately per completion (idempotent view state).
+    useMcpToolApplyBack({
+        tools: ['suggest-revenue-analytics-filters'],
+        applyOn: 'completed',
+        onApply: (_event, { innerInput }) => {
+            if (!innerInput) {
+                return
+            }
+            applyFilters(innerInput)
+        },
+    })
+
     return (
         <div className="flex flex-row gap-2">
             <MaxTool
@@ -187,12 +207,7 @@ const RevenueAnalyticsPropertyFilters = (): JSX.Element => {
                     text: 'Current filters',
                     icon: <IconFilter />,
                 }}
-                callback={(toolOutput: Record<string, any>) => {
-                    // Types suck here, but they *should* be correct if pydantic does its job correctly
-                    setRevenueAnalyticsFilters(toolOutput.properties)
-                    setDates(toolOutput.date_from, toolOutput.date_to)
-                    setBreakdownProperties(toolOutput.breakdown)
-                }}
+                callback={applyFilters}
                 initialMaxPrompt="Show my revenue for "
                 suggestions={[
                     'Show my revenue from the last year',

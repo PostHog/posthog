@@ -88,6 +88,10 @@ tools:
                ensemble_operator (null for threshold alerts, set for anomaly detection). Project context is
                available as {project.url} (already includes /project/<team_id>), {project.id}, {project.name}. Do
                not reference value, threshold_lower, or insight_url — those are not emitted.
+
+            After a successful create, do not stop at a silent success: in chat, tell the user the function was created
+            and ask whether they would like to open it. If they say yes, share the new function's URL from the tool
+            result.
         exclude_params:
             - _create_in_folder
             - batch_export_id

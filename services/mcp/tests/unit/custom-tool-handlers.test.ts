@@ -3,6 +3,12 @@ import { describe, expect, it, vi } from 'vitest'
 import externalDataSourcesDbSchema from '@/tools/posthogAiTools/externalDataSourcesDbSchema'
 import externalDataSourcesJobs from '@/tools/posthogAiTools/externalDataSourcesJobs'
 import externalDataSourcesPreview from '@/tools/posthogAiTools/externalDataSourcesPreview'
+import {
+    suggestErrorTrackingFilters,
+    suggestRevenueAnalyticsFilters,
+    suggestSessionRecordingFilters,
+    suggestWebAnalyticsFilters,
+} from '@/tools/posthogAiTools/suggestFilterTools'
 import type { Context } from '@/tools/types'
 
 function createMockContext(requestMock: ReturnType<typeof vi.fn>): Context {
@@ -158,5 +164,84 @@ describe('externalDataSourcesJobs', () => {
         expect(path).toContain('after=2025-06-01T00%3A00%3A00Z')
         expect(path).not.toContain('before=')
         expect(path).not.toContain('schemas=')
+    })
+})
+
+describe('suggest-*-filters echo tools', () => {
+    const context = createMockContext(vi.fn())
+
+    // Each payload mirrors what the legacy langgraph filter tools produced for that scene. The suite
+    // guards two regressions: a schema tightened past the loose floor (rejecting a valid legacy filter
+    // payload, silently breaking the browser apply-back) and a handler that stops echoing the input.
+    const cases: Array<[string, () => any, Record<string, unknown>]> = [
+        [
+            'suggest-web-analytics-filters',
+            suggestWebAnalyticsFilters,
+            {
+                properties: [{ key: '$browser', value: ['Chrome'], operator: 'exact', type: 'event' }],
+                date_from: '-7d',
+                date_to: null,
+                doPathCleaning: true,
+                compareFilter: { compare: true },
+            },
+        ],
+        [
+            'suggest-revenue-analytics-filters',
+            suggestRevenueAnalyticsFilters,
+            {
+                properties: [{ key: 'product', value: ['A'], type: 'revenue_analytics' }],
+                breakdown: [{ property: 'country', type: 'revenue_analytics' }],
+                date_from: '-30d',
+                date_to: null,
+            },
+        ],
+        [
+            'suggest-error-tracking-filters',
+            suggestErrorTrackingFilters,
+            {
+                newFilters: [{ key: 'level', value: ['error'], operator: 'exact', type: 'event' }],
+                removedFilterIndexes: [0],
+                dateRange: { date_from: '-24h', date_to: null },
+                filterTestAccounts: true,
+                orderBy: 'last_seen',
+                orderDirection: 'DESC',
+                status: 'active',
+                searchQuery: 'timeout',
+            },
+        ],
+        [
+            'suggest-session-recording-filters',
+            suggestSessionRecordingFilters,
+            {
+                recordings_filters: {
+                    duration: [{ key: 'duration', value: 60, operator: 'gt', type: 'recording' }],
+                    filter_group: { type: 'AND', values: [] },
+                    date_from: '-24h',
+                    date_to: null,
+                    filter_test_accounts: true,
+                    order: 'start_time',
+                    order_direction: 'DESC',
+                },
+            },
+        ],
+    ]
+
+    it.each(cases)('%s validates a legacy filter payload and echoes it back', async (name, factory, payload) => {
+        const tool = factory()
+        expect(tool.name).toBe(name)
+
+        const parsed = tool.schema.safeParse(payload)
+        expect(parsed.success).toBe(true)
+        if (!parsed.success) {
+            return
+        }
+
+        const result = await tool.handler(context, parsed.data)
+        expect(result.filters).toEqual(payload)
+        expect(result.status).toBe('sent_to_open_page')
+    })
+
+    it('keeps the schema floor: rejects a web analytics payload whose properties is not an array', () => {
+        expect(suggestWebAnalyticsFilters().schema.safeParse({ properties: 'not-an-array' }).success).toBe(false)
     })
 })
