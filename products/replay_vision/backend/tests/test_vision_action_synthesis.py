@@ -145,6 +145,22 @@ class TestVisionActionSynthesis(BaseTest):
         self.assertNotIn("[obs 1]", run.output["slack"])
         self.assertIn("Users hit friction at checkout.", run.output["slack"])
 
+    def test_caps_runaway_citation_lists(self) -> None:
+        # A theme the model backs with many recordings must not render a wall of citations: an adjacent run
+        # is trimmed to a representative handful, keeping the first few. Guards both the in-app markdown and
+        # (once it renders links) the Slack payload, since the cap runs on the stored report.
+        for i in range(10):
+            self._observation(f"obs {i}", session_id=f"s{i}")
+        action = self._action()
+        run = self._run_for(action)
+
+        citations = " ".join(f"[obs {i}]" for i in range(1, 10))  # 9 adjacent citations
+        self._synthesize(action, run, llm_content=f"Users hit friction across this flow {citations}.")
+
+        run.refresh_from_db()
+        self.assertEqual(run.synthesized_markdown.count("[obs "), 6)
+        self.assertIn("[obs 1] [obs 2] [obs 3] [obs 4] [obs 5] [obs 6]", run.synthesized_markdown)
+
     def test_summary_leads_with_scanner_window_and_count_header(self) -> None:
         # The report must always state which scanner it's for, how many recordings it covers, and the
         # window start — prepended in code so it's present regardless of what the LLM returns.
