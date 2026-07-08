@@ -1,4 +1,5 @@
 import uuid
+from typing import TypeVar
 
 from posthog.test.base import BaseTest
 
@@ -31,6 +32,14 @@ from products.review_hog.backend.reviewer.persistence import (
     upsert_review_report,
 )
 from products.signals.backend.artefact_schemas import Commit
+
+_ContentT = TypeVar("_ContentT")
+
+
+def _content_as(model: type[_ContentT], artefact_type: str, content: str) -> _ContentT:
+    parsed = parse_artefact_content(artefact_type, content)
+    assert isinstance(parsed, model)
+    return parsed
 
 
 def _pr_metadata(pr_number: int = 123, head_sha: str | None = None) -> PRMetadata:
@@ -112,9 +121,11 @@ class TestUpsertReviewReport(BaseTest):
             pr_metadata=_pr_metadata(),
         )
         assert upgraded == branch_id
-        row.refresh_from_db()
-        assert row.pr_number == 123
-        assert row.pr_url == "https://github.com/o/r/pull/123"
+        # Re-fetch instead of refresh_from_db: the `pr_number is None` assert above narrows the
+        # attribute for mypy, and a refresh does not reset that narrowing.
+        refreshed = ReviewReport.objects.for_team(self.team.id).get(id=branch_id)
+        assert refreshed.pr_number == 123
+        assert refreshed.pr_url == "https://github.com/o/r/pull/123"
         assert ReviewReport.objects.for_team(self.team.id).filter(repository="o/r").count() == 1
 
     def test_provenance_is_stamped_on_create_and_never_overwritten(self) -> None:
@@ -239,7 +250,7 @@ class TestPersistResults(BaseTest):
         )
 
         finding_keys = {
-            parse_artefact_content(r.type, r.content).issue_key
+            _content_as(ReviewIssueFinding, r.type, r.content).issue_key
             for r in ReviewReportArtefact.objects.for_team(self.team.id).filter(
                 report_id=report_id, type=ReviewReportArtefact.ArtefactType.ISSUE_FINDING
             )
@@ -248,7 +259,7 @@ class TestPersistResults(BaseTest):
         verdicts = {
             v.issue_key: v
             for v in (
-                parse_artefact_content(r.type, r.content)
+                _content_as(ValidationVerdict, r.type, r.content)
                 for r in ReviewReportArtefact.objects.for_team(self.team.id).filter(
                     report_id=report_id, type=ReviewReportArtefact.ArtefactType.VALIDATION_VERDICT
                 )
@@ -284,7 +295,7 @@ class TestPersistResults(BaseTest):
         )
 
         verdicts = [
-            parse_artefact_content(r.type, r.content)
+            _content_as(ValidationVerdict, r.type, r.content)
             for r in ReviewReportArtefact.objects.for_team(self.team.id).filter(
                 report_id=report_id, type=ReviewReportArtefact.ArtefactType.VALIDATION_VERDICT
             )
@@ -622,7 +633,7 @@ class TestPersistCommitSnapshot(BaseTest):
             diff="turn-2 diff",
         )
         assert appended is True
-        diffs = {parse_artefact_content(r.type, r.content).diff for r in self._commits(report_id)}
+        diffs = {_content_as(Commit, r.type, r.content).diff for r in self._commits(report_id)}
         assert diffs == {"turn-1 diff", "turn-2 diff"}
         report = ReviewReport.objects.for_team(self.team.id).get(id=report_id)
         assert report.head_sha == "sha-bbb"
@@ -660,7 +671,7 @@ class TestPersistCommitSnapshot(BaseTest):
             diff="",
         )
         assert appended is True
-        commit = parse_artefact_content(*self._commits(report_id).values_list("type", "content").get())
+        commit = _content_as(Commit, *self._commits(report_id).values_list("type", "content").get())
         assert commit.diff is None
         assert commit.commit_sha == "sha-aaa"
         assert ReviewReport.objects.for_team(self.team.id).get(id=report_id).head_sha == "sha-aaa"

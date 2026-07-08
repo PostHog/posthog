@@ -2,7 +2,9 @@ import pytest
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import httpx
+import pydantic
 from anthropic import APIStatusError
+from pydantic import TypeAdapter
 from temporalio.exceptions import ApplicationError
 
 from products.review_hog.backend.reviewer.constants import ONESHOT_MODEL, ONESHOT_REASONING_EFFORT
@@ -81,10 +83,43 @@ async def test_api_errors_map_to_temporal_retryability(status: int, non_retryabl
 
 
 @pytest.mark.asyncio
-async def test_no_parseable_output_raises_retryable() -> None:
-    # A refusal or truncation yields no parsed output — must raise (so Temporal retries), never
-    # return None into the pipeline.
-    mock_parse = AsyncMock(return_value=MagicMock(parsed_output=None, stop_reason="refusal"))
+@pytest.mark.parametrize(
+    "stop_reason,non_retryable",
+    [
+        ("refusal", False),  # a flake worth one more attempt
+        ("max_tokens", True),  # deterministic truncation — a retry resubmits the same doomed prompt
+    ],
+)
+async def test_no_parseable_output_retryability_branches_on_stop_reason(stop_reason: str, non_retryable: bool) -> None:
+    # No parsed output must raise (never return None into the pipeline), and the retry decision
+    # must follow the stop reason.
+    mock_parse = AsyncMock(return_value=MagicMock(parsed_output=None, stop_reason=stop_reason))
+
+    with (
+        patch(f"{_MODULE}.get_async_anthropic_gateway_client", return_value=_mock_client(mock_parse)),
+        pytest.raises(ApplicationError) as exc_info,
+    ):
+        await _call()
+
+    assert exc_info.value.non_retryable is non_retryable
+    assert stop_reason in str(exc_info.value)
+
+
+def _validation_error() -> pydantic.ValidationError:
+    try:
+        TypeAdapter(IssueDeduplication).validate_json('{"duplicates": [')
+    except pydantic.ValidationError as e:
+        return e
+    raise AssertionError("truncated JSON unexpectedly validated")
+
+
+@pytest.mark.asyncio
+async def test_truncated_json_validation_error_becomes_a_compact_application_error() -> None:
+    # The SDK validates the text block inside messages.parse(), so truncated JSON raises a raw
+    # pydantic.ValidationError there — past the APIError handler and before parsed_output exists.
+    # It must surface as the documented compact ApplicationError (retryable, stage-attributed),
+    # not an oversized unclassified exception that Temporal's failure serialization chokes on.
+    mock_parse = AsyncMock(side_effect=_validation_error())
 
     with (
         patch(f"{_MODULE}.get_async_anthropic_gateway_client", return_value=_mock_client(mock_parse)),
@@ -93,3 +128,4 @@ async def test_no_parseable_output_raises_retryable() -> None:
         await _call()
 
     assert exc_info.value.non_retryable is False
+    assert "dedup" in str(exc_info.value)

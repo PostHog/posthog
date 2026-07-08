@@ -15,6 +15,8 @@ The review target is either a PR (`pr_url`) or a pushed branch with no PR yet
 
 import asyncio
 import logging
+from collections.abc import Callable
+from typing import Any, cast
 
 from django.conf import settings
 
@@ -176,7 +178,9 @@ def start_review_pr_workflow(
 
     client = sync_connect()
     logger.info(f"Starting ReviewPRWorkflow {workflow_id} on {settings.VIDEO_EXPORT_TASK_QUEUE} (publish={publish})")
-    async_to_sync(client.start_workflow)(
+    # async_to_sync erases start_workflow's overloads, so mypy binds the wrong one.
+    start_workflow = cast(Callable[..., Any], async_to_sync(client.start_workflow))
+    start_workflow(
         "review-pr",
         inputs,
         id=workflow_id,

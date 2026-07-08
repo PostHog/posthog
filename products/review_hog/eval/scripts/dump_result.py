@@ -421,8 +421,8 @@ w("")
 w("## Per-review-unit breakdown\n")
 w("| pass | chunk | perspective | raw issues |")
 w("| ---- | ----- | ----------- | ---------- |")
-for p, ch, src, n in perspective_rows:
-    w(f"| {p} | {ch} | {src} | {n} |")
+for pass_no, chunk_id, source, raw_count in perspective_rows:
+    w(f"| {pass_no} | {chunk_id} | {source} | {raw_count} |")
 w("")
 
 w("## Findings (post-dedup) with validator verdict\n")

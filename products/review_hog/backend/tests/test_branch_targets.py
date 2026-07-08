@@ -7,7 +7,7 @@ from parameterized import parameterized
 from products.review_hog.backend.models import ReviewReport
 from products.review_hog.backend.reviewer.models.github_meta import PRFile, PRMetadata
 from products.review_hog.backend.reviewer.persistence import upsert_review_report
-from products.review_hog.backend.temporal.activities import FetchPRDataInput, _fetch_and_persist
+from products.review_hog.backend.temporal.activities import FetchPRDataInput, ReviewMeta, _fetch_and_persist
 from products.review_hog.backend.temporal.client import _build_inputs
 
 _MODULE = "products.review_hog.backend.temporal.activities"
@@ -82,7 +82,7 @@ class TestBuildInputs(BaseTest):
 
 
 class TestFetchBranchTarget(BaseTest):
-    def _fetch(self) -> object:
+    def _fetch(self) -> ReviewMeta:
         return _fetch_and_persist(
             FetchPRDataInput(
                 team_id=self.team.id,

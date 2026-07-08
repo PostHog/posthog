@@ -360,10 +360,10 @@ def _turn_stats(team_id: int, reports: list[ReviewReport]) -> dict[str, _TurnSta
         .order_by("created_at", "id")
         .values("report_id", "content")
     )
-    for row in selection_rows:  # oldest-first, so the turn's latest selection wins
-        report_id = str(row["report_id"])
+    for selection_row in selection_rows:  # oldest-first, so the turn's latest selection wins
+        report_id = str(selection_row["report_id"])
         try:
-            artefact = PerspectiveSelectionArtefact.model_validate_json(row["content"])
+            artefact = PerspectiveSelectionArtefact.model_validate_json(selection_row["content"])
         except ValidationError as e:
             logger.warning("Skipping unparseable perspective_selection for report %s: %s", report_id, e)
             continue
@@ -646,7 +646,7 @@ class ReviewRecentReviewsViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet
                 entry["raised"] += 1
                 if verdict is not None:
                     entry["kept" if verdict.is_valid else "dismissed"] += 1
-        items = [{"skill_name": skill_name, **counts} for skill_name, counts in stats.items()]
+        items: list[dict[str, Any]] = [{"skill_name": skill_name, **counts} for skill_name, counts in stats.items()]
         items.sort(key=lambda item: (-item["kept"], -item["raised"], item["skill_name"]))
         payload = {"report_count": len(reports), "perspectives": items}
         return Response(ReviewPerspectiveStatsSerializer(payload).data)
@@ -679,7 +679,9 @@ class ReviewRecentReviewsViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet
         snapshots = _snapshot_stats(team_id, [report])
         turns = _turn_stats(team_id, [report])
         pairs = load_turn_findings(team_id=team_id, report_id=report_id, run_index=report.run_count)
-        chunk_set = load_chunk_set(team_id=team_id, report_id=report_id, head_sha=report.head_sha)
+        chunk_set = (
+            load_chunk_set(team_id=team_id, report_id=report_id, head_sha=report.head_sha) if report.head_sha else None
+        )
 
         def sort_key(payload: dict[str, Any]) -> tuple[int, str]:
             return (_PRIORITY_DISPLAY_RANK[IssuePriority(payload["effective_priority"])], payload["file"])

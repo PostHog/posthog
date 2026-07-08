@@ -1,7 +1,8 @@
 import re
 import logging
 
-from github import Github, GithubException, PullRequest
+from github import Github, GithubException
+from github.PullRequest import PullRequest
 
 from products.review_hog.backend.reviewer.models.github_meta import PRComment, PRFile, PRFileUpdate, PRMetadata
 
@@ -138,23 +139,27 @@ class PRParser:
             old_line = old_start
             new_line = new_start
             # Collect consecutive changes
-            current_type = None
+            current_type: str | None = None
             current_lines: list[str] = []
-            current_old_start = None
-            current_new_start = None
+            current_old_start: int | None = None
+            current_new_start: int | None = None
 
             def flush_current() -> None:
                 nonlocal current_type, current_lines, current_old_start, current_new_start
                 if current_type and current_lines:
                     change = PRFileUpdate(type=current_type, code="\n".join(current_lines))
 
+                    # The loop below always stamps the matching start line when it sets the type.
                     if current_type == "deletion":
+                        assert current_old_start is not None
                         change.old_start_line = current_old_start
                         change.old_end_line = current_old_start + len(current_lines) - 1
                     elif current_type == "addition":
+                        assert current_new_start is not None
                         change.new_start_line = current_new_start
                         change.new_end_line = current_new_start + len(current_lines) - 1
                     else:  # context
+                        assert current_old_start is not None and current_new_start is not None
                         change.old_start_line = current_old_start
                         change.old_end_line = current_old_start + len(current_lines) - 1
                         change.new_start_line = current_new_start

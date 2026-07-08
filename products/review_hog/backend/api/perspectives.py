@@ -1,4 +1,5 @@
 import logging
+from typing import cast
 
 from drf_spectacular.utils import OpenApiResponse, extend_schema
 from rest_framework import serializers, viewsets
@@ -76,11 +77,12 @@ class ReviewPerspectiveConfigViewSet(TeamAndOrgViewSetMixin, viewsets.GenericVie
         # Resolve a raw environment URL id to its root team once — the skills and config rows all
         # live on the canonical team, so an unresolved id would render an empty menu.
         team_id = resolve_effective_team_id(self.team_id)
-        register_missing_perspective_configs(team_id, request.user.id)
+        user_id = cast(int, request.user.id)  # authenticated via the viewset mixin
+        register_missing_perspective_configs(team_id, user_id)
         # Prefix-scope: validators share this table, so only join perspective rows to the menu.
         enabled_by_name = dict(
             ReviewSkillConfig.objects.for_team(team_id, canonical=True)
-            .filter(user_id=request.user.id, skill_name__startswith=REVIEW_HOG_PERSPECTIVE_PREFIX)
+            .filter(user_id=user_id, skill_name__startswith=REVIEW_HOG_PERSPECTIVE_PREFIX)
             .values_list("skill_name", "enabled")
         )
         skills = LLMSkill.objects.filter(
@@ -121,6 +123,7 @@ class ReviewPerspectiveConfigViewSet(TeamAndOrgViewSetMixin, viewsets.GenericVie
         # filter but not the create kwargs, and mismatched ids mean a never-matching get plus
         # 500s on the unique constraint from the second call on.
         team_id = resolve_effective_team_id(self.team_id)
+        user_id = cast(int, request.user.id)  # authenticated via the viewset mixin
         skill = LLMSkill.objects.filter(team_id=team_id, name=skill_name, is_latest=True, deleted=False).first()
         if skill is None:
             raise NotFound(f"No perspective skill '{skill_name}' on this project")
@@ -130,7 +133,7 @@ class ReviewPerspectiveConfigViewSet(TeamAndOrgViewSetMixin, viewsets.GenericVie
         enabled: bool = update.validated_data["enabled"]
 
         # Seed the canonicals first so the min-1 floor counts a cold user's defaults, not zero.
-        register_missing_perspective_configs(team_id, request.user.id)
+        register_missing_perspective_configs(team_id, user_id)
         if not enabled:
             # Best-effort floor (count + write, no lock) — same as scouts. The loader's
             # NoEnabledPerspectivesError is the backstop if a rare concurrent double-disable slips through.
@@ -138,7 +141,7 @@ class ReviewPerspectiveConfigViewSet(TeamAndOrgViewSetMixin, viewsets.GenericVie
             # must not let a user disable their last perspective.
             others_enabled = (
                 ReviewSkillConfig.objects.for_team(team_id, canonical=True)
-                .filter(user_id=request.user.id, enabled=True, skill_name__startswith=REVIEW_HOG_PERSPECTIVE_PREFIX)
+                .filter(user_id=user_id, enabled=True, skill_name__startswith=REVIEW_HOG_PERSPECTIVE_PREFIX)
                 .exclude(skill_name=skill_name)
                 .count()
             )
@@ -147,7 +150,7 @@ class ReviewPerspectiveConfigViewSet(TeamAndOrgViewSetMixin, viewsets.GenericVie
 
         # `team_id` / `user_id` stay in the create kwargs — the fail-closed filter doesn't propagate.
         config, _created = ReviewSkillConfig.objects.for_team(team_id, canonical=True).get_or_create(
-            team_id=team_id, user_id=request.user.id, skill_name=skill_name, defaults={"enabled": enabled}
+            team_id=team_id, user_id=user_id, skill_name=skill_name, defaults={"enabled": enabled}
         )
         if config.enabled != enabled:
             config.enabled = enabled

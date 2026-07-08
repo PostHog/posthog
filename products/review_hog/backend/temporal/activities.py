@@ -1142,7 +1142,7 @@ def _append_code_review_artefact(input: AppendCodeReviewArtefactInput) -> None:
         pr_number=report.pr_number,
         pr_url=report.pr_url or None,
         review_url=input.review_url,
-        outcome=input.outcome,  # type: ignore[arg-type]
+        outcome=input.outcome,
         counts=counts,
     )
     SignalReportArtefact.add_log(

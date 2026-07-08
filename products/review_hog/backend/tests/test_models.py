@@ -69,7 +69,7 @@ class TestReviewArtefactContent:
             ReviewReportArtefact.add_working_state(
                 team_id=1,
                 report_id="r",
-                content=_finding(),
+                content=_finding(),  # type: ignore[arg-type]  # the rejection under test
                 attribution=ArtefactAttribution.system(),
             )
 

@@ -117,15 +117,18 @@ class TestIsTestFile:
             ("suffix_test_js", "module-test.js", True),
             ("dot_test_js", "module.test.js", True),
             ("dot_spec_js", "module.spec.js", True),
-            ("capital_test_java", "TestModule.java", True),
             ("tests_dir", "tests/module.py", True),
             ("test_dir", "test/module.py", True),
+            ("uppercase_tests_dir", "Tests/Foo.cs", True),
             ("nested_tests_dir", "src/tests/module.py", True),
             ("deep_test_dir", "path/to/test/file.py", True),
             ("dunder_tests", "__tests__/module.js", True),
             ("nested_dunder_tests", "src/__tests__/component.jsx", True),
-            ("test_utils", "module_test_utils.py", True),
             ("test_prefix_utils", "test_utils_module.py", True),
+            ("nested_test_prefix", "posthog/api/test_dashboard.py", True),
+            ("dash_test_prefix", "src/test-utils.ts", True),
+            ("go_test_suffix", "pkg/handler_test.go", True),
+            ("tests_suffix", "app/models_tests.py", True),
             ("plain_module", "module.py", False),
             ("main_js", "main.js", False),
             ("utils_py", "utils.py", False),
@@ -136,6 +139,18 @@ class TestIsTestFile:
             ("latest_txt", "latest.txt", False),
             ("contest_py", "contest.py", False),
             ("attestation_py", "attestation.py", False),
+            # Production files whose names merely contain "test" as a substring used to be silently
+            # excluded from review — the anchored patterns must keep them in.
+            ("latest_dash", "frontend/src/queries/latest-versions.ts", False),
+            ("latest_underscore_migration", "posthog/migrations/0116_plugin_latest_tag.py", False),
+            ("test_infix_migration", "posthog/migrations/0132_team_test_account_filters.py", False),
+            ("latest_script", "bin/build-schema-latest-versions.py", False),
+            ("testing_doc", "testing-guide.md", False),
+            # Deliberately no longer excluded: the _test_ infix matched production names (see the
+            # migration above) and IGNORECASE ^Test matched any root file starting with "test".
+            # Erring toward reviewing a test file beats silently skipping production code.
+            ("test_infix_helper", "module_test_utils.py", False),
+            ("capital_test_java", "TestModule.java", False),
         ]
     )
     def test_is_test_file(self, _name: str, filename: str, expected: bool) -> None:

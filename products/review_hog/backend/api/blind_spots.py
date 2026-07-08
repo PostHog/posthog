@@ -1,4 +1,5 @@
 import logging
+from typing import cast
 
 from django.db import transaction
 from django.utils import timezone
@@ -85,10 +86,11 @@ class ReviewBlindSpotsConfigViewSet(TeamAndOrgViewSetMixin, viewsets.GenericView
         # Resolve a raw environment URL id to its root team once — the skills and config rows all
         # live on the canonical team, so an unresolved id would render an empty menu.
         team_id = resolve_effective_team_id(self.team_id)
-        register_missing_blind_spots_config(team_id, request.user.id)
+        user_id = cast(int, request.user.id)  # authenticated via the viewset mixin
+        register_missing_blind_spots_config(team_id, user_id)
         active_by_name = dict(
             ReviewSkillConfig.objects.for_team(team_id, canonical=True)
-            .filter(user_id=request.user.id, skill_name__startswith=REVIEW_HOG_BLIND_SPOTS_PREFIX)
+            .filter(user_id=user_id, skill_name__startswith=REVIEW_HOG_BLIND_SPOTS_PREFIX)
             .values_list("skill_name", "enabled")
         )
         skills = LLMSkill.objects.filter(
@@ -130,6 +132,7 @@ class ReviewBlindSpotsConfigViewSet(TeamAndOrgViewSetMixin, viewsets.GenericView
         # filter but not the create kwargs, and mismatched ids mean a never-matching get plus
         # 500s on the unique constraint from the second call on.
         team_id = resolve_effective_team_id(self.team_id)
+        user_id = cast(int, request.user.id)  # authenticated via the viewset mixin
         skill = LLMSkill.objects.filter(team_id=team_id, name=skill_name, is_latest=True, deleted=False).first()
         if skill is None:
             raise NotFound(f"No blind-spots skill '{skill_name}' on this project")
@@ -141,17 +144,17 @@ class ReviewBlindSpotsConfigViewSet(TeamAndOrgViewSetMixin, viewsets.GenericView
                 "The blind-spot check is single-active — select a different skill instead of deactivating"
             )
 
-        register_missing_blind_spots_config(team_id, request.user.id)
+        register_missing_blind_spots_config(team_id, user_id)
         configs = ReviewSkillConfig.objects.for_team(team_id, canonical=True)
         # Single-active: deactivate-others + activate-this must land together, or a crash between them
         # leaves the user with no active skill (the loader's canonical fallback would heal it).
         with transaction.atomic():
-            configs.filter(
-                user_id=request.user.id, skill_name__startswith=REVIEW_HOG_BLIND_SPOTS_PREFIX, enabled=True
-            ).exclude(skill_name=skill_name).update(enabled=False, updated_at=timezone.now())
+            configs.filter(user_id=user_id, skill_name__startswith=REVIEW_HOG_BLIND_SPOTS_PREFIX, enabled=True).exclude(
+                skill_name=skill_name
+            ).update(enabled=False, updated_at=timezone.now())
             # `team_id` / `user_id` stay in the create kwargs — the fail-closed filter doesn't propagate.
             config, _created = configs.get_or_create(
-                team_id=team_id, user_id=request.user.id, skill_name=skill_name, defaults={"enabled": True}
+                team_id=team_id, user_id=user_id, skill_name=skill_name, defaults={"enabled": True}
             )
             if not config.enabled:
                 config.enabled = True

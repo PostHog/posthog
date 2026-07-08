@@ -14,7 +14,7 @@ from products.review_hog.backend.reviewer.models.issue_deduplicator import Dupli
 from products.review_hog.backend.reviewer.models.issues_review import Issue, IssuePriority, LineRange
 from products.review_hog.backend.reviewer.tests.conftest import create_mock_run_sandbox_review
 from products.review_hog.backend.reviewer.tools.issue_deduplicator import (
-    _comment_line,
+    _comment_range,
     _select_dedup_candidates,
     deduplicate_issues,
 )
@@ -57,7 +57,7 @@ def test_select_dedup_candidates_partitions_by_position() -> None:
         _issue("1-2", "src/config.py", 23, 25),  # isolated
     ]
 
-    candidates, unique = _select_dedup_candidates(issues, prior_comment_lines=[])
+    candidates, unique = _select_dedup_candidates(issues, prior_comment_ranges=[])
 
     assert {c.id for c in candidates} == {"1-1", "2-1"}
     assert {u.id for u in unique} == {"1-2"}
@@ -67,7 +67,9 @@ def test_select_dedup_candidates_collision_with_prior_comment() -> None:
     # A lone issue becomes a candidate when a prior bot comment sits inside its line range.
     issues = [_issue("1-1", "src/auth.py", 45, 50)]
 
-    candidates, unique = _select_dedup_candidates(issues, prior_comment_lines=[("src/auth.py", 47)])
+    candidates, unique = _select_dedup_candidates(
+        issues, prior_comment_ranges=[("src/auth.py", LineRange(start=47, end=47))]
+    )
 
     assert {c.id for c in candidates} == {"1-1"}
     assert unique == []
@@ -78,29 +80,50 @@ def test_select_dedup_candidates_prior_comment_in_other_file_does_not_collide() 
     issues = [_issue("1-1", "src/auth.py", 45, 50)]
 
     candidates, unique = _select_dedup_candidates(
-        issues, prior_comment_lines=[("src/other.py", 47), ("src/auth.py", 99)]
+        issues,
+        prior_comment_ranges=[
+            ("src/other.py", LineRange(start=47, end=47)),
+            ("src/auth.py", LineRange(start=99, end=99)),
+        ],
     )
 
     assert candidates == []
     assert {u.id for u in unique} == {"1-1"}
 
 
-def test_comment_line_resolves_position_or_none() -> None:
-    def _comment(line: int | None, start_line: int | None) -> PRComment:
-        return PRComment(
-            path="src/auth.py",
-            line=line,
-            start_line=start_line,
-            body="x",
-            diff_hunk="",
-            user="greptile-apps[bot]",
-            created_at="2024-01-01",
-        )
+def _ranged_comment(line: int | None, start_line: int | None) -> PRComment:
+    return PRComment(
+        path="src/auth.py",
+        line=line,
+        start_line=start_line,
+        body="x",
+        diff_hunk="",
+        user="greptile-apps[bot]",
+        created_at="2024-01-01",
+    )
 
-    assert _comment_line(_comment(line=47, start_line=None)) == ("src/auth.py", 47)
+
+def test_comment_range_resolves_span_or_none() -> None:
+    assert _comment_range(_ranged_comment(line=47, start_line=None)) == ("src/auth.py", LineRange(start=47, end=47))
+    # A multi-line comment spans [start_line, line] — not just its end line.
+    assert _comment_range(_ranged_comment(line=20, start_line=10)) == ("src/auth.py", LineRange(start=10, end=20))
     # Falls back to start_line when line is absent.
-    assert _comment_line(_comment(line=None, start_line=42)) == ("src/auth.py", 42)
-    assert _comment_line(_comment(line=None, start_line=None)) is None
+    assert _comment_range(_ranged_comment(line=None, start_line=42)) == ("src/auth.py", LineRange(start=42, end=42))
+    assert _comment_range(_ranged_comment(line=None, start_line=None)) is None
+
+
+def test_multiline_comment_collides_across_its_whole_range() -> None:
+    # Collapsing a multi-line comment (10-20) to its end line let a finding on 12-14 skip the LLM
+    # dedup entirely and re-post what a reviewer already raised; only end-line hits collided.
+    rng = _comment_range(_ranged_comment(line=20, start_line=10))
+    assert rng is not None
+    inside = _issue("1-1", "src/auth.py", 12, 14)
+    outside = _issue("1-2", "src/auth.py", 30, 31)
+
+    candidates, unique = _select_dedup_candidates([inside, outside], prior_comment_ranges=[rng])
+
+    assert {c.id for c in candidates} == {"1-1"}
+    assert {u.id for u in unique} == {"1-2"}
 
 
 # --- deduplicate_issues orchestration (Pattern B: only the LLM executor seams are mocked) ---
