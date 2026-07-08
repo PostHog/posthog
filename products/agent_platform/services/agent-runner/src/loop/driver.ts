@@ -55,6 +55,7 @@ import {
     createLogger,
     extractGatewayRequestId,
     FRAMEWORK_PROMPT_VERSION,
+    GATEWAY_REQUEST_ID_HEADER,
     GatewayCatalog,
     GatewayClient,
     gatewaySettledCost,
@@ -1503,6 +1504,7 @@ function gatewayMetadataStreamFn(
     gatewayHeaders: Record<string, string> | undefined,
     turnRequestIds: Map<number, string>
 ): StreamFn {
+    const log = createLogger('runner')
     let outboundTurn = 0
     return async (model, context, options) => {
         outboundTurn++
@@ -1516,6 +1518,18 @@ function gatewayMetadataStreamFn(
                 const id = extractGatewayRequestId(response.headers)
                 if (id) {
                     turnRequestIds.set(turnIndex, id)
+                } else if (response.headers[GATEWAY_REQUEST_ID_HEADER]) {
+                    // Header present but rejected by the charset guard → no settlement
+                    // id, so this turn's cost silently won't settle. Surface it as a
+                    // diagnosable gap rather than a phantom $0 (per review).
+                    log.warn(
+                        {
+                            session_id: sessionId,
+                            turn: turnIndex,
+                            rejected: String(response.headers[GATEWAY_REQUEST_ID_HEADER]).slice(0, 64),
+                        },
+                        'gateway.request_id.rejected'
+                    )
                 }
                 await priorOnResponse?.(response, m)
             },

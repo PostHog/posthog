@@ -111,6 +111,11 @@ export class PgMcpConnectionStore implements McpConnectionStore {
             // Distinguish "genuinely absent" (a normal not_found) from "exists
             // but owned by another team member" — the latter is a live agent the
             // owner-scoping tightening just broke, worth surfacing for an audit.
+            // Miss-path only: the happy path returns rows above and never probes,
+            // so this fires ~at the broken-ref rate it measures. Keep it a separate
+            // existence check (no sensitive column) — folding it into the scoped
+            // SELECT would pull the credential row back before the owner check,
+            // undoing the SQL-level enforcement.
             const probe = await this.pool.query(
                 'SELECT 1 FROM mcp_store_mcpserverinstallation WHERE id = $1 AND team_id = $2',
                 [connectionId, teamId]
