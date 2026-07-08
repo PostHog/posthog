@@ -1,0 +1,252 @@
+---
+name: authoring-ci-workflows
+description: >
+  Use when adding or editing a GitHub Actions workflow, composite action, or
+  reusable workflow under `.github/` — new CI jobs, triggers, matrices,
+  checkout/clone tuning, action pinning, GitHub App token auth, concurrency
+  groups, `timeout-minutes`, `paths` filters, caching, or runner choice. Covers
+  PostHog's workflow-authoring conventions and the reasons behind them: the
+  500-runs/10s dispatch cap, shallow vs full clone, per-SHA push concurrency,
+  and dedicated App-token rate-limit buckets. Points to the linters
+  (`bin/hogli lint:workflows`, actionlint) that enforce the mechanical rules,
+  and to the narrower skills for production deploys, secrets, and Depot runners.
+  Not for debugging red CI (use debugging-ci-failures) or wiring a new secret
+  end to end (use managing-github-actions-secrets).
+---
+
+# Authoring CI workflows
+
+Conventions for `.github/workflows/**` and `.github/actions/**`. Most mechanical
+rules are already linted — run the linters locally and let them catch the
+mechanics; this skill exists for the **judgment calls** they can't.
+
+## Before you write
+
+- Run `bin/hogli lint:workflows` and `actionlint` before pushing. They gate CI
+  via `.github/workflows/ci-lint-workflows.yml`, so a miss here burns a round trip.
+- Copy from a canonical file rather than from memory. `ci-paths-filter.yml` is
+  the smallest complete example (triggers, concurrency, timeout, app token,
+  Depot runner); `ci-backend.yml` is the reference for the heavy patterns
+  (bounded-depth checkout, per-SHA concurrency, draft/ready, sharding).
+- Related skills — reach for these instead of duplicating them here:
+  - `/gating-production-deploys` — any job that pushes a prod image or dispatches a Charts deploy.
+  - `/managing-github-actions-secrets` — creating the GitHub App / secret a workflow reads.
+  - `/depot-github-runners` — Depot runner labels and sizing.
+  - `/debugging-ci-failures` — CI is red and you need to know why.
+
+## What the linters already enforce
+
+Don't re-document these — just satisfy them (`bin/hogli lint:workflows --check WFxxx`):
+
+| Check                             | Rule                                                                     |
+| --------------------------------- | ------------------------------------------------------------------------ |
+| `WF001-job-timeouts`              | every job declares `timeout-minutes`                                     |
+| `WF002-pr-concurrency`            | PR-triggered workflows have the canonical concurrency block              |
+| `WF003-dorny-negation`            | any `!path` in `dorny/paths-filter` sets `predicate-quantifier: 'every'` |
+| `WF004-semgrep-services-coverage` | new services are covered by the semgrep matrix                           |
+| `WF005-checkout-full-depth`       | `fetch-depth: 0` must be blobless, sparse, or explicitly allow-marked    |
+| `WF006-cache-writes`              | cache writes are gated to master or deliberately per-ref                 |
+
+`actionlint` catches generic GHA correctness (bad `secrets.*` / `needs:` refs,
+deprecated `::set-output`, unknown runner labels). Third-party action digests are
+bumped by Renovate (`renovate.json5`, `config:best-practices`).
+
+## The dispatch budget (500 runs / 10s / repo)
+
+The most PostHog-specific constraint. GitHub caps _workflow-run dispatch_ at
+500 runs per 10 seconds per repo; overflow fails as `startup_failure` and takes
+unrelated runs in the same window down with it. A stack restack that pushes many
+branches at once is the usual trigger. **Minimize runs dispatched, not just work
+done** — draft status doesn't help (runs dispatch before skip logic applies).
+
+- A reusable-workflow call counts as **one** run. Small always-fire PR workflows
+  should be jobs under a single `workflow_call` parent, not their own dispatches
+  (see `pr-updated.yml` / `pr-opened.yml` folded behind their parent —
+  [fold pr housekeeping into one dispatch](https://github.com/PostHog/posthog/pull/68964)).
+  Event-type scoping moves to job-level `if:` guards:
+
+  ```yaml
+  jobs:
+    turbo:
+      if: contains(fromJSON('["opened", "synchronize", "reopened"]'), github.event.action)
+      uses: ./.github/workflows/ci-turbo.yml
+  ```
+
+- Prefer a trigger-level `paths:` filter over dispatch-then-skip: a run that only
+  starts to no-op still spends a dispatch
+  ([gate container workflows on trigger paths](https://github.com/PostHog/posthog/pull/68975)).
+
+  ```yaml
+  on:
+    pull_request:
+      paths:
+        - '.github/workflows/ci-x.yml'
+        - 'path/to/product/**'
+    merge_group:
+    workflow_dispatch:
+  ```
+
+- **Judgment call — trigger `paths:` vs a runtime `dorny/paths-filter` job.** Use
+  trigger `paths:` for a workflow that is _skippable as a whole_. Keep a `changes`
+  job when downstream **required** checks must still report on `merge_group` (a
+  never-dispatched required check blocks merges forever) or when several jobs
+  branch on different path sets. Heavy matrices (`ci-backend`, `ci-nodejs`) still
+  fire on every PR and gate internally — that's deliberate.
+- Delete dead dispatchers outright. A disabled overseer left triggered once fired
+  ~75k no-op runs in 30 days, each against the cap.
+
+## Concurrency
+
+Every PR-triggered workflow gets the canonical block (WF002):
+
+```yaml
+concurrency:
+  group: ${{ github.workflow }}-${{ github.head_ref || github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+```
+
+- Cancel superseded **PR** runs; never cancel across **master** pushes.
+- Use `github.ref` as the fallback, never `github.run_id` — `run_id` is unique
+  per run, so it silently gives every push its own group and dedup is lost.
+- Publish-on-push workflows must not let two master pushes race `:latest` / a
+  deploy dispatch. Key the push arm per-SHA (see `ci-backend.yml`):
+
+  ```yaml
+  group: ${{ github.workflow }}-${{ github.event_name == 'push' && github.sha || github.head_ref || github.ref }}
+  ```
+
+## Checkout / clone — shallow by default
+
+Full clones are slow and hang on degraded runners; blobs dominate clone size and
+are lazily fetchable. Default to shallow; go deep only for real merge-base or
+version math, and even then bound the depth and filter blobs.
+
+- **Default:** plain `actions/checkout` (depth 1). Add nothing.
+- **Diffing against the PR base:** bounded depth + blobless, then an explicit,
+  scoped fetch (the sanctioned pattern, from `ci-backend.yml`):
+
+  ```yaml
+  - uses: actions/checkout@<sha> # v6
+    with:
+      fetch-depth: 1000
+      filter: blob:none
+  - name: Fetch PR base for affected diff
+    if: github.event_name == 'pull_request'
+    env:
+      BASE_REF: ${{ github.event.pull_request.base.ref }}
+    run: git fetch --no-tags --depth=1000 --filter=blob:none origin "$BASE_REF:refs/remotes/origin/$BASE_REF"
+  ```
+
+- **One file (e.g. `.nvmrc` before `setup-node`):** `sparse-checkout` it instead
+  of cloning the repo.
+- **Foot-gun:** `git fetch --deepen=N` with **no refspec** falls back to the
+  wildcard `refs/heads/*` and pulls _every branch_. Always pass an explicit,
+  `--no-tags`, `--filter=blob:none` refspec scoped to the base ref. (Bumping
+  `actions/checkout`'s own `fetch-depth` is safe — it uses a scoped
+  `refs/pull/N/merge` refspec.)
+- `fetch-depth: 0` trips WF005 unless you add `filter: blob:none`, use
+  `sparse-checkout`, or justify it with
+  `# hogli-lint: allow-full-depth-checkout -- <reason>`. Genuinely full-history
+  jobs: repo mirroring (`foss-sync.yml`), tag/submodule version math
+  (`release-cli.yml`). Most base-diff jobs should use bounded `1000 + blob:none`.
+
+## Pinning and tool versions
+
+- **Pin every third-party action to a full 40-char commit SHA** with a
+  `# vX.Y.Z` comment. A moved tag can ship malicious code; pinning is also
+  reproducible and skips a per-run GitHub-API version lookup. The only sanctioned
+  exception is a debug-only action. In-repo composites use a local path with no
+  ref (`uses: ./.github/actions/pnpm-install`).
+- **Node version comes from `.nvmrc`** — `node-version-file: .nvmrc`, never a
+  hardcoded `node-version:`. Sparse-checkout `.nvmrc` if the job has no checkout.
+- **Pin `setup-uv`'s `version:`** — an unpinned `setup-uv` calls the GitHub API
+  on every job and burns the rate limit.
+
+## Tokens — dedicated App tokens for high-volume calls
+
+`GITHUB_TOKEN` shares one ~15k req/hr bucket across every job of every run in the
+repo; it goes hot at merge peaks and change-detection jobs fail before real work
+starts. A dedicated GitHub App installation is its own bucket — rate-limit
+headroom plus blast-radius isolation.
+
+```yaml
+- uses: actions/create-github-app-token@<sha> # v3.1.1
+  id: app-token
+  # forks can't read org secrets — fall back to github.token
+  if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
+  with:
+    client-id: ${{ secrets.GH_APP_POSTHOG_PATHS_FILTER_APP_ID }}
+    private-key: ${{ secrets.GH_APP_POSTHOG_PATHS_FILTER_PRIVATE_KEY }}
+  # consumer step:
+  token: ${{ steps.app-token.outputs.token || github.token }}
+```
+
+- **Right-size, don't over-isolate.** One heavy consumer (change detection on a
+  hot matrix) deserves its own app; a long tail of light workflows can share
+  `GITHUB_TOKEN`. Convention: `GH_APP_<PURPOSE>_APP_ID` + `GH_APP_<PURPOSE>_PRIVATE_KEY`.
+- Cross-repo tokens set explicit `owner:` + `repositories:` (least privilege).
+- Creating the app + secret is out of scope here — use `/managing-github-actions-secrets`.
+
+## Timeouts
+
+Every job sets `timeout-minutes` (WF001), sized ~2-3x observed max; gate/aggregation
+jobs get ~5m. The default is 6 hours — a hung job burns paid minutes silently.
+**Caveat:** `timeout-minutes` is invalid on a job that only `uses:` a reusable
+workflow — put the timeout inside the called workflow instead.
+
+## Caching
+
+Route through the shared composites rather than hand-rolling `actions/cache`:
+`./.github/actions/pnpm-install` (single `pnpm-<os>-<lockhash>` key, save gated to
+master), `astral-sh/setup-uv` with `enable-cache: true`, Depot cache via
+`./.github/actions/build-n-cache-image`. One canonical key per artifact; gate
+saves to master or key deliberately per-ref (WF006). PR-scoped cache writes
+nobody else can read just fragment the 10 GB LRU cap.
+
+## Runners
+
+`depot-ubuntu-<version>[-<vCPU>]` for build/compute-heavy jobs (the `-4`/`-8`
+suffix bumps CPU from the 2-vCPU default); GitHub-hosted for light jobs. New
+Depot labels must be added to the allow-list in `.github/actionlint.yaml` or
+actionlint fails. Details: `/depot-github-runners`.
+
+## Draft vs ready-for-review
+
+Most commits land before a PR is marked ready, and drafts can't merge — so heavy
+suites should run a narrowed subset on drafts and the full matrix on
+`ready_for_review` (the merge gate). Add `ready_for_review` to the `pull_request`
+types, and make aggregator "... Tests Pass" jobs treat `skipped` as success so
+drafts still report. Foot-gun: if a `select-tests` job is cancelled mid-flight,
+its `mode` output is empty — normalize empty-mode **on a draft** to `skip`, or the
+draft grabs the full matrix and serializes the ready run behind it.
+
+## Backwards-compat with unrebased PRs
+
+A workflow edit hits every open PR the instant it merges (it runs against
+PR-merged-with-master), but companion changes — a new dependency, file, or config —
+only reach a branch when it rebases. If the workflow starts _requiring_ something
+unrebased branches lack, every in-flight PR fails before its tests run. Make new
+behavior degrade gracefully when the prerequisite is absent, or gate it. Roll out
+a new blocking lint the same way: ship `continue-on-error`, clear the inbox,
+promote to blocking.
+
+## New-workflow checklist
+
+- [ ] Triggers scoped (`paths:` where the whole workflow is skippable); `merge_group` kept if a required check must report in the queue.
+- [ ] Canonical `concurrency:` block (per-SHA push arm if it publishes on push).
+- [ ] `timeout-minutes` on every job (except reusable-caller jobs).
+- [ ] Checkout is shallow, or bounded `1000 + blob:none` for base diffing.
+- [ ] Third-party actions SHA-pinned; Node from `.nvmrc`; `setup-uv` version pinned.
+- [ ] High-volume API calls on a dedicated App token with `|| github.token` fork fallback.
+- [ ] Caching through the shared composites; writes gated to master.
+- [ ] Prod image push / deploy dispatch gated per `/gating-production-deploys`.
+- [ ] `bin/hogli lint:workflows` and `actionlint` pass locally.
+
+## Provenance
+
+The conventions above were distilled from DevEx's CI work — e.g.
+[shallow clones for CI backend git ops](https://github.com/PostHog/posthog/pull/57821),
+[dedicated app token for paths-filter](https://github.com/PostHog/posthog/pull/56215),
+[per-SHA push concurrency](https://github.com/PostHog/posthog/pull/56762),
+[fold pr housekeeping into one dispatch](https://github.com/PostHog/posthog/pull/68964),
+and [gate container workflows on trigger paths](https://github.com/PostHog/posthog/pull/68975).
