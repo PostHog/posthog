@@ -53,9 +53,9 @@ import { sampleDataStateLogic } from './sampleDataStateLogic'
 // Matches ClickHouseQueryMemoryLimitExceeded.default_code on the backend. Keep the two in sync.
 const CLICKHOUSE_MEMORY_LIMIT_ERROR_CODE = 'clickhouse_memory_limit_exceeded'
 
-// The leading `!` makes the AI side panel auto-submit the prompt on open (see parseCommandString in scenes/max/maxLogic).
+// The leading `!` makes the AI side panel auto-submit the prompt on open (see parseCommandString in scenes/max/maxLogic.tsx).
 const MEMORY_LIMIT_AI_PROMPT =
-    "!This insight ran out of memory before it could finish. Help me work out why it's scanning so much data and how to fix it — e.g. a shorter date range, narrower filters, or materializing the data."
+    "!This insight ran out of memory before it could finish. Help me work out why it's scanning so much data and how to fix it: a shorter date range, narrower filters, or materializing the data."
 
 const DETAIL_URL_REGEX = /(https?:\/\/[^\s]+)/g
 
@@ -527,8 +527,9 @@ export function InsightTimeoutState({ queryId }: { queryId?: string | null }): J
 
 // Render embedded URLs (e.g. a docs link the backend includes) as clickable links.
 function renderDetailWithLinks(detail: string): (string | JSX.Element)[] {
+    // Splitting on a capturing group interleaves text and URL matches, so odd indexes are the URLs
     return detail.split(DETAIL_URL_REGEX).map((part, index) =>
-        /^https?:\/\//.test(part) ? (
+        index % 2 === 1 ? (
             <Link key={index} to={part} target="_blank">
                 {part}
             </Link>
@@ -554,8 +555,6 @@ export function InsightValidationError({
     const { openSidePanel } = useActions(sidePanelStateLogic)
     const debugWithAI = (): void => openSidePanel(SidePanelTab.Max, MEMORY_LIMIT_AI_PROMPT)
     const isMemoryLimitError = validationErrorCode === CLICKHOUSE_MEMORY_LIMIT_ERROR_CODE
-    const defaultCta =
-        cta ?? (onRetry ? <RetryButton onRetry={onRetry} query={query} /> : <QueryDebuggerButton query={query} />)
 
     return (
         <div
@@ -578,14 +577,15 @@ export function InsightValidationError({
 
             <p className="text-sm text-muted max-w-120 mb-2">{renderDetailWithLinks(detail)}</p>
 
-            {isMemoryLimitError ? (
+            {isMemoryLimitError && !cta ? (
                 <AIConsentPopoverWrapper onApprove={debugWithAI}>
                     <LemonButton type="primary" onClick={debugWithAI} data-attr="insight-memory-limit-debug-with-ai">
                         Debug with PostHog AI
                     </LemonButton>
                 </AIConsentPopoverWrapper>
             ) : (
-                defaultCta
+                (cta ??
+                (onRetry ? <RetryButton onRetry={onRetry} query={query} /> : <QueryDebuggerButton query={query} />))
             )}
 
             {detail.includes('Exclusion') && (

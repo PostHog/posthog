@@ -236,6 +236,7 @@ class ClickhouseClientTestCase(TestCase, ClickhouseTestMixin):
 
         result = client.get_query_status(self.team.id, query_id)
         self.assertTrue(result.error)
+        self.assertTrue(result.complete)
         assert result.error_message
         self.assertEqual(result.error_code, ClickHouseQueryMemoryLimitExceeded.default_code)
 

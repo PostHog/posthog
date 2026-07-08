@@ -143,7 +143,10 @@ class QueryStatusManager:
         if not byte_results:
             raise QueryNotFoundError(f"Query {self.query_id} not found for team {self.team_id}")
 
-        query_status = QueryStatus(**json.loads(byte_results))
+        loaded = json.loads(byte_results)
+        # Drop unknown keys so a status written by a newer deploy (with extra fields) doesn't fail
+        # validation here — QueryStatus forbids extra fields.
+        query_status = QueryStatus(**{k: v for k, v in loaded.items() if k in QueryStatus.model_fields})
 
         if show_progress and not query_status.complete:
             query_status.query_progress = self.get_clickhouse_progresses()
@@ -250,6 +253,8 @@ def execute_process_query(
             # We can only expose the error message if it's a known safe error OR if the user is PostHog staff
             query_status.error_message = str(err)
             if isinstance(err, APIException):
+                # get_codes() returns a list/dict for compound validation errors; only scalar codes
+                # are meaningful to the frontend, which matches on specific code strings.
                 codes = err.get_codes()
                 if isinstance(codes, str):
                     query_status.error_code = codes

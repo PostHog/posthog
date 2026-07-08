@@ -204,6 +204,8 @@ export const extractValidationErrorCode = (error: Error | Record<string, any> | 
     return null
 }
 
+// 512 also covers memory-limit errors, so check extractValidationError/extractValidationErrorCode
+// first when the distinction matters — this alone can't tell a timeout from an OOM.
 export const isTimeoutError = (error: Error | Record<string, any> | null | undefined): boolean => {
     if (error instanceof ApiError || (error && typeof error === 'object' && 'status' in error)) {
         return error?.status === 512

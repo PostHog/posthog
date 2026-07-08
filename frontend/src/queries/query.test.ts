@@ -3,6 +3,7 @@ import posthog from 'posthog-js'
 import api, { ApiError } from 'lib/api'
 
 import { useMocks } from '~/mocks/jest'
+import { extractValidationErrorCode } from '~/queries/nodes/InsightViz/utils'
 import { performQuery, pollForResults, queryExportContext, waitForPageVisible } from '~/queries/query'
 import { EventsQuery, HogQLQuery, NodeKind } from '~/queries/schema/schema-general'
 import { initKeaTests } from '~/test/init'
@@ -195,6 +196,21 @@ describe('query', () => {
             } finally {
                 globalThis.document = originalDocument
             }
+        })
+    })
+
+    describe('extractValidationErrorCode', () => {
+        test.each([
+            [
+                'async error shape (code on the error)',
+                { status: 400, code: 'clickhouse_memory_limit_exceeded' },
+                'clickhouse_memory_limit_exceeded',
+            ],
+            ['sync error shape (code in the response body)', { status: 512, data: { code: 'some_code' } }, 'some_code'],
+            ['non-validation status', { status: 500, code: 'some_code' }, null],
+            ['no error', null, null],
+        ])('%s', (_name, error, expected) => {
+            expect(extractValidationErrorCode(error)).toBe(expected)
         })
     })
 
