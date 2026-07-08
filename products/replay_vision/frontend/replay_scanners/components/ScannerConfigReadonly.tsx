@@ -33,6 +33,7 @@ import { BooleanTag } from '../../components/BooleanTag'
 import { CardHeader } from '../../components/CardHeader'
 import { LabeledRow } from '../../components/LabeledRow'
 import { ScannerTypeBadge } from '../../components/ScannerTypeBadge'
+import { promptUnchangedSince } from '../../utils/labelStats'
 import { replayScannerLogic } from '../replayScannerLogic'
 import { MODEL_OPTIONS, ReplayScanner, ScannerType } from '../types'
 
@@ -144,6 +145,13 @@ function PromptVersionHistory({ scanner }: { scanner: ReplayScanner }): JSX.Elem
         return null
     }
     const newestFirst = [...markers].sort((a, b) => b.version - a.version)
+    // Versions bump on any config change, so flag same-prompt versions instead of looking like duplicates.
+    const unchangedSince = promptUnchangedSince(markers)
+    const newestMarker = newestFirst[0]
+    const currentUnchangedFrom =
+        newestMarker && currentPrompt === newestMarker.prompt
+            ? (unchangedSince.get(newestMarker.version) ?? newestMarker.version)
+            : null
     return (
         <LemonCard className="p-4" hoverEffect={false}>
             <CardHeader icon={<IconPencil />} title="Prompt versions" />
@@ -155,6 +163,9 @@ function PromptVersionHistory({ scanner }: { scanner: ReplayScanner }): JSX.Elem
                                 v{currentVersion}
                             </LemonTag>
                             <span>current · no scans yet</span>
+                            {currentUnchangedFrom !== null && (
+                                <span>· prompt unchanged from v{currentUnchangedFrom}</span>
+                            )}
                         </div>
                         <div className="whitespace-pre-wrap font-mono text-xs">{currentPrompt}</div>
                     </div>
@@ -175,6 +186,9 @@ function PromptVersionHistory({ scanner }: { scanner: ReplayScanner }): JSX.Elem
                             <span className="flex items-center gap-1">
                                 <IconThumbsDownFilled className="text-danger" /> {marker.down}
                             </span>
+                            {unchangedSince.has(marker.version) && (
+                                <span>· prompt unchanged from v{unchangedSince.get(marker.version)}</span>
+                            )}
                         </div>
                         <div className="whitespace-pre-wrap font-mono text-xs">{marker.prompt || '—'}</div>
                     </div>

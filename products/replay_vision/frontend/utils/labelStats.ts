@@ -79,3 +79,19 @@ export function versionAccuracyStrip(
     }
     return entries
 }
+
+/** Version -> the earliest older version that ran the same prompt. Versions bump on any tracked
+ * config change (model, query, sampling, …), so identical prompts across versions are common and
+ * the versions panel tags them instead of looking like duplicates. */
+export function promptUnchangedSince(markers: ObservationVersionMarkerApi[]): Map<number, number> {
+    const ascending = [...markers].sort((a, b) => a.version - b.version)
+    const result = new Map<number, number>()
+    for (let i = 1; i < ascending.length; i++) {
+        const current = ascending[i]
+        const previous = ascending[i - 1]
+        if (current.prompt && current.prompt === previous.prompt) {
+            result.set(current.version, result.get(previous.version) ?? previous.version)
+        }
+    }
+    return result
+}
