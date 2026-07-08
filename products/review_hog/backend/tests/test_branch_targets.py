@@ -94,7 +94,7 @@ class TestFetchBranchTarget(BaseTest):
             )
         )
 
-    @patch(f"{_MODULE}._installation_token", return_value="tok")
+    @patch(f"{_MODULE}._installation_auth", return_value=("tok", None))
     @patch(f"{_MODULE}.fetch_branch_compare")
     @patch(f"{_MODULE}.find_open_pr_for_branch", return_value=None)
     def test_branch_with_no_pr_stores_branch_keyed_and_flags_an_empty_diff(self, _find, mock_compare, _tok) -> None:
@@ -111,7 +111,7 @@ class TestFetchBranchTarget(BaseTest):
         assert row.pr_number is None
         assert row.head_branch == "feat"
 
-    @patch(f"{_MODULE}._installation_token", return_value="tok")
+    @patch(f"{_MODULE}._installation_auth", return_value=("tok", None))
     @patch(f"{_MODULE}.PRFetcher")
     @patch(f"{_MODULE}.find_open_pr_for_branch", return_value=(9, "https://github.com/o/r/pull/9"))
     def test_branch_with_an_open_pr_reviews_via_the_pr_path_and_upgrades_the_stored_row(
@@ -130,7 +130,7 @@ class TestFetchBranchTarget(BaseTest):
         assert meta.pr_number == 9
         assert meta.pr_url == "https://github.com/o/r/pull/9"
         assert meta.empty_diff is False
-        mock_fetcher.assert_called_once_with(owner="o", repo="r", pr_number=9, token="tok")
+        mock_fetcher.assert_called_once_with(owner="o", repo="r", pr_number=9, token="tok", installation_id=None)
         row = ReviewReport.objects.for_team(self.team.id).get(id=stored_id)
         assert row.pr_number == 9
         assert row.pr_url == "https://github.com/o/r/pull/9"

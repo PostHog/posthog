@@ -1,10 +1,15 @@
 import re
 import logging
+from typing import Any
 
-from github import Github, GithubException
-from github.PullRequest import PullRequest
+from posthog.egress.github.transport import GitHubRateLimitError
 
 from products.review_hog.backend.reviewer.models.github_meta import PRComment, PRFile, PRFileUpdate, PRMetadata
+from products.review_hog.backend.reviewer.tools.github_client import (
+    GitHubAPIError,
+    github_api_get_paginated,
+    github_api_request,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -222,21 +227,29 @@ class PRParser:
         return changes
 
 
-def find_open_pr_for_branch(*, token: str, repository: str, owner: str, head_branch: str) -> tuple[int, str] | None:
+def find_open_pr_for_branch(
+    *, token: str, repository: str, owner: str, head_branch: str, installation_id: str | None = None
+) -> tuple[int, str] | None:
     """The first open PR whose head is `head_branch` on the base repo, as (number, html_url), or None.
 
     One API call. Branch targets are origin branches by construction (the tasks agent pushes to the
     base repo, never a fork), so the head qualifier is always `{base owner}:{branch}`.
     """
-    repo_obj = Github(token).get_repo(repository)
-    pull = next(iter(repo_obj.get_pulls(state="open", head=f"{owner}:{head_branch}")), None)
-    if pull is None:
+    pulls = github_api_request(
+        "GET",
+        f"/repos/{repository}/pulls",
+        token=token,
+        installation_id=installation_id,
+        endpoint="/repos/{owner}/{repo}/pulls",
+        params={"state": "open", "head": f"{owner}:{head_branch}", "per_page": 1},
+    ).json()
+    if not pulls:
         return None
-    return pull.number, pull.html_url
+    return pulls[0]["number"], pulls[0]["html_url"]
 
 
 def fetch_branch_compare(
-    *, token: str, repository: str, head_branch: str
+    *, token: str, repository: str, head_branch: str, installation_id: str | None = None
 ) -> tuple[PRMetadata, list[PRComment], list[PRFile], str]:
     """Fetch a PR-less branch target as a compare diff against the repo's default branch.
 
@@ -245,31 +258,52 @@ def fetch_branch_compare(
     where they came from. The metadata is synthesized with ``number=0`` ("no PR"); comments are empty
     (there is no PR to carry them). Files are filtered exactly like the PR path.
     """
-    repo_obj = Github(token).get_repo(repository)
-    base_branch = repo_obj.default_branch
-    head_sha = repo_obj.get_branch(head_branch).commit.sha
-    comparison = repo_obj.compare(base_branch, head_branch)
+    base_branch = github_api_request(
+        "GET",
+        f"/repos/{repository}",
+        token=token,
+        installation_id=installation_id,
+        endpoint="/repos/{owner}/{repo}",
+    ).json()["default_branch"]
+    head_sha = github_api_request(
+        "GET",
+        f"/repos/{repository}/branches/{head_branch}",
+        token=token,
+        installation_id=installation_id,
+        endpoint="/repos/{owner}/{repo}/branches/{branch}",
+    ).json()["commit"]["sha"]
+    comparison = github_api_request(
+        "GET",
+        f"/repos/{repository}/compare/{base_branch}...{head_branch}",
+        token=token,
+        installation_id=installation_id,
+        endpoint="/repos/{owner}/{repo}/compare/{basehead}",
+    ).json()
+    # GitHub caps the compare payload at 300 files with no pagination — same as the PyGithub-era
+    # behavior; truncation detection is a known follow-up.
+    files: list[dict[str, Any]] = comparison.get("files") or []
 
     pr_filter = PRFilter()
     pr_parser = PRParser()
     pr_files: list[PRFile] = []
     diff_sections: list[str] = []
     additions = deletions = 0
-    for file in comparison.files:
-        additions += file.additions
-        deletions += file.deletions
-        if pr_filter.is_filtered_file(file.filename) or pr_filter.is_test_file(file.filename):
+    for file in files:
+        additions += file["additions"]
+        deletions += file["deletions"]
+        if pr_filter.is_filtered_file(file["filename"]) or pr_filter.is_test_file(file["filename"]):
             continue
+        patch = file.get("patch")
         pr_files.append(
             PRFile(
-                filename=file.filename,
-                status=file.status,
-                additions=file.additions,
-                deletions=file.deletions,
-                changes=pr_parser.parse_patch(file.patch) if file.patch else [],
+                filename=file["filename"],
+                status=file["status"],
+                additions=file["additions"],
+                deletions=file["deletions"],
+                changes=pr_parser.parse_patch(patch) if patch else [],
             )
         )
-        diff_sections.append(_format_diff_section(file.filename, file.status, file.patch or ""))
+        diff_sections.append(_format_diff_section(file["filename"], file["status"], patch or ""))
 
     metadata = PRMetadata(
         number=0,
@@ -284,109 +318,121 @@ def fetch_branch_compare(
         head_branch=head_branch,
         is_fork=False,
         head_sha=head_sha,
-        commits=comparison.total_commits,
+        commits=comparison["total_commits"],
         additions=additions,
         deletions=deletions,
-        changed_files=len(comparison.files),
+        changed_files=len(files),
     )
     return metadata, [], pr_files, "\n\n".join(diff_sections)
 
 
 class PRFetcher:
-    def __init__(self, owner: str, repo: str, pr_number: int, token: str) -> None:
+    def __init__(self, owner: str, repo: str, pr_number: int, token: str, installation_id: str | None = None) -> None:
+        # `token` is the team's GitHub App installation token, resolved server-side by the caller;
+        # `installation_id` keys the shared egress budget the calls are metered against.
+        if not token:
+            raise ValueError("A GitHub installation token is required to authenticate with the GitHub API.")
         self.owner = owner
         self.repo = repo
         self.pr_number = pr_number
-        self.github_client = self.initialize_github_client(token)
+        self._token = token
+        self._installation_id = installation_id
 
-    def initialize_github_client(self, token: str) -> Github:
-        # `token` is the team's GitHub App installation token, resolved server-side by the caller.
-        if not token:
-            raise ValueError("A GitHub installation token is required to authenticate with the GitHub API.")
-        return Github(token)
-
-    def fetch_pr_metadata(self, pr: PullRequest) -> PRMetadata:
+    def fetch_pr_metadata(self, pr: dict[str, Any]) -> PRMetadata:
+        """Build the metadata from the PR's REST payload (``GET /repos/{owner}/{repo}/pulls/{n}``)."""
         # A missing head repo (deleted fork) counts as a fork — we can't trust/reach the head ref.
-        head_repo = pr.head.repo.full_name if pr.head.repo else None
-        base_repo = pr.base.repo.full_name if pr.base.repo else None
+        head_repo = pr["head"]["repo"]["full_name"] if pr["head"].get("repo") else None
+        base_repo = pr["base"]["repo"]["full_name"] if pr["base"].get("repo") else None
         is_fork = head_repo is None or head_repo != base_repo
         return PRMetadata(
-            number=pr.number,
-            title=pr.title,
-            body=pr.body or "",
-            state=pr.state,
-            draft=pr.draft,
-            created_at=pr.created_at.isoformat() if pr.created_at else "",
-            updated_at=pr.updated_at.isoformat() if pr.updated_at else "",
-            author=pr.user.login,
-            author_association=pr.raw_data.get("author_association", "NONE"),
-            base_branch=pr.base.ref,
-            head_branch=pr.head.ref,
+            number=pr["number"],
+            title=pr["title"],
+            body=pr.get("body") or "",
+            state=pr["state"],
+            draft=pr["draft"],
+            created_at=pr.get("created_at") or "",
+            updated_at=pr.get("updated_at") or "",
+            author=pr["user"]["login"],
+            author_association=pr.get("author_association", "NONE"),
+            base_branch=pr["base"]["ref"],
+            head_branch=pr["head"]["ref"],
             is_fork=is_fork,
-            head_sha=pr.head.sha,
-            mergeable_state=pr.mergeable_state,
-            requested_reviewers=[r.login for r in pr.get_review_requests()[0]],  # users
-            assignee=pr.assignee.login if pr.assignee else None,
-            labels=[label.name for label in pr.labels],
-            commits=pr.commits,
-            additions=pr.additions,
-            deletions=pr.deletions,
-            changed_files=pr.changed_files,
+            head_sha=pr["head"]["sha"],
+            mergeable_state=pr.get("mergeable_state"),
+            requested_reviewers=[r["login"] for r in pr.get("requested_reviewers") or []],  # users, not teams
+            assignee=pr["assignee"]["login"] if pr.get("assignee") else None,
+            labels=[label["name"] for label in pr.get("labels") or []],
+            commits=pr["commits"],
+            additions=pr["additions"],
+            deletions=pr["deletions"],
+            changed_files=pr["changed_files"],
         )
 
-    def fetch_pr_comments(self, pr: PullRequest, pr_filter: PRFilter) -> list[PRComment]:
+    def fetch_pr_comments(self, pr_filter: PRFilter) -> list[PRComment]:
         """Fetch the PR's review comments (filtered files / test files dropped)."""
         pr_comments: list[PRComment] = []
         try:
-            for comment in pr.get_review_comments():
-                if pr_filter.is_filtered_file(comment.path):
+            for comment in github_api_get_paginated(
+                f"/repos/{self.owner}/{self.repo}/pulls/{self.pr_number}/comments",
+                token=self._token,
+                installation_id=self._installation_id,
+                endpoint="/repos/{owner}/{repo}/pulls/{pull_number}/comments",
+            ):
+                if pr_filter.is_filtered_file(comment["path"]):
                     continue
-                if pr_filter.is_test_file(comment.path):
+                if pr_filter.is_test_file(comment["path"]):
                     continue
                 pr_comments.append(
                     PRComment(
-                        id=comment.id,
-                        path=comment.path,
-                        line=comment.line,
-                        start_line=comment.start_line,
-                        body=comment.body,
-                        diff_hunk=comment.diff_hunk,
-                        user=comment.user.login,
-                        created_at=comment.created_at.isoformat(),
+                        id=comment["id"],
+                        path=comment["path"],
+                        line=comment.get("line"),
+                        start_line=comment.get("start_line"),
+                        body=comment["body"],
+                        diff_hunk=comment["diff_hunk"],
+                        user=comment["user"]["login"],
+                        created_at=comment["created_at"],
                     )
                 )
-        except GithubException as e:
+        except (GitHubAPIError, GitHubRateLimitError) as e:
             logger.warning(f"Could not fetch review comments: {e}")
         return pr_comments
 
-    def fetch_pr_files(self, pr: PullRequest, pr_filter: PRFilter, pr_parser: PRParser) -> tuple[list[PRFile], str]:
+    def fetch_pr_files(self, pr_filter: PRFilter, pr_parser: PRParser) -> tuple[list[PRFile], str]:
         """Fetch the PR's reviewable files and the point-in-time unified diff snapshot.
 
         Returns ``(pr_files, diff)``. The raw per-file patch is captured here — the only place with
-        ``file.patch`` — into the ``diff`` snapshot, kept out of ``PRFile`` so it doesn't bloat the
-        prompts that dump ``pr_files``. The snapshot is the source for the durable per-turn `commit`
-        artefact (it anchors a finding to the exact reviewed code even after later force-pushes).
+        the file's ``patch`` — into the ``diff`` snapshot, kept out of ``PRFile`` so it doesn't bloat
+        the prompts that dump ``pr_files``. The snapshot is the source for the durable per-turn
+        `commit` artefact (it anchors a finding to the exact reviewed code even after later
+        force-pushes).
         """
         pr_files: list[PRFile] = []
         diff_sections: list[str] = []
         try:
-            for file in pr.get_files():
-                if pr_filter.is_filtered_file(file.filename):
+            for file in github_api_get_paginated(
+                f"/repos/{self.owner}/{self.repo}/pulls/{self.pr_number}/files",
+                token=self._token,
+                installation_id=self._installation_id,
+                endpoint="/repos/{owner}/{repo}/pulls/{pull_number}/files",
+            ):
+                if pr_filter.is_filtered_file(file["filename"]):
                     continue
-                if pr_filter.is_test_file(file.filename):
+                if pr_filter.is_test_file(file["filename"]):
                     continue
+                patch = file.get("patch")
                 pr_files.append(
                     PRFile(
-                        filename=file.filename,
-                        status=file.status,
-                        additions=file.additions,
-                        deletions=file.deletions,
-                        changes=pr_parser.parse_patch(file.patch) if file.patch else [],
+                        filename=file["filename"],
+                        status=file["status"],
+                        additions=file["additions"],
+                        deletions=file["deletions"],
+                        changes=pr_parser.parse_patch(patch) if patch else [],
                     )
                 )
-                diff_sections.append(_format_diff_section(file.filename, file.status, file.patch or ""))
-        except GithubException as e:
-            raise ValueError(f"Failed to fetch PR files: {e.data.get('message', str(e))}") from e
+                diff_sections.append(_format_diff_section(file["filename"], file["status"], patch or ""))
+        except (GitHubAPIError, GitHubRateLimitError) as e:
+            raise ValueError(f"Failed to fetch PR files: {e}") from e
         return pr_files, "\n\n".join(diff_sections)
 
     def fetch_pr_data(self) -> tuple[PRMetadata, list[PRComment], list[PRFile], str]:
@@ -395,12 +441,17 @@ class PRFetcher:
         Returns ``(pr_metadata, pr_comments, pr_files, diff)`` where ``diff`` is the reviewed files'
         point-in-time unified patch.
         """
-        repo_obj = self.github_client.get_repo(f"{self.owner}/{self.repo}")
-        pr = repo_obj.get_pull(self.pr_number)
+        pr = github_api_request(
+            "GET",
+            f"/repos/{self.owner}/{self.repo}/pulls/{self.pr_number}",
+            token=self._token,
+            installation_id=self._installation_id,
+            endpoint="/repos/{owner}/{repo}/pulls/{pull_number}",
+        ).json()
         pr_filter = PRFilter()
         pr_parser = PRParser()
         pr_metadata = self.fetch_pr_metadata(pr)
-        pr_comments = self.fetch_pr_comments(pr, pr_filter)
-        pr_files, diff = self.fetch_pr_files(pr, pr_filter, pr_parser)
+        pr_comments = self.fetch_pr_comments(pr_filter)
+        pr_files, diff = self.fetch_pr_files(pr_filter, pr_parser)
         logger.info("PR data fetched successfully")
         return pr_metadata, pr_comments, pr_files, diff

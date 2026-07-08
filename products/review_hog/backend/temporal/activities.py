@@ -373,12 +373,14 @@ def _github_integration_exists(team_id: int) -> bool:
     return Integration.objects.filter(team_id=team_id, kind="github").exists()
 
 
-def _installation_token(team_id: int, repository: str) -> str:
-    """Resolve the team's GitHub App installation token for `repository` (`owner/repo`).
+def _installation_auth(team_id: int, repository: str) -> tuple[str, str | None]:
+    """Resolve the team's GitHub App installation token (and installation id) for `repository`
+    (`owner/repo`).
 
     Picks the installation that can actually access the repo and auto-refreshes an expired token.
     This replaces the worker's old `GITHUB_TOKEN` env dependency — the credential is the team's
-    integration, resolved server-side.
+    integration, resolved server-side. The installation id rides along so every GitHub call is
+    metered against that installation's shared egress budget.
 
     `first_for_team_repository` probes the GitHub API, so a transient 5xx/rate-limit looks the same
     as "no installation". The error is therefore left **retryable** (the activity's retry rides out
@@ -391,7 +393,7 @@ def _installation_token(team_id: int, repository: str) -> str:
             f"Could not resolve a GitHub App installation for team {team_id} that can access {repository} "
             "(no installation, or a transient GitHub API failure)."
         )
-    return github.get_access_token()
+    return github.get_access_token(), github.github_installation_id
 
 
 @activity.defn
@@ -417,18 +419,22 @@ def _fetch_and_persist(input: FetchPRDataInput) -> ReviewMeta:
     is reviewed store-only, and an empty compare marks the turn as a self-skip ("pushed nothing → do
     nothing", enforced here like fork rejection).
     """
-    token = _installation_token(input.team_id, input.repository)
+    token, installation_id = _installation_auth(input.team_id, input.repository)
     pr_number, pr_url = input.pr_number, input.pr_url
     if pr_number is None and input.head_branch:
         discovered = find_open_pr_for_branch(
-            token=token, repository=input.repository, owner=input.owner, head_branch=input.head_branch
+            token=token,
+            repository=input.repository,
+            owner=input.owner,
+            head_branch=input.head_branch,
+            installation_id=installation_id,
         )
         if discovered is not None:
             pr_number, pr_url = discovered
             logger.info("Branch %s has open PR #%s; reviewing via the PR path", input.head_branch, pr_number)
     if pr_number is not None:
         pr_metadata, pr_comments, pr_files, diff = PRFetcher(
-            owner=input.owner, repo=input.repo, pr_number=pr_number, token=token
+            owner=input.owner, repo=input.repo, pr_number=pr_number, token=token, installation_id=installation_id
         ).fetch_pr_data()
         if pr_metadata.is_fork:
             raise ApplicationError(
@@ -438,7 +444,10 @@ def _fetch_and_persist(input: FetchPRDataInput) -> ReviewMeta:
             )
     else:
         pr_metadata, pr_comments, pr_files, diff = fetch_branch_compare(
-            token=token, repository=input.repository, head_branch=input.head_branch or ""
+            token=token,
+            repository=input.repository,
+            head_branch=input.head_branch or "",
+            installation_id=installation_id,
         )
     head_sha = pr_metadata.head_sha or ""
     report_id = upsert_review_report(
@@ -1070,7 +1079,7 @@ def _publish(
     pr_number: int,
     urgency_threshold: str,
 ) -> PublishResult:
-    token = _installation_token(team_id, f"{owner}/{repo}")
+    token, installation_id = _installation_auth(team_id, f"{owner}/{repo}")
     outcome = publish_persisted_review(
         team_id=team_id,
         report_id=report_id,
@@ -1081,6 +1090,7 @@ def _publish(
         pr_number=pr_number,
         token=token,
         published_priorities=published_priorities_for(IssuePriority(urgency_threshold)),
+        installation_id=installation_id,
     )
     return PublishResult(posted=outcome.posted, review_url=outcome.review_url)
 

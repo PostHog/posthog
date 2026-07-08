@@ -1,19 +1,22 @@
+from typing import Any
+
 from unittest.mock import MagicMock, patch
 
-from github import GithubException
-from github.PullRequest import ReviewComment
 from parameterized import parameterized
 
 from products.review_hog.backend.reviewer.artefact_content import ReviewIssueFinding, ValidationVerdict
 from products.review_hog.backend.reviewer.constants import published_priorities_for
 from products.review_hog.backend.reviewer.models.issues_review import IssuePriority, LineRange
+from products.review_hog.backend.reviewer.tools.github_client import GitHubAPIError
 from products.review_hog.backend.reviewer.tools.publish_review import (
+    ReviewComment,
     _build_inline_comments,
     _post_github_review,
     publish_review,
 )
 
-_GITHUB = "products.review_hog.backend.reviewer.tools.publish_review.Github"
+_REQUEST = "products.review_hog.backend.reviewer.tools.publish_review.github_api_request"
+_PAGINATED = "products.review_hog.backend.reviewer.tools.publish_review.github_api_get_paginated"
 _REPORT = "products.review_hog.backend.reviewer.tools.publish_review.ReviewReport"
 _LOAD_FINDINGS = "products.review_hog.backend.reviewer.tools.publish_review.load_valid_findings"
 _POST = "products.review_hog.backend.reviewer.tools.publish_review._post_github_review"
@@ -23,21 +26,47 @@ _POST = "products.review_hog.backend.reviewer.tools.publish_review._post_github_
 _DEFAULT_PUBLISHED = published_priorities_for(IssuePriority.SHOULD_FIX)
 
 
-class TestPostGithubReview:
-    def _wire_github(self, mock_github_class: MagicMock) -> tuple[MagicMock, MagicMock, MagicMock]:
-        mock_repo = MagicMock()
-        mock_pr = MagicMock()
-        mock_commit = MagicMock()
-        mock_repo.get_pull.return_value = mock_pr
-        mock_repo.get_commit.return_value = mock_commit
-        mock_pr.get_reviews.return_value = []  # no prior review carries our marker → post proceeds
-        mock_pr.get_issue_comments.return_value = []  # no prior promo comment → promo may post
-        mock_github_class.return_value.get_repo.return_value = mock_repo
-        return mock_repo, mock_pr, mock_commit
+def _wire_readbacks(
+    mock_paginated: MagicMock,
+    reviews: list[dict[str, Any]] | None = None,
+    issue_comments: list[dict[str, Any]] | None = None,
+) -> None:
+    """Route the two idempotency readbacks: prior reviews (marker scan) and issue comments (promo scan)."""
 
-    @patch(_GITHUB)
-    def test_uses_passed_token_and_pins_review_to_head_sha(self, mock_github_class: MagicMock) -> None:
-        _, mock_pr, mock_commit = self._wire_github(mock_github_class)
+    def paginated(path: str, **kwargs: Any):
+        if path.endswith("/reviews"):
+            return iter(reviews or [])
+        if "/issues/" in path:
+            return iter(issue_comments or [])
+        raise AssertionError(f"Unexpected paginated path: {path}")
+
+    mock_paginated.side_effect = paginated
+
+
+def _review_posts(mock_request: MagicMock) -> list[dict[str, Any]]:
+    """The JSON payloads of every `POST .../pulls/{n}/reviews` the code issued."""
+    return [
+        c.kwargs["json"] for c in mock_request.call_args_list if c.args[0] == "POST" and c.args[1].endswith("/reviews")
+    ]
+
+
+def _promo_posts(mock_request: MagicMock) -> list[dict[str, Any]]:
+    """The JSON payloads of every `POST .../issues/{n}/comments` the code issued."""
+    return [c.kwargs["json"] for c in mock_request.call_args_list if c.args[0] == "POST" and "/issues/" in c.args[1]]
+
+
+def _commit_probes(mock_request: MagicMock) -> list[str]:
+    """The paths of every `GET .../commits/{sha}` pin probe the code issued."""
+    return [c.args[1] for c in mock_request.call_args_list if c.args[0] == "GET" and "/commits/" in c.args[1]]
+
+
+@patch(_PAGINATED)
+@patch(_REQUEST)
+class TestPostGithubReview:
+    def test_uses_passed_token_and_pins_review_to_head_sha(
+        self, mock_request: MagicMock, mock_paginated: MagicMock
+    ) -> None:
+        _wire_readbacks(mock_paginated)
         comments: list[ReviewComment] = [{"path": "a.py", "body": "x", "side": "RIGHT", "line": 1}]
 
         _post_github_review(
@@ -53,68 +82,73 @@ class TestPostGithubReview:
             promo_marker="pm",
         )
 
-        # The installation token (not an env PAT) authenticates the client.
-        mock_github_class.assert_called_once_with("install-token")
+        # The installation token (not an env PAT) authenticates every call.
+        assert all(c.kwargs["token"] == "install-token" for c in mock_request.call_args_list)
         # The review is pinned to the reviewed commit so a later force-push can't misplace comments.
-        kwargs = mock_pr.create_review.call_args.kwargs
-        assert kwargs["commit"] is mock_commit
-        assert kwargs["comments"] == comments
+        assert _commit_probes(mock_request) == ["/repos/o/r/commits/deadbeef"]
+        (payload,) = _review_posts(mock_request)
+        assert payload["commit_id"] == "deadbeef"
+        assert payload["comments"] == comments
 
-    @patch(_GITHUB)
-    def test_no_head_sha_posts_without_commit_pin(self, mock_github_class: MagicMock) -> None:
-        mock_repo, mock_pr, _ = self._wire_github(mock_github_class)
+    def test_no_head_sha_posts_without_commit_pin(self, mock_request: MagicMock, mock_paginated: MagicMock) -> None:
+        _wire_readbacks(mock_paginated)
 
         _post_github_review(
             "o", "r", 1, "body", [], token="t", head_sha="", post_promo=True, marker="m", promo_marker="pm"
         )
 
-        mock_repo.get_commit.assert_not_called()
-        assert "commit" not in mock_pr.create_review.call_args.kwargs
+        assert _commit_probes(mock_request) == []
+        (payload,) = _review_posts(mock_request)
+        assert "commit_id" not in payload
 
-    @patch(_GITHUB)
-    def test_unresolvable_head_sha_degrades_to_unpinned_instead_of_failing(self, mock_github_class: MagicMock) -> None:
-        mock_repo, mock_pr, _ = self._wire_github(mock_github_class)
-        mock_repo.get_commit.side_effect = GithubException(422, {"message": "No commit found"})
+    def test_unresolvable_head_sha_degrades_to_unpinned_instead_of_failing(
+        self, mock_request: MagicMock, mock_paginated: MagicMock
+    ) -> None:
+        _wire_readbacks(mock_paginated)
+
+        def request(method: str, path: str, **kwargs: Any) -> MagicMock:
+            if "/commits/" in path:
+                raise GitHubAPIError("GitHub API GET returned 422: No commit found", status=422)
+            return MagicMock()
+
+        mock_request.side_effect = request
 
         # Must not raise — a stale/unreachable reviewed commit should still post the review unpinned.
         _post_github_review(
             "o", "r", 1, "body", [], token="t", head_sha="deadbeef", post_promo=False, marker="m", promo_marker="pm"
         )
 
-        assert "commit" not in mock_pr.create_review.call_args.kwargs
-        mock_pr.create_review.assert_called_once()
+        (payload,) = _review_posts(mock_request)
+        assert "commit_id" not in payload
 
-    @patch(_GITHUB)
-    def test_promo_comment_only_posted_when_requested(self, mock_github_class: MagicMock) -> None:
-        _, mock_pr, _ = self._wire_github(mock_github_class)
+    def test_promo_comment_only_posted_when_requested(self, mock_request: MagicMock, mock_paginated: MagicMock) -> None:
+        _wire_readbacks(mock_paginated)
 
         _post_github_review(
             "o", "r", 1, "body", [], token="t", head_sha="s", post_promo=False, marker="m", promo_marker="pm"
         )
-        mock_pr.create_issue_comment.assert_not_called()
+        assert _promo_posts(mock_request) == []
 
+        mock_request.reset_mock()
         _post_github_review(
             "o", "r", 1, "body", [], token="t", head_sha="s", post_promo=True, marker="m", promo_marker="pm"
         )
-        mock_pr.create_issue_comment.assert_called_once()
+        (promo,) = _promo_posts(mock_request)
         # The idempotency marker rides inside the posted comment body.
-        assert "pm" in mock_pr.create_issue_comment.call_args.args[0]
+        assert "pm" in promo["body"]
 
-    @patch(_GITHUB)
-    def test_skips_when_a_review_with_our_marker_is_already_present(self, mock_github_class: MagicMock) -> None:
+    def test_skips_when_a_review_with_our_marker_is_already_present(
+        self, mock_request: MagicMock, mock_paginated: MagicMock
+    ) -> None:
         # Post-then-crash idempotency: a review already carrying this run's marker means we posted but
         # didn't record the watermark, so the retry must post neither a second review nor the promo.
-        _, mock_pr, _ = self._wire_github(mock_github_class)
-        existing = MagicMock()
-        existing.body = "an earlier review\n\nmarker-xyz"
-        mock_pr.get_reviews.return_value = [existing]
+        _wire_readbacks(mock_paginated, reviews=[{"body": "an earlier review\n\nmarker-xyz"}])
 
         _post_github_review(
             "o", "r", 1, "body", [], token="t", head_sha="s", post_promo=True, marker="marker-xyz", promo_marker="pm"
         )
 
-        mock_pr.create_review.assert_not_called()
-        mock_pr.create_issue_comment.assert_not_called()
+        mock_request.assert_not_called()
 
 
 _ISSUE_KEY = "r1:src/auth.py:240:Logic & Correctness:1-1-1"

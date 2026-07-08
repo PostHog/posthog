@@ -1,8 +1,8 @@
 import logging
 from dataclasses import dataclass
+from typing import Any, Required, TypedDict
 
-from github import Github, GithubException
-from github.PullRequest import PullRequest, ReviewComment
+from posthog.egress.github.transport import GitHubRateLimitError
 
 from products.review_hog.backend.models import ReviewReport
 from products.review_hog.backend.reviewer.artefact_content import ReviewIssueFinding, ValidationVerdict
@@ -15,8 +15,24 @@ from products.review_hog.backend.reviewer.diff_position import (
 from products.review_hog.backend.reviewer.models.github_meta import PRFile
 from products.review_hog.backend.reviewer.models.issues_review import IssuePriority
 from products.review_hog.backend.reviewer.persistence import load_pr_snapshot, load_valid_findings
+from products.review_hog.backend.reviewer.tools.github_client import (
+    GitHubAPIError,
+    github_api_get_paginated,
+    github_api_request,
+)
 
 logger = logging.getLogger(__name__)
+
+
+class ReviewComment(TypedDict, total=False):
+    """One inline comment in the `POST /repos/{owner}/{repo}/pulls/{pull_number}/reviews` body."""
+
+    path: Required[str]
+    body: Required[str]
+    side: str
+    line: int
+    start_line: int
+    start_side: str
 
 
 @dataclass
@@ -43,6 +59,7 @@ def publish_persisted_review(
     pr_number: int,
     token: str,
     published_priorities: set[IssuePriority],
+    installation_id: str | None = None,
 ) -> PublishOutcome:
     """Publish an already-computed review for `report_id` at `head_sha`, idempotently.
 
@@ -72,6 +89,7 @@ def publish_persisted_review(
         # The alpha promo comment is posted once per report (first real publish), not every turn.
         post_promo=report.published_head_sha is None,
         published_priorities=published_priorities,
+        installation_id=installation_id,
     )
     if outcome.posted:
         report.published_head_sha = head_sha
@@ -106,6 +124,7 @@ def publish_review(
     head_sha: str,
     post_promo: bool,
     published_priorities: set[IssuePriority],
+    installation_id: str | None = None,
 ) -> PublishOutcome:
     """Publish the review to GitHub: the stored body plus inline comments from the durable rows.
 
@@ -156,6 +175,7 @@ def publish_review(
         post_promo=post_promo,
         marker=marker,
         promo_marker=_promo_marker(report_id),
+        installation_id=installation_id,
     )
     return PublishOutcome(posted=True, review_url=review_url)
 
@@ -273,30 +293,50 @@ def _build_inline_comments(
     return comments
 
 
-def _review_already_posted(pr: PullRequest, marker: str) -> bool:
+def _review_already_posted(
+    owner: str, repo: str, pr_number: int, marker: str, *, token: str, installation_id: str | None
+) -> bool:
     """True if a review carrying this run's `marker` is already on the PR (we posted, then crashed).
 
     Best-effort idempotency backstop: if the readback fails we proceed to post rather than silently
     drop the review — the `published_head_sha` watermark still guards the common retry path.
     """
     try:
-        return any(marker in (review.body or "") for review in pr.get_reviews())
-    except GithubException as e:
+        return any(
+            marker in (review.get("body") or "")
+            for review in github_api_get_paginated(
+                f"/repos/{owner}/{repo}/pulls/{pr_number}/reviews",
+                token=token,
+                installation_id=installation_id,
+                endpoint="/repos/{owner}/{repo}/pulls/{pull_number}/reviews",
+            )
+        )
+    except (GitHubAPIError, GitHubRateLimitError) as e:
         logger.warning(f"Could not read existing reviews to check publish idempotency: {e}. Proceeding to post.")
         return False
 
 
-def _promo_already_posted(pr: PullRequest, promo_marker: str) -> bool:
+def _promo_already_posted(
+    owner: str, repo: str, pr_number: int, promo_marker: str, *, token: str, installation_id: str | None
+) -> bool:
     """True if the promo comment is already on the PR (posted on an attempt that later failed).
 
-    The promo posts before the review, so a transient `create_review` failure retries the whole
+    The promo posts before the review, so a transient review-creation failure retries the whole
     activity with `published_head_sha` still unset — without this check the retry would post the
     promo a second time. Failure stakes invert versus the review readback: a duplicate promo is
     spam while a missing one is harmless, so an unreadable comment list counts as already posted.
     """
     try:
-        return any(promo_marker in (comment.body or "") for comment in pr.get_issue_comments())
-    except GithubException as e:
+        return any(
+            promo_marker in (comment.get("body") or "")
+            for comment in github_api_get_paginated(
+                f"/repos/{owner}/{repo}/issues/{pr_number}/comments",
+                token=token,
+                installation_id=installation_id,
+                endpoint="/repos/{owner}/{repo}/issues/{issue_number}/comments",
+            )
+        )
+    except (GitHubAPIError, GitHubRateLimitError) as e:
         logger.warning(f"Could not read issue comments to check promo idempotency: {e}. Skipping the promo.")
         return True
 
@@ -313,47 +353,72 @@ def _post_github_review(
     post_promo: bool,
     marker: str,
     promo_marker: str,
+    installation_id: str | None = None,
 ) -> str | None:
     """Post the review to GitHub as a PR review, pinned to the reviewed `head_sha`.
 
     Returns the posted review's permalink, or None on the marker-found idempotency skip.
     """
-    g = Github(token)
-    repo_obj = g.get_repo(f"{owner}/{repo}")
-    pr = repo_obj.get_pull(pr_number)
-
     # Idempotency: if our own review for this (report, head) is already on the PR — we posted it but
     # crashed before saving the watermark — don't double-post (the body carries the same marker).
-    if _review_already_posted(pr, marker):
+    if _review_already_posted(owner, repo, pr_number, marker, token=token, installation_id=installation_id):
         logger.info(f"Review for {owner}/{repo}#{pr_number} at {head_sha[:12]} already on PR (marker found); skipping")
         return None
 
-    if post_promo and not _promo_already_posted(pr, promo_marker):
-        pr.create_issue_comment(
-            "ReviewHog Alpha \U0001f994 "
-            "If you find any issues helpful - "
-            'please reply "valid", "invalid", etc., '
-            f"for evaluation purposes \U0001f64f\n\n{promo_marker}"
+    if post_promo and not _promo_already_posted(
+        owner, repo, pr_number, promo_marker, token=token, installation_id=installation_id
+    ):
+        github_api_request(
+            "POST",
+            f"/repos/{owner}/{repo}/issues/{pr_number}/comments",
+            token=token,
+            installation_id=installation_id,
+            endpoint="/repos/{owner}/{repo}/issues/{issue_number}/comments",
+            json={
+                "body": "ReviewHog Alpha \U0001f994 "
+                "If you find any issues helpful - "
+                'please reply "valid", "invalid", etc., '
+                f"for evaluation purposes \U0001f64f\n\n{promo_marker}"
+            },
         )
 
     # Pin the review to the exact commit we reviewed; without it GitHub posts against the PR's latest
     # head, so a force-push between review and post would misplace the inline comments. Best-effort:
-    # if the commit can't be resolved (stale/unreachable head), post unpinned rather than failing.
-    review_kwargs: dict = {"body": body, "event": "COMMENT"}
+    # the probe isolates an unresolvable commit (stale/unreachable head) from a comment-positioning
+    # failure, so we post unpinned rather than failing (or dropping the inline comments).
+    review_payload: dict[str, Any] = {"body": body, "event": "COMMENT"}
     if head_sha:
         try:
-            review_kwargs["commit"] = repo_obj.get_commit(head_sha)
-        except GithubException as e:
+            github_api_request(
+                "GET",
+                f"/repos/{owner}/{repo}/commits/{head_sha}",
+                token=token,
+                installation_id=installation_id,
+                endpoint="/repos/{owner}/{repo}/commits/{ref}",
+            )
+            review_payload["commit_id"] = head_sha
+        except (GitHubAPIError, GitHubRateLimitError) as e:
             logger.warning(f"Could not resolve head_sha {head_sha} to pin the review: {e}. Posting unpinned.")
+
+    def _create_review(payload: dict[str, Any]) -> str | None:
+        review = github_api_request(
+            "POST",
+            f"/repos/{owner}/{repo}/pulls/{pr_number}/reviews",
+            token=token,
+            installation_id=installation_id,
+            endpoint="/repos/{owner}/{repo}/pulls/{pull_number}/reviews",
+            json=payload,
+        ).json()
+        return review.get("html_url")
 
     if comments:
         try:
-            review = pr.create_review(comments=comments, **review_kwargs)
+            review_url = _create_review({**review_payload, "comments": comments})
             logger.info(f"Review posted with {len(comments)} inline comments")
-            return review.html_url
-        except GithubException as e:
+            return review_url
+        except (GitHubAPIError, GitHubRateLimitError) as e:
             logger.warning(f"Failed to post review with inline comments: {e}. Posting review body only.")
 
-    review = pr.create_review(**review_kwargs)
+    review_url = _create_review(review_payload)
     logger.info("Review posted (body only)")
-    return review.html_url
+    return review_url

@@ -222,6 +222,39 @@ read `FINAL_REPORT.md` there first (config glossary + coverage matrix + ranking)
    rate drops materially (toward ≤50%) on frozen-PR evals with the valid-finding set intact (item 5's
    coverage matrix as the guard); kill if valid findings drop with the noise.
 
+### ✅ BUILT 2026-07-08 — GitHub I/O moved to the gated egress transport (PyGithub removed)
+
+The `pygithub==2.7.0` dependency is gone; every ReviewHog GitHub call now goes through
+`posthog.egress.github.transport.github_request` — the repo's mandated GitHub client, budget-gated per
+App installation and recorded on the egress telemetry by construction (PyGithub's `Github(token)` bypassed
+both). Removing the branch-added dependency also unblocks the Hogbox preview environment, which mounts PR
+code over the published `:master` image and therefore can't grow new Python deps (`ModuleNotFoundError: No
+module named 'github'` at migrate).
+
+- New `reviewer/tools/github_client.py`: `github_api_request` (one gated call; raises `GitHubRateLimitError`
+  on a GitHub rate limit, `GitHubAPIError` on any other non-2xx) and `github_api_get_paginated`
+  (`per_page=100` page loop, after `github_integration_base`'s pattern), both stamped `source="review_hog"`
+  with explicit normalized `endpoint` templates for telemetry labels.
+- `tools/github_meta.py` (`PRFetcher`, `fetch_branch_compare`, `find_open_pr_for_branch`),
+  `tools/publish_review.py`, and the `publish_review` management command speak plain REST; PR/comment/file
+  payloads are consumed as the raw response dicts (PyGithub's `raw_data` indirection gone). `ReviewComment`
+  is now a local TypedDict in `publish_review.py` matching the `POST .../pulls/{n}/reviews` body shape.
+- Behavior preserved: fork detection, file filtering, the compare path's 300-file GitHub cap (truncation
+  detection still a known follow-up), the review/promo idempotency-marker readbacks with their inverted
+  failure stakes (unreadable reviews → post; unreadable comments → skip promo), the commit-pin probe that
+  degrades to an unpinned post on an unresolvable `head_sha`, and the body-only fallback when posting with
+  inline comments fails.
+- The activities' `_installation_token` became `_installation_auth`, returning
+  `(token, github_installation_id)` — the installation id is threaded through every call so it's metered
+  against the installation's shared egress budget (default `CRITICAL` priority: gauges + accounting, never
+  denied). One fewer API call per fetch: `requested_reviewers` reads off the PR payload instead of
+  `get_review_requests()`.
+- Tests re-seamed from PyGithub mocks to `github_api_request` / `github_api_get_paginated` patches
+  (`reviewer/tests/test_github_meta.py`, `reviewer/tests/test_publish_review.py`,
+  `tests/test_publish_idempotency.py`, `tests/test_branch_targets.py`).
+- **Not e2e'd** — unit mocks can't prove request shapes against the real API; the next live review run
+  should exercise fetch + publish end to end.
+
 ### ✅ BUILT 2026-07-07 — canonical skill bodies rewritten to the writing-great-skills form (uncommitted)
 
 Form-only pass over the six `skills/*/SKILL.md` canonicals applying [mattpocock/skills → writing-great-skills](https://github.com/mattpocock/skills/tree/main/skills/productivity/writing-great-skills): single source of truth vs the review harness (the perspectives' parallel-topology/dedup paragraph, the non-test-files rule, and the perf skill's severity guide all restated `issues_review/prompt.jinja` — cut from the skills, the harness owns them), in-skill duplication collapsed (each perspective said its scope 3×: investigation areas → "Key questions" → "valid finding" noun list), sediment deleted ("Investigation commands" — repo-wide `rg` in a chunk-anchored review, with a broken `--type tsx` flag; buffer-overflow/GraphQL template leftovers), no-op virtues pruned ("verify calculations are correct"). Added per the doc: a **checkable completion criterion** on every perspective ("done when every changed file is flagged or affirmatively cleared against every hunting ground") and shared leading words — "lane"/"hunting grounds"/"negative space" (blind-spots), and the validator's "concrete trigger + concrete consequence" now IS the finder-side finding bar, so finder and judge speak one language. **Bar semantics untouched**: validator body intact except one restatement collapse (strictness round is item 4); blind-spots stays pure-generic (item 2's lock); NOT the content-coverage round (item 5 — new grounds/4th perspective still pending). `review-hog-authoring` updated so customs get authored to the same shape (and told not to restate harness mechanics). Skill bodies ~halved; canonical sync picks the new bodies up on next run for unedited teams. **Not e2e'd — next live run should sanity-check finding volume/quality didn't regress; the real acceptance test stays the eval yardstick (item 5's coverage matrix).**
@@ -572,7 +605,8 @@ is the canonical **`review-hog-authoring`** skill at `products/review_hog/skills
   branch's `branch`-aware `clone_repository` is superseded — master refactored the sandbox into an
   abstract base class and now checks out the PR branch via a `git fetch … && git checkout -B … FETCH_HEAD`
   block in `get_sandbox_for_repository.py`, driven by `ctx.branch`). `pyproject.toml` took master + re-added
-  `pygithub==2.7.0` (ReviewHog needs it; master had dropped it); `uv.lock` relocked with `uv lock`.
+  `pygithub==2.7.0` (ReviewHog needed it at the time; master had dropped it); `uv.lock` relocked with `uv lock`.
+  **Since removed** (2026-07-08): GitHub I/O now goes through the egress transport — see the BUILT entry above.
 - **Rewired the sandbox runner integration** (this was the "won't run end-to-end" breakage): master deleted
   `custom_prompt_runner.py` + `custom_prompt_executor.py` and replaced them with `custom_prompt_internals.py`
   - `custom_prompt_multi_turn_runner.py`. `sandbox/executor.py` now uses `MultiTurnSession.start_raw(...)`
@@ -2318,7 +2352,7 @@ first so the latest fixes are loaded.
 >   Counts = validator-passed findings at `effective_priority` (validator-wins).
 > - **Receiver import discipline (startup budget):** `receivers.py` may import Django + review_hog
 >   `models` ONLY at module level. Even `temporal/types.py` is off-limits — reaching it executes the
->   temporal package `__init__`, which registers all activities (temporalio + PyGithub + modal +
+>   temporal package `__init__`, which registers all activities (temporalio + modal +
 >   posthog.schema onto every `django.setup()`). Both the client AND `TRIGGER_INBOX` are imported
 >   call-time inside `_start_review`. The receiver is recorded in
 >   `posthog/test/setup_receivers_baseline.txt` (regenerate with
@@ -3080,7 +3114,8 @@ flowchart TD
 
 1. **Parse PR URL** — `PRParser.parse_github_pr_url` regex-extracts `owner/repo/pr_number`; raises on a
    malformed URL.
-2. **Fetch PR data** — `PRFetcher(owner, repo, pr_number, token).fetch_pr_data()` (`tools/github_meta.py`, PyGithub;
+2. **Fetch PR data** — `PRFetcher(owner, repo, pr_number, token, installation_id).fetch_pr_data()`
+   (`tools/github_meta.py`, GitHub REST via the gated egress transport — see `tools/github_client.py`;
    `token` is the team's GitHub App installation token, resolved server-side in the activity — no env `GITHUB_TOKEN`)
    returns `(pr_metadata, pr_comments, pr_files, diff)` **in-process** — no files. The fetch activity rejects fork PRs
    (`PRMetadata.is_fork`) non-retryably before opening the report. The
@@ -3144,14 +3179,14 @@ pr_metadata.head_branch` is threaded (as explicit kwargs, alongside `team_id` / 
    no validated finding are skipped, and valid `MUST_FIX`/`SHOULD_FIX` findings whose line isn't on the diff are
    appended as an **"Other findings (outside the changed lines)"** section so they aren't silently dropped at publish
    (Change A). `finalize_review_report` stores it as `ReviewReport.report_markdown` and bumps the run watermark.
-10. **Publish** — `publish_review` (PyGithub, **DB-driven**) reads the body from `ReviewReport.report_markdown`
-    and the inline comments from the valid finding/verdict rows (`load_valid_findings`), posts a standalone
-    "ReviewHog Alpha 🦔" feedback comment, then a PR review (`event="COMMENT"`, **pinned to the reviewed `head_sha`**
-    via `commit=`) with inline comments for `is_valid` `MUST_FIX`/`SHOULD_FIX` findings that land on a line present in
-    the current diff (`CONSIDER` dropped). It posts whenever there's ≥1 valid publishable finding — if all are
-    off-diff (no inline comments resolve) the body still posts, carrying them in the Other-findings section, so a
-    review is never dropped wholesale (Change A). Falls back to a body-only review on `GithubException`. Authenticates
-    with the team's installation token. Gated **per run** by `inputs.publish` (the workflow only dispatches this stage
+10. **Publish** — `publish_review` (GitHub REST via the gated egress transport, **DB-driven**) reads the body from
+    `ReviewReport.report_markdown` and the inline comments from the valid finding/verdict rows (`load_valid_findings`),
+    posts a standalone "ReviewHog Alpha 🦔" feedback comment, then a PR review (`event="COMMENT"`, **pinned to the
+    reviewed `head_sha`** via `commit_id`) with inline comments for `is_valid` `MUST_FIX`/`SHOULD_FIX` findings that
+    land on a line present in the current diff (`CONSIDER` dropped). It posts whenever there's ≥1 valid publishable
+    finding — if all are off-diff (no inline comments resolve) the body still posts, carrying them in the
+    Other-findings section, so a review is never dropped wholesale (Change A). Falls back to a body-only review when
+    posting with inline comments fails. Authenticates with the team's installation token. Gated **per run** by `inputs.publish` (the workflow only dispatches this stage
     when publishing is on); the eval CLI defaults it off, the label trigger sets it on.
 
 ---
@@ -3311,8 +3346,10 @@ Per-run state by kind:
 **Configuration read at runtime:**
 
 - **GitHub auth** — the team's **GitHub App installation token**, resolved server-side per activity via
-  `GitHubIntegration.first_for_team_repository(team_id, repo).get_access_token()` (auto-refreshing). No `GITHUB_TOKEN`
-  env var; the worker no longer needs one.
+  `GitHubIntegration.first_for_team_repository(team_id, repo)` (`_installation_auth` returns
+  `(get_access_token(), github_installation_id)`, auto-refreshing). No `GITHUB_TOKEN` env var; the worker no longer
+  needs one. All calls route through `posthog.egress.github.transport.github_request` (via
+  `reviewer/tools/github_client.py`), metered against the installation's shared egress budget.
 - `--team-id` / `--user-id` (CLI, required) — the team the review runs and persists under, and the user the
   sandbox tasks run as. They are threaded as **explicit activity inputs** (no ContextVar identity); the team's
   `kind="github"` `Integration` is validated up front by `validate_github_integration_activity`. No `settings.DEBUG`

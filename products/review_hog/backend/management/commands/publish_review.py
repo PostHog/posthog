@@ -3,23 +3,31 @@ from typing import Any
 
 from django.core.management.base import BaseCommand, CommandError, CommandParser
 
-from github import Github, GithubException
-
+from posthog.egress.github.transport import GitHubRateLimitError
 from posthog.models.integration import GitHubIntegration
 
 from products.review_hog.backend.models import ReviewReport
 from products.review_hog.backend.reviewer.constants import DEFAULT_URGENCY_THRESHOLD, published_priorities_for
+from products.review_hog.backend.reviewer.tools.github_client import GitHubAPIError, github_api_request
 from products.review_hog.backend.reviewer.tools.github_meta import PRParser
 from products.review_hog.backend.reviewer.tools.publish_review import publish_persisted_review
 
 logger = logging.getLogger(__name__)
 
 
-def _stale_head_warning(*, token: str, repository: str, pr_number: int, reviewed_head: str) -> str | None:
+def _stale_head_warning(
+    *, token: str, repository: str, pr_number: int, reviewed_head: str, installation_id: str | None = None
+) -> str | None:
     """Best-effort note if the PR head moved past the reviewed commit — we still publish the reviewed one."""
     try:
-        current = Github(token).get_repo(repository).get_pull(pr_number).head.sha
-    except GithubException as e:
+        current = github_api_request(
+            "GET",
+            f"/repos/{repository}/pulls/{pr_number}",
+            token=token,
+            installation_id=installation_id,
+            endpoint="/repos/{owner}/{repo}/pulls/{pull_number}",
+        ).json()["head"]["sha"]
+    except (GitHubAPIError, GitHubRateLimitError) as e:
         logger.warning("Could not check the PR's current head for staleness: %s", e)
         return None
     if current == reviewed_head:
@@ -60,8 +68,15 @@ class Command(BaseCommand):
                 "(publishing needs `pull_requests: write`)."
             )
         token = github.get_access_token()
+        installation_id = github.github_installation_id
 
-        warning = _stale_head_warning(token=token, repository=repository, pr_number=pr_number, reviewed_head=head_sha)
+        warning = _stale_head_warning(
+            token=token,
+            repository=repository,
+            pr_number=pr_number,
+            reviewed_head=head_sha,
+            installation_id=installation_id,
+        )
         if warning:
             self.stdout.write(self.style.WARNING(warning))
 
@@ -86,6 +101,7 @@ class Command(BaseCommand):
             pr_number=pr_number,
             token=token,
             published_priorities=published_priorities_for(DEFAULT_URGENCY_THRESHOLD),
+            installation_id=installation_id,
         )
         if outcome.posted:
             self.stdout.write(self.style.SUCCESS(f"ReviewHog ✓ published {repository}#{pr_number}"))

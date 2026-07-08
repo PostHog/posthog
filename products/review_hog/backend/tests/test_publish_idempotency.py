@@ -1,14 +1,13 @@
-from typing import cast
+from collections.abc import Callable, Iterator
+from typing import Any
 
 from posthog.test.base import BaseTest
 from unittest.mock import patch
 
-from github import GithubException
-from github.PullRequest import PullRequest
-
 from products.review_hog.backend.models import ReviewReport
 from products.review_hog.backend.reviewer.models.github_meta import PRMetadata
 from products.review_hog.backend.reviewer.persistence import upsert_review_report
+from products.review_hog.backend.reviewer.tools.github_client import GitHubAPIError
 from products.review_hog.backend.reviewer.tools.publish_review import (
     PublishOutcome,
     _promo_already_posted,
@@ -19,69 +18,61 @@ from products.review_hog.backend.reviewer.tools.publish_review import (
 from products.review_hog.backend.temporal.activities import _publish
 
 # `_publish` now delegates to `publish_persisted_review` in the tool, so the GitHub-post seam and the
-# snapshot load are patched there; the installation token is still resolved in the activity wrapper.
+# snapshot load are patched there; the installation auth is still resolved in the activity wrapper.
 _PUBLISH = "products.review_hog.backend.reviewer.tools.publish_review.publish_review"
 _SNAPSHOT = "products.review_hog.backend.reviewer.tools.publish_review.load_pr_snapshot"
-_TOKEN = "products.review_hog.backend.temporal.activities._installation_token"
+_AUTH = "products.review_hog.backend.temporal.activities._installation_auth"
+_PAGINATED = "products.review_hog.backend.reviewer.tools.publish_review.github_api_get_paginated"
 
 
-class _FakeReview:
-    def __init__(self, body: str | None) -> None:
-        self.body = body
+def _paginated(items: list[dict[str, Any]], *, boom: bool = False) -> Callable[..., Iterator[dict[str, Any]]]:
+    """A github_api_get_paginated stand-in yielding `items` (or failing the readback with `boom`)."""
+
+    def fake(path: str, **kwargs: Any) -> Iterator[dict[str, Any]]:
+        if boom:
+            raise GitHubAPIError("readback failed", status=500)
+        return iter(items)
+
+    return fake
 
 
-class _FakePR:
-    def __init__(
-        self, reviews: list[_FakeReview] | None = None, comments: list[_FakeReview] | None = None, *, boom: bool = False
-    ) -> None:
-        self._reviews = reviews or []
-        self._comments = comments or []
-        self._boom = boom
-
-    def get_reviews(self) -> list[_FakeReview]:
-        if self._boom:
-            raise GithubException(500, "boom", None)
-        return self._reviews
-
-    def get_issue_comments(self) -> list[_FakeReview]:
-        if self._boom:
-            raise GithubException(500, "boom", None)
-        return self._comments
+def _review_posted(marker: str, reviews: list[dict[str, Any]], *, boom: bool = False) -> bool:
+    with patch(_PAGINATED, side_effect=_paginated(reviews, boom=boom)):
+        return _review_already_posted("o", "r", 1, marker, token="t", installation_id=None)
 
 
-def _pr(
-    reviews: list[_FakeReview] | None = None, comments: list[_FakeReview] | None = None, *, boom: bool = False
-) -> PullRequest:
-    return cast(PullRequest, _FakePR(reviews, comments, boom=boom))
+def _promo_posted(marker: str, comments: list[dict[str, Any]], *, boom: bool = False) -> bool:
+    with patch(_PAGINATED, side_effect=_paginated(comments, boom=boom)):
+        return _promo_already_posted("o", "r", 1, marker, token="t", installation_id=None)
 
 
 def test_review_already_posted_detects_our_own_markered_review() -> None:
     # Post-then-crash backstop: a review we posted carries this run's marker, so a retry recognizes it
     # and skips. A review without the marker (another turn/author) must not match.
     marker = _review_marker("rep-1", "sha1")
-    assert _review_already_posted(_pr([_FakeReview(f"body text\n\n{marker}")]), marker) is True
-    assert _review_already_posted(_pr([_FakeReview("an unrelated review"), _FakeReview(None)]), marker) is False
-    assert _review_already_posted(_pr([_FakeReview(_review_marker("rep-1", "other-sha"))]), marker) is False
+    assert _review_posted(marker, [{"body": f"body text\n\n{marker}"}]) is True
+    assert _review_posted(marker, [{"body": "an unrelated review"}, {"body": None}]) is False
+    assert _review_posted(marker, [{"body": _review_marker("rep-1", "other-sha")}]) is False
 
 
 def test_review_already_posted_proceeds_when_readback_fails() -> None:
     # Best-effort: if listing reviews errors we post rather than silently drop the review (the
     # published_head_sha watermark still guards the common retry path).
-    assert _review_already_posted(_pr([], boom=True), _review_marker("rep-1", "sha1")) is False
+    assert _review_posted(_review_marker("rep-1", "sha1"), [], boom=True) is False
 
 
 def test_promo_already_posted_detects_the_markered_comment() -> None:
-    # The promo posts before create_review, so a retry after a transient review failure re-enters
+    # The promo posts before the review, so a retry after a transient review failure re-enters
     # with published_head_sha still unset — the marker is what stops a second promo comment.
     marker = _promo_marker("rep-1")
-    assert _promo_already_posted(_pr(comments=[_FakeReview(f"promo text\n\n{marker}")]), marker) is True
-    assert _promo_already_posted(_pr(comments=[_FakeReview("unrelated comment"), _FakeReview(None)]), marker) is False
+    assert _promo_posted(marker, [{"body": f"promo text\n\n{marker}"}]) is True
+    assert _promo_posted(marker, [{"body": "unrelated comment"}, {"body": None}]) is False
 
 
 def test_promo_already_posted_skips_when_readback_fails() -> None:
     # Inverted stakes vs the review readback: a duplicate promo is spam while a missing one is
     # harmless, so an unreadable comment list counts as already posted.
-    assert _promo_already_posted(_pr(boom=True), _promo_marker("rep-1")) is True
+    assert _promo_posted(_promo_marker("rep-1"), [], boom=True) is True
 
 
 def _pr_metadata(head_sha: str) -> PRMetadata:
@@ -119,8 +110,8 @@ class TestPublishIdempotency(BaseTest):
 
     @patch(_PUBLISH)
     @patch(_SNAPSHOT, return_value=None)
-    @patch(_TOKEN, return_value="tok")
-    def test_first_publish_posts_promo_and_records_watermark(self, _token, _snapshot, mock_publish) -> None:
+    @patch(_AUTH, return_value=("tok", None))
+    def test_first_publish_posts_promo_and_records_watermark(self, _auth, _snapshot, mock_publish) -> None:
         mock_publish.return_value = PublishOutcome(posted=True)
         report_id = self._report()
         _publish(self.team.id, report_id, "sha1", 1, "PostHog", "posthog", 1, "should_fix")
@@ -130,16 +121,16 @@ class TestPublishIdempotency(BaseTest):
 
     @patch(_PUBLISH)
     @patch(_SNAPSHOT, return_value=None)
-    @patch(_TOKEN, return_value="tok")
-    def test_republish_same_head_is_skipped(self, _token, _snapshot, mock_publish) -> None:
+    @patch(_AUTH, return_value=("tok", None))
+    def test_republish_same_head_is_skipped(self, _auth, _snapshot, mock_publish) -> None:
         report_id = self._report(published_head_sha="sha1")
         _publish(self.team.id, report_id, "sha1", 1, "PostHog", "posthog", 1, "should_fix")
         mock_publish.assert_not_called()
 
     @patch(_PUBLISH)
     @patch(_SNAPSHOT, return_value=None)
-    @patch(_TOKEN, return_value="tok")
-    def test_new_head_publishes_without_promo(self, _token, _snapshot, mock_publish) -> None:
+    @patch(_AUTH, return_value=("tok", None))
+    def test_new_head_publishes_without_promo(self, _auth, _snapshot, mock_publish) -> None:
         mock_publish.return_value = PublishOutcome(posted=True)
         report_id = self._report(published_head_sha="oldsha")
         _publish(self.team.id, report_id, "sha2", 1, "PostHog", "posthog", 1, "should_fix")
@@ -149,8 +140,8 @@ class TestPublishIdempotency(BaseTest):
 
     @patch(_PUBLISH)
     @patch(_SNAPSHOT, return_value=None)
-    @patch(_TOKEN, return_value="tok")
-    def test_noop_publish_does_not_record_watermark(self, _token, _snapshot, mock_publish) -> None:
+    @patch(_AUTH, return_value=("tok", None))
+    def test_noop_publish_does_not_record_watermark(self, _auth, _snapshot, mock_publish) -> None:
         # Nothing publishable (validator dropped everything): the head must NOT be watermarked, so a
         # later turn with a valid finding can still publish at the same head.
         mock_publish.return_value = PublishOutcome(posted=False)
