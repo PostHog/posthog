@@ -49,6 +49,7 @@ from posthog.api.services.query import process_query_dict
 from posthog.clickhouse.client.execute_async import get_query_status
 from posthog.clickhouse.query_tagging import Feature, Product, get_query_tags, tag_queries, tags_context
 from posthog.errors import ExposedCHQueryError
+from posthog.event_usage import EventSource
 from posthog.hogql_queries.query_runner import BLOCKING_EXECUTION_MODES, ExecutionMode
 from posthog.models import Team
 from posthog.rbac.user_access_control import UserAccessControlError
@@ -342,6 +343,7 @@ class AssistantQueryExecutor:
                         execution_mode=execution_mode,
                         limit_context=LimitContext.POSTHOG_AI,
                         user=user,
+                        analytics_props={"source": EventSource.POSTHOG_AI},
                     )
 
             # If the query has a blocking execution, execute on a separate thread. Otherwise, use the main thread

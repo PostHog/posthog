@@ -9,12 +9,14 @@ import numpy as np
 import pyarrow as pa
 import deltalake as deltalake
 import pyarrow.compute as pc
+import posthoganalytics
 import deltalake.exceptions
 from dlt.common.libs.deltalake import ensure_delta_compatible_arrow_schema
 from structlog.types import FilteringBoundLogger
 
 from posthog.exceptions_capture import capture_exception
 from posthog.sync import database_sync_to_async_pool
+from posthog.utils import get_machine_id
 
 from products.data_warehouse.backend.facade.api import aget_s3_client, ensure_bucket_exists
 from products.warehouse_sources.backend.models.external_data_job import ExternalDataJob
@@ -733,6 +735,23 @@ class DeltaTableHelper:
             f"vacuum_if_stale: {commits_since} commits since last vacuum (>= {commit_threshold}), vacuuming"
         )
         await self.vacuum_table()
+        try:
+            # Observability for the maintenance path — how often tables vacuum and how much log churn
+            # accrued between vacuums. Best-effort: telemetry must never break the sync.
+            posthoganalytics.capture(
+                distinct_id=get_machine_id(),
+                event="warehouse_delta_vacuumed",
+                properties={
+                    "team_id": self._job.team_id,
+                    "schema_id": str(self._job.schema_id),
+                    "source_id": str(self._job.pipeline_id),
+                    "resource_name": self._resource_name,
+                    "commits_since_last_vacuum": commits_since,
+                    "delta_version": version,
+                },
+            )
+        except Exception as e:
+            capture_exception(e)
         return version
 
     async def compact_if_fragmented(
