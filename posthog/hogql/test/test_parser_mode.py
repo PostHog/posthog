@@ -10,27 +10,15 @@ from posthog.hogql import (
     parser as parser_module,
 )
 from posthog.hogql.errors import SyntaxError as HogQLSyntaxError
-from posthog.hogql.parser import (
-    HogQLParserShadowMismatch,
-    _resolve_parser_mode,
-    clear_shadow_agreed_for_tests,
-    parse_expr,
-    parse_select,
-)
+from posthog.hogql.parser import HogQLParserShadowMismatch, _resolve_parser_mode, parse_expr, parse_select
 
 
 class TestParserMode(BaseTest):
-    def setUp(self):
-        super().setUp()
-        # These tests patch the shadow leg to simulate divergences/failures for
-        # statements that may already sit in the agreed-statement dedup set, so
-        # the shadow must actually run again here.
-        clear_shadow_agreed_for_tests()
-
     @parameterized.expand(
         [
-            # No mode + no explicit backend → new shadow default (rust-py primary, cpp shadow).
-            (None, None, ("rust-py", "cpp-json")),
+            # No mode + no explicit backend in TEST → rust-py primary, no shadow
+            # (prod's default shadow pair is asserted separately below).
+            (None, None, ("rust-py", None)),
             # No mode + explicit backend → honour the explicit backend, no shadow.
             (None, "cpp-json", ("cpp-json", None)),
             (None, "rust-json", ("rust-json", None)),
@@ -47,7 +35,7 @@ class TestParserMode(BaseTest):
     def test_resolve_parser_mode(self, mode, backend, expected):
         self.assertEqual(_resolve_parser_mode(mode, backend), expected)
 
-    def test_resolve_parser_mode_default_shadows_in_prod_not_only_in_test(self):
+    def test_resolve_parser_mode_default_shadows_in_prod(self):
         with patch("posthog.hogql.parser.settings") as mock_settings:
             mock_settings.TEST = False
             self.assertEqual(_resolve_parser_mode(None, None), ("rust-py", "cpp-json"))

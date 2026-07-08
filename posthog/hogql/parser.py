@@ -1,7 +1,6 @@
 import sys
 import copy
 import random
-import hashlib
 import threading
 import importlib.metadata
 from collections.abc import Callable
@@ -182,13 +181,14 @@ _PARSER_MODE_BACKENDS: dict[ParserMode, tuple[HogQLParserBackend, HogQLParserBac
 
 # Fraction of `*_shadow` parses in PROD that also run the shadow backend. With rust-py promoted to the default primary,
 # the shadow leg now runs the cpp parser on ~0.1% of requests purely as a divergence canary. Bump if a fresh regression
-# surfaces and tighter coverage is needed. Tests always sample 100%.
+# surfaces and tighter coverage is needed.
 _SHADOW_SAMPLE_RATE = 0.001
 
 
 def _shadow_sample_rate() -> float:
-    """Shadow sampling fraction: 100% in tests (every parse compared, regressions fail loud), `_SHADOW_SAMPLE_RATE` in
-    prod. Divergence behavior also differs by env (TEST raises, prod records) in `_run_shadow_comparison`."""
+    """Shadow sampling fraction: 100% in tests (an explicitly requested shadow mode compares every parse, so
+    regressions fail loud and deterministically), `_SHADOW_SAMPLE_RATE` in prod. Divergence behavior also differs
+    by env (TEST raises, prod records) in `_run_shadow_comparison`."""
     return 1.0 if settings.TEST else _SHADOW_SAMPLE_RATE
 
 
@@ -197,12 +197,18 @@ def _resolve_parser_mode(
 ) -> tuple[HogQLParserBackend, HogQLParserBackend | None]:
     """Resolve a `parserMode` modifier to `(primary, shadow)` backends.
 
-    With neither `parser_mode` nor an explicit `backend=` set, the default is
-    `RUST_PY_WITH_CPP_SHADOW`: rust-py is the primary (its result is always
-    returned) and cpp runs as the shadow, sampled per `_shadow_sample_rate`
-    (100% in test, 0.1% in prod). The divergence behavior differs by
-    environment downstream (`_run_shadow_comparison`): TEST raises on any
-    mismatch, prod only reports it (never failing the request).
+    With neither `parser_mode` nor an explicit `backend=` set, the prod
+    default is `RUST_PY_WITH_CPP_SHADOW`: rust-py is the primary (its result
+    is always returned) and cpp runs as the shadow, sampled per
+    `_shadow_sample_rate` (0.1% in prod), recording divergences without ever
+    failing the request (`_run_shadow_comparison`).
+
+    In TEST the default is `RUST_PY_ONLY` — no shadow. Prod's sampled shadow
+    already provides cross-backend parity coverage over real traffic, and
+    shadowing every test parse roughly doubled parser cost across the suite
+    for no additional signal. Tests that exercise the shadow machinery itself
+    opt in with an explicit `parser_mode`, which still shadow-compares 100%
+    of parses and raises on divergence.
 
     If the rust wheel failed to import (`_RUST_PARSER_AVAILABLE` is False)
     the default falls back to cpp-only, so a broken wheel can't take the
@@ -229,6 +235,8 @@ def _resolve_parser_mode(
     if backend is not None:
         return backend, None
     if _RUST_PARSER_AVAILABLE:
+        if settings.TEST:
+            return _PARSER_MODE_BACKENDS[ParserMode.RUST_PY_ONLY]
         return _PARSER_MODE_BACKENDS[ParserMode.RUST_PY_WITH_CPP_SHADOW]
     return DEFAULT_BACKEND, None
 
@@ -250,27 +258,6 @@ _SHADOW_COMPARISONS = Counter(
     # result: agree | disagree | shadow_rejected | shadow_error
     labelnames=["rule", "result", "primary_version", "shadow_version"],
 )
-
-
-# Tests shadow-compare every parse (sample rate 1.0), and the same in-code
-# statements recur across tests thousands of times per process. Both backends
-# are deterministic functions of (rule, statement, start), so a comparison
-# that already agreed can never disagree on repeat — remember agreed keys (by
-# statement digest) and skip the redundant shadow parse. A divergence still
-# raises the first time the statement is seen. TEST-only: prod samples 0.1%
-# and its telemetry should keep counting every sampled run.
-_shadow_agreed_in_tests: set[tuple[str, str, str, int | None, bytes]] = set()
-_SHADOW_AGREED_MAX_ENTRIES = 100_000
-
-
-def clear_shadow_agreed_for_tests() -> None:
-    """Reset the TEST-mode dedup set.
-
-    Tests that patch _invoke_parser (or either backend) to force a divergence on a
-    previously-agreed statement must call this first — otherwise the cached agreement
-    short-circuits the shadow run and the forced divergence is never observed.
-    """
-    _shadow_agreed_in_tests.clear()
 
 
 def _run_shadow_comparison(
@@ -296,17 +283,6 @@ def _run_shadow_comparison(
     if random.random() >= _shadow_sample_rate():
         return
     test_mode = settings.TEST
-    dedup_key = None
-    if test_mode:
-        dedup_key = (
-            str(rule),
-            str(primary_backend),
-            str(shadow_backend),
-            start,
-            hashlib.sha256(statement.encode()).digest(),
-        )
-        if dedup_key in _shadow_agreed_in_tests:
-            return
     rule_label = str(rule)
     primary_version = _BACKEND_VERSION.get(primary_backend, "unknown")
     shadow_version = _BACKEND_VERSION.get(shadow_backend, "unknown")
@@ -345,8 +321,6 @@ def _run_shadow_comparison(
     # (`float("nan") != float("nan")`); repr is stable for NaN, so treat repr-equal as agreement too.
     if primary_node == shadow_node or repr(primary_node) == repr(shadow_node):
         _count("agree")
-        if dedup_key is not None and len(_shadow_agreed_in_tests) < _SHADOW_AGREED_MAX_ENTRIES:
-            _shadow_agreed_in_tests.add(dedup_key)
         return
     primary_cleared = clear_locations(primary_node)
     shadow_cleared = clear_locations(shadow_node)
