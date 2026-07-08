@@ -117,12 +117,13 @@ LLM Review
     describe an earlier snapshot of the PR and are never independent review
     signal. Quoted stamphog verdicts in other reviewers' comments are treated
     as history, not tampering
-  - For non-trivial changes, expects at least one independent reviewer (an
-    agent reviewer like Codex/Greptile/Claude, or a teammate) to have passed
-    over the current head; escalates otherwise. No independent review needed
-    for trivial changes (docs, tests, config/lockfile, typo/comment fixes) or
-    for small single-area changes (T1a/T1b) with tests by owning-team authors
-    with no outstanding reviewer concerns — humans approve those unchanged
+  - For changes entering risky territory (migrations, billing, auth, and
+    similar — the full list lives in `.stamphog/review-guidance.md`), expects
+    independent assurance over the risky part on the current head: a
+    substantive reviewer pass, or an owning-team / STRONG-familiarity author;
+    escalates otherwise. Outside risky territory no independent review is
+    required, regardless of size tier — we move fast and fix forward, and the
+    LLM's own reading suffices for contained, reversible changes
   - Gates are authoritative — LLM can tighten but never loosen
   │
   ▼
