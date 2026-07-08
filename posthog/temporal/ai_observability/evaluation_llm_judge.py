@@ -44,15 +44,6 @@ logger = structlog.get_logger(__name__)
 
 DEFAULT_JUDGE_MODEL = DEFAULT_MODEL_BY_PROVIDER["openai"]
 
-# Bound the assembled single-event judge prompt so an oversized agentic trace can't overflow the
-# judge model's context window (~272k tokens) and fail the activity deterministically. At ~4
-# chars/token this leaves ample headroom for the system prompt, the structured-output schema, and
-# the completion. `call_llm_judge` classifies any residual over-window 400 as non-retryable so it
-# fails fast instead of burning every retry. The trace-level judge applies its own char budget.
-JUDGE_MAX_CONTENT_CHARS = 600_000
-# Tool catalogs can be large; cap them so they can't crowd out the actual input/output.
-JUDGE_MAX_TOOLS_CHARS = 60_000
-
 LLM_JUDGE_RETRY_POLICY = RetryPolicy(
     maximum_attempts=3,
     initial_interval=timedelta(seconds=10),
@@ -181,29 +172,6 @@ def _build_errored_trace_result(allows_na: bool) -> EvaluationActivityResult:
     return result
 
 
-def _bound_judge_sections(input_data: str, output_data: str, tools_data: str) -> tuple[str, str, str]:
-    """Bound the judge prompt content to `JUDGE_MAX_CONTENT_CHARS`.
-
-    Keeps the tail of the input and output — the most recent context is the most informative for a
-    verdict — and caps the tool catalog (from the head, since catalog order is arbitrary) so it
-    can't crowd out the actual I/O. The input and output split the remaining budget, each free to
-    borrow the other's unused share so a tiny output doesn't strand budget a huge input could use.
-    """
-    if len(input_data) + len(output_data) + len(tools_data) <= JUDGE_MAX_CONTENT_CHARS:
-        return input_data, output_data, tools_data
-
-    tools_bounded = tools_data[:JUDGE_MAX_TOOLS_CHARS]
-    io_budget = JUDGE_MAX_CONTENT_CHARS - len(tools_bounded)
-
-    if len(input_data) + len(output_data) <= io_budget:
-        return input_data, output_data, tools_bounded
-
-    half = io_budget // 2
-    input_keep = min(len(input_data), max(half, io_budget - len(output_data)))
-    output_keep = io_budget - input_keep
-    return input_data[-input_keep:], output_data[-output_keep:], tools_bounded
-
-
 @temporalio.activity.defn
 @posthoganalytics.scoped()
 def execute_llm_judge_activity(inputs: ExecuteLLMJudgeInputs) -> EvaluationActivityResult:
@@ -253,8 +221,6 @@ def _execute_llm_judge_activity(inputs: ExecuteLLMJudgeInputs) -> EvaluationActi
     input_data = extract_text_from_messages(input_raw)
     output_data = extract_text_from_messages(output_raw)
     tools_data = format_tool_definitions(tools_raw)
-
-    input_data, output_data, tools_data = _bound_judge_sections(input_data, output_data, tools_data)
 
     system_prompt = build_system_prompt(prompt, allows_na)
 
@@ -404,8 +370,7 @@ def call_llm_judge(
             non_retryable=True,
         ) from e
     except ContextWindowExceededError as e:
-        # The prompt is over the model's context window even after truncation — deterministic, so
-        # retrying the identical request only burns the remaining attempts. Fail fast as terminal.
+        # Deterministic for this prompt — retrying the identical request only burns attempts.
         increment_errors("context_window_exceeded", provider=provider)
         raise ApplicationError(
             "Trace is too large to fit the judge model's context window.",

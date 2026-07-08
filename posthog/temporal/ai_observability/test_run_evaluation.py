@@ -14,11 +14,6 @@ from temporalio.testing import WorkflowEnvironment
 from temporalio.worker import UnsandboxedWorkflowRunner, Worker
 
 from posthog.models import Organization, Team
-from posthog.temporal.ai_observability.evaluation_llm_judge import (
-    JUDGE_MAX_CONTENT_CHARS,
-    JUDGE_MAX_TOOLS_CHARS,
-    _bound_judge_sections,
-)
 from posthog.temporal.ai_observability.sentiment.extraction import truncate_to_head_tail
 from posthog.temporal.ai_observability.sentiment.schema import SentimentResult
 
@@ -65,42 +60,6 @@ from .run_evaluation import (
     send_evaluation_disabled_email_activity,
     send_trial_usage_email_activity,
 )
-
-
-class TestBoundJudgeSections:
-    def test_small_sections_pass_through_unchanged(self):
-        assert _bound_judge_sections("in", "out", "tools") == ("in", "out", "tools")
-
-    def test_oversized_content_is_bounded_and_keeps_tails(self):
-        input_data = "I" * JUDGE_MAX_CONTENT_CHARS + "INPUT_TAIL"
-        output_data = "O" * JUDGE_MAX_CONTENT_CHARS + "OUTPUT_TAIL"
-
-        bounded_input, bounded_output, bounded_tools = _bound_judge_sections(input_data, output_data, "")
-
-        assert len(bounded_input) + len(bounded_output) + len(bounded_tools) <= JUDGE_MAX_CONTENT_CHARS
-        # Tail is the most recent context — the part most informative for a verdict — so it's kept.
-        assert bounded_input.endswith("INPUT_TAIL")
-        assert bounded_output.endswith("OUTPUT_TAIL")
-
-    def test_tool_catalog_is_capped_so_it_cannot_crowd_out_io(self):
-        tools_data = "T" * (JUDGE_MAX_CONTENT_CHARS * 2)
-        input_data = "I" * 10_000
-        output_data = "O" * 10_000
-
-        bounded_input, bounded_output, bounded_tools = _bound_judge_sections(input_data, output_data, tools_data)
-
-        assert len(bounded_tools) == JUDGE_MAX_TOOLS_CHARS
-        assert bounded_input == input_data
-        assert bounded_output == output_data
-
-    def test_small_output_lets_input_borrow_the_unused_budget(self):
-        input_data = "I" * (JUDGE_MAX_CONTENT_CHARS * 2)
-        output_data = "O" * 100
-
-        bounded_input, bounded_output, _ = _bound_judge_sections(input_data, output_data, "")
-
-        assert bounded_output == output_data
-        assert len(bounded_input) == JUDGE_MAX_CONTENT_CHARS - len(output_data)
 
 
 def test_status_reason_detail_for_terminal_user_error_only_keeps_truncated_hog_errors():

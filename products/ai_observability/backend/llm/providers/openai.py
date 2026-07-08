@@ -41,11 +41,8 @@ logger = logging.getLogger(__name__)
 
 
 def _is_context_length_error(e: openai.BadRequestError) -> bool:
-    """Detect a 400 caused by the prompt exceeding the model's context window.
-
-    OpenAI returns `code == "context_length_exceeded"`; OpenAI-compatible providers (OpenRouter,
-    Together, …) phrase it differently, so we also match the canonical message fragments.
-    """
+    # OpenAI sets `code == "context_length_exceeded"`; OpenAI-compatible providers (OpenRouter,
+    # Together, …) don't, so also match the message text.
     body = getattr(e, "body", None)
     if isinstance(body, dict):
         nested = body.get("error")
@@ -183,8 +180,6 @@ class OpenAIAdapter:
                         parsed=parsed,
                     )
                 except openai.BadRequestError as e:
-                    # An over-window prompt is deterministic — surface it as terminal so callers
-                    # don't retry an identical request that can never succeed.
                     if _is_context_length_error(e):
                         raise ContextWindowExceededError(str(e))
                     # Fall back to manual JSON parsing for older models that don't support json_schema
@@ -219,9 +214,7 @@ class OpenAIAdapter:
                 raise QuotaExceededError(str(e))
             raise RateLimitError(str(e))
         except openai.BadRequestError as e:
-            # Covers the non-structured-output and JSON-fallback paths; the structured-output
-            # path handles its own BadRequestError above. Must precede the APIStatusError catch
-            # since BadRequestError is a subclass of it.
+            # Must precede the APIStatusError catch below, since BadRequestError subclasses it.
             if _is_context_length_error(e):
                 raise ContextWindowExceededError(str(e))
             raise

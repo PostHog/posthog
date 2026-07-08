@@ -52,11 +52,7 @@ class StructuredOutputParseError(LLMError):
 
 
 class ContextWindowExceededError(LLMError):
-    """Raised when the request exceeds the model's context window.
-
-    This is deterministic for a given prompt — retrying the identical request never helps, so
-    callers should treat it as terminal rather than retryable.
-    """
+    """Raised when the request exceeds the model's context window — terminal, since retrying the identical prompt never helps"""
 
 
 class ModelPermissionError(LLMError):
