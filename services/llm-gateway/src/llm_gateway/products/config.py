@@ -13,8 +13,11 @@ from llm_gateway.config import get_settings
 class CreditBucket(StrEnum):
     """Customer credit bucket a product's generations bill into.
 
-    Values match the Django quota resource keys (ee/billing/quota_limiting.py
-    QuotaResource), which is what the gateway's quota resolver checks against.
+    Values match (or, once created, will match) the Django quota resource keys
+    (ee/billing/quota_limiting.py QuotaResource), which is what the gateway's
+    quota resolver checks against. Only AI_CREDITS has a QuotaResource and
+    gateway-side quota enforcement today; POSTHOG_CODE_CREDITS bills without
+    blocking until its resource lands.
     """
 
     AI_CREDITS = "ai_credits"
@@ -96,6 +99,11 @@ PRODUCTS: Final[dict[str, ProductConfig]] = {
         # get_teams_with_posthog_code_credits_used_in_period in posthog/tasks/usage_report.py.
         credit_bucket=CreditBucket.POSTHOG_CODE_CREDITS,
     ),
+    # PostHog-initiated internal task runs (Task.internal=True without a more specific
+    # origin route — e.g. the repo-selection agent). Deliberately unbilled: this is
+    # "work completed by PostHog" per the pricing RFC, which gets its own (marked-up)
+    # pricing later rather than posthog_code's pass-through bucket. Interim spend
+    # control is the product/user cost limits in llm_gateway/config.py.
     "background_agents": ProductConfig(
         allowed_application_ids=frozenset({POSTHOG_CODE_US_APP_ID, POSTHOG_CODE_EU_APP_ID, POSTHOG_CODE_DEV_APP_ID}),
         allowed_models=frozenset(
@@ -116,6 +124,7 @@ PRODUCTS: Final[dict[str, ProductConfig]] = {
             | BEDROCK_MODELS
         ),
         allow_api_keys=False,
+        credit_bucket=None,
     ),
     "slack_app": ProductConfig(
         allowed_application_ids=frozenset({POSTHOG_CODE_US_APP_ID, POSTHOG_CODE_EU_APP_ID, POSTHOG_CODE_DEV_APP_ID}),
@@ -202,6 +211,9 @@ PRODUCTS: Final[dict[str, ProductConfig]] = {
         allowed_application_ids=frozenset({POSTHOG_CODE_US_APP_ID, POSTHOG_CODE_EU_APP_ID, POSTHOG_CODE_DEV_APP_ID}),
         allowed_models=frozenset({"claude-haiku-4-5", "claude-sonnet-4-6", "claude-sonnet-5"}),
         allow_api_keys=True,
+        # Deliberately unbilled: autonomous support-reply drafting is "work completed by
+        # PostHog" per the pricing RFC — it gets its own pricing later, not posthog_code's
+        # pass-through bucket.
         credit_bucket=None,
     ),
     "warehouse_semantic_enrichment": ProductConfig(

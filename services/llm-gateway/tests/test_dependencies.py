@@ -1,13 +1,20 @@
 import json
-from unittest.mock import MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 from fastapi import HTTPException, Request
 from starlette.datastructures import Headers
 
 from llm_gateway.auth.models import AuthenticatedUser
-from llm_gateway.dependencies import _extract_end_user_id_from_body, enforce_throttles, get_provider_from_request
+from llm_gateway.dependencies import (
+    _extract_end_user_id_from_body,
+    enforce_throttles,
+    get_provider_from_request,
+    resolve_plan_and_quota,
+)
 from llm_gateway.rate_limiting.throttles import ThrottleContext, ThrottleResult
+from llm_gateway.services.plan_resolver import PlanInfo
+from llm_gateway.services.quota_resolver import QuotaResourceStatus
 
 
 def _make_request(body: dict | None = None, headers: dict[str, str] | None = None) -> Request:
@@ -203,12 +210,6 @@ class TestResolvePlanAndQuota:
     bucket without gateway-side quota enforcement (e.g. posthog_code)."""
 
     async def _run(self, product: str) -> tuple:
-        from unittest.mock import AsyncMock
-
-        from llm_gateway.dependencies import resolve_plan_and_quota
-        from llm_gateway.services.plan_resolver import PlanInfo
-        from llm_gateway.services.quota_resolver import QuotaResourceStatus
-
         plan_info = PlanInfo(plan_key="pro", seat_created_at=None)
         plan_mock = AsyncMock(return_value=plan_info)
         quota_mock = AsyncMock(return_value=QuotaResourceStatus(limited=True))
