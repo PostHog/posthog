@@ -131,6 +131,9 @@ class ReviewReportArtefact(UUIDModel, TeamScopedRootMixin):
     report = models.ForeignKey(ReviewReport, on_delete=models.CASCADE, related_name="artefacts")
     type = models.CharField(max_length=100, choices=ArtefactType)
     content = models.TextField()
+    # Turn scope, denormalized from content.head_sha so resume loaders can filter in SQL instead of
+    # parsing every historical row. Null when the content model carries no head_sha.
+    head_sha = models.CharField(max_length=64, null=True, blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True, null=True)
     # Attribution: exactly one of (created_by, task) is set on new rows, enforced at the write
@@ -174,6 +177,7 @@ class ReviewReportArtefact(UUIDModel, TeamScopedRootMixin):
             report_id=report_id,
             type=artefact_type_for(content),
             content=content.model_dump_json(),
+            head_sha=getattr(content, "head_sha", None),
             created_by_id=attribution.user_id,
             task_id=attribution.task_id,
         )

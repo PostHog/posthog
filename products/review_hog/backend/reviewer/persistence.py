@@ -307,14 +307,14 @@ def load_pr_snapshot(*, team_id: int, report_id: str, head_sha: str) -> PRSnapsh
 def _load_working_state(team_id: int, report_id: str, artefact_type: str, head_sha: str) -> list[ReviewArtefactContent]:
     """Parsed working-state contents for this turn, oldest-first so callers can latest-wins them.
 
-    Rows whose content fails to parse (e.g. a stale schema from an interrupted earlier turn) or
-    whose `head_sha` differs from the requested turn are skipped — a non-matching row is simply not
-    this turn's work, and an unparseable one is treated as absent so the stage re-runs.
+    Turn scoping happens in SQL via the denormalized `head_sha` column, so only the current turn's
+    rows are ever fetched and parsed. Rows whose content fails to parse (e.g. a stale schema from an
+    interrupted earlier turn) are skipped — treated as absent so the stage re-runs.
     """
     contents: list[ReviewArtefactContent] = []
     rows = (
         ReviewReportArtefact.objects.for_team(team_id)
-        .filter(report_id=report_id, type=artefact_type)
+        .filter(report_id=report_id, type=artefact_type, head_sha=head_sha)
         .order_by("created_at", "id")
     )
     for row in rows:
@@ -323,8 +323,7 @@ def _load_working_state(team_id: int, report_id: str, artefact_type: str, head_s
         except ArtefactContentValidationError as e:
             logger.warning("Skipping unparseable %s artefact %s: %s", artefact_type, row.id, e)
             continue
-        if getattr(content, "head_sha", None) == head_sha:
-            contents.append(content)
+        contents.append(content)
     return contents
 
 
