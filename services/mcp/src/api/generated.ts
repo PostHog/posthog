@@ -15006,10 +15006,10 @@ export namespace Schemas {
      * * `private` - Private (only visible to creator)
      * * `shared` - Shared with team
      */
-    export type VisibilityEnum = typeof VisibilityEnum[keyof typeof VisibilityEnum];
+    export type ColumnConfigurationVisibilityEnum = typeof ColumnConfigurationVisibilityEnum[keyof typeof ColumnConfigurationVisibilityEnum];
 
 
-    export const VisibilityEnum = {
+    export const ColumnConfigurationVisibilityEnum = {
       Private: 'private',
       Shared: 'shared',
     } as const;
@@ -15030,7 +15030,7 @@ export namespace Schemas {
       order_by?: string[] | null;
       /** Product-specific view state that does not fit the columnar fields (e.g. Customer analytics overview tiles and column display). */
       properties?: unknown;
-      visibility?: VisibilityEnum;
+      visibility?: ColumnConfigurationVisibilityEnum;
       /** @nullable */
       readonly created_by: number | null;
       readonly created_at: string;
@@ -24573,6 +24573,22 @@ export namespace Schemas {
       AiSpan: '$ai_span',
       AiEmbedding: '$ai_embedding',
       AiTrace: '$ai_trace',
+    } as const;
+
+    /**
+     * * `run_completed` - run_completed
+     * * `run_failed` - run_failed
+     * * `pr_created` - pr_created
+     * * `needs_attention` - needs_attention
+     */
+    export type EventsEnum = typeof EventsEnum[keyof typeof EventsEnum];
+
+
+    export const EventsEnum = {
+      RunCompleted: 'run_completed',
+      RunFailed: 'run_failed',
+      PrCreated: 'pr_created',
+      NeedsAttention: 'needs_attention',
     } as const;
 
     export interface ExecuteTestClusterRequest {
@@ -35305,6 +35321,395 @@ export namespace Schemas {
       readonly updated_at: string | null;
     }
 
+    export interface LoopBehaviors {
+      /** Whether the agent may push branches and open PRs. False makes this a report-only loop. */
+      create_prs?: boolean;
+      /** Whether to watch CI on loop-created PRs and report status. */
+      watch_ci?: boolean;
+      /** Whether to automatically address review comments on loop-created PRs. */
+      fix_review_comments?: boolean;
+      /**
+         * Ceiling on automatic CI/review-comment fix iterations, capped at 10.
+         * @minimum 0
+         * @maximum 10
+         */
+      max_fix_iterations?: number;
+    }
+
+    export interface LoopBehaviorsDTO {
+      create_prs?: boolean;
+      watch_ci?: boolean;
+      fix_review_comments?: boolean;
+      max_fix_iterations?: number;
+    }
+
+    /**
+     * * `read_only` - read_only
+     * * `full` - full
+     */
+    export type PosthogMcpScopesEnum = typeof PosthogMcpScopesEnum[keyof typeof PosthogMcpScopesEnum];
+
+
+    export const PosthogMcpScopesEnum = {
+      ReadOnly: 'read_only',
+      Full: 'full',
+    } as const;
+
+    export interface LoopConnectors {
+      /** MCP Store installation ids (Slack, Linear, etc.) available to this loop's runs. */
+      mcp_installation_ids?: string[];
+      /** Scope of the PostHog MCP access injected into this loop's runs.
+       *
+       * * `read_only` - read_only
+       * * `full` - full */
+      posthog_mcp_scopes?: PosthogMcpScopesEnum;
+    }
+
+    export interface LoopConnectorsDTO {
+      mcp_installation_ids?: string[];
+      posthog_mcp_scopes?: string;
+    }
+
+    export interface LoopRepositoryEntryDTO {
+      github_integration_id: number;
+      full_name: string;
+    }
+
+    export type LoopNotificationChannelDTOParams = { [key: string]: unknown };
+
+    export interface LoopNotificationChannelDTO {
+      enabled?: boolean;
+      events?: string[];
+      params?: LoopNotificationChannelDTOParams;
+    }
+
+    export interface LoopNotificationsDTO {
+      push: LoopNotificationChannelDTO;
+      email: LoopNotificationChannelDTO;
+      slack: LoopNotificationChannelDTO;
+    }
+
+    export type LoopTriggerDTOConfig = { [key: string]: unknown };
+
+    /**
+     * Read response for a single loop trigger.
+     */
+    export interface LoopTriggerDTO {
+      id: string;
+      loop_id: string;
+      type: string;
+      enabled: boolean;
+      config: LoopTriggerDTOConfig;
+      /** @nullable */
+      schedule_sync_status: string | null;
+      /** @nullable */
+      last_fired_at: string | null;
+      created_at: string;
+      updated_at: string;
+    }
+
+    /**
+     * Detail/create/update response for a loop, including its triggers.
+     */
+    export interface LoopDTO {
+      id: string;
+      team_id: number;
+      /** @nullable */
+      created_by_id: number | null;
+      name: string;
+      description: string;
+      visibility: string;
+      instructions: string;
+      runtime_adapter: string;
+      model: string;
+      /** @nullable */
+      reasoning_effort: string | null;
+      /** Repositories this loop operates on. */
+      repositories: LoopRepositoryEntryDTO[];
+      /** @nullable */
+      sandbox_environment_id: string | null;
+      enabled: boolean;
+      overlap_policy: string;
+      /** PR / CI-follow-up behavior configuration. */
+      behaviors: LoopBehaviorsDTO;
+      /** MCP connector configuration for this loop's runs. */
+      connectors: LoopConnectorsDTO;
+      /** Per-channel notification configuration. */
+      notifications: LoopNotificationsDTO;
+      /** @nullable */
+      last_run_at: string | null;
+      /** @nullable */
+      last_run_status: string | null;
+      /** @nullable */
+      last_error: string | null;
+      consecutive_failures: number;
+      created_at: string;
+      updated_at: string;
+      /** Triggers attached to this loop. */
+      triggers: LoopTriggerDTO[];
+    }
+
+    /**
+     * * `created` - created
+     * * `deduped` - deduped
+     * * `overlap_skipped` - overlap_skipped
+     * * `rate_capped` - rate_capped
+     * * `disabled` - disabled
+     * * `gate_blocked` - gate_blocked
+     */
+    export type LoopFireResultReasonEnum = typeof LoopFireResultReasonEnum[keyof typeof LoopFireResultReasonEnum];
+
+
+    export const LoopFireResultReasonEnum = {
+      Created: 'created',
+      Deduped: 'deduped',
+      OverlapSkipped: 'overlap_skipped',
+      RateCapped: 'rate_capped',
+      Disabled: 'disabled',
+      GateBlocked: 'gate_blocked',
+    } as const;
+
+    /**
+     * Response for a manual (`run/`) or external (`trigger/`) fire.
+     */
+    export interface LoopFireResult {
+      created: boolean;
+      /** Outcome of the fire attempt.
+       *
+       * * `created` - created
+       * * `deduped` - deduped
+       * * `overlap_skipped` - overlap_skipped
+       * * `rate_capped` - rate_capped
+       * * `disabled` - disabled
+       * * `gate_blocked` - gate_blocked */
+      reason: LoopFireResultReasonEnum;
+      /**
+         * Id of the created task, when `created` is true.
+         * @nullable
+         */
+      task_id: string | null;
+      /**
+         * Id of the created task run, when `created` is true.
+         * @nullable
+         */
+      task_run_id: string | null;
+    }
+
+    /**
+     * Channel-specific parameters, e.g. Slack's `integration_id` and `channel`.
+     */
+    export type LoopNotificationChannelParams = { [key: string]: unknown };
+
+    export interface LoopNotificationChannel {
+      /** Whether this channel is active. */
+      enabled?: boolean;
+      /** Event kinds this channel notifies on. One or more of: run_completed, run_failed, pr_created, needs_attention. */
+      events?: EventsEnum[];
+      /** Channel-specific parameters, e.g. Slack's `integration_id` and `channel`. */
+      params?: LoopNotificationChannelParams;
+    }
+
+    export interface LoopNotifications {
+      /** Push notification settings. */
+      push?: LoopNotificationChannel;
+      /** Email notification settings. */
+      email?: LoopNotificationChannel;
+      /** Slack notification settings. */
+      slack?: LoopNotificationChannel;
+    }
+
+    export interface LoopPreviewDTO {
+      instructions: string;
+      trigger_type: string;
+      trigger_context: string;
+    }
+
+    /**
+     * * `schedule` - schedule
+     * * `github` - github
+     * * `api` - api
+     */
+    export type LoopTriggerTypeEnum = typeof LoopTriggerTypeEnum[keyof typeof LoopTriggerTypeEnum];
+
+
+    export const LoopTriggerTypeEnum = {
+      Schedule: 'schedule',
+      Github: 'github',
+      Api: 'api',
+    } as const;
+
+    export interface LoopPreviewRequest {
+      /** Trigger type to simulate. Defaults to a synthetic schedule fire.
+       *
+       * * `schedule` - schedule
+       * * `github` - github
+       * * `api` - api */
+      trigger_type?: LoopTriggerTypeEnum;
+      /** Sample trigger payload, e.g. a GitHub webhook body or an API trigger body, to render into context. */
+      payload?: unknown;
+    }
+
+    export interface LoopRepositoryEntry {
+      /** GitHub integration id this repository is accessed through. */
+      github_integration_id: number;
+      /**
+         * Repository in `organization/repo` format, e.g. `posthog/posthog`.
+         * @maxLength 255
+         */
+      full_name: string;
+    }
+
+    /**
+     * @nullable
+     */
+    export type LoopRunDTOOutput = { [key: string]: unknown } | null;
+
+    /**
+     * A single entry in a loop's run history.
+     */
+    export interface LoopRunDTO {
+      id: string;
+      task_id: string;
+      /** @nullable */
+      loop_trigger_id: string | null;
+      status: string;
+      environment: string;
+      /** @nullable */
+      branch: string | null;
+      /** @nullable */
+      error_message: string | null;
+      /** @nullable */
+      output: LoopRunDTOOutput;
+      created_at: string;
+      /** @nullable */
+      completed_at: string | null;
+    }
+
+    export interface LoopRunPage {
+      /** Run history entries, newest first. */
+      results: LoopRunDTO[];
+      /**
+         * Opaque cursor for the next page, or null when there are no more results.
+         * @nullable
+         */
+      next_cursor: string | null;
+    }
+
+    export interface LoopTriggerWrite {
+      /** Existing trigger id to update in place. Omit to create a new trigger. */
+      id?: string;
+      /** Trigger type: `schedule` (cron or one-time), `github` (repo webhook events), or `api` (POST to `trigger/`).
+       *
+       * * `schedule` - schedule
+       * * `github` - github
+       * * `api` - api */
+      type: LoopTriggerTypeEnum;
+      /** Whether this trigger is active. Disabling pauses only this trigger. */
+      enabled?: boolean;
+      /** Trigger configuration, shape validated per `type`: schedule takes `{cron_expression, timezone}` or `{run_at}` for a one-time run; github takes `{github_integration_id, repository, events, filters}`; api takes no config. */
+      config?: unknown;
+    }
+
+    /**
+     * * `personal` - personal
+     * * `team` - team
+     */
+    export type LoopWriteVisibilityEnum = typeof LoopWriteVisibilityEnum[keyof typeof LoopWriteVisibilityEnum];
+
+
+    export const LoopWriteVisibilityEnum = {
+      Personal: 'personal',
+      Team: 'team',
+    } as const;
+
+    /**
+     * * `claude` - claude
+     * * `codex` - codex
+     */
+    export type RuntimeAdapterEnum = typeof RuntimeAdapterEnum[keyof typeof RuntimeAdapterEnum];
+
+
+    export const RuntimeAdapterEnum = {
+      Claude: 'claude',
+      Codex: 'codex',
+    } as const;
+
+    /**
+     * * `skip` - skip
+     * * `allow` - allow
+     * * `cancel_previous` - cancel_previous
+     */
+    export type OverlapPolicyEnum = typeof OverlapPolicyEnum[keyof typeof OverlapPolicyEnum];
+
+
+    export const OverlapPolicyEnum = {
+      Skip: 'skip',
+      Allow: 'allow',
+      CancelPrevious: 'cancel_previous',
+    } as const;
+
+    /**
+     * Request body for creating or updating a loop. Field required/default semantics match
+     * the `Loop` model; partial updates only touch keys present in the payload.
+     */
+    export interface LoopWrite {
+      /**
+         * Display name for the loop.
+         * @maxLength 400
+         */
+      name: string;
+      /** Free-form description of what this loop does. */
+      description?: string;
+      /** `personal` (owner-only) or `team` (visible and fireable by any team member).
+       *
+       * * `personal` - personal
+       * * `team` - team */
+      visibility?: LoopWriteVisibilityEnum;
+      /** The prompt delivered to the agent on every run. */
+      instructions: string;
+      /** Runtime adapter: 'claude' or 'codex'.
+       *
+       * * `claude` - claude
+       * * `codex` - codex */
+      runtime_adapter: RuntimeAdapterEnum;
+      /** LLM model identifier, validated against `runtime_adapter`'s catalog. */
+      model: string;
+      /** Reasoning effort, validated against `runtime_adapter`/`model`'s supported set.
+       *
+       * * `low` - low
+       * * `medium` - medium
+       * * `high` - high
+       * * `xhigh` - xhigh
+       * * `max` - max */
+      reasoning_effort?: ReasoningEffortEnum | null;
+      /**
+         * Repositories this loop operates on, ordered. Capped at 1 until multi-repo execution ships. May be empty for report-only loops.
+         * @maxItems 1
+         */
+      repositories?: LoopRepositoryEntry[];
+      /**
+         * Sandbox environment carrying encrypted env vars and the network allowlist into every run.
+         * @nullable
+         */
+      sandbox_environment?: string | null;
+      /** Whether the loop's triggers are active. Pausing disables all triggers. */
+      enabled?: boolean;
+      /** What happens when a trigger fires while a run is already active: 'skip', 'allow', or 'cancel_previous'.
+       *
+       * * `skip` - skip
+       * * `allow` - allow
+       * * `cancel_previous` - cancel_previous */
+      overlap_policy?: OverlapPolicyEnum;
+      /** PR / CI-follow-up behavior configuration. */
+      behaviors?: LoopBehaviors;
+      /** MCP connector configuration for this loop's runs. */
+      connectors?: LoopConnectors;
+      /** Per-channel notification configuration. */
+      notifications?: LoopNotifications;
+      /** Full desired trigger list, id-stable: entries with a matching `id` are updated in place, entries without one are created, and existing triggers absent from this list are deleted. Omit the field entirely to leave triggers untouched. */
+      triggers?: LoopTriggerWrite[];
+    }
+
     export interface MCPActivityClientRow {
       /** Agent client name ($mcp_client_name). Empty when the SDK did not capture it. */
       readonly client: string;
@@ -37540,6 +37945,7 @@ export namespace Schemas {
      * * `hogdesk` - HogDesk
      * * `review_hog` - ReviewHog
      * * `image_builder` - Image Builder
+     * * `loop` - Loop
      */
     export type OriginProductEnum = typeof OriginProductEnum[keyof typeof OriginProductEnum];
 
@@ -37561,6 +37967,7 @@ export namespace Schemas {
       Hogdesk: 'hogdesk',
       ReviewHog: 'review_hog',
       ImageBuilder: 'image_builder',
+      Loop: 'loop',
     } as const;
 
     /**
@@ -38741,6 +39148,15 @@ export namespace Schemas {
       /** @nullable */
       previous?: string | null;
       results: LogsView[];
+    }
+
+    export interface PaginatedLoopDTOList {
+      count: number;
+      /** @nullable */
+      next?: string | null;
+      /** @nullable */
+      previous?: string | null;
+      results: LoopDTO[];
     }
 
     export interface PaginatedMCPAnalyticsSubmissionList {
@@ -41709,18 +42125,6 @@ export namespace Schemas {
     }
 
     /**
-     * * `claude` - claude
-     * * `codex` - codex
-     */
-    export type RuntimeAdapterEnum = typeof RuntimeAdapterEnum[keyof typeof RuntimeAdapterEnum];
-
-
-    export const RuntimeAdapterEnum = {
-      Claude: 'claude',
-      Codex: 'codex',
-    } as const;
-
-    /**
      * * `anthropic` - anthropic
      * * `openai` - openai
      */
@@ -42841,10 +43245,10 @@ export namespace Schemas {
      * * `schedule` - Schedule
      * * `threshold` - Threshold
      */
-    export type TriggerTypeEnum = typeof TriggerTypeEnum[keyof typeof TriggerTypeEnum];
+    export type VisionActionTriggerTypeEnum = typeof VisionActionTriggerTypeEnum[keyof typeof VisionActionTriggerTypeEnum];
 
 
-    export const TriggerTypeEnum = {
+    export const VisionActionTriggerTypeEnum = {
       Schedule: 'schedule',
       Threshold: 'threshold',
     } as const;
@@ -42932,7 +43336,7 @@ export namespace Schemas {
        *
        * * `schedule` - Schedule
        * * `threshold` - Threshold */
-      trigger_type?: TriggerTypeEnum;
+      trigger_type?: VisionActionTriggerTypeEnum;
       /** What the action produces. MVP supports 'group_summary' only.
        *
        * * `group_summary` - Group summary
@@ -43856,7 +44260,7 @@ export namespace Schemas {
       order_by?: string[] | null;
       /** Product-specific view state that does not fit the columnar fields (e.g. Customer analytics overview tiles and column display). */
       properties?: unknown;
-      visibility?: VisibilityEnum;
+      visibility?: ColumnConfigurationVisibilityEnum;
       /** @nullable */
       readonly created_by?: number | null;
       readonly created_at?: string;
@@ -46618,6 +47022,68 @@ export namespace Schemas {
       readonly created_by?: UserBasic;
       /** @nullable */
       readonly updated_at?: string | null;
+    }
+
+    /**
+     * Request body for creating or updating a loop. Field required/default semantics match
+     * the `Loop` model; partial updates only touch keys present in the payload.
+     */
+    export interface PatchedLoopWrite {
+      /**
+         * Display name for the loop.
+         * @maxLength 400
+         */
+      name?: string;
+      /** Free-form description of what this loop does. */
+      description?: string;
+      /** `personal` (owner-only) or `team` (visible and fireable by any team member).
+       *
+       * * `personal` - personal
+       * * `team` - team */
+      visibility?: LoopWriteVisibilityEnum;
+      /** The prompt delivered to the agent on every run. */
+      instructions?: string;
+      /** Runtime adapter: 'claude' or 'codex'.
+       *
+       * * `claude` - claude
+       * * `codex` - codex */
+      runtime_adapter?: RuntimeAdapterEnum;
+      /** LLM model identifier, validated against `runtime_adapter`'s catalog. */
+      model?: string;
+      /** Reasoning effort, validated against `runtime_adapter`/`model`'s supported set.
+       *
+       * * `low` - low
+       * * `medium` - medium
+       * * `high` - high
+       * * `xhigh` - xhigh
+       * * `max` - max */
+      reasoning_effort?: ReasoningEffortEnum | null;
+      /**
+         * Repositories this loop operates on, ordered. Capped at 1 until multi-repo execution ships. May be empty for report-only loops.
+         * @maxItems 1
+         */
+      repositories?: LoopRepositoryEntry[];
+      /**
+         * Sandbox environment carrying encrypted env vars and the network allowlist into every run.
+         * @nullable
+         */
+      sandbox_environment?: string | null;
+      /** Whether the loop's triggers are active. Pausing disables all triggers. */
+      enabled?: boolean;
+      /** What happens when a trigger fires while a run is already active: 'skip', 'allow', or 'cancel_previous'.
+       *
+       * * `skip` - skip
+       * * `allow` - allow
+       * * `cancel_previous` - cancel_previous */
+      overlap_policy?: OverlapPolicyEnum;
+      /** PR / CI-follow-up behavior configuration. */
+      behaviors?: LoopBehaviors;
+      /** MCP connector configuration for this loop's runs. */
+      connectors?: LoopConnectors;
+      /** Per-channel notification configuration. */
+      notifications?: LoopNotifications;
+      /** Full desired trigger list, id-stable: entries with a matching `id` are updated in place, entries without one are created, and existing triggers absent from this list are deleted. Omit the field entirely to leave triggers untouched. */
+      triggers?: LoopTriggerWrite[];
     }
 
     export interface PatchedMCPServerInstallationUpdate {
@@ -49689,7 +50155,8 @@ export namespace Schemas {
        * * `support_reply` - Support Reply
        * * `hogdesk` - HogDesk
        * * `review_hog` - ReviewHog
-       * * `image_builder` - Image Builder */
+       * * `image_builder` - Image Builder
+       * * `loop` - Loop */
       origin_product?: OriginProductEnum;
       /**
          * Target GitHub repository in `organization/repo` format (e.g. `posthog/posthog-js`).
@@ -50458,7 +50925,7 @@ export namespace Schemas {
        *
        * * `schedule` - Schedule
        * * `threshold` - Threshold */
-      trigger_type?: TriggerTypeEnum;
+      trigger_type?: VisionActionTriggerTypeEnum;
       /** What the action produces. MVP supports 'group_summary' only.
        *
        * * `group_summary` - Group summary
@@ -63608,7 +64075,8 @@ export namespace Schemas {
        * * `support_reply` - Support Reply
        * * `hogdesk` - HogDesk
        * * `review_hog` - ReviewHog
-       * * `image_builder` - Image Builder */
+       * * `image_builder` - Image Builder
+       * * `loop` - Loop */
       origin_product?: OriginProductEnum;
       /**
          * Target GitHub repository in `organization/repo` format (e.g. `posthog/posthog-js`).
@@ -72782,6 +73250,7 @@ export namespace Schemas {
      * * `Metric` - Metric
      * * `TableCertification` - TableCertification
      * * `Billing` - Billing
+     * * `Loop` - Loop
      * @minLength 1
      */
     scope?: ActivityLogListScope;
@@ -72871,6 +73340,7 @@ export namespace Schemas {
       Metric: 'Metric',
       TableCertification: 'TableCertification',
       Billing: 'Billing',
+      Loop: 'Loop',
     } as const;
 
     /**
@@ -72946,6 +73416,7 @@ export namespace Schemas {
      * * `Metric` - Metric
      * * `TableCertification` - TableCertification
      * * `Billing` - Billing
+     * * `Loop` - Loop
      */
     export type ActivityLogListScopesItem = typeof ActivityLogListScopesItem[keyof typeof ActivityLogListScopesItem];
 
@@ -73023,6 +73494,7 @@ export namespace Schemas {
       Metric: 'Metric',
       TableCertification: 'TableCertification',
       Billing: 'Billing',
+      Loop: 'Loop',
     } as const;
 
     export type AdvancedActivityLogsListParams = {
@@ -78354,6 +78826,37 @@ export namespace Schemas {
      */
     offset?: number;
     };
+
+    export type LoopsListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number;
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number;
+    };
+
+    export type LoopsRunsRetrieveParams = {
+    /**
+     * Opaque pagination cursor from a previous response's `next_cursor`.
+     * @minLength 1
+     */
+    cursor?: string;
+    /**
+     * Max results per page (default 50, max 100).
+     * @minimum 1
+     * @maximum 100
+     */
+    limit?: number;
+    };
+
+    export type LoopsTriggerCreateBodyOne = { [key: string]: unknown };
+
+    export type LoopsTriggerCreateBodyTwo = { [key: string]: unknown };
+
+    export type LoopsTriggerCreateBodyThree = { [key: string]: unknown };
 
     export type ManagedMigrationsListParams = {
     /**

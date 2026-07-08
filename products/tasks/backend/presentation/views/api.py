@@ -2300,11 +2300,16 @@ class CodeInviteViewSet(viewsets.ViewSet):
             200: OpenApiResponse(description="Access check result"),
         },
         summary="Check access",
-        description="Check whether the authenticated user has access to PostHog Code.",
+        description="Check whether the authenticated user has access to PostHog Code and to Loops.",
     )
     @action(detail=False, methods=["get"], url_path="check-access")
     def check_access(self, request, **kwargs):
-        return Response({"has_access": tasks_access.has_tasks_access(request.user)})
+        return Response(
+            {
+                "has_access": tasks_access.has_tasks_access(request.user),
+                "has_loops_access": tasks_access.has_loops_access(request.user),
+            }
+        )
 
 
 @extend_schema(tags=["sandbox-environments"])

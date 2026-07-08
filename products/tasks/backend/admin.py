@@ -6,7 +6,7 @@ from django.utils.html import format_html
 
 from posthog.storage import object_storage
 
-from .models import CodeInvite, CodeInviteRedemption, SandboxSnapshot, Task, TaskRun
+from .models import CodeInvite, CodeInviteRedemption, Loop, LoopTrigger, SandboxSnapshot, Task, TaskRun
 
 
 @admin.register(Task)
@@ -150,3 +150,55 @@ class CodeInviteRedemptionAdmin(admin.ModelAdmin):
     list_filter = ("redeemed_at",)
     search_fields = ("user__email", "invite_code__code")
     readonly_fields = ("id", "invite_code", "user", "organization", "redeemed_at")
+
+
+@admin.register(Loop)
+class LoopAdmin(admin.ModelAdmin):
+    list_display = (
+        "name",
+        "visibility",
+        "enabled",
+        "team",
+        "created_by",
+        "last_run_at",
+        "last_run_status",
+        "consecutive_failures",
+        "deleted",
+    )
+    list_filter = ("visibility", "enabled", "deleted", "overlap_policy", "runtime_adapter")
+    search_fields = ("name", "description")
+    readonly_fields = (
+        "id",
+        "enabled",
+        "last_run_at",
+        "last_run_status",
+        "last_error",
+        "consecutive_failures",
+        "created_at",
+        "updated_at",
+    )
+    autocomplete_fields = ("team", "created_by")
+    raw_id_fields = ("sandbox_environment",)
+
+    def get_queryset(self, request: HttpRequest):
+        # Admin has no team context; Loop's default manager is fail-closed.
+        return Loop.objects.unscoped().select_related("team", "created_by")
+
+
+@admin.register(LoopTrigger)
+class LoopTriggerAdmin(admin.ModelAdmin):
+    list_display = ("id", "loop", "type", "enabled", "schedule_sync_status", "last_fired_at")
+    list_filter = ("type", "enabled", "schedule_sync_status")
+    search_fields = ("loop__name",)
+    readonly_fields = ("id", "loop", "enabled", "schedule_sync_status", "last_fired_at", "created_at", "updated_at")
+    autocomplete_fields = ("team",)
+
+    def get_queryset(self, request: HttpRequest):
+        # Admin has no team context; select_related("loop") also keeps readonly
+        # rendering off Loop's fail-closed base manager.
+        return LoopTrigger.objects.unscoped().select_related("loop", "team")
+
+    def has_add_permission(self, request: HttpRequest) -> bool:
+        # Triggers are created through the loops API; their Temporal Schedule
+        # identity hangs off the row id, so hand-created rows would drift.
+        return False

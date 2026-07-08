@@ -11,9 +11,10 @@
  * * `schedule` - Schedule
  * * `threshold` - Threshold
  */
-export type TriggerTypeEnumApi = (typeof TriggerTypeEnumApi)[keyof typeof TriggerTypeEnumApi]
+export type VisionActionTriggerTypeEnumApi =
+    (typeof VisionActionTriggerTypeEnumApi)[keyof typeof VisionActionTriggerTypeEnumApi]
 
-export const TriggerTypeEnumApi = {
+export const VisionActionTriggerTypeEnumApi = {
     Schedule: 'schedule',
     Threshold: 'threshold',
 } as const
@@ -260,7 +261,7 @@ export interface VisionActionApi {
      *
      * * `schedule` - Schedule
      * * `threshold` - Threshold */
-    trigger_type?: TriggerTypeEnumApi
+    trigger_type?: VisionActionTriggerTypeEnumApi
     /** What the action produces. MVP supports 'group_summary' only.
      *
      * * `group_summary` - Group summary
@@ -324,7 +325,7 @@ export interface PatchedVisionActionApi {
      *
      * * `schedule` - Schedule
      * * `threshold` - Threshold */
-    trigger_type?: TriggerTypeEnumApi
+    trigger_type?: VisionActionTriggerTypeEnumApi
     /** What the action produces. MVP supports 'group_summary' only.
      *
      * * `group_summary` - Group summary

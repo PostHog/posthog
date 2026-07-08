@@ -47,6 +47,492 @@ export interface TaskRunErrorResponseApi {
     is_pro?: boolean
 }
 
+export interface LoopRepositoryEntryDTOApi {
+    github_integration_id: number
+    full_name: string
+}
+
+export interface LoopBehaviorsDTOApi {
+    create_prs?: boolean
+    watch_ci?: boolean
+    fix_review_comments?: boolean
+    max_fix_iterations?: number
+}
+
+export interface LoopConnectorsDTOApi {
+    mcp_installation_ids?: string[]
+    posthog_mcp_scopes?: string
+}
+
+export type LoopNotificationChannelDTOApiParams = { [key: string]: unknown }
+
+export interface LoopNotificationChannelDTOApi {
+    enabled?: boolean
+    events?: string[]
+    params?: LoopNotificationChannelDTOApiParams
+}
+
+export interface LoopNotificationsDTOApi {
+    push: LoopNotificationChannelDTOApi
+    email: LoopNotificationChannelDTOApi
+    slack: LoopNotificationChannelDTOApi
+}
+
+export type LoopTriggerDTOApiConfig = { [key: string]: unknown }
+
+/**
+ * Read response for a single loop trigger.
+ */
+export interface LoopTriggerDTOApi {
+    id: string
+    loop_id: string
+    type: string
+    enabled: boolean
+    config: LoopTriggerDTOApiConfig
+    /** @nullable */
+    schedule_sync_status: string | null
+    /** @nullable */
+    last_fired_at: string | null
+    created_at: string
+    updated_at: string
+}
+
+/**
+ * Detail/create/update response for a loop, including its triggers.
+ */
+export interface LoopDTOApi {
+    id: string
+    team_id: number
+    /** @nullable */
+    created_by_id: number | null
+    name: string
+    description: string
+    visibility: string
+    instructions: string
+    runtime_adapter: string
+    model: string
+    /** @nullable */
+    reasoning_effort: string | null
+    /** Repositories this loop operates on. */
+    repositories: LoopRepositoryEntryDTOApi[]
+    /** @nullable */
+    sandbox_environment_id: string | null
+    enabled: boolean
+    overlap_policy: string
+    /** PR / CI-follow-up behavior configuration. */
+    behaviors: LoopBehaviorsDTOApi
+    /** MCP connector configuration for this loop's runs. */
+    connectors: LoopConnectorsDTOApi
+    /** Per-channel notification configuration. */
+    notifications: LoopNotificationsDTOApi
+    /** @nullable */
+    last_run_at: string | null
+    /** @nullable */
+    last_run_status: string | null
+    /** @nullable */
+    last_error: string | null
+    consecutive_failures: number
+    created_at: string
+    updated_at: string
+    /** Triggers attached to this loop. */
+    triggers: LoopTriggerDTOApi[]
+}
+
+export interface PaginatedLoopDTOListApi {
+    count: number
+    /** @nullable */
+    next?: string | null
+    /** @nullable */
+    previous?: string | null
+    results: LoopDTOApi[]
+}
+
+/**
+ * * `personal` - personal
+ * * `team` - team
+ */
+export type LoopWriteVisibilityEnumApi = (typeof LoopWriteVisibilityEnumApi)[keyof typeof LoopWriteVisibilityEnumApi]
+
+export const LoopWriteVisibilityEnumApi = {
+    Personal: 'personal',
+    Team: 'team',
+} as const
+
+/**
+ * * `claude` - claude
+ * * `codex` - codex
+ */
+export type RuntimeAdapterEnumApi = (typeof RuntimeAdapterEnumApi)[keyof typeof RuntimeAdapterEnumApi]
+
+export const RuntimeAdapterEnumApi = {
+    Claude: 'claude',
+    Codex: 'codex',
+} as const
+
+/**
+ * * `low` - low
+ * * `medium` - medium
+ * * `high` - high
+ * * `xhigh` - xhigh
+ * * `max` - max
+ */
+export type ReasoningEffortEnumApi = (typeof ReasoningEffortEnumApi)[keyof typeof ReasoningEffortEnumApi]
+
+export const ReasoningEffortEnumApi = {
+    Low: 'low',
+    Medium: 'medium',
+    High: 'high',
+    Xhigh: 'xhigh',
+    Max: 'max',
+} as const
+
+export interface LoopRepositoryEntryApi {
+    /** GitHub integration id this repository is accessed through. */
+    github_integration_id: number
+    /**
+     * Repository in `organization/repo` format, e.g. `posthog/posthog`.
+     * @maxLength 255
+     */
+    full_name: string
+}
+
+/**
+ * * `skip` - skip
+ * * `allow` - allow
+ * * `cancel_previous` - cancel_previous
+ */
+export type OverlapPolicyEnumApi = (typeof OverlapPolicyEnumApi)[keyof typeof OverlapPolicyEnumApi]
+
+export const OverlapPolicyEnumApi = {
+    Skip: 'skip',
+    Allow: 'allow',
+    CancelPrevious: 'cancel_previous',
+} as const
+
+export interface LoopBehaviorsApi {
+    /** Whether the agent may push branches and open PRs. False makes this a report-only loop. */
+    create_prs?: boolean
+    /** Whether to watch CI on loop-created PRs and report status. */
+    watch_ci?: boolean
+    /** Whether to automatically address review comments on loop-created PRs. */
+    fix_review_comments?: boolean
+    /**
+     * Ceiling on automatic CI/review-comment fix iterations, capped at 10.
+     * @minimum 0
+     * @maximum 10
+     */
+    max_fix_iterations?: number
+}
+
+/**
+ * * `read_only` - read_only
+ * * `full` - full
+ */
+export type PosthogMcpScopesEnumApi = (typeof PosthogMcpScopesEnumApi)[keyof typeof PosthogMcpScopesEnumApi]
+
+export const PosthogMcpScopesEnumApi = {
+    ReadOnly: 'read_only',
+    Full: 'full',
+} as const
+
+export interface LoopConnectorsApi {
+    /** MCP Store installation ids (Slack, Linear, etc.) available to this loop's runs. */
+    mcp_installation_ids?: string[]
+    /** Scope of the PostHog MCP access injected into this loop's runs.
+     *
+     * * `read_only` - read_only
+     * * `full` - full */
+    posthog_mcp_scopes?: PosthogMcpScopesEnumApi
+}
+
+/**
+ * * `run_completed` - run_completed
+ * * `run_failed` - run_failed
+ * * `pr_created` - pr_created
+ * * `needs_attention` - needs_attention
+ */
+export type EventsEnumApi = (typeof EventsEnumApi)[keyof typeof EventsEnumApi]
+
+export const EventsEnumApi = {
+    RunCompleted: 'run_completed',
+    RunFailed: 'run_failed',
+    PrCreated: 'pr_created',
+    NeedsAttention: 'needs_attention',
+} as const
+
+/**
+ * Channel-specific parameters, e.g. Slack's `integration_id` and `channel`.
+ */
+export type LoopNotificationChannelApiParams = { [key: string]: unknown }
+
+export interface LoopNotificationChannelApi {
+    /** Whether this channel is active. */
+    enabled?: boolean
+    /** Event kinds this channel notifies on. One or more of: run_completed, run_failed, pr_created, needs_attention. */
+    events?: EventsEnumApi[]
+    /** Channel-specific parameters, e.g. Slack's `integration_id` and `channel`. */
+    params?: LoopNotificationChannelApiParams
+}
+
+export interface LoopNotificationsApi {
+    /** Push notification settings. */
+    push?: LoopNotificationChannelApi
+    /** Email notification settings. */
+    email?: LoopNotificationChannelApi
+    /** Slack notification settings. */
+    slack?: LoopNotificationChannelApi
+}
+
+/**
+ * * `schedule` - schedule
+ * * `github` - github
+ * * `api` - api
+ */
+export type LoopTriggerTypeEnumApi = (typeof LoopTriggerTypeEnumApi)[keyof typeof LoopTriggerTypeEnumApi]
+
+export const LoopTriggerTypeEnumApi = {
+    Schedule: 'schedule',
+    Github: 'github',
+    Api: 'api',
+} as const
+
+export interface LoopTriggerWriteApi {
+    /** Existing trigger id to update in place. Omit to create a new trigger. */
+    id?: string
+    /** Trigger type: `schedule` (cron or one-time), `github` (repo webhook events), or `api` (POST to `trigger/`).
+     *
+     * * `schedule` - schedule
+     * * `github` - github
+     * * `api` - api */
+    type: LoopTriggerTypeEnumApi
+    /** Whether this trigger is active. Disabling pauses only this trigger. */
+    enabled?: boolean
+    /** Trigger configuration, shape validated per `type`: schedule takes `{cron_expression, timezone}` or `{run_at}` for a one-time run; github takes `{github_integration_id, repository, events, filters}`; api takes no config. */
+    config?: unknown
+}
+
+/**
+ * Request body for creating or updating a loop. Field required/default semantics match
+ * the `Loop` model; partial updates only touch keys present in the payload.
+ */
+export interface LoopWriteApi {
+    /**
+     * Display name for the loop.
+     * @maxLength 400
+     */
+    name: string
+    /** Free-form description of what this loop does. */
+    description?: string
+    /** `personal` (owner-only) or `team` (visible and fireable by any team member).
+     *
+     * * `personal` - personal
+     * * `team` - team */
+    visibility?: LoopWriteVisibilityEnumApi
+    /** The prompt delivered to the agent on every run. */
+    instructions: string
+    /** Runtime adapter: 'claude' or 'codex'.
+     *
+     * * `claude` - claude
+     * * `codex` - codex */
+    runtime_adapter: RuntimeAdapterEnumApi
+    /** LLM model identifier, validated against `runtime_adapter`'s catalog. */
+    model: string
+    /** Reasoning effort, validated against `runtime_adapter`/`model`'s supported set.
+     *
+     * * `low` - low
+     * * `medium` - medium
+     * * `high` - high
+     * * `xhigh` - xhigh
+     * * `max` - max */
+    reasoning_effort?: ReasoningEffortEnumApi | null
+    /**
+     * Repositories this loop operates on, ordered. Capped at 1 until multi-repo execution ships. May be empty for report-only loops.
+     * @maxItems 1
+     */
+    repositories?: LoopRepositoryEntryApi[]
+    /**
+     * Sandbox environment carrying encrypted env vars and the network allowlist into every run.
+     * @nullable
+     */
+    sandbox_environment?: string | null
+    /** Whether the loop's triggers are active. Pausing disables all triggers. */
+    enabled?: boolean
+    /** What happens when a trigger fires while a run is already active: 'skip', 'allow', or 'cancel_previous'.
+     *
+     * * `skip` - skip
+     * * `allow` - allow
+     * * `cancel_previous` - cancel_previous */
+    overlap_policy?: OverlapPolicyEnumApi
+    /** PR / CI-follow-up behavior configuration. */
+    behaviors?: LoopBehaviorsApi
+    /** MCP connector configuration for this loop's runs. */
+    connectors?: LoopConnectorsApi
+    /** Per-channel notification configuration. */
+    notifications?: LoopNotificationsApi
+    /** Full desired trigger list, id-stable: entries with a matching `id` are updated in place, entries without one are created, and existing triggers absent from this list are deleted. Omit the field entirely to leave triggers untouched. */
+    triggers?: LoopTriggerWriteApi[]
+}
+
+/**
+ * Request body for creating or updating a loop. Field required/default semantics match
+ * the `Loop` model; partial updates only touch keys present in the payload.
+ */
+export interface PatchedLoopWriteApi {
+    /**
+     * Display name for the loop.
+     * @maxLength 400
+     */
+    name?: string
+    /** Free-form description of what this loop does. */
+    description?: string
+    /** `personal` (owner-only) or `team` (visible and fireable by any team member).
+     *
+     * * `personal` - personal
+     * * `team` - team */
+    visibility?: LoopWriteVisibilityEnumApi
+    /** The prompt delivered to the agent on every run. */
+    instructions?: string
+    /** Runtime adapter: 'claude' or 'codex'.
+     *
+     * * `claude` - claude
+     * * `codex` - codex */
+    runtime_adapter?: RuntimeAdapterEnumApi
+    /** LLM model identifier, validated against `runtime_adapter`'s catalog. */
+    model?: string
+    /** Reasoning effort, validated against `runtime_adapter`/`model`'s supported set.
+     *
+     * * `low` - low
+     * * `medium` - medium
+     * * `high` - high
+     * * `xhigh` - xhigh
+     * * `max` - max */
+    reasoning_effort?: ReasoningEffortEnumApi | null
+    /**
+     * Repositories this loop operates on, ordered. Capped at 1 until multi-repo execution ships. May be empty for report-only loops.
+     * @maxItems 1
+     */
+    repositories?: LoopRepositoryEntryApi[]
+    /**
+     * Sandbox environment carrying encrypted env vars and the network allowlist into every run.
+     * @nullable
+     */
+    sandbox_environment?: string | null
+    /** Whether the loop's triggers are active. Pausing disables all triggers. */
+    enabled?: boolean
+    /** What happens when a trigger fires while a run is already active: 'skip', 'allow', or 'cancel_previous'.
+     *
+     * * `skip` - skip
+     * * `allow` - allow
+     * * `cancel_previous` - cancel_previous */
+    overlap_policy?: OverlapPolicyEnumApi
+    /** PR / CI-follow-up behavior configuration. */
+    behaviors?: LoopBehaviorsApi
+    /** MCP connector configuration for this loop's runs. */
+    connectors?: LoopConnectorsApi
+    /** Per-channel notification configuration. */
+    notifications?: LoopNotificationsApi
+    /** Full desired trigger list, id-stable: entries with a matching `id` are updated in place, entries without one are created, and existing triggers absent from this list are deleted. Omit the field entirely to leave triggers untouched. */
+    triggers?: LoopTriggerWriteApi[]
+}
+
+export interface LoopPreviewRequestApi {
+    /** Trigger type to simulate. Defaults to a synthetic schedule fire.
+     *
+     * * `schedule` - schedule
+     * * `github` - github
+     * * `api` - api */
+    trigger_type?: LoopTriggerTypeEnumApi
+    /** Sample trigger payload, e.g. a GitHub webhook body or an API trigger body, to render into context. */
+    payload?: unknown
+}
+
+export interface LoopPreviewDTOApi {
+    instructions: string
+    trigger_type: string
+    trigger_context: string
+}
+
+/**
+ * * `created` - created
+ * * `deduped` - deduped
+ * * `overlap_skipped` - overlap_skipped
+ * * `rate_capped` - rate_capped
+ * * `disabled` - disabled
+ * * `gate_blocked` - gate_blocked
+ */
+export type LoopFireResultReasonEnumApi = (typeof LoopFireResultReasonEnumApi)[keyof typeof LoopFireResultReasonEnumApi]
+
+export const LoopFireResultReasonEnumApi = {
+    Created: 'created',
+    Deduped: 'deduped',
+    OverlapSkipped: 'overlap_skipped',
+    RateCapped: 'rate_capped',
+    Disabled: 'disabled',
+    GateBlocked: 'gate_blocked',
+} as const
+
+/**
+ * Response for a manual (`run/`) or external (`trigger/`) fire.
+ */
+export interface LoopFireResultApi {
+    created: boolean
+    /** Outcome of the fire attempt.
+     *
+     * * `created` - created
+     * * `deduped` - deduped
+     * * `overlap_skipped` - overlap_skipped
+     * * `rate_capped` - rate_capped
+     * * `disabled` - disabled
+     * * `gate_blocked` - gate_blocked */
+    reason: LoopFireResultReasonEnumApi
+    /**
+     * Id of the created task, when `created` is true.
+     * @nullable
+     */
+    task_id: string | null
+    /**
+     * Id of the created task run, when `created` is true.
+     * @nullable
+     */
+    task_run_id: string | null
+}
+
+/**
+ * @nullable
+ */
+export type LoopRunDTOApiOutput = { [key: string]: unknown } | null
+
+/**
+ * A single entry in a loop's run history.
+ */
+export interface LoopRunDTOApi {
+    id: string
+    task_id: string
+    /** @nullable */
+    loop_trigger_id: string | null
+    status: string
+    environment: string
+    /** @nullable */
+    branch: string | null
+    /** @nullable */
+    error_message: string | null
+    /** @nullable */
+    output: LoopRunDTOApiOutput
+    created_at: string
+    /** @nullable */
+    completed_at: string | null
+}
+
+export interface LoopRunPageApi {
+    /** Run history entries, newest first. */
+    results: LoopRunDTOApi[]
+    /**
+     * Opaque cursor for the next page, or null when there are no more results.
+     * @nullable
+     */
+    next_cursor: string | null
+}
+
 /**
  * @nullable
  */
@@ -787,6 +1273,7 @@ export interface PaginatedTaskDetailDTOListApi {
  * * `hogdesk` - HogDesk
  * * `review_hog` - ReviewHog
  * * `image_builder` - Image Builder
+ * * `loop` - Loop
  */
 export type OriginProductEnumApi = (typeof OriginProductEnumApi)[keyof typeof OriginProductEnumApi]
 
@@ -807,6 +1294,7 @@ export const OriginProductEnumApi = {
     Hogdesk: 'hogdesk',
     ReviewHog: 'review_hog',
     ImageBuilder: 'image_builder',
+    Loop: 'loop',
 } as const
 
 /**
@@ -944,6 +1432,16 @@ export interface TaskCreateApi {
 }
 
 /**
+ * * `implementation` - Implementation
+ */
+export type SignalReportTaskRelationshipEnumApi =
+    (typeof SignalReportTaskRelationshipEnumApi)[keyof typeof SignalReportTaskRelationshipEnumApi]
+
+export const SignalReportTaskRelationshipEnumApi = {
+    Implementation: 'implementation',
+} as const
+
+/**
  * Request body for creating or updating a task.
  *
  * Field required/default semantics match the ``Task`` model. The view passes
@@ -977,7 +1475,8 @@ export interface TaskWriteApi {
      * * `support_reply` - Support Reply
      * * `hogdesk` - HogDesk
      * * `review_hog` - ReviewHog
-     * * `image_builder` - Image Builder */
+     * * `image_builder` - Image Builder
+     * * `loop` - Loop */
     origin_product?: OriginProductEnumApi
     /**
      * Target GitHub repository in `organization/repo` format (e.g. `posthog/posthog-js`).
@@ -1096,7 +1595,8 @@ export interface PatchedTaskWriteApi {
      * * `support_reply` - Support Reply
      * * `hogdesk` - HogDesk
      * * `review_hog` - ReviewHog
-     * * `image_builder` - Image Builder */
+     * * `image_builder` - Image Builder
+     * * `loop` - Loop */
     origin_product?: OriginProductEnumApi
     /**
      * Target GitHub repository in `organization/repo` format (e.g. `posthog/posthog-js`).
@@ -2908,6 +3408,37 @@ export interface WarmTaskResponseApi {
     /** Id of the idling warm Run. The normal create+run path reuses and activates it on submit. */
     run_id: string
 }
+
+export type LoopsListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number
+}
+
+export type LoopsRunsRetrieveParams = {
+    /**
+     * Opaque pagination cursor from a previous response's `next_cursor`.
+     * @minLength 1
+     */
+    cursor?: string
+    /**
+     * Max results per page (default 50, max 100).
+     * @minimum 1
+     * @maximum 100
+     */
+    limit?: number
+}
+
+export type LoopsTriggerCreateBodyOne = { [key: string]: unknown }
+
+export type LoopsTriggerCreateBodyTwo = { [key: string]: unknown }
+
+export type LoopsTriggerCreateBodyThree = { [key: string]: unknown }
 
 export type SandboxCustomImagesListParams = {
     /**

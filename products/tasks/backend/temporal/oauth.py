@@ -10,6 +10,7 @@ from posthog.temporal.oauth import (
     SandboxOAuthApplication,
     create_oauth_access_token_for_user as _create_oauth_access_token_for_user,
     create_wizard_oauth_access_token_for_user as _create_wizard_oauth_access_token_for_user,
+    resolve_scopes,
 )
 
 from products.tasks.backend.exceptions import OAuthTokenError, TaskInvalidStateError
@@ -29,11 +30,22 @@ __all__ = [
     "create_wizard_oauth_access_token",
 ]
 
+# Loop CRUD MCP tools must never be reachable from inside a loop-fired run, regardless of the
+# loop's configured connector scope (products/tasks/docs/LOOPS.md, Connectors section): a
+# triggered run has no legitimate reason to create/edit/delete loops, and this closes the
+# injected-instructions plant-a-persistent-loop path. loop:read stays granted.
+LOOP_FIRED_RUN_EXCLUDED_SCOPES = frozenset({"loop:write"})
+
 
 def _oauth_application_for_task(task: Task) -> SandboxOAuthApplication:
     if task.origin_product == Task.OriginProduct.POSTHOG_AI:
         return "posthog_ai"
     return "array"
+
+
+def _scopes_for_loop_fired_run(scopes: PosthogMcpScopes) -> list[str]:
+    resolved = resolve_scopes(scopes, include_internal_scopes=True)
+    return [scope for scope in resolved if scope not in LOOP_FIRED_RUN_EXCLUDED_SCOPES]
 
 
 def create_oauth_access_token(
@@ -42,10 +54,12 @@ def create_oauth_access_token(
     scopes: PosthogMcpScopes = "read_only",
     user: User | None = None,
     allow_task_creator_fallback: bool = True,
+    loop_id: str | None = None,
 ) -> str:
     """Create an OAuth access token for the task's sandbox app, scoped to the task's team.
 
-    OAuth tokens auto-expire after 6 hours, so no cleanup is needed.
+    OAuth tokens auto-expire after 6 hours, so no cleanup is needed. Pass `loop_id` for a
+    loop-fired run so `loop:write` is stripped from the granted scopes regardless of `scopes`.
     """
     actor = user or (task.created_by if allow_task_creator_fallback else None)
     if not actor:
@@ -55,10 +69,11 @@ def create_oauth_access_token(
             cause=RuntimeError(f"Task {task.id} missing sandbox OAuth user"),
         )
 
+    effective_scopes: PosthogMcpScopes = _scopes_for_loop_fired_run(scopes) if loop_id else scopes
     return create_oauth_access_token_for_user(
         actor,
         task.team_id,
-        scopes=scopes,
+        scopes=effective_scopes,
         application=_oauth_application_for_task(task),
     )
 
@@ -75,14 +90,17 @@ def create_oauth_access_token_for_run(
     recorded actor can't be validated (never falling back to the task creator), while
     other runs keep the creator fallback. Callers must not re-derive this pairing by
     hand — passing ``user``/``allow_task_creator_fallback`` separately makes it possible
-    to mint creator credentials for a Slack run by omitting one kwarg.
+    to mint creator credentials for a Slack run by omitting one kwarg. Loop-fired runs
+    (``loop_id`` in run state) get ``loop:write`` stripped from the granted scopes here.
     """
     actor_user = get_task_run_credential_user(task, state)
+    loop_id = (state or {}).get("loop_id")
     return create_oauth_access_token(
         task,
         scopes=scopes,
         user=actor_user,
         allow_task_creator_fallback=not is_slack_interaction_state(state),
+        loop_id=loop_id if isinstance(loop_id, str) else None,
     )
 
 

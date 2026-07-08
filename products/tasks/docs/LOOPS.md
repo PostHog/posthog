@@ -272,6 +272,7 @@ No local MCP server needed. The remote PostHog MCP is the right surface:
 All UI lives in `PostHog/code`. Nothing is added to posthog `frontend/`.
 
 Desktop (`apps/code` + `packages/ui`):
+
 - New top-level "Loops" sidebar item (peer of Tasks/Agents), with list (split by personal / team visibility), detail (config + run history + activity history tab) and a create/edit form.
 - Reuse: prompt composer patterns from `task-detail`, model selection from `AgentModelConfig` / `cloudRunOptions`, repo picker (extended to multi-select), MCP attach via `useMcpConnect` + `AddCustomServerDialog` + `ToolPermissionList`, Slack channel picker from existing settings sections, `NotificationBus` for local surfacing of loop events.
 - Preview flow: the trigger editor exercises `loops/:id/preview/` before a loop is enabled.
@@ -279,6 +280,7 @@ Desktop (`apps/code` + `packages/ui`):
 - Trigger editor mirrors the Claude Code pattern: Schedule / GitHub event (repo select first) / API (shows endpoint + key instructions).
 
 Mobile (`apps/mobile`):
+
 - Evolve the existing automation screens into Loops: keep `ScheduleEditor` and the form skeleton, add trigger list, model picker, connectors and notification toggles.
 - Push notification plumbing already done (token registration, deep links).
 

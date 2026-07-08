@@ -5740,6 +5740,7 @@ export const API_SCOPE_OBJECTS = [
     'llm_provider_key',
     'llm_skill',
     'logs',
+    'loop',
     'marketing_analytics',
     'mcp_analytics',
     'metrics',

@@ -35,6 +35,7 @@ resolved.
 ## 🔴 Critical / blocking
 
 ### 1. Phase-2 babysitting has no persisted iteration counter across run boundaries
+
 **Section:** Behaviors ("Phase 2 of babysitting"), Run.
 `max_fix_iterations` today is enforced as in-workflow state (`MAX_CI_REPETITIONS`)
 inside one Temporal execution. Phase 2 spawns a **new** Task/TaskRun/workflow
@@ -54,6 +55,7 @@ re-triggered again → repeats indefinitely. Each hop is an individual
 prose.
 
 ### 2. Self-feeding `push`-trigger + auto-fix loop is a mechanical consequence, not a hypothetical
+
 **Section:** Behaviors, GitHub event triggers §2, PR babysitting phase 2.
 `fix_review_comments=true` pushes fix commits. A `push`-event `LoopTrigger`
 on the same repo has no exclusion for commits authored by the loop's own
@@ -68,6 +70,7 @@ re-matching triggers; reconcile push-trigger vs. phase-2 PR-webhook overlap
 so one commit can't double-spawn; document cap-exhaustion behavior.
 
 ### 3. `overlap_policy` check-then-create has no transactional guarantee
+
 **Section:** Run ("Overlap: before creating a task, check for an active run...").
 No `SELECT ... FOR UPDATE`, advisory lock, or partial unique index is
 specified. A schedule fire and a webhook fire landing within the async lag
@@ -81,6 +84,7 @@ retroactively, possibly after a PR is already opened).
 loop — and define "active" precisely.
 
 ### 4. Dedup key is not scoped to the matched trigger/loop
+
 **Section:** Run ("Idempotency"), GitHub event triggers §2 & §4.
 The doc's own design has one webhook delivery matching **multiple**
 `LoopTrigger` rows (§2), but the stated dedup key is the delivery GUID alone.
@@ -95,6 +99,7 @@ by a DB unique constraint; add client-supplied idempotency key support for
 API/manual triggers or explicitly state there is none.
 
 ### 5. `LoopTrigger` claims team-scoping it doesn't structurally have
+
 **Section:** Data model.
 The schema block lists `LoopTrigger` with only a `loop` FK — no direct
 `team`/`team_id` column. The doc asserts "Both team-scoped (fail-closed
@@ -109,6 +114,7 @@ repo's AGENTS.md, this is a hard requirement, not a nice-to-have.
 `TaskThreadMessage`).
 
 ### 6. Retention sweep can delete an in-flight run's task
+
 **Section:** Run ("Cleanup").
 "Keep the latest 200 per loop" is a pure recency rule with no run-status
 awareness. A busy or long-lived loop can push an active run outside the
@@ -123,6 +129,7 @@ set regardless of recency rank.
 ## 🟠 High
 
 ### 7. `LoopTrigger` matching may leak repo content across teams sharing a GitHub App installation
+
 **Section:** GitHub event triggers §2.
 The doc's own wording says installation → **teams** (plural) — one App
 installation can map to multiple PostHog teams. Matching is described as
@@ -137,6 +144,7 @@ filters)`; validate `repository` against the enumerable repo list of the
 specific integration at trigger-creation time.
 
 ### 8. PSAK `loop:trigger` scope replays across every loop in the project
+
 **Section:** API trigger auth.
 PSAK scopes are project-wide by design (no object-level binding). A key
 leaked from one loop's integration authenticates `POST
@@ -148,6 +156,7 @@ chosen payload."
 consider binding a minted key to a specific loop id.
 
 ### 9. "Fenced, not-instructions" is the sole stated defense against prompt injection into a write-capable agent
+
 **Section:** Trigger payload handling, Security and guardrails.
 A real, but known-bypassable, mitigation, treated as sufficient for a run
 that combines attacker-influenceable input (GitHub issue/PR bodies on any
@@ -159,6 +168,7 @@ trigger-fired runs, or require explicit opt-in before an externally-triggered
 run gets write-connector access.
 
 ### 10. Full-scope loops can create persistent backdoor loops via MCP
+
 **Section:** Connectors (MCP), Natural language creation.
 The doc itself notes a full-scope loop can call `loops-create`. Composed with
 9 and 8: an attacker who gets one full-scope loop to execute injected
@@ -171,6 +181,7 @@ regardless of scope (no legitimate product reason for a scheduled run to
 spawn new loops).
 
 ### 11. `TaskAutomation` deletion skips the mandated two-phase retirement workflow, and "unused" is asserted, not verified
+
 **Section:** Takeover of TaskAutomation.
 The doc's own capability table lists TaskAutomation's scheduling as
 "Production." "Delete outright, no migration, no shim" contradicts this
@@ -186,6 +197,7 @@ sequence; name a concrete schedule-cleanup script sequenced before workflow
 rename; state a mobile deprecation window.
 
 ### 12. Cross-repo agent-server contract has no version negotiation, and the sandbox already floats on `@latest`
+
 **Section:** Workspace (multi-repo), Frontend, Phasing (Phase 5).
 "Instead of `--repositoryPath`" reads as a hard cutover, with no capability
 handshake — contrast with the existing `--baseBranch` fallback pattern
@@ -203,6 +215,7 @@ least one release; gate multi-repo loop exposure behind a feature flag tied
 to a confirmed-live agent-server minimum version.
 
 ### 13. Multi-repo PR opening has no stated partial-failure policy
+
 **Section:** Workspace (multi-repo).
 No transactional/rollback semantics for the commit→push→PR-open sequence
 across N repos. If repo A's PR opens and repo B's push fails (or a duplicate
@@ -215,6 +228,7 @@ repo A's context.
 make branch/PR creation idempotent against retries.
 
 ### 14. Webhook registry refactor touches shared, already-shipped production code with no isolation/rollout plan
+
 **Section:** GitHub event triggers §1.
 The registry generalization changes failure semantics for code Loops doesn't
 own (conversations, tasks PR backstop, installation lifecycle) — no stated
@@ -225,6 +239,7 @@ sequencing, no mention of the existing dual-route (`webhooks/github/pr` and
 against existing consumers), add the Loops handler as a separate, additive PR.
 
 ### 15. GitHub App event-subscription is a manual, unaudited ops step not gated in phasing
+
 **Section:** GitHub event triggers §3, Phasing (Phase 3).
 Listed as one bullet among four with no blocking relationship to code merge.
 If it slips, `type=github` triggers for unsubscribed events (e.g. `push`)
@@ -236,6 +251,7 @@ for Phase 3 enablement; enforce the v1 event allowlist server-side, not just
 in the frontend.
 
 ### 16. Delivery-GUID dedup has no storage/TTL/scope design
+
 **Section:** GitHub event triggers §4.
 No existing pattern to model this on (confirmed: no dedup exists in
 `github_webhook` or `products/tasks/backend/webhooks.py` today). Undefined:
@@ -246,6 +262,7 @@ is unavailable.
 once at the dispatcher level, explicit fail-open decision stated.
 
 ### 17. Trigger fan-out matching has no stated index/query plan, and `overlap_policy` doesn't protect against burst-of-distinct-events amplification
+
 **Section:** GitHub event triggers §2.
 `repository`/`event`/`filters` matching against JSON-config trigger rows,
 scoped only after "resolve installation id to teams" — no promoted indexed
@@ -260,6 +277,7 @@ loop matching N different PRs) firing concurrently in a tight window. The
 per-loop concurrency/rate guard independent of `overlap_policy`.
 
 ### 18. No idempotent "PR already open" check for scheduled loops
+
 **Section:** Workspace (multi-repo), Behaviors.
 Every firing uses a distinct branch shortid; nothing checks GitHub for an
 existing open PR from a prior firing before opening another. A daily loop
@@ -270,6 +288,7 @@ across non-overlapping fires days apart.
 open PR from the same loop against the same repo.
 
 ### 19. 100 runs/day cap is per-loop only; nothing bounds aggregate spend across a team's loops
+
 **Section:** Security and guardrails.
 No cap on number of loops per team, no aggregate runs/day, no stated
 team/org scope for the cloud usage limit gate. A team facing the per-loop
@@ -279,6 +298,7 @@ and the doc never states its scope.
 ceiling, or add an aggregate per-team cap.
 
 ### 20. Usage-limit gate rejections have undefined failure/notification semantics for unattended triggers
+
 **Section:** Security and guardrails.
 For `TaskViewSet.run`, gate rejection is synchronous UX a human sees
 immediately. For schedule/webhook fires, nobody is watching — the doc

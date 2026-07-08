@@ -1,0 +1,182 @@
+import logging
+from datetime import UTC, datetime, timedelta
+
+from django.conf import settings
+from django.utils import timezone as django_timezone
+from django.utils.dateparse import parse_datetime
+
+from temporalio.client import (
+    Schedule,
+    ScheduleActionStartWorkflow,
+    ScheduleCalendarSpec,
+    ScheduleOverlapPolicy,
+    SchedulePolicy,
+    ScheduleRange,
+    ScheduleSpec,
+    ScheduleState,
+)
+
+from posthog.temporal.common.client import sync_connect
+from posthog.temporal.common.schedule import (
+    create_schedule,
+    delete_schedule,
+    pause_schedule,
+    schedule_exists,
+    unpause_schedule,
+    update_schedule,
+)
+
+from .models import Loop, LoopTrigger
+
+logger = logging.getLogger(__name__)
+
+LOOP_SCHEDULE_CATCHUP_WINDOW = timedelta(minutes=5)
+
+
+def _run_at_datetime(raw: str) -> datetime:
+    parsed = parse_datetime(raw)
+    if parsed is None:
+        raise ValueError(f"Invalid run_at value: {raw!r}")
+    if django_timezone.is_naive(parsed):
+        parsed = django_timezone.make_aware(parsed, UTC)
+    return parsed.astimezone(UTC)
+
+
+def _one_time_schedule_spec(run_at: datetime) -> ScheduleSpec:
+    # A single calendar match: pinning every field including year narrows the match
+    # to this exact instant, and remaining_actions=1 on the schedule state stops it
+    # from firing again if the calendar expression were ever re-evaluated.
+    return ScheduleSpec(
+        calendars=[
+            ScheduleCalendarSpec(
+                second=[ScheduleRange(run_at.second)],
+                minute=[ScheduleRange(run_at.minute)],
+                hour=[ScheduleRange(run_at.hour)],
+                day_of_month=[ScheduleRange(run_at.day)],
+                month=[ScheduleRange(run_at.month)],
+                year=[ScheduleRange(run_at.year)],
+            )
+        ],
+        time_zone_name="UTC",
+    )
+
+
+def build_loop_trigger_schedule(trigger: LoopTrigger) -> Schedule:
+    """Build the Temporal Schedule for a schedule-type loop trigger.
+
+    Explicit policy throughout, never the SDK default: overlap SKIP and a 5 minute
+    catchup window, so a Temporal outage never replays its whole missed window as a
+    burst on recovery. A `run_at` in the trigger config produces a one-time schedule
+    (limited_actions, remaining_actions=1); otherwise it's a recurring cron schedule.
+    """
+    config = trigger.config or {}
+    action = ScheduleActionStartWorkflow(
+        "run-loop",
+        str(trigger.id),
+        id=f'loop-trigger-{trigger.id}-{{{{.ScheduledTime.Format "2006-01-02-15-04-05"}}}}',
+        task_queue=settings.TASKS_TASK_QUEUE,
+    )
+    is_enabled = trigger.enabled and trigger.loop.enabled
+
+    run_at = config.get("run_at")
+    if run_at:
+        spec = _one_time_schedule_spec(_run_at_datetime(run_at))
+        state = ScheduleState(
+            paused=not is_enabled,
+            limited_actions=True,
+            remaining_actions=1,
+            note=f"One-time schedule for loop trigger: {trigger.id}",
+        )
+    else:
+        spec = ScheduleSpec(
+            cron_expressions=[config["cron_expression"]],
+            time_zone_name=config.get("timezone", "UTC"),
+        )
+        state = ScheduleState(
+            paused=not is_enabled,
+            note=f"Schedule for loop trigger: {trigger.id}",
+        )
+
+    return Schedule(
+        action=action,
+        spec=spec,
+        policy=SchedulePolicy(overlap=ScheduleOverlapPolicy.SKIP, catchup_window=LOOP_SCHEDULE_CATCHUP_WINDOW),
+        state=state,
+    )
+
+
+def sync_loop_trigger_schedule(trigger: LoopTrigger) -> None:
+    """Create or update the Temporal Schedule backing a schedule-type loop trigger.
+
+    Never lets a Temporal error propagate to the caller: failures are logged and
+    recorded on `trigger.schedule_sync_status` instead, per the Lifecycle section of
+    products/tasks/docs/LOOPS.md.
+    """
+    if trigger.type != LoopTrigger.TriggerType.SCHEDULE:
+        return
+
+    try:
+        temporal = sync_connect()
+        schedule = build_loop_trigger_schedule(trigger)
+        if schedule_exists(temporal, trigger.schedule_id):
+            update_schedule(temporal, trigger.schedule_id, schedule)
+            if trigger.enabled and trigger.loop.enabled:
+                unpause_schedule(temporal, trigger.schedule_id, note="Loop trigger enabled")
+            else:
+                pause_schedule(temporal, trigger.schedule_id, note="Loop trigger paused")
+        else:
+            create_schedule(temporal, trigger.schedule_id, schedule)
+        status = LoopTrigger.ScheduleSyncStatus.SYNCED
+    except Exception:
+        logger.exception("loop_trigger_schedule_sync_failed", extra={"loop_trigger_id": str(trigger.id)})
+        status = LoopTrigger.ScheduleSyncStatus.FAILED
+
+    LoopTrigger.objects.for_team(trigger.team_id, canonical=True).filter(id=trigger.id).update(
+        schedule_sync_status=status
+    )
+
+
+def delete_loop_trigger_schedule(trigger: LoopTrigger) -> None:
+    """Delete the Temporal Schedule for a trigger. Idempotent: swallows not-found and Temporal errors."""
+    if trigger.type != LoopTrigger.TriggerType.SCHEDULE:
+        return
+    try:
+        temporal = sync_connect()
+        if schedule_exists(temporal, trigger.schedule_id):
+            delete_schedule(temporal, trigger.schedule_id)
+    except Exception:
+        logger.exception("loop_trigger_schedule_delete_failed", extra={"loop_trigger_id": str(trigger.id)})
+
+
+def pause_loop_schedules(loop: Loop) -> None:
+    """Pause every schedule-backed trigger's Temporal Schedule for a loop.
+
+    Best-effort per trigger: one trigger's Temporal failure doesn't stop the rest
+    from being paused.
+    """
+    triggers = LoopTrigger.objects.for_team(loop.team_id, canonical=True).filter(
+        loop=loop, type=LoopTrigger.TriggerType.SCHEDULE
+    )
+    for trigger in triggers:
+        try:
+            temporal = sync_connect()
+            if schedule_exists(temporal, trigger.schedule_id):
+                pause_schedule(temporal, trigger.schedule_id, note="Loop paused")
+        except Exception:
+            logger.exception("loop_schedule_pause_failed", extra={"loop_trigger_id": str(trigger.id)})
+
+
+def resume_loop_schedules(loop: Loop) -> None:
+    """Unpause (or recreate, if missing) every enabled schedule trigger's Temporal Schedule."""
+    triggers = LoopTrigger.objects.for_team(loop.team_id, canonical=True).filter(
+        loop=loop, type=LoopTrigger.TriggerType.SCHEDULE, enabled=True
+    )
+    for trigger in triggers:
+        try:
+            temporal = sync_connect()
+            if schedule_exists(temporal, trigger.schedule_id):
+                unpause_schedule(temporal, trigger.schedule_id, note="Loop resumed")
+            else:
+                sync_loop_trigger_schedule(trigger)
+        except Exception:
+            logger.exception("loop_schedule_resume_failed", extra={"loop_trigger_id": str(trigger.id)})
