@@ -21,6 +21,7 @@ import { mcpAnalyticsOnboardingLogic } from './mcpAnalyticsOnboardingLogic'
 import { MCPAnalyticsTab, TAB_AI_PROMPTS, TAB_DESCRIPTIONS, mcpAnalyticsSceneLogic } from './mcpAnalyticsSceneLogic'
 import { MCPAnalyticsSceneMenuBar } from './MCPAnalyticsSceneMenuBar'
 import { MCPAnalyticsToolQuality } from './MCPAnalyticsToolQuality'
+import { MCPAnalyticsNotifications } from './notifications/MCPAnalyticsNotifications'
 import { MCPSessionsPlaylist } from './sessions/MCPSessionsPlaylist'
 
 export const scene: SceneExport = {
@@ -86,6 +87,13 @@ function MCPAnalyticsSceneContent(): JSX.Element {
             content: <MCPAnalyticsClustering />,
             link: combineUrl(urls.mcpAnalyticsIntentClustering(), sharedParams).url,
             'data-attr': 'mcp-analytics-intent-clustering-tab',
+        },
+        {
+            key: 'notifications',
+            label: 'Notifications',
+            content: <MCPAnalyticsNotifications />,
+            link: combineUrl(urls.mcpAnalyticsNotifications(), sharedParams).url,
+            'data-attr': 'mcp-analytics-notifications-tab',
         },
     ]
 
