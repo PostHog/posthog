@@ -64,13 +64,38 @@ describe('Legend', () => {
         expect(onClick).toHaveBeenCalledWith('returning')
     })
 
-    it('truncates each label and exposes the full name via a native title tooltip', () => {
+    it('exposes the full name via a native title tooltip and truncates', () => {
         const long = 'Breakdown value with an extremely long name that would otherwise crush the plot'
         const { container } = render(<Legend items={[{ key: 'a', label: long, color: '#000' }]} />)
         const label = container.querySelector<HTMLElement>(`[title="${long}"]`)!
         expect(label.textContent).toBe(long)
         expect(label.className).toContain('truncate')
-        expect(label.style.maxWidth).toBe('180px')
+    })
+
+    it('caps a crowded horizontal legend but leaves a lone series unclipped', () => {
+        const long = 'Breakdown value with an extremely long name that would otherwise crush the plot'
+        const crowded = render(
+            <Legend
+                items={[
+                    { key: 'a', label: long, color: '#000' },
+                    { key: 'b', label: 'Other', color: '#111' },
+                ]}
+            />
+        ).container.querySelector<HTMLElement>(`[title="${long}"]`)!
+        expect(crowded.style.maxWidth).toBe('180px')
+
+        const lone = render(
+            <Legend items={[{ key: 'a', label: long, color: '#000' }]} />
+        ).container.querySelector<HTMLElement>(`[title="${long}"]`)!
+        expect(lone.style.maxWidth).toBe('')
+    })
+
+    it('fills the slot and truncates for a vertical legend instead of a fixed cap', () => {
+        const { container } = render(<Legend items={ITEMS} orientation="vertical" />)
+        const label = container.querySelector<HTMLElement>(`[title="${ITEMS[0].label}"]`)!
+        expect(label.className).toContain('truncate')
+        expect(label.className).toContain('flex-1')
+        expect(label.style.maxWidth).toBe('')
     })
 
     it('dims only rows whose key is in hiddenKeys', () => {
