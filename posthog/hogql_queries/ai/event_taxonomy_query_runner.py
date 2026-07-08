@@ -17,6 +17,7 @@ from posthog.clickhouse.query_tagging import Product, tags_context
 from posthog.hogql_queries.ai.utils import TaxonomyCacheMixin
 from posthog.hogql_queries.insights.paginators import HogQLHasMorePaginator
 from posthog.hogql_queries.query_runner import AnalyticsQueryRunner
+from posthog.models.event.new_events_schema import use_new_events_schema
 
 from products.actions.backend.models.action import Action
 
@@ -137,6 +138,11 @@ class EventTaxonomyQueryRunner(TaxonomyCacheMixin, AnalyticsQueryRunner[EventTax
             )
         )
 
+    def _properties_document_expr(self) -> ast.Expr:
+        if use_new_events_schema(self.team.pk):
+            return ast.Call(name="toJSONString", args=[ast.Field(chain=["properties"])])
+        return ast.Field(chain=["properties"])
+
     def _get_subquery_filter(self) -> ast.Expr:
         date_filter = parse_expr("timestamp >= now() - INTERVAL 30 DAY")
         filter_expr: list[ast.Expr] = [date_filter]
@@ -161,7 +167,7 @@ class EventTaxonomyQueryRunner(TaxonomyCacheMixin, AnalyticsQueryRunner[EventTax
                         ast.CompareOperation(
                             left=ast.Call(
                                 name="JSONExtractString",
-                                args=[ast.Field(chain=["properties"]), ast.Constant(value=prop)],
+                                args=[self._properties_document_expr(), ast.Constant(value=prop)],
                             ),
                             op=ast.CompareOperationOp.NotEq,
                             right=ast.Constant(value=""),
@@ -202,7 +208,7 @@ class EventTaxonomyQueryRunner(TaxonomyCacheMixin, AnalyticsQueryRunner[EventTax
                                     ast.Constant(value=prop),
                                     ast.Call(
                                         name="JSONExtractString",
-                                        args=[ast.Field(chain=["properties"]), ast.Constant(value=prop)],
+                                        args=[self._properties_document_expr(), ast.Constant(value=prop)],
                                     ),
                                 ]
                             )
@@ -222,7 +228,7 @@ class EventTaxonomyQueryRunner(TaxonomyCacheMixin, AnalyticsQueryRunner[EventTax
                             max(timestamp) as latest_seen
                         FROM (
                             SELECT
-                                JSONExtractKeysAndValues(properties, 'String') as kv,
+                                JSONExtractKeysAndValues({properties_doc}, 'String') as kv,
                                 timestamp
                             FROM
                                 events
@@ -235,6 +241,7 @@ class EventTaxonomyQueryRunner(TaxonomyCacheMixin, AnalyticsQueryRunner[EventTax
                         GROUP BY key, value
                     """,
                 placeholders={
+                    "properties_doc": self._properties_document_expr(),
                     "subquery_filter": self._get_subquery_filter(),
                     "omit_filter": self._get_omit_filter(),
                 },

@@ -399,7 +399,7 @@ def _json_source_physical_type(
 ) -> ast.ConstantType:
     if context is None or not context.uses_new_events_schema():
         return ast.StringType(nullable=True)
-    if table_name != "events" or property_name is None:
+    if table_name != "events" or field_name is None or property_name is None:
         return ast.StringType(nullable=True)
 
     subcolumns = {

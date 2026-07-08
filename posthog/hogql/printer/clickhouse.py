@@ -38,6 +38,7 @@ from posthog.hogql.restricted_properties import restricted_property_keys_for_tab
 from posthog.hogql.type_system import parse_sql_runtime_type
 from posthog.hogql.visitor import GetFieldsTraverser, clone_expr
 
+from posthog.models.event.sql import EVENTS_PROPERTIES_JSON_SUBCOLUMNS, PERSON_PROPERTIES_JSON_SUBCOLUMNS
 from posthog.models.exchange_rate.sql import EXCHANGE_RATE_DECIMAL_PRECISION, EXCHANGE_RATE_DICTIONARY_NAME
 from posthog.models.team.team import WeekStartDay
 from posthog.models.utils import UUIDT
@@ -521,16 +522,39 @@ class ClickHousePrinter(BasePrinter):
         if not isinstance(type.table_type.resolve_database_table(self.context), EVENTS_TABLE_TYPES):
             return None
 
-        # toJSONString on a JSON column emits `"path": null` for every declared-but-absent typed path.
-        # Real JSON nulls cannot exist in the column (dropped on ingest) and no typed path name contains
-        # a dot, so dropping top-level null values from a single serialization reproduces the original
-        # document — at a fraction of the cost of re-extracting each present path.
+        # toJSONString on a JSON column emits default values for every declared-but-absent typed path.
+        # Real JSON nulls cannot exist in the column, and typed path names are top-level, so dropping
+        # those declared defaults from a single serialization reproduces the original document.
+        filter_expr = self._events_json_serialized_pair_filter(resolved_field.name)
         return (
             "concat('{', arrayStringConcat("
             "arrayMap(kv -> concat(toJSONString(kv.1), ':', kv.2), "
-            f"arrayFilter(kv -> kv.2 != 'null', JSONExtractKeysAndValuesRaw(toJSONString({field_sql})))"
+            f"arrayFilter(kv -> {filter_expr}, JSONExtractKeysAndValuesRaw(toJSONString({field_sql})))"
             "), ','), '}')"
         )
+
+    def _events_json_serialized_pair_filter(self, field_name: str) -> str:
+        subcolumns = (
+            EVENTS_PROPERTIES_JSON_SUBCOLUMNS if field_name == "properties" else PERSON_PROPERTIES_JSON_SUBCOLUMNS
+        )
+        array_keys = []
+        map_keys = []
+        for key, column_type in subcolumns.items():
+            runtime_type = parse_sql_runtime_type(column_type)
+            if runtime_type.family == "array":
+                array_keys.append(key)
+            elif runtime_type.family == "map":
+                map_keys.append(key)
+
+        filters = ["kv.2 != 'null'"]
+        if array_keys:
+            filters.append(f"NOT (kv.2 = '[]' AND has({self._clickhouse_string_array(array_keys)}, kv.1))")
+        if map_keys:
+            filters.append(f"NOT (kv.2 = '{{}}' AND has({self._clickhouse_string_array(map_keys)}, kv.1))")
+        return " AND ".join(filters)
+
+    def _clickhouse_string_array(self, values: list[str]) -> str:
+        return "[" + ", ".join(escape_clickhouse_string(value) for value in values) + "]"
 
     def _serialize_to_json_string_call(self, node: ast.Call) -> str | None:
         if node.name != "toJSONString" or len(node.args) != 1:

@@ -593,6 +593,7 @@ def get_teams_with_billable_event_count_in_period(
         *CONVERSATIONS_EVENTS,
     ]
 
+    # nosemgrep: clickhouse-fstring-param-audit - events table/count expression are internal fragments
     query_template = f"""
         SELECT team_id, count({distinct_expression}) as count
         FROM {events_read_table(use_new_events_schema(None))}
@@ -633,6 +634,7 @@ def get_teams_with_billable_enhanced_persons_event_count_in_period(
         *CONVERSATIONS_EVENTS,
     ]
 
+    # nosemgrep: clickhouse-fstring-param-audit - events table/count expression are internal fragments
     query_template = f"""
         SELECT team_id, count({distinct_expression}) as count
         FROM {events_read_table(use_new_events_schema(None))}
@@ -650,6 +652,7 @@ def get_teams_with_billable_enhanced_persons_event_count_in_period(
 @retry(tries=QUERY_RETRIES, delay=QUERY_RETRY_DELAY, backoff=QUERY_RETRY_BACKOFF)
 def get_teams_with_event_count_with_groups_in_period(begin: datetime, end: datetime) -> list[tuple[int, int]]:
     with tags_context(product=Product.GROUP_ANALYTICS, feature=Feature.USAGE_REPORT):
+        # nosemgrep: clickhouse-fstring-param-audit - events table comes from the internal schema gate
         return sync_execute(
             f"""
             SELECT team_id, count(1) as count
@@ -687,6 +690,7 @@ def _get_ai_sub_sdk_event_metric_counts(
 
     quoted_ai_parent_libs = ", ".join(f"'{lib}'" for lib in ai_parent_libs)
     quoted_ai_libs = ", ".join(f"'{ai_lib}'" for ai_lib in ai_lib_to_metric)
+    # nosemgrep: clickhouse-fstring-param-audit - SDK property expressions come from internal helpers
     query_template = f"""
         SELECT
             team_id,
@@ -781,6 +785,7 @@ def get_all_event_metrics_in_period(begin: datetime, end: datetime) -> dict[str,
     metric_conditions.append("'other'")
     metric_expression = ",\n                ".join(metric_conditions)
 
+    # nosemgrep: clickhouse-fstring-param-audit - SDK property expressions come from internal helpers
     query_template = f"""
         SELECT
             team_id,
@@ -926,6 +931,7 @@ def get_teams_with_recording_observations_count_in_period(begin: datetime, end: 
     # with `event_uuid` set to the observation id. Count distinct uuids so at-least-once ingestion
     # duplicates (same observation, same uuid) aren't over-counted — this is a billing input.
     with tags_context(product=Product.REPLAY_VISION, feature=Feature.USAGE_REPORT):
+        # nosemgrep: clickhouse-fstring-param-audit - events table comes from the internal schema gate
         return sync_execute(
             f"""
             SELECT team_id, count(distinct uuid) as count
@@ -1119,6 +1125,7 @@ def get_teams_with_feature_flag_requests_count_in_period(
     properties_doc = "toJSONString(properties)" if use_new else "properties"
 
     with tags_context(product=Product.FEATURE_FLAGS, feature=Feature.USAGE_REPORT):
+        # nosemgrep: clickhouse-fstring-param-audit - property document/table expressions are internal fragments
         return sync_execute(
             f"""
             SELECT distinct_id as team, sum(JSONExtractInt({properties_doc}, 'count')) as sum
@@ -1159,6 +1166,7 @@ def get_teams_with_feature_flag_requests_sdk_breakdown_in_period(
     properties_doc = "toJSONString(properties)" if use_new else "properties"
 
     with tags_context(product=Product.FEATURE_FLAGS, feature=Feature.USAGE_REPORT):
+        # nosemgrep: clickhouse-fstring-param-audit - property document/table expressions are internal fragments
         return sync_execute(
             f"""
             SELECT
@@ -1255,6 +1263,7 @@ def get_teams_with_ai_event_count_in_period(
     properties_doc = "toJSONString(properties)" if use_new else "properties"
 
     with tags_context(product=Product.LLM_ANALYTICS, feature=Feature.USAGE_REPORT):
+        # nosemgrep: clickhouse-fstring-param-audit - property document/table expressions are internal fragments
         return sync_execute(
             f"""
             -- Gateway events are wallet-billed, so exempt them: subtract one per distinct
@@ -1392,6 +1401,7 @@ def _get_teams_with_ai_credits_for_products(
     with tags_context(
         product=product_tag, feature=Feature.USAGE_REPORT, usage_report=usage_report_tag, kind="usage_report"
     ):
+        # nosemgrep: clickhouse-fstring-param-audit - property document/table expressions are internal fragments
         results = sync_execute(
             f"""
             WITH trace_analysis AS (

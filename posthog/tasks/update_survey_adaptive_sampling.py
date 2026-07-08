@@ -46,7 +46,7 @@ def _get_survey_responses_count(survey_id: int, team_id: int) -> int:
     use_new = use_new_events_schema(team_id)
     survey_id_expr = get_survey_property_string_expr(SurveyEventProperties.SURVEY_ID, use_new_events_schema=use_new)
 
-    # nosemgrep: clickhouse-fstring-param-audit - no interpolation, only parameterized values
+    # nosemgrep: clickhouse-fstring-param-audit - survey property/table expressions come from internal helpers
     data = sync_execute(
         f"""
                 SELECT {survey_id_expr} as survey_id, count()

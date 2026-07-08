@@ -19,7 +19,11 @@ from posthog.hogql.constants import MAX_SELECT_TRACES_LIMIT_EXPORT, LimitContext
 from posthog.hogql.parser import parse_select
 
 from posthog.clickhouse.query_tagging import Product, tag_queries, tags_context
-from posthog.hogql_queries.ai.ai_column_rewriter import rewrite_expr_for_events_table, rewrite_query_for_events_table
+from posthog.hogql_queries.ai.ai_column_rewriter import (
+    restore_events_result_alias,
+    rewrite_expr_for_events_table,
+    rewrite_query_for_events_table,
+)
 from posthog.hogql_queries.ai.ai_property_rewriter import rewrite_expr_for_ai_events_table
 from posthog.hogql_queries.ai.sentiment_evaluations import (
     EMPTY_SENTIMENT_EVALUATION_LOOKUP,
@@ -102,8 +106,8 @@ class SessionQueryRunner(AnalyticsQueryRunner[SessionQueryResponse]):
             ):
                 tag_queries(ai_query_source="shared_table_fallback")
                 query_result = self.paginator.execute_hogql_query(
-                    query=rewrite_query_for_events_table(query),
-                    placeholders={"filter_conditions": rewrite_expr_for_events_table(fallback_filter)},
+                    query=rewrite_query_for_events_table(query, self.team.pk),
+                    placeholders={"filter_conditions": rewrite_expr_for_events_table(fallback_filter, self.team.pk)},
                     team=self.team,
                     user=self.user,
                     query_type="SessionQueryEventsFallback",
@@ -111,6 +115,7 @@ class SessionQueryRunner(AnalyticsQueryRunner[SessionQueryResponse]):
                     modifiers=self.modifiers,
                     limit_context=self.limit_context,
                 )
+                query_result.columns = restore_events_result_alias(query_result.columns)
 
         columns: list[str] = query_result.columns or []
         results = self.paginator.results

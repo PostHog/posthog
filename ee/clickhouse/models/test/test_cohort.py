@@ -25,6 +25,7 @@ from posthog.schema import PersonsOnEventsMode
 from posthog.hogql.constants import MAX_SELECT_COHORT_CALCULATION_LIMIT
 
 from posthog.clickhouse.client import sync_execute
+from posthog.models.event.new_events_schema import events_read_table
 from posthog.models.filters import Filter
 from posthog.models.organization import Organization
 from posthog.models.person.sql import GET_LATEST_PERSON_SQL, GET_PERSON_IDS_BY_FILTER
@@ -38,6 +39,10 @@ from products.actions.backend.models.action import Action
 from products.cohorts.backend.models.cohort import Cohort
 from products.cohorts.backend.models.sql import GET_COHORTPEOPLE_BY_COHORT_ID
 from products.cohorts.backend.models.util import format_filter_query
+
+
+def _events_table_for_filter(filter_obj: Filter) -> str:
+    return events_read_table(filter_obj.hogql_context.uses_new_events_schema())
 
 
 def get_person_ids_by_cohort_id(
@@ -174,7 +179,7 @@ class TestCohort(ClickhouseTestMixin, BaseTest):
             property_group=filter.property_groups,
             hogql_context=filter.hogql_context,
         )
-        final_query = "SELECT uuid FROM events WHERE team_id = %(team_id)s {}".format(query)
+        final_query = f"SELECT uuid FROM {_events_table_for_filter(filter)} WHERE team_id = %(team_id)s {query}"
         result = sync_execute(
             final_query,
             {**params, **filter.hogql_context.values, "team_id": self.team.pk},
@@ -228,7 +233,7 @@ class TestCohort(ClickhouseTestMixin, BaseTest):
             ),
             hogql_context=filter.hogql_context,
         )
-        final_query = "SELECT uuid FROM events WHERE team_id = %(team_id)s {}".format(query)
+        final_query = f"SELECT uuid FROM {_events_table_for_filter(filter)} WHERE team_id = %(team_id)s {query}"
         result = sync_execute(
             final_query,
             {**params, **filter.hogql_context.values, "team_id": self.team.pk},
@@ -285,7 +290,7 @@ class TestCohort(ClickhouseTestMixin, BaseTest):
             ),
             hogql_context=filter.hogql_context,
         )
-        final_query = "SELECT uuid FROM events WHERE team_id = %(team_id)s {}".format(query)
+        final_query = f"SELECT uuid FROM {_events_table_for_filter(filter)} WHERE team_id = %(team_id)s {query}"
         result = sync_execute(
             final_query,
             {**params, **filter.hogql_context.values, "team_id": self.team.pk},
@@ -312,7 +317,7 @@ class TestCohort(ClickhouseTestMixin, BaseTest):
             ),
             hogql_context=filter.hogql_context,
         )
-        final_query = "SELECT uuid FROM events WHERE team_id = %(team_id)s {}".format(query)
+        final_query = f"SELECT uuid FROM {_events_table_for_filter(filter)} WHERE team_id = %(team_id)s {query}"
         result = sync_execute(
             final_query,
             {**params, **filter.hogql_context.values, "team_id": self.team.pk},
@@ -365,7 +370,7 @@ class TestCohort(ClickhouseTestMixin, BaseTest):
             ),
             hogql_context=filter.hogql_context,
         )
-        final_query = "SELECT uuid FROM events WHERE team_id = %(team_id)s {}".format(query)
+        final_query = f"SELECT uuid FROM {_events_table_for_filter(filter)} WHERE team_id = %(team_id)s {query}"
         result = sync_execute(
             final_query,
             {**params, **filter.hogql_context.values, "team_id": self.team.pk},
@@ -388,7 +393,7 @@ class TestCohort(ClickhouseTestMixin, BaseTest):
             ),
             hogql_context=filter.hogql_context,
         )
-        final_query = "SELECT uuid FROM events WHERE team_id = %(team_id)s {}".format(query)
+        final_query = f"SELECT uuid FROM {_events_table_for_filter(filter)} WHERE team_id = %(team_id)s {query}"
         result = sync_execute(
             final_query,
             {**params, **filter.hogql_context.values, "team_id": self.team.pk},
@@ -439,7 +444,7 @@ class TestCohort(ClickhouseTestMixin, BaseTest):
             property_group=filter.property_groups,
             hogql_context=filter.hogql_context,
         )
-        final_query = "SELECT uuid FROM events WHERE team_id = %(team_id)s {}".format(query)
+        final_query = f"SELECT uuid FROM {_events_table_for_filter(filter)} WHERE team_id = %(team_id)s {query}"
         result = sync_execute(
             final_query,
             {**params, **filter.hogql_context.values, "team_id": self.team.pk},
@@ -500,7 +505,7 @@ class TestCohort(ClickhouseTestMixin, BaseTest):
             property_group=filter.property_groups,
             hogql_context=filter.hogql_context,
         )
-        final_query = "SELECT uuid FROM events WHERE team_id = %(team_id)s {}".format(query)
+        final_query = f"SELECT uuid FROM {_events_table_for_filter(filter)} WHERE team_id = %(team_id)s {query}"
         self.assertIn("person_distinct_id2", final_query)
 
         result = sync_execute(
@@ -1034,7 +1039,9 @@ class TestCohort(ClickhouseTestMixin, BaseTest):
                 property_group=filter.property_groups,
                 hogql_context=filter.hogql_context,
             )
-            final_query = "SELECT uuid, distinct_id FROM events WHERE team_id = %(team_id)s {}".format(query)
+            final_query = (
+                f"SELECT uuid, distinct_id FROM {_events_table_for_filter(filter)} WHERE team_id = %(team_id)s {query}"
+            )
 
             result = sync_execute(
                 final_query,
@@ -1116,7 +1123,9 @@ class TestCohort(ClickhouseTestMixin, BaseTest):
             property_group=filter.property_groups,
             hogql_context=filter.hogql_context,
         )
-        final_query = "SELECT uuid, distinct_id FROM events WHERE team_id = %(team_id)s {}".format(query)
+        final_query = (
+            f"SELECT uuid, distinct_id FROM {_events_table_for_filter(filter)} WHERE team_id = %(team_id)s {query}"
+        )
         self.assertIn("person_distinct_id2", final_query)
 
         result = sync_execute(
@@ -1223,7 +1232,9 @@ class TestCohort(ClickhouseTestMixin, BaseTest):
                 property_group=filter.property_groups,
                 hogql_context=filter.hogql_context,
             )
-            final_query = "SELECT uuid, distinct_id FROM events WHERE team_id = %(team_id)s {}".format(query)
+            final_query = (
+                f"SELECT uuid, distinct_id FROM {_events_table_for_filter(filter)} WHERE team_id = %(team_id)s {query}"
+            )
 
             result = sync_execute(
                 final_query,

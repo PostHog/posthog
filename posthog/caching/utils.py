@@ -31,6 +31,7 @@ def ensure_is_date(candidate: Optional[Union[str, datetime]]) -> Optional[dateti
 
 
 def largest_teams(limit: int) -> set[int]:
+    # nosemgrep: clickhouse-fstring-param-audit - events table comes from the internal schema gate
     teams_by_event_count = sync_execute(
         f"""
             SELECT team_id, COUNT(*) AS event_count
@@ -47,6 +48,7 @@ def largest_teams(limit: int) -> set[int]:
 
 def _populate_active_teams(redis) -> dict[int, float]:
     # NOTE: the ClickHouse `now()` function used here does not cooperate with freezegun.
+    # nosemgrep: clickhouse-fstring-param-audit - events table comes from the internal schema gate
     teams_by_recency = sync_execute(
         f"""
         SELECT team_id, date_diff('second', max(timestamp), now()) AS age
