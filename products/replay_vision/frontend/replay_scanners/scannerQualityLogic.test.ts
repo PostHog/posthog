@@ -167,7 +167,7 @@ describe('scannerQualityLogic', () => {
     })
 
     it('a running test refreshes the quota snapshot on every poll', async () => {
-        // A test run spends quota per session, so stale quota numbers here mean the cost line lies.
+        // A running test spends quota, so stale quota numbers would make the cost line lie.
         ;(visionScannersPromptSuggestionsCurrentRetrieve as jest.Mock).mockResolvedValue({
             suggestion: {
                 ...PENDING_SUGGESTION,
@@ -179,7 +179,6 @@ describe('scannerQualityLogic', () => {
         })
         await mountLogic()
 
-        // Matches the listener-driven refresh: the mount-time loadQuota is already behind the pointer.
         await expectLogic(logic).toDispatchActions([visionQuotaLogic.actionTypes.loadQuota])
     })
 

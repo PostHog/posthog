@@ -157,7 +157,7 @@ export const scannerQualityLogic = kea<scannerQualityLogicType>([
                 loadCurrentSuggestionSuccess: (_, { current }) => current.rated_count,
             },
         ],
-        // 0 until the first load; the UI only quotes a test's quota cost once a suggestion is loaded.
+        // 0 until the first load, which keeps the cost line hidden until then.
         evaluationSessionCap: [
             0,
             {

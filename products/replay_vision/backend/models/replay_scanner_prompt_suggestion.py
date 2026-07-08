@@ -49,7 +49,7 @@ class ReplayScannerPromptSuggestion(UUIDModel):
     applied_by = models.ForeignKey(
         "posthog.User", on_delete=models.SET_NULL, null=True, blank=True, related_name="+", db_constraint=False
     )
-    # Test-before-apply results. Shape: prompt_evaluation.build_running_evaluation.
+    # Shape: prompt_evaluation.build_running_evaluation.
     evaluation = models.JSONField(
         null=True,
         blank=True,

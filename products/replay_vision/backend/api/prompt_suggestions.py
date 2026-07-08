@@ -36,7 +36,12 @@ from products.replay_vision.backend.models.replay_scanner_prompt_suggestion impo
     ReplayScannerPromptSuggestion,
     SuggestionStatus,
 )
-from products.replay_vision.backend.prompt_evaluation import EVALUATION_SESSION_CAP, evaluation_supported
+from products.replay_vision.backend.prompt_evaluation import (
+    EVALUATION_SESSION_CAP,
+    build_running_evaluation,
+    evaluation_in_flight,
+    evaluation_supported,
+)
 from products.replay_vision.backend.prompt_suggestions import (
     PromptSuggestionError,
     generate_prompt_suggestion,
@@ -106,7 +111,16 @@ class ReplayScannerPromptSuggestionSerializer(serializers.ModelSerializer):
 
     @extend_schema_field(PromptSuggestionEvaluationSerializer(allow_null=True))
     def get_evaluation(self, suggestion: ReplayScannerPromptSuggestion) -> dict[str, Any] | None:
-        return suggestion.evaluation
+        evaluation = suggestion.evaluation
+        # A workflow killed before finalizing leaves "running" behind forever; serve it as failed
+        # so the UI stops polling and the test can be re-run.
+        if (
+            isinstance(evaluation, dict)
+            and evaluation.get("status") == "running"
+            and not evaluation_in_flight(evaluation)
+        ):
+            return {**evaluation, "status": "failed"}
+        return evaluation
 
     class Meta:
         model = ReplayScannerPromptSuggestion
@@ -322,10 +336,9 @@ class ReplayScannerPromptSuggestionViewSet(
         if self._rated_count(scanner) == 0:
             raise ValidationError("Rate some results first; they are what the suggestion is tested against.")
         # A test already in flight keeps reporting its state even if quota ran out meanwhile.
-        if isinstance(suggestion.evaluation, dict) and suggestion.evaluation.get("status") == "running":
+        if evaluation_in_flight(suggestion.evaluation):
             return Response(ReplayScannerPromptSuggestionSerializer(suggestion).data)
-        # Test runs create no observation rows, but the workflow writes a usage receipt per re-run
-        # session, so refuse to start one when the org is already out of quota.
+        # The workflow writes a usage receipt per re-run session, so refuse to start when quota is out.
         quota = compute_quota_snapshot(organization_id=self.team.organization_id)
         if quota.exhausted:
             raise QuotaLimitExceeded(
@@ -337,15 +350,8 @@ class ReplayScannerPromptSuggestionViewSet(
 
         # Stamp running before starting the workflow so the UI never sees a gap. The select activity
         # replaces this stub with the real total and fingerprint.
-        suggestion.evaluation = {
-            "status": "running",
-            "started_at": timezone.now().isoformat(),
-            "finished_at": None,
-            "total": 0,
-            "labels_fingerprint": "",
-            "results": [],
-            "summary": None,
-        }
+        previous_evaluation = suggestion.evaluation
+        suggestion.evaluation = build_running_evaluation(total=0, labels_fingerprint="")
         suggestion.save(update_fields=["evaluation"])
         try:
             client = sync_connect()
@@ -361,6 +367,11 @@ class ReplayScannerPromptSuggestionViewSet(
             )
         except WorkflowAlreadyStartedError:
             pass  # An evaluation is already in flight, return its state.
+        except Exception:
+            # Don't leave a "running" row behind with no workflow to finalize it.
+            suggestion.evaluation = previous_evaluation
+            suggestion.save(update_fields=["evaluation"])
+            raise
         return Response(ReplayScannerPromptSuggestionSerializer(suggestion).data)
 
     @extend_schema(

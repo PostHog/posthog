@@ -1,10 +1,6 @@
-"""Test a prompt suggestion before applying it: re-run the scanner (suggested prompt, current config)
-against a capped set of already-rated sessions and record kept/fixed/regressed/still-wrong per session.
-
-Reuses the observation pipeline's activities (asset, rasterize, upload, provider call) but never
-creates observation rows: results land on the suggestion's `evaluation` JSON, which the API serves
-and the Quality tab polls.
-"""
+"""Re-run the scanner (suggested prompt, current config) against rated sessions, recording per-session
+outcomes on the suggestion's `evaluation` JSON. Reuses the observation pipeline's activities but never
+creates observation rows."""
 
 import asyncio
 import datetime as dt
@@ -52,8 +48,7 @@ from products.replay_vision.backend.temporal.types import (
     UploadVideoToGeminiInputs,
 )
 
-# Each session is a full video-upload + LLM conversation. Two at a time bounds worker load
-# while keeping a 10-session evaluation to a few minutes of wall clock.
+# Each session is a full video upload + LLM conversation; two at a time bounds worker load.
 _EVALUATION_CONCURRENCY = 2
 
 _STATE_RETRY = common.RetryPolicy(

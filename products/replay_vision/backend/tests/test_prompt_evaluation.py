@@ -283,7 +283,9 @@ class TestPromptEvaluationApi(_VisionAPITestCase):
 
     def test_evaluate_while_running_does_not_restart(self) -> None:
         self._create_rated()
-        suggestion = self._create_pending_suggestion(evaluation={"status": "running", "results": [], "total": 3})
+        suggestion = self._create_pending_suggestion(
+            evaluation={"status": "running", "started_at": timezone.now().isoformat(), "results": [], "total": 3}
+        )
         connect_patch, client = self._mock_temporal()
         with connect_patch:
             resp = self.client.post(self._url(suggestion.id))
@@ -291,6 +293,44 @@ class TestPromptEvaluationApi(_VisionAPITestCase):
         self.assertEqual(resp.status_code, 200)
         self.assertEqual(resp.json()["evaluation"]["total"], 3)
         client.start_workflow.assert_not_awaited()
+
+    def test_stale_running_evaluation_reports_failed_and_can_be_restarted(self) -> None:
+        # A workflow killed without finalizing must not leave the suggestion stuck "running" forever.
+        self._create_rated()
+        suggestion = self._create_pending_suggestion(
+            evaluation={
+                "status": "running",
+                "started_at": (timezone.now() - timedelta(hours=2)).isoformat(),
+                "results": [],
+                "total": 3,
+                "summary": None,
+            }
+        )
+
+        current = self.client.get(
+            f"/api/projects/{self.team.id}/vision/scanners/{self.scanner.id}/prompt_suggestions/current/"
+        )
+        self.assertEqual(current.json()["suggestion"]["evaluation"]["status"], "failed")
+
+        connect_patch, client = self._mock_temporal()
+        with connect_patch:
+            resp = self.client.post(self._url(suggestion.id))
+        self.assertEqual(resp.status_code, 200)
+        self.assertEqual(resp.json()["evaluation"]["status"], "running")
+        client.start_workflow.assert_awaited_once()
+
+    def test_failed_workflow_start_rolls_back_running_state(self) -> None:
+        # If Temporal is down, a "running" row with no workflow behind it would block re-testing.
+        self._create_rated()
+        suggestion = self._create_pending_suggestion()
+        connect_patch, client = self._mock_temporal()
+        client.start_workflow.side_effect = RuntimeError("temporal unavailable")
+        with connect_patch:
+            resp = self.client.post(self._url(suggestion.id))
+
+        self.assertEqual(resp.status_code, 500)
+        suggestion.refresh_from_db()
+        self.assertIsNone(suggestion.evaluation)
 
     def test_evaluate_refuses_when_quota_exhausted(self) -> None:
         self._create_rated()

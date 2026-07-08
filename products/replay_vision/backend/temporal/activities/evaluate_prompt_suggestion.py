@@ -1,8 +1,5 @@
-"""Activities for the prompt-suggestion evaluation workflow (test before apply).
-
-Selection and comparison logic lives in `prompt_evaluation`; these activities wire it to the
-suggestion row's `evaluation` JSON, which the Quality tab polls while the workflow runs.
-"""
+"""Activities for the prompt-suggestion evaluation workflow. Selection and comparison logic lives in
+`prompt_evaluation`; these activities wire it to the suggestion row's `evaluation` JSON."""
 
 from typing import Any
 
@@ -116,8 +113,8 @@ def record_evaluation_result_activity(inputs: RecordEvaluationResultInputs) -> N
         suggestion.evaluation = {**suggestion.evaluation, "results": results}
         suggestion.save(update_fields=["evaluation"])
         if outcome != "error":
-            # Each successful re-run spends one observation of monthly quota. Written in the same
-            # transaction as the result so a crash can't record one without the other.
+            # One observation of monthly quota per successful re-run, in the same transaction as the
+            # result so a crash can't record one without the other.
             ReplayObservationUsage.objects.get_or_create(
                 observation_id=evaluation_usage_id(
                     suggestion.id,

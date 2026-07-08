@@ -8,8 +8,6 @@ from products.replay_vision.backend.temporal.types import ScannerSnapshot
 
 
 class EvaluatePromptSuggestionInputs(BaseModel, frozen=True):
-    """Input to EvaluatePromptSuggestionWorkflow."""
-
     suggestion_id: UUID
     team_id: int
 

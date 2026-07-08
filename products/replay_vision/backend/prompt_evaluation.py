@@ -1,31 +1,25 @@
 """Test a prompt suggestion before applying it: re-run the scanner with the suggested prompt against
-already-rated sessions and compare each fresh output with the stored one.
-
-The rated set doubles as a labeled test set: a changed output is a likely regression on a thumbs-up
-session and a likely fix on a thumbs-down one. Results persist on the suggestion row so the Quality
-tab can show them without re-running.
-"""
+already-rated sessions, compare each fresh output with the stored one, and persist the results on the
+suggestion row."""
 
 import uuid
+import datetime as dt
 from typing import Any, Literal
 
 from django.utils import timezone
 
 from products.replay_vision.backend.models.replay_observation import ObservationStatus, ReplayObservation
 from products.replay_vision.backend.models.replay_scanner import ReplayScanner, ScannerType
+from products.replay_vision.backend.temporal.constants import EVALUATE_PROMPT_SUGGESTION_EXECUTION_TIMEOUT
 
-# Each evaluated session is a full scanner run (video upload + LLM conversation), so keep the bill bounded.
+# Each evaluated session is a full scanner run, so keep the bill bounded.
 EVALUATION_SESSION_CAP = 10
 
 _EVALUATION_USAGE_NAMESPACE = uuid.UUID("8f6f5e56-9f0b-4c5a-9a3e-2b7d1c4e8a90")
 
 
 def evaluation_usage_id(suggestion_id: uuid.UUID, session_id: str, started_at: str) -> uuid.UUID:
-    """Quota-ledger receipt id for one re-run session.
-
-    Deterministic per (suggestion, session, run start): an activity retry re-derives the same id and
-    dedups, while a re-test (new started_at) charges afresh.
-    """
+    """Deterministic receipt id per (suggestion, session, run start): a retry dedups, a re-test charges again."""
     return uuid.uuid5(_EVALUATION_USAGE_NAMESPACE, f"{suggestion_id}:{session_id}:{started_at}")
 
 
@@ -51,9 +45,9 @@ def select_evaluation_observations(scanner: ReplayScanner) -> list[ReplayObserva
         .select_related("label")
         .order_by("-created_at")
     )
-    down = [o for o in rated if not o.label.is_correct]  # type: ignore[attr-defined]
-    up = [o for o in rated if o.label.is_correct]  # type: ignore[attr-defined]
-    return (down + up)[:EVALUATION_SESSION_CAP]
+    down = list(rated.filter(label__is_correct=False)[:EVALUATION_SESSION_CAP])
+    up = list(rated.filter(label__is_correct=True)[: EVALUATION_SESSION_CAP - len(down)])
+    return down + up
 
 
 def primary_outcome(model_output: dict[str, Any] | None) -> str | None:
@@ -75,6 +69,23 @@ def classify_outcome(rated_correct: bool, before: str | None, after: str | None)
     if rated_correct:
         return "regressed" if changed else "kept"
     return "fixed" if changed else "still_wrong"
+
+
+# Slack past the workflow execution timeout before a still-"running" evaluation is considered dead.
+_EVALUATION_RUNNING_GRACE = dt.timedelta(minutes=5)
+
+
+def evaluation_in_flight(evaluation: Any) -> bool:
+    """True while a running evaluation's workflow can still be alive; past the timeout nothing is left to finalize it."""
+    if not isinstance(evaluation, dict) or evaluation.get("status") != "running":
+        return False
+    try:
+        started_at = dt.datetime.fromisoformat(str(evaluation.get("started_at") or ""))
+    except ValueError:
+        return False
+    if started_at.tzinfo is None:
+        return False
+    return timezone.now() - started_at < EVALUATE_PROMPT_SUGGESTION_EXECUTION_TIMEOUT + _EVALUATION_RUNNING_GRACE
 
 
 def build_running_evaluation(total: int, labels_fingerprint: str) -> dict[str, Any]:
