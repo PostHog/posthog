@@ -940,7 +940,12 @@ OIDC_RSA_PRIVATE_KEY = os.getenv("OIDC_RSA_PRIVATE_KEY", "").replace("\\n", "\n"
 if not OIDC_RSA_PRIVATE_KEY:
     if TEST:
         OIDC_RSA_PRIVATE_KEY = generate_rsa_private_key_pem()
-    elif DEBUG and not CLOUD_DEPLOYMENT:
+    # Mirror the blocklist in `assert_debug_not_in_production` (posthog/settings/utils.py:26)
+    # so this covers every DEBUG-allowed env: unset (self-hosted / bare local),
+    # `LOCAL`, and `E2E`. A `not CLOUD_DEPLOYMENT` check would miss `LOCAL` and
+    # `E2E` — both are documented valid local-dev values (see
+    # `posthog/settings/base_variables.py`) and would still hit the original 500.
+    elif DEBUG and (CLOUD_DEPLOYMENT or "").upper() not in ("US", "EU", "DEV"):
         OIDC_RSA_PRIVATE_KEY = load_or_mint_dev_oidc_rsa_key()
 
 OIDC_RSA_PRIVATE_KEY_INACTIVE_1 = os.getenv("OIDC_RSA_PRIVATE_KEY_INACTIVE_1", "").replace("\\n", "\n")
