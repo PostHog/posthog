@@ -66,6 +66,7 @@ import {
     RevenueExampleEventsQuery,
     SavedInsightNode,
     SessionAttributionExplorerQuery,
+    SessionQuery,
     SessionsQuery,
     StickinessQuery,
     TracesQuery,
@@ -318,6 +319,10 @@ export function isTracesQuery(node?: Record<string, any> | null): node is Traces
     return node?.kind === NodeKind.TracesQuery
 }
 
+export function isSessionQuery(node?: Record<string, any> | null): node is SessionQuery {
+    return node?.kind === NodeKind.SessionQuery
+}
+
 export function isWebVitalsQuery(node?: Record<string, any> | null): node is WebVitalsQuery {
     return node?.kind === NodeKind.WebVitalsQuery
 }
@@ -439,8 +444,11 @@ export function shouldQueryBeAsync(query: Node): boolean {
         isInsightQueryNode(query) ||
         isHogQLQuery(query) ||
         isTracesQuery(query) ||
-        (isDataTableNode(query) && (isInsightQueryNode(query.source) || isTracesQuery(query.source))) ||
-        (isDataVisualizationNode(query) && (isInsightQueryNode(query.source) || isTracesQuery(query.source)))
+        isSessionQuery(query) ||
+        (isDataTableNode(query) &&
+            (isInsightQueryNode(query.source) || isTracesQuery(query.source) || isSessionQuery(query.source))) ||
+        (isDataVisualizationNode(query) &&
+            (isInsightQueryNode(query.source) || isTracesQuery(query.source) || isSessionQuery(query.source)))
     )
 }
 

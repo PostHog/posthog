@@ -424,7 +424,11 @@ def ci_preflight(do_fix: bool, strict: bool, against: str | None, as_json: bool)
     # Fetch first so both the diff base and the staleness check see a fresh
     # origin/master — a stale local ref would inflate the diff with master's own commits.
     _fetch_master()
-    files = changed_files(against)
+    # --strict is the blocking pre-push hook: scope it to the committed diff, since a
+    # push only carries commits. Untracked/uncommitted work never reaches CI, so gating
+    # a push on lint errors in a scratch file is a false block. Advisory/--fix runs keep
+    # the working tree in scope so agents can clean edits before committing.
+    files = changed_files(against, include_worktree=not strict)
     base = against or "origin/master"
 
     triggered: list[DiffCheck] = []

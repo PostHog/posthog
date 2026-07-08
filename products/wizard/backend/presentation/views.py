@@ -236,7 +236,9 @@ class WizardSessionViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         # Killswitch parity with `stream`: a 204 makes the client treat this as "no run"
         # and wind the detector down, so flipping the flag in an incident also stops the
         # 60s poll (and skips the DB read entirely), not just the SSE stream.
+        poll_source = request.headers.get("X-Wizard-Poll-Source")
         if self._killswitch_active(request):
+            wizard_facade.record_latest_session_poll(poll_source, "killswitch")
             return Response(status=status.HTTP_204_NO_CONTENT)
         workflow_id = request.query_params.get("workflow_id")
         if not workflow_id:
@@ -244,7 +246,9 @@ class WizardSessionViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         skill_id = request.query_params.get("skill_id") or None
         dto = wizard_facade.get_latest(self.team_id, workflow_id, skill_id)
         if dto is None:
+            wizard_facade.record_latest_session_poll(poll_source, "empty")
             return Response(status=status.HTTP_204_NO_CONTENT)
+        wizard_facade.record_latest_session_poll(poll_source, "hit")
         return Response(WizardSessionSerializer(dto).data)
 
     @extend_schema(

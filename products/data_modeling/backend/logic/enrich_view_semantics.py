@@ -458,32 +458,55 @@ def enrichment_gates_pass(saved_query: DataWarehouseSavedQuery) -> bool:
     )
 
 
-def maybe_dispatch_enrichment(saved_query: DataWarehouseSavedQuery) -> None:
-    """Dispatch view enrichment for a just-saved view, if it plausibly needs it.
+def view_ready_for_enrichment(saved_query: DataWarehouseSavedQuery) -> bool:
+    """The content half of the dispatch decision: enrichable view whose descriptions could have changed.
 
-    Query-free gates plus a hash pre-check against the in-hand instance keep steady-state saves (status
-    flips, `last_run_at` updates) off Temporal entirely. The activity re-checks every gate, so this is a
-    cheap best-effort filter, not the source of truth.
+    Not deleted/test/managed, has a query and columns, and its enrichment hash differs from the stored one.
+    The team half (flag + AI consent) is `enrichment_gates_pass`. Split out so a backfill can check the
+    team gate once per team and this once per view.
     """
     if saved_query.deleted or saved_query.is_test or saved_query.managed_viewset_id:
-        return
+        return False
     query = saved_query.query or {}
     if not (isinstance(query, dict) and query.get("query")):
-        return
+        return False
     if not saved_query.columns:
-        return
-    if compute_enrichment_hash(saved_query) == saved_query.semantic_enrichment_hash:
-        return
-    if not enrichment_gates_pass(saved_query):
-        return
+        return False
+    return compute_enrichment_hash(saved_query) != saved_query.semantic_enrichment_hash
 
-    # The serializer saves inside transaction.atomic(), so dispatch must wait for commit; on_commit runs
-    # immediately when no transaction is open.
+
+def enrichment_dispatch_pending(saved_query: DataWarehouseSavedQuery) -> bool:
+    """Whether a saved view passes every query-free gate + hash pre-check and should enqueue enrichment.
+
+    Shared by the save-signal dispatch path and the backfill command. The activity re-checks every gate,
+    so this is a cheap best-effort filter, not the source of truth.
+    """
+    return view_ready_for_enrichment(saved_query) and enrichment_gates_pass(saved_query)
+
+
+def dispatch_view_enrichment(team_id: int, saved_query_id: str) -> None:
+    """Enqueue the enrichment workflow once the current transaction commits (immediately when none is open).
+
+    The serializer saves inside transaction.atomic(), so dispatch must wait for commit; management commands
+    run outside a transaction, so on_commit fires the workflow start inline.
+    """
     from functools import partial  # noqa: PLC0415 — trivial, keep it next to the only use
 
     from django.db import transaction  # noqa: PLC0415
 
-    transaction.on_commit(partial(_start_enrichment_workflow, saved_query.team_id, str(saved_query.id)))
+    transaction.on_commit(partial(_start_enrichment_workflow, team_id, saved_query_id))
+
+
+def maybe_dispatch_enrichment(saved_query: DataWarehouseSavedQuery) -> bool:
+    """Dispatch view enrichment for a just-saved view, if it plausibly needs it. Returns whether it did.
+
+    Query-free gates plus a hash pre-check against the in-hand instance keep steady-state saves (status
+    flips, `last_run_at` updates) off Temporal entirely.
+    """
+    if not enrichment_dispatch_pending(saved_query):
+        return False
+    dispatch_view_enrichment(saved_query.team_id, str(saved_query.id))
+    return True
 
 
 def _start_enrichment_workflow(team_id: int, saved_query_id: str) -> None:

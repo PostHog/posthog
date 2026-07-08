@@ -20,6 +20,7 @@ from uuid import UUID
 from drf_spectacular.types import OpenApiTypes
 from drf_spectacular.utils import OpenApiParameter, extend_schema
 from rest_framework import mixins, status, viewsets
+from rest_framework.decorators import action
 from rest_framework.exceptions import PermissionDenied, ValidationError
 from rest_framework.request import Request
 from rest_framework.response import Response
@@ -37,6 +38,8 @@ from products.customer_analytics.backend.presentation.views.serializers import (
     AccountNotebookSerializer,
     AccountNoteSerializer,
     AccountRelationshipDefinitionSerializer,
+    AccountRelationshipSerializer,
+    AccountRelationshipWriteSerializer,
     AccountSerializer,
     CustomerJourneySerializer,
     CustomerProfileConfigSerializer,
@@ -1054,3 +1057,84 @@ class CustomPropertyValueViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMix
             raise Conflict(str(exc))
 
         return Response(CustomPropertyValueSerializer(value).data, status=status.HTTP_201_CREATED)
+
+
+@extend_schema(
+    tags=["customer_analytics"],
+    parameters=[
+        OpenApiParameter(
+            name="account_id",
+            type=OpenApiTypes.UUID,
+            location=OpenApiParameter.PATH,
+            description="UUID of the parent account.",
+        ),
+    ],
+)
+class AccountRelationshipViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets.GenericViewSet):
+    scope_object = "account"
+    serializer_class = AccountRelationshipSerializer
+    pagination_class = None
+
+    def _accessible_account_id(self) -> str | None:
+        """The parent account's id when the caller has object-level access to it, else ``None``
+        (mapped to 404). Object-access filtering lives behind the facade — the view imports no models."""
+        return api.get_accessible_account_id(
+            self.team_id, self.parents_query_dict["account_id"], user_access_control=self.user_access_control
+        )
+
+    @extend_schema(
+        parameters=[
+            OpenApiParameter(
+                "include_history",
+                OpenApiTypes.BOOL,
+                description="Include ended assignments (the full timeline), not just active ones.",
+            )
+        ],
+        responses={200: AccountRelationshipSerializer(many=True)},
+    )
+    def list(self, request: Request, *args, **kwargs) -> Response:
+        account_id = self._accessible_account_id()
+        if account_id is None:
+            return Response({"detail": "Not found."}, status=status.HTTP_404_NOT_FOUND)
+        relationships = api.list_account_relationships(
+            team_id=self.team_id,
+            account_id=account_id,
+            include_history=request.query_params.get("include_history", "").lower() == "true",
+        )
+        return Response(AccountRelationshipSerializer(relationships, many=True).data)
+
+    @extend_schema(request=AccountRelationshipWriteSerializer, responses={201: AccountRelationshipSerializer})
+    def create(self, request: Request, *args, **kwargs) -> Response:
+        account_id = self._accessible_account_id()
+        if account_id is None:
+            return Response({"detail": "Not found."}, status=status.HTTP_404_NOT_FOUND)
+        write = AccountRelationshipWriteSerializer(data=request.data)
+        write.is_valid(raise_exception=True)
+        try:
+            relationship = api.assign_account_relationship(
+                team_id=self.team_id,
+                account_id=account_id,
+                definition_id=write.validated_data["definition"],
+                user_id=write.validated_data["user"],
+                created_by=cast(User, request.user),
+            )
+        except api.Account_DoesNotExist:
+            return Response({"detail": "Not found."}, status=status.HTTP_404_NOT_FOUND)
+        except api.AccountRelationshipDefinitionNotFound:
+            raise ValidationError({"definition": "Relationship definition not found."})
+        except api.AccountRelationshipAssigneeNotInOrganization:
+            raise ValidationError({"user": "User is not a member of this organization."})
+        return Response(AccountRelationshipSerializer(relationship).data, status=status.HTTP_201_CREATED)
+
+    @extend_schema(request=None, responses={200: AccountRelationshipSerializer})
+    @action(methods=["POST"], detail=True)
+    def end(self, request: Request, *args, **kwargs) -> Response:
+        account_id = self._accessible_account_id()
+        if account_id is None:
+            return Response({"detail": "Not found."}, status=status.HTTP_404_NOT_FOUND)
+        relationship = api.end_account_relationship(
+            team_id=self.team_id, account_id=account_id, relationship_id=self.kwargs["pk"]
+        )
+        if relationship is None:
+            return Response({"detail": "Not found."}, status=status.HTTP_404_NOT_FOUND)
+        return Response(AccountRelationshipSerializer(relationship).data)
