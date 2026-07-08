@@ -996,8 +996,12 @@ class BigQueryImplementation(SQLSourceImplementation[BigQuerySourceConfig, bigqu
             # `bigquery.jobs.create`) or auth failure surfaces here rather than at `result()`.
             # Both calls must sit inside the try so a permission-denied account degrades to
             # "no new schemas" instead of crashing schema discovery.
+            # Qualify INFORMATION_SCHEMA with the project: when the dataset lives in a different
+            # project than the service account (the `dataset_project` option), the client's default
+            # project and the job's billing project diverge, and BigQuery can't resolve an unqualified
+            # `dataset.INFORMATION_SCHEMA.*` — it rejects the job with "ProjectId must be non-empty".
             query = conn.query(
-                f"SELECT table_name, column_name, data_type, is_nullable FROM `{_resolve_dataset_id(config)}.INFORMATION_SCHEMA.COLUMNS` ORDER BY table_name ASC",
+                f"SELECT table_name, column_name, data_type, is_nullable FROM `{_resolve_query_project(config)}.{_resolve_dataset_id(config)}.INFORMATION_SCHEMA.COLUMNS` ORDER BY table_name ASC",
                 project=_resolve_query_project(config),
             )
             rows = query.result()
@@ -1082,12 +1086,15 @@ class BigQueryImplementation(SQLSourceImplementation[BigQuerySourceConfig, bigqu
         # the BigQuery region / metadata version, hence the
         # `removeprefix` below — the JOIN has to tolerate both shapes or
         # half the rows get dropped.
+        # Project-qualify the dataset (see `get_columns`): an unqualified `dataset.INFORMATION_SCHEMA.*`
+        # fails with "ProjectId must be non-empty" when the dataset lives in a different project.
+        qualified_dataset = f"{project}.{dataset_id}"
         query = f"""
         SELECT tc.table_name, kcu.column_name
-        FROM `{dataset_id}`.INFORMATION_SCHEMA.TABLE_CONSTRAINTS tc
-        JOIN `{dataset_id}`.INFORMATION_SCHEMA.KEY_COLUMN_USAGE kcu
+        FROM `{qualified_dataset}`.INFORMATION_SCHEMA.TABLE_CONSTRAINTS tc
+        JOIN `{qualified_dataset}`.INFORMATION_SCHEMA.KEY_COLUMN_USAGE kcu
         ON tc.constraint_name = kcu.constraint_name
-        JOIN `{dataset_id}`.INFORMATION_SCHEMA.COLUMNS c
+        JOIN `{qualified_dataset}`.INFORMATION_SCHEMA.COLUMNS c
         ON kcu.table_name = c.table_name
         AND (
             kcu.column_name = c.column_name
@@ -1136,9 +1143,11 @@ class BigQueryImplementation(SQLSourceImplementation[BigQuerySourceConfig, bigqu
 
             project = _resolve_query_project(config)
 
+            # Project-qualify the dataset (see `get_columns`): an unqualified `dataset.INFORMATION_SCHEMA.*`
+            # fails with "ProjectId must be non-empty" when the dataset lives in a different project.
             query = f"""
             SELECT table_name, column_name
-            FROM `{_resolve_dataset_id(config)}`.INFORMATION_SCHEMA.COLUMNS
+            FROM `{project}.{_resolve_dataset_id(config)}`.INFORMATION_SCHEMA.COLUMNS
             WHERE is_partitioning_column = 'YES'
                OR clustering_ordinal_position = 1
             """
