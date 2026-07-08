@@ -686,7 +686,6 @@ export function LemonTable<T extends Record<string, any>, K extends BulkSelectio
                                                 pinnedColumnWidths={pinnedColumnWidths}
                                                 columns={columns}
                                                 rowActions={rowActions}
-                                                maxCellWidth={maxHeaderWidth}
                                             />
                                         )
                                     })

@@ -25,8 +25,6 @@ export interface TableRowProps<T extends Record<string, any>> {
     pinnedColumnWidths?: number[]
     columns?: LemonTableColumn<T, any>[]
     rowActions?: (record: T, recordIndex: number) => React.ReactNode | null
-    /** When set, cell contents are clipped to this max width with an ellipsis. */
-    maxCellWidth?: string
 }
 
 function TableRowRaw<T extends Record<string, any>>({
@@ -45,7 +43,6 @@ function TableRowRaw<T extends Record<string, any>>({
     pinnedColumnWidths,
     columns,
     rowActions,
-    maxCellWidth,
 }: TableRowProps<T>): JSX.Element {
     const [isRowExpandedLocal, setIsRowExpanded] = useState(false)
     const rowExpandable: number = Number(
@@ -143,13 +140,6 @@ function TableRowRaw<T extends Record<string, any>>({
 
                             const extraCellProps =
                                 isTableCellRepresentation(contents) && contents.props ? contents.props : {}
-                            const cellChildren = isTableCellRepresentation(contents) ? contents.children : contents
-                            // Clip only when a max width is set and the column isn't sized by its author.
-                            const truncateCell = !!maxCellWidth && !column.width && !column.fullWidth
-                            const cellText =
-                                typeof cellChildren === 'string' || typeof cellChildren === 'number'
-                                    ? String(cellChildren)
-                                    : undefined
                             return (
                                 <td
                                     key={`col-${columnGroupIndex}-${columnKeyOrIndex}`}
@@ -171,19 +161,7 @@ function TableRowRaw<T extends Record<string, any>>({
                                     }}
                                     {...extraCellProps}
                                 >
-                                    {truncateCell ? (
-                                        // Clipped inside the cell, since sticky cells keep `overflow: visible` for their scroll shadow
-                                        <div
-                                            className={cellText !== undefined ? 'truncate' : 'overflow-hidden'}
-                                            title={cellText}
-                                            // eslint-disable-next-line react/forbid-dom-props
-                                            style={{ maxWidth: maxCellWidth }}
-                                        >
-                                            {cellChildren}
-                                        </div>
-                                    ) : (
-                                        cellChildren
-                                    )}
+                                    {isTableCellRepresentation(contents) ? contents.children : contents}
                                 </td>
                             )
                         })

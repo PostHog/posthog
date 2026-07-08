@@ -162,8 +162,8 @@ export const ComparePrevious: Story = {
     },
 }
 
-// A HogQL breakdown expression that is far too long to fit in a column. It should be clipped with an
-// ellipsis (in both the header and the value cells) rather than overflowing into neighbouring columns.
+// A HogQL breakdown expression that is far too long to fit in a column. The header should be clipped
+// with an ellipsis rather than overflowing into neighbouring columns.
 const LONG_SQL_BREAKDOWN =
     "concat(toString(properties.$browser), ' - ', toString(properties.$os), ' - ', toString(properties.$device_type), ' - ', toString(properties.$geoip_country_name))"
 
@@ -180,7 +180,7 @@ const renderSqlBreakdownInsightsTable = (props: any): JSX.Element => {
     // eslint-disable-next-line @typescript-eslint/no-var-requires
     const insight = __trendsLineBreakdown as any
 
-    // Give each result a long, compound breakdown value so the value cells also have to clip.
+    // Give each result a long, compound breakdown value too
     const result = insight.result
         .slice(0, LONG_BREAKDOWN_VALUES.length)
         .map((r: Record<string, any>, index: number) => ({
