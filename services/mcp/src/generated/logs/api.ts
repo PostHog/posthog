@@ -2421,7 +2421,7 @@ export const LogsAlertsEventsListParams = /* @__PURE__ */ zod.object({
 
 export const LogsAlertsEventsListQueryParams = /* @__PURE__ */ zod.object({
     kind: zod
-        .enum(['check', 'reset', 'enable', 'disable', 'snooze', 'unsnooze', 'threshold_change', 'broken_config'])
+        .enum(['broken_config', 'check', 'disable', 'enable', 'reset', 'snooze', 'threshold_change', 'unsnooze'])
         .optional()
         .describe('Narrow the event history to a single event kind.'),
     limit: zod.number().optional().describe('Number of results to return per page.'),

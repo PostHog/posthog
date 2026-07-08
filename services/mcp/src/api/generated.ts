@@ -61233,14 +61233,14 @@ export namespace Schemas {
 
 
     export const EnvironmentsLogsAlertsEventsListKind = {
-      Check: 'check',
-      Reset: 'reset',
-      Enable: 'enable',
-      Disable: 'disable',
-      Snooze: 'snooze',
-      Unsnooze: 'unsnooze',
-      ThresholdChange: 'threshold_change',
       BrokenConfig: 'broken_config',
+      Check: 'check',
+      Disable: 'disable',
+      Enable: 'enable',
+      Reset: 'reset',
+      Snooze: 'snooze',
+      ThresholdChange: 'threshold_change',
+      Unsnooze: 'unsnooze',
     } as const;
 
     export type EnvironmentsLogsAttributesRetrieveParams = {
@@ -68458,14 +68458,14 @@ export namespace Schemas {
 
 
     export const LogsAlertsEventsListKind = {
-      Check: 'check',
-      Reset: 'reset',
-      Enable: 'enable',
-      Disable: 'disable',
-      Snooze: 'snooze',
-      Unsnooze: 'unsnooze',
-      ThresholdChange: 'threshold_change',
       BrokenConfig: 'broken_config',
+      Check: 'check',
+      Disable: 'disable',
+      Enable: 'enable',
+      Reset: 'reset',
+      Snooze: 'snooze',
+      ThresholdChange: 'threshold_change',
+      Unsnooze: 'unsnooze',
     } as const;
 
     export type LogsAttributesRetrieveParams = {
