@@ -993,6 +993,8 @@ def stripResponse(response, remove=("action", "label", "persons_urls", "filter")
 def cleanup_materialized_columns():
     try:
         from ee.clickhouse.materialized_columns.columns import (
+            MATERIALIZATION_VALID_TABLES,
+            _clear_materialized_columns_cache,
             get_bloom_filter_index_name,
             get_bloom_filter_lower_index_name,
             get_materialized_columns,
@@ -1042,6 +1044,10 @@ def cleanup_materialized_columns():
     optionally_drop("events", lambda name: name not in default_column_names)
     optionally_drop("person")
     optionally_drop("groups")
+    # Raw DROP COLUMN above bypasses drop_column(), which normally self-invalidates the cache.
+    # Clear it explicitly so subsequent lookups in the same process reflect the new schema.
+    for _table in MATERIALIZATION_VALID_TABLES:
+        _clear_materialized_columns_cache(_table)
 
 
 def get_index_from_explain(
@@ -1608,6 +1614,18 @@ def run_clickhouse_statement_in_parallel(statements: list[str]):
 
 
 def reset_clickhouse_database() -> None:
+    # Dropping tables below removes their materialized columns behind the metadata cache's back,
+    # so drop the cached entries with them (mutations via materialize()/drop_column() self-invalidate).
+    try:
+        from ee.clickhouse.materialized_columns.columns import (  # noqa: PLC0415 — keeps the ee dep optional, like the other ee imports in this module
+            MATERIALIZATION_VALID_TABLES,
+            _clear_materialized_columns_cache,
+        )
+
+        for _mat_table in MATERIALIZATION_VALID_TABLES:
+            _clear_materialized_columns_cache(_mat_table)
+    except ModuleNotFoundError:
+        pass
     run_clickhouse_statement_in_parallel(
         [
             DROP_RAW_SESSION_MATERIALIZED_VIEW_SQL(),
