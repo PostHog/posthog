@@ -220,7 +220,6 @@ async def preview_ai_subscription_report(subscription: Subscription) -> AiReport
     return await build_ai_subscription_report(subscription, persist_plan=False)
 
 
-
 def _build_feedback_url(subscription_url: str, delivery_id: uuid.UUID, feedback: str, source: str) -> str:
     # Lands on the authenticated subscription page; the frontend reads these exact params
     # (feedback_delivery, feedback, feedback_source) and captures an `ai_report_feedback` event.
