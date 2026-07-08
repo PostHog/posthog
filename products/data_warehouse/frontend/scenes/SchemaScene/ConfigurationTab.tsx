@@ -173,6 +173,8 @@ function DetailsSection({
     onConfigureSyncMethod: () => void
     onViewSyncHistory: () => void
 }): JSX.Element {
+    const syncedTableName = schema.table?.hogql_name ?? schema.table?.name
+
     return (
         <div>
             <SectionHeader
@@ -265,20 +267,21 @@ function DetailsSection({
                 </div>
                 <div className="flex items-center justify-between">
                     <span className="text-muted">Synced table</span>
-                    {schema.table ? (
+                    {schema.table && syncedTableName ? (
                         <Link
                             to={urls.sqlEditor({
-                                query: defaultQuery(schema.table.name, schema.table.columns).source.query,
+                                query: defaultQuery(syncedTableName, schema.table.columns).source.query,
                             })}
                             onClick={(event) => {
                                 event.preventDefault()
-                                const table = schema.table!
                                 newInternalTab(
-                                    urls.sqlEditor({ query: defaultQuery(table.name, table.columns).source.query })
+                                    urls.sqlEditor({
+                                        query: defaultQuery(syncedTableName, schema.table!.columns).source.query,
+                                    })
                                 )
                             }}
                         >
-                            <code>{schema.table.name}</code>
+                            <code>{syncedTableName}</code>
                         </Link>
                     ) : (
                         <span className="text-muted">Not yet synced</span>
