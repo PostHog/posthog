@@ -10,7 +10,8 @@ from posthog.models.team import Team
 from posthog.ph_client import ph_scoped_capture
 from posthog.sync import database_sync_to_async
 
-from products.pulse.backend.agent.mission import build_general_brief_mission
+from products.pulse.backend.agent.mission import MissionBundle, build_general_brief_mission
+from products.pulse.backend.agent.sandbox_run import run_mission
 from products.pulse.backend.generation.accountability import OpportunityStatusLine, collect_accountability
 from products.pulse.backend.generation.goal import GoalStatus, collect_goal_status
 from products.pulse.backend.generation.persist import opportunity_fingerprint, persist_brief_output
@@ -23,6 +24,7 @@ from products.pulse.backend.sources.registry import get_sources
 from products.pulse.backend.temporal.inputs import (
     GenerateBriefWorkflowInputs,
     MarkBriefFailedInputs,
+    RunAgentInputs,
     SynthesizeActivityInputs,
 )
 from products.signals.backend.facade.api import emit_signal
@@ -117,6 +119,35 @@ async def prepare_mission_activity(inputs: GenerateBriefWorkflowInputs) -> dict:
     # No secrets in the bundle: the OAuth token is minted inside run_agent so it
     # never lands in persisted workflow history.
     return bundle.model_dump(mode="json")
+
+
+def _store_agent_session(team_id: int, brief_id: str, agent_session_ref: str, transcript_key: str | None) -> None:
+    brief = ProductBrief.objects.for_team(team_id).get(id=brief_id)
+    brief.agent_session_ref = agent_session_ref
+    if transcript_key and transcript_key not in brief.artifacts:
+        brief.artifacts = [*brief.artifacts, transcript_key]
+    brief.save(update_fields=["agent_session_ref", "artifacts", "updated_at"])
+
+
+@temporalio.activity.defn
+async def run_agent_activity(inputs: RunAgentInputs) -> dict:
+    """One agent run = one sandbox lifetime. This activity only transports: the report
+    it returns is untrusted agent output, validated on the trusted side by the
+    validate_and_persist step, never here."""
+    brief = await database_sync_to_async(_get_brief, thread_sensitive=False)(inputs.team_id, inputs.brief_id)
+    if brief.created_by is None:
+        raise ApplicationError("brief has no creating user to mint the run token for", non_retryable=True)
+    bundle = MissionBundle.model_validate(inputs.bundle)
+    run_id = temporalio.activity.info().workflow_run_id
+    result = await database_sync_to_async(run_mission, thread_sensitive=False)(
+        bundle, user=brief.created_by, run_id=run_id
+    )
+    # Stored even before validation: the transcript is the transparency panel for this
+    # brief regardless of whether the report survives the trusted-side gate.
+    await database_sync_to_async(_store_agent_session, thread_sensitive=False)(
+        inputs.team_id, inputs.brief_id, result.agent_session_ref, result.transcript_key
+    )
+    return dataclasses.asdict(result)
 
 
 @temporalio.activity.defn

@@ -32,7 +32,7 @@ class McpToolGrant(BaseModel):
     scopes: list[str]
     headers: dict[str, str] = Field(default_factory=dict)
 
-    def to_mcp_server_config(self, *, token: str) -> dict[str, object]:
+    def to_mcp_server_config(self, *, token: str) -> dict[str, Any]:
         """Shape matches the agent-server --mcpServers JSON (ACP McpServer schema),
         see products/tasks/backend/temporal/process_task/utils.py::McpServerConfig."""
         headers = [

@@ -15,6 +15,8 @@ from temporalio.worker import UnsandboxedWorkflowRunner, Worker
 
 from posthog.models.scoping import team_scope
 
+from products.pulse.backend.agent.mission import build_general_brief_mission
+from products.pulse.backend.agent.sandbox_run import MissionRunResult
 from products.pulse.backend.generation.accountability import OpportunityStatusLine
 from products.pulse.backend.generation.goal import GoalStatus
 from products.pulse.backend.generation.schemas import BriefOut, BriefSectionOut, OpportunityOut
@@ -24,9 +26,10 @@ from products.pulse.backend.temporal.activities import (
     MAX_ITEMS,
     gather_brief_inputs_activity,
     prepare_mission_activity,
+    run_agent_activity,
     synthesize_brief_activity,
 )
-from products.pulse.backend.temporal.inputs import GenerateBriefWorkflowInputs, SynthesizeActivityInputs
+from products.pulse.backend.temporal.inputs import GenerateBriefWorkflowInputs, RunAgentInputs, SynthesizeActivityInputs
 from products.pulse.backend.temporal.registry import ACTIVITIES
 from products.pulse.backend.temporal.workflow import GenerateProductBriefWorkflow
 
@@ -268,6 +271,36 @@ async def test_prepare_mission_refuses_without_ai_consent(team, user) -> None:
             prepare_mission_activity,
             GenerateBriefWorkflowInputs(team_id=team.pk, brief_id=str(brief.id), period_days=7),
         )
+    assert exc_info.value.non_retryable is True
+
+
+@sync_to_async
+def _bundle_dict(team, brief) -> dict:
+    return build_general_brief_mission(team=team, brief=brief, config=None, items=[]).model_dump(mode="json")
+
+
+async def test_run_agent_activity_stores_session_ref_and_transcript_on_brief(team, user) -> None:
+    brief = await _create_brief(team, user)
+    bundle = await _bundle_dict(team, brief)
+    env = ActivityEnvironment()
+    run_result = MissionRunResult(report={"sections": []}, agent_session_ref="sb-1", transcript_key="pulse/t.log")
+    with patch("products.pulse.backend.temporal.activities.run_mission", return_value=run_result) as run_mock:
+        result = await env.run(
+            run_agent_activity, RunAgentInputs(team_id=team.pk, brief_id=str(brief.id), bundle=bundle)
+        )
+    assert result == dataclasses.asdict(run_result)
+    assert run_mock.call_args.kwargs["user"] == user
+    reloaded = await _reload_brief(brief.id)
+    assert reloaded.agent_session_ref == "sb-1"
+    assert "pulse/t.log" in reloaded.artifacts
+
+
+async def test_run_agent_activity_refuses_without_creating_user(team, user) -> None:
+    brief = await _create_brief(team, None)
+    bundle = await _bundle_dict(team, brief)
+    env = ActivityEnvironment()
+    with pytest.raises(ApplicationError) as exc_info:
+        await env.run(run_agent_activity, RunAgentInputs(team_id=team.pk, brief_id=str(brief.id), bundle=bundle))
     assert exc_info.value.non_retryable is True
 
 
