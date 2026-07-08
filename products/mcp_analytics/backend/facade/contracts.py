@@ -154,9 +154,21 @@ class IntentClusterSnapshot:
 
 
 @dataclass(frozen=True)
+class IntentTheme:
+    """One semantic grouping of agent intents in the project digest."""
+
+    name: str
+    description: str
+    intent_count: int
+    example_intent: str
+    tools: list[str] = field(default_factory=list)
+
+
+@dataclass(frozen=True)
 class IntentDigest:
     """Project-level LLM digest of what agents are trying to do with the MCP server."""
 
     # Null when the project has no recorded intents to summarise yet.
     digest: str | None
     intent_count: int
+    themes: list[IntentTheme] = field(default_factory=list)

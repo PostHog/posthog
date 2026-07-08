@@ -13,6 +13,7 @@ from django.utils import timezone
 import openai
 import posthoganalytics
 from posthoganalytics.ai.openai import OpenAI
+from pydantic import BaseModel
 
 from posthog.hogql import ast
 from posthog.hogql.parser import parse_select
@@ -119,22 +120,48 @@ def summarize_intents(intents: list[str], team: Team) -> str:
 
 
 # Project-level activity digest: what agents are trying to do across the whole
-# server, for the dashboard's low-volume activity stage.
+# server, for the dashboard's activity tab.
 MAX_DIGEST_INTENTS = 100
 # Bounds the intent scan so the events sort key can prune it. Generous because
 # activity-stage servers are low-volume and their history is short by definition.
 DIGEST_LOOKBACK = timedelta(days=90)
 
+
+class IntentThemeSchema(BaseModel):
+    """One semantic grouping of agent intents, sized for a compact dashboard card."""
+
+    name: str
+    description: str
+    intent_count: int
+    example_intent: str
+    tools: list[str]
+
+    class Config:
+        extra = "forbid"
+
+
+class IntentThemesSchema(BaseModel):
+    summary: str
+    themes: list[IntentThemeSchema]
+
+    class Config:
+        extra = "forbid"
+
+
 DIGEST_SYSTEM_PROMPT = (
     "You are given the per-tool-call intents AI agents recorded while using one MCP server, "
-    "most recent first. Summarise what agents are trying to do with this server in at most "
-    "three short sentences. Group similar intents into themes and lead with the most common one. "
-    "Be concrete: name the actual workflows, products, or entities involved — never generic "
-    "phrases like 'various tasks' or 'data exploration'. Do not list tools, echo the input, or add filler."
+    "most recent first, each with the tool that was called. Group them into 2-5 themes of "
+    "similar intents, largest first.\n"
+    "For each theme return: name (2-4 words, sentence case), description (one concrete sentence "
+    "— name the actual workflows or entities involved, never generic phrases like 'various tasks'), "
+    "intent_count (how many of the given intents belong to it), example_intent (one of the given "
+    "intents, verbatim), and tools (the tool names that appear with its intents).\n"
+    "Also return summary: one sentence covering what agents are mostly trying to do overall. "
+    "Do not invent intents or tools that are not in the input."
 )
 
 _PROJECT_INTENTS_SQL = """
-SELECT toString(properties.$mcp_intent) AS intent
+SELECT toString(properties.$mcp_intent) AS intent, toString(properties.$mcp_tool_name) AS tool
 FROM events
 WHERE event = {event}
     AND timestamp >= {date_from}
@@ -144,8 +171,8 @@ LIMIT {limit}
 """
 
 
-def fetch_recent_project_intents(team: Team) -> list[str]:
-    """Return the project's most recent ``$mcp_intent``s across all sessions, newest first."""
+def fetch_recent_project_intents(team: Team) -> list[tuple[str, str]]:
+    """Return the project's most recent ``($mcp_intent, tool_name)`` pairs, newest first."""
     query = parse_select(
         _PROJECT_INTENTS_SQL,
         placeholders={
@@ -158,19 +185,18 @@ def fetch_recent_project_intents(team: Team) -> list[str]:
         product=Product.MCP_ANALYTICS, feature=Feature.QUERY, team_id=team.id, name="mcp_analytics_intent_digest"
     ):
         response = execute_hogql_query(query=query, team=team)
-    return [str(row[0]) for row in (response.results or []) if row[0]]
+    return [(str(row[0]), str(row[1] or "")) for row in (response.results or []) if row[0]]
 
 
-def _build_digest_prompt(intents: list[str]) -> str:
-    numbered = "\n".join(f"{i + 1}. {intent}" for i, intent in enumerate(intents))
-    return (
-        f"Per-tool-call intents (most recent first):\n{numbered}\n\n"
-        "Summarise what agents are trying to do with this server, in at most three short sentences."
+def _build_digest_prompt(intents: list[tuple[str, str]]) -> str:
+    numbered = "\n".join(
+        f"{i + 1}. {intent}" + (f" (tool: {tool})" if tool else "") for i, (intent, tool) in enumerate(intents)
     )
+    return f"Per-tool-call intents (most recent first):\n{numbered}\n\nGroup them into themes."
 
 
-def summarize_project_intents(intents: list[str], team: Team) -> str:
-    """Condense the project's intents into an activity digest. Blocking — the endpoint runs it inline.
+def summarize_project_intents(intents: list[tuple[str, str]], team: Team) -> IntentThemesSchema:
+    """Group the project's intents into structured themes. Blocking — the endpoint runs it inline.
 
     Raises ``IntentGenerationUnavailable`` when the LLM is unconfigured or the request fails,
     so the endpoint can answer with a clean 503 rather than a 500.
@@ -180,22 +206,22 @@ def summarize_project_intents(intents: list[str], team: Team) -> str:
 
     client = OpenAI(posthog_client=posthoganalytics.default_client, base_url=settings.OPENAI_BASE_URL)
     try:
-        response = client.chat.completions.create(  # type: ignore
+        completion = client.beta.chat.completions.parse(  # type: ignore
             model=INTENT_MODEL,
             temperature=0,
-            max_tokens=140,
-            timeout=30,
+            max_tokens=900,
+            timeout=45,
             messages=[
                 {"role": "system", "content": DIGEST_SYSTEM_PROMPT},
                 {"role": "user", "content": _build_digest_prompt(intents)},
             ],
+            response_format=IntentThemesSchema,
             user=f"team/{team.id}/mcp-analytics-intent-digest",
             posthog_properties={"ai_product": "mcp_analytics", "ai_feature": "activity-intent-digest"},
         )
     except openai.OpenAIError as e:
         raise IntentGenerationUnavailable("LLM request failed") from e
-    content = response.choices[0].message.content if response.choices else None
-    digest = (content or "").strip()
-    if not digest:
+    parsed = completion.choices[0].message.parsed if completion.choices else None
+    if parsed is None or not parsed.summary:
         raise IntentGenerationUnavailable("LLM returned an empty digest")
-    return digest
+    return parsed
