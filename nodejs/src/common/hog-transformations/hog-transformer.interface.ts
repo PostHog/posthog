@@ -12,6 +12,8 @@ export interface HogTransformationResult {
     event: PluginEvent | null
     // Opaque to ingestion (it only reads `.length`); cdp narrows this to its concrete result type.
     invocationResults: unknown[]
+    // Set when `event` is null: the transformation that dropped the event.
+    droppedBy?: { id: string; name: string }
 }
 
 export interface HogTransformer {

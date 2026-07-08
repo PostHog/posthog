@@ -31,6 +31,7 @@
         "@tiptap/extension-link": "*",
         "@tiptap/extension-underline": "*",
         "@tiptap/extensions": "*",
+        "@tiptap/pm": "*",
         "@tiptap/react": "*",
         "@tiptap/starter-kit": "*",
         "@types/react": "*",
