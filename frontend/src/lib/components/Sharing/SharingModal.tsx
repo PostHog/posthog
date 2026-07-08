@@ -370,13 +370,14 @@ export function SharingModalContent({
                                                     )}
                                                 </LemonField>
 
-                                                {isInsightVizNode(insight?.query) && insightShortId && (
-                                                    // These options are only valid for `InsightVizNode`s, and they rely on `insightVizDataLogic`
-                                                    <>
-                                                        <LegendCheckbox insightShortId={insightShortId} />
-                                                        <DetailedResultsCheckbox insightShortId={insightShortId} />
-                                                    </>
-                                                )}
+                                                {isInsightVizNode(insight?.query) &&
+                                                    insightShortId && (
+                                                        // These options are only valid for `InsightVizNode`s, and they rely on `insightVizDataLogic`
+                                                        <>
+                                                            <LegendCheckbox insightShortId={insightShortId} />
+                                                            <DetailedResultsCheckbox insightShortId={insightShortId} />
+                                                        </>
+                                                    )}
 
                                                 {recordingId && (
                                                     <LemonField name="showInspector">

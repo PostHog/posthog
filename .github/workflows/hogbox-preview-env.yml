@@ -427,7 +427,7 @@ jobs:
             # exempted from the 7-day soak in [tool.uv].
             - uses: astral-sh/setup-uv@37802adc94f370d6bfd71619e3f0bf239e1f3b78 # v7.6.0
               with:
-                  version: '0.11.14' # pinned: unpinned setup-uv calls GH API on every job, exhausts rate limit
+                  version: '0.11.26' # pinned: unpinned setup-uv calls GH API on every job, exhausts rate limit
 
             - name: Bring up preview
               id: build
@@ -563,7 +563,7 @@ jobs:
                   echo "::add-mask::$token"; echo "HOG_TOKEN=$token" >> "$GITHUB_ENV"
             - uses: astral-sh/setup-uv@37802adc94f370d6bfd71619e3f0bf239e1f3b78 # v7.6.0
               with:
-                  version: '0.11.14' # pinned: unpinned setup-uv calls GH API on every job, exhausts rate limit
+                  version: '0.11.26' # pinned: unpinned setup-uv calls GH API on every job, exhausts rate limit
             - name: Destroy preview box + pen
               working-directory: tools/hogbox-preview
               run: uv run --no-project --with posthog-hogland==0.3.0 --python 3.12 python -m hogbox_preview --host "$HOG_HOST" --name "preview-pr-${PR}" destroy

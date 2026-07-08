@@ -437,8 +437,8 @@
 
 .MarkdownNotebook__blockquote-group .MarkdownNotebook__block-comment-button {
     left: calc(
-        var(--markdown-notebook-content-offset) * -1 -
-            1rem - var(--markdown-notebook-quote-indent) - var(--markdown-notebook-inline-control-width)
+        var(--markdown-notebook-content-offset) * -1 - 1rem - var(--markdown-notebook-quote-indent) -
+            var(--markdown-notebook-inline-control-width)
     );
 }
 
