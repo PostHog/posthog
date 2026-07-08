@@ -43,7 +43,7 @@ The canvas (`.MarkdownNotebook__canvas`) is a single `contenteditable` editing h
 Because of this, all editing behavior must be dispatched from root-level handlers based on the current selection:
 
 - `handleRootEditableKeyDown` (canvas `onKeyDown`) — Tab indentation, Enter splits, Backspace/Delete semantics, ArrowDown below a trailing code block
-- the native `beforeinput` capture listener — `insertParagraph`/`insertLineBreak` (inside code blocks these insert a literal `\n` through the model, since the browser default inserts `<br>` elements that are invisible to `textContent`), `deleteContent*`, `historyUndo/Redo`
+- the native `beforeinput` capture listener — `insertParagraph`/`insertLineBreak` (inside code blocks these insert a literal `\n` through the model, since the browser default inserts `<br>` elements that are invisible to `textContent`), `deleteContent*`, `historyUndo/Redo`, and a last-resort guard that cancels any unclaimed native range edit crossing inline-editable boundaries — the browser would otherwise restructure React-managed elements in place (e.g. merge two `<li>`s) and the next React commit would crash with `removeChild` DOM exceptions
 - `handleRootEditableInput` (canvas `onInput`) — syncing typed text back into the document model
 - `handleNotebookKeyDown` (notebook root `onKeyDownCapture`) — Cmd/Ctrl shortcuts: bold/italic/underline (`B`/`I`/`U`), strikethrough (`Shift+X`), scoped select-all (`A`), copy of a focused component (`C`)
 
@@ -63,6 +63,8 @@ Save conflicts (HTTP 409) are resolved through the same path: `notebookLogic` re
 ## Debug session recorder
 
 The debug drawer (`showDebug`) has a Log button that records an editing session as JSONL: every keystroke, mouse, input, and clipboard event on the notebook (capture phase), deduplicated selection snapshots, and every document commit with the resulting markdown — plus remote merges with their base/local/remote inputs and conflicts. Stop downloads the session as a `.log` file, built to be handed to an agent (or a human) to reconstruct exactly what the editor did and why.
+
+If the editor crashes while a recording is in flight, the log downloads itself instead of being lost: a `crash` entry (error, stack, current markdown) is appended and the file is saved immediately — whether the crash is an uncaught error in an event handler (window `error` listener) or a React render/commit error (`MarkdownNotebookCrashReporter`, which flushes the log and rethrows so the app's error boundary still takes over). Unhandled promise rejections are logged as entries but don't end the session.
 
 ## Inline discussion comments
 

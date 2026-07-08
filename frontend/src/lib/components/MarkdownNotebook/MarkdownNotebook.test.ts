@@ -2450,6 +2450,89 @@ Intro paragraph
         }
     })
 
+    it('downloads the debug log automatically when an uncaught error fires while recording', async () => {
+        const createObjectURL = jest.fn((_blob: Blob) => 'blob:notebook-crash-log')
+        const revokeObjectURL = jest.fn()
+        Object.defineProperty(window.URL, 'createObjectURL', { value: createObjectURL, configurable: true })
+        Object.defineProperty(window.URL, 'revokeObjectURL', { value: revokeObjectURL, configurable: true })
+        const anchorClick = jest.spyOn(HTMLAnchorElement.prototype, 'click').mockImplementation(() => {})
+
+        try {
+            const { container } = render(
+                createElement(MarkdownNotebook, { value: withNotebookTitle('Hello there'), showDebug: true })
+            )
+            fireEvent.click(container.querySelector('button[aria-label="Edit markdown source"]') as HTMLButtonElement)
+            const logButton = container.querySelector(
+                '[data-attr="markdown-notebook-debug-log-toggle"]'
+            ) as HTMLButtonElement
+            fireEvent.click(logButton)
+            expect(logButton.textContent).toEqual('Stop')
+
+            act(() => {
+                window.dispatchEvent(new ErrorEvent('error', { error: new Error('boom') }))
+            })
+
+            expect(anchorClick).toHaveBeenCalledTimes(1)
+            expect(logButton.textContent).toEqual('Log')
+            const blobText = await createObjectURL.mock.calls[0][0].text()
+            const entries = blobText
+                .trim()
+                .split('\n')
+                .map((line) => JSON.parse(line) as Record<string, unknown>)
+            const crashEntry = entries[entries.length - 1]
+            expect(crashEntry.type).toEqual('crash')
+            expect(crashEntry.error).toEqual('Error: boom')
+            expect(crashEntry.markdown).toEqual(withNotebookTitle('Hello there'))
+        } finally {
+            anchorClick.mockRestore()
+        }
+    })
+
+    it('downloads the debug log when a React commit crash hits the editor', async () => {
+        const createObjectURL = jest.fn((_blob: Blob) => 'blob:notebook-crash-log')
+        const revokeObjectURL = jest.fn()
+        Object.defineProperty(window.URL, 'createObjectURL', { value: createObjectURL, configurable: true })
+        Object.defineProperty(window.URL, 'revokeObjectURL', { value: revokeObjectURL, configurable: true })
+        const anchorClick = jest.spyOn(HTMLAnchorElement.prototype, 'click').mockImplementation(() => {})
+        const consoleError = jest.spyOn(console, 'error').mockImplementation(() => undefined)
+
+        try {
+            const { container } = render(
+                createElement(MarkdownNotebook, {
+                    value: withNotebookTitle('1. one\n2. two\n3. three'),
+                    showDebug: true,
+                })
+            )
+            fireEvent.click(container.querySelector('button[aria-label="Edit markdown source"]') as HTMLButtonElement)
+            fireEvent.click(
+                container.querySelector('[data-attr="markdown-notebook-debug-log-toggle"]') as HTMLButtonElement
+            )
+
+            // Reproduce the production crash class: the DOM is restructured behind React's
+            // back, then a model commit makes React unmount an <li> that is no longer where
+            // React left it, throwing a removeChild NotFoundError mid-commit.
+            const listItems = getEditableListItems(container)
+            const li = listItems[1].closest('li') as HTMLElement
+            li.parentNode?.removeChild(li)
+            selectTextAcrossNodes(getFirstTextNode(listItems[0]), 0, getFirstTextNode(listItems[2]), 5)
+
+            expect(() => fireEvent.keyDown(listItems[0], { key: 'Backspace' })).toThrow()
+
+            expect(anchorClick).toHaveBeenCalledTimes(1)
+            const blobText = await createObjectURL.mock.calls[0][0].text()
+            const entries = blobText
+                .trim()
+                .split('\n')
+                .map((line) => JSON.parse(line) as Record<string, unknown>)
+            const crashEntry = entries[entries.length - 1]
+            expect(crashEntry.type).toEqual('crash')
+            expect(String(crashEntry.error)).toContain('not a child of this node')
+        } finally {
+            consoleError.mockRestore()
+            anchorClick.mockRestore()
+        }
+    })
+
     it('scrolls to and flashes the comment thread when its ref highlight is clicked', () => {
         const { container } = render(
             createElement(MarkdownNotebook, {
@@ -5544,6 +5627,75 @@ Keep after`),
         expect(document.activeElement).toEqual(nextTextBlocks[2])
         expect(window.getSelection()?.focusOffset).toEqual(0)
         expect(onChange).toHaveBeenLastCalledWith(`${TEST_NOTEBOOK_TITLE_MARKDOWN}\n\nKeep before\n\nKeep after`)
+    })
+
+    it('deletes a fully selected list item through the model when the selection reaches the next item', () => {
+        const onChange = jest.fn()
+        const { container } = render(
+            createElement(MarkdownNotebook, { value: withNotebookTitle('1. one\n2. two\n3. three'), onChange })
+        )
+        const listItems = getEditableListItems(container)
+
+        // A triple-click style selection: the whole first item, ending at the next item's start.
+        selectTextAcrossNodes(getFirstTextNode(listItems[0]), 0, getFirstTextNode(listItems[1]), 0)
+        const event = beforeInputInContentEditable(listItems[0], 'deleteContentBackward')
+
+        // The edit must go through the model: the browser default merges the React-managed
+        // <li> elements in place and the next React commit crashes with a removeChild error.
+        expect(event.defaultPrevented).toBe(true)
+        expect(getEditableListItems(container).map((item) => item.textContent)).toEqual(['', 'two', 'three'])
+        expect(container.querySelectorAll('li')).toHaveLength(3)
+        expect(onChange).toHaveBeenCalled()
+    })
+
+    it('merges a selection spanning list items into one item with Backspace', () => {
+        const onChange = jest.fn()
+        const { container } = render(
+            createElement(MarkdownNotebook, { value: withNotebookTitle('1. alpha\n2. beta\n3. gamma'), onChange })
+        )
+        const listItems = getEditableListItems(container)
+
+        selectTextAcrossNodes(getFirstTextNode(listItems[0]), 2, getFirstTextNode(listItems[2]), 3)
+        fireEvent.keyDown(listItems[0], { key: 'Backspace' })
+
+        expect(getEditableListItems(container).map((item) => item.textContent)).toEqual(['alma'])
+        expect(onChange).toHaveBeenLastCalledWith(`${TEST_NOTEBOOK_TITLE_MARKDOWN}\n\n1. alma`)
+    })
+
+    it('replaces a selection spanning list items with the typed character', () => {
+        const { container } = render(
+            createElement(MarkdownNotebook, { value: withNotebookTitle('1. alpha\n2. beta\n3. gamma') })
+        )
+        const listItems = getEditableListItems(container)
+
+        selectTextAcrossNodes(getFirstTextNode(listItems[0]), 2, getFirstTextNode(listItems[2]), 3)
+        const event = fireInsertTextBeforeInput(listItems[0], 'X')
+
+        expect(event.defaultPrevented).toBe(true)
+        expect(getEditableListItems(container).map((item) => item.textContent)).toEqual(['alXma'])
+    })
+
+    it('blocks unclaimed native range edits that cross inline-editable boundaries', () => {
+        const onChange = jest.fn()
+        const { container } = render(
+            createElement(MarkdownNotebook, {
+                value: withNotebookTitle('| a | b |\n| --- | --- |\n| one | two |'),
+                onChange,
+            })
+        )
+        const cells = Array.from(container.querySelectorAll('.MarkdownNotebook__table-cell-content')) as HTMLElement[]
+        const bodyCells = cells.filter((cell) => cell.textContent === 'one' || cell.textContent === 'two')
+        expect(bodyCells).toHaveLength(2)
+
+        onChange.mockClear()
+        selectTextAcrossNodes(getFirstTextNode(bodyCells[0]), 1, getFirstTextNode(bodyCells[1]), 1)
+        const event = beforeInputInContentEditable(bodyCells[0], 'deleteContentBackward')
+
+        // No model handler claims a cross-cell range yet, so the native edit (which would
+        // merge React-managed cells and crash the next commit) must be dropped.
+        expect(event.defaultPrevented).toBe(true)
+        expect(bodyCells.map((cell) => cell.textContent)).toEqual(['one', 'two'])
+        expect(onChange).not.toHaveBeenCalled()
     })
 
     it('deletes a Cmd+A selection that includes component blocks', () => {
