@@ -1580,6 +1580,8 @@ class ClickhouseTestMixin(QueryMatchingTest):
 
 
 def run_clickhouse_statement_in_parallel(statements: list[str]):
+    # TRUNCATE statements have their ON CLUSTER clause stripped inside sync_execute (TEST-only,
+    # see posthog/clickhouse/client/execute.py), so no per-statement handling is needed here.
     def _execute_with_retry(stmt: str) -> None:
         max_attempts = 5
         for attempt in range(max_attempts):

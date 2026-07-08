@@ -1,3 +1,4 @@
+import re
 import sys
 import time
 import types
@@ -326,6 +327,13 @@ def sync_execute(
             flush_persons_and_events()
         except ModuleNotFoundError:  # when we run plugin server tests it tries to run above, ignore
             pass
+    if TEST and isinstance(query, str) and query.lstrip()[:8].upper() == "TRUNCATE":
+        # Tests run a single-node ClickHouse, where ON CLUSTER only adds distributed-DDL keeper
+        # round-trips (tens to hundreds of ms per statement) without changing the outcome. Test
+        # resets and per-test setUp truncates issue these in bulk, so strip the clause here.
+        # If a CI variant ever runs multi-replica this must be removed or gated; without ON
+        # CLUSTER a truncate only touches the connected node and leaves others dirty.
+        query = re.sub(r"\s+ON CLUSTER\s+'?[\w-]+'?", "", query)
     tags = get_query_tags()
     # Any programmatic key auth — personal API key, project secret API key, or legacy team secret
     # token — routes to the offline cluster as the API ClickHouse user. User-facing session/OAuth
