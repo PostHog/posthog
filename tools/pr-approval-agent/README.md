@@ -118,11 +118,11 @@ LLM Review
     signal. Quoted stamphog verdicts in other reviewers' comments are treated
     as history, not tampering
   - For changes entering risky territory (migrations, billing, auth, and
-    similar — the full list lives in `.stamphog/review-guidance.md`), expects
+    similar; the full list lives in `.stamphog/review-guidance.md`), expects
     independent assurance over the risky part on the current head: a
     substantive reviewer pass, or an owning-team / STRONG-familiarity author;
     escalates otherwise. Outside risky territory no independent review is
-    required, regardless of size tier — we move fast and fix forward, and the
+    required, regardless of size tier. We move fast and fix forward, and the
     LLM's own reading suffices for contained, reversible changes
   - Gates are authoritative — LLM can tighten but never loosen
   │
