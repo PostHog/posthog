@@ -82,7 +82,10 @@ class TestGetRows:
         manager = _FakeResumableManager()
         url = f"{PROD_URL}/v1/users"
         first = _page_of(PAGE_SIZE, "a")
-        pages = {(url, None, 0): first, (url, None, PAGE_SIZE): [{"id": "z"}]}
+        pages: dict[tuple[str, str | None, int], list[dict]] = {
+            (url, None, 0): first,
+            (url, None, PAGE_SIZE): [{"id": "z"}],
+        }
         rows = self._collect(manager, monkeypatch, pages, "users")
         assert rows == [*first, {"id": "z"}]
         # State is saved once — after the full first page, pointing at the next offset — then we stop.
@@ -93,7 +96,7 @@ class TestGetRows:
         manager = _FakeResumableManager(PhylloResumeConfig(offset=PAGE_SIZE))
         url = f"{PROD_URL}/v1/users"
         # Offset 0 must never be fetched on resume.
-        pages = {(url, None, PAGE_SIZE): [{"id": "z"}]}
+        pages: dict[tuple[str, str | None, int], list[dict]] = {(url, None, PAGE_SIZE): [{"id": "z"}]}
         rows = self._collect(manager, monkeypatch, pages, "users")
         assert rows == [{"id": "z"}]
 

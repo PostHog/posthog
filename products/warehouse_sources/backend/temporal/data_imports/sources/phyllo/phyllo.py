@@ -109,7 +109,9 @@ def _list_account_ids(
     offset = 0
     while True:
         items = _fetch_page(session, f"{base_url}{ACCOUNTS_PATH}", {"limit": PAGE_SIZE, "offset": offset}, logger)
-        account_ids.extend(item["id"] for item in items if isinstance(item.get("id"), str))
+        # `id` is the primary key of an account record — index it directly so a malformed record
+        # fails the sync loudly instead of silently dropping the account's child rows.
+        account_ids.extend(item["id"] for item in items)
         if len(items) < PAGE_SIZE:
             break
         offset += len(items)
