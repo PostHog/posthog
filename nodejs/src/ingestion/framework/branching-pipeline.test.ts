@@ -95,7 +95,7 @@ describe('BranchingPipeline', () => {
             const branches = { a: branch }
 
             const existingSideEffect = Promise.resolve('existing')
-            const existingWarning = { type: 'client_ingestion_warning', details: {} }
+            const existingWarning = { type: 'client_ingestion_warning' as const, details: {} }
 
             const previousPipeline = new StartPipeline<{ type: string }, unknown>()
             const pipeline = new BranchingPipeline(decisionFn, branches, previousPipeline)
@@ -163,8 +163,8 @@ describe('BranchingPipeline', () => {
         it('should accumulate warnings from previous context and branch result', async () => {
             const decisionFn = (value: { type: string }) => value.type
 
-            const previousWarning = { type: 'schema_validation_failed', details: {} }
-            const branchWarning = { type: 'invalid_heatmap_data', details: {} }
+            const previousWarning = { type: 'schema_validation_failed' as const, details: {} }
+            const branchWarning = { type: 'invalid_heatmap_data' as const, details: {} }
 
             const branch = new StartPipeline<{ type: string }, unknown>().pipe((input) =>
                 Promise.resolve(ok({ result: input.type }, [], [branchWarning]))
@@ -186,13 +186,13 @@ describe('BranchingPipeline', () => {
             const decisionFn = (value: { type: string }) => value.type
 
             const inputSideEffect = Promise.resolve('input')
-            const inputWarning = { type: 'ignored_invalid_timestamp', details: {} }
+            const inputWarning = { type: 'ignored_invalid_timestamp' as const, details: {} }
 
             const previousSideEffect = Promise.resolve('previous')
-            const previousWarning = { type: 'schema_validation_failed', details: {} }
+            const previousWarning = { type: 'schema_validation_failed' as const, details: {} }
 
             const branchSideEffect = Promise.resolve('branch')
-            const branchWarning = { type: 'invalid_heatmap_data', details: {} }
+            const branchWarning = { type: 'invalid_heatmap_data' as const, details: {} }
 
             const branch = new StartPipeline<{ type: string }, unknown>().pipe((input) =>
                 Promise.resolve(ok({ result: input.type }, [branchSideEffect], [branchWarning]))

@@ -271,7 +271,7 @@ describe('StepPipeline', () => {
         it('should accumulate warnings from step results', async () => {
             const message: Message = { value: Buffer.from('test'), topic: 'test', partition: 0, offset: 1 } as Message
 
-            const stepWarning = { type: 'merge_race_condition', details: { message: 'from step' } }
+            const stepWarning = { type: 'merge_race_condition' as const, details: { message: 'from step' } }
             const step = jest.fn().mockResolvedValue(ok({ processed: 'result' }, [], [stepWarning]))
 
             const previous = new StartPipeline<{ data: string }, unknown>()
@@ -286,8 +286,8 @@ describe('StepPipeline', () => {
         it('should merge context warnings with step warnings', async () => {
             const message: Message = { value: Buffer.from('test'), topic: 'test', partition: 0, offset: 1 } as Message
 
-            const contextWarning = { type: 'client_ingestion_warning', details: { message: 'from context' } }
-            const stepWarning = { type: 'schema_validation_failed', details: { message: 'from step' } }
+            const contextWarning = { type: 'client_ingestion_warning' as const, details: { message: 'from context' } }
+            const stepWarning = { type: 'schema_validation_failed' as const, details: { message: 'from step' } }
 
             const step = jest.fn().mockResolvedValue(ok({ processed: 'result' }, [], [stepWarning]))
 
@@ -323,10 +323,10 @@ describe('StepPipeline', () => {
         it('should preserve order of warnings', async () => {
             const message: Message = { value: Buffer.from('test'), topic: 'test', partition: 0, offset: 1 } as Message
 
-            const contextWarning1 = { type: 'ignored_invalid_timestamp', details: { idx: 1 } }
-            const contextWarning2 = { type: 'invalid_heatmap_data', details: { idx: 2 } }
-            const stepWarning1 = { type: 'message_size_too_large', details: { idx: 3 } }
-            const stepWarning2 = { type: 'group_key_too_long', details: { idx: 4 } }
+            const contextWarning1 = { type: 'ignored_invalid_timestamp' as const, details: { idx: 1 } }
+            const contextWarning2 = { type: 'invalid_heatmap_data' as const, details: { idx: 2 } }
+            const stepWarning1 = { type: 'message_size_too_large' as const, details: { idx: 3 } }
+            const stepWarning2 = { type: 'group_key_too_long' as const, details: { idx: 4 } }
 
             const step = jest.fn().mockResolvedValue(ok({ processed: 'result' }, [], [stepWarning1, stepWarning2]))
 
