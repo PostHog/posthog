@@ -105,3 +105,12 @@ CI before merging."
 - Don't infer reviews, approvals, per-check counts, or deploys — that data isn't ingested yet.
 - Don't turn per-author buckets into a leaderboard — they're for finding stuck work, not ranking people.
 - Don't reach for these tools to fetch raw PR contents or diffs — they surface pipeline signal, not the PR thread.
+
+## Persisting an answer
+
+These tools are ad-hoc reads — they cannot be saved as an insight or subscribed to. When the user wants the same
+numbers as a saved insight, a dashboard tile, or a scheduled email/Slack delivery, switch to the
+`turning-engineering-analytics-into-insights` skill: the underlying warehouse tables
+(`<prefix>github_pull_requests` / `<prefix>github_workflow_runs`, prefix from `engineering-analytics-sources`)
+are directly queryable with HogQL, and that skill carries the curated column semantics plus the
+insight-create / subscriptions-create workflow.
