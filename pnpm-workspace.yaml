@@ -98,9 +98,6 @@ minimumReleaseAgeExclude:
     - mermaid@11.15.0
     - '@mermaid-js/*'
     - kea-typegen
-    # The TS 7.0 native compiler ships as daily builds under @typescript/native-preview
-    # (main + per-platform binary subpackages). We track it closely, so exempt the whole
-    # scope from the release-age window.
     - '@typescript/*'
     - shiki
     - shadcn
