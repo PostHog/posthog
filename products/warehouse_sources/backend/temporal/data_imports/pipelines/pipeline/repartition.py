@@ -307,7 +307,9 @@ async def repartition_table_in_place(
 
     if resuming:
         resolved = target
-        rows_written = old_row_count
+        # `rows_written` is set from the swap's temp-derived count below; `old_row_count` here was read
+        # from a live table a prior partial swap may have inflated, so it isn't trustworthy.
+        rows_written = 0
         await logger.ainfo(f"repartition: resuming from swap marker schema_id={schema.id}", schema_id=str(schema.id))
     else:
         # Fresh build: clear any stale temp folder, then stream the live table into it.
@@ -340,12 +342,15 @@ async def repartition_table_in_place(
 
     # Swap (idempotent): replace live with a server-side copy of temp, verify, then drop temp. temp
     # holds the full re-bucketed dataset, so deleting live is safe — temp is the new source of truth.
-    await _swap_temp_into_live(
+    # The swap verifies against temp's own count, so a resume over an inflated live recovers cleanly.
+    swapped_rows = await _swap_temp_into_live(
         temp_uri=temp_uri,
         live_uri=live_uri,
         storage_options=storage_options,
-        expected_rows=old_row_count,
     )
+    if resuming:
+        # On resume `old_row_count` was read from a possibly-inflated live table; temp is the truth.
+        rows_written = swapped_rows
 
     # Persist the new scheme and clear controller state. set_partitioning_enabled saves + pops overrides.
     await asyncio.to_thread(
@@ -423,14 +428,10 @@ async def _resume_swap_with_missing_live(
     await logger.ainfo(
         f"repartition: live missing mid-swap, resuming from temp schema_id={schema.id}", schema_id=str(schema.id)
     )
-    temp_delta = await asyncio.to_thread(deltalake.DeltaTable, table_uri=temp_uri, storage_options=storage_options)
-    expected_rows = await asyncio.to_thread(_table_row_count, temp_delta)
-
-    await _swap_temp_into_live(
+    expected_rows = await _swap_temp_into_live(
         temp_uri=temp_uri,
         live_uri=live_uri,
         storage_options=storage_options,
-        expected_rows=expected_rows,
     )
 
     await asyncio.to_thread(
@@ -454,27 +455,53 @@ async def _resume_swap_with_missing_live(
     return {"outcome": "completed", "row_count": expected_rows, "recovered": True}
 
 
+async def _clear_prefix(s3: Any, uri: str) -> None:
+    """Delete every object under `uri`, robust to eventually-consistent S3-compatible stores.
+
+    A single recursive prefix delete can leave directory-marker objects (and, under eventual
+    consistency, stray data files) behind on some S3-compatible stores. List the files and delete
+    them explicitly first, then a best-effort recursive sweep to catch any markers.
+    """
+    if not await s3._exists(uri):
+        return
+    files = await s3._find(uri)
+    if files:
+        await s3._rm([f"s3://{f.lstrip('/')}" for f in files])
+    if await s3._exists(uri):
+        await s3._rm(uri, recursive=True)
+
+
 async def _swap_temp_into_live(
     *,
     temp_uri: str,
     live_uri: str,
     storage_options: dict[str, str],
-    expected_rows: int,
-) -> None:
-    """Atomically-enough replace `live_uri` with the contents of `temp_uri`.
+) -> int:
+    """Atomically-enough replace `live_uri` with the contents of `temp_uri`. Returns temp's row count.
 
     Crash-safe ordering: delete live → server-side copy temp → live → verify → delete temp. Until
     temp is deleted it remains the durable source of truth, so any retry simply re-runs this whole
     function (Delta uses relative paths in `_delta_log`, so a copied folder is a valid table).
 
+    The verification target is temp's *own* row count, never a pre-swap live count. A prior partial
+    swap can leave live inflated (leftover files under the live prefix make the new Delta log
+    reference duplicate records), and re-deriving the expectation from that inflated live would both
+    accept a corrupt table and permanently fail an otherwise-clean retry. temp is the durable source
+    of truth, so its count is the expectation — matching `_resume_swap_with_missing_live`.
+
     Files are copied one at a time preserving their path relative to temp — a single recursive
     `copy(prefix, prefix)` trips over directory-marker objects on S3-compatible stores.
     """
     temp_prefix = temp_uri.replace("s3://", "").rstrip("/")
+    temp_delta = await asyncio.to_thread(deltalake.DeltaTable, table_uri=temp_uri, storage_options=storage_options)
+    expected_rows = await asyncio.to_thread(_table_row_count, temp_delta)
+
     async with aget_s3_client() as s3:
         if await s3._exists(temp_uri):
-            if await s3._exists(live_uri):
-                await s3._rm(live_uri, recursive=True)
+            # Fully clear the live prefix before copying temp in. Any leftover old data file would
+            # make the new Delta log reference duplicate records (the ~2x inflation we're guarding
+            # against), so this must be an explicit file-list delete, not just a recursive sweep.
+            await _clear_prefix(s3, live_uri)
             files = await s3._find(temp_uri)
             for f in files:
                 rel = f[len(temp_prefix) :]
@@ -484,13 +511,15 @@ async def _swap_temp_into_live(
     live_delta = await asyncio.to_thread(deltalake.DeltaTable, table_uri=live_uri, storage_options=storage_options)
     live_rows = await asyncio.to_thread(_table_row_count, live_delta)
     if live_rows != expected_rows:
+        # The pre-swap live files are already gone, so there is nothing to roll back to. Clear the
+        # corrupt (partially-copied / inflated) live so it fails loud (missing table) instead of
+        # silently serving wrong rows. temp and the swap marker stay intact, so the next run recovers
+        # cleanly via `_resume_swap_with_missing_live`.
+        async with aget_s3_client() as s3:
+            await _clear_prefix(s3, live_uri)
         raise ValueError(f"repartition swap verification failed: live={live_rows} expected={expected_rows}")
 
     async with aget_s3_client() as s3:
-        # Delete the temp files explicitly (a recursive prefix delete can leave directory-marker
-        # objects behind on some S3-compatible stores), then a best-effort recursive sweep.
-        temp_files = await s3._find(temp_uri)
-        if temp_files:
-            await s3._rm([f"s3://{f.lstrip('/')}" for f in temp_files])
-        if await s3._exists(temp_uri):
-            await s3._rm(temp_uri, recursive=True)
+        await _clear_prefix(s3, temp_uri)
+
+    return expected_rows

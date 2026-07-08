@@ -251,6 +251,116 @@ class _FakeS3CM:
         return False
 
 
+class _FakeS3Store:
+    """In-memory S3-compatible store modelling the directory-marker quirk the swap guards against.
+
+    `files` maps a normalised path (no `s3://`) to `(rows, sticky)`. A `sticky` object survives a
+    recursive prefix delete (mimicking the directory-marker / eventually-consistent leftovers real
+    stores leave behind) but is removed by an explicit file-list delete — exactly the difference
+    `_clear_prefix` relies on.
+    """
+
+    def __init__(self, files):
+        self.files = dict(files)
+
+    @staticmethod
+    def _norm(uri):
+        return uri.replace("s3://", "").rstrip("/")
+
+    def _under(self, uri):
+        p = self._norm(uri)
+        return [f for f in self.files if f == p or f.startswith(p + "/")]
+
+    async def _exists(self, uri):
+        return bool(self._under(uri))
+
+    async def _find(self, uri):
+        return sorted(self._under(uri))
+
+    async def _rm(self, target, recursive=False):
+        if isinstance(target, list):
+            for t in target:
+                self.files.pop(self._norm(t), None)
+            return
+        for f in self._under(target):
+            _rows, sticky = self.files[f]
+            if sticky and recursive:
+                continue  # recursive sweep can't clear directory markers / stale leftovers
+            self.files.pop(f, None)
+
+    async def _copy(self, src, dst):
+        self.files[self._norm(dst)] = self.files[self._norm(src)]
+
+
+class TestSwapTempIntoLive:
+    """`_swap_temp_into_live` must verify the copied-in live table against *temp's* own row count and
+    fully clear the live prefix first — otherwise a resume over a partially-swapped (inflated) live
+    table either accepts a doubled table or permanently fails a clean retry."""
+
+    TEMP_URI = "s3://bucket/live__repartitioned"
+    LIVE_URI = "s3://bucket/live"
+
+    def _count_from_store(self, store):
+        def _count(delta):
+            prefix = _FakeS3Store._norm(delta)
+            return sum(rows for f, (rows, _sticky) in store.files.items() if f == prefix or f.startswith(prefix + "/"))
+
+        return _count
+
+    def test_clears_inflated_live_and_verifies_against_temp_count(self):
+        # Resume over a live table a prior partial swap left inflated (a sticky leftover file doubling
+        # the row count). The swap must clear it, copy temp in, and verify against temp's 100 rows.
+        store = _FakeS3Store(
+            {
+                "bucket/live__repartitioned/data-1.parquet": (60, False),
+                "bucket/live__repartitioned/data-2.parquet": (40, False),
+                "bucket/live/stale.parquet": (100, True),  # leftover marker → inflates live to ~2x
+            }
+        )
+        with (
+            patch.object(repartition_module, "aget_s3_client", return_value=_FakeS3CM(store)),
+            patch.object(repartition_module, "deltalake") as fake_delta,
+            patch.object(repartition_module, "_table_row_count", new=self._count_from_store(store)),
+        ):
+            fake_delta.DeltaTable = lambda table_uri, storage_options: table_uri
+            result = asyncio.run(
+                repartition_module._swap_temp_into_live(
+                    temp_uri=self.TEMP_URI, live_uri=self.LIVE_URI, storage_options={}
+                )
+            )
+
+        assert result == 100
+        # Live holds exactly temp's rows (stale leftover gone), temp is dropped after the verified swap.
+        assert self._count_from_store(store)(self.LIVE_URI) == 100
+        assert not asyncio.run(store._exists(self.TEMP_URI))
+
+    def test_failed_verification_clears_corrupt_live_and_raises(self):
+        # If the copied-in live still can't be reconciled to temp's count, live is now corrupt with no
+        # pre-swap state to restore. It must be cleared (fail loud, not silently serve wrong rows) and
+        # temp left intact so the next run can recover.
+        store = _FakeS3Store(
+            {
+                "bucket/live__repartitioned/data-1.parquet": (100, False),
+                "bucket/live/old.parquet": (100, False),
+            }
+        )
+        with (
+            patch.object(repartition_module, "aget_s3_client", return_value=_FakeS3CM(store)),
+            patch.object(repartition_module, "deltalake") as fake_delta,
+            patch.object(repartition_module, "_table_row_count", side_effect=[100, 999]),  # temp=100, live=999
+        ):
+            fake_delta.DeltaTable = lambda table_uri, storage_options: table_uri
+            with pytest.raises(ValueError, match="verification failed: live=999 expected=100"):
+                asyncio.run(
+                    repartition_module._swap_temp_into_live(
+                        temp_uri=self.TEMP_URI, live_uri=self.LIVE_URI, storage_options={}
+                    )
+                )
+
+        assert not asyncio.run(store._exists(self.LIVE_URI))  # corrupt live cleared
+        assert asyncio.run(store._exists(self.TEMP_URI))  # temp preserved for recovery
+
+
 class TestResumeSwapWithMissingLive:
     """An interrupted swap can delete the live table before copying temp back. On resume the live
     table is gone, so `get_delta_table()` returns None — but the swap marker is still set and temp is
