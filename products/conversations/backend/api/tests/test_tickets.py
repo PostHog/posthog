@@ -1992,7 +1992,12 @@ class TestTicketReplyAPI(APIBaseTest):
         assert comment.created_by == self.user
         assert comment.scope == "conversations_ticket"
         assert comment.item_id == str(self.ticket.id)
-        assert comment.item_context == {"author_type": "support", "is_private": is_private}
+        expected_context = {"author_type": "support", "is_private": is_private}
+        if not is_private:
+            # Public replies on an email ticket always get an outbox row; this team has no
+            # email channel, so delivery fails immediately and stamps the comment.
+            expected_context["email_delivery_status"] = "failed"
+        assert comment.item_context == expected_context
 
     def test_reply_defaults_is_private_to_false(self, mock_on_commit):
         response = self.client.post(self.url, {"message": "Hi"}, format="json")
