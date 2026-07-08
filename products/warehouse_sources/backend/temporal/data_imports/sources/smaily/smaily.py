@@ -77,6 +77,7 @@ def _fetch(
     url: str,
     params: dict[str, Any],
     logger: FilteringBoundLogger,
+    expect_list: bool = False,
 ) -> Any:
     response = session.get(url, params=params, timeout=REQUEST_TIMEOUT_SECONDS)
 
@@ -90,14 +91,15 @@ def _fetch(
 
     try:
         # Smaily serves JSON with a text/html Content-Type header, so parse unconditionally.
-        return response.json()
+        data = response.json()
     except ValueError as e:
         raise SmailyRetryableError(f"Smaily returned a non-JSON payload for {url}") from e
 
-
-def _as_row_list(data: Any, url: str) -> list[dict[str, Any]]:
-    if not isinstance(data, list) or not all(isinstance(row, dict) for row in data):
+    # Shape validation lives inside the retried function so a malformed payload gets the same
+    # backoff treatment as a transport error instead of failing the sync on the first hit.
+    if expect_list and (not isinstance(data, list) or not all(isinstance(row, dict) for row in data)):
         raise SmailyRetryableError(f"Smaily returned an unexpected payload for {url}: {type(data).__name__}")
+
     return data
 
 
@@ -116,7 +118,7 @@ def _list_rows(
     url = f"{base_url}/{config.path}"
 
     if config.page_param is None:
-        rows = _as_row_list(_fetch(session, url, dict(config.extra_params), logger), url)
+        rows = _fetch(session, url, dict(config.extra_params), logger, expect_list=True)
         if rows:
             yield rows
         return
@@ -125,7 +127,7 @@ def _list_rows(
     page = resume.page if resume else 0
 
     while True:
-        rows = _as_row_list(_fetch(session, url, _paged_params(config, page), logger), url)
+        rows = _fetch(session, url, _paged_params(config, page), logger, expect_list=True)
         if rows:
             yield rows
 
@@ -149,7 +151,7 @@ def _fetch_all_pages(
     rows: list[dict[str, Any]] = []
     page = 0
     while True:
-        page_rows = _as_row_list(_fetch(session, url, _paged_params(config, page), logger), url)
+        page_rows = _fetch(session, url, _paged_params(config, page), logger, expect_list=True)
         rows.extend(page_rows)
         assert config.page_size is not None
         if len(page_rows) < config.page_size:
@@ -179,10 +181,7 @@ def _segment_subscriber_rows(
         pending = list(resume.pending_parent_ids)
         page = resume.page
     else:
-        segments = _as_row_list(
-            _fetch(session, f"{base_url}/list.php", {}, logger),
-            f"{base_url}/list.php",
-        )
+        segments = _fetch(session, f"{base_url}/list.php", {}, logger, expect_list=True)
         # Sort by id so the resume queue stays deterministic (list.php orders by mutable name).
         pending = sorted(str(segment["id"]) for segment in segments)
         page = 0
@@ -192,7 +191,7 @@ def _segment_subscriber_rows(
 
         while True:
             params = {"list": segment_id, **_paged_params(config, page)}
-            rows = _as_row_list(_fetch(session, url, params, logger), url)
+            rows = _fetch(session, url, params, logger, expect_list=True)
             normalized = [_normalize_subscriber(row, segment_id) for row in rows]
             if normalized:
                 yield normalized
@@ -232,7 +231,11 @@ def _campaign_statistics_rows(
         if isinstance(stats, dict) and stats:
             batch.append(stats)
         else:
-            logger.warning(f"Smaily: skipping campaign {campaign_id} statistics, unexpected payload shape")
+            # Keep one row per campaign even when the stats payload is unusable (e.g. an empty
+            # list for a never-sent campaign) so the table doesn't silently omit campaigns;
+            # the stats columns stay null. Match the numeric id type of regular stats rows.
+            logger.warning(f"Smaily: campaign {campaign_id} statistics had an unexpected payload shape")
+            batch.append({"id": int(campaign_id) if campaign_id.isdigit() else campaign_id})
 
         pending = pending[1:]
         if batch and (len(batch) >= STATS_CHUNK_SIZE or not pending):

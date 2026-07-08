@@ -51,7 +51,7 @@ class _FakeApi:
         self._responder = responder
         self.requests: list[tuple[str, dict[str, Any]]] = []
 
-    def __call__(self, session: Any, url: str, params: dict[str, Any], logger: Any) -> Any:
+    def __call__(self, session: Any, url: str, params: dict[str, Any], logger: Any, expect_list: bool = False) -> Any:
         self.requests.append((url, dict(params)))
         return self._responder(url, params)
 
@@ -140,6 +140,14 @@ class TestFetch:
         session = self._session_returning(200, invalid_json=True)
         with pytest.raises(SmailyRetryableError):
             _fetch_unwrapped(session, f"{BASE_URL}/campaign.php", {}, MagicMock())
+
+    @parameterized.expand([("dict_body", {"error": "nope"}), ("non_dict_rows", ["oops"])])
+    def test_unexpected_list_shape_is_retryable_inside_fetch(self, _name: str, body: Any) -> None:
+        # Shape validation must run inside the retried function so a malformed payload gets
+        # backoff instead of failing the sync on the first hit.
+        session = self._session_returning(200, body)
+        with pytest.raises(SmailyRetryableError):
+            _fetch_unwrapped(session, f"{BASE_URL}/campaign.php", {}, MagicMock(), expect_list=True)
 
 
 class TestTopLevelEndpoints:
@@ -253,7 +261,7 @@ class TestSegmentSubscribers:
 
 class TestCampaignStatistics:
     @staticmethod
-    def _responder(stats_by_id: dict[str, dict]) -> Any:
+    def _responder(stats_by_id: dict[str, Any]) -> Any:
         def respond(url: str, params: dict[str, Any]) -> Any:
             if "id" in params:
                 return stats_by_id[params["id"]]
@@ -281,6 +289,14 @@ class TestCampaignStatistics:
         assert rows == [{"id": 3, "delivered_count": 30}]
         # The campaign listing must not be re-fetched on resume.
         assert api.requests == [(f"{BASE_URL}/campaign.php", {"id": "3"})]
+
+    def test_unusable_stats_payload_yields_id_only_row(self, monkeypatch: Any) -> None:
+        # A campaign whose stats come back malformed (e.g. an empty list) must not silently
+        # vanish from the table — it keeps a row with a numeric id and null stats columns.
+        responder = self._responder({"1": [], "2": {"id": 2, "delivered_count": 20}})
+        rows, _, _ = _collect(monkeypatch, CAMPAIGN_STATISTICS, responder)
+
+        assert rows == [{"id": 1}, {"id": 2, "delivered_count": 20}]
 
 
 class TestCheckAccess:
