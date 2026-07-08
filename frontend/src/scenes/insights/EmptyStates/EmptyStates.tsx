@@ -33,7 +33,6 @@ import { urls } from 'scenes/urls'
 import { sidePanelStateLogic } from '~/layout/navigation-3000/sidepanel/sidePanelStateLogic'
 import { actionsAndEventsToSeries } from '~/queries/nodes/InsightQuery/utils/filtersToQueryNode'
 import { seriesToActionsAndEvents } from '~/queries/nodes/InsightQuery/utils/queryNodeToFilter'
-import { CLICKHOUSE_MEMORY_LIMIT_ERROR_CODE } from '~/queries/nodes/InsightViz/utils'
 import { FunnelsQuery, Node, NodeKind, QueryStatus } from '~/queries/schema/schema-general'
 import { isFunnelsDataWarehouseNode } from '~/queries/utils'
 import {
@@ -51,13 +50,12 @@ import { insightVizDataLogic } from '../insightVizDataLogic'
 import { SampleDataState, SampleDataVariant } from './SampleDataState'
 import { sampleDataStateLogic } from './sampleDataStateLogic'
 
+// Matches ClickHouseQueryMemoryLimitExceeded.default_code on the backend. Keep the two in sync.
+const CLICKHOUSE_MEMORY_LIMIT_ERROR_CODE = 'clickhouse_memory_limit_exceeded'
+
 // The leading `!` makes the AI side panel auto-submit the prompt on open (see parseCommandString in scenes/max/maxLogic).
 const MEMORY_LIMIT_AI_PROMPT =
     "!This insight ran out of memory before it could finish. Help me work out why it's scanning so much data and how to fix it — e.g. a shorter date range, narrower filters, or materializing the data."
-
-// Fallback for query paths that don't propagate the error code yet — keep in sync with the backend
-// ClickHouseQueryMemoryLimitExceeded.default_detail copy.
-const MEMORY_LIMIT_DETAIL_MARKER = 'ran out of memory'
 
 const DETAIL_URL_REGEX = /(https?:\/\/[^\s]+)/g
 
@@ -555,10 +553,7 @@ export function InsightValidationError({
 }): JSX.Element {
     const { openSidePanel } = useActions(sidePanelStateLogic)
     const debugWithAI = (): void => openSidePanel(SidePanelTab.Max, MEMORY_LIMIT_AI_PROMPT)
-    // Async query paths don't propagate an error code yet, so fall back to message matching there.
-    const isMemoryLimitError = validationErrorCode
-        ? validationErrorCode === CLICKHOUSE_MEMORY_LIMIT_ERROR_CODE
-        : detail.includes(MEMORY_LIMIT_DETAIL_MARKER)
+    const isMemoryLimitError = validationErrorCode === CLICKHOUSE_MEMORY_LIMIT_ERROR_CODE
     const defaultCta =
         cta ?? (onRetry ? <RetryButton onRetry={onRetry} query={query} /> : <QueryDebuggerButton query={query} />)
 

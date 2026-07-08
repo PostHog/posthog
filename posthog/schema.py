@@ -5615,6 +5615,10 @@ class QueryStatus(BaseModel):
             "If the query failed, this will be set to true. More information can be found in the error_message field."
         ),
     )
+    error_code: str | None = Field(
+        default=None,
+        description=("Stable machine-readable code for the error (the DRF exception code), when known."),
+    )
     error_message: str | None = None
     expiration_time: AwareDatetime | None = None
     id: str

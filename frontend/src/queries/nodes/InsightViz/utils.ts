@@ -27,9 +27,6 @@ import {
 import { ProductAnalyticsInsightNodeKind, getNodeKindToDefaultQuery } from '../InsightQuery/defaults'
 import { filtersToQueryNode } from '../InsightQuery/utils/filtersToQueryNode'
 
-// Matches ClickHouseQueryMemoryLimitExceeded.default_code on the backend. Keep the two in sync.
-export const CLICKHOUSE_MEMORY_LIMIT_ERROR_CODE = 'clickhouse_memory_limit_exceeded'
-
 export const getAllEventNames = (query: InsightQueryNode, allActions: ActionType[]): string[] => {
     if (!isInsightQueryWithSeries(query)) {
         return []

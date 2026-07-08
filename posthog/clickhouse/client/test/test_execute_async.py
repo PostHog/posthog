@@ -23,6 +23,7 @@ from posthog.clickhouse.client.async_task_chain import task_chain_context
 from posthog.clickhouse.client.execute_async import QueryNotFoundError, QueryStatusManager, execute_process_query
 from posthog.clickhouse.query_tagging import tag_queries
 from posthog.errors import CHQueryErrorTooManySimultaneousQueries, ExposedCHQueryError
+from posthog.exceptions import ClickHouseQueryMemoryLimitExceeded
 from posthog.models import Organization, Team
 from posthog.models.user import User
 from posthog.redis import get_client
@@ -223,6 +224,20 @@ class ClickhouseClientTestCase(TestCase, ClickhouseTestMixin):
         self.assertIsNotNone(result.end_time)
         assert result.error_message
         self.assertRegex(result.error_message, "trailing tokens after expression")
+
+    def test_async_query_user_safe_error_carries_error_code(self):
+        query = build_query("SELECT * FROM events")
+        query_id = uuid.uuid4().hex
+
+        with patch("posthog.api.services.query.process_query_dict", side_effect=ClickHouseQueryMemoryLimitExceeded()):
+            client.enqueue_process_query_task(
+                self.team, self.user.id, query, query_id=query_id, _test_only_bypass_celery=True
+            )
+
+        result = client.get_query_status(self.team.id, query_id)
+        self.assertTrue(result.error)
+        assert result.error_message
+        self.assertEqual(result.error_code, ClickHouseQueryMemoryLimitExceeded.default_code)
 
     def test_async_query_server_errors(self):
         query = build_query("SELECT * FROM events")
