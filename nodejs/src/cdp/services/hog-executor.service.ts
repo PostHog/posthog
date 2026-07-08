@@ -971,6 +971,16 @@ export class HogExecutorService {
             body = undefined
         }
 
+        // On a terminal failure, surface the response body so users can see why the
+        // request was rejected — the status code alone isn't actionable.
+        if (result.error && body !== undefined && body !== '') {
+            const bodyText = typeof body === 'string' ? body : JSON.stringify(body)
+            addLog(
+                'error',
+                `Response body: ${bodyText.length > 1024 ? `${bodyText.slice(0, 1024)}... (truncated)` : bodyText}`
+            )
+        }
+
         const hogVmResponse: {
             status: number
             body: unknown

@@ -49,9 +49,10 @@ if (response.status == 404) {
 }
 
 if (response.status >= 400) {
-  throw Error(f'Failed to update account: {response.status}')
+  throw Error(f'Failed to update account ({response.status}): {response.body.error ?? response.body}')
 }
 
+print(f'Updated account {inputs.external_id}')
 return response.body
 `,
     inputs_schema: [

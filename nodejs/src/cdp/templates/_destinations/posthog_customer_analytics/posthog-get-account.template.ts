@@ -22,9 +22,10 @@ if (response.status == 404) {
 }
 
 if (response.status != 200) {
-  throw Error(f'Failed to fetch account: {response.status}')
+  throw Error(f'Failed to fetch account ({response.status}): {response.body.error ?? response.body}')
 }
 
+print(f'Fetched account {inputs.external_id}')
 return response.body
 `,
     inputs_schema: [

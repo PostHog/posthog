@@ -1289,6 +1289,7 @@ describe('Hog Executor', () => {
             result = await executor.executeFetch(result.invocation)
             expect(result.logs.map((log) => log.message)).toEqual([
                 'HTTP fetch failed on attempt 3 with status code 500. Retrying in 3500ms.',
+                'Response body: test server error body',
             ])
             // All values reset due to no longer retrying
             expect(result.invocation.state.attempts).toBe(0)
