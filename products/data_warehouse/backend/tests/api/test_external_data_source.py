@@ -171,6 +171,37 @@ class TestExternalDataSource(APIBaseTest):
             len(STRIPE_ENDPOINTS),
         )
 
+    @patch(
+        "products.warehouse_sources.backend.temporal.data_imports.sources.stripe.source.StripeSource.validate_credentials",
+        return_value=(True, None),
+    )
+    def test_create_rejects_row_filters_for_source_without_pushdown(self, _mock_validate):
+        # Stripe doesn't push filters into a SQL WHERE — accepting one on creation would save it
+        # and then silently sync unfiltered rows (mirrors the PATCH-path
+        # test_row_filters_rejected_for_source_without_pushdown in test_external_data_schema.py).
+        response = self.client.post(
+            f"/api/environments/{self.team.pk}/external_data_sources/",
+            data={
+                "source_type": "Stripe",
+                "created_via": "web",
+                "payload": {
+                    "auth_method": {"selection": "api_key", "stripe_secret_key": "sk_test_123"},
+                    "schemas": [
+                        {
+                            "name": STRIPE_CUSTOMER_RESOURCE_NAME,
+                            "should_sync": True,
+                            "sync_type": "full_refresh",
+                            "row_filters": [{"column": "id", "operator": ">", "value": "10"}],
+                        },
+                    ],
+                },
+            },
+        )
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert "not supported for this source type" in str(response.json())
+        assert not ExternalDataSource.objects.filter(team_id=self.team.pk).exists()
+
     @patch("products.data_warehouse.backend.presentation.views.external_data_source.sync_discover_schemas_schedule")
     @patch(
         "products.warehouse_sources.backend.temporal.data_imports.sources.stripe.source.StripeSource.validate_credentials",

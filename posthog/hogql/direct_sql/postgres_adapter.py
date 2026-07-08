@@ -98,6 +98,14 @@ def postgres_error_to_message(error: Exception) -> str:
     return message.splitlines()[0]
 
 
+def is_postwh_host(host: str | None) -> bool:
+    # Hostnames are case-insensitive and may carry a trailing root-zone dot, so
+    # normalize before matching to keep the sslmode enforcement bypass-proof.
+    if host is None:
+        return False
+    return host.lower().rstrip(".").endswith(".postwh.com")
+
+
 def direct_postgres_session_setup_sql(
     schema: str | None,
     connection_metadata: dict[str, object] | None = None,
@@ -107,7 +115,7 @@ def direct_postgres_session_setup_sql(
     database = connection_metadata.get("database") if isinstance(connection_metadata, dict) else None
     normalized_schema = schema.strip() if isinstance(schema, str) and schema.strip() else None
 
-    if engine == "duckdb" or (host is not None and host.endswith(".postwh.com")):
+    if engine == "duckdb" or is_postwh_host(host):
         if normalized_schema:
             quoted_schema = escape_postgres_identifier(normalized_schema)
             return f"USE {quoted_schema}"
@@ -198,9 +206,8 @@ class PostgresAdapter:
     def validate_source_config(
         self, source: "ExternalDataSource", team: "Team"
     ) -> tuple["PostgresSource", "PostgresSourceConfig"]:
+        from products.warehouse_sources.backend.facade.source_management import PostgresSource, SourceRegistry
         from products.warehouse_sources.backend.facade.types import ExternalDataSourceType
-        from products.warehouse_sources.backend.temporal.data_imports.sources import SourceRegistry
-        from products.warehouse_sources.backend.temporal.data_imports.sources.postgres.source import PostgresSource
 
         # Capability, not access_method: a synced source with the direct-query toggle on is valid too.
         if not (is_direct_capable(source) and source.direct_engine == self.engine):
@@ -225,10 +232,7 @@ class PostgresAdapter:
         return ensure_single_direct_statement(sql)
 
     def execute(self, request: DirectQueryRequest) -> DirectQueryResult:
-        from products.warehouse_sources.backend.temporal.data_imports.sources.postgres.postgres import (
-            _get_sslmode,
-            source_requires_ssl,
-        )
+        from products.warehouse_sources.backend.facade.source_management import _get_sslmode, source_requires_ssl
 
         source = request.source
         postgres_source, source_config = self.validate_source_config(source, request.team)
@@ -263,8 +267,9 @@ class PostgresAdapter:
                         "sslkey": "/tmp/no.txt",
                         "sslrootcert": "/tmp/no.txt",
                     }
-                    if host.endswith(".us.postwh.com"):
-                        # DuckLake hosts require SSL but do not use certificate-based auth.
+                    if is_postwh_host(host):
+                        # DuckLake hosts (any region: .us/.eu/.dev.postwh.com) require SSL
+                        # but do not use certificate-based auth.
                         connection_kwargs["sslmode"] = "require"
 
                     with psycopg.connect(**connection_kwargs) as connection:

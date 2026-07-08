@@ -2,6 +2,7 @@ import pytest
 from unittest import mock
 
 import requests
+from google.auth.exceptions import RefreshError
 
 from posthog.schema import ReleaseStatus, SourceFieldOauthConfig
 
@@ -176,6 +177,26 @@ def test_validate_credentials_maps_http_errors(status_code, expected_substring):
 
     assert ok is False
     assert expected_substring in (message or "")
+
+
+def test_validate_credentials_maps_token_refresh_error():
+    # google-auth raises RefreshError with (message, response_dict); its default repr is the tuple,
+    # which used to leak verbatim to users. Guard the mapping to a clean reconnect prompt.
+    refresh_error = RefreshError("invalid_scope: Bad Request", {"error": "invalid_scope"})
+    with (
+        mock.patch(
+            "products.warehouse_sources.backend.temporal.data_imports.sources.google_analytics.source.google_analytics_session"
+        ),
+        mock.patch(
+            "products.warehouse_sources.backend.temporal.data_imports.sources.google_analytics.source.get_property_metadata",
+            side_effect=refresh_error,
+        ),
+    ):
+        ok, message = GoogleAnalyticsSource().validate_credentials(_config(), team_id=1)
+
+    assert ok is False
+    assert "reconnect your Google" in (message or "")
+    assert "invalid_scope" not in (message or "")
 
 
 def test_validate_credentials_handles_session_failure():

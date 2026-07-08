@@ -224,7 +224,13 @@ export function TrendsLifecycleChart({ context, inSharedMode = false }: TrendsLi
     )
 
     if (!hasData) {
-        return <InsightEmptyState heading={context?.emptyStateHeading} detail={context?.emptyStateDetail} />
+        return (
+            <InsightEmptyState
+                heading={context?.emptyStateHeading}
+                detail={context?.emptyStateDetail}
+                sampleDataVariant="bar"
+            />
+        )
     }
 
     const showAnnotations = !inSharedMode

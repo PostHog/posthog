@@ -140,7 +140,8 @@ function FunnelsInfo({ dataset }: FunnelsInfoProps): JSX.Element {
     return (
         <>
             You are customizing the appearance of the{' '}
-            {dataset.breakdown_value?.[0] === 'Baseline' ? (
+            {/* Pure-compare rows carry no breakdown value but customize the baseline color. */}
+            {dataset.breakdown_value?.[0] === 'Baseline' || !dataset.breakdown_value ? (
                 <b>Baseline</b>
             ) : (
                 <>

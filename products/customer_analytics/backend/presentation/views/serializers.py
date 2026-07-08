@@ -27,14 +27,21 @@ from rest_framework_dataclasses.serializers import DataclassSerializer
 from posthog.api.shared import UserBasicSerializer
 from posthog.models import OrganizationMembership
 
-from products.customer_analytics.backend.facade.constants import CUSTOM_PROPERTY_DISPLAY_TYPE_CHOICES
+from products.customer_analytics.backend.facade.constants import (
+    CUSTOM_PROPERTY_DISPLAY_TYPE_CHOICES,
+    CUSTOM_PROPERTY_OPTION_COLORS,
+)
 from products.customer_analytics.backend.facade.contracts import (
+    AccountAssignment,
     AccountNotebookView,
     AccountNoteView,
+    AccountRelationship,
+    AccountRelationshipDefinition,
     AccountView,
     CustomerJourneyView,
     CustomerProfileConfigView,
     CustomPropertyDefinitionView,
+    CustomPropertyOption,
     CustomPropertyReference,
     CustomPropertySourceView,
 )
@@ -277,11 +284,12 @@ class AccountNoteSerializer(DataclassSerializer):
     last_modified_at = serializers.DateTimeField(read_only=True, help_text="When the note was last modified.")
     account_id = serializers.UUIDField(read_only=True, help_text="UUID of the account this note is linked to.")
     account_name = serializers.CharField(read_only=True, help_text="Name of the account this note is linked to.")
+    created_by = UserBasicSerializer(read_only=True, allow_null=True, help_text="User who created the note, if known.")
 
     class Meta:
         dataclass = AccountNoteView
         ref_name = "AccountNote"
-        fields = ["short_id", "title", "created_at", "last_modified_at", "account_id", "account_name"]
+        fields = ["short_id", "title", "created_at", "last_modified_at", "account_id", "account_name", "created_by"]
 
 
 class CustomPropertyReferenceSerializer(DataclassSerializer):
@@ -355,6 +363,32 @@ class CustomPropertySourceSerializer(DataclassSerializer):
         ]
 
 
+class CustomPropertyOptionSerializer(DataclassSerializer):
+    """An allowed value of a select custom property."""
+
+    id = serializers.CharField(
+        required=False,
+        allow_null=True,
+        help_text=(
+            "Server-assigned stable id of the option. Omit for new options; send it back unchanged "
+            "when editing so renames and removals can be told apart."
+        ),
+    )
+    label = serializers.CharField(  # type: ignore[assignment]
+        max_length=400,
+        help_text="Display label of the option. Stored as the account's value when picked.",
+    )
+    color = serializers.ChoiceField(
+        choices=CUSTOM_PROPERTY_OPTION_COLORS,
+        help_text="Preset color token used to render the option ('preset-1' through 'preset-10').",
+    )
+
+    class Meta:
+        dataclass = CustomPropertyOption
+        ref_name = "CustomPropertyOption"
+        fields = ["id", "label", "color"]
+
+
 class CustomPropertyDefinitionSerializer(DataclassSerializer):
     """A team-scoped definition of a custom account property — the attribute side of the model.
 
@@ -377,13 +411,22 @@ class CustomPropertyDefinitionSerializer(DataclassSerializer):
         choices=CUSTOM_PROPERTY_DISPLAY_TYPE_CHOICES,
         help_text=(
             "How the property is interpreted and rendered: 'text', 'number', 'currency', "
-            "'percent', 'date', 'datetime', or 'boolean'."
+            "'percent', 'date', 'datetime', 'boolean', or 'select'."
         ),
     )
     is_big_number = serializers.BooleanField(
         required=False,
         default=False,
         help_text="Abbreviate large numbers (e.g. 10,000 → 10K). Only applies to numeric properties.",
+    )
+    options = CustomPropertyOptionSerializer(
+        many=True,
+        required=False,
+        allow_null=True,
+        help_text=(
+            "For select properties: the allowed options. Required (non-empty) when display_type is "
+            "'select'; cleared server-side for other types."
+        ),
     )
     source = CustomPropertySourceSerializer(  # type: ignore[assignment]
         read_only=True,
@@ -408,6 +451,7 @@ class CustomPropertyDefinitionSerializer(DataclassSerializer):
             "description",
             "display_type",
             "is_big_number",
+            "options",
             "source",
             "created_at",
             "created_by",
@@ -470,4 +514,71 @@ class CustomPropertyValueSerializer(serializers.Serializer):
     created_at = serializers.DateTimeField(read_only=True, help_text="When this value was set.")
     created_by_id = serializers.IntegerField(
         read_only=True, allow_null=True, help_text="Id of the user who set this value, if known."
+    )
+
+
+class AccountRelationshipDefinitionSerializer(DataclassSerializer):
+    """A team-defined account relationship type (CSM, Onboarding manager, ...)."""
+
+    id = serializers.UUIDField(read_only=True, help_text="Relationship definition UUID.")
+    name = serializers.CharField(
+        max_length=400, help_text="Human-readable name of the relationship. Unique within the team."
+    )
+    description = serializers.CharField(
+        required=False,
+        allow_null=True,
+        allow_blank=True,
+        help_text="What this relationship means, e.g. 'The customer success manager responsible for this account'.",
+    )
+    is_single_holder = serializers.BooleanField(
+        required=False,
+        default=True,
+        help_text="Whether only one user can hold this relationship per account at a time, e.g. a single CSM per account.",
+    )
+
+    class Meta:
+        dataclass = AccountRelationshipDefinition
+        ref_name = "AccountRelationshipDefinition"
+        fields = ["id", "name", "description", "is_single_holder"]
+
+
+class AccountAssignmentSerializer(DataclassSerializer):
+    """A user assigned to an account relationship (read shape)."""
+
+    id = serializers.IntegerField(read_only=True, help_text="PostHog user id of the assignee.")
+    email = serializers.EmailField(read_only=True, help_text="Email of the assignee.")
+
+    class Meta:
+        dataclass = AccountAssignment
+        ref_name = "AccountAssignment"
+        fields = ["id", "email"]
+
+
+class AccountRelationshipSerializer(DataclassSerializer):
+    """One assignment of a user to an account relationship, with its effective range."""
+
+    id = serializers.UUIDField(read_only=True, help_text="Unique id of this assignment row.")
+    definition = AccountRelationshipDefinitionSerializer(
+        read_only=True, help_text="The relationship type this assignment belongs to."
+    )
+    user = AccountAssignmentSerializer(
+        read_only=True, allow_null=True, help_text="The assigned user; null when their account was deleted."
+    )
+    started_at = serializers.DateTimeField(read_only=True, help_text="When this assignment became effective.")
+    ended_at = serializers.DateTimeField(
+        read_only=True, allow_null=True, help_text="When this assignment ended; null while it is active."
+    )
+
+    class Meta:
+        dataclass = AccountRelationship
+        ref_name = "AccountRelationship"
+        fields = ["id", "definition", "user", "started_at", "ended_at"]
+
+
+class AccountRelationshipWriteSerializer(serializers.Serializer):
+    """Input for assigning a user to an account relationship."""
+
+    definition = serializers.UUIDField(help_text="Id of the relationship definition to assign.")
+    user = serializers.IntegerField(
+        help_text="PostHog user id of the assignee. Must be a member of the account's organization."
     )

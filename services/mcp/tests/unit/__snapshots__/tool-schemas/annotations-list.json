@@ -2,7 +2,8 @@
     "$schema": "https://json-schema.org/draft/2020-12/schema",
     "properties": {
         "limit": {
-            "description": "Number of results to return per page.",
+            "default": 100,
+            "description": "Number of annotations to return per page (default 100).",
             "type": "number"
         },
         "offset": {
