@@ -876,11 +876,6 @@ tools:
             id:
                 cast: string-int
         ui_app: experiment-results
-        # Each per-day entry re-echoes the compiled query bodies (clickhouse_sql, hogql) and the
-        # legacy rendered-chart payload (insight) — UI-only fields that scale linearly with the
-        # experiment window and blow past the MCP exec response cap on multi-week experiments. The
-        # consumable per-day stats stay; formatted_results already surfaces the compact table.
-        # Mirrors stripBulkFields on the sibling experiment-results-get tool.
         response:
             exclude:
                 - timeseries.*.clickhouse_sql
