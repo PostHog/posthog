@@ -364,7 +364,22 @@ export const MetricsValuesRetrieveParams = /* @__PURE__ */ zod.object({
         ),
 })
 
+export const metricsValuesRetrieveQueryLimitDefault = 100
+export const metricsValuesRetrieveQueryLimitMax = 1000
+
+export const metricsValuesRetrieveQueryValueDefault = ``
+export const metricsValuesRetrieveQueryValueMax = 255
+
 export const MetricsValuesRetrieveQueryParams = /* @__PURE__ */ zod.object({
-    limit: zod.number().optional().describe('Max number of names to return. Defaults to 100; maximum 1000.'),
-    value: zod.string().optional().describe('Substring filter (case-insensitive) applied to metric names.'),
+    limit: zod
+        .number()
+        .min(1)
+        .max(metricsValuesRetrieveQueryLimitMax)
+        .default(metricsValuesRetrieveQueryLimitDefault)
+        .describe('Max number of names to return. Defaults to 100; maximum 1000.'),
+    value: zod
+        .string()
+        .max(metricsValuesRetrieveQueryValueMax)
+        .default(metricsValuesRetrieveQueryValueDefault)
+        .describe('Substring filter (case-insensitive) applied to metric names.'),
 })

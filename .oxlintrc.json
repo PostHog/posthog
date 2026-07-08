@@ -114,6 +114,25 @@
                     {
                         "name": "~/lib/monaco/CodeEditorImpl",
                         "message": "Import CodeEditor from lib/monaco/CodeEditor instead — the lazy facade keeps monaco out of your chunk."
+                    },
+                    {
+                        "name": "@posthog/brand/hoggies",
+                        "message": "Inline-SVG hoggies bundle up to ~1 MB of JS each. Use the PNG export instead: import * as name from '@posthog/brand/hoggies/png/<name>' and wrap with pngHoggie from lib/brand/hoggies. If you truly need vector output, add an oxlint-disable comment stating why.",
+                        "allowTypeImports": true
+                    },
+                    {
+                        "name": "@posthog/brand/hoggies/svg",
+                        "message": "Inline-SVG hoggies bundle up to ~1 MB of JS each. Use the PNG export instead: import * as name from '@posthog/brand/hoggies/png/<name>' and wrap with pngHoggie from lib/brand/hoggies. If you truly need vector output, add an oxlint-disable comment stating why."
+                    },
+                    {
+                        "name": "@posthog/brand/hoggies/png",
+                        "message": "Import the per-asset stub instead: import * as name from '@posthog/brand/hoggies/png/<name>'. The barrel pulls every hoggie's stub into the graph."
+                    }
+                ],
+                "patterns": [
+                    {
+                        "group": ["@posthog/brand/hoggies/svg/*"],
+                        "message": "Inline-SVG hoggies bundle up to ~1 MB of JS each. Use the PNG export instead: import * as name from '@posthog/brand/hoggies/png/<name>' and wrap with pngHoggie from lib/brand/hoggies. If you truly need vector output, add an oxlint-disable comment stating why."
                     }
                 ]
             }
@@ -286,6 +305,88 @@
                             {
                                 "name": "~/queries/schema",
                                 "message": "Import from 'queries/schema/schema-foo' to avoid Webpack/Sucrase enum export issues."
+                            }
+                        ]
+                    }
+                ]
+            }
+        },
+        {
+            "files": ["frontend/src/toolbar/**/*.{ts,tsx}"],
+            "rules": {
+                "no-restricted-imports": [
+                    "error",
+                    {
+                        "patterns": [
+                            {
+                                "group": [
+                                    "scenes/**",
+                                    "~/scenes/**",
+                                    "!scenes/urls",
+                                    "!~/scenes/urls",
+                                    "!scenes/product-tours/stepUtils",
+                                    "!scenes/product-tours/constants",
+                                    "!scenes/product-tours/editor/generateStepHtml",
+                                    "!scenes/experiments/experimentsLogic",
+                                    "!scenes/experiments/utils",
+                                    "!~/scenes/experiments/utils",
+                                    "!scenes/session-recordings/components/PanelSettings"
+                                ],
+                                "message": "The toolbar ships to customer pages and must not depend on app scenes. Import from lib/, or fetch via toolbarFetch. Existing exceptions are being removed per .agents/toolbar-migration.md; the full transitive boundary is enforced by frontend/bin/check-toolbar-graph.mjs."
+                            },
+                            {
+                                "group": [
+                                    "~/products",
+                                    "products/**",
+                                    "~/products/**",
+                                    "!products/actions/frontend/utils/hints"
+                                ],
+                                "message": "The toolbar must not import product manifests or product frontends — that pulls the whole product graph into the customer-facing bundle. See .agents/toolbar-migration.md."
+                            },
+                            {
+                                "group": ["layout/**", "~/layout/**", "models/**", "~/models/**"],
+                                "message": "The toolbar must not import app layout or global models. See .agents/toolbar-migration.md."
+                            }
+                        ],
+                        "paths": [
+                            {
+                                "name": "lib/api",
+                                "message": "Toolbar code must use toolbarFetch/toolbarApi (authorized via toolbar params), not the app's api client.",
+                                "allowTypeImports": true
+                            },
+                            {
+                                "name": "~/lib/api",
+                                "message": "Toolbar code must use toolbarFetch/toolbarApi (authorized via toolbar params), not the app's api client.",
+                                "allowTypeImports": true
+                            },
+                            {
+                                "name": "dayjs",
+                                "message": "Do not directly import dayjs. Only import the dayjs exported from 'lib/dayjs'."
+                            },
+                            {
+                                "name": "chart.js",
+                                "message": "Do not directly import chart.js. Only import the Chart and friends exported from 'lib/Chart'."
+                            },
+                            {
+                                "name": "chart.js/auto",
+                                "message": "Do not directly import chart.js/auto. Only import the Chart and friends exported from 'lib/Chart'."
+                            },
+                            {
+                                "name": "~/queries/schema",
+                                "message": "Import from 'queries/schema/schema-foo' to avoid Webpack/Sucrase enum export issues."
+                            },
+                            {
+                                "name": "monaco-editor",
+                                "message": "Value imports of monaco-editor statically couple ~4 MB of editor code into your chunk. Use `import type`, or render via the lazy facade in lib/monaco/CodeEditor.",
+                                "allowTypeImports": true
+                            },
+                            {
+                                "name": "lib/monaco/CodeEditorImpl",
+                                "message": "Import CodeEditor from lib/monaco/CodeEditor instead — the lazy facade keeps monaco out of your chunk."
+                            },
+                            {
+                                "name": "~/lib/monaco/CodeEditorImpl",
+                                "message": "Import CodeEditor from lib/monaco/CodeEditor instead — the lazy facade keeps monaco out of your chunk."
                             }
                         ]
                     }

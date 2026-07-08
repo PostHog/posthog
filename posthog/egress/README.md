@@ -39,8 +39,13 @@ The GitHub helpers wrap the key construction; other domains expose their own thi
 
 A budget is a `RatePolicy`: one or more `(count, period_seconds)` limits enforced _together_, so you can cap the hour and smooth per-minute bursts on the same key.
 Each domain registers its policy with `register_policy(domain, policy)`, usually as a provider taking the full limiter key, so the budget is read at acquire time (settings + per-scope state) rather than frozen at import.
-GitHub's budget is per **installation** (the unit GitHub meters), scaled to the installation's real tier: `api_request` persists each installation's last-observed core `X-RateLimit-Limit` (only trusted installation-token responses feed this), and the policy budgets 90% of it for the hour with a proportional per-minute smoothing cap (most installations sit on GitHub's 5,000/hour tier, not the 15,000 top tier).
-Unobserved installations fall back to the settings defaults (13,500/hour + 750/minute) until their first recorded response.
+GitHub meters its REST resources on **separate per-installation counters**, so it registers three domains — one per resource — and the transport routes each request to its meter by URL:
+
+- `github` — the `core` resource (5,000–15,000/hour), budgeted per **installation** and scaled to the installation's real tier: `api_request` persists each installation's last-observed core `X-RateLimit-Limit` (only trusted installation-token responses feed this), and the policy budgets 90% of it for the hour with a proportional per-minute smoothing cap (most installations sit on GitHub's 5,000/hour tier, not the 15,000 top tier). Unobserved installations fall back to the settings defaults (13,500/hour + 750/minute) until their first recorded response.
+- `github_search` — the `search` resource, a static 27/minute (under GitHub's real 30/min).
+- `github_code_search` — the `code_search` resource (`/search/code`), a static 8/minute (under GitHub's real 10/min).
+
+The two search budgets are static because GitHub's search rate limits are fixed regardless of the account's plan tier, so there is no tier to observe (unlike core).
 Budgets stay deliberately under the real ceiling so reactive backoff absorbs drift (clock skew, multi-process races, untracked PAT traffic on the same account).
 
 ### Priority lanes

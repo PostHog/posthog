@@ -36,6 +36,7 @@ from .evaluation_errors import (
     status_reason_detail_for_terminal_user_error,
     terminal_user_error_result_from_application_error,
 )
+from .evaluation_llm_judge import JUDGE_EVENT_MAX_CHARS
 from .run_evaluation import (
     BooleanEvalResult,
     BooleanWithNAEvalResult,
@@ -127,6 +128,13 @@ def setup_data():
     return {"organization": organization, "team": team, "evaluation": evaluation}
 
 
+@pytest.fixture
+def grandfathered(setup_data, settings):
+    # A team mid-trial before the cutoff keeps PostHog-funded inference, so trial/keyless judges run.
+    settings.AI_OBSERVABILITY_TRIAL_EVAL_DEPRECATION_DATE = "2999-12-31T00:00:00+00:00"
+    EvaluationConfig.objects.create(team=setup_data["team"], trial_eval_limit=100, trial_evals_used=50)
+
+
 class TestRunEvaluationWorkflow:
     @pytest.mark.asyncio
     @pytest.mark.django_db(transaction=True)
@@ -163,7 +171,7 @@ class TestRunEvaluationWorkflow:
             assert result["output_config"] == {"allows_na": False}
 
     @pytest.mark.django_db(transaction=True)
-    def test_execute_llm_judge_activity(self, setup_data):
+    def test_execute_llm_judge_activity(self, setup_data, grandfathered):
         """Test LLM judge execution with realistic message array format"""
         evaluation_obj = setup_data["evaluation"]
         team = setup_data["team"]
@@ -203,6 +211,54 @@ class TestRunEvaluationWorkflow:
             assert result["verdict"] is True
             assert result["reasoning"] == "The answer is correct"
             mock_client.complete.assert_called_once()
+
+    @pytest.mark.parametrize(
+        "oversized_input",
+        [
+            pytest.param(
+                [{"role": "user", "content": f"message {i}: " + "x" * 200} for i in range(3000)],
+                id="many_lines",
+            ),
+            pytest.param([{"role": "user", "content": "x" * 600_000}], id="single_line_blob"),
+        ],
+    )
+    @pytest.mark.django_db(transaction=True)
+    def test_execute_llm_judge_activity_bounds_oversized_input(self, oversized_input, setup_data, grandfathered):
+        team = setup_data["team"]
+        evaluation_obj = setup_data["evaluation"]
+
+        evaluation = {
+            "id": str(evaluation_obj.id),
+            "name": "Test Evaluation",
+            "evaluation_type": "llm_judge",
+            "evaluation_config": {"prompt": "Is this response factually accurate?"},
+            "output_type": "boolean",
+            "output_config": {},
+            "team_id": team.id,
+        }
+
+        event_data = create_mock_event_data(
+            team.id,
+            properties={
+                "$ai_input": oversized_input,
+                "$ai_output_choices": [{"role": "assistant", "content": "ok"}],
+            },
+        )
+
+        with patch("posthog.temporal.ai_observability.evaluation_llm_judge.Client") as mock_client_class:
+            mock_client = MagicMock()
+            mock_client_class.return_value = mock_client
+            mock_response = MagicMock()
+            mock_response.parsed = BooleanEvalResult(verdict=True, reasoning="ok")
+            mock_response.usage = MagicMock(input_tokens=1, output_tokens=1, total_tokens=1)
+            mock_client.complete.return_value = mock_response
+
+            execute_llm_judge_activity(ExecuteLLMJudgeInputs(evaluation=evaluation, event_data=event_data))
+
+            sent_prompt = mock_client.complete.call_args.args[0].messages[0]["content"]
+            raw_size = sum(len(message["content"]) for message in oversized_input)
+            assert len(sent_prompt) <= JUDGE_EVENT_MAX_CHARS
+            assert len(sent_prompt) < raw_size
 
     @pytest.mark.asyncio
     @pytest.mark.django_db(transaction=True)
@@ -562,7 +618,7 @@ class TestRunEvaluationWorkflow:
         assert result["skip_reason"] == "hog_error"
 
     @pytest.mark.django_db(transaction=True)
-    def test_execute_llm_judge_activity_allows_na_applicable(self, setup_data):
+    def test_execute_llm_judge_activity_allows_na_applicable(self, setup_data, grandfathered):
         """Test LLM judge execution with allows_na=True when applicable"""
         evaluation_obj = setup_data["evaluation"]
         team = setup_data["team"]
@@ -604,7 +660,7 @@ class TestRunEvaluationWorkflow:
             assert result["allows_na"] is True
 
     @pytest.mark.django_db(transaction=True)
-    def test_execute_llm_judge_activity_allows_na_not_applicable(self, setup_data):
+    def test_execute_llm_judge_activity_allows_na_not_applicable(self, setup_data, grandfathered):
         """Test LLM judge execution with allows_na=True when not applicable"""
         evaluation_obj = setup_data["evaluation"]
         team = setup_data["team"]
@@ -743,7 +799,9 @@ class TestRunEvaluationWorkflow:
         ],
     )
     @pytest.mark.django_db(transaction=True)
-    def test_execute_llm_judge_activity_does_not_skip_when_not_errored(self, error_props: dict[str, Any], setup_data):
+    def test_execute_llm_judge_activity_does_not_skip_when_not_errored(
+        self, error_props: dict[str, Any], setup_data, grandfathered
+    ):
         """Sanity check: traces without `$ai_is_error=true` still flow through to the LLM judge."""
         evaluation_obj = setup_data["evaluation"]
         team = setup_data["team"]
@@ -1018,7 +1076,7 @@ class TestRunEvaluationWorkflow:
     )
     @pytest.mark.django_db(transaction=True)
     def test_execute_llm_judge_activity_unhandled_exception_uses_class_name(
-        self, raised_exception: Exception, expected_label: str, setup_data
+        self, raised_exception: Exception, expected_label: str, setup_data, grandfathered
     ):
         evaluation_obj = setup_data["evaluation"]
         team = setup_data["team"]
@@ -1048,8 +1106,11 @@ class TestRunEvaluationWorkflow:
             mock_increment_errors.assert_called_once_with(expected_label, provider="openai")
 
     @pytest.mark.django_db(transaction=True)
-    def test_execute_llm_judge_activity_rejects_non_trial_model_on_posthog_key(self, setup_data):
+    def test_execute_llm_judge_activity_rejects_non_trial_model_on_posthog_key(self, setup_data, settings):
         team = setup_data["team"]
+        # Only a grandfathered team gets past the funded gate to the model-allowlist check.
+        settings.AI_OBSERVABILITY_TRIAL_EVAL_DEPRECATION_DATE = "2999-12-31T00:00:00+00:00"
+        EvaluationConfig.objects.create(team=team, trial_eval_limit=100, trial_evals_used=50)
 
         evaluation = {
             "id": str(setup_data["evaluation"].id),
@@ -1082,6 +1143,43 @@ class TestRunEvaluationWorkflow:
         assert result["skipped"] is True
         assert result["skip_reason"] == "model_not_allowed"
         assert result["status_reason"] == "model_not_allowed"
+        assert result["verdict"] is None
+
+    @pytest.mark.django_db(transaction=True)
+    def test_execute_llm_judge_activity_terminal_team_requires_provider_key(self, setup_data):
+        team = setup_data["team"]
+
+        evaluation = {
+            "id": str(setup_data["evaluation"].id),
+            "name": "Test Evaluation",
+            "evaluation_type": "llm_judge",
+            "evaluation_config": {"prompt": "Is this accurate?"},
+            "output_type": "boolean",
+            "output_config": {},
+            "team_id": team.id,
+            "model_configuration": {
+                "provider": "openai",
+                "model": "gpt-5-mini",
+                "provider_key_id": None,
+            },
+        }
+
+        event_data = create_mock_event_data(team.id)
+
+        with (
+            patch("posthog.temporal.ai_observability.evaluation_llm_judge.Client") as mock_client_class,
+            patch("posthog.temporal.ai_observability.evaluation_llm_judge.increment_user_errors") as mock_user_errors,
+            patch("posthog.temporal.ai_observability.evaluation_llm_judge.increment_errors") as mock_errors,
+        ):
+            result = execute_llm_judge_activity(ExecuteLLMJudgeInputs(evaluation=evaluation, event_data=event_data))
+
+        mock_client_class.assert_not_called()
+        mock_user_errors.assert_called_once_with("provider_key_required", provider=None)
+        mock_errors.assert_not_called()
+        assert result["terminal_user_error"] is True
+        assert result["skipped"] is True
+        assert result["skip_reason"] == "provider_key_required"
+        assert result["status_reason"] == "provider_key_required"
         assert result["verdict"] is None
 
     @pytest.mark.parametrize(
@@ -1858,7 +1956,7 @@ class TestSendTrialUsageEmailActivity:
     )
     async def test_sends_correct_template_for_threshold(self, setup_data, threshold_pct, expected_template):
         team = setup_data["team"]
-        await sync_to_async(EvaluationConfig.objects.get_or_create)(team_id=team.id)
+        await sync_to_async(EvaluationConfig.objects.get_or_create)(team_id=team.id, defaults={"trial_evals_used": 100})
 
         with (
             patch("posthog.email.is_email_available", return_value=True),
@@ -1875,6 +1973,22 @@ class TestSendTrialUsageEmailActivity:
             call_kwargs = mock_email_class.call_args[1]
             assert call_kwargs["template_name"] == expected_template
             mock_message.send.assert_called_once()
+
+    @pytest.mark.asyncio
+    @pytest.mark.django_db(transaction=True)
+    async def test_skips_exhausted_email_when_trial_not_actually_exhausted(self, setup_data):
+        # provider_key_required disables route here with threshold 100 for teams cut off mid-trial
+        # at the deprecation date or that never started — "used up" would be false for them.
+        team = setup_data["team"]
+        await sync_to_async(EvaluationConfig.objects.get_or_create)(team_id=team.id, defaults={"trial_evals_used": 50})
+
+        with (
+            patch("posthog.email.is_email_available", return_value=True),
+            patch("posthog.email.EmailMessage") as mock_email_class,
+        ):
+            await send_trial_usage_email_activity(SendTrialUsageEmailInputs(team_id=team.id, threshold_pct=100))
+
+            mock_email_class.assert_not_called()
 
     @pytest.mark.asyncio
     @pytest.mark.django_db(transaction=True)
@@ -1895,7 +2009,7 @@ class TestSendTrialUsageEmailActivity:
     @pytest.mark.parametrize("threshold_pct", [50, 75, 100], ids=["50pct", "75pct", "100pct"])
     async def test_campaign_key_includes_threshold_and_team(self, setup_data, threshold_pct):
         team = setup_data["team"]
-        await sync_to_async(EvaluationConfig.objects.get_or_create)(team_id=team.id)
+        await sync_to_async(EvaluationConfig.objects.get_or_create)(team_id=team.id, defaults={"trial_evals_used": 100})
 
         with (
             patch("posthog.email.is_email_available", return_value=True),

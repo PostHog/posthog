@@ -285,7 +285,12 @@ def _emit_breakdown_limit_signal(team: Team, endpoint: Endpoint) -> None:
 # ---------------------------------------------------------------------------
 
 FILTERS_OVERRIDE_DEPRECATION_HEADERS = {
-    "X-PostHog-Warn": "filters_override is deprecated. Use variables instead: https://posthog.com/docs/api/endpoints"
+    "X-PostHog-Warn": (
+        "filters_override is deprecated. Use variables instead, "
+        "or mark the breakdown property as optional on the endpoint "
+        "if you want to call /run without supplying its value: "
+        "https://posthog.com/docs/api/endpoints"
+    )
 }
 
 

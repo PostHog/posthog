@@ -1,5 +1,5 @@
 import { useActions, useMountedLogic, useValues } from 'kea'
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 
 import { LemonButton, LemonModal } from '@posthog/lemon-ui'
 
@@ -9,10 +9,16 @@ import { elapsedSecondsFrom } from 'lib/utils/datetime'
 
 import { onboardingEventUsageLogic } from '../../onboardingEventUsageLogic'
 import { activeCloudRunLogic, CloudRunHandle } from './activeCloudRunLogic'
+import { finishedLocalRunLogic } from './finishedLocalRunLogic'
 import { formatElapsed, syncHeadline, toneTextClass } from './helpers'
-import { InstallationProgress, installationProgressLogic } from './installationProgressLogic'
+import {
+    InstallationProgress,
+    installationProgressLogic,
+    progressFromFinishedLocalRun,
+} from './installationProgressLogic'
 import { InstallationProgressContent } from './InstallationProgressView'
 import { wizardActiveSessionDetectorLogic } from './wizardActiveSessionDetectorLogic'
+import { DetectedDashboard, wizardDashboardLogic } from './wizardDashboardLogic'
 import { StatusGlyph, WizardSyncCard, WizardSyncMode } from './WizardSyncCard'
 import { wizardSyncUiLogic } from './wizardSyncUiLogic'
 
@@ -21,12 +27,17 @@ import { wizardSyncUiLogic } from './wizardSyncUiLogic'
 const CORNER = 'fixed bottom-5 right-5 z-[60]'
 
 // 1Hz clock for the elapsed timer, scoped to a mounted run so nothing ticks when no run is active.
-function useNow(): number {
+// `frozen` stops the interval entirely — a finished run shows its fixed duration, so ticking for it
+// would be pure re-render churn.
+function useNow(frozen: boolean = false): number {
     const [now, setNow] = useState(() => Date.now())
     useEffect(() => {
+        if (frozen) {
+            return
+        }
         const id = window.setInterval(() => setNow(Date.now()), 1000)
         return () => window.clearInterval(id)
-    }, [])
+    }, [frozen])
     return now
 }
 
@@ -69,16 +80,20 @@ function WizardSyncDialog({
     progress,
     elapsedSeconds,
     mode,
+    dashboard,
     isOpen,
     onClose,
     onClear,
+    onDashboardClick,
 }: {
     progress: InstallationProgress
     elapsedSeconds: number
     mode: WizardSyncMode
+    dashboard?: DetectedDashboard | null
     isOpen: boolean
     onClose: () => void
     onClear?: () => void
+    onDashboardClick?: () => void
 }): JSX.Element {
     const isTerminal = progress.phase === 'completed' || progress.phase === 'error'
     return (
@@ -90,7 +105,12 @@ function WizardSyncDialog({
                         {mode === 'cloud' ? 'Cloud run' : 'On your machine'} · {formatElapsed(elapsedSeconds)}
                     </span>
                 </div>
-                <InstallationProgressContent progress={progress} />
+                <InstallationProgressContent
+                    progress={progress}
+                    mode={mode}
+                    dashboard={dashboard}
+                    onDashboardClick={onDashboardClick}
+                />
                 {isTerminal && onClear && (
                     <LemonButton type="secondary" onClick={onClear} className="self-end">
                         Dismiss this run
@@ -106,12 +126,16 @@ function WizardSyncDialog({
 function WizardSyncSurface({
     progress,
     startedAt,
+    endedAt,
     mode,
     runKey,
     onClear,
 }: {
     progress: InstallationProgress
     startedAt: string | undefined
+    /** When the run finished — freezes the elapsed timer so a finished run that stays on screen
+     * until dismissed shows its duration, not a clock that keeps counting. */
+    endedAt?: string
     mode: WizardSyncMode
     runKey: string
     onClear?: () => void
@@ -123,19 +147,54 @@ function WizardSyncSurface({
         reportWizardSyncMinimized,
         reportWizardSyncRestored,
         reportWizardSyncRunDismissed,
+        reportWizardSyncHandoffShown,
+        reportWizardSyncDashboardCtaShown,
+        reportWizardSyncDashboardCtaClicked,
     } = useActions(onboardingEventUsageLogic)
-    const now = useNow()
-    const elapsedSeconds = startedAt ? elapsedSecondsFrom(startedAt, now) : 0
+    const { detectedDashboard } = useValues(wizardDashboardLogic)
+    const endMs = endedAt ? new Date(endedAt).getTime() : NaN
+    const now = useNow(!Number.isNaN(endMs))
+    const elapsedSeconds = startedAt ? elapsedSecondsFrom(startedAt, Number.isNaN(endMs) ? now : endMs) : 0
     const minimized = dismissedKey === runKey
+    const isTerminal = progress.phase === 'completed' || progress.phase === 'error'
+    const dashboard = progress.phase === 'completed' ? detectedDashboard : null
     const eventProps = { runKey, mode, phase: progress.phase }
+
+    // The completed-handoff funnel (exposure + CTA impression) — deduped per run inside the events
+    // logic, so this fires safely even when the inline panel reported the same run first.
+    const completed = progress.phase === 'completed'
+    const prOpened = !!progress.prUrl
+    useEffect(() => {
+        if (completed) {
+            reportWizardSyncHandoffShown({ runKey, mode, surface: 'fab', prOpened })
+        }
+    }, [completed, runKey, mode, prOpened, reportWizardSyncHandoffShown])
+    const dashboardVisible = !!dashboard
+    useEffect(() => {
+        if (dashboardVisible) {
+            reportWizardSyncDashboardCtaShown({ runKey, mode, surface: 'fab' })
+        }
+    }, [dashboardVisible, runKey, mode, reportWizardSyncDashboardCtaShown])
+    const handleDashboardClick = (): void => reportWizardSyncDashboardCtaClicked({ runKey, mode, surface: 'fab' })
+    // One-shot: a double-click can land two dispatches before the surface unmounts, which would
+    // double-fire the dismissal telemetry and re-run onClear.
+    const clearedRef = useRef(false)
     // Clearing a finished run also closes the dialog before the surface unmounts.
     const handleClear = onClear
         ? () => {
+              if (clearedRef.current) {
+                  return
+              }
+              clearedRef.current = true
               reportWizardSyncRunDismissed({ ...eventProps, elapsedSeconds })
               closeDialog()
               onClear()
           }
         : undefined
+    const handleMinimize = (): void => {
+        reportWizardSyncMinimized(eventProps)
+        dismiss(runKey)
+    }
 
     return (
         <>
@@ -154,14 +213,17 @@ function WizardSyncSurface({
                         progress={progress}
                         elapsedSeconds={elapsedSeconds}
                         mode={mode}
+                        dashboard={dashboard}
+                        onDashboardClick={handleDashboardClick}
                         onExpand={() => {
                             reportWizardSyncExpanded(eventProps)
                             openDialog()
                         }}
-                        onDismiss={() => {
-                            reportWizardSyncMinimized(eventProps)
-                            dismiss(runKey)
-                        }}
+                        // Mid-run, the X only minimizes — hiding a live run for good would orphan
+                        // it. Once terminal there is nothing to orphan, so the X is the real
+                        // dismissal (the run never leaves on its own; the user decides when).
+                        onDismiss={isTerminal && handleClear ? handleClear : handleMinimize}
+                        dismissTooltip={isTerminal && handleClear ? 'Dismiss' : 'Minimize'}
                     />
                 )}
             </div>
@@ -169,6 +231,8 @@ function WizardSyncSurface({
                 progress={progress}
                 elapsedSeconds={elapsedSeconds}
                 mode={mode}
+                dashboard={dashboard}
+                onDashboardClick={handleDashboardClick}
                 isOpen={dialogOpen}
                 onClose={closeDialog}
                 onClear={handleClear}
@@ -179,14 +243,16 @@ function WizardSyncSurface({
 
 // A cloud run: the Installation layer streams the pipeline; elapsed comes from the handle's kickoff stamp.
 function WizardSyncCloudFab({ handle }: { handle: CloudRunHandle }): JSX.Element {
-    const { installationProgress } = useValues(
+    const { installationProgress, taskRunState } = useValues(
         installationProgressLogic({ mode: 'cloud', runId: handle.runId, taskId: handle.taskId })
     )
     const { clearActiveCloudRun } = useActions(activeCloudRunLogic)
+    const isTerminal = installationProgress.phase === 'completed' || installationProgress.phase === 'error'
     return (
         <WizardSyncSurface
             progress={installationProgress}
             startedAt={handle.startedAt}
+            endedAt={isTerminal ? (taskRunState?.completed_at ?? taskRunState?.updated_at) : undefined}
             mode="cloud"
             runKey={handle.runId}
             onClear={clearActiveCloudRun}
@@ -194,29 +260,57 @@ function WizardSyncCloudFab({ handle }: { handle: CloudRunHandle }): JSX.Element
     )
 }
 
-// A local run: the wizard session is the source; elapsed comes from its started_at. Local runs age out
-// of the detector once terminal, so there is no explicit clear.
-function WizardSyncLocalFab(): JSX.Element | null {
-    const { installationProgress, latestSession } = useValues(installationProgressLogic({ mode: 'local' }))
-    if (!latestSession) {
+// A finished local run rendered from its persisted snapshot: the session stream gates itself off
+// shortly after a terminal phase (INC-886), but the handoff stays until the user dismisses it.
+function WizardSyncFinishedLocalFab(): JSX.Element | null {
+    const { finishedLocalRun } = useValues(finishedLocalRunLogic)
+    const { dismissLocalRun } = useActions(finishedLocalRunLogic)
+    if (!finishedLocalRun) {
         return null
     }
     return (
         <WizardSyncSurface
-            progress={installationProgress}
-            startedAt={latestSession.started_at}
+            progress={progressFromFinishedLocalRun(finishedLocalRun)}
+            startedAt={finishedLocalRun.startedAt}
+            endedAt={finishedLocalRun.finishedAt}
             mode="local"
-            runKey={latestSession.session_id}
+            runKey={finishedLocalRun.sessionId}
+            onClear={() => dismissLocalRun(finishedLocalRun.sessionId)}
         />
     )
 }
 
-// Gate the local SSE behind the cheap detector poll, so a stream is opened only when a run is in flight.
+// A live local run: the wizard session stream is the source; elapsed comes from its started_at.
+function WizardSyncLocalFab(): JSX.Element | null {
+    const { installationProgress, latestSession } = useValues(installationProgressLogic({ mode: 'local' }))
+    const { dismissedSessionId } = useValues(finishedLocalRunLogic)
+    const { dismissLocalRun } = useActions(finishedLocalRunLogic)
+    // No session on the stream yet, or the user already dismissed this one — fall back to the
+    // persisted finished run (if any) rather than rendering nothing.
+    if (!latestSession || latestSession.session_id === dismissedSessionId) {
+        return <WizardSyncFinishedLocalFab />
+    }
+    const isTerminal = installationProgress.phase === 'completed' || installationProgress.phase === 'error'
+    return (
+        <WizardSyncSurface
+            progress={installationProgress}
+            startedAt={latestSession.started_at}
+            endedAt={isTerminal ? latestSession.updated_at : undefined}
+            mode="local"
+            runKey={latestSession.session_id}
+            onClear={() => dismissLocalRun(latestSession.session_id)}
+        />
+    )
+}
+
+// Gate the local SSE behind the cheap detector poll, so a stream is opened only when a run is in
+// flight. Once the detector gates the stream off (terminal grace expired), the persisted finished
+// run keeps the handoff on screen without any stream.
 function WizardSyncLocalGate(): JSX.Element | null {
     useMountedLogic(wizardActiveSessionDetectorLogic)
     const { shouldStream } = useValues(wizardActiveSessionDetectorLogic)
     if (!shouldStream) {
-        return null
+        return <WizardSyncFinishedLocalFab />
     }
     return <WizardSyncLocalFab />
 }
@@ -224,8 +318,9 @@ function WizardSyncLocalGate(): JSX.Element | null {
 /**
  * The single detached wizard sync widget, mounted app-wide (AuthenticatedShell). It surfaces whichever
  * run is in flight, cloud or local, in one place: a cloud run (the persisted handle) takes precedence,
- * otherwise a local wizard session detected by the poll. Replaces the earlier separate cloud-run and
- * WizardProgressFab so there is one corner widget, never two.
+ * otherwise a local wizard session detected by the poll, otherwise a finished local run the user has
+ * not yet dismissed. Replaces the earlier separate cloud-run and per-mode corner widgets so there is
+ * one corner widget, never two.
  */
 export function WizardSyncFab(): JSX.Element | null {
     const syncEnabled = useFeatureFlag('ONBOARDING_WIZARD_SYNC', 'test')
@@ -246,5 +341,7 @@ export function WizardSyncFab(): JSX.Element | null {
     if (syncEnabled) {
         return <WizardSyncLocalGate />
     }
-    return null
+    // Same reasoning as the cloud handle: a persisted finished run is proof it happened under the
+    // test arm, and it must stay dismissible if the flag flips mid-experiment.
+    return <WizardSyncFinishedLocalFab />
 }

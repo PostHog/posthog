@@ -3,7 +3,7 @@ import {
     RETENTION_FIRST_OCCURRENCE_MATCHING_FILTERS,
     RETENTION_RECURRING,
 } from 'lib/constants'
-import { OpUnitType } from 'lib/dayjs'
+import { ManipulateType } from 'lib/dayjs'
 import { LemonSelectOptions } from 'lib/lemon-ui/LemonSelect'
 
 import { RetentionFilter } from '~/queries/schema/schema-general'
@@ -12,7 +12,7 @@ import { RetentionPeriod } from '~/types'
 export const dateOptions: RetentionPeriod[] = [RetentionPeriod.Day, RetentionPeriod.Week, RetentionPeriod.Month]
 
 // https://day.js.org/docs/en/durations/creating#list-of-all-available-units
-export const dateOptionToTimeIntervalMap: Record<RetentionPeriod, OpUnitType> = {
+export const dateOptionToTimeIntervalMap: Record<RetentionPeriod, ManipulateType> = {
     Hour: 'h',
     Day: 'd',
     Week: 'w',

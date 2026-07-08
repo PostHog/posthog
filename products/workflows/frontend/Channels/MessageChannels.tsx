@@ -1,8 +1,9 @@
 import { useActions, useValues } from 'kea'
 
-import { HedgehogReporter } from '@posthog/brand/hoggies'
+import * as reporterPng from '@posthog/brand/hoggies/png/reporter'
 import { LemonSkeleton } from '@posthog/lemon-ui'
 
+import { pngHoggie } from 'lib/brand/hoggies'
 import { ProductIntroduction } from 'lib/components/ProductIntroduction/ProductIntroduction'
 import { SetupTaskId } from 'lib/components/ProductSetup'
 import { EmailIntegrationsList } from 'lib/integrations/EmailIntegrationsList'
@@ -10,6 +11,8 @@ import { IntegrationsList } from 'lib/integrations/IntegrationsList'
 import { integrationsLogic } from 'lib/integrations/integrationsLogic'
 
 import { ChannelSetupModal } from './ChannelSetupModal'
+
+const HedgehogReporter = pngHoggie(reporterPng)
 
 const MESSAGING_CHANNEL_TYPES = ['email', 'slack', 'twilio', 'firebase', 'apns'] as const
 export type ChannelType = (typeof MESSAGING_CHANNEL_TYPES)[number]

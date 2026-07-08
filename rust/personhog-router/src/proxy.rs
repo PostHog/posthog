@@ -2,26 +2,24 @@ use std::convert::Infallible;
 use std::pin::Pin;
 use std::sync::Arc;
 use std::task::{Context, Poll};
-use std::time::Instant;
+use std::time::{Duration, Instant};
 
 use bytes::Bytes;
-use http::{HeaderMap, HeaderValue};
 use http_body::Frame;
-use http_body_util::{BodyExt, Empty, Full};
+use http_body_util::{BodyExt, Full};
 use metrics::{counter, histogram};
 use personhog_common::grpc::{
     current_caller_tag, current_client_name, ClientInFlightGuard, GZIP_OVERHEAD_HEADER,
     PROCESSING_TIME_HEADER,
 };
-use personhog_proto::personhog::types::v1::{GetPersonRequest, UpdatePersonPropertiesRequest};
-use prost::Message;
 use rand::Rng;
 use tonic::body::BoxBody;
 use tonic::Code;
 use tower::{Service, ServiceExt};
 
-use crate::backend::{LeaderBackend, LeaderOps, ReplicaBackend};
+use crate::backend::{LeaderBackend, ReplicaBackend};
 use crate::config::RetryConfig;
+use crate::grpc_http::{grpc_error_response, is_grpc_error_response};
 
 const SERVICE_PREFIX: &str = "/personhog.service.v1.PersonHogService/";
 const REPLICA_PREFIX: &str = "/personhog.replica.v1.PersonHogReplica/";
@@ -157,11 +155,12 @@ impl RawProxyInner {
         let start = Instant::now();
 
         let (mut response, backend, channel_call_ms) = match method_name {
-            "UpdatePersonProperties" => (
-                self.handle_update_person_properties(req).await,
-                "leader",
-                None,
-            ),
+            "UpdatePersonProperties" => {
+                let (resp, call_ms) = self
+                    .raw_proxy_to_leader(req, "UpdatePersonProperties", true)
+                    .await;
+                (resp, "leader", call_ms)
+            }
             "GetPerson" => {
                 let is_strong = req
                     .headers()
@@ -170,7 +169,8 @@ impl RawProxyInner {
                     == Some("strong");
 
                 if is_strong {
-                    (self.handle_get_person_strong(req).await, "leader", None)
+                    let (resp, call_ms) = self.raw_proxy_to_leader(req, "GetPerson", false).await;
+                    (resp, "leader", call_ms)
                 } else {
                     let (resp, call_ms) = self.raw_proxy_to_replica(req, method.clone()).await;
                     (resp, "replica", call_ms)
@@ -317,18 +317,7 @@ impl RawProxyInner {
                         );
                     }
 
-                    counter!(
-                        "personhog_router_backend_retries_total",
-                        "method" => method.clone(),
-                        "status_code" => "unavailable",
-                        "client" => client.clone(),
-                    )
-                    .increment(1);
-
-                    let base = delay_ms / 2;
-                    let jittered = base + rand::thread_rng().gen_range(0..=base);
-                    tokio::time::sleep(std::time::Duration::from_millis(jittered)).await;
-                    delay_ms = (delay_ms * 2).min(self.retry_config.max_backoff_ms);
+                    retry_backoff(&mut delay_ms, &self.retry_config, &method, &client).await;
                     continue;
                 }
             };
@@ -384,18 +373,7 @@ impl RawProxyInner {
                         );
                     }
 
-                    counter!(
-                        "personhog_router_backend_retries_total",
-                        "method" => method.clone(),
-                        "status_code" => "unavailable",
-                        "client" => client.clone(),
-                    )
-                    .increment(1);
-
-                    let base = delay_ms / 2;
-                    let jittered = base + rand::thread_rng().gen_range(0..=base);
-                    tokio::time::sleep(std::time::Duration::from_millis(jittered)).await;
-                    delay_ms = (delay_ms * 2).min(self.retry_config.max_backoff_ms);
+                    retry_backoff(&mut delay_ms, &self.retry_config, &method, &client).await;
                 }
             }
         }
@@ -403,185 +381,191 @@ impl RawProxyInner {
         unreachable!()
     }
 
-    async fn handle_get_person_strong(
+    /// Raw-forward a leader request — a strong `GetPerson` or an
+    /// `UpdatePersonProperties` — to the owning leader pod. The routing key
+    /// arrives in the `x-team-id`/`x-person-id` headers stamped by the
+    /// client, is hashed to a partition, and the request bytes are forwarded
+    /// verbatim with the partition in the `x-partition` header. The body is
+    /// never inspected, so client-compressed request frames transit
+    /// untouched. Writes (`use_stash`) go through the per-partition stash so
+    /// they buffer correctly during a handoff; reads forward directly and
+    /// surface the channel round-trip time for the network-overhead metric.
+    async fn raw_proxy_to_leader(
         &self,
         req: http::Request<BoxBody>,
-    ) -> http::Response<BoxBody> {
+        method: &'static str,
+        use_stash: bool,
+    ) -> (http::Response<BoxBody>, Option<f64>) {
         let leader = match &self.leader {
-            Some(l) => l,
+            Some(l) => l.clone(),
             None => {
-                return grpc_error_response(
-                    Code::Unimplemented,
-                    "leader backend not configured for this router",
+                return (
+                    grpc_error_response(
+                        Code::Unimplemented,
+                        "leader backend not configured for this router",
+                    ),
+                    None,
                 )
             }
         };
 
-        let body_bytes = match collect_request_body(req, self.max_recv_message_size).await {
+        // Reject requests without a routing key before paying for body
+        // collection.
+        let (team_id, person_id) = match person_key_from_headers(req.headers()) {
+            Ok(key) => key,
+            Err(resp) => return (resp, None),
+        };
+
+        let (parts, body) = req.into_parts();
+        let collect_start = Instant::now();
+        let body_bytes = match collect_body_limited(body, self.max_recv_message_size).await {
             Ok(b) => b,
-            Err(resp) => return resp,
+            Err(resp) => return (resp, None),
         };
-        let request: GetPersonRequest = match decode_grpc_message(&body_bytes) {
-            Ok(m) => m,
-            Err(resp) => return resp,
-        };
+        histogram!(
+            "personhog_router_body_collect_ms",
+            "method" => method,
+            "client" => current_client_name(),
+        )
+        .record(collect_start.elapsed().as_secs_f64() * 1000.0);
 
-        match leader.get_person(request).await {
-            Ok(response) => encode_grpc_response(&response),
-            Err(status) => grpc_error_response(status.code(), status.message()),
-        }
-    }
+        let partition = leader.partition_for_person(team_id, person_id);
 
-    async fn handle_update_person_properties(
-        &self,
-        req: http::Request<BoxBody>,
-    ) -> http::Response<BoxBody> {
-        let leader = match &self.leader {
-            Some(l) => l,
-            None => {
-                return grpc_error_response(
-                    Code::Unimplemented,
-                    "leader backend not configured for this router",
+        let _in_flight = ClientInFlightGuard::new("leader");
+        if use_stash {
+            leader
+                .forward_or_stash(
+                    method,
+                    partition,
+                    (team_id, person_id),
+                    parts.headers,
+                    body_bytes,
                 )
+                .await
+        } else {
+            match leader
+                .forward_raw(method, partition, &parts.headers, &body_bytes)
+                .await
+            {
+                Ok((response, call_ms)) => (response, Some(call_ms)),
+                Err(status) => (grpc_error_response(status.code(), status.message()), None),
             }
-        };
-
-        let body_bytes = match collect_request_body(req, self.max_recv_message_size).await {
-            Ok(b) => b,
-            Err(resp) => return resp,
-        };
-        let request: UpdatePersonPropertiesRequest = match decode_grpc_message(&body_bytes) {
-            Ok(m) => m,
-            Err(resp) => return resp,
-        };
-
-        match leader.update_person_properties(request).await {
-            Ok(response) => encode_grpc_response(&response),
-            Err(status) => grpc_error_response(status.code(), status.message()),
         }
     }
 }
 
 // ── gRPC body helpers ──────────────────────────────────────────────────
 
-async fn collect_request_body(
-    req: http::Request<BoxBody>,
-    max_bytes: usize,
-) -> Result<Bytes, http::Response<BoxBody>> {
-    let (_, body) = req.into_parts();
-    collect_body_limited(body, max_bytes).await
-}
-
 async fn collect_body_limited(
     mut body: BoxBody,
     max_bytes: usize,
 ) -> Result<Bytes, http::Response<BoxBody>> {
-    let mut buf = Vec::new();
+    // Most unary requests arrive as a single DATA frame, which we hand on
+    // as-is without copying the payload. Only bodies that span multiple
+    // frames (large payloads split at the HTTP/2 frame size) pay for
+    // reassembly into a contiguous buffer, which the retry path needs so
+    // it can replay the request.
+    let mut first: Option<Bytes> = None;
+    let mut buf: Vec<u8> = Vec::new();
 
     while let Some(frame_result) = body.frame().await {
         let frame = frame_result.map_err(|e| {
             grpc_error_response(Code::Internal, &format!("failed to read body: {e}"))
         })?;
-        if let Ok(data) = frame.into_data() {
-            if buf.len() + data.len() > max_bytes {
-                return Err(grpc_error_response(
-                    Code::ResourceExhausted,
-                    &format!("received message larger than max ({max_bytes} bytes)"),
-                ));
+        let Ok(data) = frame.into_data() else {
+            continue;
+        };
+
+        let collected = first.as_ref().map_or(0, Bytes::len) + buf.len();
+        if collected + data.len() > max_bytes {
+            return Err(grpc_error_response(
+                Code::ResourceExhausted,
+                &format!("received message larger than max ({max_bytes} bytes)"),
+            ));
+        }
+
+        if first.is_none() && buf.is_empty() {
+            first = Some(data);
+        } else {
+            if let Some(f) = first.take() {
+                buf.reserve(f.len() + data.len());
+                buf.extend_from_slice(&f);
             }
             buf.extend_from_slice(&data);
         }
     }
 
-    Ok(Bytes::from(buf))
+    Ok(match first {
+        Some(single_frame) => single_frame,
+        None => Bytes::from(buf),
+    })
+}
+
+/// Shared retry bookkeeping for the raw-forward paths: bump the retry
+/// counter, sleep a jittered backoff, and grow the delay toward the cap.
+async fn retry_backoff(
+    delay_ms: &mut u64,
+    retry_config: &RetryConfig,
+    method: &Arc<str>,
+    client: &Arc<str>,
+) {
+    counter!(
+        "personhog_router_backend_retries_total",
+        "method" => method.clone(),
+        "status_code" => "unavailable",
+        "client" => client.clone(),
+    )
+    .increment(1);
+
+    let base = *delay_ms / 2;
+    let jittered = base + rand::thread_rng().gen_range(0..=base);
+    tokio::time::sleep(Duration::from_millis(jittered)).await;
+    *delay_ms = (*delay_ms * 2).min(retry_config.max_backoff_ms);
+}
+
+/// Routing-key headers stamped by clients on every leader-path request.
+/// The router hashes these to a partition instead of inspecting the request
+/// body; the leader independently validates them against the decoded body.
+const TEAM_ID_HEADER: &str = "x-team-id";
+const PERSON_ID_HEADER: &str = "x-person-id";
+
+/// Extract the `(team_id, person_id)` routing key from request headers.
+/// A missing or malformed header means the client predates the header
+/// contract or the request is malformed, so we fail closed rather than
+/// guess a partition.
+// `http::Response` is the error type every helper on this path returns; the
+// large variant trips `result_large_err`, but boxing here would diverge from
+// `collect_body_limited` and friends.
+#[allow(clippy::result_large_err)]
+fn person_key_from_headers(
+    headers: &http::HeaderMap,
+) -> Result<(i64, i64), http::Response<BoxBody>> {
+    let team_id = i64_header(headers, TEAM_ID_HEADER)?;
+    let person_id = i64_header(headers, PERSON_ID_HEADER)?;
+    Ok((team_id, person_id))
 }
 
 #[allow(clippy::result_large_err)]
-fn decode_grpc_message<M: Message + Default>(body: &Bytes) -> Result<M, http::Response<BoxBody>> {
-    if body.len() < 5 {
-        return Err(grpc_error_response(Code::Internal, "gRPC frame too short"));
-    }
-
-    if body[0] != 0 {
-        return Err(grpc_error_response(
-            Code::Unimplemented,
-            "compressed requests not supported for typed proxy path",
-        ));
-    }
-
-    let len = u32::from_be_bytes([body[1], body[2], body[3], body[4]]) as usize;
-    if body.len() < 5 + len {
-        return Err(grpc_error_response(Code::Internal, "gRPC frame truncated"));
-    }
-
-    M::decode(&body[5..5 + len])
-        .map_err(|e| grpc_error_response(Code::Internal, &format!("proto decode error: {e}")))
-}
-
-fn encode_grpc_response<M: Message>(msg: &M) -> http::Response<BoxBody> {
-    let encoded = msg.encode_to_vec();
-    let mut buf = Vec::with_capacity(5 + encoded.len());
-    buf.push(0); // not compressed
-    buf.extend_from_slice(&(encoded.len() as u32).to_be_bytes());
-    buf.extend(encoded);
-
-    let mut trailers = HeaderMap::new();
-    trailers.insert("grpc-status", HeaderValue::from_static("0"));
-
-    let body = GrpcResponseBody {
-        data: Some(Bytes::from(buf)),
-        trailers: Some(trailers),
-    };
-
-    let mut response = http::Response::new(BoxBody::new(body));
-    response
-        .headers_mut()
-        .insert("content-type", HeaderValue::from_static("application/grpc"));
-    response
-}
-
-fn grpc_error_response(code: Code, message: &str) -> http::Response<BoxBody> {
-    let body = BoxBody::new(Empty::<Bytes>::new().map_err(|never| match never {}));
-    let mut response = http::Response::new(body);
-    response
-        .headers_mut()
-        .insert("content-type", HeaderValue::from_static("application/grpc"));
-    response
-        .headers_mut()
-        .insert("grpc-status", HeaderValue::from(code as i32));
-    if !message.is_empty() {
-        let encoded = percent_encode_grpc(message);
-        if let Ok(val) = encoded.parse::<HeaderValue>() {
-            response.headers_mut().insert("grpc-message", val);
-        }
-    }
-    response
-}
-
-fn is_grpc_error_response(response: &http::Response<BoxBody>) -> bool {
-    response
-        .headers()
-        .get("grpc-status")
-        .and_then(|v| v.to_str().ok())
-        .is_some_and(|s| s != "0")
-}
-
-fn percent_encode_grpc(s: &str) -> String {
-    let mut out = String::with_capacity(s.len());
-    for b in s.bytes() {
-        match b {
-            b'A'..=b'Z' | b'a'..=b'z' | b'0'..=b'9' | b'-' | b'_' | b'.' | b'~' => {
-                out.push(b as char);
-            }
-            _ => {
-                const HEX: &[u8; 16] = b"0123456789ABCDEF";
-                out.push('%');
-                out.push(HEX[(b >> 4) as usize] as char);
-                out.push(HEX[(b & 0xf) as usize] as char);
-            }
-        }
-    }
-    out
+fn i64_header(
+    headers: &http::HeaderMap,
+    name: &'static str,
+) -> Result<i64, http::Response<BoxBody>> {
+    let value = headers.get(name).ok_or_else(|| {
+        grpc_error_response(
+            Code::InvalidArgument,
+            &format!("missing {name} header required for leader routing"),
+        )
+    })?;
+    value
+        .to_str()
+        .ok()
+        .and_then(|v| v.parse::<i64>().ok())
+        .ok_or_else(|| {
+            grpc_error_response(
+                Code::InvalidArgument,
+                &format!("{name} header is not a valid integer"),
+            )
+        })
 }
 
 /// Response body wrapper that counts bytes from DATA frames and records
@@ -661,35 +645,11 @@ impl Drop for ByteCountedBody {
     }
 }
 
-/// HTTP body that yields one data frame followed by one trailers frame.
-/// Used for constructing gRPC responses from typed leader calls.
-struct GrpcResponseBody {
-    data: Option<Bytes>,
-    trailers: Option<HeaderMap>,
-}
-
-impl http_body::Body for GrpcResponseBody {
-    type Data = Bytes;
-    type Error = tonic::Status;
-
-    fn poll_frame(
-        self: Pin<&mut Self>,
-        _cx: &mut Context<'_>,
-    ) -> Poll<Option<Result<Frame<Self::Data>, Self::Error>>> {
-        let this = self.get_mut();
-        if let Some(data) = this.data.take() {
-            Poll::Ready(Some(Ok(Frame::data(data))))
-        } else if let Some(trailers) = this.trailers.take() {
-            Poll::Ready(Some(Ok(Frame::trailers(trailers))))
-        } else {
-            Poll::Ready(None)
-        }
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
+    use futures::stream;
+    use http_body_util::{Empty, StreamBody};
 
     #[test]
     fn known_method_lookup() {
@@ -739,97 +699,45 @@ mod tests {
         );
     }
 
+    /// Well-formed routing-key headers yield the `(team_id, person_id)`
+    /// pair the router hashes for partition placement.
     #[test]
-    fn decode_grpc_message_roundtrip() {
-        let msg = GetPersonRequest {
-            team_id: 1,
-            person_id: 42,
-            read_options: None,
-        };
-        let encoded = msg.encode_to_vec();
-        let mut buf = Vec::with_capacity(5 + encoded.len());
-        buf.push(0);
-        buf.extend_from_slice(&(encoded.len() as u32).to_be_bytes());
-        buf.extend(encoded);
+    fn person_key_from_headers_extracts_key() {
+        let mut headers = http::HeaderMap::new();
+        headers.insert(TEAM_ID_HEADER, "1".parse().unwrap());
+        headers.insert(PERSON_ID_HEADER, "42".parse().unwrap());
 
-        let decoded: GetPersonRequest = decode_grpc_message(&Bytes::from(buf)).unwrap();
-        assert_eq!(decoded.team_id, 1);
-        assert_eq!(decoded.person_id, 42);
+        let (team_id, person_id) = person_key_from_headers(&headers).expect("valid headers");
+        assert_eq!(team_id, 1);
+        assert_eq!(person_id, 42);
     }
 
+    /// Missing or malformed routing-key headers fail closed with
+    /// InvalidArgument — the router must never guess a partition.
     #[test]
-    fn decode_grpc_message_too_short() {
-        let result: Result<GetPersonRequest, _> =
-            decode_grpc_message(&Bytes::from_static(&[0, 0, 0, 0]));
-        assert!(result.is_err());
-    }
+    fn person_key_from_headers_rejects_missing_or_malformed() {
+        let cases: [(Option<&str>, Option<&str>, &str); 4] = [
+            (None, Some("42"), "missing x-team-id"),
+            (Some("1"), None, "missing x-person-id"),
+            (Some("abc"), Some("42"), "non-numeric x-team-id"),
+            (Some("1"), Some("12.5"), "non-integer x-person-id"),
+        ];
 
-    #[test]
-    fn decode_grpc_message_compressed_rejected() {
-        let result: Result<GetPersonRequest, _> =
-            decode_grpc_message(&Bytes::from_static(&[1, 0, 0, 0, 0]));
-        assert!(result.is_err());
-    }
-
-    #[test]
-    fn decode_grpc_message_truncated() {
-        let result: Result<GetPersonRequest, _> =
-            decode_grpc_message(&Bytes::from_static(&[0, 0, 0, 0, 10]));
-        assert!(result.is_err());
-    }
-
-    #[test]
-    fn encode_grpc_response_has_correct_headers() {
-        use personhog_proto::personhog::types::v1::GetPersonResponse;
-
-        let msg = GetPersonResponse { person: None };
-        let response = encode_grpc_response(&msg);
-
-        assert_eq!(
-            response.headers().get("content-type").unwrap(),
-            "application/grpc"
-        );
-    }
-
-    #[test]
-    fn grpc_error_response_sets_status_and_message() {
-        let response = grpc_error_response(Code::NotFound, "person not found");
-        assert_eq!(
-            response.headers().get("grpc-status").unwrap(),
-            &format!("{}", Code::NotFound as i32),
-        );
-        let msg = response
-            .headers()
-            .get("grpc-message")
-            .unwrap()
-            .to_str()
-            .unwrap();
-        assert!(msg.contains("person"));
-    }
-
-    #[test]
-    fn grpc_error_response_ok_not_flagged_as_error() {
-        let ok = grpc_error_response(Code::Ok, "");
-        assert!(!is_grpc_error_response(&ok));
-    }
-
-    #[test]
-    fn grpc_error_response_flagged_as_error() {
-        let err = grpc_error_response(Code::NotFound, "not found");
-        assert!(is_grpc_error_response(&err));
-    }
-
-    #[test]
-    fn percent_encode_grpc_preserves_safe_chars() {
-        assert_eq!(percent_encode_grpc("hello"), "hello");
-        assert_eq!(percent_encode_grpc("a-b_c.d~e"), "a-b_c.d~e");
-    }
-
-    #[test]
-    fn percent_encode_grpc_encodes_special_chars() {
-        assert_eq!(percent_encode_grpc("hello world"), "hello%20world");
-        assert_eq!(percent_encode_grpc("a/b"), "a%2Fb");
-        assert_eq!(percent_encode_grpc("a:b"), "a%3Ab");
+        for (team, person, why) in cases {
+            let mut headers = http::HeaderMap::new();
+            if let Some(v) = team {
+                headers.insert(TEAM_ID_HEADER, v.parse().unwrap());
+            }
+            if let Some(v) = person {
+                headers.insert(PERSON_ID_HEADER, v.parse().unwrap());
+            }
+            let resp = person_key_from_headers(&headers).expect_err(&format!("must reject: {why}"));
+            assert_eq!(
+                resp.headers().get("grpc-status").unwrap(),
+                &format!("{}", Code::InvalidArgument as i32),
+                "wrong status for: {why}"
+            );
+        }
     }
 
     #[tokio::test]
@@ -860,5 +768,34 @@ mod tests {
         let result = collect_body_limited(body, 100).await;
         assert!(result.is_ok());
         assert!(result.unwrap().is_empty());
+    }
+
+    /// Build a body that yields each chunk as its own DATA frame,
+    /// exercising the multi-frame reassembly path (large payloads arrive
+    /// split at the HTTP/2 frame size).
+    fn multi_frame_body(chunks: Vec<&'static [u8]>) -> BoxBody {
+        let frames = chunks
+            .into_iter()
+            .map(|c| Ok::<_, tonic::Status>(Frame::data(Bytes::from_static(c))));
+        BoxBody::new(StreamBody::new(stream::iter(frames)))
+    }
+
+    #[tokio::test]
+    async fn collect_body_limited_reassembles_multiple_frames() {
+        let body = multi_frame_body(vec![b"hello ", b"personhog ", b"world"]);
+        let result = collect_body_limited(body, 100).await.unwrap();
+        assert_eq!(&result[..], b"hello personhog world");
+    }
+
+    #[tokio::test]
+    async fn collect_body_limited_rejects_over_limit_across_frames() {
+        // Each frame is under the limit; their sum is not.
+        let body = multi_frame_body(vec![&[0u8; 60], &[0u8; 60]]);
+        let result = collect_body_limited(body, 100).await;
+        let resp = result.unwrap_err();
+        assert_eq!(
+            resp.headers().get("grpc-status").unwrap(),
+            &format!("{}", Code::ResourceExhausted as i32),
+        );
     }
 }

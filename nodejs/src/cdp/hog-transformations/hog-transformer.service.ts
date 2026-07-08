@@ -311,6 +311,7 @@ export class HogTransformerService implements HogTransformer {
                 return {
                     event: null,
                     invocationResults: results,
+                    droppedBy: { id: hogFunction.id, name: hogFunction.name },
                 }
             }
 

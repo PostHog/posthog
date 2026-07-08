@@ -3,6 +3,8 @@ Assign/end transactions for account relationships, plus the transitional forward
 the legacy JSON role keys. Called by the facade and product-internal account writers only.
 """
 
+from uuid import UUID
+
 from django.db import transaction
 from django.utils import timezone
 
@@ -59,14 +61,14 @@ def end_active(*, team_id: int, account: Account, definition: AccountRelationshi
     )
 
 
-def end_relationship(*, team_id: int, relationship_id: str) -> AccountRelationship:
+def end_relationship(*, team_id: int, account_id: str | UUID, relationship_id: str) -> AccountRelationship:
     with transaction.atomic():
         # Serializes concurrent ends of the same row, matching assign's locking contract.
         relationship = (
             AccountRelationship.objects.for_team(team_id)
-            .select_related("definition", "account")
+            .select_related("definition", "user")
             .select_for_update(of=("self",))
-            .filter(id=relationship_id, ended_at__isnull=True)
+            .filter(id=relationship_id, account_id=account_id, ended_at__isnull=True)
             .first()
         )
         if relationship is None:
