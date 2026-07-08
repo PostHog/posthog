@@ -3,6 +3,7 @@ from typing import Optional, cast
 from posthog.schema import (
     DataWarehouseSourceCategory,
     ExternalDataSourceType as SchemaExternalDataSourceType,
+    ReleaseStatus,
     SourceConfig,
     SourceFieldInputConfig,
     SourceFieldInputConfigType,
@@ -97,7 +98,7 @@ class LinkedInAdsSource(ResumableSource[LinkedinAdsSourceConfig, LinkedInAdsResu
             keywords=["linkedin advertising"],
             label="LinkedIn Ads",
             caption="Ensure you have granted PostHog access to your LinkedIn Ads account, learn how to do this in [the documentation](https://posthog.com/docs/cdp/sources/linkedin-ads).",
-            releaseStatus="beta",
+            releaseStatus=ReleaseStatus.GA,
             iconPath="/static/services/linkedin.png",
             docsUrl="https://posthog.com/docs/cdp/sources/linkedin-ads",
             fields=cast(
@@ -136,6 +137,15 @@ class LinkedInAdsSource(ResumableSource[LinkedinAdsSourceConfig, LinkedInAdsResu
     ) -> tuple[bool, str | None]:
         if not config.account_id or not config.linkedin_ads_integration_id:
             return False, "Account ID and LinkedIn Ads integration are required"
+
+        # LinkedIn only accepts the numeric ad account ID. A free-text value (a profile URL, a
+        # name, stray whitespace) is otherwise accepted here and only fails on the first sync, so
+        # reject it up front with the same guidance the sync-time error gives.
+        if not config.account_id.isdigit():
+            return (
+                False,
+                "The LinkedIn Ads Account ID must be the numeric account ID from your LinkedIn Campaign Manager (digits only).",
+            )
 
         try:
             Integration.objects.get(id=config.linkedin_ads_integration_id, team_id=team_id)

@@ -1,0 +1,53 @@
+{
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "properties": {
+        "category": {
+            "description": "Only return warnings in this category (e.g. 'size', 'merge', 'event'). Warnings from producers that don't yet emit a category have category 'unknown'.",
+            "minLength": 1,
+            "type": "string"
+        },
+        "limit": {
+            "description": "Maximum number of warning types to return (default 100).",
+            "maximum": 500,
+            "minimum": 1,
+            "type": "number"
+        },
+        "order_by": {
+            "description": "Sort order for warning types: 'count' (most frequent first, the default) or 'last_seen' (most recent first).\n\n* `count` - count\n* `last_seen` - last_seen",
+            "enum": ["count", "last_seen"],
+            "type": "string"
+        },
+        "q": {
+            "description": "Only return warnings whose type or details contain this substring (case-sensitive). Useful for finding warnings about a specific distinct ID, event or property.",
+            "minLength": 1,
+            "type": "string"
+        },
+        "samples": {
+            "description": "Maximum number of recent sample warnings to return per warning type (default 5).",
+            "maximum": 50,
+            "minimum": 1,
+            "type": "number"
+        },
+        "severity": {
+            "description": "Only return warnings with this severity. Warnings from producers that don't yet emit a severity have severity 'warning'.\n\n* `info` - info\n* `warning` - warning\n* `error` - error",
+            "enum": ["info", "warning", "error"],
+            "type": "string"
+        },
+        "since": {
+            "description": "Start of the time range, as an ISO 8601 datetime (e.g. '2026-07-01T00:00:00Z') or a relative duration (e.g. '-24h', '-7d'). Defaults to 24 hours ago. Warnings are retained for 90 days.",
+            "minLength": 1,
+            "type": "string"
+        },
+        "type": {
+            "description": "Only return warnings of this type (e.g. 'message_size_too_large', 'cannot_merge_already_identified').",
+            "minLength": 1,
+            "type": "string"
+        },
+        "until": {
+            "description": "End of the time range, as an ISO 8601 datetime or a relative duration (e.g. '-1h'). Defaults to now.",
+            "minLength": 1,
+            "type": "string"
+        }
+    },
+    "type": "object"
+}

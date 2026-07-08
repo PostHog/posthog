@@ -16,6 +16,7 @@ use crate::observability::metrics::{
     COHORT_ELIGIBILITY_TOTAL, COHORT_IN_CYCLE_TOTAL, FILTER_CATALOG_SKIPPED_LEAVES,
 };
 use crate::stage1::key::LeafStateKey;
+use crate::stage1::person_record::CatalogFingerprint;
 use crate::stage1::pick_state::{
     effective_window_days, pick_state_variant, EvictionWindow, PredicateOp,
 };
@@ -51,9 +52,14 @@ pub struct TeamFilters {
     /// fan-out gate evaluates only the incoming event's bucket.
     pub behavioral_by_event_name: HashMap<String, Vec<[u8; 16]>>,
     pub person_property_conditions: HashSet<[u8; 16]>,
-    /// `person_property_conditions` sorted — the stable bit positions the person memo indexes by, so
-    /// an entry's bits stay aligned across no-op refreshes.
+    /// `person_property_conditions` sorted — the stable order the person record's catalog fingerprint
+    /// is computed over.
     pub person_conditions_ordered: Vec<[u8; 16]>,
+    /// SHA-256 over `person_conditions_ordered`, computed once at freeze. A content fingerprint of the
+    /// team's person conditions: a stored [`PersonRecord`](crate::stage1::PersonRecord) whose catalog
+    /// fingerprint matches this needs no re-evaluation, and a no-op catalog refresh (same conditions)
+    /// leaves it unchanged, so records are not needlessly invalidated.
+    pub catalog_fingerprint: CatalogFingerprint,
     /// `LeafStateKey → [CohortId]` for single-leaf cohorts.
     pub by_lsk_to_single_leaf_cohorts: HashMap<LeafStateKey, Vec<CohortId>>,
     /// `LeafStateKey → [CohortId]` for `Stage2Composable` cohorts.
@@ -82,6 +88,8 @@ impl Default for TeamFilters {
             behavioral_by_event_name: HashMap::new(),
             person_property_conditions: HashSet::new(),
             person_conditions_ordered: Vec::new(),
+            // Fingerprint of the empty condition set, matching a `freeze` of no person conditions.
+            catalog_fingerprint: CatalogFingerprint::of_sorted(&[]),
             by_lsk_to_single_leaf_cohorts: HashMap::new(),
             by_lsk_to_composable_cohorts: HashMap::new(),
             by_referenced_cohort: HashMap::new(),
@@ -260,6 +268,7 @@ impl TeamFiltersBuilder {
         let mut person_conditions_ordered: Vec<[u8; 16]> =
             person_property_conditions.iter().copied().collect();
         person_conditions_ordered.sort_unstable();
+        let catalog_fingerprint = CatalogFingerprint::of_sorted(&person_conditions_ordered);
 
         let behavioral_by_event_name = behavioral_by_event_name
             .into_iter()
@@ -280,6 +289,7 @@ impl TeamFiltersBuilder {
             behavioral_by_event_name,
             person_property_conditions,
             person_conditions_ordered,
+            catalog_fingerprint,
             by_lsk_to_single_leaf_cohorts,
             by_lsk_to_composable_cohorts,
             by_referenced_cohort,
@@ -819,6 +829,85 @@ mod tests {
                 .windows(2)
                 .all(|w| w[0] < w[1]),
             "the order is strictly ascending and carries no behavioral hash",
+        );
+    }
+
+    /// Build a person leaf carrying a specific conditionHash literal.
+    fn person_leaf_with_hash(hash: &str) -> Value {
+        let mut leaf = person_leaf();
+        leaf.as_object_mut()
+            .unwrap()
+            .insert("conditionHash".to_string(), json!(hash));
+        leaf
+    }
+
+    fn freeze_person_conditions(leaves: Vec<Value>) -> TeamFilters {
+        let mut builder = TeamFiltersBuilder::default();
+        builder
+            .add_cohort(CohortId(1), TeamId(7), &wrap(leaves))
+            .unwrap();
+        builder.freeze(UTC)
+    }
+
+    #[test]
+    fn catalog_fingerprint_matches_the_sorted_conditions_and_is_freeze_stable() {
+        let a = freeze_person_conditions(vec![
+            person_leaf_with_hash("aaaaaaaaaaaaaaaa"),
+            person_leaf_with_hash("bbbbbbbbbbbbbbbb"),
+        ]);
+        assert_eq!(
+            a.catalog_fingerprint,
+            CatalogFingerprint::of_sorted(&a.person_conditions_ordered),
+        );
+        let b = freeze_person_conditions(vec![
+            person_leaf_with_hash("aaaaaaaaaaaaaaaa"),
+            person_leaf_with_hash("bbbbbbbbbbbbbbbb"),
+        ]);
+        assert_eq!(a.catalog_fingerprint, b.catalog_fingerprint);
+    }
+
+    #[test]
+    fn catalog_fingerprint_is_invariant_to_insertion_order() {
+        let ordered = freeze_person_conditions(vec![
+            person_leaf_with_hash("aaaaaaaaaaaaaaaa"),
+            person_leaf_with_hash("bbbbbbbbbbbbbbbb"),
+        ]);
+        let reversed = freeze_person_conditions(vec![
+            person_leaf_with_hash("bbbbbbbbbbbbbbbb"),
+            person_leaf_with_hash("aaaaaaaaaaaaaaaa"),
+        ]);
+        assert_eq!(ordered.catalog_fingerprint, reversed.catalog_fingerprint);
+    }
+
+    #[test]
+    fn catalog_fingerprint_changes_when_a_condition_is_added_or_removed() {
+        let two = freeze_person_conditions(vec![
+            person_leaf_with_hash("aaaaaaaaaaaaaaaa"),
+            person_leaf_with_hash("bbbbbbbbbbbbbbbb"),
+        ]);
+        let one = freeze_person_conditions(vec![person_leaf_with_hash("aaaaaaaaaaaaaaaa")]);
+        let three = freeze_person_conditions(vec![
+            person_leaf_with_hash("aaaaaaaaaaaaaaaa"),
+            person_leaf_with_hash("bbbbbbbbbbbbbbbb"),
+            person_leaf_with_hash("cccccccccccccccc"),
+        ]);
+        assert_ne!(two.catalog_fingerprint, one.catalog_fingerprint);
+        assert_ne!(two.catalog_fingerprint, three.catalog_fingerprint);
+    }
+
+    #[test]
+    fn catalog_fingerprint_of_no_person_conditions_is_the_empty_constant() {
+        // A team with only a behavioral leaf has no person conditions.
+        let behavioral_only = freeze_person_conditions(vec![behavioral_performed_event(7)]);
+        assert!(behavioral_only.person_conditions_ordered.is_empty());
+        assert_eq!(
+            behavioral_only.catalog_fingerprint,
+            CatalogFingerprint::of_sorted(&[]),
+            "no person conditions ⇒ the stable empty-input fingerprint",
+        );
+        assert_eq!(
+            behavioral_only.catalog_fingerprint,
+            TeamFilters::default().catalog_fingerprint,
         );
     }
 

@@ -1,6 +1,7 @@
 """Celery tasks for the conversations product."""
 
 import html as html_mod
+import json
 from datetime import datetime, timedelta
 from email.utils import formataddr
 from typing import Any, cast
@@ -18,15 +19,18 @@ from django.utils import timezone
 import requests
 import structlog
 from celery import shared_task
+from celery.exceptions import MaxRetriesExceededError
 
-from posthog.egress.github.transport import github_request
+from posthog.egress.github.transport import GitHubRateLimitError
 from posthog.models.activity_logging.activity_log import Change, Detail, log_activity
 from posthog.models.comment import Comment as CommentModel
+from posthog.models.github_integration_base import GitHubIntegrationError
 from posthog.models.team import Team
 from posthog.models.uploaded_media import UploadedMedia
 from posthog.scoping_audit import skip_team_scope_audit
 from posthog.storage import object_storage
 
+from products.conversations.backend.cache import NUDGE_DISMISS_TTL, suppress_nudge
 from products.conversations.backend.events import capture_ticket_status_changed
 from products.conversations.backend.formatting import (
     extract_images_from_rich_content,
@@ -53,6 +57,11 @@ from products.conversations.backend.models.constants import Channel, ChannelDeta
 from products.conversations.backend.models.ticket import Ticket
 from products.conversations.backend.services.attachments import CONVERSATIONS_MAX_IMAGE_BYTES
 from products.conversations.backend.slack import (
+    TICKET_CONFIRM_ACTION_DISMISS,
+    TICKET_CONFIRM_ACTION_OPEN,
+    create_ticket_from_confirmation,
+    get_bot_user_id,
+    get_safe_ticket_emoji,
     get_slack_client,
     handle_member_joined_channel,
     handle_member_left_channel,
@@ -60,6 +69,7 @@ from products.conversations.backend.slack import (
     handle_support_message,
     handle_support_reaction,
     resolve_slack_avatar_by_email,
+    ticket_created_text,
 )
 from products.conversations.backend.support_teams import (
     get_bot_framework_token,
@@ -156,6 +166,135 @@ def process_supporthog_event(event: dict[str, Any], slack_team_id: str, event_id
             error=str(e),
         )
         raise cast(Any, process_supporthog_event).retry(exc=e)
+
+
+def _delete_supporthog_prompt(team: Team, channel: str, message_ts: str) -> None:
+    """Delete the "open a ticket?" prompt message after a "No thanks" click.
+
+    Best-effort: a failure here never blocks anything else.
+    """
+    if not channel or not message_ts:
+        return
+    try:
+        get_slack_client(team).chat_delete(channel=channel, ts=message_ts)
+    except Exception:
+        logger.warning("supporthog_interactivity_prompt_delete_failed", exc_info=True)
+
+
+def _update_supporthog_prompt(team: Team, channel: str, message_ts: str, text: str) -> None:
+    """Replace the "open a ticket?" prompt in place with a final status line (buttons removed).
+
+    Best-effort: a failure here never blocks the ticket creation that already ran.
+    """
+    if not channel or not message_ts:
+        return
+    try:
+        get_slack_client(team).chat_update(
+            channel=channel,
+            ts=message_ts,
+            text=text,
+            blocks=[{"type": "section", "text": {"type": "mrkdwn", "text": text}}],
+        )
+    except Exception:
+        logger.warning("supporthog_interactivity_prompt_update_failed", exc_info=True)
+
+
+def _post_dismiss_acknowledgment(team: Team, channel: str, user: str, thread_ts: str) -> None:
+    """Privately acknowledge a "No thanks" click, pointing the author at the other ways in.
+
+    Ephemeral so only the person who clicked sees it; best-effort.
+    """
+    if not channel or not user:
+        return
+    emoji = get_safe_ticket_emoji(team.conversations_settings or {})
+    try:
+        client = get_slack_client(team)
+        bot_id = get_bot_user_id(client)
+        mention = f"<@{bot_id}>" if bot_id else "the SupportHog bot"
+        client.chat_postEphemeral(
+            channel=channel,
+            user=user,
+            thread_ts=thread_ts or None,
+            text=f"Got it — if you change your mind, react with :{emoji}: or tag {mention}.",
+        )
+    except Exception:
+        logger.warning("supporthog_interactivity_dismiss_ack_failed", exc_info=True)
+
+
+@shared_task(ignore_result=True, max_retries=3, default_retry_delay=5)
+@skip_team_scope_audit
+def process_supporthog_interactivity(payload: dict[str, Any], slack_team_id: str) -> None:
+    """Handle a button click from the opt-in "open a ticket?" confirmation prompt."""
+    config = (
+        TeamConversationsSlackConfig.objects.filter(slack_team_id=slack_team_id, slack_bot_token__isnull=False)
+        .select_related("team")
+        .first()
+    )
+    if not config:
+        logger.warning("supporthog_interactivity_no_team", slack_team_id=slack_team_id)
+        return
+
+    team = config.team
+    support_settings = team.conversations_settings or {}
+    if not support_settings.get("slack_enabled"):
+        return
+
+    if payload.get("type") != "block_actions":
+        return
+
+    # The prompt message to delete: where the button was clicked.
+    container = payload.get("container") or {}
+    prompt_channel = (payload.get("channel") or {}).get("id") or container.get("channel_id") or ""
+    prompt_ts = (payload.get("message") or {}).get("ts") or container.get("message_ts") or ""
+
+    clicker = (payload.get("user") or {}).get("id", "")
+
+    for action in payload.get("actions") or []:
+        action_id = action.get("action_id")
+        try:
+            value = json.loads(action.get("value") or "{}")
+        except (json.JSONDecodeError, TypeError):
+            value = {}
+        source_channel = value.get("channel", "")
+        source_message_ts = value.get("message_ts", "")
+
+        if action_id == TICKET_CONFIRM_ACTION_DISMISS:
+            _delete_supporthog_prompt(team, prompt_channel, prompt_ts)
+            _post_dismiss_acknowledgment(team, prompt_channel, clicker, source_message_ts)
+            # Don't pester them again in this channel for a while.
+            if clicker:
+                suppress_nudge(team.pk, prompt_channel, clicker, NUDGE_DISMISS_TTL)
+            return
+        if action_id == TICKET_CONFIRM_ACTION_OPEN:
+            ticket = None
+            if source_channel and source_message_ts:
+                try:
+                    ticket = create_ticket_from_confirmation(
+                        team=team,
+                        slack_team_id=slack_team_id,
+                        slack_channel_id=source_channel,
+                        message_ts=source_message_ts,
+                    )
+                except Exception as e:
+                    logger.exception("supporthog_interactivity_create_failed", error=str(e))
+                    # Retry transient failures — the retried run redoes the whole handler,
+                    # so the prompt still resolves on eventual success. Once retries are
+                    # exhausted, fall through to the error update below rather than leaving
+                    # the user staring at live buttons forever.
+                    try:
+                        raise cast(Any, process_supporthog_interactivity).retry(exc=e)
+                    except MaxRetriesExceededError:
+                        pass
+            # Replace the prompt in place: a confirmation when we have a ticket (created or
+            # already open), or an explicit error so a failed open never reads as success.
+            # post_confirmation=False above means no separate confirmation was posted.
+            if ticket:
+                text = ticket_created_text(ticket)
+            else:
+                emoji = get_safe_ticket_emoji(support_settings)
+                text = f":warning: Couldn't open a ticket — react with :{emoji}: or @mention us to try again."
+            _update_supporthog_prompt(team, prompt_channel, prompt_ts, text)
+            return
 
 
 @shared_task(ignore_result=True, max_retries=3, default_retry_delay=5)
@@ -1544,6 +1683,8 @@ def _get_or_create_github_ticket(team: Team, repo: str, issue_number: int, paylo
                 github_repo=repo,
                 github_issue_number=issue_number,
                 unread_team_count=0,
+                # Created from a signature-validated GitHub webhook — platform-attested identity.
+                identity_verified=True,
             )
 
             if title:
@@ -1764,7 +1905,12 @@ def post_reply_to_github(
         logger.warning("github_reply_missing_issue_info", ticket_id=ticket_id)
         return
 
-    github = GitHubIntegration.first_for_team_repository(team_id, ticket.github_repo)
+    try:
+        github = GitHubIntegration.first_for_team_repository(team_id, ticket.github_repo, source="conversations")
+    except GitHubRateLimitError as e:
+        # The access probe hit GitHub's limit — retry the reply later rather than dropping it.
+        logger.warning("github_reply_rate_limited", ticket_id=ticket_id)
+        raise cast(Any, post_reply_to_github).retry(exc=e, countdown=min(e.retry_after or 60, 600))
     if not github:
         logger.warning("github_reply_no_integration", team_id=team_id, repo=ticket.github_repo)
         return
@@ -1777,17 +1923,11 @@ def post_reply_to_github(
     if author_name:
         reply_text = f"**{author_name}** replied:\n\n{reply_text}"
 
-    access_token = github.get_access_token()
-    url = f"https://api.github.com/repos/{ticket.github_repo}/issues/{ticket.github_issue_number}/comments"
-
     try:
-        resp = github_request(
+        resp = github.api_request(
             "POST",
-            url,
-            source="conversations",
-            headers={"Authorization": f"Bearer {access_token}"},
-            installation_id=github.github_installation_id,
-            json={"body": reply_text},
+            f"/repos/{ticket.github_repo}/issues/{ticket.github_issue_number}/comments",
+            json_body={"body": reply_text},
             timeout=15,
         )
         if resp.status_code not in (200, 201):
@@ -1812,7 +1952,10 @@ def post_reply_to_github(
             )
 
         logger.info("github_reply_posted", ticket_id=ticket_id, repo=ticket.github_repo)
-    except requests.RequestException as e:
+    except GitHubRateLimitError as e:
+        logger.warning("github_reply_rate_limited", ticket_id=ticket_id)
+        raise cast(Any, post_reply_to_github).retry(exc=e, countdown=min(e.retry_after or 60, 600))
+    except (GitHubIntegrationError, requests.RequestException) as e:
         logger.exception("github_reply_post_error", ticket_id=ticket_id, error=str(e))
         raise cast(Any, post_reply_to_github).retry(exc=e)
 
@@ -1842,30 +1985,17 @@ def create_github_issue(
         logger.warning("github_create_issue_integration_not_found", integration_id=integration_id)
         return None
 
-    github = GitHubIntegration(integration)
-    access_token = github.get_access_token()
+    github = GitHubIntegration(integration, source="conversations")
 
-    json_body: dict[str, Any] = {"title": title, "body": body}
-    if labels:
-        json_body["labels"] = labels
-
-    url = f"https://api.github.com/repos/{repo}/issues"
     try:
-        resp = github_request(
-            "POST",
-            url,
-            source="conversations",
-            headers={"Authorization": f"Bearer {access_token}"},
-            installation_id=github.github_installation_id,
-            json=json_body,
-            timeout=15,
-        )
-        resp.raise_for_status()
-    except requests.RequestException as e:
+        issue_data = github.create_issue({"title": title, "body": body, "repository": repo, "labels": labels})
+    except GitHubRateLimitError as e:
+        logger.warning("github_create_issue_rate_limited", repo=repo)
+        raise cast(Any, create_github_issue).retry(exc=e, countdown=min(e.retry_after or 60, 600))
+    except GitHubIntegrationError as e:
         logger.exception("github_create_issue_failed", repo=repo, error=str(e))
         raise cast(Any, create_github_issue).retry(exc=e)
 
-    issue_data = resp.json()
     issue_number = issue_data.get("number")
 
     ticket = Ticket.objects.create_with_number(
@@ -1877,6 +2007,9 @@ def create_github_issue(
         status=Status.OPEN,
         github_repo=repo,
         github_issue_number=issue_number,
+        # Outbound issue opened by the team — there's no external party whose identity we verified,
+        # so leave it unknown rather than claiming a verification that never happened.
+        identity_verified=None,
     )
 
     CommentModel.objects.create(

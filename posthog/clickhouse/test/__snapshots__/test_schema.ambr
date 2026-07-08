@@ -329,6 +329,22 @@
   
   '''
 # ---
+# name: test_create_kafka_table_with_different_kafka_host[kafka_ingestion_warnings_v2]
+  '''
+  
+  CREATE TABLE IF NOT EXISTS kafka_ingestion_warnings_v2
+  (
+      
+      team_id Int64,
+      source LowCardinality(String),
+      type String,
+      details String,
+      timestamp DateTime64(6, 'UTC')
+  
+  ) ENGINE = Kafka(warpstream_ingestion, kafka_topic_list = 'clickhouse_ingestion_warnings_test', kafka_group_name = 'clickhouse_ingestion_warnings_v2', kafka_format = 'JSONEachRow')
+  
+  '''
+# ---
 # name: test_create_kafka_table_with_different_kafka_host[kafka_log_entries]
   '''
   
@@ -1168,7 +1184,7 @@
       
   , _timestamp DateTime
   , _offset UInt64
-  , inserted_at Nullable(DateTime64(6, 'UTC')) DEFAULT NOW64()
+  , inserted_at DateTime64(6, 'UTC') DEFAULT NOW64()
       
   ) ENGINE = Distributed('posthog_primary_replica', 'posthog_test', 'sharded_events_recent', sipHash64(distinct_id))
   
@@ -1572,7 +1588,7 @@
       
   , _timestamp DateTime
   , _offset UInt64
-  , inserted_at Nullable(DateTime64(6, 'UTC')) DEFAULT NOW64()
+  , inserted_at DateTime64(6, 'UTC') DEFAULT NOW64()
       
   ) ENGINE = Distributed('posthog_primary_replica', 'posthog_test', 'sharded_events_recent', sipHash64(distinct_id))
   
@@ -1933,6 +1949,79 @@
   
   '''
 # ---
+# name: test_create_table_query[ingestion_warnings_v2]
+  '''
+  
+  CREATE TABLE IF NOT EXISTS ingestion_warnings_v2
+  (
+      
+      team_id Int64,
+      source LowCardinality(String),
+      type LowCardinality(String),
+      details String,
+      timestamp DateTime64(6, 'UTC'),
+      category LowCardinality(String) DEFAULT coalesce(nullIf(JSONExtractString(details, 'category'), ''), 'unknown'),
+      severity LowCardinality(String) DEFAULT coalesce(nullIf(JSONExtractString(details, 'severity'), ''), 'warning'),
+      pipeline_step LowCardinality(String) DEFAULT coalesce(nullIf(JSONExtractString(details, 'pipelineStep'), ''), 'unknown'),
+      event_uuid Nullable(UUID) DEFAULT toUUIDOrNull(JSONExtractString(details, 'eventUuid')),
+      distinct_id Nullable(String) DEFAULT nullIf(JSONExtractString(details, 'distinctId'), ''),
+      group_key Nullable(String) DEFAULT nullIf(JSONExtractString(details, 'groupKey'), ''),
+      person_id Nullable(UUID) DEFAULT toUUIDOrNull(JSONExtractString(details, 'personId')),
+      _timestamp DateTime,
+      _offset UInt64,
+      _partition UInt64
+  
+  ) ENGINE = ReplicatedMergeTree('/clickhouse/tables/77f1df52-4b43-11e9-910f-b8ca3a9b9f3e_noshard/posthog.ingestion_warnings_v2', '{replica}-{shard}')
+  PARTITION BY toYYYYMM(timestamp)
+  ORDER BY (team_id, type, timestamp)
+  TTL toDateTime(timestamp) + INTERVAL 90 DAY
+  
+  '''
+# ---
+# name: test_create_table_query[ingestion_warnings_v2_distributed]
+  '''
+  
+  CREATE TABLE IF NOT EXISTS ingestion_warnings_v2_distributed
+  (
+      
+      team_id Int64,
+      source LowCardinality(String),
+      type LowCardinality(String),
+      details String,
+      timestamp DateTime64(6, 'UTC'),
+      category LowCardinality(String) DEFAULT coalesce(nullIf(JSONExtractString(details, 'category'), ''), 'unknown'),
+      severity LowCardinality(String) DEFAULT coalesce(nullIf(JSONExtractString(details, 'severity'), ''), 'warning'),
+      pipeline_step LowCardinality(String) DEFAULT coalesce(nullIf(JSONExtractString(details, 'pipelineStep'), ''), 'unknown'),
+      event_uuid Nullable(UUID) DEFAULT toUUIDOrNull(JSONExtractString(details, 'eventUuid')),
+      distinct_id Nullable(String) DEFAULT nullIf(JSONExtractString(details, 'distinctId'), ''),
+      group_key Nullable(String) DEFAULT nullIf(JSONExtractString(details, 'groupKey'), ''),
+      person_id Nullable(UUID) DEFAULT toUUIDOrNull(JSONExtractString(details, 'personId')),
+      _timestamp DateTime,
+      _offset UInt64,
+      _partition UInt64
+  
+  ) ENGINE = Distributed('aux', 'posthog_test', 'ingestion_warnings_v2')
+  
+  '''
+# ---
+# name: test_create_table_query[ingestion_warnings_v2_mv]
+  '''
+  
+  CREATE MATERIALIZED VIEW IF NOT EXISTS ingestion_warnings_v2_mv
+  TO posthog_test.ingestion_warnings_v2
+  AS SELECT
+      team_id,
+      source,
+      type,
+      details,
+      timestamp,
+      _timestamp,
+      _offset,
+      _partition
+  FROM posthog_test.kafka_ingestion_warnings_v2
+  
+  '''
+# ---
 # name: test_create_table_query[kafka_ai_events_json]
   '''
   
@@ -2213,6 +2302,22 @@
       timestamp DateTime64(6, 'UTC')
       
   ) ENGINE = Kafka(msk_cluster, kafka_topic_list = 'clickhouse_ingestion_warnings_test', kafka_group_name = 'group1', kafka_format = 'JSONEachRow')
+  
+  '''
+# ---
+# name: test_create_table_query[kafka_ingestion_warnings_v2]
+  '''
+  
+  CREATE TABLE IF NOT EXISTS kafka_ingestion_warnings_v2
+  (
+      
+      team_id Int64,
+      source LowCardinality(String),
+      type String,
+      details String,
+      timestamp DateTime64(6, 'UTC')
+  
+  ) ENGINE = Kafka(warpstream_ingestion, kafka_topic_list = 'clickhouse_ingestion_warnings_test', kafka_group_name = 'clickhouse_ingestion_warnings_v2', kafka_format = 'JSONEachRow')
   
   '''
 # ---
@@ -9235,6 +9340,35 @@
   ORDER BY (team_id, function_kind, function_id, invocation_id)
   
   SETTINGS index_granularity = 1024, ttl_only_drop_parts = 1
+  
+  '''
+# ---
+# name: test_create_table_query_replicated_and_storage[ingestion_warnings_v2]
+  '''
+  
+  CREATE TABLE IF NOT EXISTS ingestion_warnings_v2
+  (
+      
+      team_id Int64,
+      source LowCardinality(String),
+      type LowCardinality(String),
+      details String,
+      timestamp DateTime64(6, 'UTC'),
+      category LowCardinality(String) DEFAULT coalesce(nullIf(JSONExtractString(details, 'category'), ''), 'unknown'),
+      severity LowCardinality(String) DEFAULT coalesce(nullIf(JSONExtractString(details, 'severity'), ''), 'warning'),
+      pipeline_step LowCardinality(String) DEFAULT coalesce(nullIf(JSONExtractString(details, 'pipelineStep'), ''), 'unknown'),
+      event_uuid Nullable(UUID) DEFAULT toUUIDOrNull(JSONExtractString(details, 'eventUuid')),
+      distinct_id Nullable(String) DEFAULT nullIf(JSONExtractString(details, 'distinctId'), ''),
+      group_key Nullable(String) DEFAULT nullIf(JSONExtractString(details, 'groupKey'), ''),
+      person_id Nullable(UUID) DEFAULT toUUIDOrNull(JSONExtractString(details, 'personId')),
+      _timestamp DateTime,
+      _offset UInt64,
+      _partition UInt64
+  
+  ) ENGINE = ReplicatedMergeTree('/clickhouse/tables/77f1df52-4b43-11e9-910f-b8ca3a9b9f3e_noshard/posthog.ingestion_warnings_v2', '{replica}-{shard}')
+  PARTITION BY toYYYYMM(timestamp)
+  ORDER BY (team_id, type, timestamp)
+  TTL toDateTime(timestamp) + INTERVAL 90 DAY
   
   '''
 # ---

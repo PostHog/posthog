@@ -1,11 +1,14 @@
 import { actions, afterMount, connect, kea, key, listeners, path, props, reducers } from 'kea'
+import { router } from 'kea-router'
 
 import { lemonToast } from 'lib/lemon-ui/LemonToast'
 import { teamLogic } from 'scenes/teamLogic'
+import { urls } from 'scenes/urls'
 
 import { visionObservationsRetrieve } from '../generated/api'
 import type { ReplayObservationApi } from '../generated/api.schemas'
 import { scheduleObservationPoll } from '../logics/observationPolling'
+import { requestObservationRetry } from '../logics/observationRetry'
 import { observationProgressLogic } from './observationProgressLogic'
 import type { replayObservationLogicType } from './replayObservationLogicType'
 import { replayObservationSceneLogic } from './replayObservationSceneLogic'
@@ -28,6 +31,9 @@ export const replayObservationLogic = kea<replayObservationLogicType>([
         loadObservation: true,
         loadObservationSuccess: (observation: ReplayObservationApi) => ({ observation }),
         loadObservationFailure: true,
+        retryObservation: true,
+        retryObservationSuccess: true,
+        retryObservationFailure: true,
     }),
 
     reducers({
@@ -43,6 +49,14 @@ export const replayObservationLogic = kea<replayObservationLogicType>([
                 loadObservation: () => true,
                 loadObservationSuccess: () => false,
                 loadObservationFailure: () => false,
+            },
+        ],
+        retrying: [
+            false,
+            {
+                retryObservation: () => true,
+                retryObservationSuccess: () => false,
+                retryObservationFailure: () => false,
             },
         ],
     }),
@@ -78,6 +92,23 @@ export const replayObservationLogic = kea<replayObservationLogicType>([
 
             loadObservationSuccess: reschedulePoll,
             loadObservationFailure: reschedulePoll,
+
+            retryObservation: async () => {
+                const retried = await requestObservationRetry(
+                    props.id,
+                    'Retrying scan — the new observation will appear on the scanner page shortly.'
+                )
+                if (!retried) {
+                    actions.retryObservationFailure()
+                    return
+                }
+                actions.retryObservationSuccess()
+                // The retried row is deleted, so this page's id now dangles — hand off to the scanner.
+                const scannerId = values.observation?.scanner_id
+                if (scannerId) {
+                    router.actions.push(urls.replayVision(scannerId))
+                }
+            },
 
             // When the stream reports the observation has settled, reload once to render the final result.
             streamCompleted: () => {

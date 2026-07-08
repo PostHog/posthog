@@ -17,6 +17,7 @@ import {
     DEFAULT_ORDER_DIRECTION,
     DEFAULT_SERVICE_NAMES,
     DEFAULT_VIEW_MODE,
+    TRACING_SCENE_VIEWER_ID,
     tracingFiltersLogic,
 } from './tracingFiltersLogic'
 import type { tracingSceneLogicType } from './tracingSceneLogicType'
@@ -25,9 +26,10 @@ import type { Span } from './types'
 export const tracingSceneLogic = kea<tracingSceneLogicType>([
     path(['products', 'tracing', 'frontend', 'tracingSceneLogic']),
 
+    // The scene binds to the viewer-default instances of the keyed filter/data logics.
     connect(() => ({
         values: [
-            tracingDataLogic(),
+            tracingDataLogic({ id: TRACING_SCENE_VIEWER_ID }),
             [
                 'spans',
                 'spansLoading',
@@ -51,11 +53,11 @@ export const tracingSceneLogic = kea<tracingSceneLogicType>([
                 'visibleRowDurationRange',
                 'isDurationMode',
             ],
-            tracingFiltersLogic(),
+            tracingFiltersLogic({ id: TRACING_SCENE_VIEWER_ID }),
             ['filters', 'utcDateRange', 'sparklineWindowMs', 'currentWindowMs', 'previousWindowMs'],
         ],
         actions: [
-            tracingDataLogic(),
+            tracingDataLogic({ id: TRACING_SCENE_VIEWER_ID }),
             [
                 'runQuery',
                 'fetchNextPage',
@@ -65,7 +67,7 @@ export const tracingSceneLogic = kea<tracingSceneLogicType>([
                 'fetchSpanTree',
                 'setVisibleRowRange',
             ],
-            tracingFiltersLogic(),
+            tracingFiltersLogic({ id: TRACING_SCENE_VIEWER_ID }),
             [
                 'setDateRange',
                 'setServiceNames',

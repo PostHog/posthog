@@ -22,6 +22,19 @@ from products.experiments.backend.models.experiment import Experiment
 from products.experiments.backend.models.web_experiment import WebExperiment
 from products.feature_flags.backend.api.feature_flag import FeatureFlagSerializer
 
+# XSS vector patterns, paired with the error message shown when one matches:
+# script tags (opening and closing), event handlers (onclick, onerror, etc.),
+# javascript: protocol, data:text/html, iframe/object/embed tags
+_XSS_PATTERNS: list[tuple[re.Pattern[str], str]] = [
+    (re.compile(r"<script[^>]*>", re.IGNORECASE), "contains disallowed <script> tags"),
+    (re.compile(r"</script>", re.IGNORECASE), "contains disallowed </script> tags"),
+    (re.compile(r"\son\w+\s*=", re.IGNORECASE), "contains disallowed event handlers (onclick, onerror, etc.)"),
+    (re.compile(r"javascript\s*:", re.IGNORECASE), "contains disallowed javascript: protocol"),
+    (re.compile(r"data\s*:\s*text/html", re.IGNORECASE), "contains disallowed data:text/html"),
+    (re.compile(r"<iframe[^>]*>", re.IGNORECASE), "contains disallowed <iframe> tags"),
+    (re.compile(r"<(object|embed)[^>]*>", re.IGNORECASE), "contains disallowed <object> or <embed> tags"),
+]
+
 
 def validate_no_xss(content: str, field_name: str) -> None:
     """
@@ -30,32 +43,9 @@ def validate_no_xss(content: str, field_name: str) -> None:
 
     This validation-only approach preserves the original formatting while preventing XSS attacks.
     """
-    # Check for script tags (opening and closing)
-    if re.search(r"<script[^>]*>", content, re.IGNORECASE):
-        raise ValidationError(f"{field_name} contains disallowed <script> tags")
-
-    if re.search(r"</script>", content, re.IGNORECASE):
-        raise ValidationError(f"{field_name} contains disallowed </script> tags")
-
-    # Check for event handlers (onclick, onerror, onload, onmouseover, etc.)
-    if re.search(r"\son\w+\s*=", content, re.IGNORECASE):
-        raise ValidationError(f"{field_name} contains disallowed event handlers (onclick, onerror, etc.)")
-
-    # Check for javascript: protocol in attributes
-    if re.search(r"javascript\s*:", content, re.IGNORECASE):
-        raise ValidationError(f"{field_name} contains disallowed javascript: protocol")
-
-    # Check for data: protocol with HTML/script content
-    if re.search(r"data\s*:\s*text/html", content, re.IGNORECASE):
-        raise ValidationError(f"{field_name} contains disallowed data:text/html")
-
-    # Check for iframe tags (commonly used for XSS)
-    if re.search(r"<iframe[^>]*>", content, re.IGNORECASE):
-        raise ValidationError(f"{field_name} contains disallowed <iframe> tags")
-
-    # Check for object and embed tags
-    if re.search(r"<(object|embed)[^>]*>", content, re.IGNORECASE):
-        raise ValidationError(f"{field_name} contains disallowed <object> or <embed> tags")
+    for pattern, message in _XSS_PATTERNS:
+        if pattern.search(content):
+            raise ValidationError(f"{field_name} {message}")
 
 
 class WebExperimentsAPISerializer(serializers.ModelSerializer):

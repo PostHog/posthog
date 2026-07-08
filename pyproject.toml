@@ -63,11 +63,12 @@ dependencies = [
     "google-cloud-bigquery-storage==2.32.0",
     "google-cloud-iam==2.21",
     "google-genai==1.46.0",
+    "granian[uvloop,reload,pname]==2.7.6",
     "grimp~=3.14",
     "grpcio~=1.71.0",
     "gspread==6.2.1",
-    "hogql-parser==1.3.75",
-    "hogql-parser-rs==1.3.105",  # built from rust/hogql/parser via the build-hogql-parser-rs workflow + published to PyPI; rebuild locally with `uv pip install -e rust/hogql/parser` when iterating
+    "hogql-parser==1.3.77",
+    "hogql-parser-rs==1.3.106",  # built from rust/hogql/parser via the build-hogql-parser-rs workflow + published to PyPI; rebuild locally with `uv pip install -e rust/hogql/parser` when iterating
     "humanize~=4.12.3",
     "infi-clickhouse-orm",
     "jsonref==1.1.0",
@@ -210,7 +211,6 @@ dev = [
     "braintrust==0.2.4",
     "braintrust-langchain==0.0.4",
     "dagster-dg-cli~=1.10.18",
-    "granian[uvloop,reload,pname]==2.7.6",
     "datamodel-code-generator~=0.36.0",
     "debugpy~=1.8.0",
     "import-linter~=2.11",
@@ -290,7 +290,7 @@ hogql-parser-parity = [
 required-version = ">=0.10.2"
 add-bounds = "major"
 exclude-newer = "7 days"
-exclude-newer-package = { hogql-parser = false, hogql-parser-rs = false, posthoganalytics = false, pixelhog = false, django = false, modal = false }
+exclude-newer-package = { hogql-parser = false, hogql-parser-rs = false, posthoganalytics = false, pixelhog = false, django = false, modal = false, posthog-hogland = false }
 
 [tool.uv.workspace]
 members = ["tools/hogli"]
@@ -516,6 +516,7 @@ ignore_imports = [
     "products.agent_platform.backend.presentation.views -> products.agent_platform.backend.logic.janitor_client",
     "products.agent_platform.backend.presentation.views -> products.agent_platform.backend.logic.kernel_skills",
     "products.agent_platform.backend.presentation.views -> products.agent_platform.backend.logic.posthog_identity_app",
+    "products.agent_platform.backend.presentation.views -> products.agent_platform.backend.logic.skill_editing",
     "products.agent_platform.backend.presentation.views -> products.agent_platform.backend.logic.skill_resolution",
     "products.agent_platform.backend.presentation.views -> products.agent_platform.backend.logic.spec_schema",
     "products.agent_platform.backend.presentation.views -> products.agent_platform.backend.models",
@@ -541,8 +542,10 @@ ignore_imports = [
     # logs presentation isolation (temporary): the moved viewsets still reach in-product
     # internals directly. Removed by the follow-up that thins each viewset to go through
     # the facade.
+    "products.logs.backend.presentation.views.api -> products.logs.backend.column_expressions",
     "products.logs.backend.presentation.views.api -> products.logs.backend.count_query_runner",
     "products.logs.backend.presentation.views.api -> products.logs.backend.count_ranges_query_runner",
+    "products.logs.backend.presentation.views.api -> products.logs.backend.group_by_query_runner",
     "products.logs.backend.presentation.views.api -> products.logs.backend.has_logs_query_runner",
     "products.logs.backend.presentation.views.api -> products.logs.backend.log_attributes_query_runner",
     "products.logs.backend.presentation.views.api -> products.logs.backend.log_facet_values_query_runner",
@@ -568,6 +571,7 @@ ignore_imports = [
     # directly. Thin it to parse -> facade -> serialize and delete each entry.
     # backend:contract-check stays off until this list is empty.
     "products.notebooks.backend.presentation.views.notebook -> products.notebooks.backend.activity_logging",
+    "products.notebooks.backend.presentation.views.notebook -> products.notebooks.backend.analytics",
     "products.notebooks.backend.presentation.views.notebook -> products.notebooks.backend.collab",
     "products.notebooks.backend.presentation.views.notebook -> products.notebooks.backend.collab_stream",
     "products.notebooks.backend.presentation.views.notebook -> products.notebooks.backend.kernel_runtime",
@@ -576,6 +580,11 @@ ignore_imports = [
     "products.notebooks.backend.presentation.views.notebook -> products.notebooks.backend.presence",
     "products.notebooks.backend.presentation.views.notebook -> products.notebooks.backend.python_analysis",
     "products.notebooks.backend.presentation.views.notebook -> products.notebooks.backend.query_validation",
+    "products.notebooks.backend.presentation.views.notebook -> products.notebooks.backend.sql_v2",
+    "products.notebooks.backend.presentation.views.notebook -> products.notebooks.backend.sql_v2_references",
+    "products.notebooks.backend.presentation.views.notebook -> products.notebooks.backend.sql_v2_serializers",
+    "products.notebooks.backend.presentation.views.notebook -> products.notebooks.backend.temporal.client",
+    "products.notebooks.backend.presentation.views.notebook -> products.notebooks.backend.temporal.sql_v2",
     # TODO: data_warehouse presentation wave — the structural move landed the viewsets under
     # presentation/views/ but they still reach in-product internals and sibling products
     # (warehouse_sources, data_modeling, data_tools, cdp, revenue_analytics, batch_exports)

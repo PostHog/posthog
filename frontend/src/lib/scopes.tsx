@@ -94,6 +94,12 @@ export const API_SCOPES: APIScope[] = [
     { key: 'heatmap', objectName: 'Heatmap', objectPlural: 'heatmaps' },
     { key: 'hog_flow', objectName: 'Workflow', objectPlural: 'workflows' },
     { key: 'hog_function', objectName: 'Hog function', objectPlural: 'hog functions' },
+    {
+        key: 'ingestion_warning',
+        objectName: 'Ingestion warning',
+        objectPlural: 'ingestion warnings',
+        disabledActions: ['write'],
+    },
     { key: 'insight', objectName: 'Insight', objectPlural: 'insights' },
     { key: 'insight_variable', objectName: 'Insight variable', objectPlural: 'insight variables' },
     { key: 'integration', objectName: 'Integration', objectPlural: 'integrations', disabledActions: ['write'] },

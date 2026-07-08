@@ -2,9 +2,11 @@ import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
 import { useMemo } from 'react'
 
-import { HedgehogGreek } from '@posthog/brand/hoggies'
-import { LemonCollapse, LemonSelect, ProfilePicture, Spinner } from '@posthog/lemon-ui'
+import * as greekPng from '@posthog/brand/hoggies/png/greek'
+import { IconLetter } from '@posthog/icons'
+import { LemonButton, LemonCollapse, LemonSelect, ProfilePicture, Spinner } from '@posthog/lemon-ui'
 
+import { pngHoggie } from 'lib/brand/hoggies'
 import { getColorVar } from 'lib/colors'
 import { AppMetricsFilters } from 'lib/components/AppMetrics/AppMetricsFilters'
 import { appMetricsLogic } from 'lib/components/AppMetrics/appMetricsLogic'
@@ -21,6 +23,8 @@ import { HogFlowBatchJob } from './hogflows/types'
 import { WorkflowLogicProps, workflowLogic } from './workflowLogic'
 import { WorkflowMetricsSummary } from './WorkflowMetricsSummary'
 import { type EmailMetric, buildEmailMetricLogSearchParams } from './workflowMetricsSummaryLogic'
+
+const HedgehogGreek = pngHoggie(greekPng)
 
 const OVERVIEW_OPTION_VALUE = '__workflow_overview__'
 
@@ -113,7 +117,7 @@ function WorkflowRunMetrics(props: WorkflowLogicProps): JSX.Element {
     return (
         <div className="flex flex-col gap-2" data-attr="workflow-metrics">
             <div className="flex flex-row gap-2 flex-wrap justify-between">
-                <div>
+                <div className="flex flex-row gap-2 items-center flex-wrap">
                     <LemonSelect
                         size="small"
                         options={workflowStepOptions.filter((option) => option.value !== 'trigger_node')}
@@ -125,6 +129,16 @@ function WorkflowRunMetrics(props: WorkflowLogicProps): JSX.Element {
                             })
                         }
                     />
+                    {selectedAction?.type === 'function_email' && props.id ? (
+                        <LemonButton
+                            type="secondary"
+                            size="small"
+                            icon={<IconLetter />}
+                            to={`${urls.workflow(props.id, 'assets')}?assetAction=${encodeURIComponent(params.instanceId as string)}`}
+                        >
+                            View sent emails
+                        </LemonButton>
+                    ) : null}
                 </div>
                 <AppMetricsFilters logicKey={logicKey} />
             </div>
@@ -241,7 +255,7 @@ function BatchJobMetrics({ job }: { job: HogFlowBatchJob }): JSX.Element {
     return (
         <div className="flex flex-col gap-2">
             <div className="flex flex-row gap-2 flex-wrap justify-between">
-                <div>
+                <div className="flex flex-row gap-2 items-center flex-wrap">
                     <LemonSelect
                         size="small"
                         options={workflowStepOptions.filter((option) => option.value !== 'trigger_node')}
@@ -253,6 +267,16 @@ function BatchJobMetrics({ job }: { job: HogFlowBatchJob }): JSX.Element {
                             })
                         }
                     />
+                    {selectedAction?.type === 'function_email' ? (
+                        <LemonButton
+                            type="secondary"
+                            size="small"
+                            icon={<IconLetter />}
+                            to={`${urls.workflow(workflow.id, 'assets')}?assetAction=${encodeURIComponent(params.instanceId as string)}`}
+                        >
+                            View sent emails
+                        </LemonButton>
+                    ) : null}
                 </div>
                 <AppMetricsFilters logicKey={logicKey} />
             </div>

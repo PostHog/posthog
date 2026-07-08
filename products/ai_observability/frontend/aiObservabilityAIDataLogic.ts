@@ -8,7 +8,7 @@ import { ProductKey } from '~/queries/schema/schema-general'
 import { hogql } from '~/queries/utils'
 
 import type { aiObservabilityAIDataLogicType } from './aiObservabilityAIDataLogicType'
-import { parseJSONPreview } from './utils'
+import { parsePartialJSON } from './utils'
 
 const AI_DATA_QUERY_TAGS = {
     productKey: ProductKey.AI_OBSERVABILITY,
@@ -75,10 +75,17 @@ function parseHeavyValue(value: unknown): unknown {
     if (!isUsableValue(value)) {
         return undefined
     }
-    try {
-        return parseJSONPreview(value)
-    } catch {
+    if (typeof value !== 'string') {
         return value
+    }
+    try {
+        return JSON.parse(value)
+    } catch {
+        try {
+            return parsePartialJSON(value)
+        } catch {
+            return value
+        }
     }
 }
 

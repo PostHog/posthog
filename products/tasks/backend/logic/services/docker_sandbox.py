@@ -20,6 +20,7 @@ if TYPE_CHECKING:
 
 from products.tasks.backend.constants import SANDBOX_AGENT_LAUNCH_UNSET_ENV_VARS
 from products.tasks.backend.exceptions import (
+    ProcessTaskError,
     SandboxCleanupError,
     SandboxExecutionError,
     SandboxNotFoundError,
@@ -340,6 +341,29 @@ class DockerSandbox(SandboxBase):
         return DockerSandbox._ensure_image_exists(config.template)
 
     @staticmethod
+    def _verify_image_available(image: str, config: SandboxConfig) -> None:
+        """Fail loudly if the resolved image isn't present locally.
+
+        Sandbox images (posthog-sandbox-base and friends) are built on the host, never
+        published to a registry. If one is missing, `docker run` falls through to an
+        implicit registry pull that can only fail with a cryptic exit-125. `docker image
+        inspect` resolves the same reference `docker run` would (including the implicit
+        :latest), so a non-zero result means the build-on-demand guard didn't produce a
+        usable image — surface that plainly instead of an unpullable pull attempt.
+        """
+        result = DockerSandbox._run(["docker", "image", "inspect", image])
+        if result.returncode == 0:
+            return
+        raise SandboxProvisionError(
+            f"Sandbox image '{image}' is not available locally and cannot be pulled — "
+            "sandbox images are built on the host, not published to a registry. The "
+            "on-demand build did not produce it; check the temporal-worker logs for a "
+            "failed `docker build` from products/tasks/backend/sandbox/images/.",
+            {"config_name": config.name, "image": image},
+            cause=RuntimeError(f"Docker image '{image}' not found locally"),
+        )
+
+    @staticmethod
     def _transform_url_for_docker(url: str) -> str:
         """Transform localhost URLs to be accessible from inside Docker container."""
         url = url.replace("localhost", "host.docker.internal").replace("127.0.0.1", "host.docker.internal")
@@ -351,6 +375,7 @@ class DockerSandbox(SandboxBase):
     def create(config: SandboxConfig) -> DockerSandbox:
         try:
             image = DockerSandbox._get_image(config)
+            DockerSandbox._verify_image_available(image, config)
             container_name = f"{config.name}-{uuid.uuid4().hex[:6]}"
 
             env_args = []
@@ -401,6 +426,9 @@ class DockerSandbox(SandboxBase):
                 "docker",
                 "run",
                 "-d",
+                # Sandbox images are built locally and never published, so an implicit
+                # registry pull can only fail cryptically — never attempt one.
+                "--pull=never",
                 "--name",
                 container_name,
                 "--add-host",
@@ -427,6 +455,10 @@ class DockerSandbox(SandboxBase):
 
             return sandbox
 
+        except ProcessTaskError:
+            # Already a clear, classified error (e.g. the missing-image guard) — don't
+            # re-wrap it as a generic provision failure.
+            raise
         except subprocess.CalledProcessError as e:
             logger.exception(f"Failed to create Docker sandbox: {e.stderr}")
             raise SandboxProvisionError(
@@ -714,6 +746,7 @@ class DockerSandbox(SandboxBase):
         run_id: str,
         mode: str,
         create_pr: bool,
+        auto_publish: bool = False,
         interaction_origin: str | None = None,
         branch: str | None = None,
         runtime_adapter: str | None = None,
@@ -742,6 +775,9 @@ class DockerSandbox(SandboxBase):
             event_ingest_keep_stream_open=event_ingest_keep_stream_open,
         )
         create_pr_flag = f" --createPr {shlex.quote('true' if create_pr else 'false')}"
+        # Only append when opted in: agent-server builds without the option reject unknown
+        # flags, so default runs (and resumes of old snapshots) must not see it.
+        auto_publish_flag = " --autoPublish true" if auto_publish else ""
         branch_flag = f" --baseBranch {shlex.quote(branch)}" if branch else ""
         repo_flag = f" --repositoryPath {shlex.quote(repo_path)}" if repo_path else ""
         domains_flag = f" --allowedDomains {shlex.quote(','.join(allowed_domains))}" if allowed_domains else ""
@@ -755,7 +791,7 @@ class DockerSandbox(SandboxBase):
             f"env {unset_flags}BASH_ENV={shlex.quote(BASH_ENV_SCRIPT)} "
             f"{env_prefix}./node_modules/.bin/agent-server --port {AGENT_SERVER_PORT}{repo_flag} "
             f"--taskId {shlex.quote(task_id)} --runId {shlex.quote(run_id)} --mode {shlex.quote(mode)}"
-            f"{create_pr_flag}{branch_flag}{mcp_servers_arg}{domains_flag}{repo_ready_flag}"
+            f"{create_pr_flag}{auto_publish_flag}{branch_flag}{mcp_servers_arg}{domains_flag}{repo_ready_flag}"
         )
 
         # agentsh injects HTTP_PROXY pointing at a per-session egress proxy port; undici
@@ -795,6 +831,7 @@ class DockerSandbox(SandboxBase):
         run_id: str,
         mode: str = "background",
         create_pr: bool = True,
+        auto_publish: bool = False,
         interaction_origin: str | None = None,
         branch: str | None = None,
         runtime_adapter: str | None = None,
@@ -839,12 +876,17 @@ class DockerSandbox(SandboxBase):
             mcp_json = json.dumps([c.to_dict() for c in mcp_configs])
             mcp_servers_arg = f" --mcpServers {shlex.quote(mcp_json)}"
 
+        if auto_publish and not self.agent_server_supports_auto_publish():
+            logger.warning(f"Installed agent-server in sandbox {self.id} predates --autoPublish; starting review-first")
+            auto_publish = False
+
         command = self._build_agent_server_command(
             repo_path,
             task_id,
             run_id,
             mode,
             create_pr,
+            auto_publish,
             interaction_origin,
             branch,
             runtime_adapter,
@@ -891,6 +933,7 @@ class DockerSandbox(SandboxBase):
                 run_id,
                 mode,
                 create_pr,
+                auto_publish,
                 interaction_origin,
                 branch=None,
                 runtime_adapter=runtime_adapter,
@@ -911,10 +954,12 @@ class DockerSandbox(SandboxBase):
         log_result = self.execute("cat /tmp/agent-server.log 2>/dev/null || echo 'No log file'", timeout_seconds=5)
         logger.warning(f"Agent-server health check failed for sandbox {self.id}. Log output:\n{log_result.stdout}")
 
+        # Transient timeout Temporal retries — skip error-tracking capture to avoid noisy issues.
         raise SandboxExecutionError(
             "Agent-server failed to start",
             {"sandbox_id": self.id, "log": log_result.stdout},
             cause=RuntimeError("Health check failed after retries"),
+            capture=False,
         )
 
     def wait_for_agent_server_ready(self, allowed_domains: list[str] | None = None) -> None:
@@ -923,10 +968,12 @@ class DockerSandbox(SandboxBase):
             return
         log_result = self.execute("cat /tmp/agent-server.log 2>/dev/null || echo 'No log file'", timeout_seconds=5)
         logger.warning(f"Agent-server health check failed for sandbox {self.id}. Log output:\n{log_result.stdout}")
+        # Transient timeout Temporal retries — skip error-tracking capture to avoid noisy issues.
         raise SandboxExecutionError(
             "Agent-server failed to start",
             {"sandbox_id": self.id, "log": log_result.stdout},
             cause=RuntimeError("Health check failed after retries"),
+            capture=False,
         )
 
     def mark_repo_ready(self, repo_ready_file: str) -> None:

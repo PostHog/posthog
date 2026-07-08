@@ -101,6 +101,64 @@ class TestGitHubPRWebhook(TestCase):
         self.assertEqual(call_kwargs["properties"]["run_id"], str(self.task_run.id))
         self.assertEqual(call_kwargs["properties"]["pr_source"], "task")
 
+        self.task_run.refresh_from_db()
+        assert self.task_run.output is not None
+        self.assertIs(self.task_run.output.get("pr_merged"), True)
+
+    @patch("products.tasks.backend.facade.webhooks.get_github_webhook_secret")
+    @patch("products.tasks.backend.models.posthoganalytics.capture")
+    def test_pr_merged_from_fork_does_not_record_pr_merged(self, mock_capture, mock_get_secret):
+        mock_get_secret.return_value = self.webhook_secret
+        run = TaskRun.objects.create(
+            task=self.task,
+            team=self.team,
+            status=TaskRun.Status.IN_PROGRESS,
+            branch="feature/fork-merge",
+            output={},
+        )
+        payload = {
+            "action": "closed",
+            "pull_request": {
+                "html_url": "https://github.com/attacker/posthog/pull/2",
+                "merged": True,
+                "head": {"ref": "feature/fork-merge", "repo": {"full_name": "attacker/posthog"}},
+            },
+            "repository": {"full_name": "posthog/posthog"},
+        }
+
+        response = self._make_webhook_request(payload)
+        self.assertEqual(response.status_code, 200)
+
+        run.refresh_from_db()
+        self.assertEqual(run.output, {})
+
+    @patch("products.tasks.backend.facade.webhooks.get_github_webhook_secret")
+    @patch("products.tasks.backend.models.posthoganalytics.capture")
+    def test_pr_merged_for_other_pr_on_same_branch_does_not_record_pr_merged(self, mock_capture, mock_get_secret):
+        mock_get_secret.return_value = self.webhook_secret
+        run = TaskRun.objects.create(
+            task=self.task,
+            team=self.team,
+            status=TaskRun.Status.COMPLETED,
+            branch="feature/shared-branch",
+            output={"pr_url": "https://github.com/posthog/posthog/pull/10"},
+        )
+        payload = {
+            "action": "closed",
+            "pull_request": {
+                "html_url": "https://github.com/posthog/posthog/pull/11",
+                "merged": True,
+                "head": {"ref": "feature/shared-branch", "repo": {"full_name": "posthog/posthog"}},
+            },
+            "repository": {"full_name": "posthog/posthog"},
+        }
+
+        response = self._make_webhook_request(payload)
+        self.assertEqual(response.status_code, 200)
+
+        run.refresh_from_db()
+        self.assertEqual(run.output, {"pr_url": "https://github.com/posthog/posthog/pull/10"})
+
     @patch("products.tasks.backend.facade.webhooks.get_github_webhook_secret")
     @patch("products.tasks.backend.models.posthoganalytics.capture")
     def test_pr_closed_without_merge_webhook(self, mock_capture, mock_get_secret):

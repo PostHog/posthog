@@ -1,4 +1,3 @@
-/** ML-mirror-specific config knobs, layered on top of the shared session-recording config. */
 export type MlMirrorConfig = {
     /** S3 key prefix under the bucket for the block-metadata Parquet dataset (used by the sink). */
     SESSION_RECORDING_ML_METADATA_PREFIX: string
@@ -21,6 +20,24 @@ export type MlMirrorConfig = {
     SESSION_RECORDING_ML_PARQUET_FLUSH_INTERVAL_MS: number
     /** Row cap that forces a flush before the interval elapses (bounds the sink's memory). */
     SESSION_RECORDING_ML_PARQUET_MAX_ROWS: number
+
+    SESSION_RECORDING_ML_IMAGE_SCRUB_GROUP_ID: string
+    SESSION_RECORDING_ML_IMAGE_SCRUB_PREFIX: string
+    SESSION_RECORDING_ML_IMAGE_SCRUB_SIDECAR_URL: string
+    SESSION_RECORDING_ML_IMAGE_SCRUB_FLUSH_INTERVAL_MS: number
+    SESSION_RECORDING_ML_IMAGE_SCRUB_MAX_IMAGES: number
+    // Real peak memory is ~2x this: the flush does a Buffer.concat copy.
+    SESSION_RECORDING_ML_IMAGE_SCRUB_MAX_BYTES: number
+    SESSION_RECORDING_ML_IMAGE_SCRUB_SCRUB_CONCURRENCY: number
+    SESSION_RECORDING_ML_IMAGE_SCRUB_SCRUB_TIMEOUT_MS: number
+    SESSION_RECORDING_ML_IMAGE_SCRUB_SCRUB_RETRIES: number
+    // Per-write timeout (the S3 client has no built-in one). A flush does two writes, so it bounds at 2x this.
+    SESSION_RECORDING_ML_IMAGE_SCRUB_S3_WRITE_TIMEOUT_MS: number
+    // Scrub-phase budget. Sized so scrub + 2x the S3 write timeout stays under Kafka's max.poll.interval.ms
+    // (300s), or a hung sidecar/S3 evicts us mid-batch and livelocks.
+    SESSION_RECORDING_ML_IMAGE_SCRUB_MAX_BATCH_SCRUB_MS: number
+    /** Route anonymization through the native Rust addon (`@posthog/replay-anonymizer`, the default); off → the TS scrubbers. */
+    SESSION_RECORDING_ML_RUST_ANONYMIZER: boolean
 }
 
 export function getDefaultMlMirrorConfig(): MlMirrorConfig {
@@ -34,5 +51,18 @@ export function getDefaultMlMirrorConfig(): MlMirrorConfig {
         SESSION_RECORDING_ML_PARQUET_SINK_GROUP_ID: 'session-replay-ml-parquet-sink',
         SESSION_RECORDING_ML_PARQUET_FLUSH_INTERVAL_MS: 60 * 1000,
         SESSION_RECORDING_ML_PARQUET_MAX_ROWS: 250_000,
+        SESSION_RECORDING_ML_IMAGE_SCRUB_GROUP_ID: 'session-replay-ml-image-scrub',
+        SESSION_RECORDING_ML_IMAGE_SCRUB_PREFIX: 'scrubbed-images',
+        // 127.0.0.1, not localhost: the sidecar binds IPv4 loopback, and localhost can resolve to ::1 first.
+        SESSION_RECORDING_ML_IMAGE_SCRUB_SIDECAR_URL: 'http://127.0.0.1:9010',
+        SESSION_RECORDING_ML_IMAGE_SCRUB_FLUSH_INTERVAL_MS: 30 * 1000,
+        SESSION_RECORDING_ML_IMAGE_SCRUB_MAX_IMAGES: 1000,
+        SESSION_RECORDING_ML_IMAGE_SCRUB_MAX_BYTES: 128 * 1024 * 1024,
+        SESSION_RECORDING_ML_IMAGE_SCRUB_SCRUB_CONCURRENCY: 8,
+        SESSION_RECORDING_ML_IMAGE_SCRUB_SCRUB_TIMEOUT_MS: 10 * 1000,
+        SESSION_RECORDING_ML_IMAGE_SCRUB_SCRUB_RETRIES: 3,
+        SESSION_RECORDING_ML_IMAGE_SCRUB_S3_WRITE_TIMEOUT_MS: 30 * 1000,
+        SESSION_RECORDING_ML_IMAGE_SCRUB_MAX_BATCH_SCRUB_MS: 120 * 1000,
+        SESSION_RECORDING_ML_RUST_ANONYMIZER: true,
     }
 }

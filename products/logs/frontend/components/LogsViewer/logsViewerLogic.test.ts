@@ -639,6 +639,42 @@ describe('logsViewerLogic', () => {
         })
     })
 
+    describe('typed columns', () => {
+        beforeEach(async () => {
+            ;({ logic } = mountWithLogs())
+            logic.actions.setColumns([
+                { id: 'timestamp', type: 'timestamp' },
+                { id: 'c1', type: 'custom', expression: 'attributes.http.url' },
+                { id: 'message', type: 'message' },
+            ])
+            await expectLogic(logic).toFinishAllListeners()
+        })
+
+        const columnIds = (): string[] => logic.values.columns.map((c) => c.id)
+
+        it.each<['left' | 'right', string, string[]]>([
+            ['left', 'c1', ['c1', 'timestamp', 'message']],
+            ['right', 'c1', ['timestamp', 'message', 'c1']],
+            ['left', 'timestamp', ['timestamp', 'c1', 'message']], // first, no-op
+            ['right', 'message', ['timestamp', 'c1', 'message']], // last, no-op
+            ['left', 'missing', ['timestamp', 'c1', 'message']], // unknown id, no-op
+        ])('moveColumn %s on %s yields %j without losing columns', (direction, id, expected) => {
+            logic.actions.moveColumn(id, direction)
+            expect(columnIds()).toEqual(expected)
+        })
+
+        it('exposes only custom expressions on the customColumns selector', () => {
+            expect(logic.values.customColumns).toEqual(['attributes.http.url'])
+            logic.actions.removeColumn('c1')
+            expect(logic.values.customColumns).toBeUndefined()
+        })
+
+        it('sets width only on the matching column', () => {
+            logic.actions.setColumnWidth('c1', 240)
+            expect(logic.values.columns.map((c) => c.width)).toEqual([undefined, 240, undefined])
+        })
+    })
+
     describe('expansion', () => {
         beforeEach(() => {
             ;({ logic } = mountWithLogs())

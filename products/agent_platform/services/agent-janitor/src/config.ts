@@ -160,6 +160,72 @@ export const AgentJanitorConfigSchema = PlatformConfigSchema.extend({
         .string()
         .optional()
         .describe('Optional phs_ bearer for the model-catalog read; /models is otherwise unauthenticated.'),
+    // Sandbox config — mirrors the runner's so both services pick up the
+    // same SANDBOX_* env vars and end up running the same image. The janitor
+    // uses this to back the single-shot dry-run endpoint
+    // (`POST /revisions/:id/tools/:id/dry_run`). May split out into a
+    // dedicated `agent-exec` service if execution duties grow.
+    sandboxBackend: z
+        .enum(['docker', 'modal'])
+        .optional()
+        .transform((v): 'docker' | 'modal' | undefined => v ?? (isDev() ? 'docker' : undefined))
+        .describe(
+            'Sandbox pool impl for the dry-run endpoint. Mirrors the runner config (same SANDBOX_BACKEND env var).'
+        ),
+    sandboxHostImage: z
+        .string()
+        .optional()
+        .transform((v): string | undefined => v ?? (isDev() ? 'posthog/agent-sandbox-host:dev' : undefined))
+        .describe(
+            'Canonical agent-sandbox-host image. Defaults to the locally-built `posthog/agent-sandbox-host:dev` under isDev(); prod must set this. Mirrors the runner.'
+        ),
+    sandboxDockerImage: z
+        .string()
+        .optional()
+        .describe('Backend-specific Docker image override. Takes precedence over `sandboxHostImage`.'),
+    sandboxModalImage: z
+        .string()
+        .optional()
+        .describe('Backend-specific Modal image override. Takes precedence over `sandboxHostImage`.'),
+    modalAppName: z.string().optional().describe('Optional Modal app name. When unset the Modal SDK uses its default.'),
+    modalRegion: z
+        .string()
+        .optional()
+        .describe('Modal region pin (e.g. `us-east`, `eu-west`). Mirrors the runner config.'),
+    sandboxOutboundCidrAllowlist: z
+        .string()
+        .optional()
+        .transform((v): string[] =>
+            v
+                ? v
+                      .split(',')
+                      .map((s) => s.trim())
+                      .filter(Boolean)
+                : []
+        )
+        .describe(
+            'Comma-separated CIDRs the Modal dry-run sandbox may reach outbound. Empty (default) → no outbound network. Mirrors the runner.'
+        ),
+    dryRunWallMs: z.coerce
+        .number()
+        .int()
+        .positive()
+        .default(10_000)
+        .describe('Wall-clock cap for a single dry-run invocation.'),
+    dryRunMemoryMb: z.coerce
+        .number()
+        .int()
+        .positive()
+        .default(256)
+        .describe('Memory cap for a single dry-run sandbox.'),
+    dryRunMaxConcurrent: z.coerce
+        .number()
+        .int()
+        .positive()
+        .default(2)
+        .describe(
+            'Max dry-run sandboxes in flight at once, janitor-wide. Requests past the cap get a 429 — dry-run is an interactive authoring surface, not a batch one, so callers retry rather than queue.'
+        ),
 })
 
 export type AgentJanitorConfig = z.infer<typeof AgentJanitorConfigSchema>
@@ -190,6 +256,16 @@ const ENV_KEY_MAP = extendEnvKeyMap<AgentJanitorConfig>(PLATFORM_ENV_KEY_MAP, {
     AGENT_BUNDLE_S3_FORCE_PATH_STYLE: 'bundleS3ForcePathStyle',
     POSTHOG_AI_GATEWAY_URL: 'aiGatewayUrl',
     POSTHOG_AI_GATEWAY_KEY: 'posthogAiGatewayKey',
+    SANDBOX_BACKEND: 'sandboxBackend',
+    SANDBOX_HOST_IMAGE: 'sandboxHostImage',
+    SANDBOX_DOCKER_IMAGE: 'sandboxDockerImage',
+    SANDBOX_MODAL_IMAGE: 'sandboxModalImage',
+    MODAL_APP_NAME: 'modalAppName',
+    MODAL_REGION: 'modalRegion',
+    SANDBOX_OUTBOUND_CIDR_ALLOWLIST: 'sandboxOutboundCidrAllowlist',
+    AGENT_DRY_RUN_WALL_MS: 'dryRunWallMs',
+    AGENT_DRY_RUN_MEMORY_MB: 'dryRunMemoryMb',
+    AGENT_DRY_RUN_MAX_CONCURRENT: 'dryRunMaxConcurrent',
 })
 
 export function loadAgentJanitorConfig(env: NodeJS.ProcessEnv = process.env): AgentJanitorConfig {

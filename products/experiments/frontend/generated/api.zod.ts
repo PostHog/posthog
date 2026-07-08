@@ -960,6 +960,8 @@ export const ExperimentsDuplicateCreateBody = /* @__PURE__ */ zod
  */
 export const experimentsEndCreateBodyConclusionCommentMax = 4000
 
+export const experimentsEndCreateBodyOpenCleanupPrDefault = false
+
 export const ExperimentsEndCreateBody = /* @__PURE__ */ zod.object({
     conclusion: zod
         .union([
@@ -979,6 +981,12 @@ export const ExperimentsEndCreateBody = /* @__PURE__ */ zod.object({
         .max(experimentsEndCreateBodyConclusionCommentMax)
         .nullish()
         .describe('Optional comment about the experiment conclusion.'),
+    open_cleanup_pr: zod
+        .boolean()
+        .default(experimentsEndCreateBodyOpenCleanupPrDefault)
+        .describe(
+            "When true, open a draft pull request that removes the experiment's feature-flag code from the linked repository. Requires the requesting user to have access to PostHog Code (403 otherwise). Only acts for allowlisted teams; ignored otherwise."
+        ),
 })
 
 /**
@@ -1050,6 +1058,7 @@ export const ExperimentsRecalculateTimeseriesCreateBody = /* @__PURE__ */ zod
  */
 export const experimentsShipVariantCreateBodyConclusionCommentMax = 4000
 
+export const experimentsShipVariantCreateBodyOpenCleanupPrDefault = false
 export const experimentsShipVariantCreateBodyReleaseToEveryoneDefault = false
 
 export const ExperimentsShipVariantCreateBody = /* @__PURE__ */ zod.object({
@@ -1071,6 +1080,12 @@ export const ExperimentsShipVariantCreateBody = /* @__PURE__ */ zod.object({
         .max(experimentsShipVariantCreateBodyConclusionCommentMax)
         .nullish()
         .describe('Optional comment about the experiment conclusion.'),
+    open_cleanup_pr: zod
+        .boolean()
+        .default(experimentsShipVariantCreateBodyOpenCleanupPrDefault)
+        .describe(
+            "When true, open a draft pull request that removes the experiment's feature-flag code from the linked repository. Requires the requesting user to have access to PostHog Code (403 otherwise). Only acts for allowlisted teams; ignored otherwise."
+        ),
     variant_key: zod.string().describe('The key of the variant to ship.'),
     release_to_everyone: zod
         .boolean()

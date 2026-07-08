@@ -26,7 +26,7 @@ export function CIStatusTag({ rollup }: { rollup: CIRollup }): JSX.Element {
             <LemonTag type={config.type}>{config.label}</LemonTag>
             {rollup.runs > 0 && (
                 <Tooltip
-                    title={`${rollup.passing} passed, ${rollup.failing} failed, ${rollup.pending} still running — workflow-level rollup over the PR's head commit, not per-check.`}
+                    title={`${rollup.passing} passed, ${rollup.failing} failed, ${rollup.pending} still running. Workflow-level status for the PR's latest commit, not per-check.`}
                 >
                     <span className="flex items-center gap-1.5">
                         {rollup.passing > 0 && (

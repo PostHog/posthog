@@ -8,7 +8,7 @@ import {
     SessionRecordingSnapshotSource,
     SessionRecordingSnapshotSourceResponse,
 } from '../types'
-import { isEmptyObject, isObject } from '../utils'
+import { isObject } from '../utils'
 import { CHROME_EXTENSION_DENY_LIST, stripChromeExtensionDataFromNode } from './chrome-extension-stripping'
 import { chunkMutationSnapshot } from './chunk-large-mutations'
 import { decompressEvent } from './decompress'
@@ -117,7 +117,8 @@ export async function processAllSnapshots(
     sessionRecordingId: string,
     telemetry: ReplayTelemetry = noOpTelemetry
 ): Promise<RecordingSnapshot[]> {
-    if (!sources || !snapshotsBySource || isEmptyObject(snapshotsBySource)) {
+    // No isEmptyObject early-return: a pass with no new input must still rebuild the full result from processingCache, or previously processed sources get wiped downstream.
+    if (!sources || !snapshotsBySource) {
         return []
     }
 

@@ -233,6 +233,9 @@ async def create_export_assets(inputs: CreateExportAssetsInputs) -> CreateExport
             insight=insight,
             dashboard=dashboard,
             expires_after=expiry,
+            # The exporter runs the insight query as the asset's creator; without it the render is
+            # userless and warehouse access control fails closed, breaking subscription deliveries.
+            created_by=subscription.created_by,
         )
         for _tile, insight in export_pairs
     ]
