@@ -36,6 +36,7 @@ from products.exports.backend.temporal.subscriptions.ai_subscription.spec_genera
     DEFAULT_PLANNER_MODEL,
     DEFAULT_SYNTHESIS_MODEL,
     PromptRejectedError,
+    ReportWindow,
     build_enriched_prompt,
 )
 
@@ -143,6 +144,8 @@ class QueryStepDiagnostic:
 class AiReportResult:
     markdown: str
     diagnostics: tuple[QueryStepDiagnostic, ...]
+    # The window's end as a UTC ISO instant — persisted so the next run can anchor exactly here.
+    window_end_utc: str
 
 
 async def generate_ai_report(
@@ -150,7 +153,7 @@ async def generate_ai_report(
     team: Team,
     user: Optional[User],
     prompt: Optional[str],
-    window_days: int,
+    window: ReportWindow,
     trace_correlation_id: Optional[Union[int, str]] = None,
 ) -> AiReportResult:
     if user is None:
@@ -164,12 +167,10 @@ async def generate_ai_report(
             team_id=team.id,
             resource_id=str(trace_correlation_id) if trace_correlation_id is not None else None,
         ),
-        properties={"window_days": window_days},
+        properties={"window_start": window.start_literal, "window_end": window.end_literal},
     ) as slo:
         try:
-            spec = await _plan(
-                team=team, user=user, prompt=prompt, window_days=window_days, trace_id=trace_correlation_id
-            )
+            spec = await _plan(team=team, user=user, prompt=prompt, window=window, trace_id=trace_correlation_id)
             rendered_results, failed_count, diagnostics = await _execute_plan(spec, team, user, trace_correlation_id)
             report = await _synthesize(spec, rendered_results, team, user, trace_correlation_id)
         except PromptRejectedError:
@@ -199,18 +200,22 @@ async def generate_ai_report(
             # deterministic notice (not left to the synthesis LLM) so the recipient gets a clear signal
             # instead of a confident-looking but empty report.
             report = _all_queries_failed_notice(total_steps) + report
-        return AiReportResult(markdown=report, diagnostics=tuple(diagnostics))
+        return AiReportResult(
+            markdown=report,
+            diagnostics=tuple(diagnostics),
+            window_end_utc=window.end.astimezone(UTC).isoformat(),
+        )
 
 
 async def _plan(
-    *, team: Team, user: User, prompt: Optional[str], window_days: int, trace_id: Optional[Union[int, str]]
+    *, team: Team, user: User, prompt: Optional[str], window: ReportWindow, trace_id: Optional[Union[int, str]]
 ) -> EnrichedPromptSpec:
     try:
         return await database_sync_to_async(build_enriched_prompt, thread_sensitive=False)(
             team=team,
             user=user,
             prompt=prompt,
-            window_days=window_days,
+            window=window,
             trace_correlation_id=trace_id,
         )
     except PromptRejectedError:

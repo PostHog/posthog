@@ -95,6 +95,11 @@ class TaskProcessingContext:
         return (self.state or {}).get("interaction_origin")
 
     @property
+    def auto_publish(self) -> bool:
+        """User-opted auto-publish: the agent pushes and opens a draft PR on completion."""
+        return (self.state or {}).get("auto_publish") is True
+
+    @property
     def has_github_credentials(self) -> bool:
         return self.github_integration_id is not None or self.github_user_integration_id is not None
 

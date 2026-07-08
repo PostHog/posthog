@@ -121,6 +121,30 @@ def _noop_convert(x: typing.Any) -> typing.Any:
     return x
 
 
+# Fernet tokens always start with this marker (version byte 0x80 + timestamp, base64-encoded).
+# A stored config value that still carries it never got decrypted upstream.
+_ENCRYPTED_SECRET_PREFIX = "gAAAAA"
+
+
+class UndecryptedConfigError(ValueError):
+    """Raised when a config value reaches conversion still Fernet-encrypted.
+
+    Upstream decryption of the stored job inputs failed (e.g. the key that wrote them is no
+    longer in the keychain), so the raw token would otherwise crash the field converter with an
+    opaque, secret-leaking error such as ``invalid literal for int() with base 10: 'gAAAAA...'``.
+    """
+
+
+def _convert_value(
+    convert: typing.Callable[[typing.Any], typing.Any], value: typing.Any, field_name: str
+) -> typing.Any:
+    if isinstance(value, str) and value.startswith(_ENCRYPTED_SECRET_PREFIX):
+        raise UndecryptedConfigError(
+            f"Config field '{field_name}' is still encrypted; the stored credentials could not be decrypted"
+        )
+    return convert(value)
+
+
 @dataclasses.dataclass
 class MetaConfig:
     """Class used to store metadata used for config."""
@@ -258,7 +282,7 @@ def to_config(
                     except KeyError:
                         continue
                     else:
-                        inputs[field.name] = convert(value)
+                        inputs[field.name] = _convert_value(convert, value, field.name)
                         break
 
                 field_type_meta: MetaConfig | None = _try_get_meta(config_type)
@@ -302,7 +326,7 @@ def to_config(
             except KeyError:
                 continue
             else:
-                inputs[field.name] = convert(value)
+                inputs[field.name] = _convert_value(convert, value, field.name)
 
     return config_cls(**inputs)
 
