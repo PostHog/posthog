@@ -1521,7 +1521,7 @@ class HeapSourceConfig(config.Config):
 
 @config.config
 class HeightSourceConfig(config.Config):
-    pass
+    api_key: str
 
 
 @config.config

@@ -181,6 +181,7 @@ the row lists both.
 | gridly                  | HTTP                        | requests                                                        | ✅                          |
 | guardian                | HTTP                        | requests                                                        | ✅                          |
 | guru                    | HTTP                        | requests                                                        | ✅                          |
+| height                  | HTTP                        | requests                                                        | ✅                          |
 | hellobaton              | HTTP                        | requests                                                        | ✅                          |
 | hibob                   | HTTP                        | requests                                                        | ✅                          |
 | hubplanner              | HTTP                        | requests                                                        | ✅                          |
@@ -479,7 +480,6 @@ doesn't conflict with concurrent PRs.
 - gusto
 - harness
 - heap
-- height
 - helpscout
 - hibob
 - high_level
