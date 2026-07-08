@@ -1,22 +1,30 @@
 import { useActions, useMountedLogic, useValues } from 'kea'
 import { useMemo } from 'react'
 
-import { IconCornerDownRight } from '@posthog/icons'
+import { IconCornerDownRight, IconPlay } from '@posthog/icons'
 
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { CodeEditorResizeable } from 'lib/monaco/CodeEditorResizable'
+import { createPostHogWidgetNode } from 'scenes/notebooks/Nodes/NodeWrapper'
 
-import { NotebookNodeAttributeProperties, NotebookNodeProps } from '../types'
+import { NotebookNodeAttributeProperties, NotebookNodeProps, NotebookNodeType } from '../types'
 import { NotebookDataframeTable } from './components/NotebookDataframeTable'
 import { notebookNodeLogic } from './notebookNodeLogic'
-import type { NotebookNodePythonAttributes } from './NotebookNodePython'
-import { NotebookNodeSQLV2Result } from './NotebookNodeSQLV2'
+import type { NotebookNodeSQLV2Result } from './NotebookNodeSQLV2'
 import { SQL_V2_DEFAULT_PAGE_SIZE, collectSqlV2Refs, notebookNodeSQLV2Logic } from './notebookNodeSQLV2Logic'
 import { NotebookDataframeResult } from './pythonExecution'
 
-// The revamped (v2) Python cell: same ph-python node, but the code runs in the notebook's
-// sandbox kernel via the SQLV2 run path, with sibling SQLV2 frames materialized as pandas
-// frames. NotebookNodePython renders this when the revamped-py-notebooks flag is on.
+// The revamped Python cell: code runs in the notebook's sandbox kernel via the SQLV2 run
+// path, with sibling SQLV2 frames materialized as pandas frames. A separate node type from
+// the legacy ph-python cell (in-browser kernel) so the two flows never share run wiring.
+
+export type NotebookNodePythonV2Attributes = {
+    code: string
+    // The dataframe name this cell's result is exposed as to later cells.
+    returnVariable: string
+    runId?: string | null
+    result?: NotebookNodeSQLV2Result | null
+}
 
 const toDataframeResult = (result: NotebookNodeSQLV2Result): NotebookDataframeResult => {
     const columns = result.columns ?? []
@@ -28,10 +36,10 @@ const toDataframeResult = (result: NotebookNodeSQLV2Result): NotebookDataframeRe
     }
 }
 
-export const NotebookNodePythonKernelComponent = ({
+const Component = ({
     attributes,
     updateAttributes,
-}: NotebookNodeProps<NotebookNodePythonAttributes>): JSX.Element | null => {
+}: NotebookNodeProps<NotebookNodePythonV2Attributes>): JSX.Element | null => {
     const nodeLogic = useMountedLogic(notebookNodeLogic)
     const { nodeId, notebookLogic, expanded } = useValues(nodeLogic)
     const notebookShortId = notebookLogic.props.shortId
@@ -68,7 +76,7 @@ export const NotebookNodePythonKernelComponent = ({
     const hasStreamOutput = !!(result?.stdout || result?.stderr || result?.media?.length)
 
     return (
-        <div data-attr="notebook-node-python" className="flex h-full min-h-0 flex-col">
+        <div data-attr="notebook-node-python-v2" className="flex h-full min-h-0 flex-col">
             <div
                 className="flex min-h-0 flex-1 flex-col gap-2 overflow-y-auto"
                 onMouseDown={(event) => event.stopPropagation()}
@@ -146,10 +154,10 @@ export const NotebookNodePythonKernelComponent = ({
     )
 }
 
-export const NotebookNodePythonKernelSettings = ({
+const Settings = ({
     attributes,
     updateAttributes,
-}: NotebookNodeAttributeProperties<NotebookNodePythonAttributes>): JSX.Element => {
+}: NotebookNodeAttributeProperties<NotebookNodePythonV2Attributes>): JSX.Element => {
     const nodeLogic = useMountedLogic(notebookNodeLogic)
     const { nodeId, notebookLogic } = useValues(nodeLogic)
     const notebookShortId = notebookLogic.props.shortId
@@ -174,6 +182,19 @@ export const NotebookNodePythonKernelSettings = ({
 
     return (
         <div className="flex h-full min-h-0 flex-col">
+            <div className="flex shrink-0 justify-end border-b p-1" onClick={(event) => event.stopPropagation()}>
+                <LemonButton
+                    size="xsmall"
+                    type="primary"
+                    icon={<IconPlay />}
+                    onClick={run}
+                    loading={isRunning}
+                    disabledReason={operationBlockReason ?? undefined}
+                    tooltip="Run Python (⌘⏎)"
+                >
+                    Run
+                </LemonButton>
+            </div>
             <div className="min-h-0 flex-1">
                 <CodeEditorResizeable
                     language="python"
@@ -185,18 +206,33 @@ export const NotebookNodePythonKernelSettings = ({
                     embedded
                 />
             </div>
-            <div className="flex shrink-0 justify-end border-t p-1" onClick={(event) => event.stopPropagation()}>
-                <LemonButton
-                    size="xsmall"
-                    type="primary"
-                    onClick={run}
-                    loading={isRunning}
-                    disabledReason={operationBlockReason ?? undefined}
-                    tooltip="Run Python (⌘⏎)"
-                >
-                    Run
-                </LemonButton>
-            </div>
         </div>
     )
 }
+
+export const NotebookNodePythonV2 = createPostHogWidgetNode<NotebookNodePythonV2Attributes>({
+    nodeType: NotebookNodeType.PythonV2,
+    titlePlaceholder: 'Python',
+    Component,
+    heightEstimate: 120,
+    minHeight: 80,
+    resizeable: true,
+    startExpanded: true,
+    attributes: {
+        code: {
+            default: '',
+        },
+        returnVariable: {
+            default: 'df',
+        },
+        runId: {
+            default: null,
+        },
+        result: {
+            default: null,
+        },
+    },
+    Settings,
+    settingsPlacement: 'inline',
+    serializedText: (attrs) => attrs.code,
+})
