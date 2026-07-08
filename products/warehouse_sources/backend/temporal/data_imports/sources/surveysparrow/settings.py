@@ -4,7 +4,8 @@ from typing import Optional
 from products.warehouse_sources.backend.types import IncrementalField, IncrementalFieldType
 
 # SurveySparrow caps `limit` per endpoint: 100 on surveys/questions, 200 on responses, 50 on
-# contacts. Each endpoint config carries its own maximum to minimise round trips without 400s.
+# contacts and contact_lists. Each endpoint config carries its own maximum to minimise round
+# trips without 400s.
 DEFAULT_PAGE_SIZE = 100
 
 COMPLETED_TIME_INCREMENTAL: IncrementalField = {
@@ -72,12 +73,13 @@ SURVEYSPARROW_ENDPOINTS: dict[str, SurveySparrowEndpointConfig] = {
     "contacts": SurveySparrowEndpointConfig(
         name="contacts",
         path="/v3/contacts",
-        # /v3/contacts caps `limit` at 50 (unlike the other list endpoints).
+        # The contact endpoints cap `limit` at 50, unlike surveys/questions/responses.
         page_size=50,
     ),
     "contact_lists": SurveySparrowEndpointConfig(
         name="contact_lists",
         path="/v3/contact_lists",
+        # /v3/contact_lists caps `limit` at 50, same as /v3/contacts.
         page_size=50,
     ),
 }
