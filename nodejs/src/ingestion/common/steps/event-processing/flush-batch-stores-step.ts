@@ -157,8 +157,6 @@ function createProducePromises(personsStoreMessages: FlushResult[], outputs: Per
                                 distinctId: record.distinctId,
                                 step: 'flushBatchStoresStep',
                             },
-                            category: 'size',
-                            severity: 'error',
                             pipelineStep: 'flush',
                         })
                     } else {

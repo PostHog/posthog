@@ -59,6 +59,13 @@ run_hclexp() {
   docker run --rm --network host -v "$PWD:/work" -v "$tmp:$tmp" -w /work "$HCLEXP_IMAGE" "$@"
 }
 
+# Record the hclexp build that produced this dump (informational provenance; not
+# gated by check-live). Best-effort: an image predating `-version` must not fail
+# the dump, so keep it off the rc path.
+run_hclexp -version > "$OUTDIR/hclexp-version.txt" 2>&1 \
+  || echo "WARN: hclexp -version unavailable (older image?) — see $OUTDIR/hclexp-version.txt" >&2
+chmod 0644 "$OUTDIR/hclexp-version.txt" 2>/dev/null || true
+
 rc=0
 for spec in "${ROLES[@]}"; do
   read -r role dhost dport ddb <<<"$spec"

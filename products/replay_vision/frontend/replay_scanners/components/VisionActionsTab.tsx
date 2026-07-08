@@ -1,9 +1,10 @@
 import { BindLogic, useActions, useValues } from 'kea'
 
-import { HedgehogXRay } from '@posthog/brand/hoggies'
+import * as xRayPng from '@posthog/brand/hoggies/png/x-ray'
 import { IconPencil, IconPlus, IconTrash } from '@posthog/icons'
 import { LemonButton, LemonSwitch, LemonTable, Link } from '@posthog/lemon-ui'
 
+import { pngHoggie } from 'lib/brand/hoggies'
 import { AccessControlAction } from 'lib/components/AccessControlAction'
 import { ProductIntroduction } from 'lib/components/ProductIntroduction/ProductIntroduction'
 import { slackChannelDisplayName } from 'lib/integrations/slackChannel'
@@ -18,6 +19,8 @@ import type { VisionActionApi } from '../../generated/api.schemas'
 import { humanizeCadence, parseRruleToCadence } from '../cadence'
 import { visionActionsLogic } from '../visionActionsLogic'
 import { VisionActionForm } from './VisionActionForm'
+
+const HedgehogXRay = pngHoggie(xRayPng)
 
 function humanizeSchedule(action: VisionActionApi): string {
     const rrule = action.trigger_config?.rrule

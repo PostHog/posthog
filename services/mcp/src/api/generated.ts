@@ -12935,11 +12935,18 @@ export namespace Schemas {
       pending_user_artifact_ids?: string[];
       /** Optional sandbox environment to apply for this cloud run. */
       sandbox_environment_id?: string;
+      /** Optional custom base image for this cloud run's sandbox (Modal VM runtime only); takes precedence over the environment's image. */
+      custom_image_id?: string;
       /** Whether pull requests for this run should be authored by the user or the bot.
        *
        * * `user` - user
        * * `bot` - bot */
       pr_authorship_mode?: PrAuthorshipModeEnum;
+      /**
+         * When true, the cloud run agent pushes its work and opens a draft pull request on completion without waiting for an explicit ask.
+         * @nullable
+         */
+      auto_publish?: boolean | null;
       /** High-level source that triggered this run, used to distinguish manual and signal-based cloud runs.
        *
        * * `manual` - manual
@@ -13282,11 +13289,18 @@ export namespace Schemas {
       pending_user_artifact_ids?: string[];
       /** Optional sandbox environment to apply for this cloud run. */
       sandbox_environment_id?: string;
+      /** Optional custom base image for this cloud run's sandbox (Modal VM runtime only); takes precedence over the environment's image. */
+      custom_image_id?: string;
       /** Whether pull requests for this run should be authored by the user or the bot.
        *
        * * `user` - user
        * * `bot` - bot */
       pr_authorship_mode?: PrAuthorshipModeEnum;
+      /**
+         * When true, the cloud run agent pushes its work and opens a draft pull request on completion without waiting for an explicit ask.
+         * @nullable
+         */
+      auto_publish?: boolean | null;
       /** High-level source that triggered this run, used to distinguish manual and signal-based cloud runs.
        *
        * * `manual` - manual
@@ -16572,6 +16586,9 @@ export namespace Schemas {
      * * `Mercury` - Mercury
      * * `Gojiberry` - Gojiberry
      * * `Teachable` - Teachable
+     * * `PeecAI` - PeecAI
+     * * `Healthchecks` - Healthchecks
+     * * `Impact` - Impact
      */
     export type ExternalDataSourceTypeEnum = typeof ExternalDataSourceTypeEnum[keyof typeof ExternalDataSourceTypeEnum];
 
@@ -17236,6 +17253,9 @@ export namespace Schemas {
       Mercury: 'Mercury',
       Gojiberry: 'Gojiberry',
       Teachable: 'Teachable',
+      PeecAI: 'PeecAI',
+      Healthchecks: 'Healthchecks',
+      Impact: 'Impact',
     } as const;
 
     /**
@@ -17913,7 +17933,10 @@ export namespace Schemas {
        * * `Redis` - Redis
        * * `Mercury` - Mercury
        * * `Gojiberry` - Gojiberry
-       * * `Teachable` - Teachable */
+       * * `Teachable` - Teachable
+       * * `PeecAI` - PeecAI
+       * * `Healthchecks` - Healthchecks
+       * * `Impact` - Impact */
       source_type: ExternalDataSourceTypeEnum;
     }
 
@@ -21094,6 +21117,7 @@ export namespace Schemas {
     } as const;
 
     /**
+     * * `provider_key_required` - No provider API key configured
      * * `trial_limit_reached` - Trial evaluation limit reached
      * * `model_not_allowed` - Model not available on the trial plan
      * * `provider_key_deleted` - Provider API key was deleted
@@ -21109,6 +21133,7 @@ export namespace Schemas {
 
 
     export const StatusReasonEnum = {
+      ProviderKeyRequired: 'provider_key_required',
       TrialLimitReached: 'trial_limit_reached',
       ModelNotAllowed: 'model_not_allowed',
       ProviderKeyDeleted: 'provider_key_deleted',
@@ -21327,6 +21352,10 @@ export namespace Schemas {
       readonly trial_evals_used: number;
       /** Trial runs remaining — a getting-started affordance only; evals should use the team's own provider key. */
       readonly trial_evals_remaining: number;
+      /** True while this team keeps PostHog-funded trial inference during the deprecation window (i.e. it is mid-trial and the cutoff has not passed). False means the team must use its own provider key. */
+      readonly trial_grandfathered: boolean;
+      /** Timestamp after which trial evaluations are fully removed and every team must use its own provider key. */
+      readonly trial_deprecation_date: string;
       /** Provider key used to run llm_judge evals; null if none configured yet. */
       readonly active_provider_key: LLMProviderKey | null;
       /** Timestamp when the evaluation config row was created. */
@@ -22814,22 +22843,22 @@ export namespace Schemas {
          */
       running_metrics?: number | null;
       /**
-         * Rows read so far by the currently-running metric queries (monotonic; the live progress signal)
+         * Rows read by the run's metric queries so far, both finished and currently running. Cumulative and roughly monotonic across the run; the primary live progress signal
          * @nullable
          */
       rows_read?: number | null;
       /**
-         * ClickHouse's total_rows_approx across running queries. A soft ceiling ClickHouse revises upward mid-scan, so it can exceed or trail rows_read; treat rows_read as the reliable signal
+         * ClickHouse's total_rows_approx across running queries plus the final read_rows of finished ones. A soft ceiling revised mid-scan, so it can exceed or trail rows_read; treat rows_read as the reliable signal
          * @nullable
          */
       estimated_rows_total?: number | null;
       /**
-         * Bytes read so far by the currently-running metric queries
+         * Bytes read by the run's metric queries so far, both finished and currently running
          * @nullable
          */
       bytes_read?: number | null;
       /**
-         * Active CPU time (microseconds) consumed by the currently-running metric queries
+         * Active CPU time (microseconds) consumed by the run's metric queries so far, both finished and currently running
          * @nullable
          */
       active_cpu_time?: number | null;
@@ -23969,7 +23998,10 @@ export namespace Schemas {
        * * `Redis` - Redis
        * * `Mercury` - Mercury
        * * `Gojiberry` - Gojiberry
-       * * `Teachable` - Teachable */
+       * * `Teachable` - Teachable
+       * * `PeecAI` - PeecAI
+       * * `Healthchecks` - Healthchecks
+       * * `Impact` - Impact */
       source_type: ExternalDataSourceTypeEnum;
       /** Connection credentials and a 'schemas' array. Keys depend on source_type. */
       payload: ExternalDataSourceCreatePayload;
@@ -29006,7 +29038,7 @@ export namespace Schemas {
     export interface LLMModelInfo {
       /** Provider-specific model identifier (e.g. 'gpt-4o-mini', 'claude-3-5-sonnet-20241022'). */
       id: string;
-      /** True if the model can run without a provider key — for getting-started testing only; real evals should use the team's own key. */
+      /** True if the model can run without a provider key on PostHog-funded trial credits. Only true for teams still grandfathered into the deprecating trial; every other team must use its own key. */
       posthog_available: boolean;
     }
 
@@ -32086,6 +32118,7 @@ export namespace Schemas {
      * * `signals_scout` - Signals Scout
      * * `support_reply` - Support Reply
      * * `hogdesk` - HogDesk
+     * * `image_builder` - Image Builder
      */
     export type OriginProductEnum = typeof OriginProductEnum[keyof typeof OriginProductEnum];
 
@@ -32105,6 +32138,7 @@ export namespace Schemas {
       SignalsScout: 'signals_scout',
       SupportReply: 'support_reply',
       Hogdesk: 'hogdesk',
+      ImageBuilder: 'image_builder',
     } as const;
 
     /**
@@ -34169,6 +34203,45 @@ export namespace Schemas {
       results: Run[];
     }
 
+    export type SandboxCustomImageDTOSpec = { [key: string]: unknown };
+
+    export type SandboxCustomImageDTOScanResult = { [key: string]: unknown };
+
+    /**
+     * Detail response for a custom sandbox base image.
+     */
+    export interface SandboxCustomImageDTO {
+      id: string;
+      name: string;
+      description: string;
+      repository?: string;
+      private?: boolean;
+      status: string;
+      version: number;
+      modal_image_name: string;
+      spec?: SandboxCustomImageDTOSpec;
+      spec_yaml?: string;
+      scan_result?: SandboxCustomImageDTOScanResult;
+      build_log?: string;
+      error: string;
+      /** @nullable */
+      builder_task_id?: string | null;
+      created_by?: TaskUserBasicInfo | null;
+      /** @nullable */
+      created_at?: string | null;
+      /** @nullable */
+      updated_at?: string | null;
+    }
+
+    export interface PaginatedSandboxCustomImageDTOList {
+      count: number;
+      /** @nullable */
+      next?: string | null;
+      /** @nullable */
+      previous?: string | null;
+      results: SandboxCustomImageDTO[];
+    }
+
     /**
      * List response for sandbox environments (subset of fields).
      */
@@ -34185,6 +34258,12 @@ export namespace Schemas {
       created_at?: string | null;
       /** @nullable */
       updated_at?: string | null;
+      /** @nullable */
+      custom_image_id?: string | null;
+      /** @nullable */
+      custom_image_name?: string | null;
+      /** @nullable */
+      custom_image_status?: string | null;
     }
 
     export interface PaginatedSandboxEnvironmentDTOList {
@@ -35868,6 +35947,7 @@ export namespace Schemas {
       repository: string | null;
       created_at: string;
       updated_at: string;
+      origin_product?: string;
       latest_run?: TaskRunSummary | null;
     }
 
@@ -41823,6 +41903,11 @@ export namespace Schemas {
       environment_variables?: unknown;
       /** If true, only the creator can see this environment; otherwise the whole team can. */
       private?: boolean;
+      /**
+         * Custom base image for this environment's sandboxes (Modal VM runtime only); null uses the default base.
+         * @nullable
+         */
+      custom_image_id?: string | null;
     }
 
     export interface PatchedSavedHeatmapRequest {
@@ -43166,7 +43251,8 @@ export namespace Schemas {
        * * `signal_report` - Signal Report
        * * `signals_scout` - Signals Scout
        * * `support_reply` - Support Reply
-       * * `hogdesk` - HogDesk */
+       * * `hogdesk` - HogDesk
+       * * `image_builder` - Image Builder */
       origin_product?: OriginProductEnum;
       /**
          * Target GitHub repository in `organization/repo` format (e.g. `posthog/posthog-js`).
@@ -43235,6 +43321,11 @@ export namespace Schemas {
          * @items.maxLength 128
          */
       pending_user_artifact_ids?: string[];
+      /**
+         * When true, the cloud run agent pushes its work and opens a draft pull request on completion without waiting for an explicit ask. Write-only and not persisted on the task: persisted into the reused warm Run's state when creation activates one, so resumes of that Run honor it. Ignored when no warm Run is reused — cold creation takes it via the run start endpoint instead.
+         * @nullable
+         */
+      auto_publish?: boolean | null;
       /**
          * Channel this task is owned by (the channel it was kicked off in).
          * @nullable
@@ -49512,6 +49603,38 @@ export namespace Schemas {
     }
 
     /**
+     * Request body for scanning and building a custom sandbox base image.
+     */
+    export interface SandboxCustomImageBuild {
+      /**
+         * Image spec YAML to build. When omitted, the spec is read from the builder agent's live sandbox.
+         * @nullable
+         */
+      spec_yaml?: string | null;
+    }
+
+    /**
+     * Request body for creating a custom sandbox base image.
+     */
+    export interface SandboxCustomImageWrite {
+      /**
+         * Display name for the custom image.
+         * @maxLength 255
+         */
+      name: string;
+      /** What should go into the image; seeds the image-builder agent conversation. */
+      description?: string;
+      /**
+         * Optional 'org/repo' the builder session clones so it can verify the image brings up that repository's dependencies.
+         * @maxLength 255
+         * @nullable
+         */
+      repository?: string | null;
+      /** If true, only you can see and use this image; otherwise the whole team can. */
+      private?: boolean;
+    }
+
+    /**
      * Request body for creating or updating a sandbox environment.
      */
     export interface SandboxEnvironmentWrite {
@@ -49542,6 +49665,11 @@ export namespace Schemas {
       environment_variables?: unknown;
       /** If true, only the creator can see this environment; otherwise the whole team can. */
       private?: boolean;
+      /**
+         * Custom base image for this environment's sandboxes (Modal VM runtime only); null uses the default base.
+         * @nullable
+         */
+      custom_image_id?: string | null;
     }
 
     /**
@@ -51475,7 +51603,10 @@ export namespace Schemas {
        * * `Redis` - Redis
        * * `Mercury` - Mercury
        * * `Gojiberry` - Gojiberry
-       * * `Teachable` - Teachable */
+       * * `Teachable` - Teachable
+       * * `PeecAI` - PeecAI
+       * * `Healthchecks` - Healthchecks
+       * * `Impact` - Impact */
       source_type: ExternalDataSourceTypeEnum;
       /** Connection details as flat keys for the source_type — the same fields the create flow accepts (host, port, password, API key, …). Checked against a live connection before being stored. */
       payload: SourceCredentialCreatePayload;
@@ -52179,7 +52310,10 @@ export namespace Schemas {
        * * `Redis` - Redis
        * * `Mercury` - Mercury
        * * `Gojiberry` - Gojiberry
-       * * `Teachable` - Teachable */
+       * * `Teachable` - Teachable
+       * * `PeecAI` - PeecAI
+       * * `Healthchecks` - Healthchecks
+       * * `Impact` - Impact */
       source_type: ExternalDataSourceTypeEnum;
       /** Source config as flat keys. For source_type 'Custom': 'manifest_json' (a stringified RESTAPIConfig describing client.base_url, auth, and resources) plus the credential for the manifest's declared auth type — 'auth_token' (bearer), 'auth_api_key' (api_key), or 'auth_password' (http_basic). Secrets stay in these auth_* keys, never inline in the manifest. */
       payload?: SourcePreviewRequestPayload;
@@ -52875,7 +53009,10 @@ export namespace Schemas {
        * * `Redis` - Redis
        * * `Mercury` - Mercury
        * * `Gojiberry` - Gojiberry
-       * * `Teachable` - Teachable */
+       * * `Teachable` - Teachable
+       * * `PeecAI` - PeecAI
+       * * `Healthchecks` - Healthchecks
+       * * `Impact` - Impact */
       source_type: ExternalDataSourceTypeEnum;
       /** Connection details as flat keys for the source_type (discover required fields with the wizard tool). Prefer references over raw secrets: pass {'credential_id': <id>} referencing the connection details the user stored via the connect-link page (discover ids with the stored_credentials endpoint) — they are merged in server-side and deleted once consumed. An already-connected OAuth integration can be passed via its id key instead (e.g. {'hubspot_integration_id': 123}). For source_type 'Custom' (a user-defined REST API) the keys are 'manifest_json' (a stringified RESTAPIConfig describing client.base_url, auth, and resources) plus the credential for the auth type the manifest declares — 'auth_token' (bearer), 'auth_api_key' (api_key), or 'auth_password' (http_basic); keep secrets in these auth_* keys, never inline in the manifest. A 'schemas' array is NOT required — all discovered tables are enabled automatically with sensible sync defaults. */
       payload?: SourceSetupPayload;
@@ -54172,11 +54309,18 @@ export namespace Schemas {
       branch?: string | null;
       /** Optional sandbox environment to apply for this cloud run. */
       sandbox_environment_id?: string;
+      /** Optional custom base image for this cloud run's sandbox (Modal VM runtime only); takes precedence over the environment's image. */
+      custom_image_id?: string;
       /** Whether pull requests for this run should be authored by the user or the bot.
        *
        * * `user` - user
        * * `bot` - bot */
       pr_authorship_mode?: PrAuthorshipModeEnum;
+      /**
+         * When true, the cloud run agent pushes its work and opens a draft pull request on completion without waiting for an explicit ask.
+         * @nullable
+         */
+      auto_publish?: boolean | null;
       /** High-level source that triggered this run, used to distinguish manual and signal-based cloud runs.
        *
        * * `manual` - manual
@@ -54287,6 +54431,8 @@ export namespace Schemas {
       pending_user_message?: string;
       /** Optional sandbox environment to apply for this cloud run. */
       sandbox_environment_id?: string;
+      /** Optional custom base image for this cloud run's sandbox (Modal VM runtime only); takes precedence over the environment's image. */
+      custom_image_id?: string;
       /** Whether pull requests for this run should be authored by the user or the bot.
        *
        * * `user` - user
@@ -54525,7 +54671,8 @@ export namespace Schemas {
        * * `signal_report` - Signal Report
        * * `signals_scout` - Signals Scout
        * * `support_reply` - Support Reply
-       * * `hogdesk` - HogDesk */
+       * * `hogdesk` - HogDesk
+       * * `image_builder` - Image Builder */
       origin_product?: OriginProductEnum;
       /**
          * Target GitHub repository in `organization/repo` format (e.g. `posthog/posthog-js`).
@@ -54594,6 +54741,11 @@ export namespace Schemas {
          * @items.maxLength 128
          */
       pending_user_artifact_ids?: string[];
+      /**
+         * When true, the cloud run agent pushes its work and opens a draft pull request on completion without waiting for an explicit ask. Write-only and not persisted on the task: persisted into the reused warm Run's state when creation activates one, so resumes of that Run honor it. Ignored when no warm Run is reused — cold creation takes it via the run start endpoint instead.
+         * @nullable
+         */
+      auto_publish?: boolean | null;
       /**
          * Channel this task is owned by (the channel it was kicked off in).
          * @nullable
@@ -68977,6 +69129,17 @@ export namespace Schemas {
     };
 
     export type QuickFiltersListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number;
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number;
+    };
+
+    export type SandboxCustomImagesListParams = {
     /**
      * Number of results to return per page.
      */
