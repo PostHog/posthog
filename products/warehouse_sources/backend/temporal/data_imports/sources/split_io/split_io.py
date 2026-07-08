@@ -49,6 +49,10 @@ def _get_headers(api_key: str) -> dict[str, str]:
     }
 
 
+def _base_url(config: SplitIoEndpointConfig) -> str:
+    return f"{API_HOST}/internal/api/{config.api_version}"
+
+
 def _initial_url(config: SplitIoEndpointConfig, workspace_id: str = "") -> str:
     path = config.path.format(workspace_id=workspace_id)
     params: dict[str, Any] = dict(config.extra_params)
@@ -57,7 +61,8 @@ def _initial_url(config: SplitIoEndpointConfig, workspace_id: str = "") -> str:
     if config.pagination != "none":
         params["limit"] = PAGE_SIZE
     query = urlencode(params)
-    return f"{BASE_URL}{path}?{query}" if query else f"{BASE_URL}{path}"
+    base = _base_url(config)
+    return f"{base}{path}?{query}" if query else f"{base}{path}"
 
 
 def _replace_query_param(url: str, key: str, value: str) -> str:
@@ -161,7 +166,7 @@ def validate_credentials(api_key: str, endpoint: str | None = None) -> int | Non
     else:
         params: dict[str, Any] = dict(config.extra_params)
         params["limit"] = 1
-        url = f"{BASE_URL}{config.path}?{urlencode(params)}"
+        url = f"{_base_url(config)}{config.path}?{urlencode(params)}"
 
     try:
         session = make_tracked_session(headers=_get_headers(api_key), redact_values=(api_key,))
@@ -194,9 +199,18 @@ def _paginate_resource(
     workspace_id: str,
 ) -> Iterator[list[dict[str, Any]]]:
     url: str | None = start_url
+    previous_fingerprint: tuple[int, str] | None = None
     while url:
         payload = _fetch_page(session, url, logger)
         items = _extract_items(payload, config.data_key)
+
+        # If the server ignores our pagination params and keeps returning the same page,
+        # stop rather than yield duplicates forever (fingerprint taken before mutation).
+        fingerprint = (len(items), str(items[0])) if items else None
+        if fingerprint is not None and fingerprint == previous_fingerprint:
+            logger.warning(f"Split: identical page returned twice, stopping pagination. endpoint={config.name}")
+            break
+        previous_fingerprint = fingerprint
 
         if workspace_id:
             for item in items:

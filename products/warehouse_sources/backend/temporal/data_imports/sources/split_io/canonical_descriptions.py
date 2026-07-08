@@ -99,13 +99,13 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
         },
     },
     "users": {
-        "description": "An active member of the Split organization.",
+        "description": "A member of the Split organization.",
         "docs_url": "https://docs.split.io/reference/users-overview",
         "columns": {
             "id": "Unique identifier for the user.",
             "name": "The user's full name.",
             "email": "The user's email address.",
-            "status": "The user's status (e.g. ACTIVE).",
+            "status": "The user's status (e.g. ACTIVE, DEACTIVATED).",
             "groups": "Groups the user belongs to.",
             "2fa": "Whether the user has two-factor authentication enabled.",
         },

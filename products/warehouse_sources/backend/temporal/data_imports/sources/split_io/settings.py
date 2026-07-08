@@ -5,7 +5,8 @@ from products.warehouse_sources.backend.types import IncrementalField
 
 # How a list endpoint pages through results:
 # - "offset": `limit`/`offset` params with an `{"objects": [...], "offset", "limit", "totalCount"}` envelope
-# - "marker": `limit`/`after` params with a `{"data": [...], "nextMarker", "previousMarker"}` envelope
+# - "marker": `limit`/`after` params, with `nextMarker`/`previousMarker` in the response envelope
+#   (rows sit under `data` or `objects` depending on the endpoint)
 # - "none": the endpoint returns the full collection as a plain JSON array in one response
 PaginationStyle = Literal["offset", "marker", "none"]
 
@@ -25,8 +26,10 @@ class SplitIoEndpointConfig:
     requires_workspace: bool = False
     # Some fan-out endpoints take the workspace as a query param instead of a path segment.
     workspace_query_param: str | None = None
-    # Extra query params required by the endpoint (e.g. the users list is filtered by status).
+    # Extra query params required by the endpoint.
     extra_params: dict[str, str] = field(default_factory=dict)
+    # Most endpoints live under /internal/api/v2; flag sets are served from v3.
+    api_version: str = "v2"
 
 
 # Split (Harness FME) Admin API v2 endpoints. All are full-refresh only: the Admin API exposes
@@ -87,11 +90,13 @@ SPLIT_IO_ENDPOINTS: dict[str, SplitIoEndpointConfig] = {
         data_key="data",
         requires_workspace=True,
         workspace_query_param="workspace_id",
+        api_version="v3",
     ),
     "groups": SplitIoEndpointConfig(
         name="groups",
         path="/groups",
         primary_keys=["id"],
+        pagination="marker",
     ),
     "users": SplitIoEndpointConfig(
         name="users",
@@ -99,14 +104,12 @@ SPLIT_IO_ENDPOINTS: dict[str, SplitIoEndpointConfig] = {
         primary_keys=["id"],
         pagination="marker",
         data_key="data",
-        # The users list is filtered by status; ACTIVE covers the account's usable members
-        # (matching other connectors for this API).
-        extra_params={"status": "ACTIVE"},
     ),
     "change_requests": SplitIoEndpointConfig(
         name="change_requests",
         path="/changeRequests",
         primary_keys=["id"],
+        pagination="marker",
         data_key="data",
     ),
 }

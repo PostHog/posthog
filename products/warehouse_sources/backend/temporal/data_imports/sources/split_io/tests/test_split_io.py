@@ -51,9 +51,9 @@ class TestUrlHelpers:
         url = _initial_url(SPLIT_IO_ENDPOINTS["rollout_statuses"], "ws-1")
         assert url == f"{BASE_URL}/rolloutStatuses?wsId=ws-1"
 
-    def test_initial_url_includes_extra_params(self):
-        url = _initial_url(SPLIT_IO_ENDPOINTS["users"])
-        assert url == f"{BASE_URL}/users?status=ACTIVE&limit={PAGE_SIZE}"
+    def test_initial_url_flag_sets_uses_v3_api(self):
+        url = _initial_url(SPLIT_IO_ENDPOINTS["flag_sets"], "ws-1")
+        assert url == f"https://api.split.io/internal/api/v3/flag-sets?workspace_id=ws-1&limit={PAGE_SIZE}"
 
     def test_initial_url_unpaginated_endpoint_has_no_limit(self):
         url = _initial_url(SPLIT_IO_ENDPOINTS["environments"], "ws-1")
@@ -108,23 +108,31 @@ class TestNextUrl:
 
     def test_marker_advances_via_next_marker(self):
         config = SPLIT_IO_ENDPOINTS["users"]
-        url = f"{BASE_URL}/users?status=ACTIVE&limit={PAGE_SIZE}"
+        url = f"{BASE_URL}/users?limit={PAGE_SIZE}"
         items = [{"id": "u1"}]
         next_url = _next_url(config, url, {"data": items, "nextMarker": "m2"}, items)
-        assert next_url == f"{BASE_URL}/users?status=ACTIVE&limit={PAGE_SIZE}&after=m2"
+        assert next_url == f"{BASE_URL}/users?limit={PAGE_SIZE}&after=m2"
 
     @pytest.mark.parametrize("payload", [{"data": [{"id": "u1"}]}, {"data": [{"id": "u1"}], "nextMarker": None}])
     def test_marker_stops_without_next_marker(self, payload):
         config = SPLIT_IO_ENDPOINTS["users"]
-        url = f"{BASE_URL}/users?status=ACTIVE&limit={PAGE_SIZE}"
+        url = f"{BASE_URL}/users?limit={PAGE_SIZE}"
         assert _next_url(config, url, payload, payload["data"]) is None
 
     def test_marker_stops_when_server_ignores_after_param(self):
         # A repeated marker means the server ignored `after`; stopping avoids an infinite loop.
         config = SPLIT_IO_ENDPOINTS["users"]
-        url = f"{BASE_URL}/users?status=ACTIVE&limit={PAGE_SIZE}&after=m2"
+        url = f"{BASE_URL}/users?limit={PAGE_SIZE}&after=m2"
         items = [{"id": "u1"}]
         assert _next_url(config, url, {"data": items, "nextMarker": "m2"}, items) is None
+
+    def test_marker_reads_next_marker_from_objects_envelope(self):
+        # Groups paginate by marker but wrap rows in `objects` rather than `data`.
+        config = SPLIT_IO_ENDPOINTS["groups"]
+        url = f"{BASE_URL}/groups?limit={PAGE_SIZE}"
+        items = [{"id": "g1"}]
+        next_url = _next_url(config, url, {"objects": items, "nextMarker": "m2"}, items)
+        assert next_url == f"{BASE_URL}/groups?limit={PAGE_SIZE}&after=m2"
 
     @pytest.mark.parametrize("payload", [[{"id": "1"}], {"objects": [{"id": "1"}]}])
     def test_unpaginated_endpoint_never_advances(self, payload):
@@ -155,9 +163,9 @@ class TestValidateCredentials:
             # Source-create and fan-out endpoints probe /workspaces (their prerequisite).
             (None, f"{BASE_URL}/workspaces?limit=1"),
             ("feature_flags", f"{BASE_URL}/workspaces?limit=1"),
-            # Top-level endpoints probe their own path, carrying required extra params.
+            # Top-level endpoints probe their own path.
             ("groups", f"{BASE_URL}/groups?limit=1"),
-            ("users", f"{BASE_URL}/users?status=ACTIVE&limit=1"),
+            ("users", f"{BASE_URL}/users?limit=1"),
         ],
     )
     @mock.patch(
@@ -216,17 +224,36 @@ class TestGetRowsTopLevel:
         assert [item["id"] for batch in batches for item in batch] == ["u1", "u2"]
         urls = [call.args[0] for call in mock_session.return_value.get.call_args_list]
         assert urls == [
-            f"{BASE_URL}/users?status=ACTIVE&limit={PAGE_SIZE}",
-            f"{BASE_URL}/users?status=ACTIVE&limit={PAGE_SIZE}&after=m2",
+            f"{BASE_URL}/users?limit={PAGE_SIZE}",
+            f"{BASE_URL}/users?limit={PAGE_SIZE}&after=m2",
         ]
 
     @mock.patch(
         "products.warehouse_sources.backend.temporal.data_imports.sources.split_io.split_io.make_tracked_session"
     )
     def test_empty_response_yields_nothing(self, mock_session):
-        mock_session.return_value.get.return_value = _resp(_offset_page([], 0, 0))
+        mock_session.return_value.get.return_value = _resp({"objects": [], "nextMarker": None})
 
         assert list(get_rows("api-key", "groups", mock.MagicMock(), _make_manager())) == []
+
+    @mock.patch(
+        "products.warehouse_sources.backend.temporal.data_imports.sources.split_io.split_io.make_tracked_session"
+    )
+    def test_identical_page_stops_pagination(self, mock_session):
+        # A server that ignores our pagination params but keeps advertising a fresh marker
+        # would otherwise loop forever re-yielding the same rows.
+        same_page = {"data": [{"id": "u1"}], "nextMarker": "m2"}
+        mock_session.return_value.get.side_effect = [
+            _resp(same_page),
+            _resp({"data": [{"id": "u1"}], "nextMarker": "m3"}),
+            _resp({"data": [{"id": "u1"}], "nextMarker": "m4"}),
+        ]
+
+        batches = list(get_rows("api-key", "users", mock.MagicMock(), _make_manager()))
+
+        # First page yielded once; the identical follow-up page halts the loop.
+        assert [item["id"] for batch in batches for item in batch] == ["u1"]
+        assert mock_session.return_value.get.call_count == 2
 
 
 class TestGetRowsFanout:
