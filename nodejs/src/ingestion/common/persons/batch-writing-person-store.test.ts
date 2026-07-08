@@ -724,15 +724,16 @@ describe('BatchWritingPersonStore', () => {
         await personStore.flush()
 
         expect(mockRepo.updatePersonsBatch).toHaveBeenCalled()
-        expect(emitIngestionWarning).toHaveBeenCalledWith(
-            mockIngestionWarningsOutputs,
-            teamId,
-            'person_upsert_message_size_too_large',
-            {
-                personId: person.id,
+        expect(emitIngestionWarning).toHaveBeenCalledWith(mockIngestionWarningsOutputs, teamId, {
+            type: 'person_upsert_message_size_too_large',
+            details: {
+                personId: person.uuid,
                 distinctId: 'test',
-            }
-        )
+            },
+            category: 'size',
+            severity: 'error',
+            pipelineStep: 'person-store',
+        })
     })
 
     describe('dbWriteMode functionality', () => {
@@ -908,15 +909,16 @@ describe('BatchWritingPersonStore', () => {
                 await personStore.flush()
 
                 expect(mockRepo.updatePersonAssertVersion).toHaveBeenCalled()
-                expect(emitIngestionWarning).toHaveBeenCalledWith(
-                    mockIngestionWarningsOutputs,
-                    teamId,
-                    'person_upsert_message_size_too_large',
-                    {
-                        personId: person.id,
+                expect(emitIngestionWarning).toHaveBeenCalledWith(mockIngestionWarningsOutputs, teamId, {
+                    type: 'person_upsert_message_size_too_large',
+                    details: {
+                        personId: person.uuid,
                         distinctId: 'test',
-                    }
-                )
+                    },
+                    category: 'size',
+                    severity: 'error',
+                    pipelineStep: 'person-store',
+                })
                 expect(mockRepo.updatePerson).not.toHaveBeenCalled() // No fallback for MessageSizeTooLarge
             })
         })

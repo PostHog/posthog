@@ -43,6 +43,8 @@ import type {
     _LogsCountResponseApi,
     _LogsFacetValuesRequestApi,
     _LogsFacetValuesResponseApi,
+    _LogsGroupByRequestApi,
+    _LogsGroupByResponseApi,
     _LogsPatternsRequestApi,
     _LogsPatternsResponseApi,
     _LogsQueryRequestApi,
@@ -396,6 +398,23 @@ export const logsFacetValuesCreate = async (
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
         body: JSON.stringify(_logsFacetValuesRequestApi),
+    })
+}
+
+export const getLogsGroupByCreateUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/logs/group-by/`
+}
+
+export const logsGroupByCreate = async (
+    projectId: string,
+    _logsGroupByRequestApi: _LogsGroupByRequestApi,
+    options?: RequestInit
+): Promise<_LogsGroupByResponseApi> => {
+    return apiMutator<_LogsGroupByResponseApi>(getLogsGroupByCreateUrl(projectId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(_logsGroupByRequestApi),
     })
 }
 

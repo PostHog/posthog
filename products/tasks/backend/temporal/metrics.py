@@ -112,8 +112,10 @@ def increment_credential_refresh(kind: str, outcome: str) -> None:
     """Record a sandbox credential refresh outcome.
 
     outcome is one of: refreshed (token re-injected), skipped (nothing to do or
-    token could not be resolved), failed (the credential raised). Best-effort:
-    a metric failure must never break the refresh loop.
+    token could not be resolved), failed (the credential raised), orphaned (the
+    credential can never be refreshed again this run — integration deleted or
+    user re-auth required). Best-effort: a metric failure must never break the
+    refresh loop.
     """
     try:
         meter = _metric_meter({"kind": kind, "outcome": outcome})

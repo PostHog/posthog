@@ -1,4 +1,4 @@
-import { actions, connect, events, kea, listeners, path, reducers, selectors } from 'kea'
+import { actions, connect, events, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 import posthog from 'posthog-js'
 
@@ -21,7 +21,12 @@ import {
 } from './durationBuckets'
 import { traceLookupDateRange } from './traceLinks'
 import type { tracingDataLogicType } from './tracingDataLogicType'
-import { type TracingFilters, type TracingOrderBy, tracingFiltersLogic } from './tracingFiltersLogic'
+import {
+    type TracingFilters,
+    type TracingOrderBy,
+    TRACING_SCENE_VIEWER_ID,
+    tracingFiltersLogic,
+} from './tracingFiltersLogic'
 import type { Span } from './types'
 
 export interface SparklineRow {
@@ -80,11 +85,20 @@ function captureTracingResults(count: number, queryType: 'spans' | 'aggregation'
     }
 }
 
-export const tracingDataLogic = kea<tracingDataLogicType>([
-    path(['products', 'tracing', 'frontend', 'tracingDataLogic']),
+export interface TracingDataLogicProps {
+    id: string
+}
 
-    connect(() => ({
-        values: [tracingFiltersLogic(), ['filters', 'orderBy', 'utcDateRange', 'currentWindowMs', 'previousWindowMs']],
+export const tracingDataLogic = kea<tracingDataLogicType>([
+    props({ id: TRACING_SCENE_VIEWER_ID } as TracingDataLogicProps),
+    key((props) => props.id),
+    path((key) => ['products', 'tracing', 'frontend', 'tracingDataLogic', key]),
+
+    connect(({ id }: TracingDataLogicProps) => ({
+        values: [
+            tracingFiltersLogic({ id }),
+            ['filters', 'orderBy', 'utcDateRange', 'queryFilterGroup', 'currentWindowMs', 'previousWindowMs'],
+        ],
     })),
 
     actions({
@@ -285,7 +299,7 @@ export const tracingDataLogic = kea<tracingDataLogicType>([
                             orderDirection: values.filters.orderDirection,
                             serviceNames:
                                 values.filters.serviceNames.length > 0 ? values.filters.serviceNames : undefined,
-                            filterGroup: values.filters.filterGroup as PropertyGroupFilter,
+                            filterGroup: values.queryFilterGroup as PropertyGroupFilter,
                             prefetchSpans: PREFETCH_SPANS,
                             flatSpans: values.filters.viewMode === 'spans',
                             limit: DEFAULT_PAGE_SIZE,
@@ -320,7 +334,7 @@ export const tracingDataLogic = kea<tracingDataLogicType>([
                             orderDirection: values.filters.orderDirection,
                             serviceNames:
                                 values.filters.serviceNames.length > 0 ? values.filters.serviceNames : undefined,
-                            filterGroup: values.filters.filterGroup as PropertyGroupFilter,
+                            filterGroup: values.queryFilterGroup as PropertyGroupFilter,
                             prefetchSpans: PREFETCH_SPANS,
                             flatSpans: values.filters.viewMode === 'spans',
                             limit: DEFAULT_PAGE_SIZE,
@@ -343,7 +357,7 @@ export const tracingDataLogic = kea<tracingDataLogicType>([
                     const response = await api.tracing.getTrace(traceId, {
                         dateRange: resolveTraceLookupRange(ts, values.utcDateRange),
                         serviceNames: values.filters.serviceNames.length > 0 ? values.filters.serviceNames : undefined,
-                        filterGroup: values.filters.filterGroup as PropertyGroupFilter,
+                        filterGroup: values.queryFilterGroup as PropertyGroupFilter,
                     })
                     actions.setTracePagination(!!response.hasMore, response.nextOffset ?? null)
                     return response.results as Span[]
@@ -358,7 +372,7 @@ export const tracingDataLogic = kea<tracingDataLogicType>([
                     const response = await api.tracing.getTrace(traceId, {
                         dateRange: resolveTraceLookupRange(ts, values.utcDateRange),
                         serviceNames: values.filters.serviceNames.length > 0 ? values.filters.serviceNames : undefined,
-                        filterGroup: values.filters.filterGroup as PropertyGroupFilter,
+                        filterGroup: values.queryFilterGroup as PropertyGroupFilter,
                         offset: values.traceSpansNextOffset,
                     })
                     // Bail if a new trace was opened mid-fetch — appending this stale page to the new
@@ -414,7 +428,7 @@ export const tracingDataLogic = kea<tracingDataLogicType>([
                             },
                             serviceNames:
                                 values.filters.serviceNames.length > 0 ? values.filters.serviceNames : undefined,
-                            filterGroup: values.filters.filterGroup as PropertyGroupFilter,
+                            filterGroup: values.queryFilterGroup as PropertyGroupFilter,
                             compareFilter: {
                                 compare: values.filters.compareMode,
                                 compare_to: new Date(previousStartMs).toISOString(),
@@ -460,7 +474,7 @@ export const tracingDataLogic = kea<tracingDataLogicType>([
                             },
                             serviceNames:
                                 values.filters.serviceNames.length > 0 ? values.filters.serviceNames : undefined,
-                            filterGroup: values.filters.filterGroup as PropertyGroupFilter,
+                            filterGroup: values.queryFilterGroup as PropertyGroupFilter,
                             compareFilter: {
                                 compare: values.filters.compareMode,
                                 compare_to: new Date(window.previousStartMs).toISOString(),
@@ -489,7 +503,7 @@ export const tracingDataLogic = kea<tracingDataLogicType>([
                     const scopeKey = JSON.stringify([
                         values.utcDateRange,
                         values.filters.serviceNames,
-                        values.filters.filterGroup,
+                        values.queryFilterGroup,
                         values.filters.viewMode,
                     ])
                     if (scopeKey === cache.sparklineScope) {
@@ -504,7 +518,7 @@ export const tracingDataLogic = kea<tracingDataLogicType>([
                             dateRange: values.utcDateRange,
                             serviceNames:
                                 values.filters.serviceNames.length > 0 ? values.filters.serviceNames : undefined,
-                            filterGroup: values.filters.filterGroup as PropertyGroupFilter,
+                            filterGroup: values.queryFilterGroup as PropertyGroupFilter,
                             rootSpans: values.filters.viewMode === 'traces',
                         },
                         controller.signal
@@ -528,7 +542,7 @@ export const tracingDataLogic = kea<tracingDataLogicType>([
                     const scopeKey = JSON.stringify([
                         values.utcDateRange,
                         values.filters.serviceNames,
-                        values.filters.filterGroup,
+                        values.queryFilterGroup,
                     ])
                     if (scopeKey === cache.matchingCountsScope) {
                         return values.matchingCounts
@@ -542,7 +556,7 @@ export const tracingDataLogic = kea<tracingDataLogicType>([
                             dateRange: values.utcDateRange,
                             serviceNames:
                                 values.filters.serviceNames.length > 0 ? values.filters.serviceNames : undefined,
-                            filterGroup: values.filters.filterGroup as PropertyGroupFilter,
+                            filterGroup: values.queryFilterGroup as PropertyGroupFilter,
                         },
                         controller.signal
                     )
@@ -566,7 +580,7 @@ export const tracingDataLogic = kea<tracingDataLogicType>([
                             dateRange: values.utcDateRange,
                             serviceNames:
                                 values.filters.serviceNames.length > 0 ? values.filters.serviceNames : undefined,
-                            filterGroup: values.filters.filterGroup as PropertyGroupFilter,
+                            filterGroup: values.queryFilterGroup as PropertyGroupFilter,
                         },
                         controller.signal
                     )

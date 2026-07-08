@@ -30,6 +30,9 @@ from products.exports.backend.models.subscription import (
     SubscriptionDelivery,
 )
 from products.exports.backend.temporal.subscriptions.types import (
+    AI_REPORT_DIAGNOSTICS_KEY,
+    AI_REPORT_PROMPT_SNAPSHOT_KEY,
+    AI_REPORT_SNAPSHOT_KEY,
     ProcessSubscriptionWorkflowInputs,
     SubscriptionTriggerType,
 )
@@ -106,6 +109,7 @@ class TestSubscriptionTemporal(APILicensedTest):
             "resource_name": data["resource_name"],
             "dashboard_export_insights": [],
             "prompt": None,
+            "ai_prompt_config": {},
             "target_type": "email",
             "target_value": "test@posthog.com",
             "frequency": "weekly",
@@ -1983,14 +1987,24 @@ class TestSubscriptionDeliveryAPI(APILicensedTest):
     def test_ai_delivery_report_hidden_without_query_access(self, _name, is_ai, restrict, expect_hidden):
         subscription = self._create_ai_subscription() if is_ai else self.subscription
         generated_hogql = "SELECT count() FROM events"
+        # The safe error message on a failed step is query-derived too, so it is scrubbed with the diagnostics.
+        scrubbed_error_message = "Unable to resolve field 'adoption_rate'"
         content_snapshot: dict = {"insights": [{"id": 1, "name": "Secret", "query_results": [[1, 2, 3]]}]}
         if is_ai:
             # AI deliveries also persist the rendered report and per-step query diagnostics; the
             # diagnostics embed the generated HogQL, which must never reach a query-restricted caller.
-            content_snapshot["ai_report"] = "# Weekly report"
-            content_snapshot["ai_report_diagnostics"] = [
-                {"description": "weekly signups", "hogql": generated_hogql, "ok": True, "error_type": None}
+            content_snapshot[AI_REPORT_SNAPSHOT_KEY] = "# Weekly report"
+            content_snapshot[AI_REPORT_DIAGNOSTICS_KEY] = [
+                {"description": "weekly signups", "hogql": generated_hogql, "ok": True, "error_type": None},
+                {
+                    "description": "adoption",
+                    "hogql": "SELECT bad",
+                    "ok": False,
+                    "error_type": "ResolutionError",
+                    "human_readable_error": scrubbed_error_message,
+                },
             ]
+            content_snapshot[AI_REPORT_PROMPT_SNAPSHOT_KEY] = "Weekly growth recap"
         delivery = SubscriptionDelivery.objects.create(
             subscription=subscription,
             team=self.team,
@@ -2015,8 +2029,15 @@ class TestSubscriptionDeliveryAPI(APILicensedTest):
         if expect_hidden:
             assert data["content_snapshot"] == {}
             assert data["change_summary"] is None
-            # Defence-in-depth against a future per-key scrub: the generated HogQL must not appear at all.
+            # The query-derived report and diagnostics are scrubbed per-field; the generated HogQL
+            # must not appear at all (defence-in-depth across content_snapshot and the typed fields).
+            assert data[AI_REPORT_SNAPSHOT_KEY] is None
+            assert data[AI_REPORT_DIAGNOSTICS_KEY] is None
             assert generated_hogql not in str(data)
+            assert scrubbed_error_message not in str(data)
+            # The prompt is user-authored (not query-derived) and already readable on the parent
+            # subscription, so it stays visible even for a query-restricted caller.
+            assert data[AI_REPORT_PROMPT_SNAPSHOT_KEY] == "Weekly growth recap"
             # The list endpoint shares the same get_serializer_context path, so it scrubs too.
             list_response = self.client.get(
                 f"/api/environments/{self.team.id}/subscriptions/{subscription.id}/deliveries/"
@@ -2025,17 +2046,80 @@ class TestSubscriptionDeliveryAPI(APILicensedTest):
             row = next(r for r in list_response.json()["results"] if r["id"] == str(delivery.id))
             assert row["content_snapshot"] == {}
             assert row["change_summary"] is None
+            assert row[AI_REPORT_SNAPSHOT_KEY] is None
+            assert row[AI_REPORT_DIAGNOSTICS_KEY] is None
+            assert row[AI_REPORT_PROMPT_SNAPSHOT_KEY] == "Weekly growth recap"
             assert generated_hogql not in str(row)
+            assert scrubbed_error_message not in str(row)
         else:
             assert data["content_snapshot"]["insights"][0]["name"] == "Secret"
             assert data["change_summary"] == "Signups up 20% week over week"
             if is_ai:
-                # A query-access caller on an AI delivery legitimately receives the diagnostics,
-                # including the generated HogQL — this is the intended debugging surface.
-                assert data["content_snapshot"]["ai_report_diagnostics"][0]["hogql"] == generated_hogql
+                # A query-access caller on an AI delivery legitimately receives the report and the
+                # diagnostics (including the generated HogQL) — the intended debugging surface.
+                assert data[AI_REPORT_SNAPSHOT_KEY] == "# Weekly report"
+                assert data[AI_REPORT_DIAGNOSTICS_KEY][0]["hogql"] == generated_hogql
+                # The safe error message on the failed step is part of the query-access debugging surface.
+                assert data[AI_REPORT_DIAGNOSTICS_KEY][1]["human_readable_error"] == scrubbed_error_message
+                assert data[AI_REPORT_PROMPT_SNAPSHOT_KEY] == "Weekly growth recap"
+                # The typed fields are the contract: the report must not be shipped twice, so the
+                # AI keys are stripped from content_snapshot (the non-AI scaffold stays intact).
+                assert AI_REPORT_SNAPSHOT_KEY not in data["content_snapshot"]
+                assert AI_REPORT_DIAGNOSTICS_KEY not in data["content_snapshot"]
+                assert AI_REPORT_PROMPT_SNAPSHOT_KEY not in data["content_snapshot"]
         # Delivery metadata stays visible regardless — only the query-derived report is scrubbed.
         assert data["status"] == "completed"
         assert data["recipient_results"] == [{"recipient": "ai@posthog.com", "status": "success"}]
+
+    @parameterized.expand(
+        [
+            (
+                "report_prompt_and_diagnostics",
+                {
+                    AI_REPORT_SNAPSHOT_KEY: "# Report",
+                    AI_REPORT_PROMPT_SNAPSHOT_KEY: "Weekly growth recap",
+                    AI_REPORT_DIAGNOSTICS_KEY: [
+                        {"description": "d", "hogql": "SELECT 1", "ok": True, "error_type": None}
+                    ],
+                },
+                "# Report",
+                "Weekly growth recap",
+                [{"description": "d", "hogql": "SELECT 1", "ok": True, "error_type": None}],
+            ),
+            # Deliveries created before prompt/diagnostics snapshotting only carry the report.
+            ("report_without_prompt", {AI_REPORT_SNAPSHOT_KEY: "# Report"}, "# Report", None, None),
+            ("absent_keys", {}, None, None, None),
+            ("non_string_values", {AI_REPORT_SNAPSHOT_KEY: 123, AI_REPORT_PROMPT_SNAPSHOT_KEY: ""}, None, None, None),
+        ]
+    )
+    def test_delivery_exposes_ai_report_fields(
+        self, _name, snapshot, expected_report, expected_prompt, expected_diagnostics
+    ):
+        delivery = self._create_delivery(idempotency_key=f"ai-fields-{_name}", content_snapshot=snapshot)
+
+        response = self.client.get(
+            f"/api/environments/{self.team.id}/subscriptions/{self.subscription.id}/deliveries/{delivery.id}/"
+        )
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        data = response.json()
+        assert data[AI_REPORT_SNAPSHOT_KEY] == expected_report
+        assert data[AI_REPORT_PROMPT_SNAPSHOT_KEY] == expected_prompt
+        assert data[AI_REPORT_DIAGNOSTICS_KEY] == expected_diagnostics
+        # The typed fields are the contract — the AI keys are stripped from content_snapshot so the
+        # report is not shipped twice (the snapshot stays a dict, just without the AI keys).
+        for ai_key in (AI_REPORT_SNAPSHOT_KEY, AI_REPORT_PROMPT_SNAPSHOT_KEY, AI_REPORT_DIAGNOSTICS_KEY):
+            assert ai_key not in data["content_snapshot"]
+        # The list endpoint serves the delivery history table, so it must expose the same fields.
+        list_response = self.client.get(
+            f"/api/environments/{self.team.id}/subscriptions/{self.subscription.id}/deliveries/"
+        )
+        assert list_response.status_code == status.HTTP_200_OK, list_response.json()
+        row = next(r for r in list_response.json()["results"] if r["id"] == str(delivery.id))
+        assert row[AI_REPORT_SNAPSHOT_KEY] == expected_report
+        assert row[AI_REPORT_PROMPT_SNAPSHOT_KEY] == expected_prompt
+        assert row[AI_REPORT_DIAGNOSTICS_KEY] == expected_diagnostics
+        for ai_key in (AI_REPORT_SNAPSHOT_KEY, AI_REPORT_PROMPT_SNAPSHOT_KEY, AI_REPORT_DIAGNOSTICS_KEY):
+            assert ai_key not in row["content_snapshot"]
 
     def test_can_list_deliveries(self):
         d1 = self._create_delivery(idempotency_key="key-1")
@@ -2718,3 +2802,80 @@ class TestAISubscriptionAPI(APILicensedTest):
         )
         assert patch_resp.status_code == status.HTTP_400_BAD_REQUEST, patch_resp.json()
         assert "prompt" in str(patch_resp.json()).lower(), patch_resp.json()
+
+    @parameterized.expand(
+        [
+            ("last_n_days_missing_start", {"mode": "last_n_days"}, "start_days_ago"),
+            ("range_missing_end", {"mode": "days_ago_range", "start_days_ago": 10}, "end_days_ago"),
+            (
+                "range_end_not_before_start",
+                {"mode": "days_ago_range", "start_days_ago": 3, "end_days_ago": 5},
+                "end_days_ago",
+            ),
+            ("start_out_of_bounds", {"mode": "last_n_days", "start_days_ago": 400}, "start_days_ago"),
+            ("unknown_mode", {"mode": "calendar_week"}, "mode"),
+        ]
+    )
+    def test_invalid_ai_window_config_is_rejected(
+        self, mock_is_cloud, mock_flag, mock_sync, _name, window, expected_error_field
+    ):
+        self._enable_ai()
+        self._mock_temporal(mock_sync)
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/subscriptions",
+            self._make_ai_payload(ai_prompt_config={"window": window}),
+        )
+        assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
+        assert expected_error_field in str(response.json()), response.json()
+
+    def test_ai_window_round_trips_and_mode_switch_clears_day_bounds(self, mock_is_cloud, mock_flag, mock_sync):
+        # Stale day bounds surviving a switch back to since_last_sent would silently pin the window
+        # to old day values if the row is ever read without mode dispatch.
+        self._enable_ai()
+        self._mock_temporal(mock_sync)
+        create_resp = self.client.post(
+            f"/api/projects/{self.team.id}/subscriptions",
+            self._make_ai_payload(ai_prompt_config={"window": {"mode": "last_n_days", "start_days_ago": 14}}),
+        )
+        assert create_resp.status_code == status.HTTP_201_CREATED, create_resp.json()
+        created = create_resp.json()
+        assert created["ai_prompt_config"]["window"]["mode"] == "last_n_days"
+        assert created["ai_prompt_config"]["window"]["start_days_ago"] == 14
+
+        patch_resp = self.client.patch(
+            f"/api/projects/{self.team.id}/subscriptions/{created['id']}",
+            {"ai_prompt_config": {"window": {"mode": "since_last_sent"}}},
+        )
+        assert patch_resp.status_code == status.HTTP_200_OK, patch_resp.json()
+        window = patch_resp.json()["ai_prompt_config"]["window"]
+        assert window["mode"] == "since_last_sent"
+        assert window["start_days_ago"] is None
+
+    def test_garbage_ai_prompt_config_still_serializes_on_read(self, mock_is_cloud, mock_flag, mock_sync):
+        # The read path routes through the fail-soft normalizer; without it, DRF's
+        # IntegerField.to_representation (int(value)) 500s the detail GET and the team's whole
+        # subscription list on an out-of-band row. Guards against removing the override.
+        self._enable_ai()
+        self._mock_temporal(mock_sync)
+        create_resp = self.client.post(f"/api/projects/{self.team.id}/subscriptions", self._make_ai_payload())
+        sub_id = create_resp.json()["id"]
+        Subscription.objects.filter(pk=sub_id).update(
+            ai_prompt_config={"window": {"mode": "bogus", "start_days_ago": "seven", "end_days_ago": True}}
+        )
+
+        response = self.client.get(f"/api/projects/{self.team.id}/subscriptions/{sub_id}")
+
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        assert response.json()["ai_prompt_config"]["window"] == {
+            "mode": "since_last_sent",
+            "start_days_ago": None,
+            "end_days_ago": None,
+        }
+
+    def test_ai_prompt_config_rejected_on_insight_subscription(self, mock_is_cloud, mock_flag, mock_sync):
+        self._mock_temporal(mock_sync)
+        payload = self._insight_payload()
+        payload["ai_prompt_config"] = {"window": {"mode": "last_n_days", "start_days_ago": 7}}
+        response = self.client.post(f"/api/projects/{self.team.id}/subscriptions", payload)
+        assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
+        assert "ai_prompt_config" in str(response.json()), response.json()

@@ -1,17 +1,20 @@
 import asyncio
+from datetime import UTC, datetime, timedelta
 
 import pytest
 from unittest.mock import AsyncMock, MagicMock, patch
 
-from posthog.hogql.errors import ExposedHogQLError, ResolutionError
+from posthog.hogql.errors import ExposedHogQLError, InternalHogQLError, ResolutionError
 
 from products.exports.backend.temporal.subscriptions.ai_subscription.report_pipeline import (
     _MAX_CONCURRENT_STEPS,
     QUERY_FAILED_PREFIX,
     AiReportStageError,
     QueryStepDiagnostic,
+    _all_queries_failed_notice,
     _arequest_hogql_fix,
     _run_steps,
+    _safe_error_message,
     generate_ai_report,
 )
 from products.exports.backend.temporal.subscriptions.ai_subscription.schemas import (
@@ -20,11 +23,20 @@ from products.exports.backend.temporal.subscriptions.ai_subscription.schemas imp
     QueryPlan,
     QueryPlanStep,
 )
-from products.exports.backend.temporal.subscriptions.ai_subscription.spec_generator import PromptRejectedError
+from products.exports.backend.temporal.subscriptions.ai_subscription.spec_generator import (
+    PromptRejectedError,
+    ReportWindow,
+)
 
 _RP = "products.exports.backend.temporal.subscriptions.ai_subscription.report_pipeline"
 # slo_operation emits through posthoganalytics.capture; patch that boundary to inspect the SLO events.
 _SLO_CAPTURE = "posthog.slo.events.posthoganalytics.capture"
+
+_WINDOW_END = datetime(2026, 6, 29, 16, 0, tzinfo=UTC)
+
+
+def _test_window() -> ReportWindow:
+    return ReportWindow(start=_WINDOW_END - timedelta(days=1), end=_WINDOW_END)
 
 
 def _spec(steps: int = 1) -> EnrichedPromptSpec:
@@ -47,20 +59,20 @@ def _slo_completed(capture_mock: MagicMock) -> dict:
 
 async def test_user_none_raises_prompt_rejected() -> None:
     with pytest.raises(PromptRejectedError):
-        await generate_ai_report(team=MagicMock(), user=None, prompt="x", window_days=7)
+        await generate_ai_report(team=MagicMock(), user=None, prompt="x", window=_test_window())
 
 
 @patch(f"{_RP}.build_enriched_prompt", side_effect=PromptRejectedError("empty"))
 async def test_prompt_rejected_propagates_unwrapped(_mock_bep: object) -> None:
     # PromptRejectedError must NOT be wrapped as AiReportStageError — callers catch it by type.
     with pytest.raises(PromptRejectedError):
-        await generate_ai_report(team=MagicMock(), user=MagicMock(), prompt="", window_days=7)
+        await generate_ai_report(team=MagicMock(), user=MagicMock(), prompt="", window=_test_window())
 
 
 @patch(f"{_RP}.build_enriched_prompt", side_effect=RuntimeError("planner boom"))
 async def test_planner_failure_wrapped_with_stage(_mock_bep: object) -> None:
     with pytest.raises(AiReportStageError) as exc_info:
-        await generate_ai_report(team=MagicMock(), user=MagicMock(), prompt="x", window_days=7)
+        await generate_ai_report(team=MagicMock(), user=MagicMock(), prompt="x", window=_test_window())
     assert exc_info.value.stage == "planner"
 
 
@@ -82,7 +94,7 @@ async def test_successful_report_emits_slo_success(
     )
     mock_chat.return_value.invoke.return_value = MagicMock(content="# Report")
 
-    result = await generate_ai_report(team=MagicMock(), user=MagicMock(), prompt="x", window_days=7)
+    result = await generate_ai_report(team=MagicMock(), user=MagicMock(), prompt="x", window=_test_window())
 
     assert result.markdown == "# Report"
     props = _slo_completed(mock_capture)
@@ -109,9 +121,11 @@ async def test_degraded_report_still_synthesizes(
     )
     mock_chat.return_value.invoke.return_value = MagicMock(content="# Weekly report")
 
-    result = await generate_ai_report(team=MagicMock(), user=MagicMock(), prompt="x", window_days=7)
+    result = await generate_ai_report(team=MagicMock(), user=MagicMock(), prompt="x", window=_test_window())
 
-    assert result.markdown == "# Weekly report"
+    # Every query failed, so the delivered report leads with the deterministic failure notice
+    # prepended to the synthesis output, not a bare confident-looking report.
+    assert result.markdown == _all_queries_failed_notice(1) + "# Weekly report"
     # The failed step's generated HogQL + error type are surfaced for persistence/debugging.
     assert result.diagnostics == (
         QueryStepDiagnostic(description="s0", hogql="SELECT bad", ok=False, error_type="ExposedHogQLError"),
@@ -140,7 +154,7 @@ async def test_synthesis_failure_wrapped_with_stage(
     mock_chat.return_value.invoke.side_effect = RuntimeError("synth boom")
 
     with pytest.raises(AiReportStageError) as exc_info:
-        await generate_ai_report(team=MagicMock(), user=MagicMock(), prompt="x", window_days=7)
+        await generate_ai_report(team=MagicMock(), user=MagicMock(), prompt="x", window=_test_window())
     assert exc_info.value.stage == "synthesis"
     # A raised stage error burns the SLO error budget.
     assert _slo_completed(mock_capture)["outcome"] == "failure"
@@ -151,7 +165,7 @@ async def test_synthesis_failure_wrapped_with_stage(
 async def test_prompt_rejected_marks_slo_success_not_failure(_mock_bep: MagicMock, mock_capture: MagicMock) -> None:
     # A rejected prompt is the input guard working — it must not count against the error budget.
     with pytest.raises(PromptRejectedError):
-        await generate_ai_report(team=MagicMock(), user=MagicMock(), prompt="", window_days=7)
+        await generate_ai_report(team=MagicMock(), user=MagicMock(), prompt="", window=_test_window())
     props = _slo_completed(mock_capture)
     assert props["outcome"] == "success"
     assert props["rejected"] is True
@@ -231,7 +245,7 @@ async def test_synthesis_prompt_carries_the_failure_marker(
     )
     mock_chat.return_value.invoke.return_value = MagicMock(content="# Report")
 
-    await generate_ai_report(team=MagicMock(), user=MagicMock(), prompt="x", window_days=7)
+    await generate_ai_report(team=MagicMock(), user=MagicMock(), prompt="x", window=_test_window())
 
     (messages,) = mock_chat.return_value.invoke.call_args[0]
     system_message = messages[0][1]
@@ -271,6 +285,10 @@ async def test_run_steps_breaks_early_when_fix_returns_same_query(
     # Executor ran exactly once (no rerun of the identical fixed query); the fix was requested once.
     assert mock_executor_cls.return_value.arun_and_format_query.await_count == 1
     mock_fix.assert_awaited_once()
+    # An ExposedHogQLError is safe to surface, so the diagnostic carries the human-readable reason
+    # (not just the type) for the delivery viewer to show.
+    assert diagnostics[0].error_type == "ExposedHogQLError"
+    assert diagnostics[0].human_readable_error == "bad query"
 
 
 @patch(f"{_RP}.AssistantQueryExecutor")
@@ -297,3 +315,35 @@ async def test_run_steps_bounds_concurrent_query_execution(mock_executor_cls: Ma
     await _run_steps(_spec(steps=_MAX_CONCURRENT_STEPS * 2), MagicMock(), MagicMock(), None)
 
     assert max_concurrent == _MAX_CONCURRENT_STEPS
+
+
+def _wrap(
+    outer: BaseException, *, cause: BaseException | None = None, context: BaseException | None = None
+) -> BaseException:
+    if cause is not None:
+        outer.__cause__ = cause
+    if context is not None:
+        outer.__context__ = context
+    return outer
+
+
+@pytest.mark.parametrize(
+    "exc,expected",
+    [
+        (ExposedHogQLError("Unable to resolve field 'operaton'"), "Unable to resolve field 'operaton'"),
+        (ResolutionError("Unknown field: signups"), "Unknown field: signups"),
+        # A plain InternalHogQLError (not a ResolutionError) can echo team-scoped data — stays type-only.
+        (InternalHogQLError("internal detail with a team-scoped id"), None),
+        (ValueError("boom"), None),
+        # A generic error wrapping a safe error surfaces the wrapped message (executors wrap like this).
+        (
+            _wrap(Exception("wrapper"), cause=ResolutionError("Unable to resolve field 'x'")),
+            "Unable to resolve field 'x'",
+        ),
+        (_wrap(RuntimeError("boom"), context=ExposedHogQLError("bad thing")), "bad thing"),
+        # A generic error wrapping only generic errors stays type-only.
+        (_wrap(Exception("outer"), cause=ValueError("inner")), None),
+    ],
+)
+def test_safe_error_message_only_surfaces_query_structure_errors(exc, expected):
+    assert _safe_error_message(exc) == expected

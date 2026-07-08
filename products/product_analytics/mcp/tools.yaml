@@ -242,6 +242,12 @@ tools:
     insights-analyze-retrieve:
         operation: insights_analyze_retrieve
         enabled: false
+    insights-bulk-delete-create:
+        operation: insights_bulk_delete_create
+        enabled: false
+    insights-bulk-restore-create:
+        operation: insights_bulk_restore_create
+        enabled: false
     insights-bulk-update-tags-create:
         operation: insights_bulk_update_tags_create
         enabled: false

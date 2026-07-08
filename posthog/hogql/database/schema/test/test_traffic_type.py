@@ -23,27 +23,12 @@ FIELD_NAMES = ["$virt_is_bot", "$virt_traffic_type", "$virt_traffic_category", "
 
 class TestUserAgentExpr:
     def test_default_properties_path(self):
-        expr = user_agent_expr()
-        assert isinstance(expr, ast.Call)
-        assert expr.name == "coalesce"
-        assert len(expr.args) == 2
-        # First arg should be nullIf($raw_user_agent, '') to handle empty strings
-        null_if = expr.args[0]
-        assert isinstance(null_if, ast.Call)
-        assert null_if.name == "nullIf"
-        assert null_if.args[0] == ast.Field(chain=["properties", "$raw_user_agent"])
-        assert null_if.args[1] == ast.Constant(value="")
-        assert expr.args[1] == ast.Field(chain=["properties", "$user_agent"])
+        # Raw-only on purpose: a $user_agent fallback would force a properties-blob read
+        assert user_agent_expr() == ast.Field(chain=["properties", "$raw_user_agent"])
 
     def test_custom_properties_path(self):
         expr = user_agent_expr(properties_path=["poe", "properties"])
-        assert isinstance(expr, ast.Call)
-        assert expr.name == "coalesce"
-        null_if = expr.args[0]
-        assert isinstance(null_if, ast.Call)
-        assert null_if.name == "nullIf"
-        assert null_if.args[0] == ast.Field(chain=["poe", "properties", "$raw_user_agent"])
-        assert expr.args[1] == ast.Field(chain=["poe", "properties", "$user_agent"])
+        assert expr == ast.Field(chain=["poe", "properties", "$raw_user_agent"])
 
 
 class TestClientIPExpr:

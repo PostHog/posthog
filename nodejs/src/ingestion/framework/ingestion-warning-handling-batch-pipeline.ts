@@ -31,13 +31,7 @@ export class IngestionWarningHandlingBatchPipeline<
         return results.map((resultWithContext) => {
             if (resultWithContext.context.warnings && resultWithContext.context.warnings.length > 0) {
                 const warningPromises = resultWithContext.context.warnings.map((warning) =>
-                    emitIngestionWarning(
-                        this.outputs,
-                        resultWithContext.context.team.id,
-                        warning.type,
-                        warning.details,
-                        { key: warning.key, alwaysSend: warning.alwaysSend }
-                    )
+                    emitIngestionWarning(this.outputs, resultWithContext.context.team.id, warning)
                 )
 
                 return {

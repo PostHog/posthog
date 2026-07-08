@@ -84,7 +84,6 @@ from products.workflows.backend.api.message_assets import (
     MessageAssetSerializer,
     PersonMessageAssetsRequestSerializer,
     fetch_message_assets_for_person,
-    workflow_email_assets_ui_enabled,
 )
 from products.workflows.backend.models.hog_flow.hog_flow import HogFlow
 
@@ -1468,8 +1467,6 @@ class PersonViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     @action(methods=["GET"], detail=True, required_scopes=["person:read"], pagination_class=None, filter_backends=[])
     def emails(self, request: request.Request, *args: Any, **kwargs: Any) -> response.Response:
         person = self.get_object()
-        if not workflow_email_assets_ui_enabled(self.team, request.user):
-            raise NotFound()
         param_serializer = PersonMessageAssetsRequestSerializer(data=request.query_params)
         param_serializer.is_valid(raise_exception=True)
         params = param_serializer.validated_data

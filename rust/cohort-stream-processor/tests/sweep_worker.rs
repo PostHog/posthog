@@ -35,8 +35,8 @@ use cohort_stream_processor::stage1::{
 };
 use cohort_stream_processor::stage2::Stage2State;
 use cohort_stream_processor::store::{
-    CohortStore, LeafStateKey, OffloadConfig, OffloadMode, PersonIndexKey, Stage1Key, Stage2Key,
-    StoreConfig, StoreHandle,
+    BehavioralKey, CohortStore, LeafStateKey, OffloadConfig, OffloadMode, PersonRecordKey,
+    Stage2Key, StoreConfig, StoreHandle,
 };
 use cohort_stream_processor::workers::{process_event, MergeWorkerDeps, Stage1Worker};
 use common_kafka::kafka_producer::KafkaProduceError;
@@ -217,31 +217,15 @@ fn stage2_bit(store: &CohortStore, cohort_id: u64, person: Uuid) -> Option<bool>
 }
 
 fn state_at(store: &CohortStore, lsk: LeafStateKey, person: Uuid) -> Option<Stage1State> {
-    let key = Stage1Key {
-        partition_id: PARTITION_ID,
-        team_id: TEAM as u64,
-        leaf_state_key: lsk,
-        person_id: person,
-    };
+    let key = BehavioralKey::new(PARTITION_ID, TEAM as u64, person, lsk);
     store
-        .get_stage1(&key)
+        .get_behavioral(&key)
         .unwrap()
         .map(|bytes| StatefulRecord::decode(&bytes).unwrap().state)
 }
 
 fn day_of(ts: &str) -> i32 {
     day_idx_in_tz(clickhouse_timestamp_to_millis(ts).unwrap(), UTC)
-}
-
-/// The person's `cf_person_index` leaf-state set — the leaves the merge drain would enumerate.
-fn person_index_of(store: &CohortStore, person: Uuid) -> Vec<LeafStateKey> {
-    store
-        .get_person_index(&PersonIndexKey {
-            partition_id: PARTITION_ID,
-            team_id: TEAM as u64,
-            person_id: person,
-        })
-        .unwrap()
 }
 
 /// Raise the dispatch ceiling, then deliver one event to the worker (matching the dispatcher's
@@ -300,7 +284,7 @@ fn spawn_worker(
 }
 
 /// Like [`spawn_worker`] but with the durable-restart `EvictionQueue` rebuild on: the worker re-seeds
-/// its queue from the partition's existing `cf_stage1` on spawn.
+/// its queue from the partition's existing `cf_behavioral` on spawn.
 fn spawn_worker_durable(
     store: &CohortStore,
     catalog: Arc<CatalogHandle>,
@@ -397,8 +381,8 @@ async fn sweep_evicts_a_single_leaf_member_emits_left_and_deletes() {
 async fn durable_restart_rebuilds_the_eviction_queue_so_a_dormant_left_still_fires() {
     // A member whose window expires during downtime — with no new event to reschedule her — must still
     // emit `Left`. The first worker enters alice and schedules her eviction in its in-memory queue,
-    // then "crashes" (drop loses the queue, but cf_stage1 persists); a durable-restart worker re-seeds
-    // its queue from cf_stage1, so a later sweep still evicts her.
+    // then "crashes" (drop loses the queue, but cf_behavioral persists); a durable-restart worker re-seeds
+    // its queue from cf_behavioral, so a later sweep still evicts her.
     let (_dir, store) = temp_store();
     let filters = build_team_filters(vec![behavioral_leaf(7)]);
     let lsk = behavioral_lsk(&filters);
@@ -406,7 +390,7 @@ async fn durable_restart_rebuilds_the_eviction_queue_so_a_dormant_left_still_fir
     let alice = person(1);
     let ts = "2026-05-20 10:00:00.000000";
 
-    // First tenure: alice enters; her state + deadline persist to cf_stage1.
+    // First tenure: alice enters; her state + deadline persist to cf_behavioral.
     let sink1 = CaptureSink::new();
     let tracker = Arc::new(OffsetTracker::new());
     let (tx1, worker1) = spawn_worker(
@@ -568,27 +552,17 @@ async fn sweep_full_expiry_delete_retracts_the_person_index_entry() {
     let deadline = event_ms + 7 * DAY_MS;
 
     send_event(&tracker, &tx, event_at(alice, ts, 0), 0).await;
-    // Wait for the Entered to land, so the event's WriteBatch (cf_stage1 + the cf_person_index
-    // append) is durable before reading the index.
+    // Wait for the Entered to land, so the event's cf_behavioral WriteBatch is durable.
     drain_until_changes(&sink, 1).await;
-    assert_eq!(
-        person_index_of(&store, alice),
-        vec![lsk],
-        "the entering event appends the leaf to cf_person_index",
-    );
 
-    // Sweep past the deadline: the single fully expires (Delete), retracting the index entry too.
+    // Sweep past the deadline: the single fully expires (Delete), removing the behavioral row.
     send_sweep(&tx, deadline + DAY_MS).await;
     drop(tx);
     worker.join().await.unwrap();
 
     assert!(
         state_at(&store, lsk, alice).is_none(),
-        "the expired single's cf_stage1 row is gone",
-    );
-    assert!(
-        person_index_of(&store, alice).is_empty(),
-        "the full-expiry delete leaves no stale leaf in cf_person_index",
+        "the expired single's cf_behavioral row is gone",
     );
 }
 
@@ -1644,12 +1618,7 @@ fn relative_window_schedules_an_eviction_but_an_explicit_window_does_not() {
     assert_eq!(
         out.schedules,
         vec![(
-            Stage1Key {
-                partition_id: PARTITION_ID,
-                team_id: TEAM as u64,
-                leaf_state_key: lsk,
-                person_id: alice,
-            },
+            BehavioralKey::new(PARTITION_ID, TEAM as u64, alice, lsk),
             start_of_day_ms_in_tz(day_of(ts) + 7 + 1, UTC),
         )],
         "a whole-day single schedules at the calendar midnight after day + window",
@@ -1979,6 +1948,7 @@ async fn each_offload_mode_yields_the_same_emissions_and_state() {
         statuses: Vec<MembershipStatus>,
         stage2_bit: Option<bool>,
         stage1: Vec<(Vec<u8>, Vec<u8>)>,
+        person_record: Option<Vec<u8>>,
     }
 
     let ts = "2026-05-20 10:00:00.000000";
@@ -2013,20 +1983,26 @@ async fn each_offload_mode_yields_the_same_emissions_and_state() {
             vec![MembershipStatus::Entered, MembershipStatus::Left],
             "mode {mode:?}: the cohort enters on the event and leaves on the sweep",
         );
+        // After the sweep evicts the behavioral leaf, `cf_behavioral` is empty — the never-evicted
+        // person leaf lives in the sweep-invariant `cf_person_records` record, not here.
         let stage1: Vec<(Vec<u8>, Vec<u8>)> = store
-            .scan_stage1(PARTITION_ID, None, 10_000)
+            .scan_behavioral(PARTITION_ID, None, 10_000)
             .unwrap()
             .into_iter()
             .map(|(key, value)| (key.encode().to_vec(), value))
             .collect();
+        let person_record = store
+            .get_person_record(&PersonRecordKey::new(PARTITION_ID, TEAM as u64, alice))
+            .unwrap();
         assert!(
-            !stage1.is_empty(),
-            "mode {mode:?}: the never-evicted person leaf still holds state",
+            person_record.is_some(),
+            "mode {mode:?}: the never-evicted person leaf still holds its durable record",
         );
         per_mode.push(ModeOutcome {
             statuses,
             stage2_bit: stage2_bit(&store, 1, alice),
             stage1,
+            person_record,
         });
     }
 
@@ -2037,7 +2013,7 @@ async fn each_offload_mode_yields_the_same_emissions_and_state() {
     {
         assert_eq!(
             arm, off,
-            "mode {mode:?} diverged from Off: emissions, stage-2 bit, and cf_stage1 bytes must be identical across operating points",
+            "mode {mode:?} diverged from Off: emissions, stage-2 bit, cf_behavioral bytes, and the person record must be identical across operating points",
         );
     }
 }
