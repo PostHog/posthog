@@ -6,6 +6,8 @@ prefix at the edge, so these are unreachable from the internet and authenticated
 scoped JWTs (see internal_auth.py).
 """
 
+import uuid
+
 from django.core.exceptions import ValidationError as DjangoValidationError
 from django.db.models import Count, Q, QuerySet
 
@@ -63,7 +65,7 @@ class InternalDataModelingOpsPagination(pagination.LimitOffsetPagination):
     max_limit = 500
 
 
-class InternalDataModelingOpsViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
+class InternalDataModelingOpsViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     """Internal read-only endpoints for the modeling-ops admin app.
 
     Authenticated with scoped JWTs (DATA_MODELING_OPS_JWT_SECRET); not exposed through
@@ -117,6 +119,11 @@ class InternalDataModelingOpsViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewS
         )
         status_filter = request.query_params.get("status")
         if status_filter:
+            valid_statuses = set(DataWarehouseSavedQuery.Status.values)
+            if status_filter not in valid_statuses:
+                return Response(
+                    {"error": f"Unknown status; expected one of {', '.join(sorted(valid_statuses))}"}, status=400
+                )
             queryset = queryset.filter(status=status_filter)
         return self._paginate(request, queryset, InternalSavedQuerySummarySerializer)
 
@@ -129,28 +136,32 @@ class InternalDataModelingOpsViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewS
         except (DataWarehouseSavedQuery.DoesNotExist, DjangoValidationError, ValueError):
             return Response({"error": "Saved query not found"}, status=404)
 
-        nodes = []
-        for node in Node.objects.filter(team_id=int(team_id), saved_query=saved_query).select_related("dag"):
-            upstream = list(
-                Edge.objects.filter(team_id=int(team_id), dag_id=node.dag_id, target=node).values_list(
-                    "source__name", flat=True
-                )
-            )
-            downstream = list(
-                Edge.objects.filter(team_id=int(team_id), dag_id=node.dag_id, source=node).values_list(
-                    "target__name", flat=True
-                )
-            )
-            nodes.append(
-                {
-                    "node_id": node.id,
-                    "dag_id": node.dag_id,
-                    "dag_name": node.dag.name,
-                    "node_type": node.type,
-                    "upstream": upstream,
-                    "downstream": downstream,
-                }
-            )
+        saved_query_nodes = list(
+            Node.objects.filter(team_id=int(team_id), saved_query=saved_query).select_related("dag")
+        )
+        node_ids = [node.id for node in saved_query_nodes]
+        upstream_by_node: dict[uuid.UUID, list[str]] = {}
+        for target_id, source_name in Edge.objects.filter(team_id=int(team_id), target_id__in=node_ids).values_list(
+            "target_id", "source__name"
+        ):
+            upstream_by_node.setdefault(target_id, []).append(source_name)
+        downstream_by_node: dict[uuid.UUID, list[str]] = {}
+        for source_id, target_name in Edge.objects.filter(team_id=int(team_id), source_id__in=node_ids).values_list(
+            "source_id", "target__name"
+        ):
+            downstream_by_node.setdefault(source_id, []).append(target_name)
+
+        nodes = [
+            {
+                "node_id": node.id,
+                "dag_id": node.dag_id,
+                "dag_name": node.dag.name,
+                "node_type": node.type,
+                "upstream": upstream_by_node.get(node.id, []),
+                "downstream": downstream_by_node.get(node.id, []),
+            }
+            for node in saved_query_nodes
+        ]
 
         backing_tables = list(
             DataWarehouseTable.objects.filter(team_id=int(team_id), name=saved_query.name).exclude(deleted=True)

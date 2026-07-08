@@ -95,7 +95,7 @@ class InternalEndpointSummarySerializer(serializers.ModelSerializer):
         read_only_fields = fields
 
 
-class InternalEndpointsOpsViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
+class InternalEndpointsOpsViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     """Internal read-only endpoint data for the modeling-ops admin app."""
 
     scope_object = "INTERNAL"

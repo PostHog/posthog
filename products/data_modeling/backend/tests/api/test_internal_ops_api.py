@@ -114,6 +114,10 @@ class TestInternalDataModelingOpsAPI(APIBaseTest):
         self.assertEqual(data["nodes"][0]["upstream"], ["events"])
         self.assertFalse(data["double_materialized"])
 
+    def test_saved_queries_rejects_unknown_status_filter(self):
+        response = self._get("/saved_queries?status=Failing", self._token())
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+
     def test_jobs_expose_engine_and_storage_including_duckgres(self):
         saved_query = DataWarehouseSavedQuery.objects.create(
             team=self.team, name="my_view", query={"query": "select 1"}
