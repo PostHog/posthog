@@ -1,5 +1,6 @@
 from django.conf import settings
 
+from posthog.clickhouse.cluster import ON_CLUSTER_CLAUSE
 from posthog.clickhouse.indexes import index_by_kafka_timestamp
 from posthog.clickhouse.kafka_engine import (
     CONSUMER_GROUP_DOCUMENT_EMBEDDINGS,
@@ -141,10 +142,8 @@ FROM {database}.{kafka_table}
     )
 
 
-def TRUNCATE_DOCUMENT_EMBEDDINGS_TABLE_SQL():
-    return (
-        f"TRUNCATE TABLE IF EXISTS {PARTITIONED_SHARDED_DOCUMENT_EMBEDDINGS} ON CLUSTER '{settings.CLICKHOUSE_CLUSTER}'"
-    )
+def TRUNCATE_DOCUMENT_EMBEDDINGS_TABLE_SQL(on_cluster: bool = settings.CLICKHOUSE_IS_IN_CLUSTER):
+    return f"TRUNCATE TABLE IF EXISTS {PARTITIONED_SHARDED_DOCUMENT_EMBEDDINGS} {ON_CLUSTER_CLAUSE(on_cluster)}"
 
 
 # Migration helpers for transitioning to partitioned tables

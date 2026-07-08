@@ -1,5 +1,6 @@
 from posthog.clickhouse.cluster import ON_CLUSTER_CLAUSE
 from posthog.clickhouse.table_engines import ReplacingMergeTree, ReplicationScheme
+from posthog.settings import CLICKHOUSE_IS_IN_CLUSTER
 
 
 def PG_EMBEDDINGS_DATA_TABLE():
@@ -46,7 +47,7 @@ def DROP_PG_EMBEDDINGS_TABLE_SQL(on_cluster=True):
     return f"DROP TABLE IF EXISTS {PG_EMBEDDINGS_DATA_TABLE()} {ON_CLUSTER_CLAUSE(on_cluster)}"
 
 
-def TRUNCATE_PG_EMBEDDINGS_TABLE_SQL(on_cluster=True):
+def TRUNCATE_PG_EMBEDDINGS_TABLE_SQL(on_cluster: bool = CLICKHOUSE_IS_IN_CLUSTER):
     return f"TRUNCATE TABLE IF EXISTS {PG_EMBEDDINGS_DATA_TABLE()} {ON_CLUSTER_CLAUSE(on_cluster)}"
 
 

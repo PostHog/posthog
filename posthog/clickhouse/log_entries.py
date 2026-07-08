@@ -11,6 +11,7 @@ from posthog.kafka_client.topics import KAFKA_LOG_ENTRIES
 from posthog.settings import (
     CLICKHOUSE_CLUSTER,
     CLICKHOUSE_DATABASE,
+    CLICKHOUSE_IS_IN_CLUSTER,
     CLICKHOUSE_KAFKA_WARPSTREAM_INGESTION_NAMED_COLLECTION,
 )
 
@@ -102,7 +103,9 @@ INSERT_LOG_ENTRY_SQL = """
 INSERT INTO log_entries SELECT %(team_id)s, %(log_source)s, %(log_source_id)s, %(instance_id)s, %(timestamp)s, %(level)s, %(message)s, now(), 0
 """
 
-TRUNCATE_LOG_ENTRIES_TABLE_SQL = f"TRUNCATE TABLE IF EXISTS {LOG_ENTRIES_SHARDED_TABLE} {ON_CLUSTER_CLAUSE()}"
+TRUNCATE_LOG_ENTRIES_TABLE_SQL = (
+    f"TRUNCATE TABLE IF EXISTS {LOG_ENTRIES_SHARDED_TABLE} {ON_CLUSTER_CLAUSE(CLICKHOUSE_IS_IN_CLUSTER)}"
+)
 
 # WarpStream Kafka engine tables (coexist alongside MSK tables, same target)
 

@@ -5,7 +5,7 @@ from posthog.clickhouse.client import sync_execute
 from posthog.clickhouse.client.connection import ClickHouseUser, get_clickhouse_creds
 from posthog.clickhouse.cluster import ON_CLUSTER_CLAUSE
 from posthog.clickhouse.table_engines import MergeTreeEngine, ReplicationScheme
-from posthog.settings import CLICKHOUSE_CLUSTER
+from posthog.settings import CLICKHOUSE_CLUSTER, CLICKHOUSE_IS_IN_CLUSTER
 
 CHANNEL_DEFINITION_TABLE_NAME = "channel_definition"
 CHANNEL_DEFINITION_DICTIONARY_NAME = "channel_definition_dict"
@@ -32,7 +32,7 @@ DROP_CHANNEL_DEFINITION_TABLE_SQL = (
 
 
 TRUNCATE_CHANNEL_DEFINITION_TABLE_SQL = (
-    f"TRUNCATE TABLE IF EXISTS {CHANNEL_DEFINITION_TABLE_NAME} ON CLUSTER '{CLICKHOUSE_CLUSTER}'"
+    f"TRUNCATE TABLE IF EXISTS {CHANNEL_DEFINITION_TABLE_NAME} {ON_CLUSTER_CLAUSE(CLICKHOUSE_IS_IN_CLUSTER)}"
 )
 
 with open(os.path.join(os.path.dirname(__file__), "channel_definitions.json")) as f:

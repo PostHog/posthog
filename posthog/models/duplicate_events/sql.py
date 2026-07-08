@@ -1,5 +1,6 @@
 from django.conf import settings
 
+from posthog.clickhouse.cluster import ON_CLUSTER_CLAUSE
 from posthog.clickhouse.indexes import index_by_kafka_timestamp
 from posthog.clickhouse.kafka_engine import KAFKA_COLUMNS_WITH_PARTITION, kafka_engine
 from posthog.clickhouse.table_engines import Distributed, MergeTreeEngine
@@ -147,5 +148,5 @@ def DROP_DUPLICATE_EVENTS_MV_SQL():
     return f"DROP TABLE IF EXISTS {DUPLICATE_EVENTS_MV} ON CLUSTER '{settings.CLICKHOUSE_CLUSTER}'"
 
 
-def TRUNCATE_DUPLICATE_EVENTS_TABLE_SQL():
-    return f"TRUNCATE TABLE IF EXISTS {DUPLICATE_EVENTS_TABLE} ON CLUSTER '{settings.CLICKHOUSE_CLUSTER}'"
+def TRUNCATE_DUPLICATE_EVENTS_TABLE_SQL(on_cluster: bool = settings.CLICKHOUSE_IS_IN_CLUSTER):
+    return f"TRUNCATE TABLE IF EXISTS {DUPLICATE_EVENTS_TABLE} {ON_CLUSTER_CLAUSE(on_cluster)}"
