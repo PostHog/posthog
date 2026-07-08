@@ -8,16 +8,13 @@ def prepare_code_context(chunk_filenames: list[str], pr_files: list[PRFile]) -> 
         # Find the corresponding PRFile to get changes
         pr_file = next((f for f in pr_files if f.filename == filename), None)
         if pr_file and pr_file.changes:
-            # Collect line ranges for additions and deletions only
+            # Additions only: their line numbers exist in the checked-out (post-change) file.
+            # Deletion ranges live in the pre-change file and would point at unrelated code, so
+            # deletion-only files fall through to whole-file inclusion instead.
             line_ranges = []
             for change in pr_file.changes:
-                if change.type not in ["addition", "deletion"]:
-                    continue
-                # Use new line numbers for additions, old for deletions
                 if change.type == "addition" and change.new_start_line and change.new_end_line:
                     line_ranges.append((change.new_start_line, change.new_end_line))
-                elif change.type == "deletion" and change.old_start_line and change.old_end_line:
-                    line_ranges.append((change.old_start_line, change.old_end_line))
 
             # Merge overlapping or adjacent ranges
             if line_ranges:
@@ -39,7 +36,7 @@ def prepare_code_context(chunk_filenames: list[str], pr_files: list[PRFile]) -> 
                     else:
                         claude_code_context_lines.append(f"@{filename}#L{start}-{end}")
             else:
-                # No changes, include whole file
+                # No addition ranges (e.g. deletion-only file), include whole file
                 claude_code_context_lines.append(f"@{filename}")
         else:
             # No PRFile found or no changes, include whole file
