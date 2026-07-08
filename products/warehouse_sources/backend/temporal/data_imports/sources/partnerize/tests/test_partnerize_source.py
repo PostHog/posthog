@@ -83,6 +83,10 @@ class TestPartnerizeSource:
                 "forbidden",
                 "403 Client Error: Forbidden for url: https://api.partnerize.com/reference/country",
             ),
+            (
+                "unknown_publisher",
+                "404 Client Error: Not Found for url: https://api.partnerize.com/user/publisher/111111l92/campaign/a",
+            ),
         ]
     )
     def test_non_retryable_errors_match_auth_failures(self, _name: str, observed_error: str) -> None:

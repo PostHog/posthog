@@ -136,7 +136,7 @@ def _get_report_rows(
         params["start_date"] = DEFAULT_START_DATE
 
     resume = resumable_source_manager.load_state() if resumable_source_manager.can_resume() else None
-    offset = resume.offset if resume and resume.offset else 0
+    offset = resume.offset if (resume and resume.offset is not None) else 0
     if offset:
         logger.debug(f"Partnerize: resuming {config.name} from offset {offset}")
 

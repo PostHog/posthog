@@ -99,6 +99,9 @@ You can find your **user application key** and **user API key** under **Account 
         return {
             "401 Client Error: Unauthorized for url: https://api.partnerize.com": "Your Partnerize API credentials are invalid or have been revoked. Check your user application key and user API key under Account settings, then reconnect.",
             "403 Client Error: Forbidden for url: https://api.partnerize.com": "Your Partnerize credentials do not have access to this data. Check the account's permissions and the configured publisher ID, then reconnect.",
+            # Partnerize returns 404 for entities that don't exist, e.g. a publisher ID that was
+            # removed or mistyped — retrying can't fix that.
+            "404 Client Error: Not Found for url: https://api.partnerize.com": "Partnerize could not find the configured publisher. Check the publisher ID, then reconnect.",
         }
 
     def get_schemas(

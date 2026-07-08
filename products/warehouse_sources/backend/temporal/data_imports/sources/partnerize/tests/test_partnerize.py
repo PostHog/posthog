@@ -223,7 +223,7 @@ class TestListRows:
     def test_follows_hypermedia_next_page_and_saves_state(self, monkeypatch: Any) -> None:
         manager = _FakeResumableManager()
         next_url = f"{PARTNERIZE_BASE_URL}/reference/country?page=2"
-        pages = [
+        pages: list[dict[str, Any]] = [
             {
                 "countries": [{"country": {"ref_country_id": 1}}],
                 "hypermedia": {"pagination": {"next_page": next_url}},
@@ -238,7 +238,7 @@ class TestListRows:
 
     def test_relative_next_page_is_resolved_against_base(self, monkeypatch: Any) -> None:
         manager = _FakeResumableManager()
-        pages = [
+        pages: list[dict[str, Any]] = [
             {
                 "campaigns": [{"campaign": {"campaign_id": "10l1"}}],
                 "hypermedia": {"pagination": {"next_page": "/user/publisher/111111l92/campaign/a?page=2"}},
