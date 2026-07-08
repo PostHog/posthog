@@ -160,22 +160,29 @@ class TestClassifier(SimpleTestCase):
         self.assertIn("warmup extrapolated from sample 2/4", row.notes)
 
     def test_residual_gate_threshold(self) -> None:
-        common = {
-            "screened": _screened(),
-            "name": "x",
-            "new_state": _entered([f"p{i}" for i in range(99)], at=NOW - timedelta(hours=2)) | _entered(["q"], at=NOW),
-            "last_realtime_calculation_at": NOW - timedelta(minutes=1),
-            "config": _config(threshold_pct=1.0, activity_probe=lambda p, c: set(p)),
-        }
         old_members = {f"p{i}" for i in range(99)}
-        row = classify_cohort(old_members=old_members, **common)
+        last_calc = NOW - timedelta(minutes=1)
+        config = _config(threshold_pct=1.0, activity_probe=lambda p, c: set(p))
+
+        row = classify_cohort(
+            screened=_screened(),
+            name="x",
+            old_members=old_members,
+            new_state=_entered([f"p{i}" for i in range(99)], at=NOW - timedelta(hours=2)) | _entered(["q"], at=NOW),
+            last_realtime_calculation_at=last_calc,
+            config=config,
+        )
         self.assertEqual(row.residual_new, 0)
         self.assertEqual(row.fresh, 1)
         self.assertEqual(row.verdict, VERDICT_PASS)
 
         stale = classify_cohort(
+            screened=_screened(),
+            name="x",
             old_members=old_members,
-            **{**common, "new_state": _entered([f"p{i}" for i in range(97)], at=NOW - timedelta(hours=2))},
+            new_state=_entered([f"p{i}" for i in range(97)], at=NOW - timedelta(hours=2)),
+            last_realtime_calculation_at=last_calc,
+            config=config,
         )
         self.assertGreater(stale.residual_pct, 1.0)
         self.assertEqual(stale.verdict, VERDICT_FAIL)

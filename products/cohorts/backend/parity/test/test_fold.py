@@ -9,7 +9,7 @@ from products.cohorts.backend.parity.fold import fold_membership_changes, member
 SINCE = datetime(2026, 7, 7, 19, 0, tzinfo=UTC)
 
 
-def _msg(status: str, ts: str, *, cohort_id: int = 10, person_id: str = "P1", team_id: int = 2) -> dict:
+def _msg(status: str, ts: str, *, cohort_id: int | None = 10, person_id: str = "P1", team_id: int = 2) -> dict:
     return {
         "team_id": team_id,
         "cohort_id": cohort_id,

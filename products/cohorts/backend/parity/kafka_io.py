@@ -126,7 +126,7 @@ def drain_topic(
                 return  # broker went quiet before the watermark snapshot — stats.reached_end stays False
             error = message.error()
             if error is not None:
-                if error.code() == KafkaError._PARTITION_EOF:
+                if error.code() == getattr(KafkaError, "_PARTITION_EOF", None):
                     continue
                 raise RuntimeError(str(error))
 
@@ -151,7 +151,8 @@ def drain_topic(
                     yield decoded
             if max_messages is not None and stats.consumed >= max_messages:
                 return
-            if partition in remaining and message.offset() + 1 >= remaining[partition]:
+            offset = message.offset()
+            if partition in remaining and offset is not None and offset + 1 >= remaining[partition]:
                 del remaining[partition]
         stats.reached_end = True
     finally:
