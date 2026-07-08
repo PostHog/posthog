@@ -1,58 +1,48 @@
-from datetime import UTC, datetime, timedelta
+from datetime import timedelta
 
 from posthog.test.base import APIBaseTest
 
-from django.conf import settings
 from django.test import override_settings
 
-import jwt
 from parameterized import parameterized
 from rest_framework import status
 
-from posthog.models import Team
-
-from products.data_modeling.backend.facade.internal_ops import mint_data_modeling_ops_token
 from products.data_modeling.backend.models import DAG, DataModelingJob, DataWarehouseSavedQuery, Edge, Node, NodeType
+from products.data_modeling.backend.tests.api.oidc import OidcAuthTestMixin, mint_oidc_token
 from products.warehouse_sources.backend.facade.models import DataWarehouseTable
 
 
-def _wrong_audience_token(team_id: int) -> str:
-    return jwt.encode(
-        {
-            "aud": "posthog:something_else",
-            "exp": datetime.now(tz=UTC) + timedelta(minutes=5),
-            "team_id": team_id,
-        },
-        settings.DATA_MODELING_OPS_JWT_SECRET,
-        algorithm="HS256",
-    )
-
-
-@override_settings(DATA_MODELING_OPS_JWT_SECRET="test-modeling-ops-secret")
-class TestInternalDataModelingOpsAPI(APIBaseTest):
+class TestInternalDataModelingOpsAPI(OidcAuthTestMixin, APIBaseTest):
     def _get(self, path: str, token: str | None = None):
         base = f"/api/projects/{self.team.id}/internal/data_modeling_ops"
         if token is not None:
             return self.client.get(f"{base}{path}", HTTP_AUTHORIZATION=f"Bearer {token}")
         return self.client.get(f"{base}{path}")
 
-    def _token(self, team_id: int | None = None) -> str:
-        return mint_data_modeling_ops_token(team_id=team_id or self.team.id, acting_user="test@posthog.com")
+    def _token(self) -> str:
+        return mint_oidc_token()
 
+    # The client is session-logged-in (APIBaseTest), so the no-bearer row also proves
+    # session auth cannot reach these routes.
     @parameterized.expand(
         [
-            ("no_token", lambda self: None),
-            ("expired_token", lambda self: mint_data_modeling_ops_token(self.team.id, "x", timedelta(minutes=-1))),
-            ("wrong_audience", lambda self: _wrong_audience_token(self.team.id)),
-            (
-                "other_teams_token",
-                lambda self: mint_data_modeling_ops_token(Team.objects.create(organization=self.organization).id, "x"),
-            ),
+            ("session_only_no_bearer", lambda: None),
+            ("expired_token", lambda: mint_oidc_token(expiry_delta=timedelta(minutes=-1))),
+            ("wrong_audience", lambda: mint_oidc_token(audience="some-other-client-id")),
+            ("wrong_issuer", lambda: mint_oidc_token(issuer="https://evil.example.com")),
+            ("unverified_email", lambda: mint_oidc_token(email_verified=False)),
+            ("wrong_domain", lambda: mint_oidc_token(email="ops@example.com")),
         ]
     )
     def test_rejects_invalid_tokens(self, _name, token_factory):
-        response = self._get("/overview", token_factory(self))
+        response = self._get("/overview", token_factory())
         self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED)
+
+    @override_settings(DATA_MODELING_OPS_OIDC_SERVICE_ACCOUNT_EMAILS=["ops-bot@proj.iam.gserviceaccount.com"])
+    def test_allow_listed_service_account_bypasses_domain_check(self):
+        token = mint_oidc_token(email="ops-bot@proj.iam.gserviceaccount.com", email_verified=False)
+        response = self._get("/overview", token)
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
 
     def test_overview_counts(self):
         dag = DAG.objects.create(team=self.team, name="Default")

@@ -504,7 +504,7 @@ urlpatterns = [
         csrf_exempt(signals_views.InternalSignalViewSet.as_view({"post": "emit"})),
     ),
     # Internal read-only endpoints for the modeling-ops admin app (authenticated with
-    # scoped JWTs signed by DATA_MODELING_OPS_JWT_SECRET; not exposed to Contour ingress)
+    # OIDC ID tokens verified against the issuer JWKS; not exposed to Contour ingress)
     path(
         "api/projects/<str:team_id>/internal/data_modeling_ops/overview",
         csrf_exempt(InternalDataModelingOpsViewSet.as_view({"get": "internal_overview"})),

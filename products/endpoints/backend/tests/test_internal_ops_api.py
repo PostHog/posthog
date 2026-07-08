@@ -1,16 +1,13 @@
 from posthog.test.base import APIBaseTest
 
-from django.test import override_settings
-
 from rest_framework import status
 
-from products.data_modeling.backend.facade.internal_ops import mint_data_modeling_ops_token
 from products.data_modeling.backend.facade.models import DataModelingJob, DataWarehouseSavedQuery
+from products.data_modeling.backend.tests.api.oidc import OidcAuthTestMixin, mint_oidc_token
 from products.endpoints.backend.models import Endpoint, EndpointVersion
 
 
-@override_settings(DATA_MODELING_OPS_JWT_SECRET="test-modeling-ops-secret")
-class TestInternalEndpointsOpsAPI(APIBaseTest):
+class TestInternalEndpointsOpsAPI(OidcAuthTestMixin, APIBaseTest):
     def _get(self, path: str, token: str | None = None):
         base = f"/api/projects/{self.team.id}/internal/data_modeling_ops"
         if token is not None:
@@ -18,7 +15,7 @@ class TestInternalEndpointsOpsAPI(APIBaseTest):
         return self.client.get(f"{base}{path}")
 
     def _token(self) -> str:
-        return mint_data_modeling_ops_token(team_id=self.team.id, acting_user="test@posthog.com")
+        return mint_oidc_token()
 
     def test_rejects_missing_token(self):
         response = self._get("/endpoints")

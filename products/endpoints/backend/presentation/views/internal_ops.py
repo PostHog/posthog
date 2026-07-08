@@ -1,8 +1,8 @@
 """Read-only internal (service-to-service) endpoints API for the modeling-ops admin app.
 
 Lives in the endpoints product (data_modeling cannot depend on endpoints), but shares
-the ``api/projects/<team_id>/internal/data_modeling_ops/`` URL prefix and the scoped-JWT
-auth from the data_modeling facade. Wired manually in posthog/urls.py.
+the ``api/projects/<team_id>/internal/data_modeling_ops/`` URL prefix and the OIDC auth
+from the data_modeling facade. Wired manually in posthog/urls.py.
 """
 
 from drf_spectacular.utils import extend_schema
@@ -13,7 +13,7 @@ from rest_framework.response import Response
 from posthog.api.documentation import _FallbackSerializer
 from posthog.api.routing import TeamAndOrgViewSetMixin
 
-from products.data_modeling.backend.facade.internal_ops import DataModelingOpsJWTAuthentication
+from products.data_modeling.backend.facade.internal_ops import DataModelingOpsAuthenticationMixin
 from products.data_modeling.backend.facade.models import DataModelingJob, DataModelingJobStatus
 from products.endpoints.backend.facade.models import Endpoint, EndpointVersion
 
@@ -95,12 +95,11 @@ class InternalEndpointSummarySerializer(serializers.ModelSerializer):
         read_only_fields = fields
 
 
-class InternalEndpointsOpsViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
+class InternalEndpointsOpsViewSet(DataModelingOpsAuthenticationMixin, TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     """Internal read-only endpoint data for the modeling-ops admin app."""
 
     scope_object = "INTERNAL"
     serializer_class = _FallbackSerializer
-    authentication_classes = [DataModelingOpsJWTAuthentication]
 
     @extend_schema(exclude=True)
     def internal_endpoints(self, request: Request, team_id: str) -> Response:

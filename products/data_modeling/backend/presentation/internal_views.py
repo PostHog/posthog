@@ -3,7 +3,7 @@
 Routes are wired manually in posthog/urls.py under
 ``api/projects/<team_id>/internal/data_modeling_ops/`` — Contour 403s the ``internal``
 prefix at the edge, so these are unreachable from the internet and authenticated with
-scoped JWTs (see internal_auth.py).
+OIDC ID tokens (see internal_auth.py).
 """
 
 import uuid
@@ -29,7 +29,7 @@ from products.data_modeling.backend.facade.models import (
     Edge,
     Node,
 )
-from products.data_modeling.backend.presentation.internal_auth import DataModelingOpsJWTAuthentication
+from products.data_modeling.backend.presentation.internal_auth import DataModelingOpsAuthenticationMixin
 from products.data_modeling.backend.presentation.internal_serializers import (
     InternalDAGSummarySerializer,
     InternalDataModelingJobSerializer,
@@ -65,16 +65,17 @@ class InternalDataModelingOpsPagination(pagination.LimitOffsetPagination):
     max_limit = 500
 
 
-class InternalDataModelingOpsViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
+class InternalDataModelingOpsViewSet(
+    DataModelingOpsAuthenticationMixin, TeamAndOrgViewSetMixin, viewsets.GenericViewSet
+):
     """Internal read-only endpoints for the modeling-ops admin app.
 
-    Authenticated with scoped JWTs (DATA_MODELING_OPS_JWT_SECRET); not exposed through
-    Contour ingress.
+    Authenticated with OIDC ID tokens only (no session/PAT/OAuth fallback); not exposed
+    through Contour ingress.
     """
 
     scope_object = "INTERNAL"
     serializer_class = _FallbackSerializer
-    authentication_classes = [DataModelingOpsJWTAuthentication]
 
     def _paginate(
         self, request: Request, queryset: QuerySet, serializer_class: type[serializers.Serializer]

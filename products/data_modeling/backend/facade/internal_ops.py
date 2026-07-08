@@ -7,15 +7,13 @@ here rather than reaching into presentation modules. Only imported by posthog/ur
 """
 
 from products.data_modeling.backend.presentation.internal_auth import (
-    DATA_MODELING_OPS_AUDIENCE,
-    DataModelingOpsJWTAuthentication,
-    mint_data_modeling_ops_token,
+    DataModelingOpsAuthenticationMixin,
+    DataModelingOpsOIDCAuthentication,
 )
 from products.data_modeling.backend.presentation.internal_views import InternalDataModelingOpsViewSet
 
 __all__ = [
-    "DATA_MODELING_OPS_AUDIENCE",
-    "DataModelingOpsJWTAuthentication",
+    "DataModelingOpsAuthenticationMixin",
+    "DataModelingOpsOIDCAuthentication",
     "InternalDataModelingOpsViewSet",
-    "mint_data_modeling_ops_token",
 ]

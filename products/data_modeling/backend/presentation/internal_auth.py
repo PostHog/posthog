@@ -1,19 +1,29 @@
-"""Authentication for the data_modeling_ops internal (service-to-service) API.
+"""OIDC authentication for the data_modeling_ops internal API.
 
-Scoped JWTs signed with a dedicated per-audience key (DATA_MODELING_OPS_JWT_SECRET),
-short-lived and pinned to a team, so a leaked token is useless outside its team and
-expiry window. See .agents/security.md (secrets & service-to-service auth).
+The modeling-ops admin app sits behind SSO and forwards the operator's OIDC ID token;
+Django verifies it against the issuer's JWKS — signature, issuer, audience, expiry, and
+the email domain. There is no shared signing secret to provision or rotate, a compromised
+caller cannot mint credentials, and ``acting_user`` in the audit log is the verified email
+claim rather than a self-asserted string.
+
+Service (no-human) callers present ID tokens from the same issuer (e.g. a service
+account's identity token); their emails are allow-listed via
+DATA_MODELING_OPS_OIDC_SERVICE_ACCOUNT_EMAILS and exempt from the domain check.
+
+Local dev: DATA_MODELING_OPS_OIDC_AUDIENCES defaults (DEBUG/TEST) to the gcloud CLI's
+public OAuth client ID, so ``gcloud auth print-identity-token`` yields a working token
+against ./bin/start with no extra setup.
 """
 
-from datetime import UTC, datetime, timedelta
-from typing import Any, Optional
+from functools import cache
+from typing import Any
 
-from django.apps import apps
 from django.conf import settings
 from django.http import HttpRequest
 
 import jwt
 import structlog
+from rest_framework.authentication import BaseAuthentication
 from rest_framework.exceptions import AuthenticationFailed
 from rest_framework.request import Request
 
@@ -21,92 +31,60 @@ from posthog.auth import InternalAPIAuthentication, InternalAPIUser
 
 logger = structlog.get_logger(__name__)
 
-DATA_MODELING_OPS_AUDIENCE = "posthog:data_modeling_ops"
-JWT_ALGORITHM = "HS256"
-DEFAULT_TOKEN_EXPIRY = timedelta(minutes=5)
+JWT_ALGORITHM = "RS256"
 
 
-def _verification_keys() -> list[str]:
-    return [
-        key for key in [settings.DATA_MODELING_OPS_JWT_SECRET, *settings.DATA_MODELING_OPS_JWT_SECRET_FALLBACKS] if key
-    ]
+@cache
+def _jwks_client(jwks_url: str) -> jwt.PyJWKClient:
+    return jwt.PyJWKClient(jwks_url, cache_keys=True)
 
 
-def mint_data_modeling_ops_token(
-    team_id: int,
-    acting_user: str,
-    expiry_delta: timedelta = DEFAULT_TOKEN_EXPIRY,
-) -> str:
-    """Mint a token accepted by DataModelingOpsJWTAuthentication.
-
-    Used by tests and local tooling; the modeling-ops app mints its own tokens with the
-    shared signing key. ``acting_user`` identifies the human behind the service call for
-    audit logging.
-    """
-    if not settings.DATA_MODELING_OPS_JWT_SECRET:
-        raise ValueError("DATA_MODELING_OPS_JWT_SECRET is not configured")
-    return jwt.encode(
-        {
-            "aud": DATA_MODELING_OPS_AUDIENCE,
-            "exp": datetime.now(tz=UTC) + expiry_delta,
-            "team_id": team_id,
-            "acting_user": acting_user,
-        },
-        settings.DATA_MODELING_OPS_JWT_SECRET,
-        algorithm=JWT_ALGORITHM,
-    )
-
-
-class DataModelingOpsJWTAuthentication(InternalAPIAuthentication):
+class DataModelingOpsOIDCAuthentication(InternalAPIAuthentication):
     """DRF authentication for data_modeling_ops internal API requests.
 
-    Requires ``Authorization: Bearer <jwt>`` where the token carries the
-    data_modeling_ops audience, an expiry, and a ``team_id`` claim matching the
-    team in the requested URL. Subclasses InternalAPIAuthentication so the router's
-    internal-service permission short-circuit applies, but replaces the shared-secret
-    credential with a scoped JWT (see .agents/security.md).
+    Requires ``Authorization: Bearer <oidc-id-token>`` verified against the configured
+    issuer's JWKS. Team scoping comes from the requested URL, not the token: any verified
+    operator identity may call both the team-scoped and the fleet route families, which is
+    the intended semantics for a read-only staff tool. Subclasses InternalAPIAuthentication
+    so the router's internal-service permission short-circuit applies.
     """
 
     keyword = "Bearer"
 
-    def _requested_team_id(self, request: Request) -> Optional[str]:
-        parser_context = getattr(request, "parser_context", None)
-        if isinstance(parser_context, dict):
-            kwargs = parser_context.get("kwargs")
-            if isinstance(kwargs, dict) and kwargs.get("team_id") is not None:
-                return str(kwargs["team_id"])
-
-        django_request = getattr(request, "_request", request)
-        resolver_match = getattr(django_request, "resolver_match", None)
-        if resolver_match and getattr(resolver_match, "kwargs", None):
-            team_id = resolver_match.kwargs.get("team_id")
-            if team_id is not None:
-                return str(team_id)
-
-        return None
-
     def _decode(self, token: str) -> dict[str, Any]:
-        keys = _verification_keys()
-        if not keys:
+        audiences = settings.DATA_MODELING_OPS_OIDC_AUDIENCES
+        if not audiences:
             logger.error("data_modeling_ops_auth_not_configured")
             raise AuthenticationFailed("Internal API authentication is not configured.")
 
-        last_error: jwt.InvalidTokenError | None = None
-        for key in keys:
-            try:
-                return jwt.decode(
-                    token,
-                    key,
-                    audience=DATA_MODELING_OPS_AUDIENCE,
-                    algorithms=[JWT_ALGORITHM],
-                    options={"require": ["exp", "aud"]},
-                )
-            except jwt.InvalidSignatureError as error:
-                last_error = error
-            except jwt.InvalidTokenError as error:
-                raise AuthenticationFailed("Invalid internal API token.") from error
+        try:
+            signing_key = _jwks_client(settings.DATA_MODELING_OPS_OIDC_JWKS_URL).get_signing_key_from_jwt(token)
+            return jwt.decode(
+                token,
+                signing_key.key,
+                algorithms=[JWT_ALGORITHM],
+                audience=audiences,
+                issuer=settings.DATA_MODELING_OPS_OIDC_ISSUER,
+                options={"require": ["exp", "aud", "iss"]},
+            )
+        except (jwt.PyJWKClientError, jwt.InvalidTokenError) as error:
+            raise AuthenticationFailed("Invalid internal API token.") from error
 
-        raise AuthenticationFailed("Invalid internal API token.") from last_error
+    def _verified_identity(self, claims: dict[str, Any]) -> str:
+        email = str(claims.get("email") or "").lower()
+        if not email:
+            raise AuthenticationFailed("Token carries no identity.")
+
+        service_accounts = {value.lower() for value in settings.DATA_MODELING_OPS_OIDC_SERVICE_ACCOUNT_EMAILS}
+        if email in service_accounts:
+            return email
+
+        if not claims.get("email_verified"):
+            raise AuthenticationFailed("Token identity is not verified.")
+        domain = email.rsplit("@", 1)[-1]
+        if domain not in settings.DATA_MODELING_OPS_OIDC_ALLOWED_DOMAINS:
+            raise AuthenticationFailed("Token identity is not allowed.")
+        return email
 
     def authenticate(self, request: Request) -> tuple[InternalAPIUser, dict[str, Any]]:
         header = request.headers.get("Authorization", "")
@@ -114,25 +92,30 @@ class DataModelingOpsJWTAuthentication(InternalAPIAuthentication):
             raise AuthenticationFailed("Missing internal API token.")
 
         claims = self._decode(header[len(self.keyword) + 1 :].strip())
-
-        requested_team_id = self._requested_team_id(request)
-        token_team_id = claims.get("team_id")
-        if requested_team_id is None or token_team_id is None or str(token_team_id) != requested_team_id:
-            raise AuthenticationFailed("Token is not valid for this team.")
-
-        Team = apps.get_model(app_label="posthog", model_name="Team")
-        try:
-            team = Team.objects.only("id", "organization_id").get(id=requested_team_id)
-        except (Team.DoesNotExist, ValueError):
-            raise AuthenticationFailed("Invalid internal API team.")
+        acting_user = self._verified_identity(claims)
+        user = self._get_internal_api_user(request)
 
         logger.info(
             "data_modeling_ops_internal_request",
-            team_id=team.id,
-            acting_user=claims.get("acting_user"),
+            team_id=user.current_team_id,
+            acting_user=acting_user,
             path=request.path,
         )
-        return (InternalAPIUser(current_organization_id=team.organization_id, current_team_id=team.id), claims)
+        return (user, claims)
 
     def authenticate_header(self, request: HttpRequest) -> str:
         return self.keyword
+
+
+class DataModelingOpsAuthenticationMixin:
+    """Pins a viewset to the OIDC authenticator only.
+
+    TeamAndOrgViewSetMixin.get_authenticators always appends the session/PAT/OAuth
+    authenticators after the custom ones, which on these internal routes would let any
+    logged-in user through. Must precede TeamAndOrgViewSetMixin in the bases.
+    """
+
+    authentication_classes = [DataModelingOpsOIDCAuthentication]
+
+    def get_authenticators(self) -> list[BaseAuthentication]:
+        return [DataModelingOpsOIDCAuthentication()]
