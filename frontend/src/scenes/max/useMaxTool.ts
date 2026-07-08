@@ -91,6 +91,7 @@ export function useMaxTool({
         clientExecution,
         registerTool,
         deregisterTool,
+        context,
     ])
 
     useEffect(() => {
