@@ -70,6 +70,15 @@ const S3_OP_BUCKETS_MS: &[f64] = &[
     1.0, 2.5, 5.0, 10.0, 25.0, 50.0, 100.0, 250.0, 500.0, 1000.0, 2500.0, 5000.0, 10000.0,
 ];
 
+// Realtime cohort membership lookups. The rollout SLO is p99 < 20ms, which
+// the default ladder cannot resolve (it jumps 10ms → 50ms), so carry an
+// explicit 20ms boundary. Sub-ms floor captures Moka cache hits on the
+// end-to-end metric; 1s ceiling matches the behavioral cohorts pool's
+// statement timeout.
+const REALTIME_COHORT_LOOKUP_BUCKETS_MS: &[f64] = &[
+    0.05, 0.1, 0.5, 1.0, 2.5, 5.0, 10.0, 20.0, 50.0, 100.0, 250.0, 500.0, 1000.0,
+];
+
 /// Returns the bucket-override matrix for the feature-flags recorder.
 ///
 /// `Matcher::Suffix` is used for `_queue_time_ms` / `_pre_handler_time_ms`
@@ -123,6 +132,14 @@ pub fn bucket_overrides() -> Vec<(Matcher, &'static [f64])> {
         (
             Matcher::Full("posthog_hypercache_s3_op_ms".into()),
             S3_OP_BUCKETS_MS,
+        ),
+        (
+            Matcher::Full("flags_realtime_cohort_query_time".into()),
+            REALTIME_COHORT_LOOKUP_BUCKETS_MS,
+        ),
+        (
+            Matcher::Full("flags_realtime_cohort_db_query_time".into()),
+            REALTIME_COHORT_LOOKUP_BUCKETS_MS,
         ),
     ]
 }

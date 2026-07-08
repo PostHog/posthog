@@ -1,14 +1,21 @@
 #[cfg(test)]
 mod tests {
+    use async_trait::async_trait;
+    use chrono::Utc;
     use common_types::TeamId;
     use serde_json::json;
     use std::collections::{HashMap, HashSet};
+    use std::sync::atomic::{AtomicU32, Ordering};
     use std::sync::Arc;
     use uuid::Uuid;
 
     use crate::{
         api::types::{FlagValue, LegacyFlagsResponse},
-        cohorts::cohort_cache_manager::CohortCacheManager,
+        cohorts::{
+            cohort_cache_manager::CohortCacheManager,
+            cohort_models::{CohortId, CohortType},
+            membership::{CohortMembershipError, CohortMembershipProvider},
+        },
         flags::{
             feature_flag_list::PreparedFlags,
             flag_group_type_mapping::GroupTypeCacheManager,
@@ -3180,6 +3187,304 @@ mod tests {
         assert!(
             !result.matches,
             "User in the static cohort should not match the 'NotIn' flag"
+        );
+    }
+
+    /// Membership provider that returns a fixed membership map and counts calls,
+    /// standing in for the behavioral cohorts DB in realtime cohort tests.
+    struct FixedMembershipProvider {
+        memberships: HashMap<CohortId, bool>,
+        calls: AtomicU32,
+    }
+
+    impl FixedMembershipProvider {
+        fn new(memberships: HashMap<CohortId, bool>) -> Self {
+            Self {
+                memberships,
+                calls: AtomicU32::new(0),
+            }
+        }
+    }
+
+    #[async_trait]
+    impl CohortMembershipProvider for FixedMembershipProvider {
+        async fn check_memberships(
+            &self,
+            _team_id: TeamId,
+            _person_uuid: Uuid,
+            cohort_ids: &[CohortId],
+        ) -> Result<HashMap<CohortId, bool>, CohortMembershipError> {
+            self.calls.fetch_add(1, Ordering::SeqCst);
+            Ok(cohort_ids
+                .iter()
+                .map(|id| (*id, self.memberships.get(id).copied().unwrap_or(false)))
+                .collect())
+        }
+    }
+
+    /// Membership provider that always fails, simulating an unavailable
+    /// behavioral cohorts database.
+    struct FailingMembershipProvider;
+
+    #[async_trait]
+    impl CohortMembershipProvider for FailingMembershipProvider {
+        async fn check_memberships(
+            &self,
+            _team_id: TeamId,
+            _person_uuid: Uuid,
+            _cohort_ids: &[CohortId],
+        ) -> Result<HashMap<CohortId, bool>, CohortMembershipError> {
+            Err(CohortMembershipError::QueryFailed(
+                "behavioral cohorts DB unavailable".to_string(),
+            ))
+        }
+    }
+
+    /// Cohort filters requiring person property plan == `plan`, used so tests can
+    /// tell provider-driven results apart from dynamic filter evaluation.
+    fn plan_cohort_filters(plan: &str) -> serde_json::Value {
+        json!({
+            "properties": {
+                "type": "OR",
+                "values": [{
+                    "type": "AND",
+                    "values": [{
+                        "key": "plan",
+                        "type": "person",
+                        "value": [plan],
+                        "operator": "exact",
+                        "negation": false
+                    }]
+                }]
+            }
+        })
+    }
+
+    fn flag_targeting_cohort(team_id: TeamId, cohort_id: CohortId) -> FeatureFlag {
+        mock!(FeatureFlag,
+            team_id: team_id,
+            filters: FlagFilters {
+                groups: vec![FlagPropertyGroup {
+                    properties: Some(vec![PropertyFilter {
+                        key: "id".to_string(),
+                        value: Some(json!(cohort_id)),
+                        operator: Some(OperatorType::In),
+                        prop_type: PropertyType::Cohort,
+                        group_type_index: None,
+                        negation: Some(false),
+                        compiled_regex: None,
+                        extra: Default::default(),
+                    }]),
+                    rollout_percentage: Some(100.0),
+                    variant: None,
+                    ..Default::default()
+                }],
+                multivariate: None,
+                aggregation_group_type_index: None,
+                payloads: None,
+
+                feature_enrollment: None,
+
+                holdout: None,
+                early_exit: None,
+                extra: Default::default(),
+            }
+        )
+    }
+
+    #[tokio::test]
+    async fn test_realtime_cohort_membership_from_provider_matches_flag() {
+        let context = TestContext::new(None).await;
+        let cohort_cache = Arc::new(CohortCacheManager::new(
+            context.non_persons_reader.clone(),
+            None,
+            None,
+        ));
+        let team = context.insert_new_team(None).await.unwrap();
+
+        // Realtime cohort with a backfill timestamp, so membership comes from the
+        // provider. Its filters require plan=enterprise, which the person does NOT
+        // satisfy — a match can only come from the provider.
+        let cohort = context
+            .insert_cohort_with_type(
+                team.id,
+                Some("Realtime Cohort".to_string()),
+                plan_cohort_filters("enterprise"),
+                false,
+                Some(CohortType::Realtime),
+                Some(Utc::now()),
+                None,
+            )
+            .await
+            .unwrap();
+
+        let distinct_id = "realtime_member_user".to_string();
+        context
+            .insert_person(team.id, distinct_id.clone(), Some(json!({"plan": "free"})))
+            .await
+            .unwrap();
+
+        let flag = flag_targeting_cohort(team.id, cohort.id);
+
+        let provider = Arc::new(FixedMembershipProvider::new(HashMap::from([(
+            cohort.id, true,
+        )])));
+        let mut matcher = FeatureFlagMatcher::new(
+            distinct_id.clone(),
+            None,
+            team.id,
+            context.create_postgres_router(),
+            cohort_cache,
+            empty_group_type_cache(),
+            None,
+        )
+        .with_cohort_membership_provider(provider.clone())
+        .with_realtime_cohort_evaluation(true);
+
+        matcher
+            .prepare_flag_evaluation_state(&[&flag])
+            .await
+            .unwrap();
+
+        let result = matcher.get_match(&flag, None, None, None, &None).unwrap();
+
+        assert!(
+            result.matches,
+            "Provider-reported membership should match the flag even though dynamic filter evaluation would not"
+        );
+        assert_eq!(provider.calls.load(Ordering::SeqCst), 1);
+    }
+
+    #[tokio::test]
+    async fn test_realtime_cohort_provider_error_degrades_to_non_member() {
+        let context = TestContext::new(None).await;
+        let cohort_cache = Arc::new(CohortCacheManager::new(
+            context.non_persons_reader.clone(),
+            None,
+            None,
+        ));
+        let team = context.insert_new_team(None).await.unwrap();
+
+        // The person DOES satisfy the cohort's filters (plan=enterprise), so if a
+        // provider failure wrongly fell through to dynamic evaluation the flag
+        // would match. Graceful degradation must treat the person as a non-member.
+        let cohort = context
+            .insert_cohort_with_type(
+                team.id,
+                Some("Realtime Cohort Degraded".to_string()),
+                plan_cohort_filters("enterprise"),
+                false,
+                Some(CohortType::Realtime),
+                Some(Utc::now()),
+                None,
+            )
+            .await
+            .unwrap();
+
+        let distinct_id = "realtime_degraded_user".to_string();
+        context
+            .insert_person(
+                team.id,
+                distinct_id.clone(),
+                Some(json!({"plan": "enterprise"})),
+            )
+            .await
+            .unwrap();
+
+        let flag = flag_targeting_cohort(team.id, cohort.id);
+
+        let mut matcher = FeatureFlagMatcher::new(
+            distinct_id.clone(),
+            None,
+            team.id,
+            context.create_postgres_router(),
+            cohort_cache,
+            empty_group_type_cache(),
+            None,
+        )
+        .with_cohort_membership_provider(Arc::new(FailingMembershipProvider))
+        .with_realtime_cohort_evaluation(true);
+
+        matcher
+            .prepare_flag_evaluation_state(&[&flag])
+            .await
+            .expect("provider failure must not fail flag evaluation");
+
+        let result = matcher.get_match(&flag, None, None, None, &None).unwrap();
+
+        assert!(
+            !result.matches,
+            "On provider failure the person must be treated as a non-member, not re-evaluated dynamically"
+        );
+    }
+
+    #[tokio::test]
+    async fn test_realtime_cohort_gate_off_skips_provider_and_falls_back_to_dynamic() {
+        let context = TestContext::new(None).await;
+        let cohort_cache = Arc::new(CohortCacheManager::new(
+            context.non_persons_reader.clone(),
+            None,
+            None,
+        ));
+        let team = context.insert_new_team(None).await.unwrap();
+
+        let cohort = context
+            .insert_cohort_with_type(
+                team.id,
+                Some("Realtime Cohort Gated".to_string()),
+                plan_cohort_filters("enterprise"),
+                false,
+                Some(CohortType::Realtime),
+                Some(Utc::now()),
+                None,
+            )
+            .await
+            .unwrap();
+
+        let distinct_id = "realtime_gated_user".to_string();
+        context
+            .insert_person(
+                team.id,
+                distinct_id.clone(),
+                Some(json!({"plan": "enterprise"})),
+            )
+            .await
+            .unwrap();
+
+        let flag = flag_targeting_cohort(team.id, cohort.id);
+
+        // The provider would report non-membership; with the rollout gate off it
+        // must never be consulted and the cohort evaluates dynamically instead.
+        let provider = Arc::new(FixedMembershipProvider::new(HashMap::from([(
+            cohort.id, false,
+        )])));
+        let mut matcher = FeatureFlagMatcher::new(
+            distinct_id.clone(),
+            None,
+            team.id,
+            context.create_postgres_router(),
+            cohort_cache,
+            empty_group_type_cache(),
+            None,
+        )
+        .with_cohort_membership_provider(provider.clone())
+        .with_realtime_cohort_evaluation(false);
+
+        matcher
+            .prepare_flag_evaluation_state(&[&flag])
+            .await
+            .unwrap();
+
+        let result = matcher.get_match(&flag, None, None, None, &None).unwrap();
+
+        assert!(
+            result.matches,
+            "With the gate off the cohort should fall back to dynamic filter evaluation"
+        );
+        assert_eq!(
+            provider.calls.load(Ordering::SeqCst),
+            0,
+            "Provider must not be consulted when realtime cohort evaluation is disabled"
         );
     }
 

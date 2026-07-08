@@ -6,6 +6,10 @@ use std::time::Duration;
 use uuid::Uuid;
 
 use crate::cohorts::cohort_models::CohortId;
+use crate::metrics::consts::{
+    COHORT_MEMBERSHIP_CACHE_ENTRIES_GAUGE, COHORT_MEMBERSHIP_CACHE_HIT_COUNTER,
+    COHORT_MEMBERSHIP_CACHE_MISS_COUNTER,
+};
 use common_types::TeamId;
 
 use super::provider::{CohortMembershipError, CohortMembershipProvider};
@@ -41,6 +45,14 @@ impl<P: CohortMembershipProvider> CachedCohortMembershipProvider<P> {
             cache,
         }
     }
+
+    fn report_entries_gauge(&self) {
+        common_metrics::gauge(
+            COHORT_MEMBERSHIP_CACHE_ENTRIES_GAUGE,
+            &[],
+            self.cache.entry_count() as f64,
+        );
+    }
 }
 
 #[async_trait]
@@ -67,12 +79,14 @@ impl<P: CohortMembershipProvider> CohortMembershipProvider for CachedCohortMembe
                 .collect();
 
             if uncached_ids.is_empty() {
+                common_metrics::inc(COHORT_MEMBERSHIP_CACHE_HIT_COUNTER, &[], 1);
                 return Ok(cohort_ids
                     .iter()
                     .map(|id| (*id, cached.get(id).copied().unwrap_or(false)))
                     .collect());
             }
 
+            common_metrics::inc(COHORT_MEMBERSHIP_CACHE_MISS_COUNTER, &[], 1);
             let fresh = self
                 .inner
                 .check_memberships(team_id, person_uuid, &uncached_ids)
@@ -81,6 +95,7 @@ impl<P: CohortMembershipProvider> CohortMembershipProvider for CachedCohortMembe
             let mut merged = cached;
             merged.extend(fresh);
             self.cache.insert(cache_key, merged.clone()).await;
+            self.report_entries_gauge();
 
             return Ok(cohort_ids
                 .iter()
@@ -88,12 +103,14 @@ impl<P: CohortMembershipProvider> CohortMembershipProvider for CachedCohortMembe
                 .collect());
         }
 
+        common_metrics::inc(COHORT_MEMBERSHIP_CACHE_MISS_COUNTER, &[], 1);
         let result = self
             .inner
             .check_memberships(team_id, person_uuid, cohort_ids)
             .await?;
 
         self.cache.insert(cache_key, result.clone()).await;
+        self.report_entries_gauge();
 
         Ok(result)
     }

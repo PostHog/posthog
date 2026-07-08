@@ -28,7 +28,7 @@ The service uses a four-pool architecture (with an optional fifth pool for behav
 
 When the persons database is not configured separately, the persons pools alias to the non-persons pools, effectively creating a two-pool architecture.
 
-When `BEHAVIORAL_COHORTS_READ_DATABASE_URL` is configured, a separate reader pool is created for realtime cohort membership lookups. This pool has tight limits (max 5 connections, 1s statement timeout) to avoid impacting flag evaluation latency. When not configured, realtime cohort evaluation is disabled with no impact on existing flag evaluation.
+When `BEHAVIORAL_COHORTS_READ_DATABASE_URL` is configured, a separate reader pool is created for realtime cohort membership lookups. This pool has tight limits (max 5 connections, 1s statement timeout, and a 500ms `REALTIME_COHORT_LOOKUP_TIMEOUT_MS` bound covering pool acquire + query) to avoid impacting flag evaluation latency. When not configured, realtime cohort evaluation is disabled with no impact on existing flag evaluation.
 
 ## Connection pooling
 
@@ -303,6 +303,14 @@ let retry_strategy = ExponentialBackoff::from_millis(100)
 | `flags_rate_limit_check_ms`             | `kind`                 | Rate limit check duration (`kind="ip"` or `kind="token"`)              |
 | `flags_token_extract_ms`                | -                      | Token extraction timing                                                |
 | `flags_concurrency_limit_wait_ms`       | -                      | Concurrency limit permit wait time (pod-level, no `team_id`)           |
+| `flags_realtime_cohort_query_time`      | `team_id`              | Realtime cohort lookup at the evaluation site, including cache hits    |
+| `flags_realtime_cohort_query_error_total` | `team_id`            | Realtime cohort lookups that failed and degraded to non-membership     |
+| `flags_realtime_cohort_db_query_time`   | `outcome`              | Behavioral cohorts DB query latency (`success`, `error`, `timeout`; sub-ms precision, 20ms SLO bucket) |
+| `flags_db_cohort_membership_reads_total` | -                     | Successful behavioral cohorts DB reads                                 |
+| `flags_db_cohort_membership_errors_total` | -                    | Failed or timed-out behavioral cohorts DB reads                        |
+| `flags_cohort_membership_cache_hit_total` | -                    | Membership lookups fully served from the Moka cache                    |
+| `flags_cohort_membership_cache_miss_total` | -                   | Membership lookups that issued a behavioral cohorts DB query           |
+| `flags_cohort_membership_cache_entries` | -                      | Current entries in the membership cache (one per team + person pair)   |
 
 ### Example PromQL queries
 
