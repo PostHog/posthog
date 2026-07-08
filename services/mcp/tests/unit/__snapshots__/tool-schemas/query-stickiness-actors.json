@@ -746,7 +746,7 @@
                                         ]
                                     },
                                     "math_hogql": {
-                                        "description": "Custom HogQL expression for aggregation. Use when the predefined `math` types are not sufficient. When set, `math` must be set to `hogql`.\n\nExamples:\n- Sum a numeric property: `sum(toFloat(properties.$revenue))`\n- Average of a property: `avg(toFloat(properties.load_time))`\n- Count distinct values: `count(distinct properties.$session_id)`\n- Conditional count: `countIf(toFloat(properties.duration) > 30)`\n- Percentile: `quantile(0.95)(toFloat(properties.response_time))`",
+                                        "description": "Custom HogQL expression for aggregation. Use when the predefined `math` types are not sufficient. When set, `math` must be set to `hogql`.\n\nExamples:\n- Sum a numeric property: `sum(toFloat(properties.$revenue))`\n- Average of a property: `avg(toFloat(properties.load_time))`\n- Count distinct values: `count(distinct properties.$session_id)`\n- Conditional count: `countIf(toFloat(properties.duration) > 30)`\n- Percentile: `quantile(0.95)(toFloat(properties.response_time))`\n\nDo NOT bake display/unit conversion into this expression (e.g. `sum(ceil(toFloat(properties.foo_seconds)/60))` to show minutes). Aggregate the raw property (`sum(toFloat(properties.foo_seconds))`) and handle presentation with the axis format (e.g. `aggregationAxisFormat: duration`) instead.",
                                         "type": "string"
                                     },
                                     "math_multiplier": {
@@ -1412,7 +1412,7 @@
                                         ]
                                     },
                                     "math_hogql": {
-                                        "description": "Custom HogQL expression for aggregation. Use when the predefined `math` types are not sufficient. When set, `math` must be set to `hogql`.\n\nExamples:\n- Sum a numeric property: `sum(toFloat(properties.$revenue))`\n- Average of a property: `avg(toFloat(properties.load_time))`\n- Count distinct values: `count(distinct properties.$session_id)`\n- Conditional count: `countIf(toFloat(properties.duration) > 30)`\n- Percentile: `quantile(0.95)(toFloat(properties.response_time))`",
+                                        "description": "Custom HogQL expression for aggregation. Use when the predefined `math` types are not sufficient. When set, `math` must be set to `hogql`.\n\nExamples:\n- Sum a numeric property: `sum(toFloat(properties.$revenue))`\n- Average of a property: `avg(toFloat(properties.load_time))`\n- Count distinct values: `count(distinct properties.$session_id)`\n- Conditional count: `countIf(toFloat(properties.duration) > 30)`\n- Percentile: `quantile(0.95)(toFloat(properties.response_time))`\n\nDo NOT bake display/unit conversion into this expression (e.g. `sum(ceil(toFloat(properties.foo_seconds)/60))` to show minutes). Aggregate the raw property (`sum(toFloat(properties.foo_seconds))`) and handle presentation with the axis format (e.g. `aggregationAxisFormat: duration`) instead.",
                                         "type": "string"
                                     },
                                     "math_multiplier": {

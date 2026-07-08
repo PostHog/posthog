@@ -208,8 +208,15 @@
                                                             "type": "string"
                                                         },
                                                         "style": {
-                                                            "description": "Number formatting style.\n- `none` — no formatting.\n- `number` — thousands separators (e.g. `1,234`).\n- `short` — abbreviated large numbers (e.g. `1.2k`, `3.4M`).\n- `percent` — render the value as a percentage.",
-                                                            "enum": ["none", "number", "short", "percent"],
+                                                            "description": "Number formatting style.\n- `none` — no formatting.\n- `number` — thousands separators (e.g. `1,234`).\n- `short` — abbreviated large numbers (e.g. `1.2k`, `3.4M`).\n- `percent` — render the value as a percentage.\n- `duration` — render a value in seconds as a human-readable duration (e.g. `132` becomes `2m 12s`).\n- `duration_ms` — render a value in milliseconds as a human-readable duration.\n\nFor time values, prefer selecting the raw seconds/milliseconds column and setting `duration`/`duration_ms` here, rather than converting units inside the SQL (e.g. `.../60`) and appending a manual `suffix` like ` mins`.",
+                                                            "enum": [
+                                                                "none",
+                                                                "number",
+                                                                "short",
+                                                                "percent",
+                                                                "duration",
+                                                                "duration_ms"
+                                                            ],
                                                             "type": "string"
                                                         },
                                                         "suffix": {
@@ -281,8 +288,15 @@
                                                                 "type": "string"
                                                             },
                                                             "style": {
-                                                                "description": "Number formatting style.\n- `none` — no formatting.\n- `number` — thousands separators (e.g. `1,234`).\n- `short` — abbreviated large numbers (e.g. `1.2k`, `3.4M`).\n- `percent` — render the value as a percentage.",
-                                                                "enum": ["none", "number", "short", "percent"],
+                                                                "description": "Number formatting style.\n- `none` — no formatting.\n- `number` — thousands separators (e.g. `1,234`).\n- `short` — abbreviated large numbers (e.g. `1.2k`, `3.4M`).\n- `percent` — render the value as a percentage.\n- `duration` — render a value in seconds as a human-readable duration (e.g. `132` becomes `2m 12s`).\n- `duration_ms` — render a value in milliseconds as a human-readable duration.\n\nFor time values, prefer selecting the raw seconds/milliseconds column and setting `duration`/`duration_ms` here, rather than converting units inside the SQL (e.g. `.../60`) and appending a manual `suffix` like ` mins`.",
+                                                                "enum": [
+                                                                    "none",
+                                                                    "number",
+                                                                    "short",
+                                                                    "percent",
+                                                                    "duration",
+                                                                    "duration_ms"
+                                                                ],
                                                                 "type": "string"
                                                             },
                                                             "suffix": {
@@ -385,8 +399,15 @@
                                                                 "type": "string"
                                                             },
                                                             "style": {
-                                                                "description": "Number formatting style.\n- `none` — no formatting.\n- `number` — thousands separators (e.g. `1,234`).\n- `short` — abbreviated large numbers (e.g. `1.2k`, `3.4M`).\n- `percent` — render the value as a percentage.",
-                                                                "enum": ["none", "number", "short", "percent"],
+                                                                "description": "Number formatting style.\n- `none` — no formatting.\n- `number` — thousands separators (e.g. `1,234`).\n- `short` — abbreviated large numbers (e.g. `1.2k`, `3.4M`).\n- `percent` — render the value as a percentage.\n- `duration` — render a value in seconds as a human-readable duration (e.g. `132` becomes `2m 12s`).\n- `duration_ms` — render a value in milliseconds as a human-readable duration.\n\nFor time values, prefer selecting the raw seconds/milliseconds column and setting `duration`/`duration_ms` here, rather than converting units inside the SQL (e.g. `.../60`) and appending a manual `suffix` like ` mins`.",
+                                                                "enum": [
+                                                                    "none",
+                                                                    "number",
+                                                                    "short",
+                                                                    "percent",
+                                                                    "duration",
+                                                                    "duration_ms"
+                                                                ],
                                                                 "type": "string"
                                                             },
                                                             "suffix": {
