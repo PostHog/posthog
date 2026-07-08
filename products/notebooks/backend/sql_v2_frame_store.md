@@ -1,7 +1,7 @@
 # SQLV2 frame materialization via object storage
 
 Design notes for moving python-node frame materialization off the Redis JSON transport and onto an object-storage handoff.
-Status: **proposal** — phase 0 is shipped, phases 1+ are not started.
+Status: **proposal** — not started; materialization is deliberately clamped at 50k rows until phase 1 lands.
 
 ## Problem
 
@@ -13,11 +13,13 @@ When a python node reads an upstream SQLV2 frame, the sandbox kernel fetches the
 3. On poll, a web worker reads the blob back, parses the JSON, and re-encodes it as an Arrow stream for the sandbox.
 
 The frame is fully copied ~5 times, and the middle copy sits in Redis — the shared cache for the whole deployment.
-This transport was implicitly sized by the old 50k row ceiling.
-`LimitContext.NOTEBOOK_MATERIALIZE` (phase 0, shipped) raised the ceiling to 2M rows (`_MATERIALIZE_ROW_CAP`),
-which makes notebooks the first caller pushing volumes the transport was never shaped for.
-Rough envelope: low hundreds of thousands of rows pass fine; wide multi-million-row frames will hurt Redis
-(single-threaded, 512MB per-value hard cap, eviction pressure) before they hit the limit.
+This transport is implicitly sized by the 50k row ceiling (`MAX_SELECT_RETURNED_ROWS` under the async limit context),
+so materialized frames are silently clipped at 50k rows today.
+A `LimitContext.NOTEBOOK_MATERIALIZE` context raising the ceiling to 2M (`_MATERIALIZE_ROW_CAP`) was built and then
+**deliberately reverted**: without a better payload transport, wide multi-hundred-thousand-row frames stress Redis
+(single-threaded, 512MB per-value hard cap, eviction pressure) and the workers that render/parse the JSON.
+The clamp is pinned by `test_materialization_request_is_accepted_and_clipped_at_the_row_ceiling` and comes off as
+part of phase 1, when the transport can carry what the limit allows.
 
 ## Decision sketch: durable object handoff, not live push
 
@@ -102,11 +104,12 @@ token-authed; only the bulk-bytes leg moves to object storage.
 
 ## Phased plan — start basic, improve later
 
-**Phase 0 (shipped).** `LimitContext.NOTEBOOK_MATERIALIZE` (2M ceiling) over the existing Redis transport.
+**Phase 0 (current state).** Materialization runs over the existing Redis transport, clipped at 50k rows.
 Fine for the current flag-gated audience and frames up to low hundreds of thousands of rows.
 
 **Phase 1 — swap the payload path, minimal moving parts.**
-When the data-plane task runs under `NOTEBOOK_MATERIALIZE`, the worker streams the CH result
+Reintroduce `LimitContext.NOTEBOOK_MATERIALIZE` (2M ceiling, the reverted change) together with the new transport.
+When the data-plane task runs under it, the worker streams the CH result
 (`output_format="ArrowStream"`, bounded batches — data-modeling pattern) into one object,
 stores the **object key** in `QueryStatus` instead of rows, and the status endpoint answers the poll with a
 **302 redirect to a presigned URL**.

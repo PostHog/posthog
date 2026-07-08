@@ -26,7 +26,6 @@ from django.http import HttpRequest, HttpResponse, JsonResponse
 import structlog
 from drf_spectacular.utils import OpenApiResponse, extend_schema
 
-from posthog.hogql.constants import LimitContext
 from posthog.hogql.errors import ExposedHogQLError
 from posthog.hogql.parser import parse_select
 
@@ -145,9 +144,6 @@ def notebook_sql_v2_data_plane(request: HttpRequest) -> HttpResponse:
                 team=team,
                 user_id=user.id if user else None,
                 query_json={"kind": "HogQLQuery", "query": wrapped},
-                # The kernel fetches whole frames here; the default async context would
-                # clamp the outer LIMIT to 50k and silently truncate materializations.
-                limit_context=LimitContext.NOTEBOOK_MATERIALIZE,
                 # Dispatch normally rides transaction.on_commit, which never fires inside
                 # a test transaction — run inline there, like the manager's own tests do.
                 _test_only_bypass_celery=settings.TEST,

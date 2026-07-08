@@ -774,16 +774,17 @@ class TestSQLV2DataPlaneEndpoint(APIBaseTest):
         _columns, rows, _types = decode_arrow_stream(response.content)
         self.assertEqual(rows, [(2,), (3,), (4,)])
 
-    def test_materialization_is_not_clipped_to_the_query_row_ceiling(self):
+    def test_materialization_request_is_accepted_and_clipped_at_the_row_ceiling(self):
         # The kernel executor fetches whole frames with limit=_MATERIALIZE_ROW_CAP (2M, not
-        # importable here: the executor module needs jupyter_client). Two past regressions:
-        # the serializer once capped limit at 1000, 400-ing every materialization, and the
-        # default async limit context once clamped the outer LIMIT to 50k, silently
-        # truncating any frame bigger than that.
+        # importable here: the executor module needs jupyter_client). The serializer must
+        # accept that limit (it once capped at 1000, 400-ing every materialization), and the
+        # async limit context then clips the frame at MAX_SELECT_RETURNED_ROWS (50k) — a
+        # deliberate bound until the object-storage frame store (sql_v2_frame_store.md)
+        # gives big frames a transport that doesn't round-trip through Redis.
         response = self._run_to_completion({"query": "select number from numbers(50001)", "limit": 2_000_000})
         self.assertEqual(response.status_code, 200, response.content)
         _columns, rows, _types = decode_arrow_stream(response.content)
-        self.assertEqual(len(rows), 50_001)
+        self.assertEqual(len(rows), 50_000)
 
     def test_execution_error_surfaces_through_status(self):
         # Valid syntax but fails at execution — the error must reach the sandbox via the poll.
