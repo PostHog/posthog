@@ -43,6 +43,7 @@ class TestLLMPromptAPI(APIBaseTest):
             data={
                 "name": "my-prompt",
                 "prompt": "You are a helpful assistant.",
+                "version_description": "Initial version",
             },
             format="json",
         )
@@ -52,6 +53,7 @@ class TestLLMPromptAPI(APIBaseTest):
         assert response.json()["is_latest"] is True
         assert response.json()["latest_version"] == 1
         assert response.json()["version_count"] == 1
+        assert response.json()["version_description"] == "Initial version"
 
     def test_create_prompt_with_duplicate_active_name_fails(self):
         self.create_prompt_version(name="my-prompt")
@@ -343,6 +345,38 @@ class TestLLMPromptAPI(APIBaseTest):
         assert response.json()["id"] == str(latest.id)
         assert response.json()["latest_version"] == 2
         assert response.json()["version_count"] == 2
+
+    def test_publish_persists_version_description_and_returns_it_in_version_summaries(self):
+        self.create_prompt_version(name="publish-prompt", version=1, is_latest=True, prompt="v1")
+
+        response = self.client.patch(
+            f"/api/environments/{self.team.id}/llm_prompts/name/publish-prompt/",
+            data={"prompt": "v2", "base_version": 1, "version_description": "  Tightened the refusal criteria  "},
+            format="json",
+        )
+
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json()["version_description"] == "Tightened the refusal criteria"
+
+        published = LLMPrompt.objects.get(team=self.team, name="publish-prompt", version=2, deleted=False)
+        assert published.version_description == "Tightened the refusal criteria"
+
+        resolve_response = self.client.get(f"/api/environments/{self.team.id}/llm_prompts/resolve/name/publish-prompt/")
+        assert resolve_response.status_code == status.HTTP_200_OK
+        versions = resolve_response.json()["versions"]
+        assert [v["version_description"] for v in versions] == ["Tightened the refusal criteria", None]
+
+    def test_publish_normalizes_blank_version_description_to_null(self):
+        self.create_prompt_version(name="publish-prompt", version=1, is_latest=True, prompt="v1")
+
+        response = self.client.patch(
+            f"/api/environments/{self.team.id}/llm_prompts/name/publish-prompt/",
+            data={"prompt": "v2", "base_version": 1, "version_description": "   "},
+            format="json",
+        )
+
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json()["version_description"] is None
 
     def test_update_prompt_by_name_falls_back_when_post_publish_refresh_misses_row(self):
         first_version = self.create_prompt_version(name="publish-prompt", version=1, is_latest=True, prompt="v1")

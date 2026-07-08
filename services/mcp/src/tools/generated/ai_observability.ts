@@ -763,7 +763,7 @@ const llmaPersonalSpend = (): ToolBase<typeof LlmaPersonalSpendSchema, Schemas.P
     },
 })
 
-const LlmaPromptCreateSchema = LlmPromptsCreateBody
+const LlmaPromptCreateSchema = LlmPromptsCreateBody.omit({ version_description: true })
 
 const llmaPromptCreate = (): ToolBase<typeof LlmaPromptCreateSchema, Schemas.LLMPrompt> => ({
     name: 'llma-prompt-create',
@@ -856,7 +856,7 @@ const llmaPromptList = (): ToolBase<
 })
 
 const LlmaPromptUpdateSchema = LlmPromptsNamePartialUpdateParams.omit({ project_id: true }).extend(
-    LlmPromptsNamePartialUpdateBody.shape
+    LlmPromptsNamePartialUpdateBody.omit({ version_description: true }).shape
 )
 
 const llmaPromptUpdate = (): ToolBase<typeof LlmaPromptUpdateSchema, Schemas.LLMPrompt> => ({
