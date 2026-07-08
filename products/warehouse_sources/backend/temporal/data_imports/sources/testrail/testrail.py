@@ -297,8 +297,10 @@ def _users_rows(
     seen: set[Any] = set()
     for project_id in _list_project_ids(session, base_url, logger):
         users = _fetch_list(session, base_url, "get_users", project_id, {}, "users", logger)
-        fresh = [user for user in users if user.get("id") not in seen]
-        seen.update(user.get("id") for user in fresh)
+        # Direct access on the user's id (its primary key): a user without one is a broken
+        # response that should fail loudly, not get silently deduplicated against None.
+        fresh = [user for user in users if user["id"] not in seen]
+        seen.update(user["id"] for user in fresh)
         if fresh:
             yield fresh
 
