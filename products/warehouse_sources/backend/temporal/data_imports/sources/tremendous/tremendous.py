@@ -98,7 +98,8 @@ def get_rows(
     db_incremental_field_last_value: Any = None,
 ) -> Iterator[list[dict[str, Any]]]:
     config = TREMENDOUS_ENDPOINTS[endpoint]
-    session = make_tracked_session(headers=_headers(api_key), redact_values=(api_key,))
+    # Pin redirects off so the Bearer key never replays to a host Tremendous redirects us to.
+    session = make_tracked_session(headers=_headers(api_key), redact_values=(api_key,), allow_redirects=False)
     url = f"{base_url_for_environment(environment)}{config.path}"
 
     if not config.paginated:
@@ -176,7 +177,7 @@ def check_access(api_key: str, environment: str, path: str = DEFAULT_PROBE_PATH)
     Returns ``(status, message)``: ``200`` reachable, ``401``/``403`` auth failure, ``0`` for a
     connection problem, other HTTP status otherwise.
     """
-    session = make_tracked_session(headers=_headers(api_key), redact_values=(api_key,))
+    session = make_tracked_session(headers=_headers(api_key), redact_values=(api_key,), allow_redirects=False)
     try:
         response = session.get(f"{base_url_for_environment(environment)}{path}", timeout=15)
     except Exception as e:

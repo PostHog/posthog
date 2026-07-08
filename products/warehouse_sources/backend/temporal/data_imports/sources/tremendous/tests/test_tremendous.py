@@ -80,6 +80,27 @@ class TestGetRows:
             rows.extend(batch)
         return rows, requested_params
 
+    def test_pins_redirects_off(self, monkeypatch: Any) -> None:
+        # Redirect-following would replay the Bearer key to whatever host Tremendous redirects to.
+        captured: list[dict[str, Any]] = []
+
+        def fake_session(**kwargs: Any) -> Any:
+            captured.append(kwargs)
+            return MagicMock()
+
+        monkeypatch.setattr(tremendous, "_fetch_page", lambda *a, **k: [])
+        monkeypatch.setattr(tremendous, "make_tracked_session", fake_session)
+        list(
+            get_rows(
+                api_key="tremendous-key",
+                environment="production",
+                endpoint="orders",
+                logger=MagicMock(),
+                resumable_source_manager=_FakeResumableManager(),  # type: ignore[arg-type]
+            )
+        )
+        assert captured and captured[0]["allow_redirects"] is False
+
     def test_short_page_yields_and_stops(self, monkeypatch: Any) -> None:
         manager = _FakeResumableManager()
         rows, params = self._collect(manager, monkeypatch, {0: [{"id": "A"}, {"id": "B"}]})
@@ -246,6 +267,16 @@ class TestCheckAccess:
         status, message = check_access("tremendous-key", "production")
         assert status == 0
         assert message is not None and "boom" in message
+
+    @patch(f"{tremendous.__name__}.make_tracked_session")
+    def test_pins_redirects_off(self, mock_session: MagicMock) -> None:
+        # Redirect-following would replay the Bearer key to whatever host Tremendous redirects to.
+        response = MagicMock()
+        response.status_code = 200
+        response.ok = True
+        mock_session.return_value = self._session(response)
+        check_access("tremendous-key", "production")
+        assert mock_session.call_args.kwargs["allow_redirects"] is False
 
     @patch(f"{tremendous.__name__}.make_tracked_session")
     def test_probe_targets_selected_environment(self, mock_session: MagicMock) -> None:
