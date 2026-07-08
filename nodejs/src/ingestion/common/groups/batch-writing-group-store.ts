@@ -380,8 +380,6 @@ export class BatchWritingGroupStore implements GroupStore {
                     groupKey: update.group_key,
                     distinctId: distinctId,
                 },
-                category: 'size',
-                severity: 'error',
                 pipelineStep: 'group-store',
             })
             return
@@ -768,8 +766,6 @@ export class BatchWritingGroupStore implements GroupStore {
                     groupTypeIndex,
                     groupKey,
                 },
-                category: 'size',
-                severity: 'error',
                 pipelineStep: 'group-store',
             })
             return
