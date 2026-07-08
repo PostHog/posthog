@@ -2,7 +2,8 @@
 
 The workflow page's jobs table: one row per de-sharded job name (the matrix "(G/N)"
 suffix stripped in SQL with the same rule the frontend's jobGroups uses), with queue
-p50 (created -> started, where runner-capacity problems hide), duration percentiles,
+p50 (created -> started, where runner-capacity problems hide), duration percentiles
+(successful jobs only — the shared DURATION_PERCENTILE_CONDITION population),
 failure rate, retry pressure, run share (conditional jobs skip — "runs in 31% of
 runs"), and billable cost. Jobs carry ``workflow_name`` / ``head_branch`` /
 ``created_at`` directly, so no join to the runs table is needed; the run-share
@@ -19,6 +20,7 @@ from posthog.hogql import ast
 from products.engineering_analytics.backend.facade.contracts import WorkflowJobAggregate
 from products.engineering_analytics.backend.logic.cost import estimate_job_cost_usd
 from products.engineering_analytics.backend.logic.queries._curated import CuratedGitHubSource, opt_float
+from products.engineering_analytics.backend.logic.queries._workflow_filters import DURATION_PERCENTILE_CONDITION
 from products.engineering_analytics.backend.logic.queries.pr_cost import _parse_labels
 
 _LIMIT = 200
@@ -38,8 +40,8 @@ _AGGREGATE_SELECT = f"""
         uniq(name) AS shard_count,
         uniq(run_id) AS runs_in,
         quantile(0.5)(queue_seconds) AS queue_p50_seconds,
-        quantileIf(0.5)(duration_seconds, status = 'completed') AS p50_seconds,
-        quantileIf(0.95)(duration_seconds, status = 'completed') AS p95_seconds,
+        quantileIf(0.5)(duration_seconds, {DURATION_PERCENTILE_CONDITION}) AS p50_seconds,
+        quantileIf(0.95)(duration_seconds, {DURATION_PERCENTILE_CONDITION}) AS p95_seconds,
         countIf(conclusion IN ('failure', 'timed_out')) / nullIf(countIf(status = 'completed'), 0) AS failure_rate,
         countIf(run_attempt > 1) AS retry_job_count
     FROM __JOBS_SOURCE__ AS j
