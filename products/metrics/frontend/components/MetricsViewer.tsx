@@ -1,12 +1,18 @@
 import { useActions, useMountedLogic, useValues } from 'kea'
 import { useCallback, useEffect, useMemo } from 'react'
 
-import { LemonInputSelect, LemonSegmentedButton, LemonSelect, LemonSwitch, SpinnerOverlay } from '@posthog/lemon-ui'
+import {
+    LemonButton,
+    LemonInputSelect,
+    LemonSegmentedButton,
+    LemonSelect,
+    LemonSwitch,
+    SpinnerOverlay,
+} from '@posthog/lemon-ui'
 
 import { DateFilter } from 'lib/components/DateFilter/DateFilter'
 import { CUSTOM_OPTION_KEY } from 'lib/components/DateFilter/types'
 import { type MetricSummary } from 'lib/components/Metric/metricSummary'
-import { AnyScaleOptions, Sparkline } from 'lib/components/Sparkline'
 import { dayjs } from 'lib/dayjs'
 import { DATE_TIME_FORMAT, formatDateRange } from 'lib/utils/datetime'
 
@@ -14,7 +20,7 @@ import { DateMappingOption } from '~/types'
 
 import { MetricNameFilter } from './MetricNameFilter'
 import { metricNamePickerLogic } from './metricNamePickerLogic'
-import { MetricsChartLegend } from './MetricsChartLegend'
+import { MetricsSeriesChart } from './MetricsSeriesChart'
 import { MetricStatPanel } from './MetricStatPanel'
 import {
     LIVE_REFRESH_MS,
@@ -94,13 +100,14 @@ export const MetricsViewer = (): JSX.Element => {
         statSummary,
         groupByKeys,
         filterStrings,
-        chartSeries,
+        queryResults,
         sparklineValues,
         sparklineLabels,
         statTotal,
         anomalyBadge,
         liveRefresh,
         queryResultsLoading,
+        savedInsightLoading,
         hasMetricName,
     } = useValues(logic)
     const {
@@ -116,6 +123,7 @@ export const MetricsViewer = (): JSX.Element => {
         fetchQueryResults,
         fetchAnomaly,
         clearAnomaly,
+        saveAsInsight,
     } = useActions(logic)
     const { items: pickerItems } = useValues(pickerLogic)
 
@@ -138,46 +146,6 @@ export const MetricsViewer = (): JSX.Element => {
         [pickerItems, metricName]
     )
     const recommendedAggregation = selectedMetricType ? RECOMMENDED_AGGREGATION_BY_TYPE[selectedMetricType] : undefined
-
-    // Mirrors the format/timeUnit ladder LogsSparkline uses so the X-axis density
-    // matches the selected range.
-    const { timeUnit, tickFormat } = useMemo(() => {
-        if (!sparklineLabels.length) {
-            return { timeUnit: 'hour' as const, tickFormat: 'HH:mm' }
-        }
-        const first = dayjs(sparklineLabels[0])
-        const last = dayjs(sparklineLabels[sparklineLabels.length - 1])
-        const hoursDiff = last.diff(first, 'hours')
-        if (hoursDiff <= 1) {
-            return { timeUnit: 'second' as const, tickFormat: 'HH:mm:ss' }
-        }
-        if (hoursDiff <= 6) {
-            return { timeUnit: 'minute' as const, tickFormat: 'HH:mm:ss' }
-        }
-        if (hoursDiff <= 48) {
-            return { timeUnit: 'hour' as const, tickFormat: 'HH:mm' }
-        }
-        return { timeUnit: 'day' as const, tickFormat: 'D MMM HH:mm' }
-    }, [sparklineLabels])
-
-    const withXScale = useCallback(
-        (scale: AnyScaleOptions): AnyScaleOptions =>
-            ({
-                ...scale,
-                type: 'timeseries',
-                ticks: {
-                    display: true,
-                    maxRotation: 0,
-                    maxTicksLimit: 6,
-                    font: { size: 10, lineHeight: 1 },
-                    callback: function (value: string | number) {
-                        return dayjs(value).format(tickFormat)
-                    },
-                },
-                time: { unit: timeUnit },
-            }) as AnyScaleOptions,
-        [timeUnit, tickFormat]
-    )
 
     const renderLabel = useCallback((label: string): string => dayjs(label).format('D MMM YYYY HH:mm:ss'), [])
 
@@ -255,6 +223,15 @@ export const MetricsViewer = (): JSX.Element => {
                     tooltip={`Auto-refresh every ${LIVE_REFRESH_MS / 1000}s`}
                     bordered
                 />
+                <LemonButton
+                    size="small"
+                    type="secondary"
+                    onClick={() => saveAsInsight()}
+                    loading={savedInsightLoading}
+                    disabledReason={!hasMetricName ? 'Pick a metric first' : undefined}
+                >
+                    Save as insight
+                </LemonButton>
             </div>
             <div className="relative h-[360px] border rounded p-3">
                 {!hasMetricName ? (
@@ -272,13 +249,14 @@ export const MetricsViewer = (): JSX.Element => {
                         anomaly={anomalyBadge}
                     />
                 ) : hasResults ? (
-                    <Sparkline
-                        type="line"
-                        data={chartSeries}
-                        labels={sparklineLabels}
-                        className="w-full h-full"
-                        withXScale={withXScale}
-                        renderLabel={renderLabel}
+                    <MetricsSeriesChart
+                        series={queryResults.map((s) => ({
+                            labels: s.labels ?? {},
+                            points: s.points,
+                            metricName: s.metric_name,
+                        }))}
+                        fallbackName={metricName}
+                        className="flex flex-col w-full h-full"
                     />
                 ) : !queryResultsLoading ? (
                     <div className="h-full flex items-center justify-center text-secondary text-sm">
@@ -287,7 +265,6 @@ export const MetricsViewer = (): JSX.Element => {
                 ) : null}
                 {queryResultsLoading && <SpinnerOverlay />}
             </div>
-            {viewMode === 'chart' && hasResults && <MetricsChartLegend series={chartSeries} />}
         </div>
     )
 }

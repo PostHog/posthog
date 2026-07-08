@@ -1,11 +1,18 @@
 import { actions, connect, kea, listeners, path, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
+import { router } from 'kea-router'
+
+import { lemonToast } from '@posthog/lemon-ui'
 
 import { type MetricSummary } from 'lib/components/Metric/metricSummary'
-import { type SparklineTimeSeries } from 'lib/components/Sparkline'
 import { dayjs } from 'lib/dayjs'
 import { dateStringToDayJs } from 'lib/utils/dateFilters'
+import { insightsApi } from 'scenes/insights/utils/api'
 import { teamLogic } from 'scenes/teamLogic'
+import { urls } from 'scenes/urls'
+
+import { MetricsQuery, MetricsQueryClause, MetricsQueryFilter, NodeKind } from '~/queries/schema/schema-general'
+import { QueryBasedInsightModel } from '~/types'
 
 import { metricsCharacterizeCreate, metricsQueryCreate } from 'products/metrics/frontend/generated/api'
 import type {
@@ -16,7 +23,6 @@ import type {
 } from 'products/metrics/frontend/generated/api.schemas'
 
 import { metricNamePickerLogic } from './metricNamePickerLogic'
-import { formatSeriesName, seriesColor } from './metricsSeries'
 import type { metricsViewerLogicType } from './metricsViewerLogicType'
 
 export type MetricAggregation = 'sum' | 'avg' | 'count' | 'p95' | 'rate' | 'increase'
@@ -186,6 +192,29 @@ export const metricsViewerLogic = kea<metricsViewerLogicType>([
                 },
             },
         ],
+        savedInsight: [
+            null as QueryBasedInsightModel | null,
+            {
+                saveAsInsight: async () => {
+                    const query = values.metricsQueryNode
+                    if (!query) {
+                        return null
+                    }
+                    const insight = await insightsApi.create({
+                        name: `${values.metricName} (${values.aggregation})`,
+                        query,
+                        saved: true,
+                    })
+                    lemonToast.success('Insight saved', {
+                        button: {
+                            label: 'View insight',
+                            action: () => router.actions.push(urls.insightView(insight.short_id)),
+                        },
+                    })
+                    return insight
+                },
+            },
+        ],
         anomalyReport: [
             null as _MetricAnomalyReportApi | null,
             {
@@ -222,26 +251,51 @@ export const metricsViewerLogic = kea<metricsViewerLogicType>([
     })),
     selectors({
         hasMetricName: [(s) => [s.metricName], (metricName) => metricName.trim().length > 0],
+        // The viewer state as a `MetricsQuery` schema node — what "Save as insight"
+        // persists, so the saved tile re-runs exactly what the viewer shows.
+        // The REST viewer's 'p95' shorthand maps to the node's quantile aggregation.
+        metricsQueryNode: [
+            (s) => [s.metricName, s.aggregation, s.dateFrom, s.dateTo, s.groupByKeys, s.queryFilters],
+            (metricName, aggregation, dateFrom, dateTo, groupByKeys, queryFilters): MetricsQuery | null => {
+                const trimmedName = metricName.trim()
+                if (!trimmedName) {
+                    return null
+                }
+                const clause: MetricsQueryClause = {
+                    name: 'a',
+                    metricName: trimmedName,
+                    aggregation: aggregation === 'p95' ? 'quantile' : aggregation,
+                    ...(aggregation === 'p95' ? { quantile: 0.95 } : {}),
+                    ...(queryFilters.length
+                        ? {
+                              filters: queryFilters.map(
+                                  (f): MetricsQueryFilter => ({
+                                      key: f.key,
+                                      op: f.op as MetricsQueryFilter['op'],
+                                      value: f.value,
+                                  })
+                              ),
+                          }
+                        : {}),
+                    ...(groupByKeys.length ? { groupBy: groupByKeys.map((key) => ({ key })) } : {}),
+                }
+                return {
+                    kind: NodeKind.MetricsQuery,
+                    clauses: [clause],
+                    dateRange: {
+                        date_from: dateFrom ?? DEFAULT_DATE_FROM,
+                        ...(dateTo ? { date_to: dateTo } : {}),
+                    },
+                }
+            },
+        ],
         queryFilters: [
             (s) => [s.filterStrings],
             (filterStrings: string[]): _MetricFilterApi[] =>
                 filterStrings.map(parseFilter).filter((f): f is _MetricFilterApi => f !== null),
         ],
-        // The viewer renders the first series only for now; group-by lands
-        // multi-series rendering in a later PR.
         // Metrics has no compare/previous-series concept, so "current" is simply the first series.
         currentSeries: [(s) => [s.queryResults], (results): MetricsViewerSeries | undefined => results[0]],
-        // All series rendered as chart lines (a group-by query returns one series per label combination).
-        // The x-axis labels come from `sparklineLabels` (the backend grids every series onto one time axis).
-        chartSeries: [
-            (s) => [s.queryResults, s.metricName],
-            (results: MetricsViewerSeries[], metricName: string): SparklineTimeSeries[] =>
-                results.map((series, index) => ({
-                    name: formatSeriesName(series, metricName),
-                    values: series.points.map((p) => p.value),
-                    color: seriesColor(index),
-                })),
-        ],
         sparklineValues: [
             (s) => [s.currentSeries],
             (series: MetricsViewerSeries | undefined) => (series?.points ?? []).map((p) => p.value),
