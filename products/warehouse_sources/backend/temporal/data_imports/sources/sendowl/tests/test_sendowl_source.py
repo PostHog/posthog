@@ -1,6 +1,8 @@
 import pytest
 from unittest import mock
 
+from parameterized import parameterized
+
 from posthog.schema import ReleaseStatus, SourceFieldInputConfig, SourceFieldInputConfigType
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
@@ -32,7 +34,7 @@ class TestSendowlSource:
         field_names = [f.name for f in config.fields if isinstance(f, SourceFieldInputConfig)]
         assert field_names == ["api_key", "api_secret"]
 
-    @pytest.mark.parametrize("field_name", ["api_key", "api_secret"])
+    @parameterized.expand([("api_key",), ("api_secret",)])
     def test_credential_fields_are_secret_passwords(self, field_name: str) -> None:
         config = self.source.get_source_config
         field = next(f for f in config.fields if isinstance(f, SourceFieldInputConfig) and f.name == field_name)
@@ -68,43 +70,39 @@ class TestSendowlSource:
         assert {t["name"] for t in tables} == set(ENDPOINTS)
         assert all("Full refresh" in t["sync_methods"] for t in tables)
 
-    @pytest.mark.parametrize(
-        "observed_error",
+    @parameterized.expand(
         [
-            "401 Client Error: Unauthorized for url: https://www.sendowl.com/api/v1/products?page=1&per_page=50",
-            "403 Client Error: Forbidden for url: https://www.sendowl.com/api/v1_3/orders?page=2&per_page=50",
-        ],
+            ("401 Client Error: Unauthorized for url: https://www.sendowl.com/api/v1/products?page=1&per_page=50",),
+            ("403 Client Error: Forbidden for url: https://www.sendowl.com/api/v1_3/orders?page=2&per_page=50",),
+        ]
     )
     def test_non_retryable_errors_match_auth_failures(self, observed_error: str) -> None:
         non_retryable = self.source.get_non_retryable_errors()
         assert any(key in observed_error for key in non_retryable)
 
-    @pytest.mark.parametrize(
-        "unrelated_error",
+    @parameterized.expand(
         [
-            "500 Server Error: Internal Server Error for url: https://www.sendowl.com/api/v1/products",
-            "HTTPSConnectionPool(host='www.sendowl.com', port=443): Read timed out.",
-            "429 Client Error: Too Many Requests for url: https://www.sendowl.com/api/v1_3/orders",
-        ],
+            ("500 Server Error: Internal Server Error for url: https://www.sendowl.com/api/v1/products",),
+            ("HTTPSConnectionPool(host='www.sendowl.com', port=443): Read timed out.",),
+            ("429 Client Error: Too Many Requests for url: https://www.sendowl.com/api/v1_3/orders",),
+        ]
     )
     def test_non_retryable_errors_ignore_transient(self, unrelated_error: str) -> None:
         non_retryable = self.source.get_non_retryable_errors()
         assert not any(key in unrelated_error for key in non_retryable)
 
-    @pytest.mark.parametrize(
-        "status, expected_valid, expected_message",
+    @parameterized.expand(
         [
-            (200, True, None),
-            (401, False, "Invalid SendOwl API credentials"),
-            (403, False, "Invalid SendOwl API credentials"),
-            (500, False, "SendOwl returned HTTP 500"),
-            (0, False, "Could not connect to SendOwl: boom"),
-        ],
+            ("reachable", 200, True, None),
+            ("unauthorized", 401, False, "Invalid SendOwl API credentials"),
+            ("forbidden", 403, False, "Invalid SendOwl API credentials"),
+            ("server_error", 500, False, "SendOwl returned HTTP 500"),
+            ("connection_error", 0, False, "Could not connect to SendOwl: boom"),
+        ]
     )
-    @mock.patch("products.warehouse_sources.backend.temporal.data_imports.sources.sendowl.source.check_access")
     def test_validate_credentials(
         self,
-        mock_check: mock.MagicMock,
+        _name: str,
         status: int,
         expected_valid: bool,
         expected_message: str | None,
@@ -114,8 +112,11 @@ class TestSendowlSource:
             if status == 500
             else ("Could not connect to SendOwl: boom" if status == 0 else None)
         )
-        mock_check.return_value = (status, message)
-        is_valid, returned = self.source.validate_credentials(self.config, self.team_id)
+        with mock.patch(
+            "products.warehouse_sources.backend.temporal.data_imports.sources.sendowl.source.check_access"
+        ) as mock_check:
+            mock_check.return_value = (status, message)
+            is_valid, returned = self.source.validate_credentials(self.config, self.team_id)
         assert is_valid is expected_valid
         assert returned == expected_message
 

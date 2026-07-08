@@ -163,23 +163,24 @@ class TestCheckAccess:
         monkeypatch.setattr(sendowl, "make_tracked_session", lambda **kwargs: session)
         return session
 
-    @pytest.mark.parametrize(
-        "status, ok, expected_status, expected_message",
+    @parameterized.expand(
         [
-            (200, True, 200, None),
-            (401, False, 401, None),
-            (403, False, 403, None),
-            (500, False, 500, "SendOwl returned HTTP 500"),
-        ],
+            ("reachable", 200, True, 200, None),
+            ("unauthorized", 401, False, 401, None),
+            ("forbidden", 403, False, 403, None),
+            ("server_error", 500, False, 500, "SendOwl returned HTTP 500"),
+        ]
     )
     def test_status_mapping(
-        self, status: int, ok: bool, expected_status: int, expected_message: str | None, monkeypatch: Any
+        self, _name: str, status: int, ok: bool, expected_status: int, expected_message: str | None
     ) -> None:
         response = MagicMock()
         response.status_code = status
         response.ok = ok
-        self._patch_session(monkeypatch, response)
-        assert check_access("sendowl-key", "sendowl-secret") == (expected_status, expected_message)
+        # parameterized.expand can't also receive the `monkeypatch` fixture, so manage our own.
+        with pytest.MonkeyPatch.context() as mp:
+            self._patch_session(mp, response)
+            assert check_access("sendowl-key", "sendowl-secret") == (expected_status, expected_message)
 
     def test_connection_error_maps_to_zero(self, monkeypatch: Any) -> None:
         self._patch_session(monkeypatch, requests.ConnectionError("boom"))

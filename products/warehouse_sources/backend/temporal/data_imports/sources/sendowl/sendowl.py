@@ -70,9 +70,11 @@ def _fetch_page(
     data = response.json()
     # SendOwl list endpoints return a bare JSON array of single-key wrapper objects, e.g.
     # `[{"product": {...}}, ...]`. Unwrap each item so downstream tables hold the flat record.
+    # Subscript access fails fast if the wrapper key is missing rather than silently importing the
+    # outer dict (which would lack the primary key and carry a nested object as a stray field).
     if not isinstance(data, list):
         raise SendowlRetryableError(f"SendOwl returned an unexpected payload for {path}: {type(data).__name__}")
-    return [row.get(wrapper_key, row) if isinstance(row, dict) else row for row in data]
+    return [row[wrapper_key] if isinstance(row, dict) else row for row in data]
 
 
 def get_rows(
