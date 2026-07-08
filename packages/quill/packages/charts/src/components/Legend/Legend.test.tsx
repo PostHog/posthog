@@ -64,29 +64,13 @@ describe('Legend', () => {
         expect(onClick).toHaveBeenCalledWith('returning')
     })
 
-    it('exposes the full name via a native title tooltip and truncates', () => {
+    it('keeps the full label text and exposes it via a native title tooltip', () => {
+        // The visual clipping itself is covered by the LongLabelsTruncate storybook snapshot; here we
+        // only guard that a clipped row still carries the whole name for hover recovery.
         const long = 'Breakdown value with an extremely long name that would otherwise crush the plot'
         const { container } = render(<Legend items={[{ key: 'a', label: long, color: '#000' }]} />)
         const label = container.querySelector<HTMLElement>(`[title="${long}"]`)!
         expect(label.textContent).toBe(long)
-        expect(label.className).toContain('truncate')
-    })
-
-    // The label ellipsizes purely from available space, not a fixed pixel cap: it must be shrinkable
-    // (`min-w-0` + `truncate`) with no inline max-width, and its row must be width-bounded so there is
-    // something to shrink against. Regressing to a fixed cap, or dropping `min-w-0`, breaks this.
-    it.each([
-        ['horizontal' as const, 'max-w-full'],
-        ['vertical' as const, 'w-full'],
-    ])('truncates from available space, not a fixed cap (%s)', (orientation, rowBound) => {
-        const { container } = render(<Legend items={ITEMS} orientation={orientation} dataAttr="root" />)
-        const label = container.querySelector<HTMLElement>(`[title="${ITEMS[0].label}"]`)!
-        expect(label.className).toContain('truncate')
-        expect(label.className).toContain('min-w-0')
-        expect(label.style.maxWidth).toBe('')
-        const row = container.querySelector<HTMLElement>('[data-attr="root"]')!.firstElementChild!
-        expect(row.className).toContain('min-w-0')
-        expect(row.className).toContain(rowBound)
     })
 
     it('dims only rows whose key is in hiddenKeys', () => {

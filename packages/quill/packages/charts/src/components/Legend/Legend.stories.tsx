@@ -75,13 +75,23 @@ const LONG_LABELS: LegendItem[] = [
     { key: 'c', label: 'Short one', color: '#f97316' },
 ]
 
-// Long labels clip with an ellipsis only when their row can't fit the space actually available — a
-// vertical legend truncates at its column edge, a horizontal one wraps rows and shrinks a label only
-// when its own line runs out of room, so a lone series stays unclipped. The full text is always on the
-// row's `title` tooltip.
+const LONG_SINGLE: LegendItem[] = [
+    { key: 'a', label: 'pageview · Chrome · United States · organic search · returning visitor', color: '#22c55e' },
+]
+
+// Clipping is driven purely by available space, so the same labels show unclipped when they fit and
+// ellipsize only when their row can't. Top-to-bottom: a lone long series in a wide box (fits, no clip),
+// the same series in a narrow box (clips), a horizontal group that wraps before shrinking any row, and a
+// vertical legend that truncates at its column edge. The full text is always on the row's `title` tooltip.
 export const LongLabelsTruncate: Story = {
     render: () => (
         <div className="flex flex-col gap-4">
+            <div className="w-[640px] border border-border rounded p-2">
+                <Legend items={LONG_SINGLE} align="start" />
+            </div>
+            <div className="w-[240px] border border-border rounded p-2">
+                <Legend items={LONG_SINGLE} align="start" />
+            </div>
             <div className="w-[480px] border border-border rounded p-2">
                 <Legend items={LONG_LABELS} />
             </div>
