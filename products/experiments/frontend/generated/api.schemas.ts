@@ -823,6 +823,75 @@ export interface PaginatedExperimentBasicListApi {
     results: ExperimentBasicApi[]
 }
 
+/**
+ * A single release-condition group carrying only the overall rollout percentage, the one
+ * groups entry the experiment input applies.
+ */
+export interface ExperimentFlagRolloutGroupApi {
+    /**
+     * Percentage of users who enter the experiment (0-100).
+     * @minimum 0
+     * @maximum 100
+     * @nullable
+     */
+    rollout_percentage?: number | null
+    /**
+     * Must be empty or omitted: release-condition properties are not supported via the experiment input. Edit the feature flag directly for targeting.
+     * @maxItems 0
+     */
+    properties?: unknown[]
+}
+
+export interface FeatureFlagMultivariateVariantSchemaApi {
+    /** Unique key for this variant. */
+    key: string
+    /** Human-readable name for this variant. */
+    name?: string
+    /** Variant rollout percentage. */
+    rollout_percentage: number
+}
+
+export interface FeatureFlagMultivariateSchemaApi {
+    /** Variant definitions for multivariate feature flags. */
+    variants: FeatureFlagMultivariateVariantSchemaApi[]
+}
+
+/**
+ * Optional payload values keyed by variant key.
+ */
+export type ExperimentFeatureFlagFiltersApiPayloads = { [key: string]: string }
+
+/**
+ * Feature-flag filters accepted by the experiment endpoints: the flag's own filters shape,
+ * minus the keys experiments don't apply.
+ */
+export interface ExperimentFeatureFlagFiltersApi {
+    /** Overall rollout as a single group: [{"properties": [], "rollout_percentage": N}]. */
+    groups?: ExperimentFlagRolloutGroupApi[]
+    /** Multivariate configuration for variant-based rollouts. */
+    multivariate?: FeatureFlagMultivariateSchemaApi | null
+    /**
+     * Group type index for group-based feature flags.
+     * @nullable
+     */
+    aggregation_group_type_index?: number | null
+    /** Optional payload values keyed by variant key. */
+    payloads?: ExperimentFeatureFlagFiltersApiPayloads
+}
+
+/**
+ * Flag config for experiment create/update, sent through the linked feature flag's own shape.
+ */
+export interface ExperimentFeatureFlagInputApi {
+    /** Flag config to apply: `multivariate.variants` (exactly one variant key must be the literal string 'control'), `groups` (a single group with `rollout_percentage` only; release conditions are not supported here, edit the feature flag directly), `aggregation_group_type_index`, and `payloads` (JSON-encoded strings keyed by variant key). On update, config this object omits is preserved from the linked flag's current state. */
+    filters?: ExperimentFeatureFlagFiltersApi
+    /**
+     * Whether the flag persists variant assignment across authentication steps.
+     * @nullable
+     */
+    ensure_experience_continuity?: boolean | null
+}
+
 export interface ExperimentToSavedMetricApi {
     readonly id: number
     experiment: number
@@ -1275,6 +1344,108 @@ export interface ExperimentApiMetricApi {
 export type _ExperimentApiMetricsListApi = ExperimentApiMetricApi[]
 
 /**
+ * Experiment write payload. Identical to Experiment, plus the writable `feature_flag` config input.
+ */
+export interface ExperimentWriteApi {
+    readonly id: number
+    /**
+     * Name of the experiment.
+     * @maxLength 400
+     */
+    name: string
+    /**
+     * Description of the experiment hypothesis and expected outcomes.
+     * @maxLength 3000
+     * @nullable
+     */
+    description?: string | null
+    /** @nullable */
+    start_date?: string | null
+    /** @nullable */
+    end_date?: string | null
+    /** Unique key for the experiment's feature flag. Letters, numbers, hyphens, and underscores only. Search existing flags with the feature-flag-get-all tool first — reuse an existing flag when possible. */
+    feature_flag_key: string
+    /** Feature-flag config for the experiment, in the flag's own filters shape. The linked flag is the source of truth for variants, rollout, aggregation, payloads, and experience continuity: send config here instead of the deprecated `parameters` keys. On a running experiment, also send `update_feature_flag_params=true`. Cannot be combined with the key of a pre-existing feature flag on create (the experiment links to it as-is). */
+    feature_flag?: ExperimentFeatureFlagInputApi
+    readonly holdout: ExperimentHoldoutApi
+    /**
+     * ID of a holdout group to exclude from the experiment.
+     * @nullable
+     */
+    holdout_id?: number | null
+    /** @nullable */
+    readonly exposure_cohort: number | null
+    /** Experiment parameters JSON. Supported keys include `custom_exposure_filter` and `variant_notes` (free-text notes per variant, keyed by variant key). Flag config keys (`feature_flag_variants`, `rollout_percentage`) are a deprecated input surface kept for compatibility — the linked feature flag is the source of truth, and reads project its current config into this field. Excluded variants live on the top-level `excluded_variants` field, not here. */
+    parameters?: ExperimentParametersApi | null
+    /** Running-time calculator state: `minimum_detectable_effect`, `recommended_running_time`, `recommended_sample_size`, and `exposure_estimate_config`. Canonical home for these keys, which historically lived in `parameters`. */
+    running_time_calculation?: ExperimentRunningTimeCalculationApi | null
+    /**
+     * Variant keys to exclude from metric result calculations. Excluded variants are still served to users but omitted from statistical analysis. The baseline variant and holdout pseudo-variants cannot be excluded. Canonical home for what historically lived in `parameters.excluded_variants`.
+     * @nullable
+     */
+    excluded_variants?: string[] | null
+    secondary_metrics?: unknown
+    readonly saved_metrics: readonly ExperimentToSavedMetricApi[]
+    /**
+     * IDs of shared saved metrics to attach to this experiment. Each item has 'id' (saved metric ID) and 'metadata' with 'type' (primary or secondary).
+     * @nullable
+     */
+    saved_metrics_ids?: unknown[] | null
+    filters?: unknown
+    /** Whether the experiment is archived. */
+    archived?: boolean
+    /** @nullable */
+    deleted?: boolean | null
+    readonly created_by: UserBasicApi
+    readonly created_at: string
+    readonly updated_at: string
+    /** Experiment type: web for frontend UI changes, product for backend/API changes.
+     *
+     * * `web` - web
+     * * `product` - product */
+    type?: ExperimentTypeEnumApi | null
+    /** Exposure configuration including filter test accounts and custom exposure events. */
+    exposure_criteria?: ExperimentApiExposureCriteriaApi | null
+    /** Primary experiment metrics. Each metric must have kind='ExperimentMetric' and a metric_type: 'mean' (set source to an EventsNode with an event name), 'funnel' (set series to an array of EventsNode steps), 'ratio' (set numerator and denominator EventsNode entries), or 'retention' (set start_event and completion_event). Use the read-data-schema tool with query kind 'events' to find available events in the project. */
+    metrics?: _ExperimentApiMetricsListApi | null
+    /** Secondary metrics for additional measurements. Same format as primary metrics. */
+    metrics_secondary?: _ExperimentApiMetricsListApi | null
+    stats_config?: unknown
+    scheduling_config?: unknown
+    /** Suppresses the validation that rejects metrics referencing events not yet ingested by this project. REQUIRES explicit user confirmation before being set to true — never flip this silently to retry a failed call. The default validation catches typo'd event names and missing instrumentation. Set this to true only when the user has confirmed the event is intentional (e.g. they are about to instrument it). */
+    allow_unknown_events?: boolean
+    _create_in_folder?: string
+    /** Experiment conclusion: won, lost, inconclusive, stopped_early, or invalid.
+     *
+     * * `won` - won
+     * * `lost` - lost
+     * * `inconclusive` - inconclusive
+     * * `stopped_early` - stopped_early
+     * * `invalid` - invalid */
+    conclusion?: ConclusionEnumApi | null
+    /**
+     * Comment about the experiment conclusion.
+     * @maxLength 4000
+     * @nullable
+     */
+    conclusion_comment?: string | null
+    primary_metrics_ordered_uuids?: unknown
+    secondary_metrics_ordered_uuids?: unknown
+    only_count_matured_users?: boolean
+    /** When true, sync the flag config sent in this request (via the `feature_flag` object, or the deprecated `parameters` keys) to the linked feature flag. Draft experiments always sync regardless. On a running experiment, `feature_flag` config without this flag is rejected. */
+    update_feature_flag_params?: boolean
+    /** Experiment lifecycle state: 'draft' (not yet launched), 'running' (launched with active feature flag), 'paused' (running with feature flag deactivated — virtual state derived from feature_flag.active, not stored), 'stopped' (ended). */
+    readonly status: ExperimentStatusEnumApi
+    /** Whether the experiment uses any legacy-engine metrics (ExperimentTrendsQuery or ExperimentFunnelsQuery). Used to flag legacy experiments and gate actions that don't support them, such as duplicate and copy-to-project. */
+    readonly is_legacy: boolean
+    /**
+     * The effective access level the user has for this object
+     * @nullable
+     */
+    readonly user_access_level: string | null
+}
+
+/**
  * Full experiment representation for the detail, create, and update endpoints.
  *
  * Extends the shared read-side fields in ``ExperimentBaseSerializer`` with the metric
@@ -1367,7 +1538,7 @@ export interface ExperimentApi {
     primary_metrics_ordered_uuids?: unknown
     secondary_metrics_ordered_uuids?: unknown
     only_count_matured_users?: boolean
-    /** When true, sync feature flag configuration from parameters to the linked feature flag. Draft experiments always sync regardless of update_feature_flag_params, so only required for non-drafts. */
+    /** When true, sync the flag config sent in this request (via the `feature_flag` object, or the deprecated `parameters` keys) to the linked feature flag. Draft experiments always sync regardless. On a running experiment, `feature_flag` config without this flag is rejected. */
     update_feature_flag_params?: boolean
     /** Experiment lifecycle state: 'draft' (not yet launched), 'running' (launched with active feature flag), 'paused' (running with feature flag deactivated — virtual state derived from feature_flag.active, not stored), 'stopped' (ended). */
     readonly status: ExperimentStatusEnumApi
@@ -1381,14 +1552,9 @@ export interface ExperimentApi {
 }
 
 /**
- * Full experiment representation for the detail, create, and update endpoints.
- *
- * Extends the shared read-side fields in ``ExperimentBaseSerializer`` with the metric
- * definitions (``metrics``/``metrics_secondary``/``saved_metrics``) and the write-side
- * fields, and refreshes stale action names while serializing. The list endpoint uses the
- * leaner ``ExperimentBasicSerializer`` instead.
+ * Experiment write payload. Identical to Experiment, plus the writable `feature_flag` config input.
  */
-export interface PatchedExperimentApi {
+export interface PatchedExperimentWriteApi {
     readonly id?: number
     /**
      * Name of the experiment.
@@ -1407,7 +1573,8 @@ export interface PatchedExperimentApi {
     end_date?: string | null
     /** Unique key for the experiment's feature flag. Letters, numbers, hyphens, and underscores only. Search existing flags with the feature-flag-get-all tool first — reuse an existing flag when possible. */
     feature_flag_key?: string
-    readonly feature_flag?: MinimalFeatureFlagApi
+    /** Feature-flag config for the experiment, in the flag's own filters shape. The linked flag is the source of truth for variants, rollout, aggregation, payloads, and experience continuity: send config here instead of the deprecated `parameters` keys. On a running experiment, also send `update_feature_flag_params=true`. Cannot be combined with the key of a pre-existing feature flag on create (the experiment links to it as-is). */
+    feature_flag?: ExperimentFeatureFlagInputApi
     readonly holdout?: ExperimentHoldoutApi
     /**
      * ID of a holdout group to exclude from the experiment.
@@ -1473,7 +1640,7 @@ export interface PatchedExperimentApi {
     primary_metrics_ordered_uuids?: unknown
     secondary_metrics_ordered_uuids?: unknown
     only_count_matured_users?: boolean
-    /** When true, sync feature flag configuration from parameters to the linked feature flag. Draft experiments always sync regardless of update_feature_flag_params, so only required for non-drafts. */
+    /** When true, sync the flag config sent in this request (via the `feature_flag` object, or the deprecated `parameters` keys) to the linked feature flag. Draft experiments always sync regardless. On a running experiment, `feature_flag` config without this flag is rejected. */
     update_feature_flag_params?: boolean
     /** Experiment lifecycle state: 'draft' (not yet launched), 'running' (launched with active feature flag), 'paused' (running with feature flag deactivated — virtual state derived from feature_flag.active, not stored), 'stopped' (ended). */
     readonly status?: ExperimentStatusEnumApi
@@ -1687,22 +1854,22 @@ export interface ExperimentMetricsRecalculationApi {
      */
     running_metrics?: number | null
     /**
-     * Rows read so far by the currently-running metric queries (monotonic; the live progress signal)
+     * Rows read by the run's metric queries so far, both finished and currently running. Cumulative and roughly monotonic across the run; the primary live progress signal
      * @nullable
      */
     rows_read?: number | null
     /**
-     * ClickHouse's total_rows_approx across running queries. A soft ceiling ClickHouse revises upward mid-scan, so it can exceed or trail rows_read; treat rows_read as the reliable signal
+     * ClickHouse's total_rows_approx across running queries plus the final read_rows of finished ones. A soft ceiling revised mid-scan, so it can exceed or trail rows_read; treat rows_read as the reliable signal
      * @nullable
      */
     estimated_rows_total?: number | null
     /**
-     * Bytes read so far by the currently-running metric queries
+     * Bytes read by the run's metric queries so far, both finished and currently running
      * @nullable
      */
     bytes_read?: number | null
     /**
-     * Active CPU time (microseconds) consumed by the currently-running metric queries
+     * Active CPU time (microseconds) consumed by the run's metric queries so far, both finished and currently running
      * @nullable
      */
     active_cpu_time?: number | null

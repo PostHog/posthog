@@ -3986,6 +3986,7 @@
                 "diagnose_proxy",
                 "web_analytics_doctor",
                 "assess_heatmap",
+                "summarize_website_interactions",
                 "marketing_diagnose_setup",
                 "marketing_explain_conversion_goal",
                 "marketing_list_conversion_goals",
@@ -22255,7 +22256,10 @@
                 "Redis",
                 "Mercury",
                 "Gojiberry",
-                "Teachable"
+                "Teachable",
+                "PeecAI",
+                "Healthchecks",
+                "Impact"
             ],
             "type": "string"
         },
@@ -45145,6 +45149,9 @@
                 },
                 "response": {
                     "$ref": "#/definitions/TracesQueryResponse"
+                },
+                "searchTerm": {
+                    "type": "string"
                 },
                 "showColumnConfigurator": {
                     "type": "boolean"

@@ -7084,6 +7084,7 @@ export namespace Schemas {
       /** Use random ordering instead of timestamp DESC. Useful for representative sampling to avoid recency bias. */
       randomOrder?: boolean | null;
       response?: TracesQueryResponse | null;
+      searchTerm?: string | null;
       showColumnConfigurator?: boolean | null;
       tags?: QueryLogTags | null;
       /** version of the node, used for schema migrations */
@@ -12935,6 +12936,8 @@ export namespace Schemas {
       pending_user_artifact_ids?: string[];
       /** Optional sandbox environment to apply for this cloud run. */
       sandbox_environment_id?: string;
+      /** Optional custom base image for this cloud run's sandbox (Modal VM runtime only); takes precedence over the environment's image. */
+      custom_image_id?: string;
       /** Whether pull requests for this run should be authored by the user or the bot.
        *
        * * `user` - user
@@ -13287,6 +13290,8 @@ export namespace Schemas {
       pending_user_artifact_ids?: string[];
       /** Optional sandbox environment to apply for this cloud run. */
       sandbox_environment_id?: string;
+      /** Optional custom base image for this cloud run's sandbox (Modal VM runtime only); takes precedence over the environment's image. */
+      custom_image_id?: string;
       /** Whether pull requests for this run should be authored by the user or the bot.
        *
        * * `user` - user
@@ -16582,6 +16587,9 @@ export namespace Schemas {
      * * `Mercury` - Mercury
      * * `Gojiberry` - Gojiberry
      * * `Teachable` - Teachable
+     * * `PeecAI` - PeecAI
+     * * `Healthchecks` - Healthchecks
+     * * `Impact` - Impact
      */
     export type ExternalDataSourceTypeEnum = typeof ExternalDataSourceTypeEnum[keyof typeof ExternalDataSourceTypeEnum];
 
@@ -17246,6 +17254,9 @@ export namespace Schemas {
       Mercury: 'Mercury',
       Gojiberry: 'Gojiberry',
       Teachable: 'Teachable',
+      PeecAI: 'PeecAI',
+      Healthchecks: 'Healthchecks',
+      Impact: 'Impact',
     } as const;
 
     /**
@@ -17923,7 +17934,10 @@ export namespace Schemas {
        * * `Redis` - Redis
        * * `Mercury` - Mercury
        * * `Gojiberry` - Gojiberry
-       * * `Teachable` - Teachable */
+       * * `Teachable` - Teachable
+       * * `PeecAI` - PeecAI
+       * * `Healthchecks` - Healthchecks
+       * * `Impact` - Impact */
       source_type: ExternalDataSourceTypeEnum;
     }
 
@@ -21396,23 +21410,20 @@ export namespace Schemas {
       readonly id: string;
       /** UUID of the evaluation this report config belongs to. */
       evaluation: string;
-      /** How report generation is triggered. 'every_n' fires once N new evaluation results have accumulated (subject to cooldown_minutes and daily_run_cap). 'scheduled' fires on the cadence defined by rrule + starts_at + timezone_name.
+      /** How report generation is triggered. 'every_n' fires once N new evaluation results have accumulated (subject to cooldown_minutes and daily_run_cap). 'scheduled' fires on the cadence defined by rrule.
        *
        * * `scheduled` - Scheduled
        * * `every_n` - Every N */
       frequency?: EvaluationReportFrequencyEnum;
-      /** RFC 5545 recurrence rule string (e.g. 'FREQ=WEEKLY;BYDAY=MO'). Must not contain DTSTART — the anchor is set via starts_at. Required when frequency is 'scheduled'; ignored otherwise. */
+      /** RFC 5545 recurrence rule string for scheduled reports. Only daily and weekly cadences are supported: use 'FREQ=DAILY' or 'FREQ=WEEKLY;BYDAY=MO,FR'. Required when frequency is 'scheduled'; ignored otherwise. */
       rrule?: string;
       /**
-         * Anchor datetime for the rrule (ISO 8601, UTC — must end in 'Z'). Local-time interpretation is controlled by timezone_name. Required when frequency is 'scheduled'; ignored otherwise.
+         * Read-only anchor datetime used to expand scheduled reports. The server sets this automatically when a report is switched to scheduled mode.
          * @nullable
          */
-      starts_at?: string | null;
-      /**
-         * IANA timezone name used to expand the rrule in local time so e.g. '9am' stays at 9am across DST transitions (e.g. 'America/New_York'). Defaults to 'UTC'.
-         * @maxLength 64
-         */
-      timezone_name?: string;
+      readonly starts_at: string | null;
+      /** Read-only timezone used for scheduled reports. Evaluation reports use UTC. */
+      readonly timezone_name: string;
       /** @nullable */
       readonly next_delivery_date: string | null;
       /** List of delivery targets. Each entry is either {type: 'email', value: 'user@example.com'} or {type: 'slack', integration_id: <int>, channel: '<channel>'}. Slack integration_id must belong to this team. */
@@ -21425,15 +21436,15 @@ export namespace Schemas {
       max_sample_size?: number;
       /** Whether report delivery is active. Disabled configs do not fire. */
       enabled?: boolean;
-      /** Set to true to soft-delete this report config. */
-      deleted?: boolean;
+      /** Read-only. Report configs are soft-deleted only when their evaluation is deleted. Use enabled=false to stop deliveries. */
+      readonly deleted: boolean;
       /** @nullable */
       readonly last_delivered_at: string | null;
       /** Optional custom instructions appended to the AI report prompt to steer focus, scope, or section choices without modifying the base prompt. */
       report_prompt_guidance?: string;
       /**
-         * Number of new evaluation results that triggers a report (every_n mode only). Min 10, max 10000. Defaults to 100. Required when frequency is 'every_n'.
-         * @minimum 10
+         * Number of new evaluation results that triggers a report (every_n mode only). Min 100, max 10000. Defaults to 100. Required when frequency is 'every_n'.
+         * @minimum 100
          * @maximum 10000
          * @nullable
          */
@@ -21477,6 +21488,66 @@ export namespace Schemas {
       readonly delivery_status: DeliveryStatusEnum;
       /** List of delivery error messages if delivery failed. */
       readonly delivery_errors: unknown;
+      readonly created_at: string;
+    }
+
+    export interface EvaluationReportUpdate {
+      readonly id: string;
+      /** UUID of the evaluation this report config belongs to. */
+      readonly evaluation: string;
+      /** How report generation is triggered. 'every_n' fires once N new evaluation results have accumulated (subject to cooldown_minutes and daily_run_cap). 'scheduled' fires on the cadence defined by rrule.
+       *
+       * * `scheduled` - Scheduled
+       * * `every_n` - Every N */
+      frequency?: EvaluationReportFrequencyEnum;
+      /** RFC 5545 recurrence rule string for scheduled reports. Only daily and weekly cadences are supported: use 'FREQ=DAILY' or 'FREQ=WEEKLY;BYDAY=MO,FR'. Required when frequency is 'scheduled'; ignored otherwise. */
+      rrule?: string;
+      /**
+         * Read-only anchor datetime used to expand scheduled reports. The server sets this automatically when a report is switched to scheduled mode.
+         * @nullable
+         */
+      readonly starts_at: string | null;
+      /** Read-only timezone used for scheduled reports. Evaluation reports use UTC. */
+      readonly timezone_name: string;
+      /** @nullable */
+      readonly next_delivery_date: string | null;
+      /** List of delivery targets. Each entry is either {type: 'email', value: 'user@example.com'} or {type: 'slack', integration_id: <int>, channel: '<channel>'}. Slack integration_id must belong to this team. */
+      delivery_targets?: unknown;
+      /**
+         * Maximum number of evaluation runs included in each report. Defaults to 200.
+         * @minimum -2147483648
+         * @maximum 2147483647
+         */
+      max_sample_size?: number;
+      /** Whether report delivery is active. Disabled configs do not fire. */
+      enabled?: boolean;
+      /** Read-only. Report configs are soft-deleted only when their evaluation is deleted. Use enabled=false to stop deliveries. */
+      readonly deleted: boolean;
+      /** @nullable */
+      readonly last_delivered_at: string | null;
+      /** Optional custom instructions appended to the AI report prompt to steer focus, scope, or section choices without modifying the base prompt. */
+      report_prompt_guidance?: string;
+      /**
+         * Number of new evaluation results that triggers a report (every_n mode only). Min 100, max 10000. Defaults to 100. Required when frequency is 'every_n'.
+         * @minimum 100
+         * @maximum 10000
+         * @nullable
+         */
+      trigger_threshold?: number | null;
+      /**
+         * Minimum minutes between count-triggered reports to prevent spam (every_n mode only). Min 60, max 1440 (24 hours). Defaults to 60.
+         * @minimum 60
+         * @maximum 1440
+         */
+      cooldown_minutes?: number;
+      /**
+         * Maximum count-triggered report runs per calendar day (UTC). Min 1, max 24 (one per cooldown window). Defaults to 10.
+         * @minimum 1
+         * @maximum 24
+         */
+      daily_run_cap?: number;
+      /** @nullable */
+      readonly created_by: number | null;
       readonly created_at: string;
     }
 
@@ -22492,7 +22563,7 @@ export namespace Schemas {
       primary_metrics_ordered_uuids?: unknown;
       secondary_metrics_ordered_uuids?: unknown;
       only_count_matured_users?: boolean;
-      /** When true, sync feature flag configuration from parameters to the linked feature flag. Draft experiments always sync regardless of update_feature_flag_params, so only required for non-drafts. */
+      /** When true, sync the flag config sent in this request (via the `feature_flag` object, or the deprecated `parameters` keys) to the linked feature flag. Draft experiments always sync regardless. On a running experiment, `feature_flag` config without this flag is rejected. */
       update_feature_flag_params?: boolean;
       /** Experiment lifecycle state: 'draft' (not yet launched), 'running' (launched with active feature flag), 'paused' (running with feature flag deactivated — virtual state derived from feature_flag.active, not stored), 'stopped' (ended). */
       readonly status: ExperimentStatusEnum;
@@ -22664,6 +22735,75 @@ export namespace Schemas {
     }
 
     /**
+     * Optional payload values keyed by variant key.
+     */
+    export type ExperimentFeatureFlagFiltersPayloads = {[key: string]: string};
+
+    /**
+     * A single release-condition group carrying only the overall rollout percentage, the one
+     * groups entry the experiment input applies.
+     */
+    export interface ExperimentFlagRolloutGroup {
+      /**
+         * Percentage of users who enter the experiment (0-100).
+         * @minimum 0
+         * @maximum 100
+         * @nullable
+         */
+      rollout_percentage?: number | null;
+      /**
+         * Must be empty or omitted: release-condition properties are not supported via the experiment input. Edit the feature flag directly for targeting.
+         * @maxItems 0
+         */
+      properties?: unknown[];
+    }
+
+    export interface FeatureFlagMultivariateVariantSchema {
+      /** Unique key for this variant. */
+      key: string;
+      /** Human-readable name for this variant. */
+      name?: string;
+      /** Variant rollout percentage. */
+      rollout_percentage: number;
+    }
+
+    export interface FeatureFlagMultivariateSchema {
+      /** Variant definitions for multivariate feature flags. */
+      variants: FeatureFlagMultivariateVariantSchema[];
+    }
+
+    /**
+     * Feature-flag filters accepted by the experiment endpoints: the flag's own filters shape,
+     * minus the keys experiments don't apply.
+     */
+    export interface ExperimentFeatureFlagFilters {
+      /** Overall rollout as a single group: [{"properties": [], "rollout_percentage": N}]. */
+      groups?: ExperimentFlagRolloutGroup[];
+      /** Multivariate configuration for variant-based rollouts. */
+      multivariate?: FeatureFlagMultivariateSchema | null;
+      /**
+         * Group type index for group-based feature flags.
+         * @nullable
+         */
+      aggregation_group_type_index?: number | null;
+      /** Optional payload values keyed by variant key. */
+      payloads?: ExperimentFeatureFlagFiltersPayloads;
+    }
+
+    /**
+     * Flag config for experiment create/update, sent through the linked feature flag's own shape.
+     */
+    export interface ExperimentFeatureFlagInput {
+      /** Flag config to apply: `multivariate.variants` (exactly one variant key must be the literal string 'control'), `groups` (a single group with `rollout_percentage` only; release conditions are not supported here, edit the feature flag directly), `aggregation_group_type_index`, and `payloads` (JSON-encoded strings keyed by variant key). On update, config this object omits is preserved from the linked flag's current state. */
+      filters?: ExperimentFeatureFlagFilters;
+      /**
+         * Whether the flag persists variant assignment across authentication steps.
+         * @nullable
+         */
+      ensure_experience_continuity?: boolean | null;
+    }
+
+    /**
      * * `categorical` - categorical
      * * `numeric` - numeric
      * * `boolean` - boolean
@@ -22830,22 +22970,22 @@ export namespace Schemas {
          */
       running_metrics?: number | null;
       /**
-         * Rows read so far by the currently-running metric queries (monotonic; the live progress signal)
+         * Rows read by the run's metric queries so far, both finished and currently running. Cumulative and roughly monotonic across the run; the primary live progress signal
          * @nullable
          */
       rows_read?: number | null;
       /**
-         * ClickHouse's total_rows_approx across running queries. A soft ceiling ClickHouse revises upward mid-scan, so it can exceed or trail rows_read; treat rows_read as the reliable signal
+         * ClickHouse's total_rows_approx across running queries plus the final read_rows of finished ones. A soft ceiling revised mid-scan, so it can exceed or trail rows_read; treat rows_read as the reliable signal
          * @nullable
          */
       estimated_rows_total?: number | null;
       /**
-         * Bytes read so far by the currently-running metric queries
+         * Bytes read by the run's metric queries so far, both finished and currently running
          * @nullable
          */
       bytes_read?: number | null;
       /**
-         * Active CPU time (microseconds) consumed by the currently-running metric queries
+         * Active CPU time (microseconds) consumed by the run's metric queries so far, both finished and currently running
          * @nullable
          */
       active_cpu_time?: number | null;
@@ -22925,6 +23065,108 @@ export namespace Schemas {
       readonly created_at: string;
       readonly updated_at: string;
       tags?: unknown[];
+      /**
+         * The effective access level the user has for this object
+         * @nullable
+         */
+      readonly user_access_level: string | null;
+    }
+
+    /**
+     * Experiment write payload. Identical to Experiment, plus the writable `feature_flag` config input.
+     */
+    export interface ExperimentWrite {
+      readonly id: number;
+      /**
+         * Name of the experiment.
+         * @maxLength 400
+         */
+      name: string;
+      /**
+         * Description of the experiment hypothesis and expected outcomes.
+         * @maxLength 3000
+         * @nullable
+         */
+      description?: string | null;
+      /** @nullable */
+      start_date?: string | null;
+      /** @nullable */
+      end_date?: string | null;
+      /** Unique key for the experiment's feature flag. Letters, numbers, hyphens, and underscores only. Search existing flags with the feature-flag-get-all tool first — reuse an existing flag when possible. */
+      feature_flag_key: string;
+      /** Feature-flag config for the experiment, in the flag's own filters shape. The linked flag is the source of truth for variants, rollout, aggregation, payloads, and experience continuity: send config here instead of the deprecated `parameters` keys. On a running experiment, also send `update_feature_flag_params=true`. Cannot be combined with the key of a pre-existing feature flag on create (the experiment links to it as-is). */
+      feature_flag?: ExperimentFeatureFlagInput;
+      readonly holdout: ExperimentHoldout;
+      /**
+         * ID of a holdout group to exclude from the experiment.
+         * @nullable
+         */
+      holdout_id?: number | null;
+      /** @nullable */
+      readonly exposure_cohort: number | null;
+      /** Experiment parameters JSON. Supported keys include `custom_exposure_filter` and `variant_notes` (free-text notes per variant, keyed by variant key). Flag config keys (`feature_flag_variants`, `rollout_percentage`) are a deprecated input surface kept for compatibility — the linked feature flag is the source of truth, and reads project its current config into this field. Excluded variants live on the top-level `excluded_variants` field, not here. */
+      parameters?: ExperimentParameters | null;
+      /** Running-time calculator state: `minimum_detectable_effect`, `recommended_running_time`, `recommended_sample_size`, and `exposure_estimate_config`. Canonical home for these keys, which historically lived in `parameters`. */
+      running_time_calculation?: ExperimentRunningTimeCalculation | null;
+      /**
+         * Variant keys to exclude from metric result calculations. Excluded variants are still served to users but omitted from statistical analysis. The baseline variant and holdout pseudo-variants cannot be excluded. Canonical home for what historically lived in `parameters.excluded_variants`.
+         * @nullable
+         */
+      excluded_variants?: string[] | null;
+      secondary_metrics?: unknown;
+      readonly saved_metrics: readonly ExperimentToSavedMetric[];
+      /**
+         * IDs of shared saved metrics to attach to this experiment. Each item has 'id' (saved metric ID) and 'metadata' with 'type' (primary or secondary).
+         * @nullable
+         */
+      saved_metrics_ids?: unknown[] | null;
+      filters?: unknown;
+      /** Whether the experiment is archived. */
+      archived?: boolean;
+      /** @nullable */
+      deleted?: boolean | null;
+      readonly created_by: UserBasic;
+      readonly created_at: string;
+      readonly updated_at: string;
+      /** Experiment type: web for frontend UI changes, product for backend/API changes.
+       *
+       * * `web` - web
+       * * `product` - product */
+      type?: ExperimentTypeEnum | null;
+      /** Exposure configuration including filter test accounts and custom exposure events. */
+      exposure_criteria?: ExperimentApiExposureCriteria | null;
+      /** Primary experiment metrics. Each metric must have kind='ExperimentMetric' and a metric_type: 'mean' (set source to an EventsNode with an event name), 'funnel' (set series to an array of EventsNode steps), 'ratio' (set numerator and denominator EventsNode entries), or 'retention' (set start_event and completion_event). Use the read-data-schema tool with query kind 'events' to find available events in the project. */
+      metrics?: _ExperimentApiMetricsList | null;
+      /** Secondary metrics for additional measurements. Same format as primary metrics. */
+      metrics_secondary?: _ExperimentApiMetricsList | null;
+      stats_config?: unknown;
+      scheduling_config?: unknown;
+      /** Suppresses the validation that rejects metrics referencing events not yet ingested by this project. REQUIRES explicit user confirmation before being set to true — never flip this silently to retry a failed call. The default validation catches typo'd event names and missing instrumentation. Set this to true only when the user has confirmed the event is intentional (e.g. they are about to instrument it). */
+      allow_unknown_events?: boolean;
+      _create_in_folder?: string;
+      /** Experiment conclusion: won, lost, inconclusive, stopped_early, or invalid.
+       *
+       * * `won` - won
+       * * `lost` - lost
+       * * `inconclusive` - inconclusive
+       * * `stopped_early` - stopped_early
+       * * `invalid` - invalid */
+      conclusion?: ConclusionEnum | null;
+      /**
+         * Comment about the experiment conclusion.
+         * @maxLength 4000
+         * @nullable
+         */
+      conclusion_comment?: string | null;
+      primary_metrics_ordered_uuids?: unknown;
+      secondary_metrics_ordered_uuids?: unknown;
+      only_count_matured_users?: boolean;
+      /** When true, sync the flag config sent in this request (via the `feature_flag` object, or the deprecated `parameters` keys) to the linked feature flag. Draft experiments always sync regardless. On a running experiment, `feature_flag` config without this flag is rejected. */
+      update_feature_flag_params?: boolean;
+      /** Experiment lifecycle state: 'draft' (not yet launched), 'running' (launched with active feature flag), 'paused' (running with feature flag deactivated — virtual state derived from feature_flag.active, not stored), 'stopped' (ended). */
+      readonly status: ExperimentStatusEnum;
+      /** Whether the experiment uses any legacy-engine metrics (ExperimentTrendsQuery or ExperimentFunnelsQuery). Used to flag legacy experiments and gate actions that don't support them, such as duplicate and copy-to-project. */
+      readonly is_legacy: boolean;
       /**
          * The effective access level the user has for this object
          * @nullable
@@ -23985,7 +24227,10 @@ export namespace Schemas {
        * * `Redis` - Redis
        * * `Mercury` - Mercury
        * * `Gojiberry` - Gojiberry
-       * * `Teachable` - Teachable */
+       * * `Teachable` - Teachable
+       * * `PeecAI` - PeecAI
+       * * `Healthchecks` - Healthchecks
+       * * `Impact` - Impact */
       source_type: ExternalDataSourceTypeEnum;
       /** Connection credentials and a 'schemas' array. Keys depend on source_type. */
       payload: ExternalDataSourceCreatePayload;
@@ -24031,6 +24276,16 @@ export namespace Schemas {
          * @nullable
          */
       created_at: string | null;
+      /**
+         * ISO-8601 timestamp of the most recent completed sync job, or null if this source has never completed a sync. Use this to tell a healthy source apart from one stuck in `Running` that has imported zero rows — `status` alone conflates the two.
+         * @nullable
+         */
+      last_run_at: string | null;
+      /**
+         * Newest schema-level sync error for this source, or null if no schema is erroring.
+         * @nullable
+         */
+      latest_error: string | null;
     }
 
     export interface ExternalDataSourceRevenueAnalyticsConfig {
@@ -24277,20 +24532,6 @@ export namespace Schemas {
       variant: string | null;
       /** Analysis of each property in this condition */
       properties: FeatureFlagConditionPropertyAnalysis[];
-    }
-
-    export interface FeatureFlagMultivariateVariantSchema {
-      /** Unique key for this variant. */
-      key: string;
-      /** Human-readable name for this variant. */
-      name?: string;
-      /** Variant rollout percentage. */
-      rollout_percentage: number;
-    }
-
-    export interface FeatureFlagMultivariateSchema {
-      /** Variant definitions for multivariate feature flags. */
-      variants: FeatureFlagMultivariateVariantSchema[];
     }
 
     /**
@@ -30191,6 +30432,79 @@ export namespace Schemas {
       readonly updated_at: string | null;
     }
 
+    export interface MCPActivityClientRow {
+      /** Agent client name ($mcp_client_name). Empty when the SDK did not capture it. */
+      readonly client: string;
+      /** Tool calls from this client in the window. */
+      readonly calls: number;
+    }
+
+    export interface MCPActivityStats {
+      /** $mcp_tool_call events captured in the last 30 days. */
+      readonly total_calls: number;
+      /** Distinct tools ($mcp_tool_name) called in the window. */
+      readonly distinct_tools: number;
+      /** Distinct $session_ids seen on tool calls in the window. */
+      readonly distinct_sessions: number;
+      /** Distinct agent clients ($mcp_client_name) seen in the window. */
+      readonly distinct_clients: number;
+      /** Tool calls that carried an $mcp_intent, for intent-coverage checks. */
+      readonly calls_with_intent: number;
+      /** Tool calls flagged as errors ($mcp_is_error) in the window. */
+      readonly error_calls: number;
+      /** $mcp_missing_capability events captured in the window. */
+      readonly missing_capability_reports: number;
+    }
+
+    export interface MCPActivityToolRow {
+      /** MCP tool name ($mcp_tool_name). */
+      readonly tool: string;
+      /** Tool calls in the window. */
+      readonly calls: number;
+      /** Of those calls, how many errored. */
+      readonly errors: number;
+    }
+
+    export interface MCPActivityRecentCall {
+      /** When the tool call was captured. */
+      readonly timestamp: string;
+      /** Tool that was invoked ($mcp_tool_name). */
+      readonly tool: string;
+      /**
+         * Agent intent for this tool call ($mcp_intent). Null when the SDK did not capture context.
+         * @nullable
+         */
+      readonly intent: string | null;
+      /** Whether the tool call resulted in an error. */
+      readonly is_error: boolean;
+      /**
+         * Human-readable error extracted from the tool's response when is_error is true, otherwise null.
+         * @nullable
+         */
+      readonly error_message: string | null;
+      /**
+         * Duration of the tool call in milliseconds when captured.
+         * @nullable
+         */
+      readonly duration_ms: number | null;
+      /**
+         * Agent client name ($mcp_client_name) when captured.
+         * @nullable
+         */
+      readonly client_name: string | null;
+    }
+
+    export interface MCPActivityOverview {
+      /** Aggregate counters over the last 30 days. */
+      readonly stats: MCPActivityStats;
+      /** Most-called tools in the window, top 5 by call count. */
+      readonly top_tools: readonly MCPActivityToolRow[];
+      /** Agent clients in the window, top 6 by call count. */
+      readonly clients: readonly MCPActivityClientRow[];
+      /** The 20 most recent tool calls, newest first. */
+      readonly recent_calls: readonly MCPActivityRecentCall[];
+    }
+
     /**
      * * `feedback` - Feedback
      * * `missing_capability` - Missing capability
@@ -30444,6 +30758,16 @@ export namespace Schemas {
       readonly clusters: readonly MCPIntentCluster[];
       /** Settings used to produce the snapshot. Null when no snapshot has been computed yet. */
       readonly computed_with: MCPIntentClusterSnapshotMeta | null;
+    }
+
+    export interface MCPIntentDigest {
+      /**
+         * LLM-generated digest (at most three sentences) of what agents are trying to do with this MCP server, derived from the most recent recorded $mcp_intents across all sessions. Null when the project has no recorded intents yet.
+         * @nullable
+         */
+      readonly digest: string | null;
+      /** How many recorded intents (the most recent, capped at 100) the digest was derived from. */
+      readonly intent_count: number;
     }
 
     export interface MCPMissingCapabilityCreate {
@@ -34187,6 +34511,45 @@ export namespace Schemas {
       results: Run[];
     }
 
+    export type SandboxCustomImageDTOSpec = { [key: string]: unknown };
+
+    export type SandboxCustomImageDTOScanResult = { [key: string]: unknown };
+
+    /**
+     * Detail response for a custom sandbox base image.
+     */
+    export interface SandboxCustomImageDTO {
+      id: string;
+      name: string;
+      description: string;
+      repository?: string;
+      private?: boolean;
+      status: string;
+      version: number;
+      modal_image_name: string;
+      spec?: SandboxCustomImageDTOSpec;
+      spec_yaml?: string;
+      scan_result?: SandboxCustomImageDTOScanResult;
+      build_log?: string;
+      error: string;
+      /** @nullable */
+      builder_task_id?: string | null;
+      created_by?: TaskUserBasicInfo | null;
+      /** @nullable */
+      created_at?: string | null;
+      /** @nullable */
+      updated_at?: string | null;
+    }
+
+    export interface PaginatedSandboxCustomImageDTOList {
+      count: number;
+      /** @nullable */
+      next?: string | null;
+      /** @nullable */
+      previous?: string | null;
+      results: SandboxCustomImageDTO[];
+    }
+
     /**
      * List response for sandbox environments (subset of fields).
      */
@@ -34203,6 +34566,12 @@ export namespace Schemas {
       created_at?: string | null;
       /** @nullable */
       updated_at?: string | null;
+      /** @nullable */
+      custom_image_id?: string | null;
+      /** @nullable */
+      custom_image_name?: string | null;
+      /** @nullable */
+      custom_image_status?: string | null;
     }
 
     export interface PaginatedSandboxEnvironmentDTOList {
@@ -35886,6 +36255,7 @@ export namespace Schemas {
       repository: string | null;
       created_at: string;
       updated_at: string;
+      origin_product?: string;
       latest_run?: TaskRunSummary | null;
     }
 
@@ -36727,26 +37097,34 @@ export namespace Schemas {
     }
 
     /**
-     * Observation filter applied at synthesis time. All keys optional; this typed shape is the
-     * allowlist, so unknown input keys are dropped rather than persisted.
+     * * `yes` - yes
+     * * `no` - no
+     * * `inconclusive` - inconclusive
+     */
+    export type VerdictEnum = typeof VerdictEnum[keyof typeof VerdictEnum];
+
+
+    export const VerdictEnum = {
+      Yes: 'yes',
+      No: 'no',
+      Inconclusive: 'inconclusive',
+    } as const;
+
+    /**
+     * The action's targeting predicate ("run this on…") applied when gathering observations. All keys
+     * optional; this typed shape is the allowlist, so unknown input keys are dropped rather than persisted.
      */
     export interface Selection {
-      /** Filter observations by scanner type (monitor/classifier/scorer/summarizer). */
-      scanner_type?: string;
-      /** Restrict to observations produced by these scanner IDs. */
+      /** Restrict to observations produced by these scanner IDs. Defaults to the bound scanner. */
       scanner_ids?: string[];
-      /** Filter to observations with this monitor verdict. */
-      verdict?: string;
-      /** Filter to observations carrying any of these classifier tags. */
+      /** Only run on monitor observations with one of these verdicts (yes/no/inconclusive). */
+      verdict?: VerdictEnum[];
+      /** Only run on classifier observations carrying any of these tags (fixed or freeform). */
       tags?: string[];
-      /** Lower bound (inclusive) on scorer score. */
+      /** Only run on scorer observations with a score at or above this value (inclusive). */
       min_score?: number;
-      /** Upper bound (inclusive) on scorer score. */
+      /** Only run on scorer observations with a score at or below this value (inclusive). */
       max_score?: number;
-      /** Filter to observations with this processing status. */
-      status?: string;
-      /** Lookback window in days for the observations gathered at synthesis time. */
-      window_days?: number;
     }
 
     /**
@@ -36783,7 +37161,7 @@ export namespace Schemas {
       mode?: VisionActionModeEnum;
       /** Trigger parameters. For schedule triggers: {rrule, timezone}. */
       trigger_config?: TriggerConfig;
-      /** Observation filter applied at synthesis time. */
+      /** Targeting predicate: which of the scanner's observations this action runs on. */
       selection?: Selection;
       /** Synthesis options for the group summary, e.g. {prompt_guide}. */
       synthesis_config?: SynthesisConfig;
@@ -38712,27 +39090,24 @@ export namespace Schemas {
       deleted?: boolean;
     }
 
-    export interface PatchedEvaluationReport {
+    export interface PatchedEvaluationReportUpdate {
       readonly id?: string;
       /** UUID of the evaluation this report config belongs to. */
-      evaluation?: string;
-      /** How report generation is triggered. 'every_n' fires once N new evaluation results have accumulated (subject to cooldown_minutes and daily_run_cap). 'scheduled' fires on the cadence defined by rrule + starts_at + timezone_name.
+      readonly evaluation?: string;
+      /** How report generation is triggered. 'every_n' fires once N new evaluation results have accumulated (subject to cooldown_minutes and daily_run_cap). 'scheduled' fires on the cadence defined by rrule.
        *
        * * `scheduled` - Scheduled
        * * `every_n` - Every N */
       frequency?: EvaluationReportFrequencyEnum;
-      /** RFC 5545 recurrence rule string (e.g. 'FREQ=WEEKLY;BYDAY=MO'). Must not contain DTSTART — the anchor is set via starts_at. Required when frequency is 'scheduled'; ignored otherwise. */
+      /** RFC 5545 recurrence rule string for scheduled reports. Only daily and weekly cadences are supported: use 'FREQ=DAILY' or 'FREQ=WEEKLY;BYDAY=MO,FR'. Required when frequency is 'scheduled'; ignored otherwise. */
       rrule?: string;
       /**
-         * Anchor datetime for the rrule (ISO 8601, UTC — must end in 'Z'). Local-time interpretation is controlled by timezone_name. Required when frequency is 'scheduled'; ignored otherwise.
+         * Read-only anchor datetime used to expand scheduled reports. The server sets this automatically when a report is switched to scheduled mode.
          * @nullable
          */
-      starts_at?: string | null;
-      /**
-         * IANA timezone name used to expand the rrule in local time so e.g. '9am' stays at 9am across DST transitions (e.g. 'America/New_York'). Defaults to 'UTC'.
-         * @maxLength 64
-         */
-      timezone_name?: string;
+      readonly starts_at?: string | null;
+      /** Read-only timezone used for scheduled reports. Evaluation reports use UTC. */
+      readonly timezone_name?: string;
       /** @nullable */
       readonly next_delivery_date?: string | null;
       /** List of delivery targets. Each entry is either {type: 'email', value: 'user@example.com'} or {type: 'slack', integration_id: <int>, channel: '<channel>'}. Slack integration_id must belong to this team. */
@@ -38745,15 +39120,15 @@ export namespace Schemas {
       max_sample_size?: number;
       /** Whether report delivery is active. Disabled configs do not fire. */
       enabled?: boolean;
-      /** Set to true to soft-delete this report config. */
-      deleted?: boolean;
+      /** Read-only. Report configs are soft-deleted only when their evaluation is deleted. Use enabled=false to stop deliveries. */
+      readonly deleted?: boolean;
       /** @nullable */
       readonly last_delivered_at?: string | null;
       /** Optional custom instructions appended to the AI report prompt to steer focus, scope, or section choices without modifying the base prompt. */
       report_prompt_guidance?: string;
       /**
-         * Number of new evaluation results that triggers a report (every_n mode only). Min 10, max 10000. Defaults to 100. Required when frequency is 'every_n'.
-         * @minimum 10
+         * Number of new evaluation results that triggers a report (every_n mode only). Min 100, max 10000. Defaults to 100. Required when frequency is 'every_n'.
+         * @minimum 100
          * @maximum 10000
          * @nullable
          */
@@ -38785,14 +39160,66 @@ export namespace Schemas {
     }
 
     /**
-     * Full experiment representation for the detail, create, and update endpoints.
-     *
-     * Extends the shared read-side fields in ``ExperimentBaseSerializer`` with the metric
-     * definitions (``metrics``/``metrics_secondary``/``saved_metrics``) and the write-side
-     * fields, and refreshes stale action names while serializing. The list endpoint uses the
-     * leaner ``ExperimentBasicSerializer`` instead.
+     * A holdout group — a stable slice of users excluded from experiment exposure.
      */
-    export interface PatchedExperiment {
+    export interface PatchedExperimentHoldout {
+      readonly id?: number;
+      /**
+         * Human-readable name for the holdout group.
+         * @maxLength 400
+         */
+      name?: string;
+      /**
+         * Optional description of what this holdout reserves and why.
+         * @maxLength 400
+         * @nullable
+         */
+      description?: string | null;
+      /** Non-empty list of release-condition groups defining the held-out population, using the same shape as feature-flag release conditions. Each element's `rollout_percentage` (0–100, may be fractional) is the **exclusion** percentage — the share of users held back from all experiments that reference this holdout. `properties` optionally narrows the group by person/group properties. Do not set `variant`: the server normalizes it to `holdout-{id}`. Note that only the first element's `rollout_percentage` is embedded into each linked experiment's feature flag, and this population is shared across every experiment using the holdout. */
+      filters?: FeatureFlagConditionGroupSchema[];
+      readonly created_by?: UserBasic;
+      readonly created_at?: string;
+      readonly updated_at?: string;
+      /**
+         * The effective access level the user has for this object
+         * @nullable
+         */
+      readonly user_access_level?: string | null;
+    }
+
+    /**
+     * Mixin for serializers to add user access control fields
+     */
+    export interface PatchedExperimentSavedMetric {
+      readonly id?: number;
+      /**
+         * Name of the shared metric. Must be unique within the project (case-insensitive).
+         * @maxLength 400
+         */
+      name?: string;
+      /**
+         * Short description of what the metric measures.
+         * @maxLength 400
+         * @nullable
+         */
+      description?: string | null;
+      /** ExperimentMetric JSON. Must have kind='ExperimentMetric' and a metric_type: 'mean' (set source to an EventsNode with an event name), 'funnel' (set series to an array of EventsNode steps), 'ratio' (set numerator and denominator EventsNode entries), or 'retention' (set start_event and completion_event). Legacy kinds (ExperimentTrendsQuery, ExperimentFunnelsQuery) are rejected for new shared metrics. */
+      query?: unknown;
+      readonly created_by?: UserBasic;
+      readonly created_at?: string;
+      readonly updated_at?: string;
+      tags?: unknown[];
+      /**
+         * The effective access level the user has for this object
+         * @nullable
+         */
+      readonly user_access_level?: string | null;
+    }
+
+    /**
+     * Experiment write payload. Identical to Experiment, plus the writable `feature_flag` config input.
+     */
+    export interface PatchedExperimentWrite {
       readonly id?: number;
       /**
          * Name of the experiment.
@@ -38811,7 +39238,8 @@ export namespace Schemas {
       end_date?: string | null;
       /** Unique key for the experiment's feature flag. Letters, numbers, hyphens, and underscores only. Search existing flags with the feature-flag-get-all tool first — reuse an existing flag when possible. */
       feature_flag_key?: string;
-      readonly feature_flag?: MinimalFeatureFlag;
+      /** Feature-flag config for the experiment, in the flag's own filters shape. The linked flag is the source of truth for variants, rollout, aggregation, payloads, and experience continuity: send config here instead of the deprecated `parameters` keys. On a running experiment, also send `update_feature_flag_params=true`. Cannot be combined with the key of a pre-existing feature flag on create (the experiment links to it as-is). */
+      feature_flag?: ExperimentFeatureFlagInput;
       readonly holdout?: ExperimentHoldout;
       /**
          * ID of a holdout group to exclude from the experiment.
@@ -38877,69 +39305,12 @@ export namespace Schemas {
       primary_metrics_ordered_uuids?: unknown;
       secondary_metrics_ordered_uuids?: unknown;
       only_count_matured_users?: boolean;
-      /** When true, sync feature flag configuration from parameters to the linked feature flag. Draft experiments always sync regardless of update_feature_flag_params, so only required for non-drafts. */
+      /** When true, sync the flag config sent in this request (via the `feature_flag` object, or the deprecated `parameters` keys) to the linked feature flag. Draft experiments always sync regardless. On a running experiment, `feature_flag` config without this flag is rejected. */
       update_feature_flag_params?: boolean;
       /** Experiment lifecycle state: 'draft' (not yet launched), 'running' (launched with active feature flag), 'paused' (running with feature flag deactivated — virtual state derived from feature_flag.active, not stored), 'stopped' (ended). */
       readonly status?: ExperimentStatusEnum;
       /** Whether the experiment uses any legacy-engine metrics (ExperimentTrendsQuery or ExperimentFunnelsQuery). Used to flag legacy experiments and gate actions that don't support them, such as duplicate and copy-to-project. */
       readonly is_legacy?: boolean;
-      /**
-         * The effective access level the user has for this object
-         * @nullable
-         */
-      readonly user_access_level?: string | null;
-    }
-
-    /**
-     * A holdout group — a stable slice of users excluded from experiment exposure.
-     */
-    export interface PatchedExperimentHoldout {
-      readonly id?: number;
-      /**
-         * Human-readable name for the holdout group.
-         * @maxLength 400
-         */
-      name?: string;
-      /**
-         * Optional description of what this holdout reserves and why.
-         * @maxLength 400
-         * @nullable
-         */
-      description?: string | null;
-      /** Non-empty list of release-condition groups defining the held-out population, using the same shape as feature-flag release conditions. Each element's `rollout_percentage` (0–100, may be fractional) is the **exclusion** percentage — the share of users held back from all experiments that reference this holdout. `properties` optionally narrows the group by person/group properties. Do not set `variant`: the server normalizes it to `holdout-{id}`. Note that only the first element's `rollout_percentage` is embedded into each linked experiment's feature flag, and this population is shared across every experiment using the holdout. */
-      filters?: FeatureFlagConditionGroupSchema[];
-      readonly created_by?: UserBasic;
-      readonly created_at?: string;
-      readonly updated_at?: string;
-      /**
-         * The effective access level the user has for this object
-         * @nullable
-         */
-      readonly user_access_level?: string | null;
-    }
-
-    /**
-     * Mixin for serializers to add user access control fields
-     */
-    export interface PatchedExperimentSavedMetric {
-      readonly id?: number;
-      /**
-         * Name of the shared metric. Must be unique within the project (case-insensitive).
-         * @maxLength 400
-         */
-      name?: string;
-      /**
-         * Short description of what the metric measures.
-         * @maxLength 400
-         * @nullable
-         */
-      description?: string | null;
-      /** ExperimentMetric JSON. Must have kind='ExperimentMetric' and a metric_type: 'mean' (set source to an EventsNode with an event name), 'funnel' (set series to an array of EventsNode steps), 'ratio' (set numerator and denominator EventsNode entries), or 'retention' (set start_event and completion_event). Legacy kinds (ExperimentTrendsQuery, ExperimentFunnelsQuery) are rejected for new shared metrics. */
-      query?: unknown;
-      readonly created_by?: UserBasic;
-      readonly created_at?: string;
-      readonly updated_at?: string;
-      tags?: unknown[];
       /**
          * The effective access level the user has for this object
          * @nullable
@@ -41841,6 +42212,11 @@ export namespace Schemas {
       environment_variables?: unknown;
       /** If true, only the creator can see this environment; otherwise the whole team can. */
       private?: boolean;
+      /**
+         * Custom base image for this environment's sandboxes (Modal VM runtime only); null uses the default base.
+         * @nullable
+         */
+      custom_image_id?: string | null;
     }
 
     export interface PatchedSavedHeatmapRequest {
@@ -43921,7 +44297,7 @@ export namespace Schemas {
       mode?: VisionActionModeEnum;
       /** Trigger parameters. For schedule triggers: {rrule, timezone}. */
       trigger_config?: TriggerConfig;
-      /** Observation filter applied at synthesis time. */
+      /** Targeting predicate: which of the scanner's observations this action runs on. */
       selection?: Selection;
       /** Synthesis options for the group summary, e.g. {prompt_guide}. */
       synthesis_config?: SynthesisConfig;
@@ -45753,26 +46129,28 @@ export namespace Schemas {
      * One row in `inventory.top_events`.
      */
     export interface TopEventEntry {
+      /** Rolling lookback window (in days) that every count and timestamp on this row is measured over — these are windowed figures, NOT lifetime totals. A capture gap can collapse a real, high-volume project's in-window counts to near-zero, so a thin `count` here does not by itself mean the project is low-volume: rule out an ingestion gap (compare against a trailing baseline via a direct `execute-sql`) before closing out a surface as unused. */
+      window_days: number;
       /** Event name as captured. */
       event: string;
-      /** Number of occurrences in the lookback window (last 7 days). */
+      /** Number of occurrences within the last `window_days` (windowed, not lifetime). */
       count: number;
       /** `uniq(person_id)` over the window — reach. Distinguishes a high-count event firing on one power user from one firing on many users. */
       distinct_users: number;
-      /** Count in just the last 24 hours. Compare to `count / 7` to spot bursts: a ratio well above 1/7 means the event is concentrated in the last day. */
+      /** Count in just the last 24 hours. Compare to `count / window_days` to spot bursts: a ratio well above `1 / window_days` means the event is concentrated in the last day. */
       recent_24h_count: number;
       /** `uniq(person_id)` over just the last 24 hours. A burst across many users is qualitatively different from one user in a loop. */
       recent_24h_users: number;
       /**
-         * ISO-8601 timestamp of the earliest occurrence within the lookback window. Compare to the window start to spot new event types: `first_seen` close to `now` ⇒ likely new or recently bursting; close to the window edge ⇒ has been around at least that long (the window can't tell you when the event *truly* first appeared).
+         * ISO-8601 timestamp of the earliest occurrence within the `window_days` window. Compare to the window start to spot new event types: close to `now` ⇒ likely new or recently bursting; close to the window edge ⇒ has been around at least that long (the window can't tell you when the event *truly* first appeared).
          * @nullable
          */
-      first_seen: string | null;
+      first_seen_in_window: string | null;
       /**
-         * ISO-8601 timestamp of the most recent occurrence within the lookback window.
+         * ISO-8601 timestamp of the most recent occurrence within the `window_days` window.
          * @nullable
          */
-      last_seen: string | null;
+      last_seen_in_window: string | null;
     }
 
     /**
@@ -45824,7 +46202,7 @@ export namespace Schemas {
       /** Action orientation: total + the 5 most recently updated actions — useful to anchor agent reasoning about what the team treats as a meaningful interaction. */
       recent_actions: RecentActions;
       /**
-         * Top ~50 events by count over the last 7 days, with first/last seen timestamps within the window. `null` if the underlying ClickHouse query failed or timed out (distinct from `[]`, which means the team has no captures in the window). Use the gap between `first_seen` and `now` to spot new event types or recent bursts.
+         * Top ~50 events by count over a recent rolling window (each row carries `window_days`), with first/last seen timestamps within that window. These are WINDOWED counts, not lifetime totals: a capture gap can collapse a real, high-volume project's counts to near-zero here, so rule out an ingestion gap (compare against a trailing baseline via a direct `execute-sql`) before reading thinness as a genuinely low-volume project. `null` if the underlying ClickHouse query failed or timed out (distinct from `[]`, which means the team has no captures in the window). Use the gap between `first_seen_in_window` and `now` to spot new event types or recent bursts.
          * @nullable
          */
       top_events: TopEventEntry[] | null;
@@ -49536,6 +49914,38 @@ export namespace Schemas {
     }
 
     /**
+     * Request body for scanning and building a custom sandbox base image.
+     */
+    export interface SandboxCustomImageBuild {
+      /**
+         * Image spec YAML to build. When omitted, the spec is read from the builder agent's live sandbox.
+         * @nullable
+         */
+      spec_yaml?: string | null;
+    }
+
+    /**
+     * Request body for creating a custom sandbox base image.
+     */
+    export interface SandboxCustomImageWrite {
+      /**
+         * Display name for the custom image.
+         * @maxLength 255
+         */
+      name: string;
+      /** What should go into the image; seeds the image-builder agent conversation. */
+      description?: string;
+      /**
+         * Optional 'org/repo' the builder session clones so it can verify the image brings up that repository's dependencies.
+         * @maxLength 255
+         * @nullable
+         */
+      repository?: string | null;
+      /** If true, only you can see and use this image; otherwise the whole team can. */
+      private?: boolean;
+    }
+
+    /**
      * Request body for creating or updating a sandbox environment.
      */
     export interface SandboxEnvironmentWrite {
@@ -49566,6 +49976,11 @@ export namespace Schemas {
       environment_variables?: unknown;
       /** If true, only the creator can see this environment; otherwise the whole team can. */
       private?: boolean;
+      /**
+         * Custom base image for this environment's sandboxes (Modal VM runtime only); null uses the default base.
+         * @nullable
+         */
+      custom_image_id?: string | null;
     }
 
     /**
@@ -51499,7 +51914,10 @@ export namespace Schemas {
        * * `Redis` - Redis
        * * `Mercury` - Mercury
        * * `Gojiberry` - Gojiberry
-       * * `Teachable` - Teachable */
+       * * `Teachable` - Teachable
+       * * `PeecAI` - PeecAI
+       * * `Healthchecks` - Healthchecks
+       * * `Impact` - Impact */
       source_type: ExternalDataSourceTypeEnum;
       /** Connection details as flat keys for the source_type — the same fields the create flow accepts (host, port, password, API key, …). Checked against a live connection before being stored. */
       payload: SourceCredentialCreatePayload;
@@ -52203,7 +52621,10 @@ export namespace Schemas {
        * * `Redis` - Redis
        * * `Mercury` - Mercury
        * * `Gojiberry` - Gojiberry
-       * * `Teachable` - Teachable */
+       * * `Teachable` - Teachable
+       * * `PeecAI` - PeecAI
+       * * `Healthchecks` - Healthchecks
+       * * `Impact` - Impact */
       source_type: ExternalDataSourceTypeEnum;
       /** Source config as flat keys. For source_type 'Custom': 'manifest_json' (a stringified RESTAPIConfig describing client.base_url, auth, and resources) plus the credential for the manifest's declared auth type — 'auth_token' (bearer), 'auth_api_key' (api_key), or 'auth_password' (http_basic). Secrets stay in these auth_* keys, never inline in the manifest. */
       payload?: SourcePreviewRequestPayload;
@@ -52899,7 +53320,10 @@ export namespace Schemas {
        * * `Redis` - Redis
        * * `Mercury` - Mercury
        * * `Gojiberry` - Gojiberry
-       * * `Teachable` - Teachable */
+       * * `Teachable` - Teachable
+       * * `PeecAI` - PeecAI
+       * * `Healthchecks` - Healthchecks
+       * * `Impact` - Impact */
       source_type: ExternalDataSourceTypeEnum;
       /** Connection details as flat keys for the source_type (discover required fields with the wizard tool). Prefer references over raw secrets: pass {'credential_id': <id>} referencing the connection details the user stored via the connect-link page (discover ids with the stored_credentials endpoint) — they are merged in server-side and deleted once consumed. An already-connected OAuth integration can be passed via its id key instead (e.g. {'hubspot_integration_id': 123}). For source_type 'Custom' (a user-defined REST API) the keys are 'manifest_json' (a stringified RESTAPIConfig describing client.base_url, auth, and resources) plus the credential for the auth type the manifest declares — 'auth_token' (bearer), 'auth_api_key' (api_key), or 'auth_password' (http_basic); keep secrets in these auth_* keys, never inline in the manifest. A 'schemas' array is NOT required — all discovered tables are enabled automatically with sensible sync defaults. */
       payload?: SourceSetupPayload;
@@ -54196,6 +54620,8 @@ export namespace Schemas {
       branch?: string | null;
       /** Optional sandbox environment to apply for this cloud run. */
       sandbox_environment_id?: string;
+      /** Optional custom base image for this cloud run's sandbox (Modal VM runtime only); takes precedence over the environment's image. */
+      custom_image_id?: string;
       /** Whether pull requests for this run should be authored by the user or the bot.
        *
        * * `user` - user
@@ -54316,6 +54742,8 @@ export namespace Schemas {
       pending_user_message?: string;
       /** Optional sandbox environment to apply for this cloud run. */
       sandbox_environment_id?: string;
+      /** Optional custom base image for this cloud run's sandbox (Modal VM runtime only); takes precedence over the environment's image. */
+      custom_image_id?: string;
       /** Whether pull requests for this run should be authored by the user or the bot.
        *
        * * `user` - user
@@ -55786,12 +56214,12 @@ export namespace Schemas {
          */
       success_rate: number | null;
       /**
-         * Median duration of completed runs, in seconds. Null if none completed.
+         * Median duration in seconds over successful runs only — cancelled (superseded) and failed runs end early and would bias the percentile. Null if no run succeeded in the window.
          * @nullable
          */
       p50_seconds: number | null;
       /**
-         * 95th-percentile duration of completed runs, in seconds. Null if none completed.
+         * 95th-percentile duration in seconds over successful runs only — cancelled (superseded) and failed runs end early and would bias the percentile. Null if no run succeeded in the window.
          * @nullable
          */
       p95_seconds: number | null;
@@ -55891,12 +56319,12 @@ export namespace Schemas {
          */
       queue_p50_seconds: number | null;
       /**
-         * Median duration of completed job instances, in seconds. Null if none completed.
+         * Median duration of successful job instances, in seconds — cancelled and failed instances end early and would bias the percentile. Null if none succeeded.
          * @nullable
          */
       p50_seconds: number | null;
       /**
-         * 95th-percentile duration of completed job instances, in seconds. Null if none completed.
+         * 95th-percentile duration of successful job instances, in seconds — cancelled and failed instances end early and would bias the percentile. Null if none succeeded.
          * @nullable
          */
       p95_seconds: number | null;
@@ -58878,6 +59306,11 @@ export namespace Schemas {
     search?: string;
     };
 
+    export type EnvironmentsExternalDataSourcesRepairCdcCreate200 = {
+      success?: boolean;
+      schemas_reset?: number;
+    };
+
     export type EnvironmentsExternalDataSourcesCheckCdcPrerequisitesCreate200 = {
       valid?: boolean;
       errors?: string[];
@@ -60390,6 +60823,10 @@ export namespace Schemas {
     };
 
     export type EnvironmentsLlmAnalyticsEvaluationReportsListParams = {
+    /**
+     * Only return report configs for this evaluation UUID.
+     */
+    evaluation?: string;
     /**
      * Number of results to return per page.
      */
@@ -64964,10 +65401,22 @@ export namespace Schemas {
      */
     date_to?: string;
     /**
+     * Run scope for workflow health: 'all' (default) includes every run; 'pull_request' includes runs attributed to pull requests, excluding default-branch (master/main) runs. Fork PRs carry no PR attribution (a GitHub limitation), so 'pull_request' covers same-repo PRs only. Any other value is a 400.
+     */
+    run_scope?: EngineeringAnalyticsWorkflowHealthRunScope;
+    /**
      * Connected GitHub data warehouse source to read from. Defaults to the oldest connected GitHub source when the team has more than one.
      */
     source_id?: string;
     };
+
+    export type EngineeringAnalyticsWorkflowHealthRunScope = typeof EngineeringAnalyticsWorkflowHealthRunScope[keyof typeof EngineeringAnalyticsWorkflowHealthRunScope];
+
+
+    export const EngineeringAnalyticsWorkflowHealthRunScope = {
+      All: 'all',
+      PullRequest: 'pull_request',
+    } as const;
 
     export type EngineeringAnalyticsWorkflowJobsParams = {
     /**
@@ -65674,6 +66123,11 @@ export namespace Schemas {
      * A search term.
      */
     search?: string;
+    };
+
+    export type ExternalDataSourcesRepairCdcCreate200 = {
+      success?: boolean;
+      schemas_reset?: number;
     };
 
     export type ExternalDataSourcesCheckCdcPrerequisitesCreate200 = {
@@ -67566,6 +68020,10 @@ export namespace Schemas {
 
     export type LlmAnalyticsEvaluationReportsListParams = {
     /**
+     * Only return report configs for this evaluation UUID.
+     */
+    evaluation?: string;
+    /**
      * Number of results to return per page.
      */
     limit?: number;
@@ -69012,6 +69470,17 @@ export namespace Schemas {
     };
 
     export type QuickFiltersListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number;
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number;
+    };
+
+    export type SandboxCustomImagesListParams = {
     /**
      * Number of results to return per page.
      */

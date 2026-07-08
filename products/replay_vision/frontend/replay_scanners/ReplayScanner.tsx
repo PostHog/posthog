@@ -4,6 +4,7 @@ import { IconSparkles } from '@posthog/icons'
 import { LemonBanner, LemonButton } from '@posthog/lemon-ui'
 
 import { AccessControlAction } from 'lib/components/AccessControlAction'
+import { NotFound } from 'lib/components/NotFound'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { LemonTabs } from 'lib/lemon-ui/LemonTabs'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
@@ -47,6 +48,10 @@ export function ReplayScannerSceneComponent(): JSX.Element {
     useAttachedLogic(scannerLogic, replayScannerSceneLogic)
 
     const { scanner, scannerLoading } = useValues(scannerLogic)
+
+    if (!featureFlags[FEATURE_FLAGS.REPLAY_VISION]) {
+        return <NotFound object="page" />
+    }
 
     if (scannerLoading || !scanner) {
         return (
@@ -133,7 +138,7 @@ export function ReplayScannerSceneComponent(): JSX.Element {
                     },
                     actionsTabEnabled && {
                         key: ReplayScannerTab.Actions,
-                        label: 'Actions',
+                        label: 'Summaries and alerts',
                         content: <VisionActionsTab scannerId={scannerId} />,
                     },
                 ]}
