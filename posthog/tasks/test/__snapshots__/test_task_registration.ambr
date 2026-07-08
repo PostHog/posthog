@@ -20,6 +20,7 @@
     'posthog.tasks.calculate_cohort.insert_cohort_from_query',
     'posthog.tasks.calculate_cohort.trigger_cohort_backfill_task',
     'posthog.tasks.demo_create_data.create_data_for_demo_team',
+    'posthog.tasks.early_access_feature.create_waitlist_survey_for_concept_feature',
     'posthog.tasks.early_access_feature.send_events_for_early_access_feature_stage_change',
     'posthog.tasks.email.login_from_new_device_notification',
     'posthog.tasks.email.send_async_migration_complete_email',
