@@ -1633,6 +1633,50 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
                 tag_names = list(dashboard.tagged_items.values_list("tag__name", flat=True))
                 self.assertNotIn("probe-tag", tag_names)
 
+    def test_use_template_rolls_back_dashboard_when_a_tile_fails(self) -> None:
+        from products.dashboards.backend.models.dashboard_templates import DashboardTemplate
+
+        template_name = "partial-failure-template"
+        DashboardTemplate.objects.create(
+            team=self.team,
+            template_name=template_name,
+            dashboard_description="partial",
+            dashboard_filters={},
+            # A valid text tile followed by a tile that fails to build: without an atomic loop the
+            # text tile and dashboard would be committed before the second tile raises.
+            tiles=[
+                {"type": "TEXT", "body": "first tile", "layouts": {}, "color": None},
+                {"type": "WIDGET", "widget_type": "not_a_real_widget_type", "config": {}, "layouts": {}},
+            ],
+        )
+
+        self.dashboard_api.create_dashboard(
+            {"name": "partial fail", "use_template": template_name},
+            expected_status=status.HTTP_400_BAD_REQUEST,
+        )
+
+        # The whole dashboard must be rolled back, not left half-populated with the first tile.
+        self.assertFalse(Dashboard.objects.filter(team=self.team, name="partial fail").exists())
+        self.assertFalse(Text.objects.filter(team=self.team, body="first tile").exists())
+        self.assertFalse(DashboardTile.objects.filter(team=self.team).exists())
+
+    def test_use_template_surfaces_real_error_instead_of_bare_500(self) -> None:
+        template_name = "boom-template"
+        # A non-DRF failure inside template application used to escape as a bare 500 and leave the
+        # dashboard row behind; it should now surface as a 400 and roll the dashboard back.
+        with patch(
+            "products.dashboards.backend.api.dashboard.create_dashboard_from_template",
+            side_effect=RuntimeError("tile blew up"),
+        ):
+            _, response = self.dashboard_api.create_dashboard(
+                {"name": "boom", "use_template": template_name},
+                expected_status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        self.assertEqual(response["attr"], "use_template")
+        self.assertIn("tile blew up", response["detail"])
+        self.assertFalse(Dashboard.objects.filter(team=self.team, name="boom").exists())
+
     def test_dashboard_creation_validation(self):
         existing_dashboard = Dashboard.objects.create(team=self.team, name="existing dashboard", created_by=self.user)
 

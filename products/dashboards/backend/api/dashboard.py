@@ -1320,15 +1320,24 @@ class DashboardSerializer(DashboardMetadataSerializer):
                     cast(User, request.user),
                     user_access_control=user_access_control,
                 )
-            except AttributeError as error:
-                logger.error(
+            except Exception as error:
+                # A tile that fails to build (invalid widget config, unvalidated query, denied access)
+                # must not leave a half-populated dashboard behind — roll it back and surface the real
+                # error instead of a bare 500.
+                dashboard.delete()
+                logger.exception(
                     "dashboard_create.create_from_template_failed",
                     team_id=team_id,
                     template=use_template,
-                    error=error,
-                    exc_info=True,
                 )
-                raise serializers.ValidationError({"use_template": f"Invalid template provided: {use_template}"})
+                if isinstance(error, AttributeError):
+                    raise serializers.ValidationError({"use_template": f"Invalid template provided: {use_template}"})
+                # DRF exceptions already carry a meaningful status code and message; let them propagate.
+                if isinstance(error, exceptions.APIException):
+                    raise
+                raise serializers.ValidationError(
+                    {"use_template": f"Could not create dashboard from template {use_template}: {error}"}
+                )
 
         elif existing_dashboard:
             existing_tiles = (
