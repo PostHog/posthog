@@ -20,6 +20,7 @@ from products.warehouse_sources.backend.models.external_data_schema import (
 )
 from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
 from products.warehouse_sources.backend.models.oom_event import ExternalDataSchemaOOMEvent
+from products.warehouse_sources.backend.models.ssh_tunnel import SSHTunnel
 from products.warehouse_sources.backend.models.table import DataWarehouseTable
 from products.warehouse_sources.backend.models.util import CLICKHOUSE_HOGQL_MAPPING, clean_type
 from products.warehouse_sources.backend.types import IncrementalFieldType
@@ -611,3 +612,33 @@ class TestStagedIncrementalCursor:
         with patch.object(schema, "save"):
             schema.update_sync_type_config_for_reset_pipeline()
         assert "incremental_staged" not in schema.sync_type_config
+
+
+@pytest.mark.parametrize(
+    "port,expected_valid",
+    [
+        # Out-of-range ports previously slipped through to sshtunnel, which asserted `port >= 0` and
+        # crashed credential validation with a bare AssertionError ("PORT < 0 (...)").
+        (-122, False),
+        (0, False),
+        (70000, False),
+        ("not-a-number", False),
+        (80, False),
+        (443, False),
+        (22, True),
+        (5432, True),
+        (65535, True),
+    ],
+)
+def test_ssh_tunnel_has_valid_port(port: int | str, expected_valid: bool) -> None:
+    tunnel = SSHTunnel(
+        enabled=True,
+        host="ssh.example.com",
+        port=port,
+        auth_type="password",
+        username="user",
+        password="pw",
+        private_key=None,
+        passphrase=None,
+    )
+    assert tunnel.has_valid_port()[0] is expected_valid
