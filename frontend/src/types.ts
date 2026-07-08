@@ -5655,6 +5655,7 @@ export type APIScopeObject =
     | 'heatmap'
     | 'hog_flow'
     | 'hog_function'
+    | 'ingestion_warning'
     | 'insight'
     | 'insight_variable'
     | 'integration'
@@ -7495,25 +7496,6 @@ export type LinkType = {
     created_at: string
     updated_at: string
     _create_in_folder?: string | null
-}
-
-export interface LineageNode {
-    id: string
-    name: string
-    type: 'view' | 'table'
-    sync_frequency?: DataWarehouseSyncInterval
-    last_run_at?: string
-    status?: string
-}
-
-export interface LineageEdge {
-    source: string
-    target: string
-}
-
-export interface LineageGraph {
-    nodes: LineageNode[]
-    edges: LineageEdge[]
 }
 
 export interface DataWarehouseSourceRowCount {

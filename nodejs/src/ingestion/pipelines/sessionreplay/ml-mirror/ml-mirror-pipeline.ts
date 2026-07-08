@@ -41,7 +41,7 @@ export function createMlMirrorReplayPipeline(
     const {
         outputs,
         eventIngestionRestrictionManager,
-        overflowEnabled,
+        overflowMode,
         promiseScheduler,
         teamService,
         retentionService,
@@ -66,7 +66,7 @@ export function createMlMirrorReplayPipeline(
                         .pipe(createParseHeadersStep())
                         .pipe(
                             createApplyEventRestrictionsStep(eventIngestionRestrictionManager, {
-                                overflowEnabled,
+                                overflowMode,
                                 preservePartitionLocality: true,
                             })
                         )

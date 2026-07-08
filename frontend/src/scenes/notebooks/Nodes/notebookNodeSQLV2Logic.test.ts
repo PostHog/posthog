@@ -1,10 +1,13 @@
 import { expectLogic } from 'kea-test-utils'
 
 import api from 'lib/api'
+import { JSONContent } from 'lib/components/RichContentEditor/types'
 
 import { initKeaTests } from '~/test/init'
 
-import { notebookNodeSQLV2Logic } from './notebookNodeSQLV2Logic'
+import { buildMarkdownNotebookContent, serializeMarkdownNotebookComponent } from '../Notebook/markdownNotebookV2'
+import { NotebookNodeType } from '../types'
+import { collectSqlV2Refs, notebookNodeSQLV2Logic } from './notebookNodeSQLV2Logic'
 
 describe('notebookNodeSQLV2Logic', () => {
     let logic: ReturnType<typeof notebookNodeSQLV2Logic.build>
@@ -32,6 +35,58 @@ describe('notebookNodeSQLV2Logic', () => {
         jest.restoreAllMocks()
     })
 
+    describe('collectSqlV2Refs', () => {
+        const sqlNode = (nodeId: string, returnVariable: string): JSONContent => ({
+            type: NotebookNodeType.SQLV2,
+            attrs: { nodeId, returnVariable },
+        })
+
+        const doc = (...children: JSONContent[]): JSONContent => ({
+            type: 'doc',
+            content: children,
+        })
+
+        it('maps each named sibling to its node id, excluding the running node itself', () => {
+            // Including self would inline the node as a CTE of its own name — a cycle the backend rejects.
+            const document = doc(sqlNode('a', 'df1'), sqlNode('self', 'df2'), sqlNode('c', 'df3'))
+            expect(collectSqlV2Refs(document, 'self')).toEqual({ df1: 'a', df3: 'c' })
+        })
+
+        it('disambiguates duplicate names the way the dependency graph does', () => {
+            // Raw attributes would let node b shadow node a under the shared name —
+            // the join would silently run against the wrong node's data.
+            const document = doc(sqlNode('a', 'sql_df'), sqlNode('b', 'sql_df'), sqlNode('self', 'sql_df'))
+            expect(collectSqlV2Refs(document, 'self')).toEqual({ sql_df: 'a', sql_df_2: 'b' })
+        })
+
+        it('resolves blank names to the default the dependency graph shows', () => {
+            const document = doc(sqlNode('a', ''), sqlNode('b', '  '))
+            expect(collectSqlV2Refs(document, 'self')).toEqual({ sql_df: 'a', sql_df_2: 'b' })
+        })
+
+        it('finds SQLV2 nodes nested inside other content', () => {
+            const document = doc({ type: 'column', content: [sqlNode('a', 'df1')] })
+            expect(collectSqlV2Refs(document, 'self')).toEqual({ df1: 'a' })
+        })
+
+        it('collects refs from markdown notebook cells, preferring their persisted nodeId', () => {
+            // Markdown notebooks (the only surface with SQLV2 cells) hold cells as tags inside
+            // one markdown attribute — a tiptap-only walk returns {} and every ref breaks with
+            // "Unknown table". Persisted nodeIds must win over parsed ids: parsed block ids are
+            // content fingerprints that drift from the run's recorded node_id on any prop change.
+            const markdown = [
+                serializeMarkdownNotebookComponent('SQLV2', { nodeId: 'a', returnVariable: 'df1', code: 'select 1' }),
+                serializeMarkdownNotebookComponent('SQLV2', { nodeId: 'self', returnVariable: 'df2', code: '' }),
+                serializeMarkdownNotebookComponent('SQLV2', { returnVariable: 'df3', code: 'select 3' }),
+            ].join('\n\n')
+            const refs = collectSqlV2Refs(buildMarkdownNotebookContent(markdown), 'self')
+            expect(refs.df1).toEqual('a')
+            expect(refs.df2).toBeUndefined()
+            // Without a persisted nodeId the cell falls back to its parsed fingerprint id.
+            expect(refs.df3).toMatch(/^mdn-/)
+        })
+    })
+
     it('rejects blank code before dispatching a run', async () => {
         mount()
         logic.actions.runQuery('   ')
@@ -45,9 +100,10 @@ describe('notebookNodeSQLV2Logic', () => {
         mount()
         logic.actions.runQuery('select 1')
         await expectLogic(logic).toDispatchActions(['runQuery', 'startPolling', 'pollResult'])
-        expect(runSpy).toHaveBeenCalledWith('nb1', { node_id: 'n1', code: 'select 1' })
-        // The run id is persisted so a reload/remount can recover the in-flight run.
-        expect(updateAttributes).toHaveBeenCalledWith({ runId: 'r1', result: null })
+        expect(runSpy).toHaveBeenCalledWith('nb1', { node_id: 'n1', code: 'select 1', refs: {} })
+        // runId is persisted so a reload/remount can recover the in-flight run; nodeId is
+        // pinned so the markdown cell's fingerprint id can't drift away from the run's node_id.
+        expect(updateAttributes).toHaveBeenCalledWith({ nodeId: 'n1', runId: 'r1', result: null })
     })
 
     it('maps a done envelope into the node result and stops the spinner', async () => {

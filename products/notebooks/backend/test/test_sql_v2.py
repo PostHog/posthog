@@ -10,6 +10,7 @@ from http.server import ThreadingHTTPServer
 from types import SimpleNamespace
 from typing import Any
 
+from freezegun import freeze_time
 from posthog.test.base import APIBaseTest
 from unittest.mock import patch
 
@@ -191,6 +192,68 @@ class TestSQLV2Run(APIBaseTest):
         response = self.client.post(self.run_url, data={"node_id": "n1", "code": ""}, format="json")
         self.assertEqual(response.status_code, 400)
         self.assertEqual(NotebookNodeRun.objects.for_team(self.team.id).filter(notebook=self.notebook).count(), 0)
+        mock_start.assert_not_called()
+
+    def _record_done_run(self, node_id: str, code: str) -> None:
+        with team_scope(self.team.id):
+            NotebookNodeRun.objects.create(
+                team=self.team,
+                notebook=self.notebook,
+                node_id=node_id,
+                code=code,
+                status=NotebookNodeRun.Status.DONE,
+            )
+
+    @patch("products.notebooks.backend.presentation.views.notebook.start_sql_v2_run_workflow")
+    @patch("products.notebooks.backend.presentation.views.notebook.is_sql_v2_enabled", return_value=True)
+    def test_run_inlines_referenced_nodes_last_run_query_as_ctes(self, _mock_enabled, mock_start):
+        # Paging re-queries run.code, so the stored + dispatched query must already carry the
+        # referenced definitions as CTEs — and it must be each node's last run, not its live text.
+        self._record_done_run("node-df1", "select id from events")
+        self._record_done_run("node-df2", "select id from persons")
+        response = self.client.post(
+            self.run_url,
+            data={
+                "node_id": "join-node",
+                "code": "select * from df1 join df2 on df1.id = df2.id",
+                "refs": {"df1": "node-df1", "df2": "node-df2"},
+            },
+            format="json",
+        )
+        self.assertEqual(response.status_code, 200)
+        run = NotebookNodeRun.objects.for_team(self.team.id).get(id=response.json()["run_id"])
+        self.assertIn("WITH df1 AS (SELECT id FROM events)", run.code)
+        self.assertIn("df2 AS (SELECT id FROM persons)", run.code)
+        self.assertEqual(mock_start.call_args.args[0].code, run.code)
+
+    @patch("products.notebooks.backend.presentation.views.notebook.start_sql_v2_run_workflow")
+    @patch("products.notebooks.backend.presentation.views.notebook.is_sql_v2_enabled", return_value=True)
+    def test_run_uses_the_latest_done_run_of_a_referenced_node(self, _mock_enabled, mock_start):
+        # An edited-then-rerun upstream: only its most recent run should be inlined.
+        with freeze_time("2026-07-04T00:00:00Z"):
+            self._record_done_run("node-df1", "select 1 as old_col")
+        with freeze_time("2026-07-04T00:01:00Z"):
+            self._record_done_run("node-df1", "select 2 as new_col")
+        response = self.client.post(
+            self.run_url,
+            data={"node_id": "c", "code": "select * from df1", "refs": {"df1": "node-df1"}},
+            format="json",
+        )
+        self.assertEqual(response.status_code, 200)
+        run = NotebookNodeRun.objects.for_team(self.team.id).get(id=response.json()["run_id"])
+        self.assertIn("new_col", run.code)
+        self.assertNotIn("old_col", run.code)
+
+    @patch("products.notebooks.backend.presentation.views.notebook.start_sql_v2_run_workflow")
+    @patch("products.notebooks.backend.presentation.views.notebook.is_sql_v2_enabled", return_value=True)
+    def test_run_rejects_referencing_a_never_run_node(self, _mock_enabled, mock_start):
+        response = self.client.post(
+            self.run_url,
+            data={"node_id": "c", "code": "select * from df1", "refs": {"df1": "node-df1"}},
+            format="json",
+        )
+        self.assertEqual(response.status_code, 400)
+        self.assertEqual(NotebookNodeRun.objects.for_team(self.team.id).filter(node_id="c").count(), 0)
         mock_start.assert_not_called()
 
     @patch(
