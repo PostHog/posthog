@@ -4263,7 +4263,7 @@ class TestTaskRunAPI(BaseTaskAPITest):
 
         response = self.client.post(
             f"/api/projects/@current/tasks/{task.id}/runs/{run.id}/append_log/",
-            {"entries": [{"type": "info", "message": "hello"}]},
+            {"entries": [{"type": "info", "message": "hello", "notification": {"method": "session/update"}}]},
             format="json",
         )
         self.assertEqual(response.status_code, status.HTTP_200_OK)
