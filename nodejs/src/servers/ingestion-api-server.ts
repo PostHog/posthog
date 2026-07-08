@@ -306,19 +306,18 @@ export class IngestionApiServer implements NodeServer {
         })
 
         let overflowRedirectService: OverflowRedirectService | undefined
-        if (this.overflowEnabled()) {
+        if (this.config.INGESTION_OVERFLOW_MODE === 'redirect') {
             overflowRedirectService = new MainLaneOverflowRedirect({
                 redisRepository: overflowRedisRepository,
                 localCacheTTLSeconds: this.config.INGESTION_STATEFUL_OVERFLOW_LOCAL_CACHE_TTL_SECONDS,
                 bucketCapacity: this.config.EVENT_OVERFLOW_BUCKET_CAPACITY,
                 replenishRate: this.config.EVENT_OVERFLOW_BUCKET_REPLENISH_RATE,
-                statefulEnabled: this.config.INGESTION_STATEFUL_OVERFLOW_ENABLED,
                 overflowType: 'events',
             })
         }
 
         let overflowLaneTTLRefreshService: OverflowRedirectService | undefined
-        if (this.config.INGESTION_LANE === 'overflow' && this.config.INGESTION_STATEFUL_OVERFLOW_ENABLED) {
+        if (this.config.INGESTION_OVERFLOW_MODE === 'consume') {
             overflowLaneTTLRefreshService = new OverflowLaneOverflowRedirect({
                 redisRepository: overflowRedisRepository,
                 overflowType: 'events',
@@ -362,7 +361,7 @@ export class IngestionApiServer implements NodeServer {
         // 7. Create the ingestion pipeline
         const joinedPipelineConfig: JoinedIngestionPipelineConfig = {
             eventSchemaEnforcementEnabled: this.config.EVENT_SCHEMA_ENFORCEMENT_ENABLED,
-            overflowEnabled: this.overflowEnabled(),
+            overflowMode: this.config.INGESTION_OVERFLOW_MODE,
             preservePartitionLocality: this.config.INGESTION_OVERFLOW_PRESERVE_PARTITION_LOCALITY,
             personsPrefetchEnabled: this.config.PERSONS_PREFETCH_ENABLED,
             cdpHogWatcherSampleRate: this.config.CDP_HOG_WATCHER_SAMPLE_RATE,
@@ -527,13 +526,6 @@ export class IngestionApiServer implements NodeServer {
             return new HealthCheckResultError('Ingestion pipeline crashed', { error: this.fatalError.message })
         }
         return new HealthCheckResultOk()
-    }
-
-    private overflowEnabled(): boolean {
-        return (
-            !!this.config.INGESTION_CONSUMER_OVERFLOW_TOPIC &&
-            this.config.INGESTION_CONSUMER_OVERFLOW_TOPIC !== this.config.INGESTION_CONSUMER_CONSUME_TOPIC
-        )
     }
 
     private getCleanupResources(): CleanupResources {

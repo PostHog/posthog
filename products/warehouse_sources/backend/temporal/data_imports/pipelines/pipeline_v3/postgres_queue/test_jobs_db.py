@@ -58,8 +58,30 @@ def _ensure_tables(conn: psycopg.Connection[Any]) -> None:
             is_resume BOOLEAN NOT NULL DEFAULT FALSE,
             is_first_ever_sync BOOLEAN NOT NULL DEFAULT FALSE,
             metadata JSONB NOT NULL DEFAULT '{{}}'::jsonb,
+            latest_state VARCHAR(32) NOT NULL DEFAULT 'pending',
+            latest_attempt SMALLINT NOT NULL DEFAULT 0,
+            state_changed_at TIMESTAMPTZ,
             created_at TIMESTAMPTZ NOT NULL DEFAULT now()
         )
+    """)
+    # Self-heal pre-existing test DBs where CREATE TABLE IF NOT EXISTS is a no-op.
+    conn.execute(f"""
+        ALTER TABLE {BATCH_TABLE}
+            ADD COLUMN IF NOT EXISTS latest_state VARCHAR(32) NOT NULL DEFAULT 'pending',
+            ADD COLUMN IF NOT EXISTS latest_attempt SMALLINT NOT NULL DEFAULT 0,
+            ADD COLUMN IF NOT EXISTS state_changed_at TIMESTAMPTZ
+    """)
+    conn.execute(f"""
+        CREATE INDEX IF NOT EXISTS sb_claimable_idx ON {BATCH_TABLE} (team_id, created_at, batch_index)
+            WHERE latest_state IN ('pending', 'waiting_retry')
+    """)
+    conn.execute(f"""
+        CREATE INDEX IF NOT EXISTS sb_run_gate_idx ON {BATCH_TABLE} (run_uuid, latest_state, batch_index)
+            WHERE latest_state IN ('executing', 'waiting_retry', 'failed')
+    """)
+    conn.execute(f"""
+        CREATE INDEX IF NOT EXISTS sb_schema_busy_idx ON {BATCH_TABLE} (team_id, schema_id)
+            WHERE latest_state = 'executing'
     """)
     conn.execute(f"""
         CREATE TABLE IF NOT EXISTS {STATUS_TABLE} (
@@ -818,3 +840,104 @@ class TestCountBatchesForRun:
             assert BatchQueue.count_batches_for_run(sync_conn, job_id="job-A") == 2
             assert BatchQueue.count_batches_for_run(sync_conn, job_id="job-B") == 1
             assert BatchQueue.count_batches_for_run(sync_conn, job_id="job-missing") == 0
+
+
+async def _batch_state(conn: psycopg.AsyncConnection[Any], batch_id: str) -> tuple[str, int, Any]:
+    cur = await conn.execute(
+        f"SELECT latest_state, latest_attempt, state_changed_at FROM {BATCH_TABLE} WHERE id = %s",
+        (batch_id,),
+    )
+    row = await cur.fetchone()
+    assert row is not None
+    return row[0], row[1], row[2]
+
+
+@pytest.mark.django_db(transaction=True)
+class TestStateDualWrite:
+    """The denormalized columns must always mirror the latest status row — the
+    A2 claim path reads only the columns, so silent drift breaks claiming."""
+
+    @pytest.mark.parametrize(
+        "sequence,expected_state,expected_attempt",
+        [
+            ([("executing", 1)], "executing", 1),
+            ([("executing", 1), ("succeeded", 1)], "succeeded", 1),
+            ([("executing", 1), ("waiting_retry", 1), ("executing", 2), ("failed", 2)], "failed", 2),
+        ],
+    )
+    @pytest.mark.asyncio
+    async def test_update_status_mirrors_latest_into_columns(self, conn, sequence, expected_state, expected_attempt):
+        bid = await _insert_batch(conn)
+        state, attempt, changed = await _batch_state(conn, bid)
+        assert (state, attempt, changed) == ("pending", 0, None)
+
+        for job_state, attempt_n in sequence:
+            await BatchQueue.update_status(conn, batch_id=bid, job_state=job_state, attempt=attempt_n)
+
+        state, attempt, changed = await _batch_state(conn, bid)
+        assert (state, attempt) == (expected_state, expected_attempt)
+        assert changed is not None
+
+    @pytest.mark.asyncio
+    async def test_update_status_with_batch_created_at_matches_row(self, conn):
+        bid = await _insert_batch(conn)
+        cur = await conn.execute(f"SELECT created_at FROM {BATCH_TABLE} WHERE id = %s", (bid,))
+        row = await cur.fetchone()
+        assert row is not None
+
+        await BatchQueue.update_status(conn, batch_id=bid, job_state="executing", attempt=1, batch_created_at=row[0])
+
+        state, attempt, _ = await _batch_state(conn, bid)
+        assert (state, attempt) == ("executing", 1)
+
+    @pytest.mark.asyncio
+    async def test_heartbeat_reinsert_does_not_touch_the_columns(self, conn):
+        # Heartbeats re-insert 'executing' every ~100s; if they updated the batch
+        # heap the columns would churn/bloat exactly when the fleet is busiest.
+        bid = await _insert_batch(conn)
+        await BatchQueue.update_status(conn, batch_id=bid, job_state="executing", attempt=1)
+        _, _, first_changed = await _batch_state(conn, bid)
+
+        await BatchQueue.update_status(conn, batch_id=bid, job_state="executing", attempt=1)
+
+        _, _, second_changed = await _batch_state(conn, bid)
+        assert second_changed == first_changed
+        cur = await conn.execute(f"SELECT count(*) FROM {STATUS_TABLE} WHERE batch_id = %s", (bid,))
+        row = await cur.fetchone()
+        assert row is not None and row[0] == 2  # the log still grows
+
+    @pytest.mark.asyncio
+    async def test_fail_run_fails_columns_of_pending_batches_only(self, conn):
+        pending = await _insert_batch(conn, batch_index=0, run_uuid="run-dw")
+        done = await _insert_batch(conn, batch_index=1, run_uuid="run-dw")
+        await BatchQueue.update_status(conn, batch_id=done, job_state="succeeded", attempt=1)
+
+        failed = await BatchQueue.fail_run(conn, run_uuid="run-dw", reason="boom")
+
+        assert failed == 1
+        assert (await _batch_state(conn, pending))[0] == "failed"
+        assert (await _batch_state(conn, done))[0] == "succeeded"
+
+    @pytest.mark.asyncio
+    async def test_supersede_fails_columns_of_older_runs(self, conn, sync_conn):
+        old = await _insert_batch(conn, run_uuid="run-old", job_id="job-dw")
+        current = await _insert_batch(conn, run_uuid="run-new", job_id="job-dw")
+
+        superseded = BatchQueue.supersede_other_runs(sync_conn, job_id="job-dw", current_run_uuid="run-new")
+
+        assert superseded == 1
+        assert (await _batch_state(conn, old))[0] == "failed"
+        assert (await _batch_state(conn, current))[0] == "pending"
+
+    @pytest.mark.asyncio
+    async def test_fail_batches_for_job_fails_columns_across_runs(self, conn, sync_conn):
+        # The takeover path writes through this site; drift here leaves stale
+        # claimable columns exactly when a job was force-failed.
+        first = await _insert_batch(conn, batch_index=0, run_uuid="run-tk1", job_id="job-tk")
+        second = await _insert_batch(conn, batch_index=1, run_uuid="run-tk2", job_id="job-tk")
+
+        failed = BatchQueue.fail_batches_for_job_sync(sync_conn, job_id="job-tk", reason="takeover")
+
+        assert failed == 2
+        assert (await _batch_state(conn, first))[0] == "failed"
+        assert (await _batch_state(conn, second))[0] == "failed"

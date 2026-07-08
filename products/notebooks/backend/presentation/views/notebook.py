@@ -61,6 +61,7 @@ from products.notebooks.backend.sql_v2 import (
     is_sql_v2_enabled,
     sql_v2_page_lock_key,
 )
+from products.notebooks.backend.sql_v2_references import SQLV2ReferenceError, resolve_sql_v2_references
 from products.notebooks.backend.sql_v2_serializers import (
     NotebookSQLV2PageRequestSerializer,
     NotebookSQLV2RunRequestSerializer,
@@ -919,11 +920,32 @@ class NotebookViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, ForbidD
         notebook = self._get_notebook_for_kernel()
         self._require_query_access()
 
+        # Resolve each referenced node to its last-run query (not its live editor text), so a
+        # join recomputes against the definitions that produced the results on screen. Inlining
+        # happens once here, so the run stores a self-contained query and paging re-queries it
+        # without re-resolving refs.
+        ref_node_ids: dict[str, str] = serializer.validated_data.get("refs") or {}
+        # One DISTINCT ON query fetches the latest DONE run for every referenced node at once.
+        code_by_node_id: dict[str, str] = dict(
+            NotebookNodeRun.objects.for_team(self.team_id)
+            .filter(notebook=notebook, node_id__in=set(ref_node_ids.values()), status=NotebookNodeRun.Status.DONE)
+            .order_by("node_id", "-created_at")
+            .distinct("node_id")
+            .values_list("node_id", "code")
+        )
+        last_run_code: dict[str, str | None] = {
+            name: code_by_node_id.get(node_id) for name, node_id in ref_node_ids.items()
+        }
+        try:
+            resolved_code = resolve_sql_v2_references(serializer.validated_data["code"], last_run_code)
+        except SQLV2ReferenceError as e:
+            return Response({"detail": str(e)}, status=400)
+
         run = NotebookNodeRun.objects.create(
             team_id=self.team_id,
             notebook=notebook,
             node_id=serializer.validated_data["node_id"],
-            code=serializer.validated_data["code"],
+            code=resolved_code,
             status=NotebookNodeRun.Status.RUNNING,
         )
 
@@ -934,7 +956,7 @@ class NotebookViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, ForbidD
                     notebook_short_id=notebook.short_id,
                     team_id=self.team_id,
                     user_id=user.id if isinstance(user, User) else None,
-                    code=serializer.validated_data["code"],
+                    code=resolved_code,
                 )
             )
         except Exception:
