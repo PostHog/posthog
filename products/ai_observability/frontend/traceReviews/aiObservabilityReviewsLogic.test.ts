@@ -3,11 +3,13 @@ import { expectLogic } from 'kea-test-utils'
 
 import { lemonToast } from '@posthog/lemon-ui'
 
+import { ApiError } from 'lib/api-error'
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
 import { urls } from 'scenes/urls'
 
 import { initKeaTests } from '~/test/init'
 
+import { llmAnalyticsScoreDefinitionsList } from '../generated/api'
 import { aiObservabilityReviewsLogic } from './aiObservabilityReviewsLogic'
 import { traceReviewsApi } from './traceReviewsApi'
 import { CLIPBOARD_ROW_LIMIT } from './traceReviewsExport'
@@ -36,6 +38,9 @@ jest.mock('../generated/api', () => ({
 }))
 
 const mockTraceReviewsList = traceReviewsApi.list as jest.MockedFunction<typeof traceReviewsApi.list>
+const mockScoreDefinitionsList = llmAnalyticsScoreDefinitionsList as jest.MockedFunction<
+    typeof llmAnalyticsScoreDefinitionsList
+>
 const mockCopyToClipboard = copyToClipboard as jest.MockedFunction<typeof copyToClipboard>
 const mockLemonToastError = lemonToast.error as jest.MockedFunction<typeof lemonToast.error>
 const mockLemonToastWarning = lemonToast.warning as jest.MockedFunction<typeof lemonToast.warning>
@@ -53,16 +58,51 @@ const baseReview: TraceReview = {
     team: 1,
 }
 
-describe('aiObservabilityReviewsLogic.copyReviewsToClipboard', () => {
+describe('aiObservabilityReviewsLogic', () => {
     let logic: ReturnType<typeof aiObservabilityReviewsLogic.build>
 
     beforeEach(() => {
         initKeaTests()
         jest.clearAllMocks()
         logic = aiObservabilityReviewsLogic()
-        // Stub the initial mount load so afterMount doesn't interfere with our test mocks.
+        // Stub the initial mount loads so afterMount doesn't interfere with our test mocks.
         mockTraceReviewsList.mockResolvedValue({ results: [], count: 0 })
+        mockScoreDefinitionsList.mockResolvedValue({ results: [], count: 0, next: null, previous: null })
         logic.mount()
+    })
+
+    // The reviews + score-definitions endpoints are gated behind the `llma-trace-review` flag
+    // plus access control. A caller without either used to let the 403 bubble out of these
+    // loaders and into error tracking; now they degrade to an empty result.
+    it('degrades to an empty list when the reviews endpoint 403s', async () => {
+        mockTraceReviewsList.mockReset()
+        mockTraceReviewsList.mockRejectedValueOnce(new ApiError('Forbidden', 403))
+
+        await expectLogic(logic, () => {
+            logic.actions.loadReviews(false)
+        })
+            .toDispatchActions(['loadReviewsSuccess'])
+            .toMatchValues({ reviews: { results: [], count: 0, offset: 0 } })
+    })
+
+    it('rethrows a non-permission failure from the reviews endpoint', async () => {
+        mockTraceReviewsList.mockReset()
+        mockTraceReviewsList.mockRejectedValueOnce(new ApiError('Server error', 500))
+
+        await expectLogic(logic, () => {
+            logic.actions.loadReviews(false)
+        }).toDispatchActions(['loadReviewsFailure'])
+    })
+
+    it('degrades to no scorer options when the score-definitions endpoint 403s', async () => {
+        mockScoreDefinitionsList.mockReset()
+        mockScoreDefinitionsList.mockRejectedValueOnce(new ApiError('Forbidden', 403))
+
+        await expectLogic(logic, () => {
+            logic.actions.loadScoreDefinitionOptions()
+        })
+            .toDispatchActions(['loadScoreDefinitionOptionsSuccess'])
+            .toMatchValues({ scoreDefinitionOptions: [] })
     })
 
     it('copies the formatted payload to the clipboard on the happy path', async () => {

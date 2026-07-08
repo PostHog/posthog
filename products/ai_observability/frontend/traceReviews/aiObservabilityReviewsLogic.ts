@@ -9,7 +9,7 @@ import { copyToClipboard } from 'lib/utils/copyToClipboard'
 import { objectsEqual } from 'lib/utils/objects'
 import { pluralize } from 'lib/utils/strings'
 
-import { CountedPaginatedResponse } from '~/lib/api'
+import { ApiError, CountedPaginatedResponse } from '~/lib/api'
 import { ApiConfig } from '~/lib/api'
 import { PaginationManual } from '~/lib/lemon-ui/PaginationControl'
 import { trackedActionToUrl } from '~/lib/logic/scenes/trackedActionToUrl'
@@ -111,11 +111,21 @@ export const aiObservabilityReviewsLogic = kea<aiObservabilityReviewsLogicType>(
 
                     const { filters } = values
 
-                    return traceReviewsApi.list({
-                        ...traceReviewListParamsFromFilters(filters),
-                        offset: Math.max(0, (filters.page - 1) * TRACE_REVIEWS_PER_PAGE),
-                        limit: TRACE_REVIEWS_PER_PAGE,
-                    })
+                    try {
+                        return await traceReviewsApi.list({
+                            ...traceReviewListParamsFromFilters(filters),
+                            offset: Math.max(0, (filters.page - 1) * TRACE_REVIEWS_PER_PAGE),
+                            limit: TRACE_REVIEWS_PER_PAGE,
+                        })
+                    } catch (error) {
+                        // The reviews endpoint is gated behind the `llma-trace-review` flag plus
+                        // access control. If the caller lacks either, degrade to an empty list
+                        // instead of letting the 403 bubble up into error tracking.
+                        if (error instanceof ApiError && error.status === 403) {
+                            return { results: [], count: 0, offset: 0 }
+                        }
+                        throw error
+                    }
                 },
             },
         ],
@@ -124,13 +134,25 @@ export const aiObservabilityReviewsLogic = kea<aiObservabilityReviewsLogicType>(
             [] as ScoreDefinitionApi[],
             {
                 loadScoreDefinitionOptions: async () => {
-                    const response = await aiObservabilityScoreDefinitionsList(String(ApiConfig.getCurrentTeamId()), {
-                        archived: false,
-                        order_by: 'name',
-                        limit: 1000,
-                    })
+                    try {
+                        const response = await aiObservabilityScoreDefinitionsList(
+                            String(ApiConfig.getCurrentTeamId()),
+                            {
+                                archived: false,
+                                order_by: 'name',
+                                limit: 1000,
+                            }
+                        )
 
-                    return response.results
+                        return response.results
+                    } catch (error) {
+                        // Same flag/access gate as the reviews endpoint — fall back to no options
+                        // rather than surfacing a 403 to error tracking.
+                        if (error instanceof ApiError && error.status === 403) {
+                            return []
+                        }
+                        throw error
+                    }
                 },
             },
         ],

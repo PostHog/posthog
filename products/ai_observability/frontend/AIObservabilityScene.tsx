@@ -11,8 +11,10 @@ import { keyBinds } from 'lib/components/Shortcuts/shortcuts'
 import { useShortcut } from 'lib/components/Shortcuts/useShortcut'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { TestAccountFilterSwitch } from 'lib/components/TestAccountFiltersSwitch'
+import { FEATURE_FLAGS } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { useAttachedLogic } from 'lib/logic/scenes/useAttachedLogic'
 import { objectsEqual } from 'lib/utils/objects'
 import { EventDetails } from 'scenes/activity/explore/EventDetails'
@@ -448,8 +450,13 @@ export function AIObservabilityScene(): JSX.Element {
 function AIObservabilitySceneContent(): JSX.Element {
     const { activeTab } = useValues(aiObservabilitySharedLogic)
     const { searchParams } = useValues(router)
+    const { featureFlags } = useValues(featureFlagLogic)
 
     const { push } = useActions(router)
+
+    // The Reviews tab hits endpoints gated behind the `llma-trace-review` flag, so only
+    // surface it when the flag is on — otherwise mounting it 403s and spams error tracking.
+    const showReviewsTab = !!featureFlags[FEATURE_FLAGS.LLM_ANALYTICS_TRACE_REVIEW]
 
     // Tab switching shortcuts
     useShortcut({
@@ -586,17 +593,19 @@ function AIObservabilitySceneContent(): JSX.Element {
         'data-attr': 'sessions-tab',
     })
 
-    tabs.push({
-        key: 'reviews',
-        label: 'Reviews',
-        content: (
-            <AIObservabilitySetupPrompt thing="trace">
-                <AIObservabilityHumanReviews />
-            </AIObservabilitySetupPrompt>
-        ),
-        link: combineUrl(urls.aiObservabilityReviews(), searchParams).url,
-        'data-attr': 'llma-reviews-tab',
-    })
+    if (showReviewsTab) {
+        tabs.push({
+            key: 'reviews',
+            label: 'Reviews',
+            content: (
+                <AIObservabilitySetupPrompt thing="trace">
+                    <AIObservabilityHumanReviews />
+                </AIObservabilitySetupPrompt>
+            ),
+            link: combineUrl(urls.aiObservabilityReviews(), searchParams).url,
+            'data-attr': 'llma-reviews-tab',
+        })
+    }
 
     // Sessions is a primary view — surface it right after Generations, not last.
     const sessionsIdx = tabs.findIndex((t) => t.key === 'sessions')
