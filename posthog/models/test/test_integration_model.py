@@ -945,6 +945,29 @@ class TestGitHubIntegrationModel(BaseTest):
 
         return _client_request
 
+    def test_permanent_refresh_failure_short_circuits_further_calls(self):
+        # A dead installation (GitHub 404 on refresh) must be attempted once, not re-tried on
+        # every authenticated GET — otherwise a caller looping over many repos bursts hundreds
+        # of failed refreshes and trips the OAuth-refresh-failure-spike alert.
+        integration = self.create_integration(
+            config={"installation_id": "123", "expires_in": 3600, "refreshed_at": 1},
+            sensitive_config={"access_token": "STALE"},
+        )
+        github = GitHubIntegration(integration)
+        with (
+            patch.object(
+                github, "refresh_access_token", side_effect=GitHubIntegrationError("gone", status_code=404)
+            ) as mock_refresh,
+            patch.object(github, "_github_api_get") as mock_get,
+        ):
+            first = github.installation_can_access_repository("PostHog/posthog")
+            second = github.installation_can_access_repository("PostHog/posthog")
+
+        assert first is False
+        assert second is False
+        mock_refresh.assert_called_once()
+        mock_get.assert_not_called()
+
     def test_get_diff_compares_branch_tips(self):
         integration = self.create_integration(sensitive_config={"access_token": "ACCESS_TOKEN"})
         github = GitHubIntegration(integration)

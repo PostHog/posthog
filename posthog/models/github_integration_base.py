@@ -68,10 +68,20 @@ class GitHubIntegrationError(Exception):
         self.retry_after_seconds = retry_after_seconds
 
 
+# A refresh that hits one of these can't recover on retry — the installation is gone or
+# suspended on GitHub's side and the user must reconnect.
+_PERMANENT_REFRESH_FAILURE_STATUSES = frozenset({401, 403, 404, 410})
+
+
 class GitHubIntegrationBase:
     """Installation-token operations shared between team and user GitHub integrations."""
 
     integration: Any  # Integration | UserIntegration -- subclasses narrow the type
+
+    # Set once an installation-token refresh hits a permanent auth failure, so further
+    # authenticated calls on this instance short-circuit instead of re-attempting the doomed
+    # refresh. Instance-scoped (a fresh instance re-checks), so a genuine reconnect recovers.
+    _github_refresh_permanently_failed: bool = False
 
     @property
     def github_installation_id(self) -> str | None:
@@ -431,10 +441,29 @@ class GitHubIntegrationBase:
         params: dict[str, str | int] | None = None,
         timeout: int = 10,
     ) -> requests.Response | None:
-        """GET with installation token; refreshes on expiry or 401."""
+        """GET with installation token; refreshes on expiry or 401.
+
+        A permanent refresh failure (installation uninstalled/suspended, so GitHub returns
+        401/403/404/410) never recovers within this instance's lifetime. Record it and skip
+        further work instead of re-attempting the doomed refresh on every call — otherwise a
+        caller looping over many repos turns one dead installation into hundreds of failed
+        refreshes (and a spurious OAuth-refresh-failure-spike alert).
+        """
+        if self._github_refresh_permanently_failed:
+            return None
         try:
             if self.access_token_expired():
                 self.refresh_access_token()
+        except GitHubIntegrationError as exc:
+            if exc.status_code in _PERMANENT_REFRESH_FAILURE_STATUSES:
+                self._github_refresh_permanently_failed = True
+                logger.warning(
+                    "GitHubIntegration: installation token refresh permanently failed; skipping further calls",
+                    integration_id=self.integration.id,
+                    status_code=exc.status_code,
+                )
+                return None
+            logger.warning("GitHubIntegration: token refresh pre-check failed", exc_info=True)
         except Exception:
             logger.warning("GitHubIntegration: token refresh pre-check failed", exc_info=True)
 
@@ -458,10 +487,13 @@ class GitHubIntegrationBase:
                 try:
                     self.refresh_access_token()
                 except Exception as exc:
+                    status_code = getattr(exc, "status_code", None)
+                    if status_code in _PERMANENT_REFRESH_FAILURE_STATUSES:
+                        self._github_refresh_permanently_failed = True
                     logger.exception(
                         "GitHubIntegration: token refresh after 401 failed",
                         integration_id=self.integration.id,
-                        status_code=getattr(exc, "status_code", None),
+                        status_code=status_code,
                     )
                     return None
                 response = fetch()
