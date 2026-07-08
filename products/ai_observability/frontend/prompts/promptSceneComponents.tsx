@@ -92,6 +92,12 @@ export function PromptViewDetails(): JSX.Element {
                 </span>
             </div>
 
+            {prompt.version_description ? (
+                <p className="text-secondary m-0 text-sm italic" data-attr="llma-prompt-version-description">
+                    {prompt.version_description}
+                </p>
+            ) : null}
+
             <div>
                 <label className="text-xs font-semibold uppercase text-secondary">Name</label>
                 <p className="font-mono">{prompt.name}</p>
@@ -171,8 +177,9 @@ export function PromptViewDetails(): JSX.Element {
 }
 
 export function PublishReviewModal(): JSX.Element | null {
-    const { isPublishReviewOpen, prompt, promptForm, nextVersion, isPromptFormSubmitting } = useValues(llmPromptLogic)
-    const { closePublishReview, submitPromptForm } = useActions(llmPromptLogic)
+    const { isPublishReviewOpen, prompt, promptForm, nextVersion, isPromptFormSubmitting, versionDescription } =
+        useValues(llmPromptLogic)
+    const { closePublishReview, submitPromptForm, setVersionDescription } = useActions(llmPromptLogic)
 
     if (!isPrompt(prompt)) {
         return null
@@ -210,32 +217,43 @@ export function PublishReviewModal(): JSX.Element | null {
                 </>
             }
         >
-            <div className="overflow-hidden rounded border" data-attr="llma-prompt-publish-review-diff">
-                <Suspense
-                    fallback={
-                        <div className="space-y-2 p-4">
-                            <LemonSkeleton active className="h-4 w-full" />
-                            <LemonSkeleton active className="h-4 w-3/4" />
-                        </div>
-                    }
-                >
-                    <MonacoDiffEditor
-                        original={prompt.prompt}
-                        value={promptForm.prompt}
-                        modified={promptForm.prompt}
-                        language="markdown"
-                        options={{
-                            readOnly: true,
-                            renderSideBySide: true,
-                            minimap: { enabled: false },
-                            scrollBeyondLastLine: false,
-                            wordWrap: 'on',
-                            lineNumbers: 'off',
-                            folding: false,
-                            hideUnchangedRegions: { enabled: true },
-                        }}
+            <div className="space-y-3">
+                <div className="overflow-hidden rounded border" data-attr="llma-prompt-publish-review-diff">
+                    <Suspense
+                        fallback={
+                            <div className="space-y-2 p-4">
+                                <LemonSkeleton active className="h-4 w-full" />
+                                <LemonSkeleton active className="h-4 w-3/4" />
+                            </div>
+                        }
+                    >
+                        <MonacoDiffEditor
+                            original={prompt.prompt}
+                            value={promptForm.prompt}
+                            modified={promptForm.prompt}
+                            language="markdown"
+                            options={{
+                                readOnly: true,
+                                renderSideBySide: true,
+                                minimap: { enabled: false },
+                                scrollBeyondLastLine: false,
+                                wordWrap: 'on',
+                                lineNumbers: 'off',
+                                folding: false,
+                                hideUnchangedRegions: { enabled: true },
+                            }}
+                        />
+                    </Suspense>
+                </div>
+                <LemonField.Pure label="What changed?" help="Optional — shown in the version history.">
+                    <LemonInput
+                        value={versionDescription}
+                        onChange={setVersionDescription}
+                        placeholder="e.g. Tightened the refusal criteria"
+                        maxLength={400}
+                        data-attr="llma-prompt-version-description-input"
                     />
-                </Suspense>
+                </LemonField.Pure>
             </div>
         </LemonModal>
     )
@@ -710,6 +728,11 @@ export function PromptVersionSidebar({
                                         />
                                     )}
                                 </div>
+                                {versionPrompt.version_description ? (
+                                    <div className="mb-1 text-xs" title={versionPrompt.version_description}>
+                                        {versionPrompt.version_description}
+                                    </div>
+                                ) : null}
                                 <div className="text-xs text-secondary">
                                     {dayjs(versionPrompt.created_at).format('MMM D, YYYY h:mm A')}
                                 </div>
