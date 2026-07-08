@@ -204,6 +204,13 @@ class SandboxBase(ABC):
     @abstractmethod
     def write_file(self, path: str, payload: bytes) -> ExecutionResult: ...
 
+    def agent_server_supports_auto_publish(self) -> bool:
+        """Sandboxes restored from old snapshots can carry an agent-server that rejects unknown
+        CLI options, so probe the installed binary before passing --autoPublish; unsupported
+        binaries degrade to review-first instead of crashing at launch."""
+        result = self.execute("grep -q autoPublish /scripts/node_modules/.bin/agent-server", timeout_seconds=10)
+        return result.exit_code == 0
+
     def clone_repository(self, repository: str, github_token: str | None = "", shallow: bool = True) -> ExecutionResult:
         if not self.is_running():
             raise RuntimeError("Sandbox not in running state.")
@@ -263,6 +270,7 @@ class SandboxBase(ABC):
         run_id: str,
         mode: str = "background",
         create_pr: bool = True,
+        auto_publish: bool = False,
         interaction_origin: str | None = None,
         branch: str | None = None,
         runtime_adapter: str | None = None,

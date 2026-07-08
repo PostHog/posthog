@@ -1,9 +1,43 @@
+import json
 from typing import Literal, get_args
+
+import posthoganalytics
 
 SANDBOX_EVENT_INGEST_FEATURE_FLAG = "tasks-cloud-runs-sandbox-event-ingest"
 AGENT_PROXY_KEEP_STREAM_OPEN_FEATURE_FLAG = "tasks-agent-proxy-keep-stream-open"
 MODAL_VM_SANDBOX_FEATURE_FLAG = "tasks-modal-vm-sandbox"
 MODAL_NETWORK_ALLOWLIST_FEATURE_FLAG = "tasks-modal-network-allowlist"
+
+
+def vm_sandbox_allowed_origin_products(payload: object) -> set[str]:
+    """Origin products allowed on the Modal VM runtime, parsed from the flag's payload."""
+    if isinstance(payload, str):
+        try:
+            payload = json.loads(payload)
+        except (ValueError, TypeError):
+            payload = None
+    value = payload.get("origin_products") if isinstance(payload, dict) else payload
+    if isinstance(value, list) and all(isinstance(item, str) for item in value):
+        return {item for item in value if isinstance(item, str)}
+    return set()
+
+
+def vm_sandbox_allowed_origins(*, distinct_id: str, organization_id: str) -> set[str]:
+    """Allowed origin products from the VM-sandbox flag; empty when off (payload only resolves on match)."""
+    payload = posthoganalytics.get_feature_flag_payload(
+        MODAL_VM_SANDBOX_FEATURE_FLAG,
+        distinct_id=distinct_id,
+        groups={"organization": organization_id},
+        group_properties={"organization": {"id": organization_id}},
+        only_evaluate_locally=False,
+        send_feature_flag_events=False,
+    )
+    return vm_sandbox_allowed_origin_products(payload)
+
+
+MAX_CUSTOM_IMAGES_PER_TEAM = 20
+MAX_CUSTOM_IMAGES_PER_USER = 10
+
 MODAL_DIRECTORY_RESUME_SNAPSHOTS_FEATURE_FLAG = "tasks-modal-directory-resume-snapshots"
 STREAM_VIA_PROXY_FEATURE_FLAG = "tasks-stream-via-proxy"
 OVERLAP_CLONE_BOOT_FEATURE_FLAG = "tasks-overlap-clone-boot"

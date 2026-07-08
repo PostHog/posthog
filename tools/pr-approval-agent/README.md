@@ -62,10 +62,14 @@ Deny-list (hard gate)
   │
   ▼
 Size ceiling (hard gate)
-  - >500 substantive lines or >20 substantive files → too large for auto-review
+  - >800 substantive lines or >30 substantive files → too large for auto-review
+    (limits derived from 90 days of denial outcomes: the friction cluster of
+    denied-yet-merged-unchanged PRs sits at 500-750 substantive lines, and past
+    ~800 the merged-unchanged rate collapses, so escalation is genuinely right)
   - Docs (.md/.txt/.rst anywhere; artifact-extension files under docs/),
     snapshots (.snap/.ambr, __snapshots__/), images,
-    `.lock`-extension files (e.g. `yarn.lock`), and generated/ artifacts
+    `.lock`-extension files (e.g. `yarn.lock`), tests (test dirs and
+    .test/.spec/_test files), and generated/ artifacts
     (regenerated-artifact extensions only: .ts/.tsx/.js/.jsx/.json/.md/.snap/.pyi/.txt)
     don't count toward the ceiling — they inflate diffs without adding review
     surface. Note: `pnpm-lock.yaml` and `package-lock.json` are not `.lock`-extension

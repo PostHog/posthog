@@ -198,7 +198,7 @@ async def build_ai_subscription_report(subscription: Subscription, *, persist_pl
             # The frozen plan is an optimization — losing this write must not abort the delivery (the
             # report is already generated; failing here would burn the LLM run and retry from scratch).
             logger.warning(
-                "ai_report.ai_query_plan_persist_failed",
+                "ai_report.query_plan_persist_failed",
                 subscription_id=subscription.id,
                 team_id=subscription.team_id,
                 exc_info=True,
@@ -218,6 +218,7 @@ async def preview_ai_subscription_report(subscription: Subscription) -> AiReport
     the generated HogQL — without emailing/Slacking anyone.
     """
     return await build_ai_subscription_report(subscription, persist_plan=False)
+
 
 
 def _build_feedback_url(subscription_url: str, delivery_id: uuid.UUID, feedback: str, source: str) -> str:

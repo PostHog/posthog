@@ -178,10 +178,9 @@ export class PersonMergeService {
                 details: {
                     illegalDistinctId: mergeIntoDistinctId,
                     otherDistinctId: otherPersonDistinctId,
+                    distinctId: mergeIntoDistinctId,
                     eventUuid: this.context.event.uuid,
                 },
-                category: 'merge',
-                severity: 'warning',
                 pipelineStep: 'person-merge',
                 alwaysSend: true,
             })
@@ -193,10 +192,9 @@ export class PersonMergeService {
                 details: {
                     illegalDistinctId: otherPersonDistinctId,
                     otherDistinctId: mergeIntoDistinctId,
+                    distinctId: mergeIntoDistinctId,
                     eventUuid: this.context.event.uuid,
                 },
-                category: 'merge',
-                severity: 'warning',
                 pipelineStep: 'person-merge',
                 alwaysSend: true,
             })
@@ -366,12 +364,11 @@ export class PersonMergeService {
                 details: {
                     sourcePersonDistinctId: otherPersonDistinctId,
                     targetPersonDistinctId: mergeIntoDistinctId,
+                    distinctId: mergeIntoDistinctId,
                     eventUuid: this.context.event.uuid,
                     personId: mergeInto.uuid,
                     otherPersonId: otherPerson.uuid,
                 },
-                category: 'merge',
-                severity: 'warning',
                 pipelineStep: 'person-merge',
                 alwaysSend: true,
             })
@@ -427,12 +424,11 @@ export class PersonMergeService {
                 details: {
                     sourcePersonDistinctId: otherPersonDistinctId,
                     targetPersonDistinctId: mergeIntoDistinctId,
+                    distinctId: mergeIntoDistinctId,
                     eventUuid: this.context.event.uuid,
                     personId: mergeInto.uuid,
                     otherPersonId: otherPerson.uuid,
                 },
-                category: 'merge',
-                severity: 'error',
                 pipelineStep: 'person-merge',
                 alwaysSend: true,
             })
