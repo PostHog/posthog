@@ -139,8 +139,7 @@ A single chart of all bots over time, broken down by name. This is the canonical
   ],
   "properties": [{ "key": "$virt_is_bot", "value": ["true"], "operator": "exact", "type": "event" }],
   "breakdownFilter": {
-    "breakdown": "$virt_bot_name",
-    "breakdown_type": "event",
+    "breakdowns": [{ "property": "$virt_bot_name", "type": "event" }],
     "breakdown_limit": 25
   },
   "trendsFilter": { "display": "ActionsBarValue" }
@@ -177,8 +176,9 @@ wants "AI crawlers vs SEO crawlers vs everything else" rather than per-bot rows.
 
 ### Top pages / referrers / devices / browsers / countries
 
-For non-bot tiles, use `$pageview` with `math: unique_users`, breakdown by the
-underlying property:
+For non-bot tiles, use `$pageview` with `math: dau`, breakdown by the
+underlying property. `dau` = unique users per interval; there is no `unique_users`
+math key. Use `math: total` for raw pageview counts rather than unique users.
 
 | Tile          | breakdown property    | display           |
 | ------------- | --------------------- | ----------------- |
