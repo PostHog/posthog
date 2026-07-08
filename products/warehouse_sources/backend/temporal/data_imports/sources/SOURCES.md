@@ -338,6 +338,7 @@ the row lists both.
 | workable                | HTTP                        | requests                                                        | ✅                          |
 | workos                  | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
 | wrike                   | HTTP                        | requests                                                        | ✅                          |
+| wufoo                   | HTTP                        | requests                                                        | ✅                          |
 | zendesk                 | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
 | zendesk_sell            | HTTP                        | requests                                                        | ✅                          |
 | zonka_feedback          | HTTP                        | requests                                                        | ✅                          |
