@@ -3366,7 +3366,8 @@ class TrelloSourceConfig(config.Config):
 
 @config.config
 class TremendousSourceConfig(config.Config):
-    pass
+    api_key: str
+    environment: Literal["production", "sandbox"] = config.value(default="production")
 
 
 @config.config
