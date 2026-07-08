@@ -34,6 +34,9 @@ AI_REPORT_PROMPT_SNAPSHOT_KEY = "ai_report_prompt"
 # Per-step query diagnostics (generated HogQL + failure type) so a degraded report is debuggable
 # after the fact. Written alongside the markdown; never shipped to recipients.
 AI_REPORT_DIAGNOSTICS_KEY = "ai_report_diagnostics"
+# The analysis window's end for this run, as a UTC ISO instant. The next run anchors its window here
+# (exactly gap-free); rows written before this key existed fall back to finished_at.
+AI_REPORT_WINDOW_END_KEY = "ai_report_window_end"
 
 
 class SubscriptionTriggerType:

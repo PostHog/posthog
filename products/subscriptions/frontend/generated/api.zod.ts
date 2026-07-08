@@ -60,7 +60,7 @@ export const SubscriptionsCreateBody = /* @__PURE__ */ zod
                             )
                             .default(subscriptionsCreateBodyAiPromptConfigOneWindowOneModeDefault)
                             .describe(
-                                'What the report analyzes each run:\n\* `since_last_sent` (default) — everything since the previous successful delivery (gap-free)\n\* `last_n_days` — a fixed trailing window of start_days_ago days\n\* `days_ago_range` — the explicit range from start_days_ago to end_days_ago days ago\n\n\* `since_last_sent` - Since last report\n\* `last_n_days` - Last N days\n\* `days_ago_range` - Between X and Y days ago'
+                                "What the report analyzes each run:\n\* `since_last_sent` (default) — everything since the previous successful scheduled delivery (gap-free; test\/manual sends don't move the anchor)\n\* `last_n_days` — a fixed trailing window of start_days_ago days\n\* `days_ago_range` — the explicit range from start_days_ago to end_days_ago days ago\n\n\* `since_last_sent` - Since last report\n\* `last_n_days` - Last N days\n\* `days_ago_range` - Between X and Y days ago"
                             ),
                         start_days_ago: zod
                             .number()
@@ -81,7 +81,7 @@ export const SubscriptionsCreateBody = /* @__PURE__ */ zod
                     })
                     .optional()
                     .describe(
-                        "Analysis window for the report. Omitted = 'since_last_sent' (everything since the previous delivery)."
+                        "Analysis window for the report. Omitted = 'since_last_sent' (everything since the previous scheduled delivery)."
                     ),
             })
             .optional()
@@ -224,7 +224,7 @@ export const SubscriptionsUpdateBody = /* @__PURE__ */ zod
                             )
                             .default(subscriptionsUpdateBodyAiPromptConfigOneWindowOneModeDefault)
                             .describe(
-                                'What the report analyzes each run:\n\* `since_last_sent` (default) — everything since the previous successful delivery (gap-free)\n\* `last_n_days` — a fixed trailing window of start_days_ago days\n\* `days_ago_range` — the explicit range from start_days_ago to end_days_ago days ago\n\n\* `since_last_sent` - Since last report\n\* `last_n_days` - Last N days\n\* `days_ago_range` - Between X and Y days ago'
+                                "What the report analyzes each run:\n\* `since_last_sent` (default) — everything since the previous successful scheduled delivery (gap-free; test\/manual sends don't move the anchor)\n\* `last_n_days` — a fixed trailing window of start_days_ago days\n\* `days_ago_range` — the explicit range from start_days_ago to end_days_ago days ago\n\n\* `since_last_sent` - Since last report\n\* `last_n_days` - Last N days\n\* `days_ago_range` - Between X and Y days ago"
                             ),
                         start_days_ago: zod
                             .number()
@@ -245,7 +245,7 @@ export const SubscriptionsUpdateBody = /* @__PURE__ */ zod
                     })
                     .optional()
                     .describe(
-                        "Analysis window for the report. Omitted = 'since_last_sent' (everything since the previous delivery)."
+                        "Analysis window for the report. Omitted = 'since_last_sent' (everything since the previous scheduled delivery)."
                     ),
             })
             .optional()
@@ -388,7 +388,7 @@ export const SubscriptionsPartialUpdateBody = /* @__PURE__ */ zod
                             )
                             .default(subscriptionsPartialUpdateBodyAiPromptConfigOneWindowOneModeDefault)
                             .describe(
-                                'What the report analyzes each run:\n\* `since_last_sent` (default) — everything since the previous successful delivery (gap-free)\n\* `last_n_days` — a fixed trailing window of start_days_ago days\n\* `days_ago_range` — the explicit range from start_days_ago to end_days_ago days ago\n\n\* `since_last_sent` - Since last report\n\* `last_n_days` - Last N days\n\* `days_ago_range` - Between X and Y days ago'
+                                "What the report analyzes each run:\n\* `since_last_sent` (default) — everything since the previous successful scheduled delivery (gap-free; test\/manual sends don't move the anchor)\n\* `last_n_days` — a fixed trailing window of start_days_ago days\n\* `days_ago_range` — the explicit range from start_days_ago to end_days_ago days ago\n\n\* `since_last_sent` - Since last report\n\* `last_n_days` - Last N days\n\* `days_ago_range` - Between X and Y days ago"
                             ),
                         start_days_ago: zod
                             .number()
@@ -409,7 +409,7 @@ export const SubscriptionsPartialUpdateBody = /* @__PURE__ */ zod
                     })
                     .optional()
                     .describe(
-                        "Analysis window for the report. Omitted = 'since_last_sent' (everything since the previous delivery)."
+                        "Analysis window for the report. Omitted = 'since_last_sent' (everything since the previous scheduled delivery)."
                     ),
             })
             .optional()

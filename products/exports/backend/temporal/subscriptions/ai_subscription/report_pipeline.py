@@ -149,6 +149,8 @@ class QueryStepDiagnostic:
 class AiReportResult:
     markdown: str
     diagnostics: tuple[QueryStepDiagnostic, ...]
+    # The window's end as a UTC ISO instant — persisted so the next run can anchor exactly here.
+    window_end_utc: str
     # Set only when the run planned from scratch; the caller freezes it onto the subscription.
     plan_to_persist: Optional[dict] = None
 
@@ -233,7 +235,12 @@ async def generate_ai_report(
             total_steps=total_steps,
             trace_correlation_id=trace_correlation_id,
         )
-        return AiReportResult(markdown=report, diagnostics=tuple(diagnostics), plan_to_persist=plan_to_persist)
+        return AiReportResult(
+            markdown=report,
+            diagnostics=tuple(diagnostics),
+            window_end_utc=window.end.astimezone(UTC).isoformat(),
+            plan_to_persist=plan_to_persist,
+        )
 
 
 def _plan_to_freeze(

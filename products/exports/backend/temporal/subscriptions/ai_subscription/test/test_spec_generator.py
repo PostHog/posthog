@@ -234,6 +234,16 @@ class TestSelectRelevantEvents(APIBaseTest):
 
         assert _select_relevant_events(self.team, self.user, "what about `rare_event`?") == ["rare_event"]
 
+    @patch(f"{_SG}.CANDIDATE_EVENTS_LIMIT", 0)
+    @patch(f"{_SG}.MaxChatOpenAI")
+    def test_pins_survive_when_candidate_slice_is_empty(self, mock_chat: MagicMock) -> None:
+        # An empty candidate slice skips the LLM pass but must not drop explicit pins — the pin scan
+        # covers the full recent-names window, not just the candidate slice.
+        EventDefinition.objects.create(team=self.team, name="export created")
+
+        assert _select_relevant_events(self.team, self.user, "how is `export created`?") == ["export created"]
+        mock_chat.assert_not_called()
+
 
 class TestExtractQuotedEventTokens:
     @parameterized.expand(
@@ -417,19 +427,19 @@ class TestComputeReportWindow:
         # so no DB row is needed and the test stays at the cheapest rung.
         return Team(timezone=timezone)
 
-    def test_anchors_start_to_last_successful_delivery(self) -> None:
+    def test_anchors_start_to_last_scheduled_cutoff(self) -> None:
         now = datetime(2026, 6, 29, 16, 0, tzinfo=UTC)
         last = datetime(2026, 6, 28, 16, 0, tzinfo=UTC)
 
         window = compute_report_window(
             self._team(),
-            last_successful_delivery_at=last,
+            last_scheduled_cutoff=last,
             now=now,
             window_days=1,
             mode=Subscription.AIWindowMode.SINCE_LAST_SENT,
         )
 
-        # Gap-free: start is exactly the previous send, not now - window_days (which would be identical
+        # Gap-free: start is exactly the previous cutoff, not now - window_days (which would be identical
         # here, but the next case proves they diverge when the prior send drifted).
         assert window.start == last.astimezone(ZoneInfo("UTC"))
         assert window.end == now.astimezone(ZoneInfo("UTC"))
@@ -442,7 +452,7 @@ class TestComputeReportWindow:
 
         window = compute_report_window(
             self._team(),
-            last_successful_delivery_at=last,
+            last_scheduled_cutoff=last,
             now=now,
             window_days=7,
             mode=Subscription.AIWindowMode.SINCE_LAST_SENT,
@@ -461,7 +471,7 @@ class TestComputeReportWindow:
 
         window = compute_report_window(
             self._team(),
-            last_successful_delivery_at=last,
+            last_scheduled_cutoff=last,
             now=now,
             window_days=7,
             mode=Subscription.AIWindowMode.SINCE_LAST_SENT,
@@ -476,7 +486,7 @@ class TestComputeReportWindow:
 
         window = compute_report_window(
             self._team(),
-            last_successful_delivery_at=None,
+            last_scheduled_cutoff=None,
             now=now,
             window_days=7,
             mode=Subscription.AIWindowMode.SINCE_LAST_SENT,
@@ -493,7 +503,7 @@ class TestComputeReportWindow:
 
         window = compute_report_window(
             self._team(),
-            last_successful_delivery_at=recent_send,
+            last_scheduled_cutoff=recent_send,
             now=now,
             window_days=7,
             mode=Subscription.AIWindowMode.LAST_N_DAYS,
@@ -508,7 +518,7 @@ class TestComputeReportWindow:
 
         window = compute_report_window(
             self._team(),
-            last_successful_delivery_at=None,
+            last_scheduled_cutoff=None,
             now=now,
             window_days=7,
             mode=Subscription.AIWindowMode.DAYS_AGO_RANGE,
@@ -528,7 +538,7 @@ class TestComputeReportWindow:
 
         window = compute_report_window(
             self._team(),
-            last_successful_delivery_at=None,
+            last_scheduled_cutoff=None,
             now=now,
             window_days=7,
             mode=Subscription.AIWindowMode.DAYS_AGO_RANGE,
@@ -555,7 +565,7 @@ class TestComputeReportWindow:
 
         window = compute_report_window(
             self._team(),
-            last_successful_delivery_at=None,
+            last_scheduled_cutoff=None,
             now=now,
             window_days=7,
             mode=mode,
@@ -575,7 +585,7 @@ class TestComputeReportWindow:
     def test_bounds_are_in_team_timezone(self, _name: str, timezone: str) -> None:
         now = datetime(2026, 6, 29, 16, 0, tzinfo=UTC)
 
-        window = compute_report_window(self._team(timezone), last_successful_delivery_at=None, now=now, window_days=1)
+        window = compute_report_window(self._team(timezone), last_scheduled_cutoff=None, now=now, window_days=1)
 
         # Same instant, rendered in the team's tz — utcoffset proves the bound carries the team's
         # offset (the UTC-anchored bug had a zero offset regardless of team timezone).
@@ -592,7 +602,7 @@ class TestComputeReportWindow:
 
         window = compute_report_window(
             self._team(),
-            last_successful_delivery_at=last,
+            last_scheduled_cutoff=last,
             now=now,
             window_days=1,
             mode=Subscription.AIWindowMode.SINCE_LAST_SENT,
@@ -605,7 +615,7 @@ class TestComputeReportWindow:
         now = datetime(2026, 6, 29, 16, 0)
         last = datetime(2026, 6, 28, 16, 0)
 
-        window = compute_report_window(self._team("UTC"), last_successful_delivery_at=last, now=now, window_days=1)
+        window = compute_report_window(self._team("UTC"), last_scheduled_cutoff=last, now=now, window_days=1)
 
         assert window.start == datetime(2026, 6, 28, 16, 0, tzinfo=UTC)
         assert window.end == datetime(2026, 6, 29, 16, 0, tzinfo=UTC)
@@ -624,7 +634,7 @@ class TestContextBlob(APIBaseTest):
         self.team.save()
         window = compute_report_window(
             self.team,
-            last_successful_delivery_at=None,
+            last_scheduled_cutoff=None,
             now=datetime(2026, 6, 29, 16, 0, tzinfo=UTC),
             window_days=1,
         )
