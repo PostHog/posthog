@@ -18,9 +18,10 @@ from posthog.otel_instrumentation import INSTRUMENTORS
 class WorkflowIdPrefixSampler(Sampler):
     """Always sample spans of Temporal workflows whose ID starts with a configured prefix.
 
-    Spans emitted by Temporal's `TracingInterceptor` carry a `temporalWorkflowID` attribute at
-    span creation time (both `RunWorkflow:*` and `RunActivity:*` spans), which is the only
-    moment a sampler can see attributes. Matching spans are always sampled; all other spans
+    Spans emitted by Temporal's `OpenTelemetryPlugin` (via its `OpenTelemetryInterceptor`)
+    carry a `temporalWorkflowID` attribute at span creation time (both `RunWorkflow:*` and
+    `RunActivity:*` spans), which is the only moment a sampler can see attributes.
+    Matching spans are always sampled; all other spans
     are delegated, so the env-driven ratio sampling (`OTEL_TRACES_SAMPLER` /
     `OTEL_TRACES_SAMPLER_ARG`) still applies to non-matching traffic.
 
