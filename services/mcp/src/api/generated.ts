@@ -12923,6 +12923,8 @@ export namespace Schemas {
       pending_user_artifact_ids?: string[];
       /** Optional sandbox environment to apply for this cloud run. */
       sandbox_environment_id?: string;
+      /** Optional custom base image for this cloud run's sandbox (Modal VM runtime only); takes precedence over the environment's image. */
+      custom_image_id?: string;
       /** Whether pull requests for this run should be authored by the user or the bot.
        *
        * * `user` - user
@@ -13275,6 +13277,8 @@ export namespace Schemas {
       pending_user_artifact_ids?: string[];
       /** Optional sandbox environment to apply for this cloud run. */
       sandbox_environment_id?: string;
+      /** Optional custom base image for this cloud run's sandbox (Modal VM runtime only); takes precedence over the environment's image. */
+      custom_image_id?: string;
       /** Whether pull requests for this run should be authored by the user or the bot.
        *
        * * `user` - user
@@ -34178,6 +34182,45 @@ export namespace Schemas {
       results: Run[];
     }
 
+    export type SandboxCustomImageDTOSpec = { [key: string]: unknown };
+
+    export type SandboxCustomImageDTOScanResult = { [key: string]: unknown };
+
+    /**
+     * Detail response for a custom sandbox base image.
+     */
+    export interface SandboxCustomImageDTO {
+      id: string;
+      name: string;
+      description: string;
+      repository?: string;
+      private?: boolean;
+      status: string;
+      version: number;
+      modal_image_name: string;
+      spec?: SandboxCustomImageDTOSpec;
+      spec_yaml?: string;
+      scan_result?: SandboxCustomImageDTOScanResult;
+      build_log?: string;
+      error: string;
+      /** @nullable */
+      builder_task_id?: string | null;
+      created_by?: TaskUserBasicInfo | null;
+      /** @nullable */
+      created_at?: string | null;
+      /** @nullable */
+      updated_at?: string | null;
+    }
+
+    export interface PaginatedSandboxCustomImageDTOList {
+      count: number;
+      /** @nullable */
+      next?: string | null;
+      /** @nullable */
+      previous?: string | null;
+      results: SandboxCustomImageDTO[];
+    }
+
     /**
      * List response for sandbox environments (subset of fields).
      */
@@ -34194,6 +34237,12 @@ export namespace Schemas {
       created_at?: string | null;
       /** @nullable */
       updated_at?: string | null;
+      /** @nullable */
+      custom_image_id?: string | null;
+      /** @nullable */
+      custom_image_name?: string | null;
+      /** @nullable */
+      custom_image_status?: string | null;
     }
 
     export interface PaginatedSandboxEnvironmentDTOList {
@@ -35877,6 +35926,7 @@ export namespace Schemas {
       repository: string | null;
       created_at: string;
       updated_at: string;
+      origin_product?: string;
       latest_run?: TaskRunSummary | null;
     }
 
@@ -41832,6 +41882,11 @@ export namespace Schemas {
       environment_variables?: unknown;
       /** If true, only the creator can see this environment; otherwise the whole team can. */
       private?: boolean;
+      /**
+         * Custom base image for this environment's sandboxes (Modal VM runtime only); null uses the default base.
+         * @nullable
+         */
+      custom_image_id?: string | null;
     }
 
     export interface PatchedSavedHeatmapRequest {
@@ -49527,6 +49582,38 @@ export namespace Schemas {
     }
 
     /**
+     * Request body for scanning and building a custom sandbox base image.
+     */
+    export interface SandboxCustomImageBuild {
+      /**
+         * Image spec YAML to build. When omitted, the spec is read from the builder agent's live sandbox.
+         * @nullable
+         */
+      spec_yaml?: string | null;
+    }
+
+    /**
+     * Request body for creating a custom sandbox base image.
+     */
+    export interface SandboxCustomImageWrite {
+      /**
+         * Display name for the custom image.
+         * @maxLength 255
+         */
+      name: string;
+      /** What should go into the image; seeds the image-builder agent conversation. */
+      description?: string;
+      /**
+         * Optional 'org/repo' the builder session clones so it can verify the image brings up that repository's dependencies.
+         * @maxLength 255
+         * @nullable
+         */
+      repository?: string | null;
+      /** If true, only you can see and use this image; otherwise the whole team can. */
+      private?: boolean;
+    }
+
+    /**
      * Request body for creating or updating a sandbox environment.
      */
     export interface SandboxEnvironmentWrite {
@@ -49557,6 +49644,11 @@ export namespace Schemas {
       environment_variables?: unknown;
       /** If true, only the creator can see this environment; otherwise the whole team can. */
       private?: boolean;
+      /**
+         * Custom base image for this environment's sandboxes (Modal VM runtime only); null uses the default base.
+         * @nullable
+         */
+      custom_image_id?: string | null;
     }
 
     /**
@@ -54201,6 +54293,8 @@ export namespace Schemas {
       branch?: string | null;
       /** Optional sandbox environment to apply for this cloud run. */
       sandbox_environment_id?: string;
+      /** Optional custom base image for this cloud run's sandbox (Modal VM runtime only); takes precedence over the environment's image. */
+      custom_image_id?: string;
       /** Whether pull requests for this run should be authored by the user or the bot.
        *
        * * `user` - user
@@ -54321,6 +54415,8 @@ export namespace Schemas {
       pending_user_message?: string;
       /** Optional sandbox environment to apply for this cloud run. */
       sandbox_environment_id?: string;
+      /** Optional custom base image for this cloud run's sandbox (Modal VM runtime only); takes precedence over the environment's image. */
+      custom_image_id?: string;
       /** Whether pull requests for this run should be authored by the user or the bot.
        *
        * * `user` - user
@@ -69006,6 +69102,17 @@ export namespace Schemas {
     };
 
     export type QuickFiltersListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number;
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number;
+    };
+
+    export type SandboxCustomImagesListParams = {
     /**
      * Number of results to return per page.
      */

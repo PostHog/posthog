@@ -181,12 +181,14 @@ the row lists both.
 | gridly                  | HTTP                        | requests                                                        | ✅                          |
 | guardian                | HTTP                        | requests                                                        | ✅                          |
 | guru                    | HTTP                        | requests                                                        | ✅                          |
+| height                  | HTTP                        | requests                                                        | ✅                          |
 | hellobaton              | HTTP                        | requests                                                        | ✅                          |
 | hibob                   | HTTP                        | requests                                                        | ✅                          |
 | hubplanner              | HTTP                        | requests                                                        | ✅                          |
 | hubspot                 | HTTP                        | requests                                                        | ✅                          |
 | hugging_face            | HTTP                        | requests                                                        | ✅                          |
 | incident_io             | HTTP                        | requests                                                        | ✅                          |
+| inflowinventory         | HTTP                        | requests                                                        | ✅                          |
 | insightly               | HTTP                        | requests                                                        | ✅                          |
 | instatus                | HTTP                        | requests                                                        | ✅                          |
 | intercom                | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
@@ -230,6 +232,7 @@ the row lists both.
 | mongodb                 | DB protocol                 | pymongo                                                         | ➖                          |
 | mssql                   | DB protocol                 | pyodbc / pymssql                                                | ➖                          |
 | mux                     | HTTP                        | requests                                                        | ✅                          |
+| my_hours                | HTTP                        | requests                                                        | ✅                          |
 | mysql                   | DB protocol                 | pymysql                                                         | ➖                          |
 | n8n                     | HTTP                        | requests                                                        | ✅                          |
 | new_york_times          | HTTP                        | requests                                                        | ✅                          |
@@ -242,6 +245,7 @@ the row lists both.
 | omnisend                | HTTP                        | requests                                                        | ✅                          |
 | onfleet                 | HTTP (cursor pagination)    | requests                                                        | ✅                          |
 | open_exchange_rates     | HTTP                        | requests                                                        | ✅                          |
+| opinion_stage           | HTTP                        | requests                                                        | ✅                          |
 | orb                     | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
 | openaq                  | HTTP                        | requests                                                        | ✅                          |
 | openfda                 | HTTP                        | requests                                                        | ✅                          |
@@ -290,6 +294,7 @@ the row lists both.
 | shipstation             | HTTP                        | requests                                                        | ✅                          |
 | shopify                 | HTTP                        | requests                                                        | ✅                          |
 | shortcut                | HTTP                        | requests                                                        | ✅                          |
+| simplesat               | HTTP                        | requests                                                        | ✅                          |
 | slack                   | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
 | smartsheet              | HTTP                        | requests                                                        | ✅                          |
 | snapchat_ads            | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
@@ -321,6 +326,7 @@ the row lists both.
 | wrike                   | HTTP                        | requests                                                        | ✅                          |
 | zendesk                 | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
 | zendesk_sell            | HTTP                        | requests                                                        | ✅                          |
+| zonka_feedback          | HTTP                        | requests                                                        | ✅                          |
 | zoom                    | HTTP                        | requests                                                        | ✅                          |
 | zuora                   | HTTP                        | requests                                                        | ✅                          |
 
@@ -475,7 +481,6 @@ doesn't conflict with concurrent PRs.
 - gusto
 - harness
 - heap
-- height
 - helpscout
 - hibob
 - high_level
@@ -488,7 +493,6 @@ doesn't conflict with concurrent PRs.
 - ikas
 - illumina_basespace
 - imagga
-- inflowinventory
 - infor_nexus
 - insightful
 - instagram
@@ -536,7 +540,6 @@ doesn't conflict with concurrent PRs.
 - miro
 - missive
 - mode
-- my_hours
 - nasa
 - navan
 - nebius_ai
@@ -556,7 +559,6 @@ doesn't conflict with concurrent PRs.
 - onepagecrm
 - onesignal
 - open_data_dc
-- opinion_stage
 - opsgenie
 - opuswatch
 - oracle
@@ -655,7 +657,6 @@ doesn't conflict with concurrent PRs.
 - signnow
 - simfin
 - simplecast
-- simplesat
 - smaily
 - smartengage
 - smartreach
@@ -744,7 +745,6 @@ doesn't conflict with concurrent PRs.
 - zoho_expense
 - zoho_inventory
 - zoho_invoice
-- zonka_feedback
 - zoominfo
 
 ---
