@@ -187,6 +187,7 @@ class TestHandleCorruptedDeltaLog:
         with (
             patch(f"{repartition_module}._resume_swap_with_missing_live", resume),
             patch(f"{repartition_table_module}._target_from_schema", return_value=MagicMock()),
+            patch(f"{_EXTRACT_MODULE}.posthoganalytics") as ph,
         ):
             result = async_to_sync(handle_corrupted_delta_log)(schema, job, helper, self._logger())
 
@@ -195,3 +196,7 @@ class TestHandleCorruptedDeltaLog:
         helper.reset_table.assert_not_awaited()
         job.refresh_from_db()
         assert job.billable is True
+        # A salvage must be observable too, tagged as recovered-from-temp with the rebuild left billable.
+        assert ph.capture.call_args.kwargs["event"] == "warehouse_delta_revived"
+        assert ph.capture.call_args.kwargs["properties"]["outcome"] == "salvaged"
+        assert ph.capture.call_args.kwargs["properties"]["made_non_billable"] is False
