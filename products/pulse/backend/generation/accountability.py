@@ -94,8 +94,7 @@ def collect_accountability(team: Team, now_fn: Callable[[], datetime] = timezone
         try:
             lines.append(_status_line(opportunity, now, insights, results_cache))
         except Exception:
-            # Symmetry with explain's per-collector isolation: one broken re-score must not
-            # blank the rest of the accountability section.
+            # One broken re-score must not blank the rest of the accountability section.
             logger.exception("pulse_accountability_line_failed", team_id=team.id, opportunity_id=str(opportunity.id))
     return lines
 
