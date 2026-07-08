@@ -2256,6 +2256,7 @@ def bootstrap_task_run(
     branch = validated_data.get("branch")
     sandbox_environment_id = validated_data.get("sandbox_environment_id")
     pr_authorship_mode = validated_data.get("pr_authorship_mode")
+    auto_publish = validated_data.get("auto_publish")
     run_source = validated_data.get("run_source")
     signal_report_id = validated_data.get("signal_report_id")
     runtime_adapter = validated_data.get("runtime_adapter")
@@ -2275,6 +2276,7 @@ def bootstrap_task_run(
     for key, value in {
         "pr_base_branch": branch,
         "pr_authorship_mode": pr_authorship_mode,
+        "auto_publish": auto_publish,
         "run_source": run_source,
         "signal_report_id": signal_report_id,
         "runtime_adapter": runtime_adapter,
@@ -2867,6 +2869,7 @@ def create_task(team_id: int, user_id: int | None, *, validated_data: dict) -> c
     warm_reasoning_effort = validated_data.pop("reasoning_effort", None)
     pending_user_message = (validated_data.pop("pending_user_message", None) or "").strip() or None
     pending_user_artifact_ids = validated_data.pop("pending_user_artifact_ids", None) or []
+    warm_auto_publish = validated_data.pop("auto_publish", None)
 
     if user_id is not None:
         validated_data["created_by"] = User.objects.get(id=user_id)
@@ -2923,6 +2926,7 @@ def create_task(team_id: int, user_id: int | None, *, validated_data: dict) -> c
                 message=pending_user_message or description or None,
                 description=description or None,
                 artifact_ids=pending_user_artifact_ids,
+                auto_publish=warm_auto_publish,
             )
             return _task_detail_to_dto(_task_detail_queryset().get(pk=warm_task.pk))
 
@@ -3252,11 +3256,16 @@ def _activate_warm_run(
     message: str | None,
     artifact_ids: list[str],
     description: str | None = None,
+    auto_publish: bool | None = None,
 ) -> None:
     """Activate an idling warm Run: set the draft Task's visible description from raw task text,
     forward the first message to the already-running agent, and drop the ``await_user_message`` marker
     so the Run leaves the warm pool. Mirrors ``message_routing._handle_first_message``; no fresh agent
-    start."""
+    start.
+
+    ``auto_publish`` is persisted into the Run's state before the message signal: the already-running
+    agent-server can't take it as a launch flag, so it re-reads run state when the forwarded first
+    message arrives (and resumes read it from carried state)."""
     from products.tasks.backend.metrics import (  # noqa: PLC0415 — keep prometheus deps off the api import path
         observe_prewarmed_activated,
     )
@@ -3264,6 +3273,10 @@ def _activate_warm_run(
     if description and not (task.description or "").strip():
         task.description = description
         task.save(update_fields=["description", "updated_at"])
+    if auto_publish is not None:
+        # Before the signal: the agent-server re-reads run state when the forwarded
+        # first message arrives, so the choice must already be persisted by then.
+        TaskRun.update_state_atomic(run.id, updates={"auto_publish": auto_publish})
     signal_task_run_user_message(run.id, task.id, team_id, content=message, artifact_ids=artifact_ids)
     TaskRun.update_state_atomic(run.id, remove_keys=["await_user_message"])
     # Only count activations of Runs that actually carry the prewarmed marker, so the activation
@@ -3439,11 +3452,13 @@ def run_task(
                         message=pending_user_message or (task.description or None),
                         description=task.description or None,
                         artifact_ids=pending_user_artifact_ids,
+                        auto_publish=validated_data.get("auto_publish"),
                     )
                     return contracts.TaskRunResult(task=get_task_detail(task.id, team_id, user_id))
     sandbox_environment_id = validated_data.get("sandbox_environment_id")
     sandbox_environment_id_supplied_by_user = sandbox_environment_id is not None
     pr_authorship_mode = validated_data.get("pr_authorship_mode")
+    auto_publish = validated_data.get("auto_publish")
     run_source = validated_data.get("run_source")
     signal_report_id = validated_data.get("signal_report_id")
     runtime_adapter = validated_data.get("runtime_adapter")
@@ -3456,6 +3471,7 @@ def run_task(
 
     runtime_state_fields = {
         "pr_authorship_mode": pr_authorship_mode,
+        "auto_publish": auto_publish,
         "run_source": run_source,
         "signal_report_id": signal_report_id,
         "runtime_adapter": runtime_adapter,
@@ -3493,6 +3509,7 @@ def run_task(
                 runtime_state_fields[field_name] = getattr(prev_state, field_name)
 
         pr_authorship_mode = runtime_state_fields["pr_authorship_mode"]
+        auto_publish = runtime_state_fields["auto_publish"]
         run_source = runtime_state_fields["run_source"]
         signal_report_id = runtime_state_fields["signal_report_id"]
         runtime_adapter = runtime_state_fields["runtime_adapter"]
@@ -3506,6 +3523,7 @@ def run_task(
     for key, value in {
         "pr_base_branch": branch,
         "pr_authorship_mode": pr_authorship_mode,
+        "auto_publish": auto_publish,
         "run_source": run_source,
         "signal_report_id": signal_report_id,
         "runtime_adapter": runtime_adapter,

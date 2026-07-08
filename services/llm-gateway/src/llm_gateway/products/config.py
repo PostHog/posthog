@@ -179,8 +179,10 @@ PRODUCTS: Final[dict[str, ProductConfig]] = {
         allow_api_keys=True,
     ),
     "conversations": ProductConfig(
-        allowed_application_ids=None,
-        allowed_models=frozenset({"claude-haiku-4-5", "claude-sonnet-4-6"}),
+        # Sandbox support-reply tasks auth with the array (posthog_code) OAuth app but
+        # route through this product so draft spend rolls up with utility prompts.
+        allowed_application_ids=frozenset({POSTHOG_CODE_US_APP_ID, POSTHOG_CODE_EU_APP_ID, POSTHOG_CODE_DEV_APP_ID}),
+        allowed_models=frozenset({"claude-haiku-4-5", "claude-sonnet-4-6", "claude-sonnet-5"}),
         allow_api_keys=True,
         billable=False,
     ),

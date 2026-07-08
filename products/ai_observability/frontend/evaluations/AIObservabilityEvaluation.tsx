@@ -657,13 +657,14 @@ function EvaluationModelPicker(): JSX.Element {
         trialModelsLoading,
         providerKeysLoading,
     } = useValues(modelPickerLogic)
-    const { selectedModel, selectedPickerProviderKeyId } = useValues(llmEvaluationLogic)
+    const { selectedModel, selectedPickerProviderKeyId, requiresProviderKey } = useValues(llmEvaluationLogic)
     const { selectModelFromPicker } = useActions(llmEvaluationLogic)
 
-    const allModels = hasByokKeys ? byokModels : trialModels
+    const showTrialModels = !hasByokKeys && !requiresProviderKey
+    const allModels = showTrialModels ? trialModels : byokModels
     const selectedModelName = allModels.find((m) => m.id === selectedModel)?.name
-    const groups = hasByokKeys ? providerModelGroups : trialProviderModelGroups
-    const loading = hasByokKeys ? byokModelsLoading || providerKeysLoading : trialModelsLoading
+    const groups = showTrialModels ? trialProviderModelGroups : providerModelGroups
+    const loading = showTrialModels ? trialModelsLoading : byokModelsLoading || providerKeysLoading
 
     const footerLink = getModelPickerFooterLink(hasByokKeys)
 
