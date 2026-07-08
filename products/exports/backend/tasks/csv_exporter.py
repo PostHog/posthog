@@ -43,7 +43,7 @@ from posthog.utils import absolute_uri
 
 from products.exports.backend.models.exported_asset import ExportedAsset, save_content_from_file
 
-from .failure_handler import ExcelColumnLimitExceeded
+from .failure_handler import ExcelColumnLimitExceeded, InvalidExportContext
 
 logger = structlog.get_logger(__name__)
 
@@ -556,11 +556,18 @@ def _iter_rows(
 
     if resource.get("source"):
         yield from get_from_query(exported_asset, limit, resource, analytics_props=analytics_props)
-    else:
+    elif resource.get("path"):
         # Legacy path for PersonsNode exports (uses API path instead of HogQL source).
         # PersonsNode was migrated to ActorsQuery in migration 0459, so this path
         # should rarely be hit in practice.
         yield from get_from_insights_api(exported_asset, CSV_EXPORT_BREAKDOWN_LIMIT_INITIAL, resource)
+    else:
+        # Neither a HogQL "source" nor a legacy "path" to fetch from: the export context is
+        # malformed and there is nothing to export. Fail with an actionable, user-classified
+        # error instead of an opaque KeyError deep inside the legacy branch.
+        raise InvalidExportContext(
+            "Export context must contain either a 'source' query or a legacy 'path' to export data from."
+        )
 
 
 def _write_rows_to_jsonl(

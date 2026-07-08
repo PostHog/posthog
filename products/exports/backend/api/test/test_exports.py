@@ -343,6 +343,22 @@ class TestExports(APIBaseTest):
             },
         )
 
+    def test_errors_if_tabular_export_context_missing_source_and_path(self) -> None:
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/exports",
+            {"export_format": "text/csv", "export_context": {"filename": "broken"}},
+        )
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(
+            response.json(),
+            {
+                "attr": "export_context",
+                "code": "invalid_input",
+                "detail": "export_context must contain either a 'source' query or a 'path' to export from.",
+                "type": "validation_error",
+            },
+        )
+
     def test_errors_if_bad_format(self) -> None:
         response = self.client.post(f"/api/projects/{self.team.id}/exports", {"export_format": "not/allowed"})
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
