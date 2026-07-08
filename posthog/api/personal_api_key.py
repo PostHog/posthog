@@ -120,6 +120,10 @@ class PersonalAPIKeySerializer(serializers.ModelSerializer):
         # Keys created before 2024-02 use PBKDF2 hashing, which is significantly slower per request
         return bool(obj.secure_value and obj.secure_value.startswith(LEGACY_HASH_PREFIX))
 
+    def validate_description(self, description: str | None) -> str | None:
+        # Normalize "" to None so an absent description has a single canonical representation
+        return description or None
+
     def validate_scopes(self, scopes):
         requesting_user = self.context["request"].user
         existing_scopes = list(self.instance.scopes or []) if self.instance is not None else None
