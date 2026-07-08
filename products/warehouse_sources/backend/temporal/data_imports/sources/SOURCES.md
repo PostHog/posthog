@@ -307,6 +307,7 @@ the row lists both.
 | servicenow              | HTTP                        | requests                                                        | ✅                          |
 | shipstation             | HTTP                        | requests                                                        | ✅                          |
 | shopify                 | HTTP                        | requests                                                        | ✅                          |
+| shopwired               | HTTP                        | requests                                                        | ✅                          |
 | shortcut                | HTTP                        | requests                                                        | ✅                          |
 | simplecast              | HTTP                        | requests                                                        | ✅                          |
 | simplesat               | HTTP                        | requests                                                        | ✅                          |
@@ -659,7 +660,6 @@ doesn't conflict with concurrent PRs.
 - sharepoint
 - sharetribe
 - shippo
-- shopwired
 - shortio
 - shutterstock
 - sigma_computing

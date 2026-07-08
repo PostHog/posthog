@@ -2998,7 +2998,8 @@ class ShippoSourceConfig(config.Config):
 
 @config.config
 class ShopWiredSourceConfig(config.Config):
-    pass
+    api_key: str
+    api_secret: str
 
 
 @config.config
