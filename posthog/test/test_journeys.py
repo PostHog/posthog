@@ -67,8 +67,8 @@ def journeys_for(
             people[distinct_id] = existing_person
 
     # One bulk ClickHouse insert per table instead of two inserts per person.
-    for person in create_people_bulk(to_create_bulk):
-        people[person._distinct_ids[0]] = person
+    for spec, person in zip(to_create_bulk, create_people_bulk(to_create_bulk)):
+        people[spec["distinct_ids"][0]] = person
 
     events_to_create = []
     for distinct_id, events in events_by_person.items():

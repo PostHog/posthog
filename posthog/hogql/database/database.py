@@ -152,6 +152,7 @@ from posthog.models.team.team import Team, WeekStartDay
 from posthog.ph_client import feature_enabled_or_false
 from posthog.rbac.user_access_control import NO_ACCESS_LEVEL, UserAccessControl
 from posthog.schema_enums import DatabaseSerializedFieldType, PersonsOnEventsMode, SessionTableVersion
+from posthog.scopes import APIScopeObject
 from posthog.synthetic_user import SyntheticUser
 
 from products.data_tools.backend.models.join import DataWarehouseJoin
@@ -444,7 +445,7 @@ def _construct_database_root_node(*, include_posthog_tables: bool) -> TableNode:
 
 
 @cache
-def _system_table_access_scopes() -> tuple[tuple[str, str], ...]:
+def _system_table_access_scopes() -> tuple[tuple[str, APIScopeObject], ...]:
     """(table name, access scope) for the access-controlled Postgres system tables.
 
     Cached for the process lifetime — this result directly gates table visibility in access-control
