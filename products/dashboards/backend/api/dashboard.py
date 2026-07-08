@@ -1310,16 +1310,18 @@ class DashboardSerializer(DashboardMetadataSerializer):
                 existing_dashboard.quick_filter_ids, team_id
             )
 
-        dashboard = Dashboard.objects.create(team_id=team_id, filters=filters, **validated_data)
-
         if use_template:
+            # Create the dashboard and apply the template together so a tile failing partway through
+            # rolls back the whole dashboard rather than leaving a half-populated, corrupt one behind.
             try:
-                create_dashboard_from_template(
-                    use_template,
-                    dashboard,
-                    cast(User, request.user),
-                    user_access_control=user_access_control,
-                )
+                with transaction.atomic():
+                    dashboard = Dashboard.objects.create(team_id=team_id, filters=filters, **validated_data)
+                    create_dashboard_from_template(
+                        use_template,
+                        dashboard,
+                        cast(User, request.user),
+                        user_access_control=user_access_control,
+                    )
             except AttributeError as error:
                 logger.error(
                     "dashboard_create.create_from_template_failed",
@@ -1329,20 +1331,38 @@ class DashboardSerializer(DashboardMetadataSerializer):
                     exc_info=True,
                 )
                 raise serializers.ValidationError({"use_template": f"Invalid template provided: {use_template}"})
+            except exceptions.APIException:
+                # Already a clean 4xx (e.g. widget/tile validation); the dashboard has been rolled back,
+                # so let the specific error surface unchanged.
+                raise
+            except Exception as error:
+                # Any other failure while building tiles has now been rolled back; surface a clean
+                # error instead of a 500 with a corrupt dashboard left in the database.
+                logger.exception(
+                    "dashboard_create.create_from_template_failed",
+                    team_id=team_id,
+                    template=use_template,
+                    error=error,
+                )
+                raise serializers.ValidationError(
+                    {"use_template": f"Failed to create dashboard from template: {use_template}"}
+                )
+        else:
+            dashboard = Dashboard.objects.create(team_id=team_id, filters=filters, **validated_data)
 
-        elif existing_dashboard:
-            existing_tiles = (
-                DashboardTile.objects.filter(dashboard=existing_dashboard)
-                .exclude(deleted=True)
-                .select_related("insight", "text", "button_tile", "widget")
-            )
-            duplicate_tiles = self.initial_data.get("duplicate_tiles", False)
-            for existing_tile in existing_tiles:
-                # Widget tiles move with their widget row; other tiles re-link shared insight/text/button rows.
-                if duplicate_tiles or existing_tile.widget_id is not None:
-                    self._deep_duplicate_tiles(dashboard, existing_tile, user_access_control)
-                else:
-                    existing_tile.copy_to_dashboard(dashboard)
+            if existing_dashboard:
+                existing_tiles = (
+                    DashboardTile.objects.filter(dashboard=existing_dashboard)
+                    .exclude(deleted=True)
+                    .select_related("insight", "text", "button_tile", "widget")
+                )
+                duplicate_tiles = self.initial_data.get("duplicate_tiles", False)
+                for existing_tile in existing_tiles:
+                    # Widget tiles move with their widget row; other tiles re-link shared insight/text/button rows.
+                    if duplicate_tiles or existing_tile.widget_id is not None:
+                        self._deep_duplicate_tiles(dashboard, existing_tile, user_access_control)
+                    else:
+                        existing_tile.copy_to_dashboard(dashboard)
 
         # Manual tag creation since this create method doesn't call super()
         self._attempt_set_tags(tags, dashboard)

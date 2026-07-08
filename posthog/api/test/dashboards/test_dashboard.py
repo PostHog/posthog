@@ -1633,6 +1633,39 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
                 tag_names = list(dashboard.tagged_items.values_list("tag__name", flat=True))
                 self.assertNotIn("probe-tag", tag_names)
 
+    def test_template_tile_failure_rolls_back_whole_dashboard(self) -> None:
+        from products.dashboards.backend.models.dashboard_templates import DashboardTemplate
+
+        DashboardTemplate.objects.create(
+            team=self.team,
+            template_name="atomic-probe",
+            scope="team",
+            dashboard_filters={},
+            tiles=[
+                {"type": "TEXT", "body": "first-tile", "layouts": {}, "color": None},
+                {"type": "INSIGHT", "name": "second-tile", "layouts": {}, "color": None},
+            ],
+        )
+
+        dashboards_before = Dashboard.objects.filter(team=self.team).count()
+        tiles_before = DashboardTile.objects.count()
+
+        # Simulate a tile failing partway through creation (after the first tile already succeeded).
+        with patch(
+            "posthog.helpers.dashboard_templates._create_tile_for_insight",
+            side_effect=Exception("tile creation blew up"),
+        ):
+            _, response = self.dashboard_api.create_dashboard(
+                {"name": "atomic-probe", "use_template": "atomic-probe"},
+                expected_status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        self.assertEqual(response["attr"], "use_template")
+        # No half-populated dashboard, orphan dashboard row, or leftover tiles/text may survive.
+        self.assertEqual(Dashboard.objects.filter(team=self.team).count(), dashboards_before)
+        self.assertEqual(DashboardTile.objects.count(), tiles_before)
+        self.assertFalse(Text.objects.filter(body="first-tile").exists())
+
     def test_dashboard_creation_validation(self):
         existing_dashboard = Dashboard.objects.create(team=self.team, name="existing dashboard", created_by=self.user)
 
