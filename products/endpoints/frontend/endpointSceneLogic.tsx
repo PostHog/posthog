@@ -2,19 +2,29 @@ import { actions, connect, events, kea, listeners, path, reducers, selectors } f
 import { loaders } from 'kea-loaders'
 import { router, urlToAction } from 'kea-router'
 
-import api from 'lib/api'
+import api, { ApiConfig } from 'lib/api'
 import { SetupTaskId, globalSetupLogic } from 'lib/components/ProductSetup'
+import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { sqlEditorLogic } from 'scenes/data-warehouse/editor/sqlEditorLogic'
 import { SQLEditorMode } from 'scenes/data-warehouse/editor/sqlEditorModes'
 import { Scene } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
-import { DataTableNode, EndpointRunRequest, InsightVizNode, Node, NodeKind } from '~/queries/schema/schema-general'
+import {
+    DataTableNode,
+    DataVisualizationNode,
+    EndpointRunRequest,
+    InsightVizNode,
+    Node,
+    NodeKind,
+} from '~/queries/schema/schema-general'
 import { isHogQLQuery, isInsightQueryNode } from '~/queries/utils'
-import { Breadcrumb, EndpointType, EndpointVersionType } from '~/types'
+import { Breadcrumb, ChartDisplayType, EndpointType, EndpointVersionType } from '~/types'
 
 import { endpointLogic } from './endpointLogic'
 import type { endpointSceneLogicType } from './endpointSceneLogicType'
+import { endpointsMaterializationSuggestionCreate } from './generated/api'
+import type { EndpointMaterializationSuggestionApi } from './generated/api.schemas'
 
 // Default data freshness when none is set on the endpoint version (must match backend DEFAULT_DATA_FRESHNESS_SECONDS)
 const DEFAULT_DATA_FRESHNESS_SECONDS = 86400
@@ -158,6 +168,10 @@ export const endpointSceneLogic = kea<endpointSceneLogicType>([
         loadMaterializationPreview: true,
         keepSqlEditorMounted: (editorTabId: string) => ({ editorTabId }),
         toggleMaterializationFromMenu: true,
+        openMaterializationSuggestionModal: true,
+        closeMaterializationSuggestionModal: true,
+        regenerateMaterializationSuggestion: true,
+        applyMaterializationSuggestion: true,
     }),
     reducers({
         localQuery: [
@@ -266,8 +280,39 @@ export const endpointSceneLogic = kea<endpointSceneLogicType>([
                 loadEndpoint: () => null,
             },
         ],
+        materializationSuggestionModalOpen: [
+            false,
+            {
+                openMaterializationSuggestionModal: () => true,
+                closeMaterializationSuggestionModal: () => false,
+                loadEndpoint: () => false,
+            },
+        ],
+        // Cached across modal open/close (each request is a full LLM round-trip); cleared when
+        // switching endpoints or when the endpoint is updated (the saved query may have changed)
+        materializationSuggestion: [
+            null as EndpointMaterializationSuggestionApi | null,
+            {
+                loadEndpoint: () => null,
+                updateEndpointSuccess: () => null,
+            },
+        ],
     }),
     loaders(({ values }) => ({
+        materializationSuggestion: {
+            __default: null as EndpointMaterializationSuggestionApi | null,
+            loadMaterializationSuggestion: async () => {
+                const endpoint = values.endpoint
+                if (!endpoint?.name) {
+                    return null
+                }
+                return await endpointsMaterializationSuggestionCreate(
+                    String(ApiConfig.getCurrentTeamId()),
+                    endpoint.name,
+                    {}
+                )
+            },
+        },
         materializationPreview: {
             __default: null as MaterializationPreview | null,
             loadMaterializationPreview: async () => {
@@ -310,6 +355,15 @@ export const endpointSceneLogic = kea<endpointSceneLogicType>([
                 endpoint: EndpointType | null,
                 viewingVersion: EndpointVersionType | null
             ): Node | null => localQuery || viewingVersion?.query || endpoint?.query || null,
+        ],
+        suggestionMatchesCurrentQuery: [
+            (s) => [s.materializationSuggestion, s.currentQuery],
+            (suggestion: EndpointMaterializationSuggestionApi | null, currentQuery: Node | null): boolean => {
+                if (!suggestion?.suggested_query || !currentQuery || !isHogQLQuery(currentQuery)) {
+                    return false
+                }
+                return suggestion.suggested_query.trim() === (currentQuery.query || '').trim()
+            },
         ],
         queryToRender: [
             (s) => [s.currentQuery],
@@ -416,6 +470,58 @@ export const endpointSceneLogic = kea<endpointSceneLogicType>([
         },
         setBucketOverride: () => {
             actions.loadMaterializationPreview()
+        },
+        openMaterializationSuggestionModal: () => {
+            // Reuse a cached suggestion — the saved query can't have changed while it's valid
+            // (updates clear it), and each request is a full LLM round-trip
+            if (!values.materializationSuggestion && !values.materializationSuggestionLoading) {
+                actions.loadMaterializationSuggestion()
+            }
+        },
+        regenerateMaterializationSuggestion: () => {
+            actions.loadMaterializationSuggestion()
+        },
+        applyMaterializationSuggestion: () => {
+            const suggestion = values.materializationSuggestion
+            const current = values.currentQuery
+            if (!suggestion?.suggested_query || !current || !isHogQLQuery(current)) {
+                return
+            }
+            if (values.suggestionMatchesCurrentQuery) {
+                lemonToast.info('Your query already matches the suggestion — nothing to apply')
+                actions.closeMaterializationSuggestionModal()
+                return
+            }
+
+            actions.setActiveTab(EndpointTab.QUERY)
+            if (values.endpoint?.name) {
+                const { searchParams, hashParams } = router.values
+                const { tab: _tab, ...nextSearchParams } = searchParams
+                router.actions.replace(urls.endpoint(values.endpoint.name), nextSearchParams, hashParams)
+            }
+
+            // Always target the latest version's editor: apply is only reachable on the latest
+            // version, and cache.sqlEditorTabId can still point at an old version's editor when
+            // the Query tab was last mounted while browsing that version.
+            const editorTabId = 'endpoint-query-latest'
+            actions.keepSqlEditorMounted(editorTabId)
+            const editorLogic = sqlEditorLogic.findMounted({ tabId: editorTabId, mode: SQLEditorMode.Embedded })
+
+            // If the editor was never initialized (e.g. the user came straight to Configuration and
+            // the Query tab never mounted), seed it with the saved query first so the suggestion
+            // always renders as an accept/reject diff. The seeded state also keeps the query tab's
+            // init effect from re-initializing and clobbering the diff.
+            if (editorLogic && !editorLogic.values.queryInput?.trim()) {
+                editorLogic.actions.setQueryInput(current.query || '')
+                editorLogic.actions.setSourceQuery({
+                    kind: NodeKind.DataVisualizationNode,
+                    source: { ...current },
+                    display: ChartDisplayType.ActionsLineGraph,
+                } as DataVisualizationNode)
+            }
+            editorLogic?.actions.setSuggestedQueryInput(suggestion.suggested_query, 'materialization_fix')
+            lemonToast.success('Review the suggested changes in the editor — accept to apply them')
+            actions.closeMaterializationSuggestionModal()
         },
         toggleMaterializationFromMenu: () => {
             if (!values.endpoint?.name) {

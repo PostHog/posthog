@@ -1,12 +1,14 @@
 import { router } from 'kea-router'
 
 import api from 'lib/api'
+import { sqlEditorLogic } from 'scenes/data-warehouse/editor/sqlEditorLogic'
 import { urls } from 'scenes/urls'
 
 import { initKeaTests } from '~/test/init'
 import { expectLogic } from '~/test/keaTestUtils'
 
 import { endpointSceneLogic, EndpointTab, extractBreakdownPropertyNames } from './endpointSceneLogic'
+import { endpointsMaterializationSuggestionCreate } from './generated/api'
 
 jest.mock('lib/api', () => ({
     __esModule: true,
@@ -17,6 +19,29 @@ jest.mock('lib/api', () => ({
             listVersions: jest.fn().mockResolvedValue({ results: [] }),
         },
     },
+    ApiConfig: {
+        getCurrentTeamId: jest.fn(() => 1),
+    },
+}))
+
+const mockEditorLogic = {
+    values: { queryInput: 'SELECT 1' },
+    actions: {
+        setQueryInput: jest.fn(),
+        setSourceQuery: jest.fn(),
+        setSuggestedQueryInput: jest.fn(),
+    },
+}
+
+jest.mock('scenes/data-warehouse/editor/sqlEditorLogic', () => ({
+    sqlEditorLogic: Object.assign(
+        jest.fn(() => ({ mount: jest.fn(() => jest.fn()) })),
+        { findMounted: jest.fn(() => mockEditorLogic) }
+    ),
+}))
+
+jest.mock('./generated/api', () => ({
+    endpointsMaterializationSuggestionCreate: jest.fn(),
 }))
 
 jest.mock('./endpointsLogic', () => ({
@@ -181,6 +206,65 @@ describe('endpointSceneLogic', () => {
             }).toFinishAllListeners()
 
             expect(logic.values.optionalBreakdownProperties).toEqual(['$os'])
+        })
+    })
+
+    describe('materialization suggestion', () => {
+        const hogqlEndpoint = {
+            ...endpoint,
+            query: { kind: 'HogQLQuery', query: 'SELECT count() FROM events WHERE 1 = 1 OR 0 = 1' },
+        }
+        const suggestion = {
+            suggestion_status: 'ok',
+            suggested_query: 'SELECT count() FROM events',
+            explanation: 'Dropped the redundant OR branch.',
+            attempts: 1,
+            error: null,
+            original_reason: 'Variables in OR conditions are not supported for materialization',
+        }
+
+        it('applies the suggestion to the latest-version editor even when the cached editor tab is stale', async () => {
+            logic.actions.loadEndpointSuccess(hogqlEndpoint)
+            await expectLogic(logic).toFinishAllListeners()
+            logic.actions.loadMaterializationSuggestionSuccess(suggestion as any)
+
+            logic.cache.sqlEditorTabId = 'endpoint-query-2'
+            logic.actions.applyMaterializationSuggestion()
+
+            expect((sqlEditorLogic as any).findMounted).toHaveBeenCalledWith(
+                expect.objectContaining({ tabId: 'endpoint-query-latest' })
+            )
+            expect(mockEditorLogic.actions.setSuggestedQueryInput).toHaveBeenCalledWith(
+                suggestion.suggested_query,
+                'materialization_fix'
+            )
+        })
+
+        it('does nothing without a validated suggestion', async () => {
+            logic.actions.loadEndpointSuccess(hogqlEndpoint)
+            await expectLogic(logic).toFinishAllListeners()
+
+            logic.actions.applyMaterializationSuggestion()
+
+            expect((sqlEditorLogic as any).findMounted).not.toHaveBeenCalled()
+            expect(mockEditorLogic.actions.setSuggestedQueryInput).not.toHaveBeenCalled()
+        })
+
+        it('reuses the cached suggestion on reopen and only re-requests on regenerate', async () => {
+            ;(endpointsMaterializationSuggestionCreate as jest.Mock).mockResolvedValue(suggestion)
+            logic.actions.loadEndpointSuccess(hogqlEndpoint)
+            await expectLogic(logic).toFinishAllListeners()
+
+            logic.actions.openMaterializationSuggestionModal()
+            await expectLogic(logic).toFinishAllListeners()
+            logic.actions.closeMaterializationSuggestionModal()
+            logic.actions.openMaterializationSuggestionModal()
+            await expectLogic(logic).toFinishAllListeners()
+            expect(endpointsMaterializationSuggestionCreate).toHaveBeenCalledTimes(1)
+
+            logic.actions.regenerateMaterializationSuggestion()
+            await expectLogic(logic).toFinishAllListeners()
+            expect(endpointsMaterializationSuggestionCreate).toHaveBeenCalledTimes(2)
         })
     })
 })
