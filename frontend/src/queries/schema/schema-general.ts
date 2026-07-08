@@ -5602,10 +5602,6 @@ export interface TracesQuery extends DataNode<TracesQueryResponse> {
     includeSentiment?: boolean
     /** Use random ordering instead of timestamp DESC. Useful for representative sampling to avoid recency bias. */
     randomOrder?: boolean
-    /**
-     * Free-text search over generation input/output content, matched case-insensitively against the
-     * ai_events table. Only content within the ai_events retention window (30 days by default) is searchable.
-     */
     searchTerm?: string
 }
 

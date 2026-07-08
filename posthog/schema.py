@@ -22164,14 +22164,7 @@ class TracesQuery(BaseModel):
         ),
     )
     response: TracesQueryResponse | None = None
-    searchTerm: str | None = Field(
-        default=None,
-        description=(
-            "Free-text search over generation input/output content, matched"
-            " case-insensitively against the ai_events table. Only content within the"
-            " ai_events retention window (30 days by default) is searchable."
-        ),
-    )
+    searchTerm: str | None = None
     showColumnConfigurator: bool | None = None
     tags: QueryLogTags | None = None
     version: float | None = Field(default=None, description="version of the node, used for schema migrations")

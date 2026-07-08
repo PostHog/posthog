@@ -73,7 +73,6 @@ export interface ApplyUrlStatePayload {
     dateFrom: string | null
     dateTo: string | null
     shouldFilterTestAccounts: boolean
-    /** Trace content search. Omitted by tabs that don't own it, preserving the current value. */
     searchQuery?: string
     datesChanged: boolean
 }

@@ -118,7 +118,6 @@ export const aiObservabilityTracesTabLogic = kea<aiObservabilityTracesTabLogicTy
                         filterTestAccounts: shouldFilterTestAccounts ?? false,
                         filterSupportTraces,
                         properties: propertyFilters,
-                        // Flag-gated so a shared URL can't invisibly filter a list with no visible search box.
                         searchTerm: featureFlags[FEATURE_FLAGS.LLM_OBSERVABILITY_TRACE_SEARCH]
                             ? searchQuery || undefined
                             : undefined,

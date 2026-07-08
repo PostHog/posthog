@@ -6972,7 +6972,6 @@ export namespace Schemas {
       /** Use random ordering instead of timestamp DESC. Useful for representative sampling to avoid recency bias. */
       randomOrder?: boolean | null;
       response?: TracesQueryResponse | null;
-      /** Free-text search over generation input/output content, matched case-insensitively against the ai_events table. Only content within the ai_events retention window (30 days by default) is searchable. */
       searchTerm?: string | null;
       showColumnConfigurator?: boolean | null;
       tags?: QueryLogTags | null;

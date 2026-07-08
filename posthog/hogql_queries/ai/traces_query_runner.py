@@ -37,9 +37,7 @@ from posthog.hogql_queries.utils.query_date_range import QueryDateRange
 
 logger = structlog.get_logger(__name__)
 
-# Bounds the trace-ID set the search semijoin broadcasts to the events shards.
-# Recency-ordered, so matches beyond the cap only go missing on deep pages or
-# when other filters discard most candidates.
+# Recency-ordered: matches beyond the cap silently drop when other filters discard most candidates.
 SEARCH_CANDIDATE_TRACE_LIMIT = 100_000
 
 
@@ -544,10 +542,8 @@ class TracesQueryRunner(AnalyticsQueryRunner[TracesQueryResponse]):
         return ast.And(exprs=exprs)
 
     def _get_search_filter(self) -> ast.Expr | None:
-        """The content columns exist only in ai_events (stripped from the shared
-        events table at ingestion), so there is no events fallback and no routing
-        through query_ai_events. ai_events is a satellite cluster, hence GLOBAL IN:
-        a plain IN would re-execute the subquery on every events shard.
+        """Content columns live only in ai_events (a satellite cluster), so this
+        semijoins with GLOBAL IN: a plain IN would re-run the subquery per events shard.
         """
         search_term = (self.query.searchTerm or "").strip()
         if not search_term:

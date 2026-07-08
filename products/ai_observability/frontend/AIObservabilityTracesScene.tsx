@@ -76,9 +76,6 @@ export function AIObservabilityTraces(): JSX.Element {
                     // separate — it cannot contribute to the URL-change counter.
                     setShouldFilterSupportTraces(query.source.filterSupportTraces ?? true)
 
-                    // Batch the remaining URL-synced fields into a single
-                    // applyUrlState dispatch so the DataTable's setQuery emits
-                    // one URL change instead of several.
                     applyUrlState(
                         buildApplyUrlStatePayload({
                             dateFrom: query.source.dateRange?.date_from || null,
