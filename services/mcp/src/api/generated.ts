@@ -59215,6 +59215,11 @@ export namespace Schemas {
     search?: string;
     };
 
+    export type EnvironmentsExternalDataSourcesRepairCdcCreate200 = {
+      success?: boolean;
+      schemas_reset?: number;
+    };
+
     export type EnvironmentsExternalDataSourcesCheckCdcPrerequisitesCreate200 = {
       valid?: boolean;
       errors?: string[];
@@ -66015,6 +66020,11 @@ export namespace Schemas {
      * A search term.
      */
     search?: string;
+    };
+
+    export type ExternalDataSourcesRepairCdcCreate200 = {
+      success?: boolean;
+      schemas_reset?: number;
     };
 
     export type ExternalDataSourcesCheckCdcPrerequisitesCreate200 = {
