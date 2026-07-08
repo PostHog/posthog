@@ -5,6 +5,7 @@ import {
     parseNumericArrayFilter,
     parseTagsFilter,
     toParams,
+    tryDecodeURIComponent,
 } from 'lib/utils/url'
 
 describe('url utils', () => {
@@ -38,6 +39,20 @@ describe('url utils', () => {
             expect(() => toParams({ filters })).not.toThrow()
             expect(toParams({ filters })).toContain('9007199254740993')
         })
+    })
+
+    describe('tryDecodeURIComponent', () => {
+        it('decodes valid percent-encoded input', () => {
+            expect(tryDecodeURIComponent('foo%20bar')).toEqual('foo bar')
+        })
+
+        it.each(['50%off', 'foo%bar', '%', '%E0%A4%A'])(
+            'returns the raw value on malformed encoding (%s)',
+            (raw) => {
+                // decodeURIComponent throws URIError here; the fallback keeps the person scene from crashing
+                expect(tryDecodeURIComponent(raw)).toEqual(raw)
+            }
+        )
     })
 
     describe('isURL()', () => {

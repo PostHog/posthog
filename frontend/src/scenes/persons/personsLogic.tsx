@@ -13,7 +13,7 @@ import { trackedActionToUrl } from 'lib/logic/scenes/trackedActionToUrl'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { objectsEqual } from 'lib/utils/objects'
 import { isAbortedRequest } from 'lib/utils/requests'
-import { toParams } from 'lib/utils/url'
+import { toParams, tryDecodeURIComponent } from 'lib/utils/url'
 import { sceneConfigurations } from 'scenes/scenes'
 import { Scene } from 'scenes/sceneTypes'
 import { teamLogic } from 'scenes/teamLogic'
@@ -534,8 +534,9 @@ export const personsLogic = kea<personsLogicType>([
                 }
 
                 if (rawPersonDistinctId) {
-                    // Decode the personDistinctId because it's coming from the URL, and it could be an email which gets encoded
-                    const decodedPersonDistinctId = decodeURIComponent(rawPersonDistinctId)
+                    // Decode the personDistinctId because it's coming from the URL, and it could be an email which gets encoded.
+                    // Fall back to the raw value on malformed encoding (URIError) rather than crashing the scene.
+                    const decodedPersonDistinctId = tryDecodeURIComponent(rawPersonDistinctId)
 
                     if (!values.person || !values.person.distinct_ids.includes(decodedPersonDistinctId)) {
                         actions.loadPerson(decodedPersonDistinctId) // underscore contains the wildcard
@@ -556,7 +557,7 @@ export const personsLogic = kea<personsLogicType>([
                 }
 
                 if (rawPersonUUID) {
-                    const decodedPersonUUID = decodeURIComponent(rawPersonUUID)
+                    const decodedPersonUUID = tryDecodeURIComponent(rawPersonUUID)
                     if (!values.person || values.person.id != decodedPersonUUID) {
                         actions.loadPersonUUID(decodedPersonUUID)
                     }
