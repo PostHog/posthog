@@ -124,7 +124,7 @@ export function ScannerDigestCard({
                     <LemonButton
                         type="secondary"
                         size="small"
-                        to={urls.replayVisionActionEdit(digest.id)}
+                        to={`${urls.replayVision(scannerId)}?tab=actions`}
                         data-attr="vision-scanner-digest-edit"
                     >
                         Edit schedule
@@ -168,7 +168,7 @@ export function ScannerDigestCard({
                     <LemonButton
                         size="xsmall"
                         type="secondary"
-                        to={urls.replayVisionActionEdit(digest.id)}
+                        to={`${urls.replayVision(scannerId)}?tab=actions`}
                         data-attr="vision-scanner-digest-slack"
                     >
                         Get this in Slack
