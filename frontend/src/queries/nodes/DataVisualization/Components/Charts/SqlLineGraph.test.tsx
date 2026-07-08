@@ -2,16 +2,9 @@ import '@testing-library/jest-dom'
 
 import { cleanup, configure, fireEvent, screen, waitFor } from '@testing-library/react'
 
-import { dragSelection, setupJsdom, setupSyncRaf } from '@posthog/quill-charts/testing'
+import { setupJsdom, setupSyncRaf } from '@posthog/quill-charts/testing'
 
-import { FEATURE_FLAGS } from 'lib/constants'
-
-import {
-    ChartSettings,
-    ChartSettingsFormatting,
-    DataVisualizationNode,
-    NodeKind,
-} from '~/queries/schema/schema-general'
+import { ChartSettings, ChartSettingsFormatting, DataVisualizationNode } from '~/queries/schema/schema-general'
 import {
     type DataVizFixture,
     buildDataVisualizationQuery,
@@ -478,91 +471,6 @@ describe('SqlLineGraph', () => {
 
             await waitFor(() => expect(legendText()).toContain('Monthly revenue'))
             expect(legendText()).not.toContain('mrr_usd')
-        })
-    })
-
-    describe('drag-to-zoom', () => {
-        const zoomableQuery = (sql: string, display = ChartDisplayType.ActionsLineGraph): DataVisualizationNode =>
-            buildDataVisualizationQuery({
-                source: { kind: NodeKind.HogQLQuery, query: sql },
-                display,
-                chartSettings: { xAxis: { column: 'month' }, yAxis: [{ column: 'pageviews' }] },
-            })
-        const fixture = (): DataVizFixture => lineFixture([{ name: 'pageviews', valueAt: (i) => (i + 1) * 100 }])
-
-        async function dragAcrossChart(): Promise<void> {
-            const canvas = await screen.findByLabelText(/chart with/i)
-            dragSelection(canvas.parentElement!, 1, 3, MONTHS.length)
-        }
-
-        it.each([
-            ['line', ChartDisplayType.ActionsLineGraph],
-            ['bar', ChartDisplayType.ActionsBar],
-        ])(
-            '%s: reports the dragged x values to context.onDateRangeZoom when the SQL consumes {filters}',
-            async (_, display) => {
-                const onDateRangeZoom = jest.fn()
-                renderDataVisualization({
-                    query: zoomableQuery('SELECT month, pageviews FROM events WHERE {filters} GROUP BY month', display),
-                    response: fixture(),
-                    context: { onDateRangeZoom },
-                })
-
-                await dragAcrossChart()
-
-                await waitFor(() => {
-                    expect(onDateRangeZoom).toHaveBeenCalledWith(MONTHS[1], MONTHS[3])
-                })
-            }
-        )
-
-        it('ignores drags when the SQL does not reference {filters}', async () => {
-            const onDateRangeZoom = jest.fn()
-            renderDataVisualization({
-                query: zoomableQuery('SELECT month, pageviews FROM events GROUP BY month'),
-                response: fixture(),
-                context: { onDateRangeZoom },
-            })
-
-            await dragAcrossChart()
-
-            // The filters.dateRange rewrite would silently not apply, so the gesture must stay inert.
-            expect(onDateRangeZoom).not.toHaveBeenCalled()
-        })
-
-        it('ignores drags when the drag-to-zoom flag is off', async () => {
-            const onDateRangeZoom = jest.fn()
-            renderDataVisualization({
-                query: zoomableQuery('SELECT month, pageviews FROM events WHERE {filters} GROUP BY month'),
-                response: fixture(),
-                featureFlags: { [FEATURE_FLAGS.INSIGHT_DRAG_TO_ZOOM]: false },
-                context: { onDateRangeZoom },
-            })
-
-            await dragAcrossChart()
-
-            // A regression dropping the flag gate would ship zoom to everyone.
-            expect(onDateRangeZoom).not.toHaveBeenCalled()
-        })
-
-        it('ignores drags along a non-date x-axis', async () => {
-            const onDateRangeZoom = jest.fn()
-            renderDataVisualization({
-                query: zoomableQuery('SELECT month, pageviews FROM events WHERE {filters} GROUP BY month'),
-                response: {
-                    ...fixture(),
-                    // Same shape, but the x column is a plain string — its values aren't dates.
-                    types: [
-                        ['month', 'String'],
-                        ['pageviews', 'UInt64'],
-                    ],
-                },
-                context: { onDateRangeZoom },
-            })
-
-            await dragAcrossChart()
-
-            expect(onDateRangeZoom).not.toHaveBeenCalled()
         })
     })
 

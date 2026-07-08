@@ -906,10 +906,6 @@ function InternalDataTableVisualization(
     const { seriesBreakdownData } = useValues(seriesBreakdownLogic({ key: dataVisualizationProps.key }))
     const { goalLines } = useValues(displayLogic)
 
-    // Flag-gated inside the charts' shared useDateRangeZoom hook.
-    const { canZoomDateRange } = useValues(sqlEditorLogic)
-    const { zoomDateRange } = useActions(sqlEditorLogic)
-
     let component: JSX.Element | null = null
 
     // TODO(@Gilbert09): Better loading support for all components - e.g. using the `loading` param of `Table`
@@ -947,7 +943,6 @@ function InternalDataTableVisualization(
                 dashboardId={dashboardId}
                 goalLines={goalLines}
                 presetChartHeight={presetChartHeight}
-                onDateRangeZoom={canZoomDateRange ? zoomDateRange : undefined}
             />
         )
     } else if (effectiveVisualizationType === ChartDisplayType.ActionsPie) {

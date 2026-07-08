@@ -215,14 +215,6 @@ function InternalDataTableVisualization(props: DataTableVisualizationProps): JSX
         [props.setQuery, props.query] // oxlint-disable-line react-hooks/exhaustive-deps
     )
 
-    // Drag-to-zoom is opt-in via context: hosts that own the query (the insight scene, via
-    // insightVizDataLogic.zoomDateRange) pass a handler; dashboards and read-only embeds don't.
-    // The gesture also needs the SQL to consume {filters}, or the rewrite would silently no-op.
-    const contextZoom = props.context?.onDateRangeZoom
-    const sqlConsumesFilters =
-        sourceFeatures.has(QueryFeature.dateRangePicker) && query.source.query.includes('{filters}')
-    const onDateRangeZoom = contextZoom && sqlConsumesFilters ? contextZoom : undefined
-
     let component: JSX.Element | null = null
 
     if (responseError) {
@@ -276,7 +268,6 @@ function InternalDataTableVisualization(props: DataTableVisualizationProps): JSX
                 dashboardId={dashboardId}
                 goalLines={[...alertThresholdLines, ...goalLines]}
                 presetChartHeight={presetChartHeight}
-                onDateRangeZoom={onDateRangeZoom}
             />
         )
     } else if (effectiveVisualizationType === ChartDisplayType.ActionsPie) {

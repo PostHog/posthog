@@ -1,9 +1,9 @@
 import { useValues } from 'kea'
 import { useEffect, useMemo } from 'react'
 
-import { type ChartTheme, type DateRangeZoomData, type Series } from '@posthog/quill-charts'
+import { type ChartTheme, type Series } from '@posthog/quill-charts'
 
-import { useChartTheme, useChartConfig, useDateRangeZoom } from 'lib/charts/hooks'
+import { useChartTheme, useChartConfig } from 'lib/charts/hooks'
 import { teamLogic } from 'scenes/teamLogic'
 
 import { LineGraphProps } from './LineGraph'
@@ -64,15 +64,4 @@ export function useSqlChartModel<TConfig extends object>(
     }
 
     return { series, labels: xData.data, theme, config }
-}
-
-/** `useDateRangeZoom` with the SQL-specific gate: only a date/datetime x-axis maps to a date
- *  range — arbitrary string/number x values stay inert. */
-export function useSqlDateRangeZoom({
-    xData,
-    onDateRangeZoom,
-}: Pick<LineGraphProps, 'xData' | 'onDateRangeZoom'>): ((data: DateRangeZoomData) => void) | undefined {
-    const xTypeName = xData?.column.type.name
-    const isDateAxis = xTypeName === 'DATE' || xTypeName === 'DATETIME'
-    return useDateRangeZoom(isDateAxis ? xData?.data : undefined, onDateRangeZoom)
 }

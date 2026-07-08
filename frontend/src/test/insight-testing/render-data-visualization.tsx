@@ -51,25 +51,18 @@ export interface RenderDataVisualizationProps {
     query?: DataVisualizationNode
     /** Row-major fixture, fed in via `cachedResults` to skip the network. */
     response: DataVizFixture
-    /** Defaults to `{ 'product-analytics-quill-sql-charts': true, 'insight-drag-to-zoom': true }`;
-     *  merge in more or override. */
+    /** Defaults to `{ 'product-analytics-quill-sql-charts': true }`; merge in more or override. */
     featureFlags?: Record<string, string | boolean>
     readOnly?: boolean
     embedded?: boolean
     context?: QueryContext<DataVisualizationNode>
-    /** Observe query updates the visualization applies (e.g. drag-to-zoom writing filters). */
-    setQuery?: (query: DataVisualizationNode) => void
 }
 
 /** Mount a SQL insight (`DataVisualizationNode`) the way the real scene does — through
  *  `DataTableVisualization` → `dataVisualizationLogic` → `LineGraph` → the flag-gated quill
  *  chart — with the query result injected via `cachedResults` so nothing hits the network. */
 export function renderDataVisualization(props: RenderDataVisualizationProps): ReturnType<typeof render> {
-    const featureFlags = {
-        [FEATURE_FLAGS.PRODUCT_ANALYTICS_QUILL_SQL_CHARTS]: true,
-        [FEATURE_FLAGS.INSIGHT_DRAG_TO_ZOOM]: true,
-        ...props.featureFlags,
-    }
+    const featureFlags = { [FEATURE_FLAGS.PRODUCT_ANALYTICS_QUILL_SQL_CHARTS]: true, ...props.featureFlags }
 
     initKeaTests()
     actionsModel.mount()
@@ -85,7 +78,7 @@ export function renderDataVisualization(props: RenderDataVisualizationProps): Re
         <DataTableVisualization
             uniqueKey={DATA_VIZ_TEST_KEY}
             query={props.query ?? buildDataVisualizationQuery()}
-            setQuery={props.setQuery ?? (() => {})}
+            setQuery={() => {}}
             cachedResults={cachedResults}
             context={props.context}
             readOnly={props.readOnly ?? true}

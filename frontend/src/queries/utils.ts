@@ -221,17 +221,6 @@ export function isHogQLQuery(node?: Record<string, any> | null): node is HogQLQu
     return node?.kind === NodeKind.HogQLQuery
 }
 
-/** Copy of a HogQL query with its filters.dateRange replaced — the filter the SQL consumes via {filters}. */
-export function withHogQLDateRangeFilter(source: HogQLQuery, dateFrom: string, dateTo: string): HogQLQuery {
-    return {
-        ...source,
-        filters: {
-            ...source.filters,
-            dateRange: { date_from: dateFrom, date_to: dateTo },
-        },
-    }
-}
-
 export function isHogQLMetadata(node?: Record<string, any> | null): node is HogQLMetadata {
     return node?.kind === NodeKind.HogQLMetadata
 }

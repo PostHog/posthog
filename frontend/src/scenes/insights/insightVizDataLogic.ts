@@ -37,7 +37,6 @@ import {
     BreakdownFilter,
     CompareFilter,
     DatabaseSchemaField,
-    DataVisualizationNode,
     DateRange,
     FunnelsDataWarehouseNode,
     FunnelsFilter,
@@ -83,11 +82,9 @@ import {
     getYAxisScaleType,
     isActionsNode,
     isAnyDataWarehouseNode,
-    isDataVisualizationNode,
     isDataWarehouseNode,
     isEventsNode,
     isFunnelsQuery,
-    isHogQLQuery,
     isInsightQueryNode,
     isInsightVizNode,
     isLifecycleDataWarehouseNode,
@@ -103,7 +100,6 @@ import {
     nodeKindToFilterProperty,
     supportsBarValueStacking,
     supportsPercentStackView,
-    withHogQLDateRangeFilter,
 } from '~/queries/utils'
 import {
     BaseMathType,
@@ -159,7 +155,7 @@ export const insightVizDataLogic = kea<insightVizDataLogicType>([
         updateQuerySource: (querySource: QuerySourceUpdate) => ({ querySource }),
         updateInsightFilter: (insightFilter: InsightFilter) => ({ insightFilter }),
         updateDateRange: (dateRange: DateRange, ignoreDebounce: boolean = false) => ({ dateRange, ignoreDebounce }),
-        /** Apply a drag-to-zoom date range to whichever query shape the insight holds. */
+        /** Apply a drag-to-zoom date range to the insight's query. */
         zoomDateRange: (dateFrom: string, dateTo: string) => ({ dateFrom, dateTo }),
         updateBreakdownFilter: (breakdownFilter: BreakdownFilter) => ({ breakdownFilter }),
         updateCompareFilter: (compareFilter: CompareFilter) => ({ compareFilter }),
@@ -680,15 +676,6 @@ export const insightVizDataLogic = kea<insightVizDataLogicType>([
         },
 
         zoomDateRange: ({ dateFrom, dateTo }) => {
-            // SQL insights carry their date range in the HogQL source's filters (applied via {filters}).
-            if (isDataVisualizationNode(values.query) && isHogQLQuery(values.query.source)) {
-                const zoomedQuery: DataVisualizationNode = {
-                    ...values.query,
-                    source: withHogQLDateRangeFilter(values.query.source, dateFrom, dateTo),
-                }
-                actions.setQuery(zoomedQuery)
-                return
-            }
             // Sub-day buckets carry a time component; explicitDate stops the backend from
             // rounding them back out to whole days.
             actions.updateDateRange(
