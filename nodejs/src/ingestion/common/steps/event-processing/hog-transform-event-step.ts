@@ -1,4 +1,5 @@
 import { HogTransformer } from '~/common/hog-transformations/hog-transformer.interface'
+import { PipelineWarning } from '~/ingestion/framework/pipeline.interface'
 import { drop, ok } from '~/ingestion/framework/results'
 import { ProcessingStep } from '~/ingestion/framework/steps'
 import { PluginEvent } from '~/plugin-scaffold'
@@ -34,9 +35,25 @@ export function createHogTransformEventStep<T extends HogTransformEventInput>(
 
         const result = await hogTransformer.transformEventAndProduceMessages(event)
 
-        // If transformation dropped the event, return drop result
+        // If transformation dropped the event, return drop result with a warning
+        // so the user can see which transformation dropped it
         if (result.event === null) {
-            return drop('dropped_by_transformation')
+            const warning: PipelineWarning = {
+                type: 'event_dropped_by_transformation',
+                details: {
+                    eventUuid: event.uuid,
+                    event: event.event,
+                    distinctId: event.distinct_id,
+                    transformationId: result.droppedBy?.id,
+                    transformationName: result.droppedBy?.name,
+                },
+                category: 'transformation',
+                severity: 'info',
+                pipelineStep: 'hog-transform',
+                // Debounce per transformation so each dropping transformation surfaces
+                key: result.droppedBy?.id,
+            }
+            return drop('dropped_by_transformation', [], [warning])
         }
 
         return ok({

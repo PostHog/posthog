@@ -281,9 +281,13 @@ describe('IngestionConsumer', () => {
 
         describe('overflow', () => {
             const now = () => DateTime.now().toMillis()
-            beforeEach(() => {
+            beforeEach(async () => {
                 // Just to make it easy to see what is configured
                 expect(infra.config.EVENT_OVERFLOW_BUCKET_CAPACITY).toEqual(1000)
+                // Overflow is now gated on explicit mode; the main lane redirects.
+                infra.config.INGESTION_OVERFLOW_MODE = 'redirect'
+                await ingester.stop()
+                ingester = await createIngestionConsumer(infra)
             })
 
             it('should emit to overflow if token and distinct_id are overflowed', async () => {
@@ -308,7 +312,8 @@ describe('IngestionConsumer', () => {
             })
 
             it('does not overflow if it is consuming from the overflow topic', async () => {
-                // Create a new consumer that consumes from the overflow topic
+                // Overflow lane consumes the overflow topic; it never redirects back.
+                infra.config.INGESTION_OVERFLOW_MODE = 'consume'
                 const overflowIngester = await createIngestionConsumer(infra, {
                     INGESTION_CONSUMER_CONSUME_TOPIC: 'events_plugin_ingestion_overflow_test',
                 })
@@ -332,10 +337,9 @@ describe('IngestionConsumer', () => {
 
             describe('stateful overflow redirect', () => {
                 it('refreshes Redis TTL when processing events in overflow lane', async () => {
-                    // Enable stateful overflow
-                    infra.config.INGESTION_STATEFUL_OVERFLOW_ENABLED = true
                     infra.config.INGESTION_STATEFUL_OVERFLOW_REDIS_TTL_SECONDS = 300
                     infra.config.INGESTION_LANE = 'overflow'
+                    infra.config.INGESTION_OVERFLOW_MODE = 'consume'
 
                     // Create overflow lane consumer
                     const overflowIngester = await createIngestionConsumer(infra, {
@@ -376,10 +380,9 @@ describe('IngestionConsumer', () => {
                 })
 
                 it('does not create keys when refreshing TTL for non-existent keys', async () => {
-                    // Enable stateful overflow
-                    infra.config.INGESTION_STATEFUL_OVERFLOW_ENABLED = true
                     infra.config.INGESTION_STATEFUL_OVERFLOW_REDIS_TTL_SECONDS = 300
                     infra.config.INGESTION_LANE = 'overflow'
+                    infra.config.INGESTION_OVERFLOW_MODE = 'consume'
 
                     // Create overflow lane consumer
                     const overflowIngester = await createIngestionConsumer(infra, {

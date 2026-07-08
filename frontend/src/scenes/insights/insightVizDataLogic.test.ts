@@ -584,6 +584,8 @@ describe('insightVizDataLogic', () => {
                     hour: { label: 'hour', newDateFrom: 'dStart' },
                     month: { label: 'month', newDateFrom: '-90d' },
                     week: { label: 'week', newDateFrom: '-30d' },
+                    quarter: { label: 'quarter', newDateFrom: '-3y', hidden: true },
+                    year: { label: 'year', newDateFrom: '-5y', hidden: true },
                 },
             })
         })
@@ -620,6 +622,8 @@ describe('insightVizDataLogic', () => {
                             'Grouping by month is not supported on insights with weekly active users series.',
                     },
                     week: { label: 'week', newDateFrom: '-30d' },
+                    quarter: { label: 'quarter', newDateFrom: '-3y', hidden: true },
+                    year: { label: 'year', newDateFrom: '-5y', hidden: true },
                 },
             })
         })

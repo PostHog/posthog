@@ -38,7 +38,7 @@ import { TeamService } from '~/ingestion/pipelines/sessionreplay/shared/teams/te
 import { KeyStore, RecordingEncryptor } from '~/ingestion/pipelines/sessionreplay/shared/types'
 import { HealthCheckResult, PluginServerService, RedisPool, ValueMatcher } from '~/types'
 
-import { SessionRecordingApiConfig, SessionRecordingConfig, SessionReplayOutputsConfig } from './config'
+import { SessionRecordingApiConfig, SessionRecordingConfig } from './config'
 import { KafkaOffsetManager } from './kafka/offset-manager'
 import { SessionRecordingIngesterMetrics } from './metrics'
 import { BlackholeSessionBatchFileStorage } from './sessions/blackhole-session-batch-writer'
@@ -55,12 +55,10 @@ import { SessionTracker } from './sessions/session-tracker'
  */
 export type SessionRecordingIngesterConfig = SessionRecordingConfig &
     SessionRecordingApiConfig &
-    // The consumer reads its overflow output topic to decide whether overflow is enabled.
-    Pick<SessionReplayOutputsConfig, 'INGESTION_SESSIONREPLAY_OUTPUT_OVERFLOW_TOPIC'> &
     Pick<
         IngestionConsumerConfig,
-        // For TopHog metrics
-        'INGESTION_PIPELINE' | 'INGESTION_LANE'
+        // INGESTION_OVERFLOW_MODE drives force-overflow routing; the rest are for TopHog metrics.
+        'INGESTION_OVERFLOW_MODE' | 'INGESTION_PIPELINE' | 'INGESTION_LANE'
     >
 
 /** Builds the session replay pipeline for a deployment (default or ML mirror). */
@@ -83,6 +81,12 @@ export interface SessionRecordingIngesterCollaborators {
     keyStore?: KeyStore
     encryptor?: RecordingEncryptor
     createPipeline?: SessionReplayPipelineFactory
+    /**
+     * Namespaces this ingester's session tracker/filter Redis keys. Leave unset for the main lane; a
+     * secondary lane (the ML mirror) must set it so it doesn't share seen/block state with the main lane
+     * (which would let it mark a session seen without the main key and cause a cleartext recording).
+     */
+    redisKeyNamespace?: string
 }
 
 export class SessionRecordingIngester {
@@ -120,6 +124,8 @@ export class SessionRecordingIngester {
         | SessionFeaturesOutput
     >
     private readonly topHog: TopHog
+    private readonly sessionTracker: SessionTracker
+    private readonly sessionFilter: SessionFilter
     private readonly keyStore: KeyStore
     private readonly encryptor: RecordingEncryptor
     private readonly createPipeline: SessionReplayPipelineFactory
@@ -198,17 +204,20 @@ export class SessionRecordingIngester {
                   )
                 : new BlackholeSessionBatchFileStorage())
 
-        const sessionTracker = new SessionTracker(
+        this.sessionTracker = new SessionTracker(
             this.redisPool,
-            this.config.SESSION_RECORDING_SESSION_TRACKER_CACHE_TTL_MS
+            this.config.SESSION_RECORDING_SESSION_TRACKER_CACHE_TTL_MS,
+            undefined,
+            collaborators.redisKeyNamespace
         )
-        const sessionFilter = new SessionFilter({
+        this.sessionFilter = new SessionFilter({
             redisPool: this.redisPool,
             bucketCapacity: this.config.SESSION_RECORDING_NEW_SESSION_BUCKET_CAPACITY,
             bucketReplenishRate: this.config.SESSION_RECORDING_NEW_SESSION_BUCKET_REPLENISH_RATE,
             blockingEnabled: this.config.SESSION_RECORDING_NEW_SESSION_BLOCKING_ENABLED,
             filterEnabled: this.config.SESSION_RECORDING_SESSION_FILTER_ENABLED,
             localCacheTtlMs: this.config.SESSION_RECORDING_SESSION_FILTER_CACHE_TTL_MS,
+            keyNamespace: collaborators.redisKeyNamespace,
         })
 
         const region = config.SESSION_RECORDING_V2_S3_REGION ?? 'us-east-1'
@@ -232,9 +241,6 @@ export class SessionRecordingIngester {
             metadataStore,
             consoleLogStore,
             featureStore,
-            sessionTracker,
-            sessionFilter,
-            keyStore: this.keyStore,
             encryptor: this.encryptor,
         })
     }
@@ -314,10 +320,14 @@ export class SessionRecordingIngester {
         this.sessionReplayPipeline = this.createPipeline({
             outputs: this.outputs,
             eventIngestionRestrictionManager: this.eventIngestionRestrictionManager,
-            overflowEnabled: this.overflowEnabled(),
+            overflowMode: this.config.INGESTION_OVERFLOW_MODE,
             promiseScheduler: this.promiseScheduler,
             teamService: this.teamService,
             retentionService: this.retentionService,
+            sessionTracker: this.sessionTracker,
+            sessionFilter: this.sessionFilter,
+            keyStore: this.keyStore,
+            sessionKeyResolutionMaxConcurrency: this.config.SESSION_RECORDING_KEY_RESOLUTION_MAX_CONCURRENCY,
             topHog: this.topHog,
             sessionBatchManager: this.sessionBatchManager,
             isDebugLoggingEnabled: this.isDebugLoggingEnabled,
@@ -422,12 +432,5 @@ export class SessionRecordingIngester {
             this.kafkaConsumer.offsetsStore(offsets)
             return Promise.resolve()
         })
-    }
-
-    private overflowEnabled(): boolean {
-        return (
-            !!this.config.INGESTION_SESSIONREPLAY_OUTPUT_OVERFLOW_TOPIC &&
-            this.config.INGESTION_SESSIONREPLAY_OUTPUT_OVERFLOW_TOPIC !== this.topic
-        )
     }
 }

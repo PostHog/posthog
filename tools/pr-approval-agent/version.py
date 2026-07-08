@@ -9,4 +9,4 @@ changes don't need a bump - they are tracked by the policy sha shown next to
 the version in the verdict table.
 """
 
-STAMPHOG_VERSION = "2.0.0b1"
+STAMPHOG_VERSION = "2.0.0b3"
