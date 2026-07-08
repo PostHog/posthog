@@ -66748,13 +66748,13 @@ export namespace Schemas {
      */
     category?: string;
     /**
-     * Maximum number of warning types to return.
+     * Maximum number of warning types to return (default 100).
      * @minimum 1
      * @maximum 500
      */
     limit?: number;
     /**
-     * Sort order for warning types: 'count' (most frequent first) or 'last_seen' (most recent first).
+     * Sort order for warning types: 'count' (most frequent first, the default) or 'last_seen' (most recent first).
      *
      * * `count` - count
      * * `last_seen` - last_seen
@@ -66767,16 +66767,20 @@ export namespace Schemas {
      */
     q?: string;
     /**
-     * Maximum number of recent sample warnings to return per warning type.
+     * Maximum number of recent sample warnings to return per warning type (default 5).
      * @minimum 1
      * @maximum 50
      */
     samples?: number;
     /**
-     * Only return warnings with this severity ('info', 'warning' or 'error'). Warnings from producers that don't yet emit a severity have severity 'warning'.
+     * Only return warnings with this severity. Warnings from producers that don't yet emit a severity have severity 'warning'.
+     *
+     * * `info` - info
+     * * `warning` - warning
+     * * `error` - error
      * @minLength 1
      */
-    severity?: string;
+    severity?: IngestionWarningsV2ListSeverity;
     /**
      * Start of the time range, as an ISO 8601 datetime (e.g. '2026-07-01T00:00:00Z') or a relative duration (e.g. '-24h', '-7d'). Defaults to 24 hours ago. Warnings are retained for 90 days.
      * @minLength 1
@@ -66800,6 +66804,15 @@ export namespace Schemas {
     export const IngestionWarningsV2ListOrderBy = {
       Count: 'count',
       LastSeen: 'last_seen',
+    } as const;
+
+    export type IngestionWarningsV2ListSeverity = typeof IngestionWarningsV2ListSeverity[keyof typeof IngestionWarningsV2ListSeverity];
+
+
+    export const IngestionWarningsV2ListSeverity = {
+      Info: 'info',
+      Warning: 'warning',
+      Error: 'error',
     } as const;
 
     export type InsightVariablesListParams = {
