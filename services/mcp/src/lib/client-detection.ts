@@ -279,8 +279,10 @@ export class MCPClientProfile {
     isClaudeUiHost(): boolean {
         // The per-request vendor client (`x-anthropic-client`) is authoritative: it
         // distinguishes the Claude surfaces that pool the same MCP transport —
-        // `ClaudeAI` (web/desktop, a UI-Apps host) from `Cowork` and `ClaudeCode`,
-        // which render no MCP-Apps UI. When it's present, trust it exclusively; only
+        // `ClaudeAI` (web/desktop, a UI-Apps host that renders via the separate
+        // `render-ui` tool) from `Cowork` and `ClaudeCode`, which render UI apps
+        // inline on the `exec` response instead (see `isInlineExecUiHost`) and so
+        // are not `render-ui` hosts. When it's present, trust it exclusively; only
         // fall back to the `Claude-User` user-agent when the vendor header is absent.
         // Otherwise a non-UI surface like Cowork — which can share the `Claude-User`
         // user-agent with web/desktop — would be misclassified as a UI host.
