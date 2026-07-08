@@ -236,13 +236,8 @@ class DeltaTableHelper:
             except Exception as e:
                 capture_exception(e)
                 error_text = "".join(str(arg) for arg in e.args)
-                # Unrecoverable table states: delete the table so the sync starts fresh.
-                # - "parse decimal overflow": bugged decimal data an old writer produced.
-                # - "No table metadata or protocol found": an orphaned _delta_log holding
-                #   commit files but no protocol/metadata action (e.g. a reset_table raced
-                #   an in-flight writer). Commit 0 writes protocol+metadata atomically, so
-                #   a healthy table can never produce this; no future sync can open or
-                #   repair the log, only wiping it recovers the schema.
+                # Unrecoverable tables (bugged decimals, or an orphaned _delta_log missing its
+                # metadata action — impossible on a healthy table): wipe so the sync starts fresh.
                 if "parse decimal overflow" in error_text or "No table metadata or protocol found" in error_text:
                     await self._logger.aerror(
                         f"get_delta_table: deleting unrecoverable delta table for a fresh sync: {error_text}"

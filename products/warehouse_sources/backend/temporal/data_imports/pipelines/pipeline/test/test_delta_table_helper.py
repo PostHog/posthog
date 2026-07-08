@@ -239,9 +239,7 @@ class TestCompactIfFragmented:
 
 
 class TestGetDeltaTableUnrecoverableErrors:
-    # (case_name, error_message, expect_heal)
-    # expect_heal=True: the table is wiped and get_delta_table falls back to first-sync
-    # mode instead of failing every future run on an unopenable table.
+    # (case_name, error_message, expect_heal) — heal = wipe the table and fall back to first-sync mode
     _ERROR_CASES: list[tuple[str, str, bool]] = [
         (
             "orphaned_delta_log",
