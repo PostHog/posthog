@@ -826,6 +826,12 @@ const getActiveUsersMath = (
     return null
 }
 
+/** An ISO date string longer than `YYYY-MM-DD` (10 chars) carries a time component, e.g.
+ *  drag-to-zoom on an hourly chart emits `2024-06-10 08:00:00`. A bare date means "that whole day". */
+export function hasTimeComponent(date: string): boolean {
+    return date.length > 10
+}
+
 const handleQuerySourceUpdateSideEffects = (
     update: QuerySourceUpdate,
     currentState: InsightQueryNode,
@@ -953,8 +959,8 @@ const handleQuerySourceUpdateSideEffects = (
             const QUARTER_AUTO_INTERVAL_THRESHOLD_MONTHS = 36
             // A bare date pair like 2024-06-10..2024-06-10 means "that whole day", so only ranges
             // that carry a time component (e.g. drag-to-zoom on an hourly chart) can go sub-hour.
-            const hasTimeComponent = String(date_from).length > 10 || String(date_to).length > 10
-            if (isTrendsQuery(currentState) && hasTimeComponent && parsedTo.diff(parsedFrom, 'hour', true) <= 12) {
+            const rangeHasTime = hasTimeComponent(String(date_from)) || hasTimeComponent(String(date_to))
+            if (isTrendsQuery(currentState) && rangeHasTime && parsedTo.diff(parsedFrom, 'hour', true) <= 12) {
                 // Mirrors the is12HoursOrLess rule for relative ranges below.
                 ;(mergedUpdate as TrendsQuery).interval = 'minute'
             } else if (parsedTo.diff(parsedFrom, 'day') <= 3) {

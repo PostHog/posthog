@@ -1,5 +1,6 @@
 import clsx from 'clsx'
 import { BindLogic, BuiltLogic, Logic, LogicWrapper, useActions, useValues } from 'kea'
+import { useCallback } from 'react'
 
 import { AccessDenied } from 'lib/components/AccessDenied'
 import { FEATURE_FLAGS } from 'lib/constants'
@@ -21,7 +22,7 @@ import { InsightRetentionBanner } from './dataRetention/InsightRetentionBanner'
 import { insightDataLogic } from './insightDataLogic'
 import { insightLogic } from './insightLogic'
 import { InsightSceneHeader } from './InsightSceneHeader'
-import { insightVizDataLogic } from './insightVizDataLogic'
+import { hasTimeComponent, insightVizDataLogic } from './insightVizDataLogic'
 
 export interface InsightAsSceneProps {
     insightId: InsightShortId | 'new'
@@ -52,27 +53,29 @@ export function InsightAsScene({ insightId, attachTo }: InsightAsSceneProps): JS
     const { setQuery: setInsightQuery } = useActions(insightDataLogic(insightProps))
     const { updateDateRange } = useActions(insightVizDataLogic(insightProps))
 
-    const onDateRangeZoom = (dateFrom: string, dateTo: string): void => {
-        // SQL insights carry their date range in the HogQL source's filters (applied via {filters}).
-        if (isDataVisualizationNode(query) && isHogQLQuery(query.source)) {
-            const zoomedQuery: DataVisualizationNode = {
-                ...query,
-                source: {
-                    ...query.source,
-                    filters: {
-                        ...query.source.filters,
-                        dateRange: { date_from: dateFrom, date_to: dateTo },
+    const onDateRangeZoom = useCallback(
+        (dateFrom: string, dateTo: string): void => {
+            // SQL insights carry their date range in the HogQL source's filters (applied via {filters}).
+            if (isDataVisualizationNode(query) && isHogQLQuery(query.source)) {
+                const zoomedQuery: DataVisualizationNode = {
+                    ...query,
+                    source: {
+                        ...query.source,
+                        filters: {
+                            ...query.source.filters,
+                            dateRange: { date_from: dateFrom, date_to: dateTo },
+                        },
                     },
-                },
+                }
+                setInsightQuery(zoomedQuery)
+                return
             }
-            setInsightQuery(zoomedQuery)
-            return
-        }
-        // Sub-day buckets carry a time component; explicitDate stops the backend from
-        // rounding them back out to whole days.
-        const explicitDate = dateFrom.length > 10
-        updateDateRange({ date_from: dateFrom, date_to: dateTo, explicitDate }, true)
-    }
+            // Sub-day buckets carry a time component; explicitDate stops the backend from
+            // rounding them back out to whole days.
+            updateDateRange({ date_from: dateFrom, date_to: dateTo, explicitDate: hasTimeComponent(dateFrom) }, true)
+        },
+        [query, setInsightQuery, updateDateRange]
+    )
 
     useFileSystemLogView({
         type: 'insight',

@@ -716,7 +716,6 @@ describe('TrendsLineChart', () => {
 
             dragSelection(wrapper, 1, 3, totalLabels)
 
-            // Without an opted-in handler the gesture must not touch the query source.
             expect(getQuerySource().dateRange).toBeUndefined()
         })
     })

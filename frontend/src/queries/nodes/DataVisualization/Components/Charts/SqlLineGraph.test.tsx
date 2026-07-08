@@ -4,6 +4,8 @@ import { cleanup, configure, fireEvent, screen, waitFor } from '@testing-library
 
 import { dragSelection, setupJsdom, setupSyncRaf } from '@posthog/quill-charts/testing'
 
+import { FEATURE_FLAGS } from 'lib/constants'
+
 import {
     ChartSettings,
     ChartSettingsFormatting,
@@ -551,11 +553,35 @@ describe('SqlLineGraph', () => {
             await dragAcrossChart()
 
             // filters.dateRange would silently not apply, so the gesture must not write it.
-            // (setQuery does fire on mount for unrelated settings syncing — inspect the payloads.)
-            const dateRangeWrites = setQuery.mock.calls.filter(
-                ([q]) => (q as DataVisualizationNode).source.filters?.dateRange
+            // (setQuery does fire on mount for unrelated settings syncing, hence the targeted matcher.)
+            expect(setQuery).not.toHaveBeenCalledWith(
+                expect.objectContaining({
+                    source: expect.objectContaining({
+                        filters: expect.objectContaining({ dateRange: expect.anything() }),
+                    }),
+                })
             )
-            expect(dateRangeWrites).toEqual([])
+        })
+
+        it('ignores drags when the drag-to-zoom flag is off', async () => {
+            const setQuery = jest.fn()
+            renderDataVisualization({
+                query: zoomableQuery('SELECT month, pageviews FROM events WHERE {filters} GROUP BY month'),
+                response: fixture(),
+                readOnly: false,
+                featureFlags: { [FEATURE_FLAGS.INSIGHT_DRAG_TO_ZOOM]: false },
+                setQuery,
+            })
+
+            await dragAcrossChart()
+
+            expect(setQuery).not.toHaveBeenCalledWith(
+                expect.objectContaining({
+                    source: expect.objectContaining({
+                        filters: expect.objectContaining({ dateRange: expect.anything() }),
+                    }),
+                })
+            )
         })
     })
 
