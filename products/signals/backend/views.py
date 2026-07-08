@@ -74,6 +74,7 @@ from products.signals.backend.billing import (
     SIGNALS_CREDITS_PER_REPORT_WITH_PR,
     current_billing_period_bounds,
     first_billable_pr_run,
+    period_billable_credits_for_org,
 )
 from products.signals.backend.facade.api import emit_signal
 from products.signals.backend.implementation_pr import fetch_implementation_pr_urls_for_reports
@@ -592,6 +593,15 @@ class SignalReportRefundSummaryResponseSerializer(serializers.Serializer):
         help_text=(
             "Total signals credits those refunds returned (1 credit = $0.01). Divide by the flat "
             "per-PR charge to get the number of PRs to subtract from billing usage."
+        ),
+    )
+    period_billable_credits = serializers.IntegerField(
+        help_text=(
+            "The organization's live billable signals credits for the current billing period, "
+            "computed by the same rules as the nightly usage report — including PRs created today "
+            "that billing hasn't recorded yet, and already excluding refund-excluded and "
+            "billing-exempt reports. Take the max of this and billing's recorded usage for a live "
+            "PR count that reacts to new PRs and same-day refunds immediately."
         ),
     )
 
@@ -1785,7 +1795,9 @@ class SignalReportViewSet(
             "period — counts only, no per-team detail. The billing usage widget needs this because "
             "billing usage is org-wide while reports (and their refunds) are team-scoped: subtract "
             "the refunded credits from billing usage to show the net PR count. Excluded-path "
-            "refunds never reach billing usage, so no adjustment is needed for them."
+            "refunds never reach billing usage, so no adjustment is needed for them. Also carries "
+            "the org's live billable credits for the period (billing's recorded usage lags by up "
+            "to a day), so the widget can count just-created PRs and react to same-day refunds."
         ),
         operation_id="signals_reports_refund_summary_retrieve",
     )
@@ -1810,6 +1822,9 @@ class SignalReportViewSet(
             {
                 "credited_refund_count": aggregates["credited_refund_count"] or 0,
                 "credited_credits": aggregates["credited_credits"] or 0,
+                "period_billable_credits": period_billable_credits_for_org(
+                    self.organization.id, period_start, period_end
+                ),
             }
         )
 

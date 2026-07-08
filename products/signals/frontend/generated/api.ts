@@ -469,7 +469,7 @@ export const getSignalsReportsRefundSummaryRetrieveUrl = (projectId: string) => 
 }
 
 /**
- * Aggregate credited-path refunds across the whole organization for the current billing period — counts only, no per-team detail. The billing usage widget needs this because billing usage is org-wide while reports (and their refunds) are team-scoped: subtract the refunded credits from billing usage to show the net PR count. Excluded-path refunds never reach billing usage, so no adjustment is needed for them.
+ * Aggregate credited-path refunds across the whole organization for the current billing period — counts only, no per-team detail. The billing usage widget needs this because billing usage is org-wide while reports (and their refunds) are team-scoped: subtract the refunded credits from billing usage to show the net PR count. Excluded-path refunds never reach billing usage, so no adjustment is needed for them. Also carries the org's live billable credits for the period (billing's recorded usage lags by up to a day), so the widget can count just-created PRs and react to same-day refunds.
  * @summary Summarize credited PR refunds for the billing period
  */
 export const signalsReportsRefundSummaryRetrieve = async (

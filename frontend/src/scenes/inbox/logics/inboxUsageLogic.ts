@@ -121,8 +121,17 @@ export const inboxUsageLogic = kea<inboxUsageLogicType>([
                 billing?.products?.find((p) => p.type === INBOX_PRODUCT_TYPE) ?? null,
         ],
         isLoading: [
-            (s) => [s.billing, s.billingLoading],
-            (billing, billingLoading): boolean => billing === null && billingLoading,
+            (s) => [s.billing, s.billingLoading, s.refundSummary, s.refundSummaryLoading, s.featureFlags],
+            (billing, billingLoading, refundSummary, refundSummaryLoading, featureFlags): boolean => {
+                if (billing === null && billingLoading) {
+                    return true
+                }
+                // With refunds on, the PR count needs the refund summary too (live top-up +
+                // credited netting) — rendering on billing alone briefly shows the gross number.
+                return (
+                    !!featureFlags[FEATURE_FLAGS.SIGNALS_PR_REFUNDS] && refundSummary === null && refundSummaryLoading
+                )
+            },
         ],
         // Free plan can't raise the limit past the free allocation — the widget points to
         // billing to upgrade instead of editing a limit.
@@ -154,7 +163,11 @@ export const inboxUsageLogic = kea<inboxUsageLogicType>([
                 if (!product || !creditsPerPr) {
                     return 0
                 }
-                const billedPrs = Math.round((product.current_usage ?? 0) / creditsPerPr)
+                // Billing's recorded usage lags by up to a day; the refund summary carries the org's
+                // live billable credits, so take the max — a just-created PR counts immediately and a
+                // same-day (excluded-path) refund visibly un-counts it.
+                const billedCredits = Math.max(product.current_usage ?? 0, refundSummary?.period_billable_credits ?? 0)
+                const billedPrs = Math.round(billedCredits / creditsPerPr)
                 // Credited-path refunds stay in billing usage; net them out so the widget counts
                 // only PRs the user is actually paying (or using free allowance) for.
                 const refundedPrs = refundSummary ? Math.floor(refundSummary.credited_credits / creditsPerPr) : 0

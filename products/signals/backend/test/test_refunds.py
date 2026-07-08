@@ -289,11 +289,29 @@ class TestSignalReportRefundAPI(APIBaseTest):
         other_org = Organization.objects.create(name="other")
         other_team = Team.objects.create(organization=other_org, name="other")
         foreign = _make_report(other_team)
+        _make_pr_run(other_team, foreign, created_at=datetime(2026, 6, 14, tzinfo=UTC))
         _make_refund(foreign, pr_run_created_at=datetime(2026, 6, 14, tzinfo=UTC))
 
         response = self.client.get(f"/api/projects/{self.team.id}/signals/reports/refund-summary/")
         assert response.status_code == status.HTTP_200_OK
-        assert response.json() == {"credited_refund_count": 2, "credited_credits": 3000}
+        # period_billable_credits: only report_a has a billable PR run in this org (credited
+        # refunds stay counted — usage is truthful); the foreign org's billable PR must not leak in.
+        assert response.json() == {
+            "credited_refund_count": 2,
+            "credited_credits": 3000,
+            "period_billable_credits": 1500,
+        }
+
+    @freeze_time(_NOW)
+    def test_refund_summary_counts_unreported_prs_live_until_excluded_refund(self, _flag):
+        # A PR created today hasn't shipped to billing yet but must count in the live number,
+        # and a same-day (excluded-path) refund must visibly un-count it.
+        report = self._report_with_pr(pr_created_at=datetime(2026, 6, 15, 8, 0, tzinfo=UTC))
+        url = f"/api/projects/{self.team.id}/signals/reports/refund-summary/"
+
+        assert self.client.get(url).json()["period_billable_credits"] == 1500
+        assert self._refund(report).json()["billing_path"] == "excluded"
+        assert self.client.get(url).json()["period_billable_credits"] == 0
 
 
 class TestSignalReportRefundFlagGate(APIBaseTest):

@@ -219,14 +219,17 @@ def current_billing_period_bounds(organization: "Organization") -> tuple[datetim
     return (start, start + relativedelta(months=1))
 
 
-def get_signals_billing_credits_by_team(begin: datetime, end: datetime) -> list[tuple[int, int]]:
+def get_signals_billing_credits_by_team(
+    begin: datetime, end: datetime, organization_id: str | uuid.UUID | None = None
+) -> list[tuple[int, int]]:
     """Signals credits used per team in `[begin, end)`.
 
     A report is billable in this period when the first implementation PR for it appeared in the
     window — an implementation `TaskRun` with a `pr_url` was created in `[begin, end)` and no
     such run exists before `begin`. Each billable report is charged a flat
     `SIGNALS_CREDITS_PER_REPORT_WITH_PR`. Returns `[(team_id, credits), ...]` for teams with
-    non-zero usage only.
+    non-zero usage only. `organization_id` narrows the scan to one org (the widget's live-count
+    path); usage reporting passes nothing and stays fleet-wide.
 
     The entry scan is bounded by PRs shipped in the period (via the `created_at` +
     `output__pr_url` indexes), not by the total number of reports, task runs, or teams.
@@ -234,11 +237,14 @@ def get_signals_billing_credits_by_team(begin: datetime, end: datetime) -> list[
     # Reports whose implementation produced a billable PR within this period, mapped to the team
     # that owns the report. The teams are guaranteed equal by `_bridges_with_pr_run()`, so the
     # bridge's team_id is the report's team.
-    report_team: dict[uuid.UUID, int] = {}
-    for report_id, team_id in _bridges_with_pr_run(
+    bridges = _bridges_with_pr_run(
         task__runs__created_at__gte=begin,
         task__runs__created_at__lt=end,
-    ).values_list("report_id", "team_id"):
+    )
+    if organization_id is not None:
+        bridges = bridges.filter(team__organization_id=organization_id)
+    report_team: dict[uuid.UUID, int] = {}
+    for report_id, team_id in bridges.values_list("report_id", "team_id"):
         report_team.setdefault(report_id, team_id)
 
     if not report_team:
@@ -281,3 +287,17 @@ def get_signals_billing_credits_by_team(begin: datetime, end: datetime) -> list[
         totals[team_id] += SIGNALS_CREDITS_PER_REPORT_WITH_PR
 
     return list(totals.items())
+
+
+def period_billable_credits_for_org(organization_id: str | uuid.UUID, begin: datetime, end: datetime) -> int:
+    """The org's billable signals credits for `[begin, end)` per the exact usage-report rules —
+    including PRs created today that haven't been reported to billing yet.
+
+    Powers the inbox usage widget's live PR count: the frontend takes the max of this and
+    billing's recorded usage, so a fresh PR counts immediately and a same-UTC-day (excluded-path)
+    refund visibly un-counts it. Display-only — usage reports never read this; credited-path
+    refunds stay included here (usage is truthful) and are netted separately by the widget.
+    """
+    return sum(
+        credits for _, credits in get_signals_billing_credits_by_team(begin, end, organization_id=organization_id)
+    )

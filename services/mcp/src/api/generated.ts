@@ -50059,6 +50059,8 @@ export namespace Schemas {
       credited_refund_count: number;
       /** Total signals credits those refunds returned (1 credit = $0.01). Divide by the flat per-PR charge to get the number of PRs to subtract from billing usage. */
       credited_credits: number;
+      /** The organization's live billable signals credits for the current billing period, computed by the same rules as the nightly usage report — including PRs created today that billing hasn't recorded yet, and already excluding refund-excluded and billing-exempt reports. Take the max of this and billing's recorded usage for a live PR count that reacts to new PRs and same-day refunds immediately. */
+      period_billable_credits: number;
     }
 
     export interface SignalReportStateRequest {
