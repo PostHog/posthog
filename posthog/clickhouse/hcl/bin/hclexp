@@ -10,13 +10,20 @@
 # (`go build -o hclexp ./cmd/hclexp` in the sibling repo) for faster iteration.
 set -euo pipefail
 
-# Pinned to a concrete build (not :latest) for reproducibility. sha-bf84186 has
-# `introspect -exclude` (chschema #79), which the live convergence gate
-# (dump-live.sh) requires; it retains file()/heredoc query refs (#68/#69),
-# structured JSON diff (#66), and the modifier-aware diff (#59), and fixes the
-# layer-order drop of dictionaries/views (#80) and captures the ReplacingMergeTree is_deleted column (#108).
+# Pinned to a concrete build (not :latest) for reproducibility. sha-0409212 resolves
+# an uncomposed manifest cluster as @absent (chschema #127 — a `cluster` block whose
+# roles aren't deployed in the -env is absent, not an error), on top of manifest-driven
+# whole-env validate (#126: `validate -manifest -env <env>` with no -layer checks every
+# role in one call), deriving -cluster mappings from the manifest (#125), and cross-cluster
+# `validate -cluster` (#118/#119, alias #122, MV/View sources #121). It also models table
+# PROJECTIONs (#113) + dictionary
+# layout params (#117) in introspect, and keeps `introspect -exclude` (#79), which
+# the live convergence gate (dump-live.sh) requires; file()/heredoc query refs
+# (#68/#69); structured JSON diff (#66); the modifier-aware diff (#59); the fix for
+# the layer-order drop of dictionaries/views (#80); and the ReplacingMergeTree
+# is_deleted column (#108).
 # Override via $HCLEXP_IMAGE; bump when intentionally upgrading hclexp.
-HCLEXP_IMAGE="${HCLEXP_IMAGE:-ghcr.io/posthog/chschema:sha-bf84186}"
+HCLEXP_IMAGE="${HCLEXP_IMAGE:-ghcr.io/posthog/chschema:sha-0409212}"
 
 if [[ -n "${HCLEXP_BIN:-}" ]]; then
   exec "$HCLEXP_BIN" "$@"

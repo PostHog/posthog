@@ -28,12 +28,16 @@ permissions:
     packages: read
 
 env:
-    # Pin to a concrete chschema build (not :latest) for reproducibility. sha-bf84186
-    # has `introspect -exclude` (#79) for the live gate, retains file()/heredoc query
-    # refs (#68/#69) so a query authored as file("sql/x.sql") compares equal to its
-    # golden and the modifier-aware diff (#59), and fixes the layer-order drop of
-    # dictionaries/views (#80). Override via repo variable.
-    HCLEXP_IMAGE: ${{ vars.HCLEXP_IMAGE || 'ghcr.io/posthog/chschema:sha-bf84186' }}
+    # Pin to a concrete chschema build (not :latest) for reproducibility. sha-0409212
+    # resolves an uncomposed manifest cluster as @absent (#127), on top of manifest-driven
+    # whole-env validate (#126: `validate -manifest -env` checks every role in one call),
+    # manifest-derived -cluster mappings (#125), and cross-cluster `validate -cluster`
+    # (#118/#119); models
+    # PROJECTIONs (#113) + dictionary layout params (#117) in introspect; retains
+    # `introspect -exclude` (#79) for the live gate, file()/heredoc query refs (#68/#69)
+    # so a query authored as file("sql/x.sql") compares equal to its golden, and the
+    # modifier-aware diff (#59). Override via repo variable.
+    HCLEXP_IMAGE: ${{ vars.HCLEXP_IMAGE || 'ghcr.io/posthog/chschema:sha-0409212' }}
 
 jobs:
     ops-hcl-guard:
