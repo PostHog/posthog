@@ -1,4 +1,5 @@
 import { actions, connect, kea, key, listeners, path, props, reducers } from 'kea'
+import posthog from 'posthog-js'
 
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic, getFeatureFlagPayload } from 'lib/logic/featureFlagLogic'
@@ -104,6 +105,13 @@ export const wizardSessionStreamLogic = kea<wizardSessionStreamLogicType>([
                 return
             }
 
+            // Per-connect-cycle transport telemetry: one "ready" (first session delivered) and at
+            // most one "error" per cycle, so SSE and polling performance stay comparable without
+            // an event per delivery or per EventSource retry.
+            cache.connectStartedAt = Date.now()
+            cache.transportReadyReported = false
+            cache.transportErrorReported = false
+
             const debugSource = `session ${props.workflowId}::${props.skillId ?? '*'}`
 
             // Mode is re-sampled on every connect, and the setFeatureFlags listener below reconnects
@@ -128,10 +136,14 @@ export const wizardSessionStreamLogic = kea<wizardSessionStreamLogicType>([
                         tick: async () => {
                             // 204 (no session yet, or killswitched) resolves to null — classify as
                             // empty so the loop backs off instead of polling at full cadence forever.
-                            const session = await wizardSessionsLatestRetrieve(String(projectId), {
-                                workflow_id: props.workflowId,
-                                skill_id: props.skillId,
-                            })
+                            const session = await wizardSessionsLatestRetrieve(
+                                String(projectId),
+                                {
+                                    workflow_id: props.workflowId,
+                                    skill_id: props.skillId,
+                                },
+                                { headers: { 'X-Wizard-Poll-Source': 'transport' } }
+                            )
                             logSyncDebug(
                                 debugSource,
                                 'poll',
@@ -211,6 +223,28 @@ export const wizardSessionStreamLogic = kea<wizardSessionStreamLogicType>([
         disconnect: () => {
             logSyncDebug(`session ${props.workflowId}::${props.skillId ?? '*'}`, 'disconnect', 'disconnected')
             cache.disposables.dispose('session-sync')
+        },
+        sessionUpdated: () => {
+            if (cache.transportReadyReported || cache.connectStartedAt === undefined) {
+                return
+            }
+            cache.transportReadyReported = true
+            posthog.capture('wizard sync transport ready', {
+                transport: cache.syncMode ?? 'sse',
+                workflow_id: props.workflowId,
+                ms_since_connect: Date.now() - cache.connectStartedAt,
+            })
+        },
+        connectionErrored: ({ error }) => {
+            if (cache.transportErrorReported || cache.connectStartedAt === undefined) {
+                return
+            }
+            cache.transportErrorReported = true
+            posthog.capture('wizard sync transport error', {
+                transport: cache.syncMode ?? 'sse',
+                workflow_id: props.workflowId,
+                error,
+            })
         },
         // Flags can resolve after a cold-cache connect (posthog-js loads them async), and ops can flip
         // the mode mid-incident. Reconnect when the resolved mode differs from the running transport —

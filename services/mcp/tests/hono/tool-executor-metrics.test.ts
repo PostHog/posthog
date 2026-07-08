@@ -21,6 +21,7 @@ vi.mock('@/hono/metrics', () => ({
 
 vi.mock('@/hono/analytics', () => ({
     trackToolCall: vi.fn(),
+    trackExecuteSqlGeneration: vi.fn(),
 }))
 
 vi.mock('@/resources/internals', () => ({

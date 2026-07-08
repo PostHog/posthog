@@ -1,6 +1,6 @@
-import { useValues } from 'kea'
+import { useActions, useValues } from 'kea'
 
-import { LemonBanner, LemonTable, LemonTag, Tooltip } from '@posthog/lemon-ui'
+import { LemonBanner, LemonButton, LemonTable, LemonTag, Tooltip } from '@posthog/lemon-ui'
 import type { LemonTableColumns } from '@posthog/lemon-ui'
 
 import { Sparkline } from 'lib/components/Sparkline'
@@ -81,10 +81,33 @@ function PatternExampleRow({ example }: { example: _LogPatternExampleApi }): JSX
     )
 }
 
-function PatternExpandedRow({ row }: { row: _LogPatternApi }): JSX.Element {
+function PatternExpandedRow({
+    row,
+    onViewMatchingLogs,
+}: {
+    row: _LogPatternApi
+    onViewMatchingLogs: (row: _LogPatternApi) => void
+}): JSX.Element {
     return (
         <div className="px-2 py-2 flex flex-col gap-2" data-attr="logs-pattern-expanded">
-            <div>{renderPatternTemplate(row.pattern)}</div>
+            <div className="flex items-center justify-between gap-2">
+                <div>{renderPatternTemplate(row.pattern)}</div>
+                {(row.match_regex || row.match_literal) && (
+                    <LemonButton
+                        type="secondary"
+                        size="xsmall"
+                        onClick={() => onViewMatchingLogs(row)}
+                        tooltip={
+                            row.match_regex
+                                ? 'Open the Logs view filtered to lines matching this pattern'
+                                : 'Open the Logs view filtered to lines containing this pattern’s literal text (pattern match unavailable)'
+                        }
+                        data-attr="logs-pattern-view-matching"
+                    >
+                        View matching logs
+                    </LemonButton>
+                )}
+            </div>
             <div className="text-muted text-xs">
                 First seen <TZLabel time={row.first_seen} /> · last seen <TZLabel time={row.last_seen} />
                 {row.services.length ? <> · {row.services.join(', ')}</> : null}
@@ -130,6 +153,7 @@ export function LogsPatterns({ id }: { id: string }): JSX.Element {
     const { patterns, patternsResponse, patternsResponseLoading, patternsError, sparklineLabels } = useValues(
         logsPatternsLogic({ id })
     )
+    const { viewMatchingLogs } = useActions(logsPatternsLogic({ id }))
     const { sampled, scanned_count, total_count, sample_coverage_pct } = patternsResponse
 
     // Estimated counts are rounded (not exact-comma-formatted) and prefixed with "~" so a
@@ -250,7 +274,7 @@ export function LogsPatterns({ id }: { id: string }): JSX.Element {
                 dataSource={patterns}
                 loading={patternsResponseLoading}
                 expandable={{
-                    expandedRowRender: (row) => <PatternExpandedRow row={row} />,
+                    expandedRowRender: (row) => <PatternExpandedRow row={row} onViewMatchingLogs={viewMatchingLogs} />,
                 }}
                 defaultSorting={{ columnKey: 'estimated_count', order: -1 }}
                 emptyState={

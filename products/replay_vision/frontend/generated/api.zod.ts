@@ -220,6 +220,25 @@ export const VisionActionsPartialUpdateBody = /* @__PURE__ */ zod.object({
 })
 
 /**
+ * Set or update the observation's shared label: whether the scanner scored the session correctly, plus optional feedback on what it got wrong. One label per observation, shared across the team; these labels feed prompt improvement. Requires session recording edit access.
+ */
+export const visionObservationsLabelCreateBodyFeedbackDefault = ``
+export const visionObservationsLabelCreateBodyFeedbackMax = 5000
+
+export const VisionObservationsLabelCreateBody = /* @__PURE__ */ zod
+    .object({
+        is_correct: zod.boolean().describe('True if the scanner scored this session correctly, false if not.'),
+        feedback: zod
+            .string()
+            .max(visionObservationsLabelCreateBodyFeedbackMax)
+            .default(visionObservationsLabelCreateBodyFeedbackDefault)
+            .describe(
+                'Optional written context on the rating, for thumbs-up and thumbs-down alike: what the scanner got right or wrong, or what it should have concluded.'
+            ),
+    })
+    .describe("The team's shared judgement on whether the scanner scored this session correctly.")
+
+/**
  * CRUD for Replay Vision scanners.
  */
 export const visionScannersCreateBodyNameMax = 255
@@ -265,6 +284,13 @@ export const VisionScannersCreateBody = /* @__PURE__ */ zod.object({
         .optional()
         .describe(
             '0..1 random downsample applied after the query matches. Defaults to 1.0 (no downsampling). Use exactly 0 to pause scanning; non-zero rates below 0.0001 (0.01%) are rejected as below the sampling precision.'
+        ),
+    sampling_mode: zod
+        .enum(['focused', 'balanced', 'comprehensive'])
+        .describe('\* `focused` - Focused\n\* `balanced` - Balanced\n\* `comprehensive` - Comprehensive')
+        .optional()
+        .describe(
+            'Quality pre-filter applied before random sampling. focused = top sessions only, balanced = drops the lowest-quality, comprehensive = no filter (default).\n\n\* `focused` - Focused\n\* `balanced` - Balanced\n\* `comprehensive` - Comprehensive'
         ),
     provider: zod
         .enum(['google'])
@@ -341,6 +367,13 @@ export const VisionScannersPartialUpdateBody = /* @__PURE__ */ zod.object({
         .describe(
             '0..1 random downsample applied after the query matches. Defaults to 1.0 (no downsampling). Use exactly 0 to pause scanning; non-zero rates below 0.0001 (0.01%) are rejected as below the sampling precision.'
         ),
+    sampling_mode: zod
+        .enum(['focused', 'balanced', 'comprehensive'])
+        .describe('\* `focused` - Focused\n\* `balanced` - Balanced\n\* `comprehensive` - Comprehensive')
+        .optional()
+        .describe(
+            'Quality pre-filter applied before random sampling. focused = top sessions only, balanced = drops the lowest-quality, comprehensive = no filter (default).\n\n\* `focused` - Focused\n\* `balanced` - Balanced\n\* `comprehensive` - Comprehensive'
+        ),
     provider: zod
         .enum(['google'])
         .describe('\* `google` - Google')
@@ -382,11 +415,32 @@ export const VisionScannersObserveCreateBody = /* @__PURE__ */ zod
     .describe('Body of POST \/vision\/scanners\/{id}\/observe\/.')
 
 /**
+ * Set or update the observation's shared label: whether the scanner scored the session correctly, plus optional feedback on what it got wrong. One label per observation, shared across the team; these labels feed prompt improvement. Requires session recording edit access.
+ */
+export const visionScannersObservationsLabelCreateBodyFeedbackDefault = ``
+export const visionScannersObservationsLabelCreateBodyFeedbackMax = 5000
+
+export const VisionScannersObservationsLabelCreateBody = /* @__PURE__ */ zod
+    .object({
+        is_correct: zod.boolean().describe('True if the scanner scored this session correctly, false if not.'),
+        feedback: zod
+            .string()
+            .max(visionScannersObservationsLabelCreateBodyFeedbackMax)
+            .default(visionScannersObservationsLabelCreateBodyFeedbackDefault)
+            .describe(
+                'Optional written context on the rating, for thumbs-up and thumbs-down alike: what the scanner got right or wrong, or what it should have concluded.'
+            ),
+    })
+    .describe("The team's shared judgement on whether the scanner scored this session correctly.")
+
+/**
  * Estimate the observation volume a proposed scanner would generate, for the pre-save cost preview.
  */
 export const visionScannersEstimateCreateBodySamplingRateDefault = 1
 export const visionScannersEstimateCreateBodySamplingRateMin = 0
 export const visionScannersEstimateCreateBodySamplingRateMax = 1
+
+export const visionScannersEstimateCreateBodySamplingModeDefault = `comprehensive`
 
 export const VisionScannersEstimateCreateBody = /* @__PURE__ */ zod
     .object({
@@ -402,6 +456,13 @@ export const VisionScannersEstimateCreateBody = /* @__PURE__ */ zod
             .max(visionScannersEstimateCreateBodySamplingRateMax)
             .default(visionScannersEstimateCreateBodySamplingRateDefault)
             .describe('0..1 downsample applied to matched sessions. Defaults to 1.0 (no downsampling).'),
+        sampling_mode: zod
+            .enum(['focused', 'balanced', 'comprehensive'])
+            .describe('\* `focused` - Focused\n\* `balanced` - Balanced\n\* `comprehensive` - Comprehensive')
+            .default(visionScannersEstimateCreateBodySamplingModeDefault)
+            .describe(
+                "Quality pre-filter applied to the matched-session count, mirroring the sweep's candidate query. Defaults to comprehensive (no filter).\n\n\* `focused` - Focused\n\* `balanced` - Balanced\n\* `comprehensive` - Comprehensive"
+            ),
         scanner_id: zod
             .uuid()
             .nullish()

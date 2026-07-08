@@ -1181,17 +1181,19 @@ class TestTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
 
         assert len(response.results) == 2
 
-        assert response.results[0]["label"] == "cohort p1"
-        assert response.results[0]["breakdown_value"] == cohort1.pk
-        assert response.results[0]["count"] == 0
-        assert len(response.results[0]["data"]) == 12
-        assert len(response.results[0]["days"]) == 12
+        # Both cohorts aggregate to 0, so breakdown order is a nondeterministic tie — assert per-cohort.
+        by_cohort = {r["breakdown_value"]: r for r in response.results}
+        assert set(by_cohort) == {cohort1.pk, cohort2.pk}
 
-        assert response.results[1]["label"] == "cohort p2"
-        assert response.results[1]["breakdown_value"] == cohort2.pk
-        assert response.results[1]["count"] == 0
-        assert len(response.results[1]["data"]) == 12
-        assert len(response.results[1]["days"]) == 12
+        assert by_cohort[cohort1.pk]["label"] == "cohort p1"
+        assert by_cohort[cohort1.pk]["count"] == 0
+        assert len(by_cohort[cohort1.pk]["data"]) == 12
+        assert len(by_cohort[cohort1.pk]["days"]) == 12
+
+        assert by_cohort[cohort2.pk]["label"] == "cohort p2"
+        assert by_cohort[cohort2.pk]["count"] == 0
+        assert len(by_cohort[cohort2.pk]["data"]) == 12
+        assert len(by_cohort[cohort2.pk]["days"]) == 12
 
     @parameterized.expand(
         [

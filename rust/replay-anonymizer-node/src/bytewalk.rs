@@ -836,7 +836,7 @@ impl<'c, 'a> Walker<'c, 'a> {
                         Some(w.ctx.blur_data_uri(s).unwrap_or_else(blank_image_data_uri))
                     });
                 }
-                if name == "style" {
+                if name == "style" || name == css::INLINED_STYLESHEET_ATTR {
                     return w.scrub_string_value(vstart, out, |w, s| css::rewrite(w.ctx, s));
                 }
                 if is_url_attr(name) {
