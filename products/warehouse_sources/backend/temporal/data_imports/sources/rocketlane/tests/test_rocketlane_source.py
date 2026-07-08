@@ -1,6 +1,8 @@
 import pytest
 from unittest import mock
 
+from parameterized import parameterized
+
 from posthog.schema import ReleaseStatus, SourceFieldInputConfig, SourceFieldInputConfigType
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
@@ -73,46 +75,53 @@ class TestRocketlaneSource:
         assert {t["name"] for t in tables} == set(ENDPOINTS)
         assert all("Full refresh" in t["sync_methods"] for t in tables)
 
-    @pytest.mark.parametrize(
-        "observed_error",
+    @parameterized.expand(
         [
-            "401 Client Error: Unauthorized for url: https://api.rocketlane.com/api/1.0/projects?pageSize=100",
-            "403 Client Error: Forbidden for url: https://api.rocketlane.com/api/1.0/tasks?pageSize=100&pageToken=abc",
-        ],
+            (
+                "unauthorized",
+                "401 Client Error: Unauthorized for url: https://api.rocketlane.com/api/1.0/projects?pageSize=100",
+            ),
+            (
+                "forbidden",
+                "403 Client Error: Forbidden for url: https://api.rocketlane.com/api/1.0/tasks?pageSize=100&pageToken=abc",
+            ),
+        ]
     )
-    def test_non_retryable_errors_match_auth_failures(self, observed_error: str) -> None:
+    def test_non_retryable_errors_match_auth_failures(self, _name: str, observed_error: str) -> None:
         non_retryable = self.source.get_non_retryable_errors()
         assert any(key in observed_error for key in non_retryable)
 
-    @pytest.mark.parametrize(
-        "unrelated_error",
+    @parameterized.expand(
         [
-            "500 Server Error: Internal Server Error for url: https://api.rocketlane.com/api/1.0/projects",
-            "HTTPSConnectionPool(host='api.rocketlane.com', port=443): Read timed out.",
-            "429 Client Error: Too Many Requests for url: https://api.rocketlane.com/api/1.0/users",
-        ],
+            (
+                "server_error",
+                "500 Server Error: Internal Server Error for url: https://api.rocketlane.com/api/1.0/projects",
+            ),
+            ("read_timeout", "HTTPSConnectionPool(host='api.rocketlane.com', port=443): Read timed out."),
+            ("rate_limited", "429 Client Error: Too Many Requests for url: https://api.rocketlane.com/api/1.0/users"),
+        ]
     )
-    def test_non_retryable_errors_ignore_transient(self, unrelated_error: str) -> None:
+    def test_non_retryable_errors_ignore_transient(self, _name: str, unrelated_error: str) -> None:
         non_retryable = self.source.get_non_retryable_errors()
         assert not any(key in unrelated_error for key in non_retryable)
 
-    @pytest.mark.parametrize(
-        "status, expected_valid, expected_message",
+    @parameterized.expand(
         [
-            (200, True, None),
-            (401, False, "Invalid Rocketlane API key"),
-            (403, False, "Invalid Rocketlane API key"),
-            (500, False, "Rocketlane returned HTTP 500"),
-            (0, False, "Could not connect to Rocketlane: boom"),
-        ],
+            ("valid", 200, True, None),
+            ("unauthorized", 401, False, "Invalid Rocketlane API key"),
+            ("forbidden", 403, False, "Invalid Rocketlane API key"),
+            ("server_error", 500, False, "Rocketlane returned HTTP 500"),
+            ("connection_error", 0, False, "Could not connect to Rocketlane: boom"),
+        ]
     )
     @mock.patch("products.warehouse_sources.backend.temporal.data_imports.sources.rocketlane.source.check_access")
     def test_validate_credentials(
         self,
-        mock_check: mock.MagicMock,
+        _name: str,
         status: int,
         expected_valid: bool,
         expected_message: str | None,
+        mock_check: mock.MagicMock,
     ) -> None:
         message = (
             "Rocketlane returned HTTP 500"
