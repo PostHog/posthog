@@ -3,7 +3,7 @@ import { loaders } from 'kea-loaders'
 import { EarlyAccessFeature, posthog } from 'posthog-js'
 
 import { supportLogic } from 'lib/components/Support/supportLogic'
-import { FeatureFlagKey } from 'lib/constants'
+import { FEATURE_FLAGS, FeatureFlagKey } from 'lib/constants'
 import { lemonToast } from 'lib/lemon-ui/LemonToast'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
@@ -41,6 +41,9 @@ export const featurePreviewsLogic = kea<featurePreviewsLogicType>([
         cancelEarlyAccessFeatureFeedback: true,
         submitEarlyAccessFeatureFeedback: (message: string) => ({ message }),
         copyExternalFeaturePreviewLink: (flagKey: string) => ({ flagKey }),
+        // Coming Soon (concept) waitlist: submit an email to the feature's linked survey
+        // instead of the one-click enrollment.
+        submitConceptSurvey: (flagKey: string, email: string) => ({ flagKey, email }),
     }),
     loaders(({ values }) => ({
         rawEarlyAccessFeatures: [
@@ -101,6 +104,14 @@ export const featurePreviewsLogic = kea<featurePreviewsLogicType>([
                 },
             },
         ],
+        // Tracks which concept features the user has submitted the waitlist email for,
+        // so the card can show a "thanks" state.
+        conceptSurveySubmissions: [
+            {} as Record<string, boolean>,
+            {
+                submitConceptSurvey: (state, { flagKey }) => ({ ...state, [flagKey]: true }),
+            },
+        ],
     }),
     listeners(({ values, actions }) => ({
         updateEarlyAccessFeatureEnrollment: ({ flagKey, enabled, stage }) => {
@@ -137,6 +148,21 @@ export const featurePreviewsLogic = kea<featurePreviewsLogicType>([
         },
         copyExternalFeaturePreviewLink: ({ flagKey }) => {
             void copyToClipboard(urls.absolute(`/settings/user-feature-previews#${flagKey}`))
+        },
+        submitConceptSurvey: ({ flagKey, email }) => {
+            const feature = values.rawEarlyAccessFeatures.find((f) => f.flagKey === flagKey)
+            const payload = (feature as any)?.payload as Record<string, any> | undefined
+            const surveyId = payload?.survey_id
+            if (!surveyId) {
+                lemonToast.error("This feature isn't accepting sign-ups yet. Please try again later.")
+                return
+            }
+            const surveyQuestionId = payload?.survey_question_id
+            const properties: Record<string, any> = { $survey_id: surveyId, $survey_response: email }
+            if (surveyQuestionId) {
+                properties[`$survey_response_${surveyQuestionId}`] = email
+            }
+            posthog.capture('survey sent', properties)
         },
     })),
     selectors({
@@ -178,6 +204,13 @@ export const featurePreviewsLogic = kea<featurePreviewsLogicType>([
             (earlyAccessFeatures: EnrichedEarlyAccessFeature[], searchTerm: string): EnrichedEarlyAccessFeature[] => {
                 return search(earlyAccessFeatures, searchTerm)
             },
+        ],
+
+        // When enabled, concept-stage ("Coming Soon") items collect an email via their
+        // linked survey instead of the one-click enrollment.
+        waitlistSurveysEnabled: [
+            (s) => [s.featureFlags],
+            (featureFlags): boolean => !!featureFlags[FEATURE_FLAGS.COMING_SOON_WAITLIST_SURVEYS],
         ],
     }),
 ])

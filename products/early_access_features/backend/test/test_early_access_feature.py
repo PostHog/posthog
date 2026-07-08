@@ -1582,3 +1582,84 @@ class TestEarlyAccessFeatureResourceAccessControl(APIBaseTest):
             format="json",
         )
         self.assertEqual(response.status_code, status.HTTP_200_OK, response.json())
+
+
+class TestComingSoonWaitlistSurvey(APIBaseTest):
+    def _concept_feature(self, name: str = "Sloppy joes") -> EarlyAccessFeature:
+        flag = FeatureFlag.objects.create(team=self.team, key=name.lower().replace(" ", "-"), created_by=self.user)
+        return EarlyAccessFeature.objects.create(
+            team=self.team,
+            name=name,
+            stage=EarlyAccessFeature.Stage.CONCEPT,
+            feature_flag=flag,
+        )
+
+    def test_ensure_creates_api_survey_linked_to_flag_and_sets_payload(self):
+        from posthog.tasks.early_access_feature import ensure_waitlist_survey_for_feature
+
+        from products.surveys.backend.models import Survey
+
+        feature = self._concept_feature()
+        survey = ensure_waitlist_survey_for_feature(feature)
+
+        assert survey is not None
+        assert survey.type == Survey.SurveyType.API
+        assert survey.linked_flag_id == feature.feature_flag_id
+        assert survey.questions and survey.questions[0]["type"] == "open"
+        question_id = survey.questions[0]["id"]
+
+        feature.refresh_from_db()
+        assert feature.payload["survey_id"] == str(survey.id)
+        assert feature.payload["survey_question_id"] == question_id
+
+    def test_ensure_is_idempotent(self):
+        from posthog.tasks.early_access_feature import ensure_waitlist_survey_for_feature
+
+        from products.surveys.backend.models import Survey
+
+        feature = self._concept_feature()
+        first = ensure_waitlist_survey_for_feature(feature)
+        feature.refresh_from_db()
+        second = ensure_waitlist_survey_for_feature(feature)
+
+        assert second is None  # already has survey_id, nothing to do
+        assert Survey.objects.filter(team=self.team, linked_flag=feature.feature_flag).count() == 1
+        assert first is not None
+
+    def test_ensure_skips_non_concept_features(self):
+        from posthog.tasks.early_access_feature import ensure_waitlist_survey_for_feature
+
+        from products.surveys.backend.models import Survey
+
+        feature = self._concept_feature(name="Beta thing")
+        feature.stage = EarlyAccessFeature.Stage.BETA
+        feature.save()
+
+        assert ensure_waitlist_survey_for_feature(feature) is None
+        assert Survey.objects.filter(team=self.team).count() == 0
+
+    @patch("posthog.tasks.early_access_feature.coming_soon_waitlist_surveys_enabled", return_value=False)
+    def test_task_does_nothing_when_flag_disabled(self, _mock_enabled):
+        from posthog.tasks.early_access_feature import create_waitlist_survey_for_concept_feature
+
+        from products.surveys.backend.models import Survey
+
+        feature = self._concept_feature(name="Gated off")
+        create_waitlist_survey_for_concept_feature(str(feature.id))
+
+        feature.refresh_from_db()
+        assert not (feature.payload or {}).get("survey_id")
+        assert Survey.objects.filter(team=self.team).count() == 0
+
+    @patch("posthog.tasks.early_access_feature.coming_soon_waitlist_surveys_enabled", return_value=True)
+    def test_task_creates_survey_when_flag_enabled(self, _mock_enabled):
+        from posthog.tasks.early_access_feature import create_waitlist_survey_for_concept_feature
+
+        from products.surveys.backend.models import Survey
+
+        feature = self._concept_feature(name="Gated on")
+        create_waitlist_survey_for_concept_feature(str(feature.id))
+
+        feature.refresh_from_db()
+        assert feature.payload.get("survey_id")
+        assert Survey.objects.filter(team=self.team, linked_flag=feature.feature_flag).count() == 1

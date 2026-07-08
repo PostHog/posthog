@@ -153,9 +153,68 @@ function PreviewCard({ feature, title, description, actions, children }: Preview
 }
 
 function ConceptPreview({ feature }: { feature: EnrichedEarlyAccessFeature }): JSX.Element {
-    const { updateEarlyAccessFeatureEnrollment, copyExternalFeaturePreviewLink } = useActions(featurePreviewsLogic)
+    const { updateEarlyAccessFeatureEnrollment, copyExternalFeaturePreviewLink, submitConceptSurvey } =
+        useActions(featurePreviewsLogic)
+    const { waitlistSurveysEnabled, conceptSurveySubmissions } = useValues(featurePreviewsLogic)
 
     const { flagKey, enabled, name, description } = feature
+    const [email, setEmail] = useState('')
+
+    // When the gate is on and the feature has a linked waitlist survey, collect an email
+    // (recorded as a survey response) instead of the one-click, login-tied enrollment.
+    const surveyId = (feature.payload as Record<string, any> | undefined)?.survey_id
+    const useSurvey = waitlistSurveysEnabled && !!surveyId
+    const surveySubmitted = !!conceptSurveySubmissions[flagKey]
+
+    let actions: JSX.Element
+    if (useSurvey) {
+        actions = surveySubmitted ? (
+            <span className="flex items-center gap-1 text-success font-medium">
+                <IconCheck /> Thanks — we'll email you when it's ready.
+            </span>
+        ) : (
+            <form
+                className="flex items-center gap-2"
+                onSubmit={(e) => {
+                    e.preventDefault()
+                    if (email) {
+                        submitConceptSurvey(flagKey, email)
+                    }
+                }}
+            >
+                <LemonInput
+                    type="email"
+                    value={email}
+                    onChange={setEmail}
+                    placeholder="email@yourcompany.com"
+                    size="small"
+                />
+                <LemonButton
+                    type="primary"
+                    size="small"
+                    htmlType="submit"
+                    disabledReason={!email ? 'Enter your email' : undefined}
+                >
+                    Get notified
+                </LemonButton>
+            </form>
+        )
+    } else {
+        actions = (
+            <LemonButton
+                type="primary"
+                disabledReason={
+                    enabled && "You have already expressed your interest. We'll contact you when it's ready"
+                }
+                onClick={() => updateEarlyAccessFeatureEnrollment(flagKey, true, feature.stage)}
+                size="small"
+                sideIcon={enabled ? <IconCheck /> : <IconBell />}
+                className="w-fit"
+            >
+                {enabled ? 'Registered' : 'Get notified'}
+            </LemonButton>
+        )
+    }
 
     return (
         <PreviewCard
@@ -175,22 +234,7 @@ function ConceptPreview({ feature }: { feature: EnrichedEarlyAccessFeature }): J
                     {description || <span className="text-tertiary">No description</span>}
                 </p>
             }
-            actions={
-                <div className="flex flex-col gap-2">
-                    <LemonButton
-                        type="primary"
-                        disabledReason={
-                            enabled && "You have already expressed your interest. We'll contact you when it's ready"
-                        }
-                        onClick={() => updateEarlyAccessFeatureEnrollment(flagKey, true, feature.stage)}
-                        size="small"
-                        sideIcon={enabled ? <IconCheck /> : <IconBell />}
-                        className="w-fit"
-                    >
-                        {enabled ? 'Registered' : 'Get notified'}
-                    </LemonButton>
-                </div>
-            }
+            actions={<div className="flex flex-col gap-2">{actions}</div>}
         />
     )
 }
