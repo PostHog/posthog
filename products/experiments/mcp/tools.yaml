@@ -1045,9 +1045,6 @@ tools:
     experiments-recalculate-timeseries:
         operation: experiments_recalculate_timeseries_create
         enabled: false
-    experiments-requires-flag-implementation:
-        operation: experiments_requires_flag_implementation_retrieve
-        enabled: false
     experiments-update:
         operation: experiments_update
         enabled: false
