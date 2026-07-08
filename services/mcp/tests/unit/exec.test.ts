@@ -508,6 +508,63 @@ describe('exec tool', () => {
         })
     })
 
+    describe('output_format suppression', () => {
+        // Mirrors the generated query wrappers / insight-query: `output_format`
+        // toggles whether the handler surfaces the server-side formatted table.
+        function makeFormatterTool(received: Record<string, unknown>[]): Tool<ZodObjectAny> {
+            return makeMockTool({
+                schema: z.object({
+                    series: z.string().optional().describe('Query series'),
+                    output_format: z.enum(['optimized', 'json']).default('optimized').optional(),
+                }),
+                handler: async (_ctx, params) => {
+                    received.push(params as Record<string, unknown>)
+                    const optimized = (params as { output_format?: string }).output_format !== 'json'
+                    return {
+                        results: [{ count: 6 }],
+                        ...(optimized ? { [POSTHOG_FORMATTED_RESULTS_OVERRIDE_KEY]: 'Date|count\n2026-05-07|6' } : {}),
+                    }
+                },
+            })
+        }
+
+        it.each(['info mock-tool', 'schema mock-tool'])(
+            'hides output_format from the schema rendered by "%s"',
+            async (command) => {
+                const exec = createExec([makeFormatterTool([])])
+                const result = (await exec.handler(mockContext, { command })) as string
+                expect(result).toContain('series')
+                expect(result).not.toContain('output_format')
+            }
+        )
+
+        it('returns raw JSON when output_format:"json" is passed in the call input', async () => {
+            const exec = createExec([makeFormatterTool([])])
+            const result = (await exec.handler(mockContext, {
+                command: 'call mock-tool {"output_format":"json"}',
+            })) as string
+            const parsed = JSON.parse(result)
+            expect(parsed.results).toEqual([{ count: 6 }])
+            expect(parsed[POSTHOG_FORMATTED_RESULTS_OVERRIDE_KEY]).toBeUndefined()
+        })
+
+        it('folds --json into the dispatched output_format so the handler skips the formatter', async () => {
+            const received: Record<string, unknown>[] = []
+            const exec = createExec([makeFormatterTool(received)])
+            const result = (await exec.handler(mockContext, { command: 'call --json mock-tool' })) as string
+            expect(received[0]!.output_format).toBe('json')
+            expect(JSON.parse(result).results).toEqual([{ count: 6 }])
+        })
+
+        it('still dispatches the schema default "optimized" so the formatted table wins by default', async () => {
+            const received: Record<string, unknown>[] = []
+            const exec = createExec([makeFormatterTool(received)])
+            const result = await exec.handler(mockContext, { command: 'call mock-tool' })
+            expect(received[0]!.output_format).toBe('optimized')
+            expect(result).toBe('Date|count\n2026-05-07|6')
+        })
+    })
+
     describe('info command', () => {
         it('returns YAML for the top shape with the input schema embedded as JSON', async () => {
             const tool = makeMockTool({ schema: z.object({ name: z.string().describe('Person name') }) })

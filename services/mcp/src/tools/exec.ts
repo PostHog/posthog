@@ -191,6 +191,28 @@ export function formatInputValidationError(toolName: string, error: z.ZodError):
     return `Invalid input for "${toolName}": ${[...new Set(parts)].join('; ')}`
 }
 
+/** Whether the tool's input schema declares an `output_format` field. */
+function schemaHasOutputFormat(schema: ZodObjectAny): boolean {
+    return schema instanceof z.ZodObject && 'output_format' in schema.shape
+}
+
+/**
+ * Exec mode owns output encoding through the `--json` call flag, so tools must
+ * not also advertise their `output_format` input — an agent passing
+ * `output_format: "json"` would make the handler skip the server-side formatter
+ * only for exec to TOON-encode the raw result anyway. `call` folds the flag back
+ * into the field for tools that have it (see the `call` verb), so hiding it here
+ * loses no capability.
+ */
+function stripOutputFormatProperty(jsonSchema: Record<string, unknown>): Record<string, unknown> {
+    const properties = jsonSchema.properties as Record<string, unknown> | undefined
+    if (!properties || !('output_format' in properties)) {
+        return jsonSchema
+    }
+    const { output_format: _omitted, ...rest } = properties
+    return { ...jsonSchema, properties: rest }
+}
+
 function findTool(tools: Tool<ZodObjectAny>[], name: string): Tool<ZodObjectAny> {
     const tool = tools.find((t) => t.name === name)
     if (!tool) {
@@ -313,7 +335,7 @@ export function createExecTool(
                         throw new Error('Usage: info [--json] <tool_name>')
                     }
                     const tool = findTool(allTools, infoArgs)
-                    const fullSchema = z.toJSONSchema(tool.schema)
+                    const fullSchema = stripOutputFormatProperty(z.toJSONSchema(tool.schema) as Record<string, unknown>)
                     // YAML for the top shape, but inputSchema stays as a JSON
                     // string dumped inside the YAML — JSON Schema is conventionally
                     // JSON and converting it to YAML obscures `$ref`, `oneOf`, etc.
@@ -350,7 +372,9 @@ export function createExecTool(
                     }
                     const { verb: schemaToolName, rest: fieldPath } = parseCommand(rest)
                     const schemaTool = findTool(allTools, schemaToolName)
-                    const fullJsonSchema = z.toJSONSchema(schemaTool.schema) as Record<string, unknown>
+                    const fullJsonSchema = stripOutputFormatProperty(
+                        z.toJSONSchema(schemaTool.schema) as Record<string, unknown>
+                    )
 
                     if (!fieldPath) {
                         // The bare `schema <tool>` view is always a summary. Any
@@ -413,7 +437,25 @@ export function createExecTool(
                         }
                     }
 
-                    const useJson = forceJson || tool._meta?.[POSTHOG_META_KEY]?.outputFormat === 'json'
+                    // `output_format` is hidden from exec-mode schemas — `--json` owns output
+                    // encoding. Honor a stray `output_format: "json"` as `--json` instead of
+                    // letting the handler skip the formatter only for the result to be
+                    // TOON-encoded anyway.
+                    let strayOutputFormat: unknown
+                    if ('output_format' in input) {
+                        ;({ output_format: strayOutputFormat, ...input } = input)
+                    }
+                    const useJson =
+                        forceJson ||
+                        strayOutputFormat === 'json' ||
+                        tool._meta?.[POSTHOG_META_KEY]?.outputFormat === 'json'
+                    // Fold the flag back into the tool's own `output_format` field when it has
+                    // one: formatter-toggle tools then skip the server-side formatter (clean raw
+                    // JSON, no `__formatted_results_override` duplication), and tools where the
+                    // field is a real backend param (dashboard-insights-run) keep full function.
+                    if (useJson && schemaHasOutputFormat(tool.schema)) {
+                        input.output_format = 'json'
+                    }
 
                     // Same validation gate as the non-exec MCP path (`tool-executor.ts`) —
                     // otherwise bad input reaches the HTTP layer and builds URLs like
