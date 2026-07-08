@@ -2,11 +2,13 @@ from collections.abc import Sequence
 from typing import Any, Optional, cast
 
 from django.apps import apps
+from django.db.models import BigIntegerField, CharField, F, QuerySet, Value
+from django.db.models.functions import Cast
 
 from drf_spectacular.utils import extend_schema_field
 from rest_framework import serializers
 
-from posthog.api.file_system.deletion import get_file_system_registration
+from posthog.api.file_system.deletion import ModelRegistration, get_file_system_registration
 from posthog.rbac.user_access_control import (
     ACCESS_CONTROL_RESOURCES,
     RESOURCE_INHERITANCE_MAP,
@@ -25,6 +27,33 @@ def _is_access_controlled_type(file_system_type: str) -> bool:
     return file_system_type in ACCESS_CONTROL_RESOURCES or file_system_type in RESOURCE_INHERITANCE_MAP
 
 
+def _ref_translation_queryset(
+    entry_type: str, registration: ModelRegistration, refs: list[str], project_id: int
+) -> QuerySet:
+    """Queryset yielding (type, ref, pk, created_by_id) rows for one entry type, with uniform
+    column types so querysets of different models can be UNIONed into one statement."""
+    model = apps.get_model(registration.app_label, registration.model_name)
+    manager = getattr(model, registration.manager_name, model._default_manager)
+    lookup_field = registration.lookup_field
+    return (
+        manager.filter(
+            **{
+                f"{registration.team_field}__project_id": project_id,
+                f"{lookup_field}__in": refs,
+            }
+        )
+        .annotate(
+            _type=Value(entry_type, output_field=CharField()),
+            _ref=Cast(lookup_field, output_field=CharField()),
+            _pk=Cast("pk", output_field=CharField()),
+            _created_by_id=F("created_by_id")
+            if hasattr(model, "created_by")
+            else Value(None, output_field=BigIntegerField()),
+        )
+        .values_list("_type", "_ref", "_pk", "_created_by_id")
+    )
+
+
 def bulk_file_system_access_levels(
     entries: Sequence[FileSystemAccessEntry],
     user_access_control: UserAccessControl,
@@ -38,7 +67,7 @@ def bulk_file_system_access_levels(
 
     AccessControl rows are keyed by the target object's pk, while some file system types
     (insight, notebook, session_recording_playlist) use short_id as their ref, so those refs
-    are translated through the registered model - at most one query per type present.
+    are translated through the registered models - all types UNIONed into a single query.
     """
     results: dict[tuple[str, str], Optional[AccessControlLevel]] = {}
     user_id = user_access_control.user.id
@@ -53,40 +82,46 @@ def bulk_file_system_access_levels(
         if by_ref.get(ref) is None or created_by_id == user_id:
             by_ref[ref] = created_by_id
 
+    # One UNION query across every type needing a ref->pk translation or a creator lookup
+    translation_querysets = []
+    for entry_type, creator_by_provided_ref in entries_by_type.items():
+        registration = get_file_system_registration(entry_type)
+        if not registration:
+            continue
+        needs_creator = any(created_by_id is None for created_by_id in creator_by_provided_ref.values())
+        if registration.lookup_field == "id" and not needs_creator:
+            continue
+        translation_querysets.append(
+            _ref_translation_queryset(entry_type, registration, list(creator_by_provided_ref), project_id)
+        )
+
+    # (type, ref) -> (pk, created_by_id)
+    translated: dict[tuple[str, str], tuple[str, Optional[int]]] = {}
+    if translation_querysets:
+        union_qs = translation_querysets[0]
+        if len(translation_querysets) > 1:
+            union_qs = union_qs.union(*translation_querysets[1:], all=True)
+        for row_type, ref_value, pk_value, created_by_id in union_qs:
+            translated[(row_type, str(ref_value))] = (str(pk_value), created_by_id)
+
     for entry_type, creator_by_provided_ref in entries_by_type.items():
         resource = cast(APIScopeObject, entry_type)
         registration = get_file_system_registration(entry_type)
         lookup_field = registration.lookup_field if registration else "id"
-        needs_creator = any(created_by_id is None for created_by_id in creator_by_provided_ref.values())
-
-        pk_by_ref: dict[str, str] = {}
-        creator_by_ref: dict[str, Optional[int]] = {}
-        if registration and (lookup_field != "id" or needs_creator):
-            model = apps.get_model(registration.app_label, registration.model_name)
-            manager = getattr(model, registration.manager_name, model._default_manager)
-            columns = [lookup_field, "pk"] + (["created_by_id"] if hasattr(model, "created_by") else [])
-            rows = manager.filter(
-                **{
-                    f"{registration.team_field}__project_id": project_id,
-                    f"{lookup_field}__in": list(creator_by_provided_ref),
-                }
-            ).values_list(*columns)
-            for row in rows:
-                ref_value = str(row[0])
-                pk_by_ref[ref_value] = str(row[1])
-                creator_by_ref[ref_value] = row[2] if len(row) > 2 else None
 
         objects: list[tuple[str, Optional[int]]] = []
         ref_by_pk: dict[str, str] = {}
         for ref, provided_creator in creator_by_provided_ref.items():
-            pk = ref if lookup_field == "id" else pk_by_ref.get(ref)
+            row = translated.get((entry_type, ref))
+            pk = ref if lookup_field == "id" else (row[0] if row else None)
             if pk is None:
                 # The ref no longer resolves to an object - nothing to gate on
                 results[(entry_type, ref)] = None
                 continue
             ref_by_pk[pk] = ref
-            objects.append((pk, provided_creator if provided_creator is not None else creator_by_ref.get(ref)))
+            objects.append((pk, provided_creator if provided_creator is not None else (row[1] if row else None)))
 
+        # Resolves from the in-memory access control preload - no queries per type
         levels = user_access_control.bulk_object_access_levels(resource, objects)
         for pk, level in levels.items():
             results[(entry_type, ref_by_pk[pk])] = level
