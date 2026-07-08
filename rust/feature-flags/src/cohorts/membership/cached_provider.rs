@@ -80,6 +80,9 @@ impl<P: CohortMembershipProvider> CohortMembershipProvider for CachedCohortMembe
 
             if uncached_ids.is_empty() {
                 common_metrics::inc(COHORT_MEMBERSHIP_CACHE_HIT_COUNTER, &[], 1);
+                // Also refresh the gauge on hits: entry_count shrinks on TTL expiry
+                // and eviction, which insert-only reporting would never surface.
+                self.report_entries_gauge();
                 return Ok(cohort_ids
                     .iter()
                     .map(|id| (*id, cached.get(id).copied().unwrap_or(false)))

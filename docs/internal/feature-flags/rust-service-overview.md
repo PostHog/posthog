@@ -239,13 +239,13 @@ All values come from environment variables via the `envconfig` crate. Defined in
 
 ### Behavioral cohorts
 
-| Variable                               | Default  | Purpose                                                                                                                   |
-| -------------------------------------- | -------- | ------------------------------------------------------------------------------------------------------------------------- |
-| `BEHAVIORAL_COHORTS_READ_DATABASE_URL` | (empty)  | Optional PostgreSQL connection for realtime cohort membership lookups. When empty, realtime cohort evaluation is disabled |
-| `REALTIME_COHORT_EVALUATION_TEAM_IDS`  | `none`   | Rollout gate for realtime cohort evaluation: `none`, `all`, or specific team IDs / ranges (e.g. `1,5,300:400`)            |
-| `COHORT_MEMBERSHIP_CACHE_TTL_SECONDS`  | `60`     | Cache TTL for cohort membership lookups                                                                                   |
-| `COHORT_MEMBERSHIP_CACHE_MAX_ENTRIES`  | `500000` | Max entries in cohort membership cache                                                                                    |
-| `REALTIME_COHORT_LOOKUP_TIMEOUT_MS`    | `500`    | Upper bound on one membership lookup (pool acquire + query); on timeout the lookup degrades to non-membership             |
+| Variable                               | Default  | Purpose                                                                                                                                                                           |
+| -------------------------------------- | -------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `BEHAVIORAL_COHORTS_READ_DATABASE_URL` | (empty)  | Optional PostgreSQL connection for realtime cohort membership lookups. When empty, no pool is created and a NoOp provider resolves every realtime cohort lookup to non-membership |
+| `REALTIME_COHORT_EVALUATION_TEAM_IDS`  | `none`   | Rollout gate for realtime cohort evaluation: `none`, `all`, or specific team IDs / ranges (e.g. `1,5,300:400`)                                                                    |
+| `COHORT_MEMBERSHIP_CACHE_TTL_SECONDS`  | `60`     | Cache TTL for cohort membership lookups                                                                                                                                           |
+| `COHORT_MEMBERSHIP_CACHE_MAX_ENTRIES`  | `500000` | Max entries in cohort membership cache                                                                                                                                            |
+| `REALTIME_COHORT_LOOKUP_TIMEOUT_MS`    | `500`    | Upper bound on one membership lookup (pool acquire + query); on timeout the lookup degrades to non-membership                                                                     |
 
 The behavioral cohorts pool uses tight limits (max 5 connections, 1s statement timeout) since it only performs simple key lookups against the `cohort_membership` table.
 Realtime cohort evaluation degrades gracefully at every layer, always treating people as non-members rather than failing flag evaluation:
