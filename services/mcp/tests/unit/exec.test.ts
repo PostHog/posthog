@@ -18,6 +18,7 @@ import {
     type Tool,
     type ZodObjectAny,
 } from '@/tools/types'
+import { APP_DATA_META_KEY } from '@/ui-apps/types'
 
 function makeMockTool(overrides: Partial<Tool<ZodObjectAny>> = {}): Tool<ZodObjectAny> {
     return {
@@ -202,6 +203,36 @@ describe('exec tool', () => {
             // through unchanged; without it the outer wrapper would re-run
             // buildToolResultPayload and object-rest-destructure the content.
             expect(result.__execBuiltPayload).toBe(true)
+        })
+
+        it('suppresses structuredContent toward the model but re-homes UI data onto _meta when consumer is posthog-code and result has a formatted override', async () => {
+            const tool = makeMockTool({
+                _meta: { ui: { resourceUri: 'ui://posthog/mock-app.html' } },
+                handler: async () => ({
+                    results: [{ data: [1, 2, 3], count: 6 }],
+                    _posthogUrl: 'http://localhost:8010/insights/new#q=...',
+                    [POSTHOG_FORMATTED_RESULTS_OVERRIDE_KEY]: 'Date|count\n2026-05-07|6',
+                }),
+            })
+            const exec = createExec([tool], 'posthog-code')
+            const result = (await exec.handler(mockContext, { command: 'call mock-tool' })) as {
+                content: { type: string; text: string }[]
+                structuredContent?: Record<string, unknown>
+                _meta: { ui: { resourceUri: string }; [key: string]: unknown }
+            }
+
+            // Model sees ONLY the compact table, not the raw results JSON.
+            expect(result.content[0]!.text).toBe('Date|count\n2026-05-07|6')
+            // Top-level structuredContent is dropped so coding agents don't surface it.
+            expect(result.structuredContent).toBeUndefined()
+            // The UI app's data (with analytics) rides on _meta instead.
+            const appData = result._meta[APP_DATA_META_KEY] as {
+                results: unknown
+                _analytics: { distinctId: string; toolName: string }
+            }
+            expect(appData.results).toEqual([{ data: [1, 2, 3], count: 6 }])
+            expect(appData._analytics).toEqual({ distinctId: 'test-distinct-id', toolName: 'mock-tool' })
+            expect(result._meta.ui.resourceUri).toBe('ui://posthog/mock-app.html')
         })
 
         // posthog_ai is sent as its own consumer for attribution but is NOT a UI-apps host.

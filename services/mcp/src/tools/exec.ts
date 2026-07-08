@@ -460,10 +460,13 @@ export function createExecTool(
                                 toolMeta: tool._meta,
                                 toolName: tool.name,
                                 params: useJson ? { ...input, output_format: 'json' } : input,
-                                // Consumer is the UI-apps host; keep `structuredContent` for the UI.
-                                // Passing `false` bypasses coding-agent suppression in
-                                // `buildToolResultPayload` because this path explicitly wants it.
-                                suppressStructuredContentForFormattedResults: false,
+                                // PostHog Code is a coding-agent host: it surfaces
+                                // `structuredContent` to the model in preference to the text
+                                // content, which would bury the compact formatted table under
+                                // the raw JSON. Suppress it so the model reads the optimized
+                                // table; `buildToolResultPayload` re-homes the UI app's data
+                                // onto `_meta` (see APP_DATA_META_KEY) so the chart still renders.
+                                suppressStructuredContentForFormattedResults: true,
                                 distinctId,
                                 includeUiResponseMeta: true,
                             })

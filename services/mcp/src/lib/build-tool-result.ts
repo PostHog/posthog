@@ -3,7 +3,7 @@ import { RESOURCE_URI_META_KEY } from '@modelcontextprotocol/ext-apps/server'
 import { estimateTokens } from '@/lib/estimate-tokens'
 import { formatResponse } from '@/lib/response'
 import { POSTHOG_FORMATTED_RESULTS_OVERRIDE_KEY, POSTHOG_META_KEY } from '@/tools/types'
-import type { AnalyticsMetadata, WithAnalytics } from '@/ui-apps/types'
+import { APP_DATA_META_KEY, type AnalyticsMetadata, type WithAnalytics } from '@/ui-apps/types'
 
 export interface ToolResultMeta {
     ui?: { resourceUri?: string }
@@ -155,6 +155,13 @@ export function buildToolResultPayload(opts: BuildToolResultOptions): ToolResult
         payload._meta = {
             ui: { resourceUri },
             [RESOURCE_URI_META_KEY]: resourceUri,
+        }
+        // `structuredContent` was dropped so the model reads the compact formatted
+        // table, but the UI app still needs the data to render. `_meta` is host-
+        // and app-only (never surfaced to the model), so carry the app payload here
+        // and let `useToolResult` hydrate from it. See APP_DATA_META_KEY.
+        if (suppressStructuredContent && hasUiResource) {
+            payload._meta[APP_DATA_META_KEY] = structuredContent as Record<string, unknown>
         }
     }
     return payload
