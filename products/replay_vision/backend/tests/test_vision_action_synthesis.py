@@ -114,6 +114,53 @@ class TestVisionActionSynthesis(BaseTest):
         self.assertIn("*Summary*", run.output["slack"])
         self.assertIn("*Two*", run.output["slack"])
 
+    def test_labels_each_observation_line_for_citation(self) -> None:
+        # Every fed observation line is prefixed with a 1-based `[obs N]` label so the model can cite the
+        # observations behind a theme; the frontend resolves those labels back to observation links. A
+        # dropped or misaligned label would break that resolution.
+        self._observation("Users churned at checkout", title="Checkout")
+        self._observation("Onboarding looked smooth", title="Onboarding", session_id="s2")
+        action = self._action()
+        run = self._run_for(action)
+
+        prompts: list[str] = []
+        self._synthesize(action, run, captured_prompts=prompts)
+
+        self.assertIn("[obs 1] (", prompts[0])
+        self.assertIn("[obs 2] (", prompts[0])
+        self.assertNotIn("[obs 3]", prompts[0])
+
+    def test_slack_drops_citations_that_markdown_keeps(self) -> None:
+        # The canonical report keeps the `[obs N]` citation markers for the in-app renderer to resolve into
+        # links; the Slack payload drops them (Slack has no observation deep-link to resolve them to yet), so
+        # the prose stays clean rather than carrying bare labels.
+        self._observation("Users churned at checkout", title="Checkout")
+        action = self._action()
+        run = self._run_for(action)
+
+        self._synthesize(action, run, llm_content="Users hit friction at checkout [obs 1].")
+
+        run.refresh_from_db()
+        self.assertIn("[obs 1]", run.synthesized_markdown)
+        self.assertNotIn("[obs 1]", run.output["slack"])
+        self.assertIn("Users hit friction at checkout.", run.output["slack"])
+
+    def test_caps_runaway_citation_lists(self) -> None:
+        # A theme the model backs with many recordings must not render a wall of citations: an adjacent run
+        # is trimmed to a representative handful, keeping the first few. Guards both the in-app markdown and
+        # (once it renders links) the Slack payload, since the cap runs on the stored report.
+        for i in range(10):
+            self._observation(f"obs {i}", session_id=f"s{i}")
+        action = self._action()
+        run = self._run_for(action)
+
+        citations = " ".join(f"[obs {i}]" for i in range(1, 10))  # 9 adjacent citations
+        self._synthesize(action, run, llm_content=f"Users hit friction across this flow {citations}.")
+
+        run.refresh_from_db()
+        self.assertEqual(run.synthesized_markdown.count("[obs "), 6)
+        self.assertIn("[obs 1] [obs 2] [obs 3] [obs 4] [obs 5] [obs 6]", run.synthesized_markdown)
+
     def test_summary_leads_with_scanner_window_and_count_header(self) -> None:
         # The report must always state which scanner it's for, how many recordings it covers, and the
         # window start — prepended in code so it's present regardless of what the LLM returns.
