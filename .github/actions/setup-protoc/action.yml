@@ -62,6 +62,7 @@ runs:
 
         - name: Add protoc to PATH
           shell: bash
-          run: |
+          # writes its own install path, no untrusted input
+          run: | # zizmor: ignore[github-env]
               echo "$RUNNER_TEMP/protoc/bin" >> "$GITHUB_PATH"
               "$RUNNER_TEMP/protoc/bin/protoc" --version

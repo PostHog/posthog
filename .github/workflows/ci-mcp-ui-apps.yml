@@ -11,7 +11,7 @@ concurrency:
 
 permissions:
     contents: read
-    pull-requests: write
+    pull-requests: read
 
 jobs:
     changes:
@@ -49,6 +49,9 @@ jobs:
                         - '.github/workflows/ci-mcp-ui-apps.yml'
 
     build-and-report:
+        permissions:
+            contents: read
+            pull-requests: write
         name: Build and validate UI Apps
         runs-on: ubuntu-latest
         timeout-minutes: 10

@@ -1,9 +1,7 @@
 name: Terragrunt PostHog
 
 permissions:
-    id-token: write
     contents: read
-    pull-requests: write
 
 on:
     pull_request:
@@ -23,6 +21,9 @@ concurrency:
 
 jobs:
     setup:
+        permissions:
+            contents: read
+            pull-requests: write
         runs-on: ubuntu-22.04
         timeout-minutes: 15
         outputs:
@@ -69,6 +70,10 @@ jobs:
                   issue: '${{ github.event.number }}'
 
     terragrunt:
+        permissions:
+            contents: read
+            id-token: write
+            pull-requests: write
         if: needs.setup.outputs.matrix_data != '[]'
         needs: [setup]
         name: ${{ matrix.service_name }}
@@ -99,7 +104,7 @@ jobs:
 
             - name: Plan Terraform ${{ matrix.working_dir }}
               if: github.ref != 'refs/heads/master'
-              uses: PostHog/terragrunt-action@8ca7875a6786a8eb884dd53d7c360f0aa5947bfb # v4.3.1
+              uses: PostHog/terragrunt-action@8ca7875a6786a8eb884dd53d7c360f0aa5947bfb # fork master: v4.3.1 plus pinned internal refs
               env:
                   GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
               with:
@@ -120,7 +125,7 @@ jobs:
 
             - name: Apply Terraform ${{ matrix.working_dir }}
               if: github.ref == 'refs/heads/master'
-              uses: PostHog/terragrunt-action@8ca7875a6786a8eb884dd53d7c360f0aa5947bfb # v4.3.1
+              uses: PostHog/terragrunt-action@8ca7875a6786a8eb884dd53d7c360f0aa5947bfb # fork master: v4.3.1 plus pinned internal refs
               env:
                   GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
               with:

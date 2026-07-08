@@ -449,7 +449,8 @@ jobs:
               run: find frontend/__snapshots__ -name '*.png' -delete 2>/dev/null || true
 
             # Capture-only: VR is the gate for visual changes, jest just captures screenshots
-            - name: Run @storybook/test-runner
+            # matrix/needs values are workflow-defined, not untrusted input
+            - name: Run @storybook/test-runner # zizmor: ignore[template-injection]
               id: test-runner
               shell: bash
               env:
@@ -917,7 +918,7 @@ jobs:
                   fetch-depth: 1
                   persist-credentials: false
             - name: Download JUnit artifacts
-              uses: actions/download-artifact@634f93cb2916e3fdff6788551b99b062d0335ce0 # v6.0.0
+              uses: actions/download-artifact@634f93cb2916e3fdff6788551b99b062d0335ce0 # v5.0.0
               continue-on-error: true
               with:
                   path: ./junit-artifacts

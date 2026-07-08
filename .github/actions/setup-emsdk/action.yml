@@ -53,7 +53,8 @@ runs:
           shell: bash
           env:
               EMSDK_VERSION: ${{ inputs.version }}
-          run: |
+          # writes its own install paths, no untrusted input
+          run: | # zizmor: ignore[github-env]
               set -euo pipefail
 
               VERSION="$EMSDK_VERSION"

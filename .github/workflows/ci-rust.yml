@@ -402,7 +402,7 @@ jobs:
                   cd ../ && ./bin/download-mmdb
 
             - name: Install cargo-binstall
-              uses: cargo-bins/cargo-binstall@5cbf019d8cb9b9d5b086218c41458ea35d817691 # main
+              uses: cargo-bins/cargo-binstall@5cbf019d8cb9b9d5b086218c41458ea35d817691 # v1.12.5
 
             - name: Install cargo-nextest
               # --force: Swatinem/rust-cache restores ~/.cargo/.crates2.json but not the
@@ -410,7 +410,8 @@ jobs:
               # installed") and leave no `cargo nextest` binary.
               run: cargo binstall --no-confirm --force cargo-nextest@0.9.140
 
-            - name: Run cargo test
+            # matrix.packages is computed from repo code, not untrusted input
+            - name: Run cargo test # zizmor: ignore[template-injection]
               env:
                   RUST_BACKTRACE: 1
                   # Set up dual database environment for feature-flags service
@@ -540,7 +541,7 @@ jobs:
               run: cargo check --all-features
 
             - name: Install cargo-binstall
-              uses: cargo-bins/cargo-binstall@5cbf019d8cb9b9d5b086218c41458ea35d817691 # main
+              uses: cargo-bins/cargo-binstall@5cbf019d8cb9b9d5b086218c41458ea35d817691 # v1.12.5
 
             - name: Install cargo-shear
               # --force is required: Swatinem/rust-cache restores ~/.cargo/.crates2.json

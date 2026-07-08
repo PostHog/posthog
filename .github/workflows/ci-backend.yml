@@ -68,7 +68,7 @@ env:
 
 permissions:
     contents: read
-    pull-requests: write
+    pull-requests: read
 
 jobs:
     # Job to decide if we should run backend ci
@@ -3093,7 +3093,7 @@ jobs:
                   version: '0.11.14' # pinned: unpinned setup-uv calls GH API on every job, exhausts rate limit
             - name: Download junit artifacts
               if: github.run_attempt == '1' && steps.timing-reporter.outputs.available == 'true'
-              uses: actions/download-artifact@634f93cb2916e3fdff6788551b99b062d0335ce0 # v6.0.0
+              uses: actions/download-artifact@634f93cb2916e3fdff6788551b99b062d0335ce0 # v5.0.0
               with:
                   path: ./junit-artifacts
                   pattern: junit-results-*

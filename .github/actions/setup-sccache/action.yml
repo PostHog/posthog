@@ -67,7 +67,8 @@ runs:
 
         - name: Configure sccache
           shell: bash
-          run: |
+          # writes its own install path, no untrusted input
+          run: | # zizmor: ignore[github-env]
               echo "$RUNNER_TEMP/sccache" >> "$GITHUB_PATH"
               for i in 1 2 3; do
                 if "$RUNNER_TEMP/sccache/sccache" --start-server; then

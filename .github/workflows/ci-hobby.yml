@@ -20,8 +20,7 @@ concurrency:
 
 permissions:
     contents: read
-    pull-requests: write
-    deployments: write
+    pull-requests: read
 
 jobs:
     # Determine if we should run based on changed files or preview label
@@ -95,6 +94,10 @@ jobs:
                       core.setOutput('label_removed', labelRemoved.toString());
 
     wait-for-docker-image:
+        permissions:
+            contents: read
+            pull-requests: write
+            deployments: write
         name: Wait for Docker image build
         needs: changes
         runs-on: ubuntu-24.04
@@ -330,6 +333,10 @@ jobs:
                       });
 
     hobby-test:
+        permissions:
+            contents: read
+            pull-requests: write
+            deployments: write
         runs-on: ubuntu-24.04
         timeout-minutes: 90
         name: Setup DO Hobby Instance and test
@@ -348,6 +355,7 @@ jobs:
               uses: astral-sh/setup-uv@37802adc94f370d6bfd71619e3f0bf239e1f3b78
               with:
                   version: '0.11.14' # pinned: unpinned setup-uv calls GH API on every job, exhausts rate limit
+                  enable-cache: false
             - name: Set environment variables from previous job
               run: |
                   echo "PREVIEW_MODE=${{ github.event_name == 'pull_request' && needs.wait-for-docker-image.outputs.preview-mode || 'false' }}" >> $GITHUB_ENV

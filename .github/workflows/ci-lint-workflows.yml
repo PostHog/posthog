@@ -5,6 +5,7 @@ on:
         paths:
             - .github/workflows/**
             - .github/actions/**
+            - .github/zizmor.yml
             - services/**
             - tools/hogli-commands/hogli_commands/workflow_lint/**
             - hogli.yaml
@@ -41,3 +42,12 @@ jobs:
 
             - name: Lint workflows
               run: ./bin/hogli lint:workflows
+
+            # Security audit of workflows and composite actions. Offline mode skips
+            # the audits that need the GitHub API (ref/tag drift, known-vulnerable
+            # actions) to stay off the shared per-repo rate-limit bucket; run those
+            # locally per the header comment in .github/zizmor.yml.
+            - name: Run zizmor
+              env:
+                  ZIZMOR_OFFLINE: 'true'
+              run: uvx zizmor==1.26.1 --config .github/zizmor.yml --min-severity low --no-progress --format github .github/

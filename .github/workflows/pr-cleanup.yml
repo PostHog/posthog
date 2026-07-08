@@ -32,11 +32,12 @@ on:
                 type: number
                 default: 7
 
-permissions:
-    deployments: write
+permissions: {}
 
 jobs:
     cleanup-hobby-preview:
+        permissions:
+            deployments: write
         name: Cleanup hobby preview droplets
         runs-on: ubuntu-24.04
         timeout-minutes: 5

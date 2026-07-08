@@ -13,10 +13,12 @@ concurrency:
 
 permissions:
     contents: read
-    pull-requests: write
 
 jobs:
     check-sdk-requirements:
+        permissions:
+            contents: read
+            pull-requests: write
         name: Check for SDK version requirements
         runs-on: ubuntu-24.04
         timeout-minutes: 5

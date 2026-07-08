@@ -8,7 +8,6 @@ on:
 
 permissions:
     contents: read
-    pull-requests: write
 
 concurrency:
     group: ${{ github.workflow }}-${{ github.head_ref || github.ref }}
@@ -16,6 +15,9 @@ concurrency:
 
 jobs:
     check-version:
+        permissions:
+            contents: read
+            pull-requests: write
         name: Check version legitimacy
         runs-on: ubuntu-22.04
         timeout-minutes: 5
@@ -23,7 +25,7 @@ jobs:
             parser-release-needed: ${{ steps.version.outputs.parser-release-needed }}
             local-version: ${{ steps.version.outputs.local-version }}
         steps:
-            - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+            - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
               with:
                   fetch-depth: 0
                   filter: blob:none
@@ -123,14 +125,14 @@ jobs:
                       target: x86_64
 
         steps:
-            - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+            - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
 
             - uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6.2.0
               with:
                   python-version: '3.12.10' # 3.12.11/.12 binaries lag on macOS
 
             - name: Build wheel via maturin
-              uses: PyO3/maturin-action@aef21716ff3dcae8a1c301d23ec3e4446972a6e3 # v1.49.3
+              uses: PyO3/maturin-action@aef21716ff3dcae8a1c301d23ec3e4446972a6e3 # v1.49.1
               with:
                   command: build
                   target: ${{ matrix.target }}
@@ -146,7 +148,7 @@ jobs:
 
             - name: Build sdist (linux x86_64 manylinux only)
               if: matrix.os == 'ubuntu-22.04' && matrix.target == 'x86_64' && matrix.manylinux == '2_28'
-              uses: PyO3/maturin-action@aef21716ff3dcae8a1c301d23ec3e4446972a6e3 # v1.49.3
+              uses: PyO3/maturin-action@aef21716ff3dcae8a1c301d23ec3e4446972a6e3 # v1.49.1
               with:
                   command: sdist
                   args: --out dist --manifest-path rust/hogql/parser/Cargo.toml
@@ -198,7 +200,7 @@ jobs:
                   client-id: ${{ secrets.GH_APP_POSTHOG_TESTS_APP_ID }}
                   private-key: ${{ secrets.GH_APP_POSTHOG_TESTS_PRIVATE_KEY }}
 
-            - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+            - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
               with:
                   ref: ${{ github.event.pull_request.head.ref }}
                   token: ${{ steps.app-token.outputs.token }}
@@ -213,9 +215,8 @@ jobs:
               uses: astral-sh/setup-uv@eac588ad8def6316056a12d4907a9d4d84ff7a3b # v7.3.0
               with:
                   version: '0.11.14'
-                  enable-cache: true
-                  cache-dependency-glob: uv.lock
-                  save-cache: ${{ github.ref == 'refs/heads/master' }}
+                  # No cache in the publish job: restored caches can poison published artifacts
+                  enable-cache: false
 
             - name: Update hogql-parser-rs in requirements
               shell: bash

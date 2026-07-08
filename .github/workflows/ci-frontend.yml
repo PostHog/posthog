@@ -18,7 +18,7 @@ concurrency:
 
 permissions:
     contents: read
-    pull-requests: write
+    pull-requests: read
     actions: read
 
 env:
@@ -331,6 +331,10 @@ jobs:
               run: pnpm exec markdownlint-cli2 --config .config/.markdownlint-cli2.jsonc "**/*.{md,mdx}"
 
     frontend-bundle-size:
+        permissions:
+            contents: read
+            pull-requests: write
+            actions: read
         name: Frontend bundle size
         needs: [changes]
         if: needs.changes.outputs.frontend_code == 'true' && github.event_name != 'merge_group'

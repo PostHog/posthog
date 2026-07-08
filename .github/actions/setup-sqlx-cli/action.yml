@@ -47,6 +47,7 @@ runs:
 
         - name: Add sqlx-cli to PATH
           shell: bash
-          run: |
+          # writes its own install path, no untrusted input
+          run: | # zizmor: ignore[github-env]
               echo "$RUNNER_TEMP/sqlx-cli/bin" >> "$GITHUB_PATH"
               "$RUNNER_TEMP/sqlx-cli/bin/sqlx" --version

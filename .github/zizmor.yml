@@ -1,0 +1,50 @@
+# zizmor - GitHub Actions security auditor: https://docs.zizmor.sh
+# CI runs it in ci-lint-workflows.yml (offline, --min-severity low).
+# Full run with online audits (ref/tag drift, known-vulnerable actions):
+#   uvx zizmor --gh-token "$(gh auth token)" .github/
+
+rules:
+    artipacked:
+        # `persist-credentials: false` hardening across ~200 checkout steps.
+        # Some workflows push with the persisted credentials, so this needs a
+        # per-workflow burn-down rather than a mass fix.
+        disable: true
+
+    github-app:
+        # `permission-*` scoping on every create-github-app-token call (~84 sites).
+        # Requires auditing each app's installed permissions first; separate burn-down.
+        disable: true
+
+    dangerous-triggers:
+        # Deliberately hardened usages: each one only runs code checked out from
+        # master and passes untrusted PR fields via env, never interpolation. See
+        # the security comments in each workflow before changing them.
+        ignore:
+            - auto-assign-labels.yml
+            - auto-assign-reviewers.yml
+            - pr-posthog-js-reviewer.yml
+            - ci-alerts-devex.yml
+
+    excessive-permissions:
+        # Every job in this workflow posts reviews or comments, so the
+        # workflow-level write grant is genuinely workflow-wide.
+        ignore:
+            - pr-approval-agent.yml
+
+    # release.yml and release-cli.yml are derived from cargo-dist's generated
+    # workflow; the flagged expansions and images come from the dist plan JSON,
+    # which is repo-controlled.
+    template-injection:
+        ignore:
+            - release.yml
+            - release-cli.yml
+    unpinned-images:
+        ignore:
+            - release.yml
+            - release-cli.yml
+    adhoc-packages:
+        # Exact-version `npm install -g npm@x` upgrades needed for OIDC trusted
+        # publishing; release-cli.yml is cargo-dist derived (see above).
+        ignore:
+            - publish-quill-npm.yml
+            - release-cli.yml

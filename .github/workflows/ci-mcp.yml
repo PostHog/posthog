@@ -545,7 +545,7 @@ jobs:
                   python -m granian --interface asgi posthog.asgi:application --host 0.0.0.0 --port 8000 --workers 1 &> /tmp/server.log &
 
             - name: Wait for PostHog to be ready
-              uses: iFaxity/wait-on-action@1fe019e0475491e9e8c4f421b6914ccc3ed8f99c # v1.2.1
+              uses: iFaxity/wait-on-action@1fe019e0475491e9e8c4f421b6914ccc3ed8f99c # untagged: post-v1.2.1 with dependency security bumps
               with:
                   resource: http://localhost:8000
                   timeout: 180000
