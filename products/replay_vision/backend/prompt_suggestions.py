@@ -107,7 +107,7 @@ def _describe_reasoning(observation: ReplayObservation) -> str:
 
 def _label(observation: ReplayObservation) -> ReplayObservationLabel:
     """Typed accessor for the reverse one-to-one: guaranteed by the label__isnull=False filters here."""
-    return observation.label  # type: ignore[attr-defined]
+    return observation.label
 
 
 def _example_line(observation: ReplayObservation) -> str:
