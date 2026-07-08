@@ -20,12 +20,13 @@ import {
     LogsCountCreateBody,
     LogsCountRangesCreateBody,
     LogsFacetValuesCreateBody,
+    LogsPatternsCreateBody,
     LogsQueryCreateBody,
     LogsServicesCreateBody,
     LogsSparklineCreateBody,
     LogsValuesRetrieveQueryParams,
 } from '@/generated/logs/api'
-import { withPostHogUrl, pickResponseFields, type WithPostHogUrl } from '@/tools/tool-utils'
+import { withPostHogUrl, pickResponseFields, omitResponseFields, type WithPostHogUrl } from '@/tools/tool-utils'
 import type { Context, ToolBase, ZodObjectAny } from '@/tools/types'
 
 const LogsAlertsCreateSchema = LogsAlertsCreateBody
@@ -526,6 +527,33 @@ const logsFacetValuesCreate = (): ToolBase<typeof LogsFacetValuesCreateSchema, S
     },
 })
 
+const LogsPatternsSchema = LogsPatternsCreateBody
+
+const logsPatterns = (): ToolBase<typeof LogsPatternsSchema, Schemas._LogsPatternsResponse> => ({
+    name: 'logs-patterns',
+    schema: LogsPatternsSchema,
+    handler: async (context: Context, params: z.infer<typeof LogsPatternsSchema>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const body: Record<string, unknown> = {}
+        if (params.query !== undefined) {
+            body['query'] = params.query
+        }
+        const result = await context.api.request<Schemas._LogsPatternsResponse>({
+            method: 'POST',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/logs/patterns/`,
+            body,
+        })
+        const filtered = omitResponseFields(result, [
+            'patterns.*.examples',
+            'patterns.*.sparkline',
+            'patterns.*.count',
+            'patterns.*.error_count',
+            'sparkline_buckets',
+        ]) as typeof result
+        return filtered
+    },
+})
+
 const LogsServicesCreateSchema = LogsServicesCreateBody
 
 const logsServicesCreate = (): ToolBase<typeof LogsServicesCreateSchema, Schemas._LogsServicesResponse> => ({
@@ -604,6 +632,7 @@ export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
     'logs-count': logsCount,
     'logs-count-ranges': logsCountRanges,
     'logs-facet-values-create': logsFacetValuesCreate,
+    'logs-patterns': logsPatterns,
     'logs-services-create': logsServicesCreate,
     'logs-sparkline-query': logsSparklineQuery,
     'query-logs': queryLogs,

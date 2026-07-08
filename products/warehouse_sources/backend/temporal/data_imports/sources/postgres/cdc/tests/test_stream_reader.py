@@ -3,6 +3,7 @@ from unittest import mock
 from unittest.mock import patch
 
 import psycopg
+import psycopg.errors
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.postgres.cdc.stream_reader import (
     _SLOT_READ_MAX_ATTEMPTS,
@@ -336,4 +337,46 @@ class TestPgCDCStreamReaderConfirmPosition:
 
         assert cur.execute.call_count == 3
         conn.commit.assert_not_called()
+        conn.close.assert_called_once()
+
+    def test_confirm_position_tolerates_slot_already_ahead(self, params):
+        # A retried / overlapping run advanced the slot further, so Postgres refuses the backward
+        # advance. The WAL is already released past this LSN, so it must be a no-op, not a failure.
+        conn = mock.MagicMock()
+        conn.cursor.return_value.__enter__.return_value.execute.side_effect = (
+            psycopg.errors.ObjectNotInPrerequisiteState(
+                "cannot advance replication slot to B4/C7327D08, minimum is B4/CB22FB98"
+            )
+        )
+        connect = mock.MagicMock(return_value=conn)
+
+        reader = PgCDCStreamReader(params)
+        with patch(
+            "products.warehouse_sources.backend.temporal.data_imports.sources.postgres.cdc.stream_reader._connect_to_postgres",
+            connect,
+        ):
+            reader.confirm_position("B4/C7327D08")
+
+        conn.commit.assert_not_called()
+        conn.close.assert_called_once()
+
+    def test_confirm_position_reraises_other_prerequisite_errors(self, params):
+        # Slot invalidation is also ObjectNotInPrerequisiteState but must keep propagating so the
+        # slot gets recreated — only the "already ahead" case is swallowed.
+        conn = mock.MagicMock()
+        conn.cursor.return_value.__enter__.return_value.execute.side_effect = (
+            psycopg.errors.ObjectNotInPrerequisiteState(
+                "cannot advance replication slot that has not previously reserved WAL"
+            )
+        )
+        connect = mock.MagicMock(return_value=conn)
+
+        reader = PgCDCStreamReader(params)
+        with patch(
+            "products.warehouse_sources.backend.temporal.data_imports.sources.postgres.cdc.stream_reader._connect_to_postgres",
+            connect,
+        ):
+            with pytest.raises(psycopg.errors.ObjectNotInPrerequisiteState):
+                reader.confirm_position("B4/C7327D08")
+
         conn.close.assert_called_once()

@@ -6,6 +6,7 @@ import { expectLogic, partial } from 'kea-test-utils'
 import { dayjs } from 'lib/dayjs'
 import { urls } from 'scenes/urls'
 
+import { resumeKeaLoadersErrors, silenceKeaLoadersErrors } from '~/initKea'
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
 import {
@@ -21,7 +22,12 @@ import { FeatureFlagFilters } from '~/types'
 
 import { TemplateKey } from 'products/feature_flags/frontend/featureFlagTemplateConstants'
 
-import { defaultReleaseConditionsLogic, resolveDefaultReleaseConditions } from './defaultReleaseConditionsLogic'
+import * as defaultReleaseConditionsModule from './defaultReleaseConditionsLogic'
+import {
+    DefaultReleaseConditionsResponse,
+    defaultReleaseConditionsLogic,
+    resolveDefaultReleaseConditions,
+} from './defaultReleaseConditionsLogic'
 import { detectFeatureFlagChanges } from './featureFlagConfirmationLogic'
 import {
     NEW_FLAG,
@@ -395,6 +401,42 @@ describe('featureFlagLogic', () => {
                         }),
                     }),
                 })
+        })
+
+        it('does not access the store after unmounting mid-apply', async () => {
+            // applyTemplate awaits release conditions before reading values again. Unmounting during
+            // that await (navigating away, or the auto-apply from a ?template= param racing a fast
+            // unmount) must not touch a store path that no longer exists — that used to throw
+            // "Can not find path ... in the store" and surface as an unhandled rejection.
+            let resolveRelease: (value: DefaultReleaseConditionsResponse | null) => void = () => {}
+            const pendingRelease = new Promise<DefaultReleaseConditionsResponse | null>((resolve) => {
+                resolveRelease = resolve
+            })
+            const spy = jest
+                .spyOn(defaultReleaseConditionsModule, 'resolveDefaultReleaseConditions')
+                .mockReturnValue(pendingRelease)
+
+            const rejections: unknown[] = []
+            const onRejection = (error: unknown): void => {
+                rejections.push(error)
+            }
+            process.on('unhandledRejection', onRejection)
+
+            try {
+                // Listener parks on the pending release conditions, then we navigate away.
+                logic.actions.applyTemplate('targeted')
+                logic.unmount()
+
+                // Resuming after unmount must bail instead of reading values.featureFlag.
+                resolveRelease(null)
+                await pendingRelease
+                await new Promise((resolve) => setTimeout(resolve, 0))
+            } finally {
+                process.off('unhandledRejection', onRejection)
+                spy.mockRestore()
+            }
+
+            expect(rejections).toEqual([])
         })
     })
 
@@ -815,9 +857,6 @@ describe('featureFlagLogic', () => {
                 experiment_set_metadata: null,
             }
 
-            const noExperimentLogic = featureFlagLogic({ id: 3 })
-            noExperimentLogic.mount()
-
             useMocks({
                 get: {
                     [`/api/projects/${MOCK_DEFAULT_PROJECT.id}/feature_flags/${flagWithoutExperiment.id}/`]: () => [
@@ -828,6 +867,9 @@ describe('featureFlagLogic', () => {
                         () => [200, MOCK_FEATURE_FLAG_STATUS],
                 },
             })
+
+            const noExperimentLogic = featureFlagLogic({ id: 3 })
+            noExperimentLogic.mount()
 
             await expectLogic(noExperimentLogic, () => {
                 noExperimentLogic.actions.loadFeatureFlag()
@@ -851,7 +893,6 @@ describe('featureFlagLogic', () => {
             const flag = { ...MOCK_FEATURE_FLAG, id: 6, active: true }
 
             const testLogic = featureFlagLogic({ id: 6 })
-            testLogic.mount()
 
             useMocks({
                 get: {
@@ -866,6 +907,8 @@ describe('featureFlagLogic', () => {
                     ],
                 },
             })
+
+            testLogic.mount()
 
             await expectLogic(testLogic, () => {
                 testLogic.actions.loadFeatureFlag()
@@ -883,7 +926,6 @@ describe('featureFlagLogic', () => {
             const flag = { ...MOCK_FEATURE_FLAG, id: 4 }
 
             const testLogic = featureFlagLogic({ id: 4 })
-            testLogic.mount()
 
             useMocks({
                 get: {
@@ -899,6 +941,8 @@ describe('featureFlagLogic', () => {
                 },
             })
 
+            testLogic.mount()
+
             await expectLogic(testLogic, () => {
                 testLogic.actions.loadFeatureFlag()
             })
@@ -912,7 +956,6 @@ describe('featureFlagLogic', () => {
             const flag = { ...MOCK_FEATURE_FLAG, id: 5 }
 
             const testLogic = featureFlagLogic({ id: 5 })
-            testLogic.mount()
 
             useMocks({
                 get: {
@@ -928,6 +971,8 @@ describe('featureFlagLogic', () => {
                 },
             })
 
+            testLogic.mount()
+
             await expectLogic(testLogic, () => {
                 testLogic.actions.loadFeatureFlag()
             })
@@ -938,10 +983,10 @@ describe('featureFlagLogic', () => {
         })
 
         it('handles API failure gracefully and returns empty array', async () => {
+            silenceKeaLoadersErrors()
             const flag = { ...MOCK_FEATURE_FLAG, id: 14 }
 
             const testLogic = featureFlagLogic({ id: 14 })
-            testLogic.mount()
 
             useMocks({
                 get: {
@@ -957,6 +1002,8 @@ describe('featureFlagLogic', () => {
                 },
             })
 
+            testLogic.mount()
+
             await expectLogic(testLogic, () => {
                 testLogic.actions.loadFeatureFlag()
             })
@@ -964,6 +1011,7 @@ describe('featureFlagLogic', () => {
                 .toMatchValues({ dependentFlags: [], dependentFlagsLoading: false })
 
             testLogic.unmount()
+            resumeKeaLoadersErrors()
         })
     })
 
@@ -1149,8 +1197,11 @@ describe('featureFlagLogic', () => {
             })
 
             it('returns null when the fetch fails so new flag creation is not blocked', async () => {
+                // The graceful-failure path warns to the console by design.
+                const warnSpy = jest.spyOn(console, 'warn').mockImplementation(() => {})
                 useMocks({ get: { [conditionsUrl]: () => [500, {}] } })
                 await expect(resolveDefaultReleaseConditions(null, MOCK_DEFAULT_PROJECT.id)).resolves.toBeNull()
+                warnSpy.mockRestore()
             })
         })
     })
@@ -1339,6 +1390,18 @@ describe('variant reordering', () => {
     let logic: ReturnType<typeof featureFlagLogic.build>
 
     beforeEach(() => {
+        useMocks({
+            get: {
+                [`/api/projects/${MOCK_DEFAULT_PROJECT.id}/feature_flags/${MOCK_FEATURE_FLAG.id}/`]: () => [
+                    200,
+                    MOCK_FEATURE_FLAG,
+                ],
+                [`/api/projects/${MOCK_DEFAULT_PROJECT.id}/feature_flags/${MOCK_FEATURE_FLAG.id}/status`]: () => [
+                    200,
+                    MOCK_FEATURE_FLAG_STATUS,
+                ],
+            },
+        })
         initKeaTests()
         logic = featureFlagLogic({ id: 1 })
         logic.mount()

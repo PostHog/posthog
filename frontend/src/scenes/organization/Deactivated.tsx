@@ -1,11 +1,14 @@
 import { useValues } from 'kea'
 
-import { HedgehogStop } from '@posthog/brand/hoggies'
+import * as stopPng from '@posthog/brand/hoggies/png/stop'
 import { LemonCard } from '@posthog/lemon-ui'
 
+import { pngHoggie } from 'lib/brand/hoggies'
 import { SupportModalButton } from 'scenes/authentication/shared/SupportModalButton'
 import { organizationLogic } from 'scenes/organizationLogic'
 import { SceneExport } from 'scenes/sceneTypes'
+
+const HedgehogStop = pngHoggie(stopPng)
 
 export const scene: SceneExport = {
     component: OrganizationDeactivated,

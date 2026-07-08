@@ -171,6 +171,7 @@ jobs:
                       SCCACHE_NO_DAEMON=1
                       BIN=${{ matrix.bin || matrix.image }}
                       BUILD_FEATURES=${{ matrix.features || '' }}
+                      EXTRA_RUSTFLAGS=${{ matrix.extra_rustflags || '' }}
                       SCCACHE_WEBDAV_KEY_PREFIX=${{ steps.sccache.outputs.cache-key-prefix }}
                   secrets: |
                       SCCACHE_WEBDAV_ENDPOINT=${{ steps.sccache.outputs.endpoint }}

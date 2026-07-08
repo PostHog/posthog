@@ -13,6 +13,8 @@ from google.ads.googleads.v23.errors.types.request_error import RequestErrorEnum
 from google.api_core import exceptions as google_api_exceptions
 from google.auth import exceptions as google_auth_exceptions
 
+from posthog.schema import SourceFieldOauthConfig
+
 from posthog.models.integration import Integration
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import GoogleAdsSourceConfig
@@ -38,6 +40,17 @@ from products.warehouse_sources.backend.types import IncrementalFieldType
 
 _CUSTOMER_ID_ERROR = "valid Google Ads customer ID"
 _MANAGER_ID_ERROR = "valid Google Ads manager customer ID"
+
+
+def test_get_source_config_oauth_field_declares_required_scope():
+    oauth_field = next(
+        (field for field in GoogleAdsSource().get_source_config.fields if field.name == "google_ads_integration_id"),
+        None,
+    )
+    assert oauth_field is not None, "OAuth field 'google_ads_integration_id' not found in source config"
+    assert isinstance(oauth_field, SourceFieldOauthConfig)
+    assert oauth_field.kind == "google-ads"
+    assert oauth_field.requiredScopes == "https://www.googleapis.com/auth/adwords"
 
 
 class TestCleanCustomerId:

@@ -398,7 +398,7 @@ class ProcessTaskWorkflow(PostHogWorkflow):
             self._pr_progress_emitted = True
             await self._emit_progress("pr", "completed", "Opened pull request", "setup", detail=pr_context.pr_url)
             await self._emit_progress("ci", "in_progress", "Keeping CI green", "setup")
-        if pr_context.pr_state == "closed":
+        if pr_context.pr_state in ("closed", "merged"):
             workflow.logger.info(
                 "PR is closed, skipping CI follow-up",
                 extra={
@@ -1167,6 +1167,11 @@ class ProcessTaskWorkflow(PostHogWorkflow):
                 extra={"run_id": self.context.run_id, "sandbox_id": sandbox_id},
             )
             self._sandbox_gone = True
+        elif exit_reason == CredentialRefreshExitReason.CREDENTIALS_UNAVAILABLE:
+            workflow.logger.warning(
+                "credential_refresh_stopped_credentials_unavailable",
+                extra={"run_id": self.context.run_id, "sandbox_id": sandbox_id},
+            )
 
     def _mark_sandbox_gone(self) -> None:
         self._completion_status = "completed"

@@ -647,10 +647,9 @@ export interface ActionReferenceApi {
  * * `remove` - remove
  * * `set` - set
  */
-export type BulkUpdateTagsRequestActionEnumApi =
-    (typeof BulkUpdateTagsRequestActionEnumApi)[keyof typeof BulkUpdateTagsRequestActionEnumApi]
+export type BulkUpdateTagsActionEnumApi = (typeof BulkUpdateTagsActionEnumApi)[keyof typeof BulkUpdateTagsActionEnumApi]
 
-export const BulkUpdateTagsRequestActionEnumApi = {
+export const BulkUpdateTagsActionEnumApi = {
     Add: 'add',
     Remove: 'remove',
     Set: 'set',
@@ -667,7 +666,7 @@ export interface BulkUpdateTagsRequestApi {
      * * `add` - add
      * * `remove` - remove
      * * `set` - set */
-    action: BulkUpdateTagsRequestActionEnumApi
+    action: BulkUpdateTagsActionEnumApi
     /** Tag names to add, remove, or set. */
     tags: string[]
 }
@@ -688,6 +687,10 @@ export interface BulkUpdateTagsResponseApi {
 }
 
 export type ActionsListParams = {
+    /**
+     * Comma-separated list of creator user ids. Returns only actions created by these users.
+     */
+    created_by?: string
     format?: ActionsListFormat
     /**
      * Maximum number of actions to return. Omit to return all.
@@ -698,9 +701,17 @@ export type ActionsListParams = {
      */
     offset?: number
     /**
+     * Field to order by (name, created_at, pinned_at, created_by). Prefix with '-' for descending.
+     */
+    ordering?: string
+    /**
      * Case-insensitive substring match on the action name.
      */
     search?: string
+    /**
+     * JSON-encoded array of tag names, e.g. ["billing","beta"]. Returns actions having any of these tags.
+     */
+    tags?: string
 }
 
 export type ActionsListFormat = (typeof ActionsListFormat)[keyof typeof ActionsListFormat]

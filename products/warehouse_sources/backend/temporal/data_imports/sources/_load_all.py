@@ -260,6 +260,7 @@ from .guardian.source import GuardianSource
 from .guru.source import GuruSource
 from .gusto.source import GustoSource
 from .harness.source import HarnessSource
+from .healthchecks.source import HealthchecksSource
 from .heap.source import HeapSource
 from .height.source import HeightSource
 from .hellobaton.source import HellobatonSource
@@ -276,6 +277,7 @@ from .huntr.source import HuntrSource
 from .ikas.source import IkasSource
 from .illumina_basespace.source import IlluminaBasespaceSource
 from .imagga.source import ImaggaSource
+from .impact.source import ImpactSource
 from .incident_io.source import IncidentIoSource
 from .inflowinventory.source import InflowinventorySource
 from .infor_nexus.source import InforNexusSource
@@ -429,6 +431,7 @@ from .payfit.source import PayFitSource
 from .paylocity.source import PaylocitySource
 from .paypal.source import PayPalSource
 from .paystack.source import PaystackSource
+from .peec_ai.source import PeecAISource
 from .pendo.source import PendoSource
 from .pennylane.source import PennylaneSource
 from .perigon.source import PerigonSource

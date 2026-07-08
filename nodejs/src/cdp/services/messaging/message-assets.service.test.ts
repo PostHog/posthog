@@ -6,10 +6,6 @@ import { createExampleInvocation } from '../../_tests/fixtures'
 import { CyclotronJobInvocationHogFunction, CyclotronJobInvocationResult, MessageAssetRow } from '../../types'
 import { MessageAssetsService } from './message-assets.service'
 
-const CONFIG = {
-    MESSAGE_ASSETS_CAPTURE_ENABLED: true,
-}
-
 const buildOutputsMock = (): jest.Mocked<IngestionOutputs<'message_assets'>> =>
     ({ produce: jest.fn().mockResolvedValue(undefined) }) as unknown as jest.Mocked<IngestionOutputs<'message_assets'>>
 
@@ -50,7 +46,7 @@ describe('MessageAssetsService', () => {
     beforeEach(() => {
         jest.clearAllMocks()
         outputs = buildOutputsMock()
-        service = new MessageAssetsService(outputs, CONFIG)
+        service = new MessageAssetsService(outputs)
     })
 
     describe('buildRowForEmail', () => {
@@ -76,14 +72,6 @@ describe('MessageAssetsService', () => {
             const invocation = createExampleInvocation({ id: 'fn-1', team_id: 3 })
 
             const row = service.buildRowForEmail(invocation, emailParams())
-
-            expect(row).toBeNull()
-        })
-
-        it('returns null when capture is globally disabled', () => {
-            service = new MessageAssetsService(outputs, { MESSAGE_ASSETS_CAPTURE_ENABLED: false })
-
-            const row = service.buildRowForEmail(invocationWithAction('flow-1'), emailParams())
 
             expect(row).toBeNull()
         })
