@@ -65,7 +65,9 @@ You can find your **user application key** and **user API key** under **Account 
                         type=SourceFieldInputConfigType.TEXT,
                         required=True,
                         placeholder="",
-                        secret=False,
+                        # Half of the Basic auth credential pair — mark secret so it is stripped
+                        # from source-configuration API responses like the user API key.
+                        secret=True,
                     ),
                     SourceFieldInputConfig(
                         name="user_api_key",
