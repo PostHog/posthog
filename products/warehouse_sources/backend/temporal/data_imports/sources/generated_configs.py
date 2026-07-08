@@ -3050,7 +3050,7 @@ class SmartEngageSourceConfig(config.Config):
 
 @config.config
 class SmartreachSourceConfig(config.Config):
-    pass
+    api_key: str
 
 
 @config.config

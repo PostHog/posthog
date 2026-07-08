@@ -307,6 +307,7 @@ the row lists both.
 | simplecast              | HTTP                        | requests                                                        | ✅                          |
 | simplesat               | HTTP                        | requests                                                        | ✅                          |
 | slack                   | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
+| smartreach              | HTTP                        | requests                                                        | ✅                          |
 | smartsheet              | HTTP                        | requests                                                        | ✅                          |
 | snapchat_ads            | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
 | snowflake               | DB protocol                 | snowflake-connector-python                                      | ➖                          |
@@ -662,7 +663,6 @@ doesn't conflict with concurrent PRs.
 - simplesat
 - smaily
 - smartengage
-- smartreach
 - smartwaiver
 - solarwinds_service_desk
 - sonar_cloud
