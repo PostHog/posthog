@@ -55965,6 +55965,11 @@ export namespace Schemas {
       detail: string;
     }
 
+    export interface _HasMetricsResponse {
+      /** Whether the team has ingested any metrics. */
+      hasMetrics: boolean;
+    }
+
     export interface _HasSpansResponse {
       /** Whether the team has ingested any tracing spans yet. Used to gate the onboarding empty state. */
       hasSpans: boolean;
@@ -60863,8 +60868,6 @@ export namespace Schemas {
      */
     offset?: number;
     };
-
-    export type EnvironmentsMetricsHasMetricsRetrieve200 = { [key: string]: unknown };
 
     export type EnvironmentsMetricsValuesRetrieveParams = {
     /**
@@ -67999,8 +68002,6 @@ export namespace Schemas {
      */
     offset?: number;
     };
-
-    export type MetricsHasMetricsRetrieve200 = { [key: string]: unknown };
 
     export type MetricsValuesRetrieveParams = {
     /**
