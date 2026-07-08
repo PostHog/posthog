@@ -112,6 +112,35 @@ token-authed; only the bulk-bytes leg moves to object storage.
   storage for hours is a retention-policy decision. Bound it with a bucket lifecycle TTL (e.g. 24h) plus
   delete-prefix-on-supersede, and document it.
 
+## Resource governance — not hammering ClickHouse
+
+Materialization is a background bulk read; it must not contend with interactive product queries.
+Layered levers, roughly in order of impact:
+
+- **Workload routing (do this first).** The cluster router pins `process_query_task` — the async query
+  manager's Celery task, which the data plane rides today — to the **ONLINE** pool
+  (`posthog/clickhouse/client/execute.py`, the `process_query_task` special case), because insight-page async
+  queries are user-facing. Materialization is not: it should run on the **OFFLINE** workload, where hedged
+  requests are already disabled precisely so heavy offline load can't bleed into the online pool.
+  With that, contention with dashboards is structurally impossible, not merely bounded.
+- **Per-query SETTINGS (batch-exports recipe).** The staging query carries its own caps, as
+  `internal_stage.py` does: `max_memory_usage`, `max_bytes_before_external_sort/group_by` (spill to disk),
+  `max_threads`, `min_insert_block_size_bytes` (64MiB there), `max_execution_time`, and `max_bytes_to_read`
+  to refuse oversized scans up front. `max_network_bandwidth` can throttle the S3 write rate if needed.
+- **Dedicated ClickHouse user as the backstop.** The repo already splits traffic across CH users
+  (`ClickHouseUser.APP` / `API`), each governed by a server-side settings profile. A materialization user gets
+  profile limits, QUOTAs, and `max_concurrent_queries_for_user` — a hard server-enforced concurrency ceiling
+  no application bug can exceed.
+- **Admission control above CH.** One operation per notebook is already enforced by the operations logic;
+  add a small dedicated Celery queue (global concurrency = worker count) and, if needed, a per-team
+  concurrency counter. The refs resolver already minimizes demand — only frames the code actually reads
+  are materialized.
+- **Demand elimination.** Phase 3's `query_hash` reuse means an unchanged upstream query never re-executes;
+  long-term this is the strongest lever.
+
+The flow is already measurable: the data plane tags queries with `Product.NOTEBOOKS`, and the Dagster
+query-log exports make its CH footprint analyzable, so the knobs can be tightened with data.
+
 ## Phased plan — start basic, improve later
 
 **Phase 0 (current state).** Materialization runs over the existing Redis transport, clipped at 50k rows.
