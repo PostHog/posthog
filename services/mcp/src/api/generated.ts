@@ -809,6 +809,7 @@ export namespace Schemas {
      * * `log` - log
      * * `log_attribute` - log_attribute
      * * `log_resource_attribute` - log_resource_attribute
+     * * `metric_attribute` - metric_attribute
      * * `span` - span
      * * `span_attribute` - span_attribute
      * * `span_resource_attribute` - span_resource_attribute
@@ -842,6 +843,7 @@ export namespace Schemas {
       Log: 'log',
       LogAttribute: 'log_attribute',
       LogResourceAttribute: 'log_resource_attribute',
+      MetricAttribute: 'metric_attribute',
       Span: 'span',
       SpanAttribute: 'span_attribute',
       SpanResourceAttribute: 'span_resource_attribute',
@@ -900,6 +902,7 @@ export namespace Schemas {
        * * `log` - log
        * * `log_attribute` - log_attribute
        * * `log_resource_attribute` - log_resource_attribute
+       * * `metric_attribute` - metric_attribute
        * * `span` - span
        * * `span_attribute` - span_attribute
        * * `span_resource_attribute` - span_resource_attribute
@@ -970,6 +973,7 @@ export namespace Schemas {
        * * `log` - log
        * * `log_attribute` - log_attribute
        * * `log_resource_attribute` - log_resource_attribute
+       * * `metric_attribute` - metric_attribute
        * * `span` - span
        * * `span_attribute` - span_attribute
        * * `span_resource_attribute` - span_resource_attribute
@@ -1036,6 +1040,7 @@ export namespace Schemas {
        * * `log` - log
        * * `log_attribute` - log_attribute
        * * `log_resource_attribute` - log_resource_attribute
+       * * `metric_attribute` - metric_attribute
        * * `span` - span
        * * `span_attribute` - span_attribute
        * * `span_resource_attribute` - span_resource_attribute
@@ -1098,6 +1103,7 @@ export namespace Schemas {
        * * `log` - log
        * * `log_attribute` - log_attribute
        * * `log_resource_attribute` - log_resource_attribute
+       * * `metric_attribute` - metric_attribute
        * * `span` - span
        * * `span_attribute` - span_attribute
        * * `span_resource_attribute` - span_resource_attribute
@@ -1157,6 +1163,7 @@ export namespace Schemas {
        * * `log` - log
        * * `log_attribute` - log_attribute
        * * `log_resource_attribute` - log_resource_attribute
+       * * `metric_attribute` - metric_attribute
        * * `span` - span
        * * `span_attribute` - span_attribute
        * * `span_resource_attribute` - span_resource_attribute
@@ -57545,6 +57552,32 @@ export namespace Schemas {
       query: _MetricAnomalyBody;
     }
 
+    export interface _MetricAttributeKey {
+      /** Attribute key as it appears on the team's metrics (e.g. 'env', 'k8s.pod.name'). */
+      name: string;
+    }
+
+    export interface _MetricAttributeKeysResponse {
+      /** Distinct attribute keys (datapoint and resource attributes merged), most frequent first. */
+      results: _MetricAttributeKey[];
+      /** Number of keys returned. */
+      count: number;
+    }
+
+    export interface _MetricAttributeValue {
+      /** The attribute value (same as name; kept for picker compatibility). */
+      id: string;
+      /** The attribute value. */
+      name: string;
+      /** Number of data points observed with this value in the window. */
+      count: number;
+    }
+
+    export interface _MetricAttributeValuesResponse {
+      /** Observed values for the requested key, most frequent first. */
+      results: _MetricAttributeValue[];
+    }
+
     export interface _MetricGroupBy {
       /**
          * Attribute name to split series by (e.g. 'k8s.pod.name', 'env').
@@ -61780,6 +61813,60 @@ export namespace Schemas {
      * The initial index from which to return the results.
      */
     offset?: number;
+    };
+
+    export type EnvironmentsMetricsAttributeValuesRetrieveParams = {
+    /**
+     * Lower bound (inclusive) of the window values are suggested from. ISO 8601. Defaults to 7 days ago.
+     * @nullable
+     */
+    dateFrom?: string | null;
+    /**
+     * Upper bound (exclusive) of the window. ISO 8601. Defaults to now.
+     * @nullable
+     */
+    dateTo?: string | null;
+    /**
+     * Attribute key to list values for (e.g. 'env'). 'service_name'/'service.name' list service names.
+     * @minLength 1
+     * @maxLength 255
+     */
+    key: string;
+    /**
+     * Max number of values to return. Defaults to 100; maximum 1000.
+     * @minimum 1
+     * @maximum 1000
+     */
+    limit?: number;
+    /**
+     * Substring filter (case-insensitive) applied to values. Named 'value' to match the property-values autocomplete convention.
+     * @maxLength 1024
+     */
+    value?: string;
+    };
+
+    export type EnvironmentsMetricsAttributesRetrieveParams = {
+    /**
+     * Lower bound (inclusive) of the window keys are suggested from. ISO 8601. Defaults to 7 days ago.
+     * @nullable
+     */
+    dateFrom?: string | null;
+    /**
+     * Upper bound (exclusive) of the window. ISO 8601. Defaults to now.
+     * @nullable
+     */
+    dateTo?: string | null;
+    /**
+     * Max number of keys to return. Defaults to 100; maximum 1000.
+     * @minimum 1
+     * @maximum 1000
+     */
+    limit?: number;
+    /**
+     * Substring filter (case-insensitive) applied to attribute keys.
+     * @maxLength 255
+     */
+    search?: string;
     };
 
     export type EnvironmentsMetricsValuesRetrieveParams = {
@@ -69025,6 +69112,60 @@ export namespace Schemas {
      * The initial index from which to return the results.
      */
     offset?: number;
+    };
+
+    export type MetricsAttributeValuesRetrieveParams = {
+    /**
+     * Lower bound (inclusive) of the window values are suggested from. ISO 8601. Defaults to 7 days ago.
+     * @nullable
+     */
+    dateFrom?: string | null;
+    /**
+     * Upper bound (exclusive) of the window. ISO 8601. Defaults to now.
+     * @nullable
+     */
+    dateTo?: string | null;
+    /**
+     * Attribute key to list values for (e.g. 'env'). 'service_name'/'service.name' list service names.
+     * @minLength 1
+     * @maxLength 255
+     */
+    key: string;
+    /**
+     * Max number of values to return. Defaults to 100; maximum 1000.
+     * @minimum 1
+     * @maximum 1000
+     */
+    limit?: number;
+    /**
+     * Substring filter (case-insensitive) applied to values. Named 'value' to match the property-values autocomplete convention.
+     * @maxLength 1024
+     */
+    value?: string;
+    };
+
+    export type MetricsAttributesRetrieveParams = {
+    /**
+     * Lower bound (inclusive) of the window keys are suggested from. ISO 8601. Defaults to 7 days ago.
+     * @nullable
+     */
+    dateFrom?: string | null;
+    /**
+     * Upper bound (exclusive) of the window. ISO 8601. Defaults to now.
+     * @nullable
+     */
+    dateTo?: string | null;
+    /**
+     * Max number of keys to return. Defaults to 100; maximum 1000.
+     * @minimum 1
+     * @maximum 1000
+     */
+    limit?: number;
+    /**
+     * Substring filter (case-insensitive) applied to attribute keys.
+     * @maxLength 255
+     */
+    search?: string;
     };
 
     export type MetricsValuesRetrieveParams = {

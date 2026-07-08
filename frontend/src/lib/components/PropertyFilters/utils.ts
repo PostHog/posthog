@@ -131,6 +131,7 @@ export const PROPERTY_FILTER_TYPE_TO_TAXONOMIC_FILTER_GROUP_TYPE: Record<Propert
         [PropertyFilterType.Log]: TaxonomicFilterGroupType.LogAttributes,
         [PropertyFilterType.LogAttribute]: TaxonomicFilterGroupType.LogAttributes,
         [PropertyFilterType.LogResourceAttribute]: TaxonomicFilterGroupType.LogResourceAttributes,
+        [PropertyFilterType.MetricAttribute]: TaxonomicFilterGroupType.MetricAttributes,
         [PropertyFilterType.Span]: TaxonomicFilterGroupType.Spans,
         [PropertyFilterType.SpanAttribute]: TaxonomicFilterGroupType.SpanAttributes,
         [PropertyFilterType.SpanResourceAttribute]: TaxonomicFilterGroupType.SpanResourceAttributes,
@@ -424,6 +425,7 @@ const propertyFilterMapping: Partial<Record<PropertyFilterType, TaxonomicFilterG
     [PropertyFilterType.Log]: TaxonomicFilterGroupType.Logs,
     [PropertyFilterType.LogAttribute]: TaxonomicFilterGroupType.LogAttributes,
     [PropertyFilterType.LogResourceAttribute]: TaxonomicFilterGroupType.LogResourceAttributes,
+    [PropertyFilterType.MetricAttribute]: TaxonomicFilterGroupType.MetricAttributes,
     [PropertyFilterType.Span]: TaxonomicFilterGroupType.Spans,
     [PropertyFilterType.SpanAttribute]: TaxonomicFilterGroupType.SpanAttributes,
     [PropertyFilterType.SpanResourceAttribute]: TaxonomicFilterGroupType.SpanResourceAttributes,
@@ -479,6 +481,7 @@ export function propertyFilterTypeToPropertyDefinitionType(
         [PropertyFilterType.Log]: PropertyDefinitionType.Log,
         [PropertyFilterType.LogAttribute]: PropertyDefinitionType.LogAttribute,
         [PropertyFilterType.LogResourceAttribute]: PropertyDefinitionType.LogResourceAttribute,
+        [PropertyFilterType.MetricAttribute]: PropertyDefinitionType.MetricAttribute,
         [PropertyFilterType.Span]: PropertyDefinitionType.Span,
         [PropertyFilterType.SpanAttribute]: PropertyDefinitionType.SpanAttribute,
         [PropertyFilterType.SpanResourceAttribute]: PropertyDefinitionType.SpanResourceAttribute,
@@ -541,6 +544,10 @@ export function taxonomicFilterTypeToPropertyFilterType(
 
     if (filterType == TaxonomicFilterGroupType.LogResourceAttributes) {
         return PropertyFilterType.LogResourceAttribute
+    }
+
+    if (filterType == TaxonomicFilterGroupType.MetricAttributes) {
+        return PropertyFilterType.MetricAttribute
     }
 
     if (filterType == TaxonomicFilterGroupType.Spans) {
