@@ -11,23 +11,25 @@ from datetime import UTC, datetime, timedelta, tzinfo
 from typing import TYPE_CHECKING, Any, NamedTuple
 from zoneinfo import ZoneInfo
 
+from django.conf import settings
+
 import structlog
-from google.genai import types
-from posthoganalytics.ai.gemini import genai
+import posthoganalytics
+from posthoganalytics.ai.openai import OpenAI
 from temporalio import activity
 
+from posthog.event_usage import groups
 from posthog.helpers.markdown_safety import strip_external_links_markdown
 from posthog.models.team import Team
 from posthog.rbac.user_access_control import UserAccessControl
 from posthog.sync import database_sync_to_async
 
 from products.replay_vision.backend.models.replay_observation import ObservationStatus, ReplayObservation
-from products.replay_vision.backend.models.replay_scanner import ReplayScanner, ScannerModel
+from products.replay_vision.backend.models.replay_scanner import ReplayScanner
 from products.replay_vision.backend.models.vision_action import VisionAction, VisionActionRun, VisionActionRunStatus
 from products.replay_vision.backend.observation_formatting import EVENT_ID_CITATION_RE, describe_output
 from products.replay_vision.backend.temporal.constants import replay_vision_distinct_id
 from products.replay_vision.backend.temporal.decorators import track_activity
-from products.replay_vision.backend.temporal.gemini import gemini_api_key
 from products.replay_vision.backend.temporal.vision_actions.types import (
     SynthesisStatus,
     SynthesizeGroupSummaryInputs,
@@ -42,10 +44,10 @@ if TYPE_CHECKING:
 
 logger = structlog.get_logger(__name__)
 
-# Track the scanners' default Gemini model so synthesis and scanning move together. Runs through the
-# PostHog-instrumented client so the generation lands in LLM analytics attributed to Replay Vision
+# Matches how insight AI summaries synthesize: PostHog AI through the LLM gateway
+# (settings.OPENAI_BASE_URL), billed to the team's AI credits via the $ai_billable generation event
 # (see `_run_synthesis`).
-SYNTHESIS_MODEL = ScannerModel.GEMINI_3_FLASH.value
+SYNTHESIS_MODEL = "gpt-4.1-mini"
 # Cap how many observations feed one group summary — bounds context size and cost.
 MAX_OBSERVATIONS = 100
 # Upper bound on how many ids the sampling path pulls into memory. A very busy window (the case the
@@ -336,19 +338,33 @@ def _run_synthesis(team: Team, action: VisionAction, lines: list[str]) -> str:
     # thing the model reads — nothing instruction-shaped trails it for injected text to blend into.
     human = prompt_guide + as_untrusted_data("observations", lines)
 
-    # Same PostHog-instrumented Gemini client + Replay Vision tagging the scanners use, so the
-    # generation is captured in LLM analytics attributed to Replay Vision. The enclosing activity's
-    # start-to-close timeout bounds the call.
-    client = genai.Client(api_key=gemini_api_key())
-    response = client.models.generate_content(
-        model=f"models/{SYNTHESIS_MODEL}",
-        contents=human,
-        config=types.GenerateContentConfig(system_instruction=_SYSTEM_PROMPT),
-        posthog_distinct_id=replay_vision_distinct_id(team.id),
-        posthog_groups={"project": str(team.id)},
-        posthog_properties={"ai_product": "replay_vision", "feature": "vision_action_group_summary"},
+    # PostHog AI, matching insight AI summaries: the PostHog-instrumented OpenAI client pointed at
+    # the LLM gateway (settings.OPENAI_BASE_URL), so the generation lands in LLM analytics tagged to
+    # Replay Vision AND bills the team's AI credits ($ai_billable) — the same budget
+    # is_team_over_ai_credit_budget gates on above.
+    client = OpenAI(posthog_client=posthoganalytics, base_url=settings.OPENAI_BASE_URL, max_retries=3)  # type: ignore[arg-type]
+    distinct_id = replay_vision_distinct_id(team.id)
+    response = client.chat.completions.create(  # type: ignore[call-overload]
+        model=SYNTHESIS_MODEL,
+        temperature=0.3,
+        timeout=120,
+        messages=[
+            {"role": "system", "content": _SYSTEM_PROMPT},
+            {"role": "user", "content": human},
+        ],
+        user=distinct_id,
+        posthog_distinct_id=distinct_id,
+        posthog_properties={
+            "ai_product": "replay_vision",
+            "feature": "vision_action_group_summary",
+            "$ai_billable": True,
+            "team_id": team.id,
+        },
+        posthog_groups={**groups(team=team), "project": str(team.id)},
     )
-    return (response.text or "").strip()
+    if not response.choices:
+        return ""
+    return (response.choices[0].message.content or "").strip()
 
 
 def _markdown_to_slack(markdown: str) -> str:
