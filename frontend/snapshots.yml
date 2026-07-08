@@ -2632,6 +2632,10 @@ snapshots:
         hash: v1.k794b7964.8149c232d7b3c8ee1abb048003a5c9434dba8186bc728da5da4b9af2dca16cd0.NQh23-oNGsHd14_4QI2tUt0IRbdnHKUpmgDBuo-1x1A
     insights-insightstable--is-legend--light:
         hash: v1.k794b7964.d8663c41468bfaac7bff46419f17906bb57a3ea4a92036d3f2901f2bd5a645ef.mj8iZ-ckvyoJVUPIB6QGatB5oqSb2S5aLPbYuCi9nb0
+    insights-insightstable--sql-breakdown--dark:
+        hash: v1.k794b7964.cc64ca6ab10ef0f936dd479fb6a76716fd5935b3dee59833377c03cb3e36569a.kVka0mzCaVBMto0uHpEx5cTwdVDK0wlESIquSCaBrjk
+    insights-insightstable--sql-breakdown--light:
+        hash: v1.k794b7964.710a5fa22da7eff24e97e754426977214d9cdb9fd0252415534110bc7d9bbf95.EmqhUt-YOAWJV1nbFZ2BA-Let9QcaeDgslu9bcPR_mE
     insights-retentionbarchart--default--dark:
         hash: v1.k794b7964.a0a62c755e4912e9647dcacccd61ec1adfeeb59141bd64a6f56d8b281a7ef692.XEvkHq7PlOlPDZFJW2PIrqN2QcvVpd1vk6sVLG4DTFs
     insights-retentionbarchart--default--light:
