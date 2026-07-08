@@ -1,3 +1,4 @@
+from collections.abc import Mapping
 from datetime import UTC, date, datetime, timedelta, timezone
 from typing import Any
 
@@ -51,8 +52,7 @@ class TestGetRows:
     @staticmethod
     def _collect(
         manager: _FakeResumableManager,
-        monkeypatch: Any,
-        pages: dict[str, tuple[list[Any], int | None]],
+        pages: Mapping[str, tuple[list[Any], int | None]],
         endpoint: str = "incidents",
         **kwargs: Any,
     ) -> tuple[list[dict], list[str]]:
@@ -62,19 +62,20 @@ class TestGetRows:
             requested_urls.append(url)
             return pages[url]
 
-        monkeypatch.setattr(solarwinds_service_desk, "_fetch_page", fake_fetch)
-        monkeypatch.setattr(solarwinds_service_desk, "make_tracked_session", lambda **_: MagicMock())
-
         rows: list[dict] = []
-        for batch in get_rows(
-            region="us",
-            api_token="swsd-token",
-            endpoint=endpoint,
-            logger=MagicMock(),
-            resumable_source_manager=manager,  # type: ignore[arg-type]
-            **kwargs,
+        with (
+            patch.object(solarwinds_service_desk, "_fetch_page", fake_fetch),
+            patch.object(solarwinds_service_desk, "make_tracked_session", return_value=MagicMock()),
         ):
-            rows.extend(batch)
+            for batch in get_rows(
+                region="us",
+                api_token="swsd-token",
+                endpoint=endpoint,
+                logger=MagicMock(),
+                resumable_source_manager=manager,  # type: ignore[arg-type]
+                **kwargs,
+            ):
+                rows.extend(batch)
         return rows, requested_urls
 
     @staticmethod
@@ -85,37 +86,36 @@ class TestGetRows:
             return f"{base}&updated_from={updated_from.replace(':', '%3A')}"
         return base
 
-    def test_stops_after_last_page_per_total_pages_header(self, monkeypatch: Any) -> None:
+    def test_stops_after_last_page_per_total_pages_header(self) -> None:
         manager = _FakeResumableManager()
         pages = {
             self._url("incidents", 1): ([{"id": 1}], 2),
             self._url("incidents", 2): ([{"id": 2}], 2),
         }
-        rows, urls = self._collect(manager, monkeypatch, pages)
+        rows, urls = self._collect(manager, pages)
         assert rows == [{"id": 1}, {"id": 2}]
         assert len(urls) == 2
         # State is saved after each yielded page, pointing at the next page to fetch.
         assert [s.next_page for s in manager.saved] == [2]
 
-    def test_short_page_does_not_stop_pagination(self, monkeypatch: Any) -> None:
+    def test_short_page_does_not_stop_pagination(self) -> None:
         # A page smaller than PER_PAGE must not be treated as the end: the server may clamp
         # `per_page`, so only an empty page or the X-Total-Pages header terminates the crawl.
         manager = _FakeResumableManager()
-        pages = {
+        pages: Mapping[str, tuple[list[Any], int | None]] = {
             self._url("incidents", 1): ([{"id": 1}], None),
             self._url("incidents", 2): ([{"id": 2}], None),
             self._url("incidents", 3): ([], None),
         }
-        rows, urls = self._collect(manager, monkeypatch, pages)
+        rows, urls = self._collect(manager, pages)
         assert rows == [{"id": 1}, {"id": 2}]
         assert len(urls) == 3
 
-    def test_resumes_from_saved_page_with_saved_filter(self, monkeypatch: Any) -> None:
+    def test_resumes_from_saved_page_with_saved_filter(self) -> None:
         manager = _FakeResumableManager(SolarwindsServiceDeskResumeConfig(next_page=3, updated_from="2026-01-01T00:00"))
         pages = {self._url("incidents", 3, "2026-01-01T00:00"): ([{"id": 9}], 3)}
         rows, urls = self._collect(
             manager,
-            monkeypatch,
             pages,
             # A resumed run must reuse the persisted filter, not recompute one from this watermark.
             should_use_incremental_field=True,
@@ -124,12 +124,11 @@ class TestGetRows:
         assert rows == [{"id": 9}]
         assert urls == [self._url("incidents", 3, "2026-01-01T00:00")]
 
-    def test_incremental_watermark_adds_updated_from_param(self, monkeypatch: Any) -> None:
+    def test_incremental_watermark_adds_updated_from_param(self) -> None:
         manager = _FakeResumableManager()
-        pages = {self._url("incidents", 1, "2026-01-05T08:30"): ([], None)}
+        pages: Mapping[str, tuple[list[Any], int | None]] = {self._url("incidents", 1, "2026-01-05T08:30"): ([], None)}
         _, urls = self._collect(
             manager,
-            monkeypatch,
             pages,
             should_use_incremental_field=True,
             db_incremental_field_last_value=datetime(2026, 1, 5, 8, 30, tzinfo=UTC),
@@ -146,25 +145,20 @@ class TestGetRows:
     )
     def test_no_updated_from_param(self, _name: str, endpoint: str, use_incremental: bool, watermark: Any) -> None:
         manager = _FakeResumableManager()
-        monkeypatch = pytest.MonkeyPatch()
-        try:
-            pages: dict[str, tuple[list[Any], int | None]] = {self._url(endpoint, 1): ([], None)}
-            _, urls = self._collect(
-                manager,
-                monkeypatch,
-                pages,
-                endpoint=endpoint,
-                should_use_incremental_field=use_incremental,
-                db_incremental_field_last_value=watermark,
-            )
-            assert urls == [self._url(endpoint, 1)]
-        finally:
-            monkeypatch.undo()
+        pages: Mapping[str, tuple[list[Any], int | None]] = {self._url(endpoint, 1): ([], None)}
+        _, urls = self._collect(
+            manager,
+            pages,
+            endpoint=endpoint,
+            should_use_incremental_field=use_incremental,
+            db_incremental_field_last_value=watermark,
+        )
+        assert urls == [self._url(endpoint, 1)]
 
-    def test_wrapped_rows_are_unwrapped(self, monkeypatch: Any) -> None:
+    def test_wrapped_rows_are_unwrapped(self) -> None:
         manager = _FakeResumableManager()
         pages = {self._url("problems", 1): ([{"problem": {"id": 7, "name": "P"}}], 1)}
-        rows, _ = self._collect(manager, monkeypatch, pages, endpoint="problems")
+        rows, _ = self._collect(manager, pages, endpoint="problems")
         assert rows == [{"id": 7, "name": "P"}]
 
 
