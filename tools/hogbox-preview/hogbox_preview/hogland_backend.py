@@ -37,6 +37,7 @@ from urllib.parse import urlsplit
 
 from hogland import AccessType, AuthenticationError, BoxSpec, ConflictError, Hogland, NotFoundError
 
+from . import timing
 from .backend import ExecResult, PreviewBackend
 
 # hogplane caps a single write_file body at 64 MiB (octet-stream PUT). Blobs over
@@ -116,19 +117,24 @@ class HoglandBackend(PreviewBackend):
         if self._box is not None:
             return
         if self._box_id:  # explicit reuse (debug / staged CI)
+            timing.stage(f"attach to box {self._box_id}")
             self._box = self._client.get(self._box_id)
             self._wait_exec_ready()
+            timing.stage("box exec ready")
             return
         # Stable identity first, then a fresh box from the golden. _restore_fresh
         # reaps a stale same-named box (a leaked prior run) via its ConflictError
         # path, so at most one box holds the name at a time; we then point the pen
         # at the new box. The pen outlives the box across pushes.
+        timing.stage("pen resolve/create")
         self._ensure_pen()
+        timing.stage("box restore start")
         self._box = self._restore_fresh()
         self._box_id = self._box.id
         # `running` means the VM resumed, not that hogpanion's HTTP API answers
         # yet — a restored box needs a beat before the first exec.
         self._wait_exec_ready()
+        timing.stage("box restored (exec ready)")
         # Point the pen at the new box, re-send the spec so it carries the current
         # shape, and RE-ASSERT the hibernate/wake policies. The spec re-send heals
         # a pen left by an older SDK whose nested expose:{http_port} the server
@@ -189,6 +195,33 @@ class HoglandBackend(PreviewBackend):
             except ConflictError:
                 time.sleep(3)
         return self._client.create(**self._create_kwargs())
+
+    def attach(self) -> None:
+        """Bind to the EXISTING preview box for this pen/name without restoring —
+        the non-creating counterpart to provision(), used by the deferred
+        swap-frontend path. Resolves the box bring_up already stood up (explicit
+        --box-id, else the pen's current pointer, else a name lookup) and waits
+        for its exec API, so exec/write_file/web_url act on the live box.
+        """
+        if self._box is not None:
+            return
+        # The bring-up may have burned most of the CI OIDC token's short life
+        # before we get here, and the pen/box lookups below aren't wrapped in the
+        # 401-retry that exec/write_file are — so mint a fresh token first
+        # (best-effort no-op outside CI).
+        self._refresh_auth()
+        timing.stage("attach: resolve existing box")
+        try:
+            self._pen = self._client.get_pen(self.name)
+        except NotFoundError:
+            self._pen = None  # no pen (e.g. --box-id debug run) — web_url falls back to the box URL
+        box = self._resolve_box()
+        if box is None:
+            raise RuntimeError(f"no live preview box found for {self.name!r} to swap the frontend into")
+        self._box = box
+        self._box_id = box.id
+        self._wait_exec_ready()
+        timing.stage("attach: box exec ready")
 
     def exec(self, command: str, *, timeout: int = 120) -> ExecResult:
         # The box exec API runs as root but doesn't set HOME; tools like git
