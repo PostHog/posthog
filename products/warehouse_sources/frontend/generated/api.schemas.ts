@@ -3322,7 +3322,10 @@ export interface ExternalDataSourceConnectionOptionApi {
      * * `Redis` - Redis
      * * `Mercury` - Mercury
      * * `Gojiberry` - Gojiberry
-     * * `Teachable` - Teachable */
+     * * `Teachable` - Teachable
+     * * `PeecAI` - PeecAI
+     * * `Healthchecks` - Healthchecks
+     * * `Impact` - Impact */
     readonly source_type: ExternalDataSourceTypeEnumApi
     /** 'direct' for pure live-query sources; 'warehouse' for synced sources with direct query enabled.
      *
