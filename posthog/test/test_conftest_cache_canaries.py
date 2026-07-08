@@ -19,7 +19,7 @@ from django.urls import resolvers
 
 from rest_framework.utils import model_meta
 
-from posthog.clickhouse.client.connection import get_client_from_pool
+from posthog.clickhouse.client.connection import get_client_from_pool, get_pool
 from posthog.models import Team
 from posthog.test import base as test_base
 
@@ -83,13 +83,18 @@ def test_rel_identity_cache_matches_unpatched_django():
 
 
 def test_clickhouse_checkout_counter_is_wired():
-    # Assumption: get_client_from_pool keeps its @patchable hook, through which
-    # posthog/test/base.py counts client checkouts to decide whether ClickHouse can
-    # have changed since the last reset. If the hook or the patch registration
-    # disappears, the counter goes stale and ClickhouseDestroyTablesMixin silently
-    # stops resetting ClickHouse between tests.
+    # Assumption: get_client_from_pool keeps its @patchable hook and ChPool.get_client
+    # keeps its test-time wrapper - posthog/test/base.py counts client checkouts
+    # through both to decide whether ClickHouse can have changed since the last reset.
+    # If either hook gets unwired, the counter goes stale and
+    # ClickhouseDestroyTablesMixin silently stops resetting ClickHouse between tests.
     before = test_base._clickhouse_pool_checkouts
     with get_client_from_pool():
+        pass
+    assert test_base._clickhouse_pool_checkouts > before
+
+    before = test_base._clickhouse_pool_checkouts
+    with get_pool().get_client():
         pass
     assert test_base._clickhouse_pool_checkouts > before
 
