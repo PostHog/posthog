@@ -1,3 +1,6 @@
+import { FEATURE_FLAGS } from 'lib/constants'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+
 // Shitpost mode (hackathon): when the `shitpost-mode` feature flag is on, UI copy that
 // passes through a shared component (starting with `LemonButton`) is rewritten to a
 // slightly shitpost-y equivalent. This is deliberately a thin, opt-in interception layer
@@ -35,6 +38,19 @@ const SHITPOST_DICTIONARY: Record<string, string> = {
     copy: 'Steal this',
     refresh: 'Bonk it',
     'try again': 'Have another go',
+}
+
+/**
+ * Whether shitpost mode is currently active.
+ *
+ * Reads the flag via `findMounted()` rather than a kea subscription so it stays safe to call
+ * from low-level shared components (e.g. `LemonButton`) in any render context, including
+ * Storybook where `featureFlagLogic` may not be mounted. Returns `false` when the logic isn't
+ * mounted, which keeps the feature off by default.
+ */
+export function isShitpostModeEnabled(): boolean {
+    const featureFlags = featureFlagLogic.findMounted()?.values.featureFlags
+    return !!featureFlags?.[FEATURE_FLAGS.SHITPOST_MODE]
 }
 
 /**

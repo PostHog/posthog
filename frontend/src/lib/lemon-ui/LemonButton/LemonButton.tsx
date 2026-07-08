@@ -5,8 +5,7 @@ import React, { useContext } from 'react'
 
 import { IconChevronDown, IconChevronRight, IconExternal } from '@posthog/icons'
 
-import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
-import { shitpostify } from 'lib/shitpost/shitpostCopy'
+import { isShitpostModeEnabled, shitpostify } from 'lib/shitpost/shitpostCopy'
 
 import { LemonDropdown, LemonDropdownProps } from '../LemonDropdown'
 import { INTERACTIVE_CLOSE_DELAY_MS } from '../LemonInput/LemonInput'
@@ -185,8 +184,8 @@ export const LemonButton: React.FunctionComponent<LemonButtonProps & React.RefAt
 
             // Shitpost mode: rewrite plain-string labels to shitpost-y copy. Only the rendered
             // text is swapped; the original `children` still drives layout logic below.
-            const shitpostMode = useFeatureFlag('SHITPOST_MODE')
-            const content = shitpostMode && typeof children === 'string' ? shitpostify(children) : children
+            const content =
+                typeof children === 'string' && isShitpostModeEnabled() ? shitpostify(children) : children
 
             if (!active && popoverVisibility) {
                 active = true
