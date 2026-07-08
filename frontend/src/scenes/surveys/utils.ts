@@ -176,6 +176,7 @@ export function buildSurveyExampleInvocationGlobals({
                 $survey_name: survey?.name || 'Survey',
                 [SurveyEventProperties.SURVEY_COMPLETED]: true,
                 [SurveyEventProperties.SURVEY_SUBMISSION_ID]: 'survey-submission-id',
+                $current_url: `${projectUrl}/example-page`,
                 ...responseProperties,
             },
             url: `${projectUrl}/events/${encodeURIComponent(eventUuid)}/${encodeURIComponent(timestamp)}`,

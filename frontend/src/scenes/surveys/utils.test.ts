@@ -273,6 +273,7 @@ describe('survey utils', () => {
                 $survey_name: 'Onboarding survey',
                 $survey_completed: true,
                 $survey_submission_id: 'survey-submission-id',
+                $current_url: 'https://app.posthog.com/project/1/example-page',
                 $survey_response_q1: 'Tell us more',
                 $survey_response_q2: 'Twitter',
                 $survey_response_q3: ['Funnels', 'Session replay'],

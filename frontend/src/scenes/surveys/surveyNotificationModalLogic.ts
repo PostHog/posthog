@@ -101,6 +101,7 @@ export const SURVEY_EVENT_TOKEN = '{event.event}'
 export const RESPONDENT_NAME_TOKEN = '{person.name}'
 export const RESPONDENT_EMAIL_TOKEN = '{person.properties.email}'
 export const RESPONDENT_DETAILS_LINE = `${RESPONDENT_NAME_TOKEN} · ${RESPONDENT_EMAIL_TOKEN}`
+export const CURRENT_URL_TOKEN = "{event.properties['$current_url']}"
 export const SURVEY_STATUS_TOKEN = `{event.event == 'survey dismissed' ? (event.properties['${SurveyEventProperties.SURVEY_PARTIALLY_COMPLETED}'] ? 'Dismissed after a partial response' : 'Dismissed before completion') : 'Completed response'}`
 
 function getResponseToken(questionId: string): string {
