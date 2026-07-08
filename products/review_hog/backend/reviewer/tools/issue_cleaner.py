@@ -31,8 +31,8 @@ def _build_modified_files_map(
     """Build a map of modified files and their changed line ranges."""
     modified_files: dict[str, list[tuple[int, int]]] = {}
     for pr_file in pr_files:
-        if pr_file.status not in ["modified", "added"]:
-            continue
+        # Status is deliberately ignored: renamed/copied files still carry real diffs, and files
+        # without addition changes (pure renames, deletions) yield no line ranges and are skipped below.
         line_ranges = []
         for change in pr_file.changes:
             if change.type != "addition":

@@ -95,21 +95,15 @@ class TestCleanIssuesScope:
 class TestBuildModifiedFilesMap:
     @parameterized.expand(
         [
-            # Deleted/renamed files contribute no changed ranges.
-            ("removed_status", "removed"),
-            ("renamed_status", "renamed"),
-        ]
-    )
-    def test_excludes_non_modified_added_status(self, _name: str, status: str) -> None:
-        assert _build_modified_files_map([_pr_file("f.py", [(1, 5)], status=status)]) == {}
-
-    @parameterized.expand(
-        [
+            # Status never excludes a file — renamed/copied files carry real diffs too; files
+            # without addition changes (e.g. pure renames) are excluded by the empty-ranges guard.
             ("modified", "modified"),
             ("added", "added"),
+            ("renamed", "renamed"),
+            ("copied", "copied"),
         ]
     )
-    def test_includes_modified_and_added_status(self, _name: str, status: str) -> None:
+    def test_includes_any_status_with_addition_changes(self, _name: str, status: str) -> None:
         assert _build_modified_files_map([_pr_file("f.py", [(1, 5)], status=status)]) == {"f.py": [(1, 5)]}
 
     @parameterized.expand(
