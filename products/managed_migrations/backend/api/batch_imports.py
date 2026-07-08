@@ -204,12 +204,12 @@ class BatchImportS3SourceCreateSerializer(BatchImportSerializer):
         has_secret_key = bool(data.get("secret_key"))
         has_role = bool(data.get("role_arn"))
 
+        if has_role and (has_access_key or has_secret_key):
+            raise serializers.ValidationError("Provide either role_arn or access keys, not both")
         if has_access_key != has_secret_key:
             raise serializers.ValidationError(
                 "Both access_key and secret_key are required for access key authentication"
             )
-        if has_role and has_access_key:
-            raise serializers.ValidationError("Provide either role_arn or access keys, not both")
         if not has_role and not has_access_key:
             raise serializers.ValidationError(
                 "Authentication is required: provide role_arn (recommended) or access_key and secret_key"

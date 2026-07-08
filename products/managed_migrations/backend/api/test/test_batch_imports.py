@@ -9,7 +9,10 @@ from django.test import SimpleTestCase
 from botocore.exceptions import ClientError
 from parameterized import parameterized
 
-from products.managed_migrations.backend.api.batch_imports import BatchImportS3SourceCreateSerializer
+from products.managed_migrations.backend.api.batch_imports import (
+    BatchImportS3GzipSourceCreateSerializer,
+    BatchImportS3SourceCreateSerializer,
+)
 from products.managed_migrations.backend.models.batch_imports import BatchImport, BatchImportConfigBuilder, ContentType
 
 TEST_ROLE_ARN = "arn:aws:iam::123456789012:role/posthog-import"
@@ -247,12 +250,30 @@ class TestBatchImportS3AuthValidation(SimpleTestCase):
     @parameterized.expand(
         [
             ("missing_secret_key", {"access_key": "ak"}, "Both access_key and secret_key"),
+            ("missing_access_key", {"secret_key": "sk"}, "Both access_key and secret_key"),
             (
                 "role_and_keys",
                 {"role_arn": TEST_ROLE_ARN, "access_key": "ak", "secret_key": "sk"},
                 "not both",
             ),
+            # Role mixed with a partial key pair must surface the method conflict,
+            # not steer the user toward completing the key pair
+            (
+                "role_and_access_key_only",
+                {"role_arn": TEST_ROLE_ARN, "access_key": "ak"},
+                "not both",
+            ),
+            (
+                "role_and_secret_key_only",
+                {"role_arn": TEST_ROLE_ARN, "secret_key": "sk"},
+                "not both",
+            ),
             ("no_auth", {}, "Authentication is required"),
+            (
+                "blank_strings_treated_as_absent",
+                {"role_arn": "", "access_key": "", "secret_key": ""},
+                "Authentication is required",
+            ),
             (
                 "role_with_endpoint_url",
                 {"role_arn": TEST_ROLE_ARN, "endpoint_url": "http://localhost:9000"},
@@ -264,6 +285,19 @@ class TestBatchImportS3AuthValidation(SimpleTestCase):
         serializer = BatchImportS3SourceCreateSerializer(data={**self.BASE_PAYLOAD, **extra})
         self.assertFalse(serializer.is_valid())
         self.assertIn(expected_error, str(serializer.errors["non_field_errors"]))
+
+    def test_gzip_serializer_inherits_auth_validation(self):
+        serializer = BatchImportS3GzipSourceCreateSerializer(
+            data={
+                **self.BASE_PAYLOAD,
+                "source_type": "s3_gzip",
+                "role_arn": TEST_ROLE_ARN,
+                "access_key": "ak",
+                "secret_key": "sk",
+            }
+        )
+        self.assertFalse(serializer.is_valid())
+        self.assertIn("not both", str(serializer.errors["non_field_errors"]))
 
     @parameterized.expand(
         [
