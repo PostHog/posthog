@@ -476,6 +476,50 @@ async fn stash_wait_exceeded_returns_unavailable() {
     );
 }
 
+/// A drain that races the target leader's fence (a cancellation's
+/// drain-back arriving before the old owner's resume, or a completion's
+/// drain hitting a pod mid-cutover) gets FailedPrecondition from the
+/// leader — but the condition clears in watch-propagation time, so the
+/// client must see the same definitive-retry UNAVAILABLE contract as the
+/// deadline path, not a "do not retry" error for a write that was never
+/// acked.
+#[tokio::test]
+async fn fenced_leader_during_drain_returns_unavailable() {
+    let person = create_test_person();
+    let leader_addr = start_test_leader(
+        TestLeaderService::new()
+            .with_person(person.clone())
+            .fenced(),
+    )
+    .await;
+
+    let stash = StashTable::with_bounds(usize::MAX, usize::MAX);
+    let backend = make_backend(leader_addr, stash.clone()).await;
+    // Generous deadline so only the fence-remap path can produce the
+    // UNAVAILABLE, never the deadline path.
+    let handler = RouterStashHandler::new(Arc::clone(&backend), Duration::from_secs(60), 4);
+
+    let partition = backend.partition_for_person(person.team_id, person.id);
+    handler.begin_stash(partition, "leader-new").await.unwrap();
+
+    let req = mk_request(person.team_id, person.id, "fenced@example.com");
+    let backend_for_call = Arc::clone(&backend);
+    let pending = tokio::spawn(async move { forward(&backend_for_call, req).await });
+    tokio::time::sleep(Duration::from_millis(50)).await;
+
+    handler.drain_stash(partition, "leader-new").await.unwrap();
+
+    let response = pending.await.unwrap();
+    let code = decode_response(response)
+        .await
+        .expect_err("fenced leader must reject the drained write");
+    assert_eq!(
+        code,
+        Code::Unavailable,
+        "fence rejections during drain must surface as retryable UNAVAILABLE"
+    );
+}
+
 /// Convergence invariant: the loop-drain must terminate even when new
 /// requests keep arriving during drain (so long as forward-rate keeps
 /// up with arrival-rate). This test produces a steady stream of

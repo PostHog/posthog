@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "\n            WITH next_job AS (\n                SELECT *, lease_id as previous_lease_id\n                FROM posthog_batchimport\n                WHERE status = 'running' AND (leased_until IS NULL OR leased_until <= now())\n                ORDER BY created_at\n                LIMIT 1\n                FOR UPDATE SKIP LOCKED\n            )\n            UPDATE posthog_batchimport\n            SET\n                status = 'running',\n                leased_until = now() + interval '30 minutes', -- We lease for a long time because job init can be quite slow\n                lease_id = $1\n            FROM next_job\n            WHERE posthog_batchimport.id = next_job.id\n            RETURNING\n                posthog_batchimport.id,\n                posthog_batchimport.team_id,\n                posthog_batchimport.created_at,\n                posthog_batchimport.updated_at,\n                posthog_batchimport.status_message,\n                posthog_batchimport.display_status_message,\n                posthog_batchimport.state,\n                posthog_batchimport.import_config,\n                posthog_batchimport.secrets,\n                posthog_batchimport.backoff_attempt,\n                posthog_batchimport.backoff_until,\n                next_job.previous_lease_id\n            ",
+  "query": "\n            WITH next_job AS (\n                SELECT *, lease_id as previous_lease_id\n                FROM posthog_batchimport\n                WHERE status = 'running' AND (leased_until IS NULL OR leased_until <= now())\n                ORDER BY created_at\n                LIMIT 1\n                FOR UPDATE SKIP LOCKED\n            )\n            UPDATE posthog_batchimport\n            SET\n                status = 'running',\n                leased_until = now() + interval '30 minutes', -- We lease for a long time because job init can be quite slow\n                lease_id = $1\n            FROM next_job\n            WHERE posthog_batchimport.id = next_job.id\n            RETURNING\n                posthog_batchimport.id,\n                posthog_batchimport.team_id,\n                posthog_batchimport.created_at,\n                posthog_batchimport.updated_at,\n                posthog_batchimport.status_message,\n                posthog_batchimport.display_status_message,\n                posthog_batchimport.state,\n                posthog_batchimport.import_config,\n                posthog_batchimport.secrets as \"secrets?\",\n                posthog_batchimport.backoff_attempt,\n                posthog_batchimport.backoff_until,\n                next_job.previous_lease_id\n            ",
   "describe": {
     "columns": [
       {
@@ -45,7 +45,7 @@
       },
       {
         "ordinal": 8,
-        "name": "secrets",
+        "name": "secrets?",
         "type_info": "Text"
       },
       {
@@ -84,5 +84,5 @@
       true
     ]
   },
-  "hash": "bdf5288f88ee3c0d914c26d8e7c01af95c5802d8b0f703eb74df2c5084c76f00"
+  "hash": "7c4dccace778cc931a460e982d16a8aa058d6728135e358c8ba1722954e56b57"
 }
