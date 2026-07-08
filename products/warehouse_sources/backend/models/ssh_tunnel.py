@@ -10,6 +10,10 @@ from sshtunnel import SSHTunnelForwarder
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.common import config
 
+# Substrings that mark a private-key parse failure as a wrong/missing passphrase rather than a
+# format problem, so both the parser and the validator give the same passphrase-specific guidance.
+_PASSPHRASE_ERROR_TERMS = ("checksum", "decrypt", "password", "passphrase")
+
 
 # Taken from https://stackoverflow.com/questions/60660919/paramiko-ssh-client-is-unable-to-unpack-ed25519-key
 def from_private_key(file_obj: IO[str], passphrase: str | None = None) -> PKey:
@@ -26,7 +30,7 @@ def from_private_key(file_obj: IO[str], passphrase: str | None = None) -> PKey:
         # A wrong passphrase on an OpenSSH key surfaces as a checksum/decrypt failure. Falling
         # through to the PEM loader masks it with a misleading "no BEGIN/END" error, so re-raise
         # the original — the caller uses it to point the user at the passphrase.
-        if any(term in str(ssh_error).lower() for term in ("checksum", "decrypt", "password", "passphrase")):
+        if any(term in str(ssh_error).lower() for term in _PASSPHRASE_ERROR_TERMS):
             raise
         key = crypto_serialization.load_pem_private_key(  # type: ignore
             file_bytes,
@@ -150,7 +154,7 @@ class SSHTunnel:
                 # different fixes, so point the user at the likely cause. cryptography's message
                 # mentions the password/checksum only for passphrase mismatches.
                 detail = str(e).lower()
-                if any(term in detail for term in ("passphrase", "password", "decrypt", "checksum")):
+                if any(term in detail for term in _PASSPHRASE_ERROR_TERMS):
                     return False, (
                         "Private key could not be parsed. Check the passphrase: an encrypted key needs the "
                         "correct passphrase, and an unencrypted key needs the passphrase field left blank."
