@@ -74,15 +74,11 @@ def _is_product_billable(product: str) -> bool:
 def _apply_owned_event_properties(properties: dict[str, Any], product: str, team_id: int | None) -> None:
     """Enforce gateway-owned event properties, run after caller `x-posthog-property-*` headers are merged.
 
-    `ai_product`, `$ai_billable`, and `$ai_effort` are derived by the gateway and must NOT be
-    overridable by callers — a typo would silently mis-bill or misattribute the generation, so we
-    re-assert them on top of whatever the headers set. `$ai_effort` is resolved from the request
-    body per provider (see `ProviderConfig.extract_effort`); a caller can't spoof it via
-    `x-posthog-property-$ai_effort` because we overwrite it here, and drop any header-supplied
-    value when the gateway found none.
-    `team_id`, in contrast, is a deliberate caller override (a shared-key caller such as signals
-    sets it to the customer team); we only fall back to the authenticated key owner's team when no
-    override was supplied.
+    `ai_product`, `$ai_billable`, and `$ai_effort` are gateway-derived (effort via
+    `ProviderConfig.extract_effort`) and must not be spoofable via headers, so we re-assert them
+    here and drop `$ai_effort` when the gateway found none. `team_id`, in contrast, is a
+    deliberate caller override (e.g. a shared-key caller attributing to a customer team); we only
+    fall back to the key owner's team when no override was supplied.
     """
     properties["ai_product"] = product
     properties["$ai_billable"] = _is_product_billable(product)

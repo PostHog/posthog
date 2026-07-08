@@ -5,6 +5,14 @@ import pytest
 
 from llm_gateway.api.handler import (
     ANTHROPIC_CONFIG,
+    BEDROCK_CONFIG,
+    CLOUDFLARE_ANTHROPIC_CONFIG,
+    CLOUDFLARE_OPENAI_CONFIG,
+    CLOUDFLARE_OPENAI_RESPONSES_CONFIG,
+    OPENAI_CONFIG,
+    OPENAI_RESPONSES_CONFIG,
+    OPENAI_TRANSCRIPTION_CONFIG,
+    ProviderConfig,
     effort_from_output_config,
     effort_from_reasoning,
     effort_from_reasoning_effort,
@@ -52,16 +60,30 @@ class TestEffortInstrumentation:
         yield
         effort_var.reset(token)
 
+    # One case per real config with its surface's natural request shape, so miswiring any
+    # config to the wrong extractor (silently dropping $ai_effort for that surface) fails here.
     @pytest.mark.parametrize(
-        "request_data, expected",
+        "provider_config, request_data, expected",
         [
-            ({"model": "test", "messages": [], "output_config": {"effort": "medium"}}, "medium"),
-            ({"model": "test", "messages": []}, None),
+            (ANTHROPIC_CONFIG, {"output_config": {"effort": "medium"}}, "medium"),
+            (BEDROCK_CONFIG, {"output_config": {"effort": "low"}}, "low"),
+            (OPENAI_CONFIG, {"reasoning_effort": "high"}, "high"),
+            (OPENAI_RESPONSES_CONFIG, {"reasoning": {"effort": "xhigh"}}, "xhigh"),
+            (OPENAI_TRANSCRIPTION_CONFIG, {"reasoning_effort": "high"}, None),
+            (CLOUDFLARE_ANTHROPIC_CONFIG, {"output_config": {"effort": "medium"}}, "medium"),
+            (CLOUDFLARE_OPENAI_CONFIG, {"reasoning_effort": "high"}, "high"),
+            (CLOUDFLARE_OPENAI_RESPONSES_CONFIG, {"reasoning": {"effort": "xhigh"}}, "xhigh"),
+            # No effort in the request resets any stale context value to None
+            (ANTHROPIC_CONFIG, {}, None),
         ],
     )
     @pytest.mark.asyncio
     async def test_effort_from_request_reaches_context(
-        self, authenticated_user: AuthenticatedUser, request_data: dict[str, Any], expected: str | None
+        self,
+        authenticated_user: AuthenticatedUser,
+        provider_config: ProviderConfig,
+        request_data: dict[str, Any],
+        expected: str | None,
     ) -> None:
         # Pre-seed a stale value: handle_llm_request must set effort unconditionally, so the
         # no-effort case resets to None rather than leaking the stale value into the callback.
@@ -77,7 +99,7 @@ class TestEffortInstrumentation:
             user=authenticated_user,
             model="test-model",
             is_streaming=False,
-            provider_config=ANTHROPIC_CONFIG,
+            provider_config=provider_config,
             llm_call=mock_llm_call,
         )
 

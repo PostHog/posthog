@@ -41,8 +41,6 @@ def _clean_effort(value: Any) -> str | None:
     return None
 
 
-# Reasoning-effort lives at a different spot per API surface. Each ProviderConfig declares
-# its extractor so adding a provider forces a choice here rather than silently dropping effort.
 def effort_from_output_config(request_data: dict[str, Any]) -> str | None:
     """Anthropic Messages: ``output_config: {"effort": "..."}``."""
     output_config = request_data.get("output_config")
@@ -69,20 +67,52 @@ def no_effort(request_data: dict[str, Any]) -> str | None:
 class ProviderConfig:
     name: str
     endpoint_name: str
-    # How to pull reasoning effort out of a request body for this surface. Required (no default)
-    # so a new provider can't be added without deciding — see the effort_from_* functions above.
+    # Where reasoning effort lives varies per API surface. Required (no default) so a new
+    # provider can't be added without deciding; see the effort_from_* functions above.
     extract_effort: Callable[[dict[str, Any]], str | None]
 
 
-ANTHROPIC_CONFIG = ProviderConfig("anthropic", "anthropic_messages", effort_from_output_config)
-BEDROCK_CONFIG = ProviderConfig("bedrock", "bedrock_messages", effort_from_output_config)
-OPENAI_CONFIG = ProviderConfig("openai", "chat_completions", effort_from_reasoning_effort)
-OPENAI_RESPONSES_CONFIG = ProviderConfig("openai", "responses", effort_from_reasoning)
-OPENAI_TRANSCRIPTION_CONFIG = ProviderConfig("openai", "audio_transcriptions", no_effort)
+ANTHROPIC_CONFIG = ProviderConfig(
+    name="anthropic",
+    endpoint_name="anthropic_messages",
+    extract_effort=effort_from_output_config,
+)
+BEDROCK_CONFIG = ProviderConfig(
+    name="bedrock",
+    endpoint_name="bedrock_messages",
+    extract_effort=effort_from_output_config,
+)
+OPENAI_CONFIG = ProviderConfig(
+    name="openai",
+    endpoint_name="chat_completions",
+    extract_effort=effort_from_reasoning_effort,
+)
+OPENAI_RESPONSES_CONFIG = ProviderConfig(
+    name="openai",
+    endpoint_name="responses",
+    extract_effort=effort_from_reasoning,
+)
+OPENAI_TRANSCRIPTION_CONFIG = ProviderConfig(
+    name="openai",
+    endpoint_name="audio_transcriptions",
+    extract_effort=no_effort,
+)
 # Split endpoint labels so an adapter-specific regression is distinguishable in metrics.
-CLOUDFLARE_ANTHROPIC_CONFIG = ProviderConfig("cloudflare", "cloudflare_anthropic_messages", effort_from_output_config)
-CLOUDFLARE_OPENAI_CONFIG = ProviderConfig("cloudflare", "cloudflare_chat_completions", effort_from_reasoning_effort)
-CLOUDFLARE_OPENAI_RESPONSES_CONFIG = ProviderConfig("cloudflare", "cloudflare_responses", effort_from_reasoning)
+CLOUDFLARE_ANTHROPIC_CONFIG = ProviderConfig(
+    name="cloudflare",
+    endpoint_name="cloudflare_anthropic_messages",
+    extract_effort=effort_from_output_config,
+)
+CLOUDFLARE_OPENAI_CONFIG = ProviderConfig(
+    name="cloudflare",
+    endpoint_name="cloudflare_chat_completions",
+    extract_effort=effort_from_reasoning_effort,
+)
+CLOUDFLARE_OPENAI_RESPONSES_CONFIG = ProviderConfig(
+    name="cloudflare",
+    endpoint_name="cloudflare_responses",
+    extract_effort=effort_from_reasoning,
+)
 
 _KNOWN_LITELLM_PROVIDER_PREFIXES = (
     "anthropic/",
