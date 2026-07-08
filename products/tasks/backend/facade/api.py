@@ -1738,6 +1738,24 @@ def set_task_run_output(
     return _task_run_detail_to_dto(run)
 
 
+def _entries_show_agent_activity(entries: list[dict]) -> bool:
+    """Only ACP `session/*` notifications count as the agent doing work.
+
+    Infra lines (`_posthog/console`, credential-refresh notices, errors) must not
+    reset the workflow's inactivity timeout: the workflow's own 20-minute credential
+    refresh makes the sandbox log a line, so treating every entry as agent activity
+    lets a run whose agent went silent keep itself alive forever.
+    """
+    for entry in entries:
+        notification = entry.get("notification")
+        if not isinstance(notification, dict):
+            continue
+        method = notification.get("method")
+        if isinstance(method, str) and method.startswith("session/"):
+            return True
+    return False
+
+
 def append_task_run_log(
     run_id: str | UUID, task_id: str | UUID, team_id: int, *, entries: list[dict]
 ) -> contracts.TaskRunDetailDTO | None:
@@ -1746,7 +1764,7 @@ def append_task_run_log(
     if run is None:
         return None
     run.append_log(entries)
-    run.heartbeat_workflow(agent_active=True)
+    run.heartbeat_workflow(agent_active=_entries_show_agent_activity(entries))
     return _task_run_detail_to_dto(run)
 
 

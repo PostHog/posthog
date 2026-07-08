@@ -2,7 +2,7 @@ import importlib
 from datetime import timedelta
 from typing import ClassVar
 
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 from django.test import TestCase
 from django.utils import timezone as django_timezone
@@ -450,3 +450,43 @@ class TestFacadeReadsAndMappers(TestCase):
         # The agent server boots idle; forward_pending_user_message only kicks it off if the run state
         # carries the prompt. Without this the cloud wizard stalls right after "Started agent".
         self.assertEqual(run.state.get("pending_user_message"), WIZARD_PR_AGENT_PROMPT)
+
+
+class TestAppendLogAgentActivity(TestCase):
+    # Guards the zombie-run regression: infra log lines (credential refresh -> _posthog/console)
+    # heartbeating with agent_active=True reset the workflow's inactivity timeout every 20
+    # minutes, so a run whose agent went silent could never time out.
+    @parameterized.expand(
+        [
+            ("session_update", [{"notification": {"method": "session/update", "params": {}}}], True),
+            ("session_request", [{"notification": {"method": "session/request_permission", "params": {}}}], True),
+            ("console_only", [{"notification": {"method": "_posthog/console", "params": {"message": "x"}}}], False),
+            ("error_only", [{"notification": {"method": "_posthog/error", "params": {}}}], False),
+            ("no_notification", [{"message": "plain infra line"}], False),
+            ("malformed_notification", [{"notification": "not-a-dict"}], False),
+            (
+                "mixed_infra_and_session",
+                [
+                    {"notification": {"method": "_posthog/console", "params": {}}},
+                    {"notification": {"method": "session/update", "params": {}}},
+                ],
+                True,
+            ),
+        ]
+    )
+    def test_entries_show_agent_activity(self, _name, entries, expected):
+        self.assertIs(facade._entries_show_agent_activity(entries), expected)
+
+    def test_append_task_run_log_heartbeats_with_classified_activity(self):
+        run = MagicMock()
+        with (
+            patch.object(facade, "_get_visible_run", return_value=run),
+            patch.object(facade, "_task_run_detail_to_dto", return_value=None),
+        ):
+            facade.append_task_run_log(
+                "r", "t", 1, entries=[{"notification": {"method": "_posthog/console", "params": {}}}]
+            )
+            run.heartbeat_workflow.assert_called_once_with(agent_active=False)
+            run.reset_mock()
+            facade.append_task_run_log("r", "t", 1, entries=[{"notification": {"method": "session/update"}}])
+            run.heartbeat_workflow.assert_called_once_with(agent_active=True)
