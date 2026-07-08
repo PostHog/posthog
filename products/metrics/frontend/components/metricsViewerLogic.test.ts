@@ -1,9 +1,14 @@
-import api from 'lib/api'
-
 import { initKeaTests } from '~/test/init'
+
+import { metricsValuesRetrieve } from 'products/metrics/frontend/generated/api'
 
 import { metricNamePickerLogic } from './metricNamePickerLogic'
 import { metricsViewerLogic } from './metricsViewerLogic'
+
+jest.mock('products/metrics/frontend/generated/api', () => ({
+    ...jest.requireActual('products/metrics/frontend/generated/api'),
+    metricsValuesRetrieve: jest.fn(),
+}))
 
 const PICKER_ITEMS = [
     { name: 'requests_total', metric_type: 'sum' },
@@ -17,7 +22,7 @@ describe('metricsViewerLogic', () => {
 
     beforeEach(() => {
         initKeaTests()
-        jest.spyOn(api.metrics, 'values').mockResolvedValue({ results: PICKER_ITEMS })
+        jest.mocked(metricsValuesRetrieve).mockResolvedValue({ results: PICKER_ITEMS })
         logic = metricsViewerLogic()
         logic.mount()
         metricNamePickerLogic.actions.loadItemsSuccess(PICKER_ITEMS)
