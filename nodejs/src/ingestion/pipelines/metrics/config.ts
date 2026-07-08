@@ -4,8 +4,8 @@ import {
     KAFKA_METRICS_INGESTION,
     KAFKA_METRICS_INGESTION_DLQ,
     KAFKA_METRICS_INGESTION_OVERFLOW,
-} from '~/config/kafka-topics'
-import { isProdEnv } from '~/utils/env-utils'
+} from '~/common/config/kafka-topics'
+import { isProdEnv } from '~/common/utils/env-utils'
 
 import { MetricsProducerName, WARPSTREAM_INGESTION_PRODUCER, WARPSTREAM_METRICS_PRODUCER } from './outputs/producers'
 

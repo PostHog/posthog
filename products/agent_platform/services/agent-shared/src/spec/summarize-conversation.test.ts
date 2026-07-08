@@ -1,5 +1,11 @@
-import { AssistantMessageRecord, ConversationMessage, EMPTY_USAGE_TOTAL, UserMessage } from './spec'
-import { accumulateUsage, lastAssistantTextPreview, totalConversationUsage } from './summarize-conversation'
+import { AssistantMessageRecord, ConversationMessage, EMPTY_USAGE_TOTAL, ToolResultMessage, UserMessage } from './spec'
+import {
+    accumulateUsage,
+    buildSearchText,
+    lastAssistantTextPreview,
+    previewText,
+    totalConversationUsage,
+} from './summarize-conversation'
 
 function user(content: string): UserMessage {
     return { role: 'user', content, timestamp: Date.now() }
@@ -25,7 +31,7 @@ function assistant({
         content: text ? [{ type: 'text', text }] : [],
         api: 'anthropic-messages',
         provider: 'anthropic',
-        model: 'claude-haiku-4-5',
+        model: 'anthropic/claude-haiku-4-5',
         usage: {
             input,
             output,
@@ -84,6 +90,89 @@ describe('lastAssistantTextPreview', () => {
     })
 })
 
+describe('buildSearchText', () => {
+    function toolResult(text: string): ToolResultMessage {
+        return {
+            role: 'toolResult',
+            toolCallId: 'tc1',
+            toolName: 'bash',
+            content: [{ type: 'text', text }],
+            isError: false,
+            timestamp: Date.now(),
+        }
+    }
+
+    it('joins user + assistant text in order, collapsing whitespace', () => {
+        const c: ConversationMessage[] = [user('deploy the  widget'), assistant({ text: 'on\n  it' }), user('thanks')]
+        expect(buildSearchText(c)).toBe('deploy the widget on it thanks')
+    })
+
+    it('skips tool results and text-less assistant turns', () => {
+        const c: ConversationMessage[] = [
+            user('run it'),
+            toolResult('SECRET_TOKEN=abc noise that should not be searchable'),
+            { ...assistant({}), content: [] },
+            assistant({ text: 'done' }),
+        ]
+        expect(buildSearchText(c)).toBe('run it done')
+    })
+
+    it('truncates to the max code points without an ellipsis', () => {
+        const out = buildSearchText([user('a'.repeat(50))], 10)
+        expect(out).toBe('a'.repeat(10))
+    })
+
+    it('handles array-form user content', () => {
+        const c: ConversationMessage[] = [
+            { role: 'user', content: [{ type: 'text', text: 'hello' }], timestamp: Date.now() },
+        ]
+        expect(buildSearchText(c)).toBe('hello')
+    })
+
+    it('strips the slack envelope + mention, keeping the real message', () => {
+        const slack = user(
+            [
+                '[slack]',
+                'channel: C0BA3AC9TT2',
+                'ts: 1782215525.31',
+                'thread_ts: 1782215525.31',
+                'user: U03DCBD92JX',
+                'mention: true',
+                'dm: false',
+                '',
+                '<@U0BCBQVL62G> what happened today?',
+            ].join('\n')
+        )
+        expect(buildSearchText([slack, assistant({ text: 'A few things.' })])).toBe(
+            'what happened today? A few things.'
+        )
+    })
+
+    it('strips the [console-context] block, keeping the real message', () => {
+        const consoleMsg = user(
+            '[console-context]\n{"page":"agent","project_id":1}\n[/console-context]\n\ncan you test out this agent'
+        )
+        expect(buildSearchText([consoleMsg])).toBe('can you test out this agent')
+    })
+
+    it('leaves cron / plain messages untouched', () => {
+        expect(buildSearchText([user('Build the morning briefing for 2026-06-23.')])).toBe(
+            'Build the morning briefing for 2026-06-23.'
+        )
+    })
+})
+
+describe('previewText', () => {
+    it('returns null for null/empty', () => {
+        expect(previewText(null)).toBeNull()
+        expect(previewText('   ')).toBeNull()
+    })
+
+    it('collapses and truncates with an ellipsis', () => {
+        expect(previewText('hi   there', 4)).toBe('hi …')
+    })
+})
+
 describe('totalConversationUsage', () => {
     it('returns all zeros for an empty conversation', () => {
         expect(totalConversationUsage([])).toEqual({
@@ -99,7 +188,7 @@ describe('totalConversationUsage', () => {
         })
     })
 
-    it('aggregates tokens + cost across multiple assistant turns', () => {
+    it('aggregates token counts across assistant turns but never pi-estimated cost', () => {
         const c: ConversationMessage[] = [
             user('q1'),
             assistant({ text: 'a1', input: 100, output: 10, costIn: 0.001, costOut: 0.0005 }),
@@ -109,9 +198,11 @@ describe('totalConversationUsage', () => {
         const total = totalConversationUsage(c)
         expect(total.tokens_in).toBe(150)
         expect(total.tokens_out).toBe(15)
-        expect(total.cost_input).toBeCloseTo(0.0015, 10)
-        expect(total.cost_output).toBeCloseTo(0.0008, 10)
-        expect(total.cost_total).toBeCloseTo(0.0023, 10)
+        // pi-ai's per-message cost estimates are never trusted — cost is owned
+        // by the gateway settlement merged onto the persisted column, not here.
+        expect(total.cost_input).toBe(0)
+        expect(total.cost_output).toBe(0)
+        expect(total.cost_total).toBe(0)
     })
 
     it('ignores user / toolResult messages and assistant turns missing usage', () => {
@@ -129,22 +220,26 @@ describe('totalConversationUsage', () => {
 })
 
 describe('accumulateUsage', () => {
-    it('folds one assistant message into a running total', () => {
+    it('folds token counts into a running total but never pi-estimated cost', () => {
         const msg = assistant({ input: 10, output: 2, costIn: 0.1, costOut: 0.05 })
         const after = accumulateUsage(EMPTY_USAGE_TOTAL, msg)
         expect(after.tokens_in).toBe(10)
         expect(after.tokens_out).toBe(2)
-        expect(after.cost_total).toBeCloseTo(0.15, 10)
-    })
-
-    it('keeps tokens but zeros cost when useGatewayCost is true', () => {
-        const msg = assistant({ input: 10, output: 2, costIn: 0.1, costOut: 0.05 })
-        const after = accumulateUsage(EMPTY_USAGE_TOTAL, msg, { useGatewayCost: true })
-        expect(after.tokens_in).toBe(10)
-        expect(after.tokens_out).toBe(2)
+        // Cost is never taken from pi-ai's estimate, even when the message reports it.
         expect(after.cost_input).toBe(0)
         expect(after.cost_output).toBe(0)
         expect(after.cost_total).toBe(0)
+    })
+
+    it('carries prior cost forward unchanged — gateway settlement owns cost_total', () => {
+        // The driver merges the gateway's settled /v1/usage figure into
+        // cost_total post-turn; accumulateUsage must preserve it, not clobber or
+        // add a pi estimate on top.
+        const prev = { ...EMPTY_USAGE_TOTAL, cost_total: 0.42 }
+        const msg = assistant({ input: 10, output: 2, costIn: 0.1, costOut: 0.05 })
+        const after = accumulateUsage(prev, msg)
+        expect(after.tokens_in).toBe(10)
+        expect(after.cost_total).toBe(0.42)
     })
 
     it('returns the prev total unchanged when the message has no usage', () => {

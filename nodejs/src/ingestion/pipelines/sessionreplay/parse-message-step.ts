@@ -2,6 +2,8 @@ import { DateTime } from 'luxon'
 import { Message, MessageHeader } from 'node-rdkafka'
 import { gunzipSync } from 'zlib'
 
+import { parseJSON } from '~/common/utils/json-parse'
+import { normalizeSessionId } from '~/common/utils/utils'
 import { dlq, drop, ok } from '~/ingestion/framework/results'
 import { ProcessingStep } from '~/ingestion/framework/steps'
 import {
@@ -12,27 +14,31 @@ import {
     SnapshotEventSchema,
 } from '~/ingestion/pipelines/sessionreplay/kafka/types'
 import { SessionRecordingIngesterMetrics } from '~/ingestion/pipelines/sessionreplay/metrics'
-import { parseJSON } from '~/utils/json-parse'
-import { normalizeSessionId } from '~/utils/utils'
+
+import { SessionReplayHeaders } from './pipeline-types'
 
 const lz4: { decodeBlock(input: Buffer, output: Buffer): number } = require('lz4')
 
 const MESSAGE_TIMESTAMP_DIFF_THRESHOLD_DAYS = 7
 const GZIP_HEADER = Uint8Array.from([0x1f, 0x8b, 0x08, 0x00])
+// Compression-bomb cap (mirrors the Rust addon): ~6x the 10 MB largest payload in a production
+// sample; exceeding it DLQs instead of risking an unclassifiable OOM.
+const MAX_DECOMPRESSED_BYTES = 64 * 1024 * 1024
 
 export interface ParseMessageStepInput {
     message: Message
+    headers: SessionReplayHeaders
 }
 
 export interface ParseMessageStepOutput {
     parsedMessage: ParsedMessageData
 }
 
-function isGzipped(buffer: Buffer): boolean {
+export function isGzipped(buffer: Buffer): boolean {
     return buffer.subarray(0, GZIP_HEADER.length).equals(GZIP_HEADER)
 }
 
-function getContentEncoding(headers: MessageHeader[] | undefined): string | null {
+export function getContentEncoding(headers: MessageHeader[] | undefined): string | null {
     if (!headers) {
         return null
     }
@@ -43,6 +49,34 @@ function getContentEncoding(headers: MessageHeader[] | undefined): string | null
         }
     }
     return null
+}
+
+/**
+ * Decompress a Kafka message's value (lz4 via the content-encoding header, gzip via its magic bytes,
+ * else as-is) and record the encoding metric. Throws on corrupt compressed data — callers dlq with
+ * `invalid_compressed_data`. Shared by the parse step and the fused native parse+anonymize step.
+ */
+export function decompressMessageValue(message: Message): Buffer {
+    const value = message.value!
+    const contentEncoding = getContentEncoding(message.headers)
+    let messageUnzipped = value
+    if (contentEncoding === 'lz4') {
+        const uncompressedSize = value.readUInt32LE(0)
+        if (uncompressedSize > MAX_DECOMPRESSED_BYTES) {
+            throw new Error(`lz4 uncompressed size ${uncompressedSize} exceeds the decompression cap`)
+        }
+        const output = Buffer.allocUnsafe(uncompressedSize)
+        const decodedLength = lz4.decodeBlock(value.subarray(4), output)
+        // Without this check an inflated prefix leaks the uninitialized tail of `output`.
+        if (decodedLength !== uncompressedSize) {
+            throw new Error(`lz4 decoded ${decodedLength} bytes but the size prefix claimed ${uncompressedSize}`)
+        }
+        messageUnzipped = output
+    } else if (isGzipped(value)) {
+        messageUnzipped = gunzipSync(value, { maxOutputLength: MAX_DECOMPRESSED_BYTES })
+    }
+    SessionRecordingIngesterMetrics.incrementMessagesByEncoding(contentEncoding ?? (isGzipped(value) ? 'gzip' : 'none'))
+    return messageUnzipped
 }
 
 function getValidEvents(events: unknown[]): {
@@ -104,23 +138,12 @@ export function createParseMessageStep<T extends ParseMessageStepInput>(): Proce
             return dlq('message_value_or_timestamp_is_empty')
         }
 
-        let messageUnzipped = message.value
-        const contentEncoding = getContentEncoding(message.headers)
+        let messageUnzipped: Buffer
         try {
-            if (contentEncoding === 'lz4') {
-                const uncompressedSize = message.value.readUInt32LE(0)
-                const output = Buffer.allocUnsafe(uncompressedSize)
-                lz4.decodeBlock(message.value.subarray(4), output)
-                messageUnzipped = output
-            } else if (isGzipped(message.value)) {
-                messageUnzipped = gunzipSync(message.value)
-            }
+            messageUnzipped = decompressMessageValue(message)
         } catch (error) {
             return dlq('invalid_compressed_data', error)
         }
-        SessionRecordingIngesterMetrics.incrementMessagesByEncoding(
-            contentEncoding ?? (isGzipped(message.value) ? 'gzip' : 'none')
-        )
 
         let rawPayload: unknown
         try {
@@ -187,8 +210,16 @@ export function createParseMessageStep<T extends ParseMessageStepInput>(): Proce
             )
         }
 
-        const tokenHeader = message.headers?.find((header: MessageHeader) => header.token)?.token
-        const token = typeof tokenHeader === 'string' ? tokenHeader : tokenHeader?.toString()
+        // session_id and distinct_id are carried both in the headers (set by capture) and in the
+        // message body; they must agree — a mismatch means the message is corrupt or mis-routed.
+        // headers.session_id is already normalized by the validate step, matching the body's.
+        const { headers } = input
+        if (headers.session_id !== sessionId) {
+            return dlq('session_id_header_body_mismatch')
+        }
+        if (headers.distinct_id !== messageResult.data.distinct_id) {
+            return dlq('distinct_id_header_body_mismatch')
+        }
 
         const parsedMessage: ParsedMessageData = {
             metadata: {
@@ -198,10 +229,9 @@ export function createParseMessageStep<T extends ParseMessageStepInput>(): Proce
                 offset: message.offset,
                 timestamp: message.timestamp,
             },
-            headers: message.headers,
             distinct_id: messageResult.data.distinct_id,
             session_id: sessionId,
-            token: token ?? null,
+            token: headers.token,
             eventsByWindowId: {
                 [$window_id ?? '']: validEvents,
             },

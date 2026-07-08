@@ -3,11 +3,11 @@ import { LemonTag } from '@posthog/lemon-ui'
 import type { LemonTagProps } from '@posthog/lemon-ui'
 
 import type { EvaluationRun } from '../evaluations/types'
-import { capitalize, formatScore } from '../sentimentUtils'
+import { capitalize } from '../sentimentUtils'
 
 type EvaluationResultLike = Pick<
     EvaluationRun,
-    'status' | 'result' | 'result_type' | 'evaluation_type' | 'sentiment_label' | 'sentiment_score'
+    'status' | 'result' | 'result_type' | 'evaluation_type' | 'sentiment_label'
 >
 
 interface EvaluationResultDisplay {
@@ -23,7 +23,7 @@ const SENTIMENT_DISPLAY: Record<string, Pick<EvaluationResultDisplay, 'type' | '
     negative: { type: 'danger', icon: <IconX />, sortValue: 1 },
 }
 
-function isSentimentRun(run: EvaluationResultLike): boolean {
+export function isSentimentRun(run: EvaluationResultLike): boolean {
     return run.result_type === 'sentiment' || run.evaluation_type === 'sentiment' || !!run.sentiment_label
 }
 
@@ -41,10 +41,9 @@ export function getEvaluationResultDisplay(run: EvaluationResultLike): Evaluatio
             icon: <IconMinus />,
             sortValue: 0,
         }
-        const score = run.sentiment_score
         return {
             ...display,
-            label: `${capitalize(sentimentLabel)}${score !== null && score !== undefined ? ` (${formatScore(score)})` : ''}`,
+            label: capitalize(sentimentLabel),
         }
     }
     if (run.result === null) {

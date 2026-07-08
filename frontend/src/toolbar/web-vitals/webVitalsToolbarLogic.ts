@@ -1,12 +1,13 @@
 import { actions, afterMount, connect, kea, path, reducers } from 'kea'
 import { loaders } from 'kea-loaders'
-import { encodeParams, router, urlToAction } from 'kea-router'
+import { router, urlToAction } from 'kea-router'
 
 import { inStorybook, inStorybookTestRunner } from 'lib/utils/dom'
 import { permanentlyMount } from 'lib/utils/kea-logic-builders'
 
 import { WebVitalsMetric } from '~/queries/schema/schema-general'
-import { toolbarConfigLogic, toolbarFetch } from '~/toolbar/toolbarConfigLogic'
+import { toolbarApi } from '~/toolbar/toolbarApi'
+import { toolbarConfigLogic } from '~/toolbar/toolbarConfigLogic'
 
 import type { webVitalsToolbarLogicType } from './webVitalsToolbarLogicType'
 
@@ -69,27 +70,18 @@ export const webVitalsToolbarLogic = kea<webVitalsToolbarLogicType>([
                         return { LCP: null, FCP: null, CLS: null, INP: null } as WebVitalsMetrics
                     }
 
-                    const params = { pathname: window.location.pathname }
-
-                    let response: Response
-                    try {
-                        response = await toolbarFetch(
-                            `/api/environments/@current/web_vitals${encodeParams(params, '?')}`
-                        )
-                    } catch {
-                        // Network-level failures (origin unreachable, CORS, aborted) throw a TypeError.
-                        // Degrade the same way we do for a non-OK response — the UI already handles null metrics.
-                        return { LCP: null, FCP: null, CLS: null, INP: null } as WebVitalsMetrics
-                    }
+                    const result = await toolbarApi.webVitals.get<WebVitalsMetricsResponse>(
+                        { pathname: window.location.pathname },
+                        { context: 'load_web_vitals' }
+                    )
                     breakpoint()
 
-                    if (!response.ok) {
+                    // The UI already handles null metrics — any failure degrades to "no data".
+                    if (!result.ok) {
                         return { LCP: null, FCP: null, CLS: null, INP: null } as WebVitalsMetrics
                     }
 
-                    const json = (await response.json()) as WebVitalsMetricsResponse
-                    breakpoint()
-
+                    const json = result.data
                     return {
                         LCP: json.results.find((result) => result.action.custom_name === 'LCP')?.data[1] ?? null,
                         FCP: json.results.find((result) => result.action.custom_name === 'FCP')?.data[1] ?? null,

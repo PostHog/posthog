@@ -100,7 +100,7 @@
                             "type": "string"
                         },
                         "provider": {
-                            "description": "* `openai` - Openai\n* `anthropic` - Anthropic\n* `gemini` - Gemini\n* `openrouter` - Openrouter\n* `fireworks` - Fireworks\n* `azure_openai` - Azure OpenAI\n* `together_ai` - Together AI",
+                            "description": "* `openai` - Openai\n* `anthropic` - Anthropic\n* `gemini` - Gemini\n* `openrouter` - Openrouter\n* `fireworks` - Fireworks\n* `azure_openai` - Azure OpenAI\n* `together_ai` - Together AI\n* `minimax` - MiniMax",
                             "enum": [
                                 "openai",
                                 "anthropic",
@@ -108,21 +108,21 @@
                                 "openrouter",
                                 "fireworks",
                                 "azure_openai",
-                                "together_ai"
+                                "together_ai",
+                                "minimax"
                             ],
                             "type": "string"
                         },
                         "provider_key_id": {
                             "anyOf": [
                                 {
-                                    "format": "uuid",
-                                    "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$",
                                     "type": "string"
                                 },
                                 {
                                     "type": "null"
                                 }
-                            ]
+                            ],
+                            "description": "Team provider key to run this eval with (same provider as `provider`). Leave null only for brief pre-key testing; real evals should set it."
                         },
                         "provider_key_name": {
                             "anyOf": [
@@ -163,6 +163,24 @@
             "description": "Output format. Use 'boolean' for pass/fail evaluations and 'sentiment' for sentiment analysis.\n\n* `boolean` - Boolean (Pass/Fail)\n* `sentiment` - Sentiment",
             "enum": ["boolean", "sentiment"],
             "type": "string"
+        },
+        "target": {
+            "description": "What the evaluation runs on. 'generation' evaluates each matching $ai_generation event individually. 'trace' evaluates the whole trace once: the first matching generation schedules a run that waits for the trace to settle, then evaluates all of its events together. Condition filters still match individual generations — a trace is evaluated when any of its generations matches, and sampling applies per trace.\n\n* `generation` - Generation\n* `trace` - Trace",
+            "enum": ["generation", "trace"],
+            "type": "string"
+        },
+        "target_config": {
+            "description": "Target-specific config. For 'trace' target: {window_seconds}. Empty for 'generation'.",
+            "properties": {
+                "window_seconds": {
+                    "default": 1800,
+                    "description": "For 'trace' target: seconds to wait after the first matching generation before evaluating the whole trace. Captured when the run is scheduled — editing it does not change trace runs already in flight.",
+                    "maximum": 7200,
+                    "minimum": 10,
+                    "type": "number"
+                }
+            },
+            "type": "object"
         }
     },
     "required": ["name", "evaluation_type", "output_type"],

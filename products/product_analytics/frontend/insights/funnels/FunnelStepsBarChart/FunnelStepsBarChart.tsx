@@ -5,15 +5,15 @@ import { useCallback, useMemo, type ErrorInfo } from 'react'
 import { BarChart, DEFAULT_MARGINS } from '@posthog/quill-charts'
 import type { PointClickData, TooltipContext } from '@posthog/quill-charts'
 
-import { buildTheme } from 'lib/charts/utils/theme'
+import { useChartConfig, useChartTheme } from 'lib/charts/hooks'
 import { ScrollableShadows } from 'lib/components/ScrollableShadows/ScrollableShadows'
+import { FEATURE_FLAGS } from 'lib/constants'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { StepLegend } from 'scenes/funnels/FunnelBarVertical/StepLegend'
 import { funnelDataLogic } from 'scenes/funnels/funnelDataLogic'
 import { funnelPersonsModalLogic } from 'scenes/funnels/funnelPersonsModalLogic'
-import { hasBreakdown } from 'scenes/funnels/funnelUtils'
 import { insightLogic } from 'scenes/insights/insightLogic'
 
-import { themeLogic } from '~/layout/navigation-3000/themeLogic'
 import { groupsModel } from '~/models/groupsModel'
 import { ChartParams } from '~/types'
 
@@ -21,8 +21,9 @@ import { buildFunnelStepsBarConfig, FUNNEL_STEPS_BAND_PADDING } from '../shared/
 import { FunnelStepsBarTooltip } from './FunnelStepsBarTooltip'
 import {
     buildFunnelStepsBarData,
-    type FunnelStepsBarSeriesMeta,
     resolveFunnelStepClick,
+    withFunnelStepsBarInteraction,
+    type FunnelStepsBarSeriesMeta,
 } from './funnelStepsBarTransforms'
 
 const BASE_STEP_WIDTH_PX = 240
@@ -46,10 +47,9 @@ export function FunnelStepsBarChart({
     showPersonsModal: showPersonsModalProp = true,
     inCardView,
 }: ChartParams): JSX.Element | null {
-    const { isDarkModeOn } = useValues(themeLogic)
-    // buildTheme() reads CSS vars; we re-memo on isDarkModeOn so the theme refreshes
-    // when the user toggles dark mode even though the function takes no arguments.
-    const theme = useMemo(() => buildTheme(), [isDarkModeOn])
+    const { featureFlags } = useValues(featureFlagLogic)
+    const quillTooltipEnabled = !!featureFlags[FEATURE_FLAGS.PRODUCT_ANALYTICS_INSIGHTS_TOOLTIPS]
+    const theme = useChartTheme()
     const { insightProps } = useValues(insightLogic)
     const { visibleStepsWithConversionMetrics, getFunnelsColor, breakdownFilter, querySource, insightData } = useValues(
         funnelDataLogic(insightProps)
@@ -65,26 +65,14 @@ export function FunnelStepsBarChart({
         () =>
             buildFunnelStepsBarData(steps, {
                 getColor: getFunnelsColor,
-                // Breakdown + compare bars share a breakdown value across periods, so the legend
-                // must also name the period; plain breakdown/compare bars keep their single label.
-                getLabel: (variant) =>
-                    variant.compare_label && hasBreakdown(variant.breakdown_value)
-                        ? `${String(variant.breakdown_value)} · ${
-                              variant.compare_label === 'current' ? 'Current' : 'Previous'
-                          }`
-                        : String(variant.breakdown_value ?? variant.name ?? ''),
+                getLabel: (variant) => String(variant.breakdown_value ?? variant.name ?? ''),
             }),
         [steps, getFunnelsColor]
     )
 
-    // Only breakdown + compare needs a legend mapping color → breakdown value (and period); plain
-    // breakdown reads off the results table and pure compare is self-evident, so neither regresses.
-    const isBreakdownCompare = steps[0]?.nested_breakdown?.some(
-        (variant) => variant.compare_label != null && hasBreakdown(variant.breakdown_value)
-    )
-    const config = useMemo(
-        () => (isBreakdownCompare ? { ...chartConfig, legend: { show: true, interactive: false } } : chartConfig),
-        [isBreakdownCompare]
+    const config = useChartConfig(
+        () => withFunnelStepsBarInteraction(chartConfig, { quillTooltipEnabled }),
+        [quillTooltipEnabled]
     )
 
     const groupTypeLabel = aggregationLabel(querySource?.aggregation_group_type_index).plural
@@ -131,7 +119,11 @@ export function FunnelStepsBarChart({
         <ScrollableShadows direction="horizontal" className="flex-1" contentClassName="flex h-full flex-col">
             <div className="flex flex-1 flex-col" data-attr="funnel-steps-bar-chart">
                 {/* eslint-disable-next-line react/forbid-dom-props */}
-                <div className="flex min-h-[150px] flex-1" style={{ width: chartWidth }}>
+                <div
+                    className="flex min-h-[150px] flex-1"
+                    style={{ width: chartWidth }}
+                    data-attr="funnel-steps-bar-chart-canvas"
+                >
                     <BarChart<FunnelStepsBarSeriesMeta>
                         series={series}
                         labels={labels}

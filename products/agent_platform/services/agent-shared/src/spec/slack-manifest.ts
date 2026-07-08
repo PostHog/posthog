@@ -49,7 +49,9 @@ export interface BuildSlackManifestInput {
     eventsUrl: string | null
     /** Public interactivity Request URL, or null. */
     interactivityUrl: string | null
-    /** Native-tool id → its `requires.scopes`. Injected by the caller (janitor). */
+    /** Native-tool id → the Slack OAuth scopes it needs (its `requires.provider`
+     *  scopes when that provider is `slack`, else `[]`). Injected by the caller
+     *  (janitor) since agent-shared can't import agent-tools. */
     scopesForNativeTool: (id: string) => string[]
 }
 
@@ -109,7 +111,10 @@ export function buildSlackManifest(input: BuildSlackManifestInput): BuildSlackMa
     // tools, plus what the trigger itself needs.
     const scopes = new Set<string>(['app_mentions:read', 'chat:write'])
     for (const tool of input.tools) {
-        if (tool.kind === 'native' && tool.id.startsWith('@posthog/slack-')) {
+        // `scopesForNativeTool` returns the tool's Slack scopes only when its
+        // declared provider is `slack` (else `[]`), so we no longer special-case
+        // the `@posthog/slack-` id prefix — the provider is the source of truth.
+        if (tool.kind === 'native') {
             for (const scope of input.scopesForNativeTool(tool.id)) {
                 scopes.add(scope)
             }

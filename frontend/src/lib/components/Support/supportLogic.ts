@@ -1,6 +1,5 @@
 import { actions, connect, kea, listeners, path, props, reducers, selectors } from 'kea'
 import { forms } from 'kea-forms'
-import { urlToAction } from 'kea-router'
 import posthog from 'posthog-js'
 
 import { LemonSelectOptions } from '@posthog/lemon-ui'
@@ -463,7 +462,7 @@ export const supportLogic = kea<supportLogicType>([
     })),
     actions(() => ({
         closeSupportForm: true,
-        openSupportForm: (values: Partial<SupportFormFields>) => values,
+        openSupportForm: (values: Partial<SupportFormFields> & { target?: 'modal' | 'sidePanel' }) => values,
         submitZendeskTicket: (form: SupportFormFields) => form,
         ensureZendeskOrganization: true,
         updateUrlParams: true,
@@ -559,7 +558,8 @@ export const supportLogic = kea<supportLogicType>([
             severity_level,
             message,
             exception_event,
-        }: Partial<SupportFormFields>) => {
+            target,
+        }: Partial<SupportFormFields> & { target?: 'modal' | 'sidePanel' }) => {
             let area = target_area ?? getURLPathToTargetArea(window.location.pathname)
             if (!userLogic.values.user) {
                 area = 'login'
@@ -581,7 +581,8 @@ export const supportLogic = kea<supportLogicType>([
                 actions.closeEmailForm()
             }
 
-            if (values.sidePanelAvailable) {
+            const useSidePanel = target ? target === 'sidePanel' : values.sidePanelAvailable
+            if (useSidePanel) {
                 const panelOptions = [kind ?? '', area ?? ''].join(':')
                 actions.openSidePanel(SidePanelTab.Support, panelOptions === ':' ? undefined : panelOptions)
             } else {
@@ -871,39 +872,6 @@ export const supportLogic = kea<supportLogicType>([
                     organization_name: organizationLogic.values.currentOrganization?.name,
                     error_message: error instanceof Error ? error.message : String(error),
                     error_status: error && typeof error === 'object' && 'status' in error ? error.status : undefined,
-                })
-            }
-        },
-    })),
-
-    urlToAction(({ actions, values }) => ({
-        '*': (_, _search, hashParams) => {
-            if (values.isSupportFormOpen) {
-                return
-            }
-
-            const [panel, ...panelOptions] = (hashParams['panel'] ?? '').split(':')
-
-            if (panel === SidePanelTab.Support) {
-                const [kind, area, severity, isEmailFormOpen] = panelOptions
-
-                actions.openSupportForm({
-                    kind: Object.keys(SUPPORT_KIND_TO_SUBJECT).includes(kind) ? kind : null,
-                    target_area: getLabelBasedOnTargetArea(area) ? area : null,
-                    severity_level: Object.keys(SEVERITY_LEVEL_TO_NAME).includes(severity) ? severity : null,
-                    isEmailFormOpen: isEmailFormOpen ?? 'false',
-                })
-                return
-            }
-
-            // Legacy supportModal param
-            if ('supportModal' in hashParams) {
-                const [kind, area, severity] = (hashParams['supportModal'] || '').split(':')
-
-                actions.openSupportForm({
-                    kind: Object.keys(SUPPORT_KIND_TO_SUBJECT).includes(kind) ? kind : null,
-                    target_area: Object.keys(TARGET_AREA_TO_NAME).includes(area) ? area : null,
-                    severity_level: Object.keys(SEVERITY_LEVEL_TO_NAME).includes(severity) ? severity : null,
                 })
             }
         },

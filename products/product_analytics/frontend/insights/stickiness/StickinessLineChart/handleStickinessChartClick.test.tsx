@@ -82,8 +82,9 @@ describe('handleStickinessChartClick', () => {
         handleStickinessChartClick(keyFor(trendResult), 2, deps)
 
         const { container } = render(<>{openPersonsModal.mock.calls[0][0].title}</>)
-        // PropertyKeyInfo wraps the raw label; the label text itself surfaces in textContent.
-        expect(container.textContent).toContain('$pageview')
+        // PropertyKeyInfo humanizes the core event name, so "$pageview" surfaces as "Pageview".
+        expect(container.textContent).toContain('Pageview')
+        expect(container.textContent).not.toContain('$pageview')
         expect(container.textContent).toContain('stickiness on day 3')
     })
 

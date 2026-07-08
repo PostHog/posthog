@@ -99,6 +99,15 @@ export interface PersonPropertyFilterApi {
     value?: (string | number | boolean)[] | string | number | boolean | null
 }
 
+export interface PersonMetadataPropertyFilterApi {
+    key: string
+    label?: string | null
+    operator: PropertyOperatorApi
+    /** Top-level columns on the persons table (e.g. created_at), not properties JSON */
+    type?: 'person_metadata'
+    value?: (string | number | boolean)[] | string | number | boolean | null
+}
+
 export type Key10Api = (typeof Key10Api)[keyof typeof Key10Api]
 
 export const Key10Api = {
@@ -288,6 +297,7 @@ export interface PropertyGroupFilterValueApi {
         | PropertyGroupFilterValueApi
         | EventPropertyFilterApi
         | PersonPropertyFilterApi
+        | PersonMetadataPropertyFilterApi
         | ElementPropertyFilterApi
         | EventMetadataPropertyFilterApi
         | SessionPropertyFilterApi
@@ -335,6 +345,8 @@ export interface ErrorTrackingAssignmentRuleCreateRequestApi {
     filters: PropertyGroupFilterValueApi
     /** User or role to assign matching issues to. */
     assignee: ErrorTrackingAssignmentRuleAssigneeRequestApi
+    /** Evaluation priority among rules; lower is evaluated first and the first matching rule wins. Defaults to 0. Pass distinct ascending values when creating several rules at once to give them a deterministic order. */
+    order_key?: number
 }
 
 export interface ErrorTrackingAssignmentRuleUpdateRequestApi {
@@ -370,18 +382,86 @@ export interface PatchedErrorTrackingAssignmentRuleApi {
     readonly updated_at?: string
 }
 
+export interface ErrorTrackingBypassRuleApi {
+    /** Unique identifier of the bypass rule. */
+    readonly id: string
+    /** Property-group filters that define which incoming error events bypass rate limiting. */
+    filters: unknown
+    /** Position of the rule in the team's ordered list. Rules are evaluated greedily in ascending order. */
+    order_key: number
+    /** Populated when the rule has been automatically disabled (for example, after its filters failed to evaluate during ingestion). Null while the rule is active. */
+    disabled_data: unknown
+    /** When the rule was created. */
+    readonly created_at: string
+    /** When the rule was last updated. */
+    readonly updated_at: string
+}
+
+export interface PaginatedErrorTrackingBypassRuleListApi {
+    count: number
+    /** @nullable */
+    next?: string | null
+    /** @nullable */
+    previous?: string | null
+    results: ErrorTrackingBypassRuleApi[]
+}
+
+export interface ErrorTrackingBypassRuleCreateRequestApi {
+    /** Property-group filters that define which incoming error events bypass rate limiting. Must contain at least one filter — empty rules are rejected. To stop rate limiting entirely, adjust the rate limit settings instead of creating a match-all bypass rule. */
+    filters: PropertyGroupFilterValueApi
+}
+
+export interface ErrorTrackingBypassRuleUpdateRequestApi {
+    /** Property-group filters that define which incoming error events bypass rate limiting. Must contain at least one filter. Omit to preserve the existing filters. */
+    filters?: PropertyGroupFilterValueApi
+}
+
+export interface PatchedErrorTrackingBypassRuleUpdateRequestApi {
+    /** Property-group filters that define which incoming error events bypass rate limiting. Must contain at least one filter. Omit to preserve the existing filters. */
+    filters?: PropertyGroupFilterValueApi
+}
+
+export interface PatchedErrorTrackingBypassRuleApi {
+    /** Unique identifier of the bypass rule. */
+    readonly id?: string
+    /** Property-group filters that define which incoming error events bypass rate limiting. */
+    filters?: unknown
+    /** Position of the rule in the team's ordered list. Rules are evaluated greedily in ascending order. */
+    order_key?: number
+    /** Populated when the rule has been automatically disabled (for example, after its filters failed to evaluate during ingestion). Null while the rule is active. */
+    disabled_data?: unknown
+    /** When the rule was created. */
+    readonly created_at?: string
+    /** When the rule was last updated. */
+    readonly updated_at?: string
+}
+
 export interface ErrorTrackingExternalReferenceIntegrationResultApi {
+    /** ID of the integration backing this external reference. */
     readonly id: number
+    /** Integration provider, e.g. 'github', 'gitlab', 'linear', or 'jira'. */
     readonly kind: string
+    /** Human-readable name of the connected integration. */
     readonly display_name: string
 }
 
+/**
+ * Provider-specific fields describing the external issue to create. Required keys depend on the integration kind: github -> {repository, title, body}; gitlab -> {title, body}; linear -> {team_id, title, description}; jira -> {project_key, title, description}. Examples: github {"repository":"posthog","title":"Checkout TypeError","body":"Stack trace"}; linear {"team_id":"team-id","title":"Checkout TypeError","description":"Stack trace"}; jira {"project_key":"ENG","title":"Checkout TypeError","description":"Stack trace"}.
+ */
+export type ErrorTrackingExternalReferenceResultApiConfig = { [key: string]: string }
+
 export interface ErrorTrackingExternalReferenceResultApi {
+    /** Unique ID of the external reference. */
     readonly id: string
+    /** The connected integration this reference was created through. */
     readonly integration: ErrorTrackingExternalReferenceIntegrationResultApi
+    /** ID of the connected integration to create the external issue with. List the project's integrations to find the right ID and its kind (one of 'github', 'gitlab', 'linear', 'jira'). */
     integration_id: number
-    config: unknown
+    /** Provider-specific fields describing the external issue to create. Required keys depend on the integration kind: github -> {repository, title, body}; gitlab -> {title, body}; linear -> {team_id, title, description}; jira -> {project_key, title, description}. Examples: github {"repository":"posthog","title":"Checkout TypeError","body":"Stack trace"}; linear {"team_id":"team-id","title":"Checkout TypeError","description":"Stack trace"}; jira {"project_key":"ENG","title":"Checkout TypeError","description":"Stack trace"}. */
+    config: ErrorTrackingExternalReferenceResultApiConfig
+    /** ID of the error tracking issue to link the reference to. */
     issue: string
+    /** URL of the linked external issue in the provider's system. */
     readonly external_url: string
 }
 
@@ -519,58 +599,40 @@ export interface PatchedErrorTrackingGroupingRuleApi {
     readonly updated_at?: string
 }
 
-/**
- * * `archived` - Archived
- * * `active` - Active
- * * `resolved` - Resolved
- * * `pending_release` - Pending release
- * * `suppressed` - Suppressed
- */
-export type ErrorTrackingIssueFullStatusEnumApi =
-    (typeof ErrorTrackingIssueFullStatusEnumApi)[keyof typeof ErrorTrackingIssueFullStatusEnumApi]
-
-export const ErrorTrackingIssueFullStatusEnumApi = {
-    Archived: 'archived',
-    Active: 'active',
-    Resolved: 'resolved',
-    PendingRelease: 'pending_release',
-    Suppressed: 'suppressed',
-} as const
-
-export interface ErrorTrackingIssueAssignmentApi {
+export interface ErrorTrackingIssueAssigneeReadApi {
     readonly id: number | string | null
-    readonly type: string
+    type: string
+}
+
+export interface ErrorTrackingIssueCohortReadApi {
+    id: number
+    name: string
 }
 
 /**
- * @nullable
+ * Read-only serializer for issue contract types returned by the facade.
  */
-export type ErrorTrackingIssueFullApiCohort = {
-    readonly id?: number
-    readonly name?: string
-} | null
-
-export interface ErrorTrackingIssueFullApi {
-    readonly id: string
-    status?: ErrorTrackingIssueFullStatusEnumApi
+export interface ErrorTrackingIssueReadApi {
+    id: string
+    status: string
     /** @nullable */
-    name?: string | null
+    name: string | null
     /** @nullable */
-    description?: string | null
-    first_seen: string
-    assignee: ErrorTrackingIssueAssignmentApi
+    description: string | null
+    /** @nullable */
+    first_seen: string | null
+    assignee: ErrorTrackingIssueAssigneeReadApi | null
     external_issues: ErrorTrackingExternalReferenceResultApi[]
-    /** @nullable */
-    readonly cohort: ErrorTrackingIssueFullApiCohort
+    cohort: ErrorTrackingIssueCohortReadApi | null
 }
 
-export interface PaginatedErrorTrackingIssueFullListApi {
+export interface PaginatedErrorTrackingIssueReadListApi {
     count: number
     /** @nullable */
     next?: string | null
     /** @nullable */
     previous?: string | null
-    results: ErrorTrackingIssueFullApi[]
+    results: ErrorTrackingIssueReadApi[]
 }
 
 /**
@@ -626,25 +688,20 @@ export interface PatchedErrorTrackingIssueWriteApi {
 }
 
 /**
- * @nullable
+ * Read-only serializer for issue contract types returned by the facade.
  */
-export type PatchedErrorTrackingIssueFullApiCohort = {
-    readonly id?: number
-    readonly name?: string
-} | null
-
-export interface PatchedErrorTrackingIssueFullApi {
-    readonly id?: string
-    status?: ErrorTrackingIssueFullStatusEnumApi
+export interface PatchedErrorTrackingIssueReadApi {
+    id?: string
+    status?: string
     /** @nullable */
     name?: string | null
     /** @nullable */
     description?: string | null
-    first_seen?: string
-    assignee?: ErrorTrackingIssueAssignmentApi
-    external_issues?: ErrorTrackingExternalReferenceResultApi[]
     /** @nullable */
-    readonly cohort?: PatchedErrorTrackingIssueFullApiCohort
+    first_seen?: string | null
+    assignee?: ErrorTrackingIssueAssigneeReadApi | null
+    external_issues?: ErrorTrackingExternalReferenceResultApi[]
+    cohort?: ErrorTrackingIssueCohortReadApi | null
 }
 
 export interface ErrorTrackingIssueMergeRequestApi {
@@ -881,6 +938,7 @@ export const BlankEnumApi = {
  * * `event_metadata` - event_metadata
  * * `feature` - feature
  * * `person` - person
+ * * `person_metadata` - person_metadata
  * * `cohort` - cohort
  * * `element` - element
  * * `static-cohort` - static-cohort
@@ -912,6 +970,7 @@ export const PropertyFilterTypeEnumApi = {
     EventMetadata: 'event_metadata',
     Feature: 'feature',
     Person: 'person',
+    PersonMetadata: 'person_metadata',
     Cohort: 'cohort',
     Element: 'element',
     StaticCohort: 'static-cohort',
@@ -1223,51 +1282,31 @@ export interface ErrorTrackingIssuesListResponseApi {
     nextOffset?: number
 }
 
-/**
- * * `ready` - Ready
- * * `computing` - Computing
- */
-export type ErrorTrackingRecommendationStatusEnumApi =
-    (typeof ErrorTrackingRecommendationStatusEnumApi)[keyof typeof ErrorTrackingRecommendationStatusEnumApi]
-
-export const ErrorTrackingRecommendationStatusEnumApi = {
-    Ready: 'ready',
-    Computing: 'computing',
-} as const
-
-/**
- * Recommendation payload, shape depends on type.
- */
-export type ErrorTrackingRecommendationApiMeta = { [key: string]: unknown }
-
 export interface ErrorTrackingRecommendationApi {
     /** Recommendation UUID. */
-    readonly id: string
+    id: string
     /** Recommendation type identifier (e.g. 'alerts'). */
-    readonly type: string
+    type: string
     /** Recommendation payload, shape depends on type. */
-    readonly meta: ErrorTrackingRecommendationApiMeta
+    meta: unknown
     /** Whether the recommendation's recommended action has been satisfied. */
-    readonly completed: boolean
-    /** 'ready' if meta is fresh, 'computing' if a refresh is in progress.
-     *
-     * * `ready` - Ready
-     * * `computing` - Computing */
-    readonly status: ErrorTrackingRecommendationStatusEnumApi
+    completed: boolean
+    /** 'ready' if meta is fresh, 'computing' if a refresh is in progress. */
+    status: string
     /**
      * Timestamp meta was last successfully computed.
      * @nullable
      */
-    readonly computed_at: string | null
+    computed_at: string | null
     /**
      * Timestamp the user dismissed this recommendation, if any.
      * @nullable
      */
-    readonly dismissed_at: string | null
+    dismissed_at: string | null
     /** Timestamp the recommendation row was first created. */
-    readonly created_at: string
+    created_at: string
     /** Timestamp the recommendation row was last updated. */
-    readonly updated_at: string
+    updated_at: string
 }
 
 export interface PaginatedErrorTrackingRecommendationListApi {
@@ -1609,38 +1648,17 @@ export interface PatchedErrorTrackingSuppressionRuleApi {
     readonly updated_at?: string
 }
 
-/**
- * Release associated with this symbol set, if any.
- * @nullable
- */
-export type ErrorTrackingSymbolSetApiRelease = { [key: string]: unknown } | null
-
 export interface ErrorTrackingSymbolSetApi {
-    /** Unique symbol set ID. */
-    readonly id: string
-    /** Reference used to match stack frames to this symbol set. */
-    readonly ref: string
-    /** Project/team ID that owns this symbol set. */
-    readonly team_id: number
-    /** When this symbol set row was created. */
-    readonly created_at: string
-    /**
-     * When this symbol set was last used to resolve a stack frame.
-     * @nullable
-     */
-    readonly last_used: string | null
-    /**
-     * Reason symbol lookup failed, if the source map is missing or invalid.
-     * @nullable
-     */
-    readonly failure_reason: string | null
-    /** Whether this symbol set has an uploaded source map file available to download. */
-    readonly has_uploaded_file: boolean
-    /**
-     * Release associated with this symbol set, if any.
-     * @nullable
-     */
-    readonly release: ErrorTrackingSymbolSetApiRelease
+    id: string
+    ref: string
+    team_id: number
+    created_at: string
+    /** @nullable */
+    last_used: string | null
+    /** @nullable */
+    failure_reason: string | null
+    has_uploaded_file: boolean
+    release: ErrorTrackingReleaseApi | null
 }
 
 export interface PaginatedErrorTrackingSymbolSetListApi {
@@ -1709,6 +1727,17 @@ export interface ErrorTrackingSymbolSetBulkStartUploadApi {
 }
 
 export type ErrorTrackingAssignmentRulesListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number
+}
+
+export type ErrorTrackingBypassRulesListParams = {
     /**
      * Number of results to return per page.
      */

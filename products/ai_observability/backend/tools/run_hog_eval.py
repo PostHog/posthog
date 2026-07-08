@@ -6,9 +6,11 @@ from posthog.schema import AssistantTool
 
 from posthog.hogql import ast
 
-from posthog.hogql_queries.ai.ai_table_resolver import execute_with_ai_events_fallback
+from posthog.hogql_queries.ai.ai_table_resolver import query_ai_events
 from posthog.hogql_queries.ai.utils import HEAVY_COLUMN_NAMES, merge_heavy_properties
 from posthog.sync import database_sync_to_async
+
+from products.ai_observability.backend.hog import compile_ai_observability_hog
 
 from ee.hogai.tool import MaxTool
 
@@ -46,22 +48,19 @@ class RunHogEvalTestTool(MaxTool):
         return [("llm_analytics", "viewer")]
 
     async def _arun_impl(self, source: str, sample_count: int = 3) -> tuple[str, Any]:
-        from posthog.cdp.validation import compile_hog
         from posthog.temporal.ai_observability.message_utils import extract_text_from_messages
         from posthog.temporal.ai_observability.run_evaluation import run_hog_eval
 
         try:
-            bytecode = compile_hog(source, "destination")
+            bytecode = compile_ai_observability_hog(source, "destination")
         except Exception as e:
             return (f"Compilation error: {e}", None)
 
         team = self._team
 
         # Read from ai_events with native heavy columns so the Hog body still
-        # sees `event.properties.$ai_input` etc. for post-strip rows. Falls
-        # back to the events table when ai_events returns nothing — only
-        # legacy paths still write heavy props into events.properties on the
-        # fallback side.
+        # sees `event.properties.$ai_input` etc. Falls back to the events table
+        # when ai_events returns nothing (data beyond the retention window).
         query = ast.SelectQuery(
             select=[
                 ast.Field(chain=["uuid"]),
@@ -93,11 +92,12 @@ class RunHogEvalTestTool(MaxTool):
             limit=ast.Constant(value=sample_count),
         )
 
-        response = await database_sync_to_async(execute_with_ai_events_fallback)(
+        response = await database_sync_to_async(query_ai_events)(
             query=query,
             placeholders={},
             team=team,
             query_type="RunHogEvalTest",
+            fall_back_to_events=True,
         )
 
         if not response.results:
@@ -109,10 +109,9 @@ class RunHogEvalTestTool(MaxTool):
         # Parse all events first to collect property keys and build event data.
         # Heavy columns trail the four base columns in row order — re-merge them
         # into `properties` so the Hog body can read `properties.$ai_input` etc.
-        # On the events fallback the rewriter rewrites the heavy slots back to
-        # `properties.$ai_*`, so the merge is *idempotent*: pre-strip rows
-        # re-merge values already in `properties`; post-strip rows have NULL
-        # heavy slots that `merge_heavy_properties` skips.
+        # `merge_heavy_properties` skips NULL heavy slots, so on the events
+        # fallback (heavy columns absent) it re-merges nothing, and on ai_events
+        # it fills `properties.$ai_*` from the native columns.
         parsed_events: list[dict[str, Any]] = []
         all_property_keys: set[str] = set()
         for row in response.results:

@@ -2,13 +2,18 @@ from freezegun import freeze_time
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin, _create_event, _create_person, flush_persons_and_events
 from unittest.mock import patch
 
+from django.apps import apps
 from django.utils.timezone import now
 
 from dateutil.relativedelta import relativedelta
 
-from products.error_tracking.backend.models import ErrorTrackingIssue, ErrorTrackingIssueFingerprintV2
-
 from ee.hogai.context.error_tracking.context import ErrorTrackingIssueContext
+
+# Test-fixture setup only — the code under test (ErrorTrackingIssueContext) reads issues through
+# the facade. Issues have no create-contract (they come from ingestion), so the test seeds the row
+# directly; apps.get_model avoids an import edge into error_tracking internals that tach would flag.
+ErrorTrackingIssue = apps.get_model("error_tracking", "ErrorTrackingIssue")
+ErrorTrackingIssueFingerprintV2 = apps.get_model("error_tracking", "ErrorTrackingIssueFingerprintV2")
 
 
 @freeze_time("2025-01-15T12:00:00Z")
@@ -105,6 +110,7 @@ class TestErrorTrackingIssueContext(ClickhouseTestMixin, APIBaseTest):
     def _create_context(self, issue_id: str, issue_name: str | None = None) -> ErrorTrackingIssueContext:
         return ErrorTrackingIssueContext(
             team=self.team,
+            user=self.user,
             issue_id=issue_id,
             issue_name=issue_name,
         )
@@ -123,6 +129,43 @@ class TestErrorTrackingIssueContext(ClickhouseTestMixin, APIBaseTest):
         issue = await context.aget_issue()
 
         self.assertIsNone(issue)
+
+    @patch.object(ErrorTrackingIssueContext, "_query_first_event")
+    async def test_first_event_window_hit_skips_fallback(self, mock_query):
+        mock_query.return_value = {"properties": {"$exception_list": []}}
+        context = self._create_context(self.issue_id_one)
+        first_seen = now() - relativedelta(hours=3)
+
+        event = await context.aget_first_event(first_seen)
+
+        self.assertIsNotNone(event)
+        # Window hit → only the narrow ±1h lookup runs, no full-history fallback.
+        self.assertEqual(mock_query.call_count, 1)
+        window = mock_query.call_args.args[0]
+        self.assertEqual(window.date_from, (first_seen - relativedelta(hours=1)).isoformat())
+        self.assertEqual(window.date_to, (first_seen + relativedelta(hours=1)).isoformat())
+
+    @patch.object(ErrorTrackingIssueContext, "_query_first_event")
+    async def test_first_event_falls_back_to_all_time_when_window_misses(self, mock_query):
+        mock_query.side_effect = [None, {"properties": {"$exception_list": []}}]
+        context = self._create_context(self.issue_id_one)
+
+        event = await context.aget_first_event(now() - relativedelta(hours=3))
+
+        self.assertIsNotNone(event)
+        # Window missed → second lookup spans the full history.
+        self.assertEqual(mock_query.call_count, 2)
+        self.assertEqual(mock_query.call_args_list[1].args[0].date_from, "all")
+
+    @patch.object(ErrorTrackingIssueContext, "_query_first_event")
+    async def test_first_event_without_first_seen_uses_all_time(self, mock_query):
+        mock_query.return_value = {"properties": {"$exception_list": []}}
+        context = self._create_context(self.issue_id_one)
+
+        await context.aget_first_event(None)
+
+        self.assertEqual(mock_query.call_count, 1)
+        self.assertEqual(mock_query.call_args.args[0].date_from, "all")
 
     async def test_format_stacktrace_correctly(self):
         context = self._create_context(self.issue_id_one)

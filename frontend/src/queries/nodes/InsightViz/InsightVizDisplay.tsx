@@ -5,9 +5,7 @@ import { LemonButton } from '@posthog/lemon-ui'
 
 import { ExportButton } from 'lib/components/ExportButton/ExportButton'
 import { InsightLegend } from 'lib/components/InsightLegend/InsightLegend'
-import { FEATURE_FLAGS } from 'lib/constants'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { dashboardLogic } from 'scenes/dashboard/dashboardLogic'
 import { Funnel } from 'scenes/funnels/Funnel'
 import { FunnelCanvasLabel } from 'scenes/funnels/FunnelCanvasLabel'
@@ -23,6 +21,10 @@ import {
     InsightTimeoutState,
     InsightValidationError,
 } from 'scenes/insights/EmptyStates'
+import {
+    SUPPORTED_PROPERTY_MATH_FOR_HISTOGRAM_BREAKDOWN,
+    isPropertyValueMath,
+} from 'scenes/insights/filters/ActionFilter/ActionFilterRow/mathUtils'
 import { InsightAIAnalysis } from 'scenes/insights/InsightAIAnalysis'
 import { insightDataLogic } from 'scenes/insights/insightDataLogic'
 import { insightLogic } from 'scenes/insights/insightLogic'
@@ -48,7 +50,14 @@ import { SceneSection } from '~/layout/scenes/components/SceneSection'
 import { InsightVizNode, TrendsQuery } from '~/queries/schema/schema-general'
 import { QueryContext } from '~/queries/types'
 import { shouldQueryBeAsync } from '~/queries/utils'
-import { ChartDisplayType, ExporterFormat, FunnelVizType, InsightLogicProps, InsightType } from '~/types'
+import {
+    ChartDisplayType,
+    ExporterFormat,
+    FunnelVizType,
+    InsightLogicProps,
+    InsightType,
+    PropertyMathType,
+} from '~/types'
 
 import { InsightDisplayConfig } from './InsightDisplayConfig'
 import { InsightResultMetadata } from './InsightResultMetadata'
@@ -136,13 +145,13 @@ export function InsightVizDisplay({
         useValues(insightLogic)
 
     const { activeView } = useValues(insightNavLogic(insightProps))
-    const { featureFlags } = useValues(featureFlagLogic)
 
     const {
         isFunnels,
         isPaths,
         hasDetailedResultsTable,
         showLegend,
+        usesInChartLegend,
         hasFormula,
         supportsDisplay,
         samplingFactor,
@@ -217,18 +226,38 @@ export function InsightVizDisplay({
                     Reset unsupported settings
                 </LemonButton>
             ) : undefined
+            const useAverageCta =
+                validationErrorCode === 'property_math_unsupported_with_histogram_breakdown' ? (
+                    <LemonButton
+                        type="primary"
+                        loading={insightDataLoading}
+                        onClick={() =>
+                            updateQuerySource({
+                                series: ((series as TrendsQuery['series']) ?? []).map((s) =>
+                                    isPropertyValueMath(s.math) &&
+                                    !SUPPORTED_PROPERTY_MATH_FOR_HISTOGRAM_BREAKDOWN.has(s.math)
+                                        ? { ...s, math: PropertyMathType.Average }
+                                        : s
+                                ),
+                            } as Partial<TrendsQuery>)
+                        }
+                    >
+                        Use average instead
+                    </LemonButton>
+                ) : undefined
+            const cta = resetCta ?? useAverageCta
             return (
                 <InsightValidationError
                     query={query}
                     detail={validationError}
                     onRetry={
-                        resetCta
+                        cta
                             ? undefined
                             : () => {
                                   loadData(query && shouldQueryBeAsync(query) ? 'force_async' : 'force_blocking')
                               }
                     }
-                    cta={resetCta}
+                    cta={cta}
                 />
             )
         }
@@ -279,7 +308,13 @@ export function InsightVizDisplay({
 
         if (activeView === InsightType.FUNNELS && !isFlowViz) {
             if (!hasFunnelResults && !erroredQueryId && !insightDataLoading) {
-                return <InsightEmptyState heading={context?.emptyStateHeading} detail={context?.emptyStateDetail} />
+                return (
+                    <InsightEmptyState
+                        heading={context?.emptyStateHeading}
+                        detail={context?.emptyStateDetail}
+                        sampleDataVariant="funnel"
+                    />
+                )
             }
         }
 
@@ -287,16 +322,9 @@ export function InsightVizDisplay({
     })()
 
     // A chart that draws its own legend inside the plot opts out of the side-legend column, so we
-    // don't render two legends. The slope graph always does; trends line/area/cumulative do when the
-    // quill in-chart legend is on (an unset display is the line chart, matching Trends.tsx's renderer).
-    const isQuillLegendTrendsChart =
-        !!featureFlags[FEATURE_FLAGS.PRODUCT_ANALYTICS_QUILL_LEGEND] &&
-        activeView === InsightType.TRENDS &&
-        (!display ||
-            display === ChartDisplayType.ActionsLineGraph ||
-            display === ChartDisplayType.ActionsLineGraphCumulative ||
-            display === ChartDisplayType.ActionsAreaGraph)
-    const chartDrawsOwnLegend = display === ChartDisplayType.SlopeGraph || isQuillLegendTrendsChart
+    // don't render two legends. The slope graph always does; trends/stickiness/lifecycle charts do
+    // when the quill in-chart legend is on (`usesInChartLegend`).
+    const chartDrawsOwnLegend = display === ChartDisplayType.SlopeGraph || usesInChartLegend
     const showSideLegend = supportsDisplay && showLegend && !chartDrawsOwnLegend
 
     function renderActiveView(): JSX.Element | null {

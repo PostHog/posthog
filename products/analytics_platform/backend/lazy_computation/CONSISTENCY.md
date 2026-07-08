@@ -280,6 +280,21 @@ The choice of sharding key depends on which consistency approach is used:
 
 **Current recommendation**: keep `sipHash64(job_id)` for now. It's even, simple, and works with all approaches. Revisit if a single job's data becomes large enough that cross-shard parallelism matters.
 
+### Breakdown-key colocation (trialed for the PATHS tile)
+
+The "revisit" trigger above has been hit. On teams with very high breakdown cardinality (hundreds of thousands of distinct paths), the PATHS tile reads `web_stats_paths_preaggregated` in several seconds, while the equivalent batch pre-agg (`web_pre_aggregated_stats`, which keys `pathname` high in its `ORDER BY`) serves the same row count in ~100ms. With `sipHash64(job_id)` sharding, a single large job's path rows land on one shard and aggregate serially.
+
+**Technique — breakdown-key colocation:** shard by `sipHash64(breakdown_value)` and lead the `ORDER BY` with `(team_id, time_window_start, breakdown_value, …)`. Two effects:
+
+- **Shard-local aggregation.** Each breakdown value lives entirely on one shard, so each shard computes complete per-path aggregates independently and the coordinator only merges the top-N candidates — no per-key cross-shard merge. This is ClickHouse's `optimize_distributed_group_by_sharding_key` pattern.
+- **Read locality.** Leading the sort key with `time_window_start` then `breakdown_value` gives the time-range read a primary-index range-skip and co-locates the `GROUP BY breakdown_value` rows (mirrors v2's layout).
+
+Both effects are query-side — the table layout only makes them _possible_. The read wiring must: (1) filter by `time_window_start` range, **not** `job_id IN (...)`, so the primary index range-skips — `job_id` is last in the sort key now, so keep `job_id IN (...)` only as a freshness post-filter; and (2) `SET optimize_distributed_group_by_sharding_key = 1`, which is what actually enables the shard-local short-circuit (it is not activated by the DDL).
+
+We're A/B-ing this in a parallel table — `web_stats_paths_preaggregated_pathkey` (migration 0278) — against the original: same columns, only the `ORDER BY` and sharding key differ. Goal is to confirm it lands near v2 before committing. Mind the empty-`breakdown_value` hotspotting caveat above (rare for `$pathname`, but worth a guard if this generalizes to other breakdowns).
+
+**Write side (wired).** The PATHS lazy read dual-writes into the pathkey table after each precompute read: `mirror_jobs_to_pathkey` copies the just-computed rows for the read's `job_id`s from the original table into the pathkey table (a row-level copy of already-aggregated states — no event re-scan), and the distributed INSERT reshards them by `sipHash64(breakdown_value)`. It is best-effort (never fails the read), runs at cache-miss frequency, is idempotent (ReplacingMergeTree), and is gated by a team-id allowlist (`WEB_STATS_PATHS_PREAGG_MIRROR_PATHKEY_TEAM_IDS`, default: Cloud project 2 only) so only the teams being compared pay the extra write. The **read** side stays on the original table — the pathkey table is queried ad-hoc to compare latency, applying the two read requirements above by hand.
+
 ## Other approaches investigated but not applicable
 
 - **`max_replica_delay_for_distributed_queries`**: rejects replicas lagging by N seconds, but the granularity is seconds — too coarse for sub-second read-after-write where replication lag is measured in milliseconds.

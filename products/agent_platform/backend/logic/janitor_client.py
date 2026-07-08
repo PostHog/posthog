@@ -128,6 +128,11 @@ class JanitorClient:
     def delete_tool(self, revision_id: str, tool_id: str) -> dict:
         return self._call("DELETE", f"/revisions/{revision_id}/tools/{tool_id}")
 
+    def dry_run_tool(self, revision_id: str, tool_id: str, body: dict) -> dict:
+        """Single-shot sandbox execution of the persisted compiled.js with
+        synthetic args + mock secrets. `body` carries { args, mock_secrets? }."""
+        return self._call("POST", f"/revisions/{revision_id}/tools/{tool_id}/dry_run", json=body)
+
     def freeze(self, revision_id: str) -> dict:
         return self._call("POST", f"/revisions/{revision_id}/freeze")
 
@@ -167,8 +172,10 @@ class JanitorClient:
         offset: int | None = None,
         state: str | None = None,
         revision_id: str | None = None,
+        agent_user_id: str | None = None,
         created_after: str | None = None,
         created_before: str | None = None,
+        search: str | None = None,
     ) -> dict:
         params: dict[str, Any] = {"application_id": application_id}
         if limit is not None:
@@ -181,10 +188,14 @@ class JanitorClient:
             params["state"] = state
         if revision_id:
             params["revision_id"] = revision_id
+        if agent_user_id:
+            params["agent_user_id"] = agent_user_id
         if created_after:
             params["created_after"] = created_after
         if created_before:
             params["created_before"] = created_before
+        if search:
+            params["search"] = search
         return self._call("GET", "/sessions", params=params)
 
     def get_session(self, session_id: str, *, last_n: int | None = None) -> dict:
@@ -194,8 +205,22 @@ class JanitorClient:
         return self._call("GET", f"/sessions/{session_id}", params=params)
 
     # ── fleet stats ────────────────────────────────────────────────────────
-    # Roll-up endpoints powering the agent-console overview tiles. The
+    # Roll-up endpoints powering the fleet overview tiles. The
     # janitor side owns the JSONB read so Django doesn't reach across DBs.
+
+    def get_models(self) -> dict:
+        """The served-model catalog + curated auto-level map. Project-agnostic
+        (the gateway catalog is global), so no params."""
+        return self._call("GET", "/models")
+
+    def get_spec_schema(self, *, section: str | None = None) -> dict:
+        """The agent-spec JSON Schema, emitted from the canonical zod
+        `AgentSpecSchema` (no Python mirror). Optional `section` returns one
+        top-level slice (e.g. `models`, `triggers`, `limits`)."""
+        params: dict[str, Any] = {}
+        if section:
+            params["section"] = section
+        return self._call("GET", "/spec-schema", params=params)
 
     def aggregate_for_application(self, application_id: str, *, since: str | None = None) -> dict:
         params: dict[str, Any] = {"application_id": application_id}
@@ -389,6 +414,22 @@ class JanitorClient:
         if limit is not None:
             params["limit"] = limit
         return self._call("GET", f"/memory/team/{team_id}/agent/{application_id}/search", params=params)
+
+    # ── users + linked identities ──────────────────────────────────────────
+    # The agent's end-users (agent_user) and their linked connections
+    # (agent_identity_credential). Metadata only — the janitor holds no
+    # decryption key, so credential material never crosses this boundary.
+
+    def list_users(self, team_id: int, application_id: str) -> dict:
+        """List the agent's end-users, each with their linked connections."""
+        return self._call("GET", f"/users/team/{team_id}/agent/{application_id}")
+
+    def delete_connection(self, team_id: int, application_id: str, agent_user_id: str, provider: str) -> dict:
+        """Revoke one linked connection (kept for audit, not hard-deleted)."""
+        return self._call(
+            "DELETE",
+            f"/users/team/{team_id}/agent/{application_id}/user/{agent_user_id}/connections/{provider}",
+        )
 
 
 def default_client() -> JanitorClient:

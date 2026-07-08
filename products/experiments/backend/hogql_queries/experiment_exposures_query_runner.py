@@ -1,6 +1,6 @@
+import uuid
 from datetime import UTC, datetime, timedelta
 from typing import Optional
-from zoneinfo import ZoneInfo
 
 import structlog
 from rest_framework.exceptions import ValidationError
@@ -22,7 +22,7 @@ from posthog.hogql.constants import HogQLGlobalSettings
 from posthog.hogql.modifiers import create_default_modifiers_for_team
 from posthog.hogql.query import execute_hogql_query
 
-from posthog.clickhouse.query_tagging import Product, tag_queries
+from posthog.clickhouse.query_tagging import Product, tag_queries, tags_context
 from posthog.hogql_queries.query_runner import QueryRunner
 from posthog.hogql_queries.utils.query_date_range import QueryDateRange
 from posthog.models.team.extensions import get_or_create_team_extension
@@ -34,14 +34,15 @@ from products.analytics_platform.backend.lazy_computation.lazy_computation_execu
 )
 from products.experiments.backend.analysis_health import evaluate_bias_risk
 from products.experiments.backend.hogql_queries import MULTIPLE_VARIANT_KEY
+from products.experiments.backend.hogql_queries.base_query_utils import analysis_window, analysis_window_end
 from products.experiments.backend.hogql_queries.error_handling import experiment_error_handler
 from products.experiments.backend.hogql_queries.experiment_query_builder import (
     ExperimentQueryBuilder,
     get_exposure_config_params_for_builder,
 )
 from products.experiments.backend.hogql_queries.experiment_query_runner import (
-    DEFAULT_EXPOSURE_TTL_SECONDS,
     experiment_has_min_runtime_for_precomputation,
+    experiment_precompute_ttl_schedule,
 )
 from products.experiments.backend.hogql_queries.exposure_query_logic import get_entity_key
 from products.experiments.backend.models.experiment import Experiment
@@ -57,8 +58,10 @@ class ExperimentExposuresQueryRunner(QueryRunner):
     query: ExperimentExposureQuery
     cached_response: CachedExperimentExposureQueryResponse
 
-    def __init__(self, *args, **kwargs):
+    def __init__(self, *args, error_event_context: str | None = "ui", **kwargs):
         super().__init__(*args, **kwargs)
+        # See ExperimentQueryRunner.__init__ — tags the terminal error event; None = silent.
+        self.error_event_context = error_event_context
 
         if not self.query.experiment_id:
             raise ValidationError("experiment_id is required")
@@ -72,10 +75,19 @@ class ExperimentExposuresQueryRunner(QueryRunner):
         self.experiment = Experiment.objects.get(id=self.query.experiment_id, team=self.team)
         self.feature_flag_key: str = self.experiment.feature_flag.key_without_tombstone()
 
+        # The analysis window comes from the query, not live model state: this runner's result is
+        # cached under a key hashed from self.query (see get_cache_payload), so the window it computes
+        # must match the window the query declares — otherwise the key can describe a window the result
+        # wasn't computed for. A running experiment serializes end_date=None; expand that to now() here
+        # (lazily, so the moving instant stays out of the cache key and the 24h TTL governs refresh).
+        self.window_start = datetime.fromisoformat(self.query.start_date) if self.query.start_date else None
+        self.window_end_date = datetime.fromisoformat(self.query.end_date) if self.query.end_date else None
+        self.as_of = self.window_end_date or datetime.now(UTC)
+
         # Holdout is intentionally not appended: holdout users were never exposed to
         # the experiment, so they don't belong in the exposure chart. self.query.holdout
         # is still consulted by _calculate_srm for the holdout-adjusted rollout math.
-        self.excluded_variants = set((self.experiment.parameters or {}).get("excluded_variants") or [])
+        self.excluded_variants = set(self.experiment.excluded_variants or [])
         multivariate_data = self.query.feature_flag.get("filters", {}).get("multivariate", {})
         self.variants = [
             variant.get("key")
@@ -92,45 +104,24 @@ class ExperimentExposuresQueryRunner(QueryRunner):
         )
 
     def _get_date_range(self) -> DateRange:
-        """
-        Returns a DateRange object based on the experiment's start and end dates from the query,
-        adjusted for the team's timezone if applicable.
-        """
-        start_date_str = self.query.start_date
-        end_date_str = self.query.end_date
-
-        if not start_date_str:
-            return DateRange(date_from=None, date_to=None, explicitDate=True)
-
-        start_date = datetime.fromisoformat(start_date_str)
-        end_date = datetime.fromisoformat(end_date_str) if end_date_str else None
-
-        if self.team.timezone:
-            tz = ZoneInfo(self.team.timezone)
-            start_date = start_date.astimezone(tz) if start_date else start_date
-            end_date = end_date.astimezone(tz) if end_date else end_date
-
-        return DateRange(
-            date_from=start_date.isoformat() if start_date else None,
-            date_to=end_date.isoformat() if end_date else None,
-            explicitDate=True,
-        )
+        """The experiment's analysis DateRange, derived from the query (see analysis_window)."""
+        return analysis_window(self.window_start, self.window_end_date, self.team, self.as_of)
 
     def _ensure_exposures_precomputed(self, builder: ExperimentQueryBuilder) -> LazyComputationResult:
         query_string, placeholders = builder.get_exposure_query_for_precomputation()
 
-        if not self.experiment.start_date:
+        if not self.window_start:
             raise ValidationError("Experiment must have a start date for lazy computation")
 
-        date_from = self.experiment.start_date
-        date_to = self.experiment.end_date or datetime.now(UTC)
+        date_from = self.window_start
+        date_to = analysis_window_end(self.window_end_date, self.as_of)
 
         return ensure_precomputed(
             team=self.team,
             insert_query=query_string,
             time_range_start=date_from,
             time_range_end=date_to,
-            ttl_seconds=DEFAULT_EXPOSURE_TTL_SECONDS,
+            ttl_seconds=experiment_precompute_ttl_schedule(self.team.timezone),
             table=LazyComputationTable.EXPERIMENT_EXPOSURES_PREAGGREGATED,
             placeholders=placeholders,
             sentinel_placeholders={"experiment_date_to"},
@@ -165,15 +156,18 @@ class ExperimentExposuresQueryRunner(QueryRunner):
             self.experiment.end_date,
         ):
             try:
-                result = self._ensure_exposures_precomputed(builder)
+                with tags_context(experiment_query_surface="precompute_build", experiment_precompute_table="exposures"):
+                    result = self._ensure_exposures_precomputed(builder)
                 if result.ready:
                     job_ids = [str(job_id) for job_id in result.job_ids]
+                    tag_queries(experiment_exposures_path="precomputed")
                     return builder.get_daily_exposures_from_precomputed(job_ids)
                 else:
                     logger.warning("exposure_lazy_computation_not_ready", experiment_id=self.experiment.id)
             except Exception:
                 logger.exception("exposure_lazy_computation_failed", experiment_id=self.experiment.id)
 
+        tag_queries(experiment_exposures_path="direct_scan")
         return builder.get_exposure_timeseries_query()
 
     def _calculate_srm(self, total_exposures: dict[str, int]) -> SampleRatioMismatch | None:
@@ -266,8 +260,9 @@ class ExperimentExposuresQueryRunner(QueryRunner):
     def _evaluate_bias_risk(self, total_exposures: dict[str, int]) -> BiasRisk | None:
         # Shipping a variant rewrites the flag to 100/0, which would falsely trip the
         # uneven-split check on data collected under the original split. The warning is
-        # also unactionable post-stop — both CTAs only help while running.
-        if self.query.end_date is not None:
+        # also unactionable post-stop — both CTAs only help while running. Read end from the
+        # query (the cache key), so the running/stopped decision matches the cached window.
+        if self.window_end_date is not None:
             return None
         multivariate_data = self.query.feature_flag.get("filters", {}).get("multivariate", {})
         flag_variants = multivariate_data.get("variants", [])
@@ -287,6 +282,11 @@ class ExperimentExposuresQueryRunner(QueryRunner):
             experiment_name=self.query.experiment_name,
             experiment_feature_flag_key=self.feature_flag_key,
             product=Product.EXPERIMENTS,
+            experiment_query_surface="exposures_timeseries",
+            experiment_metric_events_path="not_applicable",
+            # Set before _get_exposure_query() runs the exposures precompute build, so that build
+            # sub-query inherits this id via the tag context and can be grouped under this read.
+            experiment_query_group_id=uuid.uuid4(),
         )
 
         # Set limit to avoid being cut-off by the default 100 rows limit

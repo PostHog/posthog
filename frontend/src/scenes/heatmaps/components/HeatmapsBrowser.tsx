@@ -1,6 +1,7 @@
 import { BindLogic, useActions, useValues } from 'kea'
 import { useRef } from 'react'
 
+import { HedgehogMagnifyingGlass } from '@posthog/brand/hoggies'
 import { IconDownload, IconGear, IconRevert } from '@posthog/icons'
 import { LemonBanner, LemonButton, LemonDivider, LemonInput, LemonLabel, LemonSkeleton } from '@posthog/lemon-ui'
 
@@ -8,19 +9,22 @@ import { AuthorizedUrlList } from 'lib/components/AuthorizedUrlList/AuthorizedUr
 import { AuthorizedUrlListType, appEditorUrl } from 'lib/components/AuthorizedUrlList/authorizedUrlListLogic'
 import { exportsLogic } from 'lib/components/ExportButton/exportsLogic'
 import { heatmapDataLogic } from 'lib/components/heatmaps/heatmapDataLogic'
-import { DetectiveHog } from 'lib/components/hedgehogs'
 import { dayjs } from 'lib/dayjs'
 import { useResizeObserver } from 'lib/hooks/useResizeObserver'
 import { IconOpenInNew } from 'lib/lemon-ui/icons'
+import { getAccessControlDisabledReason } from 'lib/utils/accessControlUtils'
 import { FixedReplayHeatmapBrowser } from 'scenes/heatmaps/components/FixedReplayHeatmapBrowser'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
+import { AccessControlLevel, AccessControlResourceType } from '~/types'
 
+import { ClickmapSettings } from './ClickmapSettings'
 import { FilterPanel } from './FilterPanel'
 import { heatmapsBrowserLogic } from './heatmapsBrowserLogic'
 import { IframeHeatmapBrowser } from './IframeHeatmapBrowser'
+import { recordingClickmapLogic } from './recordingClickmapLogic'
 
 function ExportButton({
     iframeRef,
@@ -37,6 +41,12 @@ function ExportButton({
     )
 
     const { width: iframeWidth, height: iframeHeight } = useResizeObserver<HTMLIFrameElement>({ ref: iframeRef })
+
+    // Creating an export requires editor access to the export resource.
+    const exportAccessControlDisabledReason = getAccessControlDisabledReason(
+        AccessControlResourceType.Export,
+        AccessControlLevel.Editor
+    )
 
     const handleExport = (): void => {
         if (dataUrl) {
@@ -62,7 +72,11 @@ function ExportButton({
                 icon={<IconDownload />}
                 tooltip="Export heatmap as PNG"
                 data-attr="export-heatmap"
-                disabledReason={!dataUrl ? 'We can export only the URL with heatmaps' : undefined}
+                disabledReason={
+                    (!dataUrl ? 'We can export only the URL with heatmaps' : undefined) ??
+                    exportAccessControlDisabledReason ??
+                    undefined
+                }
             >
                 Export
             </LemonButton>
@@ -235,7 +249,7 @@ function HeatmapsBrowserIntro(): JSX.Element {
             <div className="max-w-[50rem] py-6 px-3 h-full w-full">
                 <div className="flex items-center flex-wrap gap-6">
                     <div className="w-50">
-                        <DetectiveHog className="w-full h-full" />
+                        <HedgehogMagnifyingGlass className="w-full h-full" />
                     </div>
 
                     <div className="flex-1">
@@ -333,8 +347,10 @@ export function HeatmapsBrowser(): JSX.Element {
     const logicProps = { ref: iframeRef }
 
     const logic = heatmapsBrowserLogic({ iframeRef })
+    const clickmapLogic = recordingClickmapLogic({ iframeRef })
 
     const { displayUrl, isBrowserUrlAuthorized, hasValidReplayIframeData, isBrowserUrlValid } = useValues(logic)
+    const { clickmapAvailable } = useValues(clickmapLogic)
 
     return (
         <BindLogic logic={heatmapsBrowserLogic} props={logicProps}>
@@ -343,7 +359,13 @@ export function HeatmapsBrowser(): JSX.Element {
                 <div className="w-full">
                     <UrlSearchHeader iframeRef={iframeRef} />
                     <LemonDivider className="my-4" />
-                    <FilterPanel />
+                    <FilterPanel
+                        clickmapSettings={
+                            hasValidReplayIframeData && clickmapAvailable ? (
+                                <ClickmapSettings iframeRef={iframeRef} />
+                            ) : undefined
+                        }
+                    />
                     <LemonDivider className="my-4" />
                     <div className="relative border">
                         {hasValidReplayIframeData ? (

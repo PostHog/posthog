@@ -1,6 +1,7 @@
 import { OnboardingComponentsContext, createInstallation } from 'scenes/onboarding/shared/OnboardingDocsContentWrapper'
 
 import { StepDefinition } from '../steps'
+import { SDK_DEFAULTS_DATE } from './_snippets/sdkDefaults'
 
 export const getNextJSClientSteps = (ctx: OnboardingComponentsContext): StepDefinition[] => {
     const { CodeBlock, Markdown, CalloutBox, Tab, dedent } = ctx
@@ -94,7 +95,7 @@ export const getNextJSClientSteps = (ctx: OnboardingComponentsContext): StepDefi
 
                                                 posthog.init(process.env.NEXT_PUBLIC_POSTHOG_PROJECT_TOKEN!, {
                                                     api_host: process.env.NEXT_PUBLIC_POSTHOG_HOST,
-                                                    defaults: '2026-01-30'
+                                                    defaults: '${SDK_DEFAULTS_DATE}'
                                                 })
                                             `,
                                         },
@@ -125,7 +126,7 @@ export const getNextJSClientSteps = (ctx: OnboardingComponentsContext): StepDefi
                                                   useEffect(() => {
                                                     posthog.init(process.env.NEXT_PUBLIC_POSTHOG_PROJECT_TOKEN as string, {
                                                       api_host: process.env.NEXT_PUBLIC_POSTHOG_HOST,
-                                                      defaults: '2026-01-30'
+                                                      defaults: '${SDK_DEFAULTS_DATE}'
                                                     })
                                                   }, [])
 
@@ -189,7 +190,7 @@ export const getNextJSClientSteps = (ctx: OnboardingComponentsContext): StepDefi
                                                   useEffect(() => {
                                                     posthog.init(process.env.NEXT_PUBLIC_POSTHOG_PROJECT_TOKEN as string, {
                                                       api_host: process.env.NEXT_PUBLIC_POSTHOG_HOST,
-                                                      defaults: '2026-01-30',
+                                                      defaults: '${SDK_DEFAULTS_DATE}',
                                                       loaded: (posthog) => {
                                                         if (process.env.NODE_ENV === 'development') posthog.debug()
                                                       }

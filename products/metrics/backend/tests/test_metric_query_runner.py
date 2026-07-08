@@ -74,6 +74,61 @@ class TestMetricQueryRunner(ClickhouseTestMixin, APIBaseTest):
                 date_to=now - dt.timedelta(hours=1),
             )
 
+    def test_rejects_too_wide_date_range(self):
+        now = timezone.now()
+        with self.assertRaises(ValueError):
+            MetricQueryRunner(
+                team=self.team,
+                metric_name="x",
+                aggregation="sum",
+                date_from=now - dt.timedelta(days=32),
+                date_to=now,
+            )
+
+    def test_rejects_interval_exceeding_row_budget(self):
+        now = timezone.now()
+        with self.assertRaises(ValueError):
+            MetricQueryRunner(
+                team=self.team,
+                metric_name="x",
+                aggregation="sum",
+                date_from=now - dt.timedelta(days=2),
+                date_to=now,
+                interval="second",
+            )
+
+    def test_rejects_invalid_regex_filter(self):
+        now = timezone.now()
+        runner = MetricQueryRunner(
+            team=self.team,
+            metric_name="x",
+            aggregation="sum",
+            date_from=now - dt.timedelta(hours=1),
+            date_to=now,
+            filters=(MetricFilter(key="container", op=FilterOp.REGEX, value="(["),),
+        )
+        with self.assertRaises(ValueError):
+            runner.run()
+
+    def test_raises_when_row_limit_truncates(self):
+        anchor = timezone.now().replace(second=0, microsecond=0) - dt.timedelta(minutes=10)
+        seed_metric(
+            team_id=self.team.id,
+            metric_name="m_trunc",
+            points=[(anchor + dt.timedelta(minutes=m), 1.0) for m in range(6)],
+        )
+        runner = MetricQueryRunner(
+            team=self.team,
+            metric_name="m_trunc",
+            aggregation="sum",
+            date_from=anchor - dt.timedelta(minutes=1),
+            date_to=anchor + dt.timedelta(minutes=10),
+            interval="minute",
+        )
+        with patch("products.metrics.backend.metric_query_runner._ROW_LIMIT", 5):
+            with self.assertRaises(ValueError):
+                runner.run()
+
     def test_returns_empty_for_no_data(self):
         runner = MetricQueryRunner(
             team=self.team,
@@ -242,9 +297,30 @@ class TestAttributeField(ClickhouseTestMixin, APIBaseTest):
             team_id=self.team.id,
             metric_name="m_resource",
             points=[(anchor, 1.0)],
-            resource_labels={"service_name": "logs-ingestion"},
+            resource_labels={"service_version": "1.2.3"},
         )
-        value = self._select_attribute(attribute_field("service_name", scope="resource"), "m_resource")
+        value = self._select_attribute(attribute_field("service_version", scope="resource"), "m_resource")
+        self.assertEqual(value, "1.2.3")
+
+    @parameterized.expand(
+        [
+            (f"{key}_{scope}", key, scope)
+            for key in ("service_name", "service.name")
+            for scope in ("auto", "resource", "attribute")
+        ]
+    )
+    def test_service_name_resolves_to_first_class_column(self, _name: str, key: str, scope: str) -> None:
+        # Real ingestion extracts the service name into its own column (the
+        # maps carry the dotted `service.name` at best), so both spellings
+        # must read the column in every scope.
+        anchor = timezone.now().replace(microsecond=0)
+        seed_metric(
+            team_id=self.team.id,
+            metric_name="m_service",
+            points=[(anchor, 1.0)],
+            service_name="logs-ingestion",
+        )
+        value = self._select_attribute(attribute_field(key, scope=scope), "m_service")  # type: ignore[arg-type]
         self.assertEqual(value, "logs-ingestion")
 
     def test_attribute_scope_reads_attributes_via_alias(self):
@@ -810,6 +886,14 @@ class TestHistogramQuantileRunner(ClickhouseTestMixin, APIBaseTest):
         with self.assertRaises(ValueError):
             self._run(quantile=1.5)
 
+    def test_group_by_service_name_column(self):
+        # service_name resolves to the raw column, which the nested
+        # per-series subqueries must propagate to the outer group-by.
+        self._seed_histogram([(self.anchor, [10, 0, 0, 0])], temporality="delta", service_name="svc-a")
+        self._seed_histogram([(self.anchor, [0, 0, 10, 0])], temporality="delta", service_name="svc-b")
+        rows = self._run(group_by=(MetricGroupBy(key="service_name"),))
+        self.assertEqual(sorted(row["labels"]["service_name"] for row in rows), ["svc-a", "svc-b"])
+
     def test_delta_histogram_p50(self):
         self._seed_histogram(
             [
@@ -836,6 +920,14 @@ class TestHistogramQuantileRunner(ClickhouseTestMixin, APIBaseTest):
         # window contribution [10, 10, 10, 0] -> p50 = 0.3
         self.assertEqual(len(rows), 1)
         self.assertAlmostEqual(rows[0]["value"], 0.3)
+
+    def test_cumulative_lone_sample_emits_no_point(self):
+        # A cumulative histogram's first (and only) sample has no predecessor
+        # to diff against — the window has no computable increase. That must
+        # be a gap, not a fabricated p95 of 0 (which reads as "p95 is 0s").
+        self._seed_histogram([(self.anchor, [1, 1, 1, 0])], temporality="cumulative")
+        rows = self._run(0.95)
+        self.assertEqual(rows, [])
 
     def test_mismatched_bounds_raise(self):
         self._seed_histogram([(self.anchor + dt.timedelta(seconds=0), [1, 1, 1, 0])], temporality="delta")
@@ -909,6 +1001,8 @@ class TestFormulaParser:
             ("trailing_garbage", "a + b )", frozenset({"a", "b"})),
             ("empty", "   ", frozenset({"a"})),
             ("bad_char", "a ^ b", frozenset({"a", "b"})),
+            ("nesting_too_deep_parens", "(" * 40 + "a" + ")" * 40, frozenset({"a"})),
+            ("nesting_too_deep_unary", "-" * 40 + "a", frozenset({"a"})),
         ]
     )
     def test_rejects(self, _name, formula, names):

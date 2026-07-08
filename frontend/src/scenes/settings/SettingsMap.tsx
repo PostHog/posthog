@@ -15,8 +15,9 @@ import { FilterTestAccountsConfiguration as RevenueAnalyticsFilterTestAccountsCo
 import { GoalsConfiguration } from '@posthog/products-revenue-analytics/frontend/settings/GoalsConfiguration'
 
 import { BaseCurrency } from 'lib/components/BaseCurrency/BaseCurrency'
+import { FlaggedFeature } from 'lib/components/FlaggedFeature'
 import { FEATURE_SUPPORT } from 'lib/components/SupportedPlatforms/featureSupport'
-import { OrganizationMembershipLevel } from 'lib/constants'
+import { FEATURE_FLAGS, OrganizationMembershipLevel } from 'lib/constants'
 import { MAX_LOOKBACK_DAYS, MIN_LOOKBACK_DAYS } from 'scenes/experiments/constants'
 import { DefaultMinimumDetectableEffect } from 'scenes/experiments/DefaultMinimumDetectableEffect'
 import { GitHub, Linear, Slack } from 'scenes/integrations/definitions'
@@ -43,9 +44,9 @@ import {
 import { AccessControlLevel, AccessControlResourceType, Realm } from '~/types'
 
 import { AISection } from 'products/conversations/frontend/scenes/settings/AISection'
-import { ChannelsSection } from 'products/conversations/frontend/scenes/settings/ChannelsSection'
 import { GeneralSection } from 'products/conversations/frontend/scenes/settings/GeneralSection'
 import { NotificationsSection } from 'products/conversations/frontend/scenes/settings/NotificationsSection'
+import { ZendeskImportSection } from 'products/conversations/frontend/scenes/settings/ZendeskImportSection'
 import { CustomerAnalyticsAccountConfig } from 'products/customer_analytics/frontend/scenes/CustomerAnalyticsConfigurationScene/account/CustomerAnalyticsAccountConfig'
 import { CustomerAnalyticsDashboardEvents } from 'products/customer_analytics/frontend/scenes/CustomerAnalyticsConfigurationScene/events/CustomerAnalyticsDashboardEvents'
 import { ExceptionAutocaptureToggle } from 'products/error_tracking/frontend/scenes/ErrorTrackingConfigurationScene/exception_autocapture/ExceptionAutocaptureSettings'
@@ -154,11 +155,12 @@ import { AllowImpersonation } from './user/AllowImpersonation'
 import { ChangePassword, ChangePasswordTitle } from './user/ChangePassword'
 import { ConnectedApps } from './user/ConnectedApps'
 import { HedgehogModeSettings } from './user/HedgehogModeSettings'
+import { LoginSessions } from './user/LoginSessions'
 import { MCPHintsSetting } from './user/MCPHintsSetting'
 import { OptOutCapture } from './user/OptOutCapture'
 import { PasskeySettings } from './user/PasskeySettings'
 import { PersonalAPIKeys } from './user/PersonalAPIKeys'
-import { PersonalIntegrations } from './user/PersonalIntegrations'
+import { PersonalGitHubIntegrations, PersonalSlackIntegrations } from './user/PersonalIntegrations'
 import { RealtimeNotificationPreferences } from './user/RealtimeNotificationPreferences'
 import { Reminders } from './user/Reminders'
 import { SidebarAutoSuggestSetting } from './user/SidebarProductSettings'
@@ -167,6 +169,7 @@ import { TwoFactorSettings } from './user/TwoFactorSettings'
 import { UpdateEmailPreferences } from './user/UpdateEmailPreferences'
 import { UserDangerZone } from './user/UserDangerZone'
 import { UserDetails } from './user/UserDetails'
+import { WebAnalyticsAchievementsSetting } from './user/WebAnalyticsAchievementsSetting'
 
 export const SETTINGS_MAP: SettingSection[] = [
     // ENVIRONMENT
@@ -497,7 +500,7 @@ export const SETTINGS_MAP: SettingSection[] = [
                 title: 'Rate limits',
                 component: <RateLimitSettings />,
                 flag: 'ERROR_TRACKING_RATE_LIMITING',
-                keywords: ['rate', 'limit', 'throttle', 'ingestion', 'cap'],
+                keywords: ['rate', 'limit', 'throttle', 'ingestion', 'cap', 'bypass'],
             },
             {
                 id: 'error-tracking-auto-assignment',
@@ -676,7 +679,17 @@ export const SETTINGS_MAP: SettingSection[] = [
             {
                 id: 'feature-flag-secure-api-key',
                 title: 'Feature flags secure API key',
-                description:
+                description: (
+                    <FlaggedFeature
+                        flag={FEATURE_FLAGS.PROJECT_SECRET_API_KEYS}
+                        fallback="Use this key for local evaluation of feature flags or remote config settings. Replaces personal API keys for local evaluation."
+                    >
+                        Deprecated. This key is still usable for local evaluation of feature flags or remote config
+                        settings, but new integrations should use a project secret API key with the feature_flag:read
+                        scope instead.
+                    </FlaggedFeature>
+                ),
+                searchDescription:
                     'Use this key for local evaluation of feature flags or remote config settings. Replaces personal API keys for local evaluation.',
                 docsUrl: 'https://posthog.com/docs/feature-flags/local-evaluation',
                 component: <FlagsSecureApiKeys />,
@@ -1099,19 +1112,6 @@ export const SETTINGS_MAP: SettingSection[] = [
                     'domain',
                     'identity',
                     'secret',
-                ],
-            },
-            {
-                id: 'conversations-channels',
-                title: 'Channels',
-                description: 'Choose where customers can reach you. Each channel can be configured independently.',
-                component: <ChannelsSection />,
-                allowForTeam: (t) => !!t?.conversations_enabled,
-                keywords: [
-                    'conversation',
-                    'ticket',
-                    'message',
-                    'support',
                     'channel',
                     'widget',
                     'email',
@@ -1147,6 +1147,15 @@ export const SETTINGS_MAP: SettingSection[] = [
                 flag: 'PRODUCT_SUPPORT_AI_SUGGESTION',
                 allowForTeam: (t) => !!t?.conversations_enabled,
                 keywords: ['ai', 'suggestion', 'auto', 'reply', 'support', 'conversation'],
+            },
+            {
+                id: 'conversations-imports',
+                title: 'Imports',
+                description: 'Import historical support data from external tools into Conversations.',
+                component: <ZendeskImportSection />,
+                flag: 'PRODUCT_SUPPORT_IMPORT_TICKETS',
+                allowForTeam: (t) => !!t?.conversations_enabled,
+                keywords: ['import', 'zendesk', 'migrate', 'ticket', 'support', 'conversation'],
             },
         ],
     },
@@ -1658,7 +1667,6 @@ export const SETTINGS_MAP: SettingSection[] = [
         to: urls.legalDocuments(),
         settings: [],
         minimumAccessLevel: OrganizationMembershipLevel.Admin,
-        flag: 'LEGAL_DOCUMENTS',
     },
     {
         level: 'organization',
@@ -1813,6 +1821,13 @@ export const SETTINGS_MAP: SettingSection[] = [
                 component: <PasskeySettings />,
                 keywords: ['webauthn', 'fido', 'biometric', 'passwordless'],
             },
+            {
+                id: 'login-sessions',
+                title: 'Web sessions',
+                description: 'Devices and browsers currently signed in to your PostHog account.',
+                component: <LoginSessions />,
+                keywords: ['sessions', 'devices', 'logins', 'sign out', 'log out', 'security', 'revoke'],
+            },
         ],
     },
     {
@@ -1859,11 +1874,11 @@ export const SETTINGS_MAP: SettingSection[] = [
             },
             {
                 id: 'sidebar-auto-suggest',
-                title: 'Automatically suggest new apps',
+                title: 'Automatically suggest new tools',
                 description:
-                    "When we detect you are using a new product, we'll automatically add it to your sidebar as a suggestion. We might also suggest products that are related to the ones you are using when we launch a new product.",
+                    "When we detect you are using a new tool, we'll automatically add it to your sidebar as a suggestion. We might also suggest tools that are related to the ones you are using when we launch a new one.",
                 component: <SidebarAutoSuggestSetting />,
-                keywords: ['sidebar', 'suggest', 'products', 'apps', 'auto'],
+                keywords: ['sidebar', 'suggest', 'products', 'apps', 'tools', 'auto'],
             },
             {
                 id: 'mcp-hints',
@@ -1871,8 +1886,16 @@ export const SETTINGS_MAP: SettingSection[] = [
                 description:
                     'After you take an action in PostHog (creating a feature flag, building a dashboard, etc.), show a small hint that the same action can be done from your IDE via the PostHog MCP. Rate-limited to once a week.',
                 component: <MCPHintsSetting />,
-                flag: [['MCP_HINTS', 'test']],
                 keywords: ['mcp', 'claude', 'cursor', 'codex', 'ide', 'hints', 'wizard'],
+            },
+            {
+                id: 'web-analytics-achievements',
+                title: 'Web analytics achievements',
+                description:
+                    'Show playful achievement badges and streaks on the Web analytics dashboard. Applies to your current project.',
+                component: <WebAnalyticsAchievementsSetting />,
+                flag: 'WEB_ANALYTICS_ACHIEVEMENTS',
+                keywords: ['web analytics', 'achievements', 'gamification', 'badges', 'streak'],
             },
             {
                 id: 'hedgehog-mode',
@@ -1962,12 +1985,21 @@ export const SETTINGS_MAP: SettingSection[] = [
         title: 'Personal integrations',
         settings: [
             {
-                id: 'personal-integrations',
-                title: 'Personal integrations',
+                id: 'personal-integrations-github',
+                title: 'GitHub',
                 description:
                     'Your personal GitHub integrations for repo access, code attribution, and pull request authorship. You can connect multiple GitHub accounts or organizations.',
-                component: <PersonalIntegrations />,
+                component: <PersonalGitHubIntegrations />,
                 keywords: ['github', 'integration', 'repos', 'identity', 'link', 'code', 'personal'],
+            },
+            {
+                id: 'personal-integrations-slack',
+                title: 'Slack',
+                description:
+                    'Bind your Slack identity to this PostHog account so @PostHog mentions route to you even when your Slack email and PostHog email differ.',
+                component: <PersonalSlackIntegrations />,
+                keywords: ['slack', 'integration', 'identity', 'link', 'mention', 'personal'],
+                flag: 'SLACK_APP_OAUTH',
             },
         ],
     },

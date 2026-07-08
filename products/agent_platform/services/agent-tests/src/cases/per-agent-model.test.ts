@@ -1,6 +1,6 @@
 /**
- * Per-agent spec.model: two agents in the same cluster declare different
- * spec.model strings. The runner resolves each through `resolveModel`, and the
+ * Per-agent models: two agents in the same cluster declare different
+ * models strings. The runner resolves each through `resolveModel`, and the
  * resolved Model is what the driver streams with.
  *
  * `resolveModel` is the routing seam (called once per session in the worker),
@@ -54,7 +54,7 @@ function fauxModelFor(specModel: string): Model<string> {
     return { id: specModel, name: specModel, api: 'faux', provider: 'faux' } as unknown as Model<string>
 }
 
-describe('per-agent spec.model resolution: real e2e', () => {
+describe('per-agent models resolution: real e2e', () => {
     let pool: Pool
     let bundlePrefix: string
     let bundleTestStore: BundleTestStore
@@ -89,7 +89,7 @@ describe('per-agent spec.model resolution: real e2e', () => {
         await pool.end()
     })
 
-    it('two agents with different spec.model values resolve distinct Models', async () => {
+    it('two agents with different models values resolve distinct Models', async () => {
         const bundle = bundleTestStore.store
         const revisions = new PgRevisionStore(pool)
         const queue = new PgSessionQueue(pool)
@@ -106,9 +106,8 @@ describe('per-agent spec.model resolution: real e2e', () => {
             broker: new SecretBroker(),
             approvals: new PgApprovalStore(pool),
             bus,
-            resolveIntegrations: async () => ({}),
             resolveSecrets: async () => ({}),
-            // Per-agent model resolution — keys off spec.model verbatim. This is
+            // Per-agent model resolution — keys off models verbatim. This is
             // the seam the driver streams with, so recording here proves routing.
             resolveModel: (specModel) => {
                 modelsResolved.push(specModel)
@@ -117,14 +116,14 @@ describe('per-agent spec.model resolution: real e2e', () => {
             maxConcurrency: 1,
         })
 
-        // Two agents with distinct spec.model strings.
+        // Two agents with distinct models strings.
         for (const [slug, model] of [
             ['agent-a', 'faux/model-A'],
             ['agent-b', 'faux/model-B'],
         ] as const) {
             const app = await revisions.createApplication({ team_id: 1, slug, name: slug, description: '' })
             const spec = AgentSpecSchema.parse({
-                model,
+                models: { mode: 'manual', models: [{ model }] },
                 triggers: [
                     {
                         type: 'chat',

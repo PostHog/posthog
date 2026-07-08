@@ -8,6 +8,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 from django.core.cache import cache
 from django.test import TestCase, override_settings
 
+from parameterized import parameterized
 from rest_framework.test import APIClient
 
 from posthog.models.integration import Integration
@@ -232,6 +233,88 @@ class TestRepoPickerOptions(TestCase):
         mock_webclient_class.return_value.chat_update.assert_called_once()
         update_call = mock_webclient_class.return_value.chat_update.call_args.kwargs
         assert "without a repository" in update_call["text"].lower()
+
+    @patch("posthog.models.integration.WebClient")
+    @patch("products.slack_app.backend.api.sync_connect")
+    @patch("products.slack_app.backend.api.SlackIntegration.slack_config")
+    def test_continue_as_bot_signals_authorship_confirmed(self, mock_config, mock_sync_connect, mock_webclient_class):
+        from posthog.temporal.ai.slack_app.posthog_code_slack_mention import PostHogCodeSlackMentionWorkflow
+
+        mock_config.return_value = {"SLACK_APP_SIGNING_SECRET": self.signing_secret}
+        mock_webclient_class.return_value = MagicMock()
+        mock_handle = MagicMock()
+        mock_handle.signal = AsyncMock()
+        mock_sync_connect.return_value.get_workflow_handle.return_value = mock_handle
+
+        payload = {
+            "type": "block_actions",
+            "user": {"id": "U123"},
+            "actions": [
+                {
+                    "action_id": "posthog_code_continue_as_bot",
+                    "value": json.dumps(
+                        {
+                            "workflow_id": "posthog-code-mention-T12345:C001:1234.5678",
+                            "integration_id": self.posthog_code_integration.id,
+                            "mentioning_slack_user_id": "U123",
+                        }
+                    ),
+                    "action_ts": "1700000000.123",
+                }
+            ],
+            "channel": {"id": "C001"},
+            "message": {"ts": "1234.9999"},
+        }
+        response = self._post_interactivity(payload)
+        assert response.status_code == 200
+        mock_sync_connect.return_value.get_workflow_handle.assert_called_once_with(
+            "posthog-code-mention-T12345:C001:1234.5678"
+        )
+        mock_handle.signal.assert_called_once_with(PostHogCodeSlackMentionWorkflow.authorship_confirmed)
+        mock_webclient_class.return_value.chat_update.assert_called_once()
+
+    @parameterized.expand(
+        [
+            ("clicker_mismatch", "U_OTHER", "U123"),
+            ("missing_expected_user_fails_closed", "U123", None),
+        ]
+    )
+    @patch("posthog.models.integration.WebClient")
+    @patch("products.slack_app.backend.api.sync_connect")
+    @patch("products.slack_app.backend.api.SlackIntegration.slack_config")
+    def test_continue_as_bot_does_not_signal_without_verified_mentioner(
+        self, _name, clicker_id, expected_user_id, mock_config, mock_sync_connect, mock_webclient_class
+    ):
+        mock_config.return_value = {"SLACK_APP_SIGNING_SECRET": self.signing_secret}
+        mock_webclient_class.return_value = MagicMock()
+        mock_handle = MagicMock()
+        mock_handle.signal = AsyncMock()
+        mock_sync_connect.return_value.get_workflow_handle.return_value = mock_handle
+
+        value = {
+            "workflow_id": "posthog-code-mention-T12345:C001:1234.5678",
+            "integration_id": self.posthog_code_integration.id,
+        }
+        if expected_user_id is not None:
+            value["mentioning_slack_user_id"] = expected_user_id
+
+        payload = {
+            "type": "block_actions",
+            "user": {"id": clicker_id},
+            "actions": [
+                {
+                    "action_id": "posthog_code_continue_as_bot",
+                    "value": json.dumps(value),
+                    "action_ts": "1700000000.123",
+                }
+            ],
+            "channel": {"id": "C001"},
+            "message": {"ts": "1234.9999"},
+        }
+        response = self._post_interactivity(payload)
+        assert response.status_code == 200
+        mock_sync_connect.assert_not_called()
+        mock_handle.signal.assert_not_called()
 
     @patch("posthog.models.integration.WebClient")
     @patch("products.slack_app.backend.api.SlackIntegration.slack_config")
@@ -768,6 +851,8 @@ class TestSignalsDismissReport(TestCase):
 
         self.organization = Organization.objects.create(name="Dismiss Org")
         self.team = Team.objects.create(organization=self.organization, name="Dismiss Team")
+        self.user = User.objects.create(email="dismisser@example.com", distinct_id="dismiss-user-1")
+        OrganizationMembership.objects.create(user=self.user, organization=self.organization)
         self.integration = Integration.objects.create(
             team=self.team,
             kind="slack",
@@ -826,7 +911,7 @@ class TestSignalsDismissReport(TestCase):
         from products.signals.backend.models import SignalReport, SignalReportArtefact
 
         mock_config.return_value = {"SLACK_APP_SIGNING_SECRET": self.signing_secret}
-        mock_is_org_member.return_value = MagicMock()  # clicker resolves to an org member
+        mock_is_org_member.return_value = self.user  # clicker resolves to this org member
         report = self._make_ready_report()
 
         response = self._post_interactivity(self._dismiss_payload(str(report.id)))
@@ -834,9 +919,9 @@ class TestSignalsDismissReport(TestCase):
         assert response.status_code == 200
         report.refresh_from_db()
         assert report.status == SignalReport.Status.SUPPRESSED
-        assert SignalReportArtefact.objects.filter(
-            report=report, type=SignalReportArtefact.ArtefactType.DISMISSAL
-        ).exists()
+        dismissal = SignalReportArtefact.objects.get(report=report, type=SignalReportArtefact.ArtefactType.DISMISSAL)
+        # Attributed to the resolved PostHog user, not system.
+        assert dismissal.created_by_id == self.user.id
         # The original message is replaced with a dismissed acknowledgement.
         assert mock_requests_post.call_args.kwargs["json"]["replace_original"] is True
 

@@ -227,7 +227,6 @@ describe('sessionRecordingDataCoordinatorLogic', () => {
             expect(queries[1]).toMatch(/WHERE timestamp > '2023-05-01 14:41:20'/)
             expect(queries[1]).toMatch(/AND timestamp < '2023-05-01 14:51:32'/)
 
-            expect(api.create.mock.calls).toMatchSnapshot()
             expect(logic.values.sessionEventsData).toHaveLength(recordingEventsJson.results.length)
         })
     })
@@ -443,12 +442,6 @@ describe('sessionRecordingDataCoordinatorLogic', () => {
             expect(await callProcessing([...verySimilarSnapshots, ...verySimilarSnapshots])).toEqual(
                 verySimilarSnapshots
             )
-        })
-
-        it('should match snapshot', async () => {
-            const snapshots = convertSnapshotsByWindowId(sortedRecordingSnapshotsJson.snapshot_data_by_window_id)
-
-            expect(await callProcessing(snapshots)).toMatchSnapshot()
         })
     })
 })

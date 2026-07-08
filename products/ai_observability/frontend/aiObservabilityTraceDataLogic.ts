@@ -2,9 +2,7 @@ import { actions, connect, kea, key, listeners, path, props, reducers, selectors
 import { subscriptions } from 'kea-subscriptions'
 import posthog from 'posthog-js'
 
-import { FEATURE_FLAGS } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { getAppContext } from 'lib/utils/getAppContext'
 
 import { DataNodeLogicProps, dataNodeLogic } from '~/queries/nodes/DataNode/dataNodeLogic'
@@ -23,7 +21,6 @@ import { InsightLogicProps } from '~/types'
 import type { aiObservabilityTraceDataLogicType } from './aiObservabilityTraceDataLogicType'
 import { aiObservabilityTraceLogic } from './aiObservabilityTraceLogic'
 import { llmPersonsLazyLoaderLogic } from './llmPersonsLazyLoaderLogic'
-import { llmSentimentLazyLoaderLogic } from './llmSentimentLazyLoaderLogic'
 import { captureNormalizationFailure, normalizeMessages } from './messageNormalization'
 import {
     SearchOccurrence,
@@ -32,8 +29,7 @@ import {
     findSidebarOccurrences,
     findTraceOccurrences,
 } from './searchUtils'
-import { SENTIMENT_DATE_WINDOW_DAYS } from './sentimentUtils'
-import { formatLLMUsage, getEventType, getSessionID, isLLMEvent } from './utils'
+import { formatLLMUsage, getEventType, getSessionID, isLLMEvent, operationStartMs } from './utils'
 
 export interface TraceDataLogicProps {
     traceId: string
@@ -46,6 +42,7 @@ function getDataNodeLogicProps({ traceId, query, cachedResults }: TraceDataLogic
     const fallbackTraceQuery: TraceQuery = {
         kind: NodeKind.TraceQuery,
         traceId,
+        includeSentiment: true,
         // Match trace logic defaults so we still fetch data if query is briefly undefined.
         dateRange: {
             date_from: dayjs.utc().subtract(1, 'year').startOf('day').toISOString(),
@@ -193,8 +190,6 @@ export const aiObservabilityTraceDataLogic = kea<aiObservabilityTraceDataLogicTy
             ['eventId', 'searchQuery', 'initialTab'],
             dataNodeLogic(getDataNodeLogicProps(props)),
             ['elapsedTime', 'response', 'responseLoading', 'responseError'],
-            featureFlagLogic,
-            ['featureFlags'],
         ],
         actions: [aiObservabilityTraceLogic, ['setEventId']],
     })),
@@ -508,13 +503,6 @@ export const aiObservabilityTraceDataLogic = kea<aiObservabilityTraceDataLogicTy
                 llmPersonsLazyLoaderLogic.actions.ensurePersonLoaded(trace.distinctId)
             }
 
-            if (trace?.id && values.featureFlags[FEATURE_FLAGS.LLM_ANALYTICS_SENTIMENT]) {
-                llmSentimentLazyLoaderLogic.actions.ensureSentimentLoaded(trace.id, {
-                    dateFrom: trace.createdAt,
-                    dateTo: dayjs(trace.createdAt).add(SENTIMENT_DATE_WINDOW_DAYS, 'day').toISOString(),
-                })
-            }
-
             actions.reportSingleTraceLoadIfReady()
         },
     })),
@@ -729,6 +717,21 @@ export function restoreTree(events: LLMTraceEvent[], traceId: string): TraceTree
         }
     }
 
+    // Order siblings by when their operation began (longer first on ties),
+    // matching the timeline — events are captured at completion, so raw
+    // timestamp order can differ.
+    const byOperationStart = (a: string, b: string): number => {
+        const eventA = idMap.get(a)
+        const eventB = idMap.get(b)
+        if (!eventA || !eventB) {
+            return 0
+        }
+        return (
+            operationStartMs(eventA) - operationStartMs(eventB) ||
+            (Number(eventB.properties.$ai_latency) || 0) - (Number(eventA.properties.$ai_latency) || 0)
+        )
+    }
+
     function traverse(spanId: any): TraceTreeNode | null {
         if (visitedNodes.has(spanId)) {
             console.warn('Circular reference detected in trace tree:', spanId)
@@ -744,7 +747,11 @@ export function restoreTree(events: LLMTraceEvent[], traceId: string): TraceTree
         const children = childrenMap.get(spanId)
         const result: TraceTreeNode = {
             event,
-            children: children?.map((child) => traverse(child)).filter((node): node is TraceTreeNode => node !== null),
+            children: children
+                ?.slice()
+                .sort(byOperationStart)
+                .map((child) => traverse(child))
+                .filter((node): node is TraceTreeNode => node !== null),
         }
 
         if (result.children && result.children.length > 0 && event.event !== '$ai_generation') {
@@ -756,6 +763,6 @@ export function restoreTree(events: LLMTraceEvent[], traceId: string): TraceTree
     }
 
     const directChildren = childrenMap.get(traceId) || []
-    const rootIds = [...directChildren, ...findOrphanedRoots(idMap, traceId)]
+    const rootIds = [...directChildren, ...findOrphanedRoots(idMap, traceId)].sort(byOperationStart)
     return rootIds.map((childId) => traverse(childId)).filter((node): node is TraceTreeNode => node !== null)
 }

@@ -390,6 +390,7 @@ class TestPKCEPartnerExistingUserConsent(ProvisioningTestBase):
         assert pending["email"] == "existing@example.com"
         assert pending["partner_id"] == str(self.pkce_partner.id)
         assert pending["scopes"] == ["query:read"]
+        assert pending["consent_required"] is True
 
     def test_pkce_partner_within_ceiling_creates_pending_auth(self):
         self.pkce_partner.scopes = ["query:read", "insight:read"]

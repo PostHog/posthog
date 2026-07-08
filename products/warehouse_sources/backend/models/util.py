@@ -20,7 +20,7 @@ from posthog.hogql.database.models import (
 )
 
 if TYPE_CHECKING:
-    from products.data_modeling.backend.models.datawarehouse_saved_query import DataWarehouseSavedQuery
+    from products.data_modeling.backend.facade.models import DataWarehouseSavedQuery
     from products.warehouse_sources.backend.models.table import DataWarehouseTable
 
 
@@ -31,7 +31,7 @@ class DatabaseFieldFactory(Protocol):
 
 
 def get_view_or_table_by_name(team, name) -> Union["DataWarehouseSavedQuery", "DataWarehouseTable", None]:
-    from products.data_modeling.backend.models.datawarehouse_saved_query import DataWarehouseSavedQuery
+    from products.data_modeling.backend.facade.models import DataWarehouseSavedQuery
     from products.warehouse_sources.backend.models.table import DataWarehouseTable
 
     table_names = [name]
@@ -54,44 +54,6 @@ def get_view_or_table_by_name(team, name) -> Union["DataWarehouseSavedQuery", "D
     if table is None:
         table = DataWarehouseSavedQuery.objects.exclude(deleted=True).filter(team=team, name=name).first()
     return table
-
-
-def stamp_column_positions(columns: dict[str, Any]) -> None:
-    """Persist each dict-style column's position (in place) so its order survives a database
-    round-trip.
-
-    Postgres stores the ``columns`` JSONField as jsonb, which does not preserve object key
-    order (keys come back sorted by length, then bytewise). Entries that already carry a
-    position keep it; unstamped entries are appended in iteration order after the highest
-    existing position. Old-style string entries cannot carry a position and are left as-is.
-
-    A legacy row saved without its columns being recomputed gets positions stamped in its
-    current (jsonb) iteration order — output-identical to the unstamped behavior, and the
-    next columns refresh builds a fresh dict and restamps the true order.
-    """
-    existing_positions = [
-        value["position"]
-        for value in columns.values()
-        if isinstance(value, dict) and isinstance(value.get("position"), int)
-    ]
-    next_position = max(existing_positions, default=-1) + 1
-    for value in columns.values():
-        if isinstance(value, dict) and not isinstance(value.get("position"), int):
-            value["position"] = next_position
-            next_position += 1
-
-
-def columns_in_position_order(columns: dict[str, Any]) -> list[tuple[str, Any]]:
-    """Return column items sorted by their stamped position.
-
-    Sorting only applies when every column carries a position — partially stamped dicts
-    (legacy rows, old-style string columns mixed in) keep their current order unchanged,
-    since reordering just the stamped subset would scramble the relative order.
-    """
-    items = list(columns.items())
-    if items and all(isinstance(value, dict) and isinstance(value.get("position"), int) for _, value in items):
-        return sorted(items, key=lambda item: item[1]["position"])
-    return items
 
 
 def validate_source_prefix(prefix: str | None) -> tuple[bool, str]:
@@ -509,6 +471,41 @@ def mysql_columns_to_dwh_columns(columns: list[tuple[str, str, bool]]) -> dict[s
     return {
         column_name: mysql_column_to_dwh_column(column_name, mysql_type, nullable)
         for column_name, mysql_type, nullable in columns
+    }
+
+
+def snowflake_column_to_dwh_column(_column_name: str, snowflake_type: str, nullable: bool) -> dict[str, Any]:
+    normalized_type = snowflake_type.lower()
+
+    if normalized_type.startswith("number"):
+        clickhouse_type = "Decimal"
+    elif normalized_type.startswith("float"):
+        clickhouse_type = "Float64"
+    elif normalized_type.startswith("boolean"):
+        clickhouse_type = "Bool"
+    elif normalized_type.startswith("date"):
+        clickhouse_type = "Date"
+    elif normalized_type.startswith("timestamp"):
+        clickhouse_type = "DateTime64"
+    else:
+        # variant/object/array (and anything unrecognized) map to String.
+        clickhouse_type = "String"
+
+    if nullable:
+        clickhouse_type = f"Nullable({clickhouse_type})"
+
+    raw_clickhouse_type = clean_type(clickhouse_type)
+    return {
+        "clickhouse": clickhouse_type,
+        "hogql": CLICKHOUSE_TYPE_TO_HOGQL_LABEL.get(raw_clickhouse_type, "string"),
+        "valid": True,
+    }
+
+
+def snowflake_columns_to_dwh_columns(columns: list[tuple[str, str, bool]]) -> dict[str, dict[str, Any]]:
+    return {
+        column_name: snowflake_column_to_dwh_column(column_name, snowflake_type, nullable)
+        for column_name, snowflake_type, nullable in columns
     }
 
 

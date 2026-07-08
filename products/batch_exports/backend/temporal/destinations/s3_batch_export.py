@@ -9,6 +9,7 @@ import aioboto3
 import botocore.exceptions
 from aiobotocore.config import AioConfig
 from aiobotocore.session import ClientCreatorContext
+from opentelemetry import trace
 
 if typing.TYPE_CHECKING:
     from types_aiobotocore_s3.client import S3Client
@@ -20,6 +21,12 @@ from structlog.contextvars import bind_contextvars
 from temporalio import activity, workflow
 from temporalio.common import RetryPolicy
 
+from posthog.models.integration import (
+    AwsS3Integration,
+    Integration,
+    S3CompatibleIntegration,
+    S3CredentialIntegrationError,
+)
 from posthog.temporal.common.base import PostHogWorkflow
 from posthog.temporal.common.heartbeat import Heartbeater
 from posthog.temporal.common.logger import get_logger, get_write_only_logger
@@ -41,7 +48,7 @@ from products.batch_exports.backend.temporal.destinations.constants import (
     S3_SUPPORTED_COMPRESSIONS as SUPPORTED_COMPRESSIONS,
 )
 from products.batch_exports.backend.temporal.destinations.utils import get_manifest_key, get_object_key
-from products.batch_exports.backend.temporal.metrics import ExecutionTimeRecorder
+from products.batch_exports.backend.temporal.metrics import Attributes, CumulativeTimer, ExecutionTimeRecorder
 from products.batch_exports.backend.temporal.pipeline.consumer import Consumer, run_consumer_from_stage
 from products.batch_exports.backend.temporal.pipeline.entrypoint import execute_batch_export_using_internal_stage
 from products.batch_exports.backend.temporal.pipeline.producer import Producer as ProducerFromInternalStage
@@ -72,6 +79,10 @@ NON_RETRYABLE_ERROR_TYPES = (
     "UnsupportedCompressionError",
     # Invalid S3 credentials
     "InvalidCredentialsError",
+    # The linked Integration was deleted or doesn't belong to the team
+    "S3IntegrationNotFoundError",
+    # The linked Integration is the wrong kind or has invalid/missing credentials
+    "S3CredentialIntegrationError",
 )
 
 FILE_FORMAT_EXTENSIONS = {
@@ -89,6 +100,7 @@ COMPRESSION_EXTENSIONS = {
 
 LOGGER = get_write_only_logger(__name__)
 EXTERNAL_LOGGER = get_logger("EXTERNAL")
+TRACER = trace.get_tracer(__name__)
 
 
 class UnsupportedFileFormatError(Exception):
@@ -105,6 +117,36 @@ class UnsupportedCompressionError(Exception):
         super().__init__(f"'{compression}' is not a supported compression for S3 batch exports.")
 
 
+class S3IntegrationNotFoundError(Exception):
+    """Raised when an S3-family export references an Integration that can't be resolved."""
+
+    def __init__(self, integration_id: int, team_id: int):
+        super().__init__(f"S3 integration with ID '{integration_id}' not found for team '{team_id}'")
+
+
+async def _get_s3_integration(integration_id: int, team_id: int) -> AwsS3Integration | S3CompatibleIntegration:
+    """Fetch an S3-family integration from the database.
+
+    The kind is validated on create by the batch export serializer, so the wrong-kind branch is
+    purely defensive against an integration whose kind was changed out from under the export.
+    `AwsS3Integration`/`S3CompatibleIntegration` themselves raise `S3CredentialIntegrationError` if
+    the credentials are malformed.
+    """
+    try:
+        integration = await Integration.objects.aget(id=integration_id, team_id=team_id)
+    except Integration.DoesNotExist:
+        raise S3IntegrationNotFoundError(integration_id, team_id)
+
+    if integration.kind == Integration.IntegrationKind.AWS_S3:
+        return AwsS3Integration(integration)
+    if integration.kind == Integration.IntegrationKind.S3_COMPATIBLE:
+        return S3CompatibleIntegration(integration)
+    raise S3CredentialIntegrationError(
+        f"Integration with ID '{integration_id}' for team '{team_id}' is not an S3 integration "
+        f"(kind='{integration.kind}')"
+    )
+
+
 @dataclasses.dataclass(kw_only=True)
 class S3InsertInputs(BatchExportInsertInputs):
     """Inputs for S3 exports."""
@@ -116,6 +158,9 @@ class S3InsertInputs(BatchExportInsertInputs):
     bucket_name: str
     region: str
     prefix: str
+    # When set, credentials (and endpoint_url for S3-compatible) are resolved from this Integration
+    # at run time; otherwise the inline credentials below are used (legacy path).
+    integration_id: int | None = None
     aws_access_key_id: str | None = None
     aws_secret_access_key: str | None = None
     aws_session_token: str | None = None
@@ -266,6 +311,7 @@ class S3BatchExportWorkflow(PostHogWorkflow):
             region=inputs.region,
             prefix=inputs.prefix,
             team_id=inputs.team_id,
+            integration_id=inputs.integration_id,
             aws_access_key_id=inputs.aws_access_key_id,
             aws_secret_access_key=inputs.aws_secret_access_key,
             endpoint_url=inputs.endpoint_url or None,
@@ -305,18 +351,18 @@ class S3BatchExportResult(BatchExportResult):
 @activity.defn
 @handle_non_retryable_errors(NON_RETRYABLE_ERROR_TYPES)
 async def insert_into_s3_activity_from_stage(inputs: S3InsertInputs) -> S3BatchExportResult:
-    """Activity to batch export data to a customer's S3.
+    """Activity to batch export data from our internal S3 stage to a customer's S3.
 
-    This is a new version of the `insert_into_s3_activity` activity that reads data from our internal S3 stage
-    instead of ClickHouse.
+    We support both AWS S3 and S3-compatible destinations (eg Cloudflare R2, DigitalOcean Spaces, etc).
 
-    It will upload multiple files if the max_file_size_mb is set, otherwise it will upload a single file. File uploads
-    are done using multipart upload.
+    It will upload multiple files if the max_file_size_mb is set, otherwise it will upload a single
+    file. File uploads are done using multipart upload.
 
-    We could maybe optimize this by simply copying the data from the internal S3 stage to the customer's S3 bucket,
-    however, we've tried to keep the activity that writes the data to the internal S3 stage as generic as possible, as
-    it will be used by other destinations, not just S3. Our S3 batch exports also support customising the max S3 file
-    size, different file formats, compression, etc, which ClickHouse's S3 functions may not support.
+    We could maybe optimize this by simply copying the data from the internal S3 stage to the
+    customer's S3 bucket, however, we've tried to keep the activity that writes the data to the
+    internal S3 stage as generic as possible, as it will be used by other destinations, not just S3.
+    Our S3 batch exports also support customising the max S3 file size, different file formats,
+    compression, etc, which ClickHouse's S3 functions may not support.
     """
     bind_contextvars(
         team_id=inputs.team_id,
@@ -324,6 +370,15 @@ async def insert_into_s3_activity_from_stage(inputs: S3InsertInputs) -> S3BatchE
         data_interval_start=inputs.data_interval_start,
         data_interval_end=inputs.data_interval_end,
     )
+
+    # Integration-backed exports resolve credentials at run time; legacy exports carry them inline.
+    # TODO: require integration
+    if inputs.integration_id is not None:
+        integration = await _get_s3_integration(inputs.integration_id, inputs.team_id)
+        inputs.aws_access_key_id = integration.aws_access_key_id
+        inputs.aws_secret_access_key = integration.aws_secret_access_key
+        if isinstance(integration, S3CompatibleIntegration):
+            inputs.endpoint_url = integration.endpoint_url
 
     if inputs.file_format not in FILE_FORMAT_EXTENSIONS:
         raise UnsupportedFileFormatError(inputs.file_format)
@@ -401,6 +456,7 @@ async def insert_into_s3_activity_from_stage(inputs: S3InsertInputs) -> S3BatchE
             producer_task=producer_task,
             transformer=transformer,
             json_columns=json_columns,
+            records_total=inputs.records_total,
         )
         return S3BatchExportResult(
             bytes_exported=result.bytes_exported,
@@ -477,6 +533,10 @@ class ConcurrentS3Consumer(Consumer):
         self.part_size = part_size
         self.max_concurrent_uploads = max_concurrent_uploads
         self.upload_semaphore = asyncio.Semaphore(max_concurrent_uploads)
+        # Time spent blocked waiting for an upload slot (i.e. `max_concurrent_uploads` parts are
+        # already in flight), reported as a span attribute. When this dominates the consumer's
+        # consume time, the bottleneck is upload throughput to the destination.
+        self._upload_slot_wait_timer = CumulativeTimer()
 
         self._session = aioboto3.Session()
         self._s3_client: S3Client | None = None  # Shared S3 client
@@ -581,6 +641,16 @@ class ConcurrentS3Consumer(Consumer):
             # Ensure that we give pending tasks a chance to run.
             await asyncio.sleep(0)
 
+    def reset_tracking(self) -> None:
+        super().reset_tracking()
+        self._upload_slot_wait_timer = CumulativeTimer()
+
+    def get_destination_span_attributes(self) -> Attributes:
+        return {
+            "batch_export.s3.files_uploaded": len(self.files_uploaded),
+            "batch_export.s3.total_upload_slot_wait_seconds": self._upload_slot_wait_timer.total_seconds,
+        }
+
     async def _upload_next_part(self, final: bool = False):
         """Extract a part from buffer and upload it"""
         if not len(self.current_buffer):
@@ -604,7 +674,8 @@ class ConcurrentS3Consumer(Consumer):
         self.part_counter += 1
 
         # Acquire upload semaphore (blocks if too many uploads in flight)
-        await self.upload_semaphore.acquire()
+        with self._upload_slot_wait_timer.time():
+            await self.upload_semaphore.acquire()
 
         # Create upload task
         upload_task = asyncio.create_task(self._upload_part_with_cleanup(part_data, part_number))
@@ -653,60 +724,75 @@ class ConcurrentS3Consumer(Consumer):
             response: UploadPartOutputTypeDef | None = None
             attempt = 0
 
-            with ExecutionTimeRecorder(
-                "s3_batch_export_upload_part_duration",
-                description="Total duration of the upload of a part of a multi-part upload",
-                log_message=(
-                    "Finished uploading file number %(file_number)d part %(part_number)d"
-                    " with upload id '%(upload_id)s' with status '%(status)s'."
-                    " File size: %(mb_processed).2f MB, upload time: %(duration_seconds)d"
-                    " seconds, speed: %(mb_per_second).2f MB/s"
-                ),
-                log_attributes={
-                    "file_number": self.current_file_index,
-                    "upload_id": self.upload_id,
-                    "part_number": part_number,
-                },
-            ) as recorder:
+            with (
+                TRACER.start_as_current_span(
+                    "batch_export.s3.upload_part",
+                    attributes={
+                        "batch_export.s3.file_number": self.current_file_index,
+                        "batch_export.s3.part_number": part_number,
+                        "batch_export.s3.part_bytes": len(data),
+                    },
+                ) as span,
+                ExecutionTimeRecorder(
+                    "s3_batch_export_upload_part_duration",
+                    description="Total duration of the upload of a part of a multi-part upload",
+                    log_message=(
+                        "Finished uploading file number %(file_number)d part %(part_number)d"
+                        " with upload id '%(upload_id)s' with status '%(status)s'."
+                        " File size: %(mb_processed).2f MB, upload time: %(duration_seconds)d"
+                        " seconds, speed: %(mb_per_second).2f MB/s"
+                    ),
+                    log_attributes={
+                        "file_number": self.current_file_index,
+                        "upload_id": self.upload_id,
+                        "part_number": part_number,
+                    },
+                ) as recorder,
+            ):
                 recorder.add_bytes_processed(len(data))
 
-                while response is None:
-                    try:
-                        response = await client.upload_part(
-                            Bucket=self.bucket,
-                            Key=current_key,
-                            PartNumber=part_number,
-                            UploadId=self.upload_id,
-                            Body=data,
-                            **optional_kwargs,  # type: ignore
-                        )
-
-                    except botocore.exceptions.ClientError as err:
-                        error_code = err.response.get("Error", {}).get("Code", None)
+                try:
+                    while response is None:
                         attempt += 1
-
-                        self.logger.warning(
-                            "Caught ClientError while uploading file %s part %s: %s (attempt %s/%s)",
-                            self.current_file_index,
-                            part_number,
-                            error_code,
-                            attempt,
-                            self.UPLOAD_PART_MAX_ATTEMPTS,
-                        )
-
-                        if error_code is not None and error_code == "RequestTimeout":
-                            if attempt >= self.UPLOAD_PART_MAX_ATTEMPTS:
-                                raise IntermittentUploadPartTimeoutError(part_number=part_number) from err
-
-                            retry_delay = min(
-                                self.MAX_RETRY_DELAY,
-                                self.INITIAL_RETRY_DELAY * (attempt**self.EXPONENTIAL_BACKOFF_COEFFICIENT),
+                        try:
+                            response = await client.upload_part(
+                                Bucket=self.bucket,
+                                Key=current_key,
+                                PartNumber=part_number,
+                                UploadId=self.upload_id,
+                                Body=data,
+                                **optional_kwargs,  # type: ignore
                             )
-                            self.logger.warning("Retrying part %s upload in %s seconds", part_number, retry_delay)
-                            await asyncio.sleep(retry_delay)
-                            continue
-                        else:
-                            raise
+
+                        except botocore.exceptions.ClientError as err:
+                            error_code = err.response.get("Error", {}).get("Code", None)
+
+                            self.logger.warning(
+                                "Caught ClientError while uploading file %s part %s: %s (attempt %s/%s)",
+                                self.current_file_index,
+                                part_number,
+                                error_code,
+                                attempt,
+                                self.UPLOAD_PART_MAX_ATTEMPTS,
+                            )
+
+                            if error_code is not None and error_code == "RequestTimeout":
+                                if attempt >= self.UPLOAD_PART_MAX_ATTEMPTS:
+                                    raise IntermittentUploadPartTimeoutError(part_number=part_number) from err
+
+                                retry_delay = min(
+                                    self.MAX_RETRY_DELAY,
+                                    self.INITIAL_RETRY_DELAY * (attempt**self.EXPONENTIAL_BACKOFF_COEFFICIENT),
+                                )
+                                self.logger.warning("Retrying part %s upload in %s seconds", part_number, retry_delay)
+                                await asyncio.sleep(retry_delay)
+                                continue
+                            else:
+                                raise
+                finally:
+                    # Backoff sleeps happen inside this span, so the count also explains durations
+                    # inflated by retries.
+                    span.set_attribute("batch_export.s3.upload_attempts", attempt)
 
             part_info: CompletedPartTypeDef = {
                 "ETag": response["ETag"],
@@ -818,11 +904,15 @@ class ConcurrentS3Consumer(Consumer):
 
         current_key = self._get_current_key()
         client = await self._get_s3_client()
-        response = await client.create_multipart_upload(
-            Bucket=self.bucket,
-            Key=current_key,
-            **optional_kwargs,  # type: ignore
-        )
+        with TRACER.start_as_current_span(
+            "batch_export.s3.create_multipart_upload",
+            attributes={"batch_export.s3.file_number": self.current_file_index},
+        ):
+            response = await client.create_multipart_upload(
+                Bucket=self.bucket,
+                Key=current_key,
+                **optional_kwargs,  # type: ignore
+            )
         self.upload_id = response["UploadId"]
         self.logger.debug("Initialized multipart upload for key %s with upload id %s", current_key, self.upload_id)
 
@@ -873,12 +963,13 @@ class ConcurrentS3Consumer(Consumer):
         if self.endpoint_url is None:
             optional_kwargs["ChecksumAlgorithm"] = "CRC64NVME"
 
-        await client.put_object(
-            Bucket=self.bucket,
-            Key=manifest_key,
-            Body=json.dumps({"files": files_uploaded}),
-            **optional_kwargs,  # type: ignore
-        )
+        with TRACER.start_as_current_span("batch_export.s3.upload_manifest"):
+            await client.put_object(
+                Bucket=self.bucket,
+                Key=manifest_key,
+                Body=json.dumps({"files": files_uploaded}),
+                **optional_kwargs,  # type: ignore
+            )
 
         if self._s3_client is not None and self._s3_client_ctx is not None:
             await self._s3_client_ctx.__aexit__(None, None, None)
@@ -905,12 +996,19 @@ class ConcurrentS3Consumer(Consumer):
 
         current_key = self._get_current_key()
         client = await self._get_s3_client()
-        await client.complete_multipart_upload(
-            Bucket=self.bucket,
-            Key=current_key,
-            UploadId=self.upload_id,
-            MultipartUpload={"Parts": sorted_parts},
-        )
+        with TRACER.start_as_current_span(
+            "batch_export.s3.complete_multipart_upload",
+            attributes={
+                "batch_export.s3.file_number": self.current_file_index,
+                "batch_export.s3.num_parts": len(sorted_parts),
+            },
+        ):
+            await client.complete_multipart_upload(
+                Bucket=self.bucket,
+                Key=current_key,
+                UploadId=self.upload_id,
+                MultipartUpload={"Parts": sorted_parts},
+            )
 
     async def _abort(self):
         """Abort this S3 multi-part upload and cancel any in-flight part uploads."""

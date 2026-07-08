@@ -9,6 +9,7 @@ import {
     IconReceipt,
     IconServer,
     IconShieldLock,
+    IconToggle,
 } from '@posthog/icons'
 
 import { FEATURE_FLAGS } from 'lib/constants'
@@ -33,9 +34,9 @@ import { userLogic } from 'scenes/userLogic'
 import { globalModalsLogic } from '~/layout/globalModalsLogic'
 import { AvailableFeature } from '~/types'
 
-import { RenderKeybind } from '../AppShortcuts/AppShortcutMenu'
-import { keyBinds } from '../AppShortcuts/shortcuts'
 import { ScrollableShadows } from '../ScrollableShadows/ScrollableShadows'
+import { RenderKeybind } from '../Shortcuts/ShortcutMenu'
+import { keyBinds } from '../Shortcuts/shortcuts'
 import { upgradeModalLogic } from '../UpgradeModal/upgradeModalLogic'
 import { newAccountMenuLogic } from './newAccountMenuLogic'
 import { OrgModal } from './OrgModal'
@@ -380,6 +381,21 @@ export function NewAccountMenu({ isLayoutNavCollapsed }: AccountMenuProps): JSX.
                                                 >
                                                     <IconServer />
                                                     Instance panel
+                                                </Link>
+                                            )}
+                                        />
+                                        <Menu.Item
+                                            render={(props) => (
+                                                <Link
+                                                    {...props}
+                                                    to={urls.featureFlagsStaffTools()}
+                                                    buttonProps={{
+                                                        menuItem: true,
+                                                    }}
+                                                    data-attr="new-account-menu-flags-staff-tools"
+                                                >
+                                                    <IconToggle />
+                                                    Flags staff tools
                                                 </Link>
                                             )}
                                         />

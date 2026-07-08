@@ -120,7 +120,7 @@ export const slackPostMessageV1 = defineNativeTool({
         ts: Type.String(),
         channel: Type.String(),
     }),
-    requires: { scopes: ['chat:write'] },
+    requires: { provider: { id: 'slack', scopes: ['chat:write'] } },
     cost_hint: 'cheap',
     async run(args, ctx) {
         const token = slackBotToken(ctx)
@@ -142,7 +142,7 @@ export const slackUpdateMessageV1 = defineNativeTool({
         text: Type.String(),
     }),
     returns: Type.Object({ ok: Type.Boolean() }),
-    requires: { scopes: ['chat:write'] },
+    requires: { provider: { id: 'slack', scopes: ['chat:write'] } },
     cost_hint: 'cheap',
     async run(args, ctx) {
         const token = slackBotToken(ctx)
@@ -167,7 +167,7 @@ export const slackReadChannelV1 = defineNativeTool({
         has_more: Type.Boolean(),
         next_cursor: Type.Optional(Type.String()),
     }),
-    requires: { scopes: ['channels:history', 'groups:history'] },
+    requires: { provider: { id: 'slack', scopes: ['channels:history', 'groups:history'] } },
     cost_hint: 'cheap',
     async run(args, ctx) {
         const token = slackBotToken(ctx)
@@ -210,7 +210,7 @@ export const slackReadThreadV1 = defineNativeTool({
         has_more: Type.Boolean(),
         next_cursor: Type.Optional(Type.String()),
     }),
-    requires: { scopes: ['channels:history', 'groups:history'] },
+    requires: { provider: { id: 'slack', scopes: ['channels:history', 'groups:history'] } },
     cost_hint: 'cheap',
     async run(args, ctx) {
         const token = slackBotToken(ctx)
@@ -246,7 +246,7 @@ export const slackReactV1 = defineNativeTool({
         name: Type.String(),
     }),
     returns: Type.Object({ ok: Type.Boolean() }),
-    requires: { scopes: ['reactions:write'] },
+    requires: { provider: { id: 'slack', scopes: ['reactions:write'] } },
     cost_hint: 'cheap',
     async run(args, ctx) {
         const token = slackBotToken(ctx)

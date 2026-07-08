@@ -55,6 +55,10 @@ export const FeatureFlagsListParams = /* @__PURE__ */ zod.object({
 
 export const FeatureFlagsListQueryParams = /* @__PURE__ */ zod.object({
     active: zod.enum(['STALE', 'false', 'true']).optional(),
+    archived: zod
+        .enum(['false', 'true'])
+        .optional()
+        .describe('Filter by archived state. When omitted, archived flags are excluded.'),
     created_by_id: zod
         .string()
         .optional()
@@ -69,6 +73,10 @@ export const FeatureFlagsListQueryParams = /* @__PURE__ */ zod.object({
         .string()
         .optional()
         .describe('JSON-encoded list of feature flag keys to exclude from the results.'),
+    excluded_tags: zod
+        .string()
+        .optional()
+        .describe('JSON-encoded list of tag names to exclude. Flags carrying any of these tags are filtered out.'),
     has_evaluation_contexts: zod
         .enum(['false', 'true'])
         .optional()
@@ -384,6 +392,12 @@ export const FeatureFlagsCreateBody = /* @__PURE__ */ zod.object({
         .optional()
         .describe('Feature flag targeting configuration.'),
     active: zod.boolean().optional().describe('Whether the feature flag is active.'),
+    archived: zod
+        .boolean()
+        .optional()
+        .describe(
+            'Whether the flag is archived. Archived flags are hidden from the flag list by default and must be disabled (`active: false`).'
+        ),
     tags: zod.array(zod.string()).optional().describe('Organizational tags for this feature flag.'),
     evaluation_contexts: zod
         .array(zod.string())
@@ -740,6 +754,12 @@ export const FeatureFlagsPartialUpdateBody = /* @__PURE__ */ zod.object({
         .optional()
         .describe('Feature flag targeting configuration.'),
     active: zod.boolean().optional().describe('Whether the feature flag is active.'),
+    archived: zod
+        .boolean()
+        .optional()
+        .describe(
+            'Whether the flag is archived. Archived flags are hidden from the flag list by default and must be disabled (`active: false`).'
+        ),
     tags: zod.array(zod.string()).optional().describe('Organizational tags for this feature flag.'),
     evaluation_contexts: zod
         .array(zod.string())
@@ -930,10 +950,18 @@ export const FeatureFlagsBulkDeleteCreateBody = /* @__PURE__ */ zod.object({
                 .array(zod.string())
                 .optional()
                 .describe('Tag names to filter by. Flags carrying at least one of these tags match.'),
+            excluded_tags: zod
+                .array(zod.string())
+                .optional()
+                .describe('Tag names to exclude. Flags carrying any of these tags are filtered out.'),
             has_evaluation_contexts: zod
                 .boolean()
                 .optional()
                 .describe('When true, only matches flags with at least one evaluation context.'),
+            archived: zod
+                .boolean()
+                .optional()
+                .describe('Filter by archived state. When omitted, archived flags are excluded.'),
         })
         .describe("Allowed filter keys for bulk_delete — same shape as the list endpoint's query params.")
         .optional()

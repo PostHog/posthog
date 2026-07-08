@@ -145,6 +145,14 @@
         border-bottom: none;
     }
 
+    /* `size="sm"`: tighten head/cell inline padding so the edge columns align with
+       a `Card size="sm"` (0.75rem inline). Block padding and the header's negative
+       button margin are unchanged. */
+    .quill-table[data-size='sm'] .quill-table__head,
+    .quill-table[data-size='sm'] .quill-table__cell {
+        padding-inline: 0.75rem;
+    }
+
     /* Full-span empty cell. height:100% claims the lone body row's height (which
        fills a height-bounded Table), and the inner flex column resolves that
        height so children — including Empty's own flex-1 — stretch and center.

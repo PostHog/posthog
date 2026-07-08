@@ -2,7 +2,7 @@ from typing import Any
 
 import re2
 
-from posthog.schema import CachedLogsQueryResponse, LogsQuery
+from posthog.schema import CachedLogsQueryResponse, HogQLFilters, LogsQuery
 
 from posthog.hogql import ast
 from posthog.hogql.parser import parse_select
@@ -170,6 +170,7 @@ class ServicesQueryRunner(AnalyticsQueryRunner[LogsQueryResponse], LogsQueryRunn
             workload=Workload.LOGS,
             timings=self.timings,
             limit_context=self.limit_context,
+            filters=HogQLFilters(dateRange=self.query.dateRange),
             settings=self.settings,
         )
 
@@ -181,6 +182,7 @@ class ServicesQueryRunner(AnalyticsQueryRunner[LogsQueryResponse], LogsQueryRunn
             workload=Workload.LOGS,
             timings=self.timings,
             limit_context=self.limit_context,
+            filters=HogQLFilters(dateRange=self.query.dateRange),
             settings=self.settings,
         )
 

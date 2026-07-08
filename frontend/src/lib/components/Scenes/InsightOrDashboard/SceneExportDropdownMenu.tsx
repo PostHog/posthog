@@ -11,8 +11,15 @@ import {
     DropdownMenuTrigger,
 } from 'lib/ui/DropdownMenu/DropdownMenu'
 import { MenuOpenIndicator } from 'lib/ui/Menus/Menus'
+import { getAccessControlDisabledReason } from 'lib/utils/accessControlUtils'
 
-import { ExportContext, ExporterFormat, OnlineExportContext } from '~/types'
+import {
+    AccessControlLevel,
+    AccessControlResourceType,
+    ExportContext,
+    ExporterFormat,
+    OnlineExportContext,
+} from '~/types'
 
 import { TriggerExportProps } from '../../ExportButton/exporter'
 import { exportsLogic } from '../../ExportButton/exportsLogic'
@@ -40,12 +47,22 @@ export function SceneExportDropdownMenu({
         startExport(triggerExportProps)
     }
 
-    const isDisabled = disabledReasons ? Object.values(disabledReasons).some(Boolean) : false
+    // Creating an export requires editor access to the export resource.
+    const accessControlDisabledReason = getAccessControlDisabledReason(
+        AccessControlResourceType.Export,
+        AccessControlLevel.Editor
+    )
+    const resolvedDisabledReasons: DisabledReasonsObject = {
+        ...disabledReasons,
+        ...(accessControlDisabledReason ? { [accessControlDisabledReason]: true } : {}),
+    }
+
+    const isDisabled = Object.values(resolvedDisabledReasons).some(Boolean)
 
     return (
         <DropdownMenu>
             <DropdownMenuTrigger asChild disabled={isDisabled}>
-                <ButtonPrimitive menuItem disabledReasons={disabledReasons}>
+                <ButtonPrimitive menuItem disabledReasons={resolvedDisabledReasons}>
                     <IconDownload />
                     Export
                     <MenuOpenIndicator className="ml-auto" />

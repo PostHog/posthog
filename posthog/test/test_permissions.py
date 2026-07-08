@@ -4,6 +4,7 @@ from datetime import timedelta
 from posthog.test.base import BaseTest
 from unittest.mock import Mock, PropertyMock, patch
 
+from django.apps import apps
 from django.test import SimpleTestCase
 from django.utils import timezone
 
@@ -18,13 +19,13 @@ from posthog.models.organization import OrganizationMembership
 from posthog.permissions import AccessControlPermission, PostHogFeatureFlagPermission
 from posthog.rbac.user_access_control import UserAccessControl
 
-from products.error_tracking.backend.models import ErrorTrackingIssue
-
 try:
     from ee.models.rbac.access_control import AccessControl
     from ee.models.rbac.role import Role, RoleMembership
 except ImportError:
     pass
+
+ErrorTrackingIssue = apps.get_model("error_tracking", "ErrorTrackingIssue")
 
 
 class TestAccessControlPermission(BaseTest):
@@ -78,7 +79,7 @@ class TestAccessControlPermission(BaseTest):
 
     def _create_real_view(self, action="list", pk=None):
         """Helper to create a real NotebookViewSet instance"""
-        from products.notebooks.backend.api.notebook import NotebookViewSet
+        from products.notebooks.backend.presentation.views.notebook import NotebookViewSet
 
         view = NotebookViewSet()
         view.action = action

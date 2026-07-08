@@ -1,5 +1,6 @@
 import { MOCK_DEFAULT_TEAM } from '~/lib/api.mock'
 
+import { combineUrl, router } from 'kea-router'
 import { expectLogic } from 'kea-test-utils'
 
 import { initKeaTests } from '~/test/init'
@@ -10,6 +11,10 @@ import type { AccountApi } from 'products/customer_analytics/frontend/generated/
 import { accountLinksLogic } from './accountLinksLogic'
 
 jest.mock('products/customer_analytics/frontend/generated/api', () => ({
+    // Keep the real module for everything else — connected logics (e.g. column config's
+    // customPropertyDefinitionsList) call other generated functions on mount, and an
+    // absent export makes their loaders throw on every test.
+    ...jest.requireActual('products/customer_analytics/frontend/generated/api'),
     accountsRetrieve: jest.fn(),
     accountsPartialUpdate: jest.fn(),
 }))
@@ -67,6 +72,7 @@ describe('accountLinksLogic', () => {
             billing_id: 'cus_1',
             slack_channel_id: 'C1',
             usage_dashboard_link: '',
+            sfdc_id: '',
         })
     })
 
@@ -86,6 +92,7 @@ describe('accountLinksLogic', () => {
             billing_id: 'new',
             slack_channel_id: 'C9',
             usage_dashboard_link: '',
+            sfdc_id: '001abc',
         })
         logic.actions.saveLinks()
         await expectLogic(logic).toFinishAllListeners()
@@ -97,6 +104,7 @@ describe('accountLinksLogic', () => {
                 billing_id: 'new',
                 slack_channel_id: 'C9',
                 usage_dashboard_link: null,
+                sfdc_id: '001abc',
             },
         })
         expect(logic.values.account).toEqual(updated)
@@ -112,13 +120,14 @@ describe('accountLinksLogic', () => {
             billing_id: '',
             slack_channel_id: '   ',
             usage_dashboard_link: '',
+            sfdc_id: '',
         })
         logic.actions.saveLinks()
         await expectLogic(logic).toFinishAllListeners()
 
         expect(mockAccountsPartialUpdate).toHaveBeenCalledWith(TEAM, 'acc-1', {
             external_id: null,
-            properties: { billing_id: null, slack_channel_id: null, usage_dashboard_link: null },
+            properties: { billing_id: null, slack_channel_id: null, usage_dashboard_link: null, sfdc_id: null },
         })
     })
 
@@ -171,5 +180,25 @@ describe('accountLinksLogic', () => {
         expect(logic.values.editorOpen).toBe(true)
         expect(logic.values.savingLinks).toBe(false)
         expect(logic.values.account).toEqual(initial)
+    })
+
+    it('organization link opens the group and carries the accounts list as backUrl', async () => {
+        router.actions.push('/customer_analytics/accounts', {}, { view: { search: 'acme' } })
+        await mountWith(buildAccount({ external_id: 'ext-1' }))
+
+        const organization = logic.values.links.find((link) => link.key === 'organization')
+        const destination = combineUrl(organization!.to!)
+        expect(destination.pathname).toBe('/groups/0/ext-1')
+        expect(destination.searchParams.backName).toBe('Accounts')
+        expect(destination.searchParams.backUrl).toContain('/customer_analytics/accounts')
+        expect(destination.searchParams.backUrl).toContain('#view=')
+    })
+
+    it('organization link is disabled without an external_id', async () => {
+        await mountWith(buildAccount({ external_id: null }))
+
+        const organization = logic.values.links.find((link) => link.key === 'organization')
+        expect(organization?.to).toBeNull()
+        expect(organization?.disabledReason).toBe('No external ID set')
     })
 })

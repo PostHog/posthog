@@ -14,6 +14,7 @@ from unittest.mock import patch
 
 from django.conf import settings
 from django.db import OperationalError
+from django.http import HttpResponse
 from django.test import SimpleTestCase, override_settings
 from django.utils import timezone
 
@@ -35,6 +36,7 @@ from posthog.models.oauth import (
     revoke_application_sessions,
 )
 from posthog.models.team.team import Team
+from posthog.scopes import get_oauth_scopes_supported
 from posthog.settings.utils import generate_rsa_private_key_pem
 
 
@@ -1167,12 +1169,23 @@ class TestOAuthAPI(APIBaseTest):
         self.assertEqual(body["error"], "invalid_grant")
         self.assertIn("error_description", body)
 
-    def test_token_endpoint_returns_temporarily_unavailable_on_pgbouncer_query_wait_timeout(self):
+    @parameterized.expand(
+        [
+            ("query_wait_timeout", "query_wait_timeout"),
+            (
+                "connection_reset",
+                "server closed the connection unexpectedly\n\tThis probably means the server "
+                "terminated abnormally before or while processing the request.",
+            ),
+            ("connection_failed", "connection failed"),
+        ]
+    )
+    def test_token_endpoint_returns_temporarily_unavailable_on_transient_db_error(self, _name, error_message):
         token_data = {**self.base_token_body, "code": "does_not_matter"}
 
         with patch(
             "oauth2_provider.views.base.TokenView.post",
-            side_effect=OperationalError("query_wait_timeout"),
+            side_effect=OperationalError(error_message),
         ):
             response = self.post("/oauth/token/", token_data)
 
@@ -2595,9 +2608,11 @@ class TestOAuthAPI(APIBaseTest):
         assert location
         self.assertIn("error=invalid_scope", location)
 
-    def test_authorize_accepts_scope_within_app_ceiling(self):
+    def test_authorize_accepts_full_grant_of_app_ceiling(self):
+        # Without optional_scopes every ceiling scope is required, so a grant that
+        # includes the whole ceiling succeeds.
         self._set_ceiling("experiment:read", "dashboard:read")
-        response = self._authorize_post("experiment:read")
+        response = self._authorize_post("experiment:read dashboard:read")
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         redirect_to = response.json()["redirect_to"]
         self.assertNotIn("error=invalid_scope", redirect_to)
@@ -2630,6 +2645,18 @@ class TestOAuthAPI(APIBaseTest):
         assert location
         self.assertIn("error=invalid_scope", location)
 
+    def test_authorize_get_passes_wildcard_read_scopes_to_consent_page(self):
+        with patch("posthog.api.oauth.views.render_template", return_value=HttpResponse("")) as mock_render:
+            response = self.client.get(f"{self.base_authorization_url}&scope=*")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        wildcard_reads = mock_render.call_args.kwargs["context"]["oauth_application"]["wildcard_read_scopes"]
+        self.assertIn("insight:read", wildcard_reads)
+        self.assertIn("batch_import:read", wildcard_reads)
+        self.assertNotIn("llm_gateway:read", wildcard_reads)
+        self.assertNotIn("wizard_session:read", wildcard_reads)
+        self.assertIn("metrics:read", wildcard_reads)
+        self.assertFalse(any(scope.endswith(":write") for scope in wildcard_reads))
+
     def test_authorize_wildcard_accepted_when_app_ceiling_empty(self):
         # Existing clients (the PostHog Code CLI today) still send scope=*
         # against apps that have no explicit ceiling. Until wildcard retirement
@@ -2639,6 +2666,75 @@ class TestOAuthAPI(APIBaseTest):
         redirect_to = response.json()["redirect_to"]
         self.assertNotIn("error=invalid_scope", redirect_to)
         self.assertIn("code=", redirect_to)
+
+    # --- Required vs. optional scopes (OAuthApplication.optional_scopes) ---
+
+    def _set_scope_split(self, required: list[str], optional: list[str]) -> None:
+        self.confidential_application.scopes = required
+        self.confidential_application.optional_scopes = optional
+        self.confidential_application.save()
+
+    @parameterized.expand(
+        [
+            ("grants_required_plus_optional", "experiment:read dashboard:read", status.HTTP_200_OK),
+            ("allows_dropping_optional", "experiment:read", status.HTTP_200_OK),
+            ("rejects_missing_required", "dashboard:read", status.HTTP_400_BAD_REQUEST),
+        ]
+    )
+    def test_authorize_post_with_scope_split(self, _name, granted_scope, expected_status):
+        self._set_scope_split(["experiment:read"], ["dashboard:read"])
+        response = self._authorize_post(granted_scope)
+        self.assertEqual(response.status_code, expected_status)
+        if expected_status == status.HTTP_200_OK:
+            self.assertIn("code=", response.json()["redirect_to"])
+        else:
+            body = response.json()
+            self.assertEqual(body["error"], "invalid_scope")
+            self.assertIn("experiment:read", body["error_description"])
+
+    def test_scopes_without_optional_are_all_required(self):
+        # Every explicit ceiling scope is required and locked at consent; dropping one
+        # 400s. The consent UI force-includes all required scopes, so only a raw
+        # partial POST that bypasses it reaches this rejection.
+        self._set_ceiling("experiment:read", "dashboard:read")
+        self.assertEqual(self.confidential_application.required_scopes, ["experiment:read", "dashboard:read"])
+        response = self._authorize_post("dashboard:read")
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        body = response.json()
+        self.assertEqual(body["error"], "invalid_scope")
+        self.assertIn("experiment:read", body["error_description"])
+
+    @freeze_time("2025-01-01 00:00:00")
+    def test_auto_approval_skipped_when_request_omits_required_scope(self):
+        # An existing token covering the (optional-only) request must not auto-approve
+        # below the required floor; the consent screen handles granting the full set.
+        self._set_scope_split(["experiment:read"], ["dashboard:read"])
+        OAuthAccessToken.objects.create(
+            application=self.confidential_application,
+            user=self.user,
+            token="at_auto_approval_optional_only",
+            expires=timezone.now() + timedelta(hours=1),
+            scope="dashboard:read",
+            scoped_teams=[self.team.id],
+            scoped_organizations=None,
+        )
+        with patch("posthog.api.oauth.views.render_template", return_value=HttpResponse("")) as mock_render:
+            response = self.client.get(f"{self.base_authorization_url}&scope=dashboard:read&approval_prompt=auto")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        mock_render.assert_called_once()
+
+    def test_authorize_get_passes_required_scopes_to_consent_page(self):
+        self._set_scope_split(["experiment:read"], ["dashboard:read"])
+        with patch("posthog.api.oauth.views.render_template", return_value=HttpResponse("")) as mock_render:
+            response = self.client.get(f"{self.base_authorization_url}&scope=experiment:read%20dashboard:read")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        context = mock_render.call_args.kwargs["context"]
+        self.assertEqual(context["oauth_application"]["required_scopes"], ["experiment:read"])
+
+    def test_refresh_keeps_optional_scope_within_combined_ceiling(self):
+        self._set_scope_split(["experiment:read"], ["dashboard:read"])
+        refresh_token = self._create_refreshable_token_pair("experiment:read dashboard:read")
+        self.assertEqual(self._refresh_and_get_scopes(refresh_token), {"experiment:read", "dashboard:read"})
 
     @parameterized.expand(
         [
@@ -3744,6 +3840,86 @@ class TestOAuthAPI(APIBaseTest):
         self.assertEqual(data["scoped_organizations"], [str(self.organization.id)])
         self.assertEqual(data["scoped_teams"], [self.team.pk])
 
+    @freeze_time("2025-01-01 00:00:00")
+    def test_first_party_app_gets_extended_token_expiry(self):
+        app = self._create_first_party_app(slug="first-party-ttl")
+        grant = OAuthGrant.objects.create(
+            application=app,
+            user=self.user,
+            code="first_party_ttl_code",
+            code_challenge=self.code_challenge,
+            code_challenge_method="S256",
+            redirect_uri="https://example.com/callback",
+            expires=timezone.now() + timedelta(minutes=5),
+            scoped_organizations=[str(self.organization.id)],
+            scoped_teams=[],
+        )
+
+        response = self.post(
+            "/oauth/token/",
+            {
+                **self.base_token_body,
+                "client_id": app.client_id,
+                "client_secret": "first_party_first-party-ttl_client_secret",
+                "code": grant.code,
+            },
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        data = response.json()
+        self.assertEqual(data["expires_in"], 60 * 60 * 24 * 7)
+
+        access_token = OAuthAccessToken.objects.get(token=data["access_token"])
+        expected_expiry = timezone.now() + timedelta(days=7)
+        self.assertLess(abs((access_token.expires - expected_expiry).total_seconds()), 60)
+
+    @freeze_time("2025-01-01 00:00:00")
+    def test_first_party_app_refreshed_token_keeps_extended_expiry_and_rotates(self):
+        app = self._create_first_party_app(slug="first-party-refresh-ttl")
+        client_secret = "first_party_first-party-refresh-ttl_client_secret"
+        grant = OAuthGrant.objects.create(
+            application=app,
+            user=self.user,
+            code="first_party_refresh_ttl_code",
+            code_challenge=self.code_challenge,
+            code_challenge_method="S256",
+            redirect_uri="https://example.com/callback",
+            expires=timezone.now() + timedelta(minutes=5),
+            scoped_organizations=[str(self.organization.id)],
+            scoped_teams=[],
+        )
+
+        token_response = self.post(
+            "/oauth/token/",
+            {
+                **self.base_token_body,
+                "client_id": app.client_id,
+                "client_secret": client_secret,
+                "code": grant.code,
+            },
+        )
+        self.assertEqual(token_response.status_code, status.HTTP_200_OK)
+        original = token_response.json()
+
+        refresh_response = self.post(
+            "/oauth/token/",
+            {
+                "grant_type": "refresh_token",
+                "refresh_token": original["refresh_token"],
+                "client_id": app.client_id,
+                "client_secret": client_secret,
+            },
+        )
+
+        self.assertEqual(refresh_response.status_code, status.HTTP_200_OK)
+        refreshed = refresh_response.json()
+        self.assertNotEqual(refreshed["refresh_token"], original["refresh_token"])
+        self.assertEqual(refreshed["expires_in"], 60 * 60 * 24 * 7)
+
+        refreshed_access_token = OAuthAccessToken.objects.get(token=refreshed["access_token"])
+        expected_expiry = timezone.now() + timedelta(days=7)
+        self.assertLess(abs((refreshed_access_token.expires - expected_expiry).total_seconds()), 60)
+
 
 class TestLocalhostLoopbackRedirectUri(APIBaseTest):
     """
@@ -3893,6 +4069,15 @@ class TestOAuthAuthorizationServerMetadata(APIBaseTest):
         self.assertEqual(metadata["code_challenge_methods_supported"], ["S256"])
         self.assertIn("none", metadata["token_endpoint_auth_methods_supported"])
 
+    def test_metadata_advertises_id_jag_grant_profile(self):
+        response = self.client.get("/.well-known/oauth-authorization-server")
+        metadata = response.json()
+
+        self.assertEqual(
+            metadata["authorization_grant_profiles_supported"],
+            ["urn:ietf:params:oauth:grant-profile:id-jag"],
+        )
+
     def test_metadata_includes_scopes(self):
         response = self.client.get("/.well-known/oauth-authorization-server")
         metadata = response.json()
@@ -3934,6 +4119,101 @@ class TestOAuthAuthorizationServerMetadata(APIBaseTest):
         response = self.client.get("/.well-known/oauth-authorization-server")
         metadata = response.json()
         self.assertNotIn("posthog_region", metadata)
+
+    def test_metadata_advertises_agent_auth_identity_assertion(self):
+        response = self.client.get("/.well-known/oauth-authorization-server")
+        agent_auth = response.json()["agent_auth"]
+
+        self.assertTrue(agent_auth["skill"].endswith("/auth.md"))
+        self.assertTrue(agent_auth["identity_endpoint"].endswith("/oauth/token/"))
+        self.assertEqual(agent_auth["identity_types_supported"], ["identity_assertion"])
+        self.assertEqual(
+            agent_auth["identity_assertion"]["assertion_types_supported"],
+            ["urn:ietf:params:oauth:token-type:id-jag"],
+        )
+
+    def test_metadata_does_not_advertise_unbuilt_agent_flows(self):
+        response = self.client.get("/.well-known/oauth-authorization-server")
+        metadata = response.json()
+
+        # The device-claim and revocation-receiver endpoints do not exist yet.
+        self.assertNotIn("claim_endpoint", metadata["agent_auth"])
+        self.assertNotIn("events_endpoint", metadata["agent_auth"])
+
+
+class TestOAuthClientManifest(APIBaseTest):
+    """Tests for the auth.md agent-registration manifest."""
+
+    def test_returns_markdown(self):
+        response = self.client.get("/auth.md")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertIn("text/markdown", response["Content-Type"])
+
+    def test_manifest_describes_identity_flow(self):
+        response = self.client.get("/auth.md")
+        body = response.content.decode()
+
+        self.assertIn("# PostHog", body)
+        self.assertIn("/oauth/token/", body)
+        self.assertIn("urn:ietf:params:oauth:token-type:id-jag", body)
+        self.assertIn("/.well-known/oauth-protected-resource", body)
+
+    def test_manifest_lists_scopes(self):
+        response = self.client.get("/auth.md")
+        body = response.content.decode()
+
+        for scope in get_oauth_scopes_supported():
+            with self.subTest(scope=scope):
+                self.assertIn(f"`{scope}`", body)
+
+    def test_manifest_accessible_without_authentication(self):
+        self.client.logout()
+
+        response = self.client.get("/auth.md")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+
+class TestOAuthProtectedResourceMetadata(APIBaseTest):
+    """Tests for OAuth 2.0 Protected Resource Metadata (RFC 9728)."""
+
+    def test_returns_valid_metadata(self):
+        response = self.client.get("/.well-known/oauth-protected-resource")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+        metadata = response.json()
+
+        self.assertIn("resource", metadata)
+        self.assertEqual(metadata["authorization_servers"], [metadata["resource"]])
+        self.assertEqual(metadata["bearer_methods_supported"], ["header"])
+
+    def test_resource_is_a_valid_url(self):
+        metadata = self.client.get("/.well-known/oauth-protected-resource").json()
+        self.assertRegex(metadata["resource"], r"^https?://")
+
+    def test_authorization_server_is_a_valid_url(self):
+        metadata = self.client.get("/.well-known/oauth-protected-resource").json()
+        self.assertRegex(metadata["authorization_servers"][0], r"^https?://")
+
+    def test_metadata_includes_scopes(self):
+        response = self.client.get("/.well-known/oauth-protected-resource")
+        metadata = response.json()
+
+        scopes = metadata["scopes_supported"]
+        resource_scopes = [s for s in scopes if ":" in s]
+        self.assertGreater(len(resource_scopes), 0, "Should advertise resource scopes like 'event_definition:read'")
+
+    def test_authorization_server_matches_metadata_endpoint(self):
+        response = self.client.get("/.well-known/oauth-protected-resource")
+        auth_server = response.json()["authorization_servers"][0]
+
+        as_metadata = self.client.get("/.well-known/oauth-authorization-server")
+        self.assertEqual(as_metadata.json()["issuer"], auth_server)
+
+    def test_metadata_accessible_without_authentication(self):
+        self.client.logout()
+
+        response = self.client.get("/.well-known/oauth-protected-resource")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
 
 
 class TestOIDCInactiveKeysSetting(SimpleTestCase):

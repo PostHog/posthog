@@ -10,7 +10,6 @@ import structlog
 import posthoganalytics
 from asgiref.sync import async_to_sync
 from drf_spectacular.utils import extend_schema
-from loginas.utils import is_impersonated_session
 from rest_framework import mixins, serializers, viewsets
 from rest_framework.exceptions import NotFound, ValidationError
 from rest_framework.request import Request
@@ -19,9 +18,12 @@ from temporalio.common import RetryPolicy, SearchAttributePair, TypedSearchAttri
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.utils import action
 from posthog.event_usage import EventSource, get_event_source, groups
+from posthog.helpers.impersonation import is_impersonated
 from posthog.models import Team, User
 from posthog.models.activity_logging.activity_log import Change, Detail, log_activity
 from posthog.models.organization import Organization
+from posthog.rbac.access_control_api_mixin import AccessControlViewSetMixin
+from posthog.rbac.user_access_control import UserAccessControlSerializerMixin
 from posthog.security.url_validation import is_url_allowed
 from posthog.settings import HOGQL_INCREASED_MAX_EXECUTION_TIME
 from posthog.settings.temporal import TEMPORAL_WORKFLOW_MAX_ATTEMPTS
@@ -51,7 +53,7 @@ def get_full_video_exports_limit_for_organization(organization: Organization | N
 logger = structlog.get_logger(__name__)
 
 
-class ExportedAssetSerializer(serializers.ModelSerializer):
+class ExportedAssetSerializer(UserAccessControlSerializerMixin, serializers.ModelSerializer):
     """Standard ExportedAsset serializer that doesn't return content."""
 
     has_content = serializers.BooleanField(read_only=True)
@@ -70,6 +72,7 @@ class ExportedAssetSerializer(serializers.ModelSerializer):
             "filename",
             "expires_after",
             "exception",
+            "user_access_level",
         ]
         read_only_fields = ["id", "created_at", "has_content", "filename", "expires_after", "exception"]
 
@@ -288,9 +291,7 @@ class ExportedAssetSerializer(serializers.ModelSerializer):
                     organization_id=insight.team.organization.id,
                     team_id=self.context["team_id"],
                     user=user,
-                    was_impersonated=is_impersonated_session(self.context["request"])
-                    if "request" in self.context
-                    else False,
+                    was_impersonated=is_impersonated(self.context.get("request")),
                     item_id=insight_id,  # Type: ignore
                     scope="Insight",
                     activity="exported" if reason is None else f"exported for {reason}",
@@ -328,7 +329,7 @@ class ExportedAssetSerializer(serializers.ModelSerializer):
             organization_id=instance.team.organization_id,
             team_id=instance.team_id,
             user=user,
-            was_impersonated=is_impersonated_session(self.context["request"]) if "request" in self.context else False,
+            was_impersonated=is_impersonated(self.context.get("request")),
             item_id=instance.id,
             scope="ExportedAsset",
             activity="exported",
@@ -436,6 +437,7 @@ class ExportedAssetSerializer(serializers.ModelSerializer):
 @extend_schema(extensions={"x-product": "core"})
 class ExportedAssetViewSet(
     TeamAndOrgViewSetMixin,
+    AccessControlViewSetMixin,
     mixins.ListModelMixin,
     mixins.RetrieveModelMixin,
     mixins.CreateModelMixin,

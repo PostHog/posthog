@@ -54,6 +54,12 @@ class KnowledgeSource(ModelActivityMixin, CreatedMetaFields, UpdatedMetaFields, 
     # re-reads with safe defaults.
     crawl_config = models.JSONField(default=dict, blank=True)
 
+    # --- Always-on context ---
+    # When True, all SAFE/READY chunks from this source are injected into every
+    # support reply prompt (tone, policies, company direction) without requiring
+    # a query match. Same safety gate as search — fails closed until classified.
+    always_include = models.BooleanField(default=False)
+
     # --- Stage 3: file-source metadata (all nullable — additive) ---
     # Sanitized original filename from the upload. Never used as a path.
     original_filename = models.CharField(max_length=255, blank=True, default="")
@@ -73,6 +79,8 @@ class KnowledgeSource(ModelActivityMixin, CreatedMetaFields, UpdatedMetaFields, 
             models.Index(fields=["team", "source_type"], name="bk_source_team_type"),
             # Cross-team due-source scan by the background refresh coordinator.
             models.Index(fields=["refresh_interval", "last_refresh_at"], name="bk_source_refresh_due"),
+            # Fast lookup for always-on context injection (only flagged sources).
+            models.Index(fields=["team"], condition=models.Q(always_include=True), name="bk_source_always_include"),
         ]
 
     def __str__(self) -> str:

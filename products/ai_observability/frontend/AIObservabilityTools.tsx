@@ -3,11 +3,9 @@ import { combineUrl, router } from 'kea-router'
 
 import { IconGraph, IconRetentionHeatmap, IconTrends, IconUserPaths } from '@posthog/icons'
 
-import { FEATURE_FLAGS } from 'lib/constants'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { Link } from 'lib/lemon-ui/Link'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { escapeRegex } from 'lib/utils/actions'
 import { urls } from 'scenes/urls'
 
@@ -33,9 +31,7 @@ export function AIObservabilityTools(): JSX.Element {
         buildAllToolsTrendQuery,
         buildToolHeatmapQuery,
     } = useValues(aiObservabilityToolsLogic)
-    const { featureFlags } = useValues(featureFlagLogic)
     const { searchParams } = useValues(router)
-    const showToolsCharts = !!featureFlags[FEATURE_FLAGS.LLM_ANALYTICS_TOOLS_CHARTS]
 
     const { renderSortableColumnTitle } = useSortableColumns(toolsSort, setToolsSort)
 
@@ -64,34 +60,32 @@ export function AIObservabilityTools(): JSX.Element {
                 )
             }}
             context={{
-                customActions: showToolsCharts
-                    ? [
-                          <Tooltip title="View tool usage trends over time" key="trends">
-                              <LemonButton
-                                  icon={<IconTrends />}
-                                  size="small"
-                                  type="secondary"
-                                  to={urls.insightNew({ query: buildAllToolsTrendQuery })}
-                                  targetBlank
-                                  data-attr="llma-tools-all-trends-click"
-                              >
-                                  Tool trends
-                              </LemonButton>
-                          </Tooltip>,
-                          <Tooltip title="View tool co-occurrence heatmap" key="heatmap">
-                              <LemonButton
-                                  icon={<IconRetentionHeatmap />}
-                                  size="small"
-                                  type="secondary"
-                                  to={urls.insightNew({ query: buildToolHeatmapQuery })}
-                                  targetBlank
-                                  data-attr="llma-tools-heatmap-click"
-                              >
-                                  Tool co-occurrence
-                              </LemonButton>
-                          </Tooltip>,
-                      ]
-                    : undefined,
+                customActions: [
+                    <Tooltip title="View tool usage trends over time" key="trends">
+                        <LemonButton
+                            icon={<IconTrends />}
+                            size="small"
+                            type="secondary"
+                            to={urls.insightNew({ query: buildAllToolsTrendQuery })}
+                            targetBlank
+                            data-attr="llma-tools-all-trends-click"
+                        >
+                            Tool trends
+                        </LemonButton>
+                    </Tooltip>,
+                    <Tooltip title="View tool co-occurrence heatmap" key="heatmap">
+                        <LemonButton
+                            icon={<IconRetentionHeatmap />}
+                            size="small"
+                            type="secondary"
+                            to={urls.insightNew({ query: buildToolHeatmapQuery })}
+                            targetBlank
+                            data-attr="llma-tools-heatmap-click"
+                        >
+                            Tool co-occurrence
+                        </LemonButton>
+                    </Tooltip>,
+                ],
                 columns: {
                     tool: {
                         render: function RenderTool(x) {
@@ -125,52 +119,48 @@ export function AIObservabilityTools(): JSX.Element {
                                             {toolString}
                                         </Link>
                                     </Tooltip>
-                                    {showToolsCharts && (
-                                        <>
-                                            <Tooltip title={`View ${toolString} usage over time`}>
-                                                <LemonButton
-                                                    icon={<IconTrends />}
-                                                    size="xsmall"
-                                                    to={urls.insightNew({
-                                                        query: {
-                                                            kind: NodeKind.InsightVizNode,
-                                                            source: buildToolTrendQuery(toolString),
-                                                        } as InsightVizNode,
-                                                    })}
-                                                    targetBlank
-                                                    data-attr="llma-tools-trend-click"
-                                                />
-                                            </Tooltip>
-                                            <Tooltip title={`View tool combinations with ${toolString}`}>
-                                                <LemonButton
-                                                    icon={<IconGraph />}
-                                                    size="xsmall"
-                                                    to={urls.insightNew({
-                                                        query: {
-                                                            kind: NodeKind.InsightVizNode,
-                                                            source: buildToolSequencesQuery(toolString),
-                                                        } as InsightVizNode,
-                                                    })}
-                                                    targetBlank
-                                                    data-attr="llma-tools-sequences-click"
-                                                />
-                                            </Tooltip>
-                                            <Tooltip title={`View tool paths from ${toolString}`}>
-                                                <LemonButton
-                                                    icon={<IconUserPaths />}
-                                                    size="xsmall"
-                                                    to={urls.insightNew({
-                                                        query: {
-                                                            kind: NodeKind.InsightVizNode,
-                                                            source: buildToolPathsQuery(toolString),
-                                                        } as InsightVizNode,
-                                                    })}
-                                                    targetBlank
-                                                    data-attr="llma-tools-paths-click"
-                                                />
-                                            </Tooltip>
-                                        </>
-                                    )}
+                                    <Tooltip title={`View ${toolString} usage over time`}>
+                                        <LemonButton
+                                            icon={<IconTrends />}
+                                            size="xsmall"
+                                            to={urls.insightNew({
+                                                query: {
+                                                    kind: NodeKind.InsightVizNode,
+                                                    source: buildToolTrendQuery(toolString),
+                                                } as InsightVizNode,
+                                            })}
+                                            targetBlank
+                                            data-attr="llma-tools-trend-click"
+                                        />
+                                    </Tooltip>
+                                    <Tooltip title={`View tool combinations with ${toolString}`}>
+                                        <LemonButton
+                                            icon={<IconGraph />}
+                                            size="xsmall"
+                                            to={urls.insightNew({
+                                                query: {
+                                                    kind: NodeKind.InsightVizNode,
+                                                    source: buildToolSequencesQuery(toolString),
+                                                } as InsightVizNode,
+                                            })}
+                                            targetBlank
+                                            data-attr="llma-tools-sequences-click"
+                                        />
+                                    </Tooltip>
+                                    <Tooltip title={`View tool paths from ${toolString}`}>
+                                        <LemonButton
+                                            icon={<IconUserPaths />}
+                                            size="xsmall"
+                                            to={urls.insightNew({
+                                                query: {
+                                                    kind: NodeKind.InsightVizNode,
+                                                    source: buildToolPathsQuery(toolString),
+                                                } as InsightVizNode,
+                                            })}
+                                            targetBlank
+                                            data-attr="llma-tools-paths-click"
+                                        />
+                                    </Tooltip>
                                 </div>
                             )
                         },

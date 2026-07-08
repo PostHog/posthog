@@ -3,7 +3,7 @@ import './DashboardItems.scss'
 import clsx from 'clsx'
 import { useActions, useAsyncActions, useValues } from 'kea'
 import { router } from 'kea-router'
-import { RefObject, useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { RefObject, memo, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Layout, Responsive as ReactGridLayout, useContainerWidth } from 'react-grid-layout'
 import { GridBackground } from 'react-grid-layout/extras'
 
@@ -13,10 +13,15 @@ import { getDashboardWidgetFetchDisplayError } from '@posthog/products-dashboard
 import { InsightCard } from 'lib/components/Cards/InsightCard'
 import { EditModeEdge } from 'lib/components/Cards/InsightCard/EditModeEdgeOverlay'
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
+import { LemonMenuItem } from 'lib/lemon-ui/LemonMenu'
 import { DashboardEventSource, eventUsageLogic } from 'lib/utils/eventUsageLogic'
+import { objectsEqual } from 'lib/utils/objects'
+import { addInsightToDashboardLogic } from 'scenes/dashboard/addInsightToDashboardModalLogic'
+import { getAddTileMenuItems } from 'scenes/dashboard/DashboardHeaderActions'
 import { dashboardLogic } from 'scenes/dashboard/dashboardLogic'
 import { BREAKPOINTS, BREAKPOINT_COLUMN_COUNTS, isWidgetTileVisibleOnPlacement } from 'scenes/dashboard/dashboardUtils'
 import { continueDragGestureInEditMode, continueResizeGestureInEditMode } from 'scenes/dashboard/editLayoutGesture'
+import { InsertTileOverlay } from 'scenes/dashboard/InsertTileOverlay'
 import { useSurveyLinkedInsights } from 'scenes/surveys/hooks/useSurveyLinkedInsights'
 import { getBestSurveyOpportunityFunnel } from 'scenes/surveys/utils/opportunityDetection'
 import { urls } from 'scenes/urls'
@@ -35,6 +40,29 @@ const BASE_ROW_HEIGHT = 80
 const BASE_MARGIN: [number, number] = [16, 16]
 const CONTAINER_PADDING: [number, number] = [0, 0]
 
+/**
+ * Shallow prop compare, except: `style` by value (react-grid-layout rebuilds it every drag/resize mousemove even
+ * for tiles that haven't moved) and `children` ignored (the RGL-injected resize handles, recreated each render
+ * with identical content). Lets untouched tiles skip re-rendering during gestures.
+ */
+function gridTilePropsEqual(prevProps: Record<string, any>, nextProps: Record<string, any>): boolean {
+    return [...new Set([...Object.keys(prevProps), ...Object.keys(nextProps)])].every(
+        (key) =>
+            key === 'children' ||
+            (key === 'style'
+                ? objectsEqual(prevProps.style, nextProps.style)
+                : Object.is(prevProps[key], nextProps[key]))
+    )
+}
+
+const MemoizedInsightCard = memo(InsightCard, gridTilePropsEqual) as typeof InsightCard
+const MemoizedDashboardTextItem = memo(DashboardTextItem, gridTilePropsEqual) as typeof DashboardTextItem
+const MemoizedDashboardButtonTileItem = memo(
+    DashboardButtonTileItem,
+    gridTilePropsEqual
+) as typeof DashboardButtonTileItem
+const MemoizedDashboardWidgetItem = memo(DashboardWidgetItem, gridTilePropsEqual) as typeof DashboardWidgetItem
+
 export function DashboardItems(): JSX.Element {
     const {
         dashboard,
@@ -47,7 +75,6 @@ export function DashboardItems(): JSX.Element {
         isRefreshing,
         highlightedInsightId,
         refreshStatus,
-        itemsLoading,
         dashboardStreaming,
         effectiveEditBarFilters,
         effectiveDashboardVariableOverrides,
@@ -55,6 +82,7 @@ export function DashboardItems(): JSX.Element {
         dataColorThemeId,
         canEditDashboard,
         dashboardWidgetsEnabled,
+        inlineTileInsertionEnabled,
         widgetResultsByTileId,
         widgetRefreshStatus,
         scrollToBottomSignal,
@@ -75,7 +103,10 @@ export function DashboardItems(): JSX.Element {
         copyToDashboard,
         setTileOverride,
         setDashboardMode,
+        setAddWidgetModalOpen,
+        setPendingInsertion,
     } = useActions(dashboardLogic)
+    const { showAddInsightToDashboardModal } = useActions(addInsightToDashboardLogic)
     const { updateWidgetTile } = useAsyncActions(dashboardLogic)
     const { renameInsight } = useActions(insightsModel)
     const { reportDashboardTileRepositioned } = useActions(eventUsageLogic)
@@ -86,11 +117,18 @@ export function DashboardItems(): JSX.Element {
         ? null
         : getBestSurveyOpportunityFunnel(tiles || [], surveyLinkedInsights)
 
-    const resizingItemRef = useRef<any>(null)
+    // Tile currently being resized. Its viz is unmounted for the duration of the gesture so the chart doesn't
+    // redraw on every frame as the tile's dimensions change — the dominant cost that makes resizing feel laggy.
+    const [resizingTileId, setResizingTileId] = useState<string | null>(null)
     const [containerHeight, setContainerHeight] = useState<number | undefined>(undefined)
 
     // cannot click links when dragging and 250ms after
     const isDragging = useRef(false)
+    // While a drag/resize is in progress the grid drives itself from its own internal state and ignores the
+    // `layouts` prop, so pushing layout updates to the store mid-gesture only triggers expensive full re-renders
+    // (every InsightCard) that make the dragged tile lag the cursor. Stash the latest layout and commit once on stop.
+    const interactionInProgress = useRef(false)
+    const pendingLayouts = useRef<Partial<Record<DashboardLayoutSize, Layout>> | null>(null)
     const dragEndTimeout = useRef<number | null>(null)
     const scrollAnimationRef = useRef<number | null>(null)
     const scrollContainerRef = useRef<HTMLElement | null>(null)
@@ -131,8 +169,13 @@ export function DashboardItems(): JSX.Element {
         }
     }, [scrollToBottomSignal])
     const className = clsx({
-        'dashboard-view-mode': !layoutEditMode,
-        'dashboard-edit-mode': layoutEditMode,
+        'dashboard-view-mode mb-8': !layoutEditMode,
+        // In edit mode, dragging is bounded to the grid's own clientHeight, which is exactly the
+        // content height — so there's nowhere to drag a tile into to create a new bottom row.
+        // box-content + padding-bottom grows clientHeight (padding only counts under content-box,
+        // since preflight defaults everything to border-box), opening up draggable space below the
+        // last tile that scales with content. A margin wouldn't work — it sits outside clientHeight.
+        'dashboard-edit-mode box-content pb-[40vh]': layoutEditMode,
     })
 
     const { width, containerRef, mounted } = useContainerWidth()
@@ -152,6 +195,11 @@ export function DashboardItems(): JSX.Element {
 
         const element = containerRef.current
         const observer = new ResizeObserver((entries) => {
+            // Skip per-frame height commits during a gesture — they re-render every tile just for GridBackground,
+            // lagging the cursor. flushPendingLayouts remeasures on stop.
+            if (interactionInProgress.current) {
+                return
+            }
             for (const entry of entries) {
                 if (entry.target === element) {
                     setContainerHeight(entry.contentRect.height)
@@ -183,6 +231,28 @@ export function DashboardItems(): JSX.Element {
     const rowHeight = BASE_ROW_HEIGHT * effectiveZoom
     const spacingFactor = effectiveZoom < 1 ? 0.9 : 1
     const margin = useMemo(() => BASE_MARGIN.map((m) => m * spacingFactor) as [number, number], [spacingFactor])
+
+    const getInsertMenuItems = useCallback(
+        (targetX: number, targetY: number, targetW?: number): LemonMenuItem[] =>
+            dashboard
+                ? getAddTileMenuItems({
+                      dashboardId: dashboard.id,
+                      dashboardWidgetsEnabled,
+                      showAddInsightToDashboardModal,
+                      push,
+                      setAddWidgetModalOpen,
+                      onBeforeSelect: () => setPendingInsertion({ x: targetX, y: targetY, w: targetW ?? null }),
+                  })
+                : [],
+        [
+            dashboard,
+            dashboardWidgetsEnabled,
+            showAddInsightToDashboardModal,
+            push,
+            setAddWidgetModalOpen,
+            setPendingInsertion,
+        ]
+    )
 
     const showResizeHandles = layoutEditMode && !isMobileView && isEditablePlacement && !isLayoutZoomToggled
     const showEditingControls = isEditablePlacement || layoutEditMode
@@ -265,12 +335,32 @@ export function DashboardItems(): JSX.Element {
 
     const handleLayoutChange = useCallback(
         (_: unknown, newLayouts: Partial<Record<DashboardLayoutSize, Layout>>) => {
-            if (layoutEditMode) {
-                updateLayouts(newLayouts)
+            if (!layoutEditMode) {
+                return
             }
+            // Defer commits while dragging/resizing — the final layout is flushed on gesture stop.
+            if (interactionInProgress.current) {
+                pendingLayouts.current = newLayouts
+                return
+            }
+            updateLayouts(newLayouts)
         },
         [layoutEditMode, updateLayouts]
     )
+
+    const flushPendingLayouts = useCallback(() => {
+        interactionInProgress.current = false
+        if (pendingLayouts.current) {
+            updateLayouts(pendingLayouts.current)
+            pendingLayouts.current = null
+        }
+        // Remeasure once the gesture settles, since height updates were suppressed during it.
+        requestAnimationFrame(() => {
+            if (containerRef.current) {
+                setContainerHeight(containerRef.current.clientHeight)
+            }
+        })
+    }, [updateLayouts])
 
     const handleWidthChange = useCallback(
         (containerWidth: number, _: unknown, newCols: number) => {
@@ -279,18 +369,25 @@ export function DashboardItems(): JSX.Element {
         [updateContainerWidth]
     )
 
+    const handleResizeStart = useCallback(() => {
+        interactionInProgress.current = true
+    }, [])
+
     const handleResize = useCallback((_layout: any, _oldItem: any, newItem: any) => {
-        resizingItemRef.current = newItem
+        // Setting state to the same id bails out of re-rendering, so this only re-renders once per gesture.
+        setResizingTileId(newItem.i)
     }, [])
 
     const handleResizeStop = useCallback(() => {
-        resizingItemRef.current = null
+        setResizingTileId(null)
+        flushPendingLayouts()
         if (dashboard?.id) {
             reportDashboardTileRepositioned(dashboard.id, 'resized', effectiveZoom)
         }
-    }, [dashboard?.id, reportDashboardTileRepositioned, effectiveZoom])
+    }, [dashboard?.id, reportDashboardTileRepositioned, effectiveZoom, flushPendingLayouts])
 
     const handleDragStart = useCallback(() => {
+        interactionInProgress.current = true
         scrollContainerRef.current = document.getElementById('main-content')
         scrollContainerRectRef.current = scrollContainerRef.current?.getBoundingClientRect() ?? null
     }, [])
@@ -352,10 +449,11 @@ export function DashboardItems(): JSX.Element {
         dragEndTimeout.current = window.setTimeout(() => {
             isDragging.current = false
         }, 250)
+        flushPendingLayouts()
         if (dashboard?.id) {
             reportDashboardTileRepositioned(dashboard.id, 'moved', effectiveZoom)
         }
-    }, [dashboard?.id, reportDashboardTileRepositioned, effectiveZoom])
+    }, [dashboard?.id, reportDashboardTileRepositioned, effectiveZoom, flushPendingLayouts])
 
     return (
         <div className="dashboard-items-wrapper" ref={containerRef as RefObject<HTMLDivElement>}>
@@ -393,6 +491,7 @@ export function DashboardItems(): JSX.Element {
                         onWidthChange={handleWidthChange}
                         breakpoints={BREAKPOINTS}
                         cols={BREAKPOINT_COLUMN_COUNTS}
+                        onResizeStart={handleResizeStart}
                         onResize={handleResize}
                         onResizeStop={handleResizeStop}
                         onDragStart={handleDragStart}
@@ -432,7 +531,7 @@ export function DashboardItems(): JSX.Element {
                                 const loading = isErrorTile ? false : isRefreshing(insight.short_id)
 
                                 return (
-                                    <InsightCard
+                                    <MemoizedInsightCard
                                         key={tile.id}
                                         tile={tile}
                                         insight={insight}
@@ -445,13 +544,13 @@ export function DashboardItems(): JSX.Element {
                                         toggleShowDescription={() => toggleTileDescription(tile.id)}
                                         ribbonColor={tile.color}
                                         refresh={() => refreshDashboardItem({ tile })}
-                                        refreshEnabled={!itemsLoading}
                                         rename={() => renameInsight(insight)}
                                         duplicate={() => duplicateTile(tile)}
                                         setOverride={() => setTileOverride(tile)}
                                         showDetailsControls={showDetailsControls}
                                         placement={placement}
                                         loadPriority={smLayout ? smLayout.y * 1000 + smLayout.x : undefined}
+                                        isResizing={resizingTileId === tile.id.toString()}
                                         filtersOverride={effectiveEditBarFilters}
                                         variablesOverride={effectiveDashboardVariableOverrides}
                                         // :HACKY: The two props below aren't actually used in the component, but are needed to trigger a re-render
@@ -465,7 +564,7 @@ export function DashboardItems(): JSX.Element {
 
                             if (text) {
                                 return (
-                                    <DashboardTextItem
+                                    <MemoizedDashboardTextItem
                                         key={tile.id}
                                         tile={tile}
                                         placement={placement}
@@ -490,7 +589,7 @@ export function DashboardItems(): JSX.Element {
 
                             if (button_tile) {
                                 return (
-                                    <DashboardButtonTileItem
+                                    <MemoizedDashboardButtonTileItem
                                         key={tile.id}
                                         tile={tile}
                                         placement={placement}
@@ -518,7 +617,7 @@ export function DashboardItems(): JSX.Element {
                                 const refreshState = widgetRefreshStatus[tile.id]
 
                                 return (
-                                    <DashboardWidgetItem
+                                    <MemoizedDashboardWidgetItem
                                         key={tile.id}
                                         tile={tile}
                                         placement={placement}
@@ -561,6 +660,20 @@ export function DashboardItems(): JSX.Element {
                             }
                         })}
                     </ReactGridLayout>
+                    {isEditablePlacement && inlineTileInsertionEnabled && (
+                        <InsertTileOverlay
+                            layout={layouts['sm']}
+                            gridWidth={gridWidth}
+                            cols={BREAKPOINT_COLUMN_COUNTS.sm}
+                            rowHeight={rowHeight}
+                            marginX={margin[0]}
+                            marginY={margin[1]}
+                            canEditDashboard={canEditDashboard}
+                            isMobileView={isMobileView}
+                            disabled={resizingTileId !== null}
+                            getMenuItems={getInsertMenuItems}
+                        />
+                    )}
                 </div>
             )}
             {dashboardStreaming && (

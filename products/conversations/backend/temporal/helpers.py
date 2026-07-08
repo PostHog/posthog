@@ -17,14 +17,23 @@ def get_or_create_support_sandbox_env(team_id: int) -> str:
 
     Returns the env ID as a string. Reasserts policy on every call; the facade dedupes if a
     concurrent call raced past the SELECT and produced multiple rows.
+
+    Ticket content is attacker-controlled (public widget/email), so this sandbox processes
+    untrusted input with read MCP scopes. Lock egress to CUSTOM with an empty allowlist: the
+    agent can still reach the always-on INFRASTRUCTURE_DOMAINS (*.posthog.com for MCP, the LLM
+    gateways, api.anthropic.com), but NOT github/pypi/npm/etc. — closing the prompt-injection
+    exfiltration channel that TRUSTED's broad allowlist would otherwise leave open. This agent
+    only drafts text + calls read-only MCP tools; it has no reason to fetch from the internet.
     """
     return str(
         tasks_facade.upsert_internal_sandbox_env(
             team_id,
             CONVERSATIONS_SUPPORT_REPLY_ENV_NAME,
-            tasks_facade.SandboxNetworkAccessLevel.TRUSTED,
+            tasks_facade.SandboxNetworkAccessLevel.CUSTOM,
             private=False,
             internal=True,
+            allowed_domains=[],
+            include_default_domains=False,
         )
     )
 

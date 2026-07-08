@@ -11,7 +11,9 @@
 //!   reconciles the registry directly instead of feeding a Tower balancer.
 //!
 //! Routing stays client-side in the dispatcher; discovery only supplies the
-//! member list (and prunes per-worker transport state on removal).
+//! member list. A departed worker is marked *draining* (it keeps finishing
+//! in-flight work) rather than removed outright; the reaper in `main` removes it
+//! from the registry and transport once it has drained or timed out.
 
 use std::collections::{HashMap, HashSet};
 use std::net::{IpAddr, SocketAddr};
@@ -29,7 +31,6 @@ use tokio::task::JoinHandle;
 use tokio_util::sync::CancellationToken;
 use tracing::{info, warn};
 
-use crate::transport::HttpTransport;
 use crate::worker_registry::{WorkerId, WorkerRegistry};
 
 /// Pause before re-listing after the watcher stream closes, so a persistently
@@ -69,26 +70,29 @@ pub trait WorkerDiscovery: Send {
     fn start(
         self: Box<Self>,
         registry: Arc<WorkerRegistry>,
-        transport: Arc<HttpTransport>,
         cancel: CancellationToken,
     ) -> Option<JoinHandle<()>>;
 }
 
-/// Reconcile the registry and transport to a desired worker set: add workers
-/// that are new, drop workers that are gone (and prune their transport state).
-fn reconcile_membership(
-    registry: &WorkerRegistry,
-    transport: &HttpTransport,
-    desired: &HashSet<WorkerId>,
-) {
+/// Reconcile the registry to a desired worker set: add workers that are new and
+/// re-admit any that rejoined, and mark departed workers as draining (they keep
+/// finishing in-flight work; the reaper removes them once drained or timed out).
+/// Public so integration tests can drive membership changes the same way the
+/// discovery providers do.
+pub fn reconcile_membership(registry: &WorkerRegistry, desired: &HashSet<WorkerId>) {
     let current: HashSet<WorkerId> = registry.workers().into_iter().collect();
 
     for worker in desired.difference(&current) {
         registry.add_worker(worker.clone());
     }
+    // Re-admit any desired worker that was draining (rejoined the pool).
+    for worker in desired.intersection(&current) {
+        if registry.is_draining(worker) {
+            registry.add_worker(worker.clone());
+        }
+    }
     for worker in current.difference(desired) {
-        registry.remove_worker(worker);
-        transport.remove_worker(worker);
+        registry.start_draining(worker);
     }
 
     gauge!("ingestion_consumer_discovery_workers").set(desired.len() as f64);
@@ -145,7 +149,6 @@ impl WorkerDiscovery for StaticDiscovery {
     fn start(
         self: Box<Self>,
         registry: Arc<WorkerRegistry>,
-        transport: Arc<HttpTransport>,
         _cancel: CancellationToken,
     ) -> Option<JoinHandle<()>> {
         let desired: HashSet<WorkerId> = self
@@ -153,7 +156,7 @@ impl WorkerDiscovery for StaticDiscovery {
             .iter()
             .map(|u| WorkerId::from(u.as_str()))
             .collect();
-        reconcile_membership(&registry, &transport, &desired);
+        reconcile_membership(&registry, &desired);
         None
     }
 }
@@ -177,12 +180,7 @@ impl EndpointSliceDiscovery {
         }
     }
 
-    async fn run(
-        self,
-        registry: Arc<WorkerRegistry>,
-        transport: Arc<HttpTransport>,
-        cancel: CancellationToken,
-    ) {
+    async fn run(self, registry: Arc<WorkerRegistry>, cancel: CancellationToken) {
         let api: Api<EndpointSlice> = Api::namespaced(self.client.clone(), &self.namespace);
         let label_selector = format!("kubernetes.io/service-name={}", self.service_name);
 
@@ -216,7 +214,7 @@ impl EndpointSliceDiscovery {
                         match item {
                             Some(Ok(event)) => {
                                 if let Some(desired) = Self::apply_event(event, &mut slices, self.port) {
-                                    reconcile_membership(&registry, &transport, &desired);
+                                    reconcile_membership(&registry, &desired);
                                 }
                             }
                             Some(Err(e)) => {
@@ -284,13 +282,12 @@ impl WorkerDiscovery for EndpointSliceDiscovery {
     fn start(
         self: Box<Self>,
         registry: Arc<WorkerRegistry>,
-        transport: Arc<HttpTransport>,
         cancel: CancellationToken,
     ) -> Option<JoinHandle<()>> {
         let this = *self;
-        Some(tokio::spawn(async move {
-            this.run(registry, transport, cancel).await
-        }))
+        Some(tokio::spawn(
+            async move { this.run(registry, cancel).await },
+        ))
     }
 }
 
@@ -459,53 +456,73 @@ mod tests {
                 degraded_hold: Duration::from_millis(50),
                 min_state_duration: Duration::ZERO,
                 probe_failure_threshold: 2,
+                drain_timeout: Duration::from_secs(5),
             },
         )
     }
 
-    fn test_transport() -> HttpTransport {
-        HttpTransport::new(Duration::from_secs(1), 0, None, &[], 1)
+    fn sorted_routable(registry: &WorkerRegistry) -> Vec<String> {
+        let mut got: Vec<String> = registry
+            .healthy_workers()
+            .iter()
+            .map(|w| w.to_string())
+            .collect();
+        got.sort();
+        got
     }
 
     #[test]
-    fn test_reconcile_adds_and_removes_workers() {
+    fn test_reconcile_adds_workers_and_drains_departures() {
         let registry = test_registry();
-        let transport = test_transport();
 
         reconcile_membership(
             &registry,
-            &transport,
             &HashSet::from([worker("10.0.0.1", 9001), worker("10.0.0.2", 9001)]),
         );
-        let mut got: Vec<String> = registry.workers().iter().map(|w| w.to_string()).collect();
-        got.sort();
-        assert_eq!(got, vec!["http://10.0.0.1:9001", "http://10.0.0.2:9001"]);
+        assert_eq!(
+            sorted_routable(&registry),
+            vec!["http://10.0.0.1:9001", "http://10.0.0.2:9001"]
+        );
 
-        // Reconcile to a new set: .1 drops, .3 joins, .2 stays.
+        // Reconcile to a new set: .1 departs (→ draining, still present but not
+        // routable), .3 joins, .2 stays.
         reconcile_membership(
             &registry,
-            &transport,
             &HashSet::from([worker("10.0.0.2", 9001), worker("10.0.0.3", 9001)]),
         );
-        let mut got: Vec<String> = registry.workers().iter().map(|w| w.to_string()).collect();
-        got.sort();
-        assert_eq!(got, vec!["http://10.0.0.2:9001", "http://10.0.0.3:9001"]);
+        assert_eq!(
+            sorted_routable(&registry),
+            vec!["http://10.0.0.2:9001", "http://10.0.0.3:9001"],
+            "departed worker must no longer be routable"
+        );
+        assert!(
+            registry.is_draining("http://10.0.0.1:9001"),
+            "departed worker must be draining, not hard-removed"
+        );
+    }
+
+    #[test]
+    fn test_reconcile_readmits_a_rejoined_draining_worker() {
+        let registry = test_registry();
+        reconcile_membership(&registry, &HashSet::from([worker("10.0.0.1", 9001)]));
+        // .1 departs → draining.
+        reconcile_membership(&registry, &HashSet::new());
+        assert!(registry.is_draining("http://10.0.0.1:9001"));
+        // .1 rejoins → draining cleared, routable again.
+        reconcile_membership(&registry, &HashSet::from([worker("10.0.0.1", 9001)]));
+        assert!(!registry.is_draining("http://10.0.0.1:9001"));
+        assert_eq!(sorted_routable(&registry), vec!["http://10.0.0.1:9001"]);
     }
 
     #[test]
     fn test_static_discovery_populates_registry() {
         let registry = Arc::new(test_registry());
-        let transport = Arc::new(test_transport());
 
         let discovery = Box::new(StaticDiscovery::new(vec![
             "http://w:1".to_string(),
             "http://w:2".to_string(),
         ]));
-        let handle = discovery.start(
-            Arc::clone(&registry),
-            Arc::clone(&transport),
-            CancellationToken::new(),
-        );
+        let handle = discovery.start(Arc::clone(&registry), CancellationToken::new());
 
         assert!(handle.is_none(), "static discovery spawns no task");
         assert_eq!(registry.worker_count(), 2);

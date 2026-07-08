@@ -65,7 +65,6 @@ structlog.configure(
     cache_logger_on_first_use=True,
 )
 
-
 # Configure all logs to be handled by structlog `ProcessorFormatter` and
 # rendered either as pretty colored console lines or as single JSON lines.
 LOGGING = {
@@ -115,7 +114,8 @@ LOGGING = {
         "posthog.tasks.hypercache_verification": {"level": "INFO", "handlers": ["console"], "propagate": False},
         "posthog.storage.hypercache_verifier": {"level": "INFO", "handlers": ["console"], "propagate": False},
         "posthog.auth.mfa": {"level": "INFO", "handlers": ["console"], "propagate": False},
-        "posthog.temporal.data_imports.pipelines.pipeline_v3.load": {
+        "posthog.security.command_exec_audit": {"level": "INFO", "handlers": ["console"], "propagate": False},
+        "products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.load": {
             "level": "DEBUG",
             "handlers": ["console"],
             "propagate": False,

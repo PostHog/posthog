@@ -5,6 +5,7 @@ import time
 import uuid
 import shlex
 import shutil
+import asyncio
 import logging
 import tempfile
 import threading
@@ -23,10 +24,22 @@ if TYPE_CHECKING:
 
 import modal
 import requests
+from modal.exception import (
+    ConnectionError as ModalConnectionError,
+    ServiceError as ModalServiceError,
+    TimeoutError as ModalTimeoutError,
+)
 
 from posthog.exceptions_capture import capture_exception
 from posthog.settings import CLOUD_DEPLOYMENT
 
+from products.tasks.backend.constants import (
+    ALLOWED_DIRECTORY_RESUME_SNAPSHOT_MOUNT_PATHS,
+    SANDBOX_AGENT_LAUNCH_UNSET_ENV_VARS,
+    SNAPSHOT_KIND_DIRECTORY,
+    SNAPSHOT_KIND_FILESYSTEM,
+    SnapshotKind,
+)
 from products.tasks.backend.exceptions import (
     SandboxCleanupError,
     SandboxExecutionError,
@@ -35,6 +48,7 @@ from products.tasks.backend.exceptions import (
     SandboxProvisionError,
     SandboxTimeoutError,
     SnapshotCreationError,
+    SnapshotTimeoutError,
 )
 from products.tasks.backend.logic.services.agentsh import (
     AGENTSH_DAEMON_PORT,
@@ -42,6 +56,7 @@ from products.tasks.backend.logic.services.agentsh import (
     ENV_FILE,
     ENV_WRAPPER_SCRIPT,
     SESSION_ID_FILE,
+    _hostname_from_url,
     build_exec_prefix,
     build_setup_script,
     generate_bash_env_script,
@@ -84,6 +99,28 @@ SANDBOX_STREAMLIT_IMAGE = "ghcr.io/posthog/posthog-sandbox-streamlit"
 SANDBOX_IMAGE = SANDBOX_BASE_IMAGE
 AGENT_SERVER_PORT = 8080  # Modal connect tokens require port 8080
 AGENT_SERVER_HEALTH_MAX_ATTEMPTS = 240
+POST_RESTORE_PROBE_TIMEOUT_SECONDS = 45
+
+# Recoverable infra errors Modal surfaces when filesystem snapshotting times out or loses its
+# connection (e.g. the command router's "Deadline exceeded"). These usually succeed on retry, so
+# Temporal should retry them rather than treating them as hard snapshot failures.
+TRANSIENT_SNAPSHOT_ERRORS: tuple[type[BaseException], ...] = (
+    ModalTimeoutError,
+    ModalConnectionError,
+    ModalServiceError,
+    TimeoutError,
+    ConnectionError,
+    asyncio.CancelledError,
+)
+
+DIRECTORY_SNAPSHOT_TIMEOUT_SECONDS = 240
+
+SESSION_INIT_PROBE_HOSTS = (
+    "gateway.us.posthog.com",
+    "gateway.eu.posthog.com",
+    "api.anthropic.com",
+    "mcp.posthog.com",
+)
 
 # Modal region mapping based on cloud deployment
 MODAL_REGION_BY_DEPLOYMENT: dict[str | None, str] = {
@@ -95,6 +132,12 @@ DEFAULT_MODAL_REGION = "us-east"
 
 def _get_modal_region() -> str:
     return MODAL_REGION_BY_DEPLOYMENT.get(CLOUD_DEPLOYMENT, DEFAULT_MODAL_REGION)
+
+
+def _normalize_snapshot_kind(value: object) -> SnapshotKind:
+    if value == SNAPSHOT_KIND_DIRECTORY:
+        return SNAPSHOT_KIND_DIRECTORY
+    return SNAPSHOT_KIND_FILESYSTEM
 
 
 def _resource_create_kwargs(config: SandboxConfig) -> dict[str, object]:
@@ -112,8 +155,12 @@ def _resource_create_kwargs(config: SandboxConfig) -> dict[str, object]:
     memory_limit_mb = int(config.memory_gb * 1024)
     if not config.burstable_resources:
         return {"cpu": cpu_limit, "memory": memory_limit_mb}
+
+    cpu_value = (min(float(config.cpu_request_cores), cpu_limit), cpu_limit)
+    if config.is_vm:
+        return {"cpu": cpu_value, "memory": memory_limit_mb}
     return {
-        "cpu": (min(float(config.cpu_request_cores), cpu_limit), cpu_limit),
+        "cpu": cpu_value,
         "memory": (min(int(config.memory_request_mb), memory_limit_mb), memory_limit_mb),
     }
 
@@ -219,15 +266,20 @@ def _get_sandbox_image_reference(image: str = SANDBOX_IMAGE) -> str:
     )
 
 
+# Templates whose image bundles the agent-server at /scripts and can therefore
+# take a live local dist overlay in DEBUG. Add new agent-server-bearing templates here.
+AGENT_SERVER_TEMPLATES = frozenset({SandboxTemplate.DEFAULT_BASE, SandboxTemplate.VM_BASE})
+
+
 def _attach_local_package_mounts(image: modal.Image, template: SandboxTemplate) -> modal.Image:
     """Overlay each local package's built `dist/` dir onto the installed package
-    via add_local_dir(copy=False). No-op unless `template` is DEFAULT_BASE and
-    local packages are available.
+    via add_local_dir(copy=False). No-op unless `template` bundles the agent-server
+    and local packages are available.
 
     Transitive deps are resolved from the baked /scripts/node_modules/ tree;
     only compiled output is swapped live.
     """
-    if template != SandboxTemplate.DEFAULT_BASE:
+    if template not in AGENT_SERVER_TEMPLATES:
         return image
     packages = get_local_posthog_code_packages()
     if not packages:
@@ -357,23 +409,39 @@ class ModalSandbox(SandboxBase):
             app = cls._get_app_for_template(config.template)
             base_image = _get_template_image(config.template)
             image = base_image
+            config.snapshot_restored = False
+            snapshot_external_id: str | None = None
+            snapshot_kind = _normalize_snapshot_kind(config.snapshot_kind)
+            # No default-fill: a directory snapshot must arrive with an explicit allowed mount
+            # path, or the mount below is refused. Defaulting here would silently re-target a
+            # snapshot that upstream validation invalidated (mount path stripped).
+            snapshot_mount_path: str | None = config.snapshot_mount_path
+            snapshot_image: modal.Image | None = None
             used_snapshot_image = False
 
             if config.snapshot_external_id:
+                snapshot_external_id = config.snapshot_external_id
                 try:
-                    image = _attach_local_package_mounts(
-                        modal.Image.from_id(config.snapshot_external_id), config.template
-                    )
-                    used_snapshot_image = True
+                    snapshot_image = modal.Image.from_id(config.snapshot_external_id)
+                    if snapshot_kind == SNAPSHOT_KIND_FILESYSTEM:
+                        image = _attach_local_package_mounts(snapshot_image, config.template)
+                        used_snapshot_image = True
                 except Exception as e:
                     logger.warning(f"Failed to load resume snapshot image {config.snapshot_external_id}: {e}")
                     capture_exception(e)
             elif config.snapshot_id:
                 snapshot = SandboxSnapshot.objects.get(id=config.snapshot_id)
                 if snapshot.status == SandboxSnapshot.Status.COMPLETE:
+                    snapshot_external_id = snapshot.external_id
+                    snapshot_kind = _normalize_snapshot_kind(snapshot.metadata.get("snapshot_kind"))
+                    metadata_mount_path = snapshot.metadata.get("snapshot_mount_path")
+                    if isinstance(metadata_mount_path, str) and metadata_mount_path:
+                        snapshot_mount_path = metadata_mount_path
                     try:
-                        image = _attach_local_package_mounts(modal.Image.from_id(snapshot.external_id), config.template)
-                        used_snapshot_image = True
+                        snapshot_image = modal.Image.from_id(snapshot.external_id)
+                        if snapshot_kind == SNAPSHOT_KIND_FILESYSTEM:
+                            image = _attach_local_package_mounts(snapshot_image, config.template)
+                            used_snapshot_image = True
                     except Exception as e:
                         logger.warning(f"Failed to load snapshot image {snapshot.external_id}: {e}")
                         capture_exception(e)
@@ -398,7 +466,7 @@ class ModalSandbox(SandboxBase):
                 "verbose": True,
             }
 
-            if config.vm_runtime or config.template == SandboxTemplate.VM_BASE:
+            if config.is_vm:
                 create_kwargs["experimental_options"] = {"vm_runtime": True}
 
             if config.outbound_domain_allowlist:
@@ -411,6 +479,7 @@ class ModalSandbox(SandboxBase):
                 modal_output: StringIO | None
                 with capture_modal_output_if_debug() as modal_output:
                     sb = modal.Sandbox.create(**create_kwargs)  # type: ignore[arg-type]
+                    config.snapshot_restored = used_snapshot_image
             except Exception as e:
                 if not used_snapshot_image:
                     raise
@@ -419,6 +488,58 @@ class ModalSandbox(SandboxBase):
                 create_kwargs["image"] = base_image
                 with capture_modal_output_if_debug() as modal_output:
                     sb = modal.Sandbox.create(**create_kwargs)  # type: ignore[arg-type]
+                    config.snapshot_restored = False
+
+            if snapshot_kind == SNAPSHOT_KIND_DIRECTORY and snapshot_image is not None:
+                # The mount REPLACES the target directory in the running sandbox — over a live
+                # system path (the legacy "/tmp" default) that kills Modal's in-sandbox helpers,
+                # and a snapshot's content only fits the path it was captured from. Last-line
+                # guard for snapshot rows whose stored mount path bypassed normalization.
+                if snapshot_mount_path not in ALLOWED_DIRECTORY_RESUME_SNAPSHOT_MOUNT_PATHS:
+                    logger.warning(
+                        "Refusing to mount directory snapshot at unsupported path; falling back to base image",
+                        extra={
+                            "snapshot_external_id": snapshot_external_id,
+                            "snapshot_mount_path": snapshot_mount_path,
+                        },
+                    )
+                elif not hasattr(sb, "mount_image"):
+                    logger.warning(
+                        "Modal sandbox does not support directory snapshot restore; falling back to base image",
+                        extra={
+                            "snapshot_external_id": snapshot_external_id,
+                            "snapshot_mount_path": snapshot_mount_path,
+                        },
+                    )
+                else:
+                    try:
+                        sb.mount_image(snapshot_mount_path, snapshot_image)
+                        config.snapshot_restored = True
+                    except Exception as e:
+                        logger.warning(
+                            f"Failed to mount directory snapshot image {snapshot_external_id} at {snapshot_mount_path}: {e}"
+                        )
+                        capture_exception(e)
+
+            # A restored sandbox can come up dead with every RPC succeeding; probe before use.
+            if config.snapshot_restored and not cls._is_healthy_after_restore(sb):
+                logger.warning(
+                    "Snapshot-restored sandbox is not executing processes; recreating from base image",
+                    extra={
+                        "sandbox_id": sb.object_id,
+                        "snapshot_external_id": snapshot_external_id,
+                        "snapshot_kind": snapshot_kind,
+                        "snapshot_mount_path": snapshot_mount_path,
+                    },
+                )
+                try:
+                    sb.terminate()
+                except Exception as e:
+                    logger.warning(f"Failed to terminate wedged sandbox {sb.object_id}: {e}")
+                create_kwargs["image"] = base_image
+                with capture_modal_output_if_debug() as modal_output:
+                    sb = modal.Sandbox.create(**create_kwargs)  # type: ignore[arg-type]
+                config.snapshot_restored = False
 
             if config.metadata:
                 sb.set_tags(config.metadata)
@@ -436,6 +557,34 @@ class ModalSandbox(SandboxBase):
             raise SandboxProvisionError(
                 "Failed to create sandbox", {"config_name": config.name, "error": str(e)}, cause=e
             )
+
+    @staticmethod
+    def _is_healthy_after_restore(sb: modal.Sandbox) -> bool:
+        """Whether the sandbox executes processes after a snapshot restore (image or mount)."""
+        try:
+            process = sb.exec("true", timeout=30)
+            # ContainerProcess.wait() has no timeout and can hang on a wedged container.
+            deadline = time.monotonic() + POST_RESTORE_PROBE_TIMEOUT_SECONDS
+            while (returncode := process.poll()) is None:
+                if time.monotonic() >= deadline:
+                    logger.warning(f"Post-restore health probe timed out for sandbox {sb.object_id}")
+                    return False
+                time.sleep(1)
+        except Exception as e:
+            logger.warning(f"Post-restore health probe errored for sandbox {sb.object_id}: {e}")
+            return False
+        if returncode != 0:
+            poll_result: int | str | None
+            try:
+                poll_result = sb.poll()
+            except Exception:
+                poll_result = "unavailable"
+            logger.warning(
+                "Post-restore health probe exited non-zero",
+                extra={"sandbox_id": sb.object_id, "returncode": returncode, "sandbox_poll": str(poll_result)},
+            )
+            return False
+        return True
 
     @staticmethod
     def get_by_id(sandbox_id: str) -> ModalSandbox:
@@ -657,6 +806,9 @@ class ModalSandbox(SandboxBase):
         mcp_servers_arg: str = "",
         allowed_domains: list[str] | None = None,
         event_ingest_token: str | None = None,
+        event_ingest_url: str | None = None,
+        event_ingest_keep_stream_open: bool = False,
+        repo_ready_file: str | None = None,
     ) -> str:
         env_prefix = build_agent_runtime_env_prefix(
             interaction_origin=interaction_origin,
@@ -665,20 +817,24 @@ class ModalSandbox(SandboxBase):
             model=model,
             reasoning_effort=reasoning_effort,
             event_ingest_token=event_ingest_token,
+            event_ingest_url=event_ingest_url,
+            event_ingest_keep_stream_open=event_ingest_keep_stream_open,
         )
         create_pr_flag = f" --createPr {shlex.quote('true' if create_pr else 'false')}"
         repo_flag = f" --repositoryPath {shlex.quote(repo_path)}" if repo_path else ""
         branch_flag = f" --baseBranch {shlex.quote(branch)}" if branch else ""
         domains_flag = f" --allowedDomains {shlex.quote(','.join(allowed_domains))}" if allowed_domains else ""
+        repo_ready_flag = f" --repoReadyFile {shlex.quote(repo_ready_file)}" if repo_ready_file else ""
         # Scope BASH_ENV to the agent-server process (not the container env) so only the
         # agent's per-command tool shells re-source the refreshed token. Backend maintenance
         # execs (clone/checkout/token injection) must not source it — the script could be
         # persisted in a resume snapshot, so sourcing it from a backend exec is a trust hole.
+        unset_flags = "".join(f"-u {name} " for name in SANDBOX_AGENT_LAUNCH_UNSET_ENV_VARS)
         server_cmd = (
-            f"env BASH_ENV={shlex.quote(BASH_ENV_SCRIPT)} "
+            f"env {unset_flags}BASH_ENV={shlex.quote(BASH_ENV_SCRIPT)} "
             f"{env_prefix}./node_modules/.bin/agent-server --port {AGENT_SERVER_PORT}{repo_flag} "
             f"--taskId {shlex.quote(task_id)} --runId {shlex.quote(run_id)} --mode {shlex.quote(mode)}"
-            f"{create_pr_flag}{branch_flag}{mcp_servers_arg}{domains_flag}"
+            f"{create_pr_flag}{branch_flag}{mcp_servers_arg}{domains_flag}{repo_ready_flag}"
         )
 
         inner = f"cd /scripts && {server_cmd} > /tmp/agent-server.log 2>&1"
@@ -691,12 +847,52 @@ class ModalSandbox(SandboxBase):
         else:
             return f"cd /scripts && env -0 > {ENV_FILE} && nohup {server_cmd} > /tmp/agent-server.log 2>&1 &"
 
-    def _launch_and_check(self, command: str) -> bool:
-        result = self.execute(command, timeout_seconds=30)
-        if result.exit_code != 0:
-            logger.warning(f"Agent-server process failed to launch in sandbox {self.id}: {result.stderr}")
-            return False
-        return self._wait_for_health_check()
+    def _diagnose_startup_failure(self, allowed_domains: list[str] | None) -> dict[str, str]:
+        diagnostics: dict[str, str] = {}
+        try:
+            if not self.is_running():
+                poll = self._sandbox.poll()
+                diagnostics["sandbox_terminated"] = "true"
+                diagnostics["failure_reason"] = (
+                    f"sandbox terminated before becoming healthy (poll={poll}); "
+                    "the VM/container exited (OOM, init exit, or reaping) rather than egress being blocked"
+                )
+                return diagnostics
+
+            diagnostics["sandbox_terminated"] = "false"
+            log_result = self.execute("cat /tmp/agent-server.log 2>/dev/null || echo 'No log file'", timeout_seconds=5)
+            diagnostics["log"] = log_result.stdout
+            health_result = self.execute(
+                f"curl -s --max-time 3 http://localhost:{AGENT_SERVER_PORT}/health || echo 'no-health-response'",
+                timeout_seconds=5,
+            )
+            diagnostics["health_response"] = health_result.stdout.strip()[:500]
+
+            egress = self._probe_session_init_egress()
+            diagnostics["egress_probe"] = egress
+            blocked = [line for line in egress.splitlines() if "http_code=000" in line or line.endswith("FAILED")]
+            if blocked:
+                diagnostics["failure_reason"] = "egress blocked to required session-init host(s): " + "; ".join(blocked)
+            else:
+                diagnostics["failure_reason"] = (
+                    "agent server alive but never reported hasSession=true; no egress block detected, "
+                    "inspect agent-server log"
+                )
+        except Exception as e:
+            diagnostics.setdefault("failure_reason", f"health check failed; diagnostics unavailable: {e}")
+        return diagnostics
+
+    def _probe_session_init_egress(self) -> str:
+        hosts = list(SESSION_INIT_PROBE_HOSTS)
+        gateway_host = _hostname_from_url(getattr(settings, "SANDBOX_LLM_GATEWAY_URL", None))
+        if gateway_host and gateway_host not in hosts:
+            hosts.insert(0, gateway_host)
+        checks = "; ".join(
+            f"printf '%s ' {shlex.quote(host)}; "
+            f"curl -sS --max-time 3 -o /dev/null -w 'http_code=%{{http_code}}\\n' https://{host}/ 2>/dev/null || echo FAILED"
+            for host in hosts
+        )
+        return self.execute(checks, timeout_seconds=30).stdout.strip()
 
     def start_agent_server(
         self,
@@ -714,6 +910,10 @@ class ModalSandbox(SandboxBase):
         mcp_configs: list[McpServerConfig] | None = None,
         allowed_domains: list[str] | None = None,
         event_ingest_token: str | None = None,
+        event_ingest_url: str | None = None,
+        event_ingest_keep_stream_open: bool = False,
+        repo_ready_file: str | None = None,
+        wait_for_health: bool = True,
     ) -> None:
         """Start the agent-server HTTP server in the sandbox.
 
@@ -759,18 +959,37 @@ class ModalSandbox(SandboxBase):
             mcp_servers_arg,
             allowed_domains=allowed_domains,
             event_ingest_token=event_ingest_token,
+            event_ingest_url=event_ingest_url,
+            event_ingest_keep_stream_open=event_ingest_keep_stream_open,
+            repo_ready_file=repo_ready_file,
         )
 
         logger.info(f"Starting agent-server in sandbox {self.id} for {repository or 'no-repo'}")
-        if not self._launch_and_check(command):
-            log_result = self.execute("cat /tmp/agent-server.log 2>/dev/null || echo 'No log file'", timeout_seconds=5)
+        launch_result = self.execute(command, timeout_seconds=30)
+        if launch_result.exit_code != 0:
+            logger.warning(f"Agent-server process failed to launch in sandbox {self.id}: {launch_result.stderr}")
             raise SandboxExecutionError(
                 "Agent-server failed to start",
-                {"sandbox_id": self.id, "log": log_result.stdout},
-                cause=RuntimeError("Health check failed after retries"),
+                {"sandbox_id": self.id, "stderr": launch_result.stderr, "exit_code": str(launch_result.exit_code)},
+                cause=RuntimeError(launch_result.stderr or "launch command returned non-zero exit"),
             )
 
-        logger.info(f"Agent-server started in sandbox {self.id}")
+        if wait_for_health:
+            self.wait_for_agent_server_ready(allowed_domains)
+
+    def wait_for_agent_server_ready(self, allowed_domains: list[str] | None = None) -> None:
+        if self._wait_for_health_check():
+            logger.info(f"Agent-server ready in sandbox {self.id}")
+            return
+        diagnostics = self._diagnose_startup_failure(allowed_domains)
+        raise SandboxExecutionError(
+            "Agent-server failed to start",
+            {"sandbox_id": self.id, **diagnostics},
+            cause=RuntimeError(diagnostics.get("failure_reason", "Health check failed after retries")),
+        )
+
+    def mark_repo_ready(self, repo_ready_file: str) -> None:
+        self.execute(f"touch {shlex.quote(repo_ready_file)}", timeout_seconds=10)
 
     def _setup_agentsh(self, workspace_path: str, allowed_domains: list[str] | None = None) -> None:
         if allowed_domains is not None:
@@ -853,6 +1072,9 @@ class ModalSandbox(SandboxBase):
     def _agent_server_is_healthy(self) -> bool:
         return wait_for_health_check(self.execute, self.id, AGENT_SERVER_PORT, max_attempts=1, poll_interval=0.0)
 
+    def read_agent_server_session_init_ms(self) -> int | None:
+        return self._read_health_session_init_ms(AGENT_SERVER_PORT)
+
     def _free_agent_server_port(self) -> None:
         self.execute(
             "pkill -TERM -f agent-server 2>/dev/null || true; "
@@ -881,10 +1103,64 @@ class ModalSandbox(SandboxBase):
 
             return snapshot_id
 
+        except TRANSIENT_SNAPSHOT_ERRORS as e:
+            # Transient Modal infra timeout — Temporal retries the activity, so log at warning and
+            # skip error-tracking capture to avoid a fresh issue for every recoverable deadline.
+            logger.warning(f"Transient error creating snapshot for sandbox {self.id}, will retry: {e}")
+            raise SnapshotTimeoutError(
+                f"Transient error creating snapshot: {e}",
+                {"sandbox_id": self.id, "error": str(e)},
+                cause=e,
+                capture=False,
+            )
+
         except Exception as e:
             logger.exception(f"Failed to create snapshot: {e}")
             raise SnapshotCreationError(
                 f"Failed to create snapshot: {e}", {"sandbox_id": self.id, "error": str(e)}, cause=e
+            )
+
+    def create_directory_snapshot(self, path: str) -> str:
+        if not self.is_running():
+            raise SandboxNotRunningError(
+                f"Sandbox not in running state.",
+                {"sandbox_id": self.id},
+                cause=RuntimeError(f"Sandbox {self.id} is not running"),
+            )
+
+        snapshot_directory = getattr(self._sandbox, "snapshot_directory", None)
+        if snapshot_directory is None:
+            raise SnapshotCreationError(
+                "Modal SDK does not support directory snapshots",
+                {"sandbox_id": self.id, "path": path},
+                cause=RuntimeError("modal.Sandbox.snapshot_directory is unavailable"),
+            )
+
+        try:
+            quoted_path = shlex.quote(path)
+            self._sandbox.exec("bash", "-c", f"mkdir -p {quoted_path} && test -d {quoted_path}", timeout=30).wait()
+            image = snapshot_directory(path, timeout=DIRECTORY_SNAPSHOT_TIMEOUT_SECONDS, ttl=None)
+            snapshot_id = image.object_id
+
+            logger.info(f"Created directory snapshot for sandbox {self.id}, path: {path}, snapshot ID: {snapshot_id}")
+
+            return snapshot_id
+
+        except TRANSIENT_SNAPSHOT_ERRORS as e:
+            logger.warning(f"Transient error creating directory snapshot for sandbox {self.id}, will retry: {e}")
+            raise SnapshotTimeoutError(
+                f"Transient error creating directory snapshot: {e}",
+                {"sandbox_id": self.id, "path": path, "error": str(e)},
+                cause=e,
+                capture=False,
+            )
+
+        except Exception as e:
+            logger.exception(f"Failed to create directory snapshot: {e}")
+            raise SnapshotCreationError(
+                f"Failed to create directory snapshot: {e}",
+                {"sandbox_id": self.id, "path": path, "error": str(e)},
+                cause=e,
             )
 
     @staticmethod

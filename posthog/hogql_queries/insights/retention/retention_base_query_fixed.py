@@ -152,6 +152,12 @@ class RetentionFixedIntervalBaseQueryBuilder(RetentionBaseQueryBuilder):
         start_interval_index_filter: int | None = None,
         selected_breakdown_value: str | list[str] | int | None = None,
     ) -> ast.SelectQuery:
+        if self._can_single_scan():
+            # Both arms read the same `events` source, so the two-pass UNION scans events twice for no
+            # benefit. Collapse to one FROM events scan computing both timestamp arrays inline. Property
+            # aggregation and any data-warehouse entity stay on the UNION below.
+            return self._build_single_scan_query(start_interval_index_filter, selected_breakdown_value)
+
         is_valid_start_interval = self._is_valid_start_interval_expr("_start_event_timestamps")
         intervals_from_base_expr, retention_value_expr = self._get_intervals_from_base_exprs()
 
@@ -220,34 +226,7 @@ class RetentionFixedIntervalBaseQueryBuilder(RetentionBaseQueryBuilder):
 
         select_fields.extend(
             [
-                ast.Alias(
-                    alias="start_interval_index",
-                    expr=parse_expr(
-                        """
-                        arrayJoin(
-                            arrayFilter(
-                                x -> x > -1,
-                                arrayMap(
-                                (interval_index, interval_date, _start_event_timestamps) ->
-                                    if(
-                                        {is_valid_start_interval},
-                                        interval_index - 1,
-                                        -1
-                                    ),
-                                    arrayEnumerate(date_range),
-                                    date_range,
-                                    arrayResize(
-                                        [start_event_timestamps],
-                                        length(date_range),
-                                        start_event_timestamps
-                                    )
-                                )
-                            )
-                        )
-                    """,
-                        {"is_valid_start_interval": is_valid_start_interval},
-                    ),
-                ),
+                self._start_interval_index_alias_expr(is_valid_start_interval),
                 ast.Alias(alias="intervals_from_base", expr=intervals_from_base_expr),
             ]
         )
@@ -298,6 +277,157 @@ class RetentionFixedIntervalBaseQueryBuilder(RetentionBaseQueryBuilder):
 
         return base_query
 
+    def _can_single_scan(self) -> bool:
+        # Events-only, non-property-aggregating series read the same `events` source on both arms, so the
+        # start and return timestamp arrays can be computed in one pass. Property aggregation has a known
+        # legacy/variant discrepancy and stays on the UNION; a data-warehouse entity is a genuinely
+        # different source and cannot collapse here.
+        return (
+            not self.has_property_aggregation
+            and self.start_event.type != EntityType.DATA_WAREHOUSE
+            and self.return_event.type != EntityType.DATA_WAREHOUSE
+        )
+
+    def _build_single_scan_query(
+        self,
+        start_interval_index_filter: int | None = None,
+        selected_breakdown_value: str | list[str] | int | None = None,
+    ) -> ast.SelectQuery:
+        # Source-parameterized so the deferred same-data-warehouse-table collapse is a small follow-up.
+        # For the events-only case the source is the events table.
+        timestamp_field = ast.Field(chain=["timestamp"])
+        actor_field = ast.Field(chain=[self.aggregation_target_events_column])
+        start_of_interval_sql = self.query_date_range.get_start_of_interval_hogql(source=timestamp_field)
+
+        start_event_timestamps_expr = self._single_scan_start_event_timestamps_expr(
+            timestamp_field, self.start_entity_expr
+        )
+        if self.is_first_occurrence_matching_filters or self.is_first_ever_occurrence:
+            start_event_timestamps_expr = self._first_time_start_event_timestamps_expr(self.start_event)
+
+        select_fields: list[ast.Expr] = [
+            ast.Alias(alias="actor_id", expr=actor_field),
+            ast.Alias(alias="start_event_timestamps", expr=start_event_timestamps_expr),
+            self._date_range_alias(),
+        ]
+
+        if self.minimum_occurrences > 1:
+            select_fields.extend(
+                self._get_minimum_occurrences_aliases(
+                    minimum_occurrences=self.minimum_occurrences,
+                    with_dupes_expr=self._get_dwh_return_timestamps_expr(
+                        minimum_occurrences=self.minimum_occurrences,
+                        start_of_interval_sql=start_of_interval_sql,
+                        return_entity_expr=self.return_entity_expr,
+                        timestamp_field=timestamp_field,
+                    ),
+                )
+            )
+            return_event_timestamps_expr = self._minimum_occurrences_return_timestamps_expr(self.minimum_occurrences)
+        else:
+            return_event_timestamps_expr = self._get_dwh_return_timestamps_expr(
+                minimum_occurrences=1,
+                start_of_interval_sql=start_of_interval_sql,
+                return_entity_expr=self.return_entity_expr,
+                timestamp_field=timestamp_field,
+            )
+
+        is_valid_start_interval = self._is_valid_start_interval_expr("_start_event_timestamps")
+        intervals_from_base_expr, retention_value_expr = self._get_intervals_from_base_exprs()
+
+        select_fields.extend(
+            [
+                ast.Alias(alias="return_event_timestamps", expr=return_event_timestamps_expr),
+                self._start_interval_index_alias_expr(is_valid_start_interval),
+                ast.Alias(alias="intervals_from_base", expr=intervals_from_base_expr),
+            ]
+        )
+
+        if retention_value_expr:
+            select_fields.append(ast.Alias(alias="retention_value", expr=retention_value_expr))
+
+        return ast.SelectQuery(
+            select=select_fields,
+            select_from=ast.JoinExpr(table=ast.Field(chain=["events"])),
+            where=ast.And(exprs=self._event_filters()),
+            group_by=[ast.Field(chain=["actor_id"])],
+            having=ast.And(
+                exprs=[
+                    (
+                        ast.CompareOperation(
+                            op=ast.CompareOperationOp.Eq,
+                            left=ast.Field(chain=["start_interval_index"]),
+                            right=ast.Constant(value=start_interval_index_filter),
+                        )
+                        if start_interval_index_filter is not None
+                        else ast.Constant(value=1)
+                    ),
+                    (
+                        ast.CompareOperation(
+                            op=ast.CompareOperationOp.Eq,
+                            left=ast.Field(chain=["breakdown_value"]),
+                            right=ast.Constant(value=selected_breakdown_value),
+                        )
+                        if selected_breakdown_value is not None
+                        else ast.Constant(value=1)
+                    ),
+                ]
+            ),
+        )
+
+    def _single_scan_start_event_timestamps_expr(self, timestamp_field: ast.Expr, entity_expr: ast.Expr) -> ast.Expr:
+        # The recurring within-window set of start-interval timestamps, one pass over the source. Mirrors the
+        # inline aggregate the legacy path and the DWH start arm both build.
+        start_of_interval_sql = self.query_date_range.get_start_of_interval_hogql(source=timestamp_field)
+        return parse_expr(
+            """
+            arraySort(
+                groupUniqArrayIf(
+                    {start_of_interval_sql},
+                    {entity_expr} and
+                    {filter_timestamp}
+                )
+            )
+            """,
+            {
+                "start_of_interval_sql": start_of_interval_sql,
+                "entity_expr": entity_expr,
+                "filter_timestamp": self.events_timestamp_filter(field=timestamp_field),
+            },
+        )
+
+    def _start_interval_index_alias_expr(self, is_valid_start_interval: ast.Expr) -> ast.Alias:
+        # Explodes the (0-based) indices of intervals whose start event matched, shared by the single-scan
+        # and UNION-outer shapes. Reads the date_range and start_event_timestamps aliases from the same SELECT.
+        return ast.Alias(
+            alias="start_interval_index",
+            expr=parse_expr(
+                """
+                arrayJoin(
+                    arrayFilter(
+                        x -> x > -1,
+                        arrayMap(
+                        (interval_index, interval_date, _start_event_timestamps) ->
+                            if(
+                                {is_valid_start_interval},
+                                interval_index - 1,
+                                -1
+                            ),
+                            arrayEnumerate(date_range),
+                            date_range,
+                            arrayResize(
+                                [start_event_timestamps],
+                                length(date_range),
+                                start_event_timestamps
+                            )
+                        )
+                    )
+                )
+            """,
+                {"is_valid_start_interval": is_valid_start_interval},
+            ),
+        )
+
     def _build_dwh_retention_event_query(
         self,
         entity: RetentionEntity,
@@ -345,23 +475,9 @@ class RetentionFixedIntervalBaseQueryBuilder(RetentionBaseQueryBuilder):
                 return_event_data_expr = event_data_expr
         else:
             if query_kind == "start":
-                timestamps_expr = parse_expr(
-                    """
-                    arraySort(
-                        groupUniqArrayIf(
-                            {start_of_interval_sql},
-                            {entity_expr} and
-                            {filter_timestamp}
-                        )
-                    )
-                    """,
-                    {
-                        "start_of_interval_sql": start_of_interval_sql,
-                        "entity_expr": entity_expr,
-                        "filter_timestamp": self.events_timestamp_filter(field=timestamp_field),
-                    },
+                start_event_timestamps_expr = self._single_scan_start_event_timestamps_expr(
+                    timestamp_field, entity_expr
                 )
-                start_event_timestamps_expr = timestamps_expr
                 return_event_timestamps_expr = ast.Array(exprs=[])
             else:
                 timestamps_expr = self._get_dwh_return_timestamps_expr(

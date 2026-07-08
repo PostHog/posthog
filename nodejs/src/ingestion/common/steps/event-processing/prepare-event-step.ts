@@ -1,11 +1,11 @@
-import { invalidTimestampCounter } from '~/ingestion/common/event-pipeline/metrics'
+import { sanitizeEventName } from '~/common/utils/db/utils'
+import { invalidTimestampCounter } from '~/ingestion/common/metrics'
 import { parseEventTimestamp } from '~/ingestion/common/timestamps'
 import { PipelineWarning } from '~/ingestion/framework/pipeline.interface'
 import { ok } from '~/ingestion/framework/results'
 import { ProcessingStep } from '~/ingestion/framework/steps'
 import { PluginEvent } from '~/plugin-scaffold'
 import { EventHeaders, ISOTimestamp, PreIngestionEvent, Team } from '~/types'
-import { sanitizeEventName } from '~/utils/db/utils'
 
 import { stripBloatProperties } from './strip-bloat-properties'
 

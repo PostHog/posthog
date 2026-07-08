@@ -7,6 +7,7 @@ import logging
 from dataclasses import dataclass
 from functools import lru_cache
 from pathlib import Path
+from typing import Literal
 
 from django.db import IntegrityError, transaction
 
@@ -33,7 +34,7 @@ _SKILLS_DIR = Path(__file__).resolve().parent.parent.parent / "skills"
 # fleet is. Same divergence-aware sync; one caveat: removing a name from this tuple strands its
 # existing per-team rows (prune only reaps `signals-scout-*` rows), so retiring a companion
 # means cleaning up its rows out-of-band.
-_COMPANION_SKILL_DIRS = ("authoring-signals-scouts",)
+_COMPANION_SKILL_DIRS = ("authoring-scouts",)
 
 # Mirrors the regex in `products/posthog_ai/scripts/build_skills.py` so frontmatter parsing
 # stays consistent across the two consumers. Keep these in sync if the skill spec evolves.
@@ -293,13 +294,34 @@ def canonical_skill_names() -> frozenset[str]:
     canonical scout is added or removed. Cached for the process — the shipped fleet only
     changes on deploy. A malformed canonical skill degrades to an empty set (everything reads
     `custom`) rather than 500-ing read endpoints; the parse error still fails loud on the
-    harness's own sync path. See `views._scout_origin` for the consumer.
+    harness's own sync path. See `scout_skill_origin` for the consumer.
     """
     try:
         return frozenset(skill.name for skill in discover_canonical_skills())
     except CanonicalSkillParseError:
         logger.warning("canonical_skill_names: malformed canonical skill on disk; treating fleet as empty")
         return frozenset()
+
+
+def scout_skill_origin(skill_name: str, metadata: dict | None) -> Literal["canonical", "custom"]:
+    """Classify a scout skill row as `"canonical"` or `"custom"` by who owns it.
+
+    A scout is `canonical` when the harness seeded its skill row (tagged
+    `metadata.seeded_by=HARNESS_SEEDED_BY`) **and** its name is one the harness actually ships
+    on disk (`products/signals/skills/`); otherwise it's a team's hand-authored `custom` scout.
+    Both halves matter: `duplicate_skill()` copies a source row's metadata verbatim — including
+    `seeded_by` — so a team fork of a bundled scout inherits the seed tag, but a fork can never
+    take a canonical name (the canonical row already owns it), so the name guard reclassifies it
+    as `custom`. The name set is derived from disk, so it never goes stale the way a hardcoded
+    list would.
+
+    Consumers: the config serializer's `scout_origin` field (`views._skill_info_for`), which is
+    metadata-only by design (one bulk query, no file contents), and — via the row-level
+    `scout_skill_row_origin` refinement below — the prompt builder's self-improvement gate
+    (`skill_loader.load_skill_for_run` → `prompt.py`).
+    """
+    is_harness_seeded = (metadata or {}).get("seeded_by") == HARNESS_SEEDED_BY
+    return "canonical" if is_harness_seeded and skill_name in canonical_skill_names() else "custom"
 
 
 def _compute_canonical_hash(canonical: CanonicalSkill) -> str:
@@ -333,6 +355,31 @@ def _compute_row_hash(skill: LLMSkill, files: list[LLMSkillFile]) -> str:
         "files": sorted([(f.path, f.content, f.content_type) for f in files]),
     }
     return hashlib.sha256(json.dumps(payload, sort_keys=True).encode("utf-8")).hexdigest()
+
+
+def scout_skill_row_origin(skill: LLMSkill) -> Literal["canonical", "custom"]:
+    """Row-level refinement of `scout_skill_origin`: a *diverged* seeded row classifies as custom.
+
+    `publish_skill_version()` carries `metadata.seeded_by` (and the stale `canonical_hash`)
+    forward when a team edits a canonical scout in place, so the metadata-only check keeps
+    reading such a row as canonical. But a diverged row is team-owned in every way that matters
+    here — upstream sync already leaves it alone, so inviting `improve:` suggestions on it risks
+    no new divergence. Mirror `sync_canonical_skills`' decision: the row is diverged when its
+    content hash no longer matches the `canonical_hash` stamped at seed time. A seeded row with
+    no stored hash (pre-hash-tracking legacy) is unprovable either way; unlike the sync — whose
+    conservative move is to not overwrite — the conservative move for the prompt gate is to NOT
+    invite edits, so it stays canonical.
+
+    Hashing needs the row's file *contents*, so keep this on the per-run load path
+    (`skill_loader.load_skill_for_run`); the bulk config-list path stays on the metadata-only
+    `scout_skill_origin`.
+    """
+    if scout_skill_origin(skill.name, skill.metadata) == "custom":
+        return "custom"
+    stored_hash = (skill.metadata or {}).get("canonical_hash")
+    if stored_hash is None:
+        return "canonical"
+    return "custom" if _compute_row_hash(skill, list(skill.files.all())) != stored_hash else "canonical"
 
 
 def _create_skill_from_canonical(team: Team, canonical: CanonicalSkill, canonical_hash: str) -> None:
@@ -425,7 +472,9 @@ def _update_skill_from_canonical(
             )
 
 
-def sync_canonical_skills(team: Team, *, prune: bool = False) -> SyncResult:
+def sync_canonical_skills(
+    team: Team, *, prune: bool = False, withheld_skill_names: frozenset[str] | set[str] | None = None
+) -> SyncResult:
     """Reconcile a team's rows with the canonical skills on disk — the `signals-scout-*`
     fleet plus the `_COMPANION_SKILL_DIRS` companions.
 
@@ -441,6 +490,14 @@ def sync_canonical_skills(team: Team, *, prune: bool = False) -> SyncResult:
     cold-start sync leaves it off: a single ad-hoc run should only ensure its own skill exists
     and is current, not reap the rest of the team's fleet.
 
+    `withheld_skill_names` is the per-team holdback denylist (resolved by the coordinator from
+    the `signals-scout` flag's `withheld_skills` key). A canonical skill named here is skipped
+    entirely for this team — not created, not updated — so an unreleased scout stays invisible
+    to every team not on its allowlist. Existing rows (a team previously allowed) are left
+    untouched rather than tombstoned: the coordinator's dispatch gate stops them running, and we
+    don't rewrite skill history on a flag flip. Withheld skills are still on disk, so the `prune`
+    pass never reaps them as orphans.
+
     Idempotent and safe to call on every coordinator tick — the only DB writes happen when
     something actually needs to change, and IntegrityError on races is logged-and-swallowed.
     """
@@ -448,6 +505,7 @@ def sync_canonical_skills(team: Team, *, prune: bool = False) -> SyncResult:
     if not canonicals:
         return SyncResult(skipped_reason="no canonical signals-scout-* skills on disk")
 
+    withheld = withheld_skill_names or frozenset()
     created: list[str] = []
     updated: list[str] = []
     diverged: list[str] = []
@@ -455,6 +513,8 @@ def sync_canonical_skills(team: Team, *, prune: bool = False) -> SyncResult:
     pruned: list[str] = []
 
     for canonical in canonicals:
+        if canonical.name in withheld:
+            continue
         canonical_hash = _compute_canonical_hash(canonical)
 
         # Pull every row for this (team, name), live or tombstoned. Existence of any row —

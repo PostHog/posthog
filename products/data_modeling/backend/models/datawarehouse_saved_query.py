@@ -17,6 +17,7 @@ from posthog.hogql import ast
 from posthog.hogql.database.database import Database
 from posthog.hogql.database.direct_mysql_table import DirectMySQLTable
 from posthog.hogql.database.direct_postgres_table import DirectPostgresTable
+from posthog.hogql.database.direct_snowflake_table import DirectSnowflakeTable
 from posthog.hogql.database.models import FieldOrTable, SavedQuery
 from posthog.hogql.database.s3_table import DataWarehouseTable as HogQLDataWarehouseTable
 
@@ -24,16 +25,14 @@ from posthog.exceptions_capture import capture_exception
 from posthog.models.utils import CreatedMetaFields, DeletedMetaFields, UpdatedMetaFields, UUIDTModel
 from posthog.schema_enums import DataWarehouseSavedQueryOrigin
 from posthog.sync import database_sync_to_async
-from posthog.temporal.data_imports.naming_convention import NamingConvention
 
-from products.warehouse_sources.backend.models.util import (
+from products.warehouse_sources.backend.facade.hogql import (
     CLICKHOUSE_HOGQL_MAPPING,
     STR_TO_HOGQL_MAPPING,
     clean_type,
-    columns_in_position_order,
     remove_named_tuples,
-    stamp_column_positions,
 )
+from products.warehouse_sources.backend.facade.sources import NamingConvention
 
 logger = structlog.get_logger(__name__)
 
@@ -131,6 +130,14 @@ class DataWarehouseSavedQuery(CreatedMetaFields, UUIDTModel, UpdatedMetaFields, 
         null=True, blank=True, help_text="When this test view should be automatically deleted."
     )
 
+    semantic_enrichment_hash = models.CharField(
+        max_length=64,
+        null=True,
+        blank=True,
+        help_text="Fingerprint of the view definition and column set used to skip AI semantic-description "
+        "regeneration when nothing relevant changed. Not user-facing.",
+    )
+
     def save(self, *args, **kwargs):
         if self.is_test and not self.expires_at:
             from django.utils import timezone
@@ -138,8 +145,6 @@ class DataWarehouseSavedQuery(CreatedMetaFields, UUIDTModel, UpdatedMetaFields, 
             self.expires_at = timezone.now() + TEST_VIEW_EXPIRY_INTERVAL
         elif not self.is_test and self.expires_at:
             self.expires_at = None
-        if isinstance(self.columns, dict):
-            stamp_column_positions(self.columns)
         super().save(*args, **kwargs)
 
     class Meta:
@@ -171,13 +176,25 @@ class DataWarehouseSavedQuery(CreatedMetaFields, UUIDTModel, UpdatedMetaFields, 
         If the workflow fails to schedule, it will disable materialization for this view.
         This also guarantees model paths are properly created or updated.
         """
-        from products.data_warehouse.backend.data_load.saved_query_service import (
+        from products.data_modeling.backend.schedule import get_v2_saved_query_ids
+        from products.data_warehouse.backend.facade.api import (
             saved_query_workflow_exists,
             sync_saved_query_workflow,
             unpause_saved_query_schedule,
         )
 
         try:
+            # If this query's DAG already runs on a v2 schedule, that schedule materializes it. Never
+            # create or revive a per-query v1 schedule, and clear any lingering frequency that would
+            # cause one to be recreated. This Temporal lookup stays inside the try so that, if it
+            # fails, we honor the failure contract below rather than leaving is_materialized=True
+            # with no schedule backing it.
+            if self.id in get_v2_saved_query_ids([self.id]):
+                if self.sync_frequency_interval is not None:
+                    self.sync_frequency_interval = None
+                    self.save(update_fields=["sync_frequency_interval"])
+                return
+
             self.setup_model_paths()
 
             schedule_exists = saved_query_workflow_exists(self)
@@ -186,7 +203,7 @@ class DataWarehouseSavedQuery(CreatedMetaFields, UUIDTModel, UpdatedMetaFields, 
             sync_saved_query_workflow(self, create=not schedule_exists)
         except Exception as e:
             capture_exception(e, {"saved_query_id": self.id, "saved_query_name": self.name})
-            logger.warning(
+            logger.exception(
                 "failed_to_schedule_saved_query",
                 team_id=self.team_id,
                 saved_query_id=str(self.id),
@@ -200,7 +217,7 @@ class DataWarehouseSavedQuery(CreatedMetaFields, UUIDTModel, UpdatedMetaFields, 
 
     def revert_materialization(self):
         from products.data_modeling.backend.models.modeling import DataWarehouseModelPath
-        from products.data_warehouse.backend.data_load.saved_query_service import delete_saved_query_schedule
+        from products.data_warehouse.backend.facade.api import delete_saved_query_schedule
 
         self.sync_frequency_interval = None
         self.last_run_at = None
@@ -328,7 +345,7 @@ class DataWarehouseSavedQuery(CreatedMetaFields, UUIDTModel, UpdatedMetaFields, 
 
     def hogql_definition(
         self, modifiers: Optional["HogQLQueryModifiers"] = None
-    ) -> Union[SavedQuery, HogQLDataWarehouseTable, DirectPostgresTable, DirectMySQLTable]:
+    ) -> Union[SavedQuery, HogQLDataWarehouseTable, DirectPostgresTable, DirectMySQLTable, DirectSnowflakeTable]:
         if self.table is not None and self.is_materialized and modifiers is not None and modifiers.useMaterializedViews:
             return self.table.hogql_definition(modifiers)
 
@@ -339,10 +356,9 @@ class DataWarehouseSavedQuery(CreatedMetaFields, UUIDTModel, UpdatedMetaFields, 
         columns = self.columns or {}
         fields: dict[str, FieldOrTable] = {}
 
-        from products.warehouse_sources.backend.models.table import CLICKHOUSE_HOGQL_MAPPING
+        from products.warehouse_sources.backend.facade.hogql import CLICKHOUSE_HOGQL_MAPPING
 
-        # jsonb scrambles key order, so restore the stamped column positions
-        for column, type in columns_in_position_order(columns):
+        for column, type in columns.items():
             # Support for 'old' style columns
             if isinstance(type, str):
                 clickhouse_type = type

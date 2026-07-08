@@ -140,7 +140,10 @@ export function EditorFilters({ query, showing, embedded }: EditorFiltersProps):
             headerExtra:
                 isFunnels && (querySource as FunnelsQuery)?.funnelsFilter?.funnelVizType !== FunnelVizTypeEnum.Flow ? (
                     <Tooltip docLink="https://posthog.com/docs/product-analytics/funnels#graph-type">
-                        <FunnelVizType insightProps={insightProps} />
+                        {/* span so the tooltip has a ref-able anchor — FunnelVizType is a plain function component */}
+                        <span className="inline-flex">
+                            <FunnelVizType insightProps={insightProps} />
+                        </span>
                     </Tooltip>
                 ) : null,
             editorFilters: visibleFilters([
@@ -339,7 +342,10 @@ export function EditorFilters({ query, showing, embedded }: EditorFiltersProps):
                     key: 'paths-exclusions',
                     label: 'Exclusions',
                     tooltip: (
-                        <>Exclude events from Paths visualisation. You can use wildcard groups in exclusions as well.</>
+                        <>
+                            Exclude events from Paths visualization. You can also use wildcard groups in exclusions if
+                            you are on a paid plan.
+                        </>
                     ),
                     component: PathsExclusions,
                     show: isPaths,

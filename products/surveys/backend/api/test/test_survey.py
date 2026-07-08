@@ -1,6 +1,5 @@
 import re
 import json
-import time
 import uuid
 from datetime import UTC, datetime, timedelta
 from typing import Any, Optional, cast
@@ -24,8 +23,9 @@ from rest_framework import status
 
 from posthog.api.test.test_personal_api_keys import PersonalAPIKeysBaseTest
 from posthog.constants import AvailableFeature
-from posthog.models import Person, Team
+from posthog.models import Team
 from posthog.models.organization import Organization, OrganizationMembership
+from posthog.test.persons import create_person
 
 from products.actions.backend.models.action import Action
 from products.cohorts.backend.models.cohort import Cohort
@@ -3580,7 +3580,7 @@ class TestSurvey(APIBaseTest):
         )
         assert all(r["name"] != "Totally unrelated" for r in results)
 
-    def test_list_filter_by_search_returns_exact_first_with_match_type(self):
+    def test_list_filter_by_search_hides_similar_matches_when_exact_matches_exist(self):
         for name in ("feedback survey", "survey feedback", "feeback form", "Engineering survey"):
             Survey.objects.create(team=self.team, name=name, type="popover", questions=[])
 
@@ -3592,11 +3592,7 @@ class TestSurvey(APIBaseTest):
         assert match_type_by_name == {
             "feedback survey": "exact",
             "survey feedback": "exact",
-            "feeback form": "similar",
-        }
-
-        match_types = [r["search_match_type"] for r in results]
-        assert match_types == ["exact", "exact", "similar"], f"exact matches must rank first, got {match_types}"
+        }, "similar matches must be hidden when exact matches exist"
 
     def test_list_filter_by_search_match_type_absent_without_search(self):
         Survey.objects.create(team=self.team, name="Alpha", type="popover", questions=[])
@@ -5356,8 +5352,8 @@ class TestSurveyStats(ClickhouseTestMixin, APIBaseTest):
             archived=True,
         )
 
-        user_1 = Person.objects.create(team=self.team, distinct_ids=[str(uuid.uuid4())])
-        user_2 = Person.objects.create(team=self.team, distinct_ids=[str(uuid.uuid4())])
+        user_1 = create_person(team=self.team, distinct_ids=[str(uuid.uuid4())])
+        user_2 = create_person(team=self.team, distinct_ids=[str(uuid.uuid4())])
 
         # Insert events for both surveys
         events = [
@@ -5408,9 +5404,9 @@ class TestSurveyStats(ClickhouseTestMixin, APIBaseTest):
         )
         sub_id_1 = str(uuid.uuid4())
         sub_id_2 = str(uuid.uuid4())
-        user_1 = Person.objects.create(team=self.team, distinct_ids=[str(uuid.uuid4())])
-        user_2 = Person.objects.create(team=self.team, distinct_ids=[str(uuid.uuid4())])
-        user_3 = Person.objects.create(team=self.team, distinct_ids=[str(uuid.uuid4())])
+        user_1 = create_person(team=self.team, distinct_ids=[str(uuid.uuid4())])
+        user_2 = create_person(team=self.team, distinct_ids=[str(uuid.uuid4())])
+        user_3 = create_person(team=self.team, distinct_ids=[str(uuid.uuid4())])
 
         # Events:
         # user_1: shown -> sent (legacy) -> sent (partial 1, ts1) -> sent (partial 1, ts2)
@@ -5528,7 +5524,7 @@ class TestSurveyStats(ClickhouseTestMixin, APIBaseTest):
             type="popover",
             questions=[{"type": "open", "question": "How are you?"}],
         )
-        user = Person.objects.create(team=self.team, distinct_ids=[str(uuid.uuid4())])
+        user = create_person(team=self.team, distinct_ids=[str(uuid.uuid4())])
 
         _create_event(
             team=self.team,
@@ -5565,7 +5561,7 @@ class TestSurveyStats(ClickhouseTestMixin, APIBaseTest):
         )
 
         response_uuid = str(uuid.uuid4())
-        user = Person.objects.create(team=self.team, distinct_ids=[str(uuid.uuid4())])
+        user = create_person(team=self.team, distinct_ids=[str(uuid.uuid4())])
 
         _create_event(
             team=self.team,
@@ -6303,24 +6299,26 @@ class TestSurveyBulkDuplication(APIBaseTest):
 
     def test_bulk_duplicate_multiple_times_to_same_team(self):
         """Test that multiple duplications to the same team create surveys with different timestamps"""
-        # Create first duplicate
-        response1 = self.client.post(
-            f"/api/projects/{self.team.project_id}/surveys/{self.source_survey.id}/duplicate_to_projects/",
-            data={"target_team_ids": [self.team2.id]},
-            format="json",
-        )
-        assert response1.status_code == status.HTTP_201_CREATED
+        with freeze_time("2024-01-01 00:00:00") as frozen_time:
+            # Create first duplicate
+            response1 = self.client.post(
+                f"/api/projects/{self.team.project_id}/surveys/{self.source_survey.id}/duplicate_to_projects/",
+                data={"target_team_ids": [self.team2.id]},
+                format="json",
+            )
+            assert response1.status_code == status.HTTP_201_CREATED
 
-        # Wait a second to ensure different timestamp
-        time.sleep(1)
+            # Advance the clock so the second duplicate's name timestamp differs (the
+            # duplicate name embeds datetime.now() at second precision)
+            frozen_time.tick(timedelta(seconds=1))
 
-        # Try to create another duplicate (should succeed because timestamp is different)
-        response2 = self.client.post(
-            f"/api/projects/{self.team.project_id}/surveys/{self.source_survey.id}/duplicate_to_projects/",
-            data={"target_team_ids": [self.team2.id]},
-            format="json",
-        )
-        assert response2.status_code == status.HTTP_201_CREATED
+            # Try to create another duplicate (should succeed because timestamp is different)
+            response2 = self.client.post(
+                f"/api/projects/{self.team.project_id}/surveys/{self.source_survey.id}/duplicate_to_projects/",
+                data={"target_team_ids": [self.team2.id]},
+                format="json",
+            )
+            assert response2.status_code == status.HTTP_201_CREATED
 
         # Verify two surveys exist with different names
         team2_surveys = Survey.objects.filter(team=self.team2).order_by("created_at")
@@ -6669,7 +6667,7 @@ class TestSurveyResponsesList(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(data["offset"], 0)
 
     def test_returns_rows_with_resolved_question_text(self):
-        person = Person.objects.create(team=self.team, distinct_ids=["user-1"])
+        person = create_person(team=self.team, distinct_ids=["user-1"])
         self._create_response_event("user-1", "2024-06-10 09:05:00", "9", "Loved the UX")
         flush_persons_and_events()
 
@@ -6695,8 +6693,8 @@ class TestSurveyResponsesList(ClickhouseTestMixin, APIBaseTest):
         assert person  # silence unused
 
     def test_score_lte_filters_detractors(self):
-        Person.objects.create(team=self.team, distinct_ids=["detractor"])
-        Person.objects.create(team=self.team, distinct_ids=["promoter"])
+        create_person(team=self.team, distinct_ids=["detractor"])
+        create_person(team=self.team, distinct_ids=["promoter"])
         self._create_response_event("detractor", "2024-06-10 09:05:00", "3", "Frustrating")
         self._create_response_event("promoter", "2024-06-10 09:06:00", "10", "Amazing")
         flush_persons_and_events()
@@ -6715,9 +6713,9 @@ class TestSurveyResponsesList(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
 
     def test_pagination_has_more(self):
-        Person.objects.create(team=self.team, distinct_ids=["u-1"])
-        Person.objects.create(team=self.team, distinct_ids=["u-2"])
-        Person.objects.create(team=self.team, distinct_ids=["u-3"])
+        create_person(team=self.team, distinct_ids=["u-1"])
+        create_person(team=self.team, distinct_ids=["u-2"])
+        create_person(team=self.team, distinct_ids=["u-3"])
         self._create_response_event("u-1", "2024-06-10 09:01:00", "8", "a")
         self._create_response_event("u-2", "2024-06-10 09:02:00", "8", "b")
         self._create_response_event("u-3", "2024-06-10 09:03:00", "8", "c")
@@ -6735,8 +6733,8 @@ class TestSurveyResponsesList(ClickhouseTestMixin, APIBaseTest):
         self.assertFalse(data2["has_more"])
 
     def test_since_filter(self):
-        Person.objects.create(team=self.team, distinct_ids=["old"])
-        Person.objects.create(team=self.team, distinct_ids=["new"])
+        create_person(team=self.team, distinct_ids=["old"])
+        create_person(team=self.team, distinct_ids=["new"])
         self._create_response_event("old", "2024-06-01 09:00:00", "8", "old")
         self._create_response_event("new", "2024-06-15 09:00:00", "8", "new")
         flush_persons_and_events()
@@ -6747,8 +6745,8 @@ class TestSurveyResponsesList(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(data["results"][0]["distinct_id"], "new")
 
     def test_exclude_archived(self):
-        Person.objects.create(team=self.team, distinct_ids=["kept"])
-        Person.objects.create(team=self.team, distinct_ids=["archived"])
+        create_person(team=self.team, distinct_ids=["kept"])
+        create_person(team=self.team, distinct_ids=["archived"])
         archived_uuid = str(uuid.uuid4())
         self._create_response_event("kept", "2024-06-10 09:05:00", "8", "kept")
         self._create_response_event("archived", "2024-06-10 09:06:00", "3", "archived", event_uuid=archived_uuid)
@@ -6961,11 +6959,11 @@ class TestSurveyStatsPerQuestion(ClickhouseTestMixin, APIBaseTest):
         self.assertNotIn("per_question_stats", response.json())
 
     def test_per_question_stats_when_requested(self):
-        Person.objects.create(team=self.team, distinct_ids=["u-1"])
-        Person.objects.create(team=self.team, distinct_ids=["u-2"])
-        Person.objects.create(team=self.team, distinct_ids=["u-3"])
+        create_person(team=self.team, distinct_ids=["u-1"])
+        create_person(team=self.team, distinct_ids=["u-2"])
+        create_person(team=self.team, distinct_ids=["u-3"])
         # u-4 picks the open-choice "Other" with free text — must be redacted to <other>.
-        Person.objects.create(team=self.team, distinct_ids=["u-4"])
+        create_person(team=self.team, distinct_ids=["u-4"])
         for distinct_id, rating, choice, text in [
             ("u-1", "9", "yes", "Loved it"),
             ("u-2", "7", "yes", "Good"),

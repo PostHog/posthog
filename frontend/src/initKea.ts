@@ -11,7 +11,6 @@ import posthog from 'posthog-js'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { addProjectIdIfMissing, removeProjectIdIfPresent, stripTrailingSlash } from 'lib/utils/kea-router'
 import { identifierToHuman } from 'lib/utils/strings'
-import { getTabsSnapshotForHistory, sceneLogic } from 'scenes/sceneLogic'
 
 import { disposablesPlugin } from '~/kea-disposables'
 
@@ -90,24 +89,15 @@ export function initKea({
             },
             replaceInitialPathInWindow:
                 typeof replaceInitialPathInWindow === 'undefined' ? true : replaceInitialPathInWindow,
-            getRouterState: () => {
-                // This state is persisted into window.history
-                const logic = sceneLogic.findMounted()
-                if (logic) {
-                    // Strip sceneParams etc. — they are not JSON-safe and break structuredClone (cyclic/deep graphs)
-                    const tabs = getTabsSnapshotForHistory(logic.values.tabs)
-                    if (typeof structuredClone !== 'undefined') {
-                        return { tabs: structuredClone(tabs) }
-                    }
-                    // structuredClone fails in jest for some reason, despite us being on the right versions
-                    return { tabs: JSON.parse(JSON.stringify(tabs)) || [] }
-                }
-                return undefined
-            },
         }),
         formsPlugin,
         loadersPlugin({
             onFailure({ error, reducerKey, actionKey }: { error: any; reducerKey: string; actionKey: string }) {
+                // A request aborted by us (superseded query, unmount, manual cancel) is not a
+                // failure — don't toast, log, or report it.
+                if (error?.name === 'AbortError') {
+                    return
+                }
                 // Read-only mode (`ReadOnlyModeError`) flows through this path unchanged:
                 // it extends `ApiError` with `status=403`, so the `!(isLoadAction && error.status === 403)`
                 // condition already suppresses the toast for load actions, and write actions
@@ -136,6 +126,16 @@ export function initKea({
                     if (errorMessage) {
                         lemonToast.error(`${identifierToHuman(actionKey)} failed: ${errorMessage}`)
                     }
+                }
+                // Cooperative cancellation (an aborted fetch, or a query superseded via
+                // `abortController.abort('new query started')` as in the logs/tracing data
+                // logics) is expected control flow, not a failure worth logging or reporting.
+                const isCancellation =
+                    error?.name === 'AbortError' ||
+                    error === 'new query started' ||
+                    error?.message === 'new query started'
+                if (isCancellation) {
+                    return
                 }
                 if (!errorsSilenced) {
                     console.error({ error, reducerKey, actionKey })

@@ -99,7 +99,7 @@ docker run --rm \
     -e SCREENSHOT_FORMAT="${SCREENSHOT_FORMAT:-jpeg}" \
     -e SCREENSHOT_JPEG_QUALITY="${SCREENSHOT_JPEG_QUALITY:-80}" \
     -e CHROME_HOST_RESOLVER_RULES="MAP localhost host.docker.internal" \
-    -v "$ROOT_DIR/nodejs/dist/recording-rasterizer:/code/nodejs/dist/recording-rasterizer" \
+    -v "$ROOT_DIR/nodejs/dist/session-replay/recording-rasterizer:/code/nodejs/dist/session-replay/recording-rasterizer" \
     -v "$ROOT_DIR/common/replay-headless/dist:/code/common/replay-headless/dist" \
     "$IMAGE_NAME" \
     2>&1 | pnpm --filter=@posthog/nodejs exec pino-pretty --colorize

@@ -3,7 +3,7 @@
  *
  * Real everywhere except model invocation:
  *   - Postgres (agent_runtime_queue_test) — PgSessionQueue + PgRevisionStore.
- *     Schema is dropped + recreated per test.
+ *     Schema is Django-owned (migrated before the suite); reset() truncates per test.
  *   - SeaweedFS / S3 — `S3BundleStore` + `S3MemoryStore` against the
  *     `AGENT_MEMORY_TEST_S3_*` bucket, per-cluster random prefix. No fs/in-memory
  *     bundle store — every test exercises the real multipart write + signed-URL
@@ -30,7 +30,7 @@ import request from 'supertest'
 
 import { AuthProvider, buildApp, SessionEventBus } from '@posthog/agent-ingress'
 import { buildJanitorApp } from '@posthog/agent-janitor'
-import { IntegrationHostValidator, IsAskerInApproverScope, McpTransportFactory, Worker } from '@posthog/agent-runner'
+import { McpTransportFactory, Worker } from '@posthog/agent-runner'
 import type { AnalyticsEvent, IdentityStore, LogEntry } from '@posthog/agent-shared'
 import {
     AgentApplication,
@@ -45,6 +45,8 @@ import {
     newTestPrefix as newMemoryTestPrefix,
     PgApprovalStore,
     PgCredentialBroker,
+    PgIdentityCredentialStore,
+    PgIdentityLinkStateStore,
     PgIdentityStore,
     PgRevisionStore,
     PgSandboxInstanceStore,
@@ -52,6 +54,7 @@ import {
     RedisSessionEventBus,
     S3BundleStore,
     S3JsonlTabularStore,
+    DEV_INTERNAL_SIGNING_KEY,
     EncryptedEnvSecretResolver,
     EncryptedFields,
     HttpClient,
@@ -60,6 +63,7 @@ import {
     SecretBroker,
     SecretResolver,
     TEST_S3_BUCKET,
+    type WebSearchProvider,
     wipeTestPrefix as wipeMemoryTestPrefix,
 } from '@posthog/agent-shared'
 import { reset } from '@posthog/agent-shared/testing'
@@ -232,10 +236,6 @@ export interface BuildClusterOpts {
     slackSigningSecretResolver?: SecretResolver
     /** Override the per-session secret resolver (defaults to empty). */
     resolveSecrets?: (sessionId: string) => Promise<Record<string, string>>
-    /** Override the per-session integrations resolver (defaults to empty). */
-    resolveIntegrations?: (
-        sessionId: string
-    ) => Promise<Record<string, { kind: string; access_token: string; refresh_token?: string }>>
     authProvider?: AuthProvider
     /**
      * Optional initial script for the faux provider. Tests that script per-test
@@ -248,15 +248,6 @@ export interface BuildClusterOpts {
      */
     model?: Model<string>
     /**
-     * Per-asker authorisation shortcut for approval-gated tools (#23
-     * step 3). The harness doesn't carry a real
-     * `posthog_organizationmembership` table, so tests stub the auth
-     * decision directly — typically by inspecting the latest user-turn's
-     * sender id. Omit to preserve B.2 v0 behaviour (every gated call
-     * queues regardless of asker).
-     */
-    isAskerInApproverScope?: IsAskerInApproverScope
-    /**
      * Override the MCP transport factory. Defaults to the runner's own
      * `StreamableHTTPClientTransport`. Pair an in-process `McpServer` via
      * `InMemoryTransport.createLinkedPair()` here to drive `spec.mcps[]`
@@ -265,19 +256,19 @@ export interface BuildClusterOpts {
      */
     mcpTransportFactory?: McpTransportFactory
     /**
-     * Gates the `auth.integration` bearer attachment on `external` MCP refs.
-     * Defaults to a permissive `() => true` so the common e2e cases don't
-     * have to think about it; security-flavoured tests pass a stricter
-     * implementation to exercise the rejection paths.
-     */
-    integrationHostValidator?: IntegrationHostValidator
-    /**
      * Substitute the outbound HTTP client the runner threads into
      * `ToolContext.http`. Tests that want to assert on outbound headers
      * or short-circuit the network pass a `{ fetch: vi.fn(...) }` here.
      * Defaults to a real `HttpClient` with no proxy (direct fetch).
      */
     http?: import('@posthog/agent-shared').HttpFetcher
+    /**
+     * Provider chain for `@posthog/web-search`. Forwarded onto the Worker
+     * so cases that declare the tool in their spec actually see it. Empty
+     * / absent (default) → the tool is gated out, matching the prod path
+     * for an unconfigured deployment.
+     */
+    webSearchProviders?: readonly WebSearchProvider[]
 }
 
 let _pool: Pool | null = null
@@ -302,11 +293,10 @@ export async function buildCluster(opts: BuildClusterOpts = {}): Promise<Cluster
     const teamId = opts.teamId ?? 1
     const pool = await getPool()
 
-    // Single test DB holds both authoring (App, Revision — owned by Django
-    // in prod) and runtime tables (Session, User, SandboxInstance — owned
-    // by the worker). The production split happens at deploy time via two
-    // pool URLs. reset() drops the public schema and reapplies every
-    // migration from @posthog/agent-migrations — single source of truth.
+    // Single test DB holds both authoring (App, Revision) and runtime tables
+    // (Session, User, SandboxInstance) — all Django-owned (the agent_platform
+    // product DB). The production split happens at deploy time via two pool
+    // URLs. reset() resets the agent_* tables between cases (see test-reset.ts).
     await reset({ databaseUrl: TEST_DB_URL })
 
     // Real S3 bundle store against SeaweedFS, per-cluster prefix. Same impl
@@ -362,6 +352,11 @@ export async function buildCluster(opts: BuildClusterOpts = {}): Promise<Cluster
     const credentialBroker = new PgCredentialBroker(pool, {
         encryptionSaltKeys: HARNESS_ENCRYPTION_SALT_KEYS,
     })
+    // Persistent linked-credential + OAuth link-state stores for identity linking.
+    const identityCredentials = new PgIdentityCredentialStore(pool, {
+        encryptionSaltKeys: HARNESS_ENCRYPTION_SALT_KEYS,
+    })
+    const identityLinks = new PgIdentityLinkStateStore(pool)
     // Real S3 (SeaweedFS) memory store with a per-cluster random prefix —
     // teardown wipes it. Failing here means SeaweedFS isn't up; fix the dev
     // stack rather than mocking around it.
@@ -420,22 +415,20 @@ export async function buildCluster(opts: BuildClusterOpts = {}): Promise<Cluster
         sandboxInstances,
         broker,
         credentialBroker,
+        identityCredentials,
+        identityLinks,
+        identities,
+        linkRedirectBaseUrl: 'http://callback.test',
         bus,
         logs: logSink,
         analytics: analyticsSink,
-        resolveIntegrations: opts.resolveIntegrations ? async (s) => opts.resolveIntegrations!(s.id) : async () => ({}),
         resolveSecrets: opts.resolveSecrets ? async (s) => opts.resolveSecrets!(s.id) : async () => ({}),
         resolveModel: resolveModelForHarness,
         approvals,
         buildApprovalUrl: (requestId) => `/approvals?request=${requestId}`,
-        isAskerInApproverScope: opts.isAskerInApproverScope,
         memoryStore,
         tabularStore,
         mcpTransportFactory: opts.mcpTransportFactory,
-        // Permissive default so the common e2e suite doesn't have to know
-        // about the security gate; the runtime-mcps cases that specifically
-        // exercise integration auth (none in the suite yet) can override.
-        integrationHostValidator: opts.integrationHostValidator ?? (() => true),
         maxConcurrency: 1, // tests prefer serial for deterministic state checks
         // Real HttpClient with no proxy by default — tests that exercise
         // outbound HTTP hit real localhost servers (matches the wider harness
@@ -445,6 +438,7 @@ export async function buildCluster(opts: BuildClusterOpts = {}): Promise<Cluster
         // (see `buildQueryEchoHttp`).
         http: harnessHttp,
         posthogApiBaseUrl: 'http://localhost:8010',
+        webSearchProviders: opts.webSearchProviders,
     })
 
     // Real-flow Slack secret resolver: decrypts the agent's `encrypted_env`
@@ -466,10 +460,19 @@ export async function buildCluster(opts: BuildClusterOpts = {}): Promise<Cluster
         authProvider: opts.authProvider,
         identities,
         credentialBroker,
+        // Identity-linking callback route (`GET /link/:provider/callback`).
+        identityCredentials,
+        identityLinks,
+        envEncryption: encryption,
         // Same `http` the worker uses, so tests asserting on outbound
         // slack.com calls from the ingress (ack_reaction, identity bridge)
         // can route them through a single recorder.
         http: opts.http,
+        // Wire the JWT gate so preview-mode tests exercise the real claim
+        // verification (audience, signature, app/rev binding). Without this the
+        // resolver short-circuits and a non-live revision routes without a
+        // token. Same key `mintInternalJwt` uses in the preview-mode fixtures.
+        internalSigningKey: DEV_INTERNAL_SIGNING_KEY,
     })
 
     const janitor = buildJanitorApp({
@@ -482,6 +485,9 @@ export async function buildCluster(opts: BuildClusterOpts = {}): Promise<Cluster
         // (/memory/team/:t/agent/:a/...) read + write through this store and
         // the runner's `@posthog/memory-*` tools hit the same files.
         memoryStore,
+        // Reuse the same in-process sandbox pool the worker uses so dry-run
+        // e2e cases exercise the same dispatch path as production sessions.
+        sandboxes,
     })
 
     return {
@@ -538,8 +544,8 @@ export async function buildCluster(opts: BuildClusterOpts = {}): Promise<Cluster
                 description: input.description ?? '',
             })
             const rawSpec: Record<string, unknown> = {
-                // Default model is "faux/<name>"; tests can override via spec.model.
-                model: 'faux/faux',
+                // Default model is "faux/<name>"; tests can override via spec.models.
+                models: { mode: 'manual', models: [{ model: 'faux/faux' }] },
                 triggers: [
                     { type: 'chat', config: {} },
                     // Default to "*" for tests — individual cases override

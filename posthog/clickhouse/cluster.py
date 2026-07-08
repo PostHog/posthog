@@ -62,6 +62,7 @@ _MULTINODE_HOST_PORT_OVERRIDES: dict[str, tuple[str, int]] = {
     "clickhouse-aux": ("localhost", 9200),
     "clickhouse-ops": ("localhost", 9300),
     "clickhouse-sessions": ("localhost", 9400),
+    "clickhouse-logs": ("localhost", 9500),
 }
 
 
@@ -577,6 +578,18 @@ def redact_sql_secrets(sql: str) -> str:
     return _SQL_SECRET_RE.sub(r"\1 '[REDACTED]'", sql)
 
 
+# Cap how much SQL we embed in a Query repr. Reprs land in logs (every statement the migration
+# runner executes) and traces, so a multi-megabyte statement — e.g. a large seed INSERT with all
+# its VALUES inline — floods them. The head is enough to identify the statement.
+_MAX_QUERY_REPR_LEN = 1500
+
+
+def _truncate_query(query: str) -> str:
+    if len(query) <= _MAX_QUERY_REPR_LEN:
+        return query
+    return f"{query[:_MAX_QUERY_REPR_LEN]}… ({len(query) - _MAX_QUERY_REPR_LEN} more chars truncated)"
+
+
 def _redact_parameters(parameters: Any) -> Any:
     if isinstance(parameters, Mapping):
         return {k: ("[REDACTED]" if "password" in str(k).lower() else v) for k, v in parameters.items()}
@@ -595,7 +608,7 @@ class Query:
         return client.execute(self.query, self.parameters, settings=self.settings)
 
     def __repr__(self) -> str:
-        query = redact_sql_secrets(self.query)
+        query = _truncate_query(redact_sql_secrets(self.query))
         if self.parameters and isinstance(self.parameters, list):
             shown = _redact_parameters(self.parameters[:50])
             params_repr = f"{shown!r} (showing first 50 out of {len(self.parameters)} parameters)"

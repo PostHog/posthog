@@ -5,12 +5,11 @@ from django.utils import timezone
 
 from temporalio import activity
 
-from posthog.models import Integration
 from posthog.models.github_integration_base import GitHubIntegrationBase
-from posthog.models.user_integration import UserIntegration
 from posthog.temporal.common.utils import close_db_connections
 
 from products.tasks.backend.models import TaskRun
+from products.tasks.backend.temporal.code_workstreams.activities.github_resolution import TeamIntegrationResolver
 from products.tasks.backend.temporal.code_workstreams.constants import ACTIVITY_WINDOW, MAX_PRS_PER_TEAM_PER_CYCLE
 
 
@@ -60,19 +59,7 @@ def load_team_pr_urls(input: LoadTeamPrUrlsInput) -> LoadTeamPrUrlsOutput:
         .order_by("-updated_at")
     )
 
-    team_github_id: Optional[int] = (
-        Integration.objects.filter(team_id=input.team_id, kind="github").values_list("id", flat=True).first()
-    )
-    user_github_by_creator: dict[int, Optional[str]] = {}
-
-    def creator_user_github(creator_id: Optional[int]) -> Optional[str]:
-        if creator_id is None:
-            return None
-        if creator_id not in user_github_by_creator:
-            uid = UserIntegration.objects.filter(user_id=creator_id, kind="github").values_list("id", flat=True).first()
-            user_github_by_creator[creator_id] = str(uid) if uid else None
-        return user_github_by_creator[creator_id]
-
+    resolver = TeamIntegrationResolver(input.team_id)
     seen: dict[str, PrRef] = {}
     for run in runs.iterator():
         url = (run.output or {}).get("pr_url")
@@ -81,12 +68,7 @@ def load_team_pr_urls(input: LoadTeamPrUrlsInput) -> LoadTeamPrUrlsOutput:
         task = run.task
         if not _pr_url_belongs_to_task_repo(url, task.repository):
             continue
-        team_int = task.github_integration_id
-        user_int = str(task.github_user_integration_id) if task.github_user_integration_id else None
-        if team_int is None and user_int is None:
-            team_int = team_github_id
-            if team_int is None:
-                user_int = creator_user_github(task.created_by_id)
+        team_int, user_int = resolver.resolve(task)
         seen[url] = PrRef(pr_url=url, github_integration_id=team_int, github_user_integration_id=user_int)
         if len(seen) >= MAX_PRS_PER_TEAM_PER_CYCLE:
             break

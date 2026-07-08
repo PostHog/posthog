@@ -4,6 +4,9 @@ import { useEffect } from 'react'
 import { IconArrowLeft } from '@posthog/icons'
 import { LemonButton, LemonSkeleton } from '@posthog/lemon-ui'
 
+import { FEATURE_FLAGS } from 'lib/constants'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+
 import { ExternalDataSourceType, SourceConfig } from '~/queries/schema/schema-general'
 
 import { availableSourcesLogic } from 'products/data_warehouse/frontend/scenes/NewSourceScene/availableSourcesLogic'
@@ -14,7 +17,6 @@ import { SourceIcon } from 'products/data_warehouse/frontend/shared/components/S
 import { SessionAnalysisSetup } from '../../SessionAnalysisSetup'
 import { signalSourcesLogic } from '../../signalSourcesLogic'
 import { AgentsRoster } from './AgentsRoster'
-import { AutoStartThresholdSection } from './AutoStartThresholdSection'
 import { ConnectionsSection } from './ConnectionsSection'
 import { McpServersSection } from './McpServersSection'
 import { ScoutsFleetSection } from './scouts/ScoutsFleetSection'
@@ -61,11 +63,12 @@ function BackLink({ onClick }: { onClick: () => void }): JSX.Element {
 /**
  * Full-page Agents tab body for cloud Inbox – a high-fidelity port of the
  * PostHog Code desktop Agents view. Composes Connections, the agent roster,
- * Slack, auto-start, and MCP servers. Session-analysis and data-source setup
+ * Slack, and MCP servers. Session-analysis and data-source setup
  * render inline (replacing the roster) when their sub-flow is open.
  */
 export function AgentsTab(): JSX.Element {
     const { sessionAnalysisSetupOpen, dataSourceSetupProduct } = useValues(signalSourcesLogic)
+    const { featureFlags } = useValues(featureFlagLogic)
     const {
         loadSources,
         loadSourceConfigs,
@@ -127,26 +130,23 @@ export function AgentsTab(): JSX.Element {
                     {agentsBody}
                 </Subsection>
 
-                <Subsection
-                    title="Slack"
-                    description="Post reports to channels and ping suggested reviewers. Invite PostHog with /invite @PostHog in each channel you use."
-                >
-                    <SlackNotificationsSection />
-                </Subsection>
+                {featureFlags[FEATURE_FLAGS.INBOX_SLACK_NOTIFICATIONS] && (
+                    <Subsection
+                        title="Slack"
+                        description="Post reports to channels and ping suggested reviewers. Invite PostHog with /invite @PostHog in each channel you use."
+                    >
+                        <SlackNotificationsSection />
+                    </Subsection>
+                )}
 
-                <Subsection
-                    title="Auto-start"
-                    description="Self-driving can start coding tasks automatically when a report is immediately actionable and assigned to you."
-                >
-                    <AutoStartThresholdSection />
-                </Subsection>
-
-                <Subsection
-                    title="MCP servers"
-                    description="External tools agents can read from. PostHog data is always available; this is everything else."
-                >
-                    <McpServersSection />
-                </Subsection>
+                {featureFlags[FEATURE_FLAGS.MCP_SERVERS] && (
+                    <Subsection
+                        title="MCP servers"
+                        description="External tools agents can read from. PostHog data is always available; this is everything else."
+                    >
+                        <McpServersSection />
+                    </Subsection>
+                )}
             </div>
         </div>
     )

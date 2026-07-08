@@ -49,6 +49,8 @@ interface UseChartMarginsOptions {
      *  reservation in step with the scales' config-driven positions. Multi-axis charts only. */
     yAxisPositions?: Record<string, 'left' | 'right'>
     yAxisTitles?: Record<string, string>
+    /** Axis ids whose gutters are hidden — no margin reserved. Mirrors `computeYAxisGutters`. */
+    yAxisHidden?: Record<string, boolean>
 }
 
 function widestCategoryLabelWidth(
@@ -100,6 +102,7 @@ export function useChartMargins({
     yAxisFormatters,
     yAxisPositions,
     yAxisTitles,
+    yAxisHidden,
 }: UseChartMarginsOptions): ChartMargins {
     const isHorizontal = axisOrientation === 'horizontal'
     const valueSeries = valueRangeSeries ?? series
@@ -112,19 +115,26 @@ export function useChartMargins({
         return axisIds.size > 1
     }, [series])
 
+    // Per-side gutter layout also applies to a single axis explicitly pinned right — the series-count
+    // check above misses it, which would reserve the left margin while the gutter draws on the right.
+    const usesPerSideGutters = useMemo(
+        () => hasMultipleAxes || Object.values(yAxisPositions ?? {}).some((side) => side === 'right'),
+        [hasMultipleAxes, yAxisPositions]
+    )
+
     // One rotated-title band per titled axis, on its side. Horizontal charts (category axis on the
     // left) and single-value-axis charts only ever title the default left axis.
     const titleReserve = useMemo<{ left: number; right: number }>(() => {
         if (hideYAxis || !yAxisTitles) {
             return { left: 0, right: 0 }
         }
-        if (isHorizontal || !hasMultipleAxes) {
+        if (isHorizontal || !usesPerSideGutters) {
             return { left: yAxisTitles[DEFAULT_Y_AXIS_ID] ? Y_AXIS_TITLE_MARGIN : 0, right: 0 }
         }
         let left = 0
         let right = 0
         for (const { axisId, position } of orderedAxisPositions(valueSeries)) {
-            if (!yAxisTitles[axisId]) {
+            if (!yAxisTitles[axisId] || yAxisHidden?.[axisId]) {
                 continue
             }
             if ((yAxisPositions?.[axisId] ?? position) === 'left') {
@@ -134,7 +144,7 @@ export function useChartMargins({
             }
         }
         return { left, right }
-    }, [hideYAxis, isHorizontal, hasMultipleAxes, valueSeries, yAxisPositions, yAxisTitles])
+    }, [hideYAxis, isHorizontal, usesPerSideGutters, valueSeries, yAxisPositions, yAxisTitles, yAxisHidden])
 
     const yLabelWidth = useMemo<number>(() => {
         if (hideYAxis) {
@@ -163,7 +173,7 @@ export function useChartMargins({
     // With multiple y-axes the value-axis labels stack into several gutters per side; reserve the
     // cumulative width so the outer gutters aren't clipped. Mirrors AxisLabels' gutter layout.
     const gutterReserves = useMemo<{ left: number; right: number } | null>(() => {
-        if (hideYAxis || isHorizontal || !hasMultipleAxes) {
+        if (hideYAxis || isHorizontal || !usesPerSideGutters) {
             return null
         }
         const byAxis = new Map<string, Series[]>()
@@ -182,6 +192,9 @@ export function useChartMargins({
         let left = 0
         let right = 0
         for (const { axisId, position } of orderedAxisPositions(valueSeries)) {
+            if (yAxisHidden?.[axisId]) {
+                continue
+            }
             const formatter = yAxisFormatters?.[axisId] ?? yTickFormatter
             const side = yAxisPositions?.[axisId] ?? position
             const width = Math.ceil(widestValueLabelWidth(byAxis.get(axisId) ?? [], formatter)) + Y_LABEL_RIGHT_PADDING
@@ -192,7 +205,16 @@ export function useChartMargins({
             }
         }
         return { left, right }
-    }, [hideYAxis, isHorizontal, hasMultipleAxes, valueSeries, yTickFormatter, yAxisFormatters, yAxisPositions])
+    }, [
+        hideYAxis,
+        isHorizontal,
+        usesPerSideGutters,
+        valueSeries,
+        yTickFormatter,
+        yAxisFormatters,
+        yAxisPositions,
+        yAxisHidden,
+    ])
 
     return useMemo<ChartMargins>(() => {
         const bottom = hideXAxis
@@ -206,7 +228,7 @@ export function useChartMargins({
                   leftLabelReserve + Y_LABEL_LEFT_GUTTER,
                   xLabelHalfWidth + X_LABEL_EDGE_PADDING
               ) + titleReserve.left
-        const rightFloor = hasMultipleAxes && !hideYAxis ? MIN_RIGHT_MARGIN_DUAL_AXIS : DEFAULT_MARGINS.right
+        const rightFloor = usesPerSideGutters && !hideYAxis ? MIN_RIGHT_MARGIN_DUAL_AXIS : DEFAULT_MARGINS.right
         const rightLabelReserve = (gutterReserves?.right ?? 0) + titleReserve.right
         const right = Math.max(rightFloor, rightLabelReserve, xLabelHalfWidth + X_LABEL_EDGE_PADDING)
         const computed: ChartMargins = { top: DEFAULT_MARGINS.top, right, bottom, left }
@@ -214,7 +236,7 @@ export function useChartMargins({
     }, [
         hideXAxis,
         hideYAxis,
-        hasMultipleAxes,
+        usesPerSideGutters,
         gutterReserves,
         yLabelWidth,
         xLabelHalfWidth,

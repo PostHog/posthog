@@ -7,7 +7,9 @@ import {
     RealNotebookNodeEdit,
     getEditableNodeAttributeKeys,
     getMarkdownNodeAttributeLabel,
+    getQueryTitle,
     getSerializableAttributeInputValue,
+    getSerializableProps,
 } from './markdownNotebookRegistry'
 
 describe('markdownNotebookRegistry', () => {
@@ -73,5 +75,82 @@ describe('markdownNotebookRegistry', () => {
         expect(getSerializableAttributeInputValue(NotebookNodeType.Group, 'groupTypeIndex', ' not-a-number ')).toEqual(
             'not-a-number'
         )
+    })
+
+    describe('getQueryTitle', () => {
+        it.each([
+            [
+                'ActorsQuery resolves to People, not the schema kind',
+                { kind: 'DataTableNode', source: { kind: 'ActorsQuery' } },
+                'People',
+            ],
+            ['EventsQuery resolves to Events', { kind: 'DataTableNode', source: { kind: 'EventsQuery' } }, 'Events'],
+            [
+                'HogQLQuery stays untitled — no SQL body, no generic label',
+                { kind: 'DataTableNode', source: { kind: 'HogQLQuery', query: 'select event from events' } },
+                null,
+            ],
+            ['an unrecognized query suggests no title rather than the raw kind', { kind: 'DataTableNode' }, null],
+        ])('%s', (_label, query, expected) => {
+            expect(getQueryTitle(query)).toEqual(expected)
+        })
+    })
+
+    describe('getSerializableProps', () => {
+        it('preserves a query whose nested filter carries undefined fields, stripping the undefined', () => {
+            // Regression: a completed person-property filter from the DataTable arrives with absent
+            // label/group_type_index as `undefined`. Previously the whole `query` prop was dropped,
+            // so the People table never re-queried when a filter was added.
+            const result = getSerializableProps({
+                query: {
+                    kind: 'DataTableNode',
+                    source: {
+                        kind: 'ActorsQuery',
+                        properties: [
+                            { type: 'person', key: 'email', operator: 'exact', value: 'x@y.com', label: undefined },
+                        ],
+                    },
+                },
+            })
+
+            expect(result.query).toEqual({
+                kind: 'DataTableNode',
+                source: {
+                    kind: 'ActorsQuery',
+                    properties: [{ type: 'person', key: 'email', operator: 'exact', value: 'x@y.com' }],
+                },
+            })
+        })
+
+        it('keeps a fully-serializable filter (e.g. cohort) untouched', () => {
+            const query = {
+                kind: 'DataTableNode',
+                source: {
+                    kind: 'ActorsQuery',
+                    properties: [{ type: 'cohort', key: 'id', value: 42, operator: 'in' }],
+                },
+            }
+
+            expect(getSerializableProps({ query }).query).toEqual(query)
+        })
+
+        it.each([
+            ['undefined', { a: undefined }, {}],
+            ['function', { a: () => undefined }, {}],
+        ])('omits the key entirely when the value is not serializable (%s)', (_label, attributes, expected) => {
+            expect(getSerializableProps(attributes as any)).toEqual(expected)
+        })
+
+        it('preserves primitive, array and nested object props', () => {
+            expect(
+                getSerializableProps({ id: 'abc', count: 3, enabled: true, items: ['a', 'b'], nested: { x: 1 } } as any)
+            ).toEqual({ id: 'abc', count: 3, enabled: true, items: ['a', 'b'], nested: { x: 1 } })
+        })
+
+        it('strips undefined nested in an object while keeping its siblings', () => {
+            expect(getSerializableProps({ nested: { keep: 'yes', drop: undefined } } as any)).toEqual({
+                nested: { keep: 'yes' },
+            })
+        })
     })
 })

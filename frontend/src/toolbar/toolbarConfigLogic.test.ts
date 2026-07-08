@@ -1,14 +1,16 @@
 import { expectLogic } from 'kea-test-utils'
 
+import { resumeKeaLoadersErrors, silenceKeaLoadersErrors } from '~/initKea'
 import { initKeaTests } from '~/test/init'
-import {
-    canonicalizeApiHost,
-    canonicalizeUiHost,
-    toolbarConfigLogic,
-    toolbarFetch,
-    toolbarUploadMedia,
-} from '~/toolbar/toolbarConfigLogic'
+import { canonicalizeApiHost, canonicalizeUiHost, toolbarConfigLogic } from '~/toolbar/toolbarConfigLogic'
+import { toolbarFetch, toolbarUploadMedia } from '~/toolbar/toolbarFetch'
 import { cleanToolbarAuthHash, OAUTH_LOCALSTORAGE_KEY, PKCE_STORAGE_KEY, readToolbarAuthHash } from '~/toolbar/utils'
+
+// The toolbar logger mirrors intentional error/auth paths to the console (its job on
+// customer pages); tests exercise those paths on purpose, so stub the boundary.
+jest.mock('~/toolbar/toolbarLogger', () => ({
+    toolbarLogger: { debug: jest.fn(), info: jest.fn(), warn: jest.fn(), error: jest.fn() },
+}))
 
 // The toolbar calls `global.fetch` directly (not the app api client / MSW). Reassign the mock per
 // test in beforeEach — the MSW jest harness installs its own `global.fetch` in a global beforeAll,
@@ -38,9 +40,24 @@ function mockTokenExchangeSuccess(): void {
 }
 
 describe('toolbar toolbarConfigLogic', () => {
+    // These suites intentionally reject requests to exercise error states; the
+    // failures are asserted via authStatus/values, so skip the global loader logging.
+    beforeAll(silenceKeaLoadersErrors)
+    afterAll(resumeKeaLoadersErrors)
+
     let mockOpen: jest.SpyInstance
+    let consoleSpies: jest.SpyInstance[]
 
     beforeEach(() => {
+        // The auth/config failure-path tests intentionally exercise toolbarLogger, which
+        // logs to the console by design. Module-mocking it doesn't work here: the MSW
+        // setup chain preloads toolbarConfigLogic (via heatmapDataLogic) before any
+        // test-file jest.mock registration.
+        consoleSpies = [
+            jest.spyOn(console, 'error').mockImplementation(),
+            jest.spyOn(console, 'warn').mockImplementation(),
+            jest.spyOn(console, 'info').mockImplementation(),
+        ]
         initKeaTests()
         localStorage.clear()
         sessionStorage.clear()
@@ -52,6 +69,9 @@ describe('toolbar toolbarConfigLogic', () => {
 
     afterEach(() => {
         mockOpen.mockRestore()
+        consoleSpies.forEach((spy) => spy.mockRestore())
+        // Safety net for tests that call silenceKeaLoadersErrors() inline
+        resumeKeaLoadersErrors()
     })
 
     it('is not authenticated without any token', () => {
@@ -253,7 +273,9 @@ describe('toolbar toolbarConfigLogic', () => {
 
         it('confirmAuthenticate opens the config modal when authStatus flipped to error after modal was shown', async () => {
             // Simulate: user opened the modal, then the in-flight reachability check failed
-            // before they clicked Continue.
+            // before they clicked Continue. The rejecting fetch also fails the mounted
+            // preflight loader, which kea-loaders would log.
+            silenceKeaLoadersErrors()
             ;(global.fetch as jest.Mock).mockImplementation(() => Promise.reject(new Error('network')))
             const logic = toolbarConfigLogic.build({ uiHost: 'https://selfhosted.example.com' } as any)
             logic.mount()
@@ -819,6 +841,11 @@ describe('toolbar toolbarConfigLogic', () => {
     })
 
     describe('token refresh on 401', () => {
+        // The 401-first fetch mocks also fail the mounted preflight loader,
+        // which kea-loaders would log
+        beforeEach(silenceKeaLoadersErrors)
+        afterEach(resumeKeaLoadersErrors)
+
         it('retries request with new token after successful refresh', async () => {
             const logic = toolbarConfigLogic.build({
                 apiURL: 'http://localhost',

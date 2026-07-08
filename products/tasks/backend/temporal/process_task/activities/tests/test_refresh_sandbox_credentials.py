@@ -3,6 +3,8 @@ from unittest.mock import MagicMock, patch
 
 from asgiref.sync import async_to_sync
 
+from posthog.models.integration import Integration
+
 from products.tasks.backend.exceptions import SandboxExecutionError, SandboxNotFoundError, SandboxNotRunningError
 from products.tasks.backend.logic.services.sandbox import ExecutionResult
 from products.tasks.backend.temporal.process_task.activities.refresh_sandbox_credentials import (
@@ -45,6 +47,7 @@ class TestRefreshSandboxCredentialsActivity:
 
         assert output.refreshed_kinds == ["github"]
         assert output.next_refresh_seconds == 20 * 60
+        assert output.sandbox_gone is False
 
         # git remote rewrite + env-file read both ran against the sandbox.
         assert any("git remote set-url origin" in str(c.args[0]) for c in sandbox.execute.call_args_list)
@@ -76,6 +79,7 @@ class TestRefreshSandboxCredentialsActivity:
         assert output.refreshed_kinds == []
         # All credentials failed -> no per-token interval, so fall back to the default cadence.
         assert output.next_refresh_seconds == DEFAULT_REFRESH_INTERVAL_SECONDS
+        assert output.sandbox_gone is False
 
     def test_skips_refresh_when_sandbox_not_running(self, activity_environment, task_context, test_task, sandbox):
         sandbox.is_running.return_value = False
@@ -99,6 +103,7 @@ class TestRefreshSandboxCredentialsActivity:
 
         assert output.refreshed_kinds == []
         assert output.next_refresh_seconds == DEFAULT_REFRESH_INTERVAL_SECONDS
+        assert output.sandbox_gone is True
         get_token.assert_not_called()
         sandbox.execute.assert_not_called()
         increment.assert_called_once_with("github", "skipped")
@@ -134,6 +139,7 @@ class TestRefreshSandboxCredentialsActivity:
 
         assert output.refreshed_kinds == []
         assert output.next_refresh_seconds == DEFAULT_REFRESH_INTERVAL_SECONDS
+        assert output.sandbox_gone is True
         get_token.assert_not_called()
         increment.assert_called_once_with("github", "skipped")
         track_event.assert_not_called()
@@ -164,7 +170,81 @@ class TestRefreshSandboxCredentialsActivity:
             )
 
         assert output.refreshed_kinds == []
+        assert output.sandbox_gone is True
         increment.assert_called_once_with("github", "skipped")
+
+    def test_deleted_integration_counts_as_orphaned_and_stops_loop(
+        self, activity_environment, task_context, test_task, sandbox
+    ):
+        # Delete via a queryset so the fixture instances keep their pks and teardown
+        # (integration.delete(), task.soft_delete()) still works on them.
+        Integration.objects.filter(id=test_task.github_integration_id).delete()
+        test_task.refresh_from_db()
+        with (
+            patch(
+                "products.tasks.backend.temporal.process_task.activities.refresh_sandbox_credentials.Sandbox.get_by_id",
+                return_value=sandbox,
+            ),
+            patch("products.tasks.backend.temporal.process_task.activities.refresh_sandbox_credentials.track_event"),
+            patch(
+                "products.tasks.backend.temporal.process_task.activities.refresh_sandbox_credentials.increment_credential_refresh"
+            ) as increment,
+        ):
+            output = async_to_sync(activity_environment.run)(
+                refresh_sandbox_credentials,
+                RefreshSandboxCredentialsInput(context=task_context, sandbox_id="sandbox-abc"),
+            )
+
+        assert output.orphaned_kinds == ["github"]
+        assert output.no_credentials_left is True
+        assert output.refreshed_kinds == []
+        assert output.sandbox_gone is False
+        increment.assert_called_once_with("github", "orphaned")
+
+    def test_excluded_kinds_report_nothing_left(self, activity_environment, task_context, test_task, sandbox):
+        with (
+            patch(
+                "products.tasks.backend.temporal.process_task.activities.refresh_sandbox_credentials.Sandbox.get_by_id",
+                return_value=sandbox,
+            ),
+            patch(
+                "products.tasks.backend.temporal.process_task.activities.refresh_sandbox_credentials.track_event"
+            ) as track_event,
+        ):
+            output = async_to_sync(activity_environment.run)(
+                refresh_sandbox_credentials,
+                RefreshSandboxCredentialsInput(
+                    context=task_context, sandbox_id="sandbox-abc", exclude_kinds=["github"]
+                ),
+            )
+
+        assert output.no_credentials_left is True
+        assert output.sandbox_gone is False
+        assert output.refreshed_kinds == []
+        sandbox.execute.assert_not_called()
+        track_event.assert_not_called()
+
+    def test_sandbox_gone_wins_over_excluded_kinds(self, activity_environment, task_context, test_task):
+        with (
+            patch(
+                "products.tasks.backend.temporal.process_task.activities.refresh_sandbox_credentials.Sandbox.get_by_id",
+                side_effect=SandboxNotFoundError(
+                    "Sandbox sandbox-abc not found",
+                    {"sandbox_id": "sandbox-abc"},
+                    cause=RuntimeError("Deadline Exceeded"),
+                ),
+            ),
+            patch("products.tasks.backend.temporal.process_task.activities.refresh_sandbox_credentials.track_event"),
+        ):
+            output = async_to_sync(activity_environment.run)(
+                refresh_sandbox_credentials,
+                RefreshSandboxCredentialsInput(
+                    context=task_context, sandbox_id="sandbox-abc", exclude_kinds=["github"]
+                ),
+            )
+
+        assert output.sandbox_gone is True
+        assert output.no_credentials_left is False
 
     def test_genuine_execution_error_counts_as_failed(self, activity_environment, task_context, test_task, sandbox):
         sandbox.execute.side_effect = SandboxExecutionError(

@@ -109,3 +109,60 @@ def DROP_SHARDED_WEB_STATS_PATHS_PREAGGREGATED_TABLE_SQL():
 
 def TRUNCATE_WEB_STATS_PATHS_PREAGGREGATED_TABLE_SQL():
     return f"TRUNCATE TABLE IF EXISTS {SHARDED_WEB_STATS_PATHS_PREAGGREGATED_TABLE()}"
+
+
+# Breakdown-key colocation variant of the table above — an A/B experiment for the
+# PATHS tile. Same columns; the breakdown (path) leads both the sort key and the
+# shard key so high-cardinality reads stay shard-local. Rationale and the read-side
+# requirements live in lazy_computation/CONSISTENCY.md and the PR description.
+TABLE_PATHKEY_BASE_NAME = "web_stats_paths_preaggregated_pathkey"
+
+
+def DISTRIBUTED_WEB_STATS_PATHS_PREAGGREGATED_PATHKEY_TABLE():
+    return TABLE_PATHKEY_BASE_NAME
+
+
+def SHARDED_WEB_STATS_PATHS_PREAGGREGATED_PATHKEY_TABLE():
+    return f"sharded_{TABLE_PATHKEY_BASE_NAME}"
+
+
+def SHARDED_WEB_STATS_PATHS_PREAGGREGATED_PATHKEY_TABLE_ENGINE():
+    return ReplacingMergeTree(TABLE_PATHKEY_BASE_NAME, replication_scheme=ReplicationScheme.SHARDED, ver="computed_at")
+
+
+def SHARDED_WEB_STATS_PATHS_PREAGGREGATED_PATHKEY_TABLE_SQL():
+    return (
+        WEB_STATS_PATHS_PREAGGREGATED_TABLE_BASE_SQL
+        + """
+PARTITION BY toYYYYMMDD(expires_at)
+ORDER BY (team_id, time_window_start, breakdown_value, job_id)
+TTL toDateTime(expires_at)
+SETTINGS index_granularity=8192, ttl_only_drop_parts = 1
+"""
+    ).format(
+        table_name=SHARDED_WEB_STATS_PATHS_PREAGGREGATED_PATHKEY_TABLE(),
+        engine=SHARDED_WEB_STATS_PATHS_PREAGGREGATED_PATHKEY_TABLE_ENGINE(),
+    )
+
+
+def DISTRIBUTED_WEB_STATS_PATHS_PREAGGREGATED_PATHKEY_TABLE_SQL():
+    return WEB_STATS_PATHS_PREAGGREGATED_TABLE_BASE_SQL.format(
+        table_name=DISTRIBUTED_WEB_STATS_PATHS_PREAGGREGATED_PATHKEY_TABLE(),
+        engine=Distributed(
+            data_table=SHARDED_WEB_STATS_PATHS_PREAGGREGATED_PATHKEY_TABLE(),
+            sharding_key="sipHash64(breakdown_value)",
+            cluster=settings.CLICKHOUSE_AUX_CLUSTER,
+        ),
+    )
+
+
+def DROP_WEB_STATS_PATHS_PREAGGREGATED_PATHKEY_TABLE_SQL():
+    return f"DROP TABLE IF EXISTS {DISTRIBUTED_WEB_STATS_PATHS_PREAGGREGATED_PATHKEY_TABLE()}"
+
+
+def DROP_SHARDED_WEB_STATS_PATHS_PREAGGREGATED_PATHKEY_TABLE_SQL():
+    return f"DROP TABLE IF EXISTS {SHARDED_WEB_STATS_PATHS_PREAGGREGATED_PATHKEY_TABLE()} SYNC"
+
+
+def TRUNCATE_WEB_STATS_PATHS_PREAGGREGATED_PATHKEY_TABLE_SQL():
+    return f"TRUNCATE TABLE IF EXISTS {SHARDED_WEB_STATS_PATHS_PREAGGREGATED_PATHKEY_TABLE()}"

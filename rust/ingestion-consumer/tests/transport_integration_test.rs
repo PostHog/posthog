@@ -276,7 +276,7 @@ async fn transport_retries_on_worker_busy() {
     let elapsed = start.elapsed();
 
     assert!(
-        matches!(err, TransportError::WorkerBusy(_)),
+        matches!(err.error, TransportError::WorkerBusy(_)),
         "expected WorkerBusy, got {err:?}"
     );
     // One retry means one busy backoff (base 250ms + jitter), so the call must
@@ -449,6 +449,7 @@ async fn dispatcher_and_transport_end_to_end() {
             degraded_hold: Duration::from_secs(10),
             min_state_duration: Duration::ZERO,
             probe_failure_threshold: 2,
+            drain_timeout: Duration::from_secs(5),
         },
     ));
     let dispatcher = Arc::new(Dispatcher::new(Arc::clone(&registry)));
@@ -468,7 +469,7 @@ async fn dispatcher_and_transport_end_to_end() {
         make_message("tok", "user-3", 3, r#"{"event":"d"}"#),
     ];
 
-    let sub_batches = dispatcher.assign(messages);
+    let sub_batches = dispatcher.assign("b", messages);
 
     // Scatter to workers
     let mut handles = Vec::new();
@@ -483,7 +484,7 @@ async fn dispatcher_and_transport_end_to_end() {
                 .send_batch(&worker, "batch-e2e", sub_batch.messages)
                 .await
                 .unwrap();
-            d.on_sub_batch_resolved(&worker, message_count, &routing_keys);
+            d.on_sub_batch_resolved(&worker, message_count, &routing_keys, false);
             result
         }));
     }

@@ -9,6 +9,9 @@ feature: conversations
 url_prefix: /conversations/tickets
 ui_apps: {}
 tools:
+    conversations-tickets-ai-feedback-create:
+        operation: conversations_tickets_ai_feedback_create
+        enabled: false
     conversations-tickets-bulk-update-status-create:
         operation: conversations_tickets_bulk_update_status_create
         enabled: false
@@ -124,9 +127,6 @@ tools:
                 - distinct_id
                 - created_at
                 - updated_at
-    conversations-tickets-suggest-reply-create:
-        operation: conversations_tickets_suggest_reply_create
-        enabled: false
     conversations-tickets-unread-count-retrieve:
         operation: conversations_tickets_unread_count_retrieve
         enabled: false
@@ -160,4 +160,10 @@ tools:
         enabled: false
     conversations-views-retrieve:
         operation: conversations_views_retrieve
+        enabled: false
+    conversations-zendesk-imports-create:
+        operation: conversations_zendesk_imports_create
+        enabled: false
+    conversations-zendesk-imports-status-retrieve:
+        operation: conversations_zendesk_imports_status_retrieve
         enabled: false

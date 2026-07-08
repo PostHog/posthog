@@ -1,11 +1,23 @@
+import asyncio
+import builtins
 from typing import Any
 
 import pytest
 from unittest.mock import MagicMock, patch
 
+from modal.exception import (
+    ConnectionError as ModalConnectionError,
+    ServiceError as ModalServiceError,
+    TimeoutError as ModalTimeoutError,
+)
 from requests.exceptions import ConnectionError, Timeout
 
-from products.tasks.backend.exceptions import SandboxExecutionError, SandboxProvisionError
+from products.tasks.backend.exceptions import (
+    SandboxExecutionError,
+    SandboxProvisionError,
+    SnapshotCreationError,
+    SnapshotTimeoutError,
+)
 from products.tasks.backend.logic.services.modal_provision_diagnostics import (
     MAX_PROVISION_LOG_EXCERPT_LINES,
     summarize_modal_output,
@@ -14,6 +26,7 @@ from products.tasks.backend.logic.services.modal_sandbox import (
     _GHCR_RESOLVE_MAX_ATTEMPTS,
     AGENT_SERVER_PORT,
     DEFAULT_MODAL_REGION,
+    DIRECTORY_SNAPSHOT_TIMEOUT_SECONDS,
     SANDBOX_IMAGE,
     ModalSandbox,
     _get_modal_region,
@@ -21,7 +34,12 @@ from products.tasks.backend.logic.services.modal_sandbox import (
     _image_ref_cache,
     _resource_create_kwargs,
 )
-from products.tasks.backend.logic.services.sandbox import AgentServerResult, ExecutionResult, SandboxConfig
+from products.tasks.backend.logic.services.sandbox import (
+    AgentServerResult,
+    ExecutionResult,
+    SandboxConfig,
+    SandboxTemplate,
+)
 
 
 def _agent_server_launch_command(mock_execute: Any) -> str:
@@ -419,6 +437,7 @@ class TestModalSandboxAgentServer:
             model="gpt-5.3-codex",
             reasoning_effort="high",
             event_ingest_token="ingest-token",
+            event_ingest_url="https://agent-proxy.example.com",
         )
 
         command = _agent_server_launch_command(mock_sandbox.execute)
@@ -427,6 +446,34 @@ class TestModalSandboxAgentServer:
         assert "POSTHOG_CODE_MODEL=gpt-5.3-codex" in command
         assert "POSTHOG_CODE_REASONING_EFFORT=high" in command
         assert "POSTHOG_TASK_RUN_EVENT_INGEST_TOKEN=ingest-token" in command
+        # Modal sandboxes reach the proxy by its real URL, no Docker-host rewrite.
+        assert "POSTHOG_TASK_RUN_EVENT_INGEST_URL=https://agent-proxy.example.com" in command
+
+    @pytest.mark.parametrize(
+        "keep_stream_open, expected_env_present",
+        [
+            (True, True),
+            (False, False),
+        ],
+    )
+    def test_start_agent_server_keep_stream_open_env(self, mock_sandbox: Any, keep_stream_open, expected_env_present):
+        mock_sandbox.execute = MagicMock(
+            return_value=ExecutionResult(stdout="ok:1", stderr="", exit_code=0, error=None),
+        )
+
+        mock_sandbox.start_agent_server(
+            repository="posthog/posthog",
+            task_id="task-123",
+            run_id="run-456",
+            mode="background",
+            event_ingest_keep_stream_open=keep_stream_open,
+        )
+
+        command = _agent_server_launch_command(mock_sandbox.execute)
+        if expected_env_present:
+            assert "POSTHOG_TASK_RUN_EVENT_INGEST_KEEP_STREAM_OPEN=true" in command
+        else:
+            assert "POSTHOG_TASK_RUN_EVENT_INGEST_KEEP_STREAM_OPEN" not in command
 
     def test_start_agent_server_raises_when_not_running(self, mock_sandbox: Any):
         mock_sandbox._sandbox.poll.return_value = 0
@@ -741,6 +788,108 @@ class TestModalSandboxAgentServerStartupHelpers:
         assert "pkill -KILL -f agent-server" in command
 
 
+class TestStartupFailureDiagnostics:
+    def _sandbox(self) -> Any:
+        sandbox = ModalSandbox.__new__(ModalSandbox)
+        sandbox.id = "sb-diag"
+        sandbox.config = SandboxConfig(name="t")
+        sandbox._sandbox = MagicMock()
+        return sandbox
+
+    def test_reports_termination_when_sandbox_gone(self):
+        sandbox = self._sandbox()
+        sandbox._sandbox.poll.return_value = 137
+
+        with patch.object(sandbox, "is_running", return_value=False):
+            diagnostics = sandbox._diagnose_startup_failure(allowed_domains=None)
+
+        assert diagnostics["sandbox_terminated"] == "true"
+        assert "poll=137" in diagnostics["failure_reason"]
+        sandbox._sandbox.exec.assert_not_called()
+
+    def test_reports_blocked_egress_host(self):
+        sandbox = self._sandbox()
+
+        def _exec(command: str, timeout_seconds: Any = None) -> ExecutionResult:
+            if "printf" in command:
+                return ExecutionResult(
+                    stdout="api.anthropic.com code=200\nmcp.posthog.com http_code=000",
+                    stderr="",
+                    exit_code=0,
+                    error=None,
+                )
+            if "agent-server.log" in command:
+                return ExecutionResult(stdout="agent log tail", stderr="", exit_code=0, error=None)
+            return ExecutionResult(stdout='{"status":"ok","hasSession":false}', stderr="", exit_code=0, error=None)
+
+        with (
+            patch.object(sandbox, "is_running", return_value=True),
+            patch.object(sandbox, "execute", side_effect=_exec),
+        ):
+            diagnostics = sandbox._diagnose_startup_failure(allowed_domains=["github.com"])
+
+        assert diagnostics["sandbox_terminated"] == "false"
+        assert "egress blocked" in diagnostics["failure_reason"]
+        assert "mcp.posthog.com" in diagnostics["failure_reason"]
+
+    def test_reports_alive_without_session_when_no_block(self):
+        sandbox = self._sandbox()
+
+        def _exec(command: str, timeout_seconds: Any = None) -> ExecutionResult:
+            if "printf" in command:
+                return ExecutionResult(
+                    stdout="gateway.us.posthog.com http_code=200", stderr="", exit_code=0, error=None
+                )
+            return ExecutionResult(stdout="ok", stderr="", exit_code=0, error=None)
+
+        with (
+            patch.object(sandbox, "is_running", return_value=True),
+            patch.object(sandbox, "execute", side_effect=_exec),
+        ):
+            diagnostics = sandbox._diagnose_startup_failure(allowed_domains=None)
+
+        assert diagnostics["sandbox_terminated"] == "false"
+        assert "never reported hasSession=true" in diagnostics["failure_reason"]
+
+
+class TestModalSandboxCreateAllowlist:
+    def _create_with_config(self, config: SandboxConfig) -> Any:
+        mock_sb = MagicMock()
+        mock_sb.object_id = "sb-created"
+        with (
+            patch("products.tasks.backend.logic.services.modal_sandbox.modal.enable_output"),
+            patch.object(ModalSandbox, "_get_app_for_template", return_value=MagicMock()),
+            patch("products.tasks.backend.logic.services.modal_sandbox._get_template_image", return_value=MagicMock()),
+            patch(
+                "products.tasks.backend.logic.services.modal_sandbox.modal.Sandbox.create", return_value=mock_sb
+            ) as mock_create,
+        ):
+            ModalSandbox.create(config)
+        return mock_create
+
+    def test_create_forwards_exact_outbound_domain_allowlist(self):
+        domains = ["github.com", "api.github.com", "example.com", "*.posthog.com", "api.anthropic.com"]
+        config = SandboxConfig(name="t", outbound_domain_allowlist=domains)
+
+        mock_create = self._create_with_config(config)
+
+        assert mock_create.call_args.kwargs["outbound_domain_allowlist"] == domains
+
+    def test_create_omits_allowlist_when_unset(self):
+        config = SandboxConfig(name="t")
+
+        mock_create = self._create_with_config(config)
+
+        assert "outbound_domain_allowlist" not in mock_create.call_args.kwargs
+
+    def test_create_sets_vm_runtime_experimental_option(self):
+        config = SandboxConfig(name="t", vm_runtime=True)
+
+        mock_create = self._create_with_config(config)
+
+        assert mock_create.call_args.kwargs["experimental_options"] == {"vm_runtime": True}
+
+
 class TestResourceCreateKwargs:
     def test_flat_scalars_when_not_burstable(self):
         config = SandboxConfig(name="t", cpu_cores=4, memory_gb=16)
@@ -782,6 +931,26 @@ class TestResourceCreateKwargs:
         # Reserve the explicitly requested floor, burst up to the configured limit.
         assert kwargs == {"cpu": (2.0, 8.0), "memory": (4096, 16384)}
 
+    def test_vm_runtime_pins_memory_but_keeps_cpu_elastic(self):
+        config = SandboxConfig(name="t", cpu_cores=4, memory_gb=16, burstable_resources=True, vm_runtime=True)
+
+        kwargs = _resource_create_kwargs(config)
+
+        assert kwargs == {"cpu": (0.5, 4.0), "memory": 16384}
+
+    def test_vm_template_pins_memory_but_keeps_cpu_elastic(self):
+        config = SandboxConfig(
+            name="t",
+            cpu_cores=4,
+            memory_gb=16,
+            burstable_resources=True,
+            template=SandboxTemplate.VM_BASE,
+        )
+
+        kwargs = _resource_create_kwargs(config)
+
+        assert kwargs == {"cpu": (0.5, 4.0), "memory": 16384}
+
     def test_explicit_request_floor_is_clamped_to_limit(self):
         # A request floor above the configured limit is clamped down to the limit.
         config = SandboxConfig(
@@ -796,3 +965,67 @@ class TestResourceCreateKwargs:
         kwargs = _resource_create_kwargs(config)
 
         assert kwargs == {"cpu": (1.0, 1.0), "memory": (2048, 2048)}
+
+
+class TestModalSandboxCreateSnapshot:
+    @pytest.fixture
+    def mock_sandbox(self) -> Any:
+        mock_modal_sandbox = MagicMock()
+        mock_modal_sandbox.object_id = "test-sandbox-id"
+        mock_modal_sandbox.poll.return_value = None  # None => still running
+
+        config = SandboxConfig(name="test-sandbox")
+        with patch.object(ModalSandbox, "_get_app_for_template", return_value=MagicMock()):
+            return ModalSandbox(sandbox=mock_modal_sandbox, config=config)
+
+    def test_create_snapshot_success(self, mock_sandbox: Any):
+        mock_sandbox._sandbox.snapshot_filesystem.return_value = MagicMock(object_id="im-123")
+
+        with patch("products.tasks.backend.exceptions.capture_exception") as capture_exception:
+            assert mock_sandbox.create_snapshot() == "im-123"
+
+        capture_exception.assert_not_called()
+
+    @pytest.mark.parametrize(
+        "error",
+        [
+            ModalTimeoutError("Deadline exceeded"),
+            ModalConnectionError("connection reset"),
+            ModalServiceError("Timeout expired"),
+            builtins.TimeoutError("timed out"),
+            builtins.ConnectionError("connection error"),
+            asyncio.CancelledError(),
+        ],
+    )
+    def test_transient_modal_errors_are_retryable_and_not_captured(self, mock_sandbox: Any, error: BaseException):
+        mock_sandbox._sandbox.snapshot_filesystem.side_effect = error
+
+        with (
+            patch("products.tasks.backend.exceptions.capture_exception") as capture_exception,
+            pytest.raises(SnapshotTimeoutError) as exc,
+        ):
+            mock_sandbox.create_snapshot()
+
+        # Transient timeouts must stay retryable (Temporal retries) and must not create error-tracking issues.
+        assert exc.value.non_retryable is False
+        capture_exception.assert_not_called()
+
+    def test_genuine_failure_raises_snapshot_creation_error_and_is_captured(self, mock_sandbox: Any):
+        mock_sandbox._sandbox.snapshot_filesystem.side_effect = RuntimeError("Failed to create image")
+
+        with (
+            patch("products.tasks.backend.exceptions.capture_exception") as capture_exception,
+            pytest.raises(SnapshotCreationError),
+        ):
+            mock_sandbox.create_snapshot()
+
+        capture_exception.assert_called_once()
+
+    def test_create_directory_snapshot_overrides_modal_default_timeout(self, mock_sandbox: Any):
+        mock_sandbox._sandbox.snapshot_directory.return_value = MagicMock(object_id="im-dir-123")
+
+        assert mock_sandbox.create_directory_snapshot("/tmp/workspace") == "im-dir-123"
+
+        mock_sandbox._sandbox.snapshot_directory.assert_called_once_with(
+            "/tmp/workspace", timeout=DIRECTORY_SNAPSHOT_TIMEOUT_SECONDS, ttl=None
+        )

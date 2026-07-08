@@ -143,22 +143,21 @@ class TestTruncateToTokenLimit:
 
 
 class TestTruncateToHeadTail:
-    def test_keeps_short_text_unchanged(self):
-        assert truncate_to_head_tail("short", max_chars=100, head_chars=30) == "short"
-
-    def test_keeps_head_and_tail_within_max_chars(self):
-        text = ("h" * 400) + ("m" * 400) + ("t" * 800)
-        result = truncate_to_head_tail(text, max_chars=1000, head_chars=300)
-        tail_chars = 1000 - len(HEAD_TAIL_SEPARATOR) - 300
-
-        assert len(result) == 1000
-        assert result.startswith("h" * 300)
-        assert HEAD_TAIL_SEPARATOR in result
-        assert result.endswith("t" * tail_chars)
-
-    def test_falls_back_to_tail_when_head_chars_is_zero(self):
-        text = "abcdefgh"
-        assert truncate_to_head_tail(text, max_chars=5, head_chars=0) == "defgh"
+    @parameterized.expand(
+        [
+            ("short_text", "short", 100, 30, "short"),
+            (
+                "keeps_head_and_tail",
+                ("h" * 400) + ("m" * 400) + ("t" * 800),
+                1000,
+                300,
+                ("h" * 300) + HEAD_TAIL_SEPARATOR + ("t" * (1000 - len(HEAD_TAIL_SEPARATOR) - 300)),
+            ),
+            ("head_chars_zero_uses_tail", "abcdefgh", 5, 0, "defgh"),
+        ]
+    )
+    def test_truncation(self, _name: str, text: str, max_chars: int, head_chars: int, expected: str):
+        assert truncate_to_head_tail(text, max_chars=max_chars, head_chars=head_chars) == expected
 
 
 class TestExtractSentimentEvalMessages:

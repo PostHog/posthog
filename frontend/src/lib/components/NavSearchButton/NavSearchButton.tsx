@@ -1,13 +1,9 @@
-import { useValues } from 'kea'
-
 import { IconSearch } from '@posthog/icons'
 
-import { RenderKeybind } from 'lib/components/AppShortcuts/AppShortcutMenu'
-import { keyBinds } from 'lib/components/AppShortcuts/shortcuts'
+import { RenderKeybind } from 'lib/components/Shortcuts/ShortcutMenu'
+import { keyBinds } from 'lib/components/Shortcuts/shortcuts'
 import posthog from 'lib/posthog-typed'
 import { ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
-
-import { searchButtonLogic } from './searchButtonLogic'
 
 interface NavSearchButtonProps {
     isLayoutNavCollapsed: boolean
@@ -15,11 +11,9 @@ interface NavSearchButtonProps {
 }
 
 export function NavSearchButton({ isLayoutNavCollapsed, toggleCommand }: NavSearchButtonProps): JSX.Element {
-    const { showHint } = useValues(searchButtonLogic)
-
     return (
         <ButtonPrimitive
-            iconOnly={!showHint}
+            iconOnly
             data-attr="nav-search"
             tooltip={
                 <div className="flex items-center gap-2">
@@ -31,18 +25,8 @@ export function NavSearchButton({ isLayoutNavCollapsed, toggleCommand }: NavSear
                 posthog.capture('nav search clicked')
                 toggleCommand()
             }}
-            className="gap-0"
         >
             <IconSearch className="size-4 shrink-0 text-secondary" />
-            <div
-                className={`overflow-hidden whitespace-nowrap transition-[max-width,opacity] duration-300 ease-in-out ${
-                    showHint ? 'max-w-xs opacity-100' : 'max-w-0 opacity-0'
-                }`}
-            >
-                <span className="flex items-center gap-1 pl-1 text-xs text-secondary">
-                    <RenderKeybind keybind={[keyBinds.search]} minimal />
-                </span>
-            </div>
         </ButtonPrimitive>
     )
 }

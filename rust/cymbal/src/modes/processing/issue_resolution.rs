@@ -1,21 +1,19 @@
 use std::fmt::Display;
 
 use chrono::{DateTime, Utc};
-use common_kafka::kafka_messages::internal_events::{InternalEvent, InternalEventEvent};
-use common_kafka::kafka_producer::{send_iter_to_kafka, KafkaProduceError};
-
-use rdkafka::types::RDKafkaErrorCode;
+use common_kafka::kafka_producer::{
+    send_iter_to_kafka, send_keyed_iter_to_kafka, KafkaProduceError,
+};
 use serde::{Deserialize, Serialize};
-use sqlx::PgConnection;
 use uuid::Uuid;
 
-use crate::modes::processing::rules::assignment::{try_assignment_rules, Assignee, Assignment};
-use crate::teams::TeamManager;
-use crate::types::{FingerprintedErrProps, OutputErrProps};
-use crate::{
-    analytics::capture_issue_reopened, app_context::AppContext, error::UnhandledError,
-    metric_consts::ISSUE_REOPENED,
+use crate::core::types::notification::{
+    IngestionNotification, IssueCreated, IssueNotificationContext, IssueReopened, IssueSnapshot,
+    IssueSpiking, NotificationMeta,
 };
+use crate::modes::processing::rules::assignment::{Assignee, Assignment};
+use crate::types::OutputErrProps;
+use crate::{app_context::AppContext, error::UnhandledError, metric_consts::ISSUE_REOPENED};
 
 #[derive(Debug, Clone)]
 pub struct IssueFingerprintOverride {
@@ -70,18 +68,6 @@ pub enum IssueStatus {
     Resolved,
     PendingRelease,
     Suppressed,
-}
-
-impl IssueStatus {
-    fn as_str(&self) -> &'static str {
-        match self {
-            IssueStatus::Archived => "Archived",
-            IssueStatus::Active => "Active",
-            IssueStatus::Resolved => "Resolved",
-            IssueStatus::PendingRelease => "Pending Release",
-            IssueStatus::Suppressed => "Suppressed",
-        }
-    }
 }
 
 impl Issue {
@@ -198,7 +184,6 @@ impl Issue {
             // (fingerprint_issue_state, internal events) are not stale.
             self.status = IssueStatus::Active;
             metrics::counter!(ISSUE_REOPENED).increment(1);
-            capture_issue_reopened(self.team_id, self.id);
         }
 
         Ok(reopened)
@@ -354,157 +339,118 @@ impl IssueFingerprintOverride {
     }
 }
 
-pub async fn process_assignment(
-    conn: &mut PgConnection,
-    team_manager: &TeamManager,
+pub async fn send_issue_created_notification(
+    context: &AppContext,
     issue: &Issue,
-    props: FingerprintedErrProps,
-) -> Result<Option<Assignment>, UnhandledError> {
-    let new_assignment = if let Some(new) = props.fingerprint.assignment.clone() {
-        Some(new)
-    } else {
-        try_assignment_rules(
-            conn,
-            team_manager,
-            issue.clone(),
-            &props.to_output(issue.id),
-        )
-        .await?
-    };
-
-    let assignment = if let Some(new_assignment) = new_assignment {
-        Some(new_assignment.apply(&mut *conn, issue.id).await?)
-    } else {
-        issue.get_assignments(&mut *conn).await?.first().cloned()
-    };
-
-    Ok(assignment)
+    assignment: Option<Assignment>,
+    output_props: OutputErrProps,
+    event_uuid: Uuid,
+    event_timestamp: &DateTime<Utc>,
+) -> Result<(), UnhandledError> {
+    let fingerprint = output_props.fingerprint.clone();
+    publish_ingestion_notification(
+        context,
+        IngestionNotification::IssueCreated(IssueCreated {
+            meta: notification_meta(issue),
+            issue: issue_notification_context(issue, output_props),
+            fingerprint,
+            event_uuid,
+            event_timestamp: event_timestamp.to_rfc3339(),
+            assignee: assignment_to_string(assignment)?,
+        }),
+    )
+    .await
 }
 
-pub async fn send_issue_created_alert(
+pub async fn send_issue_reopened_notification(
     context: &AppContext,
     issue: &Issue,
     assignment: Option<Assignment>,
     output_props: OutputErrProps,
     event_timestamp: &DateTime<Utc>,
 ) -> Result<(), UnhandledError> {
-    send_internal_event(
+    publish_ingestion_notification(
         context,
-        "$error_tracking_issue_created",
-        issue,
-        assignment,
-        output_props,
-        event_timestamp,
+        IngestionNotification::IssueReopened(IssueReopened {
+            meta: notification_meta(issue),
+            issue: issue_notification_context(issue, output_props),
+            event_timestamp: event_timestamp.to_rfc3339(),
+            assignee: assignment_to_string(assignment)?,
+        }),
     )
     .await
 }
 
-pub async fn send_new_fingerprint_event(
+pub async fn send_issue_spiking_notification(
     context: &AppContext,
     issue: &Issue,
-    output_props: &OutputErrProps,
+    output_props: OutputErrProps,
+    computed_baseline: f64,
+    current_bucket_value: f64,
 ) -> Result<(), UnhandledError> {
-    let request = output_props.to_fingerprint_embedding_request(issue);
+    publish_ingestion_notification(
+        context,
+        IngestionNotification::IssueSpiking(IssueSpiking {
+            meta: notification_meta(issue),
+            issue: issue_notification_context(issue, output_props),
+            computed_baseline,
+            current_bucket_value,
+        }),
+    )
+    .await
+}
 
-    let res = send_iter_to_kafka(
+fn notification_meta(issue: &Issue) -> NotificationMeta {
+    NotificationMeta {
+        notification_id: Uuid::now_v7(),
+        team_id: issue.team_id,
+    }
+}
+
+fn issue_notification_context(
+    issue: &Issue,
+    output_props: OutputErrProps,
+) -> IssueNotificationContext {
+    IssueNotificationContext {
+        issue_id: issue.id,
+        issue: issue_snapshot(issue),
+        event_properties: output_props,
+    }
+}
+
+fn issue_snapshot(issue: &Issue) -> IssueSnapshot {
+    IssueSnapshot {
+        name: issue.name.clone(),
+        description: issue.description.clone(),
+        status: issue.status.to_string(),
+        created_at: issue.created_at,
+    }
+}
+
+async fn publish_ingestion_notification(
+    context: &AppContext,
+    notification: IngestionNotification,
+) -> Result<(), UnhandledError> {
+    send_keyed_iter_to_kafka(
         &context.immediate_producer,
-        &context.config.embedding_worker_topic,
-        &[request],
+        &context.config.ingestion_notifications_topic,
+        |notification| Some(notification.partition_key()),
+        std::iter::once(notification),
     )
     .await
     .into_iter()
-    .collect::<Result<Vec<_>, _>>();
-    if let Err(err) = res {
-        return Err(UnhandledError::KafkaProduceError(err));
-    }
+    .collect::<Result<Vec<_>, KafkaProduceError>>()
+    .map_err(UnhandledError::KafkaProduceError)?;
     Ok(())
 }
 
-pub async fn send_issue_reopened_alert(
-    context: &AppContext,
-    issue: &Issue,
-    assignment: Option<Assignment>,
-    output_props: OutputErrProps,
-    event_timestamp: &DateTime<Utc>,
-) -> Result<(), UnhandledError> {
-    send_internal_event(
-        context,
-        "$error_tracking_issue_reopened",
-        issue,
-        assignment,
-        output_props,
-        event_timestamp,
-    )
-    .await
-}
+fn assignment_to_string(assignment: Option<Assignment>) -> Result<Option<String>, UnhandledError> {
+    let Some(assignment) = assignment else {
+        return Ok(None);
+    };
 
-async fn send_internal_event(
-    context: &AppContext,
-    event: &str,
-    issue: &Issue,
-    new_assignment: Option<Assignment>,
-    output_props: OutputErrProps,
-    event_timestamp: &DateTime<Utc>,
-) -> Result<(), UnhandledError> {
-    let mut event = InternalEventEvent::new(event, issue.id, Utc::now(), None);
-    event
-        .insert_prop("name", issue.name.clone())
-        .expect("Strings are serializable");
-    event
-        .insert_prop("description", issue.description.clone())
-        .expect("Strings are serializable");
-    event.insert_prop("status", issue.status.as_str())?;
-    event.insert_prop("fingerprint", &output_props.fingerprint)?;
-    event.insert_prop("exception_timestamp", event_timestamp)?;
-    event.insert_prop("exception_props", output_props)?;
-
-    if let Some(assignment) = new_assignment {
-        let assignee = Assignee::try_from(&assignment)?;
-        let stringified_assignee = serde_json::to_string(&assignee)?;
-
-        event
-            .insert_prop("assignee", stringified_assignee)
-            .expect("Strings are serializable");
-    }
-
-    let iter = [InternalEvent {
-        team_id: issue.team_id,
-        event,
-        person: None,
-    }];
-
-    let res = send_iter_to_kafka(
-        &context.cyclotron_producer,
-        &context.config.internal_events_topic,
-        &iter,
-    )
-    .await
-    .into_iter()
-    .collect::<Result<Vec<_>, _>>();
-
-    match res {
-        Ok(_) => Ok(()),
-        Err(KafkaProduceError::KafkaProduceError { error })
-            if matches!(
-                error.rdkafka_error_code(),
-                Some(RDKafkaErrorCode::MessageSizeTooLarge)
-            ) =>
-        {
-            let mut iter = iter;
-            iter[0].event.properties.remove("exception_props");
-            iter[0].event.insert_prop("message_was_too_large", true)?;
-            send_iter_to_kafka(
-                &context.cyclotron_producer,
-                &context.config.internal_events_topic,
-                &iter,
-            )
-            .await
-            .into_iter()
-            .collect::<Result<Vec<_>, _>>()?;
-            Ok(())
-        }
-        Err(e) => Err(e.into()),
-    }
+    let assignee = Assignee::try_from(&assignment)?;
+    Ok(Some(serde_json::to_string(&assignee)?))
 }
 
 impl From<String> for IssueStatus {

@@ -15,8 +15,8 @@ for the wider dev flow.
 - [src/persistence/](src/persistence/) — `PgSessionQueue`,
   `PgRevisionStore`, `PgIdentityStore`, `PgIntegrationStore`,
   `PgSandboxInstanceStore`, `PgApprovalStore`, `PgCredentialBroker`.
-  All Postgres-backed; there are no in-memory variants. SQL schema
-  lives in [@posthog/agent-migrations](../agent-migrations/), not here.
+  All Postgres-backed; there are no in-memory variants. Schema is
+  Django-owned ([products/agent_platform/backend/migrations/](../../backend/migrations/)), not here.
 - [src/storage/](src/storage/) — `BundleStore` interface +
   `S3BundleStore` impl. Prod runs against real S3, tests against
   SeaweedFS via `buildTestBundleStore`. No fs/in-memory bundle store.
@@ -60,14 +60,15 @@ for the wider dev flow.
    can't handle. Mirror janitor `validate-spec.ts` whenever you
    touch this.
 
-4. **Schema lives in `@posthog/agent-migrations`.** This package no
-   longer carries inline SQL constants. New tables or columns go in a
-   new migration file there. Test harness pulls `reset()` from the
-   migrations package; production runs `bin/migrate --scope=agent_runtime`
-   before service boot. **Never** ship a feature that runs `CREATE
-TABLE IF NOT EXISTS` at runner / janitor / ingress boot — schema
-   drift then becomes silent (column adds no-op) and prod tooling
-   that depends on `pgmigrations` is bypassed.
+4. **Schema is Django-owned.** Tables live in the `agent_platform`
+   product DB; models + migrations are under
+   `products/agent_platform/backend/`. New tables or columns go in a
+   new Django migration there. The node services are pure clients —
+   they connect and run raw SQL, never DDL. Production applies
+   migrations via the `migrate_product_databases` job. **Never** ship a
+   feature that runs `CREATE TABLE IF NOT EXISTS` at runner / janitor /
+   ingress boot — schema drift then becomes silent (column adds no-op)
+   and the Django migration graph is bypassed.
 
 5. **Cross-process services are constructor-injected, not module
    singletons.** Wire each impl at the entrypoint and pass it through

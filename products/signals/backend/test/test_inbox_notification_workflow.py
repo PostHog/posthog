@@ -13,6 +13,7 @@ from temporalio.worker import UnsandboxedWorkflowRunner, Worker
 from posthog.models import Organization, Team
 
 from products.signals.backend.models import SignalReport, SignalReportTask
+from products.signals.backend.task_run_artefacts import TASK_RUN_TYPE_IMPLEMENTATION
 from products.signals.backend.temporal.inbox_notification import (
     InboxNotificationInput,
     InboxNotificationState,
@@ -36,9 +37,7 @@ def _link_implementation_task(team: Team, report: SignalReport, *, pr_url: str |
     task = Task.objects.create(
         team=team, title="impl", description="d", origin_product=Task.OriginProduct.SIGNAL_REPORT
     )
-    SignalReportTask.objects.create(
-        team=team, report=report, task=task, relationship=SignalReportTask.Relationship.IMPLEMENTATION
-    )
+    SignalReportTask.objects.create(team=team, report=report, task=task, relationship=TASK_RUN_TYPE_IMPLEMENTATION)
     TaskRun.objects.create(team=team, task=task, status=run_status, output={"pr_url": pr_url})
 
 

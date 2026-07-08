@@ -1,7 +1,6 @@
 {
-  "tsConfigPath": "./tsconfig.json",
+  "tsConfigPath": "./tsconfig.kea-typegen.json",
   "rootPath": "./frontend/src",
   "typesPath": "./frontend/src",
   "writePaths": true
 }
-

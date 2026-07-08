@@ -1,5 +1,4 @@
 import clsx from 'clsx'
-import { useValues } from 'kea'
 import React from 'react'
 
 import { IconCode, IconEye, IconMarkdown, IconMarkdownFilled, IconWrench } from '@posthog/icons'
@@ -13,10 +12,10 @@ import { isObject } from 'lib/utils/guards'
 
 import { getJsonContainerForDisplay, JSONValueDisplay } from '../components/JSONValueDisplay'
 import { MessageSentimentBar } from '../components/SentimentTag'
-import { llmGenerationSentimentLazyLoaderLogic } from '../llmGenerationSentimentLazyLoaderLogic'
 import { LLMInputOutput } from '../LLMInputOutput'
 import { SearchHighlight } from '../SearchHighlight'
 import { containsSearchQuery } from '../searchUtils'
+import type { GenerationSentiment } from '../sentimentResults'
 import { CompatMessage, MultiModalContentItem, VercelSDKImageMessage } from '../types'
 import {
     getGeminiInlineData,
@@ -78,7 +77,7 @@ export function ConversationMessagesDisplay({
     searchQuery,
     displayOption,
     traceId,
-    generationEventId,
+    generationSentiment,
     highlightMessageIndex,
 }: {
     inputNormalized: CompatMessage[]
@@ -93,6 +92,7 @@ export function ConversationMessagesDisplay({
     displayOption?: ConversationDisplayOption
     traceId?: string | null
     generationEventId?: string
+    generationSentiment?: GenerationSentiment | null
     /** Original $ai_input index to auto-expand and highlight (e.g. from sentiment tab deep link) */
     highlightMessageIndex?: number | null
 }): JSX.Element {
@@ -106,9 +106,6 @@ export function ConversationMessagesDisplay({
     const outputRolesSignature = outputNormalized.map((message) => message.role).join('|')
     const inputMessageShowStates = messageShowStates.input
     const outputMessageShowStates = messageShowStates.output
-    const { getGenerationSentiment } = useValues(llmGenerationSentimentLazyLoaderLogic)
-
-    const generationSentiment = generationEventId ? getGenerationSentiment(generationEventId) : undefined
 
     // Sentiment is only available for user messages that have a known original
     // index in $ai_input (sourceIndex). System/assistant messages and messages

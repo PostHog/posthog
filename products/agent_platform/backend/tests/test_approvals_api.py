@@ -36,8 +36,6 @@ from ..models import AgentApplication
 class TestApprovalEndpointsAuth(APIBaseTest):
     databases = {
         "default",
-        "persons_db_writer",
-        "persons_db_reader",
         "agent_platform_db_writer",
         "agent_platform_db_reader",
     }
@@ -93,7 +91,7 @@ class TestApprovalEndpointsAuth(APIBaseTest):
         mock_janitor.return_value.get_approval.return_value = {
             "id": self.approval_id,
             "application_id": str(self.application.id),
-            "approver_scope": {"allow_agent_approver": False},
+            "approver_scope": {"type": "agent"},
         }
         mock_janitor.return_value.decide_approval.return_value = {"ok": True, "state": "approving"}
         resp = self.client.post(
@@ -147,31 +145,32 @@ class TestApprovalEndpointsAuth(APIBaseTest):
         self.assertEqual(resp.status_code, status.HTTP_400_BAD_REQUEST)
         mock_janitor.return_value.decide_approval.assert_not_called()
 
-    # A Personal API key resolves to an authenticated User but is not
-    # `SessionAuthentication`, so the `allow_agent_approver: False` gate
-    # rejects it; with `True` the gate doesn't apply and the call proceeds.
-    @parameterized.expand(
-        [
-            ("disallowed", False, status.HTTP_404_NOT_FOUND, False),
-            ("allowed", True, status.HTTP_200_OK, True),
-        ]
-    )
     @patch("products.agent_platform.backend.presentation.views._janitor")
-    def test_personal_api_key_decide_respects_allow_agent_approver(
-        self,
-        _label: str,
-        allow_agent_approver: bool,
-        expected_status: int,
-        decide_called: bool,
-        mock_janitor,
-    ) -> None:
+    def test_principal_type_approval_is_not_decidable_here(self, mock_janitor) -> None:
+        # `principal`-type approvals are the session owner's to clear at the
+        # ingress decision API — the console (Django) only decides `agent`-type.
+        # An admin hitting this endpoint for a principal row gets 404.
         self._set_org_level(OrganizationMembership.Level.ADMIN)
         mock_janitor.return_value.get_approval.return_value = {
             "id": self.approval_id,
             "application_id": str(self.application.id),
-            "approver_scope": {"allow_agent_approver": allow_agent_approver},
+            "approver_scope": {"type": "principal"},
         }
-        mock_janitor.return_value.decide_approval.return_value = {"ok": True, "state": "approving"}
+        resp = self.client.post(self.url_decide, {"decision": "approve"}, format="json")
+        self.assertEqual(resp.status_code, status.HTTP_404_NOT_FOUND)
+        mock_janitor.return_value.decide_approval.assert_not_called()
+
+    # A Personal API key resolves to an authenticated User but is not
+    # `SessionAuthentication` — agent (owner) decisions require a human acting
+    # interactively (session or first-party OAuth), so a PAT is always rejected.
+    @patch("products.agent_platform.backend.presentation.views._janitor")
+    def test_personal_api_key_cannot_decide_agent_approval(self, mock_janitor) -> None:
+        self._set_org_level(OrganizationMembership.Level.ADMIN)
+        mock_janitor.return_value.get_approval.return_value = {
+            "id": self.approval_id,
+            "application_id": str(self.application.id),
+            "approver_scope": {"type": "agent"},
+        }
         raw_key = generate_random_token_personal()
         PersonalAPIKey.objects.create(
             label="agent",
@@ -185,11 +184,8 @@ class TestApprovalEndpointsAuth(APIBaseTest):
             format="json",
             HTTP_AUTHORIZATION=f"Bearer {raw_key}",
         )
-        self.assertEqual(resp.status_code, expected_status)
-        if decide_called:
-            mock_janitor.return_value.decide_approval.assert_called_once()
-        else:
-            mock_janitor.return_value.decide_approval.assert_not_called()
+        self.assertEqual(resp.status_code, status.HTTP_404_NOT_FOUND)
+        mock_janitor.return_value.decide_approval.assert_not_called()
 
     def _make_oauth_token(self, *, scope: str, token: str, is_first_party: bool = False) -> OAuthAccessToken:
         oauth_application = OAuthApplication.objects.create(
@@ -211,10 +207,11 @@ class TestApprovalEndpointsAuth(APIBaseTest):
             scope=scope,
         )
 
-    # Only a first-party PostHog OAuth app (e.g. PostHog Code, where a human
-    # approves in-app) can get past the `allow_agent_approver: False` gate. A
-    # third-party OAuth app is rejected even with a broad `*` scope — the gate
-    # keys off the app's staff-set `is_first_party` flag, not the token scope.
+    # An `agent` (owner) decision requires a human acting interactively. Only a
+    # first-party PostHog OAuth app (e.g. PostHog Code, where a human approves
+    # in-app) qualifies; a third-party OAuth app is rejected even with a broad
+    # `*` scope — the gate keys off the app's staff-set `is_first_party` flag,
+    # not the token scope.
     @parameterized.expand(
         [
             ("first_party_app", True, status.HTTP_200_OK, True),
@@ -222,7 +219,7 @@ class TestApprovalEndpointsAuth(APIBaseTest):
         ]
     )
     @patch("products.agent_platform.backend.presentation.views._janitor")
-    def test_oauth_bearer_can_decide_human_only_approval_only_when_first_party(
+    def test_oauth_bearer_can_decide_agent_approval_only_when_first_party(
         self,
         label: str,
         is_first_party: bool,
@@ -234,7 +231,7 @@ class TestApprovalEndpointsAuth(APIBaseTest):
         mock_janitor.return_value.get_approval.return_value = {
             "id": self.approval_id,
             "application_id": str(self.application.id),
-            "approver_scope": {"allow_agent_approver": False},
+            "approver_scope": {"type": "agent"},
         }
         mock_janitor.return_value.decide_approval.return_value = {"ok": True, "state": "approving"}
         # `*` satisfies the viewset scope check for both; the first-party flag is
@@ -251,28 +248,6 @@ class TestApprovalEndpointsAuth(APIBaseTest):
             mock_janitor.return_value.decide_approval.assert_called_once()
         else:
             mock_janitor.return_value.decide_approval.assert_not_called()
-
-    # When the spec's approver_scope allows an agent approver, the auth-class
-    # / scope gate doesn't apply: any team-admin authenticator (including a
-    # plain `agents:write` OAuth bearer) can decide.
-    @patch("products.agent_platform.backend.presentation.views._janitor")
-    def test_oauth_bearer_agents_write_can_decide_when_agent_approver_allowed(self, mock_janitor) -> None:
-        self._set_org_level(OrganizationMembership.Level.ADMIN)
-        mock_janitor.return_value.get_approval.return_value = {
-            "id": self.approval_id,
-            "application_id": str(self.application.id),
-            "approver_scope": {"allow_agent_approver": True},
-        }
-        mock_janitor.return_value.decide_approval.return_value = {"ok": True, "state": "approving"}
-        access_token = self._make_oauth_token(scope="agents:write", token="pha_test_agent_approver_allowed")
-        resp = self.client.post(
-            self.url_decide,
-            {"decision": "approve"},
-            format="json",
-            HTTP_AUTHORIZATION=f"Bearer {access_token.token}",
-        )
-        self.assertEqual(resp.status_code, status.HTTP_200_OK)
-        mock_janitor.return_value.decide_approval.assert_called_once()
 
     # `agent_approvals:write` does NOT satisfy the viewset-level
     # `scope_object = "agents"` check on its own — the token must also carry

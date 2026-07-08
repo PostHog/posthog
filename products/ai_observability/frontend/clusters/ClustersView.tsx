@@ -56,15 +56,13 @@ export function ClustersView(): JSX.Element {
     const { openJobsPanel } = useActions(clusteringJobsLogic)
 
     const showAdminPanel = featureFlags[FEATURE_FLAGS.LLM_ANALYTICS_CLUSTERING_ADMIN]
-    const evaluationsEnabled = !!featureFlags[FEATURE_FLAGS.LLM_ANALYTICS_EVALUATIONS_CLUSTERING]
     const levelOptions: { value: ClusteringLevel; label: string }[] = [
         { value: 'trace', label: 'Traces' },
         { value: 'generation', label: 'Generations' },
-        ...(evaluationsEnabled ? [{ value: 'evaluation' as const, label: 'Evaluations' }] : []),
+        { value: 'evaluation' as const, label: 'Evaluations' },
     ]
-    const levelTooltip = evaluationsEnabled
-        ? 'Traces cluster entire conversations, generations cluster individual LLM calls, and evaluations cluster $ai_evaluation events by evaluator name, verdict, and reasoning'
-        : 'Traces cluster entire conversations, while generations cluster individual LLM calls'
+    const levelTooltip =
+        'Traces cluster entire conversations, generations cluster individual LLM calls, and evaluations cluster $ai_evaluation events by evaluator name, verdict, and reasoning'
 
     // Build a map from job_id to job name for run labels
     const jobNameById: Record<string, string> = {}

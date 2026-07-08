@@ -23,18 +23,23 @@ import {
     createLogger,
     createMetricsServer,
     createModalSandboxTerminator,
+    DirectHttpClient,
+    HttpGatewayCatalog,
     initMetrics,
     installProcessHandlers,
     isDev,
     MemoryStore,
     MultiBackendSandboxTerminator,
     PgApprovalStore,
+    PgIdentityAdminStore,
     PgRevisionStore,
     PgSandboxInstanceStore,
     PgSessionQueue,
     S3BundleStore,
     S3JsonlTabularStore,
     S3MemoryStore,
+    SandboxPool,
+    selectSandboxPool,
     TabularStore,
 } from '@posthog/agent-shared'
 
@@ -98,6 +103,9 @@ async function main(): Promise<void> {
     // (same secret_env entries the runner reads).
     const sandboxInstances = new PgSandboxInstanceStore(agentDb)
     const sandboxTerminator = new MultiBackendSandboxTerminator(createModalSandboxTerminator())
+    // Keyless admin view over agent_user + agent_identity_credential for the
+    // console "Users" pane. No decryption key — metadata only.
+    const identityAdmin = new PgIdentityAdminStore(agentDb)
 
     const sweep = {
         queue,
@@ -150,6 +158,38 @@ async function main(): Promise<void> {
         'memory.s3.enabled'
     )
 
+    // Served-model catalog off the same gateway the runner uses — validate +
+    // freeze reject a models the gateway can't serve. DirectHttpClient:
+    // cluster-internal, smokescreen would deny it.
+    const gatewayCatalog = new HttpGatewayCatalog({
+        baseUrl: config.aiGatewayUrl,
+        bearer: config.posthogAiGatewayKey,
+        http: new DirectHttpClient(),
+    })
+
+    // Single-shot sandbox pool for the dry-run endpoint. Same `selectSandboxPool`
+    // impl the runner uses; the janitor just runs it with a per-call lifecycle
+    // (acquire → invoke → release inside one HTTP handler) instead of the
+    // runner's per-session lifecycle. If execution duties grow enough to
+    // crowd out the janitor's CRUD character, the natural next step is to
+    // hoist this into a dedicated `agent-exec` service — the abstraction is
+    // already in agent-shared, so the split is mechanical.
+    let sandboxes: SandboxPool | undefined
+    if (config.sandboxBackend) {
+        sandboxes = selectSandboxPool({
+            backend: config.sandboxBackend,
+            sandboxHostImage: config.sandboxHostImage,
+            sandboxDockerImage: config.sandboxDockerImage,
+            sandboxModalImage: config.sandboxModalImage,
+            modalAppName: config.modalAppName,
+            modalRegion: config.modalRegion,
+            sandboxOutboundCidrAllowlist: config.sandboxOutboundCidrAllowlist,
+        })
+        log.info({ backend: config.sandboxBackend }, 'sandbox.dry_run.enabled')
+    } else {
+        log.warn({}, 'sandbox.dry_run.disabled — SANDBOX_BACKEND unset; dry-run endpoint will 503')
+    }
+
     const app = buildJanitorApp({
         queue,
         sweep,
@@ -158,7 +198,13 @@ async function main(): Promise<void> {
         bundles,
         memoryStore,
         tabularStore,
+        identityAdmin,
+        gatewayCatalog,
         internalSigningKey: config.internalSigningKey,
+        sandboxes,
+        dryRunWallMs: config.dryRunWallMs,
+        dryRunMemoryMb: config.dryRunMemoryMb,
+        dryRunMaxConcurrent: config.dryRunMaxConcurrent,
     })
     app.listen(config.port, () => {
         log.info({ port: config.port }, 'listening')

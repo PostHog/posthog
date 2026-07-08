@@ -1,8 +1,8 @@
 import { OVERFLOW_OUTPUT } from '~/common/outputs'
+import { EventIngestionRestrictionManager, Restriction } from '~/common/utils/event-ingestion-restrictions'
 import { dlq, drop, ok, redirect } from '~/ingestion/framework/results'
 import { createTestEventHeaders } from '~/tests/helpers/event-headers'
 import { EventHeaders } from '~/types'
-import { EventIngestionRestrictionManager, Restriction } from '~/utils/event-ingestion-restrictions'
 
 import {
     RoutingConfig,
@@ -22,7 +22,7 @@ describe('createApplyEventRestrictionsStep', () => {
 
         routingConfig = {
             preservePartitionLocality: true,
-            overflowEnabled: true,
+            overflowMode: 'redirect',
         }
 
         step = createApplyEventRestrictionsStep(eventIngestionRestrictionManager, routingConfig)
@@ -310,7 +310,7 @@ describe('createApplyEventRestrictionsStep', () => {
         it('returns success when overflow is disabled', async () => {
             const disabledConfig: RoutingConfig = {
                 ...routingConfig,
-                overflowEnabled: false,
+                overflowMode: 'disabled',
             }
             const disabledStep = createApplyEventRestrictionsStep(eventIngestionRestrictionManager, disabledConfig)
 

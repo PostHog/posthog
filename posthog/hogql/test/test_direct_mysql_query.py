@@ -7,11 +7,11 @@ from unittest.mock import MagicMock, patch
 import pymysql
 from parameterized import parameterized
 
+from posthog.hogql.direct_sql.mysql_adapter import mysql_error_to_message, mysql_field_type_to_clickhouse_type
 from posthog.hogql.errors import ExposedHogQLError, QueryError
-from posthog.hogql.query import HogQLQueryExecutor, mysql_error_to_message, mysql_field_type_to_clickhouse_type
+from posthog.hogql.query import HogQLQueryExecutor
 
-from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
-from products.warehouse_sources.backend.models.table import DataWarehouseTable
+from products.warehouse_sources.backend.facade.models import DataWarehouseTable, ExternalDataSource
 
 
 class TestDirectMySQLQuery(APIBaseTest):
@@ -305,7 +305,7 @@ class TestDirectMySQLQuery(APIBaseTest):
         )
 
         with patch(
-            "posthog.hogql.query.validate_direct_mysql_source_config",
+            "posthog.hogql.direct_sql.mysql_adapter.MySQLAdapter.validate_source_config",
             return_value=(implementation, MagicMock()),
         ):
             with patch.object(HogQLQueryExecutor, "_capture_send_raw_query_translation_error"):
@@ -345,7 +345,7 @@ class TestDirectMySQLQuery(APIBaseTest):
         )
 
         with patch(
-            "posthog.hogql.query.validate_direct_mysql_source_config",
+            "posthog.hogql.direct_sql.mysql_adapter.MySQLAdapter.validate_source_config",
             return_value=(implementation, MagicMock()),
         ):
             with patch.object(HogQLQueryExecutor, "_capture_send_raw_query_translation_error"):
@@ -382,7 +382,7 @@ class TestDirectMySQLQuery(APIBaseTest):
             send_raw_query=True,
         )
 
-        with patch("posthog.hogql.query.validate_direct_mysql_source_config") as mock_validate:
+        with patch("posthog.hogql.direct_sql.mysql_adapter.MySQLAdapter.validate_source_config") as mock_validate:
             with self.assertRaisesRegex(ExposedHogQLError, "Raw MySQL queries must be read-only SELECT statements."):
                 executor.execute()
 
@@ -414,7 +414,7 @@ class TestDirectMySQLQuery(APIBaseTest):
         implementation.connect.return_value.__exit__.return_value = False
 
         with patch(
-            "posthog.hogql.query.validate_direct_mysql_source_config",
+            "posthog.hogql.direct_sql.mysql_adapter.MySQLAdapter.validate_source_config",
             return_value=(implementation, MagicMock()),
         ):
             response = executor.execute()

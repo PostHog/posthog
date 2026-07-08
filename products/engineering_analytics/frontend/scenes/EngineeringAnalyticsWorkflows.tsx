@@ -1,66 +1,32 @@
+// The full workflow list behind the hub's capped workflows section. Every row opens the workflow page.
+
 import { useActions, useValues } from 'kea'
 
-import { LemonTable, LemonTableColumns, Link } from '@posthog/lemon-ui'
-
-import { DateFilter } from 'lib/components/DateFilter/DateFilter'
-import { Sparkline } from 'lib/components/Sparkline'
-import { TZLabel } from 'lib/components/TZLabel'
-import { cn } from 'lib/utils/css-classes'
-import { dateFilterToText, dateMapping } from 'lib/utils/dateFilters'
-import { humanFriendlyDuration } from 'lib/utils/durations'
-import { humanFriendlyNumber } from 'lib/utils/numbers'
+import { LemonButton, LemonInput, LemonSegmentedButton } from '@posthog/lemon-ui'
 
 import { CIAnalyticsLoadError } from '../components/CIAnalyticsLoadError'
 import { ConnectGitHubSource } from '../components/ConnectGitHubSource'
-import { githubWorkflowUrl } from '../lib/github'
-import { WorkflowHealthRow, engineeringAnalyticsLogic, workflowTrendSeries } from './engineeringAnalyticsLogic'
-
-// The endpoint caps the window at 366 days, so "All time" and week/month snaps are out.
-const WORKFLOW_DATE_OPTIONS = dateMapping.filter(({ key }) =>
-    [
-        'Custom',
-        'Last 24 hours',
-        'Last 7 days',
-        'Last 14 days',
-        'Last 30 days',
-        'Last 90 days',
-        'Last 180 days',
-        'Year to date',
-    ].includes(key)
-)
-
-function formatSeconds(seconds: number | null): string {
-    return seconds == null ? '—' : humanFriendlyDuration(seconds)
-}
-
-function formatRate(rate: number | null): string {
-    return rate == null ? '—' : `${humanFriendlyNumber(rate * 100)}%`
-}
-
-/** Color only what needs attention — red rare, amber occasional, everything else plain. */
-function successRateClass(rate: number | null): string {
-    if (rate == null) {
-        return 'text-secondary'
-    }
-    if (rate < 0.8) {
-        return 'font-semibold text-danger'
-    }
-    if (rate < 0.9) {
-        return 'font-medium text-warning'
-    }
-    return ''
-}
+import { ScopeBar, SourceScopeChip } from '../components/ScopeBar'
+import { WorkflowHealthTable } from '../components/WorkflowHealthTable'
+import { WorkflowsHealthHeader } from '../components/WorkflowsHealthHeader'
+import { WORKFLOW_HEALTH_LIMIT, WorkflowStatusFilter, engineeringAnalyticsLogic } from './engineeringAnalyticsLogic'
 
 export function EngineeringAnalyticsWorkflows(): JSX.Element {
     const {
-        workflowHealth,
+        fleetSummary,
+        fleetTruncated,
+        filteredWorkflowHealth,
         workflowHealthLoading,
+        workflowSearch,
+        workflowStatusFilter,
+        hasActiveWorkflowFilters,
+        workflowCostAvailable,
+        sourceId,
         notConnected,
         workflowHealthLoadError,
-        workflowDateFrom,
-        workflowDateTo,
     } = useValues(engineeringAnalyticsLogic)
-    const { setWorkflowDateRange, refresh } = useActions(engineeringAnalyticsLogic)
+    const { setWorkflowSearch, setWorkflowStatusFilter, resetWorkflowFilters, refresh } =
+        useActions(engineeringAnalyticsLogic)
 
     if (notConnected) {
         return <ConnectGitHubSource />
@@ -69,121 +35,60 @@ export function EngineeringAnalyticsWorkflows(): JSX.Element {
         return <CIAnalyticsLoadError onRetry={refresh} />
     }
 
-    const windowLabel = dateFilterToText(workflowDateFrom, workflowDateTo, 'Last 30 days') ?? 'Last 30 days'
-
-    const columns: LemonTableColumns<WorkflowHealthRow> = [
-        {
-            title: 'Workflow',
-            key: 'workflowName',
-            render: (_, row) => (
-                <Link
-                    to={githubWorkflowUrl(row.repoOwner, row.repoName, row.workflowName)}
-                    target="_blank"
-                    className="font-medium"
-                >
-                    {row.workflowName}
-                </Link>
-            ),
-        },
-        {
-            title: 'Runs',
-            key: 'runCount',
-            align: 'right',
-            sorter: (a, b) => a.runCount - b.runCount,
-            render: (_, row) => <span className="text-xs tabular-nums">{humanFriendlyNumber(row.runCount)}</span>,
-        },
-        {
-            title: 'Success rate',
-            key: 'successRate',
-            align: 'right',
-            sorter: (a, b) => (a.successRate ?? -1) - (b.successRate ?? -1),
-            render: (_, row) => (
-                <span className={cn('text-xs tabular-nums', successRateClass(row.successRate))}>
-                    {formatRate(row.successRate)}
-                </span>
-            ),
-        },
-        {
-            title: 'Trend',
-            key: 'trend',
-            // Pinned so the layout doesn't shift when sorting reorders rows with and without history.
-            width: 272,
-            render: function RenderTrend(_, row) {
-                if (row.daily.length === 0) {
-                    return <span className="text-xs text-secondary">—</span>
-                }
-                const { values, labels } = workflowTrendSeries(row.daily)
-                return (
-                    <Sparkline
-                        className="h-8"
-                        type="bar"
-                        name="Non-passing"
-                        data={values}
-                        labels={labels}
-                        maximumIndicator={false}
-                        renderTooltipValue={(value) => `${humanFriendlyNumber(value * 100)}%`}
-                    />
-                )
-            },
-        },
-        {
-            title: 'p50',
-            key: 'p50Seconds',
-            align: 'right',
-            sorter: (a, b) => (a.p50Seconds ?? -1) - (b.p50Seconds ?? -1),
-            render: (_, row) => (
-                <span className="text-xs whitespace-nowrap tabular-nums">{formatSeconds(row.p50Seconds)}</span>
-            ),
-        },
-        {
-            title: 'p95',
-            key: 'p95Seconds',
-            align: 'right',
-            sorter: (a, b) => (a.p95Seconds ?? -1) - (b.p95Seconds ?? -1),
-            render: (_, row) => (
-                <span className="text-xs whitespace-nowrap tabular-nums">{formatSeconds(row.p95Seconds)}</span>
-            ),
-        },
-        {
-            title: 'Last failure',
-            key: 'lastFailureAt',
-            align: 'right',
-            render: (_, row) =>
-                row.lastFailureAt ? (
-                    <span className="text-xs whitespace-nowrap">
-                        <TZLabel time={row.lastFailureAt} />
-                    </span>
-                ) : (
-                    <span className="text-xs text-secondary">—</span>
-                ),
-        },
-    ]
-
     return (
         <div className="flex flex-col gap-4">
-            <div className="flex items-center gap-2">
-                <DateFilter
-                    dateFrom={workflowDateFrom}
-                    dateTo={workflowDateTo}
-                    onChange={setWorkflowDateRange}
-                    dateOptions={WORKFLOW_DATE_OPTIONS}
+            <ScopeBar repoSlot={<SourceScopeChip />} showBranch />
+
+            <WorkflowsHealthHeader summary={fleetSummary} truncated={fleetTruncated} />
+
+            <div className="flex flex-wrap items-center gap-2">
+                <LemonInput
+                    type="search"
+                    placeholder="Search workflows…"
+                    value={workflowSearch}
+                    onChange={setWorkflowSearch}
+                    className="w-64"
+                    data-attr="engineering-analytics-workflow-search"
+                />
+                <LemonSegmentedButton
+                    size="small"
+                    value={workflowStatusFilter}
+                    onChange={(value) => setWorkflowStatusFilter(value as WorkflowStatusFilter)}
+                    options={[
+                        { value: 'all', label: 'All' },
+                        {
+                            value: 'failing',
+                            label: fleetSummary.failingNow > 0 ? `Failing (${fleetSummary.failingNow})` : 'Failing',
+                        },
+                        { value: 'passing', label: 'Passing' },
+                    ]}
                 />
             </div>
-            <LemonTable
-                data-attr="engineering-analytics-workflow-table"
-                size="small"
-                columns={columns}
-                dataSource={workflowHealth}
-                rowKey={(row) => `${row.repoOwner}/${row.repoName}:${row.workflowName}`}
+
+            <WorkflowHealthTable
+                rows={filteredWorkflowHealth}
                 loading={workflowHealthLoading}
-                useURLForSorting={false}
-                pagination={{ pageSize: 50 }}
-                emptyState="No workflow runs in this window."
-                nouns={['workflow', 'workflows']}
+                sourceId={sourceId}
+                showCost={workflowCostAvailable}
+                defaultSorting={{ columnKey: 'runCount', order: -1 }}
+                emptyState={
+                    hasActiveWorkflowFilters ? (
+                        <div className="flex flex-col items-center gap-2">
+                            <span>No workflows match these filters.</span>
+                            <LemonButton type="secondary" size="small" onClick={resetWorkflowFilters}>
+                                Clear filters
+                            </LemonButton>
+                        </div>
+                    ) : (
+                        'No workflow runs in this window. Try widening the date range or branch scope.'
+                    )
+                }
             />
+
             <div className="text-xs text-tertiary">
-                Success rate and durations are computed over completed runs only — a run that hasn't settled is
-                excluded, not counted as a failure. Window: {windowLabel}.
+                Pass rate and durations cover completed runs only. A run that hasn't settled is excluded, never counted
+                as a failure. Health is workflow-level, not per-job.
+                {fleetTruncated && ` Showing the top ${WORKFLOW_HEALTH_LIMIT} workflows by run count.`}
             </div>
         </div>
     )

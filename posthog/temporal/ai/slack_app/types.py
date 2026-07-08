@@ -5,8 +5,13 @@ package can take the inputs dataclass as their typed signature without
 creating an import cycle with the workflow modules.
 """
 
-from dataclasses import dataclass
+from dataclasses import dataclass, fields
 from typing import Any, Literal
+
+
+@dataclass
+class PostHogSlackInboxOnboardingInputs:
+    integration_id: int
 
 
 @dataclass
@@ -30,16 +35,48 @@ class PostHogCodeSlackMentionWorkflowInputs:
     untagged_followup: bool = False
 
 
+def coerce_mention_workflow_inputs(inputs: object) -> PostHogCodeSlackMentionWorkflowInputs:
+    """Normalise an activity's ``inputs`` back into the dataclass.
+
+    Temporal's default converter rebuilds the dataclass from the activity's type
+    hint, but during a rolling deploy workers can briefly disagree on the
+    activity signature and a payload arrives as a raw ``dict``. Reading
+    ``inputs.integration_id`` on a dict then raises an opaque ``AttributeError``
+    deep in the body. Rebuilding here keeps the flow working across version skew,
+    and unknown keys are dropped so a newer sender's extra field doesn't blow up
+    an older activity. A payload missing the required fields fails loudly with
+    context instead of surfacing as an ``AttributeError``.
+    """
+    if isinstance(inputs, PostHogCodeSlackMentionWorkflowInputs):
+        return inputs
+    if isinstance(inputs, dict):
+        known = {f.name for f in fields(PostHogCodeSlackMentionWorkflowInputs)}
+        try:
+            return PostHogCodeSlackMentionWorkflowInputs(**{k: v for k, v in inputs.items() if k in known})
+        except TypeError as e:
+            raise TypeError(
+                "Could not coerce activity inputs into PostHogCodeSlackMentionWorkflowInputs "
+                f"(keys={sorted(inputs)}): {e}"
+            ) from e
+    raise TypeError(
+        f"Unexpected activity inputs type {type(inputs).__name__}; "
+        "expected PostHogCodeSlackMentionWorkflowInputs or dict"
+    )
+
+
 @dataclass
 class PostHogCodeSlackMentionCommandWorkflowInputs:
     event: dict[str, Any]
     integration_ids: list[int]
     slack_team_id: str
-    # Resolved at routing time. ``None`` only on in-flight workflow histories
-    # started before this field existed; those fall back to the in-workflow
-    # resolve activity. Remove the fallback (and this field's optionality)
-    # once the workflow history retention window has elapsed.
+    # Resolved at routing time on the mention path. The slash surface passes
+    # ``None`` on purpose — it defers user resolution into the workflow's first
+    # activity to keep its webhook ack under Slack's 3s budget — so the
+    # in-workflow resolve fallback is permanent, not a legacy shim.
     user_id: int | None = None
+    # The invoking surface's prefix, used verbatim in user-facing help/error copy:
+    # ``@PostHog`` for mentions, ``/posthog`` for the slash command.
+    command_prefix: str = "@PostHog"
 
 
 @dataclass

@@ -36,7 +36,6 @@ export function Releases(): JSX.Element {
 }
 
 const ReleasesTable = (): JSX.Element => {
-    // @ts-expect-error: typegen typing issue
     const { pagination, releases, releaseResponseLoading } = useValues(releasesLogic)
 
     const columns: LemonTableColumns<ErrorTrackingRelease> = [

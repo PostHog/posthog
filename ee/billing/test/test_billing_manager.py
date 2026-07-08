@@ -147,7 +147,7 @@ class TestBillingManager(BaseTest):
         ]
 
     @patch("posthoganalytics.capture")
-    def test_update_org_details_preserves_quota_limits(self, patch_capture):
+    def test_update_org_details_recomputes_existing_quota_limits(self, patch_capture):
         organization = self.organization
         organization.usage = {
             "events": {
@@ -174,6 +174,7 @@ class TestBillingManager(BaseTest):
             "api_queries_read_bytes": {"usage": 1000, "limit": 1000000, "todays_usage": 500},
             "llm_events": {"usage": 50, "limit": 1000, "todays_usage": 2},
             "ai_credits": {"usage": 1200, "limit": 20000, "todays_usage": 150},
+            "signals_credits": {},
             "cdp_trigger_events": {"usage": 10, "limit": 100, "todays_usage": 5},
             "workflow_emails": {"usage": 100, "limit": 10000, "todays_usage": 10},
             "workflow_destinations_dispatched": {"usage": 50, "limit": 10000, "todays_usage": 5},
@@ -227,25 +228,23 @@ class TestBillingManager(BaseTest):
                 "usage": 90,
                 "limit": 1000,
                 "todays_usage": 10,
-                "quota_limited_until": 1612137599,
             },
             "exceptions": {
                 "usage": 10,
                 "limit": 100,
                 "todays_usage": 5,
-                "quota_limiting_suspended_until": 1611705600,
             },
             "recordings": {
                 "usage": 15,
                 "limit": 100,
                 "todays_usage": 5,
-                "quota_limiting_suspended_until": 1611705600,
             },
             "rows_synced": {"usage": 45, "limit": 500, "todays_usage": 5},
             "rows_exported": {"usage": 10, "limit": 1000, "todays_usage": 5},
             "feature_flag_requests": {"usage": 25, "limit": 300, "todays_usage": 5},
             "llm_events": {"usage": 50, "limit": 1000, "todays_usage": 2},
             "ai_credits": {"usage": 1200, "limit": 20000, "todays_usage": 150},
+            "signals_credits": {},
             "workflow_emails": {"usage": 100, "limit": 10000, "todays_usage": 10},
             "workflow_destinations_dispatched": {"usage": 50, "limit": 10000, "todays_usage": 5},
             "logs_mb_ingested": {"usage": 5500, "limit": 50000, "todays_usage": 500},
@@ -256,9 +255,127 @@ class TestBillingManager(BaseTest):
                 "usage": 10,
                 "limit": 100,
                 "todays_usage": 5,
-                "quota_limiting_suspended_until": 1611705600,
             },
         }
+
+    @patch("posthoganalytics.capture")
+    def test_update_org_details_applies_never_drop_data_before_recomputing_existing_quota_limits(self, patch_capture):
+        organization = self.organization
+        organization.usage = {
+            "events": {
+                "usage": 1_000,
+                "limit": 100,
+                "todays_usage": 0,
+                "quota_limited_until": 1612137599,
+            },
+            "recordings": {"usage": 0, "limit": 100, "todays_usage": 0},
+            "period": ["2024-01-01T00:00:00Z", "2024-01-31T23:59:59Z"],
+        }
+        organization.never_drop_data = False
+        organization.save()
+
+        license = super(LicenseManager, cast(LicenseManager, License.objects)).create(
+            key="key123::key123",
+            plan="enterprise",
+            valid_until=datetime.datetime(2038, 1, 19, 3, 14, 7),
+        )
+
+        billing_status = {
+            "customer": {
+                "usage_summary": {
+                    "events": {"usage": 1_000, "limit": 100},
+                    "recordings": {"usage": 0, "limit": 100},
+                },
+                "billing_period": {
+                    "current_period_start": "2024-01-01T00:00:00Z",
+                    "current_period_end": "2024-01-31T23:59:59Z",
+                },
+                "never_drop_data": True,
+            }
+        }
+
+        BillingManager(license).update_org_details(organization, cast(BillingStatus, billing_status))
+        organization.refresh_from_db()
+
+        assert organization.never_drop_data is True
+        assert organization.usage["events"].get("quota_limited_until") is None
+        assert organization.usage["events"].get("quota_limiting_suspended_until") is None
+
+    @patch("ee.billing.billing_manager.update_org_billing_quotas", side_effect=Exception("Redis unavailable"))
+    def test_update_org_details_saves_org_fields_before_recomputing_existing_quota_limits(
+        self, update_org_billing_quotas_mock: MagicMock
+    ):
+        organization = self.organization
+        organization.usage = {
+            "events": {
+                "usage": 1_000,
+                "limit": 100,
+                "todays_usage": 0,
+                "quota_limited_until": 1612137599,
+            },
+            "recordings": {"usage": 0, "limit": 100, "todays_usage": 0},
+            "period": ["2024-01-01T00:00:00Z", "2024-01-31T23:59:59Z"],
+        }
+        organization.never_drop_data = False
+        organization.save()
+
+        license = super(LicenseManager, cast(LicenseManager, License.objects)).create(
+            key="key123::key123",
+            plan="enterprise",
+            valid_until=datetime.datetime(2038, 1, 19, 3, 14, 7),
+        )
+
+        billing_status = {
+            "customer": {
+                "usage_summary": {
+                    "events": {"usage": 1_000, "limit": 100},
+                    "recordings": {"usage": 0, "limit": 100},
+                },
+                "billing_period": {
+                    "current_period_start": "2024-01-01T00:00:00Z",
+                    "current_period_end": "2024-01-31T23:59:59Z",
+                },
+                "never_drop_data": True,
+            }
+        }
+
+        with self.assertRaises(Exception) as context:
+            BillingManager(license).update_org_details(organization, cast(BillingStatus, billing_status))
+
+        assert str(context.exception) == "Redis unavailable"
+        update_org_billing_quotas_mock.assert_called_once_with(organization)
+
+        organization.refresh_from_db()
+        assert organization.never_drop_data is True
+
+    @patch("ee.billing.billing_manager.BillingManager.get_default_products")
+    def test_update_org_details_skips_default_products_without_customer_trust_scores(
+        self, get_default_products_mock: MagicMock
+    ):
+        organization = self.organization
+        organization.never_drop_data = False
+        organization.customer_trust_scores = {"events": 7}
+        organization.save()
+
+        license = super(LicenseManager, cast(LicenseManager, License.objects)).create(
+            key="key123::key123",
+            plan="enterprise",
+            valid_until=datetime.datetime(2038, 1, 19, 3, 14, 7),
+        )
+
+        billing_status = {
+            "customer": {
+                "never_drop_data": False,
+                "customer_trust_scores": {},
+            }
+        }
+
+        BillingManager(license).update_org_details(organization, cast(BillingStatus, billing_status))
+
+        get_default_products_mock.assert_not_called()
+
+        organization.refresh_from_db()
+        assert organization.customer_trust_scores == {"events": 7}
 
     @patch(
         "ee.billing.billing_manager.requests.post",

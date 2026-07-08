@@ -408,6 +408,19 @@ describe('hog-charts scales', () => {
             expect(result.yAxes!.y1.scale.domain()[1]).toBeLessThan(1000)
         })
 
+        it('floats an axis to its data range when its axes entry sets startAtZero false', () => {
+            const left = makeSeries({ key: 'left', data: [800, 1000], yAxisId: DEFAULT_Y_AXIS_ID })
+            const right = makeSeries({ key: 'right', data: [800, 1000], yAxisId: 'y1' })
+            const result = createScales([left, right], ['a', 'b'], dimensions, {
+                axes: [
+                    { id: DEFAULT_Y_AXIS_ID, position: 'left' },
+                    { id: 'y1', position: 'right', startAtZero: false },
+                ],
+            })
+            expect(result.yAxes![DEFAULT_Y_AXIS_ID].scale.domain()[0]).toBe(0)
+            expect(result.yAxes!.y1.scale.domain()[0]).toBeGreaterThan(0)
+        })
+
         it('applies a per-axis scaleType from options.axes to that axis only', () => {
             const left = makeSeries({ key: 'left', data: [1, 1000], yAxisId: DEFAULT_Y_AXIS_ID })
             const right = makeSeries({ key: 'right', data: [1, 1000], yAxisId: 'y1' })
@@ -435,6 +448,23 @@ describe('hog-charts scales', () => {
             })
             expect(result.yAxes![DEFAULT_Y_AXIS_ID].position).toBe('right')
             expect(result.yAxes!.y1.position).toBe('right')
+        })
+
+        it('builds a right-positioned yAxes record for a sole axis pinned right', () => {
+            // A single series whose only axis is configured `position: 'right'` — the alternating
+            // default would place index 0 on the left, so without honoring the override the gutter
+            // renders left. The scalar fast path would also drop the yAxes record entirely.
+            const only = makeSeries({ key: 'only', data: [0, 1200], yAxisId: 'right' })
+            const result = createScales([only], ['a', 'b'], dimensions, {
+                axes: [
+                    { id: DEFAULT_Y_AXIS_ID, position: 'left' },
+                    { id: 'right', position: 'right' },
+                ],
+            })
+            expect(result.yAxes).not.toBeUndefined()
+            expect(result.yAxes!.right.position).toBe('right')
+            // scales.y mirrors the sole axis so gridlines align with the right gutter's ticks.
+            expect(result.y(600)).toBe(result.yAxes!.right.scale(600))
         })
 
         it('uses a single-axis options.axes scaleType for the sole axis', () => {

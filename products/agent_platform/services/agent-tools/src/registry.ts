@@ -12,6 +12,8 @@
 import { defineNativeTool, NativeTool, NativeToolSchema, Type } from '@posthog/agent-shared'
 
 import { httpRequestV1 } from './tools/http-request.v1'
+import { identityConnectV1 } from './tools/identity-connect.v1'
+import { identityFetchV1 } from './tools/identity-fetch.v1'
 import { loadSkill } from './tools/load-skill'
 import {
     memoryDeleteV1,
@@ -40,8 +42,7 @@ import {
     posthogAgentApplicationsRevisionsPartialUpdateV1,
     posthogAgentApplicationsRevisionsPromoteV1,
     posthogAgentApplicationsRevisionsRetrieveV1,
-    posthogAgentApplicationsRevisionsSkillsDestroyV1,
-    posthogAgentApplicationsRevisionsSkillsUpdateV1,
+    posthogAgentApplicationsRevisionsSkillRefsSetV1,
     posthogAgentApplicationsRevisionsSlackManifestV1,
     posthogAgentApplicationsRevisionsSystemPromptV1,
     posthogAgentApplicationsRevisionsToolsDestroyV1,
@@ -51,10 +52,11 @@ import {
     posthogAgentApplicationsSessionsListV1,
     posthogAgentApplicationsSessionsRetrieveV1,
     posthogAgentApplicationsSetEnvV1,
+    posthogLlmSkillsCreateV1,
+    posthogLlmSkillsSearchV1,
 } from './tools/posthog-agent-management.v1'
 import { posthogListProjectsV1 } from './tools/posthog-projects.v1'
 import { posthogQueryV1 } from './tools/posthog-query.v1'
-import { posthogAgentApplicationsSpecSchemaV1 } from './tools/posthog-spec-schema.v1'
 import {
     slackPostMessageV1,
     slackReactV1,
@@ -70,6 +72,7 @@ import {
     tableQueryV1,
     tableTruncateV1,
 } from './tools/table'
+import { webSearchV1 } from './tools/web-search/web-search.v1'
 
 /**
  * Lists every native (`@posthog/*`) tool the runner knows — the authoring
@@ -82,7 +85,7 @@ export const nativeToolsCatalogV1 = defineNativeTool({
     id: '@posthog/agent-applications-native-tools-list',
     description: [
         'List every native (@posthog/*) tool available to put in an agent spec —',
-        'id, description, required scopes/integrations, and cost hint. Call this to',
+        'id, description, the credential provider + scopes it needs, and cost hint. Call this to',
         'discover what tools you can wire into an agent you are building or editing,',
         'instead of guessing tool ids. The validator rejects unknown ids, so check here first.',
     ].join(' '),
@@ -93,8 +96,7 @@ export const nativeToolsCatalogV1 = defineNativeTool({
                 id: Type.String(),
                 description: Type.String(),
                 requires: Type.Object({
-                    integrations: Type.Array(Type.String()),
-                    scopes: Type.Array(Type.String()),
+                    provider: Type.Optional(Type.Object({ id: Type.String(), scopes: Type.Array(Type.String()) })),
                 }),
                 cost_hint: Type.String(),
             })
@@ -106,10 +108,7 @@ export const nativeToolsCatalogV1 = defineNativeTool({
             tools: listNativeTools().map((t) => ({
                 id: t.id,
                 description: t.schema.description,
-                requires: {
-                    integrations: t.schema.requires.integrations,
-                    scopes: t.schema.requires.scopes,
-                },
+                requires: { provider: t.schema.requires.provider },
                 cost_hint: t.schema.cost_hint,
             })),
         }
@@ -133,8 +132,9 @@ export const ALL_TOOLS: NativeTool[] = [
     posthogAgentApplicationsRevisionsNewDraftV1,
     posthogAgentApplicationsRevisionsPartialUpdateV1,
     posthogAgentApplicationsRevisionsAgentMdUpdateV1,
-    posthogAgentApplicationsRevisionsSkillsUpdateV1,
-    posthogAgentApplicationsRevisionsSkillsDestroyV1,
+    posthogLlmSkillsSearchV1,
+    posthogLlmSkillsCreateV1,
+    posthogAgentApplicationsRevisionsSkillRefsSetV1,
     posthogAgentApplicationsRevisionsToolsUpdateV1,
     posthogAgentApplicationsRevisionsToolsDestroyV1,
     posthogAgentApplicationsRevisionsValidateV1,
@@ -148,13 +148,15 @@ export const ALL_TOOLS: NativeTool[] = [
     posthogAgentApplicationsSessionsRetrieveV1,
     posthogAgentApplicationsSessionLogsV1,
     nativeToolsCatalogV1,
-    posthogAgentApplicationsSpecSchemaV1,
     slackPostMessageV1,
     slackUpdateMessageV1,
     slackReadChannelV1,
     slackReadThreadV1,
     slackReactV1,
     httpRequestV1,
+    identityConnectV1,
+    identityFetchV1,
+    webSearchV1,
     endTurnTool,
     endSessionTool,
     emitEventTool,

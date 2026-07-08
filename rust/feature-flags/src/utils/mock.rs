@@ -319,6 +319,7 @@ mod tests {
             name: Some("Test Flag".to_string()),
             id: 1,
             key: "test_flag".to_string(),
+            has_experiment: false,
             active: true,
             deleted: false,
             team_id: 99,
@@ -415,6 +416,7 @@ mod tests {
             created_by_id: Some(1),
             cohort_type: None,
             last_backfill_person_properties_at: None,
+            last_backfill_events_at: None,
         };
 
         let mock_cohort = mock!(Cohort,

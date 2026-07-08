@@ -1,7 +1,7 @@
+import { parseJSON } from '~/common/utils/json-parse'
 import { mapOtelAttributes } from '~/ingestion/pipelines/ai/otel/attribute-mapping'
 import { convertOtelEvent } from '~/ingestion/pipelines/ai/otel/index'
 import { createEvent } from '~/ingestion/pipelines/ai/otel/test-helpers'
-import { parseJSON } from '~/utils/json-parse'
 
 jest.mock('~/ingestion/pipelines/ai/metrics', () => ({
     aiOtelMiddlewareCounter: { labels: jest.fn().mockReturnValue({ inc: jest.fn() }) },
@@ -356,6 +356,58 @@ describe('vercel-ai middleware', () => {
             convertOtelEvent(event)
 
             expect(event.properties!['$ai_input_state']).toEqual(messages[1])
+        })
+
+        // AI SDK v6 records ai.prompt on top-level streamText/generateText spans as
+        // a { system, messages } object rather than a bare array. Without object
+        // handling, $ai_input/$ai_input_state were silently dropped.
+        it('extracts input from ai.prompt { system, messages } object (AI SDK v6 streamText)', () => {
+            const messages = [{ role: 'user', content: 'Hello' }]
+            const event = createEvent('$ai_span', {
+                'ai.operationId': 'ai.streamText',
+                'ai.prompt': JSON.stringify({ system: 'You are helpful.', messages }),
+                'ai.response.text': 'Hi there!',
+            })
+            convertOtelEvent(event)
+
+            expect(event.event).toBe('$ai_trace')
+            expect(event.properties!['$ai_input']).toEqual([
+                { role: 'system', content: 'You are helpful.' },
+                ...messages,
+            ])
+            expect(event.properties!['$ai_input_state']).toEqual(messages[0])
+            expect(event.properties!['$ai_output_state']).toEqual({ role: 'assistant', content: 'Hi there!' })
+        })
+
+        it('extracts input from ai.prompt { system, prompt } object (generateObject)', () => {
+            const event = createEvent('$ai_span', {
+                'ai.operationId': 'ai.generateObject',
+                'ai.prompt': JSON.stringify({ system: 'You are helpful.', prompt: 'Write a haiku.' }),
+                'ai.response.text': '...',
+            })
+            convertOtelEvent(event)
+
+            expect(event.properties!['$ai_input']).toEqual([
+                { role: 'system', content: 'You are helpful.' },
+                { role: 'user', content: 'Write a haiku.' },
+            ])
+            expect(event.properties!['$ai_input_state']).toEqual({ role: 'user', content: 'Write a haiku.' })
+        })
+
+        it('uses the last user message for $ai_input_state on multi-turn traces', () => {
+            const messages = [
+                { role: 'user', content: 'First question' },
+                { role: 'assistant', content: 'First answer' },
+                { role: 'user', content: 'Second question' },
+            ]
+            const event = createEvent('$ai_span', {
+                'ai.operationId': 'ai.streamText',
+                'ai.prompt': JSON.stringify({ messages }),
+                'ai.response.text': 'Second answer',
+            })
+            convertOtelEvent(event)
+
+            expect(event.properties!['$ai_input_state']).toEqual({ role: 'user', content: 'Second question' })
         })
     })
 
