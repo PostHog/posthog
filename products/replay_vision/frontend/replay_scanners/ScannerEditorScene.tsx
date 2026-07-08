@@ -2,7 +2,9 @@ import { useActions, useValues } from 'kea'
 import { Form } from 'kea-forms'
 import { router } from 'kea-router'
 
-import { HedgehogConstruction2, HedgehogMagnifyingGlass, HedgehogXRay } from '@posthog/brand/hoggies'
+import * as construction2Png from '@posthog/brand/hoggies/png/construction-2'
+import * as magnifyingGlassPng from '@posthog/brand/hoggies/png/magnifying-glass'
+import * as xRayPng from '@posthog/brand/hoggies/png/x-ray'
 import {
     LemonButton,
     LemonCollapse,
@@ -14,6 +16,7 @@ import {
     Link,
 } from '@posthog/lemon-ui'
 
+import { pngHoggie } from 'lib/brand/hoggies'
 import { LemonDialog } from 'lib/lemon-ui/LemonDialog'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { useAttachedLogic } from 'lib/logic/scenes/useAttachedLogic'
@@ -32,6 +35,10 @@ import { replayScannerLogic } from './replayScannerLogic'
 import { SCANNER_EDITOR_STEP_ORDER, ScannerEditorStep, scannerEditorSceneLogic } from './scannerEditorSceneLogic'
 import { ScannerEditorStepper } from './ScannerEditorStepper'
 import { MODEL_OPTIONS, SCANNER_TYPE_OPTIONS } from './types'
+
+const HedgehogConstruction2 = pngHoggie(construction2Png)
+const HedgehogMagnifyingGlass = pngHoggie(magnifyingGlassPng)
+const HedgehogXRay = pngHoggie(xRayPng)
 
 export const scene: SceneExport = {
     component: ScannerEditorSceneComponent,
@@ -137,7 +144,7 @@ export function ScannerEditorSceneComponent(): JSX.Element {
                                     )}
                                     <div>
                                         <div className="text-base font-semibold">
-                                            {step === 'configure' ? 'Configure your scanner' : 'Set up triggers'}
+                                            {step === 'configure' ? 'Configure your scanner' : 'Set up scan conditions'}
                                         </div>
                                         <div className="text-sm text-muted">
                                             {step === 'configure'
@@ -314,7 +321,7 @@ function EditorFooter({
                         className="ml-auto"
                         data-attr="vision-editor-next"
                     >
-                        Next: triggers
+                        Next: scan conditions
                     </LemonButton>
                 </>
             ) : (

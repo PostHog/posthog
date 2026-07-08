@@ -215,6 +215,7 @@ Return your response as a JSON object with keys: reply, citations, confidence, s
             citations=result.citations,
             confidence=result.confidence,
             sources=[{"ref": s.ref, "excerpt": s.excerpt[:MAX_EXCERPT_CHARS]} for s in result.sources[:MAX_SOURCES]],
+            task_run_id=str(session.task_run.id),
         )
     finally:
         if session is not None:

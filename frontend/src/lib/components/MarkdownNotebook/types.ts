@@ -77,11 +77,21 @@ export type NotebookTableBlockNode = {
     alignments?: (NotebookTableAlignment | undefined)[]
 }
 
+/** Anchors a discussion comment to a character range inside a code block. Code carries no inline
+ * marks, so anchors live on the block and serialize as `ref=<id>:<start>-<end>` tokens in the
+ * fence info string. Offsets are UTF-16 code units into `text`. */
+export type NotebookCodeRefMark = {
+    id: string
+    start: number
+    end: number
+}
+
 export type NotebookCodeBlockNode = {
     id: string
     type: 'code'
     language?: string
     text: string
+    refs?: NotebookCodeRefMark[]
 }
 
 export type NotebookComponentBlockNode = {

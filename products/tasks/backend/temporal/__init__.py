@@ -1,4 +1,6 @@
 from .automation import RunTaskAutomationWorkflow, run_task_automation_activity
+from .build_image.activities import build_and_publish_image, mark_image_build_failed, scan_image_spec
+from .build_image.workflow import BuildSandboxImageWorkflow
 from .code_workstreams.activities.discover_branch_prs import discover_branch_prs
 from .code_workstreams.activities.list_active_teams import list_active_code_teams
 from .code_workstreams.activities.load_pr_urls import load_team_pr_urls
@@ -34,6 +36,7 @@ from .process_task.activities import (
     prepare_sandbox_for_repository,
     read_sandbox_logs,
     refresh_sandbox_credentials,
+    relay_agent_design_signals,
     relay_sandbox_events,
     run_wizard,
     send_followup_to_sandbox,
@@ -60,6 +63,7 @@ WORKFLOWS = [
     RunTaskAutomationWorkflow,
     EvaluateCodeWorkstreamsWorkflow,
     EvaluateTeamCodeWorkstreamsWorkflow,
+    BuildSandboxImageWorkflow,
 ]
 
 ACTIVITIES = [
@@ -76,6 +80,7 @@ ACTIVITIES = [
     execute_task_in_sandbox,
     run_wizard,
     forward_pending_user_message,
+    relay_agent_design_signals,
     relay_sandbox_events,
     create_resume_snapshot,
     send_followup_to_sandbox,
@@ -103,6 +108,10 @@ ACTIVITIES = [
     snapshot_setup_repository,
     snapshot_create_snapshot,
     snapshot_cleanup_sandbox,
+    # build_image activities
+    scan_image_spec,
+    build_and_publish_image,
+    mark_image_build_failed,
     list_active_code_teams,
     load_team_pr_urls,
     discover_branch_prs,

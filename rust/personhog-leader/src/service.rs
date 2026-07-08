@@ -4,14 +4,16 @@ use common_kafka::kafka_producer::KafkaContext;
 use dashmap::DashMap;
 use metrics::counter;
 use personhog_proto::personhog::leader::v1::person_hog_leader_server::PersonHogLeader;
-use personhog_proto::personhog::leader::v1::LeaderGetPersonRequest;
 use personhog_proto::personhog::types::v1::{
-    GetPersonResponse, Person, UpdatePersonPropertiesRequest, UpdatePersonPropertiesResponse,
+    GetPersonRequest, GetPersonResponse, Person, UpdatePersonPropertiesRequest,
+    UpdatePersonPropertiesResponse,
 };
 use rdkafka::producer::FutureProducer;
 use sqlx::postgres::PgPool;
 use tokio::sync::Mutex;
 use tonic::{Request, Response, Status};
+
+use personhog_common::partitioning::partition_for_person;
 
 use crate::cache::{CacheLookup, CachedPerson, PartitionedCache, PersonCacheKey};
 use crate::inflight::InflightTracker;
@@ -31,6 +33,10 @@ pub struct PersonHogLeaderService {
     fallback_pool: Option<PgPool>,
     /// Per-partition inflight counter used to drive the handoff drain phase.
     inflight: Arc<InflightTracker>,
+    /// Total changelog partition count, read from etcd at startup (the same
+    /// source the router uses). Used to validate the router's routing
+    /// decision against each request's key.
+    num_partitions: u32,
 }
 
 impl PersonHogLeaderService {
@@ -41,6 +47,7 @@ impl PersonHogLeaderService {
         fallback_pool: Option<PgPool>,
         locks: Arc<DashMap<PersonCacheKey, Arc<Mutex<()>>>>,
         inflight: Arc<InflightTracker>,
+        num_partitions: u32,
     ) -> Self {
         Self {
             cache,
@@ -49,7 +56,32 @@ impl PersonHogLeaderService {
             changelog_topic,
             fallback_pool,
             inflight,
+            num_partitions,
         }
+    }
+
+    /// Verify the router's routing decision against the request body: the
+    /// partition a request arrived on must equal the partition derived from
+    /// the key it carries. A mismatch means a client stamped wrong
+    /// routing-key headers or the hash implementations diverged; serving it
+    /// would read or write through the wrong partition's cache, so fail
+    /// closed.
+    #[allow(clippy::result_large_err)]
+    fn validate_partition(
+        &self,
+        partition: u32,
+        team_id: i64,
+        person_id: i64,
+    ) -> Result<(), Status> {
+        let expected = partition_for_person(team_id, person_id, self.num_partitions);
+        if partition != expected {
+            counter!("personhog_leader_partition_mismatch_total").increment(1);
+            return Err(Status::invalid_argument(format!(
+                "x-partition {partition} does not match partition {expected} \
+                 derived from team_id={team_id} person_id={person_id}"
+            )));
+        }
+        Ok(())
     }
 
     /// Load a person from PG and populate the cache. Assumes the caller
@@ -154,19 +186,40 @@ fn cached_person_to_proto(p: &CachedPerson) -> Person {
     }
 }
 
+/// Extract the routing partition from the `x-partition` request-metadata
+/// header. The router stamps this on every leader call after hashing
+/// `(team_id, person_id)`; its absence means a misrouted or malformed
+/// request, so we fail closed with `InvalidArgument` rather than guessing.
+// `Status` is the idiomatic tonic error throughout this service; the small
+// `Ok(u32)` against a large `Status` trips `result_large_err`, but boxing
+// here would diverge from every other handler's signature.
+#[allow(clippy::result_large_err)]
+fn partition_from_metadata<T>(request: &Request<T>) -> Result<u32, Status> {
+    request
+        .metadata()
+        .get("x-partition")
+        .ok_or_else(|| Status::invalid_argument("missing x-partition metadata"))?
+        .to_str()
+        .map_err(|_| Status::invalid_argument("x-partition metadata is not valid ASCII"))?
+        .parse::<u32>()
+        .map_err(|_| Status::invalid_argument("x-partition metadata is not a valid u32"))
+}
+
 #[tonic::async_trait]
 impl PersonHogLeader for PersonHogLeaderService {
     async fn get_person(
         &self,
-        request: Request<LeaderGetPersonRequest>,
+        request: Request<GetPersonRequest>,
     ) -> Result<Response<GetPersonResponse>, Status> {
+        let partition = partition_from_metadata(&request)?;
         let req = request.into_inner();
+        self.validate_partition(partition, req.team_id, req.person_id)?;
         let cache_key = PersonCacheKey {
             team_id: req.team_id,
             person_id: req.person_id,
         };
 
-        let person = self.lookup_or_load(req.partition, &cache_key).await?;
+        let person = self.lookup_or_load(partition, &cache_key).await?;
 
         Ok(Response::new(GetPersonResponse {
             person: Some(cached_person_to_proto(&person)),
@@ -177,7 +230,9 @@ impl PersonHogLeader for PersonHogLeaderService {
         &self,
         request: Request<UpdatePersonPropertiesRequest>,
     ) -> Result<Response<UpdatePersonPropertiesResponse>, Status> {
+        let partition = partition_from_metadata(&request)?;
         let req = request.into_inner();
+        self.validate_partition(partition, req.team_id, req.person_id)?;
 
         // Admit the write as inflight, unless the partition is fenced. A
         // fenced partition has drained for handoff: every router acked the
@@ -193,10 +248,9 @@ impl PersonHogLeader for PersonHogLeaderService {
         // count implies every acked write is durable in Kafka. Using a
         // non-`_` prefixed binding so the RAII guard is held for the full
         // handler lifetime (see the `let_underscore_drop` lint).
-        let Some(_inflight_guard) = self.inflight.try_begin(req.partition) else {
+        let Some(_inflight_guard) = self.inflight.try_begin(partition) else {
             return Err(Status::failed_precondition(format!(
-                "partition {} is fenced for handoff; writes are rejected",
-                req.partition
+                "partition {partition} is fenced for handoff; writes are rejected"
             )));
         };
 
@@ -231,9 +285,7 @@ impl PersonHogLeader for PersonHogLeaderService {
             .clone();
         let _guard = mutex.lock().await;
 
-        let person = self
-            .lookup_or_load_locked(req.partition, &cache_key)
-            .await?;
+        let person = self.lookup_or_load_locked(partition, &cache_key).await?;
 
         // Compute property updates
         let updates = compute_event_property_updates(
@@ -280,7 +332,7 @@ impl PersonHogLeader for PersonHogLeaderService {
         // Produce to Kafka first, then update the cache on success.
         // Readers only ever see durably committed state.
         if let Err(e) =
-            produce_person_changelog(&self.producer, &self.changelog_topic, &proto).await
+            produce_person_changelog(&self.producer, &self.changelog_topic, partition, &proto).await
         {
             tracing::error!(
                 team_id = cache_key.team_id,
@@ -293,7 +345,7 @@ impl PersonHogLeader for PersonHogLeaderService {
             )));
         }
 
-        self.cache.put(req.partition, cache_key, updated_person);
+        self.cache.put(partition, cache_key, updated_person);
         counter!("personhog_leader_updates_total", "outcome" => "updated").increment(1);
 
         Ok(Response::new(UpdatePersonPropertiesResponse {

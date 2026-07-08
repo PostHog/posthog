@@ -819,8 +819,6 @@ def _resume_task_with_new_run(
             "make your changes, commit, and push to that branch. "
             "Do NOT create a new branch or PR.]\n\n" + user_text
         )
-        extra_state["slack_pr_opened_notified"] = True
-        extra_state["slack_notified_pr_url"] = previous_pr_url
 
     extra_state["initial_prompt_override"] = initial_prompt_override
     extra_state["pending_user_message"] = initial_prompt_override

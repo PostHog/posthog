@@ -45,13 +45,18 @@ from posthog.models.instance_setting import get_instance_setting
 from posthog.oauth2_urls import urlpatterns as oauth2_urls
 from posthog.temporal.codec_server import decode_payloads
 
-from products.ai_observability.backend.api.personal_spend import personal_spend_eu_redirect
+from products.ai_observability.backend.api.personal_spend import PersonalSpendEUProxyViewSet
 from products.cdp.backend.api import hog_function_template
 from products.data_warehouse.backend.presentation.views.public_source_configs import PublicSourceConfigViewSet
 from products.demo.backend.facade.api import demo_route
 from products.early_access_features.backend.api import early_access_features
 from products.legal_documents.backend.presentation.webhook import legal_document_pandadoc_webhook
 from products.messaging.backend.api.customerio_webhook import CustomerIOWebhookView
+from products.notebooks.backend.facade.sql_v2 import (
+    notebook_sql_v2_callback,
+    notebook_sql_v2_data_plane,
+    notebook_sql_v2_data_plane_status,
+)
 from products.product_tours.backend.api import product_tours
 from products.signals.backend import views as signals_views
 from products.signals.backend.views import SignalUserAutonomyConfigView as signals_user_autonomy_view
@@ -351,8 +356,11 @@ urlpatterns = [
     # ee
     *ee_urlpatterns,
     # api
+    # nosemgrep: no-environments-url-path -- defunct query-progress stub, pending removal
     path("api/environments/<int:team_id>/progress/", progress),
+    # nosemgrep: no-environments-url-path -- defunct query-progress stub, pending removal
     path("api/environments/<int:team_id>/query/<str:query_uuid>/progress/", progress),
+    # nosemgrep: no-environments-url-path -- defunct query-progress stub, pending removal
     path("api/environments/<int:team_id>/query/<str:query_uuid>/progress", progress),
     path("api/unsubscribe", unsubscribe.unsubscribe),
     path("api/alerts/github", github.SecretAlert.as_view()),
@@ -368,6 +376,7 @@ urlpatterns = [
     ),
     # Dual-served on both prefixes while the Customer.io dispatcher is repointed from the
     # legacy /api/environments/ URL to the canonical /api/projects/ one.
+    # nosemgrep: no-environments-url-path -- customerio posts to this fixed env URL; dispatcher migrating to projects
     path("api/environments/<int:team_id>/messaging/customerio/webhook/", csrf_exempt(CustomerIOWebhookView.as_view())),
     path("api/projects/<int:team_id>/messaging/customerio/webhook/", csrf_exempt(CustomerIOWebhookView.as_view())),
     path(
@@ -383,6 +392,7 @@ urlpatterns = [
     path("api/sdk_health/", sdk_health),
     path("api/conversations/", include("products.conversations.backend.api.urls")),
     path("api/customer_analytics/", include("products.customer_analytics.backend.presentation.views.urls")),
+    # nosemgrep: no-environments-url-path -- legacy dual-route env alias, pending env-prefix retirement
     path(
         "api/environments/<int:parent_lookup_team_id>/mcp_analytics/",
         include("products.mcp_analytics.backend.presentation.urls"),
@@ -391,6 +401,7 @@ urlpatterns = [
         "api/projects/<int:parent_lookup_team_id>/mcp_analytics/",
         include("products.mcp_analytics.backend.presentation.urls"),
     ),
+    # nosemgrep: no-environments-url-path -- legacy dual-route env alias, pending env-prefix retirement
     path(
         "api/environments/<int:parent_lookup_team_id>/property_access_controls/",
         include("products.access_control.backend.presentation.urls"),
@@ -445,6 +456,20 @@ urlpatterns = [
     path(
         "internal/tasks/runs/<str:run_id>/agent-proxy-callback/",
         csrf_exempt(agent_proxy_callback),
+    ),
+    # Internal SQLV2 run result callback (auth: signed callback token)
+    path(
+        "internal/notebooks/runs/<str:run_id>/result/",
+        csrf_exempt(notebook_sql_v2_callback),
+    ),
+    # Internal SQLV2 data plane — the sandbox's HogQL read path (auth: signed data-plane token)
+    path(
+        "internal/notebooks/data_plane/query/",
+        csrf_exempt(notebook_sql_v2_data_plane),
+    ),
+    path(
+        "internal/notebooks/data_plane/query/<str:query_id>/",
+        csrf_exempt(notebook_sql_v2_data_plane_status),
     ),
     # Internal service-to-service endpoints (authenticated with POSTHOG_INTERNAL_SERVICE_TOKEN)
     path(
@@ -550,16 +575,16 @@ urlpatterns = [
 ]
 
 # Personal LLM spend data only lives in PostHog Cloud US — EU forwards its product
-# LLM telemetry over, so EU callers get a 302 to the US-hosted endpoint instead of
-# a silent 404. Must be inserted *before* the `^api.+` catch-all above; otherwise
-# the catch-all matches first and the redirect is unreachable.
+# LLM telemetry over — so the EU view proxies the query to US server-side. Must be
+# inserted *before* the `^api.+` catch-all above; otherwise the catch-all matches
+# first and the view is unreachable.
 if settings.CLOUD_DEPLOYMENT == "EU":
     urlpatterns.insert(
         0,
         path(
             "api/llm_analytics/@me/spend/",
-            personal_spend_eu_redirect,
-            name="personal_spend_eu_redirect",
+            PersonalSpendEUProxyViewSet.as_view({"get": "list"}),
+            name="personal_spend_eu",
         ),
     )
 
