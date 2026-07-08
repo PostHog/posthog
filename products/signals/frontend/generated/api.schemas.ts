@@ -406,6 +406,32 @@ export const ScoutOriginEnumApi = {
 } as const
 
 /**
+ * Slack delivery target on a scout config. Written only by the provisioning facade
+ * (`provision_persona_scouts`) — read-only through the public config API.
+ */
+export interface ScoutSlackDeliveryApi {
+    /** Id of the team's Slack `Integration` the alerts post through. */
+    integration_id: number
+    /** Slack channel id (`C…`) alerts are delivered to. */
+    channel_id: string
+    /** Human-readable channel name (without the `#`). */
+    channel_name: string
+    /**
+     * PostHog user id who configured this delivery target during onboarding.
+     * @nullable
+     */
+    configured_by_user_id?: number | null
+}
+
+/**
+ * Per-scout delivery targets. `slack` is the only supported target today.
+ */
+export interface ScoutDeliveryConfigApi {
+    /** Slack delivery target, or null/absent when the scout has none. */
+    slack?: ScoutSlackDeliveryApi | null
+}
+
+/**
  * Per-(team, skill) scout config: schedule, enablement, and emit posture.
  *
  * One row per `signals-scout-*` skill on the team. The coordinator auto-creates a row
@@ -434,6 +460,8 @@ export interface SignalScoutConfigApi {
      * @nullable
      */
     readonly last_run_at: string | null
+    /** Where this scout delivers alerts (e.g. a Slack channel via the `notify` run tool). Null for scouts with no delivery target. Read-only: it is written only by the provisioning flow, never through this API. */
+    readonly delivery_config: ScoutDeliveryConfigApi | null
     readonly created_at: string
 }
 
@@ -490,6 +518,8 @@ export interface PatchedSignalScoutConfigApi {
      * @nullable
      */
     readonly last_run_at?: string | null
+    /** Where this scout delivers alerts (e.g. a Slack channel via the `notify` run tool). Null for scouts with no delivery target. Read-only: it is written only by the provisioning flow, never through this API. */
+    readonly delivery_config?: ScoutDeliveryConfigApi | null
     readonly created_at?: string
 }
 
@@ -1613,6 +1643,70 @@ export interface EmitFindingResponseApi {
      * @nullable
      */
     skipped_reason: string | null
+}
+
+/**
+ * * `high` - high
+ * * `medium` - medium
+ * * `low` - low
+ */
+export type LowMediumHighEnumApi = (typeof LowMediumHighEnumApi)[keyof typeof LowMediumHighEnumApi]
+
+export const LowMediumHighEnumApi = {
+    High: 'high',
+    Medium: 'medium',
+    Low: 'low',
+} as const
+
+/**
+ * Request body for `notify`. The target channel always comes from the scout config's
+ * `delivery_config` — it can never be supplied here.
+ */
+export interface ScoutNotifyRequestApi {
+    /**
+     * The finding summary, in Slack mrkdwn, written for the account owner: what changed, the magnitude and window, and the one thing to check. 2–4 sentences. Do NOT include an owner mention — the server prepends it.
+     * @maxLength 2500
+     */
+    text: string
+    /**
+     * Display name of the account the finding is about (headline of the alert).
+     * @maxLength 300
+     */
+    account_name: string
+    /**
+     * The account owner's email as resolved from the data (`system.accounts` roles or CRM owner join). The server resolves it to a Slack mention via `users.lookupByEmail`; on a miss the alert falls back to plain text. Omit when no owner was resolvable.
+     * @nullable
+     */
+    owner_email?: string | null
+    /**
+     * Human-readable owner fallback (e.g. `Jane Doe (Salesforce)` or `HubSpot owner 1234`) used when `owner_email` is absent or doesn't resolve to a Slack user.
+     * @maxLength 200
+     * @nullable
+     */
+    owner_label?: string | null
+    /**
+     * UUID of the inbox `SignalReport` this run emitted or edited for the same finding. Must be one of this run's report ids; the alert links to it. Always file the report first, then notify.
+     * @nullable
+     */
+    report_id?: string | null
+    /** Severity steer for the alert's visual treatment. Omit for a neutral alert.
+     *
+     * * `low` - low
+     * * `medium` - medium
+     * * `high` - high */
+    severity?: LowMediumHighEnumApi | null
+}
+
+/**
+ * Result of a delivered Slack alert.
+ */
+export interface ScoutNotifyResponseApi {
+    /** True — the alert was posted to the configured channel. */
+    sent: boolean
+    /** Whether `owner_email` resolved to a Slack user and the alert mentions them directly. */
+    owner_tagged: boolean
+    /** The channel the alert was delivered to, e.g. `#posthog-inbox`. */
+    channel: string
 }
 
 /**

@@ -6916,6 +6916,20 @@
             "readOnlyHint": true
         }
     },
+    "signals-scout-notify": {
+        "description": "Deliver a finding summary to this scout's configured Slack delivery channel, tagging the account owner when `owner_email` resolves to a Slack user (plain-text `owner_label` fallback otherwise). The channel always comes from the scout config's `delivery_config` — it can never be chosen per call. Capped at 5 alerts per run; file overflow findings as inbox reports and note them in the run summary. Always emit or edit the inbox report first and pass its `report_id` so the alert links back to it. NOT idempotent — a retry posts a duplicate alert; delivery errors (`no_delivery_config`, `notification_cap_reached`, `channel_unavailable`) are terminal for the run: note them in your run summary and never retry. Opt-in: only available to scouts that list `send_slack_message` in their skill's `allowed_tools` and carry a Slack delivery target.",
+        "category": "Signals",
+        "feature": "signals",
+        "summary": "Send a Slack alert for a confirmed finding",
+        "title": "Send a Slack alert for a confirmed finding",
+        "required_scopes": ["signal_scout_internal:write"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": false,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        }
+    },
     "signals-scout-project-profile-get": {
         "description": "Return a deterministic snapshot of \"what's true about this project\" — products in use, product intents (stuck onboardings), connected integrations, warehouse sources, signal source configs (split enabled/disabled), and existing inbox report counts. Singleton per team; the response reflects either the newest non-expired cached profile or a freshly-built one. Read this once at the start of a run (right after `skill-get`) to orient on the team in one tool call instead of paginating through `inbox-source-configs-list` / `inbox-reports-list` / `read-data-schema` / `activity-log-list`. Distinct from `signals-scout-scratchpad-list`: profile is ground truth from authoritative tables; scratchpad is the scout's inferred learnings.",
         "category": "Signals",

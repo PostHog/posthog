@@ -501,6 +501,26 @@ tools:
             members, match the owner by email/name, then put their resolved `github_login` in `suggested_reviewers` on
             `signals-scout-emit-report` / `signals-scout-edit-report` (a member with a null `github_login` can't be
             routed to — pick another owner). Pass `search` to narrow a large roster. Strictly team-scoped.
+    signals-scout-notify:
+        operation: signals_scout_notify
+        enabled: true
+        scopes:
+            - signal_scout_internal:write
+        annotations:
+            readOnly: false
+            destructive: false
+            idempotent: false
+        title: Send a Slack alert for a confirmed finding
+        description: >
+            Deliver a finding summary to this scout's configured Slack delivery channel, tagging the account owner
+            when `owner_email` resolves to a Slack user (plain-text `owner_label` fallback otherwise). The channel
+            always comes from the scout config's `delivery_config` — it can never be chosen per call. Capped at 5
+            alerts per run; file overflow findings as inbox reports and note them in the run summary. Always emit or
+            edit the inbox report first and pass its `report_id` so the alert links back to it. NOT idempotent — a
+            retry posts a duplicate alert; delivery errors (`no_delivery_config`, `notification_cap_reached`,
+            `channel_unavailable`) are terminal for the run: note them in your run summary and never retry. Opt-in:
+            only available to scouts that list `send_slack_message` in their skill's `allowed_tools` and carry a
+            Slack delivery target.
     signals-scout-metadata-get:
         operation: signals_scout_metadata_get
         enabled: false

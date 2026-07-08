@@ -30,6 +30,8 @@ import {
     SignalsScoutEmitSignalBody,
     SignalsScoutEmitSignalParams,
     SignalsScoutMembersListQueryParams,
+    SignalsScoutNotifyBody,
+    SignalsScoutNotifyParams,
     SignalsScoutProjectProfileGetQueryParams,
     SignalsScoutRunsEmissionReportsParams,
     SignalsScoutRunsEmissionsParams,
@@ -757,6 +759,43 @@ const signalsScoutMembersList = (): ToolBase<
     },
 })
 
+const SignalsScoutNotifySchema = SignalsScoutNotifyParams.omit({ project_id: true }).extend(
+    SignalsScoutNotifyBody.shape
+)
+
+const signalsScoutNotify = (): ToolBase<typeof SignalsScoutNotifySchema, Schemas.ScoutNotifyResponse> => ({
+    name: 'signals-scout-notify',
+    schema: SignalsScoutNotifySchema,
+    handler: async (context: Context, params: z.infer<typeof SignalsScoutNotifySchema>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const body: Record<string, unknown> = {}
+        if (params.text !== undefined) {
+            body['text'] = params.text
+        }
+        if (params.account_name !== undefined) {
+            body['account_name'] = params.account_name
+        }
+        if (params.owner_email !== undefined) {
+            body['owner_email'] = params.owner_email
+        }
+        if (params.owner_label !== undefined) {
+            body['owner_label'] = params.owner_label
+        }
+        if (params.report_id !== undefined) {
+            body['report_id'] = params.report_id
+        }
+        if (params.severity !== undefined) {
+            body['severity'] = params.severity
+        }
+        const result = await context.api.request<Schemas.ScoutNotifyResponse>({
+            method: 'POST',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/signals/scout/runs/${encodeURIComponent(String(params.run_id))}/notify/`,
+            body,
+        })
+        return result
+    },
+})
+
 const SignalsScoutProjectProfileGetSchema = SignalsScoutProjectProfileGetQueryParams
 
 const signalsScoutProjectProfileGet = (): ToolBase<
@@ -998,6 +1037,7 @@ export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
     'signals-scout-emit-report': signalsScoutEmitReport,
     'signals-scout-emit-signal': signalsScoutEmitSignal,
     'signals-scout-members-list': signalsScoutMembersList,
+    'signals-scout-notify': signalsScoutNotify,
     'signals-scout-project-profile-get': signalsScoutProjectProfileGet,
     'signals-scout-run-now': signalsScoutRunNow,
     'signals-scout-runs-emission-reports': signalsScoutRunsEmissionReports,

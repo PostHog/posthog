@@ -502,6 +502,19 @@ Respond at end_turn with a single JSON object matching this schema:
 </jsonschema>"""
 
 
+# Appended (either channel) when the skill opts into `send_slack_message` — the Slack
+# delivery contract for scouts with a configured delivery channel.
+_SLACK_DELIVERY = """# Slack delivery
+
+This scout has a Slack delivery channel. After filing (or editing) an inbox report for a
+confirmed finding, call `signals-scout-notify` with a 2–4 sentence summary written
+for the account owner: what changed, the magnitude and window, and the one thing to
+check. Pass `owner_email` when you resolved an owner from the data and `report_id` for
+the report you filed. One notification per account per run; at most 5 per run; never
+notify for close-outs, config gaps, or anything below report-worthy confidence. If the
+tool returns an error, note it in your run summary and move on — never retry delivery
+errors."""
+
 _SIGNAL_TAIL_SECTIONS = [
     _HOW_A_RUN_WORKS_SIGNAL,
     _SCRATCHPAD_KEYS,
@@ -523,7 +536,7 @@ def _report_tail_sections(*, can_emit: bool, can_edit: bool) -> list[str]:
     """Report-channel tail, tailored to the report tools the scout actually opted into.
 
     A scout can list `emit_report`, `edit_report`, or both in `allowed_tools`. The report endpoints
-    fail closed on the *exact* tool (`views._assert_report_tool_opted_in`), so the prompt must never
+    fail closed on the *exact* tool (`views._assert_tool_opted_in`), so the prompt must never
     steer a scout toward a tool it lacks — an edit-only scout pointed at `emit_report` just earns a
     PermissionDenied. We therefore pick the run-step / authoring guidance to match, and include the
     standalone author-time sections (the suggested-reviewers deep-dive, writing a report) only when the
@@ -613,6 +626,8 @@ def build_run_prompt(skill: LoadedSkill, *, run_id: str, team_id: int, started_a
         intro = _BASE_PROMPT_INTRO
         sections = _SIGNAL_TAIL_SECTIONS
         emit_tool = "signals-scout-emit-signal"
+    if "send_slack_message" in allowed_tools:
+        sections = [*sections, _SLACK_DELIVERY]
     tail = _render_tail(sections, schema_json=schema_json)
     return f"""{intro}
 # Your run identity

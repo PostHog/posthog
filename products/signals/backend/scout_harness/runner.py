@@ -48,7 +48,7 @@ SIGNALS_SCOUT_SANDBOX_ENV_NAME = SIGNALS_REPORT_RESEARCH_ENV_NAME
 # carries the report-write scope ONLY when its skill listed one of these in `allowed_tools` (see
 # the posture selection where the sandbox context is built). A baseline scout never carries that
 # scope, so the MCP server strips the report tools from its toolset — they can't bleed into a run
-# that didn't opt in. `views._assert_report_tool_opted_in` is the matching fail-closed gate on the
+# that didn't opt in. `views._assert_tool_opted_in` is the matching fail-closed gate on the
 # write itself. `REPORT_CHANNEL_TOOLS` / `skill_uses_report_channel` live in `skill_loader` so the
 # runner, prompt builder, and viewset all resolve the same opt-in set.
 

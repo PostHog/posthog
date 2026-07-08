@@ -540,6 +540,61 @@ export const SignalsScoutEmitSignalBody = /* @__PURE__ */ zod
     .describe('Request body for `emit-finding`. Run attribution is taken from the URL path.')
 
 /**
+ * Deliver a finding summary to this scout's configured Slack channel, tagging the account owner when `owner_email` resolves to a Slack user. The channel always comes from the scout config's `delivery_config` — never from the request. Capped at 5 alerts per run. File (or edit) the inbox report first and pass its `report_id` so the alert links back. Delivery errors are terminal for the run — note them in your run summary and do not retry.
+ * @summary Send a Slack alert for a confirmed finding
+ */
+export const signalsScoutNotifyBodyTextMax = 2500
+
+export const signalsScoutNotifyBodyAccountNameMax = 300
+
+export const signalsScoutNotifyBodyOwnerLabelMax = 200
+
+export const SignalsScoutNotifyBody = /* @__PURE__ */ zod
+    .object({
+        text: zod
+            .string()
+            .max(signalsScoutNotifyBodyTextMax)
+            .describe(
+                'The finding summary, in Slack mrkdwn, written for the account owner: what changed, the magnitude and window, and the one thing to check. 2–4 sentences. Do NOT include an owner mention — the server prepends it.'
+            ),
+        account_name: zod
+            .string()
+            .max(signalsScoutNotifyBodyAccountNameMax)
+            .describe('Display name of the account the finding is about (headline of the alert).'),
+        owner_email: zod
+            .email()
+            .nullish()
+            .describe(
+                "The account owner's email as resolved from the data (`system.accounts` roles or CRM owner join). The server resolves it to a Slack mention via `users.lookupByEmail`; on a miss the alert falls back to plain text. Omit when no owner was resolvable."
+            ),
+        owner_label: zod
+            .string()
+            .max(signalsScoutNotifyBodyOwnerLabelMax)
+            .nullish()
+            .describe(
+                "Human-readable owner fallback (e.g. `Jane Doe (Salesforce)` or `HubSpot owner 1234`) used when `owner_email` is absent or doesn't resolve to a Slack user."
+            ),
+        report_id: zod
+            .uuid()
+            .nullish()
+            .describe(
+                "UUID of the inbox `SignalReport` this run emitted or edited for the same finding. Must be one of this run's report ids; the alert links to it. Always file the report first, then notify."
+            ),
+        severity: zod
+            .union([
+                zod.enum(['high', 'medium', 'low']).describe('\* `high` - high\n\* `medium` - medium\n\* `low` - low'),
+                zod.null(),
+            ])
+            .optional()
+            .describe(
+                "Severity steer for the alert's visual treatment. Omit for a neutral alert.\n\n\* `low` - low\n\* `medium` - medium\n\* `high` - high"
+            ),
+    })
+    .describe(
+        "Request body for `notify`. The target channel always comes from the scout config's\n`delivery_config` — it can never be supplied here."
+    )
+
+/**
  * Batched form of the per-run emissions endpoint: return the findings every requested `SignalScoutRun` emitted, flattened newest-first, in a single request. Each row carries its `run_id`, so the caller can regroup by run. The findings UI uses this to load the whole recent window in one round-trip instead of one request per run. Strictly team-scoped — run ids belonging to another team contribute no rows (no per-run 404; one stale id never fails the batch).
  * @summary List emitted findings for many runs at once
  */

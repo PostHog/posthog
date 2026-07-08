@@ -1,9 +1,10 @@
 import enum
 import dataclasses
-from datetime import timedelta
+from datetime import datetime, timedelta
 from typing import get_args
 
 from django.conf import settings
+from django.db import transaction
 
 import pydantic
 import structlog
@@ -14,7 +15,7 @@ from posthog.schema import SignalInput, SignalRemediation
 
 from posthog.event_usage import groups
 from posthog.helpers.tiktoken_encoding import LLM_TOKEN_COUNT_PROXY_MODEL, get_tiktoken_encoding_for_model
-from posthog.models import Team
+from posthog.models import Team, User
 from posthog.sync import database_sync_to_async
 from posthog.temporal.common.client import async_connect
 
@@ -413,3 +414,226 @@ async def emit_signal(
             source_type=source_type,
             source_id=source_id,
         )
+
+
+# --- Persona scout provisioning (Slack onboarding entry point) --------------
+
+CSM_SCOUT_RUN_INTERVAL_MINUTES = 1440
+
+
+@dataclasses.dataclass(frozen=True)
+class ScoutProvisionResult:
+    """Outcome of provisioning one persona scout (see `provision_persona_scouts`)."""
+
+    skill_name: str
+    config_id: str | None
+    created: bool
+    # The channel_name an existing config already delivers to, when it differs from the
+    # requested one — provisioning never overwrites an established delivery target.
+    channel_conflict: str | None
+    first_run_started: bool
+    skipped_reason: str | None = None
+
+
+def provision_persona_scouts(
+    *,
+    team: Team,
+    created_by: User,
+    slack_integration_id: int,
+    channel_id: str,
+    channel_name: str,
+    skill_names: list[str],
+    fire_first_runs: bool = True,
+) -> list[ScoutProvisionResult]:
+    """Seed + enable a persona's canonical scouts with a Slack delivery target.
+
+    Per skill: seed the canonical SKILL.md into the team's skill rows, upsert the
+    `SignalScoutConfig` (enabled, emitting, daily) carrying the Slack delivery target, and
+    fire an immediate manual first run so the user's first finding doesn't wait for the
+    next coordinator tick. An existing config already delivering to a DIFFERENT channel is
+    left untouched — `channel_conflict` reports where alerts already go. A skill the team
+    explicitly tombstoned is skipped (`skipped_reason="skill_tombstoned"`), never
+    resurrected. Raises `ValueError` on an unknown skill name or when enabling would
+    exceed the team's enabled-scout cap.
+    """
+    from products.signals.backend.models import (
+        SignalScoutConfig,  # noqa: PLC0415 — keeps the scout stack off the facade import path
+    )
+    from products.signals.backend.scout_harness.config_registry import enabled_scout_count  # noqa: PLC0415 — same
+    from products.signals.backend.scout_harness.lazy_seed import (  # noqa: PLC0415 — same
+        discover_canonical_skills,
+        sync_canonical_skills,
+    )
+    from products.signals.backend.scout_harness.limits import MAX_ENABLED_SCOUTS_PER_TEAM  # noqa: PLC0415 — same
+
+    canonical_names = {canonical.name for canonical in discover_canonical_skills()}
+    unknown = [name for name in skill_names if name not in canonical_names]
+    if unknown:
+        raise ValueError(f"Unknown canonical scout skill(s): {', '.join(unknown)}")
+
+    results: list[ScoutProvisionResult] = []
+    for skill_name in skill_names:
+        # Targeted seeding: withhold every other canonical so only this skill syncs.
+        sync_result = sync_canonical_skills(
+            team, prune=False, withheld_skill_names=frozenset(canonical_names - {skill_name})
+        )
+        if skill_name in sync_result.tombstoned_skill_names:
+            logger.warning("persona_scout_skill_tombstoned", team_id=team.id, skill_name=skill_name)
+            results.append(
+                ScoutProvisionResult(
+                    skill_name=skill_name,
+                    config_id=None,
+                    created=False,
+                    channel_conflict=None,
+                    first_run_started=False,
+                    skipped_reason="skill_tombstoned",
+                )
+            )
+            continue
+
+        if enabled_scout_count(team.id, exclude_skill=skill_name) >= MAX_ENABLED_SCOUTS_PER_TEAM:
+            raise ValueError(f"This project already has {MAX_ENABLED_SCOUTS_PER_TEAM} enabled scouts (the maximum).")
+
+        delivery = {
+            "slack": {
+                "integration_id": slack_integration_id,
+                "channel_id": channel_id,
+                "channel_name": channel_name,
+                "configured_by_user_id": created_by.id,
+            }
+        }
+        channel_conflict: str | None = None
+        with transaction.atomic():
+            existing = SignalScoutConfig.objects.for_team(team.id).filter(skill_name=skill_name).first()
+            if existing is not None:
+                existing_slack = (existing.delivery_config or {}).get("slack") or {}
+                if existing_slack.get("channel_id") and existing_slack["channel_id"] != channel_id:
+                    channel_conflict = existing_slack.get("channel_name") or existing_slack["channel_id"]
+                    if not existing.enabled:
+                        existing.enabled = True
+                        existing.enabled_by = created_by
+                        existing.save(update_fields=["enabled", "enabled_by", "updated_at"])
+                else:
+                    existing.enabled = True
+                    existing.emit = True
+                    existing.delivery_config = delivery
+                    existing.enabled_by = created_by
+                    existing.save(update_fields=["enabled", "emit", "delivery_config", "enabled_by", "updated_at"])
+                config = existing
+                created = False
+            else:
+                # `for_team()` filters don't propagate into row creation — pass team explicitly.
+                config = SignalScoutConfig.objects.for_team(team.id).create(
+                    team=team,
+                    skill_name=skill_name,
+                    enabled=True,
+                    emit=True,
+                    run_interval_minutes=CSM_SCOUT_RUN_INTERVAL_MINUTES,
+                    delivery_config=delivery,
+                    created_by=created_by,
+                    enabled_by=created_by,
+                )
+                created = True
+
+        results.append(
+            ScoutProvisionResult(
+                skill_name=skill_name,
+                config_id=str(config.id),
+                created=created,
+                channel_conflict=channel_conflict,
+                first_run_started=False,
+            )
+        )
+
+    # Fire first runs after the config loop, sharing ONE Temporal connection across all of them —
+    # this runs on the synchronous Slack interactivity path, so a fresh connect per skill (each a
+    # TLS handshake) risks blowing Slack's ~3s ack budget. Temporal dispatch is a deliberate
+    # side effect kept outside every config's transaction: a dispatch failure never rolls back a
+    # config, and the coordinator picks the scout up at its next tick.
+    if fire_first_runs:
+        fired = _fire_first_scout_runs(
+            team.id, [result.skill_name for result in results if result.channel_conflict is None]
+        )
+        results = [dataclasses.replace(result, first_run_started=result.skill_name in fired) for result in results]
+    return results
+
+
+def _fire_first_scout_runs(team_id: int, skill_names: list[str]) -> set[str]:
+    """Best-effort immediate dispatch of each skill through the existing manual-run path — every
+    guard it carries (quota, withheld skills, single-flight) stays intact. Returns the set of
+    skills whose dispatch succeeded; a failure never breaks provisioning. One shared Temporal
+    client for the whole batch to keep the synchronous caller off repeated connects."""
+    if not skill_names:
+        return set()
+    from posthog.temporal.common.client import (
+        sync_connect,  # noqa: PLC0415 — keeps the temporal graph off the facade import path
+    )
+
+    from products.signals.backend.temporal.agentic.scout_scheduler import (  # noqa: PLC0415 — same
+        start_manual_signals_scout_run,
+    )
+
+    try:
+        client = sync_connect()
+    except Exception:
+        logger.warning("persona_scout_first_run_connect_failed", team_id=team_id, exc_info=True)
+        return set()
+    fired: set[str] = set()
+    for skill_name in skill_names:
+        try:
+            start_manual_signals_scout_run(client, team_id=team_id, skill_name=skill_name)
+            fired.add(skill_name)
+        except Exception:
+            logger.warning(
+                "persona_scout_first_run_dispatch_failed", team_id=team_id, skill_name=skill_name, exc_info=True
+            )
+    return fired
+
+
+@dataclasses.dataclass(frozen=True)
+class ScoutRunDigest:
+    """Per-scout outcome of the runs since a provisioning moment — feeds the Slack
+    first-patrol digest."""
+
+    skill_name: str
+    summary: str
+    notifications_sent: int
+    reports_filed: int
+
+
+def collect_scout_run_digests(
+    *, team_id: int, scout_config_ids: list[str], since_iso: str
+) -> list[ScoutRunDigest] | None:
+    """Digest rows for COMPLETED scout runs on the given configs since ``since_iso`` — one per
+    skill (newest run wins). ``None`` when no run has completed yet, so the caller can retry
+    later rather than reporting on nothing."""
+    from products.signals.backend.models import (
+        SignalScoutRun,  # noqa: PLC0415 — keeps the scout stack off the facade import path
+    )
+    from products.tasks.backend.facade import api as tasks_facade  # noqa: PLC0415 — same
+
+    since = datetime.fromisoformat(since_iso)
+    runs = list(
+        SignalScoutRun.objects.for_team(team_id)
+        .select_related("task_run")
+        .filter(scout_config_id__in=scout_config_ids, created_at__gte=since)
+        .order_by("created_at")
+    )
+    completed = [run for run in runs if run.task_run.status == tasks_facade.TaskRunStatus.COMPLETED]
+    if not completed:
+        return None
+    digests: list[ScoutRunDigest] = []
+    seen: set[str] = set()
+    for run in reversed(completed):
+        if run.skill_name in seen:
+            continue
+        seen.add(run.skill_name)
+        digests.append(
+            ScoutRunDigest(
+                skill_name=run.skill_name,
+                summary=run.summary or "",
+                notifications_sent=len(run.notifications or []),
+                reports_filed=len(run.emitted_report_ids or []) + len(run.edited_report_ids or []),
+            )
+        )
+    return list(reversed(digests))

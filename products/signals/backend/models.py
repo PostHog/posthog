@@ -1050,6 +1050,13 @@ class SignalScoutConfig(ModelActivityMixin, TeamScopedRootMixin, UUIDModel):
     # Stamped by the coordinator after each dispatch; drives the due-check. Written every
     # run, so it is excluded from activity logging (see field_exclusions below).
     last_run_at = models.DateTimeField(null=True, blank=True)
+    # Optional per-scout delivery target(s), written only by the provisioning facade
+    # (`provision_persona_scouts`) — not accepted through the public config API, so channel
+    # changes go through the owning flow. Read server-side by the `notify` run tool, which is
+    # what keeps the agent from choosing its own channel. Shape:
+    # {"slack": {"integration_id": int, "channel_id": "C…", "channel_name": "posthog-inbox",
+    #            "configured_by_user_id": int}}
+    delivery_config = models.JSONField(null=True, blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
     created_by = models.ForeignKey(
@@ -1161,6 +1168,12 @@ class SignalScoutRun(TeamScopedRootMixin, UUIDModel):
     # report (pipeline-authored included), so an edited id is generally NOT one the run authored. Nullable
     # with a `[]` db_default so the AddField stays non-blocking on the populated table.
     edited_report_ids = models.JSONField(null=True, blank=True, default=list, db_default=[])
+    # Append-only audit of `notify` (send_slack_message) calls this run — one entry per
+    # delivered Slack alert ({channel_id, ts, account_name, owner_email, owner_tagged,
+    # report_id, sent_at}). Doubles as the per-run delivery cap counter
+    # (MAX_SLACK_NOTIFICATIONS_PER_RUN). Nullable with a `[]` db_default so the AddField
+    # stays non-blocking on the populated table.
+    notifications = models.JSONField(null=True, blank=True, default=list, db_default=[])
     created_at = models.DateTimeField(auto_now_add=True)
 
     class Meta:

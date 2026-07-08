@@ -9,12 +9,12 @@
  */
 import { z as zod } from 'zod'
 
-export const TierEnumApi = zod
+export const LowMediumHighEnumApi = zod
     .enum(['high', 'medium', 'low'])
     .describe('\* `high` - high\n\* `medium` - medium\n\* `low` - low')
 
-export type TierEnumApi = zod.input<typeof TierEnumApi>
-export type TierEnumApiOutput = zod.output<typeof TierEnumApi>
+export type LowMediumHighEnumApi = zod.input<typeof LowMediumHighEnumApi>
+export type LowMediumHighEnumApiOutput = zod.output<typeof LowMediumHighEnumApi>
 
 export const IdentityMatchingPersonApi = zod
     .object({
