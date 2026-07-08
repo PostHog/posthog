@@ -85,6 +85,11 @@ class MetricQuality(StrEnum):
     PARTIAL = "partial"
 
 
+class WorkflowHealthRunScope(StrEnum):
+    ALL = "all"
+    PULL_REQUEST = "pull_request"
+
+
 class PRLifecycleEventKind(StrEnum):
     OPENED = "opened"
     CI_STARTED = "ci_started"
@@ -635,8 +640,10 @@ class QuarantineRequestResult:
 
 @dataclass(frozen=True)
 class WorkflowHealthItem:
-    """Per-workflow CI health over a window. Rates and percentiles are over
-    completed runs only, so they are ``None`` when the window has none.
+    """Per-workflow CI health over a window. ``success_rate`` is over completed runs;
+    ``p50_seconds``/``p95_seconds`` are over successful runs only (cancelled, skipped,
+    and failed runs end early and would bias a duration percentile low). Each is
+    ``None`` when the window has no qualifying runs.
     """
 
     repo: RepoRef
@@ -760,8 +767,9 @@ class RunFailureLogs:
 class WorkflowJobAggregate:
     """Per-job aggregates for one workflow over a window, one row per de-sharded job name
     (matrix ``(G/N)`` suffix stripped; unexpanded ``${{ matrix.* }}`` templates collapsed).
-    Rates and percentiles are over completed jobs; cost is None when every instance ran on
-    an unknown tier."""
+    ``failure_rate`` is over completed jobs; ``p50_seconds``/``p95_seconds`` are over
+    successful jobs only (cancelled and failed instances end early and would bias a
+    duration percentile low); cost is None when every instance ran on an unknown tier."""
 
     job_name: str
     # Job instances observed in the window (all shards, all attempts).
