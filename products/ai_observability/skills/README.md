@@ -14,6 +14,9 @@ Also available to Claude Code / Codex via `hogli sync:skill`.
 - **exploring-llm-costs** — how to investigate LLM spend: total cost, breakdowns
   by model/provider/user/trace/custom dimension, token and cache economics,
   cost regressions, and materializing cost insights, dashboards, and alerts.
+- **analyzing-expensive-users** - how to analyze the most expensive users in
+  AI observability, compare them against baseline usage, inspect
+  trace/model/token/cache patterns, and explain what drives their spend.
 - **exploring-llm-evaluations** — how to manage and investigate AI observability
   evaluations (`hog`, `llm_judge`, and `sentiment`), run them on specific generations,
   query individual results, and generate AI-powered summaries of pass/fail/N/A patterns for boolean evaluations.
