@@ -2,6 +2,9 @@ import { MOCK_DEFAULT_USER, MOCK_ORGANIZATION_ID } from 'lib/api.mock'
 
 import { expectLogic } from 'kea-test-utils'
 
+import api from 'lib/api'
+import { ApiError } from 'lib/api-error'
+import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { organizationLogic } from 'scenes/organizationLogic'
 import { userLogic } from 'scenes/userLogic'
 
@@ -29,7 +32,7 @@ const proxyRecordsResponse = (records: ProxyRecord[]): { results: ProxyRecord[];
     max_proxy_records: 2,
 })
 
-describe('proxyLogic — shouldShowCloudflareOptIn', () => {
+describe('proxyLogic', () => {
     let logic: ReturnType<typeof proxyLogic.build>
 
     beforeEach(() => {
@@ -132,5 +135,32 @@ describe('proxyLogic — shouldShowCloudflareOptIn', () => {
             cloudflareOptInAcknowledged: true,
             shouldShowCloudflareOptIn: false,
         })
+    })
+
+    it('surfaces a failed diagnose inline instead of a blocking toast', async () => {
+        // Regression test: a failed diagnose used to throw a hard `Diagnose failed: ...` error toast
+        // that dead-ended proxy setup. The failure is now recorded inline (and the row auto-expands)
+        // so a transient probe failure is recoverable with a retry.
+        useMocks({
+            get: {
+                [`/api/organizations/${MOCK_ORGANIZATION_ID}/proxy_records`]: proxyRecordsResponse([mockProxyRecord()]),
+            },
+        })
+        await mountLogic()
+
+        const toastErrorSpy = jest.spyOn(lemonToast, 'error').mockReturnValue('')
+        const createSpy = jest.spyOn(api, 'create').mockRejectedValue(new ApiError('Probe timed out', 503))
+
+        await expectLogic(logic, () => {
+            logic.actions.diagnose('record-1')
+        }).toFinishAllListeners()
+
+        expect(toastErrorSpy).not.toHaveBeenCalled()
+        expect(logic.values.diagnosticErrors['record-1']).toBe('Probe timed out')
+        expect(logic.values.diagnoseLoadingIds).not.toContain('record-1')
+        expect(logic.values.expandedRecordIds).toContain('record-1')
+
+        toastErrorSpy.mockRestore()
+        createSpy.mockRestore()
     })
 })

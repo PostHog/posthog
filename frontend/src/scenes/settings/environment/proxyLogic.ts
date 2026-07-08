@@ -169,6 +169,26 @@ export const proxyLogic = kea<proxyLogicType>([
                 },
             },
         ],
+        // A failed probe is shown inline in the expanded row rather than as a blocking toast, so a
+        // transient diagnose failure doesn't dead-end proxy setup. Cleared when a run starts or succeeds.
+        diagnosticErrors: [
+            {} as Record<string, string>,
+            {
+                diagnose: (state, { id }) => {
+                    const { [id]: _removed, ...rest } = state
+                    return rest
+                },
+                diagnoseSuccess: (state, { id }) => {
+                    const { [id]: _removed, ...rest } = state
+                    return rest
+                },
+                diagnoseFailure: (state, { id, error }) => ({ ...state, [id]: error }),
+                clearDiagnosticReport: (state, { id }) => {
+                    const { [id]: _removed, ...rest } = state
+                    return rest
+                },
+            },
+        ],
         diagnoseLoadingIds: [
             [] as string[],
             {
@@ -288,7 +308,9 @@ export const proxyLogic = kea<proxyLogicType>([
             } catch (e) {
                 const message = e instanceof Error ? e.message : String(e)
                 actions.diagnoseFailure(id, message)
-                lemonToast.error(`Diagnose failed: ${message}`)
+                // Surface the failure inline in the (now expanded) row instead of a blocking toast,
+                // so a transient probe failure doesn't dead-end setup — the user can just retry.
+                actions.setRecordExpanded(id, true)
             }
         },
         diagnoseSuccess: ({ id }) => {

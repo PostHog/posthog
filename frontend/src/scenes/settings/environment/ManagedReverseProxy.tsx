@@ -325,10 +325,12 @@ function CloudflareOptInBanner({
 }
 
 const ExpandedRow = ({ record }: { record: ProxyRecord }): JSX.Element => {
-    const { diagnosticReports, recordActiveTabs } = useValues(proxyLogic)
-    const { setRecordActiveTab } = useActions(proxyLogic)
+    const { diagnosticReports, diagnosticErrors, diagnoseLoadingIds, recordActiveTabs } = useValues(proxyLogic)
+    const { setRecordActiveTab, diagnose } = useActions(proxyLogic)
 
     const report = diagnosticReports[record.id]
+    const diagnosticError = diagnosticErrors[record.id]
+    const isDiagnosing = diagnoseLoadingIds.includes(record.id)
     const activeKey = recordActiveTabs[record.id] ?? 'cname'
 
     const tabs = [
@@ -360,6 +362,21 @@ const ExpandedRow = ({ record }: { record: ProxyRecord }): JSX.Element => {
                 onChange={(key) => setRecordActiveTab(record.id, key)}
                 tabs={tabs}
             />
+            {diagnosticError && (
+                <LemonBanner type="error">
+                    <div className="flex items-center justify-between gap-2">
+                        <span>Couldn't run diagnostics: {diagnosticError}</span>
+                        <LemonButton
+                            type="secondary"
+                            size="small"
+                            onClick={() => diagnose(record.id)}
+                            loading={isDiagnosing}
+                        >
+                            Try again
+                        </LemonButton>
+                    </div>
+                </LemonBanner>
+            )}
             {record.status === 'waiting' && (
                 <DomainConnectBanner
                     logicKey={`proxy-${record.id}`}

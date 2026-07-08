@@ -3,6 +3,7 @@ import { loaders } from 'kea-loaders'
 import posthog from 'posthog-js'
 
 import api from 'lib/api'
+import { isTransientNetworkError } from 'lib/api-error'
 import { SetupTaskId, globalSetupLogic } from 'lib/components/ProductSetup'
 import { sceneLogic } from 'scenes/sceneLogic'
 
@@ -48,14 +49,22 @@ export const reverseProxyCheckerLogic = kea<reverseProxyCheckerLogicType>([
                         // Swallow errors so kea-loaders does not surface a user-visible toast
                         // on every scene that mounts ProductSetupButton.
                         //
+                        // Transient network failures (offline, aborted navigation, connection
+                        // reset, ad-blocker) are outside our control and not real defects. The
+                        // check already returns a safe fallback, so skip capturing them —
+                        // otherwise every browser network blip mints error-tracking noise that
+                        // re-fingerprints per deploy.
+                        //
                         // Capturing the original `error` directly (rather than wrapping it
                         // in `new Error('...', { cause })`) keeps the error type at the top
                         // of `$exception_list`, so the central `before_send` filter in
                         // `selfReadOnlyModeLogic` can drop `ReadOnlyModeError` without
                         // assuming posthog-js serialises the cause chain.
-                        posthog.captureException(error, {
-                            posthog_source: 'reverseProxyCheckerLogic.loadHasReverseProxy',
-                        })
+                        if (!isTransientNetworkError(error)) {
+                            posthog.captureException(error, {
+                                posthog_source: 'reverseProxyCheckerLogic.loadHasReverseProxy',
+                            })
+                        }
                         return values.hasReverseProxy
                     }
                 },

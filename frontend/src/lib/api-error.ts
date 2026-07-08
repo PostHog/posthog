@@ -50,3 +50,30 @@ export class ApiError extends Error {
         return 'later'
     }
 }
+
+// Browser network messages produced when a `fetch` never reaches the server: offline, connection
+// reset, DNS hiccup, ad-blocker, aborted navigation. Cross-browser wording varies, hence the set.
+const NETWORK_ERROR_MESSAGE_RE =
+    /Failed to fetch|NetworkError|Network request failed|Load failed|The (?:network|Internet) connection appears to be offline/i
+
+/**
+ * True for transient network failures that are outside our control (offline, connection reset,
+ * ad-blocker, aborted navigation) rather than genuine defects. A failed `fetch` throws a raw
+ * `TypeError`/`AbortError`; once wrapped by `api` (see `handleFetch`) it becomes an `ApiError`
+ * with no HTTP status and one of the browser network messages above. Advisory background checks
+ * can use this to skip capturing such errors to error tracking, where they are pure noise.
+ */
+export function isTransientNetworkError(error: unknown): boolean {
+    if (error instanceof TypeError) {
+        return true
+    }
+    const name = (error as { name?: string } | null | undefined)?.name
+    if (name === 'AbortError' || name === 'TypeError') {
+        return true
+    }
+    if (error instanceof ApiError) {
+        // A wrapped fetch failure never got an HTTP response, so it carries no status.
+        return error.status === undefined && NETWORK_ERROR_MESSAGE_RE.test(error.message)
+    }
+    return false
+}
