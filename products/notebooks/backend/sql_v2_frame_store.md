@@ -81,6 +81,16 @@ Trust model today: the sandbox holds a signed, notebook+team-bound data-plane to
 `/internal/notebooks/data_plane/` over HTTPS. The frame store keeps that shape — the control plane stays
 token-authed; only the bulk-bytes leg moves to object storage.
 
+- **How the sandbox reads without AWS credentials.** The sandbox never assumes a role and never holds AWS
+  credentials of any kind. The backend — which does hold the role — signs a GET for one specific object with an
+  expiry and embeds that signature in the URL (a presigned URL); S3 verifies the signature server-side, so the
+  fetch is a plain HTTPS GET with no SDK. This is the same position a user's browser is in when it downloads a
+  CSV export (`ExportedAsset.get_content_response`) — an external reader given a narrow expiring capability, not
+  an identity. STS temp credentials (file-download-export pattern) were considered and rejected for the read
+  side: they would hand real, if scoped, AWS credentials to a container that executes arbitrary user code,
+  where a presign is one object, one verb, minutes. Note a presign is only valid while the credentials that
+  signed it are — fine for minutes-scale expiry, and the reason day-long URLs can't be minted from
+  instance-role session credentials.
 - **Bucket posture.** Private bucket (or dedicated prefix), public access blocked, SSE at rest.
   Per the repo's storage direction: SeaweedFS locally, S3 in cloud, standard S3 client, no hardcoded endpoints.
 - **Tenant isolation lives at mint time, not in the URL.** Object keys are namespaced
