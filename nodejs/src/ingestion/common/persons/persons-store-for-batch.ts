@@ -2,9 +2,9 @@ import { DateTime } from 'luxon'
 
 import { PersonMessage } from '~/common/persons/person-message'
 import { PersonRepositoryTransaction } from '~/common/persons/repositories/person-repository-transaction'
+import { CreatePersonResult, MoveDistinctIdsResult } from '~/common/utils/db/db'
 import { Properties } from '~/plugin-scaffold'
 import { InternalPerson, PropertiesLastOperation, PropertiesLastUpdatedAt, Team } from '~/types'
-import { CreatePersonResult, MoveDistinctIdsResult } from '~/utils/db/db'
 
 import { FlushResult, PersonsStore } from './persons-store'
 import { PersonsStoreTransaction } from './persons-store-transaction'

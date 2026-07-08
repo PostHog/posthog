@@ -24,8 +24,9 @@ from uuid import uuid4
 from django.core.management.base import BaseCommand, CommandError
 from django.db import transaction
 
-from posthog.models import Group, OrganizationMembership, Team, User
+from posthog.models import OrganizationMembership, Team, User
 from posthog.models.scoping import team_scope
+from posthog.persons_db import persons_db_connection
 
 from products.customer_analytics.backend.models.account import Account, AccountAssignment, AccountProperties
 from products.customer_analytics.backend.models.team_customer_analytics_config import TeamCustomerAnalyticsConfig
@@ -97,14 +98,13 @@ class Command(BaseCommand):
             raise CommandError(f"Team {team_id} does not exist.")
 
     def _read_account_groups(self, team: Team, limit: int | None) -> list[tuple[str, dict[str, Any]]]:
-        rows = [
-            (group_key, props or {})
-            for group_key, props in Group.objects.filter(  # nosemgrep: no-direct-persons-db-orm
-                team_id=team.pk, group_type_index=ACCOUNT_GROUP_TYPE_INDEX
-            )
-            .order_by("group_key")
-            .values_list("group_key", "group_properties")
-        ]
+        query = (
+            "SELECT group_key, group_properties FROM posthog_group "
+            "WHERE team_id = %(team_id)s AND group_type_index = %(gti)s ORDER BY group_key"
+        )
+        with persons_db_connection(writer=False) as conn, conn.cursor() as cursor:
+            cursor.execute(query, {"team_id": team.pk, "gti": ACCOUNT_GROUP_TYPE_INDEX})
+            rows = [(group_key, props or {}) for group_key, props in cursor.fetchall()]
         return rows[:limit] if limit is not None else rows
 
     def _set_config(self, team: Team) -> None:

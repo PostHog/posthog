@@ -119,7 +119,7 @@ ANALYTICS_SERVICE_ID = "analytics"
 FREE_PLAN_SERVICE_ID = "free"
 PAY_AS_YOU_GO_SERVICE_ID = "pay_as_you_go"
 
-ALL_CATEGORIES: list[str] = ["analytics", "feature_flags", "ai"]
+ALL_CATEGORIES: list[str] = ["analytics", "feature_flags", "ai", "observability"]
 
 SERVICES_CACHE_KEY = "agentic_provisioning:services"
 SERVICES_CACHE_TTL = 3600
@@ -129,7 +129,7 @@ SERVICES_CACHE_STORE_TTL = 86400
 
 _EXCLUDED_PRODUCT_TYPES = {"platform_and_support", "integrations"}
 
-_FALLBACK_DESCRIPTION = "PostHog — product analytics, session replay, realtime destinations, feature flags & experiments, surveys, data warehouse, error tracking, AI observability, logs, posthog ai, emails, and more."
+_FALLBACK_DESCRIPTION = "PostHog — AI infrastructure for your product: product & web analytics, session replay, feature flags & experiments, error tracking, AI observability, logs & traces, and more."
 
 
 def _build_free_plan_service() -> dict[str, Any]:
@@ -152,7 +152,7 @@ def _build_pay_as_you_go_service() -> dict[str, Any]:
             "type": "paid",
             "paid": {
                 "type": "freeform",
-                "freeform": "$0/mo base, usage-based pricing. See https://posthog.com/pricing for rates.",
+                "freeform": "$0/mo base, usage-based pricing, generous free tier. See https://posthog.com/pricing for rates.",
             },
         },
         "kind": "plan",
@@ -1939,7 +1939,8 @@ def provisioning_rotate_credentials(request: Request, resource_id: str) -> Respo
         return _error_response("not_found", "Resource not found", resource_id=resource_id, status=404)
 
     try:
-        team.reset_token_and_save(user=user, is_impersonated_session=False)
+        # Bearer flow resolves the token outside DRF, so read impersonation off the token directly.
+        team.reset_token_and_save(user=user, is_impersonated_session=access_token.impersonated_by_id is not None)
     except Exception:
         capture_exception(additional_properties={"team_id": team_id})
         _capture_provisioning_event("credential_rotation", "failed", team_id=team_id)

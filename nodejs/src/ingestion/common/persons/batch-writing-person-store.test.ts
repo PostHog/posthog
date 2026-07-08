@@ -8,11 +8,11 @@ import {
     personPropertyKeyUpdateCounter,
 } from '~/common/persons/metrics'
 import { fromInternalPerson } from '~/common/persons/person-update-batch'
+import { DependencyUnavailableError, MessageSizeTooLarge } from '~/common/utils/db/error'
+import { PostgresRouter } from '~/common/utils/db/postgres'
 import { emitIngestionWarning } from '~/ingestion/common/ingestion-warnings'
 import { createMockIngestionOutputs } from '~/tests/helpers/mock-ingestion-outputs'
 import { InternalPerson, TeamId } from '~/types'
-import { DependencyUnavailableError, MessageSizeTooLarge } from '~/utils/db/error'
-import { PostgresRouter } from '~/utils/db/postgres'
 
 import { BatchWritingPersonsStore } from './batch-writing-person-store'
 import { BatchBoundPersonsStore } from './persons-store-for-batch'
@@ -724,15 +724,14 @@ describe('BatchWritingPersonStore', () => {
         await personStore.flush()
 
         expect(mockRepo.updatePersonsBatch).toHaveBeenCalled()
-        expect(emitIngestionWarning).toHaveBeenCalledWith(
-            mockIngestionWarningsOutputs,
-            teamId,
-            'person_upsert_message_size_too_large',
-            {
-                personId: person.id,
+        expect(emitIngestionWarning).toHaveBeenCalledWith(mockIngestionWarningsOutputs, teamId, {
+            type: 'person_upsert_message_size_too_large',
+            details: {
+                personId: person.uuid,
                 distinctId: 'test',
-            }
-        )
+            },
+            pipelineStep: 'person-store',
+        })
     })
 
     describe('dbWriteMode functionality', () => {
@@ -908,15 +907,14 @@ describe('BatchWritingPersonStore', () => {
                 await personStore.flush()
 
                 expect(mockRepo.updatePersonAssertVersion).toHaveBeenCalled()
-                expect(emitIngestionWarning).toHaveBeenCalledWith(
-                    mockIngestionWarningsOutputs,
-                    teamId,
-                    'person_upsert_message_size_too_large',
-                    {
-                        personId: person.id,
+                expect(emitIngestionWarning).toHaveBeenCalledWith(mockIngestionWarningsOutputs, teamId, {
+                    type: 'person_upsert_message_size_too_large',
+                    details: {
+                        personId: person.uuid,
                         distinctId: 'test',
-                    }
-                )
+                    },
+                    pipelineStep: 'person-store',
+                })
                 expect(mockRepo.updatePerson).not.toHaveBeenCalled() // No fallback for MessageSizeTooLarge
             })
         })

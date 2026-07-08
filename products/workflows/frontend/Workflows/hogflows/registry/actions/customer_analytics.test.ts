@@ -38,14 +38,9 @@ describe('customer analytics action registry', () => {
 
         expect(outputVars).toContainEqual({ key: 'account', result_path: null, label: 'Account' })
         expect(outputVars).toContainEqual({
-            key: 'account_csm_email',
-            result_path: 'properties.csm.email',
-            label: 'CSM email',
-        })
-        expect(outputVars).toContainEqual({
-            key: 'account_executive_id',
-            result_path: 'properties.account_executive.id',
-            label: 'Account executive ID',
+            key: 'account_relationships',
+            result_path: 'relationships',
+            label: 'Relationships',
         })
         expect(outputVars).toContainEqual({
             key: 'account_slack_channel_id',
@@ -55,12 +50,7 @@ describe('customer analytics action registry', () => {
 
         expect(outputVars.map((v) => v.key)).toEqual([
             'account',
-            'account_csm_email',
-            'account_csm_id',
-            'account_executive_email',
-            'account_executive_id',
-            'account_owner_email',
-            'account_owner_id',
+            'account_relationships',
             'account_stripe_customer_id',
             'account_hubspot_deal_id',
             'account_billing_id',

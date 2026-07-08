@@ -4,7 +4,6 @@ from typing import Any
 from uuid import uuid4
 
 from posthog.test.base import APIBaseTest
-from unittest.mock import patch
 
 from django.test import override_settings
 
@@ -12,7 +11,7 @@ from parameterized import parameterized
 from rest_framework import status
 
 from posthog.clickhouse.client import sync_execute
-from posthog.models import Person
+from posthog.test.persons import create_person
 
 from products.growth.backend.constants import (
     IDENTITY_MATCHING_CANDIDATE_PAIRS_DATASET,
@@ -225,7 +224,7 @@ class TestIdentityMatchingLinksAPI(APIBaseTest):
         assert run_a_rules["low_confidence"] == 0
 
     def test_links_are_enriched_with_resolved_persons(self) -> None:
-        Person.objects.create(
+        create_person(
             team=self.team,
             distinct_ids=["phone-1"],
             properties={
@@ -236,7 +235,7 @@ class TestIdentityMatchingLinksAPI(APIBaseTest):
             },
             last_seen_at=datetime(2026, 6, 1, 12, 0, tzinfo=UTC),
         )
-        Person.objects.create(
+        create_person(
             team=self.team,
             distinct_ids=["anna@x.com"],
             properties={"email": "anna@x.com", "name": "Anna", "$geoip_city_name": "Lisbon"},
@@ -245,10 +244,7 @@ class TestIdentityMatchingLinksAPI(APIBaseTest):
         # An orphan with no person profile must resolve to null, not error.
         self._insert_link(self.team.pk, RUN_A, "ghost-2", "anna@x.com", score=4.0, tier="medium")
 
-        # Pin person resolution to the ORM path so it reads the persons created above; personhog
-        # keeps its own store (unseeded here), and its routing is covered in test_util_personhog_routing.
-        with patch("posthog.personhog_client.gate.use_personhog", return_value=False):
-            response = self.client.get(f"/api/projects/{self.team.pk}/identity_matching_links/")
+        response = self.client.get(f"/api/projects/{self.team.pk}/identity_matching_links/")
         assert response.status_code == status.HTTP_200_OK
         by_orphan = {row["orphan_distinct_id"]: row for row in response.json()["results"]}
 

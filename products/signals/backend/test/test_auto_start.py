@@ -14,6 +14,7 @@ from products.signals.backend.auto_start import (
     ReviewerContent,
     _create_implementation_task_if_absent,
     _resolve_autostart_assignee,
+    _resolve_triggering_user,
 )
 from products.signals.backend.models import (
     SignalReport,
@@ -51,21 +52,29 @@ def _reviewer(login: str) -> ReviewerContent:
 
 @pytest.mark.django_db
 @pytest.mark.parametrize(
-    ("autostart_priority", "report_priority", "expect_match"),
+    ("user_autostart_priority", "team_default_priority", "report_priority", "expect_match"),
     [
-        (Priority.P2, Priority.P0, True),  # report priority at/above threshold → match
-        (Priority.P1, Priority.P3, False),  # report priority below threshold → no match
+        (Priority.P2, Priority.P0, Priority.P0, True),  # personal config: report at/above threshold → match
+        (Priority.P1, Priority.P0, Priority.P3, False),  # personal config: report below threshold → no match
+        (None, Priority.P4, Priority.P4, True),  # no config → team default "all priorities" → match
+        (None, Priority.P0, Priority.P3, False),  # no config → falls back to a stricter team default → no match
     ],
 )
-def test_resolve_autostart_assignee(organization, team, autostart_priority, report_priority, expect_match):
+def test_resolve_autostart_assignee(
+    organization, team, user_autostart_priority, team_default_priority, report_priority, expect_match
+):
+    # Effective threshold is the reviewer's personal config when set, else the team default — so the
+    # no-config rows guard against assuming the *personal* default is all-priorities (which would
+    # ignore a team's stricter default).
     user = _create_org_member_with_github("octocat@example.com", organization, "OctoCat")
-    SignalUserAutonomyConfig.objects.create(user=user, autostart_priority=autostart_priority.value)
+    if user_autostart_priority is not None:
+        SignalUserAutonomyConfig.objects.create(user=user, autostart_priority=user_autostart_priority.value)
 
     assignee = _resolve_autostart_assignee(
         team_id=team.id,
         report_priority=report_priority,
         reviewers_content=[_reviewer("octocat")],
-        team_default_priority=Priority.P0,
+        team_default_priority=team_default_priority,
     )
 
     if expect_match:
@@ -73,6 +82,35 @@ def test_resolve_autostart_assignee(organization, team, autostart_priority, repo
         assert assignee.id == user.id
     else:
         assert assignee is None
+
+
+@pytest.mark.django_db
+@pytest.mark.parametrize(
+    ("autostart_priority", "report_priority", "expect_user"),
+    [
+        (None, Priority.P4, True),  # no personal config → team default (P4) → runs as the triggering user
+        (Priority.P0, Priority.P3, False),  # the triggering user's own strict threshold isn't met
+    ],
+)
+def test_resolve_triggering_user_runs_as_self(organization, team, autostart_priority, report_priority, expect_user):
+    # A user-triggered auto-start resolves to the triggering user themselves (subject to their own
+    # threshold), never a named colleague — the core reviewer-impersonation guard.
+    user = _create_org_member_with_github("octocat@example.com", organization, "OctoCat")
+    if autostart_priority is not None:
+        SignalUserAutonomyConfig.objects.create(user=user, autostart_priority=autostart_priority.value)
+
+    resolved = _resolve_triggering_user(
+        team_id=team.id,
+        user_id=user.id,
+        report_priority=report_priority,
+        team_default_priority=Priority.P4,
+    )
+
+    if expect_user:
+        assert resolved is not None
+        assert resolved.id == user.id
+    else:
+        assert resolved is None
 
 
 @pytest.mark.django_db
@@ -121,6 +159,7 @@ def test_create_implementation_task_if_absent_is_idempotent(organization, team):
     call_kwargs = mock_create.call_args.kwargs
     assert call_kwargs["origin_product"] == tasks_facade.TaskOriginProduct.SIGNAL_REPORT
     assert call_kwargs["ai_stage"] == "implementation"
+    assert call_kwargs["internal"] is True
     # The gate the second evaluation observed is the legacy SignalReportTask implementation link,
     # written in the same transaction as the task; the task_run artefact is the work-log entry
     # alongside.

@@ -8,6 +8,384 @@
  * OpenAPI spec version: 1.0.0
  */
 /**
+ * * `cohort` - cohort
+ * * `person` - person
+ * * `group` - group
+ */
+export type PropertyGroupTypeEnumApi = (typeof PropertyGroupTypeEnumApi)[keyof typeof PropertyGroupTypeEnumApi]
+
+export const PropertyGroupTypeEnumApi = {
+    Cohort: 'cohort',
+    Person: 'person',
+    Group: 'group',
+} as const
+
+/**
+ * * `exact` - exact
+ * * `is_not` - is_not
+ * * `icontains` - icontains
+ * * `not_icontains` - not_icontains
+ * * `regex` - regex
+ * * `not_regex` - not_regex
+ * * `gt` - gt
+ * * `gte` - gte
+ * * `lt` - lt
+ * * `lte` - lte
+ */
+export type FeatureFlagFilterPropertyGenericSchemaOperatorEnumApi =
+    (typeof FeatureFlagFilterPropertyGenericSchemaOperatorEnumApi)[keyof typeof FeatureFlagFilterPropertyGenericSchemaOperatorEnumApi]
+
+export const FeatureFlagFilterPropertyGenericSchemaOperatorEnumApi = {
+    Exact: 'exact',
+    IsNot: 'is_not',
+    Icontains: 'icontains',
+    NotIcontains: 'not_icontains',
+    Regex: 'regex',
+    NotRegex: 'not_regex',
+    Gt: 'gt',
+    Gte: 'gte',
+    Lt: 'lt',
+    Lte: 'lte',
+} as const
+
+export interface FeatureFlagFilterPropertyGenericSchemaApi {
+    /** Property key used in this feature flag condition. */
+    key: string
+    /** Property filter type. Common values are 'person' and 'cohort'.
+     *
+     * * `cohort` - cohort
+     * * `person` - person
+     * * `group` - group */
+    type?: PropertyGroupTypeEnumApi
+    /**
+     * Resolved cohort name for cohort-type filters.
+     * @nullable
+     */
+    cohort_name?: string | null
+    /**
+     * Group type index when using group-based filters.
+     * @nullable
+     */
+    group_type_index?: number | null
+    /** Comparison value for the property filter. Supports strings, numbers, booleans, and arrays. */
+    value: unknown
+    /** Operator used to compare the property value.
+     *
+     * * `exact` - exact
+     * * `is_not` - is_not
+     * * `icontains` - icontains
+     * * `not_icontains` - not_icontains
+     * * `regex` - regex
+     * * `not_regex` - not_regex
+     * * `gt` - gt
+     * * `gte` - gte
+     * * `lt` - lt
+     * * `lte` - lte */
+    operator: FeatureFlagFilterPropertyGenericSchemaOperatorEnumApi
+}
+
+/**
+ * * `is_set` - is_set
+ * * `is_not_set` - is_not_set
+ */
+export type ExistenceOperatorEnumApi = (typeof ExistenceOperatorEnumApi)[keyof typeof ExistenceOperatorEnumApi]
+
+export const ExistenceOperatorEnumApi = {
+    IsSet: 'is_set',
+    IsNotSet: 'is_not_set',
+} as const
+
+export interface FeatureFlagFilterPropertyExistsSchemaApi {
+    /** Property key used in this feature flag condition. */
+    key: string
+    /** Property filter type. Common values are 'person' and 'cohort'.
+     *
+     * * `cohort` - cohort
+     * * `person` - person
+     * * `group` - group */
+    type?: PropertyGroupTypeEnumApi
+    /**
+     * Resolved cohort name for cohort-type filters.
+     * @nullable
+     */
+    cohort_name?: string | null
+    /**
+     * Group type index when using group-based filters.
+     * @nullable
+     */
+    group_type_index?: number | null
+    /** Existence operator.
+     *
+     * * `is_set` - is_set
+     * * `is_not_set` - is_not_set */
+    operator: ExistenceOperatorEnumApi
+    /** Optional value. Runtime behavior determines whether this is ignored. */
+    value?: unknown
+}
+
+/**
+ * * `is_date_exact` - is_date_exact
+ * * `is_date_before` - is_date_before
+ * * `is_date_after` - is_date_after
+ */
+export type DateOperatorEnumApi = (typeof DateOperatorEnumApi)[keyof typeof DateOperatorEnumApi]
+
+export const DateOperatorEnumApi = {
+    IsDateExact: 'is_date_exact',
+    IsDateBefore: 'is_date_before',
+    IsDateAfter: 'is_date_after',
+} as const
+
+export interface FeatureFlagFilterPropertyDateSchemaApi {
+    /** Property key used in this feature flag condition. */
+    key: string
+    /** Property filter type. Common values are 'person' and 'cohort'.
+     *
+     * * `cohort` - cohort
+     * * `person` - person
+     * * `group` - group */
+    type?: PropertyGroupTypeEnumApi
+    /**
+     * Resolved cohort name for cohort-type filters.
+     * @nullable
+     */
+    cohort_name?: string | null
+    /**
+     * Group type index when using group-based filters.
+     * @nullable
+     */
+    group_type_index?: number | null
+    /** Date comparison operator.
+     *
+     * * `is_date_exact` - is_date_exact
+     * * `is_date_after` - is_date_after
+     * * `is_date_before` - is_date_before */
+    operator: DateOperatorEnumApi
+    /** Date value in ISO format or relative date expression. */
+    value: string
+}
+
+/**
+ * * `semver_gt` - semver_gt
+ * * `semver_gte` - semver_gte
+ * * `semver_lt` - semver_lt
+ * * `semver_lte` - semver_lte
+ * * `semver_eq` - semver_eq
+ * * `semver_neq` - semver_neq
+ * * `semver_tilde` - semver_tilde
+ * * `semver_caret` - semver_caret
+ * * `semver_wildcard` - semver_wildcard
+ */
+export type FeatureFlagFilterPropertySemverSchemaOperatorEnumApi =
+    (typeof FeatureFlagFilterPropertySemverSchemaOperatorEnumApi)[keyof typeof FeatureFlagFilterPropertySemverSchemaOperatorEnumApi]
+
+export const FeatureFlagFilterPropertySemverSchemaOperatorEnumApi = {
+    SemverGt: 'semver_gt',
+    SemverGte: 'semver_gte',
+    SemverLt: 'semver_lt',
+    SemverLte: 'semver_lte',
+    SemverEq: 'semver_eq',
+    SemverNeq: 'semver_neq',
+    SemverTilde: 'semver_tilde',
+    SemverCaret: 'semver_caret',
+    SemverWildcard: 'semver_wildcard',
+} as const
+
+export interface FeatureFlagFilterPropertySemverSchemaApi {
+    /** Property key used in this feature flag condition. */
+    key: string
+    /** Property filter type. Common values are 'person' and 'cohort'.
+     *
+     * * `cohort` - cohort
+     * * `person` - person
+     * * `group` - group */
+    type?: PropertyGroupTypeEnumApi
+    /**
+     * Resolved cohort name for cohort-type filters.
+     * @nullable
+     */
+    cohort_name?: string | null
+    /**
+     * Group type index when using group-based filters.
+     * @nullable
+     */
+    group_type_index?: number | null
+    /** Semantic version comparison operator.
+     *
+     * * `semver_gt` - semver_gt
+     * * `semver_gte` - semver_gte
+     * * `semver_lt` - semver_lt
+     * * `semver_lte` - semver_lte
+     * * `semver_eq` - semver_eq
+     * * `semver_neq` - semver_neq
+     * * `semver_tilde` - semver_tilde
+     * * `semver_caret` - semver_caret
+     * * `semver_wildcard` - semver_wildcard */
+    operator: FeatureFlagFilterPropertySemverSchemaOperatorEnumApi
+    /** Semantic version string. */
+    value: string
+}
+
+/**
+ * * `icontains_multi` - icontains_multi
+ * * `not_icontains_multi` - not_icontains_multi
+ */
+export type FeatureFlagFilterPropertyMultiContainsSchemaOperatorEnumApi =
+    (typeof FeatureFlagFilterPropertyMultiContainsSchemaOperatorEnumApi)[keyof typeof FeatureFlagFilterPropertyMultiContainsSchemaOperatorEnumApi]
+
+export const FeatureFlagFilterPropertyMultiContainsSchemaOperatorEnumApi = {
+    IcontainsMulti: 'icontains_multi',
+    NotIcontainsMulti: 'not_icontains_multi',
+} as const
+
+export interface FeatureFlagFilterPropertyMultiContainsSchemaApi {
+    /** Property key used in this feature flag condition. */
+    key: string
+    /** Property filter type. Common values are 'person' and 'cohort'.
+     *
+     * * `cohort` - cohort
+     * * `person` - person
+     * * `group` - group */
+    type?: PropertyGroupTypeEnumApi
+    /**
+     * Resolved cohort name for cohort-type filters.
+     * @nullable
+     */
+    cohort_name?: string | null
+    /**
+     * Group type index when using group-based filters.
+     * @nullable
+     */
+    group_type_index?: number | null
+    /** Multi-contains operator.
+     *
+     * * `icontains_multi` - icontains_multi
+     * * `not_icontains_multi` - not_icontains_multi */
+    operator: FeatureFlagFilterPropertyMultiContainsSchemaOperatorEnumApi
+    /** List of strings to evaluate against. */
+    value: string[]
+}
+
+/**
+ * * `cohort` - cohort
+ */
+export type FeatureFlagFilterPropertyCohortInSchemaTypeEnumApi =
+    (typeof FeatureFlagFilterPropertyCohortInSchemaTypeEnumApi)[keyof typeof FeatureFlagFilterPropertyCohortInSchemaTypeEnumApi]
+
+export const FeatureFlagFilterPropertyCohortInSchemaTypeEnumApi = {
+    Cohort: 'cohort',
+} as const
+
+/**
+ * * `in` - in
+ * * `not_in` - not_in
+ */
+export type FeatureFlagFilterPropertyCohortInSchemaOperatorEnumApi =
+    (typeof FeatureFlagFilterPropertyCohortInSchemaOperatorEnumApi)[keyof typeof FeatureFlagFilterPropertyCohortInSchemaOperatorEnumApi]
+
+export const FeatureFlagFilterPropertyCohortInSchemaOperatorEnumApi = {
+    In: 'in',
+    NotIn: 'not_in',
+} as const
+
+export interface FeatureFlagFilterPropertyCohortInSchemaApi {
+    /** Property key used in this feature flag condition. */
+    key: string
+    /** Cohort property type required for in/not_in operators.
+     *
+     * * `cohort` - cohort */
+    type: FeatureFlagFilterPropertyCohortInSchemaTypeEnumApi
+    /**
+     * Resolved cohort name for cohort-type filters.
+     * @nullable
+     */
+    cohort_name?: string | null
+    /**
+     * Group type index when using group-based filters.
+     * @nullable
+     */
+    group_type_index?: number | null
+    /** Membership operator for cohort properties.
+     *
+     * * `in` - in
+     * * `not_in` - not_in */
+    operator: FeatureFlagFilterPropertyCohortInSchemaOperatorEnumApi
+    /** Cohort comparison value (single or list, depending on usage). */
+    value: unknown
+}
+
+/**
+ * * `flag` - flag
+ */
+export type FeatureFlagFilterPropertyFlagEvaluatesSchemaTypeEnumApi =
+    (typeof FeatureFlagFilterPropertyFlagEvaluatesSchemaTypeEnumApi)[keyof typeof FeatureFlagFilterPropertyFlagEvaluatesSchemaTypeEnumApi]
+
+export const FeatureFlagFilterPropertyFlagEvaluatesSchemaTypeEnumApi = {
+    Flag: 'flag',
+} as const
+
+/**
+ * * `flag_evaluates_to` - flag_evaluates_to
+ */
+export type FeatureFlagFilterPropertyFlagEvaluatesSchemaOperatorEnumApi =
+    (typeof FeatureFlagFilterPropertyFlagEvaluatesSchemaOperatorEnumApi)[keyof typeof FeatureFlagFilterPropertyFlagEvaluatesSchemaOperatorEnumApi]
+
+export const FeatureFlagFilterPropertyFlagEvaluatesSchemaOperatorEnumApi = {
+    FlagEvaluatesTo: 'flag_evaluates_to',
+} as const
+
+export interface FeatureFlagFilterPropertyFlagEvaluatesSchemaApi {
+    /** Property key used in this feature flag condition. */
+    key: string
+    /** Flag property type required for flag dependency checks.
+     *
+     * * `flag` - flag */
+    type: FeatureFlagFilterPropertyFlagEvaluatesSchemaTypeEnumApi
+    /**
+     * Resolved cohort name for cohort-type filters.
+     * @nullable
+     */
+    cohort_name?: string | null
+    /**
+     * Group type index when using group-based filters.
+     * @nullable
+     */
+    group_type_index?: number | null
+    /** Operator for feature flag dependency evaluation.
+     *
+     * * `flag_evaluates_to` - flag_evaluates_to */
+    operator: FeatureFlagFilterPropertyFlagEvaluatesSchemaOperatorEnumApi
+    /** Value to compare flag evaluation against. */
+    value: unknown
+}
+
+export type FeatureFlagFilterPropertySchemaApi =
+    | FeatureFlagFilterPropertyGenericSchemaApi
+    | FeatureFlagFilterPropertyExistsSchemaApi
+    | FeatureFlagFilterPropertyDateSchemaApi
+    | FeatureFlagFilterPropertySemverSchemaApi
+    | FeatureFlagFilterPropertyMultiContainsSchemaApi
+    | FeatureFlagFilterPropertyCohortInSchemaApi
+    | FeatureFlagFilterPropertyFlagEvaluatesSchemaApi
+
+export interface FeatureFlagConditionGroupSchemaApi {
+    /** Property conditions for this release condition group. */
+    properties?: FeatureFlagFilterPropertySchemaApi[]
+    /** Rollout percentage for this release condition group. */
+    rollout_percentage?: number
+    /**
+     * Variant key override for multivariate flags.
+     * @nullable
+     */
+    variant?: string | null
+    /**
+     * Group type index for this condition set. None means person-level aggregation.
+     * @nullable
+     */
+    aggregation_group_type_index?: number | null
+}
+
+/**
  * * `engineering` - Engineering
  * * `data` - Data
  * * `product` - Product Management
@@ -67,14 +445,19 @@ export interface UserBasicApi {
  */
 export interface ExperimentHoldoutApi {
     readonly id: number
-    /** @maxLength 400 */
+    /**
+     * Human-readable name for the holdout group.
+     * @maxLength 400
+     */
     name: string
     /**
+     * Optional description of what this holdout reserves and why.
      * @maxLength 400
      * @nullable
      */
     description?: string | null
-    filters?: unknown
+    /** Non-empty list of release-condition groups defining the held-out population, using the same shape as feature-flag release conditions. Each element's `rollout_percentage` (0–100, may be fractional) is the **exclusion** percentage — the share of users held back from all experiments that reference this holdout. `properties` optionally narrows the group by person/group properties. Do not set `variant`: the server normalizes it to `holdout-{id}`. Note that only the first element's `rollout_percentage` is embedded into each linked experiment's feature flag, and this population is shared across every experiment using the holdout. */
+    filters?: FeatureFlagConditionGroupSchemaApi[]
     readonly created_by: UserBasicApi
     readonly created_at: string
     readonly updated_at: string
@@ -99,14 +482,19 @@ export interface PaginatedExperimentHoldoutListApi {
  */
 export interface PatchedExperimentHoldoutApi {
     readonly id?: number
-    /** @maxLength 400 */
+    /**
+     * Human-readable name for the holdout group.
+     * @maxLength 400
+     */
     name?: string
     /**
+     * Optional description of what this holdout reserves and why.
      * @maxLength 400
      * @nullable
      */
     description?: string | null
-    filters?: unknown
+    /** Non-empty list of release-condition groups defining the held-out population, using the same shape as feature-flag release conditions. Each element's `rollout_percentage` (0–100, may be fractional) is the **exclusion** percentage — the share of users held back from all experiments that reference this holdout. `properties` optionally narrows the group by person/group properties. Do not set `variant`: the server normalizes it to `holdout-{id}`. Note that only the first element's `rollout_percentage` is embedded into each linked experiment's feature flag, and this population is shared across every experiment using the holdout. */
+    filters?: FeatureFlagConditionGroupSchemaApi[]
     readonly created_by?: UserBasicApi
     readonly created_at?: string
     readonly updated_at?: string
@@ -257,8 +645,6 @@ export interface ExperimentVariantApi {
 export type ExperimentParametersApiVariantNotes = { [key: string]: string } | null
 
 export interface ExperimentParametersApi {
-    /** Variant keys to exclude from metric result calculations. Excluded variants are still served to users but omitted from statistical analysis. */
-    excluded_variants?: string[] | null
     /** Experiment variants. If specified, must include a variant with key 'control' (lowercase). Defaults to a 50/50 control/test split when omitted. Minimum 2, maximum 20. */
     feature_flag_variants?: ExperimentVariantApi[] | null
     /** Minimum detectable effect as a percentage. Lower values need more users but catch smaller changes. Suggest 20–30% for most experiments. */
@@ -382,12 +768,12 @@ export interface ExperimentBasicApi {
     readonly holdout: ExperimentHoldoutApi
     /** @nullable */
     readonly exposure_cohort: number | null
-    /** Experiment parameters JSON. Supported keys include `feature_flag_variants`, `rollout_percentage`, `minimum_detectable_effect`, `recommended_running_time`, `recommended_sample_size`, `custom_exposure_filter`, `excluded_variants` (list of variant keys to drop from statistical analysis; the baseline variant and holdout pseudo-variants cannot be excluded), and `variant_notes` (free-text notes per variant, keyed by variant key). The running-time calculator keys (`minimum_detectable_effect`, `recommended_running_time`, `recommended_sample_size`, `exposure_estimate_config`) are deprecated here — prefer `running_time_calculation`. */
+    /** Experiment parameters JSON. Supported keys include `custom_exposure_filter` and `variant_notes` (free-text notes per variant, keyed by variant key). Flag config keys (`feature_flag_variants`, `rollout_percentage`) are a deprecated input surface kept for compatibility — the linked feature flag is the source of truth, and reads project its current config into this field. Excluded variants live on the top-level `excluded_variants` field, not here. */
     parameters?: ExperimentParametersApi | null
-    /** Running-time calculator state: `minimum_detectable_effect`, `recommended_running_time`, `recommended_sample_size`, and `exposure_estimate_config`. Canonical home for these keys, which historically lived in `parameters`; values are kept in sync with `parameters` during the deprecation window. */
+    /** Running-time calculator state: `minimum_detectable_effect`, `recommended_running_time`, `recommended_sample_size`, and `exposure_estimate_config`. Canonical home for these keys, which historically lived in `parameters`. */
     running_time_calculation?: ExperimentRunningTimeCalculationApi | null
     /**
-     * Variant keys to exclude from metric result calculations. Excluded variants are still served to users but omitted from statistical analysis. The baseline variant and holdout pseudo-variants cannot be excluded. Canonical home for what historically lived in `parameters.excluded_variants`; kept in sync with `parameters` during the deprecation window.
+     * Variant keys to exclude from metric result calculations. Excluded variants are still served to users but omitted from statistical analysis. The baseline variant and holdout pseudo-variants cannot be excluded. Canonical home for what historically lived in `parameters.excluded_variants`.
      * @nullable
      */
     excluded_variants?: string[] | null
@@ -502,6 +888,207 @@ export interface EventPropertyFilterApi {
     value?: (string | number | boolean)[] | string | number | boolean | null
 }
 
+export interface PersonPropertyFilterApi {
+    key: string
+    label?: string | null
+    operator: PropertyOperatorApi
+    /** Person properties */
+    type?: 'person'
+    value?: (string | number | boolean)[] | string | number | boolean | null
+}
+
+export interface PersonMetadataPropertyFilterApi {
+    key: string
+    label?: string | null
+    operator: PropertyOperatorApi
+    /** Top-level columns on the persons table (e.g. created_at), not properties JSON */
+    type?: 'person_metadata'
+    value?: (string | number | boolean)[] | string | number | boolean | null
+}
+
+export type Key10Api = (typeof Key10Api)[keyof typeof Key10Api]
+
+export const Key10Api = {
+    TagName: 'tag_name',
+    Text: 'text',
+    Href: 'href',
+    Selector: 'selector',
+} as const
+
+export interface ElementPropertyFilterApi {
+    key: Key10Api
+    label?: string | null
+    operator: PropertyOperatorApi
+    type?: 'element'
+    value?: (string | number | boolean)[] | string | number | boolean | null
+}
+
+export interface EventMetadataPropertyFilterApi {
+    key: string
+    label?: string | null
+    operator: PropertyOperatorApi
+    type?: 'event_metadata'
+    value?: (string | number | boolean)[] | string | number | boolean | null
+}
+
+export interface SessionPropertyFilterApi {
+    key: string
+    label?: string | null
+    operator: PropertyOperatorApi
+    type?: 'session'
+    value?: (string | number | boolean)[] | string | number | boolean | null
+}
+
+export interface CohortPropertyFilterApi {
+    cohort_name?: string | null
+    key?: 'id'
+    label?: string | null
+    operator?: PropertyOperatorApi | null
+    type?: 'cohort'
+    value: number
+}
+
+export type DurationTypeApi = (typeof DurationTypeApi)[keyof typeof DurationTypeApi]
+
+export const DurationTypeApi = {
+    Duration: 'duration',
+    ActiveSeconds: 'active_seconds',
+    InactiveSeconds: 'inactive_seconds',
+} as const
+
+export interface RecordingPropertyFilterApi {
+    key: DurationTypeApi | string
+    label?: string | null
+    operator: PropertyOperatorApi
+    type?: 'recording'
+    value?: (string | number | boolean)[] | string | number | boolean | null
+}
+
+export interface LogEntryPropertyFilterApi {
+    key: string
+    label?: string | null
+    operator: PropertyOperatorApi
+    type?: 'log_entry'
+    value?: (string | number | boolean)[] | string | number | boolean | null
+}
+
+export type GroupPropertyFilterApiGroupKeyNames = { [key: string]: string } | null
+
+export interface GroupPropertyFilterApi {
+    group_key_names?: GroupPropertyFilterApiGroupKeyNames
+    group_type_index?: number | null
+    key: string
+    label?: string | null
+    operator: PropertyOperatorApi
+    type?: 'group'
+    value?: (string | number | boolean)[] | string | number | boolean | null
+}
+
+export interface FeaturePropertyFilterApi {
+    key: string
+    label?: string | null
+    operator: PropertyOperatorApi
+    /** Event property with "$feature/" prepended */
+    type?: 'feature'
+    value?: (string | number | boolean)[] | string | number | boolean | null
+}
+
+export interface FlagPropertyFilterApi {
+    /** The key should be the flag ID */
+    key: string
+    label?: string | null
+    /** Only flag_evaluates_to operator is allowed for flag dependencies */
+    operator?: 'flag_evaluates_to'
+    /** Feature flag dependency */
+    type?: 'flag'
+    /** The value can be true, false, or a variant name */
+    value: boolean | string
+}
+
+export interface HogQLPropertyFilterApi {
+    key: string
+    label?: string | null
+    type?: 'hogql'
+    value?: (string | number | boolean)[] | string | number | boolean | null
+}
+
+export const EmptyPropertyFilterApiValue = {
+    type: 'empty',
+} as const
+export type EmptyPropertyFilterApi = typeof EmptyPropertyFilterApiValue
+
+export interface DataWarehousePropertyFilterApi {
+    key: string
+    label?: string | null
+    operator: PropertyOperatorApi
+    type?: 'data_warehouse'
+    value?: (string | number | boolean)[] | string | number | boolean | null
+}
+
+export interface DataWarehousePersonPropertyFilterApi {
+    key: string
+    label?: string | null
+    operator: PropertyOperatorApi
+    type?: 'data_warehouse_person_property'
+    value?: (string | number | boolean)[] | string | number | boolean | null
+}
+
+export interface ErrorTrackingIssueFilterApi {
+    key: string
+    label?: string | null
+    operator: PropertyOperatorApi
+    type?: 'error_tracking_issue'
+    value?: (string | number | boolean)[] | string | number | boolean | null
+}
+
+export type LogPropertyFilterTypeApi = (typeof LogPropertyFilterTypeApi)[keyof typeof LogPropertyFilterTypeApi]
+
+export const LogPropertyFilterTypeApi = {
+    Log: 'log',
+    LogAttribute: 'log_attribute',
+    LogResourceAttribute: 'log_resource_attribute',
+} as const
+
+export interface LogPropertyFilterApi {
+    key: string
+    label?: string | null
+    operator: PropertyOperatorApi
+    type: LogPropertyFilterTypeApi
+    value?: (string | number | boolean)[] | string | number | boolean | null
+}
+
+export type SpanPropertyFilterTypeApi = (typeof SpanPropertyFilterTypeApi)[keyof typeof SpanPropertyFilterTypeApi]
+
+export const SpanPropertyFilterTypeApi = {
+    Span: 'span',
+    SpanAttribute: 'span_attribute',
+    SpanResourceAttribute: 'span_resource_attribute',
+} as const
+
+export interface SpanPropertyFilterApi {
+    key: string
+    label?: string | null
+    operator: PropertyOperatorApi
+    type: SpanPropertyFilterTypeApi
+    value?: (string | number | boolean)[] | string | number | boolean | null
+}
+
+export interface RevenueAnalyticsPropertyFilterApi {
+    key: string
+    label?: string | null
+    operator: PropertyOperatorApi
+    type?: 'revenue_analytics'
+    value?: (string | number | boolean)[] | string | number | boolean | null
+}
+
+export interface WorkflowVariablePropertyFilterApi {
+    key: string
+    label?: string | null
+    operator: PropertyOperatorApi
+    type?: 'workflow_variable'
+    value?: (string | number | boolean)[] | string | number | boolean | null
+}
+
 export interface ExperimentApiExposureConfigApi {
     /** Custom exposure event name. Required when kind is 'ExperimentEventExposureConfig'. */
     event?: string | null
@@ -509,13 +1096,44 @@ export interface ExperimentApiExposureConfigApi {
     id?: number | null
     /** Defaults to 'ExperimentEventExposureConfig' when omitted. Pass 'ActionsNode' for an action-based exposure. */
     kind?: Kind1Api | null
-    /** Event property filters. Pass an empty array if no filters needed. */
-    properties: EventPropertyFilterApi[]
+    /** Property filters (event, person, and other supported types). Pass an empty array if no filters needed. */
+    properties: (
+        | EventPropertyFilterApi
+        | PersonPropertyFilterApi
+        | PersonMetadataPropertyFilterApi
+        | ElementPropertyFilterApi
+        | EventMetadataPropertyFilterApi
+        | SessionPropertyFilterApi
+        | CohortPropertyFilterApi
+        | RecordingPropertyFilterApi
+        | LogEntryPropertyFilterApi
+        | GroupPropertyFilterApi
+        | FeaturePropertyFilterApi
+        | FlagPropertyFilterApi
+        | HogQLPropertyFilterApi
+        | EmptyPropertyFilterApi
+        | DataWarehousePropertyFilterApi
+        | DataWarehousePersonPropertyFilterApi
+        | ErrorTrackingIssueFilterApi
+        | LogPropertyFilterApi
+        | SpanPropertyFilterApi
+        | RevenueAnalyticsPropertyFilterApi
+        | WorkflowVariablePropertyFilterApi
+    )[]
 }
+
+export type MultipleVariantHandlingApi = (typeof MultipleVariantHandlingApi)[keyof typeof MultipleVariantHandlingApi]
+
+export const MultipleVariantHandlingApi = {
+    Exclude: 'exclude',
+    FirstSeen: 'first_seen',
+} as const
 
 export interface ExperimentApiExposureCriteriaApi {
     exposure_config?: ExperimentApiExposureConfigApi | null
     filterTestAccounts?: boolean | null
+    /** How to handle entities exposed to multiple variants. 'exclude' (default) drops them from the analysis; 'first_seen' assigns them to the variant from their earliest exposure. */
+    multiple_variant_handling?: MultipleVariantHandlingApi | null
 }
 
 export type KindApi = (typeof KindApi)[keyof typeof KindApi]
@@ -692,12 +1310,12 @@ export interface ExperimentApi {
     holdout_id?: number | null
     /** @nullable */
     readonly exposure_cohort: number | null
-    /** Experiment parameters JSON. Supported keys include `feature_flag_variants`, `rollout_percentage`, `minimum_detectable_effect`, `recommended_running_time`, `recommended_sample_size`, `custom_exposure_filter`, `excluded_variants` (list of variant keys to drop from statistical analysis; the baseline variant and holdout pseudo-variants cannot be excluded), and `variant_notes` (free-text notes per variant, keyed by variant key). The running-time calculator keys (`minimum_detectable_effect`, `recommended_running_time`, `recommended_sample_size`, `exposure_estimate_config`) are deprecated here — prefer `running_time_calculation`. */
+    /** Experiment parameters JSON. Supported keys include `custom_exposure_filter` and `variant_notes` (free-text notes per variant, keyed by variant key). Flag config keys (`feature_flag_variants`, `rollout_percentage`) are a deprecated input surface kept for compatibility — the linked feature flag is the source of truth, and reads project its current config into this field. Excluded variants live on the top-level `excluded_variants` field, not here. */
     parameters?: ExperimentParametersApi | null
-    /** Running-time calculator state: `minimum_detectable_effect`, `recommended_running_time`, `recommended_sample_size`, and `exposure_estimate_config`. Canonical home for these keys, which historically lived in `parameters`; values are kept in sync with `parameters` during the deprecation window. */
+    /** Running-time calculator state: `minimum_detectable_effect`, `recommended_running_time`, `recommended_sample_size`, and `exposure_estimate_config`. Canonical home for these keys, which historically lived in `parameters`. */
     running_time_calculation?: ExperimentRunningTimeCalculationApi | null
     /**
-     * Variant keys to exclude from metric result calculations. Excluded variants are still served to users but omitted from statistical analysis. The baseline variant and holdout pseudo-variants cannot be excluded. Canonical home for what historically lived in `parameters.excluded_variants`; kept in sync with `parameters` during the deprecation window.
+     * Variant keys to exclude from metric result calculations. Excluded variants are still served to users but omitted from statistical analysis. The baseline variant and holdout pseudo-variants cannot be excluded. Canonical home for what historically lived in `parameters.excluded_variants`.
      * @nullable
      */
     excluded_variants?: string[] | null
@@ -798,12 +1416,12 @@ export interface PatchedExperimentApi {
     holdout_id?: number | null
     /** @nullable */
     readonly exposure_cohort?: number | null
-    /** Experiment parameters JSON. Supported keys include `feature_flag_variants`, `rollout_percentage`, `minimum_detectable_effect`, `recommended_running_time`, `recommended_sample_size`, `custom_exposure_filter`, `excluded_variants` (list of variant keys to drop from statistical analysis; the baseline variant and holdout pseudo-variants cannot be excluded), and `variant_notes` (free-text notes per variant, keyed by variant key). The running-time calculator keys (`minimum_detectable_effect`, `recommended_running_time`, `recommended_sample_size`, `exposure_estimate_config`) are deprecated here — prefer `running_time_calculation`. */
+    /** Experiment parameters JSON. Supported keys include `custom_exposure_filter` and `variant_notes` (free-text notes per variant, keyed by variant key). Flag config keys (`feature_flag_variants`, `rollout_percentage`) are a deprecated input surface kept for compatibility — the linked feature flag is the source of truth, and reads project its current config into this field. Excluded variants live on the top-level `excluded_variants` field, not here. */
     parameters?: ExperimentParametersApi | null
-    /** Running-time calculator state: `minimum_detectable_effect`, `recommended_running_time`, `recommended_sample_size`, and `exposure_estimate_config`. Canonical home for these keys, which historically lived in `parameters`; values are kept in sync with `parameters` during the deprecation window. */
+    /** Running-time calculator state: `minimum_detectable_effect`, `recommended_running_time`, `recommended_sample_size`, and `exposure_estimate_config`. Canonical home for these keys, which historically lived in `parameters`. */
     running_time_calculation?: ExperimentRunningTimeCalculationApi | null
     /**
-     * Variant keys to exclude from metric result calculations. Excluded variants are still served to users but omitted from statistical analysis. The baseline variant and holdout pseudo-variants cannot be excluded. Canonical home for what historically lived in `parameters.excluded_variants`; kept in sync with `parameters` during the deprecation window.
+     * Variant keys to exclude from metric result calculations. Excluded variants are still served to users but omitted from statistical analysis. The baseline variant and holdout pseudo-variants cannot be excluded. Canonical home for what historically lived in `parameters.excluded_variants`.
      * @nullable
      */
     excluded_variants?: string[] | null
@@ -897,6 +1515,8 @@ export interface EndExperimentApi {
      * @nullable
      */
     conclusion_comment?: string | null
+    /** When true, open a draft pull request that removes the experiment's feature-flag code from the linked repository. Requires the requesting user to have access to PostHog Code (403 otherwise). Only acts for allowlisted teams; ignored otherwise. */
+    open_cleanup_pr?: boolean
 }
 
 /**
@@ -1061,6 +1681,31 @@ export interface ExperimentMetricsRecalculationApi {
     readonly result_source: ResultSourceEnumApi
     /** Per-metric results computed by this run, scoped by the run's recalc fingerprint */
     readonly results: readonly MetricRecalculationResultApi[]
+    /**
+     * Count of metric queries currently running in ClickHouse (bounded by worker-pool concurrency)
+     * @nullable
+     */
+    running_metrics?: number | null
+    /**
+     * Rows read by the run's metric queries so far, both finished and currently running. Cumulative and roughly monotonic across the run; the primary live progress signal
+     * @nullable
+     */
+    rows_read?: number | null
+    /**
+     * ClickHouse's total_rows_approx across running queries plus the final read_rows of finished ones. A soft ceiling revised mid-scan, so it can exceed or trail rows_read; treat rows_read as the reliable signal
+     * @nullable
+     */
+    estimated_rows_total?: number | null
+    /**
+     * Bytes read by the run's metric queries so far, both finished and currently running
+     * @nullable
+     */
+    bytes_read?: number | null
+    /**
+     * Active CPU time (microseconds) consumed by the run's metric queries so far, both finished and currently running
+     * @nullable
+     */
+    active_cpu_time?: number | null
 }
 
 export interface ShipVariantApi {
@@ -1078,6 +1723,8 @@ export interface ShipVariantApi {
      * @nullable
      */
     conclusion_comment?: string | null
+    /** When true, open a draft pull request that removes the experiment's feature-flag code from the linked repository. Requires the requesting user to have access to PostHog Code (403 otherwise). Only acts for allowlisted teams; ignored otherwise. */
+    open_cleanup_pr?: boolean
     /** The key of the variant to ship. */
     variant_key: string
     /** If true, prepend a release condition to the feature flag that rolls the variant out to 100% of users, overriding any existing release conditions on the flag. If false (default), only update the variant distribution — existing release conditions are preserved and the variant is served only to users who already match them. */
@@ -1253,6 +1900,10 @@ export type ExperimentHoldoutsListParams = {
 }
 
 export type ExperimentSavedMetricsListParams = {
+    /**
+     * Filter to shared metrics whose query references this event name. Matches events used directly in metric queries as well as events behind any actions those metrics reference. Use this for reuse discovery (find a metric by what it measures); distinct from 'search', which matches the metric's own name/description/tags.
+     */
+    event?: string
     /**
      * Number of results to return per page.
      */

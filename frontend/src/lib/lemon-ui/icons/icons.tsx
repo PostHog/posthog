@@ -2,7 +2,7 @@
 import './icons.scss'
 
 import clsx from 'clsx'
-import { CSSProperties, PropsWithChildren, SVGAttributes } from 'react'
+import { CSSProperties, forwardRef, PropsWithChildren, SVGAttributes } from 'react'
 
 import { LemonBadge, LemonBadgeProps } from 'lib/lemon-ui/LemonBadge'
 
@@ -83,19 +83,25 @@ export interface LemonIconProps {
     className?: string
 }
 
-const LemonIconBase: React.FC<SVGAttributes<SVGSVGElement>> = ({ className, ...props }) => (
-    <svg
-        className={clsx('LemonIcon', className)}
-        width="1em"
-        height="1em"
-        fill="none"
-        viewBox="0 0 24 24"
-        xmlns="http://www.w3.org/2000/svg"
-        focusable="false"
-        aria-hidden="true"
-        {...props}
-    />
-)
+const LemonIconBase = forwardRef<SVGSVGElement, SVGAttributes<SVGSVGElement>>(function LemonIconBase(
+    { className, ...props },
+    ref
+) {
+    return (
+        <svg
+            ref={ref}
+            className={clsx('LemonIcon', className)}
+            width="1em"
+            height="1em"
+            fill="none"
+            viewBox="0 0 24 24"
+            xmlns="http://www.w3.org/2000/svg"
+            focusable="false"
+            aria-hidden="true"
+            {...props}
+        />
+    )
+})
 
 // material design format-size icon
 export function IconTextSize(props: LemonIconProps): JSX.Element {
@@ -664,16 +670,17 @@ export function IconHeatmap(props: LemonIconProps): JSX.Element {
     )
 }
 
-export function IconUnverifiedEvent(props: LemonIconProps): JSX.Element {
+// forwardRef so wrappers like Tooltip can anchor to the rendered svg
+export const IconUnverifiedEvent = forwardRef<SVGSVGElement, LemonIconProps>(function IconUnverifiedEvent(props, ref) {
     return (
-        <LemonIconBase {...props}>
+        <LemonIconBase ref={ref} {...props}>
             <path
                 d="M4.8 17.4H19.2V15.6H4.8V17.4ZM6.6 21H17.4V19.2H6.6V21ZM19.2 13.8H4.8C3.81 13.8 3 12.99 3 12V4.8C3 3.81 3.81 3 4.8 3H19.2C20.19 3 21 3.81 21 4.8V12C21 12.99 20.19 13.8 19.2 13.8ZM19.2 4.8H4.8V12H19.2V4.8Z"
                 fill="currentColor"
             />
         </LemonIconBase>
     )
-}
+})
 
 export function IconVerifiedEvent(props: LemonIconProps): JSX.Element {
     return (

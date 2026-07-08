@@ -18,9 +18,11 @@ from posthog.rbac.user_access_control import (
     get_effective_access_level_for_member,
     get_effective_access_level_for_role,
     get_field_access_control_map,
+    model_to_resource,
 )
 
 from products.dashboards.backend.models.dashboard import Dashboard
+from products.replay_vision.backend.models.vision_action import VisionAction, VisionActionRun
 
 try:
     from ee.models.rbac.access_control import AccessControl
@@ -83,6 +85,13 @@ class BaseUserAccessControlTest(BaseTest):
 
 @pytest.mark.ee
 class TestUserAccessControl(BaseUserAccessControlTest):
+    def test_vision_action_models_map_to_vision_action_resource(self):
+        # VisionAction/VisionActionRun's _meta.model_name (visionaction/visionactionrun) differs from the
+        # vision_action scope object, so without the explicit mapping they silently drop out of
+        # object-level access control and a per-action grant wouldn't be enforced.
+        assert model_to_resource(VisionAction()) == "vision_action"
+        assert model_to_resource(VisionActionRun()) == "vision_action"
+
     def test_no_organization_id_passed(self):
         # Create a user without an organization
         user_without_org = User.objects.create(email="no-org@posthog.com", password="testtest")

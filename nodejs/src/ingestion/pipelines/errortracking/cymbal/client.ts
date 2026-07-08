@@ -2,8 +2,8 @@ import dns from 'dns/promises'
 import { Counter, Histogram } from 'prom-client'
 import { z } from 'zod'
 
-import { logger } from '~/utils/logger'
-import { FetchResponse, internalFetch } from '~/utils/request'
+import { logger } from '~/common/utils/logger'
+import { FetchResponse, internalFetch } from '~/common/utils/request'
 
 import { CymbalRequest, CymbalResponse } from './types'
 

@@ -4,10 +4,15 @@ import { GroupTypeManager } from '~/common/groups/group-type-manager'
 import { HogTransformer } from '~/common/hog-transformations/hog-transformer.interface'
 import { AppMetricsOutput, DlqOutput, GroupsOutput, IngestionWarningsOutput, OverflowOutput } from '~/common/outputs'
 import { IngestionOutputs } from '~/common/outputs/ingestion-outputs'
-import { AiEventSubpipelineFactory } from '~/ingestion/common/ai-subpipeline.contract'
+import { EventIngestionRestrictionManager } from '~/common/utils/event-ingestion-restrictions'
+import { EventSchemaEnforcementManager } from '~/common/utils/event-schema-enforcement-manager'
+import { PromiseScheduler } from '~/common/utils/promise-scheduler'
+import { TeamManager } from '~/common/utils/team-manager'
 import { CookielessManager } from '~/ingestion/common/cookieless/cookieless-manager'
 import { EventFilterManager } from '~/ingestion/common/event-filters'
+import { FeatureFlagCalledDedupService } from '~/ingestion/common/feature-flag-called-dedup/feature-flag-called-dedup-service'
 import { BatchWritingGroupStore } from '~/ingestion/common/groups/batch-writing-group-store'
+import { OverflowRedirectService } from '~/ingestion/common/overflow-redirect/overflow-redirect-service'
 import { PersonsStore } from '~/ingestion/common/persons/persons-store'
 import { createDenyEventsStep } from '~/ingestion/common/steps/deny-events'
 import {
@@ -28,7 +33,7 @@ import {
 import { EmitEventStepOutput } from '~/ingestion/common/steps/event-processing/emit-event-step'
 import { EventPipelineRunnerOptions } from '~/ingestion/common/steps/event-processing/event-pipeline-options'
 import { createFlushBatchStoresStep } from '~/ingestion/common/steps/event-processing/flush-batch-stores-step'
-import { SplitAiEventsStepConfig } from '~/ingestion/common/steps/event-processing/split-ai-events-step'
+import { createFlushHogTransformerStep } from '~/ingestion/common/steps/event-processing/flush-hog-transformer-step'
 import {
     GroupStoreBatchContext,
     createGroupStoreBeforeBatchStep,
@@ -37,17 +42,13 @@ import {
     PersonsStoreBatchContext,
     createPersonsStoreBeforeBatchStep,
 } from '~/ingestion/common/steps/persons-store-batch-step'
+import { AiEventSubpipelineFactory } from '~/ingestion/common/subpipelines/ai-subpipeline.contract'
+import { IngestionOverflowMode } from '~/ingestion/config'
 import { newBatchingPipeline } from '~/ingestion/framework/builders'
 import { TopHogRegistry, createTopHogWrapper } from '~/ingestion/framework/extensions/tophog'
 import { OkResultWithContext } from '~/ingestion/framework/pipeline.interface'
 import { PipelineConfig } from '~/ingestion/framework/result-handling-pipeline'
-import { FeatureFlagCalledDedupService } from '~/ingestion/utils/feature-flag-called-dedup/feature-flag-called-dedup-service'
-import { OverflowRedirectService } from '~/ingestion/utils/overflow-redirect/overflow-redirect-service'
 import { Team } from '~/types'
-import { EventIngestionRestrictionManager } from '~/utils/event-ingestion-restrictions'
-import { EventSchemaEnforcementManager } from '~/utils/event-schema-enforcement-manager'
-import { PromiseScheduler } from '~/utils/promise-scheduler'
-import { TeamManager } from '~/utils/team-manager'
 
 import {
     AiEventOutput,
@@ -69,7 +70,7 @@ import {
 
 export interface JoinedIngestionPipelineConfig {
     eventSchemaEnforcementEnabled: boolean
-    overflowEnabled: boolean
+    overflowMode: IngestionOverflowMode
     preservePartitionLocality: boolean
     personsPrefetchEnabled: boolean
     cdpHogWatcherSampleRate: number
@@ -86,7 +87,6 @@ export interface JoinedIngestionPipelineConfig {
         | PersonMergeEventsOutput
         | AppMetricsOutput
     >
-    splitAiEventsConfig: SplitAiEventsStepConfig
     perDistinctIdOptions: EventPipelineRunnerOptions
     /**
      * Maximum number of batches the BatchingPipeline will accept concurrently.
@@ -150,12 +150,11 @@ export function createJoinedIngestionPipeline<
 >(config: JoinedIngestionPipelineConfig, deps: JoinedIngestionPipelineDeps) {
     const {
         eventSchemaEnforcementEnabled,
-        overflowEnabled,
+        overflowMode,
         preservePartitionLocality,
         personsPrefetchEnabled,
         cdpHogWatcherSampleRate,
         outputs,
-        splitAiEventsConfig,
         perDistinctIdOptions,
         concurrentBatches,
     } = config
@@ -204,7 +203,6 @@ export function createJoinedIngestionPipeline<
     const perEventConfig: PerDistinctIdPipelineConfig = {
         options: perDistinctIdOptions,
         outputs,
-        splitAiEventsConfig,
         aiSubpipelineFactory,
         teamManager,
         groupTypeManager,
@@ -237,7 +235,7 @@ export function createJoinedIngestionPipeline<
                                 .pipe(createDenyEventsStep(['$exception', '$$client_ingestion_warning', '$$heatmap']))
                                 .pipe(
                                     createApplyEventRestrictionsStep(eventIngestionRestrictionManager, {
-                                        overflowEnabled,
+                                        overflowMode,
                                         preservePartitionLocality,
                                     })
                                 )
@@ -282,7 +280,8 @@ export function createJoinedIngestionPipeline<
         (afterBatch) =>
             afterBatch
                 .pipe(createFlushBatchStoresStep({ personsStore, groupStore, outputs }))
-                .pipe(createFlushEventFiltersBatchAppMetricsStep()),
+                .pipe(createFlushEventFiltersBatchAppMetricsStep())
+                .pipe(createFlushHogTransformerStep(hogTransformer)),
         // Batch stores are singleton persistent caches, but each batch receives a
         // batch-bound view so entries can be reference-counted and released after
         // that batch's flush lifecycle completes. The Rust consumer's per-worker

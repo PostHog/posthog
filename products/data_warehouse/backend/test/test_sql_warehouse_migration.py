@@ -12,8 +12,6 @@ from unittest.mock import MagicMock
 
 from parameterized import parameterized
 
-from posthog.temporal.data_imports.sources.common.sql.base import SQLSource
-
 from products.data_warehouse.backend.sql_warehouse_migration import (
     _source_has_optional_schema_field,
     apply_on_refresh,
@@ -22,9 +20,9 @@ from products.data_warehouse.backend.sql_warehouse_migration import (
     is_multi_schema_capable_sql_source,
     source_namespace_is_blank,
 )
-from products.data_warehouse.backend.types import ExternalDataSourceType
-from products.warehouse_sources.backend.models.external_data_schema import ExternalDataSchema
-from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
+from products.warehouse_sources.backend.facade.models import ExternalDataSchema, ExternalDataSource
+from products.warehouse_sources.backend.facade.source_management import SQLSource
+from products.warehouse_sources.backend.facade.types import ExternalDataSourceType
 
 
 def _sql_source_stub(*, schema_required: bool | None, has_schema_field: bool = True) -> Any:

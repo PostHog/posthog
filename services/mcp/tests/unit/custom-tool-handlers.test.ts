@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from 'vitest'
 
 import externalDataSourcesDbSchema from '@/tools/posthogAiTools/externalDataSourcesDbSchema'
 import externalDataSourcesJobs from '@/tools/posthogAiTools/externalDataSourcesJobs'
+import externalDataSourcesPreview from '@/tools/posthogAiTools/externalDataSourcesPreview'
 import type { Context } from '@/tools/types'
 
 function createMockContext(requestMock: ReturnType<typeof vi.fn>): Context {
@@ -63,6 +64,48 @@ describe('externalDataSourcesDbSchema', () => {
         expect(body).not.toHaveProperty('payload')
         expect(body.host).toBe('db.example.com')
         expect(body.source_type).toBe('MySQL')
+    })
+})
+
+describe('externalDataSourcesPreview', () => {
+    it('posts a nested payload alongside source_type, resource_name and limit', async () => {
+        const requestMock = vi.fn().mockResolvedValue({ rows: [], row_count: 0, columns: [], error: null })
+        const context = createMockContext(requestMock)
+        const tool = externalDataSourcesPreview()
+
+        await tool.handler(context, {
+            source_type: 'Custom',
+            payload: { manifest_json: '{"client":{}}', auth_api_key: 'sk_test' },
+            resource_name: 'users',
+            limit: 5,
+        })
+
+        expect(requestMock).toHaveBeenCalledWith({
+            method: 'POST',
+            path: '/api/projects/42/external_data_sources/preview_resource/',
+            body: {
+                source_type: 'Custom',
+                payload: { manifest_json: '{"client":{}}', auth_api_key: 'sk_test' },
+                resource_name: 'users',
+                limit: 5,
+            },
+        })
+    })
+
+    it('keeps credentials nested inside payload, not at the top level', async () => {
+        const requestMock = vi.fn().mockResolvedValue({})
+        const context = createMockContext(requestMock)
+        const tool = externalDataSourcesPreview()
+
+        await tool.handler(context, {
+            source_type: 'Custom',
+            payload: { manifest_json: '{}', auth_token: 'secret' },
+            resource_name: 'users',
+        })
+
+        const body = requestMock.mock.calls[0]![0].body
+        expect(body).not.toHaveProperty('auth_token')
+        expect(body.payload.auth_token).toBe('secret')
     })
 })
 

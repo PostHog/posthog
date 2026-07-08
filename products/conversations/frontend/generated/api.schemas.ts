@@ -614,9 +614,9 @@ export const TicketStatusEnumApi = {
  * * `medium` - Medium
  * * `high` - High
  */
-export type PriorityEnumApi = (typeof PriorityEnumApi)[keyof typeof PriorityEnumApi]
+export type TicketPriorityEnumApi = (typeof TicketPriorityEnumApi)[keyof typeof TicketPriorityEnumApi]
 
-export const PriorityEnumApi = {
+export const TicketPriorityEnumApi = {
     Low: 'low',
     Medium: 'medium',
     High: 'high',
@@ -681,10 +681,15 @@ export interface TicketApi {
      * * `low` - Low
      * * `medium` - Medium
      * * `high` - High */
-    priority?: PriorityEnumApi | BlankEnumApi | null
+    priority?: TicketPriorityEnumApi | BlankEnumApi | null
     readonly assignee: TicketAssignmentApi
     /** Customer-provided traits such as name and email */
     anonymous_traits?: unknown
+    /**
+     * Trust signal indicating whether the ticket's claimed identity was attested by the server (widget HMAC, SPF-authenticated email, or a signature-validated platform webhook). True when verified, false when assessed but not attested, null when unknown (e.g. created before this signal existed).
+     * @nullable
+     */
+    readonly identity_verified: boolean | null
     ai_resolved?: boolean
     /** @nullable */
     escalation_reason?: string | null
@@ -726,6 +731,13 @@ export interface TicketApi {
     readonly github_repo: string | null
     /** @nullable */
     readonly github_issue_number: number | null
+    /** @nullable */
+    readonly zendesk_ticket_id: number | null
+    /**
+     * Customer's PostHog organization group key, resolved at ticket creation. Null when unknown.
+     * @nullable
+     */
+    readonly organization_id: string | null
     readonly person: TicketPersonApi | null
     tags?: unknown[]
 }
@@ -761,10 +773,15 @@ export interface PatchedTicketApi {
      * * `low` - Low
      * * `medium` - Medium
      * * `high` - High */
-    priority?: PriorityEnumApi | BlankEnumApi | null
+    priority?: TicketPriorityEnumApi | BlankEnumApi | null
     readonly assignee?: TicketAssignmentApi
     /** Customer-provided traits such as name and email */
     anonymous_traits?: unknown
+    /**
+     * Trust signal indicating whether the ticket's claimed identity was attested by the server (widget HMAC, SPF-authenticated email, or a signature-validated platform webhook). True when verified, false when assessed but not attested, null when unknown (e.g. created before this signal existed).
+     * @nullable
+     */
+    readonly identity_verified?: boolean | null
     ai_resolved?: boolean
     /** @nullable */
     escalation_reason?: string | null
@@ -806,8 +823,47 @@ export interface PatchedTicketApi {
     readonly github_repo?: string | null
     /** @nullable */
     readonly github_issue_number?: number | null
+    /** @nullable */
+    readonly zendesk_ticket_id?: number | null
+    /**
+     * Customer's PostHog organization group key, resolved at ticket creation. Null when unknown.
+     * @nullable
+     */
+    readonly organization_id?: string | null
     readonly person?: TicketPersonApi | null
     tags?: unknown[]
+}
+
+/**
+ * * `good` - good
+ * * `bad` - bad
+ */
+export type RatingEnumApi = (typeof RatingEnumApi)[keyof typeof RatingEnumApi]
+
+export const RatingEnumApi = {
+    Good: 'good',
+    Bad: 'bad',
+} as const
+
+/**
+ * Payload for recording reviewer feedback on an AI reply.
+ */
+export interface AiFeedbackRequestApi {
+    /**
+     * ID of the AI message being rated.
+     * @maxLength 200
+     */
+    message_id: string
+    /** Reviewer rating: good or bad.
+     *
+     * * `good` - good
+     * * `bad` - bad */
+    rating: RatingEnumApi
+    /**
+     * Optional text explaining a bad rating.
+     * @maxLength 2000
+     */
+    feedback_text?: string
 }
 
 /**
@@ -881,9 +937,9 @@ export interface BulkUpdateStatusResponseApi {
  * * `remove` - remove
  * * `set` - set
  */
-export type ActionEnumApi = (typeof ActionEnumApi)[keyof typeof ActionEnumApi]
+export type BulkUpdateTagsActionEnumApi = (typeof BulkUpdateTagsActionEnumApi)[keyof typeof BulkUpdateTagsActionEnumApi]
 
-export const ActionEnumApi = {
+export const BulkUpdateTagsActionEnumApi = {
     Add: 'add',
     Remove: 'remove',
     Set: 'set',
@@ -900,7 +956,7 @@ export interface BulkUpdateTagsRequestApi {
      * * `add` - add
      * * `remove` - remove
      * * `set` - set */
-    action: ActionEnumApi
+    action: BulkUpdateTagsActionEnumApi
     /** Tag names to add, remove, or set. */
     tags: string[]
 }
@@ -979,6 +1035,95 @@ export interface PaginatedTicketViewListApi {
     /** @nullable */
     previous?: string | null
     results: TicketViewApi[]
+}
+
+export interface ZendeskImportStartApi {
+    /**
+     * Zendesk subdomain (e.g. 'acme' from acme.zendesk.com).
+     * @maxLength 255
+     */
+    subdomain: string
+    /** Zendesk agent email tied to the API token. */
+    email_address: string
+    /**
+     * Zendesk API token with ticket read access.
+     * @maxLength 500
+     */
+    api_token: string
+    /**
+     * Optional fallback email channel for tickets whose original Zendesk recipient doesn't match a configured support address (or isn't an email). Omit or null to leave those tickets without an email channel.
+     * @nullable
+     */
+    default_email_channel_id?: string | null
+}
+
+/**
+ * * `pending` - Pending
+ * * `running` - Running
+ * * `completed` - Completed
+ * * `failed` - Failed
+ */
+export type ZendeskImportJobStatusEnumApi =
+    (typeof ZendeskImportJobStatusEnumApi)[keyof typeof ZendeskImportJobStatusEnumApi]
+
+export const ZendeskImportJobStatusEnumApi = {
+    Pending: 'pending',
+    Running: 'running',
+    Completed: 'completed',
+    Failed: 'failed',
+} as const
+
+export interface ZendeskImportJobApi {
+    /** Unique identifier for the import job. */
+    readonly id: string
+    /** Current job state: pending, running, completed, or failed.
+     *
+     * * `pending` - Pending
+     * * `running` - Running
+     * * `completed` - Completed
+     * * `failed` - Failed */
+    readonly status: ZendeskImportJobStatusEnumApi
+    /**
+     * Zendesk subdomain used for this import job.
+     * @nullable
+     */
+    readonly subdomain: string | null
+    /** Whether stored Zendesk credentials exist for this job (the token/email are never returned). */
+    readonly has_credentials: boolean
+    /** Total number of tickets discovered for import. */
+    readonly total_tickets: number
+    /** Number of tickets processed so far. */
+    readonly processed_tickets: number
+    /** Number of tickets successfully imported. */
+    readonly imported_tickets: number
+    /** Number of tickets skipped because they were already imported. */
+    readonly skipped_tickets: number
+    /** Number of tickets that failed to import. */
+    readonly failed_tickets: number
+    /**
+     * When the import started running.
+     * @nullable
+     */
+    readonly started_at: string | null
+    /**
+     * When the import reached a terminal state.
+     * @nullable
+     */
+    readonly finished_at: string | null
+    /**
+     * Generic, user-safe error message when the job failed.
+     * @nullable
+     */
+    readonly latest_error: string | null
+    /** When the import job was created. */
+    readonly created_at: string
+    /** When the import job was last updated. */
+    readonly updated_at: string
+}
+
+export interface ZendeskImportErrorApi {
+    /** Human-readable error message. */
+    detail: string
 }
 
 export type ConversationsListParams = {

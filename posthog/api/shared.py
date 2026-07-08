@@ -3,7 +3,9 @@ This module contains serializers that are used across other serializers for nest
 """
 
 import copy
+from functools import cached_property
 from typing import Any, Optional
+from uuid import UUID
 
 from drf_spectacular.utils import extend_schema_field
 from opentelemetry import trace
@@ -33,8 +35,8 @@ class SearchMatchTypeSerializerMixin(serializers.Serializer):
         read_only=True,
         help_text=(
             "How this row matched the `search` query parameter: `exact` (the term is a "
-            "case-insensitive substring of a searched field) or `similar` (a fuzzy trigram match "
-            "only). Results are ordered exact-first. Null when the list is not filtered by `search`."
+            "case-insensitive substring of a searched field) or `similar` (a fuzzy trigram match, "
+            "returned only when no exact match exists). Null when the list is not filtered by `search`."
         ),
     )
 
@@ -282,10 +284,16 @@ class OrganizationBasicSerializer(serializers.ModelSerializer):
         ]
 
     def get_membership_level(self, organization: Organization) -> Optional[OrganizationMembership.Level]:
-        membership = OrganizationMembership.objects.filter(
-            organization=organization, user=self.context["request"].user
-        ).first()
-        return OrganizationMembership.Level(membership.level) if membership is not None else None
+        level = self._membership_levels_by_org.get(organization.id)
+        return OrganizationMembership.Level(level) if level is not None else None
+
+    @cached_property
+    def _membership_levels_by_org(self) -> dict[UUID, int]:
+        return dict(
+            OrganizationMembership.objects.filter(user=self.context["request"].user).values_list(
+                "organization_id", "level"
+            )
+        )
 
     @tracer.start_as_current_span("organization_basic_serializer.to_representation")
     def to_representation(self, instance):

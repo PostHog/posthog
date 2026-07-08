@@ -1,7 +1,7 @@
 import { useState } from 'react'
 
 import { IconCalendar, IconX } from '@posthog/icons'
-import { Button, DatePicker as QuillDatePicker, Popover, PopoverContent, PopoverTrigger } from '@posthog/quill'
+import { Button, cn, DatePicker as QuillDatePicker, Popover, PopoverContent, PopoverTrigger } from '@posthog/quill'
 
 import { dayjs } from 'lib/dayjs'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
@@ -15,15 +15,18 @@ import { LemonCalendarSelectInput, LemonCalendarSelectInputProps } from 'lib/lem
  * The swap is gated by the `QUILL_DATE_PICKER` feature flag so LemonUI and Quill run side
  * by side and roll back without a revert. The Quill panel does not yet cover the whole
  * feature surface, so `quillCanRender` falls back to LemonUI whenever a request needs a
- * capability Quill is missing (time, selection windows, multi-month, controlled
- * visibility). Each Quill panel increment removes one fallback condition.
+ * capability Quill is missing: hour-only granularity, 12-hour time entry, selection
+ * windows, multi-month, or controlled visibility. Day/minute granularity (with an optional
+ * include-time toggle) is handled; minute entry renders in 24-hour time. Each Quill panel
+ * increment removes one fallback condition.
  *
  * Trigger concerns (placeholder, clearable, format, ...) live here by design — Quill
  * separates the trigger from the picker panel, so the wrapper owns the trigger.
  *
- * The prop surface is intentionally minimal: trigger-styling props (size, type) and
- * `selectionPeriodLimit` are deliberately omitted until a real caller needs them, rather
- * than re-exposing the wrapped component's full API and losing the decoupling.
+ * Trigger-styling props (`size`, `type`, `className`) are typed and decoupled — the seam
+ * maps them onto whichever button backs the current renderer (LemonButton today, Quill
+ * Button under the flag) rather than re-exposing a raw `buttonProps` pass-through.
+ * `selectionPeriodLimit` stays omitted until a real caller needs it.
  *
  * Controlled visibility is a full trio: pass `visible` plus `onOpen` (fired when the
  * trigger is clicked) and `onClickOutside` / `onClose` (fired when the panel dismisses) so
@@ -56,6 +59,12 @@ export interface DatePickerProps {
     format?: string
     /** Stretch the trigger to fill its container. Defaults to true — the seam owns this default rather than inheriting it from the wrapped trigger. */
     fullWidth?: boolean
+    /** Trigger button size. Mapped to the underlying button per backing renderer. */
+    size?: 'xsmall' | 'small' | 'medium' | 'large'
+    /** Trigger button style. Mapped to the underlying button per backing renderer (secondary -> Quill outline; primary -> Quill primary; tertiary -> Quill default). When unset, the Quill trigger uses its neutral `outline`. */
+    type?: 'primary' | 'secondary' | 'tertiary'
+    /** Extra class names merged onto the trigger. */
+    className?: string
     /** Disable the trigger and explain why on hover. */
     disabledReason?: string
     /** Externally control popover visibility. Pair with `onOpen` + `onClickOutside`/`onClose`. */
@@ -70,13 +79,25 @@ export interface DatePickerProps {
 }
 
 const QUILL_TRIGGER_FORMAT = 'MMMM D, YYYY'
+const QUILL_TRIGGER_DATETIME_FORMAT = 'MMMM D, YYYY HH:mm'
+
+const QUILL_TRIGGER_VARIANT: Record<NonNullable<DatePickerProps['type']>, 'primary' | 'outline' | 'default'> = {
+    primary: 'primary',
+    secondary: 'outline',
+    tertiary: 'default',
+}
+const QUILL_TRIGGER_SIZE: Record<NonNullable<DatePickerProps['size']>, 'default' | 'xs' | 'sm' | 'lg'> = {
+    xsmall: 'xs',
+    small: 'sm',
+    medium: 'default',
+    large: 'lg',
+}
 
 function quillCanRender(props: DatePickerProps): boolean {
     return (
-        props.granularity === undefined &&
+        props.granularity !== 'hour' &&
+        props.use24HourFormat !== false &&
         props.selectionPeriod === undefined &&
-        props.showTimeToggle === undefined &&
-        props.use24HourFormat === undefined &&
         props.months === undefined &&
         props.visible === undefined &&
         props.onOpen === undefined &&
@@ -96,16 +117,29 @@ export function DatePicker(props: DatePickerProps): JSX.Element {
 function DatePickerQuill({
     value,
     onChange,
+    granularity,
+    showTimeToggle,
+    onToggleTime,
     placeholder,
     clearable,
     format,
     fullWidth = true,
+    size = 'medium',
+    type = 'secondary',
+    className,
     disabledReason,
     maxDate,
     'data-attr': dataAttr,
 }: DatePickerProps): JSX.Element {
     const [open, setOpen] = useState(false)
-    const label = value ? value.format(format ?? QUILL_TRIGGER_FORMAT) : (placeholder ?? 'Select date')
+    const [includeTime, setIncludeTime] = useState(granularity === 'minute')
+    const labelFormat = format ?? (includeTime ? QUILL_TRIGGER_DATETIME_FORMAT : QUILL_TRIGGER_FORMAT)
+    const label = value ? value.format(labelFormat) : (placeholder ?? 'Select date')
+
+    const handleIncludeTimeChange = (next: boolean): void => {
+        setIncludeTime(next)
+        onToggleTime?.(next)
+    }
 
     const applyDate = (next: Date): void => {
         onChange(dayjs(next))
@@ -118,12 +152,13 @@ function DatePickerQuill({
                 <PopoverTrigger
                     render={
                         <Button
-                            variant="outline"
+                            variant={QUILL_TRIGGER_VARIANT[type]}
+                            size={QUILL_TRIGGER_SIZE[size]}
                             data-attr={dataAttr}
                             data-quill
                             disabled={!!disabledReason}
                             title={disabledReason}
-                            className={fullWidth ? 'w-full justify-start' : 'justify-start'}
+                            className={cn('justify-start', fullWidth && 'w-full', className)}
                         >
                             <IconCalendar />
                             {label}
@@ -134,6 +169,9 @@ function DatePickerQuill({
                     <QuillDatePicker
                         value={value ? value.toDate() : new Date()}
                         maxDate={maxDate?.toDate()}
+                        showTime={includeTime}
+                        showTimeToggle={!!showTimeToggle}
+                        onIncludeTimeChange={handleIncludeTimeChange}
                         onApply={applyDate}
                         onCancel={() => setOpen(false)}
                     />
@@ -142,6 +180,7 @@ function DatePickerQuill({
             {clearable && value && !disabledReason && (
                 <Button
                     variant="outline"
+                    size={QUILL_TRIGGER_SIZE[size]}
                     aria-label="Clear date"
                     data-attr={dataAttr ? `${dataAttr}-clear` : undefined}
                     onClick={() => onChange(null)}
@@ -167,6 +206,9 @@ function DatePickerLemon({
     clearable,
     format,
     fullWidth = true,
+    size,
+    type,
+    className,
     disabledReason,
     visible,
     onOpen,
@@ -176,8 +218,15 @@ function DatePickerLemon({
 }: DatePickerProps): JSX.Element {
     const buttonProps: NonNullable<LemonCalendarSelectInputProps['buttonProps']> = {
         fullWidth,
+        size,
+        className,
         disabledReason,
         'data-attr': dataAttr,
+    }
+    // Only forward `type` when the caller set one — LemonCalendarSelectInput defaults the trigger to
+    // `secondary` and spreads `buttonProps` after it, so a `type: undefined` here would clobber that default.
+    if (type) {
+        buttonProps.type = type
     }
     // The wrapped trigger only flips its own uncontrolled state; a controlled caller needs the
     // click to drive their `visible`, so forward `onOpen` as the trigger's onClick when given.

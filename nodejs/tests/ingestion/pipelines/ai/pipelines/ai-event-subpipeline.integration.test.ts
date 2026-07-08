@@ -9,6 +9,7 @@ import {
     PERSON_MERGE_EVENTS_OUTPUT,
 } from '~/common/outputs'
 import { IngestionOutputs } from '~/common/outputs/ingestion-outputs'
+import { parseJSON } from '~/common/utils/json-parse'
 import { GroupStoreForBatch } from '~/ingestion/common/groups/group-store-for-batch'
 import { PersonsStoreForBatch } from '~/ingestion/common/persons/persons-store-for-batch'
 import { newPipelineBuilder } from '~/ingestion/framework/builders'
@@ -26,7 +27,6 @@ import { createMockIngestionOutputs } from '~/tests/helpers/mock-ingestion-outpu
 import { createTestPluginEvent } from '~/tests/helpers/plugin-event'
 import { createTestTeam } from '~/tests/helpers/team'
 import { InternalPerson, PropertyUpdateOperation } from '~/types'
-import { parseJSON } from '~/utils/json-parse'
 
 const team = createTestTeam()
 const message = createTestMessage()
@@ -110,12 +110,6 @@ function buildPipeline(configOverrides: Partial<AiEventSubpipelineConfig> = {}) 
         hogTransformer: {
             transformEventAndProduceMessages: (event: PluginEvent) => Promise.resolve({ event, invocationResults: [] }),
         } as any,
-        splitAiEventsConfig: {
-            enabled: false,
-            enabledTeams: '*',
-            enabledPercentage: 0,
-            stripHeavyTeams: [],
-        },
         topHog: (step) => step,
         ...configOverrides,
     }
@@ -146,15 +140,17 @@ type AiOutputs =
     | typeof PERSON_DISTINCT_IDS_OUTPUT
     | typeof PERSON_MERGE_EVENTS_OUTPUT
 
-function getProduceCall(mockOutputs: jest.Mocked<IngestionOutputs<AiOutputs>>) {
-    expect(mockOutputs.produce).toHaveBeenCalledTimes(1)
-    const outputName = mockOutputs.produce.mock.calls[0][0]
-    const call = mockOutputs.produce.mock.calls[0][1]
-    const event = parseJSON(call.value!.toString())
+function getProduceCall(mockOutputs: jest.Mocked<IngestionOutputs<AiOutputs>>, output: AiOutputs = EVENTS_OUTPUT) {
+    const call = mockOutputs.produce.mock.calls.find(([outputName]) => outputName === output)
+    if (!call) {
+        throw new Error(`No produce call for output ${output}`)
+    }
+    const [outputName, message] = call
+    const event = parseJSON(message.value!.toString())
     return {
         outputName: outputName as string,
-        key: call.key as string,
-        headers: call.headers as Record<string, string>,
+        key: message.key as string,
+        headers: message.headers as Record<string, string>,
         event,
         properties: parseJSON(event.properties) as Record<string, unknown>,
     }
@@ -194,6 +190,10 @@ describe('AI event subpipeline integration', () => {
 
         // Emit step: correct output
         expect(outputName).toBe(EVENTS_OUTPUT)
+
+        // Split step: AI events are unconditionally duplicated to the dedicated ai_events output
+        expect(mockOutputs.produce).toHaveBeenCalledTimes(2)
+        expect(getProduceCall(mockOutputs, AI_EVENTS_OUTPUT).event.event).toBe('$ai_generation')
 
         // Event identity preserved
         expect(produced.event).toBe('$ai_generation')

@@ -24942,7 +24942,7 @@
             "description": "New destination with complex event mapping. Works only with posthog-js when opt_in_site_apps is set to true.",
             "filters": null,
             "masking": null,
-            "icon_url": "/static/hedgehog/builder-hog-01.png"
+            "icon_url": "https://res.cloudinary.com/dmukukwp6/image/upload/q_auto,f_auto/builder_hog_01_955c082cad.png"
         },
         {
             "mapping_templates": null,

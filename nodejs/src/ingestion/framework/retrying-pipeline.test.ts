@@ -1,6 +1,6 @@
 import { Message } from 'node-rdkafka'
 
-import { captureException } from '~/utils/posthog'
+import { captureException } from '~/common/utils/posthog'
 
 import { createContext, createNewPipeline, createOkContext } from './helpers'
 import { pipelineRetryAttemptsHistogram } from './metrics'
@@ -10,7 +10,7 @@ import { RetryingPipeline, RetryingPipelineOptions } from './retrying-pipeline'
 
 jest.setTimeout(1000)
 
-jest.mock('~/utils/posthog', () => ({
+jest.mock('~/common/utils/posthog', () => ({
     captureException: jest.fn(),
 }))
 
@@ -379,7 +379,7 @@ describe('RetryingPipeline', () => {
 
     describe('warning handling', () => {
         it('should preserve warnings from successful results', async () => {
-            const stepWarning = { type: 'test_warning', details: { message: 'from step' } }
+            const stepWarning = { type: 'merge_race_condition' as const, details: { message: 'from step' } }
             const mockProcessStep = jest.fn().mockImplementation(async (input: { message: Message }) => {
                 const value = input.message.value?.toString()
                 return Promise.resolve(ok({ processed: value }, [], [stepWarning]))
@@ -406,7 +406,7 @@ describe('RetryingPipeline', () => {
 
         it('should preserve warnings after retries succeed', async () => {
             let callCount = 0
-            const stepWarning = { type: 'test_warning', details: { message: 'from step' } }
+            const stepWarning = { type: 'merge_race_condition' as const, details: { message: 'from step' } }
             const mockProcessStep = jest.fn().mockImplementation(async (input: { message: Message }) => {
                 callCount++
                 if (callCount < 2) {
@@ -439,7 +439,7 @@ describe('RetryingPipeline', () => {
         })
 
         it('should preserve context warnings with DLQ results', async () => {
-            const contextWarning = { type: 'context_warning', details: { message: 'from context' } }
+            const contextWarning = { type: 'client_ingestion_warning' as const, details: { message: 'from context' } }
             const mockProcessStep = jest.fn().mockImplementation(async (_input: { message: Message }) => {
                 return Promise.resolve(dlq('DLQ reason', new Error('test error')))
             })
@@ -471,7 +471,7 @@ describe('RetryingPipeline', () => {
         })
 
         it('should preserve context warnings with non-retriable errors', async () => {
-            const contextWarning = { type: 'context_warning', details: { message: 'from context' } }
+            const contextWarning = { type: 'client_ingestion_warning' as const, details: { message: 'from context' } }
             const mockProcessStep = jest.fn().mockImplementation(async (_input: { message: Message }) => {
                 const error = new Error('Non-retriable error')
                 ;(error as any).isRetriable = false
@@ -505,8 +505,8 @@ describe('RetryingPipeline', () => {
         })
 
         it('should merge context and step warnings', async () => {
-            const contextWarning = { type: 'context_warning', details: { message: 'from context' } }
-            const stepWarning = { type: 'step_warning', details: { message: 'from step' } }
+            const contextWarning = { type: 'client_ingestion_warning' as const, details: { message: 'from context' } }
+            const stepWarning = { type: 'schema_validation_failed' as const, details: { message: 'from step' } }
             const mockProcessStep = jest.fn().mockImplementation(async (input: { message: Message }) => {
                 const value = input.message.value?.toString()
                 return Promise.resolve(ok({ processed: value }, [], [stepWarning]))

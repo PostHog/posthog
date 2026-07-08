@@ -5,8 +5,8 @@ import { urls } from 'scenes/urls'
 
 import { DataNodeLogicProps } from '~/queries/nodes/DataNode/dataNodeLogic'
 import { insightVizDataNodeKey } from '~/queries/nodes/InsightViz/insightVizKeys'
-import { AnyResponseType, DataTableNode, NodeKind, TracesQuery } from '~/queries/schema/schema-general'
-import { Breadcrumb, InsightLogicProps, PropertyFilterType } from '~/types'
+import { AnyResponseType, DataTableNode, NodeKind, SessionQuery } from '~/queries/schema/schema-general'
+import { Breadcrumb, InsightLogicProps } from '~/types'
 
 import type { aiObservabilitySessionLogicType } from './aiObservabilitySessionLogicType'
 import { aiObservabilitySharedLogic } from './aiObservabilitySharedLogic'
@@ -71,27 +71,21 @@ export const aiObservabilitySessionLogic = kea<aiObservabilitySessionLogicType>(
                 sessionId: string,
                 dateRange: { dateFrom: string | null; dateTo: string | null } | null
             ): DataTableNode => {
-                const tracesQuery: TracesQuery = {
-                    kind: NodeKind.TracesQuery,
+                const sessionQuery: SessionQuery = {
+                    kind: NodeKind.SessionQuery,
+                    sessionId,
+                    includeSentiment: true,
                     dateRange: dateRange?.dateFrom
                         ? {
                               date_from: dateRange.dateFrom,
                               date_to: dateRange?.dateTo || undefined,
                           }
                         : undefined,
-                    properties: [
-                        {
-                            type: PropertyFilterType.Event,
-                            key: '$ai_session_id',
-                            operator: 'exact' as any,
-                            value: sessionId,
-                        },
-                    ],
                 }
 
                 return {
                     kind: NodeKind.DataTableNode,
-                    source: tracesQuery,
+                    source: sessionQuery,
                 }
             },
         ],

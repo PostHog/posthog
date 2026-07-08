@@ -5,7 +5,7 @@
  * These utilities are loosely typed (returning `any`) to match the behavior of the
  * original untyped JavaScript module.
  */
-import { parseJSON } from '~/utils/json-parse'
+import { parseJSON } from '~/common/utils/json-parse'
 
 export function createEvent(changes: Record<string, any> = {}): any {
     return {

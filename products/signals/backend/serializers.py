@@ -4,12 +4,16 @@ from collections.abc import Mapping
 from typing import cast
 
 from asgiref.sync import async_to_sync
+from drf_spectacular.utils import PolymorphicProxySerializer, extend_schema_field
 from opentelemetry import trace
 from opentelemetry.trace import Status, StatusCode
 from rest_framework import serializers
 
 from posthog.models import User
 from posthog.temporal.common.client import sync_connect
+
+from products.signals.backend import contracts
+from products.signals.backend.enums import SignalSourceProduct, SignalSourceType
 
 from .artefact_schemas import NON_WRITABLE_ARTEFACT_TYPES
 from .models import (
@@ -91,7 +95,7 @@ class SignalSourceConfigSerializer(serializers.ModelSerializer):
         return None
 
     def _get_data_import_status(self, team_id: int, ext_source_type: str, schema_name: str) -> str | None:
-        from products.warehouse_sources.backend.models.external_data_schema import ExternalDataSchema
+        from products.warehouse_sources.backend.facade.models import ExternalDataSchema
 
         schema = (
             ExternalDataSchema.objects.filter(
@@ -290,6 +294,9 @@ class SignalReportSerializer(serializers.ModelSerializer):
     source_products = serializers.SerializerMethodField(
         help_text="Distinct source products contributing signals to this report (from ClickHouse).",
     )
+    scout_name = serializers.SerializerMethodField(
+        help_text="skill_name slug of the scout that authored this report, when scout-authored (from ClickHouse); null otherwise.",
+    )
     implementation_pr_url = serializers.SerializerMethodField(
         help_text="PR URL from the latest implementation task run, if available.",
     )
@@ -314,6 +321,7 @@ class SignalReportSerializer(serializers.ModelSerializer):
             "dismissal_note",
             "is_suggested_reviewer",
             "source_products",
+            "scout_name",
             "implementation_pr_url",
         ]
         read_only_fields = fields
@@ -406,12 +414,113 @@ class SignalReportSerializer(serializers.ModelSerializer):
             return source_products_map.get(str(obj.id), [])
         return []
 
+    def get_scout_name(self, obj: SignalReport) -> str | None:
+        scout_names_map: dict[str, str] | None = self.context.get("scout_names_map")
+        if scout_names_map is not None:
+            return scout_names_map.get(str(obj.id))
+        return None
+
     def get_implementation_pr_url(self, obj: SignalReport) -> str | None:
         implementation_pr_url_map: dict[str, str] | None = self.context.get("implementation_pr_url_map")
         if implementation_pr_url_map is not None:
             return implementation_pr_url_map.get(str(obj.id))
         value = getattr(obj, "implementation_pr_url", None)
         return value if isinstance(value, str) else None
+
+
+# ── Report `signals` action ─────────────────────────────────────────────────────
+#
+# A signal's `extra` blob is one of the Pydantic `*SignalExtra` shapes from `contracts.py`. Those
+# models are passed straight to `PolymorphicProxySerializer` — drf-spectacular's built-in
+# `PydanticExtension` turns each into a named OpenAPI component (nested models included), so the
+# frontend types flow through the standard OpenAPI/Orval pipeline without re-declaring the shapes.
+
+# All `extra` payload shapes. They're discriminated at runtime by the (source_product, source_type)
+# pair on the signal row, not by a field inside `extra`, so the OpenAPI union carries no discriminator.
+SIGNAL_EXTRA_MODELS = list(contracts.SignalExtraBase.__subclasses__())
+
+
+@extend_schema_field(
+    PolymorphicProxySerializer(
+        component_name="SignalExtra",
+        # drf-spectacular's built-in PydanticExtension resolves the Pydantic models at schema-build
+        # time; the stubs only know about DRF serializers, hence the cast.
+        serializers=cast(list, SIGNAL_EXTRA_MODELS),
+        resource_type_field_name=None,
+    )
+)
+class SignalExtraField(serializers.JSONField):
+    """Product-specific `extra` payload — one of the *SignalExtra shapes."""
+
+
+# Mirrors of the clustering dataclasses in `temporal/types.py` (SpecificityMetadata,
+# MatchedMetadata, NoMatchMetadata). Those are plain dataclasses, which spectacular's
+# PydanticExtension can't consume directly, so the shape is declared here as DRF serializers.
+
+
+class SpecificityMetadataSerializer(serializers.Serializer):
+    pr_title = serializers.CharField(help_text="Title of the PR the specificity gate evaluated.")
+    specific_enough = serializers.BooleanField(help_text="Whether the report passed the PR-specificity gate.")
+    reason = serializers.CharField(help_text="The gate's reasoning.")
+
+
+class MatchedMetadataSerializer(serializers.Serializer):
+    parent_signal_id = serializers.CharField(help_text="Signal already in the report that this one matched.")
+    match_query = serializers.CharField(help_text="Query used to find the parent signal.")
+    reason = serializers.CharField(help_text="Why the signals were judged to describe the same issue.")
+    specificity = SpecificityMetadataSerializer(
+        required=False, allow_null=True, help_text="PR-specificity gate result, when the gate ran."
+    )
+
+
+class NoMatchMetadataSerializer(serializers.Serializer):
+    reason = serializers.CharField(help_text="Why no existing report matched.")
+    rejected_signal_ids = serializers.ListField(
+        child=serializers.CharField(), help_text="Candidate signals that were considered and rejected."
+    )
+    specificity_rejection = SpecificityMetadataSerializer(
+        required=False, allow_null=True, help_text="PR-specificity gate result that caused a rejection, when present."
+    )
+
+
+@extend_schema_field(
+    PolymorphicProxySerializer(
+        component_name="SignalMatchMetadata",
+        serializers=[MatchedMetadataSerializer, NoMatchMetadataSerializer],
+        resource_type_field_name=None,
+    )
+)
+class SignalMatchMetadataField(serializers.JSONField):
+    """Why the signal matched (or didn't) into its report cluster."""
+
+
+class SignalNodeSerializer(serializers.Serializer):
+    signal_id = serializers.CharField(help_text="ClickHouse document id of the signal.")
+    content = serializers.CharField(help_text="The signal's human-readable description.")
+    source_product = serializers.ChoiceField(
+        choices=[(p.value, p.value) for p in SignalSourceProduct],
+        help_text="Product that emitted the signal.",
+    )
+    source_type = serializers.ChoiceField(
+        choices=[(t.value, t.value) for t in SignalSourceType],
+        help_text="Signal type within the source product.",
+    )
+    source_id = serializers.CharField(help_text="Emitter-scoped id of the underlying object (issue, ticket, ...).")
+    weight = serializers.FloatField(help_text="Signal weight in [0, 1]; drives report ranking.")
+    timestamp = serializers.DateTimeField(help_text="Emission timestamp.")
+    extra = SignalExtraField(help_text="Product-specific payload; shape depends on (source_product, source_type).")
+    match_metadata = SignalMatchMetadataField(
+        required=False,
+        allow_null=True,
+        help_text="Clustering match/no-match metadata, when present.",
+    )
+
+
+class ReportSignalsResponseSerializer(serializers.Serializer):
+    """Response body for GET /api/projects/:id/signals/reports/:id/signals/."""
+
+    report = SignalReportSerializer(help_text="The report these signals were clustered into.")
+    signals = SignalNodeSerializer(many=True, help_text="All signals contributing to the report.")
 
 
 class SignalReportArtefactSerializer(serializers.ModelSerializer):

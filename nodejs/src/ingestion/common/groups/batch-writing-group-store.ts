@@ -6,15 +6,15 @@ import { GroupRepositoryTransaction } from '~/common/groups/repositories/group-r
 import { GroupRepository } from '~/common/groups/repositories/group-repository.interface'
 import { GroupsOutput, IngestionWarningsOutput } from '~/common/outputs'
 import { IngestionOutputs } from '~/common/outputs/ingestion-outputs'
+import { MessageSizeTooLarge } from '~/common/utils/db/error'
+import { logger } from '~/common/utils/logger'
+import { promiseRetry } from '~/common/utils/retries'
+import { RaceConditionError } from '~/common/utils/utils'
 import { emitIngestionWarning } from '~/ingestion/common/ingestion-warnings'
 import { FlushResult } from '~/ingestion/common/persons/persons-store'
 import { BatchWritingStoreFlushStats } from '~/ingestion/common/stores/batch-writing-store'
 import { Properties } from '~/plugin-scaffold'
 import { GroupTypeIndex, TeamId } from '~/types'
-import { MessageSizeTooLarge } from '~/utils/db/error'
-import { logger } from '~/utils/logger'
-import { promiseRetry } from '~/utils/retries'
-import { RaceConditionError } from '~/utils/utils'
 
 import { logMissingRow, logVersionMismatch } from './group-logging'
 import { CacheMetrics, GroupStore } from './group-store.interface'
@@ -373,9 +373,14 @@ export class BatchWritingGroupStore implements GroupStore {
         distinctId: string
     ): Promise<void> {
         if (error instanceof MessageSizeTooLarge) {
-            await emitIngestionWarning(this.outputs, update.team_id, 'group_upsert_message_size_too_large', {
-                groupTypeIndex: update.group_type_index,
-                groupKey: update.group_key,
+            await emitIngestionWarning(this.outputs, update.team_id, {
+                type: 'group_upsert_message_size_too_large',
+                details: {
+                    groupTypeIndex: update.group_type_index,
+                    groupKey: update.group_key,
+                    distinctId: distinctId,
+                },
+                pipelineStep: 'group-store',
             })
             return
         }
@@ -755,9 +760,13 @@ export class BatchWritingGroupStore implements GroupStore {
         batchId: number
     ): Promise<void> {
         if (error instanceof MessageSizeTooLarge) {
-            await emitIngestionWarning(this.outputs, teamId, 'group_upsert_message_size_too_large', {
-                groupTypeIndex,
-                groupKey,
+            await emitIngestionWarning(this.outputs, teamId, {
+                type: 'group_upsert_message_size_too_large',
+                details: {
+                    groupTypeIndex,
+                    groupKey,
+                },
+                pipelineStep: 'group-store',
             })
             return
         }

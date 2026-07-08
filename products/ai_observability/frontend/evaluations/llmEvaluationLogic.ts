@@ -20,9 +20,9 @@ import { queryEvaluationRuns } from '../utils'
 import { evaluationErrorMessage } from './apiErrors'
 import { EVALUATION_SUMMARY_MAX_RUNS } from './constants'
 import {
+    evaluationCanResolveModel,
     evaluationSupportsReports,
     evaluationTypeDefaultsToBooleanOutput,
-    evaluationTypeUsesProviderKey,
     isBooleanEvaluationOutput,
     isLLMJudgeEvaluation,
 } from './evaluationCapabilities'
@@ -35,6 +35,7 @@ import type {
     EvaluationRun,
     EvaluationSummary,
     EvaluationSummaryFilter,
+    EvaluationTarget,
     EvaluationType,
     HogEvaluation,
     LLMJudgeEvaluation,
@@ -43,10 +44,23 @@ import type {
     SentimentEvaluation,
 } from './types'
 
+// Mirrors TRACE_EVAL_DEFAULT_WINDOW_SECONDS on the backend — the value pre-filled when an
+// evaluation is switched to the trace target. The backend re-defaults and clamps regardless.
+export const DEFAULT_TRACE_WINDOW_SECONDS = 30 * 60
+
 export const DEFAULT_HOG_SOURCE = `// Check that the output is not empty
 let result := length(output) > 0
 if (not result) {
     print('Output is empty')
+}
+return result`
+
+// Trace Hog globals expose `events` and `trace`, not a top-level `output`, so the generation
+// default can't run against them — seed a trace-shaped check instead.
+export const DEFAULT_TRACE_HOG_SOURCE = `// Check that the trace produced at least one event
+let result := length(events) > 0
+if (not result) {
+    print('Trace has no events')
 }
 return result`
 
@@ -68,7 +82,7 @@ function toHogEvaluation(evaluation: EvaluationConfig): HogEvaluation {
     return {
         ...evaluation,
         evaluation_type: 'hog',
-        evaluation_config: { source: DEFAULT_HOG_SOURCE },
+        evaluation_config: { source: evaluation.target === 'trace' ? DEFAULT_TRACE_HOG_SOURCE : DEFAULT_HOG_SOURCE },
         output_type: 'boolean',
         model_configuration: null,
         output_config: { ...evaluation.output_config, allows_na: false },
@@ -83,6 +97,9 @@ function toSentimentEvaluation(evaluation: EvaluationConfig): SentimentEvaluatio
         output_type: 'sentiment',
         output_config: {},
         model_configuration: null,
+        // Sentiment is per-message within a single generation; a trace target is unsupported.
+        target: 'generation',
+        target_config: {},
     }
 }
 
@@ -124,13 +141,13 @@ export const llmEvaluationLogic = kea<llmEvaluationLogicType>([
     connect(() => ({
         values: [
             llmProviderKeysLogic,
-            ['providerKeys', 'providerKeysLoading', 'isTrialLimitReached'],
+            ['providerKeys', 'providerKeysLoading', 'requiresProviderKey', 'isTrialGrandfathered'],
             signalSourcesLogic,
             ['sourceConfigs', 'sourceConfigsLoading'],
         ],
         actions: [
             llmProviderKeysLogic,
-            ['loadProviderKeys'],
+            ['loadProviderKeys', 'loadEvaluationConfigSuccess'],
             signalSourcesLogic,
             [
                 'loadSourceConfigs',
@@ -152,6 +169,8 @@ export const llmEvaluationLogic = kea<llmEvaluationLogicType>([
         setTriggerConditions: (conditions: EvaluationConditionSet[]) => ({ conditions }),
         setModelConfiguration: (modelConfiguration: ModelConfiguration | null) => ({ modelConfiguration }),
         setEvaluationType: (evaluationType: EvaluationType) => ({ evaluationType }),
+        setEvaluationTarget: (target: EvaluationTarget) => ({ target }),
+        setTraceWindowSeconds: (windowSeconds: number) => ({ windowSeconds }),
         setHogSource: (source: string) => ({ source }),
 
         // Signal emission
@@ -326,6 +345,40 @@ export const llmEvaluationLogic = kea<llmEvaluationLogicType>([
                     }
                     return toLLMJudgeEvaluation(state)
                 },
+                setEvaluationTarget: (state, { target }) => {
+                    if (!state) {
+                        return null
+                    }
+                    // Seed the window when switching to trace so the field shows a sane default;
+                    // clear the bag when switching back so we don't persist a stale window.
+                    const target_config = target === 'trace' ? { window_seconds: DEFAULT_TRACE_WINDOW_SECONDS } : {}
+                    // Swap the default Hog source to match the new target, but only while it's still the
+                    // untouched default for the other target — never clobber a source the user edited.
+                    if (state.evaluation_type === 'hog') {
+                        const source = state.evaluation_config.source
+                        if (target === 'trace' && source === DEFAULT_HOG_SOURCE) {
+                            return {
+                                ...state,
+                                target,
+                                target_config,
+                                evaluation_config: { ...state.evaluation_config, source: DEFAULT_TRACE_HOG_SOURCE },
+                            }
+                        }
+                        if (target !== 'trace' && source === DEFAULT_TRACE_HOG_SOURCE) {
+                            return {
+                                ...state,
+                                target,
+                                target_config,
+                                evaluation_config: { ...state.evaluation_config, source: DEFAULT_HOG_SOURCE },
+                            }
+                        }
+                    }
+                    return { ...state, target, target_config }
+                },
+                setTraceWindowSeconds: (state, { windowSeconds }) =>
+                    state
+                        ? { ...state, target_config: { ...state.target_config, window_seconds: windowSeconds } }
+                        : null,
                 setHogSource: (state, { source }) =>
                     state && state.evaluation_type === 'hog'
                         ? { ...state, evaluation_config: { ...state.evaluation_config, source } }
@@ -396,6 +449,8 @@ export const llmEvaluationLogic = kea<llmEvaluationLogicType>([
                 setTriggerConditions: () => true,
                 setModelConfiguration: () => true,
                 setEvaluationType: () => true,
+                setEvaluationTarget: () => true,
+                setTraceWindowSeconds: () => true,
                 setHogSource: () => true,
                 saveEvaluationSuccess: () => false,
                 loadEvaluationSuccess: () => false,
@@ -441,6 +496,18 @@ export const llmEvaluationLogic = kea<llmEvaluationLogicType>([
     }),
 
     listeners(({ actions, values, props }) => ({
+        loadEvaluationConfigSuccess: () => {
+            // The new-eval draft's enabled default is read before the team's evaluation config has
+            // loaded — correct it once we know the draft can't actually resolve a model.
+            if (
+                props.evaluationId === 'new' &&
+                values.evaluation?.enabled &&
+                !evaluationCanResolveModel(values.evaluation, values.requiresProviderKey, values.isTrialGrandfathered)
+            ) {
+                actions.setEvaluationEnabled(false)
+            }
+        },
+
         loadEvaluation: async () => {
             if (props.evaluationId && props.evaluationId !== 'new') {
                 try {
@@ -467,9 +534,11 @@ export const llmEvaluationLogic = kea<llmEvaluationLogicType>([
                     id: '',
                     name: template?.name || '',
                     description: template?.description || '',
-                    enabled: true,
+                    // Starting a keyless draft enabled would 400 on save for teams that require a key.
+                    enabled: !values.requiresProviderKey,
                     status: 'active' as const,
                     status_reason: null,
+                    status_reason_detail: null,
                     output_type: 'boolean' as const,
                     output_config: {},
                     conditions: [
@@ -479,6 +548,8 @@ export const llmEvaluationLogic = kea<llmEvaluationLogicType>([
                             properties: [],
                         },
                     ],
+                    target: 'generation' as const,
+                    target_config: {},
                     model_configuration: null,
                     total_runs: 0,
                     created_at: new Date().toISOString(),
@@ -561,9 +632,10 @@ export const llmEvaluationLogic = kea<llmEvaluationLogicType>([
                     id: '',
                     name: '',
                     description: '',
-                    enabled: true,
+                    enabled: !values.requiresProviderKey,
                     status: 'active',
                     status_reason: null,
+                    status_reason_detail: null,
                     evaluation_type: 'llm_judge',
                     evaluation_config: {
                         prompt: '',
@@ -577,6 +649,8 @@ export const llmEvaluationLogic = kea<llmEvaluationLogicType>([
                             properties: [],
                         },
                     ],
+                    target: 'generation',
+                    target_config: {},
                     model_configuration: null,
                     total_runs: 0,
                     created_at: new Date().toISOString(),
@@ -592,8 +666,8 @@ export const llmEvaluationLogic = kea<llmEvaluationLogicType>([
             const configs: SignalSourceConfig[] = values.sourceConfigs ?? []
             const existing = configs.find(
                 (c) =>
-                    c.source_product === SignalSourceProduct.LLM_ANALYTICS &&
-                    c.source_type === SignalSourceType.EVALUATION
+                    c.source_product === SignalSourceProduct.LlmAnalytics &&
+                    c.source_type === SignalSourceType.Evaluation
             )
 
             const currentIds: string[] = existing?.config?.evaluation_ids ?? []
@@ -602,8 +676,8 @@ export const llmEvaluationLogic = kea<llmEvaluationLogicType>([
                 : currentIds.filter((id: string) => id !== props.evaluationId)
 
             actions.toggleSignalSource({
-                sourceProduct: SignalSourceProduct.LLM_ANALYTICS,
-                sourceType: SignalSourceType.EVALUATION,
+                sourceProduct: SignalSourceProduct.LlmAnalytics,
+                sourceType: SignalSourceType.Evaluation,
                 enabled: true,
                 config: { ...existing?.config, evaluation_ids: newIds },
             })
@@ -701,8 +775,8 @@ export const llmEvaluationLogic = kea<llmEvaluationLogicType>([
                 }
                 const llmEvalConfig = sourceConfigs.find(
                     (c) =>
-                        c.source_product === SignalSourceProduct.LLM_ANALYTICS &&
-                        c.source_type === SignalSourceType.EVALUATION
+                        c.source_product === SignalSourceProduct.LlmAnalytics &&
+                        c.source_type === SignalSourceType.Evaluation
                 )
                 const ids: string[] = llmEvalConfig?.config?.evaluation_ids ?? []
                 return !!llmEvalConfig?.enabled && ids.includes(evaluationId)
@@ -736,16 +810,16 @@ export const llmEvaluationLogic = kea<llmEvaluationLogicType>([
         ],
 
         canEnable: [
-            (s) => [s.evaluation, s.isTrialLimitReached],
-            (evaluation: EvaluationConfig | null, isTrialLimitReached: boolean): boolean => {
-                if (!evaluation || !isTrialLimitReached) {
+            (s) => [s.evaluation, s.requiresProviderKey, s.isTrialGrandfathered],
+            (
+                evaluation: EvaluationConfig | null,
+                requiresProviderKey: boolean,
+                isTrialGrandfathered: boolean
+            ): boolean => {
+                if (!evaluation) {
                     return true
                 }
-                if (!evaluationTypeUsesProviderKey(evaluation.evaluation_type)) {
-                    return true
-                }
-                // Can enable if the evaluation has a BYOK key
-                return !!evaluation.model_configuration?.provider_key_id
+                return evaluationCanResolveModel(evaluation, requiresProviderKey, isTrialGrandfathered)
             },
         ],
 
@@ -755,7 +829,7 @@ export const llmEvaluationLogic = kea<llmEvaluationLogicType>([
                 if (canEnable) {
                     return null
                 }
-                return 'Trial evaluation limit reached. Add a provider API key to re-enable this evaluation.'
+                return 'Add a provider API key to enable this evaluation.'
             },
         ],
 

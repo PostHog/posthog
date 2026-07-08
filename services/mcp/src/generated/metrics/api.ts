@@ -28,6 +28,8 @@ export const metricsCharacterizeCreateBodyQueryOneQuantileMax = 1
 export const metricsCharacterizeCreateBodyQueryOneFiltersItemKeyMax = 255
 
 export const metricsCharacterizeCreateBodyQueryOneFiltersItemOpDefault = `eq`
+export const metricsCharacterizeCreateBodyQueryOneFiltersItemValueMax = 1024
+
 export const metricsCharacterizeCreateBodyQueryOneFiltersItemScopeDefault = `auto`
 export const metricsCharacterizeCreateBodyQueryOneCandidateKeysItemMax = 255
 
@@ -96,6 +98,7 @@ export const MetricsCharacterizeCreateBody = /* @__PURE__ */ zod.object({
                             ),
                         value: zod
                             .string()
+                            .max(metricsCharacterizeCreateBodyQueryOneFiltersItemValueMax)
                             .describe('Value to compare against. For regex operators this is the pattern.'),
                         scope: zod
                             .enum(['resource', 'attribute', 'auto'])
@@ -135,6 +138,8 @@ export const metricsQueryCreateBodyQueryOneQuantileMax = 1
 export const metricsQueryCreateBodyQueryOneFiltersItemKeyMax = 255
 
 export const metricsQueryCreateBodyQueryOneFiltersItemOpDefault = `eq`
+export const metricsQueryCreateBodyQueryOneFiltersItemValueMax = 1024
+
 export const metricsQueryCreateBodyQueryOneFiltersItemScopeDefault = `auto`
 export const metricsQueryCreateBodyQueryOneGroupByItemKeyMax = 255
 
@@ -150,6 +155,8 @@ export const metricsQueryCreateBodyQueryOneClausesItemQuantileMax = 1
 export const metricsQueryCreateBodyQueryOneClausesItemFiltersItemKeyMax = 255
 
 export const metricsQueryCreateBodyQueryOneClausesItemFiltersItemOpDefault = `eq`
+export const metricsQueryCreateBodyQueryOneClausesItemFiltersItemValueMax = 1024
+
 export const metricsQueryCreateBodyQueryOneClausesItemFiltersItemScopeDefault = `auto`
 export const metricsQueryCreateBodyQueryOneClausesItemGroupByItemKeyMax = 255
 
@@ -199,6 +206,7 @@ export const MetricsQueryCreateBody = /* @__PURE__ */ zod.object({
                             ),
                         value: zod
                             .string()
+                            .max(metricsQueryCreateBodyQueryOneFiltersItemValueMax)
                             .describe('Value to compare against. For regex operators this is the pattern.'),
                         scope: zod
                             .enum(['resource', 'attribute', 'auto'])
@@ -290,6 +298,7 @@ export const MetricsQueryCreateBody = /* @__PURE__ */ zod.object({
                                         ),
                                     value: zod
                                         .string()
+                                        .max(metricsQueryCreateBodyQueryOneClausesItemFiltersItemValueMax)
                                         .describe('Value to compare against. For regex operators this is the pattern.'),
                                     scope: zod
                                         .enum(['resource', 'attribute', 'auto'])
@@ -324,7 +333,7 @@ export const MetricsQueryCreateBody = /* @__PURE__ */ zod.object({
                 )
                 .optional()
                 .describe(
-                    "Full multi-clause form: each clause is an independent metric selection sharing the request's time grid. Mutually exclusive with 'metricName'."
+                    "Full multi-clause form: each clause is an independent metric selection sharing the request's time grid (maximum 10). Mutually exclusive with 'metricName'."
                 ),
             formula: zod
                 .string()
@@ -355,7 +364,22 @@ export const MetricsValuesRetrieveParams = /* @__PURE__ */ zod.object({
         ),
 })
 
+export const metricsValuesRetrieveQueryLimitDefault = 100
+export const metricsValuesRetrieveQueryLimitMax = 1000
+
+export const metricsValuesRetrieveQueryValueDefault = ``
+export const metricsValuesRetrieveQueryValueMax = 255
+
 export const MetricsValuesRetrieveQueryParams = /* @__PURE__ */ zod.object({
-    limit: zod.number().optional().describe('Max number of names to return. Defaults to 100, capped at 1000.'),
-    value: zod.string().optional().describe('Substring filter (case-insensitive) applied to metric names.'),
+    limit: zod
+        .number()
+        .min(1)
+        .max(metricsValuesRetrieveQueryLimitMax)
+        .default(metricsValuesRetrieveQueryLimitDefault)
+        .describe('Max number of names to return. Defaults to 100; maximum 1000.'),
+    value: zod
+        .string()
+        .max(metricsValuesRetrieveQueryValueMax)
+        .default(metricsValuesRetrieveQueryValueDefault)
+        .describe('Substring filter (case-insensitive) applied to metric names.'),
 })

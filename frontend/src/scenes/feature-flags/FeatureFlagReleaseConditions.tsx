@@ -44,6 +44,7 @@ import {
     PropertyOperator,
 } from '~/types'
 
+import { resolveAggregationGroupTypeIndex } from './aggregation'
 import { MATCHING_ESTIMATE_TOOLTIP } from './constants'
 import { featureFlagLogic } from './featureFlagLogic'
 import {
@@ -460,7 +461,10 @@ export function FeatureFlagReleaseConditions({
                                     const targetIndex = group.aggregation_group_type_index
                                     const pluralName = aggregationTargetName(targetIndex)
                                     const singularName = aggregationLabel(
-                                        targetIndex ?? filters.aggregation_group_type_index,
+                                        resolveAggregationGroupTypeIndex(
+                                            targetIndex,
+                                            filters.aggregation_group_type_index
+                                        ),
                                         true
                                     ).singular
                                     const affected = group.sort_key ? affectedCounts[group.sort_key] : undefined
@@ -547,13 +551,12 @@ export function FeatureFlagReleaseConditions({
             description={
                 !readOnly &&
                 !excludeTitle && (
-                    <>
-                        <div className="text-secondary mb-2">
-                            Specify users for flag release. Condition sets are evaluated top to bottom - the first
-                            matching set is used. A condition matches when all property filters pass AND the target
-                            falls within the rollout percentage.
-                        </div>
-                    </>
+                    // span, not div: SceneSection renders the description inside a <p>
+                    <span className="block text-secondary mb-2">
+                        Specify users for flag release. Condition sets are evaluated top to bottom - the first matching
+                        set is used. A condition matches when all property filters pass AND the target falls within the
+                        rollout percentage.
+                    </span>
                 )
             }
         >

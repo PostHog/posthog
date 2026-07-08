@@ -1,6 +1,6 @@
 import { Code, ConnectError } from '@connectrpc/connect'
 
-import { logger } from '~/utils/logger'
+import { logger } from '~/common/utils/logger'
 
 import { grpcErrorType, personhogRetriesTotal, personhogTerminalErrorsTotal } from './metrics'
 

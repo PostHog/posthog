@@ -4,6 +4,7 @@ from posthog.clickhouse.kafka_engine import kafka_engine
 from posthog.clickhouse.table_engines import Distributed, MergeTreeEngine, ReplicationScheme
 
 from .log_attributes2 import TABLE_NAME as LOG_ATTRIBUTES_TABLE_NAME
+from .log_attributes3 import TABLE_NAME as LOG_ATTRIBUTES3_TABLE_NAME
 
 TABLE_NAME = "logs34"
 KAFKA_TABLE_NAME = "kafka_logs_avro"
@@ -201,6 +202,113 @@ FROM
 """
 
 
+def LOGS34_TO_LOG_ATTRIBUTES3_MV():
+    return f"""
+CREATE MATERIALIZED VIEW IF NOT EXISTS {settings.CLICKHOUSE_LOGS_CLUSTER_DATABASE}.{TABLE_NAME}_to_log_attributes3 TO {settings.CLICKHOUSE_LOGS_CLUSTER_DATABASE}.{LOG_ATTRIBUTES3_TABLE_NAME}
+(
+    `team_id` Int32,
+    `time_bucket` DateTime64(0),
+    `original_expiry_time_bucket` DateTime64(0),
+    `service_name` LowCardinality(String),
+    `resource_fingerprint` UInt64,
+    `attribute_key` LowCardinality(String),
+    `attribute_value` String,
+    `attribute_type` LowCardinality(String),
+    `severity_text` LowCardinality(String),
+    `attribute_count` SimpleAggregateFunction(sum, UInt64)
+)
+AS SELECT
+    team_id,
+    time_bucket,
+    original_expiry_time_bucket,
+    service_name,
+    resource_fingerprint,
+    attribute_key,
+    attribute_value,
+    attribute_type,
+    severity_text,
+    attribute_count
+FROM
+(
+    SELECT
+        team_id AS team_id,
+        toStartOfInterval(timestamp, toIntervalMinute(10)) AS time_bucket,
+        toStartOfInterval(original_expiry_timestamp, toIntervalMinute(10)) AS original_expiry_time_bucket,
+        service_name AS service_name,
+        resource_fingerprint,
+        severity_text AS severity_text,
+        mapFilter((k, v) -> ((length(k) < 256) AND (length(v) < 256)), attributes) AS attributes,
+        arrayJoin(attributes) AS attribute,
+        'log' AS attribute_type,
+        attribute.1 AS attribute_key,
+        attribute.2 AS attribute_value,
+        sumSimpleState(1) AS attribute_count
+    FROM {settings.CLICKHOUSE_LOGS_CLUSTER_DATABASE}.{TABLE_NAME}
+    GROUP BY
+        team_id,
+        time_bucket,
+        original_expiry_time_bucket,
+        service_name,
+        resource_fingerprint,
+        severity_text,
+        attributes
+)
+"""
+
+
+def LOGS34_TO_RESOURCE_ATTRIBUTES3_MV():
+    return f"""
+CREATE MATERIALIZED VIEW IF NOT EXISTS {settings.CLICKHOUSE_LOGS_CLUSTER_DATABASE}.{TABLE_NAME}_to_resource_attributes3 TO {settings.CLICKHOUSE_LOGS_CLUSTER_DATABASE}.{LOG_ATTRIBUTES3_TABLE_NAME}
+(
+    `team_id` Int32,
+    `time_bucket` DateTime64(0),
+    `original_expiry_time_bucket` DateTime64(0),
+    `service_name` LowCardinality(String),
+    `resource_fingerprint` UInt64,
+    `attribute_key` LowCardinality(String),
+    `attribute_value` String,
+    `attribute_type` LowCardinality(String),
+    `severity_text` LowCardinality(String),
+    `attribute_count` SimpleAggregateFunction(sum, UInt64)
+)
+AS SELECT
+    team_id,
+    time_bucket,
+    original_expiry_time_bucket,
+    service_name,
+    resource_fingerprint,
+    attribute_key,
+    attribute_value,
+    attribute_type,
+    severity_text,
+    attribute_count
+FROM
+(
+    SELECT
+        team_id AS team_id,
+        toStartOfInterval(timestamp, toIntervalMinute(10)) AS time_bucket,
+        toStartOfInterval(original_expiry_timestamp, toIntervalMinute(10)) AS original_expiry_time_bucket,
+        service_name AS service_name,
+        resource_fingerprint,
+        severity_text AS severity_text,
+        arrayJoin(resource_attributes) AS attribute,
+        'resource' AS attribute_type,
+        attribute.1 AS attribute_key,
+        attribute.2 AS attribute_value,
+        sumSimpleState(1) AS attribute_count
+    FROM {settings.CLICKHOUSE_LOGS_CLUSTER_DATABASE}.{TABLE_NAME}
+    GROUP BY
+        team_id,
+        time_bucket,
+        original_expiry_time_bucket,
+        service_name,
+        resource_fingerprint,
+        severity_text,
+        resource_attributes
+)
+"""
+
+
 def KAFKA_LOGS_AVRO_TABLE_SQL():
     return f"""
 CREATE TABLE IF NOT EXISTS {settings.CLICKHOUSE_LOGS_CLUSTER_DATABASE}.{KAFKA_TABLE_NAME}
@@ -259,7 +367,7 @@ CREATE MATERIALIZED VIEW IF NOT EXISTS {db}.kafka_logs34_avro_mv TO {db}.{TABLE_
     `_bytes_compressed` Nullable(Int64)
 )
 AS SELECT
-    {KAFKA_TABLE_NAME}.* EXCEPT (created_at, attribute_values, attribute_keys, attributes, attributes_map_str, attributes_map_float, attributes_map_datetime, resource_attributes),
+    {KAFKA_TABLE_NAME}.* EXCEPT (created_at, attribute_values, attribute_keys, attributes, attributes_map_str, attributes_map_float, attributes_map_datetime, resource_attributes, bytes_uncompressed),
     mapSort(mapApply((k, v) -> (concat(k, '__str'), JSONExtractString(v)), attributes)) AS attributes_map_str,
     mapSort(mapApply((k, v) -> (k, JSONExtractString(v)), resource_attributes)) AS resource_attributes,
     toInt32OrZero(_headers.value[indexOf(_headers.name, 'team_id')]) AS team_id,

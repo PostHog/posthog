@@ -1,15 +1,15 @@
 import uuid
-from datetime import date, datetime
+from datetime import date, datetime, timedelta
 
 import pytest
 from posthog.test.base import BaseTest
 from unittest.mock import patch
 
 from django.db.models import Model
+from django.utils import timezone
 
 from posthog.models.signals import model_activity_signal
 
-from products.data_warehouse.backend.types import IncrementalFieldType
 from products.warehouse_sources.backend.models.credential import DataWarehouseCredential
 from products.warehouse_sources.backend.models.external_data_job import ExternalDataJob
 from products.warehouse_sources.backend.models.external_data_schema import (
@@ -19,8 +19,10 @@ from products.warehouse_sources.backend.models.external_data_schema import (
     update_sync_type_config_keys,
 )
 from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
+from products.warehouse_sources.backend.models.oom_event import ExternalDataSchemaOOMEvent
 from products.warehouse_sources.backend.models.table import DataWarehouseTable
 from products.warehouse_sources.backend.models.util import CLICKHOUSE_HOGQL_MAPPING, clean_type
+from products.warehouse_sources.backend.types import IncrementalFieldType
 
 
 @pytest.mark.parametrize(
@@ -190,6 +192,43 @@ class TestExternalDataSchemaActivityLogging(BaseTest):
             model_activity_signal.disconnect(self._signal_handler, sender=ExternalDataSchema)
         schema.refresh_from_db()
         assert schema.incremental_field_last_value == 42
+
+
+class TestExternalDataSchemaOOMEvent(BaseTest):
+    def _source(self) -> ExternalDataSource:
+        return ExternalDataSource.objects.create(
+            team_id=self.team.pk,
+            source_id=str(uuid.uuid4()),
+            connection_id=str(uuid.uuid4()),
+            status="Completed",
+            source_type="Postgres",
+        )
+
+    def _schema(self, name: str) -> ExternalDataSchema:
+        return ExternalDataSchema.objects.create(team_id=self.team.pk, source=self._source(), name=name)
+
+    def _oom(self, schema: ExternalDataSchema, *, age_days: float = 0) -> ExternalDataSchemaOOMEvent:
+        event = ExternalDataSchemaOOMEvent.objects.for_team(self.team.pk).create(team_id=self.team.pk, schema=schema)
+        if age_days:
+            # created_at is auto_now_add, so backdate via an update to place the row outside the window.
+            ExternalDataSchemaOOMEvent.objects.unscoped().filter(pk=event.pk).update(
+                created_at=timezone.now() - timedelta(days=age_days)
+            )
+        return event
+
+    def test_recent_count_windows_and_scopes_to_schema(self) -> None:
+        # A miscounted window or a dropped schema filter would force-repartition a healthy table
+        # (or never fire): recent_count must count only this schema's occurrences inside the window.
+        schema_a = self._schema("orders")
+        schema_b = self._schema("events")
+        self._oom(schema_a)
+        self._oom(schema_a)
+        self._oom(schema_a, age_days=10)  # outside a 7-day window
+        self._oom(schema_b)  # different schema
+
+        assert ExternalDataSchemaOOMEvent.recent_count(schema_a, days=7) == 2
+        assert ExternalDataSchemaOOMEvent.recent_count(schema_a, days=30) == 3
+        assert ExternalDataSchemaOOMEvent.recent_count(schema_b, days=7) == 1
 
 
 class TestUpdateSyncTypeConfigKeys(BaseTest):
@@ -426,6 +465,49 @@ def test_set_partitioning_enabled_consumes_partition_overrides() -> None:
     assert schema.partition_count == 10
     assert schema.partition_count_override is None
     assert schema.partition_size_override is None
+
+
+def test_reset_pipeline_preserves_partition_mode_override() -> None:
+    # Operator switches a table from md5 to datetime via the admin change-partition-mode action.
+    # The mode/keys overrides must survive the bundled reset (which wipes the auto-detected
+    # partition_mode and partitioning_keys) so the new mode wins the resync.
+    schema = ExternalDataSchema(
+        sync_type_config={
+            "partition_mode": "md5",
+            "partitioning_keys": ["record_id", "action_date"],
+            "partition_count": 30,
+            "partition_mode_override": "datetime",
+            "partitioning_keys_override": ["action_date"],
+            "partition_format": "month",
+            "partitioning_enabled": True,
+        }
+    )
+    with patch.object(schema, "save"):
+        schema.update_sync_type_config_for_reset_pipeline()
+    assert "partition_mode" not in schema.sync_type_config
+    assert "partitioning_keys" not in schema.sync_type_config
+    assert schema.partition_mode_override == "datetime"
+    assert schema.partitioning_keys_override == ["action_date"]
+    # partition_format is never reset, so the datetime granularity carries into the resync.
+    assert schema.partition_format == "month"
+
+
+def test_set_partitioning_enabled_consumes_partition_mode_override() -> None:
+    schema = ExternalDataSchema(
+        sync_type_config={"partition_mode_override": "datetime", "partitioning_keys_override": ["action_date"]}
+    )
+    with patch.object(schema, "save"):
+        schema.set_partitioning_enabled(
+            partitioning_keys=["action_date"],
+            partition_count=None,
+            partition_size=None,
+            partition_mode="datetime",
+            partition_format="month",
+        )
+    assert schema.partition_mode == "datetime"
+    assert schema.partitioning_keys == ["action_date"]
+    assert schema.partition_mode_override is None
+    assert schema.partitioning_keys_override is None
 
 
 def test_process_incremental_value_xid_returns_value_as_is() -> None:

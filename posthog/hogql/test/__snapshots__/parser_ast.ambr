@@ -1055,6 +1055,468 @@
   }
   '''
 # ---
+# name: test_between_alias_ternary_and_paren_grouping[1_between_2_and_3_and_4-989c3a6d]
+  '''
+  {
+    end: 25
+    exprs: [
+      {
+        end: 19
+        expr: {
+          end: 1
+          start: 0
+          value: 1
+        }
+        high: {
+          end: 18
+          start: 17
+          value: 3
+        }
+        low: {
+          end: 11
+          start: 10
+          value: 2
+        }
+        negated: False
+        start: 0
+      },
+      {
+        end: 25
+        start: 24
+        value: 4
+      }
+    ]
+    start: 0
+  }
+  '''
+# ---
+# name: test_between_alias_ternary_and_paren_grouping[1_between_2_and_3_as_l-a7fa6993]
+  '''
+  {
+    alias: "l"
+    end: 22
+    expr: {
+      end: 17
+      expr: {
+        end: 1
+        start: 0
+        value: 1
+      }
+      high: {
+        end: 17
+        start: 16
+        value: 3
+      }
+      low: {
+        end: 11
+        start: 10
+        value: 2
+      }
+      negated: False
+      start: 0
+    }
+    from_asterisk: False
+    hidden: False
+    start: 0
+  }
+  '''
+# ---
+# name: test_between_alias_ternary_and_paren_grouping[1_between_2_and_3_as_l_or_w-72d5980a]
+  '''
+  {
+    end: 27
+    exprs: [
+      {
+        alias: "l"
+        end: 22
+        expr: {
+          end: 17
+          expr: {
+            end: 1
+            start: 0
+            value: 1
+          }
+          high: {
+            end: 17
+            start: 16
+            value: 3
+          }
+          low: {
+            end: 11
+            start: 10
+            value: 2
+          }
+          negated: False
+          start: 0
+        }
+        from_asterisk: False
+        hidden: False
+        start: 0
+      },
+      {
+        chain: [
+          "w"
+        ]
+        end: 27
+        from_asterisk: False
+        start: 26
+      }
+    ]
+    start: 0
+  }
+  '''
+# ---
+# name: test_between_alias_ternary_and_paren_grouping[1_between_2_and_3_as_l_x_y-de9705c8]
+  '''
+  {
+    args: [
+      {
+        alias: "l"
+        end: 22
+        expr: {
+          end: 17
+          expr: {
+            end: 1
+            start: 0
+            value: 1
+          }
+          high: {
+            end: 17
+            start: 16
+            value: 3
+          }
+          low: {
+            end: 11
+            start: 10
+            value: 2
+          }
+          negated: False
+          start: 0
+        }
+        from_asterisk: False
+        hidden: False
+        start: 0
+      },
+      {
+        chain: [
+          "x"
+        ]
+        end: 26
+        from_asterisk: False
+        start: 25
+      },
+      {
+        chain: [
+          "y"
+        ]
+        end: 30
+        from_asterisk: False
+        start: 29
+      }
+    ]
+    distinct: False
+    end: 30
+    name: "if"
+    start: 0
+  }
+  '''
+# ---
+# name: test_between_alias_ternary_and_paren_grouping[x_between_1_and_2_3_and_4-6a901da6]
+  '''
+  {
+    end: 31
+    exprs: [
+      {
+        end: 25
+        expr: {
+          chain: [
+            "x"
+          ]
+          end: 1
+          from_asterisk: False
+          start: 0
+        }
+        high: {
+          end: 25
+          left: {
+            end: 18
+            start: 17
+            value: 2
+          }
+          op: "*"
+          right: {
+            end: 24
+            start: 23
+            value: 3
+          }
+          start: 16
+        }
+        low: {
+          end: 11
+          start: 10
+          value: 1
+        }
+        negated: False
+        start: 0
+      },
+      {
+        end: 31
+        start: 30
+        value: 4
+      }
+    ]
+    start: 0
+  }
+  '''
+# ---
+# name: test_between_alias_ternary_and_paren_grouping[x_between_1_and_2_or_y-d26bfb89]
+  '''
+  {
+    end: 26
+    exprs: [
+      {
+        end: 21
+        expr: {
+          chain: [
+            "x"
+          ]
+          end: 1
+          from_asterisk: False
+          start: 0
+        }
+        high: {
+          end: 20
+          start: 19
+          value: 2
+        }
+        low: {
+          end: 12
+          start: 11
+          value: 1
+        }
+        negated: False
+        start: 0
+      },
+      {
+        chain: [
+          "y"
+        ]
+        end: 26
+        from_asterisk: False
+        start: 25
+      }
+    ]
+    start: 0
+  }
+  '''
+# ---
+# name: test_between_bound_rejects_lambda_and_named_argument[x_between_1_and_lambda_a_a-7392e6a1]
+  '''
+  {
+    end: 28
+    expr: {
+      chain: [
+        "x"
+      ]
+      end: 1
+      from_asterisk: False
+      start: 0
+    }
+    high: {
+      args: [
+        "a"
+      ]
+      end: 28
+      expr: {
+        chain: [
+          "a"
+        ]
+        end: 28
+        from_asterisk: False
+        start: 27
+      }
+      start: 16
+    }
+    low: {
+      end: 11
+      start: 10
+      value: 1
+    }
+    negated: False
+    start: 0
+  }
+  '''
+# ---
+# name: test_between_bound_rejects_lambda_and_named_argument[x_between_1_and_p_2-ace9f108]
+  '''
+  {
+    end: 22
+    expr: {
+      chain: [
+        "x"
+      ]
+      end: 1
+      from_asterisk: False
+      start: 0
+    }
+    high: {
+      name: "p"
+      value: {
+        end: 22
+        start: 21
+        value: 2
+      }
+    }
+    low: {
+      end: 11
+      start: 10
+      value: 1
+    }
+    negated: False
+    start: 0
+  }
+  '''
+# ---
+# name: test_between_bound_rejects_lambda_and_named_argument[x_between_case_when_a_then_b_else_c_end_and_d-2de7cc71]
+  '''
+  {
+    end: 45
+    expr: {
+      chain: [
+        "x"
+      ]
+      end: 1
+      from_asterisk: False
+      start: 0
+    }
+    high: {
+      chain: [
+        "d"
+      ]
+      end: 45
+      from_asterisk: False
+      start: 44
+    }
+    low: {
+      args: [
+        {
+          chain: [
+            "a"
+          ]
+          end: 21
+          from_asterisk: False
+          start: 20
+        },
+        {
+          chain: [
+            "b"
+          ]
+          end: 28
+          from_asterisk: False
+          start: 27
+        },
+        {
+          chain: [
+            "c"
+          ]
+          end: 35
+          from_asterisk: False
+          start: 34
+        }
+      ]
+      distinct: False
+      end: 39
+      name: "if"
+      start: 10
+    }
+    negated: False
+    start: 0
+  }
+  '''
+# ---
+# name: test_between_bound_rejects_lambda_and_named_argument[x_between_interval_1_day_and_interval_2_day-686eb148]
+  '''
+  {
+    end: 43
+    expr: {
+      chain: [
+        "x"
+      ]
+      end: 1
+      from_asterisk: False
+      start: 0
+    }
+    high: {
+      args: [
+        {
+          end: 39
+          start: 38
+          value: 2
+        }
+      ]
+      distinct: False
+      end: 43
+      name: "toIntervalDay"
+      start: 29
+    }
+    low: {
+      args: [
+        {
+          end: 20
+          start: 19
+          value: 1
+        }
+      ]
+      distinct: False
+      end: 24
+      name: "toIntervalDay"
+      start: 10
+    }
+    negated: False
+    start: 0
+  }
+  '''
+# ---
+# name: test_between_bound_rejects_lambda_and_named_argument[x_between_lambda_a_a_and_b-55d34722]
+  '''
+  {
+    end: 30
+    expr: {
+      chain: [
+        "x"
+      ]
+      end: 1
+      from_asterisk: False
+      start: 0
+    }
+    high: {
+      chain: [
+        "b"
+      ]
+      end: 30
+      from_asterisk: False
+      start: 29
+    }
+    low: {
+      args: [
+        "a"
+      ]
+      end: 23
+      expr: {
+        chain: [
+          "a"
+        ]
+        end: 23
+        from_asterisk: False
+        start: 22
+      }
+      start: 11
+    }
+    negated: False
+    start: 0
+  }
+  '''
+# ---
 # name: test_between_not_lambda_lower_bound[a_between_not_lambda_x_b_and_c-6ea2de79]
   '''
   {
@@ -10463,6 +10925,735 @@
     distinct: False
     end: 11
     name: "f"
+    start: 0
+  }
+  '''
+# ---
+# name: test_named_argument_reroots_trailing_value_operator[a_1_2-914064e1]
+  '''
+  {
+    declarations: [
+      {
+        end: 11
+        left: {
+          name: "a"
+          value: {
+            end: 6
+            start: 5
+            value: 1
+          }
+        }
+        right: {
+          end: 11
+          start: 10
+          value: 2
+        }
+        start: 0
+      }
+    ]
+    end: 11
+    start: 0
+  }
+  '''
+# ---
+# name: test_named_argument_reroots_trailing_value_operator[arr_w_1_as_x_2-c8b91d5f]
+  '''
+  {
+    array: {
+      chain: [
+        "arr"
+      ]
+      end: 3
+      from_asterisk: False
+      start: 0
+    }
+    end: 20
+    nullish: False
+    property: {
+      end: 19
+      left: {
+        name: "w"
+        value: {
+          alias: "x"
+          end: 15
+          expr: {
+            end: 10
+            start: 9
+            value: 1
+          }
+          from_asterisk: False
+          hidden: False
+          start: 9
+        }
+      }
+      op: "+"
+      right: {
+        end: 19
+        start: 18
+        value: 2
+      }
+      start: 4
+    }
+    start: 0
+  }
+  '''
+# ---
+# name: test_named_argument_reroots_trailing_value_operator[f_y_1_1-2cf0ea2d]
+  '''
+  {
+    args: [
+      {
+        name: "y"
+        value: {
+          array: {
+            end: 8
+            start: 7
+            value: 1
+          }
+          end: 12
+          nullish: False
+          property: {
+            end: 11
+            start: 10
+            value: 1
+          }
+          start: 7
+        }
+      }
+    ]
+    distinct: False
+    end: 13
+    name: "f"
+    start: 0
+  }
+  '''
+# ---
+# name: test_named_argument_reroots_trailing_value_operator[f_y_1_as_x_1-f6c237d7]
+  '''
+  {
+    args: [
+      {
+        array: {
+          name: "y"
+          value: {
+            alias: "x"
+            end: 13
+            expr: {
+              end: 8
+              start: 7
+              value: 1
+            }
+            from_asterisk: False
+            hidden: False
+            start: 7
+          }
+        }
+        end: 17
+        nullish: False
+        property: {
+          end: 16
+          start: 15
+          value: 1
+        }
+        start: 2
+      }
+    ]
+    distinct: False
+    end: 18
+    name: "f"
+    start: 0
+  }
+  '''
+# ---
+# name: test_named_argument_reroots_trailing_value_operator[f_y_1_as_x_2_z-80bfa5b8]
+  '''
+  {
+    args: [
+      {
+        end: 17
+        left: {
+          name: "y"
+          value: {
+            alias: "x"
+            end: 13
+            expr: {
+              end: 8
+              start: 7
+              value: 1
+            }
+            from_asterisk: False
+            hidden: False
+            start: 7
+          }
+        }
+        op: "+"
+        right: {
+          end: 17
+          start: 16
+          value: 2
+        }
+        start: 2
+      },
+      {
+        chain: [
+          "z"
+        ]
+        end: 20
+        from_asterisk: False
+        start: 19
+      }
+    ]
+    distinct: False
+    end: 21
+    name: "f"
+    start: 0
+  }
+  '''
+# ---
+# name: test_named_argument_reroots_trailing_value_operator[for_y_1_as_x_1_a_b-02e62a01]
+  '''
+  {
+    declarations: [
+      {
+        body: {
+          declarations: []
+          end: 30
+          start: 28
+        }
+        condition: {
+          chain: [
+            "a"
+          ]
+          end: 23
+          from_asterisk: False
+          start: 22
+        }
+        end: 30
+        increment: {
+          chain: [
+            "b"
+          ]
+          end: 26
+          from_asterisk: False
+          start: 25
+        }
+        initializer: {
+          array: {
+            name: "y"
+            value: {
+              alias: "x"
+              end: 16
+              expr: {
+                end: 11
+                start: 10
+                value: 1
+              }
+              from_asterisk: False
+              hidden: False
+              start: 10
+            }
+          }
+          end: 20
+          nullish: False
+          property: {
+            end: 19
+            start: 18
+            value: 1
+          }
+          start: 5
+        }
+        start: 0
+      }
+    ]
+    end: 30
+    start: 0
+  }
+  '''
+# ---
+# name: test_named_argument_reroots_trailing_value_operator[select_1_from_f_y_1_as_x_1-138cf723]
+  '''
+  {
+    end: 32
+    select: [
+      {
+        end: 8
+        start: 7
+        value: 1
+      }
+    ]
+    select_from: {
+      end: 32
+      start: 14
+      table: {
+        chain: [
+          "f"
+        ]
+        from_asterisk: False
+      }
+      table_args: [
+        {
+          array: {
+            name: "y"
+            value: {
+              alias: "x"
+              end: 27
+              expr: {
+                end: 22
+                start: 21
+                value: 1
+              }
+              from_asterisk: False
+              hidden: False
+              start: 21
+            }
+          }
+          end: 31
+          nullish: False
+          property: {
+            end: 30
+            start: 29
+            value: 1
+          }
+          start: 16
+        }
+      ]
+    }
+    start: 0
+  }
+  '''
+# ---
+# name: test_named_argument_reroots_trailing_value_operator[select_f_y_1_as_x_1-db320dfd]
+  '''
+  {
+    end: 25
+    select: [
+      {
+        args: [
+          {
+            array: {
+              name: "y"
+              value: {
+                alias: "x"
+                end: 20
+                expr: {
+                  end: 15
+                  start: 14
+                  value: 1
+                }
+                from_asterisk: False
+                hidden: False
+                start: 14
+              }
+            }
+            end: 24
+            nullish: False
+            property: {
+              end: 23
+              start: 22
+              value: 1
+            }
+            start: 9
+          }
+        ]
+        distinct: False
+        end: 25
+        name: "f"
+        start: 7
+      }
+    ]
+    start: 0
+  }
+  '''
+# ---
+# name: test_named_argument_reroots_trailing_value_operator[y_1-98c7830a]
+  '''
+  {
+    declarations: [
+      {
+        end: 6
+        left: {
+          chain: [
+            "y"
+          ]
+          end: 1
+          from_asterisk: False
+          start: 0
+        }
+        right: {
+          end: 6
+          start: 5
+          value: 1
+        }
+        start: 0
+      }
+    ]
+    end: 6
+    start: 0
+  }
+  '''
+# ---
+# name: test_named_argument_reroots_trailing_value_operator[y_1_as_x-b6c8393d]
+  '''
+  {
+    declarations: [
+      {
+        end: 11
+        left: {
+          chain: [
+            "y"
+          ]
+          end: 1
+          from_asterisk: False
+          start: 0
+        }
+        right: {
+          alias: "x"
+          end: 11
+          expr: {
+            end: 6
+            start: 5
+            value: 1
+          }
+          from_asterisk: False
+          hidden: False
+          start: 5
+        }
+        start: 0
+      }
+    ]
+    end: 11
+    start: 0
+  }
+  '''
+# ---
+# name: test_named_argument_reroots_trailing_value_operator[y_1_as_x_1-4e211e16]
+  '''
+  {
+    declarations: [
+      {
+        end: 15
+        expr: {
+          array: {
+            name: "y"
+            value: {
+              alias: "x"
+              end: 11
+              expr: {
+                end: 6
+                start: 5
+                value: 1
+              }
+              from_asterisk: False
+              hidden: False
+              start: 5
+            }
+          }
+          end: 15
+          nullish: False
+          property: {
+            end: 14
+            start: 13
+            value: 1
+          }
+          start: 0
+        }
+        start: 0
+      }
+    ]
+    end: 15
+    start: 0
+  }
+  '''
+# ---
+# name: test_named_argument_reroots_trailing_value_operator[y_1_as_x_1-c0366f6a]
+  '''
+  {
+    array: {
+      name: "y"
+      value: {
+        alias: "x"
+        end: 12
+        expr: {
+          end: 7
+          start: 6
+          value: 1
+        }
+        from_asterisk: False
+        hidden: False
+        start: 6
+      }
+    }
+    end: 16
+    nullish: False
+    property: {
+      end: 15
+      start: 14
+      value: 1
+    }
+    start: 1
+  }
+  '''
+# ---
+# name: test_named_argument_reroots_trailing_value_operator[y_1_as_x_2-ec390339]
+  '''
+  {
+    declarations: [
+      {
+        end: 15
+        expr: {
+          end: 15
+          left: {
+            name: "y"
+            value: {
+              alias: "x"
+              end: 11
+              expr: {
+                end: 6
+                start: 5
+                value: 1
+              }
+              from_asterisk: False
+              hidden: False
+              start: 5
+            }
+          }
+          op: "+"
+          right: {
+            end: 15
+            start: 14
+            value: 2
+          }
+          start: 0
+        }
+        start: 0
+      }
+    ]
+    end: 15
+    start: 0
+  }
+  '''
+# ---
+# name: test_named_argument_reroots_trailing_value_operator[y_1_as_x_Int-347c83f4]
+  '''
+  {
+    declarations: [
+      {
+        end: 18
+        expr: {
+          end: 18
+          expr: {
+            name: "y"
+            value: {
+              alias: "x"
+              end: 11
+              expr: {
+                end: 6
+                start: 5
+                value: 1
+              }
+              from_asterisk: False
+              hidden: False
+              start: 5
+            }
+          }
+          start: 0
+          type_name: "int"
+        }
+        start: 0
+      }
+    ]
+    end: 18
+    start: 0
+  }
+  '''
+# ---
+# name: test_named_argument_reroots_trailing_value_operator[y_1_as_x_and_2-10634775]
+  '''
+  {
+    declarations: [
+      {
+        end: 17
+        left: {
+          chain: [
+            "y"
+          ]
+          end: 1
+          from_asterisk: False
+          start: 0
+        }
+        right: {
+          end: 17
+          exprs: [
+            {
+              alias: "x"
+              end: 11
+              expr: {
+                end: 6
+                start: 5
+                value: 1
+              }
+              from_asterisk: False
+              hidden: False
+              start: 5
+            },
+            {
+              end: 17
+              start: 16
+              value: 2
+            }
+          ]
+          start: 5
+        }
+        start: 0
+      }
+    ]
+    end: 17
+    start: 0
+  }
+  '''
+# ---
+# name: test_named_argument_reroots_trailing_value_operator[y_1_as_x_between_1_and_2-a2588d54]
+  '''
+  {
+    declarations: [
+      {
+        end: 27
+        expr: {
+          end: 27
+          expr: {
+            name: "y"
+            value: {
+              alias: "x"
+              end: 11
+              expr: {
+                end: 6
+                start: 5
+                value: 1
+              }
+              from_asterisk: False
+              hidden: False
+              start: 5
+            }
+          }
+          high: {
+            end: 27
+            start: 26
+            value: 2
+          }
+          low: {
+            end: 21
+            start: 20
+            value: 1
+          }
+          negated: False
+          start: 0
+        }
+        start: 0
+      }
+    ]
+    end: 27
+    start: 0
+  }
+  '''
+# ---
+# name: test_named_argument_reroots_trailing_value_operator[y_1_as_x_not_in_1_2-2fc79af9]
+  '''
+  {
+    declarations: [
+      {
+        end: 24
+        expr: {
+          end: 24
+          left: {
+            name: "y"
+            value: {
+              alias: "x"
+              end: 11
+              expr: {
+                end: 6
+                start: 5
+                value: 1
+              }
+              from_asterisk: False
+              hidden: False
+              start: 5
+            }
+          }
+          op: "not in"
+          right: {
+            end: 24
+            exprs: [
+              {
+                end: 21
+                start: 20
+                value: 1
+              },
+              {
+                end: 23
+                start: 22
+                value: 2
+              }
+            ]
+            start: 19
+          }
+          start: 0
+        }
+        start: 0
+      }
+    ]
+    end: 24
+    start: 0
+  }
+  '''
+# ---
+# name: test_named_argument_reroots_trailing_value_operator[y_x_2-028a1ec6]
+  '''
+  {
+    declarations: [
+      {
+        end: 6
+        left: {
+          chain: [
+            "y"
+          ]
+          end: 1
+          from_asterisk: False
+          start: 0
+        }
+        right: {
+          chain: [
+            "x"
+          ]
+          end: 6
+          from_asterisk: False
+          start: 5
+        }
+        start: 0
+      },
+      {
+        end: 11
+        expr: {
+          end: 11
+          left: {
+            chain: [
+              "*"
+            ]
+            end: 8
+            from_asterisk: False
+            start: 7
+          }
+          op: "=="
+          right: {
+            end: 11
+            start: 10
+            value: 2
+          }
+          start: 7
+        }
+        start: 7
+      }
+    ]
+    end: 11
     start: 0
   }
   '''

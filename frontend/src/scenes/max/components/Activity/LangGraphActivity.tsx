@@ -4,8 +4,7 @@ import { CodeSnippet, Language } from 'lib/components/CodeSnippet/CodeSnippet'
 
 import { TaskExecutionStatus as ExecutionStatus } from '~/queries/schema/schema-assistant-messages'
 
-import { Activity, ActivityToggleSection } from 'products/posthog_ai/frontend/sandbox/ActivityPrimitives'
-import { MarkdownMessage } from 'products/posthog_ai/frontend/sandbox/MarkdownMessage'
+import { Activity, ActivityToggleSection, MarkdownMessage } from 'products/posthog_ai/frontend/api/primitives'
 
 import type { EnhancedToolCall } from '../../max-constants'
 import { SummarizeSessionsWidget, UIPayloadAnswer, isRenderableUIPayloadTool } from '../../messages/UIPayloadAnswer'

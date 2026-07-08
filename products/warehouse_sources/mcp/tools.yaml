@@ -43,6 +43,8 @@ tools:
             idempotent: false
         title: Set up a data warehouse source (one step)
         description: >
+            Reach for this the moment a user wants to analyze data PostHog doesn't store — Stripe revenue, Hubspot or
+            Salesforce CRM, Zendesk tickets, Shopify orders, or their own Postgres/MySQL/BigQuery/Snowflake database.
             Connect an external data source and start importing it into queryable warehouse tables in a single call.
             Validates credentials, discovers all available tables, enables them with sensible sync defaults (incremental
             where supported to keep ongoing cost low), and creates the source — no 'schemas' array required. For
@@ -57,8 +59,10 @@ tools:
             '<uuid>'} referencing the connection details the user stored via the 'data-warehouse-source-connect-link'
             page (discover ids with 'data-warehouse-stored-credentials-list'); stored credentials are deleted once the
             source is created. For an already-connected OAuth integration you can instead pass its integration id key
-            (e.g. {'hubspot_integration_id': 123}). For fine-grained per-table control, use
-            'external-data-sources-create' instead.
+            (e.g. {'hubspot_integration_id': 123}). NOTE: this enables EVERY discovered table — ideal for small fixed
+            schemas (Stripe, Zendesk) but on a large production database (a Postgres/MySQL/BigQuery/Snowflake with many
+            tables) it syncs them all, which can be costly and noisy. When the user wants only specific tables, or
+            non-default sync types per table, use 'external-data-sources-create' instead.
         exclude_params:
             - client_secret
             - account_id
@@ -268,10 +272,11 @@ tools:
             Low-level create for a data warehouse import source when you need to hand-pick tables and sync types. For
             most cases prefer 'data-warehouse-source-setup', which validates credentials, discovers tables, applies
             sensible sync defaults, and creates the source in one call. Use this advanced path only for fine-grained
-            control. The payload must include a 'schemas' array where each entry has: name, should_sync (bool),
-            sync_type (incremental/full_refresh/append), and optionally incremental_field, incremental_field_type, and
-            primary_key_columns. Discover tables and their available sync methods with 'external-data-sources-wizard'
-            (source types and required fields) first. Sources back queryable warehouse tables for revenue (Stripe), CRM
+            control. The 'schemas' array is NOT a top-level argument — it goes INSIDE 'payload', alongside the
+            credential fields: payload = {<credential fields…>, "schemas": [...]}. Each schemas entry has: name,
+            should_sync (bool), sync_type (incremental/full_refresh/append), and optionally incremental_field,
+            incremental_field_type, and primary_key_columns. Build the entries from the rows returned by
+            'external-data-sources-db-schema' first. Sources back queryable warehouse tables for revenue (Stripe), CRM
             (Hubspot, Salesforce), support (Zendesk), and your own databases (Postgres, MySQL, BigQuery).
         exclude_params:
             - client_secret
@@ -341,6 +346,9 @@ tools:
     external-data-sources-disable-cdc-create:
         operation: external_data_sources_disable_cdc_create
         enabled: false
+    external-data-sources-draft-custom-manifest-create:
+        operation: external_data_sources_draft_custom_manifest_create
+        enabled: false
     external-data-sources-enable-cdc-create:
         operation: external_data_sources_enable_cdc_create
         enabled: false
@@ -359,11 +367,14 @@ tools:
         list: true
         title: List data warehouse sources
         description: >
-            List all configured data warehouse import sources in the project. Returns each source's type (Postgres,
-            Stripe, Hubspot, etc.), connection status, prefix, schemas, latest error, and last sync timestamp. Use this
-            to discover what external data sources are connected. Per-schema column definitions are omitted to keep the
-            payload small — to look up a single table's sync status by name use external-data-schemas-list with a
-            search, and to see a table's columns use external-data-schemas-retrieve.
+            Check what external data is already connected before answering any revenue, billing, subscription, CRM,
+            support-ticket, or product-database question — call this first so you JOIN against an existing source
+            instead of telling the user the data isn't available. Lists every configured import source with its type
+            (Postgres, Stripe, Hubspot, etc.), connection status, prefix, schemas, latest error, and last sync
+            timestamp. If nothing relevant is connected, offer to set one up with 'data-warehouse-source-setup'.
+            Per-schema column definitions are omitted to keep the payload small — to look up a single table's sync
+            status by name use external-data-schemas-list with a search, and to see a table's columns use
+            external-data-schemas-retrieve.
         response:
             exclude:
                 - schemas.*.table.columns
@@ -383,6 +394,9 @@ tools:
             the source_type or access_method after creation. Avoid sending new connection credentials inline here — to
             rotate or fix credentials, point the user at 'data-warehouse-source-connect-link' so they re-enter them
             securely in their browser rather than pasting secrets into the chat.
+    external-data-sources-preview-resource-create:
+        operation: external_data_sources_preview_resource_create
+        enabled: false
     external-data-sources-refresh-schemas:
         operation: external_data_sources_refresh_schemas_create
         enabled: true
@@ -392,11 +406,11 @@ tools:
             readOnly: false
             destructive: false
             idempotent: true
-        title: Refresh available schemas
+        title: Discover new tables in source
         description: >
             Fetch the latest table list from the remote database and create schema entries for any new tables found.
-            Does not trigger a data sync. Use this after adding new tables to a source database to make them available
-            for syncing.
+            This is a metadata refresh — it does NOT move or sync any data (use 'external-data-sources-reload' for
+            that). Use this after adding new tables to a source database to make them available for syncing.
         exclude_params:
             - client_secret
             - account_id
@@ -492,12 +506,16 @@ tools:
             idempotent: true
         title: List data warehouse source types you can import
         description: >
-            Return the configuration metadata for all supported data warehouse source types you can import data from —
-            revenue/payments (Stripe, Chargebee), CRM (Hubspot, Salesforce), support tickets (Zendesk), product
-            databases (Postgres, MySQL, BigQuery, Snowflake), ads, and more. Each entry describes the required fields
-            (host, port, database, credentials, etc.), field types, and OAuth flows. Use this to discover what external
-            data can be imported into queryable warehouse tables and what parameters a source needs. To actually connect
-            a source, prefer 'data-warehouse-source-setup'.
+            Use this whenever the user needs data PostHog doesn't capture natively — revenue and payments (Stripe,
+            Chargebee), CRM contacts and deals (Hubspot, Salesforce), support tickets (Zendesk), e-commerce orders
+            (Shopify), ad spend, or their own application/production database (Postgres, MySQL, BigQuery, Snowflake) —
+            or when a HogQL query fails because the table doesn't exist yet. Importing turns that data into queryable
+            warehouse tables you can JOIN against product events. Returns the configuration metadata for every supported
+            source type: the required fields (host, port, database, credentials, etc.), field types, and OAuth flows, so
+            you know what a connection needs. ALWAYS pass 'source_type' with the specific kind(s) you need
+            (comma-separated, e.g. 'Postgres,Stripe') — the unfiltered response describes every source and is very large
+            (hundreds of KB). Only omit 'source_type' if you genuinely need to enumerate every available type. To
+            actually connect a source, prefer 'data-warehouse-source-setup'.
         response:
             include:
                 - '*.name'

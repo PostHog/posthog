@@ -531,3 +531,55 @@ class CreateFileSourceSerializer(_NameValidationMixin, serializers.Serializer):
         if value.size and value.size > MAX_FILE_SIZE_BYTES:
             raise serializers.ValidationError(f"File exceeds the {MAX_FILE_SIZE_BYTES // (1024 * 1024)} MB cap.")
         return value
+
+
+# ---------------------------------------------------------------------------
+# Knowledge gap suggestions
+# ---------------------------------------------------------------------------
+
+
+class KnowledgeGapSuggestionSerializer(serializers.Serializer):
+    id = serializers.UUIDField(read_only=True, help_text="Unique identifier for this gap suggestion.")
+    ticket_id = serializers.UUIDField(read_only=True, help_text="The ticket that surfaced this gap.")
+    topic = serializers.CharField(read_only=True, help_text="Raw topic the AI couldn't answer.")
+    normalized_topic = serializers.CharField(read_only=True, help_text="Normalized cluster key for grouping.")
+    ticket_type = serializers.CharField(read_only=True, help_text="Ticket classification type.")
+    outcome = serializers.CharField(read_only=True, help_text="Pipeline outcome that produced this gap.")
+    status = serializers.CharField(read_only=True, help_text="Current status: pending, accepted, or dismissed.")
+    resolved_source_id = serializers.UUIDField(
+        read_only=True, allow_null=True, help_text="Knowledge source created to fill this gap."
+    )
+    created_at = serializers.DateTimeField(read_only=True, help_text="When this gap was first recorded.")
+
+
+class AggregatedGapSerializer(serializers.Serializer):
+    normalized_topic = serializers.CharField(read_only=True, help_text="Normalized cluster key.")
+    topic = serializers.CharField(read_only=True, help_text="Representative raw topic string.")
+    ticket_count = serializers.IntegerField(read_only=True, help_text="Number of distinct tickets with this gap.")
+
+
+class GapActionSerializer(serializers.Serializer):
+    resolved_source_id = serializers.UUIDField(
+        required=False,
+        allow_null=True,
+        help_text="Optional knowledge source to link when accepting.",
+    )
+
+
+class GapTopicActionSerializer(serializers.Serializer):
+    normalized_topic = serializers.CharField(
+        required=True,
+        help_text="The normalized topic key identifying the gap cluster to act on.",
+    )
+    resolved_source_id = serializers.UUIDField(
+        required=False,
+        allow_null=True,
+        help_text="Optional knowledge source to link when accepting.",
+    )
+
+
+class GapTopicActionResultSerializer(serializers.Serializer):
+    normalized_topic = serializers.CharField(
+        read_only=True, help_text="The normalized topic cluster that was acted on."
+    )
+    updated = serializers.IntegerField(read_only=True, help_text="Number of gap rows whose status changed.")

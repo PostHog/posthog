@@ -23,13 +23,16 @@ from products.replay_vision.backend.temporal.activities import (
     advance_scanner_watermark_activity,
     count_in_flight_applies_activity,
     find_scanner_candidates_activity,
+    refresh_prompt_suggestion_activity,
 )
 from products.replay_vision.backend.temporal.constants import (
+    APPLY_SCANNER_EXECUTION_TIMEOUT,
     APPLY_SCANNER_WORKFLOW_NAME,
     COUNT_IN_FLIGHT_APPLIES_TIMEOUT,
     MAX_IN_FLIGHT_APPLIES_PER_SCANNER,
     PROCESS_VISION_ACTION_EXECUTION_TIMEOUT,
     PROCESS_VISION_ACTION_WORKFLOW_NAME,
+    REFRESH_PROMPT_SUGGESTION_TIMEOUT,
     SWEEP_SCANNER_WORKFLOW_NAME,
     build_apply_scanner_workflow_id,
     build_process_vision_action_workflow_id,
@@ -39,6 +42,7 @@ from products.replay_vision.backend.temporal.sweep_types import (
     CandidateSessionPayload,
     CountInFlightAppliesInputs,
     FindScannerCandidatesInputs,
+    RefreshPromptSuggestionInputs,
     SweepScannerInputs,
 )
 from products.replay_vision.backend.temporal.types import ApplyScannerInputs
@@ -63,6 +67,23 @@ class SweepScannerWorkflow(PostHogWorkflow):
         # and best-effort: a vision-action problem must never block the scanner's core session scan,
         # and it's independent of the in-flight throttle below (which is about apply-scanner load).
         await self._dispatch_due_vision_actions(inputs)
+
+        # Same heartbeat keeps the prompt recommendation fresh. The activity self-gates to at most one
+        # regeneration per day and only when ratings changed, so the 5-minute sweep cadence is fine.
+        # Best-effort: an LLM hiccup must never block the session scan. wf.patched keeps sweeps
+        # in flight across the deploy replaying deterministically.
+        if wf.patched("prompt-suggestion-refresh"):
+            try:
+                await wf.execute_activity(
+                    refresh_prompt_suggestion_activity,
+                    RefreshPromptSuggestionInputs(scanner_id=inputs.scanner_id, team_id=inputs.team_id),
+                    start_to_close_timeout=REFRESH_PROMPT_SUGGESTION_TIMEOUT,
+                    retry_policy=common.RetryPolicy(maximum_attempts=1),
+                )
+            except Exception:
+                wf.logger.warning(
+                    "replay_vision.prompt_suggestion_refresh_failed", extra={"scanner_id": str(inputs.scanner_id)}
+                )
 
         # Hard per-scanner concurrency cap: don't fetch more than the in-flight headroom, and skip entirely
         # when saturated. Keeps one bad config from flooding the shared rasterizer + provider concurrency.
@@ -162,8 +183,7 @@ class SweepScannerWorkflow(PostHogWorkflow):
                 task_queue=settings.REPLAY_VISION_TASK_QUEUE,
                 id_reuse_policy=WorkflowIDReusePolicy.ALLOW_DUPLICATE,
                 parent_close_policy=wf.ParentClosePolicy.ABANDON,
-                # Matches the on-demand /observe/ ceiling.
-                execution_timeout=dt.timedelta(hours=1),
+                execution_timeout=APPLY_SCANNER_EXECUTION_TIMEOUT,
                 search_attributes=TypedSearchAttributes(
                     search_attributes=[
                         SearchAttributePair(key=POSTHOG_TEAM_ID_KEY, value=inputs.team_id),

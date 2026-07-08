@@ -1,12 +1,14 @@
-import { actions, connect, events, kea, listeners, path, selectors } from 'kea'
+import { actions, connect, events, kea, listeners, path, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 
 import { lemonToast } from '@posthog/lemon-ui'
 
 import api from 'lib/api'
 import { FEATURE_FLAGS } from 'lib/constants'
+import { describeGithubLinkError } from 'lib/integrations/githubSetupErrors'
 import { integrationsLogic } from 'lib/integrations/integrationsLogic'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { teamLogic } from 'scenes/teamLogic'
 
 import {
     usersIntegrationsGithubDestroy,
@@ -90,17 +92,30 @@ export const personalIntegrationsLogic = kea<personalIntegrationsLogicType>([
     path(['scenes', 'settings', 'user', 'personalIntegrationsLogic']),
 
     connect(() => ({
+        values: [teamLogic, ['currentTeam'], featureFlagLogic, ['featureFlags']],
         actions: [
             integrationsLogic,
             ['loadIntegrations as loadProjectIntegrations', 'loadIntegrationsSuccess as projectIntegrationsLoaded'],
         ],
-        values: [featureFlagLogic, ['featureFlags']],
     })),
 
     actions({
         connectGitHub: true,
+        connectGitHubFailure: true,
         disconnectGitHub: (installationId: string) => ({ installationId }),
         disconnectSlack: (slackUserId: string) => ({ slackUserId }),
+    }),
+
+    reducers({
+        // Guards against double-submission: the install request redirects to github.com on success
+        // (so it never needs resetting then), and resets on failure so the user can retry.
+        githubConnecting: [
+            false,
+            {
+                connectGitHub: () => true,
+                connectGitHubFailure: () => false,
+            },
+        ],
     }),
 
     loaders(() => ({
@@ -188,7 +203,7 @@ export const personalIntegrationsLogic = kea<personalIntegrationsLogicType>([
         ],
     }),
 
-    listeners(({ actions }) => ({
+    listeners(({ actions, values }) => ({
         projectIntegrationsLoaded: () => {
             // When a project-level integration is added/removed, the backend may
             // auto-create a user-level integration. Reload to pick it up.
@@ -209,10 +224,17 @@ export const personalIntegrationsLogic = kea<personalIntegrationsLogicType>([
         connectGitHub: async () => {
             try {
                 const connectFrom = readConnectFromStorage()
-                const body = connectFrom === 'posthog_code' ? { connect_from: 'posthog_code' } : {}
+                const body: { connect_from?: 'posthog_code'; team_id?: number } = {}
+                if (connectFrom === 'posthog_code') {
+                    body.connect_from = 'posthog_code'
+                }
+                if (values.currentTeam?.id) {
+                    body.team_id = values.currentTeam.id
+                }
                 const response = await usersIntegrationsGithubStartCreate('@me', body)
                 window.location.href = response.install_url
             } catch (error: unknown) {
+                actions.connectGitHubFailure()
                 const message = error instanceof Error && 'detail' in error ? (error as any).detail : undefined
                 lemonToast.error(message || 'Could not start GitHub installation.')
             }
@@ -248,24 +270,7 @@ export const personalIntegrationsLogic = kea<personalIntegrationsLogicType>([
                 lemonToast.success('GitHub connected.')
             } else if (params.has('github_link_error')) {
                 writeConnectFromStorage(null)
-                const reason = params.get('github_link_error')
-                const message =
-                    reason === 'access_denied'
-                        ? 'GitHub authorization was canceled.'
-                        : reason === 'github_oauth_error'
-                          ? 'GitHub rejected the authorization. Please try again.'
-                          : reason === 'missing_params'
-                            ? "GitHub didn't send back the expected parameters. Please try again."
-                            : reason === 'invalid_state'
-                              ? 'The GitHub link request expired or could not be verified. Please try again.'
-                              : reason === 'exchange_failed'
-                                ? 'GitHub rejected the authorization code. Check that the GitHub App is configured correctly.'
-                                : reason === 'installation_fetch_failed'
-                                  ? 'Could not fetch installation details from GitHub. Please try again.'
-                                  : reason === 'installation_token_failed'
-                                    ? 'Could not get an installation token from GitHub. Please try again.'
-                                    : 'Could not connect GitHub. Please try again.'
-                lemonToast.error(message)
+                lemonToast.error(describeGithubLinkError(params.get('github_link_error')))
             }
 
             if (params.has('slack_link_success')) {

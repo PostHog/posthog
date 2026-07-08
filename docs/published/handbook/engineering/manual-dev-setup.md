@@ -132,6 +132,9 @@ On Linux you often have separate packages: `postgres` for the tools, `postgres-s
 
 5. Run `pnpm --filter=@posthog/frontend typegen:write` to generate types for [Kea](https://keajs.org/) state management logics used all over the frontend.
 
+When iterating on one logic file, run `pnpm --filter=@posthog/frontend typegen:file <path-to-logic-file>` instead.
+The path can be absolute, repo-relative like `frontend/src/scenes/foo/fooLogic.ts`, or frontend-relative like `src/scenes/foo/fooLogic.ts`.
+
 > The first time you run typegen, it may get stuck in a loop. If so, cancel the process (`Ctrl+C`), discard all changes in the working directory (`git reset --hard`), and run `pnpm typegen:write` again. You may need to discard all changes once more when the second round of type generation completes.
 
 ## 3. Prepare nodejs services

@@ -528,6 +528,15 @@ class BasePrinter(Visitor[str]):
         """
         raise NotImplementedError("BasePrinter._ensure_access_control_where_clause not overridden")
 
+    def _events_retention_floor(
+        self,
+        table_type: ast.TableType | ast.LazyTableType,
+        node_type: ast.TableOrSelectType | None,
+    ) -> ast.Expr | None:
+        """Floor events-table scans to the team's retention window. Overridden by the ClickHouse dialect;
+        default no-op — the HogQL and warehouse dialects don't enforce events retention."""
+        return None
+
     def _print_table_ref(self, table_type: ast.TableType | ast.LazyTableType, node: ast.JoinExpr) -> str:
         """Print a table reference. Fail-fast by default: each dialect must override.
 
@@ -593,8 +602,12 @@ class BasePrinter(Visitor[str]):
             else:
                 extra_where = combined_guard
 
-            # Apply table-level predicates (e.g., date filters on PostgresTable).
+            # Apply table-level predicates (e.g., date filters on PostgresTable), plus the cohort-gated
+            # events-retention floor (timestamp > now() - retention) injected at the lowest level on the events table.
             predicate_exprs = self._get_table_predicates(table_type, node.type)
+            retention_floor = self._events_retention_floor(table_type, node.type)
+            if retention_floor is not None:
+                predicate_exprs = [*predicate_exprs, retention_floor]
             for pred in predicate_exprs:
                 if is_left_join and node.constraint is not None:
                     if on_clause_guard is None:
@@ -790,7 +803,16 @@ class BasePrinter(Visitor[str]):
 
     def visit_array_access(self, node: ast.ArrayAccess):
         symbol = self._array_access_prefix(bool(node.nullish))
-        return f"{self.visit(node.array)}{symbol}[{self.visit(node.property)}]"
+        array = self.visit(node.array)
+        # `[...]` binds tighter than any infix-printed form, so a loose operand
+        # must be parenthesized or the printed text re-parses with the access on
+        # the operand's last token (`(1 AS x)[1]` would print as `1 AS x[1]`,
+        # which doesn't parse back).
+        if isinstance(node.array, ast.BetweenExpr | ast.IsDistinctFrom) or (
+            isinstance(node.array, ast.Alias) and not node.array.hidden
+        ):
+            array = f"({array})"
+        return f"{array}{symbol}[{self.visit(node.property)}]"
 
     def _tuple_access_separator(self, nullish: bool) -> str:
         """Separator for tuple-access expressions. HogQL overrides to emit nullish ``?.`` when requested."""

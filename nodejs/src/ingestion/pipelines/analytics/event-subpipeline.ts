@@ -4,6 +4,7 @@ import { GroupTypeManager } from '~/common/groups/group-type-manager'
 import { HogTransformer } from '~/common/hog-transformations/hog-transformer.interface'
 import { IngestionWarningsOutput } from '~/common/outputs'
 import { IngestionOutputs } from '~/common/outputs/ingestion-outputs'
+import { TeamManager } from '~/common/utils/team-manager'
 import { GroupStoreForBatch } from '~/ingestion/common/groups/group-store-for-batch'
 import { PersonsStoreForBatch } from '~/ingestion/common/persons/persons-store-for-batch'
 import { createCreateEventStep } from '~/ingestion/common/steps/event-processing/create-event-step'
@@ -22,7 +23,6 @@ import { TopHogWrapper, sum, sumOk, sumResult, timer } from '~/ingestion/framewo
 import { isDropResult } from '~/ingestion/framework/results'
 import { PluginEvent } from '~/plugin-scaffold'
 import { EventHeaders, Team } from '~/types'
-import { TeamManager } from '~/utils/team-manager'
 
 import {
     AsyncOutput,
@@ -32,6 +32,17 @@ import {
     PersonMergeEventsOutput,
     PersonsOutput,
 } from './outputs'
+
+// Mirrors the merge condition in PersonMergeService.handleIdentifyOrAlias: an event asks for a person
+// merge when it's $create_alias/$merge_dangerously with an `alias`, or $identify with $anon_distinct_id.
+// Kept in the metrics layer so counting merge-intent events doesn't reach into person processing logic.
+function isMergeIntentEvent(event: PluginEvent): boolean {
+    const properties = event.properties ?? {}
+    if (['$create_alias', '$merge_dangerously'].includes(event.event) && properties['alias']) {
+        return true
+    }
+    return event.event === '$identify' && '$anon_distinct_id' in properties
+}
 
 export interface EventSubpipelineInput {
     message: Message
@@ -98,7 +109,26 @@ export function createEventSubpipeline<TInput extends EventSubpipelineInput, TCo
                 timer('process_persons_time', (input) => ({
                     team_id: String(input.team.id),
                     distinct_id: input.normalizedEvent.distinct_id,
+                    partition: String(input.message.partition),
                 })),
+                sum(
+                    'merge_events_per_distinct_id',
+                    (input) => ({
+                        team_id: String(input.team.id),
+                        distinct_id: input.normalizedEvent.distinct_id,
+                        partition: String(input.message.partition),
+                    }),
+                    (input) => (isMergeIntentEvent(input.normalizedEvent) ? 1 : 0)
+                ),
+                sum(
+                    'group_identify_events_per_distinct_id',
+                    (input) => ({
+                        team_id: String(input.team.id),
+                        distinct_id: input.normalizedEvent.distinct_id,
+                        partition: String(input.message.partition),
+                    }),
+                    (input) => (input.normalizedEvent.event === '$groupidentify' ? 1 : 0)
+                ),
             ])
         )
         .pipe(createPrepareEventStep())

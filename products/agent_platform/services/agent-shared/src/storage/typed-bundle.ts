@@ -22,13 +22,37 @@
 
 import { z } from 'zod'
 
+import { SecretRefSchema } from '../spec/spec'
 import { BundleEntry, BundleStore } from './bundle'
 
 // ─── Canonical S3 paths ──────────────────────────────────────────────
 
 export const AGENT_MD_PATH = 'agent.md'
+export const SKILL_BODY_FILENAME = 'SKILL.md'
 export function skillBodyPath(skillId: string): string {
-    return `skills/${skillId}/SKILL.md`
+    return `skills/${skillId}/${SKILL_BODY_FILENAME}`
+}
+
+/**
+ * Resolve a skill companion file's relative path to its canonical bundle path
+ * (`skills/<id>/<rel>`), rejecting anything that would escape the skill folder
+ * or collide with the reserved `SKILL.md` body. Mirrors the runtime guard in
+ * `@posthog/load-skill`'s `resolveSkillFile` so what we write is exactly what
+ * the loader will later accept. Throws on invalid input.
+ */
+export function skillCompanionPath(skillId: string, relPath: string): string {
+    const rel = relPath.replace(/\\/g, '/')
+    if (!rel || rel.startsWith('/')) {
+        throw new Error(`skill file "${relPath}" must be a non-empty relative path inside the skill folder.`)
+    }
+    const segments = rel.split('/')
+    if (segments.some((s) => s === '..' || s === '.' || s === '')) {
+        throw new Error(`skill file "${relPath}" must not contain traversal or empty segments.`)
+    }
+    if (rel === SKILL_BODY_FILENAME) {
+        throw new Error(`skill file "${relPath}" is reserved — the body is written from the skill's \`body\`.`)
+    }
+    return `skills/${skillId}/${rel}`
 }
 export function toolSourcePath(toolId: string): string {
     return `tools/${toolId}/source.ts`
@@ -38,6 +62,9 @@ export function toolCompiledPath(toolId: string): string {
 }
 export function toolSchemaPath(toolId: string): string {
     return `tools/${toolId}/schema.json`
+}
+export function toolCapabilitiesPath(toolId: string): string {
+    return `tools/${toolId}/capabilities.json`
 }
 
 // ─── Typed resource shapes ──────────────────────────────────────────
@@ -57,6 +84,21 @@ export const TypedSkillSchema = z.object({
     body: z.string().max(200_000),
 })
 
+/**
+ * Capability metadata the AST walker derives at compile time. Stored on
+ * the bundle as `tools/<id>/capabilities.json` so the authoring UI can
+ * surface it without re-parsing the source on every read. Optional on the
+ * typed shape so old bundles (compiled before capabilities existed) round-
+ * trip without warnings — the read path treats a missing file as "no
+ * capabilities known."
+ */
+export const TypedToolCapabilitiesSchema = z.object({
+    secret_refs: z.array(z.string()).default([]),
+    dynamic_secret_refs: z.boolean().default(false),
+})
+
+export type TypedToolCapabilities = z.infer<typeof TypedToolCapabilitiesSchema>
+
 export const TypedToolSchema = z.object({
     id: ResourceIdSchema,
     description: z.string().min(1).max(2000),
@@ -67,6 +109,12 @@ export const TypedToolSchema = z.object({
      */
     args_schema: z.record(z.string(), z.unknown()),
     source: z.string().min(1).max(500_000),
+    /**
+     * Server-stamped at compile time; authors don't set it on the way in.
+     * Optional so existing bundles (and write paths that don't have the
+     * compile result handy yet) round-trip cleanly.
+     */
+    capabilities: TypedToolCapabilitiesSchema.optional(),
 })
 
 export type TypedSkill = z.infer<typeof TypedSkillSchema>
@@ -83,14 +131,16 @@ export type TypedTool = z.infer<typeof TypedToolSchema>
  */
 export const TypedSpecSchema = z
     .object({
-        model: z.string().min(1).optional(),
+        models: z.unknown().optional(),
         triggers: z.array(z.unknown()).optional(),
         mcps: z.array(z.unknown()).optional(),
         identity_providers: z.array(z.unknown()).optional(),
-        secrets: z.array(z.string()).optional(),
+        // The canonical secret shape: a bare key string OR a host-scoped
+        // `{ name, allowed_hosts }` object. Reuse `SecretRefSchema` (the single
+        // source of truth) rather than re-spelling it — the old string-only
+        // array silently rejected host-scoped secrets at bundle PUT.
+        secrets: z.array(SecretRefSchema).optional(),
         limits: z.unknown().optional(),
-        auth: z.unknown().optional(),
-        entrypoint: z.string().optional(),
         reasoning: z.string().optional(),
         framework_prompt: z.unknown().optional(),
         resume: z.unknown().optional(),
@@ -205,7 +255,27 @@ export async function readTypedBundle(
         } catch {
             warnings.push(`tool ${id} schema.json is not valid JSON`)
         }
-        tools.push({ id, description, args_schema: schema, source })
+
+        // Optional capabilities.json — present for tools compiled after the
+        // capability extractor landed. Missing/malformed = no capability
+        // metadata exposed (rather than failing the bundle read).
+        let capabilities: TypedToolCapabilities | undefined
+        const capabilitiesPath = toolCapabilitiesPath(id)
+        if (paths.has(capabilitiesPath)) {
+            const capsText = fileContents.get(capabilitiesPath) ?? '{}'
+            try {
+                const parsed = TypedToolCapabilitiesSchema.safeParse(JSON.parse(capsText))
+                if (parsed.success) {
+                    capabilities = parsed.data
+                } else {
+                    warnings.push(`tool ${id} capabilities.json failed schema validation`)
+                }
+            } catch {
+                warnings.push(`tool ${id} capabilities.json is not valid JSON`)
+            }
+        }
+
+        tools.push({ id, description, args_schema: schema, source, capabilities })
     }
 
     return {
@@ -303,40 +373,40 @@ export function stripDerivedSpecFields(spec: Record<string, unknown>): TypedSpec
  *   - tool compilation (calling `compileAndWriteTool` per tool)
  *   - persisting `bundle.spec` onto the revision row
  */
-export async function syncBundleToStore(revisionId: string, store: BundleStore, bundle: TypedBundle): Promise<void> {
+export async function syncBundleToStore(
+    revisionId: string,
+    store: BundleStore,
+    bundle: Omit<TypedBundle, 'skills'>
+): Promise<void> {
     const entries = await store.list(revisionId)
     const existing = new Set(entries.map((e) => e.path))
 
-    // Build the set of paths we WILL write so we know what to delete.
+    // Build the set of paths we WILL write so we know what to delete. Skills are
+    // NOT managed here — they're materialized from the store at freeze and live
+    // only in the frozen bundle, so the full-replace never touches `skills/`.
     const willWrite = new Set<string>()
     willWrite.add(AGENT_MD_PATH)
-    for (const skill of bundle.skills) {
-        willWrite.add(skillBodyPath(skill.id))
-    }
     for (const tool of bundle.tools) {
         willWrite.add(toolSourcePath(tool.id))
         willWrite.add(toolSchemaPath(tool.id))
         willWrite.add(toolCompiledPath(tool.id))
+        willWrite.add(toolCapabilitiesPath(tool.id))
     }
 
     // Delete anything in the canonical layout that's NOT in the new payload.
-    // We DON'T touch paths outside the canonical layout — those are either
-    // future-resource buckets or legacy junk the migrator hasn't cleaned up.
+    // We DON'T touch paths outside the canonical layout (future-resource buckets
+    // or legacy junk) and we DON'T touch `skills/` (freeze-owned).
     for (const path of existing) {
         if (willWrite.has(path)) {
             continue
         }
-        if (path === AGENT_MD_PATH || path.startsWith('skills/') || path.startsWith('tools/')) {
+        if (path === AGENT_MD_PATH || path.startsWith('tools/')) {
             await store.delete(revisionId, path)
         }
     }
 
-    // Write agent.md + skill bodies. Tools are written by the caller after
-    // the compile step succeeds.
+    // Write agent.md. Tools are written by the caller after the compile step.
     await store.write(revisionId, AGENT_MD_PATH, bundle.agent_md)
-    for (const skill of bundle.skills) {
-        await store.write(revisionId, skillBodyPath(skill.id), skill.body)
-    }
 }
 
 /**
@@ -356,7 +426,12 @@ export async function writeToolSourceAndSchema(revisionId: string, store: Bundle
  * Delete one tool's bundle files (source.ts, compiled.js, schema.json).
  */
 export async function deleteToolFiles(revisionId: string, store: BundleStore, toolId: string): Promise<void> {
-    for (const path of [toolSourcePath(toolId), toolCompiledPath(toolId), toolSchemaPath(toolId)]) {
+    for (const path of [
+        toolSourcePath(toolId),
+        toolCompiledPath(toolId),
+        toolSchemaPath(toolId),
+        toolCapabilitiesPath(toolId),
+    ]) {
         if (await store.exists(revisionId, path)) {
             await store.delete(revisionId, path)
         }
@@ -364,7 +439,9 @@ export async function deleteToolFiles(revisionId: string, store: BundleStore, to
 }
 
 /**
- * Delete one skill's folder (`skills/<id>/` — currently just SKILL.md).
+ * Delete one skill's folder (`skills/<id>/` — SKILL.md plus any companion
+ * files), so a re-PUT fully replaces the skill rather than leaving stale
+ * companions behind.
  */
 export async function deleteSkillFiles(revisionId: string, store: BundleStore, skillId: string): Promise<void> {
     const entries = await store.list(revisionId, `skills/${skillId}/`)

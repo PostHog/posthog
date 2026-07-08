@@ -11,8 +11,7 @@ from posthog.hogql.direct_sql.mysql_adapter import mysql_error_to_message, mysql
 from posthog.hogql.errors import ExposedHogQLError, QueryError
 from posthog.hogql.query import HogQLQueryExecutor
 
-from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
-from products.warehouse_sources.backend.models.table import DataWarehouseTable
+from products.warehouse_sources.backend.facade.models import DataWarehouseTable, ExternalDataSource
 
 
 class TestDirectMySQLQuery(APIBaseTest):

@@ -1,10 +1,11 @@
 import { createPool } from 'generic-pool'
 import { Pipeline, Redis } from 'ioredis'
 
-import { RedisPoolConfig, createRedisFromConfig } from '../../utils/db/redis'
-import { timeoutGuard } from '../../utils/db/utils'
-import { logger } from '../../utils/logger'
-import { captureException } from '../../utils/posthog'
+import { RedisPoolConfig, createRedisFromConfig } from '~/common/utils/db/redis'
+import { timeoutGuard } from '~/common/utils/db/utils'
+import { logger } from '~/common/utils/logger'
+import { captureException } from '~/common/utils/posthog'
+
 import { defineLuaTokenBucketGuarded } from './redis-token-bucket-guarded.lua'
 import { defineLuaTokenBucketV2 } from './redis-token-bucket-v2.lua'
 import { defineLuaTokenBucketV3 } from './redis-token-bucket-v3.lua'

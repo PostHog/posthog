@@ -49,3 +49,18 @@ export const QuillWithValue: Story = {
     render: () => <Template value={dayjs('2023-01-15')} clearable />,
     parameters: quillEnabled,
 }
+
+export const QuillWithTime: Story = {
+    render: () => <Template value={dayjs('2023-01-15T09:30')} granularity="minute" showTimeToggle />,
+    parameters: quillEnabled,
+}
+
+export const QuillSmallSecondary: Story = {
+    render: () => <Template value={dayjs('2023-01-15')} size="small" type="secondary" fullWidth={false} />,
+    parameters: quillEnabled,
+}
+
+export const QuillCustomClass: Story = {
+    render: () => <Template value={dayjs('2023-01-15')} className="bg-accent-highlight-secondary" />,
+    parameters: quillEnabled,
+}

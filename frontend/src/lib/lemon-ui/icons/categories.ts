@@ -222,6 +222,8 @@ export const ELEMENTS = {
         'IconUnlock',
         'IconPrivacy',
         'IconShield',
+        'IconShieldEmpty',
+        'IconShieldExclamation',
         'IconShieldLock',
         'IconWarning',
         'IconQuestion',

@@ -8,6 +8,7 @@ Quick-reference for AI agents using `@posthog/quill-components` — composed com
 - `DateTimePicker` — calendar range picker with quick-range presets (`quickRanges`, `CUSTOM_RANGE`)
 - `DatePicker` — single-date picker (one calendar, optional time, no quick ranges)
 - `useCalendar` — headless calendar grid hook (`Day`, `Month` enums)
+- `Metric` — composable stat tile (`Card` + `Badge` pill + `Sparkline`); marries primitives with `@posthog/quill-charts`. Import from the `@posthog/quill-components/metric` subpath (not the main barrel)
 
 ## DataTable
 
@@ -94,6 +95,45 @@ Rules:
 ## useCalendar
 
 Headless month-grid state for building custom calendar UIs: returns `calendar` (months > weeks > days), view navigation (`viewNextMonth`, `viewToday`, ...), and selection helpers (`select`, `selectRange`, `isSelected`, `toggle`). Selected dates are normalized to midnight. Reach for this only when DateTimePicker doesn't fit.
+
+## Metric
+
+A composable stat tile: a headline number, a `Badge` change pill, and an optional `Sparkline`. `Metric` is **content, not a surface** — wrap it in `<Card flush>` for the border. It's the one component here that depends on `@posthog/quill-charts` (for `Sparkline` + the headless metric math), which pulls d3 — so it lives behind its own `@posthog/quill-components/metric` entry point, **not** the main barrel (and not the `@posthog/quill` umbrella). That keeps charts/d3 out of the always-eager app-shell graph: only code that imports the metric subpath pays for it. The `MetricCard` in `@posthog/quill-charts` is the older, self-contained (prop-driven, primitives-free) tile; use `Metric` when you want to compose the layout or lean on quill's `Card`/`Badge`.
+
+```tsx
+import {
+  Metric,
+  MetricHeader,
+  MetricTitle,
+  MetricDelta,
+  MetricValue,
+  MetricSubtitle,
+  MetricSparkline,
+} from '@posthog/quill-components/metric'
+import { Card } from '@posthog/quill-primitives'
+import { useChartTheme } from '@posthog/quill-charts'
+
+const theme = useChartTheme()
+;<Card flush className="h-40">
+  <Metric data={series} labels={labels} theme={theme} color="#22d3ee" sparklineFill>
+    <MetricHeader>
+      <MetricTitle>Total revenue</MetricTitle>
+      <MetricDelta /> {/* Badge: success/destructive by goodDirection; hidden when there's no delta */}
+    </MetricHeader>
+    <MetricValue className="mt-2" /> {/* hover-following headline; pass a text-* class to resize */}
+    <MetricSubtitle className="mt-1" />
+    <MetricSparkline /> {/* bleeds to the card's left/right; `<Card flush>` lets it reach the bottom */}
+  </Metric>
+</Card>
+```
+
+Rules:
+
+- Wrap `Metric` in `<Card flush>` — `Metric` is just the layout/content (it owns its inline padding like `CardContent`, so the sparkline can bleed out with `-mx-4`); the card owns the border, block padding, and bottom edge. `flush` drops the card's bottom padding so `MetricSparkline` reaches the bottom; a number-only tile can use a plain `<Card>`.
+- Give the card a height (`className="h-40"`, or `h-full` in a sized box) when using `sparklineFill` or when you want a fixed-height sparkline pinned to the bottom; otherwise it sizes to content (`Metric` is `h-full` so it fills whatever card it's in).
+- The root owns the data/hover behavior and feeds the parts via context — a part used outside `<Metric>` throws. Pass `value` for a number-only tile; pass `data`+`labels`+`theme` for a sparkline.
+- `MetricDelta` renders a `Badge`; `goodDirection` (default `up`) decides success vs destructive. `changeTooltip` needs a `TooltipProvider` at the app root.
+- Reproduces `MetricCard`'s behavior (`restingSubtitle`, `hoverChangeFromPreviousPoint`, `changeTooltip`) but drops its color/size props in favor of `Badge` variants.
 
 ## Maintenance
 

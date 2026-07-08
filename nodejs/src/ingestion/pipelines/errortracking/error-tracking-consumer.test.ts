@@ -4,17 +4,17 @@ import { DateTime } from 'luxon'
 import { Message } from 'node-rdkafka'
 
 import { ReadOnlyGroupTypeManager } from '~/common/groups/readonly-group-type-manager'
+import { KafkaConsumer } from '~/common/kafka/consumer/consumer-v1'
 import { IngestionOutputs } from '~/common/outputs/ingestion-outputs'
 import { SingleIngestionOutput } from '~/common/outputs/single-ingestion-output'
 import { PersonReadRepository } from '~/common/persons/repositories/person-repository'
-import { KafkaConsumer } from '~/kafka/consumer/consumer-v1'
+import { PostgresUse } from '~/common/utils/db/postgres'
+import { ErrorTrackingSettingsManager } from '~/common/utils/error-tracking-settings-manager'
+import { parseJSON } from '~/common/utils/json-parse'
+import { UUIDT } from '~/common/utils/utils'
 import { IngestionTestInfra, createIngestionTestInfra } from '~/tests/helpers/ingestion-e2e'
 import { getFirstTeam, resetTestDatabase } from '~/tests/helpers/sql'
 import { PipelineEvent, Team } from '~/types'
-import { PostgresUse } from '~/utils/db/postgres'
-import { ErrorTrackingSettingsManager } from '~/utils/error-tracking-settings-manager'
-import { parseJSON } from '~/utils/json-parse'
-import { UUIDT } from '~/utils/utils'
 
 import { ErrorTrackingConsumer, ErrorTrackingHogTransformer } from './error-tracking-consumer'
 
@@ -27,8 +27,8 @@ const createMockKafkaConsumer = (): jest.Mocked<Pick<KafkaConsumer, 'connect' | 
 
 jest.setTimeout(60000)
 
-jest.mock('~/utils/posthog', () => {
-    const original = jest.requireActual('~/utils/posthog')
+jest.mock('~/common/utils/posthog', () => {
+    const original = jest.requireActual('~/common/utils/posthog')
     return {
         ...original,
         captureException: jest.fn(),
@@ -36,10 +36,10 @@ jest.mock('~/utils/posthog', () => {
 })
 
 // Mock the IngestionWarningLimiter to always allow warnings
-jest.mock('~/utils/token-bucket', () => {
+jest.mock('~/common/utils/token-bucket', () => {
     const mockConsume = jest.fn().mockReturnValue(true)
     return {
-        ...jest.requireActual('~/utils/token-bucket'),
+        ...jest.requireActual('~/common/utils/token-bucket'),
         IngestionWarningLimiter: {
             consume: mockConsume,
         },
@@ -47,7 +47,7 @@ jest.mock('~/utils/token-bucket', () => {
 })
 
 // Mock the logger to reduce noise
-jest.mock('~/utils/logger', () => ({
+jest.mock('~/common/utils/logger', () => ({
     logger: {
         debug: jest.fn(),
         info: jest.fn(),
@@ -144,13 +144,9 @@ describe('ErrorTrackingConsumer', () => {
             cymbalTimeoutMs: infra.config.ERROR_TRACKING_CYMBAL_TIMEOUT_MS,
             cymbalMaxBodyBytes: infra.config.ERROR_TRACKING_CYMBAL_MAX_BODY_BYTES,
             lane: infra.config.INGESTION_LANE ?? ('main' as const),
-            overflowEnabled:
-                !!infra.config.ERROR_TRACKING_CONSUMER_OVERFLOW_TOPIC &&
-                infra.config.ERROR_TRACKING_CONSUMER_OVERFLOW_TOPIC !==
-                    infra.config.ERROR_TRACKING_CONSUMER_CONSUME_TOPIC,
+            overflowMode: infra.config.INGESTION_OVERFLOW_MODE,
             overflowBucketCapacity: infra.config.ERROR_TRACKING_OVERFLOW_BUCKET_CAPACITY,
             overflowBucketReplenishRate: infra.config.ERROR_TRACKING_OVERFLOW_BUCKET_REPLENISH_RATE,
-            statefulOverflowEnabled: infra.config.ERROR_TRACKING_STATEFUL_OVERFLOW_ENABLED,
             statefulOverflowRedisTTLSeconds: infra.config.ERROR_TRACKING_STATEFUL_OVERFLOW_REDIS_TTL_SECONDS,
             statefulOverflowLocalCacheTTLSeconds: infra.config.ERROR_TRACKING_STATEFUL_OVERFLOW_LOCAL_CACHE_TTL_SECONDS,
             preservePartitionLocality: infra.config.ERROR_TRACKING_OVERFLOW_PRESERVE_PARTITION_LOCALITY,

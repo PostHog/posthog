@@ -12,7 +12,7 @@ class TestParseStringRust(parse_string_test_factory("rust-json")):  # type: igno
 
 
 class TestParseStringRustEmptyInput(TestCase):
-    # Empty input can't go in the shared factory: cpp's wheel aborts the process on "", python raises SyntaxError.
+    # Empty input can't go in the shared factory: cpp's wheel aborts the process on "", while rust raises ParsingError.
     def test_empty_input_raises_parsing_error(self):
         with self.assertRaises(ParsingError):
             parse_string_literal_text("")

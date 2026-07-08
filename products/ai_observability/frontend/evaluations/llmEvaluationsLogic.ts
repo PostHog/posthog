@@ -15,7 +15,7 @@ import { ProductIntentContext, ProductKey } from '~/queries/schema/schema-genera
 import { LLMProviderKey, llmProviderKeysLogic } from '../settings/llmProviderKeysLogic'
 import { getUnhealthyProviderKey } from '../settings/providerKeyStateUtils'
 import { evaluationErrorMessage } from './apiErrors'
-import { evaluationTypeCanBeCreated, evaluationTypeUsesProviderKey } from './evaluationCapabilities'
+import { evaluationCanResolveModel, evaluationTypeCanBeCreated } from './evaluationCapabilities'
 import type { llmEvaluationsLogicType } from './llmEvaluationsLogicType'
 import { EvaluationConfig } from './types'
 
@@ -40,7 +40,12 @@ export const llmEvaluationsLogic = kea<llmEvaluationsLogicType>([
     path(['products', 'ai_observability', 'evaluations', 'llmEvaluationsLogic']),
     props({} as LLMEvaluationsLogicProps),
     connect(() => ({
-        values: [featureFlagLogic, ['featureFlags'], llmProviderKeysLogic, ['providerKeys', 'isTrialLimitReached']],
+        values: [
+            featureFlagLogic,
+            ['featureFlags'],
+            llmProviderKeysLogic,
+            ['providerKeys', 'requiresProviderKey', 'isTrialGrandfathered'],
+        ],
         actions: [teamLogic, ['addProductIntent'], llmProviderKeysLogic, ['loadProviderKeys']],
     })),
 
@@ -93,6 +98,7 @@ export const llmEvaluationsLogic = kea<llmEvaluationsLogicType>([
                                   // Keep status in sync so the list-column pill updates optimistically.
                                   status: !e.enabled ? 'active' : 'paused',
                                   status_reason: null,
+                                  status_reason_detail: null,
                               }
                             : e
                     ),
@@ -261,17 +267,10 @@ export const llmEvaluationsLogic = kea<llmEvaluationsLogicType>([
             },
         ],
         canEnableEvaluation: [
-            (s) => [s.isTrialLimitReached],
-            (isTrialLimitReached: boolean) => {
-                return (evaluation: EvaluationConfig): boolean => {
-                    if (!isTrialLimitReached) {
-                        return true
-                    }
-                    if (!evaluationTypeUsesProviderKey(evaluation.evaluation_type)) {
-                        return true
-                    }
-                    return !!evaluation.model_configuration?.provider_key_id
-                }
+            (s) => [s.requiresProviderKey, s.isTrialGrandfathered],
+            (requiresProviderKey: boolean, isTrialGrandfathered: boolean) => {
+                return (evaluation: EvaluationConfig): boolean =>
+                    evaluationCanResolveModel(evaluation, requiresProviderKey, isTrialGrandfathered)
             },
         ],
 

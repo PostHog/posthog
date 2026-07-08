@@ -1,8 +1,10 @@
 import random
 
+from django.conf import settings
 from django.core.management.base import BaseCommand
 
-from posthog.models import Person, PersonDistinctId, Team
+from posthog.models import Team
+from posthog.persons_db import persons_db_connection
 
 
 class Command(BaseCommand):
@@ -64,19 +66,27 @@ class Command(BaseCommand):
 
         self.stdout.write(self.style.SUCCESS(f"Exporting distinct IDs for team: {team.name}"))
 
-        # Build the query
-        distinct_ids_query = PersonDistinctId.objects.filter(team=team)  # nosemgrep: no-direct-persons-db-orm
-
+        # Build the distinct-id query, joining to the person table only when filtering on
+        # person attributes (identified / demo).
+        conditions = ["pdi.team_id = %s"]
         if identified_only:
-            distinct_ids_query = distinct_ids_query.filter(person__is_identified=True)
+            conditions.append("p.is_identified = true")
             self.stdout.write("Filtering for identified persons only")
-
         if demo_only:
-            distinct_ids_query = distinct_ids_query.filter(person__properties__is_demo=True)
+            conditions.append("p.properties @> '{\"is_demo\": true}'::jsonb")
             self.stdout.write("Filtering for demo persons only")
 
-        # Get distinct IDs
-        distinct_ids = list(distinct_ids_query.values_list("distinct_id", flat=True))
+        person_join = (
+            f"JOIN {settings.PERSON_TABLE_NAME} p ON p.team_id = pdi.team_id AND p.id = pdi.person_id"
+            if (identified_only or demo_only)
+            else ""
+        )
+        query = (
+            f"SELECT pdi.distinct_id FROM posthog_persondistinctid pdi {person_join} WHERE {' AND '.join(conditions)}"
+        )
+        with persons_db_connection(writer=False) as conn, conn.cursor() as cursor:
+            cursor.execute(query, [team.id])
+            distinct_ids = [row[0] for row in cursor.fetchall()]
 
         if not distinct_ids:
             self.stdout.write(self.style.WARNING("No distinct IDs found matching the criteria!"))
@@ -126,13 +136,17 @@ class Command(BaseCommand):
             self.stdout.write(self.style.ERROR(f"Error writing to file: {e}"))
 
         # Also show some stats
-        total_persons = Person.objects.filter(team=team).count()  # nosemgrep: no-direct-persons-db-orm
-        identified_persons = Person.objects.filter(  # nosemgrep: no-direct-persons-db-orm
-            team=team, is_identified=True
-        ).count()  # nosemgrep: no-direct-persons-db-orm
-        demo_persons = Person.objects.filter(  # nosemgrep: no-direct-persons-db-orm
-            team=team, properties__is_demo=True
-        ).count()  # nosemgrep: no-direct-persons-db-orm
+        with persons_db_connection(writer=False) as conn, conn.cursor() as cursor:
+            cursor.execute(
+                f"SELECT count(*), "
+                "count(*) FILTER (WHERE is_identified), "
+                "count(*) FILTER (WHERE properties @> '{\"is_demo\": true}'::jsonb) "
+                f"FROM {settings.PERSON_TABLE_NAME} WHERE team_id = %s",
+                [team.id],
+            )
+            stats_row = cursor.fetchone()
+        assert stats_row is not None
+        total_persons, identified_persons, demo_persons = stats_row
 
         self.stdout.write(f"\nTeam statistics:")
         self.stdout.write(f"  Total persons: {total_persons}")
