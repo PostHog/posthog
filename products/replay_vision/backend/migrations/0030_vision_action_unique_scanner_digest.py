@@ -8,9 +8,7 @@ class Migration(migrations.Migration):
     atomic = False
 
     dependencies = [
-        # Both graph branches: the digest column this index needs, and master's leaf at rebase time.
-        ("replay_vision", "0027_visionaction_is_scanner_digest_and_more"),
-        ("replay_vision", "0028_replayscannerpromptsuggestion"),
+        ("replay_vision", "0029_visionaction_is_scanner_digest"),
     ]
 
     operations = [
