@@ -149,6 +149,7 @@ export const HogFunctionsCreateBody = /* @__PURE__ */ zod.object({
             transpiled: zod.unknown().optional(),
             filter_test_accounts: zod.boolean().optional(),
             bytecode_error: zod.string().optional(),
+            bytecode_warning: zod.string().nullish(),
         })
         .optional()
         .describe('Event filters that control which events trigger this function.'),
@@ -246,6 +247,7 @@ export const HogFunctionsCreateBody = /* @__PURE__ */ zod.object({
                         data_warehouse: zod.array(zod.record(zod.string(), zod.unknown())).optional(),
                         properties: zod.array(zod.record(zod.string(), zod.unknown())).optional(),
                         filter_test_accounts: zod.boolean().optional(),
+                        bytecode_warning: zod.string().nullish(),
                     })
                     .optional(),
             })
@@ -389,6 +391,7 @@ export const HogFunctionsPartialUpdateBody = /* @__PURE__ */ zod.object({
             transpiled: zod.unknown().optional(),
             filter_test_accounts: zod.boolean().optional(),
             bytecode_error: zod.string().optional(),
+            bytecode_warning: zod.string().nullish(),
         })
         .optional()
         .describe('Event filters that control which events trigger this function.'),
@@ -486,6 +489,7 @@ export const HogFunctionsPartialUpdateBody = /* @__PURE__ */ zod.object({
                         data_warehouse: zod.array(zod.record(zod.string(), zod.unknown())).optional(),
                         properties: zod.array(zod.record(zod.string(), zod.unknown())).optional(),
                         filter_test_accounts: zod.boolean().optional(),
+                        bytecode_warning: zod.string().nullish(),
                     })
                     .optional(),
             })

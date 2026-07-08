@@ -25986,6 +25986,8 @@ export namespace Schemas {
       transpiled?: unknown;
       filter_test_accounts?: boolean;
       bytecode_error?: string;
+      /** @nullable */
+      bytecode_warning?: string | null;
     }
 
     export interface HogFlowConversionEvent {
