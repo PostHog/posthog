@@ -7,6 +7,8 @@ each one persisted through the same `_persist_agentic_report_artefacts` path the
 Most reports also get a `tasks.Task` + `TaskRun` with a synthetic JSONL transcript written to object
 storage, so the inbox's inline run viewer renders a real-looking agent log without running a sandbox.
 Tasks/runs are created through the tasks facade (the product is isolated) — never by touching its ORM.
+Runs are recorded via the production dual-write (`record_implementation_task`), so seeded reports are
+billable-faithful; for the refund-path matrix (excluded/credited/exempt) use `seed_refund_test_data`.
 
 DEBUG only.
 
@@ -26,18 +28,16 @@ from django.db import transaction
 from posthog.models import OrganizationMembership, Team
 
 from products.signals.backend.artefact_schemas import (
-    SIGNALS_PRODUCT,
-    TASK_RUN_TYPE_IMPLEMENTATION,
     Commit,
     NoteArtefact,
     RelevantCommit,
     SuggestedReviewerEntry,
     SuggestedReviewers,
-    TaskRunArtefact,
 )
 from products.signals.backend.models import ArtefactAttribution, SignalReport, SignalReportArtefact
 from products.signals.backend.report_generation.research import ReportResearchOutput
 from products.signals.backend.report_generation.select_repo import RepoSelectionResult
+from products.signals.backend.task_run_artefacts import record_implementation_task
 from products.signals.backend.temporal.agentic.report import _persist_agentic_report_artefacts
 from products.tasks.backend.facade import api as tasks_facade
 
@@ -301,14 +301,10 @@ class Command(BaseCommand):
                 "output": {"pr_url": pr_url, "branch": branch},
             },
         )
-        SignalReportArtefact.add_log(
-            team_id=team.id,
-            report_id=str(report.id),
-            content=TaskRunArtefact(
-                task_id=task_id, run_id=run_id, product=SIGNALS_PRODUCT, type=TASK_RUN_TYPE_IMPLEMENTATION
-            ),
-            attribution=ArtefactAttribution.from_task(task_id),
-        )
+        # Production dual-write (`SignalReportTask` bridge row + `task_run` artefact) so seeded
+        # reports are billable-faithful — the billing query is rooted on the bridge, and an
+        # artefact alone makes the PR visible in the UI but not chargeable/refundable.
+        record_implementation_task(team_id=team.id, report_id=str(report.id), task_id=task_id, run_id=run_id)
 
 
 # ── synthetic transcript ───────────────────────────────────────────────────────

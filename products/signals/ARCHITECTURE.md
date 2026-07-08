@@ -1107,6 +1107,25 @@ Signal {index}:
 
 ---
 
+## Testing refunds locally
+
+How to exercise the PR refund flow (`backend/billing.py`, the `refund` action, the credited-path billing sync) against a fully local two-service setup:
+
+1. **Billing service**: follow "Developing locally" in the billing repo's README (boots on `http://localhost:8100`).
+   The dispute endpoint (`POST /api/signals/dispute-pr`) must exist on the billing checkout.
+   Dev mode auto-creates the `License` and `Customer` rows on first authenticated call — nothing to seed there.
+2. **Posthog**: start the stack with `BILLING_SERVICE_URL=http://localhost:8100` visible to **both** the web backend and the celery worker (put it in `.env.local`, which wins over `.env.development`).
+   The dev license auto-creates as `…::license-so-secret`, matching billing's default `LICENSE_SECRET_KEY`; a stale `ee_license` row with a different secret is the classic JWT-auth failure — check `SELECT key FROM ee_license;`.
+3. **Feature flag**: `signals-pr-refunds` must exist, active at 100%, in the local self-capture project (create via UI or shell; `sync_feature_flags` also works but flips every flag).
+   Without it the refund endpoints return **404**. Backend picks it up within the ~90s SDK poll (or restart); the frontend needs a page reload.
+4. **Data**: `python manage.py seed_refund_test_data --team-id 1` seeds the full matrix — excluded-path (PR today), credited-path (PR yesterday), billing-exempt, and a no-PR exemption-command target.
+5. **Expectations**: with an unseeded billing side the credited path legitimately returns `credit_amount_usd = "0.00"` — that IS the success path (free plan → nothing to credit). Non-$0 outcomes (`"15.00"` with paid-tier usage) require seeding a paid inbox state on the billing side; the recipe, a posthog-free curl smoke test, and how to verify the Stripe balance transaction live in the billing repo (internal): `notes/testing-signals-disputes-locally.md`.
+   Inspecting the paid state via the posthog billing page (`/organization/billing`) additionally requires **organization owner** — local dev users are typically only `administrator`, so bump `OrganizationMembership.level` to `OWNER` (15) first.
+   Verify `billing_synced_at`/`credit_amount_usd` on `signals_signalreportrefund` (posthog) and the `Credit` row keyed `signals_pr_dispute:{refund_id}` (billing).
+   Celery-side analytics events (`signals_pr_refund_credit_issued`/`_failed`) are dropped locally (`ph_scoped_capture` is cloud-gated); the sync itself is unaffected.
+
+---
+
 ## File Map
 
 ```text
