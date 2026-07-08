@@ -128,7 +128,7 @@ from posthog.hogql.database.schema.sessions_v2 import RawSessionsTableV2, Sessio
 from posthog.hogql.database.schema.sessions_v3 import RawSessionsTableV3, SessionsTableV3
 from posthog.hogql.database.schema.spans import TraceAttributesTable, TraceSpansTable
 from posthog.hogql.database.schema.static_cohort_people import StaticCohortPeople
-from posthog.hogql.database.schema.system import SystemTables
+from posthog.hogql.database.schema.system import SystemTables, access_controlled_system_tables
 from posthog.hogql.database.schema.web_analytics_preaggregated import (
     WebPreAggregatedBouncesTable,
     WebPreAggregatedStatsTable,
@@ -459,18 +459,14 @@ def _compute_system_table_access_decision(
     reads are query-free) and the system-node table names to remove.
 
     Pass user_access_control when it's already preloaded to reuse the instance and avoid an extra query."""
-    system_children = SystemTables().children
+    # {table_name: access_scope} for access-controlled system tables, computed once and cached — avoids
+    # rebuilding and deep-copying the full SystemTables pydantic catalog on every database build.
+    system_tables = access_controlled_system_tables()
 
     # Anonymous or synthetic principal: keep only access-controlled tables its scopes cover (none for anonymous / team token).
     if user is None or isinstance(user, SyntheticUser):
         readable_scopes = user.readable_system_table_access_scopes() if user is not None else set()
-        return None, {
-            name
-            for name, table_node in system_children.items()
-            if isinstance(table_node.table, PostgresTable)
-            and table_node.table.access_scope is not None
-            and table_node.table.access_scope not in readable_scopes
-        }
+        return None, {name for name, access_scope in system_tables.items() if access_scope not in readable_scopes}
 
     user_access_control = user_access_control or UserAccessControl(user=user, team=team)
 
@@ -479,11 +475,8 @@ def _compute_system_table_access_decision(
         return user_access_control, set()
 
     denied: set[str] = set()
-    for name, table_node in system_children.items():
-        table = table_node.table
-        if not isinstance(table, PostgresTable) or table.access_scope is None:
-            continue  # Not access-controlled, keep it
-        access_level = user_access_control.access_level_for_resource(table.access_scope)
+    for name, access_scope in system_tables.items():
+        access_level = user_access_control.access_level_for_resource(access_scope)
         if access_level and access_level != NO_ACCESS_LEVEL:
             continue  # User has access, keep it
         denied.add(name)
