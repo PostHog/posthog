@@ -1,5 +1,8 @@
+use std::collections::HashMap;
+
 use serde_json::Value;
 use sha2::{Digest, Sha512};
+use uuid::Uuid;
 
 use crate::{
     error::UnhandledError,
@@ -124,33 +127,41 @@ async fn select_automatic_fingerprint(
         .cloned()
         .ok_or_else(|| UnhandledError::Other("No fingerprint algorithms registered".into()))?;
 
+    // Cache pass, newest-first: an issue whose newest fingerprint is hot
+    // resolves with no DB traffic at all.
+    for (version, fingerprint) in fingerprints.iter().rev() {
+        let cache_key = (input.team_id, fingerprint.value.clone());
+        if ctx.issue_cache.get(&cache_key).await.is_some() {
+            return Ok((*version, fingerprint.clone()));
+        }
+    }
+
+    // One round-trip for every candidate value the cache didn't know, instead
+    // of one sequential lookup per version (the cache stores hits only, so a
+    // per-version walk pays a round-trip per miss — the common case for new
+    // errors). Preference order is applied to the result set below, so the
+    // outcome is identical to the sequential newest-first walk.
+    let values: Vec<String> = fingerprints
+        .iter()
+        .map(|(_, fingerprint)| fingerprint.value.clone())
+        .collect();
+    let known: HashMap<String, Uuid> =
+        IssueFingerprintOverride::load_many(&ctx.connection, input.team_id, &values)
+            .await?
+            .into_iter()
+            .map(|record| (record.fingerprint, record.issue_id))
+            .collect();
+    for (value, issue_id) in &known {
+        ctx.issue_cache
+            .insert((input.team_id, value.clone()), *issue_id)
+            .await;
+    }
+
     for (version, fingerprint) in fingerprints.into_iter().rev() {
-        if fingerprint_exists(ctx, input.team_id, &fingerprint.value).await? {
+        if known.contains_key(&fingerprint.value) {
             return Ok((version, fingerprint));
         }
     }
 
     Ok(newest)
-}
-
-async fn fingerprint_exists(
-    ctx: &GroupingStage,
-    team_id: i32,
-    fingerprint: &str,
-) -> Result<bool, UnhandledError> {
-    let cache_key = (team_id, fingerprint.to_string());
-    if ctx.issue_cache.get(&cache_key).await.is_some() {
-        return Ok(true);
-    }
-
-    let Some(override_record) =
-        IssueFingerprintOverride::load(&ctx.connection, team_id, fingerprint).await?
-    else {
-        return Ok(false);
-    };
-
-    ctx.issue_cache
-        .insert(cache_key, override_record.issue_id)
-        .await;
-    Ok(true)
 }
