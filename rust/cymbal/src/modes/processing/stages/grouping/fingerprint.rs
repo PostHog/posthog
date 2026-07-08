@@ -127,34 +127,41 @@ async fn select_automatic_fingerprint(
         .cloned()
         .ok_or_else(|| UnhandledError::Other("No fingerprint algorithms registered".into()))?;
 
-    // Cache pass, newest-first: an issue whose newest fingerprint is hot
-    // resolves with no DB traffic at all.
-    for (version, fingerprint) in fingerprints.iter().rev() {
+    // Cache pass: collect known hits without short-circuiting — a cached hit
+    // for an older version must not outrank a newer version whose row exists
+    // in Postgres but is not in this worker's cache.
+    let mut known: HashMap<String, Uuid> = HashMap::new();
+    let mut uncached: Vec<String> = Vec::new();
+    for (_, fingerprint) in fingerprints.iter() {
         let cache_key = (input.team_id, fingerprint.value.clone());
-        if ctx.issue_cache.get(&cache_key).await.is_some() {
-            return Ok((*version, fingerprint.clone()));
+        match ctx.issue_cache.get(&cache_key).await {
+            Some(issue_id) => {
+                known.insert(fingerprint.value.clone(), issue_id);
+            }
+            None => uncached.push(fingerprint.value.clone()),
         }
+    }
+
+    // Hot path: the newest version is a known hit, so nothing can outrank it.
+    if known.contains_key(&newest.1.value) {
+        return Ok(newest);
     }
 
     // One round-trip for every candidate value the cache didn't know, instead
     // of one sequential lookup per version (the cache stores hits only, so a
     // per-version walk pays a round-trip per miss — the common case for new
-    // errors). Preference order is applied to the result set below, so the
-    // outcome is identical to the sequential newest-first walk.
-    let values: Vec<String> = fingerprints
-        .iter()
-        .map(|(_, fingerprint)| fingerprint.value.clone())
-        .collect();
-    let known: HashMap<String, Uuid> =
-        IssueFingerprintOverride::load_many(&ctx.connection, input.team_id, &values)
-            .await?
-            .into_iter()
-            .map(|record| (record.fingerprint, record.issue_id))
-            .collect();
-    for (value, issue_id) in &known {
-        ctx.issue_cache
-            .insert((input.team_id, value.clone()), *issue_id)
-            .await;
+    // errors). Preference order is applied to the merged cache + DB result
+    // set below, so the outcome is identical to the sequential newest-first
+    // walk.
+    if !uncached.is_empty() {
+        for record in
+            IssueFingerprintOverride::load_many(&ctx.connection, input.team_id, &uncached).await?
+        {
+            ctx.issue_cache
+                .insert((input.team_id, record.fingerprint.clone()), record.issue_id)
+                .await;
+            known.insert(record.fingerprint, record.issue_id);
+        }
     }
 
     for (version, fingerprint) in fingerprints.into_iter().rev() {
