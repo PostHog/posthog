@@ -664,7 +664,7 @@ export const getVisionScannersPromptSuggestionsApplyCreateUrl = (projectId: stri
 }
 
 /**
- * Apply this suggestion: write its prompt to the scanner (bumping the scanner version) and mark the suggestion applied. Requires session recording edit access.
+ * Apply this suggestion: write its prompt to the scanner (bumping the scanner version) and mark the suggestion applied. Only the current pending suggestion can be applied. Requires session recording edit access.
  */
 export const visionScannersPromptSuggestionsApplyCreate = async (
     projectId: string,
@@ -690,7 +690,7 @@ export const getVisionScannersPromptSuggestionsDismissCreateUrl = (
 }
 
 /**
- * Dismiss this suggestion without applying it. Requires session recording edit access.
+ * Dismiss this suggestion without applying it. Only the current pending suggestion can be dismissed. Requires session recording edit access.
  */
 export const visionScannersPromptSuggestionsDismissCreate = async (
     projectId: string,
