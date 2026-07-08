@@ -1,5 +1,6 @@
 from collections.abc import Sequence
-from datetime import UTC, datetime, timedelta
+from dataclasses import dataclass
+from datetime import UTC, datetime, timedelta, tzinfo
 from typing import Optional, Union
 
 from django.db.models import F, Q
@@ -14,6 +15,7 @@ from posthog.models import EventDefinition, EventProperty, PropertyDefinition, T
 from posthog.models.group_type_mapping import get_group_types_for_project
 from posthog.security.llm_prompt_sanitization import sanitize_user_text
 
+from products.exports.backend.models.subscription import Subscription
 from products.exports.backend.temporal.subscriptions.ai_subscription.prompts import (
     EVENT_SELECTION_PROMPT,
     EVENT_SELECTION_PROMPT_NAME,
@@ -41,6 +43,10 @@ PROMPT_MAX_LENGTH: int = int(SubscriptionAIPromptMaxLength.model_fields["root"].
 EVENT_NAMES_SAMPLE_LIMIT = 20
 # bounds the Postgres scan + context size for the dormant-events list
 NO_DATA_EVENT_NAMES_LIMIT = 25
+# "Dormant" is a fixed, long-horizon signal independent of the report window: an event not seen in this
+# many days is worth flagging so the planner doesn't fabricate it, regardless of how short a given run's
+# analysis window is.
+NO_DATA_LOOKBACK_DAYS = 30
 PERSON_PROPERTY_NAMES_LIMIT = 30
 EVENT_NAME_MAX_LENGTH = 120
 # The top-events list is volume-ranked, so a targeted request ("how are exports doing?") never surfaces
@@ -63,6 +69,89 @@ _EVENT_SELECTION_LLM_TIMEOUT_SECONDS = 30.0
 
 class PromptRejectedError(ValueError):
     pass
+
+
+@dataclass(frozen=True)
+class ReportWindow:
+    """Half-open `[start, end)` analysis bounds for a report run, tz-aware in the team timezone.
+
+    The literals render as project-tz wall clock without an offset: HogQL resolves bare datetime
+    literals against the project timezone, which keeps the LLM out of timezone math entirely.
+    `compare_start` is the equal-length period immediately before the window, for
+    period-over-period queries.
+    """
+
+    start: datetime
+    end: datetime
+
+    @property
+    def start_literal(self) -> str:
+        return self.start.strftime("%Y-%m-%d %H:%M:%S")
+
+    @property
+    def end_literal(self) -> str:
+        return self.end.strftime("%Y-%m-%d %H:%M:%S")
+
+    @property
+    def compare_start(self) -> datetime:
+        return self.start - (self.end - self.start)
+
+    @property
+    def compare_start_literal(self) -> str:
+        return self.compare_start.strftime("%Y-%m-%d %H:%M:%S")
+
+
+def _in_tz(dt: datetime, tz: tzinfo) -> datetime:
+    """Normalise to `tz`. Naive inputs are assumed UTC (Django stores tz-aware UTC datetimes, but
+    management commands / tests may hand us a naive value)."""
+    return (dt if dt.tzinfo is not None else dt.replace(tzinfo=UTC)).astimezone(tz)
+
+
+def compute_report_window(
+    team: Team,
+    last_scheduled_cutoff: Optional[datetime],
+    now: datetime,
+    window_days: int,
+    mode: str = Subscription.AIWindowMode.SINCE_LAST_SENT,
+    start_days_ago: Optional[int] = None,
+    end_days_ago: Optional[int] = None,
+) -> ReportWindow:
+    """Compute the `[start, end)` analysis window for a run. Pure — callers resolve the cutoff
+    and `now` and pass them in.
+
+    Mode shapes and defaults are documented on `AIPromptConfigSerializer` (the write-side schema);
+    day values arrive pre-validated via `Subscription.normalize_ai_window`. SINCE_LAST_SENT starts
+    where the previous scheduled report's coverage ended (gap-free "since last report"), falling
+    back to `end - window_days`; a day-based mode missing its values degrades to that same
+    fallback, with a warning so the ignored config is diagnosable.
+    """
+    tz = team.timezone_info
+    run_now = _in_tz(now, tz)
+
+    if mode == Subscription.AIWindowMode.LAST_N_DAYS and start_days_ago:
+        return ReportWindow(start=run_now - timedelta(days=start_days_ago), end=run_now)
+
+    if mode == Subscription.AIWindowMode.DAYS_AGO_RANGE and start_days_ago:
+        return ReportWindow(
+            start=run_now - timedelta(days=start_days_ago),
+            end=run_now - timedelta(days=end_days_ago or 0),
+        )
+
+    if mode != Subscription.AIWindowMode.SINCE_LAST_SENT:
+        logger.warning(
+            "ai_report.window_config_invalid_fallback",
+            team_id=team.pk,
+            mode=mode,
+            start_days_ago=start_days_ago,
+            end_days_ago=end_days_ago,
+        )
+
+    end = run_now
+    start = _in_tz(last_scheduled_cutoff, tz) if last_scheduled_cutoff is not None else None
+    if start is None or start >= end:
+        start = end - timedelta(days=window_days)
+
+    return ReportWindow(start=start, end=end)
 
 
 def sanitize_prompt(raw: str | None) -> str:
@@ -92,13 +181,14 @@ def _top_event_names(team: Team, limit: int) -> list[str]:
     return [name for name in sanitized if name]
 
 
-def _no_data_event_names(team: Team, window_days: int, limit: int) -> list[str]:
+def _no_data_event_names(team: Team, limit: int) -> list[str]:
     # Ground truth for "events with no data" lives in the event-definitions taxonomy, not the events
-    # table (which only contains events that fired). An event whose `last_seen_at` predates the window —
-    # or was never seen — had no data in it. `last_seen_at` is maintained on ingestion so it can lag
-    # slightly, but it's the authoritative taxonomy signal and stops the LLM fabricating a plausible
-    # list of dormant events from its general knowledge of PostHog event names.
-    cutoff = datetime.now(tz=UTC) - timedelta(days=window_days)
+    # table (which only contains events that fired). An event whose `last_seen_at` predates the dormancy
+    # cutoff — or was never seen — is treated as dormant. `last_seen_at` is maintained on ingestion so it
+    # can lag slightly, but it's the authoritative taxonomy signal and stops the LLM fabricating a
+    # plausible list of dormant events from its general knowledge of PostHog event names. The cutoff is a
+    # fixed lookback, decoupled from the report window: dormancy is a property of the event, not the run.
+    cutoff = datetime.now(tz=UTC) - timedelta(days=NO_DATA_LOOKBACK_DAYS)
     names = (
         EventDefinition.objects.filter(team_id=team.pk)
         .filter(Q(last_seen_at__isnull=True) | Q(last_seen_at__lt=cutoff))
@@ -219,21 +309,27 @@ def _event_property_names(team: Team, events: list[str], per_event_limit: int) -
     return by_event
 
 
-def build_context_blob(team: Team, window_days: int, relevant_events: Sequence[str] = ()) -> str:
+def build_context_blob(team: Team, window: ReportWindow, relevant_events: Sequence[str] = ()) -> str:
     event_names = _top_event_names(team, EVENT_NAMES_SAMPLE_LIMIT)
-    now_iso = datetime.now(tz=UTC).isoformat(timespec="seconds")
 
     # Team / org names are also user-controlled and end up in the LLM context, so
     # apply the same sanitization as event names.
     team_name = sanitize_user_text(team.name, EVENT_NAME_MAX_LENGTH) or "(unnamed)"
     org_name = sanitize_user_text(team.organization.name, EVENT_NAME_MAX_LENGTH) or "(unnamed)"
 
+    # Exact, code-computed bounds in the project timezone — the planner filters on these literals
+    # instead of writing its own `now() - INTERVAL`, so there's no timezone math in HogQL and the
+    # window is gap-free run-to-run. Half-open: include `start`, exclude `end`.
     lines = [
         f"- Project: {team_name}",
         f"- Organization: {org_name}",
         f"- Project timezone: {team.timezone}",
-        f"- Current UTC time: {now_iso}",
-        f"- Suggested analysis window: last {window_days} day(s)",
+        f"- Analysis window start (inclusive, project timezone): {window.start_literal}",
+        f"- Analysis window end (exclusive, project timezone): {window.end_literal}",
+        f"- Filter timestamps with: timestamp >= toDateTime('{window.start_literal}') "
+        f"AND timestamp < toDateTime('{window.end_literal}')",
+        f"- Previous-period start (for period-over-period comparisons only, project timezone): "
+        f"{window.compare_start_literal}",
     ]
     if event_names:
         lines.append("- Top events: " + ", ".join(event_names))
@@ -264,10 +360,11 @@ def build_context_blob(team: Team, window_days: int, relevant_events: Sequence[s
             if clean_props:
                 lines.append(f"  - `{clean}` properties (use properties.<name>): " + ", ".join(clean_props))
 
-    no_data_events = _no_data_event_names(team, window_days, NO_DATA_EVENT_NAMES_LIMIT)
+    no_data_events = _no_data_event_names(team, NO_DATA_EVENT_NAMES_LIMIT)
     if no_data_events:
         lines.append(
-            f"- Events defined but with no data in the last {window_days} day(s): " + ", ".join(no_data_events)
+            f"- Events defined but with no data in the last {NO_DATA_LOOKBACK_DAYS} day(s): "
+            + ", ".join(no_data_events)
         )
 
     person_properties = _person_property_names(team, PERSON_PROPERTY_NAMES_LIMIT)
@@ -324,12 +421,12 @@ def build_enriched_prompt(
     team: Team,
     user: User,
     prompt: Optional[str],
-    window_days: int,
+    window: ReportWindow,
     trace_correlation_id: Optional[Union[int, str]] = None,
 ) -> EnrichedPromptSpec:
     cleaned = sanitize_prompt(prompt)
     relevant_events = _select_relevant_events(team, user, cleaned, trace_correlation_id)
-    context_blob = build_context_blob(team, window_days, relevant_events=relevant_events)
+    context_blob = build_context_blob(team, window, relevant_events=relevant_events)
     plan = generate_query_plan(
         cleaned_prompt=cleaned,
         context_blob=context_blob,
