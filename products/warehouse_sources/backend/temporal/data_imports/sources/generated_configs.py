@@ -2780,7 +2780,7 @@ class RetailExpressSourceConfig(config.Config):
 
 @config.config
 class RetentlySourceConfig(config.Config):
-    pass
+    api_key: str
 
 
 @config.config
