@@ -3719,6 +3719,9 @@ importers:
       '@posthog/products-error-tracking':
         specifier: workspace:*
         version: link:../error_tracking
+      '@posthog/products-tracing':
+        specifier: workspace:*
+        version: link:../tracing
       '@posthog/quill-charts':
         specifier: workspace:*
         version: link:../../packages/quill/packages/charts

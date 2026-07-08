@@ -12,8 +12,8 @@ import type { metricsSceneLogicType } from './metricsSceneLogicType'
 
 export const METRICS_SQL_EDITOR_TAB_ID = 'metrics-sql-editor'
 
-export type MetricsSceneActiveTab = 'viewer' | 'sql'
-const VALID_ACTIVE_TABS: MetricsSceneActiveTab[] = ['viewer', 'sql']
+export type MetricsSceneActiveTab = 'viewer' | 'samples' | 'sql'
+const VALID_ACTIVE_TABS: MetricsSceneActiveTab[] = ['viewer', 'samples', 'sql']
 export const DEFAULT_ACTIVE_TAB: MetricsSceneActiveTab = 'viewer'
 
 export const metricsSceneLogic = kea<metricsSceneLogicType>([

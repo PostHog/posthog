@@ -9,6 +9,7 @@ import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 import { ProductKey } from '~/queries/schema/schema-general'
 
+import { MetricsSamples } from './components/MetricsSamples'
 import { MetricsSetupPrompt } from './components/MetricsSetupPrompt'
 import { MetricsSqlEditor } from './components/MetricsSqlEditor'
 import { MetricsViewer } from './components/MetricsViewer'
@@ -19,6 +20,7 @@ export const METRICS_LOGIC_KEY = 'metrics'
 
 const TABS: { key: MetricsSceneActiveTab; label: string }[] = [
     { key: 'viewer', label: 'Viewer' },
+    { key: 'samples', label: 'Samples' },
     { key: 'sql', label: 'SQL' },
 ]
 
@@ -67,6 +69,7 @@ const MetricsSceneContent = (): JSX.Element => {
             <MetricsSetupPrompt>
                 <div className="flex flex-col gap-2 py-2 flex-1 min-h-0">
                     {activeTab === 'viewer' && <MetricsViewer />}
+                    {activeTab === 'samples' && <MetricsSamples />}
                     {activeTab === 'sql' && <MetricsSqlEditor />}
                 </div>
             </MetricsSetupPrompt>
