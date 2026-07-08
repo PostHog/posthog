@@ -152,9 +152,9 @@ const VERDICT_OPTIONS: { value: 'yes' | 'no' | 'inconclusive'; label: string }[]
     { value: 'inconclusive', label: 'Inconclusive' },
 ]
 
-// Type-specific "run this on…" targeting controls. Empty controls mean the action runs on all of the
-// scanner's observations; the selected values narrow it (verdicts for monitors, tags for classifiers,
-// a score range for scorers). Summarizers have no outcome to filter on.
+// Type-specific "what to summarize" controls. Empty controls mean every observation is summarized;
+// the selected values narrow it (verdicts for monitors, tags for classifiers, a score range for
+// scorers). Summarizers have no outcome to filter on, so the section is hidden entirely.
 function TargetingSection({ scannerId }: { scannerId: string }): JSX.Element | null {
     const { actionForm, actionFormErrors } = useValues(actionEditorSceneLogic)
     const { setActionFormValue } = useActions(actionEditorSceneLogic)
@@ -192,7 +192,8 @@ function TargetingSection({ scannerId }: { scannerId: string }): JSX.Element | n
                         ))}
                     </div>
                     <span className="text-xs text-muted">
-                        Only run on observations with these verdicts. Leave all unselected to run on every observation.
+                        Only summarize observations with these verdicts. Leave all unselected to summarize every
+                        observation.
                     </span>
                 </div>
             )
@@ -215,7 +216,8 @@ function TargetingSection({ scannerId }: { scannerId: string }): JSX.Element | n
                         data-attr="vision-action-targeting-tags"
                     />
                     <span className="text-xs text-muted">
-                        Only run on observations tagged with any of these. Leave empty to run on every observation.
+                        Only summarize observations tagged with any of these. Leave empty to summarize every
+                        observation.
                     </span>
                 </div>
             )
@@ -248,25 +250,22 @@ function TargetingSection({ scannerId }: { scannerId: string }): JSX.Element | n
                         <span className="text-xs text-danger">{String(actionFormErrors.min_score)}</span>
                     ) : null}
                     <span className="text-xs text-muted">
-                        Only run on observations scored in this range (inclusive
-                        {scale ? `; this scanner scores ${scale.min}–${scale.max}` : ''}). Leave empty to run on every
-                        observation.
+                        Only summarize observations scored in this range (inclusive
+                        {scale ? `; this scanner scores ${scale.min}–${scale.max}` : ''}). Leave empty to summarize
+                        every observation.
                     </span>
                 </div>
             )
             break
         }
         default:
-            controls = (
-                <span className="text-xs text-muted">
-                    Runs on all of this scanner's summaries — summarizers have no outcome to filter on.
-                </span>
-            )
+            // Summarizers have no outcome to filter on, so there's nothing to configure here.
+            return null
     }
 
     return (
         <div>
-            <h4 className="mb-1">Run this on</h4>
+            <h4 className="mb-1">What to summarize</h4>
             {controls}
         </div>
     )
