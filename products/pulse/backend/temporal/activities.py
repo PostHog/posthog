@@ -77,7 +77,9 @@ async def synthesize_brief_activity(inputs: SynthesizeActivityInputs) -> str:
         items=items,
         period_days=brief.period_days,
     )
-    await database_sync_to_async(persist_brief_output, thread_sensitive=False)(brief=brief, out=out, items=items)
+    brief = await database_sync_to_async(persist_brief_output, thread_sensitive=False)(
+        brief=brief, out=out, items=items
+    )
     return brief.status
 
 

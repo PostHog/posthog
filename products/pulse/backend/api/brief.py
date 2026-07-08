@@ -28,9 +28,10 @@ PULSE_FEATURE_FLAG = "pulse"
 
 logger = structlog.get_logger(__name__)
 
-# Caps total wall-clock across Temporal retries/re-executions, comfortably above the
-# per-activity timeouts in temporal/workflow.py.
-_WORKFLOW_EXECUTION_TIMEOUT = dt.timedelta(minutes=15)
+# Caps total wall-clock across Temporal retries/re-executions. Worst-case activity budget
+# in temporal/workflow.py is ~18min (gather 2 attempts x 5min + synthesize 5min +
+# mark-failed 3 x 1min); 20 keeps the in-workflow failure path authoritative.
+_WORKFLOW_EXECUTION_TIMEOUT = dt.timedelta(minutes=20)
 
 
 class BriefAnchorsSerializer(serializers.Serializer):
@@ -235,7 +236,14 @@ class ProductBriefViewSet(TeamAndOrgViewSetMixin, viewsets.ReadOnlyModelViewSet)
                 )
             )
         except WorkflowAlreadyStartedError:
-            brief.delete()
+            try:
+                brief.delete()
+            except Exception:
+                # A failed delete must not strand the row in GENERATING.
+                logger.exception("pulse_brief_duplicate_cleanup_failed", team_id=self.team_id, brief_id=str(brief.id))
+                ProductBrief.objects.for_team(self.team_id).filter(id=brief.id).update(
+                    status=ProductBrief.Status.FAILED, error="Brief generation already in progress"
+                )
             return Response({"detail": "Brief generation already in progress"}, status=status.HTTP_409_CONFLICT)
         except Exception as exc:
             # Dispatch never reached Temporal — mark the row FAILED so it can't strand in GENERATING.
