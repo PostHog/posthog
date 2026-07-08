@@ -1687,22 +1687,22 @@ export interface ExperimentMetricsRecalculationApi {
      */
     running_metrics?: number | null
     /**
-     * Rows read so far by the currently-running metric queries (monotonic; the live progress signal)
+     * Rows read by the run's metric queries so far, both finished and currently running. Cumulative and roughly monotonic across the run; the primary live progress signal
      * @nullable
      */
     rows_read?: number | null
     /**
-     * ClickHouse's total_rows_approx across running queries. A soft ceiling ClickHouse revises upward mid-scan, so it can exceed or trail rows_read; treat rows_read as the reliable signal
+     * ClickHouse's total_rows_approx across running queries plus the final read_rows of finished ones. A soft ceiling revised mid-scan, so it can exceed or trail rows_read; treat rows_read as the reliable signal
      * @nullable
      */
     estimated_rows_total?: number | null
     /**
-     * Bytes read so far by the currently-running metric queries
+     * Bytes read by the run's metric queries so far, both finished and currently running
      * @nullable
      */
     bytes_read?: number | null
     /**
-     * Active CPU time (microseconds) consumed by the currently-running metric queries
+     * Active CPU time (microseconds) consumed by the run's metric queries so far, both finished and currently running
      * @nullable
      */
     active_cpu_time?: number | null
