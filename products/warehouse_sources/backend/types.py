@@ -701,6 +701,9 @@ class ExternalDataSourceType(models.TextChoices):
     MERCURY = "Mercury", "Mercury"
     GOJIBERRY = "Gojiberry", "Gojiberry"
     TEACHABLE = "Teachable", "Teachable"
+    PEECAI = "PeecAI", "PeecAI"
+    HEALTHCHECKS = "Healthchecks", "Healthchecks"
+    IMPACT = "Impact", "Impact"
 
 
 # Maps a source type to the direct-SQL engine that can query it live. A source type is only

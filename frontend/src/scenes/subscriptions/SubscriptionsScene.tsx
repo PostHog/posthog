@@ -1,11 +1,12 @@
 import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
 
-import { HedgehogMagnifyingGlass } from '@posthog/brand/hoggies'
+import * as magnifyingGlassPng from '@posthog/brand/hoggies/png/magnifying-glass'
 import { IconEllipsis } from '@posthog/icons'
 import { LemonButton, LemonMenu, LemonModal, Link } from '@posthog/lemon-ui'
 import type { SubscriptionApi } from '@posthog/products-subscriptions/frontend/generated/api.schemas'
 
+import { pngHoggie } from 'lib/brand/hoggies'
 import { ProductIntroduction } from 'lib/components/ProductIntroduction/ProductIntroduction'
 import { EditSubscription } from 'lib/components/Subscriptions/views/EditSubscription'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
@@ -29,6 +30,8 @@ import {
     subscriptionName,
 } from './components/SubscriptionsTable'
 import { SubscriptionsTab, subscriptionsSceneLogic } from './subscriptionsSceneLogic'
+
+const HedgehogMagnifyingGlass = pngHoggie(magnifyingGlassPng)
 
 function SubscriptionsRowActions({ sub }: { sub: SubscriptionApi }): JSX.Element {
     const { push } = useActions(router)

@@ -1,6 +1,8 @@
 import { actions, connect, kea, key, path, props, reducers, selectors } from 'kea'
 
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
+import { FEATURE_FLAGS } from 'lib/constants'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { userLogic } from 'scenes/userLogic'
 
 import { groupsModel } from '~/models/groupsModel'
@@ -26,9 +28,11 @@ export const aiObservabilityTracesTabLogic = kea<aiObservabilityTracesTabLogicTy
     connect((props: AIObservabilityTracesTabLogicProps) => ({
         values: [
             aiObservabilitySharedLogic({ personId: props.personId, group: props.group }),
-            ['dateFilter', 'shouldFilterTestAccounts', 'shouldFilterSupportTraces', 'propertyFilters'],
+            ['dateFilter', 'shouldFilterTestAccounts', 'shouldFilterSupportTraces', 'propertyFilters', 'searchQuery'],
             groupsModel,
             ['groupsTaxonomicTypes'],
+            featureFlagLogic,
+            ['featureFlags'],
             userLogic,
             ['user'],
         ],
@@ -75,9 +79,11 @@ export const aiObservabilityTracesTabLogic = kea<aiObservabilityTracesTabLogicTy
                 s.shouldFilterTestAccounts,
                 s.shouldFilterSupportTraces,
                 s.propertyFilters,
+                s.searchQuery,
                 (_, props) => props.personId,
                 (_, props) => props.group,
                 s.groupsTaxonomicTypes,
+                s.featureFlags,
                 s.user,
                 s.showInputOutputColumns,
                 s.showSentimentColumn,
@@ -87,9 +93,11 @@ export const aiObservabilityTracesTabLogic = kea<aiObservabilityTracesTabLogicTy
                 shouldFilterTestAccounts: boolean,
                 shouldFilterSupportTraces: boolean,
                 propertyFilters,
+                searchQuery: string,
                 personId: string | undefined,
                 group: { groupKey: string; groupTypeIndex: number } | undefined,
                 groupsTaxonomicTypes: TaxonomicFilterGroupType[],
+                featureFlags: { [flag: string]: boolean | string | undefined },
                 user: { is_impersonated?: boolean } | null,
                 showInputOutputColumns: boolean,
                 showSentimentColumn: boolean
@@ -110,6 +118,9 @@ export const aiObservabilityTracesTabLogic = kea<aiObservabilityTracesTabLogicTy
                         filterTestAccounts: shouldFilterTestAccounts ?? false,
                         filterSupportTraces,
                         properties: propertyFilters,
+                        searchTerm: featureFlags[FEATURE_FLAGS.LLM_OBSERVABILITY_TRACE_SEARCH]
+                            ? searchQuery || undefined
+                            : undefined,
                         personId: personId ?? undefined,
                         groupKey: group?.groupKey,
                         groupTypeIndex: group?.groupTypeIndex,
@@ -131,7 +142,7 @@ export const aiObservabilityTracesTabLogic = kea<aiObservabilityTracesTabLogicTy
                     ],
                     showDateRange: true,
                     showReload: true,
-                    showSearch: true,
+                    showSearch: !!featureFlags[FEATURE_FLAGS.LLM_OBSERVABILITY_TRACE_SEARCH],
                     showTestAccountFilters: true,
                     showExport: false,
                     showOpenEditorButton: false,
