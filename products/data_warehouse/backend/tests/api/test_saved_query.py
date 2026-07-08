@@ -708,6 +708,28 @@ class TestSavedQuery(APIBaseTest):
         )
         self.assertEqual(response.status_code, 400, response.content)
 
+    def test_update_sync_frequency_rejected_when_dag_managed(self):
+        # A view whose cadence is owned by the v2 DAG schedule must reject a sync_frequency change
+        # with a user-facing message, keyed on the Temporal schedule source of truth rather than the
+        # data-modeling-backend-v2 feature flag (which can diverge from the client's bootstrapped flag).
+        saved_query = self._create_saved_query()
+
+        with patch(
+            "products.data_modeling.backend.logic.node_materialization.is_saved_query_on_v2_schedule",
+            return_value=True,
+        ):
+            response = self.client.patch(
+                f"/api/environments/{self.team.id}/warehouse_saved_queries/{saved_query['id']}",
+                {"sync_frequency": "1hour"},
+            )
+
+        self.assertEqual(response.status_code, 400, response.content)
+        self.assertIn("managed automatically", response.json()["detail"])
+
+        # The cadence must be left untouched, not silently applied.
+        updated_query = DataWarehouseSavedQuery.objects.get(id=saved_query["id"])
+        self.assertIsNone(updated_query.sync_frequency_interval)
+
     def test_update_with_types(self):
         response = self.client.post(
             f"/api/projects/{self.team.id}/warehouse_saved_queries/",

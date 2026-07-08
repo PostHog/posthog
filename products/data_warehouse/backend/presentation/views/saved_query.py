@@ -512,6 +512,24 @@ class DataWarehouseSavedQuerySerializer(
             logger.exception("Failed to sync saved query to DAG", saved_query_name=view.name)
         return view
 
+    def _sync_frequency_is_dag_managed(self, instance: DataWarehouseSavedQuery) -> bool:
+        """Whether this view's materialization cadence is owned by the v2 data modeling DAG schedule.
+
+        Keys on the Temporal schedule source of truth rather than the `data-modeling-backend-v2`
+        feature flag, so the check can't diverge from the client's bootstrapped flag and reject an
+        edit the UI still offered. Fails open: if the schedule backend is unreachable we let the edit
+        through rather than blocking it on a false positive.
+        """
+        # Lazy facade import keeps the temporal/asyncio deps off this module's import path.
+        from products.data_modeling.backend.facade.api import is_saved_query_on_v2_schedule  # noqa: PLC0415
+
+        try:
+            return is_saved_query_on_v2_schedule(instance)
+        except Exception as e:
+            capture_exception(e)
+            logger.exception("Failed to resolve DAG schedule state for saved query", saved_query_name=instance.name)
+            return False
+
     def update(self, instance: Any, validated_data: Any) -> Any:
         dag_id = validated_data.pop("dag_id", None)
         has_description = "description" in validated_data
@@ -527,15 +545,11 @@ class DataWarehouseSavedQuerySerializer(
 
         sync_frequency = validated_data.pop("sync_frequency", None)
 
-        if sync_frequency and posthoganalytics.feature_enabled(
-            "data-modeling-backend-v2",
-            str(instance.team.uuid),
-            groups={
-                "organization": str(instance.team.organization_id),
-                "project": str(instance.team.id),
-            },
-        ):
-            raise serializers.ValidationError("Schedule is managed by the DAG. Edit the DAG schedule instead.")
+        if sync_frequency and self._sync_frequency_is_dag_managed(instance):
+            raise serializers.ValidationError(
+                "This view's sync schedule is managed automatically by PostHog's data modeling engine, "
+                "so its sync frequency can't be changed here."
+            )
 
         soft_update = validated_data.pop("soft_update", False)
 
