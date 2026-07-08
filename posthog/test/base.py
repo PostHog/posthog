@@ -1006,6 +1006,11 @@ def cleanup_materialized_columns():
         # EE not available? Skip
         return
 
+    # A prior test may have mutated schema with raw sync_execute, bypassing materialize()/
+    # drop_column() (which self-invalidate) — refresh before deciding what to drop below.
+    for _table in MATERIALIZATION_VALID_TABLES:
+        _clear_materialized_columns_cache(_table)
+
     def optionally_drop(table, filter=None):
         columns_to_drop = [
             column for column in get_materialized_columns(table).values() if filter is None or filter(column.name)
