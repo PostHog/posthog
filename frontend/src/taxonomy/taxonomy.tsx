@@ -1,9 +1,6 @@
-import { DataWarehousePopoverField } from 'lib/components/TaxonomicFilter/types'
-import {
-    UTM_CAMPAIGN_NAME_SCHEMA_FIELD,
-    UTM_SOURCE_NAME_SCHEMA_FIELD,
-} from 'scenes/web-analytics/tabs/marketing-analytics/utils'
+import type { DataWarehousePopoverField } from 'lib/components/TaxonomicFilter/types'
 
+import { UTM_CAMPAIGN_NAME_SCHEMA_FIELD, UTM_SOURCE_NAME_SCHEMA_FIELD } from '~/taxonomy/marketingAnalytics'
 import { CoreFilterDefinition } from '~/types'
 
 import coreFilterDefinitionsByGroup from './core-filter-definitions-by-group.json'

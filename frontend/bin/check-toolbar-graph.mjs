@@ -29,9 +29,8 @@ const ENTRY = 'src/toolbar/index.tsx'
 
 const APP_ZONE = [/^src\/products/, /^src\/scenes\//, /^src\/layout\//, /^src\/models\//, /^\.\.\/products\//]
 
-// Packages the toolbar never renders and must not appear in its graph at all. monaco-editor and
-// chart.js are denied at resolve time in toolbar-config.mjs; mermaid and hls.js have no import
-// path into the toolbar, and this guards against one being reintroduced.
+// Packages the toolbar never renders and must not appear in its graph at all. None have an
+// import path into the toolbar today; this guard fails the build if a change reintroduces one.
 const FORBIDDEN_PACKAGES = [
     'node_modules/monaco-editor/',
     'node_modules/chart.js/',
@@ -42,7 +41,7 @@ const FORBIDDEN_PACKAGES = [
 // Ratchet policy: when an edge is cut, lower the budget to lock it in; raise it only as a
 // conscious, reviewed decision in the PR that needs it. There is headroom for churn, but any
 // reintroduced leak jumps the graph back toward ~100 MiB and fails loudly.
-const TOTAL_INPUT_BYTES_BUDGET = 14_800_000
+const TOTAL_INPUT_BYTES_BUDGET = 14_400_000
 
 function fail(message) {
     console.error(`\n❌ ${message}`)

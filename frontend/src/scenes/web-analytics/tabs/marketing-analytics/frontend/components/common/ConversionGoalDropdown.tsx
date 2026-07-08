@@ -13,16 +13,15 @@ import {
     NodeKind,
 } from '~/queries/schema/schema-general'
 import { isDataWarehouseNode } from '~/queries/utils'
-import { conversionGoalPopoverFields } from '~/taxonomy/taxonomy'
-import { ActionFilter, BaseMathType, AnyDataWarehouseFilter, EntityTypes, FilterType, PropertyMathType } from '~/types'
-
 import {
     ConversionGoalSchema,
     DISTINCT_ID_FIELD_SCHEMA_FIELD,
     TIMESTAMP_FIELD_SCHEMA_FIELD,
     UTM_CAMPAIGN_NAME_SCHEMA_FIELD,
     UTM_SOURCE_NAME_SCHEMA_FIELD,
-} from '../../../utils'
+} from '~/taxonomy/marketingAnalytics'
+import { conversionGoalPopoverFields } from '~/taxonomy/taxonomy'
+import { ActionFilter, BaseMathType, AnyDataWarehouseFilter, EntityTypes, FilterType, PropertyMathType } from '~/types'
 
 interface ConversionGoalDropdownProps {
     value: ConversionGoalFilter
