@@ -99,6 +99,7 @@ from posthog.hogql.database.schema.log_entries import (
 from posthog.hogql.database.schema.logs import LogAttributesTable, LogsKafkaMetricsTable, LogsTable
 from posthog.hogql.database.schema.marketing_conversions_preaggregated import MarketingConversionsPreaggregatedTable
 from posthog.hogql.database.schema.marketing_costs_preaggregated import MarketingCostsPreaggregatedTable
+from posthog.hogql.database.schema.marketing_costs_precomputed import MarketingCostsPrecomputedTable
 from posthog.hogql.database.schema.marketing_touchpoints_preaggregated import MarketingTouchpointsPreaggregatedTable
 from posthog.hogql.database.schema.metrics import (
     MetricAttributesTable,
@@ -437,6 +438,11 @@ def _construct_database_root_node(*, include_posthog_tables: bool) -> TableNode:
                 },
             ),
             "system": SystemTables(),
+            # Deduplicated read interface over posthog.marketing_costs_preaggregated. Registered at root
+            # (like `sessions`) because a lazy/aggregating view only resolves cleanly from the root scope.
+            "marketing_costs_precomputed": TableNode(
+                name="marketing_costs_precomputed", table=MarketingCostsPrecomputedTable()
+            ),
             **children,
         }
 
