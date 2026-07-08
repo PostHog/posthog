@@ -36,20 +36,14 @@ mechanics; this skill exists for the **judgment calls** they can't.
 
 ## What the linters already enforce
 
-Don't re-document these — just satisfy them (`bin/hogli lint:workflows --check WFxxx`):
-
-| Check                             | Rule                                                                     |
-| --------------------------------- | ------------------------------------------------------------------------ |
-| `WF001-job-timeouts`              | every job declares `timeout-minutes`                                     |
-| `WF002-pr-concurrency`            | PR-triggered workflows have the canonical concurrency block              |
-| `WF003-dorny-negation`            | any `!path` in `dorny/paths-filter` sets `predicate-quantifier: 'every'` |
-| `WF004-semgrep-services-coverage` | new services are covered by the semgrep matrix                           |
-| `WF005-checkout-full-depth`       | `fetch-depth: 0` must be blobless, sparse, or explicitly allow-marked    |
-| `WF006-cache-writes`              | cache writes are gated to master or deliberately per-ref                 |
-
-`actionlint` catches generic GHA correctness (bad `secrets.*` / `needs:` refs,
-deprecated `::set-output`, unknown runner labels). Third-party action digests are
-bumped by Renovate (`renovate.json5`, `config:best-practices`).
+`bin/hogli lint:workflows` and `actionlint` are the source of truth for the
+mechanical rules — run them and fix whatever they flag rather than trusting a list
+here to stay current. Between them they cover, today: `timeout-minutes` on every
+job, the canonical PR concurrency block, `dorny/paths-filter` negation safety,
+justification for full-depth checkouts, cache-write gating, semgrep service
+coverage, and generic GHA correctness (bad `secrets.*` / `needs:` refs, deprecated
+`::set-output`, unknown runner labels). Third-party action digests are bumped by
+Renovate. This skill is for the judgment they can't enforce.
 
 ## The dispatch budget (500 runs / 10s / repo)
 
@@ -82,22 +76,25 @@ done** — draft status doesn't help (runs dispatch before skip logic applies).
       paths:
         - '.github/workflows/ci-x.yml'
         - 'path/to/product/**'
-    merge_group:
     workflow_dispatch:
   ```
 
+  There is no active merge queue — the repo's scattered `merge_group:` triggers are
+  dormant. Don't add `merge_group:` to a new workflow unless the queue is re-enabled.
+
 - **Judgment call — trigger `paths:` vs a runtime `dorny/paths-filter` job.** Use
-  trigger `paths:` for a workflow that is _skippable as a whole_. Keep a `changes`
-  job when downstream **required** checks must still report on `merge_group` (a
-  never-dispatched required check blocks merges forever) or when several jobs
-  branch on different path sets. Heavy matrices (`ci-backend`, `ci-nodejs`) still
-  fire on every PR and gate internally — that's deliberate.
-- Delete dead dispatchers outright. A disabled overseer left triggered once fired
-  ~75k no-op runs in 30 days, each against the cap.
+  trigger `paths:` for a workflow that is _skippable as a whole_. Never put a
+  trigger `paths:` on a workflow whose check is **required** by branch protection:
+  a required check that doesn't dispatch on a PR leaves it stuck "waiting for
+  status" and unmergeable. Keep those firing on every PR and gate internally with
+  a `changes` job (also the right call when several jobs branch on different path
+  sets). Heavy matrices (`ci-backend`, `ci-nodejs`) do exactly this — deliberate.
+- Delete dead dispatchers outright. A disabled-but-still-triggered workflow keeps
+  dispatching no-op runs against the cap — remove the trigger, don't just disable it.
 
 ## Concurrency
 
-Every PR-triggered workflow gets the canonical block (WF002):
+Every PR-triggered workflow gets the canonical block:
 
 ```yaml
 concurrency:
@@ -144,7 +141,7 @@ version math, and even then bound the depth and filter blobs.
   `--no-tags`, `--filter=blob:none` refspec scoped to the base ref. (Bumping
   `actions/checkout`'s own `fetch-depth` is safe — it uses a scoped
   `refs/pull/N/merge` refspec.)
-- `fetch-depth: 0` trips WF005 unless you add `filter: blob:none`, use
+- The linter rejects `fetch-depth: 0` unless you add `filter: blob:none`, use
   `sparse-checkout`, or justify it with
   `# hogli-lint: allow-full-depth-checkout -- <reason>`. Genuinely full-history
   jobs: repo mirroring (`foss-sync.yml`), tag/submodule version math
@@ -189,7 +186,7 @@ headroom plus blast-radius isolation.
 
 ## Timeouts
 
-Every job sets `timeout-minutes` (WF001), sized ~2-3x observed max; gate/aggregation
+Every job sets `timeout-minutes`, sized ~2-3x observed max; gate/aggregation
 jobs get ~5m. The default is 6 hours — a hung job burns paid minutes silently.
 **Caveat:** `timeout-minutes` is invalid on a job that only `uses:` a reusable
 workflow — put the timeout inside the called workflow instead.
@@ -200,7 +197,7 @@ Route through the shared composites rather than hand-rolling `actions/cache`:
 `./.github/actions/pnpm-install` (single `pnpm-<os>-<lockhash>` key, save gated to
 master), `astral-sh/setup-uv` with `enable-cache: true`, Depot cache via
 `./.github/actions/build-n-cache-image`. One canonical key per artifact; gate
-saves to master or key deliberately per-ref (WF006). PR-scoped cache writes
+saves to master or key deliberately per-ref. PR-scoped cache writes
 nobody else can read just fragment the 10 GB LRU cap.
 
 ## Runners
@@ -232,7 +229,7 @@ promote to blocking.
 
 ## New-workflow checklist
 
-- [ ] Triggers scoped (`paths:` where the whole workflow is skippable); `merge_group` kept if a required check must report in the queue.
+- [ ] Triggers scoped: trigger `paths:` where the whole workflow is skippable; a required check must still fire on every PR (never paths-gate it into never dispatching).
 - [ ] Canonical `concurrency:` block (per-SHA push arm if it publishes on push).
 - [ ] `timeout-minutes` on every job (except reusable-caller jobs).
 - [ ] Checkout is shallow, or bounded `1000 + blob:none` for base diffing.
@@ -241,12 +238,3 @@ promote to blocking.
 - [ ] Caching through the shared composites; writes gated to master.
 - [ ] Prod image push / deploy dispatch gated per `/gating-production-deploys`.
 - [ ] `bin/hogli lint:workflows` and `actionlint` pass locally.
-
-## Provenance
-
-The conventions above were distilled from DevEx's CI work — e.g.
-[shallow clones for CI backend git ops](https://github.com/PostHog/posthog/pull/57821),
-[dedicated app token for paths-filter](https://github.com/PostHog/posthog/pull/56215),
-[per-SHA push concurrency](https://github.com/PostHog/posthog/pull/56762),
-[fold pr housekeeping into one dispatch](https://github.com/PostHog/posthog/pull/68964),
-and [gate container workflows on trigger paths](https://github.com/PostHog/posthog/pull/68975).
