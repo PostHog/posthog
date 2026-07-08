@@ -178,6 +178,7 @@ export class PersonMergeService {
                 details: {
                     illegalDistinctId: mergeIntoDistinctId,
                     otherDistinctId: otherPersonDistinctId,
+                    distinctId: mergeIntoDistinctId,
                     eventUuid: this.context.event.uuid,
                 },
                 category: 'merge',
@@ -193,6 +194,7 @@ export class PersonMergeService {
                 details: {
                     illegalDistinctId: otherPersonDistinctId,
                     otherDistinctId: mergeIntoDistinctId,
+                    distinctId: mergeIntoDistinctId,
                     eventUuid: this.context.event.uuid,
                 },
                 category: 'merge',
@@ -366,6 +368,7 @@ export class PersonMergeService {
                 details: {
                     sourcePersonDistinctId: otherPersonDistinctId,
                     targetPersonDistinctId: mergeIntoDistinctId,
+                    distinctId: mergeIntoDistinctId,
                     eventUuid: this.context.event.uuid,
                     personId: mergeInto.uuid,
                     otherPersonId: otherPerson.uuid,
@@ -427,6 +430,7 @@ export class PersonMergeService {
                 details: {
                     sourcePersonDistinctId: otherPersonDistinctId,
                     targetPersonDistinctId: mergeIntoDistinctId,
+                    distinctId: mergeIntoDistinctId,
                     eventUuid: this.context.event.uuid,
                     personId: mergeInto.uuid,
                     otherPersonId: otherPerson.uuid,
