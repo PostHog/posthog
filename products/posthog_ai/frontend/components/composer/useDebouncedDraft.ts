@@ -30,9 +30,16 @@ export function useDebouncedDraft(
     // Flush a pending draft on unmount so text typed just before teardown still persists to kea.
     useEffect(() => () => debouncedSync.flush(), [debouncedSync])
 
-    // Mirror external changes (draft restore, clear on submit) into the local echo. Writing the same value is
-    // a no-op, so the debounced sync below doesn't trigger an extra render.
-    useEffect(() => setValue(externalValue), [externalValue])
+    // Mirror external changes (suggestion insertion, draft restore, clear-on-submit) into the local echo.
+    // Cancel any in-flight keystroke sync first: an external write can land while a debounced sync from
+    // prior typing is still pending, and without cancelling that stale sync fires ~150ms later and clobbers
+    // the external value (e.g. type in the task composer, then click a suggestion). The debounce coalesces
+    // to the latest keystroke and only fires once typing pauses, so its own write echoes back an equal value
+    // here (a no-op cancel + no-op setValue) — cancelling never drops an in-progress keystroke.
+    useEffect(() => {
+        debouncedSync.cancel()
+        setValue(externalValue)
+    }, [externalValue, debouncedSync])
 
     return {
         value,
