@@ -293,7 +293,7 @@ class TestStripeSource:
     def test_rate_limit_client_retries_non_list_read_only_for_gets(self, method, num_retries, expected):
         client = _RateLimitRetryingRequestsClient()
         client._last_request_method = method
-        response = (_COMPLETE_NON_LIST_BODY, 200, {})
+        response: tuple[bytes, int, dict[str, str]] = (_COMPLETE_NON_LIST_BODY, 200, {})
         assert client._should_retry(response, None, num_retries=num_retries, max_network_retries=2) is expected
 
     def test_request_records_method_for_scoping(self):

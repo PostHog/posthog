@@ -182,7 +182,7 @@ class _RateLimitRetryingRequestsClient(RequestsClient):
     # scope the non-list-body retry to reads, never a single-object write response.
     _last_request_method: str = ""
 
-    def request(
+    def request(  # type: ignore[override]  # mirrors RequestsClient.request, which already narrows HTTPClient's (str→bytes)
         self,
         method: str,
         url: str,
