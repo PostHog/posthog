@@ -15,12 +15,13 @@ exclude-newer = "0001-01-01T00:00:00Z" # This has no effect and is included for 
 exclude-newer-span = "P7D"
 
 [options.exclude-newer-package]
+hogql-parser-rs = false
 pixelhog = false
 hogql-parser = false
 posthoganalytics = false
 django = false
+posthog-hogland = false
 modal = false
-hogql-parser-rs = false
 
 [manifest]
 members = [
@@ -3136,14 +3137,14 @@ provides-extras = ["dev"]
 
 [[package]]
 name = "hogql-parser"
-version = "1.3.75"
+version = "1.3.77"
 source = { registry = "https://pypi.org/simple" }
-sdist = { url = "https://files.pythonhosted.org/packages/e8/10/20388a0121c0c74578ed84dc038234e476c5e02e79bd38e1b8634516cdde/hogql_parser-1.3.75.tar.gz", hash = "sha256:75a0659864276bc32241af6d55e7521654598a5e950265ace095bab239bd6c76", size = 92415, upload-time = "2026-06-29T11:06:56.774Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/e5/b0/f8bfa5c99eb03a5590d534a6603ddd8b673c265fc7fe636f85118266b708/hogql_parser-1.3.77.tar.gz", hash = "sha256:54b2fea0d84355428f0007c56b52467c916aabb2edf4d81bdf6832981c33385d", size = 93002, upload-time = "2026-07-06T18:23:53.518Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/f5/27/88e28a44da703c326a4f1ad71bf09adae666e338e3234bec01b7130f90e6/hogql_parser-1.3.75-cp313-cp313-macosx_14_0_arm64.whl", hash = "sha256:f204115d79eb38f2965aefdeb4b1a4b0f6b49f08443aabe79f3b3ec42512707a", size = 655879, upload-time = "2026-06-29T11:06:50.397Z" },
-    { url = "https://files.pythonhosted.org/packages/df/3a/0acc7ebad37dd6e501396f74b5e75d78d3a3ea4ba04a702b6dad11622505/hogql_parser-1.3.75-cp313-cp313-macosx_15_0_x86_64.whl", hash = "sha256:cf0a41135034813b6b06865ccdd9a421bc3c560abfeb57616cd9f8676ac77a72", size = 665051, upload-time = "2026-06-29T11:06:51.716Z" },
-    { url = "https://files.pythonhosted.org/packages/04/4d/9a2a78a2560866836078813638db3f5f9c5eeaa2e955803eff0b334bc31f/hogql_parser-1.3.75-cp313-cp313-manylinux_2_28_aarch64.whl", hash = "sha256:f78e6f013f4d738e3095690c8472837af8f79c49ecb140302ba591df47d89fa9", size = 5084029, upload-time = "2026-06-29T11:06:53.362Z" },
-    { url = "https://files.pythonhosted.org/packages/7c/fb/818cd2e8c34e588651e3a62bac4f60618926b860a03081a9b15f600896f3/hogql_parser-1.3.75-cp313-cp313-manylinux_2_28_x86_64.whl", hash = "sha256:7b55c19c4533ee17261d00d9322fdd2b998dfa4af135f885e25db576d7642435", size = 5190293, upload-time = "2026-06-29T11:06:55.334Z" },
+    { url = "https://files.pythonhosted.org/packages/a8/71/3c1b37e684534b9d8aac963dbf7ba04368ce224ce4f34f855b9452bf1517/hogql_parser-1.3.77-cp313-cp313-macosx_14_0_arm64.whl", hash = "sha256:7ff9f8110e97600736d7a3bf12d98eace6bd74452ea9c27f7e2ebfc07e511436", size = 658461, upload-time = "2026-07-06T18:23:46.691Z" },
+    { url = "https://files.pythonhosted.org/packages/95/9d/c9fd969c78d238fce27022f83fea8178ff9ff8983353898c7a571fdc093d/hogql_parser-1.3.77-cp313-cp313-macosx_15_0_x86_64.whl", hash = "sha256:6a957218ed655c1e7138c8b63a2ffce6af225a556d73d429edc8fbc13aec91e9", size = 668189, upload-time = "2026-07-06T18:23:48.787Z" },
+    { url = "https://files.pythonhosted.org/packages/23/a1/c5870de8a1574be62c065ef81b91a8b5e4764a4643955ef6d0569eb5212e/hogql_parser-1.3.77-cp313-cp313-manylinux_2_28_aarch64.whl", hash = "sha256:ace2fd1f1ece2fdcbbcf8c0f6ba331818b6dd9f2cd35a389e61a5fabd0b0f4d3", size = 5107931, upload-time = "2026-07-06T18:23:50.118Z" },
+    { url = "https://files.pythonhosted.org/packages/b7/e3/2b344e224e4c69ded92a0a5eeb06bb132400c32de41d0e9d5915208deb79/hogql_parser-1.3.77-cp313-cp313-manylinux_2_28_x86_64.whl", hash = "sha256:bb2937ce6885885435c0984617b99d2b702e6070c7eea5049296aa5fc1be4453", size = 5215426, upload-time = "2026-07-06T18:23:51.928Z" },
 ]
 
 [[package]]
@@ -4644,7 +4645,7 @@ name = "nvidia-cudnn-cu12"
 version = "9.10.2.21"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
-    { name = "nvidia-cublas-cu12", marker = "platform_machine != 's390x' and sys_platform != 'emscripten'" },
+    { name = "nvidia-cublas-cu12" },
 ]
 wheels = [
     { url = "https://files.pythonhosted.org/packages/ba/51/e123d997aa098c61d029f76663dedbfb9bc8dcf8c60cbd6adbe42f76d049/nvidia_cudnn_cu12-9.10.2.21-py3-none-manylinux_2_27_x86_64.whl", hash = "sha256:949452be657fa16687d0930933f032835951ef0892b37d2d53824d1a84dc97a8", size = 706758467, upload-time = "2025-06-06T21:54:08.597Z" },
@@ -4655,7 +4656,7 @@ name = "nvidia-cufft-cu12"
 version = "11.3.3.83"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
-    { name = "nvidia-nvjitlink-cu12", marker = "platform_machine != 's390x' and sys_platform != 'emscripten'" },
+    { name = "nvidia-nvjitlink-cu12" },
 ]
 wheels = [
     { url = "https://files.pythonhosted.org/packages/1f/13/ee4e00f30e676b66ae65b4f08cb5bcbb8392c03f54f2d5413ea99a5d1c80/nvidia_cufft_cu12-11.3.3.83-py3-none-manylinux2014_x86_64.manylinux_2_17_x86_64.whl", hash = "sha256:4d2dd21ec0b88cf61b62e6b43564355e5222e4a3fb394cac0db101f2dd0d4f74", size = 193118695, upload-time = "2025-03-07T01:45:27.821Z" },
@@ -4682,9 +4683,9 @@ name = "nvidia-cusolver-cu12"
 version = "11.7.3.90"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
-    { name = "nvidia-cublas-cu12", marker = "platform_machine != 's390x' and sys_platform != 'emscripten'" },
-    { name = "nvidia-cusparse-cu12", marker = "platform_machine != 's390x' and sys_platform != 'emscripten'" },
-    { name = "nvidia-nvjitlink-cu12", marker = "platform_machine != 's390x' and sys_platform != 'emscripten'" },
+    { name = "nvidia-cublas-cu12" },
+    { name = "nvidia-cusparse-cu12" },
+    { name = "nvidia-nvjitlink-cu12" },
 ]
 wheels = [
     { url = "https://files.pythonhosted.org/packages/85/48/9a13d2975803e8cf2777d5ed57b87a0b6ca2cc795f9a4f59796a910bfb80/nvidia_cusolver_cu12-11.7.3.90-py3-none-manylinux_2_27_x86_64.whl", hash = "sha256:4376c11ad263152bd50ea295c05370360776f8c3427b30991df774f9fb26c450", size = 267506905, upload-time = "2025-03-07T01:47:16.273Z" },
@@ -4695,7 +4696,7 @@ name = "nvidia-cusparse-cu12"
 version = "12.5.8.93"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
-    { name = "nvidia-nvjitlink-cu12", marker = "platform_machine != 's390x' and sys_platform != 'emscripten'" },
+    { name = "nvidia-nvjitlink-cu12" },
 ]
 wheels = [
     { url = "https://files.pythonhosted.org/packages/c2/f5/e1854cb2f2bcd4280c44736c93550cc300ff4b8c95ebe370d0aa7d2b473d/nvidia_cusparse_cu12-12.5.8.93-py3-none-manylinux2014_x86_64.manylinux_2_17_x86_64.whl", hash = "sha256:1ec05d76bbbd8b61b06a80e1eaf8cf4959c3d4ce8e711b65ebd0443bb0ebb13b", size = 288216466, upload-time = "2025-03-07T01:48:13.779Z" },
@@ -5354,7 +5355,7 @@ name = "pexpect"
 version = "4.9.0"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
-    { name = "ptyprocess", marker = "sys_platform != 'emscripten'" },
+    { name = "ptyprocess" },
 ]
 sdist = { url = "https://files.pythonhosted.org/packages/42/92/cc564bf6381ff43ce1f4d06852fc19a2f11d180f23dc32d9588bee2f149d/pexpect-4.9.0.tar.gz", hash = "sha256:ee7d41123f3c9911050ea2c2dac107568dc43b2d3b0c7557a33212c398ead30f", size = 166450, upload-time = "2023-11-25T09:07:26.339Z" }
 wheels = [
@@ -5881,7 +5882,7 @@ requires-dist = [
     { name = "grimp", specifier = "~=3.14" },
     { name = "grpcio", specifier = "~=1.71.0" },
     { name = "gspread", specifier = "==6.2.1" },
-    { name = "hogql-parser", specifier = "==1.3.75" },
+    { name = "hogql-parser", specifier = "==1.3.77" },
     { name = "hogql-parser-rs", specifier = "==1.3.106" },
     { name = "humanize", specifier = "~=4.12.3" },
     { name = "infi-clickhouse-orm", git = "https://github.com/PostHog/infi.clickhouse_orm?rev=4e3996becf66bf5c26580aff12a80425d9d56fe5" },
@@ -7598,7 +7599,7 @@ name = "shadowcopy"
 version = "0.0.4"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
-    { name = "wmi", marker = "sys_platform != 'emscripten'" },
+    { name = "wmi" },
 ]
 sdist = { url = "https://files.pythonhosted.org/packages/12/44/c00420a3b7bcdf830529b933392b566c876a4944a24f31e126eb6fd28647/shadowcopy-0.0.4.tar.gz", hash = "sha256:ed89817dda065f893607a04c0b7d6b3b34c3507a4711f441111a4bcb1b1826c0", size = 4138, upload-time = "2023-07-08T00:01:35.266Z" }
 wheels = [
@@ -8032,7 +8033,7 @@ name = "tbb"
 version = "2022.3.1"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
-    { name = "tcmlib", marker = "platform_machine != 's390x' and sys_platform != 'emscripten'" },
+    { name = "tcmlib" },
 ]
 wheels = [
     { url = "https://files.pythonhosted.org/packages/08/59/8d381a2cfe8d36c4f4ff9f94769ff2809bfc16014d888360b0e24c7e5c6b/tbb-2022.3.1-py2.py3-none-manylinux_2_28_x86_64.whl", hash = "sha256:534c089eca6bcf148408684c156229d5f09c01d323b685b15739f41985b529d7", size = 4178630, upload-time = "2026-01-22T05:30:20.589Z" },
@@ -8414,7 +8415,7 @@ name = "triton"
 version = "3.4.0"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
-    { name = "setuptools", marker = "platform_machine != 's390x' and sys_platform != 'emscripten'" },
+    { name = "setuptools" },
 ]
 wheels = [
     { url = "https://files.pythonhosted.org/packages/30/7b/0a685684ed5322d2af0bddefed7906674f67974aa88b0fae6e82e3b766f6/triton-3.4.0-cp313-cp313-manylinux_2_27_x86_64.manylinux_2_28_x86_64.whl", hash = "sha256:00be2964616f4c619193cb0d1b29a99bd4b001d7dc333816073f92cf2a8ccdeb", size = 155569223, upload-time = "2025-07-30T19:58:44.017Z" },
@@ -9121,7 +9122,7 @@ name = "wmi"
 version = "1.5.1"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
-    { name = "pywin32", marker = "sys_platform != 'emscripten'" },
+    { name = "pywin32" },
 ]
 sdist = { url = "https://files.pythonhosted.org/packages/d4/66/6364deb0a03415f96c66803d8c4379f808f2401da3bdb183348487b10510/WMI-1.5.1.tar.gz", hash = "sha256:b6a6be5711b1b6c8d55bda7a8befd75c48c12b770b9d227d31c1737dbf0d40a6", size = 26254, upload-time = "2020-04-28T08:22:58.096Z" }
 wheels = [

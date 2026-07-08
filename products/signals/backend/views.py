@@ -87,6 +87,7 @@ from products.signals.backend.report_generation.resolve_reviewers import (
 )
 from products.signals.backend.serializers import (
     CommitDiffResponseSerializer,
+    ReportSignalsResponseSerializer,
     SignalReportArtefactLogCreateSerializer,
     SignalReportArtefactLogUpdateSerializer,
     SignalReportArtefactSerializer,
@@ -1312,7 +1313,11 @@ class SignalReportViewSet(
 
         return Response({"status": "deletion_started", "report_id": report_id}, status=status.HTTP_202_ACCEPTED)
 
-    @extend_schema(exclude=True)
+    @extend_schema(
+        summary="List a report's signals",
+        description="Fetch all signals for a report from ClickHouse, including full metadata.",
+        responses={200: ReportSignalsResponseSerializer},
+    )
     @action(detail=True, methods=["get"], url_path="signals", required_scopes=["task:read"])
     def signals(self, request, pk=None, **kwargs):
         """Fetch all signals for a report from ClickHouse, including full metadata."""
@@ -1437,6 +1442,9 @@ class SignalReportViewSet(
                 if hasattr(report, "prefetched_dismissal_artefacts"):
                     del report.prefetched_dismissal_artefacts
 
+        # A dismissal (transition into SUPPRESSED) closes the linked implementation PR — handled
+        # centrally by the post_save receiver (receivers.close_pr_when_report_dismissed), so this
+        # method doesn't special-case it. Restore/snooze to "potential" leaves the PR alone.
         return SignalReportBulkStateOutcome.TRANSITIONED
 
     @extend_schema(

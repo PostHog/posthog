@@ -37,6 +37,7 @@ from posthog.models.integration import Integration
 from products.tasks.backend.constants import RESERVED_SANDBOX_ENVIRONMENT_VARIABLE_KEYS, is_blocked_sandbox_env_key
 from products.tasks.backend.logic.code_workstreams.default_workflow import build_default_bindings
 from products.tasks.backend.logic.code_workstreams.validation import validate_bindings
+from products.tasks.backend.mentions import resolve_mentioned_user_ids
 from products.tasks.backend.models import (
     Channel,
     CodeInvite,
@@ -49,6 +50,7 @@ from products.tasks.backend.models import (
     TaskAutomation,
     TaskRun,
     TaskThreadMessage,
+    TaskThreadMessageMention,
 )
 from products.tasks.backend.prompts import WIZARD_PR_AGENT_PROMPT
 from products.tasks.backend.visibility import task_control_q, task_run_visibility_q, task_visibility_q
@@ -453,6 +455,20 @@ def get_task_id_for_run(run_id: str | UUID, team_id: int) -> UUID | None:
 def task_exists(task_id: str | UUID, team_id: int) -> bool:
     """Whether a (non-deleted) task exists for the team."""
     return Task.objects.filter(id=task_id, team_id=team_id).exists()
+
+
+def count_in_progress_runs_for_github_integration(team_id: int, integration_id: int) -> int:
+    """In-progress runs whose task uses this team GitHub integration.
+
+    Used by core's integration API to block disconnecting a GitHub integration while
+    live runs still depend on it for credential refresh — deleting the row SET_NULLs
+    ``Task.github_integration`` and permanently orphans every live sandbox's token.
+    """
+    return TaskRun.objects.filter(
+        team_id=team_id,
+        status=TaskRun.Status.IN_PROGRESS,
+        task__github_integration_id=integration_id,
+    ).count()
 
 
 def is_task_controllable_by_user(task_id: str | UUID, user_id: int | None) -> bool:
@@ -2132,6 +2148,17 @@ def relay_task_run_message(
 # --- Task run creation / start / cloud resume ---
 
 
+def user_can_author_repository(user_id: int, repository: str) -> bool:
+    from products.tasks.backend.temporal.process_task.utils import (  # noqa: PLC0415 — keep temporalio off the api import path
+        get_user_github_integration,
+        user_github_integration_is_usable,
+    )
+
+    user = User.objects.filter(id=user_id).first()
+    integration = get_user_github_integration(user, repository=repository, allow_refresh=False)
+    return user_github_integration_is_usable(integration)
+
+
 def _ensure_task_team_github_integration(task: Task) -> bool:
     if task.github_integration_id is not None:
         return True
@@ -2229,6 +2256,7 @@ def bootstrap_task_run(
     branch = validated_data.get("branch")
     sandbox_environment_id = validated_data.get("sandbox_environment_id")
     pr_authorship_mode = validated_data.get("pr_authorship_mode")
+    auto_publish = validated_data.get("auto_publish")
     run_source = validated_data.get("run_source")
     signal_report_id = validated_data.get("signal_report_id")
     runtime_adapter = validated_data.get("runtime_adapter")
@@ -2248,6 +2276,7 @@ def bootstrap_task_run(
     for key, value in {
         "pr_base_branch": branch,
         "pr_authorship_mode": pr_authorship_mode,
+        "auto_publish": auto_publish,
         "run_source": run_source,
         "signal_report_id": signal_report_id,
         "runtime_adapter": runtime_adapter,
@@ -2840,6 +2869,7 @@ def create_task(team_id: int, user_id: int | None, *, validated_data: dict) -> c
     warm_reasoning_effort = validated_data.pop("reasoning_effort", None)
     pending_user_message = (validated_data.pop("pending_user_message", None) or "").strip() or None
     pending_user_artifact_ids = validated_data.pop("pending_user_artifact_ids", None) or []
+    warm_auto_publish = validated_data.pop("auto_publish", None)
 
     if user_id is not None:
         validated_data["created_by"] = User.objects.get(id=user_id)
@@ -2896,6 +2926,7 @@ def create_task(team_id: int, user_id: int | None, *, validated_data: dict) -> c
                 message=pending_user_message or description or None,
                 description=description or None,
                 artifact_ids=pending_user_artifact_ids,
+                auto_publish=warm_auto_publish,
             )
             return _task_detail_to_dto(_task_detail_queryset().get(pk=warm_task.pk))
 
@@ -3225,11 +3256,16 @@ def _activate_warm_run(
     message: str | None,
     artifact_ids: list[str],
     description: str | None = None,
+    auto_publish: bool | None = None,
 ) -> None:
     """Activate an idling warm Run: set the draft Task's visible description from raw task text,
     forward the first message to the already-running agent, and drop the ``await_user_message`` marker
     so the Run leaves the warm pool. Mirrors ``message_routing._handle_first_message``; no fresh agent
-    start."""
+    start.
+
+    ``auto_publish`` is persisted into the Run's state before the message signal: the already-running
+    agent-server can't take it as a launch flag, so it re-reads run state when the forwarded first
+    message arrives (and resumes read it from carried state)."""
     from products.tasks.backend.metrics import (  # noqa: PLC0415 — keep prometheus deps off the api import path
         observe_prewarmed_activated,
     )
@@ -3237,6 +3273,10 @@ def _activate_warm_run(
     if description and not (task.description or "").strip():
         task.description = description
         task.save(update_fields=["description", "updated_at"])
+    if auto_publish is not None:
+        # Before the signal: the agent-server re-reads run state when the forwarded
+        # first message arrives, so the choice must already be persisted by then.
+        TaskRun.update_state_atomic(run.id, updates={"auto_publish": auto_publish})
     signal_task_run_user_message(run.id, task.id, team_id, content=message, artifact_ids=artifact_ids)
     TaskRun.update_state_atomic(run.id, remove_keys=["await_user_message"])
     # Only count activations of Runs that actually carry the prewarmed marker, so the activation
@@ -3412,11 +3452,13 @@ def run_task(
                         message=pending_user_message or (task.description or None),
                         description=task.description or None,
                         artifact_ids=pending_user_artifact_ids,
+                        auto_publish=validated_data.get("auto_publish"),
                     )
                     return contracts.TaskRunResult(task=get_task_detail(task.id, team_id, user_id))
     sandbox_environment_id = validated_data.get("sandbox_environment_id")
     sandbox_environment_id_supplied_by_user = sandbox_environment_id is not None
     pr_authorship_mode = validated_data.get("pr_authorship_mode")
+    auto_publish = validated_data.get("auto_publish")
     run_source = validated_data.get("run_source")
     signal_report_id = validated_data.get("signal_report_id")
     runtime_adapter = validated_data.get("runtime_adapter")
@@ -3429,6 +3471,7 @@ def run_task(
 
     runtime_state_fields = {
         "pr_authorship_mode": pr_authorship_mode,
+        "auto_publish": auto_publish,
         "run_source": run_source,
         "signal_report_id": signal_report_id,
         "runtime_adapter": runtime_adapter,
@@ -3466,6 +3509,7 @@ def run_task(
                 runtime_state_fields[field_name] = getattr(prev_state, field_name)
 
         pr_authorship_mode = runtime_state_fields["pr_authorship_mode"]
+        auto_publish = runtime_state_fields["auto_publish"]
         run_source = runtime_state_fields["run_source"]
         signal_report_id = runtime_state_fields["signal_report_id"]
         runtime_adapter = runtime_state_fields["runtime_adapter"]
@@ -3479,6 +3523,7 @@ def run_task(
     for key, value in {
         "pr_base_branch": branch,
         "pr_authorship_mode": pr_authorship_mode,
+        "auto_publish": auto_publish,
         "run_source": run_source,
         "signal_report_id": signal_report_id,
         "runtime_adapter": runtime_adapter,
@@ -4164,8 +4209,68 @@ def create_thread_message(
     if _visible_task(task_id, team_id, user_id) is None:
         return None
     message = TaskThreadMessage.objects.create(team_id=team_id, task_id=task_id, author_id=user_id, content=content)
+    try:
+        _index_thread_message_mentions(message)
+    except Exception:
+        # Mentions are best-effort: an indexing failure must never fail message creation.
+        logger.exception("Failed to index thread message mentions", extra={"message_id": str(message.id)})
     # Fresh message: forwarded_by is None (no query) and author lazy-loads once.
     return _thread_message_to_dto(message)
+
+
+def _index_thread_message_mentions(message: TaskThreadMessage) -> None:
+    """Create mention index rows for @[Name](email) tokens in the message content.
+
+    Emails resolve case-insensitively, only to members of the team's organization;
+    self-mentions are skipped (they are never notifications).
+    """
+    mentioned_user_ids = resolve_mentioned_user_ids(
+        User, message.content, team_id=message.team_id, author_id=message.author_id
+    )
+    TaskThreadMessageMention.objects.bulk_create(
+        [
+            TaskThreadMessageMention(
+                team_id=message.team_id,
+                message_id=message.id,
+                task_id=message.task_id,
+                mentioned_user_id=mentioned_user_id,
+                created_at=message.created_at,
+            )
+            for mentioned_user_id in mentioned_user_ids
+        ],
+        ignore_conflicts=True,
+    )
+
+
+def list_mentions(
+    team_id: int, user_id: int | None, *, since: datetime | None = None, limit: int = 100
+) -> list[contracts.TaskMentionDTO]:
+    """Thread-message mentions of the requester across tasks they can see, newest first."""
+    if user_id is None:
+        return []
+    qs = TaskThreadMessageMention.objects.filter(
+        team_id=team_id,
+        mentioned_user_id=user_id,
+        # task__in keeps the visibility rules single-sourced in _visible_task_qs.
+        task__in=_visible_task_qs(team_id, user_id),
+    )
+    if since is not None:
+        qs = qs.filter(created_at__gt=since)
+    mentions = qs.select_related("message__author", "task__channel").order_by("-created_at")[:limit]
+    return [
+        contracts.TaskMentionDTO(
+            id=mention.id,
+            message_id=mention.message_id,
+            task_id=mention.task_id,
+            task_title=mention.task.title,
+            channel_id=mention.task.channel_id,
+            channel_name=mention.task.channel.name if mention.task.channel else None,
+            content=mention.message.content,
+            created_at=mention.created_at,
+            author=_user_basic_info(mention.message.author if mention.message.author_id else None),
+        )
+        for mention in mentions
+    ]
 
 
 def delete_thread_message(message_id: str | UUID, task_id: str | UUID, team_id: int, user_id: int | None) -> str:

@@ -36,7 +36,10 @@ from products.warehouse_sources.backend.models.external_data_job import External
 from products.warehouse_sources.backend.models.external_data_schema import ExternalDataSchema, update_should_sync
 from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
 from products.warehouse_sources.backend.temporal.data_imports.external_product_hooks import EmitSignalsActivityInputs
-from products.warehouse_sources.backend.temporal.data_imports.metrics import get_data_import_finished_metric
+from products.warehouse_sources.backend.temporal.data_imports.metrics import (
+    get_data_import_finished_metric,
+    get_v3_lock_skipped_metric,
+)
 from products.warehouse_sources.backend.temporal.data_imports.row_tracking import finish_row_tracking, get_rows
 from products.warehouse_sources.backend.temporal.data_imports.sources import SourceRegistry
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import ResumableSource
@@ -345,6 +348,7 @@ class ExternalDataJobWorkflow(PostHogWorkflow):
                     "V3 pipeline lock not acquired, skipping",
                     extra={"schema_id": str(inputs.external_data_schema_id)},
                 )
+                get_v3_lock_skipped_metric().add(1)
                 return
 
             lock_token = lock_result.token

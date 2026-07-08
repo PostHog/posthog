@@ -230,14 +230,14 @@ describe('exec tool', () => {
                 calls.push({ toolName, properties })
             }
             const exec = createExecTool(
-                [makeMockTool()],
+                [makeMockTool({ schema: z.object({ query: z.string() }) })],
                 mockContext,
                 'test description',
                 'test command reference',
                 undefined,
                 tracker
             )
-            await exec.handler(mockContext, { command: 'call --json mock-tool' })
+            await exec.handler(mockContext, { command: 'call --json mock-tool {"query":"SELECT 1"}' })
             expect(calls).toHaveLength(1)
             expect(calls[0]!.toolName).toBe('mock-tool')
             expect(calls[0]!.properties.success).toBe(true)
@@ -245,6 +245,7 @@ describe('exec tool', () => {
             expect(typeof calls[0]!.properties.duration_ms).toBe('number')
             expect(calls[0]!.properties.input_tokens).toBeGreaterThan(0)
             expect(calls[0]!.properties.output_tokens).toBeGreaterThan(0)
+            expect(calls[0]!.properties.input).toEqual({ query: 'SELECT 1' })
         })
 
         it('estimates inner output tokens from the serialized output (TOON vs JSON)', async () => {

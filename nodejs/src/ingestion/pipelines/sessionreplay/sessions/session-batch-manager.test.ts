@@ -1,15 +1,13 @@
 import { KafkaOffsetManager } from '~/ingestion/pipelines/sessionreplay/kafka/offset-manager'
 import { SessionFeatureStore } from '~/ingestion/pipelines/sessionreplay/shared/features/session-feature-store'
 import { SessionMetadataStore } from '~/ingestion/pipelines/sessionreplay/shared/metadata/session-metadata-store'
-import { createMockEncryptor, createMockKeyStore } from '~/ingestion/pipelines/sessionreplay/shared/test-helpers'
-import { KeyStore, RecordingEncryptor } from '~/ingestion/pipelines/sessionreplay/shared/types'
+import { createMockEncryptor } from '~/ingestion/pipelines/sessionreplay/shared/test-helpers'
+import { RecordingEncryptor } from '~/ingestion/pipelines/sessionreplay/shared/types'
 
 import { SessionBatchFileStorage, SessionBatchFileWriter } from './session-batch-file-storage'
 import { SessionBatchManager } from './session-batch-manager'
 import { SessionBatchRecorder } from './session-batch-recorder'
 import { SessionConsoleLogStore } from './session-console-log-store'
-import { SessionFilter } from './session-filter'
-import { SessionTracker } from './session-tracker'
 
 jest.setTimeout(1000)
 jest.mock('./session-batch-recorder')
@@ -23,9 +21,6 @@ describe('SessionBatchManager', () => {
     let mockMetadataStore: jest.Mocked<SessionMetadataStore>
     let mockConsoleLogStore: jest.Mocked<SessionConsoleLogStore>
     let mockFeatureStore: jest.Mocked<SessionFeatureStore>
-    let mockSessionTracker: jest.Mocked<SessionTracker>
-    let mockSessionFilter: jest.Mocked<SessionFilter>
-    let mockKeyStore: jest.Mocked<KeyStore>
     let mockEncryptor: jest.Mocked<RecordingEncryptor>
 
     const createMockBatch = (): jest.Mocked<SessionBatchRecorder> =>
@@ -71,16 +66,6 @@ describe('SessionBatchManager', () => {
             storeSessionFeatures: jest.fn().mockResolvedValue(undefined),
         } as unknown as jest.Mocked<SessionFeatureStore>
 
-        mockSessionTracker = {
-            trackSession: jest.fn().mockResolvedValue(false),
-        } as unknown as jest.Mocked<SessionTracker>
-
-        mockSessionFilter = {
-            isBlocked: jest.fn().mockResolvedValue(false),
-            handleNewSession: jest.fn().mockResolvedValue(undefined),
-        } as unknown as jest.Mocked<SessionFilter>
-
-        mockKeyStore = createMockKeyStore()
         mockEncryptor = createMockEncryptor()
 
         manager = new SessionBatchManager({
@@ -92,9 +77,6 @@ describe('SessionBatchManager', () => {
             metadataStore: mockMetadataStore,
             consoleLogStore: mockConsoleLogStore,
             featureStore: mockFeatureStore,
-            sessionTracker: mockSessionTracker,
-            sessionFilter: mockSessionFilter,
-            keyStore: mockKeyStore,
             encryptor: mockEncryptor,
         })
     })
@@ -114,9 +96,6 @@ describe('SessionBatchManager', () => {
             mockMetadataStore,
             mockConsoleLogStore,
             mockFeatureStore,
-            mockSessionTracker,
-            mockSessionFilter,
-            mockKeyStore,
             mockEncryptor,
             Number.MAX_SAFE_INTEGER,
             100
@@ -198,9 +177,6 @@ describe('SessionBatchManager', () => {
                 metadataStore: mockMetadataStore,
                 consoleLogStore: mockConsoleLogStore,
                 featureStore: mockFeatureStore,
-                sessionTracker: mockSessionTracker,
-                sessionFilter: mockSessionFilter,
-                keyStore: mockKeyStore,
                 encryptor: mockEncryptor,
             })
 
@@ -210,9 +186,6 @@ describe('SessionBatchManager', () => {
                 mockMetadataStore,
                 mockConsoleLogStore,
                 mockFeatureStore,
-                mockSessionTracker,
-                mockSessionFilter,
-                mockKeyStore,
                 mockEncryptor,
                 500,
                 100
@@ -229,9 +202,6 @@ describe('SessionBatchManager', () => {
                 metadataStore: mockMetadataStore,
                 consoleLogStore: mockConsoleLogStore,
                 featureStore: mockFeatureStore,
-                sessionTracker: mockSessionTracker,
-                sessionFilter: mockSessionFilter,
-                keyStore: mockKeyStore,
                 encryptor: mockEncryptor,
             })
 
@@ -243,9 +213,6 @@ describe('SessionBatchManager', () => {
                 mockMetadataStore,
                 mockConsoleLogStore,
                 mockFeatureStore,
-                mockSessionTracker,
-                mockSessionFilter,
-                mockKeyStore,
                 mockEncryptor,
                 250,
                 100
@@ -262,9 +229,6 @@ describe('SessionBatchManager', () => {
                 metadataStore: mockMetadataStore,
                 consoleLogStore: mockConsoleLogStore,
                 featureStore: mockFeatureStore,
-                sessionTracker: mockSessionTracker,
-                sessionFilter: mockSessionFilter,
-                keyStore: mockKeyStore,
                 encryptor: mockEncryptor,
             })
 
@@ -274,9 +238,6 @@ describe('SessionBatchManager', () => {
                 mockMetadataStore,
                 mockConsoleLogStore,
                 mockFeatureStore,
-                mockSessionTracker,
-                mockSessionFilter,
-                mockKeyStore,
                 mockEncryptor,
                 0,
                 100
@@ -293,9 +254,6 @@ describe('SessionBatchManager', () => {
                 metadataStore: mockMetadataStore,
                 consoleLogStore: mockConsoleLogStore,
                 featureStore: mockFeatureStore,
-                sessionTracker: mockSessionTracker,
-                sessionFilter: mockSessionFilter,
-                keyStore: mockKeyStore,
                 encryptor: mockEncryptor,
             })
 
@@ -305,9 +263,6 @@ describe('SessionBatchManager', () => {
                 mockMetadataStore,
                 mockConsoleLogStore,
                 mockFeatureStore,
-                mockSessionTracker,
-                mockSessionFilter,
-                mockKeyStore,
                 mockEncryptor,
                 Number.MAX_SAFE_INTEGER,
                 100

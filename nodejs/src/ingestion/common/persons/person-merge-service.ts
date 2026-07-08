@@ -173,31 +173,31 @@ export class PersonMergeService {
             return mergeSuccess(undefined, Promise.resolve(), true)
         }
         if (isDistinctIdIllegal(mergeIntoDistinctId)) {
-            await emitIngestionWarning(
-                this.context.outputs,
-                teamId,
-                'cannot_merge_with_illegal_distinct_id',
-                {
+            await emitIngestionWarning(this.context.outputs, teamId, {
+                type: 'cannot_merge_with_illegal_distinct_id',
+                details: {
                     illegalDistinctId: mergeIntoDistinctId,
                     otherDistinctId: otherPersonDistinctId,
+                    distinctId: mergeIntoDistinctId,
                     eventUuid: this.context.event.uuid,
                 },
-                { alwaysSend: true }
-            )
+                pipelineStep: 'person-merge',
+                alwaysSend: true,
+            })
             return mergeSuccess(undefined, Promise.resolve(), true)
         }
         if (isDistinctIdIllegal(otherPersonDistinctId)) {
-            await emitIngestionWarning(
-                this.context.outputs,
-                teamId,
-                'cannot_merge_with_illegal_distinct_id',
-                {
+            await emitIngestionWarning(this.context.outputs, teamId, {
+                type: 'cannot_merge_with_illegal_distinct_id',
+                details: {
                     illegalDistinctId: otherPersonDistinctId,
                     otherDistinctId: mergeIntoDistinctId,
+                    distinctId: mergeIntoDistinctId,
                     eventUuid: this.context.event.uuid,
                 },
-                { alwaysSend: true }
-            )
+                pipelineStep: 'person-merge',
+                alwaysSend: true,
+            })
             return mergeSuccess(undefined, Promise.resolve(), true)
         }
 
@@ -359,17 +359,19 @@ export class PersonMergeService {
 
         // If merge isn't allowed, we will ignore it, log an ingestion warning and return success with original person
         if (!mergeAllowed) {
-            await emitIngestionWarning(
-                this.context.outputs,
-                this.context.team.id,
-                'cannot_merge_already_identified',
-                {
+            await emitIngestionWarning(this.context.outputs, this.context.team.id, {
+                type: 'cannot_merge_already_identified',
+                details: {
                     sourcePersonDistinctId: otherPersonDistinctId,
                     targetPersonDistinctId: mergeIntoDistinctId,
+                    distinctId: mergeIntoDistinctId,
                     eventUuid: this.context.event.uuid,
+                    personId: mergeInto.uuid,
+                    otherPersonId: otherPerson.uuid,
                 },
-                { alwaysSend: true }
-            )
+                pipelineStep: 'person-merge',
+                alwaysSend: true,
+            })
             logger.warn('🤔', 'refused to merge an already identified user via an $identify or $create_alias call', {
                 team_id: this.context.team.id,
             })
@@ -417,17 +419,19 @@ export class PersonMergeService {
 
         // Handle specific error types
         if (result.error instanceof PersonMergeRaceConditionError) {
-            await emitIngestionWarning(
-                this.context.outputs,
-                this.context.team.id,
-                'merge_race_condition',
-                {
+            await emitIngestionWarning(this.context.outputs, this.context.team.id, {
+                type: 'merge_race_condition',
+                details: {
                     sourcePersonDistinctId: otherPersonDistinctId,
                     targetPersonDistinctId: mergeIntoDistinctId,
+                    distinctId: mergeIntoDistinctId,
                     eventUuid: this.context.event.uuid,
+                    personId: mergeInto.uuid,
+                    otherPersonId: otherPerson.uuid,
                 },
-                { alwaysSend: true }
-            )
+                pipelineStep: 'person-merge',
+                alwaysSend: true,
+            })
             logger.warn('🤔', 'merge race condition detected, too many concurrent merges', {
                 team_id: this.context.team.id,
             })

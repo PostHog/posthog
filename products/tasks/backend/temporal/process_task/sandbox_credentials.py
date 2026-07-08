@@ -8,13 +8,16 @@ from typing import TYPE_CHECKING, Protocol
 
 import redis
 
-from posthog.models.user_integration import UserGitHubIntegration
+from posthog.models.integration import Integration
+from posthog.models.user_integration import ReauthorizationRequired, UserGitHubIntegration, UserIntegration
 from posthog.redis import get_client
 
+from products.tasks.backend.exceptions import CredentialUnavailableError
 from products.tasks.backend.logic.services.agentsh import ENV_FILE
 from products.tasks.backend.models import Task, TaskRun
 from products.tasks.backend.temporal.process_task.utils import (
     PrAuthorshipMode,
+    get_github_token,
     get_pr_authorship_mode,
     get_sandbox_github_token,
     is_caller_token_run,
@@ -255,16 +258,43 @@ class GitHubSandboxCredential:
             integration = resolve_user_github_integration_for_task(task, repository=ctx.repository, allow_refresh=True)
 
         if integration is not None:
-            return self._refresh_shared_user_integration(sandbox, ctx, integration)
+            return self._refresh_shared_user_integration(sandbox, ctx, task, integration)
 
-        token = get_sandbox_github_token(
-            ctx.github_integration_id,
-            run_id=ctx.run_id,
-            state=ctx.state,
-            task=task,
-            github_user_integration_id=ctx.github_user_integration_id,
-            repository=ctx.repository,
+        github_integration_id = task.github_integration_id
+        github_user_integration_id = (
+            str(task.github_user_integration_id) if task.github_user_integration_id else ctx.github_user_integration_id
         )
+        if (
+            github_integration_id is None
+            and github_user_integration_id is None
+            and not is_caller_token_run(ctx.run_id, ctx.state)
+        ):
+            raise CredentialUnavailableError(
+                "GitHub integration for this run was disconnected mid-run",
+                {"run_id": ctx.run_id, "task_id": ctx.task_id},
+            )
+
+        try:
+            token = get_sandbox_github_token(
+                github_integration_id,
+                run_id=ctx.run_id,
+                state=ctx.state,
+                task=task,
+                github_user_integration_id=github_user_integration_id,
+                repository=ctx.repository,
+            )
+        except (Integration.DoesNotExist, UserIntegration.DoesNotExist) as e:
+            raise CredentialUnavailableError(
+                "GitHub integration for this run no longer exists",
+                {"run_id": ctx.run_id, "task_id": ctx.task_id},
+                cause=e,
+            )
+        except ReauthorizationRequired as e:
+            raise CredentialUnavailableError(
+                "GitHub user integration for this run requires reauthorization",
+                {"run_id": ctx.run_id, "task_id": ctx.task_id},
+                cause=e,
+            )
         if not token:
             return CredentialRefreshOutcome(
                 self.kind, refreshed=False, next_refresh_seconds=DEFAULT_REFRESH_INTERVAL_SECONDS
@@ -276,14 +306,41 @@ class GitHubSandboxCredential:
         )
 
     def _refresh_shared_user_integration(
-        self, sandbox: "SandboxBase", ctx: "TaskProcessingContext", integration: UserGitHubIntegration
+        self, sandbox: "SandboxBase", ctx: "TaskProcessingContext", task: Task, integration: UserGitHubIntegration
     ) -> CredentialRefreshOutcome:
-        token = resolve_coordinated_user_token(integration)
+        try:
+            token = resolve_coordinated_user_token(integration)
+        except (ReauthorizationRequired, UserIntegration.DoesNotExist) as e:
+            fallback = self._installation_token_fallback(ctx, task, cause=e)
+            if not fallback:
+                return CredentialRefreshOutcome(
+                    self.kind, refreshed=False, next_refresh_seconds=DEFAULT_REFRESH_INTERVAL_SECONDS
+                )
+            apply_github_credentials_to_sandbox(sandbox, ctx.repository, fallback)
+            return CredentialRefreshOutcome(
+                self.kind, refreshed=True, next_refresh_seconds=github_refresh_interval_seconds(fallback)
+            )
         if token:
             apply_github_credentials_to_sandbox(sandbox, ctx.repository, token)
         return CredentialRefreshOutcome(
             self.kind, refreshed=bool(token), next_refresh_seconds=USER_TOKEN_REFRESH_INTERVAL_SECONDS
         )
+
+    def _installation_token_fallback(self, ctx: "TaskProcessingContext", task: Task, cause: Exception) -> str | None:
+        if task.github_integration_id is None:
+            raise CredentialUnavailableError(
+                "GitHub user integration requires reauthorization and no team installation is available",
+                {"run_id": ctx.run_id, "task_id": ctx.task_id},
+                cause=cause,
+            )
+        try:
+            return get_github_token(task.github_integration_id)
+        except Integration.DoesNotExist as e:
+            raise CredentialUnavailableError(
+                "GitHub integration for this run no longer exists",
+                {"run_id": ctx.run_id, "task_id": ctx.task_id},
+                cause=e,
+            )
 
 
 def build_sandbox_credentials(ctx: "TaskProcessingContext") -> list[SandboxCredential]:

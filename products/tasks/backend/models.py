@@ -102,6 +102,9 @@ class Channel(TeamScopedRootMixin):
         return f"#{self.name}"
 
 
+SLACK_NOTIFIED_PR_URL_STATE_KEY = "slack_notified_pr_url"
+
+
 class Task(FileSystemSyncMixin, DeletedMetaFields, models.Model):
     class OriginProduct(models.TextChoices):
         ONBOARDING = "onboarding", "Onboarding"
@@ -113,6 +116,7 @@ class Task(FileSystemSyncMixin, DeletedMetaFields, models.Model):
         SUPPORT_QUEUE = "support_queue", "Support Queue"
         SESSION_SUMMARIES = "session_summaries", "Session Summaries"
         POSTHOG_AI = "posthog_ai", "PostHog AI"
+        EXPERIMENTS = "experiments", "Experiments"
         # Unlike the others (which indicate direct creation from that product, e.g. a "fix this error" button),
         # signal report tasks originate indirectly via signals from other products.
         SIGNAL_REPORT = "signal_report", "Signal Report"
@@ -124,6 +128,7 @@ class Task(FileSystemSyncMixin, DeletedMetaFields, models.Model):
         # ticket's Code chat carry this origin (previously "support_queue", which
         # collided with the conversations support pipeline).
         HOGDESK = "hogdesk", "HogDesk"
+        IMAGE_BUILDER = "image_builder", "Image Builder"
 
     # nosemgrep: prefer-uuid7-django-pk -- TODO: migrate to uuid7 or clarify intent
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
@@ -210,6 +215,10 @@ class Task(FileSystemSyncMixin, DeletedMetaFields, models.Model):
         null=True,
         help_text="Custom prompt for CI fixes. If blank, a default prompt will be used.",
     )
+
+    # Conversation-level state shared across the task's runs (each resume/follow-up
+    # is a fresh TaskRun), e.g. which PRs have been announced to the Slack thread.
+    state = models.JSONField(default=dict, null=True, blank=True)
 
     class Meta:
         db_table = "posthog_task"
@@ -369,6 +378,22 @@ class Task(FileSystemSyncMixin, DeletedMetaFields, models.Model):
         )
         return task_run
 
+    @property
+    def slack_notified_pr_url(self) -> str | None:
+        """PR URL last announced to this task's Slack thread, if any."""
+        return (self.state or {}).get(SLACK_NOTIFIED_PR_URL_STATE_KEY)
+
+    def mark_slack_pr_notified(self, pr_url: str) -> None:
+        """Record ``pr_url`` as the PR announced to the task's Slack thread. Row-locked
+        merge so it doesn't clobber other keys in the shared state bag."""
+        with transaction.atomic():
+            task = Task.objects.select_for_update().only("id", "state").get(id=self.id)
+            state = dict(task.state or {})
+            state[SLACK_NOTIFIED_PR_URL_STATE_KEY] = pr_url
+            task.state = state
+            task.save(update_fields=["state", "updated_at"])
+        self.state = state
+
     def soft_delete(self):
         self.deleted = True
         self.deleted_at = django_timezone.now()
@@ -408,6 +433,8 @@ class Task(FileSystemSyncMixin, DeletedMetaFields, models.Model):
         inactivity_timeout_seconds: int | None = None,
         wizard_config: dict | None = None,
         pending_user_message: str | None = None,
+        custom_image_builder_id: str | None = None,
+        custom_image_id: str | None = None,
     ) -> tuple["Task", dict[str, Any]]:
         """Create the Task row and assemble the initial run's `extra_state`.
 
@@ -508,17 +535,24 @@ class Task(FileSystemSyncMixin, DeletedMetaFields, models.Model):
         if sandbox_env is not None:
             extra_state["sandbox_environment_id"] = str(sandbox_env.id)
 
+        # Per-run custom base image (Modal VM runtime only); wins over the environment's image.
+        if custom_image_id is not None:
+            custom_image = SandboxCustomImage.get_accessible_for_task(
+                image_id=custom_image_id, team_id=team.id, task_created_by_id=user_id
+            )
+            if custom_image is None or not custom_image.is_ready:
+                raise ValueError(f"Invalid custom_image_id: {custom_image_id}")
+            extra_state["custom_image_id"] = str(custom_image.id)
+
         if branch:
             extra_state["pr_base_branch"] = branch
 
         if model:
             extra_state["model"] = model
 
-        # The model's runtime adapter and the provider derived from it. The agent server can't route
-        # a model without its runtime (it resolves the provider from the runtime), so callers that pin
-        # a non-default model must pass the matching runtime — mirrors the warm path in `facade/api`.
-        # Codex runs need permission mode `auto` (same default the warm path applies) so a headless
-        # run doesn't stall waiting on a prompt; an explicit `initial_permission_mode` still wins.
+        # `runtime_adapter` selects the harness (claude | codex) and the agent server derives
+        # the provider from it, so a pinned model must ship with its matching runtime. Codex runs
+        # default permission mode to `auto` so a headless run doesn't stall on a prompt.
         if runtime_adapter:
             extra_state["runtime_adapter"] = runtime_adapter
             provider = get_provider_for_runtime_adapter(runtime_adapter)
@@ -526,7 +560,6 @@ class Task(FileSystemSyncMixin, DeletedMetaFields, models.Model):
                 extra_state["provider"] = provider.value
             if initial_permission_mode is None and runtime_adapter == RuntimeAdapter.CODEX.value:
                 initial_permission_mode = "auto"
-
         if reasoning_effort:
             extra_state["reasoning_effort"] = reasoning_effort
 
@@ -565,6 +598,11 @@ class Task(FileSystemSyncMixin, DeletedMetaFields, models.Model):
         # prompt and just sits there while relay_sandbox_events waits for events that never come.
         if pending_user_message:
             extra_state["pending_user_message"] = pending_user_message
+
+        # Builder sessions must run on the exact VM base that custom images layer on.
+        if custom_image_builder_id:
+            extra_state["custom_image_builder_id"] = custom_image_builder_id
+            extra_state["use_modal_vm_sandbox"] = True
 
         return task, extra_state
 
@@ -645,6 +683,8 @@ class Task(FileSystemSyncMixin, DeletedMetaFields, models.Model):
         ai_stage: str | None = None,
         wizard_config: dict | None = None,
         pending_user_message: str | None = None,
+        custom_image_builder_id: str | None = None,
+        custom_image_id: str | None = None,
     ) -> "Task":
         from products.tasks.backend.temporal.client import _normalize_slack_context, execute_task_processing_workflow
 
@@ -673,6 +713,8 @@ class Task(FileSystemSyncMixin, DeletedMetaFields, models.Model):
             ai_stage=ai_stage,
             wizard_config=wizard_config,
             pending_user_message=pending_user_message,
+            custom_image_builder_id=custom_image_builder_id,
+            custom_image_id=custom_image_id,
         )
 
         run_extra_state = dict(extra_state or {})
@@ -750,6 +792,34 @@ class TaskThreadMessage(TeamScopedRootMixin):
 
     def __str__(self):
         return f"Thread message {self.id} on task {self.task_id}"
+
+
+class TaskThreadMessageMention(TeamScopedRootMixin):
+    """One @-mention of a user inside a thread message, indexed at write time so the
+    mentions feed is a single indexed query instead of a client-side scan of every
+    channel's threads. ``created_at`` is copied from the message so listing never
+    joins for ordering."""
+
+    # nosemgrep: prefer-uuid7-django-pk -- mirrors sibling task models in this app
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    # db_constraint=False on the team/user FKs: adding an FK constraint to those hot tables
+    # locks them and stalls deploys; Django still enforces the relation and on_delete at the
+    # app level (see safe-django-migrations.md).
+    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, related_name="+", db_constraint=False)
+    message = models.ForeignKey(TaskThreadMessage, on_delete=models.CASCADE, related_name="mentions")
+    task = models.ForeignKey(Task, on_delete=models.CASCADE, related_name="+")
+    mentioned_user = models.ForeignKey("posthog.User", on_delete=models.CASCADE, related_name="+", db_constraint=False)
+    created_at = models.DateTimeField(default=django_timezone.now)
+
+    class Meta:
+        db_table = "posthog_task_thread_message_mention"
+        constraints = [
+            models.UniqueConstraint(fields=["message", "mentioned_user"], name="task_mention_message_user_unique")
+        ]
+        indexes = [models.Index(fields=["team", "mentioned_user", "created_at"], name="task_mention_team_user_created")]
+
+    def __str__(self):
+        return f"Mention of user {self.mentioned_user_id} in message {self.message_id}"
 
 
 class TaskAutomationManager(models.Manager):
@@ -1546,6 +1616,15 @@ class SandboxEnvironment(UUIDModel):
         help_text="Encrypted environment variables for sandbox execution",
     )
 
+    custom_image = models.ForeignKey(
+        "SandboxCustomImage",
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="+",
+        help_text="Custom base image for this environment's sandboxes (Modal VM runtime only)",
+    )
+
     private = models.BooleanField(
         default=True,
         help_text="If true, only the creator can see this environment. Otherwise visible to whole team.",
@@ -1614,6 +1693,102 @@ class SandboxEnvironment(UUIDModel):
             return domains
 
         return []
+
+
+class SandboxCustomImage(TeamScopedRootMixin):
+    """User-defined custom base image for cloud task sandboxes, layered on the VM sandbox base."""
+
+    class Status(models.TextChoices):
+        DRAFT = "draft", "Draft"
+        SCANNING = "scanning", "Scanning"
+        SCAN_FAILED = "scan_failed", "Scan Failed"
+        BUILDING = "building", "Building"
+        BUILD_FAILED = "build_failed", "Build Failed"
+        READY = "ready", "Ready"
+        ARCHIVED = "archived", "Archived"
+
+    # nosemgrep: prefer-uuid7-django-pk -- mirrors sibling task models in this app
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, related_name="+", db_constraint=False)
+    created_by = models.ForeignKey(
+        "posthog.User", on_delete=models.SET_NULL, null=True, blank=True, related_name="+", db_constraint=False
+    )
+
+    name = models.CharField(max_length=255)
+    description = models.TextField(blank=True, default="")
+    repository = models.CharField(
+        max_length=255,
+        blank=True,
+        default="",
+        help_text="Optional 'org/repo' the builder session clones to verify the image can bring up its dependencies.",
+    )
+    private = models.BooleanField(
+        default=False,
+        help_text="If true, only the creator can see and use this image. Otherwise visible to the whole team.",
+    )
+
+    spec = models.JSONField(default=dict, blank=True, help_text="Declarative image spec (see SandboxImageSpec schema).")
+    status = models.CharField(max_length=20, choices=Status, default=Status.DRAFT)
+    version = models.PositiveIntegerField(default=0, help_text="Incremented on each successful build.")
+    modal_image_name = models.CharField(
+        max_length=255,
+        blank=True,
+        default="",
+        help_text="Published Modal named-image reference (name:tag) for the latest successful build.",
+    )
+    scan_result = models.JSONField(default=dict, blank=True, help_text="Latest security scan verdict and findings.")
+    error = models.TextField(blank=True, default="", help_text="Failure detail for scan_failed/build_failed states.")
+    build_log = models.TextField(blank=True, default="", help_text="Sanitized tail of the latest Modal build output.")
+
+    builder_task = models.ForeignKey(
+        Task,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="+",
+        help_text="The image-builder agent task whose conversation produced this image's spec.",
+    )
+
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        db_table = "posthog_sandbox_custom_image"
+        indexes = [
+            models.Index(fields=["team", "status", "-created_at"]),
+        ]
+
+    def __str__(self):
+        return f"{self.name} ({self.get_status_display()})"
+
+    @property
+    def is_ready(self) -> bool:
+        return self.status == self.Status.READY and bool(self.modal_image_name)
+
+    def is_accessible_to_user(self, user_id: int | None) -> bool:
+        if not self.private:
+            return True
+        return user_id is not None and self.created_by_id == user_id
+
+    @classmethod
+    def get_accessible_for_task(
+        cls,
+        *,
+        image_id: str | uuid.UUID,
+        team_id: int,
+        task_created_by_id: int | None,
+    ) -> Optional["SandboxCustomImage"]:
+        try:
+            image = cls.objects.for_team(team_id).filter(id=image_id).first()
+        except (ValidationError, ValueError):
+            return None
+        if image is None or not image.is_accessible_to_user(task_created_by_id):
+            return None
+        return image
+
+    def modal_publish_name(self) -> str:
+        # One stable tag per image — Modal has no image-deletion API, so per-version tags would accumulate.
+        return f"posthog-sandbox-custom-{self.team_id}-{self.id.hex}:latest"
 
 
 class CodeInvite(UUIDModel):

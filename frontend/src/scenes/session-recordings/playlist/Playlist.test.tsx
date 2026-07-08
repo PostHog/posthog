@@ -82,7 +82,7 @@ describe('Playlist', () => {
         })
 
         // LemonBanner renders the action twice (wide and narrow responsive variants)
-        userEvent.click(screen.getAllByRole('button', { name: 'Show all recordings' })[0])
+        userEvent.click(screen.getAllByText('Show all recordings')[0])
 
         await waitFor(() => {
             expect(logic.values.filters.session_ids).toBeUndefined()

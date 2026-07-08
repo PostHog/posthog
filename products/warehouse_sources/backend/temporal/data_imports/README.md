@@ -38,14 +38,15 @@ The manual flow above re-pulls every row from the source. We also have an automa
 
 How it works:
 
-- **Detection.** After each sync, the controller measures per-partition bytes from the Delta log (`get_add_actions` — no S3 LIST, no scan) and always records `max_partition_bytes` on the schema for observability. When the largest partition is over the budget it records a `repartition_pending` target on the schema: the next finer tier (md5 count grows, numerical size shrinks, datetime `month` → `week` → `day` → `hour`).
+- **Detection.** After each sync, the controller measures per-partition bytes from the Delta log (`get_add_actions` — no S3 LIST, no scan) and always records `max_partition_bytes` on the schema for observability. It records a `repartition_pending` target (the next finer tier — md5 count grows, numerical size shrinks, datetime `month` → `week` → `day` → `hour`) when **either** the largest partition is over the budget (`trigger_reason=proactive_threshold`) **or** the schema has repeatedly OOM'd recently (`trigger_reason=oom_history`). The OOM path catches tables whose compressed at-rest size looks safe but whose real merge working set is much larger (e.g. wide nested-JSON columns) — see `ExternalDataSchemaOOMEvent`, recorded per OOM occurrence at the heartbeat-timeout detection point.
 - **Rewrite.** On the next run, a pre-extraction activity streams the live Delta table one record-batch at a time, recomputes `_ph_partition_key` under the finer scheme, and writes a sibling temp table. It then does a crash-safe swap: delete live → server-side copy temp → verify row count → delete temp. Memory is bounded by batch size, independent of partition size. Temp stays the source of truth until the swap is verified, so a worker death at any point loses wasted compute, never data.
 - **Safety.** The repartition is the sole writer (the schedule's `OnlyOne` overlap policy plus the v3 pipeline lock), so it needs no new locking. A repartition failure never fails the sync — it's swallowed, retried on a later run, and capped at `MAX_REPARTITION_ATTEMPTS` (3) consecutive failures before it gives up and alerts.
 
 Tuning and gating:
 
 - Gated by the `data-warehouse-auto-repartition` feature flag plus a 24h per-table cooldown. The flag can be released to a single schema (`schema_id = <id>`) before rolling out by team/org/project.
-- The budget is tunable via the `DATA_WAREHOUSE_TARGET_PARTITION_BYTES` setting (default ~1 GB at-rest → ~20 GB worst-case merge, under the 29 GB pod limit with headroom).
+- The budget is tunable via the `DATA_WAREHOUSE_TARGET_PARTITION_BYTES` setting (default ~0.5 GB at-rest → ~10 GB worst-case merge). Worker pods are multi-tenant, so the budget leaves headroom for concurrent merges under the 29 GB pod limit rather than sizing to a single merge.
+- The OOM-history override is tunable via `DATA_WAREHOUSE_REPARTITION_OOM_THRESHOLD` (default 3) and `DATA_WAREHOUSE_REPARTITION_OOM_WINDOW_DAYS` (default 7). An OOM-triggered rewrite of an under-budget table steps one tier finer per cooldown cycle, converging as the (still-recorded) OOMs continue.
 - CDC tables are excluded for now.
 
 Observability: `warehouse_repartition_flagged` / `started` / `completed` / `failed` / `skipped` PostHog events (with full team/schema/source/table context, before→after scheme, sizes, durations, and trigger reason) plus `DELTA_REPARTITION_*` Prometheus metrics.
