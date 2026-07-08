@@ -1,10 +1,10 @@
 import { BackgroundRefresher } from '~/common/utils/background-refresher'
 import { PostgresRouter, PostgresUse } from '~/common/utils/db/postgres'
 import { logger } from '~/common/utils/logger'
-import { firstPartyHostPatterns } from '~/ingestion/pipelines/sessionreplay/anonymize/url'
 import { RetentionPeriod, isValidRetentionPeriod } from '~/ingestion/pipelines/sessionreplay/shared/constants'
 import { Team, TeamId } from '~/types'
 
+import { firstPartyHostPatterns } from './first-party-hosts'
 import { TeamServiceMetrics } from './metrics'
 import { TeamForReplay } from './types'
 
