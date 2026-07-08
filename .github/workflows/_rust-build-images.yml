@@ -156,27 +156,69 @@ jobs:
 
             - name: Build and push image
               id: docker_build
-              uses: depot/build-push-action@5f3b3c2e5a00f0093de47f657aeaefcedff27d18 # v1.17.0
+              uses: nick-fields/retry@ce71cc2ab81d554ebbe88c79ab5975992d79ba08 # v3
+              env:
+                  DEPOT_PROJECT: ${{ matrix.project }}
+                  BUILD_CONTEXT: ./rust/
+                  DOCKERFILE: ${{ matrix.dockerfile }}
+                  BUILD_TARGET: ${{ matrix.target || '' }}
+                  PUSH_FLAG: ${{ inputs.push }}
+                  BUILD_TAGS: ${{ steps.meta.outputs.tags }}
+                  BUILD_LABELS: ${{ steps.meta.outputs.labels }}
+                  BUILD_BIN: ${{ matrix.bin || matrix.image }}
+                  BUILD_FEATURES: ${{ matrix.features || '' }}
+                  EXTRA_RUSTFLAGS: ${{ matrix.extra_rustflags || '' }}
+                  EXTRA_CFLAGS: ${{ matrix.extra_cflags || '' }}
+                  SCCACHE_WEBDAV_KEY_PREFIX: ${{ steps.sccache.outputs.cache-key-prefix }}
+                  SCCACHE_WEBDAV_ENDPOINT: ${{ steps.sccache.outputs.endpoint }}
+                  SCCACHE_WEBDAV_TOKEN: ${{ steps.sccache.outputs.token }}
               with:
-                  project: ${{ matrix.project }}
-                  context: ./rust/
-                  file: ${{ matrix.dockerfile }}
-                  target: ${{ matrix.target || '' }}
-                  push: ${{ inputs.push }}
-                  tags: ${{ steps.meta.outputs.tags }}
-                  labels: ${{ steps.meta.outputs.labels }}
-                  platforms: linux/arm64,linux/amd64
-                  build-args: |
-                      SCCACHE_LOG=debug
-                      SCCACHE_NO_DAEMON=1
-                      BIN=${{ matrix.bin || matrix.image }}
-                      BUILD_FEATURES=${{ matrix.features || '' }}
-                      EXTRA_RUSTFLAGS=${{ matrix.extra_rustflags || '' }}
-                      EXTRA_CFLAGS=${{ matrix.extra_cflags || '' }}
-                      SCCACHE_WEBDAV_KEY_PREFIX=${{ steps.sccache.outputs.cache-key-prefix }}
-                  secrets: |
-                      SCCACHE_WEBDAV_ENDPOINT=${{ steps.sccache.outputs.endpoint }}
-                      SCCACHE_WEBDAV_TOKEN=${{ steps.sccache.outputs.token }}
+                  timeout_minutes: 25
+                  max_attempts: 3
+                  retry_wait_seconds: 30
+                  command: |
+                      set -euo pipefail
+
+                      args=(
+                          --project "$DEPOT_PROJECT"
+                          --context "$BUILD_CONTEXT"
+                          --file "$DOCKERFILE"
+                          --platform linux/arm64,linux/amd64
+                          --metadata-file /tmp/depot-metadata.json
+                          --build-arg "SCCACHE_LOG=debug"
+                          --build-arg "SCCACHE_NO_DAEMON=1"
+                          --build-arg "BIN=$BUILD_BIN"
+                          --build-arg "BUILD_FEATURES=$BUILD_FEATURES"
+                          --build-arg "EXTRA_RUSTFLAGS=$EXTRA_RUSTFLAGS"
+                          --build-arg "EXTRA_CFLAGS=$EXTRA_CFLAGS"
+                          --build-arg "SCCACHE_WEBDAV_KEY_PREFIX=$SCCACHE_WEBDAV_KEY_PREFIX"
+                          --secret "id=SCCACHE_WEBDAV_ENDPOINT,env=SCCACHE_WEBDAV_ENDPOINT"
+                          --secret "id=SCCACHE_WEBDAV_TOKEN,env=SCCACHE_WEBDAV_TOKEN"
+                      )
+
+                      if [ -n "$BUILD_TARGET" ]; then
+                          args+=(--target "$BUILD_TARGET")
+                      fi
+
+                      if [ "$PUSH_FLAG" = "true" ]; then
+                          args+=(--push)
+                      fi
+
+                      # Add tags
+                      while IFS= read -r tag; do
+                          [ -n "$tag" ] && args+=(--tag "$tag")
+                      done <<< "$BUILD_TAGS"
+
+                      # Add labels
+                      while IFS= read -r label; do
+                          [ -n "$label" ] && args+=(--label "$label")
+                      done <<< "$BUILD_LABELS"
+
+                      depot build "${args[@]}"
+
+                      # Extract digest and export as step output
+                      digest=$(jq -r '."containerimage.digest"' /tmp/depot-metadata.json)
+                      echo "digest=$digest" >> "$GITHUB_OUTPUT"
 
             - name: Build failure properties
               if: failure()
