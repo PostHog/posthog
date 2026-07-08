@@ -18,8 +18,9 @@ use crate::grpc_http::{grpc_error_response, grpc_status_code, is_grpc_error_resp
 ///   reads — for the partition in the shared `StashTable`. The routing-table layer calls `begin_stash` on
 ///   every non-terminal phase the router observes, so the call must
 ///   be idempotent — `StashTable::begin_stash` no-ops if the entry is
-///   already live. New writes park in a per-partition queue while the
-///   handoff progresses through `Freezing → Draining → Warming`.
+///   already live. New leader-path requests park in a per-partition
+///   queue while the handoff progresses through
+///   `Freezing → Draining → Warming`.
 /// * `Complete` → `drain_stash`: forward the buffered requests to the
 ///   new owner, each to the method it arrived on. The drain runs as a loop over the queue; any request
 ///   that arrives during drain (the dashmap entry is still live until

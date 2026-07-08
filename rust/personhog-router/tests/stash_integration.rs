@@ -124,9 +124,7 @@ async fn forward(
 /// its gRPC status code on error. The status lives in the response headers
 /// (router-generated errors, trailers-only leader errors) or the trailers
 /// (a normal leader response).
-async fn decode_response(
-    resp: http::Response<BoxBody>,
-) -> Result<UpdatePersonPropertiesResponse, Code> {
+async fn decode_response<T: Message + Default>(resp: http::Response<BoxBody>) -> Result<T, Code> {
     let (parts, body) = resp.into_parts();
     let collected = body.collect().await.expect("collect leader response body");
     let trailers = collected.trailers().cloned();
@@ -146,7 +144,7 @@ async fn decode_response(
     let msg = data
         .get(5..)
         .expect("successful response carries a gRPC frame");
-    Ok(UpdatePersonPropertiesResponse::decode(msg).expect("decode UpdatePersonPropertiesResponse"))
+    Ok(T::decode(msg).expect("decode leader response message"))
 }
 
 /// Drive a strong read through the backend's raw, stash-aware forward
@@ -179,31 +177,6 @@ async fn forward_read(
         )
         .await;
     response
-}
-
-/// Decode a router response into the typed read response, or its gRPC
-/// status code on error.
-async fn decode_read_response(resp: http::Response<BoxBody>) -> Result<GetPersonResponse, Code> {
-    let (parts, body) = resp.into_parts();
-    let collected = body.collect().await.expect("collect leader response body");
-    let trailers = collected.trailers().cloned();
-    let data = collected.to_bytes();
-
-    let status = parts
-        .headers
-        .get("grpc-status")
-        .or_else(|| trailers.as_ref().and_then(|t| t.get("grpc-status")))
-        .and_then(|v| v.to_str().ok())
-        .and_then(|s| s.parse::<i32>().ok())
-        .unwrap_or(0);
-    if status != 0 {
-        return Err(Code::from(status));
-    }
-
-    let msg = data
-        .get(5..)
-        .expect("successful response carries a gRPC frame");
-    Ok(GetPersonResponse::decode(msg).expect("decode GetPersonResponse"))
 }
 
 /// A request that arrives while the stash is open must park on a oneshot,
@@ -250,7 +223,9 @@ async fn request_during_stash_completes_after_drain() {
         .await
         .expect("drain should release the parked request promptly")
         .expect("task should not panic");
-    let response = decode_response(raw).await.expect("update should succeed");
+    let response = decode_response::<UpdatePersonPropertiesResponse>(raw)
+        .await
+        .expect("update should succeed");
     let returned = response.person.expect("leader returned a person");
     assert_eq!(returned.id, person.id);
     assert!(response.updated, "leader marked the update as applied");
@@ -296,7 +271,9 @@ async fn multiple_stashed_requests_drain_in_fifo() {
             .await
             .expect("each parked request should release after drain")
             .expect("task should not panic");
-        let resp = decode_response(raw).await.expect("update should succeed");
+        let resp = decode_response::<UpdatePersonPropertiesResponse>(raw)
+            .await
+            .expect("update should succeed");
         versions.push(resp.person.unwrap().version);
     }
 
@@ -333,7 +310,9 @@ async fn requests_for_unstashed_partition_forward_immediately() {
     let raw = tokio::time::timeout(Duration::from_secs(2), forward(&backend, req))
         .await
         .expect("forward should not block");
-    let response = decode_response(raw).await.expect("update should succeed");
+    let response = decode_response::<UpdatePersonPropertiesResponse>(raw)
+        .await
+        .expect("update should succeed");
     assert!(response.updated);
 }
 
@@ -362,7 +341,7 @@ async fn stash_full_returns_unavailable_via_backend() {
     // The second request hits the cap and is rejected.
     let req2 = mk_request(person.team_id, person.id, "second@example.com");
     let raw = forward(&backend, req2).await;
-    let code = decode_response(raw)
+    let code = decode_response::<UpdatePersonPropertiesResponse>(raw)
         .await
         .expect_err("second request must be rejected");
     assert_eq!(
@@ -395,7 +374,7 @@ async fn back_to_back_handoffs_use_fresh_queue() {
     tokio::time::sleep(Duration::from_millis(20)).await;
     handler.drain_stash(partition, "leader-a").await.unwrap();
     let raw_a = pending_a.await.unwrap();
-    decode_response(raw_a)
+    decode_response::<UpdatePersonPropertiesResponse>(raw_a)
         .await
         .expect("first handoff's stashed request should drain successfully");
 
@@ -413,7 +392,7 @@ async fn back_to_back_handoffs_use_fresh_queue() {
     );
     handler.drain_stash(partition, "leader-b").await.unwrap();
     let raw_b = pending_b.await.unwrap();
-    decode_response(raw_b)
+    decode_response::<UpdatePersonPropertiesResponse>(raw_b)
         .await
         .expect("second handoff's stashed request should drain successfully");
 }
@@ -472,10 +451,10 @@ async fn ordering_preserved_when_request_arrives_during_drain() {
 
     drain_task.await.unwrap();
 
-    let resp_a = decode_response(pending_a.await.unwrap())
+    let resp_a = decode_response::<UpdatePersonPropertiesResponse>(pending_a.await.unwrap())
         .await
         .expect("A should succeed");
-    let resp_b = decode_response(pending_b.await.unwrap())
+    let resp_b = decode_response::<UpdatePersonPropertiesResponse>(pending_b.await.unwrap())
         .await
         .expect("B should succeed");
 
@@ -524,7 +503,7 @@ async fn stash_wait_exceeded_returns_unavailable() {
     handler.drain_stash(partition, "leader-new").await.unwrap();
 
     let raw = pending.await.unwrap();
-    let code = decode_response(raw)
+    let code = decode_response::<UpdatePersonPropertiesResponse>(raw)
         .await
         .expect_err("drain must fail-fast past-deadline requests");
     assert_eq!(
@@ -568,7 +547,7 @@ async fn fenced_leader_during_drain_returns_unavailable() {
     handler.drain_stash(partition, "leader-new").await.unwrap();
 
     let response = pending.await.unwrap();
-    let code = decode_response(response)
+    let code = decode_response::<UpdatePersonPropertiesResponse>(response)
         .await
         .expect_err("fenced leader must reject the drained write");
     assert_eq!(
@@ -611,12 +590,12 @@ async fn stashed_strong_read_observes_stashed_write() {
 
     handler.drain_stash(partition, "leader-new").await.unwrap();
 
-    let write_resp = decode_response(write.await.unwrap())
+    let write_resp = decode_response::<UpdatePersonPropertiesResponse>(write.await.unwrap())
         .await
         .expect("stashed write must succeed on drain");
     assert!(write_resp.updated);
 
-    let read_resp = decode_read_response(read.await.unwrap())
+    let read_resp = decode_response::<GetPersonResponse>(read.await.unwrap())
         .await
         .expect("stashed read must succeed on drain");
     let props: serde_json::Value =
@@ -649,7 +628,7 @@ async fn stashed_read_past_deadline_returns_unavailable() {
 
     handler.drain_stash(partition, "leader-new").await.unwrap();
 
-    let code = decode_read_response(read.await.unwrap())
+    let code = decode_response::<GetPersonResponse>(read.await.unwrap())
         .await
         .expect_err("past-deadline read must fail fast");
     assert_eq!(
