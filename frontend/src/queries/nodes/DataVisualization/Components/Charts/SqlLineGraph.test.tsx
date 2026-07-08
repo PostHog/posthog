@@ -4,8 +4,6 @@ import { cleanup, configure, fireEvent, screen, waitFor } from '@testing-library
 
 import { dragSelection, setupJsdom, setupSyncRaf } from '@posthog/quill-charts/testing'
 
-import { FEATURE_FLAGS } from 'lib/constants'
-
 import {
     ChartSettings,
     ChartSettingsFormatting,
@@ -499,89 +497,35 @@ describe('SqlLineGraph', () => {
             ['line', ChartDisplayType.ActionsLineGraph],
             ['bar', ChartDisplayType.ActionsBar],
         ])(
-            '%s: writes the dragged x values to filters.dateRange when the SQL consumes {filters}',
+            '%s: reports the dragged x values to context.onDateRangeZoom when the SQL consumes {filters}',
             async (_, display) => {
-                const setQuery = jest.fn()
+                const onDateRangeZoom = jest.fn()
                 renderDataVisualization({
                     query: zoomableQuery('SELECT month, pageviews FROM events WHERE {filters} GROUP BY month', display),
                     response: fixture(),
-                    readOnly: false,
-                    setQuery,
+                    context: { onDateRangeZoom },
                 })
 
                 await dragAcrossChart()
 
                 await waitFor(() => {
-                    expect(setQuery).toHaveBeenCalledWith(
-                        expect.objectContaining({
-                            source: expect.objectContaining({
-                                filters: expect.objectContaining({
-                                    dateRange: { date_from: MONTHS[1], date_to: MONTHS[3] },
-                                }),
-                            }),
-                        })
-                    )
+                    expect(onDateRangeZoom).toHaveBeenCalledWith(MONTHS[1], MONTHS[3])
                 })
             }
         )
 
-        it('routes the drag through context.onDateRangeZoom on read-only views', async () => {
+        it('ignores drags when the SQL does not reference {filters}', async () => {
             const onDateRangeZoom = jest.fn()
             renderDataVisualization({
-                query: zoomableQuery('SELECT month, pageviews FROM events WHERE {filters} GROUP BY month'),
+                query: zoomableQuery('SELECT month, pageviews FROM events GROUP BY month'),
                 response: fixture(),
-                readOnly: true,
                 context: { onDateRangeZoom },
             })
 
             await dragAcrossChart()
 
-            await waitFor(() => {
-                expect(onDateRangeZoom).toHaveBeenCalledWith(MONTHS[1], MONTHS[3])
-            })
-        })
-
-        it('ignores drags when the SQL does not reference {filters}', async () => {
-            const setQuery = jest.fn()
-            renderDataVisualization({
-                query: zoomableQuery('SELECT month, pageviews FROM events GROUP BY month'),
-                response: fixture(),
-                readOnly: false,
-                setQuery,
-            })
-
-            await dragAcrossChart()
-
-            // filters.dateRange would silently not apply, so the gesture must not write it.
-            // (setQuery does fire on mount for unrelated settings syncing, hence the targeted matcher.)
-            expect(setQuery).not.toHaveBeenCalledWith(
-                expect.objectContaining({
-                    source: expect.objectContaining({
-                        filters: expect.objectContaining({ dateRange: expect.anything() }),
-                    }),
-                })
-            )
-        })
-
-        it('ignores drags when the drag-to-zoom flag is off', async () => {
-            const setQuery = jest.fn()
-            renderDataVisualization({
-                query: zoomableQuery('SELECT month, pageviews FROM events WHERE {filters} GROUP BY month'),
-                response: fixture(),
-                readOnly: false,
-                featureFlags: { [FEATURE_FLAGS.INSIGHT_DRAG_TO_ZOOM]: false },
-                setQuery,
-            })
-
-            await dragAcrossChart()
-
-            expect(setQuery).not.toHaveBeenCalledWith(
-                expect.objectContaining({
-                    source: expect.objectContaining({
-                        filters: expect.objectContaining({ dateRange: expect.anything() }),
-                    }),
-                })
-            )
+            // The filters.dateRange rewrite would silently not apply, so the gesture must stay inert.
+            expect(onDateRangeZoom).not.toHaveBeenCalled()
         })
     })
 

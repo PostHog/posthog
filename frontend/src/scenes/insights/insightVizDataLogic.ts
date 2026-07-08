@@ -103,6 +103,7 @@ import {
     nodeKindToFilterProperty,
     supportsBarValueStacking,
     supportsPercentStackView,
+    withHogQLDateRangeFilter,
 } from '~/queries/utils'
 import {
     BaseMathType,
@@ -683,13 +684,7 @@ export const insightVizDataLogic = kea<insightVizDataLogicType>([
             if (isDataVisualizationNode(values.query) && isHogQLQuery(values.query.source)) {
                 const zoomedQuery: DataVisualizationNode = {
                     ...values.query,
-                    source: {
-                        ...values.query.source,
-                        filters: {
-                            ...values.query.source.filters,
-                            dateRange: { date_from: dateFrom, date_to: dateTo },
-                        },
-                    },
+                    source: withHogQLDateRangeFilter(values.query.source, dateFrom, dateTo),
                 }
                 actions.setQuery(zoomedQuery)
                 return

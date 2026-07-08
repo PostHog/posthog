@@ -58,6 +58,7 @@ import {
     HogQLQuery,
     NodeKind,
 } from '~/queries/schema/schema-general'
+import { withHogQLDateRangeFilter } from '~/queries/utils'
 import {
     AccessControlResourceType,
     ChartDisplayType,
@@ -549,6 +550,8 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
         setSourceQuery: (sourceQuery: DataVisualizationNode) => ({
             sourceQuery,
         }),
+        /** Apply a drag-to-zoom date range to the source query's filters and re-run. */
+        zoomDateRange: (dateFrom: string, dateTo: string) => ({ dateFrom, dateTo }),
         setMetadata: (metadata: HogQLMetadataResponse | null) => ({ metadata }),
         setMetadataLoading: (loading: boolean) => ({ loading }),
         setInsightLoading: (loading: boolean) => ({ loading }),
@@ -1110,6 +1113,15 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
                         sourceQuery: nextSourceQuery,
                     })
                 }
+            },
+            zoomDateRange: ({ dateFrom, dateTo }) => {
+                const source = values.sourceQuery.source
+                actions.setSourceQuery({
+                    ...values.sourceQuery,
+                    source: withHogQLDateRangeFilter(source, dateFrom, dateTo),
+                })
+                // Same pattern as QueryFiltersMenu: filter edits re-run against the current editor text.
+                actions.runQuery(values.queryInput ?? source.query)
             },
             setSendRawQuery: ({ sendRawQuery }) => {
                 const currentSourceQuery = values.sourceQuery
@@ -2215,6 +2227,12 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
             (queryInput) => {
                 return queryUsesFiltersPlaceholder(queryInput)
             },
+        ],
+        // Drag-to-zoom rewrites filters.dateRange, which only applies when the SQL consumes {filters}.
+        canZoomDateRange: [
+            (s) => [s.queryInput, s.sourceQuery, s.isEmbeddedMode],
+            (queryInput, sourceQuery, isEmbeddedMode) =>
+                !isEmbeddedMode && queryUsesFiltersPlaceholder(queryInput ?? sourceQuery.source.query ?? null),
         ],
         hasQueryInput: [(s) => [s.queryInput], (queryInput) => !!queryInput],
         isEmbeddedMode: [

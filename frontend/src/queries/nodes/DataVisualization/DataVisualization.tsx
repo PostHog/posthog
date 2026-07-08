@@ -8,8 +8,6 @@ import { LemonButton, LemonDivider } from '@posthog/lemon-ui'
 
 import { alertsToThresholdGoalLines, insightAlertsLogic } from 'lib/components/Alerts/insightAlertsLogic'
 import { ExportButton } from 'lib/components/ExportButton/ExportButton'
-import { FEATURE_FLAGS } from 'lib/constants'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { useAttachedLogic } from 'lib/logic/scenes/useAttachedLogic'
 import { InsightErrorState, StatelessInsightLoadingState } from 'scenes/insights/EmptyStates'
 import { insightDataLogic } from 'scenes/insights/insightDataLogic'
@@ -186,7 +184,6 @@ function InternalDataTableVisualization(props: DataTableVisualizationProps): JSX
         dataVisualizationProps,
         presetChartHeight,
     } = useValues(dataVisualizationLogic)
-    const { featureFlags } = useValues(featureFlagLogic)
 
     const { seriesBreakdownData } = useValues(seriesBreakdownLogic({ key: dataVisualizationProps.key }))
     const { goalLines } = useValues(displayLogic)
@@ -218,34 +215,14 @@ function InternalDataTableVisualization(props: DataTableVisualizationProps): JSX
         [props.setQuery, props.query] // oxlint-disable-line react-hooks/exhaustive-deps
     )
 
-    // Drag-to-zoom rewrites filters.dateRange, so it needs the SQL to consume {filters} and a
-    // host where the query is editable — either an edit surface, or a read-only view whose host
-    // opted in with context.onDateRangeZoom (the insight scene's view mode).
+    // Drag-to-zoom is opt-in via context: hosts that own the query (the insight scene, via
+    // insightVizDataLogic.zoomDateRange) pass a handler; dashboards and read-only embeds don't.
+    // The gesture also needs the SQL to consume {filters}, or the rewrite would silently no-op.
     const contextZoom = props.context?.onDateRangeZoom
-    const canZoomDateRange =
-        !!featureFlags[FEATURE_FLAGS.INSIGHT_DRAG_TO_ZOOM] &&
-        (!readOnly || !!contextZoom) &&
-        !dashboardId &&
-        sourceFeatures.has(QueryFeature.dateRangePicker) &&
-        query.source.query.includes('{filters}') &&
-        !router.values.location.pathname.includes(urls.sqlEditor())
-
-    const onDateRangeZoom = useCallback(
-        (dateFrom: string, dateTo: string) => {
-            if (contextZoom) {
-                contextZoom(dateFrom, dateTo)
-                return
-            }
-            setQuerySource({
-                ...query.source,
-                filters: {
-                    ...query.source.filters,
-                    dateRange: { date_from: dateFrom, date_to: dateTo },
-                },
-            })
-        },
-        [contextZoom, query.source, setQuerySource]
-    )
+    const onDateRangeZoom =
+        contextZoom && sourceFeatures.has(QueryFeature.dateRangePicker) && query.source.query.includes('{filters}')
+            ? contextZoom
+            : undefined
 
     let component: JSX.Element | null = null
 
@@ -300,7 +277,7 @@ function InternalDataTableVisualization(props: DataTableVisualizationProps): JSX
                 dashboardId={dashboardId}
                 goalLines={[...alertThresholdLines, ...goalLines]}
                 presetChartHeight={presetChartHeight}
-                onDateRangeZoom={canZoomDateRange ? onDateRangeZoom : undefined}
+                onDateRangeZoom={onDateRangeZoom}
             />
         )
     } else if (effectiveVisualizationType === ChartDisplayType.ActionsPie) {

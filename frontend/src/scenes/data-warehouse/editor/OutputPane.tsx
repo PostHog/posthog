@@ -76,7 +76,6 @@ import {
 } from '../../../queries/nodes/DataTable/clipboardUtils'
 import { FixErrorButton } from './components/FixErrorButton'
 import { OutputTab, outputPaneLogic } from './outputPaneLogic'
-import { queryUsesFiltersPlaceholder } from './sql-utils'
 import { sqlEditorLogic } from './sqlEditorLogic'
 import { trimRedundantTail } from './syncWarnings'
 import TabScroller from './TabScroller'
@@ -909,33 +908,10 @@ function InternalDataTableVisualization(
     const { seriesBreakdownData } = useValues(seriesBreakdownLogic({ key: dataVisualizationProps.key }))
     const { goalLines } = useValues(displayLogic)
 
-    const { queryInput } = useValues(sqlEditorLogic)
-    const { runQuery } = useActions(sqlEditorLogic)
+    const { canZoomDateRange } = useValues(sqlEditorLogic)
+    const { zoomDateRange } = useActions(sqlEditorLogic)
     const { featureFlags } = useValues(featureFlagLogic)
-
-    // Drag-to-zoom rewrites filters.dateRange, which only applies when the SQL consumes {filters}.
-    const canZoomDateRange =
-        !!featureFlags[FEATURE_FLAGS.INSIGHT_DRAG_TO_ZOOM] &&
-        !props.embedded &&
-        queryUsesFiltersPlaceholder(queryInput ?? props.query.source.query ?? null)
-
-    const propsQuery = props.query
-    const propsSetQuery = props.setQuery
-    const onDateRangeZoom = useCallback(
-        (dateFrom: string, dateTo: string) => {
-            const source = propsQuery.source
-            propsSetQuery?.({
-                ...propsQuery,
-                source: {
-                    ...source,
-                    filters: { ...source.filters, dateRange: { date_from: dateFrom, date_to: dateTo } },
-                },
-            })
-            // Same pattern as QueryFiltersMenu: filter edits re-run against the current editor text.
-            runQuery(queryInput ?? source.query)
-        },
-        [propsQuery, propsSetQuery, queryInput, runQuery]
-    )
+    const dragToZoomEnabled = !!featureFlags[FEATURE_FLAGS.INSIGHT_DRAG_TO_ZOOM] && canZoomDateRange
 
     let component: JSX.Element | null = null
 
@@ -974,7 +950,7 @@ function InternalDataTableVisualization(
                 dashboardId={dashboardId}
                 goalLines={goalLines}
                 presetChartHeight={presetChartHeight}
-                onDateRangeZoom={canZoomDateRange ? onDateRangeZoom : undefined}
+                onDateRangeZoom={dragToZoomEnabled ? zoomDateRange : undefined}
             />
         )
     } else if (effectiveVisualizationType === ChartDisplayType.ActionsPie) {
