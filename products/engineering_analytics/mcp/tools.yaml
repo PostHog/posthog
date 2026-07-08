@@ -18,6 +18,7 @@ tools:
     engineering-analytics-ci-failure-logs:
         operation: engineering_analytics_ci_failure_logs
         enabled: true
+        feature_flag: engineering-analytics
         scopes:
             - engineering_analytics:read
         annotations:
@@ -37,6 +38,7 @@ tools:
     engineering-analytics-flaky-tests:
         operation: engineering_analytics_flaky_tests
         enabled: true
+        feature_flag: engineering-analytics
         scopes:
             - engineering_analytics:read
         annotations:
@@ -64,6 +66,7 @@ tools:
     engineering-analytics-pr-cost:
         operation: engineering_analytics_pr_cost
         enabled: true
+        feature_flag: engineering-analytics
         scopes:
             - engineering_analytics:read
         annotations:
@@ -100,6 +103,7 @@ tools:
     engineering-analytics-sources:
         operation: engineering_analytics_sources
         enabled: true
+        feature_flag: engineering-analytics
         scopes:
             - engineering_analytics:read
         annotations:
@@ -113,9 +117,13 @@ tools:
             table prefix. Call this first when a team may have more than one GitHub source, then pass a chosen id as
             source_id to the pull-requests, workflow-health, ci-cards, or pr-lifecycle tools to read that specific
             source. With a single source you can skip it — the other tools default to the oldest connected source.
+            The prefix also names the underlying warehouse tables — prefix + github_pull_requests / github_workflow_runs
+            / github_workflow_jobs — which you can query directly with SQL or save as SQL insights and subscriptions
+            when the named tools don't fit (timestamps land as strings; parse with parseDateTimeBestEffort).
     engineering-analytics-workflow-jobs:
         operation: engineering_analytics_workflow_jobs
         enabled: true
+        feature_flag: engineering-analytics
         scopes:
             - engineering_analytics:read
         annotations:
@@ -140,6 +148,7 @@ tools:
     engineering-analytics-workflow-runner-costs:
         operation: engineering_analytics_workflow_runner_costs
         enabled: true
+        feature_flag: engineering-analytics
         scopes:
             - engineering_analytics:read
         annotations:
@@ -160,6 +169,7 @@ tools:
     pr-lifecycle:
         operation: engineering_analytics_pr_lifecycle
         enabled: true
+        feature_flag: engineering-analytics
         scopes:
             - engineering_analytics:read
         annotations:
@@ -175,6 +185,7 @@ tools:
     pull-requests:
         operation: engineering_analytics_pull_requests
         enabled: true
+        feature_flag: engineering-analytics
         scopes:
             - engineering_analytics:read
         annotations:
@@ -199,6 +210,7 @@ tools:
     workflow-health:
         operation: engineering_analytics_workflow_health
         enabled: true
+        feature_flag: engineering-analytics
         scopes:
             - engineering_analytics:read
         annotations:
