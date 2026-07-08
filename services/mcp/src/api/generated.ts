@@ -20919,6 +20919,20 @@ export namespace Schemas {
     } as const;
 
     /**
+     * * `gemini-2.5-flash` - Gemini 2.5 Flash
+     * * `gemini-3-flash-preview` - Gemini 3 Flash
+     * * `gemini-3.5-flash` - Gemini 3.5 Flash
+     */
+    export type ScannerModelEnum = typeof ScannerModelEnum[keyof typeof ScannerModelEnum];
+
+
+    export const ScannerModelEnum = {
+      Gemini25Flash: 'gemini-2.5-flash',
+      Gemini3FlashPreview: 'gemini-3-flash-preview',
+      Gemini35Flash: 'gemini-3.5-flash',
+    } as const;
+
+    /**
      * Body of POST /vision/scanners/estimate/ — a proposed, unsaved scanner config.
      */
     export interface EstimateRequest {
@@ -20937,14 +20951,20 @@ export namespace Schemas {
        * * `comprehensive` - Comprehensive */
       sampling_mode?: SamplingModeEnum;
       /**
-         * The scanner being edited, excluded from `other_enabled_scanners_monthly` so its stored estimate isn't double-counted in the forecast. Omit (or null) when estimating a brand-new scanner.
+         * The scanner being edited, excluded from `other_enabled_scanners_monthly_credits` so its stored estimate isn't double-counted in the forecast. Omit (or null) when estimating a brand-new scanner.
          * @nullable
          */
       scanner_id?: string | null;
+      /** Proposed model; determines `credits_per_observation` in the response.
+       *
+       * * `gemini-2.5-flash` - Gemini 2.5 Flash
+       * * `gemini-3-flash-preview` - Gemini 3 Flash
+       * * `gemini-3.5-flash` - Gemini 3.5 Flash */
+      model?: ScannerModelEnum;
     }
 
     /**
-     * Forward-looking observation-volume estimate for a proposed scanner. Pricing-agnostic.
+     * Forward-looking volume and credit-cost estimate for a proposed scanner.
      */
     export interface EstimateResponse {
       /** Distinct sessions matching the query within the 30-day lookback, after the sampling_mode quality filter but before random sampling. */
@@ -20953,8 +20973,12 @@ export namespace Schemas {
       window_days: number;
       /** Projected monthly observations: quality-filtered matched sessions scaled to 30 days, times sampling_rate. */
       estimated_observations_per_month: number;
-      /** Summed projected monthly observations of the org's other enabled scanners (excluding `scanner_id`), from their cached estimates. Read from the same snapshot as this estimate so the forecast can't double-count the edited scanner. */
-      other_enabled_scanners_monthly: number;
+      /** Credits one observation costs at the proposed `model` (1 credit = $0.01). */
+      credits_per_observation: number;
+      /** `estimated_observations_per_month` priced at `credits_per_observation`. */
+      estimated_credits_per_month: number;
+      /** Credit-weighted projected monthly spend of the org's other enabled scanners (excluding `scanner_id`), from their cached estimates. Read from the same snapshot as this estimate so the forecast can't double-count the edited scanner. */
+      other_enabled_scanners_monthly_credits: number;
       /** Sampling rate applied to the projection. Echoed from the request. */
       sampling_rate: number;
     }
@@ -33731,18 +33755,6 @@ export namespace Schemas {
       Google: 'google',
     } as const;
 
-    /**
-     * * `gemini-3-flash-preview` - Gemini 3 Flash
-     * * `gemini-3.1-flash-lite-preview` - Gemini 3 Flash Lite
-     */
-    export type ScannerModelEnum = typeof ScannerModelEnum[keyof typeof ScannerModelEnum];
-
-
-    export const ScannerModelEnum = {
-      Gemini3FlashPreview: 'gemini-3-flash-preview',
-      Gemini31FlashLitePreview: 'gemini-3.1-flash-lite-preview',
-    } as const;
-
     export interface ReplayScanner {
       readonly id: string;
       /**
@@ -33784,8 +33796,9 @@ export namespace Schemas {
       provider?: ScannerProviderEnum;
       /** Concrete model to use for this scanner.
        *
+       * * `gemini-2.5-flash` - Gemini 2.5 Flash
        * * `gemini-3-flash-preview` - Gemini 3 Flash
-       * * `gemini-3.1-flash-lite-preview` - Gemini 3 Flash Lite */
+       * * `gemini-3.5-flash` - Gemini 3.5 Flash */
       model: ScannerModelEnum;
       /** When false, the reconciler removes the scanner's Temporal schedule. On-demand triggers still work. */
       enabled?: boolean;
@@ -33798,6 +33811,13 @@ export namespace Schemas {
          * @nullable
          */
       readonly estimated_monthly_observations: number | null;
+      /** Credits one observation by this scanner costs (1 credit = $0.01), derived from `model`. */
+      readonly credits_per_observation: number;
+      /**
+         * `estimated_monthly_observations` priced at `credits_per_observation`. Null until the estimate is first computed.
+         * @nullable
+         */
+      readonly estimated_monthly_credits: number | null;
       /** Watermark for the scanner's last scheduled fire. Mirrors Temporal schedule state for recovery. */
       readonly last_swept_at: string;
       readonly created_at: string;
@@ -41554,8 +41574,9 @@ export namespace Schemas {
       provider?: ScannerProviderEnum;
       /** Concrete model to use for this scanner.
        *
+       * * `gemini-2.5-flash` - Gemini 2.5 Flash
        * * `gemini-3-flash-preview` - Gemini 3 Flash
-       * * `gemini-3.1-flash-lite-preview` - Gemini 3 Flash Lite */
+       * * `gemini-3.5-flash` - Gemini 3.5 Flash */
       model?: ScannerModelEnum;
       /** When false, the reconciler removes the scanner's Temporal schedule. On-demand triggers still work. */
       enabled?: boolean;
@@ -41568,6 +41589,13 @@ export namespace Schemas {
          * @nullable
          */
       readonly estimated_monthly_observations?: number | null;
+      /** Credits one observation by this scanner costs (1 credit = $0.01), derived from `model`. */
+      readonly credits_per_observation?: number;
+      /**
+         * `estimated_monthly_observations` priced at `credits_per_observation`. Null until the estimate is first computed.
+         * @nullable
+         */
+      readonly estimated_monthly_credits?: number | null;
       /** Watermark for the scanner's last scheduled fire. Mirrors Temporal schedule state for recovery. */
       readonly last_swept_at?: string;
       readonly created_at?: string;
@@ -55271,20 +55299,26 @@ export namespace Schemas {
     }
 
     export interface VisionQuota {
-      /** Total observations the org may complete per calendar month. */
-      readonly monthly_quota: number;
-      /** Observations created this month that are in flight or have succeeded, counted against the quota. */
-      readonly usage_this_month: number;
-      /** `monthly_quota - usage_this_month`, floored at 0. */
-      readonly remaining: number;
-      /** True when `usage_this_month >= monthly_quota`; further observations are skipped until next period. */
+      /**
+         * Credits the org may spend per billing period (1 credit = $0.01). Null when billing has synced the product with no spend limit: uncapped.
+         * @nullable
+         */
+      readonly credit_limit: number | null;
+      /** Credits spent this period: succeeded observations from the receipt ledger plus reserved in-flight observations. */
+      readonly credits_used: number;
+      /**
+         * `credit_limit - credits_used`, floored at 0. Null when uncapped.
+         * @nullable
+         */
+      readonly remaining: number | null;
+      /** True when `credits_used >= credit_limit`; further observations are skipped until next period. Always false when uncapped. */
       readonly exhausted: boolean;
       /** First moment of the current quota period (UTC). */
       readonly period_start: string;
       /** First moment of the next quota period (UTC); the current period's exclusive upper bound. */
       readonly period_end: string;
-      /** Sum of enabled scanners' projected observations/month across the organization. Scanners without a computed estimate contribute 0. */
-      readonly projected_monthly_observations: number;
+      /** Credit-weighted sum of enabled scanners' projected observations/month across the organization. Scanners without a computed estimate contribute 0. */
+      readonly projected_monthly_credits: number;
     }
 
     export interface WarehouseConnection {

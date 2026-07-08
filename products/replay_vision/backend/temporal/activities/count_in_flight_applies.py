@@ -1,25 +1,23 @@
-import structlog
+from django.db.models import Count, Q
+
 from temporalio import activity
 
-from posthog.temporal.common.client import async_connect
-
+from products.replay_vision.backend.models.replay_observation import ReplayObservation
 from products.replay_vision.backend.temporal.decorators import track_activity
-from products.replay_vision.backend.temporal.sweep_types import CountInFlightAppliesInputs
-
-logger = structlog.get_logger(__name__)
+from products.replay_vision.backend.temporal.sweep_types import CountInFlightAppliesInputs, InFlightApplyCounts
 
 
 @activity.defn
 @track_activity()
-async def count_in_flight_applies_activity(inputs: CountInFlightAppliesInputs) -> int:
-    """Count this scanner's running apply-scanner workflows (PostHogScannerId is stamped only on those).
+def count_in_flight_applies_activity(inputs: CountInFlightAppliesInputs) -> InFlightApplyCounts:
+    """Count in-flight (pending/running) observations for this scanner and for its whole team.
 
-    Fails open (returns 0) so a visibility hiccup lets the sweep proceed rather than wedging it.
+    Counts DB rows rather than Temporal visibility so concurrency shares the quota system's
+    single notion of in-flight. Rows stranded by failed workflows keep counting until the orphan
+    reaper clears them, which throttles sweeps during an incident instead of piling on new work.
     """
-    query = f'PostHogScannerId = "{inputs.scanner_id}" AND ExecutionStatus = "Running"'
-    try:
-        client = await async_connect()
-        return (await client.count_workflows(query)).count
-    except Exception as exc:
-        logger.warning("replay_vision.count_in_flight_failed", scanner_id=str(inputs.scanner_id), error=str(exc))
-        return 0
+    counts = ReplayObservation.in_flight_for_team(inputs.team_id).aggregate(
+        team=Count("id"),
+        scanner=Count("id", filter=Q(scanner_id=inputs.scanner_id)),
+    )
+    return InFlightApplyCounts(scanner=counts["scanner"], team=counts["team"])

@@ -1564,7 +1564,7 @@ class TestRetryActions(_VisionAPITestCase):
         mock_async_to_sync.return_value = start_workflow
         observation = self._create_failed("sess-quota")
 
-        exhausted = MagicMock(exhausted=True, monthly_quota=500, period_end=timezone.now())
+        exhausted = MagicMock(exhausted=True, credit_limit=500, period_end=timezone.now())
         with patch("products.replay_vision.backend.api.trigger.compute_quota_snapshot", return_value=exhausted):
             resp = self.client.post(self.retry_url(str(observation.id)))
         self.assertEqual(resp.status_code, 402, resp.json())
@@ -1793,6 +1793,21 @@ class TestReplayScannerEstimateAction(ClickhouseTestMixin, _VisionAPITestCase):
         self.assertEqual(body["matched_sessions_in_window"], 3)
         self.assertEqual(body["window_days"], 30)
         self.assertEqual(body["estimated_observations_per_month"], 3)
+        # Defaults to the baseline model when the request names none.
+        self.assertEqual(body["credits_per_observation"], 5)
+        self.assertEqual(body["estimated_credits_per_month"], 15)
+
+    def test_estimate_prices_credits_at_proposed_model(self) -> None:
+        for index in range(3):
+            self._ingest_session(days_ago=index + 1)
+        self._ingest_session(days_ago=40)
+
+        resp = self.client.post(self.estimate_url, data={"model": "gemini-3.5-flash"}, format="json")
+        self.assertEqual(resp.status_code, 200)
+
+        body = resp.json()
+        self.assertEqual(body["credits_per_observation"], 15)
+        self.assertEqual(body["estimated_credits_per_month"], body["estimated_observations_per_month"] * 15)
 
     def test_estimate_applies_sampling(self) -> None:
         for index in range(4):
@@ -1827,13 +1842,13 @@ class TestReplayScannerEstimateAction(ClickhouseTestMixin, _VisionAPITestCase):
         make("b", enabled=True, estimate=250)
         make("disabled", enabled=False, estimate=999)  # disabled scanners don't count
 
-        # New scanner (no scanner_id): others = both enabled scanners.
+        # New scanner (no scanner_id): others = both enabled scanners, credit-weighted at 5/observation.
         new_body = self.client.post(self.estimate_url, data={}, format="json").json()
-        self.assertEqual(new_body["other_enabled_scanners_monthly"], 350)
+        self.assertEqual(new_body["other_enabled_scanners_monthly_credits"], 350 * 5)
 
         # Editing scanner `a`: its own stored estimate is excluded so the forecast won't double-count it.
         edit_body = self.client.post(self.estimate_url, data={"scanner_id": str(a.id)}, format="json").json()
-        self.assertEqual(edit_body["other_enabled_scanners_monthly"], 250)
+        self.assertEqual(edit_body["other_enabled_scanners_monthly_credits"], 250 * 5)
 
     def test_estimate_rejects_scanner_id_outside_the_request_team(self) -> None:
         # A scanner_id from another team (even same org) must be rejected, not silently excluded from the others-sum.

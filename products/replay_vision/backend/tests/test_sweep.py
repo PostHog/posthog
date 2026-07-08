@@ -3,7 +3,7 @@ import datetime as dt
 from typing import Any
 
 import pytest
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import MagicMock, patch
 
 from temporalio.exceptions import ApplicationError, WorkflowAlreadyStartedError
 
@@ -22,14 +22,15 @@ from products.replay_vision.backend.temporal.activities.refresh_prompt_suggestio
 )
 from products.replay_vision.backend.temporal.constants import (
     MAX_IN_FLIGHT_APPLIES_PER_SCANNER,
+    MAX_IN_FLIGHT_APPLIES_PER_TEAM,
     build_process_vision_action_workflow_id,
 )
 from products.replay_vision.backend.temporal.sweep_types import (
     AdvanceScannerWatermarkInputs,
     CandidateSessionPayload,
-    CountInFlightAppliesInputs,
     FindScannerCandidatesInputs,
     FindScannerCandidatesOutput,
+    InFlightApplyCounts,
     SweepScannerInputs,
 )
 from products.replay_vision.backend.temporal.vision_actions.activities import evaluate_due_vision_actions_activity
@@ -254,7 +255,7 @@ class _SweepMocks:
         self.activity_calls.append((activity_fn, activity_input))
         # Default to 0 in-flight (full headroom) unless a test overrides it.
         if activity_fn is count_in_flight_applies_activity and activity_fn not in self.activity_results:
-            return 0
+            return InFlightApplyCounts(scanner=0, team=0)
         # Default to no due vision actions unless a test overrides it.
         if activity_fn is evaluate_due_vision_actions_activity and activity_fn not in self.activity_results:
             return []
@@ -401,14 +402,22 @@ async def test_child_start_failure_propagates_and_skips_advance() -> None:
 @pytest.mark.parametrize(
     "in_flight, expected_candidate_limit",
     [
-        (MAX_IN_FLIGHT_APPLIES_PER_SCANNER, None),  # at the cap → throttled
-        (MAX_IN_FLIGHT_APPLIES_PER_SCANNER + 10, None),  # over the cap (negative headroom) → throttled
-        (MAX_IN_FLIGHT_APPLIES_PER_SCANNER - 10, 10),  # partial headroom → fetch is capped to it
-        (0, MAX_IN_FLIGHT_APPLIES_PER_SCANNER),  # idle → full headroom
+        (InFlightApplyCounts(scanner=MAX_IN_FLIGHT_APPLIES_PER_SCANNER, team=0), None),  # scanner cap → throttled
+        (InFlightApplyCounts(scanner=MAX_IN_FLIGHT_APPLIES_PER_SCANNER + 10, team=0), None),  # over → throttled
+        (InFlightApplyCounts(scanner=0, team=MAX_IN_FLIGHT_APPLIES_PER_TEAM), None),  # team cap → throttled
+        (InFlightApplyCounts(scanner=MAX_IN_FLIGHT_APPLIES_PER_SCANNER - 10, team=0), 10),  # partial scanner headroom
+        (
+            # Team headroom smaller than scanner headroom → team cap binds the fetch.
+            InFlightApplyCounts(scanner=0, team=MAX_IN_FLIGHT_APPLIES_PER_TEAM - 5),
+            5,
+        ),
+        (InFlightApplyCounts(scanner=0, team=0), MAX_IN_FLIGHT_APPLIES_PER_SCANNER),  # idle → full headroom
     ],
 )
 @pytest.mark.asyncio
-async def test_inflight_cap_gates_the_sweep(in_flight: int, expected_candidate_limit: int | None) -> None:
+async def test_inflight_cap_gates_the_sweep(
+    in_flight: InFlightApplyCounts, expected_candidate_limit: int | None
+) -> None:
     mocks = _SweepMocks(
         activity_results={
             count_in_flight_applies_activity: in_flight,
@@ -512,33 +521,3 @@ async def test_sweep_swallows_already_running_vision_action() -> None:
 
     # An already-running action is skipped, not a failure.
     await _run_sweep(mocks)
-
-
-# count_in_flight_applies_activity
-
-
-@pytest.mark.asyncio
-async def test_count_in_flight_queries_by_scanner_id_search_attribute() -> None:
-    scanner_id = uuid.uuid4()
-    client = MagicMock()
-    client.count_workflows = AsyncMock(return_value=MagicMock(count=7))
-    with patch(
-        "products.replay_vision.backend.temporal.activities.count_in_flight_applies.async_connect",
-        AsyncMock(return_value=client),
-    ):
-        result = await count_in_flight_applies_activity(CountInFlightAppliesInputs(scanner_id=scanner_id))
-
-    assert result == 7
-    query = client.count_workflows.await_args.args[0]
-    assert f'PostHogScannerId = "{scanner_id}"' in query
-    assert 'ExecutionStatus = "Running"' in query
-
-
-@pytest.mark.asyncio
-async def test_count_in_flight_returns_zero_on_failure() -> None:
-    with patch(
-        "products.replay_vision.backend.temporal.activities.count_in_flight_applies.async_connect",
-        AsyncMock(side_effect=RuntimeError("visibility down")),
-    ):
-        result = await count_in_flight_applies_activity(CountInFlightAppliesInputs(scanner_id=uuid.uuid4()))
-    assert result == 0

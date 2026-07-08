@@ -7,6 +7,7 @@ from django.conf import settings
 
 import structlog
 from asgiref.sync import async_to_sync
+from rest_framework.exceptions import Throttled
 from temporalio.common import SearchAttributePair, TypedSearchAttributes
 from temporalio.exceptions import WorkflowAlreadyStartedError
 
@@ -18,12 +19,13 @@ from posthog.temporal.common.search_attributes import (
     POSTHOG_TEAM_ID_KEY,
 )
 
-from products.replay_vision.backend.models.replay_observation import ObservationTrigger
+from products.replay_vision.backend.models.replay_observation import ObservationTrigger, ReplayObservation
 from products.replay_vision.backend.models.replay_scanner import ReplayScanner
 from products.replay_vision.backend.quota import compute_quota_snapshot
 from products.replay_vision.backend.temporal.constants import (
     APPLY_SCANNER_EXECUTION_TIMEOUT,
     APPLY_SCANNER_WORKFLOW_NAME,
+    MAX_IN_FLIGHT_APPLIES_PER_TEAM,
     build_apply_scanner_workflow_id,
 )
 from products.replay_vision.backend.temporal.types import ApplyScannerInputs
@@ -38,13 +40,20 @@ class WorkflowStartOutcome(enum.Enum):
     FAILED = "failed"
 
 
+def check_team_in_flight_capacity(team_id: int) -> None:
+    """Raise 429 when the team is already at its in-flight apply cap."""
+    count = ReplayObservation.in_flight_for_team(team_id).count()
+    if count >= MAX_IN_FLIGHT_APPLIES_PER_TEAM:
+        raise Throttled(detail=f"This team already has {count} observations running. Try again in a few minutes.")
+
+
 def check_observation_quota(organization_id: UUID) -> None:
-    """Raise 402 when the org's monthly observation quota is exhausted."""
+    """Raise 402 when the org's monthly credit limit is exhausted."""
     snapshot = compute_quota_snapshot(organization_id=organization_id)
-    if snapshot.exhausted:
+    if snapshot.exhausted and snapshot.credit_limit is not None:
         raise QuotaLimitExceeded(
             detail=(
-                f"Monthly Replay Vision quota of {snapshot.monthly_quota:,} observations reached. "
+                f"Monthly Replay vision limit of ${snapshot.credit_limit / 100:,.2f} reached. "
                 f"Resets {snapshot.period_end.strftime('%b')} {snapshot.period_end.day}."
             )
         )
