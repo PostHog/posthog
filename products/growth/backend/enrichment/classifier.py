@@ -1,7 +1,10 @@
+import os
 import enum
 from functools import lru_cache
 
-from posthog.utils import GenericEmails, get_absolute_path
+from posthog.utils import GenericEmails
+
+_DOMAIN_LISTS_DIR = os.path.dirname(__file__)
 
 
 class CompanyType(enum.StrEnum):
@@ -13,8 +16,8 @@ class CompanyType(enum.StrEnum):
 
 
 class _DomainList:
-    def __init__(self, filename: str):
-        with open(get_absolute_path(f"helpers/{filename}"), encoding="utf-8") as f:
+    def __init__(self, filename: str) -> None:
+        with open(os.path.join(_DOMAIN_LISTS_DIR, filename), encoding="utf-8") as f:
             self.domains = {line for raw in f if (line := raw.strip()) and not line.startswith("#")}
 
     def __contains__(self, domain: str) -> bool:

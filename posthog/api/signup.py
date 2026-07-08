@@ -32,17 +32,8 @@ from posthog.api.webauthn import (
 from posthog.email import is_email_available
 from posthog.event_usage import alias_invite_id, report_user_joined_organization, report_user_signed_up
 from posthog.exceptions_capture import capture_exception
-from posthog.helpers.company_type import classify_company_type
 from posthog.helpers.email_utils import EmailValidationHelper, validate_display_name
-from posthog.models import (
-    InviteExpiredException,
-    Organization,
-    OrganizationDomain,
-    OrganizationEnrichment,
-    OrganizationInvite,
-    Team,
-    User,
-)
+from posthog.models import InviteExpiredException, Organization, OrganizationDomain, OrganizationInvite, Team, User
 from posthog.models.organization_invite import INVITE_DAYS_VALIDITY
 from posthog.models.webauthn_credential import WebauthnCredential
 from posthog.permissions import CanCreateOrg
@@ -51,6 +42,8 @@ from posthog.utils import get_can_create_org, is_relative_url
 from posthog.workos_radar import RadarAction, RadarAuthMethod, evaluate_auth_attempt
 
 from products.demo.backend.facade.api import HedgeboxMatrix, MatrixManager
+from products.growth.backend.enrichment.classifier import classify_company_type
+from products.growth.backend.models import OrganizationEnrichment
 
 logger = structlog.get_logger(__name__)
 

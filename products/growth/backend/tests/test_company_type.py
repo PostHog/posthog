@@ -1,6 +1,6 @@
 import pytest
 
-from posthog.helpers.company_type import CompanyType, classify_company_type
+from products.growth.backend.enrichment.classifier import CompanyType, classify_company_type
 
 
 @pytest.mark.parametrize(
