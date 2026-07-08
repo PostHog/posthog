@@ -1,3 +1,5 @@
+import { type KeyboardEvent as ReactKeyboardEvent } from 'react'
+
 import { Tooltip } from '@posthog/lemon-ui'
 
 import { dayjs } from 'lib/dayjs'
@@ -16,6 +18,8 @@ interface RunActivityMiniBarsProps {
     truncated?: boolean
     /** Singular noun for each bar in the header count — 'run' by default, 'commit' on the repo-health view. */
     noun?: string
+    /** When set, each bar becomes a button that calls this with its run — e.g. to open that commit's run. */
+    onBarClick?: (run: ActivityRun) => void
     className?: string
 }
 
@@ -35,6 +39,7 @@ export function RunActivityMiniBars({
     title = 'Run activity',
     truncated = false,
     noun = 'run',
+    onBarClick,
     className,
 }: RunActivityMiniBarsProps): JSX.Element | null {
     const plottable = runs.filter(isPlottable)
@@ -101,8 +106,25 @@ export function RunActivityMiniBars({
                                 }
                             >
                                 <div
-                                    className="min-w-[3px] flex-1 rounded-t-sm opacity-75 transition-opacity hover:opacity-100"
+                                    className={cn(
+                                        'min-w-[3px] flex-1 rounded-t-sm opacity-75 transition-opacity hover:opacity-100',
+                                        onBarClick && 'cursor-pointer'
+                                    )}
                                     style={{ height: barHeight(run.durationSeconds), background: color }}
+                                    {...(onBarClick
+                                        ? {
+                                              role: 'button',
+                                              tabIndex: 0,
+                                              'aria-label': `Open ${dayjs(run.startedAt).format('MMM D, HH:mm')} ${noun}`,
+                                              onClick: () => onBarClick(run),
+                                              onKeyDown: (e: ReactKeyboardEvent) => {
+                                                  if (e.key === 'Enter' || e.key === ' ') {
+                                                      e.preventDefault()
+                                                      onBarClick(run)
+                                                  }
+                                              },
+                                          }
+                                        : {})}
                                 />
                             </Tooltip>
                         )

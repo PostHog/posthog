@@ -16,6 +16,7 @@ from products.engineering_analytics.backend.logic.queries.pr_cost import (
     query_cost_per_merge_series,
     query_workflow_window_costs_with_prev,
 )
+from products.engineering_analytics.backend.logic.queries.workflow_health import query_time_to_green_series
 
 _RUNS_SELECT = """
     SELECT
@@ -124,6 +125,9 @@ def query_repo_overview(
     cost_series_granularity, cost_series = query_cost_per_merge_series(
         curated=curated, date_from=date_from, date_to=date_to
     )
+    ttg_series_granularity, ttg_series = query_time_to_green_series(
+        curated=curated, date_from=date_from, date_to=date_to
+    )
 
     return RepoOverview(
         run_count=run_count,
@@ -142,4 +146,6 @@ def query_repo_overview(
         default_branch=default_branch,
         cost_series=cost_series,
         cost_series_granularity=cost_series_granularity,
+        time_to_green_series=ttg_series,
+        time_to_green_series_granularity=ttg_series_granularity,
     )

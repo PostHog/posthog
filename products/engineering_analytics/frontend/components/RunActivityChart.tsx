@@ -21,6 +21,7 @@ export interface ActivityRun {
     durationSeconds: number | null
     headBranch?: string | null
     prNumber?: number | null
+    headSha?: string | null
 }
 
 interface RunActivityChartProps {

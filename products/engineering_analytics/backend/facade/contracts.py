@@ -242,6 +242,8 @@ class WorkflowRunActivityPoint:
     head_branch: str
     # Attributed pull request number, or 0 when unattributed.
     pr_number: int
+    # Head commit SHA — lets a chart point link to the commit (e.g. the repo-health bar → GitHub commit).
+    head_sha: str
 
 
 @dataclass(frozen=True)
@@ -702,6 +704,23 @@ class CostPerMergeBucket:
 
 
 @dataclass(frozen=True)
+class TimeToGreenBucket:
+    """One time bucket of the repo's median time-to-green: the p50 wall-clock duration of *successful*
+    CI runs attributed to pull requests (default-branch runs excluded), started in this bucket. Cancelled
+    and failed runs end early and would bias the percentile low, so they are excluded — the same
+    success-only population the workflow-health percentiles use. ``p50_seconds`` is None for a bucket with
+    no successful PR run (a gap, not instant CI); the UI carries the last known value forward rather than
+    dipping the trend to zero.
+    """
+
+    # Bucket start, aligned to the granularity (top of hour / midnight / Monday).
+    bucket_start: datetime
+    # Median wall-clock seconds of successful PR-attributed CI runs started in this bucket. None when the
+    # bucket had no successful PR run.
+    p50_seconds: float | None
+
+
+@dataclass(frozen=True)
 class RepoOverview:
     """Repo-level headline aggregates for the landing page, each with its previous-window twin
     so the UI renders honest deltas. The previous window has the same length as the current one
@@ -730,6 +749,11 @@ class RepoOverview:
     cost_series: list[CostPerMergeBucket]
     # Bucket width of `cost_series`, chosen to fit the window: 'hour', 'day', or 'week'.
     cost_series_granularity: str
+    # Time-to-green trend: median CI duration of successful PR-attributed runs per bucket, oldest first,
+    # bucketed by `time_to_green_series_granularity`. Empty buckets carry None (no successful PR run).
+    time_to_green_series: list[TimeToGreenBucket]
+    # Bucket width of `time_to_green_series`, chosen to fit the window: 'hour', 'day', or 'week'.
+    time_to_green_series_granularity: str
 
 
 @dataclass(frozen=True)

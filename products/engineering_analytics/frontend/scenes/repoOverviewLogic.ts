@@ -173,6 +173,7 @@ export const repoOverviewLogic = kea<repoOverviewLogicType>([
                     durationSeconds: point.duration_seconds,
                     headBranch: point.head_branch,
                     prNumber: point.pr_number,
+                    headSha: point.head_sha,
                 })),
         ],
         activityTruncated: [(s) => [s.repoActivity], (repoActivity): boolean => repoActivity.truncated],
@@ -239,6 +240,30 @@ export const repoOverviewLogic = kea<repoOverviewLogicType>([
                     values: series.map((bucket) => bucket.cost_per_merge_usd ?? 0),
                     labels: series.map((bucket) => dayjs(bucket.bucket_start).format(fmt)),
                 }
+            },
+        ],
+        // Time-to-green trend (median success-only PR CI duration) in minutes. Empty buckets carry the last
+        // known value forward — a gap means "no new PR run to time", not 0 min, so zero-filling would draw a
+        // false dip. Trimmed to start at the first bucket with data so the line doesn't open on flat zeros.
+        // Null when no bucket has a successful PR run, so the card shows its own empty state.
+        timeToGreenSeries: [
+            (s) => [s.overview],
+            (overview): { values: number[]; labels: string[] } | null => {
+                const series = overview?.time_to_green_series ?? []
+                const firstData = series.findIndex((bucket) => bucket.p50_seconds != null)
+                if (firstData === -1) {
+                    return null
+                }
+                const fmt = overview?.time_to_green_series_granularity === 'hour' ? 'MMM D HH:mm' : 'MMM D'
+                const trimmed = series.slice(firstData)
+                let last = 0
+                const values = trimmed.map((bucket) => {
+                    if (bucket.p50_seconds != null) {
+                        last = Math.round((bucket.p50_seconds / 60) * 10) / 10
+                    }
+                    return last
+                })
+                return { values, labels: trimmed.map((bucket) => dayjs(bucket.bucket_start).format(fmt)) }
             },
         ],
     }),

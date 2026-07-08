@@ -35,6 +35,7 @@ from products.engineering_analytics.backend.facade.contracts import (
     RepoRef,
     RunCost,
     RunFailureLogs,
+    TimeToGreenBucket,
     WorkflowCost,
     WorkflowHealthBucket,
     WorkflowHealthItem,
@@ -236,6 +237,7 @@ class WorkflowRunActivityPointSerializer(DataclassSerializer):
             },
             "head_branch": {"help_text": "Git branch the run was triggered on, or '' when unknown."},
             "pr_number": {"help_text": "Attributed pull request number, or 0 when unattributed."},
+            "head_sha": {"help_text": "Head commit SHA of the run/commit, or '' when unknown."},
         }
 
 
@@ -725,11 +727,31 @@ class CostPerMergeBucketSerializer(DataclassSerializer):
         }
 
 
+class TimeToGreenBucketSerializer(DataclassSerializer):
+    class Meta:
+        dataclass = TimeToGreenBucket
+        extra_kwargs = {
+            "bucket_start": {
+                "help_text": "Bucket start, aligned to time_to_green_series_granularity (top of hour, midnight, or Monday)."
+            },
+            "p50_seconds": {
+                "help_text": "Median wall-clock seconds of successful PR-attributed CI runs started in this bucket. "
+                "Null when the bucket had no successful PR run (a gap, not instant CI).",
+                "allow_null": True,
+            },
+        }
+
+
 class RepoOverviewSerializer(DataclassSerializer):
     cost_series = CostPerMergeBucketSerializer(
         many=True,
         help_text="CI cost per merged PR across the window, oldest first, zero-filled, bucketed by "
         "cost_series_granularity. Empty when the job-level source isn't synced.",
+    )
+    time_to_green_series = TimeToGreenBucketSerializer(
+        many=True,
+        help_text="Median time-to-green (p50 successful PR-attributed CI run duration) per bucket across the "
+        "window, oldest first, bucketed by time_to_green_series_granularity. Empty buckets carry null.",
     )
 
     class Meta:
@@ -780,6 +802,9 @@ class RepoOverviewSerializer(DataclassSerializer):
             "default_branch": {"help_text": "'master' or 'main', picked by observed run volume in the window."},
             "cost_series_granularity": {
                 "help_text": "Bucket width of the cost_series trend, chosen to fit the window: 'hour', 'day', or 'week'."
+            },
+            "time_to_green_series_granularity": {
+                "help_text": "Bucket width of the time_to_green_series trend: 'hour', 'day', or 'week'."
             },
         }
 

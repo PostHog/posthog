@@ -619,9 +619,21 @@ export interface CostPerMergeBucketApi {
     cost_per_merge_usd: number | null
 }
 
+export interface TimeToGreenBucketApi {
+    /** Bucket start, aligned to time_to_green_series_granularity (top of hour, midnight, or Monday). */
+    bucket_start: string
+    /**
+     * Median wall-clock seconds of successful PR-attributed CI runs started in this bucket. Null when the bucket had no successful PR run (a gap, not instant CI).
+     * @nullable
+     */
+    p50_seconds: number | null
+}
+
 export interface RepoOverviewApi {
     /** CI cost per merged PR across the window, oldest first, zero-filled, bucketed by cost_series_granularity. Empty when the job-level source isn't synced. */
     cost_series: CostPerMergeBucketApi[]
+    /** Median time-to-green (p50 successful PR-attributed CI run duration) per bucket across the window, oldest first, bucketed by time_to_green_series_granularity. Empty buckets carry null. */
+    time_to_green_series: TimeToGreenBucketApi[]
     /** Workflow runs started in the window, all branches and workflows. */
     run_count: number
     /** Same count over the equal-length window immediately before date_from — the delta baseline. */
@@ -676,6 +688,8 @@ export interface RepoOverviewApi {
     default_branch: string
     /** Bucket width of the cost_series trend, chosen to fit the window: 'hour', 'day', or 'week'. */
     cost_series_granularity: string
+    /** Bucket width of the time_to_green_series trend: 'hour', 'day', or 'week'. */
+    time_to_green_series_granularity: string
 }
 
 export interface WorkflowRunActivityPointApi {
@@ -697,6 +711,8 @@ export interface WorkflowRunActivityPointApi {
     head_branch: string
     /** Attributed pull request number, or 0 when unattributed. */
     pr_number: number
+    /** Head commit SHA of the run/commit, or '' when unknown. */
+    head_sha: string
 }
 
 export interface WorkflowRunActivityApi {
