@@ -246,13 +246,14 @@ class InternalDataModelingOpsViewSet(
         return Response(serializer.data)
 
     @extend_schema(exclude=True)
-    def internal_schedules(self, request: Request, team_id: str) -> Response:
+    def internal_schedules(self, request: Request, **kwargs: Any) -> Response:
+        team_id = team_id_filter(request)
         entities = [
             {"entity_type": "dag", "entity_id": str(dag["id"]), "entity_name": dag["name"]}
-            for dag in DAG.objects.filter(team_id=int(team_id)).values("id", "name")
+            for dag in scoped_to_team(DAG.objects.all(), team_id).values("id", "name")
         ] + [
             {"entity_type": "saved_query", "entity_id": str(sq["id"]), "entity_name": sq["name"]}
-            for sq in DataWarehouseSavedQuery.objects.filter(team_id=int(team_id))
+            for sq in scoped_to_team(DataWarehouseSavedQuery.objects.all(), team_id)
             .exclude(deleted=True)
             .filter(Q(is_materialized=True) | Q(sync_frequency_interval__isnull=False))
             .values("id", "name")
@@ -260,12 +261,20 @@ class InternalDataModelingOpsViewSet(
         truncated = len(entities) > SCHEDULE_CANDIDATE_CAP
         entities = entities[:SCHEDULE_CANDIDATE_CAP]
 
-        descriptions = describe_schedules([entity["entity_id"] for entity in entities])
+        temporal_error: str | None = None
+        try:
+            descriptions = describe_schedules([entity["entity_id"] for entity in entities])
+        except Exception as error:
+            # Same degradation as the detail route: the entity list is DB-derived, so a
+            # Temporal outage nulls the schedule column instead of 500ing the view.
+            descriptions = {}
+            temporal_error = str(error)
         results = [{**entity, "schedule": descriptions.get(entity["entity_id"])} for entity in entities]
         return Response(
             {
                 "results": InternalEntityScheduleSerializer(results, many=True).data,
                 "truncated": truncated,
+                "temporal_error": temporal_error,
             }
         )
 

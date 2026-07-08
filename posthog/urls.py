@@ -525,7 +525,7 @@ urlpatterns = [
         csrf_exempt(InternalDataModelingOpsViewSet.as_view({"get": "internal_saved_query_jobs"})),
     ),
     path(
-        "api/projects/<str:team_id>/internal/data_modeling_ops/schedules",
+        "api/internal/data_modeling_ops/schedules",
         csrf_exempt(InternalDataModelingOpsViewSet.as_view({"get": "internal_schedules"})),
     ),
     path(

@@ -95,7 +95,11 @@ def _iso_or_none(value: Any) -> str | None:
 
 @async_to_sync
 async def describe_schedules(schedule_ids: list[str]) -> dict[str, dict[str, Any] | None]:
-    """Describe many schedules concurrently; NOT_FOUND maps to None."""
+    """Describe many schedules concurrently; NOT_FOUND maps to None.
+
+    Called from sync views: under WSGI async_to_sync just runs the loop; under ASGI it
+    hops to a fresh thread per call, which is fine at this route's call rate.
+    """
     if not schedule_ids:
         return {}
 
