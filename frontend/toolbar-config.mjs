@@ -25,6 +25,9 @@ const shimmedModules = {
     'scenes/sceneLogic': 'src/toolbar/shims/sceneLogic.ts',
     'scenes/teamLogic': 'src/toolbar/shims/teamLogic.ts',
     'lib/logic/featureFlagLogic': 'src/toolbar/shims/featureFlagLogic.ts',
+    // Hoggie illustrations are decorative; the shim renders null so no PNG assets or image
+    // requests reach the toolbar bundle that runs on customer sites (asset URLs are CSP-relevant).
+    'lib/brand/hoggies': 'src/toolbar/shims/hoggies.tsx',
 }
 
 // Modules replaced with an inert proxy that logs access in debug mode

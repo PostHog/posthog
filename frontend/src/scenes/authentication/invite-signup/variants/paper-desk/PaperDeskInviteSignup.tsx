@@ -2,9 +2,10 @@ import { useActions, useValues } from 'kea'
 import { Form } from 'kea-forms'
 import { type ReactNode, useEffect } from 'react'
 
-import { HedgehogJudge } from '@posthog/brand/hoggies'
+import * as judgePng from '@posthog/brand/hoggies/png/judge'
 
 import { Logomark } from 'lib/brand'
+import { pngHoggie } from 'lib/brand/hoggies'
 import PasswordStrength from 'lib/components/PasswordStrength'
 import SignupRoleSelect from 'lib/components/SignupRoleSelect'
 import passkeyLogo from 'lib/components/SocialLoginButton/passkey.svg'
@@ -30,6 +31,8 @@ import { userLogic } from 'scenes/userLogic'
 import { PrevalidatedInvite, SSOProvider } from '~/types'
 
 import { ErrorCodes, inviteSignupLogic } from '../../inviteSignupLogic'
+
+const HedgehogJudge = pngHoggie(judgePng)
 
 /**
  * Invite-signup alternatives row: social/SSO icons plus an optional passkey signup icon.
