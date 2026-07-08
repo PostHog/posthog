@@ -608,7 +608,7 @@ export function InsightValidationError({
                 defaultCta
             )}
 
-            {detail.includes('Exclusion') && (
+            {validationErrorCode === 'funnel_exclusions_invalid' && (
                 <div className="mt-4">
                     <Link
                         data-attr="insight-funnels-emptystate-help"

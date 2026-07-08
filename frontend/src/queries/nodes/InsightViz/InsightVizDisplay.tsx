@@ -47,7 +47,7 @@ import { TrendInsight } from 'scenes/trends/Trends'
 import { WebAnalyticsInsight } from 'scenes/web-analytics/WebAnalyticsInsight'
 
 import { SceneSection } from '~/layout/scenes/components/SceneSection'
-import { InsightVizNode, TrendsQuery } from '~/queries/schema/schema-general'
+import { FunnelsQuery, InsightVizNode, TrendsQuery } from '~/queries/schema/schema-general'
 import { QueryContext } from '~/queries/types'
 import { shouldQueryBeAsync } from '~/queries/utils'
 import {
@@ -209,56 +209,93 @@ export function InsightVizDisplay({
         }
 
         if (validationError) {
-            const isUnsupportedDataWarehouseSettings =
-                validationErrorCode === 'data_warehouse_series_unsupported_settings'
-            const resetCta = isUnsupportedDataWarehouseSettings ? (
-                <LemonButton
-                    type="primary"
-                    loading={insightDataLoading}
-                    onClick={() =>
-                        updateQuerySource({
-                            filterTestAccounts: false,
-                            properties: undefined,
-                            samplingFactor: undefined,
-                        })
-                    }
-                >
-                    Reset unsupported settings
-                </LemonButton>
-            ) : undefined
-            const useAverageCta =
-                validationErrorCode === 'property_math_unsupported_with_histogram_breakdown' ? (
-                    <LemonButton
-                        type="primary"
-                        loading={insightDataLoading}
-                        onClick={() =>
-                            updateQuerySource({
-                                series: ((series as TrendsQuery['series']) ?? []).map((s) =>
-                                    isPropertyValueMath(s.math) &&
-                                    !SUPPORTED_PROPERTY_MATH_FOR_HISTOGRAM_BREAKDOWN.has(s.math)
-                                        ? { ...s, math: PropertyMathType.Average }
-                                        : s
-                                ),
-                            } as Partial<TrendsQuery>)
-                        }
-                    >
-                        Use average instead
-                    </LemonButton>
-                ) : undefined
-            const cta = resetCta ?? useAverageCta
+            const fixCta = ((): JSX.Element | undefined => {
+                if (validationErrorCode === 'data_warehouse_series_unsupported_settings') {
+                    return (
+                        <LemonButton
+                            type="primary"
+                            loading={insightDataLoading}
+                            onClick={() =>
+                                updateQuerySource({
+                                    filterTestAccounts: false,
+                                    properties: undefined,
+                                    samplingFactor: undefined,
+                                })
+                            }
+                        >
+                            Reset unsupported settings
+                        </LemonButton>
+                    )
+                }
+                if (validationErrorCode === 'property_math_unsupported_with_histogram_breakdown') {
+                    return (
+                        <LemonButton
+                            type="primary"
+                            loading={insightDataLoading}
+                            onClick={() =>
+                                updateQuerySource({
+                                    series: ((series as TrendsQuery['series']) ?? []).map((s) =>
+                                        isPropertyValueMath(s.math) &&
+                                        !SUPPORTED_PROPERTY_MATH_FOR_HISTOGRAM_BREAKDOWN.has(s.math)
+                                            ? { ...s, math: PropertyMathType.Average }
+                                            : s
+                                    ),
+                                } as Partial<TrendsQuery>)
+                            }
+                        >
+                            Use average instead
+                        </LemonButton>
+                    )
+                }
+                if (validationErrorCode === 'funnel_exclusions_invalid') {
+                    return (
+                        <LemonButton
+                            type="primary"
+                            loading={insightDataLoading}
+                            onClick={() =>
+                                updateQuerySource({
+                                    funnelsFilter: { ...funnelsFilter, exclusions: undefined },
+                                } as Partial<FunnelsQuery>)
+                            }
+                        >
+                            Remove exclusion steps
+                        </LemonButton>
+                    )
+                }
+                if (validationErrorCode === 'funnel_step_range_invalid') {
+                    return (
+                        <LemonButton
+                            type="primary"
+                            loading={insightDataLoading}
+                            onClick={() =>
+                                updateQuerySource({
+                                    funnelsFilter: {
+                                        ...funnelsFilter,
+                                        funnelFromStep: undefined,
+                                        funnelToStep: undefined,
+                                    },
+                                } as Partial<FunnelsQuery>)
+                            }
+                        >
+                            Reset step range
+                        </LemonButton>
+                    )
+                }
+                return undefined
+            })()
             return (
                 <InsightValidationError
                     query={query}
                     detail={validationError}
                     validationErrorCode={validationErrorCode}
                     onRetry={
-                        cta
+                        fixCta
                             ? undefined
                             : () => {
                                   loadData(query && shouldQueryBeAsync(query) ? 'force_async' : 'force_blocking')
                               }
                     }
-                    cta={cta}
+                    cta={fixCta}
                 />
             )
         }
