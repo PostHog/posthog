@@ -763,7 +763,7 @@ const llmaPersonalSpend = (): ToolBase<typeof LlmaPersonalSpendSchema, Schemas.P
     },
 })
 
-const LlmaPromptCreateSchema = LlmPromptsCreateBody.omit({ version_description: true })
+const LlmaPromptCreateSchema = LlmPromptsCreateBody
 
 const llmaPromptCreate = (): ToolBase<typeof LlmaPromptCreateSchema, Schemas.LLMPrompt> => ({
     name: 'llma-prompt-create',
@@ -776,6 +776,9 @@ const llmaPromptCreate = (): ToolBase<typeof LlmaPromptCreateSchema, Schemas.LLM
         }
         if (params.prompt !== undefined) {
             body['prompt'] = params.prompt
+        }
+        if (params.version_description !== undefined) {
+            body['version_description'] = params.version_description
         }
         const result = await context.api.request<Schemas.LLMPrompt>({
             method: 'POST',
@@ -856,7 +859,7 @@ const llmaPromptList = (): ToolBase<
 })
 
 const LlmaPromptUpdateSchema = LlmPromptsNamePartialUpdateParams.omit({ project_id: true }).extend(
-    LlmPromptsNamePartialUpdateBody.omit({ version_description: true }).shape
+    LlmPromptsNamePartialUpdateBody.shape
 )
 
 const llmaPromptUpdate = (): ToolBase<typeof LlmaPromptUpdateSchema, Schemas.LLMPrompt> => ({
@@ -873,6 +876,9 @@ const llmaPromptUpdate = (): ToolBase<typeof LlmaPromptUpdateSchema, Schemas.LLM
         }
         if (params.base_version !== undefined) {
             body['base_version'] = params.base_version
+        }
+        if (params.version_description !== undefined) {
+            body['version_description'] = params.version_description
         }
         const result = await context.api.request<Schemas.LLMPrompt>({
             method: 'PATCH',
