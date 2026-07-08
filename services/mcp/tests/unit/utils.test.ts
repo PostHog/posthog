@@ -241,6 +241,26 @@ describe('utils', () => {
             expect(omitResponseFields(obj, ['filters', 'tags'])).toEqual({ id: 1, name: 'test' })
         })
 
+        it('applies wildcards across dynamic object keys, skipping null values', () => {
+            // Mirrors experiment-timeseries-results: `timeseries` is keyed by date strings
+            // (not an array), so the exclude patterns must traverse object values to strip
+            // the per-day compiled-query bloat while leaving the consumable stats intact.
+            const obj = {
+                status: 'partial',
+                timeseries: {
+                    '2024-01-01': { clickhouse_sql: 'SELECT ...', hogql: 'select ...', chance_to_win: 0.9 },
+                    '2024-01-02': null,
+                },
+            }
+            expect(omitResponseFields(obj, ['timeseries.*.clickhouse_sql', 'timeseries.*.hogql'])).toEqual({
+                status: 'partial',
+                timeseries: {
+                    '2024-01-01': { chance_to_win: 0.9 },
+                    '2024-01-02': null,
+                },
+            })
+        })
+
         it('handles deeply nested wildcards', () => {
             const obj = {
                 a: [

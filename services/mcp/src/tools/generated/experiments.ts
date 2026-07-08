@@ -43,7 +43,7 @@ import {
 import { withUiApp } from '@/resources/ui-apps'
 import { SavedMetricsAttachSchema } from '@/schema/tool-inputs'
 import { castStringToInt } from '@/tools/cast-helpers'
-import { withPostHogUrl, pickResponseFields, type WithPostHogUrl } from '@/tools/tool-utils'
+import { withPostHogUrl, pickResponseFields, omitResponseFields, type WithPostHogUrl } from '@/tools/tool-utils'
 import type { Context, ToolBase, ZodObjectAny } from '@/tools/types'
 
 const ExperimentArchiveSchema = ExperimentsArchiveCreateParams.omit({ project_id: true })
@@ -858,7 +858,12 @@ const experimentTimeseriesResults = (): ToolBase<typeof ExperimentTimeseriesResu
                     metric_uuid: params.metric_uuid,
                 },
             })
-            return result
+            const filtered = omitResponseFields(result, [
+                'timeseries.*.clickhouse_sql',
+                'timeseries.*.hogql',
+                'timeseries.*.insight',
+            ]) as typeof result
+            return filtered
         },
     })
 
