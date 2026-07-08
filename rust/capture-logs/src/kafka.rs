@@ -9,7 +9,7 @@ use apache_avro::{Codec, Schema, Writer, ZstandardSettings};
 use capture::config::KafkaConfig;
 use chrono::Utc;
 use health::HealthHandle;
-use metrics::{counter, gauge};
+use metrics::{counter, gauge, histogram};
 use rdkafka::error::KafkaError;
 use rdkafka::message::{Header, OwnedHeaders};
 use rdkafka::producer::{FutureProducer, FutureRecord, Producer};
@@ -203,7 +203,7 @@ fn record_produce(topic: &str, outcome: &'static str, started: std::time::Instan
     let topic: std::sync::Arc<str> = std::sync::Arc::from(topic);
     counter!("capture_logs_kafka_produce_total", "topic" => topic.clone(), "outcome" => outcome)
         .increment(1);
-    metrics::histogram!("capture_logs_kafka_produce_duration_ms", "topic" => topic, "outcome" => outcome)
+    histogram!("capture_logs_kafka_produce_duration_ms", "topic" => topic, "outcome" => outcome)
         .record(started.elapsed().as_secs_f64() * 1000.0);
 }
 
@@ -454,7 +454,7 @@ impl KafkaSink {
         }) {
             Err((err, _)) => {
                 record_produce(topic, "enqueue_error", produce_started);
-                return Err(anyhow!(format!("kafka error: {err}")));
+                return Err(anyhow!("kafka error: {err}"));
             }
             Ok(delivery_future) => delivery_future,
         };
@@ -466,7 +466,7 @@ impl KafkaSink {
             }
             Ok(Err((err, _message))) => {
                 record_produce(topic, "delivery_error", produce_started);
-                Err(anyhow!(format!("kafka delivery failed: {err}")))
+                Err(anyhow!("kafka delivery failed: {err}"))
             }
             Ok(Ok(_)) => {
                 record_produce(topic, "ok", produce_started);
