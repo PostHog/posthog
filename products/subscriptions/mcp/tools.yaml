@@ -177,9 +177,6 @@ tools:
     subscriptions-preview-create:
         operation: subscriptions_preview_create
         enabled: false
-    subscriptions-re-plan-create:
-        operation: subscriptions_re_plan_create
-        enabled: false
     subscriptions-retrieve:
         operation: subscriptions_retrieve
         enabled: true

@@ -211,10 +211,11 @@ async def build_ai_subscription_report(subscription: Subscription) -> AiReportRe
 async def preview_ai_subscription_report(subscription: Subscription) -> AiReportResult:
     """Run the AI report generation pipeline for a preview — no delivery, no persistence.
 
-    Same generation path as `build_ai_subscription_report` but deliberately side-effect-free: it never
-    persists the freshly-planned `query_plan` (re-plan/edit are the explicit write paths) and the caller
-    never invokes a send function. The returned report markdown + per-step diagnostics let an owner see
-    what the subscription would produce — including the generated HogQL — without emailing/Slacking anyone.
+    Same generation path as `build_ai_subscription_report` but deliberately side-effect-free on the
+    subscription: it never persists the freshly-planned `ai_query_plan` (the query_plan API field is
+    the explicit write path) and the caller never invokes a send function. The returned report
+    markdown + per-step diagnostics let an owner see what the subscription would produce — including
+    the generated HogQL — without emailing/Slacking anyone.
     """
     team, user, window, ai_query_plan = await database_sync_to_async(
         _resolve_subscription_context, thread_sensitive=False

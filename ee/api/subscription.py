@@ -50,18 +50,18 @@ from products.exports.backend.models.subscription import (
     attribute_subscription_saves,
     unsubscribe_using_token,
 )
-from products.exports.backend.temporal.subscriptions.ai_subscription.delivery import preview_ai_subscription_report
-from products.exports.backend.temporal.subscriptions.ai_subscription.report_pipeline import AiReportResult
 from products.exports.backend.temporal.subscriptions.ai_subscription.schemas import QueryPlan
 from products.exports.backend.temporal.subscriptions.ai_subscription.spec_generator import (
     PROMPT_MAX_LENGTH as AI_PROMPT_MAX_LENGTH,
     PromptRejectedError,
     sanitize_prompt,
 )
+from products.exports.backend.temporal.subscriptions.insight_snapshot import build_initial_content_snapshot
 from products.exports.backend.temporal.subscriptions.types import (
     AI_REPORT_DIAGNOSTICS_KEY,
     AI_REPORT_PROMPT_SNAPSHOT_KEY,
     AI_REPORT_SNAPSHOT_KEY,
+    PreviewAISubscriptionWorkflowInputs,
     ProcessSubscriptionWorkflowInputs,
     SubscriptionTriggerType,
 )
@@ -73,10 +73,6 @@ from ee.tasks.subscriptions.subscription_utils import DEFAULT_MAX_ASSET_COUNT
 
 SUMMARY_QUOTA_CACHE_TTL_SECONDS = 60
 SUMMARY_CAP_HIT_DEDUPE_TTL_SECONDS = 600
-# Backstop ceiling on the inline preview pipeline. Each generation stage is already individually
-# timeout-bounded; this caps the total wall-clock a single preview request can occupy a worker if a
-# stage stalls, returning a retryable error instead of pinning the worker toward the gateway timeout.
-PREVIEW_PIPELINE_TIMEOUT_SECONDS = 150
 
 
 def _summary_quota_cache_key(organization_id) -> str:
@@ -136,42 +132,44 @@ class DashboardExportInsightsField(serializers.Field):
         return data
 
 
-class QueryPlanStepSerializer(serializers.Serializer):
-    # OpenAPI shape for one frozen plan step. The pydantic QueryPlan in the generation pipeline is the
-    # authoritative validator (enforced in QueryPlanField.to_internal_value); this mirrors it so the
-    # generated frontend types describe each step's fields.
-    description = serializers.CharField(help_text="One-sentence rationale for running this query step.")
-    query_type = serializers.ChoiceField(
-        choices=["hogql"], default="hogql", help_text="Query language for this step. MVP: always 'hogql'."
-    )
-    hogql = serializers.CharField(
-        help_text="The HogQL SELECT for this step. Uses the {{date_range}} placeholder the executor "
-        "substitutes with the run's window, so the plan stays window-agnostic."
-    )
+def _query_plan_openapi_schema() -> dict:
+    # OpenAPI shape for the frozen plan, derived from the authoritative pydantic QueryPlan so the
+    # generated frontend types can never drift from what to_internal_value actually validates.
+    # extend_schema_field can't resolve pydantic's $defs/$ref indirection, so inline the refs.
+    schema = QueryPlan.model_json_schema()
+    defs = schema.pop("$defs", {})
+
+    def inline(node: Any) -> Any:
+        if isinstance(node, dict):
+            ref = node.get("$ref", "")
+            if ref.startswith("#/$defs/"):
+                return inline(defs[ref.removeprefix("#/$defs/")])
+            return {key: inline(value) for key, value in node.items()}
+        if isinstance(node, list):
+            return [inline(item) for item in node]
+        return node
+
+    inlined = inline(schema)
+    assert "$ref" not in str(inlined), "QueryPlan schema still contains unresolved $refs"
+    return {**inlined, "nullable": True}
 
 
-class QueryPlanSerializer(serializers.Serializer):
-    overall_intent = serializers.CharField(help_text="Plain-English summary of what the report will tell the user.")
-    steps = QueryPlanStepSerializer(many=True, help_text="Ordered query steps (1-3) the report runs and synthesizes.")
-
-
-@extend_schema_field(QueryPlanSerializer(allow_null=True))
+@extend_schema_field(_query_plan_openapi_schema())
 class QueryPlanField(serializers.JSONField):
     """The frozen AI query plan (steps of {description, hogql}).
 
     Readable for callers with query access (scrubbed to null otherwise — it carries generated HogQL,
     query-derived just like the delivered report). Writable only by callers with query:editor access,
-    and the written value is validated against the authoritative pydantic `QueryPlan` schema so an
-    invalid shape or oversized/empty HogQL is rejected before it can be frozen.
+    and validated by round-tripping through the pydantic `QueryPlan` — the single source of truth for
+    the plan shape and field bounds — so a written plan can never diverge from what the generation
+    pipeline will accept when it reuses it. Writing null clears the plan, making the next run re-plan
+    from the prompt.
     """
 
     def to_internal_value(self, data):
         if data is None:
             return None
         try:
-            # The pydantic schema is the single source of truth for the plan shape and field bounds
-            # (step count, HogQL length, the hogql query_type). Round-trip through it so a written plan
-            # can never diverge from what the generation pipeline will accept when it reuses it.
             return QueryPlan.model_validate(data).model_dump()
         except PydanticValidationError as exc:
             raise serializers.ValidationError(f"Invalid query plan: {exc.errors(include_url=False)}") from exc
@@ -300,7 +298,7 @@ class SubscriptionSerializer(serializers.ModelSerializer):
             "Frozen query plan for an AI (prompt) subscription: the steps (description + HogQL) the report "
             "runs deterministically. Null until the first delivery plans it. Scrubbed to null for callers "
             "without query access. Writable only by callers with query:editor access — editing it overrides "
-            "the AI-generated plan; clear it (or use the re-plan action) to re-plan from the prompt."
+            "the AI-generated plan; writing null clears it so the next run re-plans from the prompt."
         ),
     )
 
@@ -410,14 +408,17 @@ class SubscriptionSerializer(serializers.ModelSerializer):
         return info.name if info else None
 
     def _caller_query_access(self, level: str) -> bool:
-        # Resolve the caller's query RBAC level via the view's UserAccessControl (same source the viewset
-        # uses for the AI write gate). Fail closed when it can't be resolved — e.g. a serializer used
-        # outside a request — so query content is never exposed/written without a proven access level.
-        view = self.context.get("view")
-        user_access_control = getattr(view, "user_access_control", None)
-        if user_access_control is None:
-            return False
-        return bool(user_access_control.check_access_level_for_resource("query", level))
+        # Memoized in the shared serializer context so a list render does one RBAC check, not one per
+        # item. Fails closed without a view (serializer used outside a request) so query content is
+        # never exposed or written without a proven access level.
+        levels = self.context.setdefault("_query_access_levels", {})
+        if level not in levels:
+            view = self.context.get("view")
+            user_access_control = getattr(view, "user_access_control", None)
+            levels[level] = user_access_control is not None and bool(
+                user_access_control.check_access_level_for_resource("query", level)
+            )
+        return levels[level]
 
     def to_representation(self, instance: Subscription) -> dict:
         data = super().to_representation(instance)
@@ -896,6 +897,29 @@ class SubscriptionSerializer(serializers.ModelSerializer):
             set(instance.dashboard_export_insights.values_list("id", flat=True)) if export_insights_in_payload else None
         )
 
+        # Explicit ai_query_plan writes (validated: AI-only, query:editor). When the same PATCH also
+        # edits the prompt, suppress the model-level prompt-change auto-clear — the explicit write wins.
+        if "ai_query_plan" in validated_data:
+            if "prompt" in validated_data:
+                instance._initial_prompt = validated_data["prompt"]
+            plan_event: Optional[str] = None
+            if validated_data["ai_query_plan"] is None:
+                if instance.ai_query_plan is not None:
+                    plan_event = "subscription_query_plan_cleared"
+            else:
+                plan_event = "subscription_query_plan_edited"
+            if plan_event:
+                posthoganalytics.capture(
+                    distinct_id=str(request.user.distinct_id),
+                    event=plan_event,
+                    properties={
+                        **analytics_props,
+                        "subscription_id": instance.id,
+                        "team_id": instance.team_id,
+                    },
+                    groups=groups(None, instance.team),
+                )
+
         if is_delete:
             with slo_operation(
                 spec=SloSpec(
@@ -1010,13 +1034,12 @@ class AIReportQueryDiagnosticSerializer(serializers.Serializer):
     )
 
 
-class SubscriptionPreviewResponseSerializer(serializers.Serializer):
-    # Response shape for the preview action: the report that WOULD be delivered, plus the per-step query
-    # diagnostics — generated in-band, never sent to recipients. Same diagnostic shape the delivery
-    # history exposes, so the frontend reuses one renderer.
-    report = serializers.CharField(help_text="The report markdown the subscription would deliver, rendered in-band.")
-    diagnostics = AIReportQueryDiagnosticSerializer(
-        many=True, help_text="Per-step query diagnostics (generated HogQL + ok/error) for this preview run."
+class SubscriptionPreviewDispatchSerializer(serializers.Serializer):
+    # Response shape for the preview action: the workflow runs in the background and writes the report
+    # onto this delivery row (trigger_type=preview, never sent to recipients). Poll it via the
+    # deliveries endpoint until status leaves "starting".
+    delivery_id = serializers.UUIDField(
+        help_text="The SubscriptionDelivery row the preview report will land on; poll it for the result."
     )
 
 
@@ -1112,7 +1135,8 @@ class SubscriptionViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.M
     def _write_touches_ai_subscription(self, request, view) -> bool:
         if request.data.get("prompt"):  # create (or a body that sets a prompt)
             return True
-        # Existing subscription (update / test-delivery): resolve its kind by pk, team-scoped.
+        # Existing subscription (update / test-delivery / preview): resolve its kind by pk, team-scoped.
+        # Body-less POST actions never carry a prompt key, so they deliberately fall through to here.
         pk = view.kwargs.get("pk")
         return bool(pk) and _subscription_is_ai_prompt(pk, self.team_id)
 
@@ -1287,47 +1311,10 @@ class SubscriptionViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.M
 
     @extend_schema(
         request=None,
-        responses={202: OpenApiResponse(description="Frozen query plan cleared; the next run re-plans via the LLM")},
-    )
-    @action(
-        methods=["POST"],
-        detail=True,
-        url_path="re-plan",
-        # Scope is resolved dynamically in dangerously_get_required_scopes so AI subscriptions also require
-        # query:read; the RBAC query-viewer gate in check_permissions fires for this POST too.
-    )
-    def re_plan(self, request, **kwargs):
-        # Clear the frozen plan so the next generation re-plans from the prompt via the LLM and re-freezes.
-        # This is how an owner discards a stale/edited plan and pulls in newer planner prompts. Targeted
-        # (id, team_id) update — never a full save (which would re-emit activity-log / analytics signals).
-        subscription = self.get_object()
-        if subscription.deleted:
-            return Response(status=status.HTTP_404_NOT_FOUND)
-        if not subscription.prompt:  # get_object() is already team-scoped; AI subs are prompt-backed
-            return Response(
-                {"detail": "Only AI prompt subscriptions have a query plan to re-plan."},
-                status=status.HTTP_400_BAD_REQUEST,
-            )
-
-        Subscription.objects.filter(id=subscription.id, team_id=self.team_id).update(ai_query_plan=None)
-
-        posthoganalytics.capture(
-            distinct_id=str(request.user.distinct_id),
-            event="subscription_query_plan_re_planned",
-            properties={
-                **get_request_analytics_properties(request),
-                "subscription_id": subscription.id,
-                "team_id": subscription.team_id,
-            },
-            groups=groups(None, subscription.team),
-        )
-        return Response(status=status.HTTP_202_ACCEPTED)
-
-    @extend_schema(
-        request=None,
         responses={
-            200: SubscriptionPreviewResponseSerializer,
+            202: SubscriptionPreviewDispatchSerializer,
             400: OpenApiResponse(description="Subscription is not an AI prompt subscription"),
+            409: OpenApiResponse(description="A preview is already running for this subscription"),
         },
     )
     @action(
@@ -1339,10 +1326,12 @@ class SubscriptionViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.M
         # query:read (preview runs the AI HogQL pipeline). A static required_scopes would short-circuit it.
     )
     def preview(self, request, **kwargs):
-        # Run the generation pipeline and return what WOULD be delivered — the report markdown and the
-        # per-step query diagnostics — WITHOUT delivering. No email/Slack send path is reachable from here
-        # (preview_ai_subscription_report only calls generate_ai_report), and the freshly-planned plan is
-        # deliberately not persisted, so a preview is fully side-effect-free.
+        # Dispatch a one-off Temporal workflow that generates the report WITHOUT delivering: no send
+        # function is reachable from the preview workflow and the freshly-planned plan is deliberately
+        # not persisted. The result lands on a SubscriptionDelivery row (trigger_type=preview) that the
+        # caller polls via the deliveries endpoint — same shape the delivery history viewer renders.
+        # A disabled subscription can still be previewed: nothing is sent, and previewing is the natural
+        # way to debug it before re-enabling.
         subscription = self.get_object()
         if subscription.deleted:
             return Response(status=status.HTTP_404_NOT_FOUND)
@@ -1352,53 +1341,64 @@ class SubscriptionViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.M
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
+        # Deterministic workflow id (no run suffix): a concurrent second preview collides with
+        # WorkflowAlreadyStartedError → 409, mirroring test_delivery.
+        workflow_id = f"preview-ai-subscription-{subscription.id}"
+        delivery = SubscriptionDelivery.objects.create(
+            subscription=subscription,
+            team_id=subscription.team_id,
+            temporal_workflow_id=workflow_id,
+            idempotency_key=f"preview-{uuid.uuid4()}",
+            trigger_type=SubscriptionTriggerType.PREVIEW,
+            target_type=subscription.target_type,
+            target_value=subscription.target_value,
+            content_snapshot=build_initial_content_snapshot(subscription),
+            status=SubscriptionDelivery.Status.STARTING,
+        )
+        temporal = sync_connect()
         try:
-            # Preview runs the LLM pipeline INLINE (the caller is interactively waiting on the result),
-            # unlike test-delivery which dispatches a Temporal workflow. The overall deadline backstops
-            # the per-stage timeouts so a stalled upstream can't hold the worker indefinitely; the
-            # throttle caps invocation rate. A fully async preview (workflow + poll) is the longer-term
-            # fix if worker occupancy under load becomes a concern.
-            result: AiReportResult = asyncio.run(
-                asyncio.wait_for(preview_ai_subscription_report(subscription), timeout=PREVIEW_PIPELINE_TIMEOUT_SECONDS)
+            asyncio.run(
+                temporal.start_workflow(
+                    "preview-ai-subscription",
+                    PreviewAISubscriptionWorkflowInputs(
+                        subscription_id=subscription.id,
+                        team_id=subscription.team_id,
+                        delivery_id=delivery.id,
+                        distinct_id=str(request.user.distinct_id),
+                    ),
+                    id=workflow_id,
+                    task_queue=settings.ANALYTICS_PLATFORM_TASK_QUEUE,
+                )
             )
-        except PromptRejectedError as exc:
-            # User-fixable input (deleted creator, prompt fails sanitization, malformed stored plan) — a 400
-            # tells the owner exactly what to fix rather than surfacing as a 500.
-            return Response({"detail": str(exc)}, status=status.HTTP_400_BAD_REQUEST)
-        except TimeoutError as exc:
-            capture_exception(exc)
+        except WorkflowAlreadyStartedError:
+            delivery.delete()
             return Response(
-                {"detail": "Preview timed out; please try again."},
-                status=status.HTTP_503_SERVICE_UNAVAILABLE,
+                {"detail": "A preview is already running for this subscription"},
+                status=status.HTTP_409_CONFLICT,
             )
-        except Exception as exc:
-            capture_exception(exc)
+        except Exception as e:
+            delivery.delete()
+            capture_exception(e)
             return Response(
-                {"detail": "Failed to generate preview"},
+                {"detail": "Failed to schedule preview"},
                 status=status.HTTP_500_INTERNAL_SERVER_ERROR,
             )
 
         posthoganalytics.capture(
             distinct_id=str(request.user.distinct_id),
-            event="subscription_previewed",
+            event="subscription_preview_scheduled",
             properties={
                 **get_request_analytics_properties(request),
                 "subscription_id": subscription.id,
                 "team_id": subscription.team_id,
-                "failed_step_count": sum(1 for d in result.diagnostics if not d.ok),
-                "total_step_count": len(result.diagnostics),
+                "temporal_workflow_id": workflow_id,
             },
             groups=groups(None, subscription.team),
         )
-
-        payload = {
-            "report": result.markdown,
-            "diagnostics": [
-                {"description": d.description, "hogql": d.hogql, "ok": d.ok, "error_type": d.error_type}
-                for d in result.diagnostics
-            ],
-        }
-        return Response(SubscriptionPreviewResponseSerializer(payload).data)
+        return Response(
+            SubscriptionPreviewDispatchSerializer({"delivery_id": delivery.id}).data,
+            status=status.HTTP_202_ACCEPTED,
+        )
 
 
 class SubscriptionDeliverySerializer(serializers.ModelSerializer):

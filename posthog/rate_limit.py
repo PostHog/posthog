@@ -1025,14 +1025,15 @@ class SubscriptionTestDeliveryThrottle(PersonalApiKeyOrUserRateThrottle):
 
 
 class SubscriptionPreviewThrottle(PersonalApiKeyOrUserRateThrottle):
-    # Rate limit AI subscription previews. A preview runs the full LLM + HogQL generation pipeline
-    # (planner / synthesis / per-step query fixes) without delivering, so the blast radius is LLM cost
+    # Rate limit AI subscription preview dispatches. Each preview kicks off a Temporal workflow that
+    # runs the full LLM + HogQL generation pipeline without delivering, so the blast radius is LLM cost
     # and query load, not recipient spam. Keyed per team (same rationale as the test-delivery throttle:
     # neither rotating subscriptions nor rotating API keys bypasses a team-wide bucket) and applied to
-    # every authenticated caller. Tighter than test-delivery's rate because each call is several LLM
-    # round-trips with no user-visible send to self-limit it.
+    # every authenticated caller. An hourly window bounds LLM spend while leaving room for a burst of
+    # quick iterations on a plan; concurrency is separately capped at one running preview per
+    # subscription via the deterministic workflow id.
     scope = "subscription_preview"
-    rate = "6/minute"
+    rate = "15/hour"
 
     def get_cache_key(self, request, view):
         team_id = self.safely_get_team_id_from_view(view)

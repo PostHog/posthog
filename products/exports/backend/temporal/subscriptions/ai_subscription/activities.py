@@ -322,9 +322,7 @@ async def generate_ai_subscription_preview(inputs: GenerateAIReportInputs) -> Ge
         )
 
     if not subscription.team.organization.is_ai_data_processing_approved:
-        raise ApplicationError(
-            "AI data processing consent has been revoked for this organization.", non_retryable=True
-        )
+        raise ApplicationError("AI data processing consent has been revoked for this organization.", non_retryable=True)
 
     try:
         report_result = await preview_ai_subscription_report(subscription)
