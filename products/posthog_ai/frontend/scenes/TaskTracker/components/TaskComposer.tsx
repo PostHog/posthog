@@ -22,8 +22,8 @@ export function TaskComposer(): JSX.Element {
     const { newTaskData, isSubmittingTask, activeSuggestionGroup, headline } = useValues(taskTrackerSceneLogic)
 
     // Buffer the description locally and debounce the write to kea so each keystroke is a cheap, isolated
-    // re-render instead of a store dispatch. The disabled reason is driven off the fresh local value (not the
-    // logic's debounced `sendDisabledReason`) so send never stays wrongly blocked while the sync is pending.
+    // re-render instead of a store dispatch. `Composer.Root` already blocks send on an empty `draft.value`
+    // internally, so there's no need to pass a `disabledReason` derived from the logic's debounced value.
     const draft = useDebouncedDraft(newTaskData.description, (value) => setNewTaskData({ description: value }))
 
     const textAreaRef = useRef<HTMLTextAreaElement>(null)
@@ -57,7 +57,6 @@ export function TaskComposer(): JSX.Element {
                             onChange={draft.onChange}
                             onSubmit={() => draft.submit(submitNewTask)}
                             loading={isSubmittingTask}
-                            disabledReason={draft.value.trim() ? undefined : 'Describe the task first'}
                             textAreaRef={textAreaRef}
                         >
                             <Composer.Frame>
