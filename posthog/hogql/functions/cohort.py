@@ -95,7 +95,12 @@ def inline_cohort_query(
 
         context.team = Team.objects.get(id=context.team_id)
 
-    return HogQLCohortQuery(cohort=cohort, team=context.team).get_query()
+    cohort_query = HogQLCohortQuery(cohort=cohort, team=context.team)
+    inline_query = cohort_query.get_query()
+    if cohort_query.is_top_level_negated:
+        return None
+
+    return inline_query
 
 
 def cohort_subquery(cohort_id, is_static, version: Optional[int] = None) -> ast.Expr:

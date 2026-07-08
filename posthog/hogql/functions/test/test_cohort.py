@@ -12,8 +12,10 @@ from parameterized import parameterized
 from posthog.schema import HogQLQueryModifiers, InCohortVia, InlineCohortCalculation, PersonsArgMaxVersion
 
 from posthog.hogql import ast
+from posthog.hogql.context import HogQLContext
 from posthog.hogql.errors import QueryError
-from posthog.hogql.parser import parse_expr
+from posthog.hogql.parser import parse_expr, parse_select
+from posthog.hogql.printer import prepare_and_print_ast
 from posthog.hogql.query import execute_hogql_query
 from posthog.hogql.test.utils import pretty_print_response_in_tests
 
@@ -271,6 +273,43 @@ class TestInlineCohortSubquery(BaseTest):
                 pretty=False,
             )
         self.assertEqual(len(response.results), 1)
+
+    @patch("posthoganalytics.feature_enabled", return_value=True)
+    def test_inline_cohort_auto_mode_skips_top_level_negated_cohort(self, _mock_feature_enabled) -> None:
+        cohort = Cohort.objects.create(
+            team=self.team,
+            groups=[
+                {
+                    "properties": [
+                        {
+                            "key": "test_prop",
+                            "value": "excluded",
+                            "type": "person",
+                            "negation": True,
+                        }
+                    ]
+                }
+            ],
+        )
+        context = HogQLContext(
+            team_id=self.team.pk,
+            team=self.team,
+            enable_select_queries=True,
+            modifiers=HogQLQueryModifiers(
+                inCohortVia=InCohortVia.SUBQUERY,
+                inlineCohortCalculation=InlineCohortCalculation.AUTO,
+            ),
+        )
+
+        query, _ = prepare_and_print_ast(
+            parse_select(f"SELECT event FROM events WHERE person_id IN cohort({cohort.pk})"),
+            context,
+            "clickhouse",
+            pretty=True,
+        )
+
+        self.assertIn("cohortpeople.cohort_id", query)
+        self.assertNotIn("\nEXCEPT\n", query)
 
     @parameterized.expand(
         [
