@@ -11,6 +11,7 @@ from temporalio import activity
 from posthog.exceptions_capture import capture_exception
 from posthog.redis import get_async_client
 from posthog.sync import database_sync_to_async_pool
+from posthog.utils import get_machine_id
 
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.common.load import get_incremental_field_value
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.cdp_producer import CDPProducer
@@ -276,6 +277,29 @@ async def handle_reset_or_full_refresh(
         await database_sync_to_async_pool(schema.update_sync_type_config_for_reset_pipeline)()
 
 
+def _capture_delta_revived(
+    schema: "ExternalDataSchema", job: "ExternalDataJob", *, outcome: str, made_non_billable: bool
+) -> None:
+    """Emit a `warehouse_delta_revived` event so corrupt-log recoveries are observable (how many, salvaged
+    vs reset+rebuild, and whether the rebuild was made non-billable). Best-effort — never blocks the sync."""
+    try:
+        posthoganalytics.capture(
+            distinct_id=get_machine_id(),
+            event="warehouse_delta_revived",
+            properties={
+                "team_id": schema.team_id,
+                "schema_id": str(schema.id),
+                "source_id": str(schema.source_id),
+                "resource_name": schema.name,
+                "job_id": str(job.id),
+                "outcome": outcome,
+                "made_non_billable": made_non_billable,
+            },
+        )
+    except Exception as e:
+        capture_exception(e)
+
+
 async def handle_corrupted_delta_log(
     schema: "ExternalDataSchema",
     job: "ExternalDataJob",
@@ -340,6 +364,7 @@ async def handle_corrupted_delta_log(
                     f"handle_corrupted_delta_log: salvaged from interrupted swap schema_id={schema.id}",
                     schema_id=str(schema.id),
                 )
+                _capture_delta_revived(schema, job, outcome="salvaged", made_non_billable=False)
                 return True
         except Exception as e:
             capture_exception(e)
@@ -355,10 +380,12 @@ async def handle_corrupted_delta_log(
     await database_sync_to_async_pool(update_sync_type_config_keys)(
         schema.id, schema.team_id, removes=["repartition_pending", "repartition_swap"]
     )
+    was_billable = bool(job.billable)
     if job.billable:
         job.billable = False
         await database_sync_to_async_pool(job.save)(update_fields=["billable"])
 
+    _capture_delta_revived(schema, job, outcome="reset_rebuild", made_non_billable=was_billable)
     await logger.awarning(
         f"handle_corrupted_delta_log: reset corrupt table for non-billable rebuild schema_id={schema.id}",
         schema_id=str(schema.id),

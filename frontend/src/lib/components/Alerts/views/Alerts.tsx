@@ -1,9 +1,10 @@
 import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
 
-import { HedgehogMagnifyingGlass } from '@posthog/brand/hoggies'
+import * as magnifyingGlassPng from '@posthog/brand/hoggies/png/magnifying-glass'
 import { LemonTag, Link, Tooltip } from '@posthog/lemon-ui'
 
+import { pngHoggie } from 'lib/brand/hoggies'
 import { ProductIntroduction } from 'lib/components/ProductIntroduction/ProductIntroduction'
 import { TZLabel } from 'lib/components/TZLabel'
 import { LemonTable, LemonTableColumn, LemonTableColumns } from 'lib/lemon-ui/LemonTable'
@@ -22,6 +23,8 @@ import { alertsLogic } from '../alertsLogic'
 import { AlertType } from '../types'
 import { EditAlertModal } from './EditAlertModal'
 import { AlertStateIndicator } from './ManageAlertsModal'
+
+const HedgehogMagnifyingGlass = pngHoggie(magnifyingGlassPng)
 
 interface AlertsProps {
     alertId: AlertType['id'] | null

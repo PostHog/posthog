@@ -14,6 +14,7 @@ from products.tasks.backend.constants import (
     MODAL_DIRECTORY_RESUME_SNAPSHOTS_FEATURE_FLAG,
     MODAL_VM_SANDBOX_FEATURE_FLAG,
     SANDBOX_EVENT_INGEST_FEATURE_FLAG,
+    vm_sandbox_allowed_origin_products,
 )
 from products.tasks.backend.exceptions import TaskInvalidStateError, TaskRunNotReadyError
 from products.tasks.backend.models import SandboxEnvironment, Task
@@ -24,9 +25,10 @@ from products.tasks.backend.temporal.process_task.activities.get_task_processing
     _is_burstable_sandbox_resources_enabled,
     _is_modal_vm_sandbox_enabled,
     _is_sandbox_event_ingest_enabled,
-    _vm_sandbox_allowed_origin_products,
     get_task_processing_context,
 )
+
+VM_FLAG_PAYLOAD_TARGET = "products.tasks.backend.constants.posthoganalytics.get_feature_flag_payload"
 
 
 @pytest.mark.requires_secrets
@@ -425,24 +427,17 @@ class TestGetTaskProcessingContextActivity:
         feature_enabled_mock.assert_not_called()
 
     @pytest.mark.parametrize(
-        "flag_value, expected",
+        "payload, expected",
         [
-            (True, True),
-            (False, False),
+            ('{"origin_products": ["user_created"]}', True),
             (None, False),
         ],
     )
-    def test_modal_vm_sandbox_flag_uses_organization_rollout(self, flag_value, expected):
-        with (
-            patch(
-                "products.tasks.backend.temporal.process_task.activities.get_task_processing_context.posthoganalytics.feature_enabled",
-                return_value=flag_value,
-            ) as feature_enabled_mock,
-            patch(
-                "products.tasks.backend.temporal.process_task.activities.get_task_processing_context.posthoganalytics.get_feature_flag_payload",
-                return_value=["user_created"],
-            ),
-        ):
+    def test_modal_vm_sandbox_flag_uses_organization_rollout(self, payload, expected):
+        with patch(
+            VM_FLAG_PAYLOAD_TARGET,
+            return_value=payload,
+        ) as payload_mock:
             assert (
                 _is_modal_vm_sandbox_enabled(
                     distinct_id="distinct-id",
@@ -454,7 +449,7 @@ class TestGetTaskProcessingContextActivity:
                 is expected
             )
 
-        feature_enabled_mock.assert_called_once_with(
+        payload_mock.assert_called_once_with(
             MODAL_VM_SANDBOX_FEATURE_FLAG,
             distinct_id="distinct-id",
             groups={"organization": "organization-id"},
@@ -465,7 +460,7 @@ class TestGetTaskProcessingContextActivity:
 
     def test_modal_vm_sandbox_flag_fails_closed(self):
         with patch(
-            "products.tasks.backend.temporal.process_task.activities.get_task_processing_context.posthoganalytics.feature_enabled",
+            VM_FLAG_PAYLOAD_TARGET,
             side_effect=RuntimeError("flag service failed"),
         ):
             assert (
@@ -481,9 +476,9 @@ class TestGetTaskProcessingContextActivity:
 
     def test_modal_vm_sandbox_state_override_skips_flag_check(self):
         with patch(
-            "products.tasks.backend.temporal.process_task.activities.get_task_processing_context.posthoganalytics.feature_enabled",
-            return_value=False,
-        ) as feature_enabled_mock:
+            VM_FLAG_PAYLOAD_TARGET,
+            return_value=None,
+        ) as payload_mock:
             assert (
                 _is_modal_vm_sandbox_enabled(
                     distinct_id="distinct-id",
@@ -496,13 +491,13 @@ class TestGetTaskProcessingContextActivity:
                 is True
             )
 
-        feature_enabled_mock.assert_not_called()
+        payload_mock.assert_not_called()
 
     def test_modal_vm_sandbox_restricted_egress_forces_gvisor(self):
         with patch(
-            "products.tasks.backend.temporal.process_task.activities.get_task_processing_context.posthoganalytics.feature_enabled",
-            return_value=True,
-        ) as feature_enabled_mock:
+            VM_FLAG_PAYLOAD_TARGET,
+            return_value='{"origin_products": ["user_created"]}',
+        ) as payload_mock:
             assert (
                 _is_modal_vm_sandbox_enabled(
                     distinct_id="distinct-id",
@@ -514,13 +509,13 @@ class TestGetTaskProcessingContextActivity:
                 is False
             )
 
-        feature_enabled_mock.assert_not_called()
+        payload_mock.assert_not_called()
 
     def test_modal_vm_sandbox_restricted_egress_overrides_state_override(self):
         with patch(
-            "products.tasks.backend.temporal.process_task.activities.get_task_processing_context.posthoganalytics.feature_enabled",
-            return_value=True,
-        ) as feature_enabled_mock:
+            VM_FLAG_PAYLOAD_TARGET,
+            return_value='{"origin_products": ["user_created"]}',
+        ) as payload_mock:
             assert (
                 _is_modal_vm_sandbox_enabled(
                     distinct_id="distinct-id",
@@ -533,7 +528,7 @@ class TestGetTaskProcessingContextActivity:
                 is False
             )
 
-        feature_enabled_mock.assert_not_called()
+        payload_mock.assert_not_called()
 
     @pytest.mark.parametrize(
         "origin_product, payload, expected",
@@ -547,15 +542,9 @@ class TestGetTaskProcessingContextActivity:
         ],
     )
     def test_modal_vm_sandbox_origin_product_gating(self, origin_product, payload, expected):
-        with (
-            patch(
-                "products.tasks.backend.temporal.process_task.activities.get_task_processing_context.posthoganalytics.feature_enabled",
-                return_value=True,
-            ),
-            patch(
-                "products.tasks.backend.temporal.process_task.activities.get_task_processing_context.posthoganalytics.get_feature_flag_payload",
-                return_value=payload,
-            ),
+        with patch(
+            VM_FLAG_PAYLOAD_TARGET,
+            return_value=payload,
         ):
             assert (
                 _is_modal_vm_sandbox_enabled(
@@ -581,7 +570,7 @@ class TestGetTaskProcessingContextActivity:
         ],
     )
     def test_vm_sandbox_allowed_origin_products_parsing(self, payload, expected):
-        assert _vm_sandbox_allowed_origin_products(payload) == expected
+        assert vm_sandbox_allowed_origin_products(payload) == expected
 
     @pytest.mark.parametrize(
         "state,expected",
