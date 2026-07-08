@@ -195,7 +195,7 @@ class TestTopLevelEndpoints:
 
 class TestSegmentSubscribers:
     @staticmethod
-    def _responder(subscribers_by_segment: dict[str, list[list[dict]]]) -> Any:
+    def _responder(subscribers_by_segment: dict[str, list[list[dict] | None]]) -> Any:
         def respond(url: str, params: dict[str, Any]) -> Any:
             if url.endswith("/list.php"):
                 return [{"id": segment_id} for segment_id in subscribers_by_segment]
