@@ -59,9 +59,10 @@ async def gather_brief_inputs_activity(inputs: GenerateBriefWorkflowInputs) -> l
     if not team.organization.is_ai_data_processing_approved:
         raise ApplicationError("AI data processing not approved for this organization", non_retryable=True)
     config = await database_sync_to_async(_get_config, thread_sensitive=False)(team, inputs.brief_config_id)
+    sources = get_sources()
     items: list[SourceItem] = []
     failed_sources = 0
-    for source in get_sources():
+    for source in sources:
         try:
             gathered = await database_sync_to_async(source.gather, thread_sensitive=False)(
                 team, config, inputs.period_days
@@ -72,9 +73,9 @@ async def gather_brief_inputs_activity(inputs: GenerateBriefWorkflowInputs) -> l
             failed_sources += 1
             continue
         items.extend(gathered)
-    if failed_sources and not items:
-        # Nothing gathered AND sources broke: that's a failure to retry, not a quiet week.
-        raise ApplicationError(f"brief gather produced no items and {failed_sources} source(s) failed")
+    if sources and failed_sources == len(sources):
+        # Every source broke: that's a failure to retry. Partial failure in a quiet week is not.
+        raise ApplicationError(f"brief gather failed: all {failed_sources} source(s) failed")
     # Stable sort: highest-priority kinds survive the cap, source order preserved within a kind.
     items.sort(key=lambda item: KIND_PRIORITY.get(item.kind, len(KIND_PRIORITY)))
     return [dataclasses.asdict(item) for item in items[:MAX_ITEMS]]
