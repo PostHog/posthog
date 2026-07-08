@@ -1358,11 +1358,15 @@ def clone_workspace(
     )
     result = _run_build(args, verbose=verbose)
     if result.returncode != 0:
-        if _PARAM_NOT_PRESENT_RE.search(result.stdout or ""):
+        match = _PARAM_NOT_PRESENT_RE.search(result.stdout or "")
+        missing = match.group(1) if match else None
+        if missing == CLONE_SOURCE_PARAMETER:
             _fail(
                 f"This Coder template does not accept '{CLONE_SOURCE_PARAMETER}', so it cannot be "
                 "cloned. Deploy the cloud-infra devbox-clone template change first."
             )
+        if missing is not None:
+            _fail(f"This Coder template does not accept the '{missing}' parameter.")
         raise SystemExit(result.returncode)
 
 
