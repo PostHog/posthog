@@ -173,7 +173,10 @@ impl RawNativeFrame {
         // own: their address belongs to the group's physical frame, which
         // resolves once for the whole group (`FrameResolver` then replaces or
         // keeps the group atomically). Resolving a member here would expand
-        // the same inline chain once per member.
+        // the same inline chain once per member. That holds for orphaned
+        // members too (malformed or reordered input): resolving one
+        // independently could duplicate its group's expansion, so they pass
+        // through with their client fields instead.
         if self.inline {
             return Ok(vec![self.into()]);
         }
@@ -384,12 +387,14 @@ impl RawNativeFrame {
 
     /// Whether this frame is an inline member of the client-expanded group led
     /// by `lead`: it must be inline-marked and carry the lead's (physical)
-    /// instruction address. An address mismatch ends the group — a malformed
-    /// sequence degrades to independent frames rather than mis-grouping.
+    /// instruction address and image. Any mismatch ends the group — a
+    /// malformed sequence degrades to independent frames rather than
+    /// mis-grouping.
     pub fn continues_group_of(&self, lead: &RawNativeFrame) -> bool {
         self.inline
             && self.instruction_addr.is_some()
             && self.instruction_addr == lead.instruction_addr
+            && self.image_addr == lead.image_addr
     }
 
     /// The uploaded debug symbol set this frame resolves against, identified by
@@ -1364,7 +1369,9 @@ mod test {
         };
 
         for frame in &frames {
-            let name = frame.resolved_name.as_deref().unwrap();
+            let Some(name) = frame.resolved_name.as_deref() else {
+                panic!("resolved frame missing a resolved_name: {frame:#?}");
+            };
             assert!(
                 !name.rsplit("::").next().is_some_and(is_rust_symbol_hash),
                 "symbol hash suffix leaked into resolved name: {name}"
