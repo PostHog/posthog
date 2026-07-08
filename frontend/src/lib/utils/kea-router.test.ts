@@ -17,6 +17,14 @@ describe('router-utils', () => {
         const altered = addProjectIdIfMissing('/feature_flags/staff', 123)
         expect(altered).toEqual('/feature_flags/staff')
     })
+    it('does not redirect the staff tools URL when it carries a query string', () => {
+        const altered = addProjectIdIfMissing('/feature_flags/staff?team_id=456', 123)
+        expect(altered).toEqual('/feature_flags/staff?team_id=456')
+    })
+    it('does not redirect the staff tools URL when it carries a hash', () => {
+        const altered = addProjectIdIfMissing('/feature_flags/staff#cache', 123)
+        expect(altered).toEqual('/feature_flags/staff#cache')
+    })
     it('still adds a project id to other feature flags URLs', () => {
         const altered = addProjectIdIfMissing('/feature_flags/123', 123)
         expect(altered).toEqual('/project/123/feature_flags/123')

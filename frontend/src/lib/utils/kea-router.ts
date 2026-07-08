@@ -27,10 +27,13 @@ const exactPathsWithoutProjectId = ['/feature_flags/staff']
 const projectIdentifierInUrlRegex = /^\/project\/(\d+|phc_)/
 
 function isPathWithoutProjectId(path: string): boolean {
-    if (exactPathsWithoutProjectId.some((exactPath) => path === exactPath || path.startsWith(exactPath + '/'))) {
+    const pathname = path.split(/[?#]/)[0]
+    if (
+        exactPathsWithoutProjectId.some((exactPath) => pathname === exactPath || pathname.startsWith(exactPath + '/'))
+    ) {
         return true
     }
-    const firstPart = path.split('/')[1]
+    const firstPart = pathname.split('/')[1]
     return pathsWithoutProjectId.includes(firstPart)
 }
 
