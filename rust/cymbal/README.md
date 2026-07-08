@@ -18,14 +18,16 @@ rollout, configuration, and operator guidance.
 The public HTTP contract stays `POST /process`: callers send an array of
 events and receive an equally sized array in the same order, with `null` in a
 slot only when the normal cymbal pipeline suppresses that event. The
-Node.js error-tracking consumer can keep using its existing DNS/team routing
+Node.js error-tracking consumer can keep using its existing DNS routing
 and HTTP body-size chunking because remote symbol resolution happens behind
 the same cymbal HTTP boundary.
 
 When remote resolution is enabled, `CYMBAL_REMOTE_RESOLUTION_SAMPLE_RATE`
 controls a deterministic event-level rollout. Events selected for remote
-processing are grouped per team, flattened into exception-level `ResolveItem`s,
-and submitted over a bidirectional `Resolve` stream. Each item carries JSON
+processing are flattened into exception-level `ResolveItem`s, grouped by a
+symbol-set routing key when one is available, and submitted over a
+bidirectional `Resolve` stream. Items without a symbol-set reference fall back
+to the existing per-team key. Each item carries JSON
 `metadata` bytes for resolver-specific context such as
 `debug_images_json`, and each terminal `ResolveOutcome` is correlated by
 item id. Sampled remote attempts do not fall back to local resolution if the
