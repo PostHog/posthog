@@ -273,6 +273,157 @@ class InternalEdgeSerializer(serializers.ModelSerializer):
         read_only_fields = fields
 
 
+class InternalFleetTeamSerializer(serializers.Serializer):
+    team_id = serializers.IntegerField(help_text="Team with data-modeling activity.")
+    team_name = serializers.CharField(allow_null=True, help_text="Team name, null if the team row is gone.")
+    organization_id = serializers.CharField(allow_null=True, help_text="Owning organization id.")
+    saved_query_count = serializers.IntegerField(help_text="Non-deleted saved queries.")
+    materialized_saved_query_count = serializers.IntegerField(help_text="Saved queries that are materialized.")
+    failing_saved_query_count = serializers.IntegerField(help_text="Saved queries whose last run failed.")
+    saved_queries_with_sync_frequency_count = serializers.IntegerField(
+        help_text="Saved queries still carrying a v1 sync_frequency_interval (migration switch C not cleaned)."
+    )
+    endpoint_origin_saved_query_count = serializers.IntegerField(
+        help_text="Saved queries created by endpoint materialization."
+    )
+    dag_count = serializers.IntegerField(help_text="Number of DAGs.")
+
+
+class InternalMigrationMatrixRowSerializer(serializers.Serializer):
+    team_id = serializers.IntegerField(help_text="Team the switch states describe.")
+    team_name = serializers.CharField(allow_null=True, help_text="Team name, null if the team row is gone.")
+    switch_a_v2_flag_enabled = serializers.BooleanField(
+        help_text="Flag data-modeling-backend-v2 for this team. The flag is an exclusion list: "
+        "false means the team is excluded from the v2 backend."
+    )
+    switch_b_v2_schedule_present = serializers.BooleanField(
+        allow_null=True,
+        help_text="Whether any of the team's DAGs has a live v2 execute-dag Temporal schedule; "
+        "null when Temporal was unreachable (see temporal_error).",
+    )
+    switch_c_sync_frequencies_remaining = serializers.IntegerField(
+        help_text="Saved queries still carrying sync_frequency_interval — nonzero after a v2 "
+        "migration means cleanup never finished."
+    )
+    dag_count = serializers.IntegerField(help_text="Number of DAGs.")
+    classification = serializers.ChoiceField(
+        choices=[
+            "fully_v2",
+            "v2_scheduled_flag_excluded",
+            "v2_scheduled_cleanup_pending",
+            "not_migrated",
+            "v1_flag_excluded",
+            "no_dags",
+        ],
+        help_text="Derived label across the three switches; v2_scheduled_flag_excluded is the "
+        "'Sync now' storm cohort (scheduled on v2 but excluded from the v2 flag).",
+    )
+
+
+class InternalOrphanedScheduleSerializer(serializers.Serializer):
+    schedule_id = serializers.CharField(help_text="Temporal schedule id with no live owning entity.")
+    workflow_name = serializers.CharField(allow_null=True, help_text="Workflow the schedule starts.")
+    kind = serializers.ChoiceField(
+        choices=["v1_saved_query", "v2_dag"],
+        help_text="v1_saved_query: schedule id is a deleted saved query; v2_dag: a deleted DAG.",
+    )
+    paused = serializers.BooleanField(allow_null=True, help_text="Whether the schedule is paused.")
+    note = serializers.CharField(allow_null=True, help_text="Operator note on the schedule state, if any.")
+    next_run_at = serializers.CharField(allow_null=True, help_text="Next scheduled action time (ISO), if any.")
+    team_id = serializers.IntegerField(
+        allow_null=True,
+        help_text="Team from the PostHogTeamId search attribute; null on schedules predating the backfill.",
+    )
+
+
+class InternalUnscheduledEntitySerializer(serializers.Serializer):
+    team_id = serializers.IntegerField(help_text="Team owning the unscheduled entity.")
+    saved_query_id = serializers.CharField(help_text="Materialized saved query with no covering schedule.")
+    name = serializers.CharField(help_text="Saved query name.")
+    is_materialized = serializers.BooleanField(help_text="Always true today; kept for future entity kinds.")
+    sync_frequency_interval = serializers.DurationField(
+        allow_null=True, help_text="Residual v1 cadence, if any — a hint the v1 schedule went missing."
+    )
+    last_run_at = serializers.DateTimeField(allow_null=True, help_text="Last recorded run.")
+    dag_ids = serializers.ListField(
+        child=serializers.CharField(), help_text="DAGs this saved query has nodes in (none of them scheduled)."
+    )
+
+
+class InternalFailingSavedQuerySerializer(serializers.Serializer):
+    team_id = serializers.IntegerField(help_text="Team owning the failing saved query.")
+    saved_query_id = serializers.CharField(help_text="Failing saved query id.")
+    name = serializers.CharField(help_text="Saved query name.")
+    latest_error = serializers.CharField(allow_null=True, help_text="Full latest error text, untruncated.")
+    last_run_at = serializers.DateTimeField(allow_null=True, help_text="Last recorded run.")
+    last_failed_job_at = serializers.DateTimeField(
+        allow_null=True, help_text="Creation time of the most recent FAILED job."
+    )
+    consecutive_failures_by_engine = serializers.DictField(
+        child=serializers.IntegerField(),
+        help_text="Consecutive FAILED jobs per engine, newest-first, streak broken by that engine's "
+        "first non-failed job. Engine-split so duck-shadow jobs don't pollute the serving count.",
+    )
+    nodes = serializers.ListField(
+        child=serializers.JSONField(),
+        help_text="Node context: node_id, dag_id, and suspension state from node system properties "
+        "(headroom for the per-node circuit breaker).",
+    )
+
+
+class InternalFailingScheduleGroupSerializer(serializers.Serializer):
+    schedule_id = serializers.CharField(
+        allow_null=True, help_text="Covering Temporal schedule id; null when nothing covers the entities."
+    )
+    schedule_kind = serializers.ChoiceField(
+        choices=["v1_saved_query", "v2_dag", "none"],
+        help_text="Classification of the covering schedule by workflow name.",
+    )
+    paused = serializers.BooleanField(allow_null=True, help_text="Whether the covering schedule is paused.")
+    team_id = serializers.IntegerField(help_text="Team owning the affected entities.")
+    affected_saved_queries = InternalFailingSavedQuerySerializer(
+        many=True, help_text="Failing saved queries hanging off this schedule."
+    )
+
+
+class InternalMultiDagSavedQuerySerializer(serializers.Serializer):
+    team_id = serializers.IntegerField(help_text="Team owning the saved query.")
+    saved_query_id = serializers.CharField(help_text="Saved query with nodes in more than one DAG.")
+    name = serializers.CharField(help_text="Saved query name.")
+    is_materialized = serializers.BooleanField(help_text="Whether the saved query is materialized.")
+    dags = serializers.ListField(
+        child=serializers.JSONField(), help_text="The DAGs it appears in: dag_id + dag_name each."
+    )
+
+
+class InternalDuplicateBackingTableGroupSerializer(serializers.Serializer):
+    team_id = serializers.IntegerField(help_text="Team owning the saved query and tables.")
+    saved_query_id = serializers.CharField(help_text="Saved query whose name matches multiple backing tables.")
+    name = serializers.CharField(help_text="Shared saved query / table name.")
+    linked_table_id = serializers.CharField(
+        allow_null=True, help_text="Table the saved query's table FK points at; the others are orphans."
+    )
+    tables = serializers.SerializerMethodField(help_text="All same-named tables, oldest first, with is_linked.")
+
+    def get_tables(self, group: dict) -> list[dict]:
+        return list(
+            InternalBackingTableSerializer(
+                group["tables"], many=True, context={"linked_table_id": group["linked_table_id"]}
+            ).data
+        )
+
+
+class InternalResolveMatchSerializer(serializers.Serializer):
+    kind = serializers.ChoiceField(
+        choices=["saved_query", "endpoint", "dag", "node", "job"],
+        help_text="Entity kind the match resolved to (schedule/workflow/name queries resolve to these).",
+    )
+    team_id = serializers.IntegerField(allow_null=True, help_text="Owning team.")
+    id = serializers.CharField(help_text="Entity id.")
+    name = serializers.CharField(allow_blank=True, help_text="Entity name, when it has one.")
+    detail = serializers.JSONField(help_text="Kind-specific extras (status, dag_id, saved_query_id, ...).")
+
+
 class InternalTeamOverviewSerializer(serializers.Serializer):
     team_id = serializers.IntegerField(help_text="Team the overview describes.")
     v2_backend_enabled = serializers.BooleanField(

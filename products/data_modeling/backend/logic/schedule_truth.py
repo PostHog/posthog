@@ -93,6 +93,55 @@ def _iso_or_none(value: Any) -> str | None:
     return value.isoformat() if value is not None else None
 
 
+def _listing_search_attributes(listing: Any) -> dict[str, Any]:
+    attributes: dict[str, Any] = {}
+    typed = getattr(getattr(listing, "typed_search_attributes", None), "search_attributes", None) or []
+    for pair in typed:
+        key_name = getattr(getattr(pair, "key", None), "name", None)
+        if key_name:
+            attributes[key_name] = pair.value
+    return attributes
+
+
+@async_to_sync
+async def list_data_modeling_schedules() -> list[dict[str, Any]]:
+    """List every data-modeling Temporal schedule in the namespace, flattened.
+
+    One unscoped listing per call, client-filtered to the two data-modeling workflows —
+    the same sweep the orphan-cleanup management command performs. Search attributes are
+    informational (old schedules predate the backfill); classification is by workflow name.
+    """
+    temporal = await async_connect()
+    schedules: list[dict[str, Any]] = []
+    async for listing in await temporal.list_schedules():
+        action = getattr(getattr(listing, "schedule", None), "action", None)
+        workflow_name = getattr(action, "workflow", None)
+        kind = classify_workflow(workflow_name)
+        if kind == "other":
+            continue
+        state = getattr(getattr(listing, "schedule", None), "state", None)
+        info = getattr(listing, "info", None)
+        next_action_times = getattr(info, "next_action_times", None) or []
+        search_attributes = _listing_search_attributes(listing)
+        try:
+            team_id: int | None = int(search_attributes["PostHogTeamId"])
+        except (KeyError, TypeError, ValueError):
+            team_id = None
+        schedules.append(
+            {
+                "schedule_id": listing.id,
+                "workflow_name": workflow_name,
+                "kind": kind,
+                "paused": getattr(state, "paused", None),
+                "note": getattr(state, "note", None),
+                "next_run_at": _iso_or_none(next_action_times[0]) if next_action_times else None,
+                "team_id": team_id,
+                "search_attributes": search_attributes,
+            }
+        )
+    return schedules
+
+
 @async_to_sync
 async def describe_schedules(schedule_ids: list[str]) -> dict[str, dict[str, Any] | None]:
     """Describe many schedules concurrently; NOT_FOUND maps to None.
