@@ -54,18 +54,30 @@ def load_or_mint_dev_oidc_rsa_key() -> str:
 
     First launch mints an ephemeral key and writes it to disk; subsequent Django
     restarts read the same key back. Keeps client OAuth sessions valid across
-    dev-server reloads. Path defaults to ~/.posthog-dev/oidc-rsa.pem (a
-    dedicated dir so it doesn't collide with the CLI's ~/.posthog/); override
-    with DEV_OIDC_RSA_KEY_PATH.
+    dev-server reloads. Path defaults to <real-home>/.posthog-dev/oidc-rsa.pem
+    (dedicated dir; doesn't collide with the CLI's ~/.posthog/). Override with
+    DEV_OIDC_RSA_KEY_PATH.
 
-    Any I/O failure (unwriteable HOME, weird ACL, race with a sibling worker)
+    Resolves the real home via `pwd.getpwuid(os.getuid())` rather than `HOME`,
+    since some launchers (debugpy from IDE debug sessions, sandboxed dev-server
+    supervisors) don't propagate HOME to the child process and `Path.expanduser`
+    would resolve `~` to the wrong place — silently minting a fresh key every
+    restart.
+
+    Any I/O failure (unwriteable path, weird ACL, race with a sibling worker)
     falls back to an ephemeral key with a stderr warning. That trades OAuth
     session stability for keeping Django bootable — the alternative is a
     crash-loop that blocks all local dev.
     """
+    import pwd  # noqa: PLC0415
     from pathlib import Path  # noqa: PLC0415
 
-    path = Path(os.getenv("DEV_OIDC_RSA_KEY_PATH", "~/.posthog-dev/oidc-rsa.pem")).expanduser()
+    override = os.getenv("DEV_OIDC_RSA_KEY_PATH")
+    if override:
+        path = Path(override).expanduser()
+    else:
+        home = pwd.getpwuid(os.getuid()).pw_dir
+        path = Path(home) / ".posthog-dev" / "oidc-rsa.pem"
     try:
         if path.is_file():
             return path.read_text()
