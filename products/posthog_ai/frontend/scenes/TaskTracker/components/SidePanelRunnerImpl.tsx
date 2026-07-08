@@ -7,6 +7,7 @@ import { RunSurface } from 'products/posthog_ai/frontend/api/runSurface'
 
 import { useAttachedContext } from '../../../hooks/useAttachedContext'
 import { useForegroundStream } from '../../../hooks/useForegroundStream'
+import { usePersistCreateToasts } from '../../../hooks/usePersistCreateToasts'
 import { AGENT_TOOL_APPLY_BACK_CONTEXT_ITEM } from '../../../utils/posthogContextBlock'
 import { taskTrackerSceneLogic } from '../taskTrackerSceneLogic'
 import { TaskComposer } from './TaskComposer'
@@ -42,6 +43,8 @@ function SidePanelRunnerContent(): JSX.Element {
     // re-pointed when it switches runs). The `/tasks` full-page run view registers its own entry via
     // `TaskRunChat`; registrations are provider-keyed, so co-mounted surfaces don't clobber each other.
     useForegroundStream(activeCreation?.streamKey ?? null)
+    // React to this foreground run's create-family persist tools with an "Open …" toast.
+    usePersistCreateToasts()
 
     // While this side-panel surface is mounted, tell the agent its tool calls are applied back into
     // whatever the user has open (see `useMcpToolApplyBack` consumers). Attached unconditionally —

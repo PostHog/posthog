@@ -1,4 +1,6 @@
 import { useActions, useValues } from 'kea'
+import posthog from 'posthog-js'
+import type { ReactNode } from 'react'
 import { useEffect, useRef, useState } from 'react'
 
 import { IconWarning } from '@posthog/icons'
@@ -12,10 +14,12 @@ import { MarkdownMessage } from '../messages/MarkdownMessage'
 import { getPermissionDisplay } from '../policy/permissionDisplayUtils'
 import { isPlanPermissionRequest, mapPermissionOptions, type ApprovalCardOption } from '../policy/permissionUtils'
 import type { PermissionRequestRecord } from '../types/streamTypes'
+import { resolveToolCall } from '../utils/toolResolver'
 import { isPlanApprovalModeOptionId, InlineEditableText, PlanApprovalSelector } from './PlanApprovalActions'
 import { DiffEditor, DiffStats } from './tool/EditDiffRenderer'
 import { FilePath } from './tool/FilePath'
 import { findAllDiffContent, getDiffStats } from './tool/toolDiffContent'
+import { lookupToolRenderer } from './tool/toolRegistry'
 
 interface PermissionInputProps {
     streamKey: string
@@ -24,6 +28,21 @@ interface PermissionInputProps {
 
 /** Collapsed height of the payload preview, in lines — enough to scan, never enough to bury the choices. */
 const PAYLOAD_COLLAPSED_LINES = 12
+
+/**
+ * Resolves the request's inner sub-tool and, if a registered entry provides a `renderPermissionPreview`,
+ * returns its node (else null). Isolated + guarded so a throwing product preview can never break the
+ * approval card — the card falls back to the generic evidence block.
+ */
+function renderRegisteredPermissionPreview(request: PermissionRequestRecord): ReactNode | null {
+    try {
+        const { resolvedKey, innerToolName } = resolveToolCall(request.rawToolCall)
+        return lookupToolRenderer(resolvedKey, innerToolName != null).renderPermissionPreview?.(request) ?? null
+    } catch (error) {
+        posthog.captureException(error, { feature: 'posthog_ai_permission_preview' })
+        return null
+    }
+}
 
 const FEEDBACK_PLACEHOLDER = 'Tell the agent what to do differently'
 
@@ -348,6 +367,11 @@ export function PermissionInput({ streamKey, request }: PermissionInputProps): J
     // evidence block skips its label) so the tool identity is stated exactly once.
     const headlineBody = request.description && request.description !== display.title ? request.description : undefined
 
+    // A product may register a richer approval preview (e.g. a config diff) for the resolved sub-tool
+    // via the tool registry. When it returns a node, it takes the evidence slot; a null return (or a
+    // throwing preview, or no registered preview) falls back to the generic evidence block.
+    const previewNode = renderRegisteredPermissionPreview(request)
+
     return (
         <div className="flex flex-col gap-2.5 p-3">
             <div className="flex items-start gap-2 text-sm font-medium">
@@ -360,11 +384,15 @@ export function PermissionInput({ streamKey, request }: PermissionInputProps): J
                     <span>{display.title ?? 'Approval required'}</span>
                 )}
             </div>
-            <PermissionEvidence
-                request={request}
-                label={headlineBody ? display.title : undefined}
-                payload={display.payload}
-            />
+            {previewNode ? (
+                <div className="max-h-80 overflow-y-auto">{previewNode}</div>
+            ) : (
+                <PermissionEvidence
+                    request={request}
+                    label={headlineBody ? display.title : undefined}
+                    payload={display.payload}
+                />
+            )}
             {respondingToPermission ? (
                 <div className="flex items-center gap-2 text-muted pt-1">
                     <Spinner className="size-4" />
