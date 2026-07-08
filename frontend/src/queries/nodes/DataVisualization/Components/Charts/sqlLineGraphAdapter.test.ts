@@ -746,8 +746,18 @@ describe('sqlLineGraphAdapter', () => {
         })
 
         it.each<[string, ChartDisplayType, ChartSettings, boolean]>([
-            ['enables divergingStack for stacked bars so negatives render below zero', ChartDisplayType.ActionsStackedBar, {}, true],
-            ['disables divergingStack for percent-stacked bars', ChartDisplayType.ActionsStackedBar, { stackBars100: true }, false],
+            [
+                'enables divergingStack for stacked bars so negatives render below zero',
+                ChartDisplayType.ActionsStackedBar,
+                {},
+                true,
+            ],
+            [
+                'disables divergingStack for percent-stacked bars',
+                ChartDisplayType.ActionsStackedBar,
+                { stackBars100: true },
+                false,
+            ],
             ['disables divergingStack for grouped bars', ChartDisplayType.ActionsBar, {}, false],
         ])('%s', (_name, visualizationType, chartSettings, expected) => {
             const config = buildBarChartConfig({
