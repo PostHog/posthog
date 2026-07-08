@@ -154,9 +154,6 @@ function getElementText(element: HTMLElement): string | null {
 }
 
 function elementMatchesText(element: HTMLElement, text: string): boolean {
-    if (!text) {
-        return false
-    }
     const elementText = getElementText(element)
     return elementText?.toLowerCase() === text.toLowerCase()
 }
