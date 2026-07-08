@@ -16,14 +16,11 @@ description: >
 
 # Authoring CI workflows
 
-Conventions for `.github/workflows/**` and `.github/actions/**`. Most mechanical
-rules are already linted — run the linters locally and let them catch the
-mechanics; this skill exists for the **judgment calls** they can't.
+Conventions for `.github/workflows/**` and `.github/actions/**`. The linters own
+the mechanical rules (below); this skill is the **judgment calls** they can't enforce.
 
 ## Before you write
 
-- Run `bin/hogli lint:workflows` and `actionlint` before pushing. They gate CI
-  via `.github/workflows/ci-lint-workflows.yml`, so a miss here burns a round trip.
 - Copy from a canonical file rather than from memory. `ci-paths-filter.yml` is
   the smallest complete example (triggers, concurrency, timeout, app token,
   Depot runner); `ci-backend.yml` is the reference for the heavy patterns
@@ -36,22 +33,20 @@ mechanics; this skill exists for the **judgment calls** they can't.
 
 ## What the linters already enforce
 
-`bin/hogli lint:workflows` and `actionlint` are the source of truth for the
-mechanical rules — run them and fix whatever they flag rather than trusting a list
-here to stay current. Between them they cover, today: `timeout-minutes` on every
-job, the canonical PR concurrency block, `dorny/paths-filter` negation safety,
-justification for full-depth checkouts, cache-write gating, semgrep service
-coverage, and generic GHA correctness (bad `secrets.*` / `needs:` refs, deprecated
-`::set-output`, unknown runner labels). Third-party action digests are bumped by
-Renovate. This skill is for the judgment they can't enforce.
+Run `bin/hogli lint:workflows` and `actionlint` before pushing — they gate CI, and
+they (not this list) are the source of truth for what's enforced. Today that's:
+`timeout-minutes` on every job, the canonical PR concurrency block,
+`dorny/paths-filter` negation safety, justification for full-depth checkouts,
+cache-write gating, semgrep service coverage, and generic GHA correctness (bad
+`secrets.*` / `needs:` refs, deprecated `::set-output`, unknown runner labels).
+Third-party action digests are bumped by Renovate.
 
 ## The dispatch budget (500 runs / 10s / repo)
 
-The most PostHog-specific constraint. GitHub caps _workflow-run dispatch_ at
-500 runs per 10 seconds per repo; overflow fails as `startup_failure` and takes
-unrelated runs in the same window down with it. A stack restack that pushes many
-branches at once is the usual trigger. **Minimize runs dispatched, not just work
-done** — draft status doesn't help (runs dispatch before skip logic applies).
+GitHub caps _workflow-run dispatch_ at 500 runs per 10s per repo; overflow fails as
+`startup_failure` and takes unrelated runs in the same window down with it (a stack
+restack pushing many branches is the usual trigger). **Minimize runs dispatched, not
+just work done** — draft status doesn't help, runs dispatch before skip logic applies.
 
 - A reusable-workflow call counts as **one** run. Small always-fire PR workflows
   should be jobs under a single `workflow_call` parent, not their own dispatches
