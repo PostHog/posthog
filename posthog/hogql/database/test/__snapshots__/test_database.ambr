@@ -8493,6 +8493,94 @@
           "row_count": null,
           "type": "system"
       },
+      "system.support_ticket_messages": {
+          "fields": {
+              "id": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "id",
+                  "id": null,
+                  "name": "id",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "string"
+              },
+              "ticket_id": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "ticket_id",
+                  "id": null,
+                  "name": "ticket_id",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "string"
+              },
+              "content": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "content",
+                  "id": null,
+                  "name": "content",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "string"
+              },
+              "author_type": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "author_type",
+                  "id": null,
+                  "name": "author_type",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "string"
+              },
+              "is_private": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "is_private",
+                  "id": null,
+                  "name": "is_private",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "integer"
+              },
+              "created_by_id": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "created_by_id",
+                  "id": null,
+                  "name": "created_by_id",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "integer"
+              },
+              "item_context": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "item_context",
+                  "id": null,
+                  "name": "item_context",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "json"
+              },
+              "created_at": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "created_at",
+                  "id": null,
+                  "name": "created_at",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "datetime"
+              }
+          },
+          "id": "system.support_ticket_messages",
+          "name": "system.support_ticket_messages",
+          "row_count": null,
+          "type": "system"
+      },
       "system.support_tickets": {
           "fields": {
               "id": {
@@ -8694,6 +8782,26 @@
                   "schema_valid": true,
                   "table": null,
                   "type": "datetime"
+              },
+              "snoozed_until": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "snoozed_until",
+                  "id": null,
+                  "name": "snoozed_until",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "datetime"
+              },
+              "organization_id": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "organization_id",
+                  "id": null,
+                  "name": "organization_id",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "string"
               },
               "created_at": {
                   "chain": null,
@@ -17278,6 +17386,94 @@
           "row_count": null,
           "type": "system"
       },
+      "system.support_ticket_messages": {
+          "fields": {
+              "id": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "id",
+                  "id": null,
+                  "name": "id",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "string"
+              },
+              "ticket_id": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "ticket_id",
+                  "id": null,
+                  "name": "ticket_id",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "string"
+              },
+              "content": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "content",
+                  "id": null,
+                  "name": "content",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "string"
+              },
+              "author_type": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "author_type",
+                  "id": null,
+                  "name": "author_type",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "string"
+              },
+              "is_private": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "is_private",
+                  "id": null,
+                  "name": "is_private",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "integer"
+              },
+              "created_by_id": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "created_by_id",
+                  "id": null,
+                  "name": "created_by_id",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "integer"
+              },
+              "item_context": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "item_context",
+                  "id": null,
+                  "name": "item_context",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "json"
+              },
+              "created_at": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "created_at",
+                  "id": null,
+                  "name": "created_at",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "datetime"
+              }
+          },
+          "id": "system.support_ticket_messages",
+          "name": "system.support_ticket_messages",
+          "row_count": null,
+          "type": "system"
+      },
       "system.support_tickets": {
           "fields": {
               "id": {
@@ -17479,6 +17675,26 @@
                   "schema_valid": true,
                   "table": null,
                   "type": "datetime"
+              },
+              "snoozed_until": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "snoozed_until",
+                  "id": null,
+                  "name": "snoozed_until",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "datetime"
+              },
+              "organization_id": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "organization_id",
+                  "id": null,
+                  "name": "organization_id",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "string"
               },
               "created_at": {
                   "chain": null,

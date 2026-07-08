@@ -1548,10 +1548,61 @@ support_tickets: PostgresTable = PostgresTable(
             name="session_context", description="JSON context captured from the user's session."
         ),
         "sla_due_at": DateTimeDatabaseField(
-            name="sla_due_at", nullable=True, description="When the ticket's SLA response is due."
+            name="sla_due_at",
+            nullable=True,
+            description="When the ticket's SLA response is due; a past value on an unresolved ticket means the SLA is currently breached.",
+        ),
+        "snoozed_until": DateTimeDatabaseField(
+            name="snoozed_until", nullable=True, description="When a snoozed ticket automatically reopens, if snoozed."
+        ),
+        "organization_id": StringDatabaseField(
+            name="organization_id",
+            nullable=True,
+            description="External organization/account identifier the requester belongs to, if known.",
         ),
         "created_at": DateTimeDatabaseField(name="created_at", description="When the ticket was opened."),
         "updated_at": DateTimeDatabaseField(name="updated_at", description="When the ticket was last updated."),
+    },
+)
+
+support_ticket_messages: PostgresTable = PostgresTable(
+    name="support_ticket_messages",
+    postgres_table_name="posthog_comment",
+    access_scope="ticket",
+    # Ticket messages are stored as comments; only expose that scope, and mirror the API's deleted filter.
+    predicates=[parse_expr("scope = 'conversations_ticket'"), parse_expr("ifNull(deleted, false) != true")],
+    description="Messages on support tickets (customer messages, team and AI replies, private notes); one row per message.",
+    fields={
+        "id": StringDatabaseField(name="id", description="Message UUID."),
+        "team_id": IntegerDatabaseField(name="team_id"),
+        # Backing columns for the table predicates; hidden because the filters make them constant.
+        "scope": StringDatabaseField(name="scope", hidden=True),
+        "deleted": BooleanDatabaseField(name="deleted", nullable=True, hidden=True),
+        "ticket_id": StringDatabaseField(
+            name="item_id", description="Ticket this message belongs to; joins to support_tickets.id."
+        ),
+        "content": StringDatabaseField(name="content", nullable=True, description="Message text."),
+        "author_type": ExpressionField(
+            name="author_type",
+            expr=parse_expr("JSONExtractString(ifNull(item_context, '{}'), 'author_type')"),
+            description="Who wrote the message: 'customer', 'support' (team member), or 'AI'.",
+        ),
+        "is_private": ExpressionField(
+            name="is_private",
+            expr=parse_expr("toInt(JSONExtractBool(ifNull(item_context, '{}'), 'is_private'))"),
+            description="1 for private internal notes not visible to the customer, 0 for customer-visible messages.",
+        ),
+        "created_by_id": IntegerDatabaseField(
+            name="created_by_id",
+            nullable=True,
+            description="Team member who wrote the message; NULL for customer or AI messages.",
+        ),
+        "item_context": StringJSONDatabaseField(
+            name="item_context",
+            nullable=True,
+            description="JSON message metadata (author type, privacy, delivery status).",
+        ),
+        "created_at": DateTimeDatabaseField(name="created_at", description="When the message was sent."),
     },
 )
 
@@ -2089,6 +2140,7 @@ class SystemTables(TableNode):
         "session_recordings": TableNode(name="session_recordings", table=session_recordings),
         "source_schemas": TableNode(name="source_schemas", table=source_schemas),
         "source_sync_jobs": TableNode(name="source_sync_jobs", table=source_sync_jobs),
+        "support_ticket_messages": TableNode(name="support_ticket_messages", table=support_ticket_messages),
         "support_tickets": TableNode(name="support_tickets", table=support_tickets),
         "surveys": TableNode(name="surveys", table=surveys),
         "task_runs": TableNode(name="task_runs", table=task_runs),

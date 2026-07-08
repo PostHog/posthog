@@ -18,6 +18,7 @@ from posthog.hogql.query import execute_hogql_query
 
 from posthog.models import Group, GroupTypeMapping, GroupUsageMetric, Organization, Tag, Team
 from posthog.models.activity_logging.activity_log import ActivityLog
+from posthog.models.comment import Comment
 from posthog.models.project import Project
 from posthog.models.scoping import team_scope
 from posthog.persons_db import persons_db_connection
@@ -555,6 +556,17 @@ def _create_support_ticket(team: Team, label: str) -> Ticket:
     )
 
 
+def _create_support_ticket_message(team: Team, label: str) -> Comment:
+    ticket = _create_support_ticket(team, label)
+    return Comment.objects.create(
+        team=team,
+        scope="conversations_ticket",
+        item_id=str(ticket.id),
+        content=f"message_{label}",
+        item_context={"author_type": "customer", "is_private": False},
+    )
+
+
 def _create_survey(team: Team, label: str) -> Survey:
     return Survey.objects.create(team=team, name=f"survey_{label}", type="popover")
 
@@ -713,6 +725,7 @@ SYSTEM_TABLE_FACTORIES = [
     ("session_recording_playlists", _create_session_recording_playlist),
     ("session_recordings", _create_session_recording),
     ("source_schemas", _create_source_schema),
+    ("support_ticket_messages", _create_support_ticket_message),
     ("support_tickets", _create_support_ticket),
     ("surveys", _create_survey),
     ("tags", _create_tag),
@@ -849,6 +862,44 @@ class TestSystemTablesTaskInternalExclusionIsolation(NonAtomicBaseTest):
 
         assert str(regular_task.pk) in ids
         assert str(internal_task.pk) not in ids
+
+
+class TestSystemTablesSupportTicketMessagesScope(NonAtomicBaseTest):
+    """End-to-end check that support_ticket_messages only exposes ticket-scoped, non-deleted
+    comments; other comment scopes (insight/dashboard discussions) must never leak through."""
+
+    CLASS_DATA_LEVEL_SETUP = False
+
+    def test_only_ticket_scoped_non_deleted_comments_returned(self):
+        ticket = _create_support_ticket(self.team, "scope_test")
+        message = Comment.objects.create(
+            team=self.team,
+            scope="conversations_ticket",
+            item_id=str(ticket.id),
+            content="visible message",
+            item_context={"author_type": "support", "is_private": True},
+        )
+        other_scope = Comment.objects.create(
+            team=self.team, scope="Insight", item_id="some-insight", content="insight discussion"
+        )
+        deleted = Comment.objects.create(
+            team=self.team,
+            scope="conversations_ticket",
+            item_id=str(ticket.id),
+            content="deleted message",
+            deleted=True,
+        )
+
+        response = execute_hogql_query(
+            "SELECT id, ticket_id, author_type, is_private FROM system.support_ticket_messages",
+            team=self.team,
+            user=self.user,
+        )
+
+        returned = [(str(row[0]), row[1], row[2], row[3]) for row in response.results]
+        assert returned == [(str(message.pk), str(ticket.id), "support", 1)]
+        assert str(other_scope.pk) not in {r[0] for r in returned}
+        assert str(deleted.pk) not in {r[0] for r in returned}
 
 
 class TestSystemTablesNotebookMarkdown(NonAtomicBaseTest):
