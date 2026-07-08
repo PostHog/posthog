@@ -23,7 +23,7 @@ class PeecAISource(SimpleSource[PeecAISourceConfig]):
         return SourceConfig(
             name=SchemaExternalDataSourceType.PEEC_AI,
             category=DataWarehouseSourceCategory.ANALYTICS,
-            keywords=["peec.ai", "peecai", "AI brand visibility", "AI search analytics"],
+            keywords=["peec.ai", "peecai", "ai brand visibility", "ai search analytics"],
             label="Peec AI",
             iconPath="/static/services/peec.png",
             fields=cast(list[FieldType], []),
