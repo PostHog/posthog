@@ -777,6 +777,7 @@ export const routes: Record<string, [Scene | string, string]> = {
     [urls.dashboardSubscriptions(':id')]: [Scene.Dashboard, 'dashboardSubscriptions'],
     [urls.dashboardSubscription(':id', ':subscriptionId')]: [Scene.Dashboard, 'dashboardSubscription'],
     [urls.ingestionWarnings()]: [Scene.DataManagement, 'ingestionWarnings'],
+    [urls.ingestionWarningsV2()]: [Scene.DataManagement, 'ingestionWarningsV2'],
     [urls.insightQuickStart()]: [Scene.InsightQuickStart, 'insightQuickStart'],
     [urls.insightNew()]: [Scene.Insight, 'insightNew'],
     [urls.insightEdit(':shortId' as InsightShortId)]: [Scene.Insight, 'insightEdit'],
