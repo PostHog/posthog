@@ -144,7 +144,6 @@ class TestPulseFeedbackAPI(APIBaseTest):
         brief = self._brief(
             config=config,
             sections=[{"kind": "what_happened", "title": "t"}, {"kind": "goal_progress", "title": "g"}],
-            investigation=[{"question": "q", "hogql": "SELECT 1", "result_summary": "1", "succeeded": True}],
         )
 
         response = self._vote("briefs", brief.id, True)
@@ -159,7 +158,6 @@ class TestPulseFeedbackAPI(APIBaseTest):
             "trigger": ProductBrief.Trigger.ON_DEMAND,
             "has_goal": True,
             "section_kinds": ["goal_progress", "what_happened"],
-            "has_investigation": True,
         }
 
     def test_opportunity_feedback_capture_carries_context_props(self) -> None:
