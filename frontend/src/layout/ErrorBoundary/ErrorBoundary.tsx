@@ -18,9 +18,14 @@ const DOM_MUTATION_PATTERNS = [
     "Failed to execute 'appendChild' on 'Node'",
 ]
 
-function isDOMModificationError(error: Error): boolean {
-    const message = error.message || ''
-    return DOM_MUTATION_PATTERNS.some((pattern) => message.includes(pattern))
+// Errors that originate in the browser environment rather than a PostHog bug: extensions
+// mutating the DOM (the patterns above, e.g. translation / ad-blocking), and Firefox/Gecko's
+// internal `NS_ERROR_FAILURE` — thrown from DOM ops like scrollIntoView/focus that fire in a
+// layout effect inside third-party UI libraries, and which we can't fix in app code. We surface
+// these with a "likely your browser" hint instead of the full crash + report-to-us UI.
+function isLikelyBrowserError(error: Error): boolean {
+    const haystack = `${error.name || ''} ${error.message || ''}`
+    return DOM_MUTATION_PATTERNS.some((pattern) => haystack.includes(pattern)) || haystack.includes('NS_ERROR_FAILURE')
 }
 
 interface ErrorBoundaryProps {
@@ -52,7 +57,7 @@ export function ErrorBoundary({ children, exceptionProps = {}, className }: Erro
 
                 const exceptionEvent = props.exceptionEvent as SupportTicketExceptionEvent
 
-                const isBrowserExtensionError = isDOMModificationError(normalizedError)
+                const isLikelyBrowserEnvError = isLikelyBrowserError(normalizedError)
 
                 const errorDetails = [
                     exceptionEvent?.uuid ? `Exception ID: ${exceptionEvent.uuid}` : null,
@@ -64,7 +69,7 @@ export function ErrorBoundary({ children, exceptionProps = {}, className }: Erro
                 return (
                     <div className={clsx('ErrorBoundary', className)}>
                         <h2>An error has occurred</h2>
-                        {isBrowserExtensionError && (
+                        {isLikelyBrowserEnvError && (
                             <LemonBanner
                                 type="warning"
                                 className="mb-2"
@@ -79,9 +84,9 @@ export function ErrorBoundary({ children, exceptionProps = {}, className }: Erro
                                     },
                                 }}
                             >
-                                This error is commonly caused by browser extensions (such as translation or ad-blocking
-                                extensions) that modify the page. Try disabling your browser extension(s) and reloading
-                                the page to avoid this error in the future.
+                                This error usually comes from your browser or a browser extension (such as a translation
+                                or ad-blocking extension) rather than PostHog itself. Try reloading the page, and
+                                disabling browser extensions if it keeps happening.
                             </LemonBanner>
                         )}
                         <pre>
@@ -98,7 +103,7 @@ export function ErrorBoundary({ children, exceptionProps = {}, className }: Erro
                         {exceptionEvent?.uuid && (
                             <div className="text-muted text-xs mb-2">Exception ID: {exceptionEvent.uuid}</div>
                         )}
-                        {!isBrowserExtensionError && (
+                        {!isLikelyBrowserEnvError && (
                             <>
                                 <p className="mb-2">
                                     Click below to send this to an engineer.{' '}

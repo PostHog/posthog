@@ -31,6 +31,28 @@ export function dropReadOnlyExceptions<T extends { event?: string; properties?: 
     return event
 }
 
+// Firefox/Gecko surfaces internal DOM failures — e.g. scrollIntoView/focus thrown from a
+// layout effect inside a third-party UI library — as `NS_ERROR_FAILURE`, usually with an
+// empty message. These are browser-level failures we can't fix in app code, so drop them
+// rather than let them drown out real, actionable exceptions in error tracking.
+// Exported for unit testing.
+export function dropBrowserNoiseExceptions<T extends { event?: string; properties?: Record<string, any> } | null>(
+    event: T
+): T | null {
+    if (!event || event.event !== '$exception') {
+        return event
+    }
+    const list = (event.properties?.$exception_list ?? []) as Array<{ type?: string; value?: string }>
+    if (
+        list.some(
+            (ex) => (ex?.type ?? '').includes('NS_ERROR_FAILURE') || (ex?.value ?? '').includes('NS_ERROR_FAILURE')
+        )
+    ) {
+        return null
+    }
+    return event
+}
+
 export const selfReadOnlyModeLogic = kea<selfReadOnlyModeLogicType>([
     path(['layout', 'navigation', 'SelfReadOnlyNotice', 'selfReadOnlyModeLogic']),
 
@@ -102,11 +124,13 @@ export const selfReadOnlyModeLogic = kea<selfReadOnlyModeLogicType>([
         setReadOnlyGetter(() => selfReadOnlyModeLogic.findMounted()?.values.isReadOnly ?? false)
         setReadOnlyNotifier((method) => actions.notifyBlocked(method))
 
-        // Central error-tracking filter — drops any `$exception` event whose
-        // chain contains a ReadOnlyModeError. Catches direct captures *and*
-        // wrapped errors (`new Error('...', { cause: readOnlyErr })`). No
-        // existing code sets `before_send`, so we own this config slot.
-        posthog.set_config({ before_send: dropReadOnlyExceptions })
+        // Central error-tracking filter — posthog-js applies these `before_send`
+        // functions in order and drops the event if any returns null. We drop
+        // `$exception` events for read-only blocks-by-design (`ReadOnlyModeError`,
+        // including wrapped `new Error('...', { cause: readOnlyErr })`) and for
+        // unactionable Firefox `NS_ERROR_FAILURE` browser noise. This logic owns
+        // the `before_send` slot; add further filters to this array to compose.
+        posthog.set_config({ before_send: [dropReadOnlyExceptions, dropBrowserNoiseExceptions] })
 
         // The user-facing toast for blocked writes is shown by the standard
         // `e instanceof ApiError → lemonToast.error(e.detail)` pattern that
