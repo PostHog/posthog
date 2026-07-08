@@ -133,6 +133,26 @@ function ChartLegendStory({
 export const LayoutTop: Story = {
     render: () => <ChartLegendStory position="top" />,
 }
+// A side legend caps at min(45%, 240px), so one long label can't squeeze the plot on a wide chart.
+export const LayoutRightLongLabel: Story = {
+    render: () => {
+        function Story(): JSX.Element {
+            const theme = useReactiveTheme()
+            return (
+                <Stage width={800} height={320}>
+                    <ChartLegend
+                        show
+                        items={[{ key: 'a', label: 'helloo '.repeat(12).trim(), color: '#3b82f6' }]}
+                        position="right"
+                    >
+                        <TimeSeriesBarChart series={SERIES} labels={DAYS} theme={theme} />
+                    </ChartLegend>
+                </Stage>
+            )
+        }
+        return <Story />
+    },
+}
 export const LayoutBottom: Story = {
     render: () => <ChartLegendStory position="bottom" />,
 }
