@@ -3,6 +3,7 @@ from datetime import UTC, datetime, timedelta
 from posthog.test.base import APIBaseTest
 
 from django.conf import settings
+from django.test import override_settings
 
 import jwt
 from parameterized import parameterized
@@ -27,6 +28,7 @@ def _wrong_audience_token(team_id: int) -> str:
     )
 
 
+@override_settings(DATA_MODELING_OPS_JWT_SECRET="test-modeling-ops-secret")
 class TestInternalDataModelingOpsAPI(APIBaseTest):
     def _get(self, path: str, token: str | None = None):
         base = f"/api/projects/{self.team.id}/internal/data_modeling_ops"

@@ -1,5 +1,7 @@
 from posthog.test.base import APIBaseTest
 
+from django.test import override_settings
+
 from rest_framework import status
 
 from products.data_modeling.backend.facade.internal_ops import mint_data_modeling_ops_token
@@ -7,6 +9,7 @@ from products.data_modeling.backend.facade.models import DataModelingJob, DataWa
 from products.endpoints.backend.models import Endpoint, EndpointVersion
 
 
+@override_settings(DATA_MODELING_OPS_JWT_SECRET="test-modeling-ops-secret")
 class TestInternalEndpointsOpsAPI(APIBaseTest):
     def _get(self, path: str, token: str | None = None):
         base = f"/api/projects/{self.team.id}/internal/data_modeling_ops"

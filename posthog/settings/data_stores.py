@@ -549,12 +549,9 @@ WORKFLOWS_RESCHEDULE_JWT_SECRETS = get_list(
 
 # Dedicated signing key for the data_modeling_ops internal API (scoped JWTs minted by the
 # modeling-ops admin app). Per-purpose per .agents/security.md — never INTERNAL_API_SECRET,
-# SECRET_KEY, or JWT_SIGNING_KEY. Defaults to a public dev value in DEBUG/TEST; elsewhere it
-# defaults to empty and requests fail closed at request time (DataModelingOpsJWTAuthentication).
-LOCAL_DEV_DATA_MODELING_OPS_JWT_SECRET = "posthog-data-modeling-ops-local"
-DATA_MODELING_OPS_JWT_SECRET = get_from_env(
-    "DATA_MODELING_OPS_JWT_SECRET", LOCAL_DEV_DATA_MODELING_OPS_JWT_SECRET if DEBUG or TEST else ""
-).strip()
+# SECRET_KEY, or JWT_SIGNING_KEY. Defaults to empty in every environment so requests fail closed
+# at request time (DataModelingOpsJWTAuthentication); set the env var explicitly, including local dev.
+DATA_MODELING_OPS_JWT_SECRET = get_from_env("DATA_MODELING_OPS_JWT_SECRET", "").strip()
 # Previous keys still accepted for verification during zero-downtime rotation, newest first.
 DATA_MODELING_OPS_JWT_SECRET_FALLBACKS = get_list(os.getenv("DATA_MODELING_OPS_JWT_SECRET_FALLBACKS", ""))
 
