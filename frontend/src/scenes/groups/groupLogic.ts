@@ -4,6 +4,7 @@ import { router, urlToAction } from 'kea-router'
 import posthog from 'posthog-js'
 
 import api from 'lib/api'
+import { ApiError } from 'lib/api-error'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { lemonToast } from 'lib/lemon-ui/LemonToast'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
@@ -101,7 +102,17 @@ export const groupLogic = kea<groupLogicType>([
                 loadGroup: async () => {
                     const params = { group_type_index: props.groupTypeIndex, group_key: props.groupKey }
                     const url = `api/environments/${values.currentTeamId}/groups/find?${toParams(params)}`
-                    return await api.get(url)
+                    try {
+                        return await api.get(url)
+                    } catch (error) {
+                        // A 404 (or non-OK body without an error message) means the group key isn't
+                        // resolvable - render the not-found state instead of throwing a noisy
+                        // "Non-OK response" exception into error tracking.
+                        if (error instanceof ApiError && error.status === 404) {
+                            return null
+                        }
+                        throw error
+                    }
                 },
             },
         ],
