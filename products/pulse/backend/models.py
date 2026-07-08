@@ -60,6 +60,13 @@ class ProductBrief(PulseModel):
     trigger = models.CharField(max_length=20, choices=Trigger.choices)
     # Lookback window: the brief covers the last N days, compared against the N days before.
     period_days = models.IntegerField(default=7)
+    # Frozen observation window the brief covers (spec: window honesty). Null on legacy rows.
+    window_start = models.DateTimeField(null=True, blank=True)
+    window_end = models.DateTimeField(null=True, blank=True)
+    # Sandbox/agent session identifier for the transparency panel; null for synthesize-engine briefs.
+    agent_session_ref = models.CharField(max_length=200, null=True, blank=True)
+    # Object-storage keys for agent-produced artifacts (plots, tables, transcript).
+    artifacts = models.JSONField(default=list)
     # Shape: list[SectionOut] — see generation/schemas.py (the LLM structured-output schema).
     sections = models.JSONField(default=list)
     sources_used = models.JSONField(default=list)

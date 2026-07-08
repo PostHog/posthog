@@ -24,6 +24,14 @@ class TestPulseModels(BaseTest):
         assert brief.status == ProductBrief.Status.GENERATING
         assert brief.sections == []
 
+    def test_product_brief_agent_fields_default_empty(self) -> None:
+        with team_scope(self.team.pk, canonical=True):
+            brief = ProductBrief.objects.create(team=self.team, trigger=ProductBrief.Trigger.ON_DEMAND)
+        assert brief.window_start is None
+        assert brief.window_end is None
+        assert brief.agent_session_ref is None
+        assert brief.artifacts == []
+
     def test_opportunity_defaults(self) -> None:
         with team_scope(self.team.pk, canonical=True):
             opp = Opportunity.objects.create(
