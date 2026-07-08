@@ -7,7 +7,7 @@ import { Image } from '@tiptap/extension-image'
 import { Link } from '@tiptap/extension-link'
 import { Underline } from '@tiptap/extension-underline'
 import { Placeholder } from '@tiptap/extensions'
-import { Plugin, PluginKey } from '@tiptap/pm/state'
+import { Plugin, PluginKey, TextSelection } from '@tiptap/pm/state'
 import {
     EditorContent,
     Extension,
@@ -198,7 +198,9 @@ const LinkOnPasteExtension = Extension.create({
                 props: {
                     handlePaste: (view, event) => {
                         const { selection } = view.state
-                        if (selection.empty || !linkType) {
+                        // Only wrap a non-empty text selection. Node selections (e.g. an image)
+                        // can't hold inline marks, so let those pastes fall through untouched.
+                        if (!(selection instanceof TextSelection) || selection.empty || !linkType) {
                             return false
                         }
                         const text = event.clipboardData?.getData('text/plain').trim()
