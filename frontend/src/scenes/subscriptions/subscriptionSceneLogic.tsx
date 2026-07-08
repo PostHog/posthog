@@ -203,7 +203,7 @@ export const subscriptionSceneLogic = kea<subscriptionSceneLogicType>([
                         const delivery = await subscriptionsDeliveriesRetrieve(teamId, numericId, delivery_id)
                         if (delivery.status !== 'starting') {
                             if (delivery.status === 'failed' && !delivery.ai_report) {
-                                const message = delivery.error?.message
+                                const message = (delivery.error as { message?: unknown } | null)?.message
                                 throw new Error(typeof message === 'string' ? message : 'Preview failed')
                             }
                             // A failed-but-degraded run still carries the report + diagnostics — render it.
