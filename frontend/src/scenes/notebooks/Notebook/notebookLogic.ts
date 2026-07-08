@@ -78,6 +78,7 @@ import {
     collectHogqlSqlNodes,
     collectNodeIndices,
     collectPythonNodes,
+    collectSqlV2Nodes,
 } from '../Nodes/notebookNodeContent'
 import { notebookNodeLogicType } from '../Nodes/notebookNodeLogicType'
 // NOTE: Annoyingly, if we import this then kea logic type-gen generates
@@ -1211,6 +1212,7 @@ export const notebookLogic = kea<notebookLogicType>([
         pythonNodeSummaries: [(s) => [s.content], (content) => collectPythonNodes(content)],
         duckSqlNodeSummaries: [(s) => [s.content], (content) => collectDuckSqlNodes(content)],
         hogqlSqlNodeSummaries: [(s) => [s.content], (content) => collectHogqlSqlNodes(content)],
+        sqlV2NodeSummaries: [(s) => [s.content], (content) => collectSqlV2Nodes(content)],
         dependencyGraph: [(s) => [s.content], (content) => buildNotebookDependencyGraph(content)],
 
         pythonNodeIndices: [
