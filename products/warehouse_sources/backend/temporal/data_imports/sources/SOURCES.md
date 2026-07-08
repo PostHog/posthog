@@ -269,6 +269,7 @@ the row lists both.
 | persona                 | HTTP                        | requests                                                        | ✅                          |
 | personio                | HTTP                        | requests                                                        | ✅                          |
 | pexels                  | HTTP                        | requests                                                        | ✅                          |
+| phyllo                  | HTTP                        | requests                                                        | ✅                          |
 | picqer                  | HTTP                        | requests                                                        | ✅                          |
 | pingdom                 | HTTP                        | requests                                                        | ✅                          |
 | pinterest_ads           | HTTP                        | requests                                                        | ✅                          |
@@ -600,7 +601,6 @@ doesn't conflict with concurrent PRs.
 - perk
 - persona
 - pexels
-- phyllo
 - pipeliner
 - pivotal_tracker
 - piwik
