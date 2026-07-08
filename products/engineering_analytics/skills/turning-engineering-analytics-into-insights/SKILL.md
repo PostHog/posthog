@@ -73,18 +73,7 @@ Bundle several insights with `dashboard-create`.
 
 ## Step 4 — subscribe
 
-With the insight (or dashboard) saved, this is standard subscription territory — follow the `managing-subscriptions` skill for channels, frequency, and AI-summary options. Minimal email example with `subscriptions-create`:
-
-```json
-{
-  "insight": 12345,
-  "target_type": "email",
-  "target_value": "user@example.com",
-  "frequency": "weekly",
-  "byweekday": ["monday"],
-  "start_date": "2026-01-01T09:00:00Z"
-}
-```
+With the insight (or dashboard) saved, this is standard subscription territory — follow the `managing-subscriptions` skill for the `subscriptions-create` payload, channels, frequency, and AI-summary options.
 
 For "notify me when X" (a condition, not a schedule): alerts require a trends insight, so a SQL insight can't be alerted today.
 Offer a scheduled subscription instead, or a threshold check inside a prompt-kind AI subscription.
