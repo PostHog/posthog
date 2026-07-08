@@ -32,6 +32,13 @@ class SynthesizeActivityInputs:
 
 
 @dataclasses.dataclass
+class RunAgentInputs:
+    team_id: int
+    brief_id: str
+    bundle: dict
+
+
+@dataclasses.dataclass
 class MarkBriefFailedInputs:
     team_id: int
     brief_id: str
