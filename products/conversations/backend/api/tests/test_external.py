@@ -650,7 +650,9 @@ class TestExternalTicketAPI(BaseTest):
         }
         self.assertIn("created", audit_activities)
         self.assertIn("deleted", audit_activities)
-        self.assertEqual(audit_activities["deleted"].detail["trigger"]["job_type"], "hog_flow")
+        deleted_detail = audit_activities["deleted"].detail
+        assert deleted_detail is not None
+        self.assertEqual(deleted_detail["trigger"]["job_type"], "hog_flow")
 
     def test_workflow_trigger_does_not_leak_after_request(self):
         # The trigger thread-local must be cleared by the context manager, or attribution
