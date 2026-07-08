@@ -2,6 +2,7 @@
 
 import html as html_mod
 import json
+import uuid
 from datetime import datetime, timedelta
 from email.utils import formataddr
 from typing import Any, cast
@@ -31,7 +32,11 @@ from posthog.scoping_audit import skip_team_scope_audit
 from posthog.storage import object_storage
 
 from products.conversations.backend.cache import NUDGE_DISMISS_TTL, suppress_nudge
-from products.conversations.backend.events import capture_ticket_status_changed
+from products.conversations.backend.events import (
+    capture_sla_approaching,
+    capture_sla_breached,
+    capture_ticket_status_changed,
+)
 from products.conversations.backend.formatting import (
     extract_images_from_rich_content,
     rich_content_to_html,
@@ -53,7 +58,7 @@ from products.conversations.backend.models import (
     TeamConversationsTeamsChannelSync,
     TeamConversationsTeamsConfig,
 )
-from products.conversations.backend.models.constants import Channel, ChannelDetail, Status
+from products.conversations.backend.models.constants import SLA_MAX_WARNING_MINUTES, Channel, ChannelDetail, Status
 from products.conversations.backend.models.ticket import Ticket
 from products.conversations.backend.services.attachments import CONVERSATIONS_MAX_IMAGE_BYTES
 from products.conversations.backend.slack import (
@@ -1630,6 +1635,107 @@ def wake_snoozed_tickets() -> None:
 
     if total:
         logger.info("wake_snoozed_tickets_completed", count=total)
+
+
+SLA_SWEEP_BATCH_SIZE = 100
+
+
+def _sla_warning_offsets(ticket: Ticket) -> list[int]:
+    """Warning offsets for a ticket: its own, else the team default, sanitized."""
+    raw = ticket.sla_warning_minutes or (ticket.team.conversations_settings or {}).get("sla_warning_minutes") or []
+    if not isinstance(raw, list):
+        return []
+    return sorted(
+        {int(o) for o in raw if isinstance(o, int | float) and 1 <= o <= SLA_MAX_WARNING_MINUTES}, reverse=True
+    )
+
+
+def _emit_sla_events_for_ticket(ticket: Ticket, now: datetime) -> bool:
+    """Emit due SLA events for one ticket; returns whether dedup markers changed.
+
+    Markers are trusted only when stamped for the current deadline, so an SLA
+    reset (new sla_due_at) re-arms both warnings and the breach event.
+    """
+    assert ticket.sla_due_at is not None
+    due_key = ticket.sla_due_at.isoformat()
+    markers = ticket.sla_events_sent if isinstance(ticket.sla_events_sent, dict) else {}
+    if markers.get("due_at") != due_key:
+        markers = {"due_at": due_key, "warned_minutes": [], "breached": False}
+
+    if now >= ticket.sla_due_at:
+        if markers.get("breached"):
+            return False
+        # Warnings that weren't emitted in time (e.g. worker downtime) are moot once breached.
+        markers["breached"] = True
+        ticket.sla_events_sent = markers
+        ticket.save(update_fields=["sla_events_sent"])
+        try:
+            capture_sla_breached(ticket, now)
+        except Exception:
+            logger.exception("sla_breached_event_failed", ticket_id=str(ticket.id))
+        return True
+
+    warned = {int(m) for m in markers.get("warned_minutes") or []}
+    crossed = [
+        offset
+        for offset in _sla_warning_offsets(ticket)
+        if offset not in warned and now >= ticket.sla_due_at - timedelta(minutes=offset)
+    ]
+    if not crossed:
+        return False
+
+    # If several thresholds were crossed at once (catch-up after downtime), alert only for
+    # the nearest one but mark them all, so a recovering worker doesn't send an alert storm.
+    markers["warned_minutes"] = sorted(warned | set(crossed))
+    ticket.sla_events_sent = markers
+    ticket.save(update_fields=["sla_events_sent"])
+    try:
+        capture_sla_approaching(ticket, min(crossed), now)
+    except Exception:
+        logger.exception("sla_approaching_event_failed", ticket_id=str(ticket.id))
+    return True
+
+
+@shared_task(ignore_result=True)
+def emit_ticket_sla_events() -> None:
+    """Emit $conversation_sla_approaching / $conversation_sla_breached for tickets nearing
+    or past their SLA deadline, so workflows can trigger alerts on them."""
+
+    now = timezone.now()
+    horizon = now + timedelta(minutes=SLA_MAX_WARNING_MINUTES)
+    total = 0
+    last_key: tuple[datetime, uuid.UUID] | None = None
+
+    # Keyset pagination: processed rows still match the filter (unlike the snooze wake),
+    # so advance a (sla_due_at, id) cursor instead of re-reading from the start.
+    while True:
+        with transaction.atomic():
+            queryset = (
+                Ticket.objects.select_for_update(skip_locked=True, of=("self",))
+                .select_related("team")
+                .filter(sla_due_at__isnull=False, sla_due_at__lte=horizon)
+                .exclude(status=Status.RESOLVED)
+                .order_by("sla_due_at", "id")
+            )
+            if last_key is not None:
+                queryset = queryset.filter(
+                    models.Q(sla_due_at__gt=last_key[0]) | models.Q(sla_due_at=last_key[0], id__gt=last_key[1])
+                )
+            batch = list(queryset[:SLA_SWEEP_BATCH_SIZE])
+            if not batch:
+                break
+
+            for ticket in batch:
+                if _emit_sla_events_for_ticket(ticket, now):
+                    total += 1
+
+            last_key = (batch[-1].sla_due_at, batch[-1].id)
+
+        if len(batch) < SLA_SWEEP_BATCH_SIZE:
+            break
+
+    if total:
+        logger.info("emit_ticket_sla_events_completed", count=total)
 
 
 # ---------------------------------------------------------------------------

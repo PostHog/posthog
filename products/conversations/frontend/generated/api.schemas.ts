@@ -712,6 +712,13 @@ export interface TicketApi {
      * @nullable
      */
     sla_due_at?: string | null
+    /**
+     * Minutes before sla_due_at at which a $conversation_sla_approaching event fires, e.g. [180, 60]. Empty falls back to the team-level default.
+     * @maxItems 20
+     * @items.minimum 1
+     * @items.maximum 10080
+     */
+    sla_warning_minutes?: number[]
     /** @nullable */
     snoozed_until?: string | null
     /** @nullable */
@@ -804,6 +811,13 @@ export interface PatchedTicketApi {
      * @nullable
      */
     sla_due_at?: string | null
+    /**
+     * Minutes before sla_due_at at which a $conversation_sla_approaching event fires, e.g. [180, 60]. Empty falls back to the team-level default.
+     * @maxItems 20
+     * @items.minimum 1
+     * @items.maximum 10080
+     */
+    sla_warning_minutes?: number[]
     /** @nullable */
     snoozed_until?: string | null
     /** @nullable */

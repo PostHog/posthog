@@ -41,3 +41,8 @@ class Priority(models.TextChoices):
 class RuleType(models.TextChoices):
     TONE = "tone", "Tone"
     ESCALATION = "escalation", "Escalation"
+
+
+# Cap on SLA warning offsets (7 days, in minutes); also the SLA event sweep's scan horizon.
+SLA_MAX_WARNING_MINUTES = 10080
+SLA_MAX_WARNING_OFFSETS = 20

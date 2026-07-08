@@ -152,6 +152,10 @@ export const ConversationsQueuePartialUpdateBody = /* @__PURE__ */ zod.looseObje
 
 export const ConversationsQueueClearCreateBody = /* @__PURE__ */ zod.looseObject({})
 
+export const conversationsTicketsCreateBodySlaWarningMinutesItemMax = 10080
+
+export const conversationsTicketsCreateBodySlaWarningMinutesMax = 20
+
 export const ConversationsTicketsCreateBody = /* @__PURE__ */ zod
     .object({
         status: zod
@@ -180,6 +184,13 @@ export const ConversationsTicketsCreateBody = /* @__PURE__ */ zod
             .datetime({ offset: true })
             .nullish()
             .describe('SLA deadline set via workflows. Null means no SLA.'),
+        sla_warning_minutes: zod
+            .array(zod.number().min(1).max(conversationsTicketsCreateBodySlaWarningMinutesItemMax))
+            .max(conversationsTicketsCreateBodySlaWarningMinutesMax)
+            .optional()
+            .describe(
+                'Minutes before sla_due_at at which a $conversation_sla_approaching event fires, e.g. [180, 60]. Empty falls back to the team-level default.'
+            ),
         snoozed_until: zod.iso.datetime({ offset: true }).nullish(),
         tags: zod.array(zod.unknown()).optional(),
     })
@@ -188,6 +199,10 @@ export const ConversationsTicketsCreateBody = /* @__PURE__ */ zod
 /**
  * Handle ticket updates including assignee changes.
  */
+export const conversationsTicketsUpdateBodySlaWarningMinutesItemMax = 10080
+
+export const conversationsTicketsUpdateBodySlaWarningMinutesMax = 20
+
 export const ConversationsTicketsUpdateBody = /* @__PURE__ */ zod
     .object({
         status: zod
@@ -216,10 +231,21 @@ export const ConversationsTicketsUpdateBody = /* @__PURE__ */ zod
             .datetime({ offset: true })
             .nullish()
             .describe('SLA deadline set via workflows. Null means no SLA.'),
+        sla_warning_minutes: zod
+            .array(zod.number().min(1).max(conversationsTicketsUpdateBodySlaWarningMinutesItemMax))
+            .max(conversationsTicketsUpdateBodySlaWarningMinutesMax)
+            .optional()
+            .describe(
+                'Minutes before sla_due_at at which a $conversation_sla_approaching event fires, e.g. [180, 60]. Empty falls back to the team-level default.'
+            ),
         snoozed_until: zod.iso.datetime({ offset: true }).nullish(),
         tags: zod.array(zod.unknown()).optional(),
     })
     .describe('Serializer mixin that handles tags for objects.')
+
+export const conversationsTicketsPartialUpdateBodySlaWarningMinutesItemMax = 10080
+
+export const conversationsTicketsPartialUpdateBodySlaWarningMinutesMax = 20
 
 export const ConversationsTicketsPartialUpdateBody = /* @__PURE__ */ zod
     .object({
@@ -249,6 +275,13 @@ export const ConversationsTicketsPartialUpdateBody = /* @__PURE__ */ zod
             .datetime({ offset: true })
             .nullish()
             .describe('SLA deadline set via workflows. Null means no SLA.'),
+        sla_warning_minutes: zod
+            .array(zod.number().min(1).max(conversationsTicketsPartialUpdateBodySlaWarningMinutesItemMax))
+            .max(conversationsTicketsPartialUpdateBodySlaWarningMinutesMax)
+            .optional()
+            .describe(
+                'Minutes before sla_due_at at which a $conversation_sla_approaching event fires, e.g. [180, 60]. Empty falls back to the team-level default.'
+            ),
         snoozed_until: zod.iso.datetime({ offset: true }).nullish(),
         tags: zod.array(zod.unknown()).optional(),
     })

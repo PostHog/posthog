@@ -75,6 +75,7 @@ from posthog.utils import get_crontab, get_instance_region
 
 from products.approvals.backend.tasks import expire_old_change_requests, validate_pending_change_requests
 from products.conversations.backend.tasks import (
+    emit_ticket_sla_events,
     flush_pending_email_replies,
     poll_teams_shared_channels,
     wake_snoozed_tickets,
@@ -720,6 +721,14 @@ def setup_periodic_tasks(sender: Celery, **kwargs: Any) -> None:
         crontab(minute="*"),
         wake_snoozed_tickets.s(),
         name="wake snoozed conversation tickets",
+    )
+
+    # Emit SLA approaching/breached events for conversation tickets (workflow alert triggers)
+    add_periodic_task_with_expiry(
+        sender,
+        crontab(minute="*"),
+        emit_ticket_sla_events.s(),
+        name="emit conversation ticket sla events",
     )
 
     # Re-drive queued outbound support email replies (survives a multi-day email provider outage)

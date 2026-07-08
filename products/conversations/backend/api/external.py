@@ -6,6 +6,7 @@ to third-party developers in the future.
 Authenticated via team secret API token passed as a Bearer token in the Authorization header.
 """
 
+import json
 import uuid
 import hashlib
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
@@ -29,7 +30,12 @@ from posthog.models.tag import tagify
 from products.conversations.backend.api.tickets import assign_ticket
 from products.conversations.backend.cache import invalidate_unread_count_cache
 from products.conversations.backend.models import Ticket
-from products.conversations.backend.models.constants import Priority, Status
+from products.conversations.backend.models.constants import (
+    SLA_MAX_WARNING_MINUTES,
+    SLA_MAX_WARNING_OFFSETS,
+    Priority,
+    Status,
+)
 from products.conversations.backend.services.sla import WEEKDAYS, compute_sla_deadline
 
 logger = structlog.get_logger(__name__)
@@ -88,6 +94,16 @@ class ExternalTicketUpdateSerializer(serializers.Serializer):
     sla_amount = serializers.FloatField(required=False, min_value=0.000001)
     sla_unit = serializers.ChoiceField(choices=["minute", "hour", "day"], required=False, default="hour")
     sla_business_hours = serializers.JSONField(required=False, allow_null=True)
+    sla_warning_minutes = serializers.ListField(
+        child=serializers.IntegerField(min_value=1, max_value=SLA_MAX_WARNING_MINUTES),
+        required=False,
+        max_length=SLA_MAX_WARNING_OFFSETS,
+        help_text=(
+            "Minutes before sla_due_at at which to emit a $conversation_sla_approaching event, "
+            "e.g. [180, 60] for warnings 3 hours and 1 hour before breach. "
+            "Empty falls back to the team-level default."
+        ),
+    )
     snoozed_until = serializers.DateTimeField(required=False, allow_null=True)
     assignee = serializers.JSONField(required=False, allow_null=True)
     tags = serializers.ListField(child=serializers.CharField(max_length=200), required=False, max_length=100)
@@ -290,7 +306,9 @@ class ExternalTicketView(APIView):
 
         serializer = ExternalTicketUpdateSerializer(data=request.data)
         if not serializer.is_valid():
-            return Response({"error": serializer.errors}, status=status.HTTP_400_BAD_REQUEST)
+            # ListField item errors are keyed by int index, which the strict JSON renderer
+            # rejects; round-trip through json to stringify keys.
+            return Response({"error": json.loads(json.dumps(serializer.errors))}, status=status.HTTP_400_BAD_REQUEST)
 
         try:
             ticket = Ticket.objects.get(id=ticket_id, team_id=team.id)
@@ -375,6 +393,22 @@ class ExternalTicketView(APIView):
                         field="sla_due_at",
                         before=old_sla_due_at.isoformat() if old_sla_due_at else None,
                         after=ticket.sla_due_at.isoformat() if ticket.sla_due_at else None,
+                        action="changed",
+                    )
+                )
+
+        if "sla_warning_minutes" in serializer.validated_data:
+            old_warning_minutes = ticket.sla_warning_minutes
+            new_warning_minutes = sorted(set(serializer.validated_data["sla_warning_minutes"]), reverse=True)
+            if old_warning_minutes != new_warning_minutes:
+                ticket.sla_warning_minutes = new_warning_minutes
+                update_fields.append("sla_warning_minutes")
+                changes.append(
+                    Change(
+                        type="Ticket",
+                        field="sla_warning_minutes",
+                        before=old_warning_minutes,
+                        after=new_warning_minutes,
                         action="changed",
                     )
                 )

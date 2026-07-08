@@ -102,6 +102,15 @@ class Ticket(UUIDTModel):
     # SLA deadline — set via workflows, null means no SLA
     sla_due_at = models.DateTimeField(null=True, blank=True)
 
+    # Minutes before sla_due_at at which to emit $conversation_sla_approaching (e.g. [180, 60]).
+    # Set alongside the SLA; empty falls back to team.conversations_settings["sla_warning_minutes"].
+    sla_warning_minutes = models.JSONField(default=list, blank=True)
+
+    # Sweep dedup markers: {"due_at": "<iso>", "warned_minutes": [...], "breached": bool}.
+    # Keyed to the deadline they were emitted for, so changing sla_due_at re-arms all
+    # SLA events without any explicit clearing in the write paths.
+    sla_events_sent = models.JSONField(default=dict, blank=True)
+
     # Snooze — when set, ticket is "on hold" until this time, then auto-reopened by wake task
     snoozed_until = models.DateTimeField(null=True, blank=True)
 
@@ -147,6 +156,12 @@ class Ticket(UUIDTModel):
                 fields=["snoozed_until"],
                 name="posthog_con_snooze_wake_idx",
                 condition=models.Q(snoozed_until__isnull=False),
+            ),
+            # SLA: event sweep task (cross-team, only non-null rows)
+            models.Index(
+                fields=["sla_due_at"],
+                name="posthog_con_sla_sweep_idx",
+                condition=models.Q(sla_due_at__isnull=False),
             ),
             models.Index(fields=["organization_id"], name="posthog_org_id_idx"),
             models.Index(

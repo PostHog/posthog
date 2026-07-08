@@ -230,6 +230,35 @@ class TestExternalTicketAPI(BaseTest):
         self.ticket.refresh_from_db()
         self.assertIsNone(self.ticket.sla_due_at)
 
+    def test_patch_sla_warning_minutes_persists_sorted_and_deduped(self):
+        response = self.client.patch(
+            self.url,
+            {"sla_amount": 4, "sla_unit": "hour", "sla_warning_minutes": [60, 180, 60]},
+            content_type="application/json",
+            **self._auth_headers(),
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.ticket.refresh_from_db()
+        self.assertEqual(self.ticket.sla_warning_minutes, [180, 60])
+
+    @parameterized.expand(
+        [
+            ("negative", [-5]),
+            ("zero", [0]),
+            ("over_seven_days", [10081]),
+            ("not_a_list", "60"),
+            ("too_many", list(range(1, 23))),
+        ]
+    )
+    def test_patch_sla_warning_minutes_rejects_invalid(self, _name, value):
+        response = self.client.patch(
+            self.url,
+            {"sla_warning_minutes": value},
+            content_type="application/json",
+            **self._auth_headers(),
+        )
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+
     def test_patch_sla_due_at_invalid_format(self):
         response = self.client.patch(
             self.url,

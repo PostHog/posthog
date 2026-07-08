@@ -261,6 +261,45 @@ def _get_sla_properties(ticket: Ticket, now: datetime) -> dict:
     }
 
 
+def capture_sla_approaching(ticket: Ticket, threshold_minutes: int, now: datetime) -> None:
+    """A configured SLA warning threshold was crossed; emitted once per threshold by the sweep task."""
+    assert ticket.sla_due_at is not None
+    properties = _get_ticket_base_properties(ticket)
+    properties.update(_get_actor_properties(None, "system"))
+    properties.update(_get_customer_properties(ticket, include_distinct_id=True))
+    properties.update(_get_sla_properties(ticket, now))
+    properties["threshold_minutes"] = threshold_minutes
+    properties["minutes_remaining"] = max(int((ticket.sla_due_at - now).total_seconds() // 60), 0)
+
+    capture_internal(
+        token=ticket.team.api_token,
+        event_name="$conversation_sla_approaching",
+        event_source=EVENT_SOURCE,
+        distinct_id=ticket.distinct_id or ticket.channel_source or "unknown",
+        timestamp=None,
+        properties=properties,
+    )
+
+
+def capture_sla_breached(ticket: Ticket, now: datetime) -> None:
+    """The SLA deadline passed; emitted once per deadline value by the sweep task."""
+    assert ticket.sla_due_at is not None
+    properties = _get_ticket_base_properties(ticket)
+    properties.update(_get_actor_properties(None, "system"))
+    properties.update(_get_customer_properties(ticket, include_distinct_id=True))
+    properties.update(_get_sla_properties(ticket, now))
+    properties["minutes_overdue"] = max(int((now - ticket.sla_due_at).total_seconds() // 60), 0)
+
+    capture_internal(
+        token=ticket.team.api_token,
+        event_name="$conversation_sla_breached",
+        event_source=EVENT_SOURCE,
+        distinct_id=ticket.distinct_id or ticket.channel_source or "unknown",
+        timestamp=None,
+        properties=properties,
+    )
+
+
 def capture_ticket_created(ticket: Ticket) -> None:
     properties = _get_ticket_base_properties(ticket)
     properties.update(_get_customer_properties(ticket))

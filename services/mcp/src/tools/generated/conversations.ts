@@ -188,6 +188,9 @@ const conversationsTicketsUpdate = (): ToolBase<
         if (params.sla_due_at !== undefined) {
             body['sla_due_at'] = params.sla_due_at
         }
+        if (params.sla_warning_minutes !== undefined) {
+            body['sla_warning_minutes'] = params.sla_warning_minutes
+        }
         if (params.snoozed_until !== undefined) {
             body['snoozed_until'] = params.snoozed_until
         }

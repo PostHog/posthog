@@ -54,7 +54,14 @@ from products.conversations.backend.events import (
     capture_ticket_status_changed,
 )
 from products.conversations.backend.models import EmailChannel, Ticket, TicketAssignment
-from products.conversations.backend.models.constants import Channel, ChannelDetail, Priority, Status
+from products.conversations.backend.models.constants import (
+    SLA_MAX_WARNING_MINUTES,
+    SLA_MAX_WARNING_OFFSETS,
+    Channel,
+    ChannelDetail,
+    Priority,
+    Status,
+)
 from products.conversations.backend.person_lookup import _get_persons_by_email
 
 from ee.models.rbac.role import Role
@@ -235,6 +242,15 @@ class TicketSerializer(TaggedItemSerializerMixin, serializers.ModelSerializer):
     assignee = TicketAssignmentSerializer(source="assignment", read_only=True)
     person = TicketPersonSerializer(read_only=True, allow_null=True)
     email_to = serializers.SerializerMethodField()
+    sla_warning_minutes = serializers.ListField(
+        child=serializers.IntegerField(min_value=1, max_value=SLA_MAX_WARNING_MINUTES),
+        required=False,
+        max_length=SLA_MAX_WARNING_OFFSETS,
+        help_text=(
+            "Minutes before sla_due_at at which a $conversation_sla_approaching event fires, "
+            "e.g. [180, 60]. Empty falls back to the team-level default."
+        ),
+    )
 
     class Meta:
         model = Ticket
@@ -262,6 +278,7 @@ class TicketSerializer(TaggedItemSerializerMixin, serializers.ModelSerializer):
             "session_id",
             "session_context",
             "sla_due_at",
+            "sla_warning_minutes",
             "snoozed_until",
             "slack_channel_id",
             "slack_thread_ts",
