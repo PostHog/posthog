@@ -596,6 +596,42 @@ class TestDatabricksIntegration:
         assert not Integration.objects.filter(team=self.team, kind="databricks").exists()
 
 
+class TestGitLabIntegration:
+    @pytest.fixture(autouse=True)
+    def setup_integration(self, db):
+        self.organization = Organization.objects.create(name="Test Org")
+        self.team = Team.objects.create(organization=self.organization, name="Test Team")
+        self.user = User.objects.create_and_join(
+            self.organization, "test@posthog.com", "test", level=OrganizationMembership.Level.ADMIN
+        )
+
+    @patch("posthog.models.integration.is_url_allowed", return_value=(False, "Could not resolve host"))
+    def test_unresolvable_hostname_returns_400(
+        self,
+        mock_is_url_allowed,
+        client: HttpClient,
+    ):
+        """A hostname the SSRF guard rejects (e.g. DNS failure) must surface as a 400, not an unhandled 500."""
+        client.force_login(self.user)
+
+        response = client.post(
+            f"/api/environments/{self.team.pk}/integrations",
+            {
+                "kind": "gitlab",
+                "config": {
+                    "hostname": "https://gitlab.invalid-host.example",
+                    "project_id": "123",
+                    "project_access_token": "token",
+                },
+            },
+            content_type="application/json",
+        )
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert "Could not resolve host" in response.json()["detail"]
+        assert not Integration.objects.filter(team=self.team, kind="gitlab").exists()
+
+
 class TestAwsS3Integration:
     @pytest.fixture(autouse=True)
     def setup_integration(self, db):
