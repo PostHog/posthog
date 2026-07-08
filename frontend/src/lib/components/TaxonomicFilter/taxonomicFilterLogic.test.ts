@@ -1,5 +1,6 @@
 import { MOCK_TEAM_ID } from 'lib/api.mock'
 
+import { getContext } from 'kea'
 import { expectLogic } from 'kea-test-utils'
 import posthog from 'posthog-js'
 
@@ -17,6 +18,7 @@ import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { useMocks } from '~/mocks/jest'
 import { actionsModel } from '~/models/actionsModel'
 import { groupsModel } from '~/models/groupsModel'
+import { NodeKind } from '~/queries/schema/schema-general'
 import { CORE_FILTER_DEFINITIONS_BY_GROUP } from '~/taxonomy/taxonomy'
 import { initKeaTests } from '~/test/init'
 import { mockEventDefinitions, mockSessionPropertyDefinitions } from '~/test/mocks'
@@ -212,6 +214,25 @@ describe('taxonomicFilterLogic', () => {
         captureSpy.mockRestore()
     })
 
+    it('taxonomicGroups keeps a stable reference across equal-but-freshly-allocated object props', () => {
+        // A parent re-render that passes an inline object literal (e.g. metadataSource={{ ... }}) hands
+        // the logic a new-but-deep-equal prop on every tick. Without resultEqualityCheck on the
+        // prop-derived selectors, taxonomicGroups recomputes and mints fresh group objects each time,
+        // cascading through the infinite list (group -> rawLocalItems -> ... -> selectedItem) and handing
+        // react-window new rowProps every render, which drives its layout-effect setState past React's
+        // update limit (error #185). This locks the reference in so that cascade cannot start.
+        const state = getContext().store.getState()
+        const propsA = { ...logic.props, metadataSource: { kind: NodeKind.HogQLQuery, query: 'select 1' } }
+        const propsB = { ...logic.props, metadataSource: { kind: NodeKind.HogQLQuery, query: 'select 1' } }
+
+        expect(propsA.metadataSource).not.toBe(propsB.metadataSource)
+
+        const groupsA = logic.selectors.taxonomicGroups(state, propsA)
+        const groupsB = logic.selectors.taxonomicGroups(state, propsB)
+
+        expect(groupsB).toBe(groupsA)
+    })
+
     it('tabs skip groups with no results', async () => {
         await expectLogic(logic).toDispatchActions(['infiniteListResultsReceived']).delay(1).clearHistory()
 
@@ -371,6 +392,9 @@ describe('taxonomicFilterLogic', () => {
                 taxonomicGroupTypes: [
                     TaxonomicFilterGroupType.SuggestedFilters,
                     TaxonomicFilterGroupType.InternalEventProperties,
+                    // Second substantive group so "All" is retained (a single substantive group
+                    // drops it); Events has no 'activity' match so top matches stay unchanged
+                    TaxonomicFilterGroupType.Events,
                 ],
             }
             const noGetValueLogic = taxonomicFilterLogic(logicProps)
@@ -766,9 +790,13 @@ describe('taxonomicFilterLogic', () => {
 
         it.each([
             {
-                description: 'control: includes SuggestedFilters when explicitly listed',
+                description: 'control: includes SuggestedFilters when explicitly listed in a multi-group picker',
                 variant: 'control',
-                groupTypes: [TaxonomicFilterGroupType.SuggestedFilters, TaxonomicFilterGroupType.Events],
+                groupTypes: [
+                    TaxonomicFilterGroupType.SuggestedFilters,
+                    TaxonomicFilterGroupType.Events,
+                    TaxonomicFilterGroupType.Actions,
+                ],
                 expectPresent: true,
                 expectDefault: true,
             },
@@ -790,6 +818,20 @@ describe('taxonomicFilterLogic', () => {
                 description: 'pill: does not auto-inject SuggestedFilters for a single substantive group',
                 variant: 'pill',
                 groupTypes: [TaxonomicFilterGroupType.Events],
+                expectPresent: false,
+                expectDefault: false,
+            },
+            {
+                description: 'control: strips explicitly-listed SuggestedFilters for a single substantive group',
+                variant: 'control',
+                groupTypes: [TaxonomicFilterGroupType.SuggestedFilters, TaxonomicFilterGroupType.Events],
+                expectPresent: false,
+                expectDefault: false,
+            },
+            {
+                description: 'pill: strips explicitly-listed SuggestedFilters for a single substantive group',
+                variant: 'pill',
+                groupTypes: [TaxonomicFilterGroupType.SuggestedFilters, TaxonomicFilterGroupType.Events],
                 expectPresent: false,
                 expectDefault: false,
             },
@@ -913,6 +955,24 @@ describe('taxonomicFilterLogic', () => {
                     TaxonomicFilterGroupType.Events,
                     TaxonomicFilterGroupType.Actions,
                     TaxonomicFilterGroupType.EventProperties,
+                ],
+            },
+            {
+                description: 'single substantive group leads, with Recent/Pinned after it (no All)',
+                groupTypes: [TaxonomicFilterGroupType.Events],
+                expected: [
+                    TaxonomicFilterGroupType.Events,
+                    TaxonomicFilterGroupType.RecentFilters,
+                    TaxonomicFilterGroupType.PinnedFilters,
+                ],
+            },
+            {
+                description: 'single substantive group drops an explicitly-prepended All and still leads',
+                groupTypes: [TaxonomicFilterGroupType.SuggestedFilters, TaxonomicFilterGroupType.Events],
+                expected: [
+                    TaxonomicFilterGroupType.Events,
+                    TaxonomicFilterGroupType.RecentFilters,
+                    TaxonomicFilterGroupType.PinnedFilters,
                 ],
             },
         ])('$description', ({ groupTypes, expected }) => {

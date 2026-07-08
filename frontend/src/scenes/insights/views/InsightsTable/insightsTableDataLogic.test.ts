@@ -5,6 +5,7 @@ import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
 import { trendsDataLogic } from 'scenes/trends/trendsDataLogic'
 import { IndexedTrendResult } from 'scenes/trends/types'
 
+import { useMocks } from '~/mocks/jest'
 import { dataNodeLogic } from '~/queries/nodes/DataNode/dataNodeLogic'
 import { DataNode, NodeKind, TrendsQuery } from '~/queries/schema/schema-general'
 import { initKeaTests } from '~/test/init'
@@ -26,6 +27,20 @@ describe('insightsTableDataLogic', () => {
         const props: InsightLogicProps = { dashboardItemId: '123' as any }
 
         beforeEach(() => {
+            useMocks({
+                get: {
+                    // insightLogic mounts alongside and fetches its insight by short_id; without
+                    // a match it errors with "Insight ... not found"
+                    '/api/environments/:team_id/insights/': ({ request }: { request: Request }) => [
+                        200,
+                        {
+                            results: [
+                                { id: 1, short_id: new URL(request.url).searchParams.get('short_id'), query: null },
+                            ],
+                        },
+                    ],
+                },
+            })
             initKeaTests()
             logic = insightsTableDataLogic(props)
             logic.mount()

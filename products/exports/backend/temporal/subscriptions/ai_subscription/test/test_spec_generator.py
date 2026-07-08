@@ -1,4 +1,5 @@
 from datetime import UTC, datetime, timedelta
+from zoneinfo import ZoneInfo
 
 import pytest
 from posthog.test.base import APIBaseTest
@@ -8,25 +9,38 @@ from parameterized import parameterized
 
 from posthog.models import EventDefinition, EventProperty, PropertyDefinition, Team
 
+from products.exports.backend.models.subscription import Subscription
 from products.exports.backend.temporal.subscriptions.ai_subscription.schemas import (
     QueryPlan,
     QueryPlanStep,
     RelevantEvents,
 )
 from products.exports.backend.temporal.subscriptions.ai_subscription.spec_generator import (
+    MAX_PINNED_EVENTS,
     PROMPT_MAX_LENGTH,
+    RELEVANT_EVENTS_LIMIT,
     PromptRejectedError,
+    ReportWindow,
     _event_property_names,
+    _extract_quoted_event_tokens,
     _group_type_labels,
     _no_data_event_names,
     _person_property_names,
+    _pinned_event_names,
+    _recent_event_names,
     _select_relevant_events,
     build_context_blob,
+    compute_report_window,
     generate_query_plan,
     sanitize_prompt,
 )
 
 _SG = "products.exports.backend.temporal.subscriptions.ai_subscription.spec_generator"
+
+
+def _window(days: int = 7) -> ReportWindow:
+    end = datetime.now(tz=UTC)
+    return ReportWindow(start=end - timedelta(days=days), end=end)
 
 
 class TestSanitizePrompt:
@@ -56,12 +70,14 @@ class TestSanitizePrompt:
 
 class TestNoDataEventNames(APIBaseTest):
     def test_returns_dormant_and_never_seen_events_excluding_recent(self) -> None:
+        # Dormancy is a fixed NO_DATA_LOOKBACK_DAYS (30) lookback: seen-recently is excluded, older-than
+        # the cutoff or never-seen is included. Guards the filter direction and the fixed-lookback choice.
         now = datetime.now(tz=UTC)
         EventDefinition.objects.create(team=self.team, name="recent_event", last_seen_at=now - timedelta(days=1))
-        EventDefinition.objects.create(team=self.team, name="dormant_event", last_seen_at=now - timedelta(days=30))
+        EventDefinition.objects.create(team=self.team, name="dormant_event", last_seen_at=now - timedelta(days=45))
         EventDefinition.objects.create(team=self.team, name="never_seen_event", last_seen_at=None)
 
-        names = _no_data_event_names(self.team, window_days=7, limit=25)
+        names = _no_data_event_names(self.team, limit=25)
 
         assert "recent_event" not in names
         assert "dormant_event" in names
@@ -70,9 +86,9 @@ class TestNoDataEventNames(APIBaseTest):
     def test_respects_limit(self) -> None:
         now = datetime.now(tz=UTC)
         for i in range(5):
-            EventDefinition.objects.create(team=self.team, name=f"dormant_{i}", last_seen_at=now - timedelta(days=30))
+            EventDefinition.objects.create(team=self.team, name=f"dormant_{i}", last_seen_at=now - timedelta(days=45))
 
-        assert len(_no_data_event_names(self.team, window_days=7, limit=2)) == 2
+        assert len(_no_data_event_names(self.team, limit=2)) == 2
 
 
 class TestPersonPropertyNames(APIBaseTest):
@@ -161,6 +177,135 @@ class TestSelectRelevantEvents(APIBaseTest):
         assert _select_relevant_events(self.team, self.user, "exports") == []
         mock_chat.assert_not_called()
 
+    @patch(f"{_SG}.MaxChatOpenAI")
+    def test_pins_named_event_the_llm_did_not_pick(self, mock_chat: MagicMock) -> None:
+        # The deterministic guarantee: a backticked event the LLM ignores is still force-included.
+        EventDefinition.objects.create(team=self.team, name="export created")
+        mock_chat.return_value.with_structured_output.return_value.invoke.return_value = RelevantEvents(events=[])
+
+        assert _select_relevant_events(self.team, self.user, "how is `export created` doing?") == ["export created"]
+
+    @patch(f"{_SG}.MaxChatOpenAI")
+    def test_unions_pinned_event_ahead_of_llm_picks(self, mock_chat: MagicMock) -> None:
+        # Pinned event leads; the LLM's own (real) pick is kept and de-duped against it.
+        EventDefinition.objects.create(team=self.team, name="export created")
+        EventDefinition.objects.create(team=self.team, name="alert created")
+        mock_chat.return_value.with_structured_output.return_value.invoke.return_value = RelevantEvents(
+            events=["alert created", "export created"]
+        )
+
+        assert _select_relevant_events(self.team, self.user, "how is `export created` doing?") == [
+            "export created",
+            "alert created",
+        ]
+
+    @patch(f"{_SG}.MaxChatOpenAI")
+    def test_pinned_event_survives_when_llm_fills_the_cap(self, mock_chat: MagicMock) -> None:
+        # The named event is created last (oldest last_seen_at → outside the LLM's leading picks) and the
+        # LLM returns a full cap's worth of other events. The pin must not be truncated by the cap.
+        for i in range(RELEVANT_EVENTS_LIMIT):
+            EventDefinition.objects.create(team=self.team, name=f"event_{i}", last_seen_at=datetime.now(tz=UTC))
+        EventDefinition.objects.create(team=self.team, name="named_event", last_seen_at=None)
+        mock_chat.return_value.with_structured_output.return_value.invoke.return_value = RelevantEvents(
+            events=[f"event_{i}" for i in range(RELEVANT_EVENTS_LIMIT)]
+        )
+
+        selected = _select_relevant_events(self.team, self.user, "tell me about `named_event`")
+
+        # The pin leads and survives; the cap drops the LLM's last pick instead of the named event.
+        assert selected[0] == "named_event"
+        assert len(selected) == RELEVANT_EVENTS_LIMIT
+
+    @patch(f"{_SG}.CANDIDATE_EVENTS_LIMIT", 5)
+    @patch(f"{_SG}.MaxChatOpenAI")
+    def test_pins_event_outside_the_candidate_cap(self, mock_chat: MagicMock) -> None:
+        # The whole reason the pin scan has its own (larger) bound: an event ranked below the candidate
+        # cap is invisible to the selection LLM, but an explicit mention must still resolve. With the cap
+        # patched to 5, the named event (oldest last_seen_at) falls outside the candidate slice.
+        for i in range(5):
+            EventDefinition.objects.create(team=self.team, name=f"common_{i}", last_seen_at=datetime.now(tz=UTC))
+        EventDefinition.objects.create(team=self.team, name="rare_event", last_seen_at=None)
+        mock_chat.return_value.with_structured_output.return_value.invoke.return_value = RelevantEvents(events=[])
+
+        assert _select_relevant_events(self.team, self.user, "what about `rare_event`?") == ["rare_event"]
+
+    @patch(f"{_SG}.CANDIDATE_EVENTS_LIMIT", 0)
+    @patch(f"{_SG}.MaxChatOpenAI")
+    def test_pins_survive_when_candidate_slice_is_empty(self, mock_chat: MagicMock) -> None:
+        # An empty candidate slice skips the LLM pass but must not drop explicit pins — the pin scan
+        # covers the full recent-names window, not just the candidate slice.
+        EventDefinition.objects.create(team=self.team, name="export created")
+
+        assert _select_relevant_events(self.team, self.user, "how is `export created`?") == ["export created"]
+        mock_chat.assert_not_called()
+
+
+class TestExtractQuotedEventTokens:
+    @parameterized.expand(
+        [
+            ("backticks", "how is `export created`?", {"export created"}),
+            ("double_quotes", 'how is "export created"?', {"export created"}),
+            ("single_quotes", "how is 'export created'?", {"export created"}),
+            ("mixed_quote_styles", "`a` and \"b\" and 'c'", {"a", "b", "c"}),
+            ("casefolds_and_collapses_whitespace", "`Export   Created`", {"export created"}),
+            ("none_present", "how are exports doing?", set()),
+            ("ignores_unbalanced_quote", "how is `export created doing?", set()),
+        ]
+    )
+    def test_extracts_normalized_quoted_tokens(self, _name: str, prompt: str, expected: set[str]) -> None:
+        assert _extract_quoted_event_tokens(prompt) == expected
+
+
+class TestPinnedEventNames:
+    @parameterized.expand(
+        [
+            ("quoted_name_pinned", "how is `export created`?", ["export created"]),
+            ("case_insensitive_match", "how is `EXPORT CREATED`?", ["export created"]),
+            ("bare_exact_single_word_pinned", "trends for signup over time", ["signup"]),
+            ("bare_exact_multi_word_pinned", "how is export created trending", ["export created"]),
+            ("nonexistent_quoted_name_ignored", "how is `totally made up`?", []),
+            ("substring_does_not_match", "tell me about signups please", []),
+            ("no_reference_pins_nothing", "give me a weekly summary", []),
+        ]
+    )
+    def test_pins_only_validated_named_events(self, _name: str, prompt: str, expected: list[str]) -> None:
+        assert _pinned_event_names(prompt, ["export created", "signup"]) == expected
+
+    @parameterized.expand(
+        [
+            # `$` and `.` are part of an event-name token, so `$pageview` and `app.opened` match as
+            # whole names but never as a bare `pageview`/`opened` slice of a larger token.
+            ("quoted_dollar_name", "how is `$pageview`?", ["$pageview"]),
+            ("bare_dollar_name_excludes_plain", "spike in $pageview today", ["$pageview"]),
+            ("bare_plain_name_excludes_dollar", "how many pageview events", ["pageview"]),
+            ("dotted_name_pinned", "trend of app.opened", ["app.opened"]),
+            ("embedded_in_identifier_not_matched", "check my_pageview_handler logs", []),
+        ]
+    )
+    def test_special_char_token_boundaries(self, _name: str, prompt: str, expected: list[str]) -> None:
+        assert _pinned_event_names(prompt, ["$pageview", "pageview", "app.opened"]) == expected
+
+    def test_caps_pinned_count_at_max(self) -> None:
+        # A degenerate prompt naming more events than the ceiling pins at most MAX_PINNED_EVENTS, so the
+        # planner context and the downstream property lookup stay bounded.
+        names = [f"evt_{i}" for i in range(MAX_PINNED_EVENTS + 5)]
+        prompt = " ".join(f"`{n}`" for n in names)
+
+        assert len(_pinned_event_names(prompt, names)) == MAX_PINNED_EVENTS
+
+
+class TestRecentEventNames(APIBaseTest):
+    def test_scopes_to_team_and_respects_limit(self) -> None:
+        other = Team.objects.create(organization=self.organization, name="other")
+        EventDefinition.objects.create(team=other, name="other_team_event")
+        for i in range(3):
+            EventDefinition.objects.create(team=self.team, name=f"evt_{i}", last_seen_at=datetime.now(tz=UTC))
+
+        names = _recent_event_names(self.team, limit=2)
+
+        assert len(names) == 2
+        assert "other_team_event" not in names
+
 
 class TestEventPropertyNames(APIBaseTest):
     def test_groups_properties_by_event_in_one_query(self) -> None:
@@ -189,17 +334,331 @@ class TestEventPropertyNames(APIBaseTest):
         assert _event_property_names(self.team, ["export created"], per_event_limit=15) == {"export created": ["mine"]}
 
 
+class TestAIWindowConfigProperties:
+    """The ai_prompt_config readers feed compute_report_window on every delivery run, and the column
+    is a JSONField a row can carry in any shape — a non-defensive reader would crash the run."""
+
+    @staticmethod
+    def _sub(config: object) -> Subscription:
+        # In-memory only — the properties are pure reads, but __init__ caches the rrule, so the
+        # schedule fields must be valid.
+        return Subscription(
+            frequency="daily",
+            interval=1,
+            start_date=datetime(2026, 1, 1, tzinfo=UTC),
+            ai_prompt_config=config,
+        )
+
+    @parameterized.expand(
+        [
+            ("empty", {}, "since_last_sent"),
+            ("window_not_a_dict", {"window": "hi"}, "since_last_sent"),
+            (
+                "garbage_values",
+                {"window": {"mode": "bogus", "start_days_ago": "seven", "end_days_ago": True}},
+                "since_last_sent",
+            ),
+            ("none_config", None, "since_last_sent"),
+            # Out-of-bounds day values must not survive either: a negative start would push the
+            # window's start past its end (a future/inverted range handed to the planner). The valid
+            # mode reads through; the day bounds are dropped, so compute degrades to the default window.
+            (
+                "negative_days",
+                {"window": {"mode": "last_n_days", "start_days_ago": -5, "end_days_ago": -1}},
+                "last_n_days",
+            ),
+            (
+                # An inverted range would hand the planner a window that ends before it starts.
+                "inverted_range",
+                {"window": {"mode": "days_ago_range", "start_days_ago": 3, "end_days_ago": 5}},
+                "days_ago_range",
+            ),
+            (
+                # Equality is inverted too (>= boundary): a zero-length half-open window is empty.
+                "range_zero_length",
+                {"window": {"mode": "days_ago_range", "start_days_ago": 3, "end_days_ago": 3}},
+                "days_ago_range",
+            ),
+            (
+                "over_max_days",
+                {"window": {"mode": "last_n_days", "start_days_ago": 9000, "end_days_ago": 400}},
+                "last_n_days",
+            ),
+        ]
+    )
+    def test_garbage_config_degrades_to_defaults(self, _name: str, config: object, expected_mode: str) -> None:
+        sub = self._sub(config)
+
+        assert sub.ai_window_mode == expected_mode
+        assert sub.ai_window_start_days_ago is None
+        assert sub.ai_window_end_days_ago is None
+
+    def test_valid_config_is_read_through(self) -> None:
+        sub = self._sub({"window": {"mode": "days_ago_range", "start_days_ago": 10, "end_days_ago": 3}})
+
+        assert sub.ai_window_mode == Subscription.AIWindowMode.DAYS_AGO_RANGE
+        assert sub.ai_window_start_days_ago == 10
+        assert sub.ai_window_end_days_ago == 3
+
+    def test_last_n_days_keeps_start_despite_garbage_end(self) -> None:
+        # Normalisation is per-mode: a garbage value in a field the mode ignores must not
+        # collateral-null the field it uses.
+        sub = self._sub({"window": {"mode": "last_n_days", "start_days_ago": 7, "end_days_ago": 10}})
+
+        assert sub.ai_window_mode == Subscription.AIWindowMode.LAST_N_DAYS
+        assert sub.ai_window_start_days_ago == 7
+        assert sub.ai_window_end_days_ago is None
+
+
+class TestComputeReportWindow:
+    """`compute_report_window` is the pure core of the timezone-aware window. It's the fix for the
+    UTC-anchored, send-time→midnight gap, so its three behaviours are pinned: since-last-delivery
+    anchoring, the no-prior-delivery fallback, and timezone correctness (a regression here is the
+    exact customer bug)."""
+
+    @staticmethod
+    def _team(timezone: str = "UTC") -> Team:
+        # In-memory only — compute_report_window is pure and timezone_info just wraps ZoneInfo(tz),
+        # so no DB row is needed and the test stays at the cheapest rung.
+        return Team(timezone=timezone)
+
+    def test_anchors_start_to_last_scheduled_cutoff(self) -> None:
+        now = datetime(2026, 6, 29, 16, 0, tzinfo=UTC)
+        last = datetime(2026, 6, 28, 16, 0, tzinfo=UTC)
+
+        window = compute_report_window(
+            self._team(),
+            last_scheduled_cutoff=last,
+            now=now,
+            window_days=1,
+            mode=Subscription.AIWindowMode.SINCE_LAST_SENT,
+        )
+
+        # Gap-free: start is exactly the previous cutoff, not now - window_days (which would be identical
+        # here, but the next case proves they diverge when the prior send drifted).
+        assert window.start == last.astimezone(ZoneInfo("UTC"))
+        assert window.end == now.astimezone(ZoneInfo("UTC"))
+
+    def test_since_last_delivery_can_exceed_window_days(self) -> None:
+        # A weekly sub (window_days=7) whose prior delivery was 10 days ago must cover the whole gap,
+        # not just the last 7 days — proving start follows the delivery, not the cadence default.
+        now = datetime(2026, 6, 29, 16, 0, tzinfo=UTC)
+        last = datetime(2026, 6, 19, 16, 0, tzinfo=UTC)
+
+        window = compute_report_window(
+            self._team(),
+            last_scheduled_cutoff=last,
+            now=now,
+            window_days=7,
+            mode=Subscription.AIWindowMode.SINCE_LAST_SENT,
+        )
+
+        assert window.start == last
+        assert (window.end - window.start) == timedelta(days=10)
+
+    def test_compare_start_is_the_equal_length_prior_period(self) -> None:
+        # Period-over-period reads back exactly the window's own length before start (not window_days),
+        # so a weekly report compares to the prior week and a daily one to the prior day. A 10-day gap
+        # against a 7-day cadence proves it tracks the real window, not the default; a sign/length
+        # regression here silently compares growth against the wrong baseline.
+        now = datetime(2026, 6, 29, 16, 0, tzinfo=UTC)
+        last = datetime(2026, 6, 19, 16, 0, tzinfo=UTC)
+
+        window = compute_report_window(
+            self._team(),
+            last_scheduled_cutoff=last,
+            now=now,
+            window_days=7,
+            mode=Subscription.AIWindowMode.SINCE_LAST_SENT,
+        )
+
+        assert (window.start - window.compare_start) == (window.end - window.start)
+        assert window.compare_start == datetime(2026, 6, 9, 16, 0, tzinfo=UTC)
+        assert window.compare_start_literal == "2026-06-09 16:00:00"
+
+    def test_falls_back_to_window_days_without_prior_delivery(self) -> None:
+        now = datetime(2026, 6, 29, 16, 0, tzinfo=UTC)
+
+        window = compute_report_window(
+            self._team(),
+            last_scheduled_cutoff=None,
+            now=now,
+            window_days=7,
+            mode=Subscription.AIWindowMode.SINCE_LAST_SENT,
+        )
+
+        assert window.end == now
+        assert window.start == now - timedelta(days=7)
+
+    def test_last_n_days_is_a_fixed_trailing_window(self) -> None:
+        # The day-based mode must ignore the delivery anchor entirely: a recent send must not shrink
+        # the window (that send-timing dependence is what the mode exists to opt out of).
+        now = datetime(2026, 6, 29, 16, 0, tzinfo=UTC)
+        recent_send = datetime(2026, 6, 29, 15, 0, tzinfo=UTC)
+
+        window = compute_report_window(
+            self._team(),
+            last_scheduled_cutoff=recent_send,
+            now=now,
+            window_days=7,
+            mode=Subscription.AIWindowMode.LAST_N_DAYS,
+            start_days_ago=3,
+        )
+
+        assert window.start == now - timedelta(days=3)
+        assert window.end == now
+
+    def test_days_ago_range_is_an_explicit_historical_range(self) -> None:
+        now = datetime(2026, 6, 29, 16, 0, tzinfo=UTC)
+
+        window = compute_report_window(
+            self._team(),
+            last_scheduled_cutoff=None,
+            now=now,
+            window_days=7,
+            mode=Subscription.AIWindowMode.DAYS_AGO_RANGE,
+            start_days_ago=10,
+            end_days_ago=3,
+        )
+
+        assert window.start == now - timedelta(days=10)
+        assert window.end == now - timedelta(days=3)
+        # compare_start stays the equal-length prior period, so period-over-period works here too.
+        assert window.compare_start == now - timedelta(days=17)
+
+    def test_range_missing_end_is_treated_as_ending_now(self) -> None:
+        # Documented degrade: a DAYS_AGO_RANGE row missing end_days_ago ends at "now" (0 = now per
+        # the serializer help text) instead of falling back to a completely different window.
+        now = datetime(2026, 6, 29, 16, 0, tzinfo=UTC)
+
+        window = compute_report_window(
+            self._team(),
+            last_scheduled_cutoff=None,
+            now=now,
+            window_days=7,
+            mode=Subscription.AIWindowMode.DAYS_AGO_RANGE,
+            start_days_ago=10,
+            end_days_ago=None,
+        )
+
+        assert window.start == now - timedelta(days=10)
+        assert window.end == now
+
+    @parameterized.expand(
+        [
+            ("last_n_days_missing_start", Subscription.AIWindowMode.LAST_N_DAYS, None, None),
+            ("range_missing_start", Subscription.AIWindowMode.DAYS_AGO_RANGE, None, 3),
+        ]
+    )
+    def test_bad_day_mode_config_falls_back_to_trailing_window(
+        self, _name: str, mode: str, start_days_ago: int | None, end_days_ago: int | None
+    ) -> None:
+        # normalize_ai_window nulls out bad day values, so what reaches compute is a day mode with
+        # missing values; it must degrade to the cadence trailing window (anchor is None because
+        # delivery.py skips the last-delivery lookup for day-based modes).
+        now = datetime(2026, 6, 29, 16, 0, tzinfo=UTC)
+
+        window = compute_report_window(
+            self._team(),
+            last_scheduled_cutoff=None,
+            now=now,
+            window_days=7,
+            mode=mode,
+            start_days_ago=start_days_ago,
+            end_days_ago=end_days_ago,
+        )
+
+        assert window.start == now - timedelta(days=7)
+        assert window.end == now
+
+    @parameterized.expand(
+        [
+            ("sydney", "Australia/Sydney"),
+            ("la", "America/Los_Angeles"),
+        ]
+    )
+    def test_bounds_are_in_team_timezone(self, _name: str, timezone: str) -> None:
+        now = datetime(2026, 6, 29, 16, 0, tzinfo=UTC)
+
+        window = compute_report_window(self._team(timezone), last_scheduled_cutoff=None, now=now, window_days=1)
+
+        # Same instant, rendered in the team's tz — utcoffset proves the bound carries the team's
+        # offset (the UTC-anchored bug had a zero offset regardless of team timezone).
+        assert window.end.tzinfo == ZoneInfo(timezone)
+        assert window.end.utcoffset() == now.astimezone(ZoneInfo(timezone)).utcoffset()
+        # The literal the planner sees is the project-tz wall clock (no offset), so the LLM never does
+        # tz math — HogQL resolves a bare datetime against the project timezone.
+        assert window.end_literal == now.astimezone(ZoneInfo(timezone)).strftime("%Y-%m-%d %H:%M:%S")
+
+    def test_clamps_inverted_range_to_fallback(self) -> None:
+        # A stale finished_at in the future would invert the range; clamp to the fallback window.
+        now = datetime(2026, 6, 29, 16, 0, tzinfo=UTC)
+        last = datetime(2026, 6, 30, 16, 0, tzinfo=UTC)
+
+        window = compute_report_window(
+            self._team(),
+            last_scheduled_cutoff=last,
+            now=now,
+            window_days=1,
+            mode=Subscription.AIWindowMode.SINCE_LAST_SENT,
+        )
+
+        assert window.start == now - timedelta(days=1)
+        assert window.end == now
+
+    def test_naive_inputs_assumed_utc(self) -> None:
+        now = datetime(2026, 6, 29, 16, 0)
+        last = datetime(2026, 6, 28, 16, 0)
+
+        window = compute_report_window(self._team("UTC"), last_scheduled_cutoff=last, now=now, window_days=1)
+
+        assert window.start == datetime(2026, 6, 28, 16, 0, tzinfo=UTC)
+        assert window.end == datetime(2026, 6, 29, 16, 0, tzinfo=UTC)
+
+
 class TestContextBlob(APIBaseTest):
+    @patch(f"{_SG}.get_group_types_for_project", return_value=[])
+    @patch(f"{_SG}._top_event_names", return_value=[])
+    def test_states_explicit_window_bounds_in_project_timezone(self, _mock_top: object, _mock_groups: object) -> None:
+        # The window-text regression: the blob must hand the planner concrete `[start, end)` literals
+        # (so it never writes `now() - INTERVAL`), not the old "last N day(s)" relative phrasing.
+        self.team.timezone = "Australia/Sydney"
+        self.team.save()
+        window = compute_report_window(
+            self.team,
+            last_scheduled_cutoff=None,
+            now=datetime(2026, 6, 29, 16, 0, tzinfo=UTC),
+            window_days=1,
+        )
+
+        blob = build_context_blob(self.team, window)
+
+        assert f"Analysis window start (inclusive, project timezone): {window.start_literal}" in blob
+        assert f"Analysis window end (exclusive, project timezone): {window.end_literal}" in blob
+        assert (
+            f"timestamp >= toDateTime('{window.start_literal}') AND timestamp < toDateTime('{window.end_literal}')"
+            in blob
+        )
+        # The prior-period anchor for period-over-period growth is injected as its own literal, so the
+        # planner never reaches for `now() - INTERVAL` to build a "vs last week" baseline.
+        assert (
+            f"Previous-period start (for period-over-period comparisons only, project timezone): "
+            f"{window.compare_start_literal}" in blob
+        )
+        # The relative "last N day(s)" phrasing the planner used to do tz math against is gone.
+        assert "Suggested analysis window" not in blob
+        assert "Current UTC time" not in blob
+
     @patch(f"{_SG}.get_group_types_for_project", return_value=[{"group_type": "organization", "group_type_index": 0}])
     @patch(f"{_SG}._top_event_names", return_value=[])
     def test_includes_no_data_person_and_group_lines(self, _mock_top: object, _mock_groups: object) -> None:
         now = datetime.now(tz=UTC)
-        EventDefinition.objects.create(team=self.team, name="dormant_event", last_seen_at=now - timedelta(days=30))
+        EventDefinition.objects.create(team=self.team, name="dormant_event", last_seen_at=now - timedelta(days=45))
         PropertyDefinition.objects.create(team=self.team, name="plan", type=PropertyDefinition.Type.PERSON)
 
-        blob = build_context_blob(self.team, window_days=7)
+        blob = build_context_blob(self.team, _window(7))
 
-        assert "Events defined but with no data in the last 7 day(s):" in blob
+        assert "Events defined but with no data in the last 30 day(s):" in blob
         assert "dormant_event" in blob
         assert "Person properties (reference as person.properties.<name>" in blob
         assert "plan" in blob
@@ -220,7 +679,7 @@ class TestContextBlob(APIBaseTest):
         for prop in props:
             EventProperty.objects.create(team=self.team, event="export created", property=prop)
 
-        blob = build_context_blob(self.team, window_days=7, relevant_events=["export created"])
+        blob = build_context_blob(self.team, _window(7), relevant_events=["export created"])
 
         assert "Events matching your request: export created" in blob
         # properties are listed alphabetically (the _event_property_names ordering)
@@ -231,7 +690,7 @@ class TestContextBlob(APIBaseTest):
     def test_injects_property_schema_for_selected_top_event(self, _mock_top: object, _mock_groups: object) -> None:
         EventProperty.objects.create(team=self.team, event="$pageview", property="$browser")
 
-        blob = build_context_blob(self.team, window_days=7, relevant_events=["$pageview"])
+        blob = build_context_blob(self.team, _window(7), relevant_events=["$pageview"])
 
         # $pageview is already under "Top events", so it's not repeated in the matched-names line...
         assert "Events matching your request" not in blob
@@ -241,7 +700,7 @@ class TestContextBlob(APIBaseTest):
     @patch(f"{_SG}.get_group_types_for_project", return_value=[])
     @patch(f"{_SG}._top_event_names", return_value=[])
     def test_omits_relevant_section_without_selected_events(self, _mock_top: object, _mock_groups: object) -> None:
-        blob = build_context_blob(self.team, window_days=7)
+        blob = build_context_blob(self.team, _window(7))
 
         assert "Events matching your request" not in blob
 

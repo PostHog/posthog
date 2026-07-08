@@ -16,12 +16,18 @@ from posthog.utils import relative_date_parse
 from products.engineering_analytics.backend.facade.contracts import (
     CICardSummary,
     CIFailureLogs,
+    FlakyTestList,
     GitHubSource,
+    MasterFailureGroup,
     PRCostSummary,
     PRLifecycle,
     PullRequestList,
+    RepoOverview,
+    RunFailureLogs,
+    WorkflowCost,
     WorkflowHealthItem,
     WorkflowJob,
+    WorkflowJobAggregate,
     WorkflowRunActivity,
     WorkflowRunDetail,
     WorkflowRunnerCost,
@@ -32,11 +38,23 @@ from products.engineering_analytics.backend.logic.quarantine import (
 )
 from products.engineering_analytics.backend.logic.queries._curated import CuratedGitHubSource
 from products.engineering_analytics.backend.logic.queries.ci_cards import query_ci_cards
-from products.engineering_analytics.backend.logic.queries.ci_failure_logs import query_ci_failure_logs
-from products.engineering_analytics.backend.logic.queries.pr_cost import query_pr_cost, query_workflow_runner_costs
+from products.engineering_analytics.backend.logic.queries.ci_failure_logs import (
+    query_ci_failure_logs,
+    query_run_failure_logs,
+)
+from products.engineering_analytics.backend.logic.queries.flaky_tests import query_flaky_tests
+from products.engineering_analytics.backend.logic.queries.job_aggregates import query_job_aggregates
+from products.engineering_analytics.backend.logic.queries.master_failures import query_master_failures
+from products.engineering_analytics.backend.logic.queries.pr_cost import (
+    query_author_workflow_costs,
+    query_pr_cost,
+    query_workflow_runner_costs,
+)
 from products.engineering_analytics.backend.logic.queries.pr_lifecycle import query_pr_lifecycle
 from products.engineering_analytics.backend.logic.queries.pr_runs import query_pr_runs
 from products.engineering_analytics.backend.logic.queries.pull_request_list import query_pull_request_list
+from products.engineering_analytics.backend.logic.queries.repo_overview import query_default_branch, query_repo_overview
+from products.engineering_analytics.backend.logic.queries.repo_run_activity import query_repo_run_activity
 from products.engineering_analytics.backend.logic.queries.workflow_health import query_workflow_health
 from products.engineering_analytics.backend.logic.queries.workflow_jobs import query_workflow_jobs
 from products.engineering_analytics.backend.logic.queries.workflow_run import query_workflow_run
@@ -58,6 +76,15 @@ _DEFAULT_WORKFLOW_WINDOW = "-24h"
 # workflow_health zero-fills one daily entry per workflow per day in the window, so an
 # unbounded range would materialize an enormous response. A year is plenty for trends.
 _MAX_WINDOW_DAYS = 366
+
+# Flaky-test leaderboard defaults: a week of signal is the triage window, a month the ceiling
+# (per-test spans are high-volume and the short Traces retention makes older data spotty anyway).
+_DEFAULT_FLAKY_WINDOW = "-7d"
+_MAX_FLAKY_WINDOW_DAYS = 30
+_DEFAULT_FLAKY_MIN_RERUN_PASSES = 1
+_DEFAULT_FLAKY_MIN_FAILED_PRS = 3
+_DEFAULT_FLAKY_LIMIT = 50
+_MAX_FLAKY_LIMIT = 200
 
 
 # Each builder operates on an already-resolved CuratedGitHubSource: source selection and per-source
@@ -113,8 +140,7 @@ def build_workflow_run_list(
     owner, name = _split_repo(repo)
     if not (owner and name):
         raise ValueError("repo must be in 'owner/name' format")
-    parsed_from = _parse_date(curated.team, date_from or _DEFAULT_WINDOW)
-    parsed_to = _parse_date(curated.team, date_to) if date_to else None
+    parsed_from, parsed_to = _parse_window(curated.team, date_from, date_to, default=_DEFAULT_WINDOW)
     return query_workflow_run_list(
         curated=curated,
         repo_owner=owner,
@@ -138,8 +164,7 @@ def build_workflow_run_activity(
     owner, name = _split_repo(repo)
     if not (owner and name):
         raise ValueError("repo must be in 'owner/name' format")
-    parsed_from = _parse_date(curated.team, date_from or _DEFAULT_WINDOW)
-    parsed_to = _parse_date(curated.team, date_to) if date_to else None
+    parsed_from, parsed_to = _parse_window(curated.team, date_from, date_to, default=_DEFAULT_WINDOW)
     return query_workflow_run_activity(
         curated=curated,
         repo_owner=owner,
@@ -163,8 +188,7 @@ def build_workflow_runner_costs(
     owner, name = _split_repo(repo)
     if not (owner and name):
         raise ValueError("repo must be in 'owner/name' format")
-    parsed_from = _parse_date(curated.team, date_from or _DEFAULT_WINDOW)
-    parsed_to = _parse_date(curated.team, date_to) if date_to else None
+    parsed_from, parsed_to = _parse_window(curated.team, date_from, date_to, default=_DEFAULT_WINDOW)
     return query_workflow_runner_costs(
         curated=curated,
         repo_owner=owner,
@@ -174,6 +198,19 @@ def build_workflow_runner_costs(
         date_to=parsed_to,
         branch=branch,
     )
+
+
+def build_author_workflow_costs(
+    *,
+    curated: CuratedGitHubSource,
+    author: str,
+    date_from: str | None = None,
+    date_to: str | None = None,
+) -> list[WorkflowCost]:
+    if not author.strip():
+        raise ValueError("author is required")
+    parsed_from, parsed_to = _parse_window(curated.team, date_from, date_to, default=_DEFAULT_WINDOW)
+    return query_author_workflow_costs(curated=curated, author=author.strip(), date_from=parsed_from, date_to=parsed_to)
 
 
 def build_ci_cards(*, curated: CuratedGitHubSource) -> CICardSummary:
@@ -200,16 +237,57 @@ def build_workflow_health(
     date_to: str | None = None,
     branch: str | None = None,
 ) -> list[WorkflowHealthItem]:
-    parsed_from = _parse_date(curated.team, date_from or _DEFAULT_WORKFLOW_WINDOW)
-    parsed_to = _parse_date(curated.team, date_to) if date_to else None
-    span_days = ((parsed_to or datetime.now(tz=parsed_from.tzinfo)) - parsed_from).days
-    if span_days > _MAX_WINDOW_DAYS:
-        raise ValueError(f"date window spans {span_days} days; the maximum is {_MAX_WINDOW_DAYS}")
+    parsed_from, parsed_to = _parse_window(curated.team, date_from, date_to, default=_DEFAULT_WORKFLOW_WINDOW)
     return query_workflow_health(curated=curated, date_from=parsed_from, date_to=parsed_to, branch=branch)
+
+
+def build_flaky_tests(
+    *,
+    curated: CuratedGitHubSource,
+    date_from: str | None = None,
+    date_to: str | None = None,
+    min_rerun_passes: int | None = None,
+    min_failed_prs: int | None = None,
+    limit: int | None = None,
+) -> FlakyTestList:
+    parsed_from, parsed_to = _parse_window(
+        curated.team, date_from, date_to, default=_DEFAULT_FLAKY_WINDOW, max_days=_MAX_FLAKY_WINDOW_DAYS
+    )
+    min_rerun_passes = min_rerun_passes if min_rerun_passes is not None else _DEFAULT_FLAKY_MIN_RERUN_PASSES
+    min_failed_prs = min_failed_prs if min_failed_prs is not None else _DEFAULT_FLAKY_MIN_FAILED_PRS
+    # A zero threshold would make its HAVING arm trivially true and silently qualify every
+    # test with any signal span — require an explicit positive bar instead.
+    if min_rerun_passes < 1 or min_failed_prs < 1:
+        raise ValueError("min_rerun_passes and min_failed_prs must be at least 1")
+    limit = limit if limit is not None else _DEFAULT_FLAKY_LIMIT
+    if not 1 <= limit <= _MAX_FLAKY_LIMIT:
+        raise ValueError(f"limit must be between 1 and {_MAX_FLAKY_LIMIT}")
+    return query_flaky_tests(
+        curated=curated,
+        date_from=parsed_from,
+        date_to=parsed_to,
+        min_rerun_passes=min_rerun_passes,
+        min_failed_prs=min_failed_prs,
+        limit=limit,
+    )
 
 
 def _parse_date(team: Team, value: str) -> datetime:
     return relative_date_parse(value, team.timezone_info)
+
+
+def _parse_window(
+    team: Team, date_from: str | None, date_to: str | None, *, default: str, max_days: int = _MAX_WINDOW_DAYS
+) -> tuple[datetime, datetime | None]:
+    """Resolve a caller's date window against the team timezone, capping the span at max_days."""
+    parsed_from = _parse_date(team, date_from or default)
+    parsed_to = _parse_date(team, date_to) if date_to else None
+    span_days = ((parsed_to or datetime.now(tz=parsed_from.tzinfo)) - parsed_from).days
+    if span_days < 0:
+        raise ValueError("date_to must be on or after date_from")
+    if span_days > max_days:
+        raise ValueError(f"date window spans {span_days} days; the maximum is {max_days}")
+    return parsed_from, parsed_to
 
 
 def _split_repo(repo: str | None) -> tuple[str | None, str | None]:
@@ -221,3 +299,61 @@ def _split_repo(repo: str | None) -> tuple[str | None, str | None]:
     if not (owner and name):
         raise ValueError(f"repo must be in 'owner/name' format, got: {repo!r}")
     return owner, name
+
+
+def build_repo_overview(
+    *,
+    curated: CuratedGitHubSource,
+    date_from: str | None = None,
+    date_to: str | None = None,
+) -> RepoOverview:
+    parsed_from, parsed_to = _parse_window(curated.team, date_from, date_to, default=_DEFAULT_WINDOW)
+    return query_repo_overview(curated=curated, date_from=parsed_from, date_to=parsed_to)
+
+
+def build_repo_run_activity(
+    *,
+    curated: CuratedGitHubSource,
+    date_from: str | None = None,
+    date_to: str | None = None,
+    branch: str | None = None,
+) -> WorkflowRunActivity:
+    parsed_from, parsed_to = _parse_window(curated.team, date_from, date_to, default=_DEFAULT_WINDOW)
+    resolved_branch = (branch or "").strip()
+    if not resolved_branch:
+        # No branch given: collapse the repo's default branch, as observed in the window.
+        resolved_branch = query_default_branch(curated=curated, date_from=parsed_from, date_to=parsed_to)
+    return query_repo_run_activity(curated=curated, date_from=parsed_from, date_to=parsed_to, branch=resolved_branch)
+
+
+def build_master_failures(
+    *,
+    curated: CuratedGitHubSource,
+    date_from: str | None = None,
+    date_to: str | None = None,
+    branch: str | None = None,
+) -> list[MasterFailureGroup]:
+    parsed_from, parsed_to = _parse_window(curated.team, date_from, date_to, default=_DEFAULT_WORKFLOW_WINDOW)
+    resolved_branch = (branch or "").strip()
+    if not resolved_branch:
+        # No branch given: use the repo's default branch as observed in the window.
+        resolved_branch = query_default_branch(curated=curated, date_from=parsed_from, date_to=parsed_to)
+    return query_master_failures(curated=curated, date_from=parsed_from, date_to=parsed_to, branch=resolved_branch)
+
+
+def build_run_failure_logs(*, curated: CuratedGitHubSource, run_id: int) -> RunFailureLogs:
+    return query_run_failure_logs(curated=curated, run_id=run_id)
+
+
+def build_job_aggregates(
+    *,
+    curated: CuratedGitHubSource,
+    workflow_name: str,
+    date_from: str | None = None,
+    date_to: str | None = None,
+    branch: str | None = None,
+) -> list[WorkflowJobAggregate]:
+    parsed_from, parsed_to = _parse_window(curated.team, date_from, date_to, default=_DEFAULT_WINDOW)
+    return query_job_aggregates(
+        curated=curated, workflow_name=workflow_name, date_from=parsed_from, date_to=parsed_to, branch=branch
+    )

@@ -454,4 +454,6 @@ MAX_QUERY_TIMEOUT = 600
 async def progress(request: Request, *args, **kwargs) -> StreamingHttpResponse:
     # TEMPORARY endpoint to avoid breaking changes
 
-    return sse_streaming_response([], status=status.HTTP_200_OK, headers={"Connection": "keep-alive"})
+    return sse_streaming_response(
+        [], endpoint="query_progress_stub", status=status.HTTP_200_OK, headers={"Connection": "keep-alive"}
+    )

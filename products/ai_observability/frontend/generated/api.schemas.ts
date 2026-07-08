@@ -89,6 +89,22 @@ export interface _ModelBreakdownApi {
     truncated: boolean
 }
 
+export interface _DayBreakdownRowApi {
+    /** UTC calendar day the events fall on (`toDate(timestamp)`). */
+    day: string
+    /** Number of $ai_generation + $ai_embedding events on this day for the scoped product. */
+    event_count: number
+    /** Total cost in USD on this day for the scoped product. */
+    cost_usd: number
+}
+
+export interface _DayBreakdownApi {
+    /** One row per UTC day that has events, ordered by day ascending. Days with no events are omitted — zero-fill client-side when rendering a continuous series. */
+    items: _DayBreakdownRowApi[]
+    /** Effectively always false: `by_day` ignores `limit` because truncating a time series by cost would be meaningless, and the 90-day window cap already bounds the series length. */
+    truncated: boolean
+}
+
 export interface _TopTraceRowApi {
     /**
      * `$ai_trace_id` of the session — opaque string scoped to the originating product. Format is not stable: most are UUIDs but some SDK wrappers emit JSON-shaped strings like `{"device_id":"...","session_id":"..."}`. Callers should treat this as an opaque identifier (URL-encode before linking to a trace view).
@@ -125,6 +141,8 @@ export interface PersonalSpendAnalysisResponseApi {
     by_tool: _ToolBreakdownApi
     /** Spend grouped by `$ai_model`. Scoped to `product` when set. */
     by_model: _ModelBreakdownApi
+    /** Spend grouped by UTC day, ordered ascending. Scoped to `product`. Not subject to `limit`. */
+    by_day: _DayBreakdownApi
     /** Deprecated — always returns `{items: [], truncated: false}`. Trace IDs are opaque strings that aren't actionable in the UI. Kept in the response shape so existing consumers don't crash; remove your rendering of this field and we'll drop it from the response entirely in a follow-up. */
     top_traces: _TopTracesApi
 }
@@ -326,6 +344,7 @@ export const EvaluationStatusEnumApi = {
 } as const
 
 /**
+ * * `provider_key_required` - No provider API key configured
  * * `trial_limit_reached` - Trial evaluation limit reached
  * * `model_not_allowed` - Model not available on the trial plan
  * * `provider_key_deleted` - Provider API key was deleted
@@ -340,6 +359,7 @@ export const EvaluationStatusEnumApi = {
 export type StatusReasonEnumApi = (typeof StatusReasonEnumApi)[keyof typeof StatusReasonEnumApi]
 
 export const StatusReasonEnumApi = {
+    ProviderKeyRequired: 'provider_key_required',
     TrialLimitReached: 'trial_limit_reached',
     ModelNotAllowed: 'model_not_allowed',
     ProviderKeyDeleted: 'provider_key_deleted',
@@ -947,6 +967,10 @@ export interface EvaluationConfigApi {
     readonly trial_evals_used: number
     /** Trial runs remaining — a getting-started affordance only; evals should use the team's own provider key. */
     readonly trial_evals_remaining: number
+    /** True while this team keeps PostHog-funded trial inference during the deprecation window (i.e. it is mid-trial and the cutoff has not passed). False means the team must use its own provider key. */
+    readonly trial_grandfathered: boolean
+    /** Timestamp after which trial evaluations are fully removed and every team must use its own provider key. */
+    readonly trial_deprecation_date: string
     /** Provider key used to run llm_judge evals; null if none configured yet. */
     readonly active_provider_key: LLMProviderKeyApi | null
     /** Timestamp when the evaluation config row was created. */
@@ -1219,7 +1243,7 @@ export interface EvaluationSummaryResponseApi {
 export interface LLMModelInfoApi {
     /** Provider-specific model identifier (e.g. 'gpt-4o-mini', 'claude-3-5-sonnet-20241022'). */
     id: string
-    /** True if the model can run without a provider key — for getting-started testing only; real evals should use the team's own key. */
+    /** True if the model can run without a provider key on PostHog-funded trial credits. Only true for teams still grandfathered into the deprecating trial; every other team must use its own key. */
     posthog_available: boolean
 }
 
@@ -1934,6 +1958,11 @@ export interface LLMPromptListApi {
     /** Prompt payload as JSON or string data. */
     readonly prompt: unknown
     readonly version: number
+    /**
+     * Optional note describing what changed in this version. Set when the version is published.
+     * @nullable
+     */
+    readonly version_description: string | null
     readonly created_by: UserBasicApi
     readonly created_at: string
     readonly updated_at: string
@@ -1966,6 +1995,12 @@ export interface LLMPromptApi {
     /** Prompt payload as JSON or string data. */
     prompt: unknown
     readonly version: number
+    /**
+     * Optional note describing what changed in this version. Set when the version is published.
+     * @maxLength 400
+     * @nullable
+     */
+    version_description?: string | null
     readonly created_by: UserBasicApi
     readonly created_at: string
     readonly updated_at: string
@@ -2013,6 +2048,11 @@ export interface PatchedLLMPromptPublishApi {
      * @minimum 1
      */
     base_version?: number
+    /**
+     * Optional note describing what changed in this version. Shown in the version history.
+     * @maxLength 400
+     */
+    version_description?: string
 }
 
 export interface LLMPromptDuplicateApi {
@@ -2026,6 +2066,8 @@ export interface LLMPromptDuplicateApi {
 export interface LLMPromptVersionSummaryApi {
     readonly id: string
     readonly version: number
+    /** @nullable */
+    readonly version_description: string | null
     readonly created_by: UserBasicApi
     readonly created_at: string
     readonly is_latest: boolean

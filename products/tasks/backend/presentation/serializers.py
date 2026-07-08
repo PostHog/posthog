@@ -17,11 +17,14 @@ from posthog.models.user_integration import UserIntegration
 
 from products.tasks.backend.facade import api as tasks_facade
 from products.tasks.backend.facade.contracts import (
+    ChannelDTO,
     SandboxEnvironmentDTO,
     TaskAutomationDTO,
     TaskDetailDTO,
+    TaskMentionDTO,
     TaskRunDetailDTO,
     TaskSummaryDTO,
+    TaskThreadMessageDTO,
     TaskUserBasicInfo,
 )
 from products.tasks.backend.facade.run_config import (
@@ -333,6 +336,7 @@ class TaskSerializer(DataclassSerializer):
             "updated_at",
             "created_by",
             "ci_prompt",
+            "channel",
         ]
 
 
@@ -463,6 +467,50 @@ class TaskWriteSerializer(serializers.Serializer):
         write_only=True,
         help_text="Selected reasoning effort. Write-only; used only to reuse a warm Run started on the same effort.",
     )
+    pending_user_message = serializers.CharField(
+        required=False,
+        default=None,
+        allow_null=True,
+        allow_blank=True,
+        write_only=True,
+        help_text=(
+            "First user message to forward when creation reuses a pre-warmed Run. Write-only and not "
+            "persisted on the task: lets clients deliver a message that differs from `description` "
+            "(e.g. a resolved skill invocation with channel context folded in). Ignored when no warm "
+            "Run is reused — cold creation takes the first message via the run start endpoint instead."
+        ),
+    )
+    pending_user_artifact_ids = serializers.ListField(
+        required=False,
+        default=list,
+        child=serializers.CharField(max_length=128),
+        write_only=True,
+        help_text=(
+            "Run artifact ids (already uploaded to the pre-warmed Run) to attach to the forwarded "
+            "first message when creation reuses that warm Run, e.g. skill bundles or file attachments. "
+            "If any id is missing from the warm Run's manifest, warm reuse is skipped and the task is "
+            "created cold. Ignored when no warm Run is matched."
+        ),
+    )
+    auto_publish = serializers.BooleanField(
+        required=False,
+        allow_null=True,
+        default=None,
+        write_only=True,
+        help_text=(
+            "When true, the cloud run agent pushes its work and opens a draft pull request on "
+            "completion without waiting for an explicit ask. Write-only and not persisted on the "
+            "task: persisted into the reused warm Run's state when creation activates one, so "
+            "resumes of that Run honor it. Ignored when no warm Run is reused — cold creation "
+            "takes it via the run start endpoint instead."
+        ),
+    )
+    channel = TeamScopedPrimaryKeyRelatedField(  # nosemgrep: unscoped-primary-key-related-field
+        queryset=Integration.objects.none(),
+        required=False,
+        allow_null=True,
+        help_text="Channel this task is owned by (the channel it was kicked off in).",
+    )
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
@@ -471,6 +519,16 @@ class TaskWriteSerializer(serializers.Serializer):
         cast(
             serializers.PrimaryKeyRelatedField, self.fields["signal_report"]
         ).queryset = tasks_facade.signal_report_queryset()
+        # Channel queryset comes from the facade so presentation stays off tasks models.
+        cast(serializers.PrimaryKeyRelatedField, self.fields["channel"]).queryset = tasks_facade.channel_queryset()
+
+    def validate_channel(self, value):
+        """Personal channels are private: only their owner may file tasks into them."""
+        request = self.context.get("request")
+        user = getattr(request, "user", None)
+        if value is not None and value.channel_type == "personal" and value.created_by_id != getattr(user, "id", None):
+            raise serializers.ValidationError("Personal channels can only be used by their owner")
+        return value
 
     def validate_github_integration(self, value):
         """Validate that the GitHub integration belongs to the same team"""
@@ -484,6 +542,12 @@ class TaskWriteSerializer(serializers.Serializer):
         user = getattr(request, "user", None)
         if value and value.user_id != getattr(user, "id", None):
             raise serializers.ValidationError("User integration must belong to the authenticated user")
+        return value
+
+    def validate_origin_product(self, value):
+        """Reject internal-only origins that are set by server-side flows, never by API callers."""
+        if value == tasks_facade.TaskOriginProduct.IMAGE_BUILDER:
+            raise serializers.ValidationError("origin_product 'image_builder' is reserved for image-builder sessions")
         return value
 
     def validate_repository(self, value):
@@ -988,6 +1052,77 @@ class TaskListQuerySerializer(serializers.Serializer):
             "archived tasks, 'false' for the default, or 'all' to include both."
         ),
     )
+    channel = serializers.UUIDField(required=False, help_text="Filter tasks to a channel's feed.")
+
+
+class ChannelSerializer(DataclassSerializer):
+    """Response shape for a task channel, read from a frozen ``ChannelDTO``."""
+
+    created_by = TaskUserBasicInfoSerializer(allow_null=True, required=False)
+
+    class Meta:
+        dataclass = ChannelDTO
+        fields = ["id", "name", "channel_type", "created_at", "created_by"]
+
+
+class ChannelWriteSerializer(serializers.Serializer):
+    """Request body for creating (resolve-or-create) or renaming a public channel."""
+
+    name = serializers.CharField(
+        max_length=128, help_text="Channel name, rendered as #<name>. Normalized to lowercase-dashed."
+    )
+
+
+class TaskThreadMessageSerializer(DataclassSerializer):
+    """Response shape for one message in a task's thread."""
+
+    author = TaskUserBasicInfoSerializer(allow_null=True, required=False)
+    forwarded_by = TaskUserBasicInfoSerializer(allow_null=True, required=False)
+
+    class Meta:
+        dataclass = TaskThreadMessageDTO
+        fields = ["id", "task", "content", "created_at", "author", "forwarded_to_agent_at", "forwarded_by"]
+
+
+class TaskThreadMessageWriteSerializer(serializers.Serializer):
+    """Request body for posting a thread message."""
+
+    content = serializers.CharField(help_text="Message text.")
+
+
+class TaskMentionQuerySerializer(serializers.Serializer):
+    """Query parameters for listing mentions."""
+
+    since = serializers.DateTimeField(
+        required=False, help_text="Only return mentions created after this ISO 8601 timestamp."
+    )
+    limit = serializers.IntegerField(
+        required=False,
+        default=100,
+        min_value=1,
+        max_value=500,
+        help_text="Maximum number of mentions to return (newest first).",
+    )
+
+
+class TaskMentionSerializer(DataclassSerializer):
+    """Response shape for one @-mention of the requester in a task's thread."""
+
+    author = TaskUserBasicInfoSerializer(allow_null=True, required=False)
+
+    class Meta:
+        dataclass = TaskMentionDTO
+        fields = [
+            "id",
+            "message_id",
+            "task_id",
+            "task_title",
+            "channel_id",
+            "channel_name",
+            "author",
+            "content",
+            "created_at",
+        ]
 
 
 class TaskRepositoriesResponseSerializer(serializers.Serializer):
@@ -1114,6 +1249,15 @@ class TaskRunCreateRequestSerializer(serializers.Serializer):
         required=False,
         default=None,
         help_text="Whether pull requests for this run should be authored by the user or the bot.",
+    )
+    auto_publish = serializers.BooleanField(
+        required=False,
+        allow_null=True,
+        default=None,
+        help_text=(
+            "When true, the cloud run agent pushes its work and opens a draft pull request on "
+            "completion without waiting for an explicit ask."
+        ),
     )
     run_source = serializers.ChoiceField(
         choices=RUN_SOURCE_CHOICES,
@@ -1266,6 +1410,15 @@ class TaskRunBootstrapCreateRequestSerializer(serializers.Serializer):
         required=False,
         default=None,
         help_text="Whether pull requests for this run should be authored by the user or the bot.",
+    )
+    auto_publish = serializers.BooleanField(
+        required=False,
+        allow_null=True,
+        default=None,
+        help_text=(
+            "When true, the cloud run agent pushes its work and opens a draft pull request on "
+            "completion without waiting for an explicit ask."
+        ),
     )
     run_source = serializers.ChoiceField(
         choices=RUN_SOURCE_CHOICES,

@@ -99,6 +99,7 @@ SANDBOX_STREAMLIT_IMAGE = "ghcr.io/posthog/posthog-sandbox-streamlit"
 SANDBOX_IMAGE = SANDBOX_BASE_IMAGE
 AGENT_SERVER_PORT = 8080  # Modal connect tokens require port 8080
 AGENT_SERVER_HEALTH_MAX_ATTEMPTS = 240
+POST_RESTORE_PROBE_TIMEOUT_SECONDS = 45
 
 # Recoverable infra errors Modal surfaces when filesystem snapshotting times out or loses its
 # connection (e.g. the command router's "Deadline exceeded"). These usually succeed on retry, so
@@ -520,6 +521,26 @@ class ModalSandbox(SandboxBase):
                         )
                         capture_exception(e)
 
+            # A restored sandbox can come up dead with every RPC succeeding; probe before use.
+            if config.snapshot_restored and not cls._is_healthy_after_restore(sb):
+                logger.warning(
+                    "Snapshot-restored sandbox is not executing processes; recreating from base image",
+                    extra={
+                        "sandbox_id": sb.object_id,
+                        "snapshot_external_id": snapshot_external_id,
+                        "snapshot_kind": snapshot_kind,
+                        "snapshot_mount_path": snapshot_mount_path,
+                    },
+                )
+                try:
+                    sb.terminate()
+                except Exception as e:
+                    logger.warning(f"Failed to terminate wedged sandbox {sb.object_id}: {e}")
+                create_kwargs["image"] = base_image
+                with capture_modal_output_if_debug() as modal_output:
+                    sb = modal.Sandbox.create(**create_kwargs)  # type: ignore[arg-type]
+                config.snapshot_restored = False
+
             if config.metadata:
                 sb.set_tags(config.metadata)
 
@@ -536,6 +557,34 @@ class ModalSandbox(SandboxBase):
             raise SandboxProvisionError(
                 "Failed to create sandbox", {"config_name": config.name, "error": str(e)}, cause=e
             )
+
+    @staticmethod
+    def _is_healthy_after_restore(sb: modal.Sandbox) -> bool:
+        """Whether the sandbox executes processes after a snapshot restore (image or mount)."""
+        try:
+            process = sb.exec("true", timeout=30)
+            # ContainerProcess.wait() has no timeout and can hang on a wedged container.
+            deadline = time.monotonic() + POST_RESTORE_PROBE_TIMEOUT_SECONDS
+            while (returncode := process.poll()) is None:
+                if time.monotonic() >= deadline:
+                    logger.warning(f"Post-restore health probe timed out for sandbox {sb.object_id}")
+                    return False
+                time.sleep(1)
+        except Exception as e:
+            logger.warning(f"Post-restore health probe errored for sandbox {sb.object_id}: {e}")
+            return False
+        if returncode != 0:
+            poll_result: int | str | None
+            try:
+                poll_result = sb.poll()
+            except Exception:
+                poll_result = "unavailable"
+            logger.warning(
+                "Post-restore health probe exited non-zero",
+                extra={"sandbox_id": sb.object_id, "returncode": returncode, "sandbox_poll": str(poll_result)},
+            )
+            return False
+        return True
 
     @staticmethod
     def get_by_id(sandbox_id: str) -> ModalSandbox:
@@ -748,6 +797,7 @@ class ModalSandbox(SandboxBase):
         run_id: str,
         mode: str,
         create_pr: bool,
+        auto_publish: bool = False,
         interaction_origin: str | None = None,
         branch: str | None = None,
         runtime_adapter: str | None = None,
@@ -772,6 +822,9 @@ class ModalSandbox(SandboxBase):
             event_ingest_keep_stream_open=event_ingest_keep_stream_open,
         )
         create_pr_flag = f" --createPr {shlex.quote('true' if create_pr else 'false')}"
+        # Only append when opted in: agent-server builds without the option reject unknown
+        # flags, so default runs (and resumes of old snapshots) must not see it.
+        auto_publish_flag = " --autoPublish true" if auto_publish else ""
         repo_flag = f" --repositoryPath {shlex.quote(repo_path)}" if repo_path else ""
         branch_flag = f" --baseBranch {shlex.quote(branch)}" if branch else ""
         domains_flag = f" --allowedDomains {shlex.quote(','.join(allowed_domains))}" if allowed_domains else ""
@@ -785,7 +838,7 @@ class ModalSandbox(SandboxBase):
             f"env {unset_flags}BASH_ENV={shlex.quote(BASH_ENV_SCRIPT)} "
             f"{env_prefix}./node_modules/.bin/agent-server --port {AGENT_SERVER_PORT}{repo_flag} "
             f"--taskId {shlex.quote(task_id)} --runId {shlex.quote(run_id)} --mode {shlex.quote(mode)}"
-            f"{create_pr_flag}{branch_flag}{mcp_servers_arg}{domains_flag}{repo_ready_flag}"
+            f"{create_pr_flag}{auto_publish_flag}{branch_flag}{mcp_servers_arg}{domains_flag}{repo_ready_flag}"
         )
 
         inner = f"cd /scripts && {server_cmd} > /tmp/agent-server.log 2>&1"
@@ -852,6 +905,7 @@ class ModalSandbox(SandboxBase):
         run_id: str,
         mode: str = "background",
         create_pr: bool = True,
+        auto_publish: bool = False,
         interaction_origin: str | None = None,
         branch: str | None = None,
         runtime_adapter: str | None = None,
@@ -895,12 +949,17 @@ class ModalSandbox(SandboxBase):
             mcp_json = json.dumps([c.to_dict() for c in mcp_configs])
             mcp_servers_arg = f" --mcpServers {shlex.quote(mcp_json)}"
 
+        if auto_publish and not self.agent_server_supports_auto_publish():
+            logger.warning(f"Installed agent-server in sandbox {self.id} predates --autoPublish; starting review-first")
+            auto_publish = False
+
         command = self._build_agent_server_command(
             repo_path,
             task_id,
             run_id,
             mode,
             create_pr,
+            auto_publish,
             interaction_origin,
             branch,
             runtime_adapter,

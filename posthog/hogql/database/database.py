@@ -99,6 +99,7 @@ from posthog.hogql.database.schema.log_entries import (
 from posthog.hogql.database.schema.logs import LogAttributesTable, LogsKafkaMetricsTable, LogsTable
 from posthog.hogql.database.schema.marketing_conversions_preaggregated import MarketingConversionsPreaggregatedTable
 from posthog.hogql.database.schema.marketing_costs_preaggregated import MarketingCostsPreaggregatedTable
+from posthog.hogql.database.schema.marketing_costs_precomputed import MarketingCostsPrecomputedTable
 from posthog.hogql.database.schema.marketing_touchpoints_preaggregated import MarketingTouchpointsPreaggregatedTable
 from posthog.hogql.database.schema.metrics import (
     MetricAttributesTable,
@@ -197,6 +198,7 @@ class SerializedField:
     fields: list[str] | None = None
     table: str | None = None
     chain: list[str | int] | None = None
+    description: str | None = None
 
 
 @dataclasses.dataclass
@@ -323,10 +325,16 @@ _DATABASE_ROOT_NODE_BLOBS_LOCK = threading.Lock()
 # We only ever load our own freshly-built blob, but restrict the unpickler anyway as defense in depth:
 # it can reconstruct only the classes the catalog is built from, so even a future change that fed it
 # untrusted bytes couldn't instantiate arbitrary code (os.system, etc.). Every catalog class lives
-# under posthog.hogql.* except the Workload enum, so new table/field/AST types keep working and
-# anything else fails loudly.
+# under posthog.hogql.* except the Workload enum and product-owned facade schema modules
+# (allowlisted individually, not by prefix, to keep the surface minimal), so new table/field/AST
+# types keep working and anything else fails loudly.
 _CATALOG_PICKLE_MODULE_PREFIXES = ("posthog.hogql.",)
-_CATALOG_PICKLE_MODULES = frozenset({"posthog.clickhouse.workload"})
+_CATALOG_PICKLE_MODULES = frozenset(
+    {
+        "posthog.clickhouse.workload",
+        "products.customer_analytics.backend.facade.hogql",
+    }
+)
 
 
 class _CatalogUnpickler(pickle.Unpickler):
@@ -430,6 +438,11 @@ def _construct_database_root_node(*, include_posthog_tables: bool) -> TableNode:
                 },
             ),
             "system": SystemTables(),
+            # Deduplicated read interface over posthog.marketing_costs_preaggregated. Registered at root
+            # (like `sessions`) because a lazy/aggregating view only resolves cleanly from the root scope.
+            "marketing_costs_precomputed": TableNode(
+                name="marketing_costs_precomputed", table=MarketingCostsPrecomputedTable()
+            ),
             **children,
         }
 
@@ -1055,6 +1068,7 @@ class Database(BaseModel):
         timings: HogQLTimings | None = None,
         connection_id: str | None = None,
         bypass_warehouse_access_control: bool = False,
+        build_postgres_foreign_keys: bool = True,
     ) -> "Database":
         if timings is None:
             timings = HogQLTimings()
@@ -1069,7 +1083,9 @@ class Database(BaseModel):
             connection_id=connection_id,
             bypass_warehouse_access_control=bypass_warehouse_access_control,
         )
-        return Database._build_from_sources(sources, timings=timings)
+        return Database._build_from_sources(
+            sources, timings=timings, build_postgres_foreign_keys=build_postgres_foreign_keys
+        )
 
     @staticmethod
     def _fetch_sources(
@@ -1323,7 +1339,11 @@ class Database(BaseModel):
         )
 
     @staticmethod
-    def _build_from_sources(sources: HogQLDatabaseSources, timings: HogQLTimings | None = None) -> "Database":
+    def _build_from_sources(
+        sources: HogQLDatabaseSources,
+        timings: HogQLTimings | None = None,
+        build_postgres_foreign_keys: bool = True,
+    ) -> "Database":
         """Construct the HogQL Database purely from already-fetched sources. Performs no I/O: every
         Postgres query and feature-flag check was done up front in Database._fetch_sources."""
         if timings is None:
@@ -1639,7 +1659,11 @@ class Database(BaseModel):
             if table is None:
                 return root_node
 
-            if "id" not in table.fields.keys():
+            # The configured `id_field` must win even when the source table has its own column
+            # literally named `id`. Without this guard the virtual mapping is skipped and queries
+            # silently resolve to the table's own `id` column instead of the configured field.
+            id_field_is_remapped = warehouse_modifier.id_field != "id"
+            if id_field_is_remapped or "id" not in table.fields.keys():
                 table.fields["id"] = ExpressionField(
                     name="id",
                     expr=parse_expr(warehouse_modifier.id_field),
@@ -1647,8 +1671,12 @@ class Database(BaseModel):
 
             table_has_no_timestamp_field = "timestamp" not in table.fields.keys()
             timestamp_field_is_datetime = isinstance(table.fields.get("timestamp"), DateTimeDatabaseField)
+            # The configured timestamp_field must win even when the source table has its own DateTime
+            # column literally named `timestamp` (e.g. an ingestion timestamp). Without this, the virtual
+            # mapping is skipped and queries silently bucket/filter on the wrong column.
+            timestamp_field_is_remapped = warehouse_modifier.timestamp_field != "timestamp"
 
-            if table_has_no_timestamp_field or not timestamp_field_is_datetime:
+            if timestamp_field_is_remapped or table_has_no_timestamp_field or not timestamp_field_is_datetime:
                 # get_table raises (rather than skipping) when no backing row exists — see resolvers below.
                 table_model = get_table(warehouse_modifier)
                 timestamp_field_type = table_model.get_clickhouse_column_type(warehouse_modifier.timestamp_field)
@@ -1674,13 +1702,21 @@ class Database(BaseModel):
                             ),
                         )
 
-            # TODO: Need to decide how the distinct_id and person_id fields are going to be handled
-            if "distinct_id" not in table.fields.keys():
+            # As with `id` and `timestamp` above, the configured `distinct_id_field` must win over a
+            # source column literally named `distinct_id`; otherwise the virtual mapping is skipped and
+            # the wrong column is used silently.
+            distinct_id_field_is_remapped = warehouse_modifier.distinct_id_field != "distinct_id"
+            if distinct_id_field_is_remapped or "distinct_id" not in table.fields.keys():
                 table.fields["distinct_id"] = ExpressionField(
                     name="distinct_id",
                     expr=parse_expr(warehouse_modifier.distinct_id_field),
                 )
 
+            # person_id is deliberately left as "inject only when absent": the modifier has no
+            # person_id_field to remap from, and a source column literally named `person_id` is
+            # plausibly authoritative (e.g. an already-resolved person UUID), so it should win. When
+            # the table has no `person_id`, derive it from the events join if one exists, else fall
+            # back to the configured distinct_id_field.
             if "person_id" not in table.fields.keys():
                 events_join = next(
                     (
@@ -1744,14 +1780,15 @@ class Database(BaseModel):
         database._add_warehouse_self_managed_tables(self_managed_warehouse_tables)
         database._add_views(views)
 
-        with timings.measure("warehouse_foreign_keys", emit_span=True):
-            for hogql_table, warehouse_table_model in warehouse_tables_to_process:
-                add_postgres_foreign_key_lazy_joins(
-                    hogql_table=hogql_table,
-                    warehouse_table=warehouse_table_model,
-                    database=database,
-                    schemas=_get_active_external_data_schemas(warehouse_table_model),
-                )
+        if build_postgres_foreign_keys:
+            with timings.measure("warehouse_foreign_keys", emit_span=True):
+                for hogql_table, warehouse_table_model in warehouse_tables_to_process:
+                    add_postgres_foreign_key_lazy_joins(
+                        hogql_table=hogql_table,
+                        warehouse_table=warehouse_table_model,
+                        database=database,
+                        schemas=_get_active_external_data_schemas(warehouse_table_model),
+                    )
 
         with timings.measure("data_warehouse_joins", emit_span=True):
             for join in sources.data_warehouse_joins:
@@ -1971,7 +2008,12 @@ def _setup_group_key_fields(database: Database, group_types: list[dict[str, Any]
             raw_field_name = f"_{field_name}_raw"
             table.fields[raw_field_name] = original_field.model_copy(update={"hidden": True})
 
-            created_at_str = group_mapping["created_at"].strftime("%Y-%m-%d %H:%M:%S")
+            # Must stay a datetime constant: a naive string literal would be parsed by ClickHouse in the
+            # project's timezone (the comparison is against toTimeZone(timestamp, <project tz>)), shifting
+            # the cutoff by the project's UTC offset.
+            created_at = group_mapping["created_at"]
+            if created_at.tzinfo is None:
+                created_at = created_at.replace(tzinfo=UTC)
 
             table.fields[field_name] = ExpressionField(
                 name=field_name,
@@ -1981,7 +2023,7 @@ def _setup_group_key_fields(database: Database, group_types: list[dict[str, Any]
                         ast.CompareOperation(
                             left=ast.Field(chain=["timestamp"]),
                             op=ast.CompareOperationOp.Lt,
-                            right=ast.Constant(value=created_at_str),
+                            right=ast.Constant(value=created_at),
                         ),
                         ast.Constant(value=""),
                         ast.Field(chain=[raw_field_name]),

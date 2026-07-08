@@ -18,10 +18,12 @@ from products.experiments.backend.temporal.recalculation_metrics import (
 )
 
 
-def test_registered_on_general_purpose_queue():
-    # Pins the interceptor's `task_queue` ClassVar — without it, `is_task_queue_supported` filters the
-    # interceptor out of every worker and the metrics emit nothing.
-    assert is_task_queue_supported(settings.GENERAL_PURPOSE_TASK_QUEUE, ExperimentsRecalculationMetricsInterceptor)
+def test_registered_on_recalculation_queue():
+    # Pins the interceptor's `task_queue` ClassVar to the recalc worker's queue — without a match,
+    # `is_task_queue_supported` filters the interceptor out of every worker and the metrics emit nothing.
+    assert is_task_queue_supported(
+        settings.EXPERIMENTS_RECALCULATION_TASK_QUEUE, ExperimentsRecalculationMetricsInterceptor
+    )
 
 
 def test_buckets_sorted_ascending_and_floats():

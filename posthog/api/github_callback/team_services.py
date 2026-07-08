@@ -506,10 +506,23 @@ def finish_team_setup(http_request) -> FinishResult:
     # team deleted) are rare enough to not warrant a typed error; let them 500.
     team = Team.objects.select_related("organization").get(id=team_id)
 
-    # Membership alone isn't enough — creating a team integration requires admin access, matching
-    # the strict permission that gates setup initiation. The callback's team_id can come from a
-    # user-controlled `next`/`state` param, so a plain member must not complete the install here.
-    if not github_callback_state.has_team_management_access(user, team):
+    # Adding a new team integration requires only project membership; modifying an existing one
+    # (reconnect / settings update) still requires admin. The callback's team_id can come from a
+    # user-controlled `next`/`state` param, so a plain member must never alter an integration that
+    # already exists — only create the team's first link for this installation. State-token
+    # validation downstream still guards against forged callbacks regardless of membership level.
+    existing_team_integration = (
+        Integration.objects.first_github_for_team_installation(team.id, installation_id_str)
+        if is_valid_github_installation_id(installation_id_str)
+        else None
+    )
+    modifying_existing = existing_team_integration is not None or setup_action == "update"
+    has_required_access = (
+        github_callback_state.has_team_management_access(user, team)
+        if modifying_existing
+        else github_callback_state.has_team_membership_access(user, team)
+    )
+    if not has_required_access:
         return FinishResult(
             redirect_kind="team_setup",
             next_url=next_url,

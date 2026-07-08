@@ -19,7 +19,7 @@ from django.utils.text import slugify
 from drf_spectacular.utils import OpenApiParameter, OpenApiResponse, extend_schema, extend_schema_view
 from opentelemetry import trace
 from rest_framework import serializers, viewsets
-from rest_framework.exceptions import ValidationError
+from rest_framework.exceptions import PermissionDenied, ValidationError
 from rest_framework.request import Request
 from rest_framework.response import Response
 
@@ -88,6 +88,7 @@ from products.feature_flags.backend.models.evaluation_context import FeatureFlag
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
 from products.product_tours.backend.models import ProductTour
 from products.surveys.backend.models import Survey
+from products.tasks.backend.facade.access import has_tasks_access
 
 from ee.clickhouse.queries.experiments.utils import requires_flag_warning
 
@@ -359,7 +360,22 @@ class EnterpriseExperimentsViewSet(
             if request.data.get("disable_feature_flag", False) in serializers.BooleanField.TRUE_VALUES:
                 scopes.append("feature_flag:write")
             return scopes
+        # Ending or shipping with open_cleanup_pr=true starts a Code task that opens a pull
+        # request. Starting a task is a task write, so require task:write on the token, not
+        # just experiment:write.
+        if self.action in ("end", "ship_variant"):
+            scopes = ["experiment:write"]
+            if request.data.get("open_cleanup_pr", False) in serializers.BooleanField.TRUE_VALUES:
+                scopes.append("task:write")
+            return scopes
         return None
+
+    def _check_cleanup_pr_access(self, request: Request) -> None:
+        """Opening a cleanup PR starts a Code task on the user's behalf. The task:write
+        scope only gates token auth (see dangerously_get_required_scopes); session auth
+        has no scopes, so gate every caller on PostHog Code product access instead."""
+        if not has_tasks_access(cast(User, request.user)):
+            raise PermissionDenied("Opening a flag cleanup PR requires access to PostHog Code.")
 
     def _token_can_write_feature_flag(self, request: Request) -> bool:
         """Whether the request's token carries feature_flag:write.
@@ -468,7 +484,9 @@ class EnterpriseExperimentsViewSet(
         request=EndExperimentSerializer,
         responses=ExperimentSerializer,
     )
-    @action(methods=["POST"], detail=True, required_scopes=["experiment:write"])
+    # required_scopes is computed by dangerously_get_required_scopes; opening a cleanup PR
+    # additionally requires task:write.
+    @action(methods=["POST"], detail=True)
     def end(self, request: Request, *args: Any, **kwargs: Any) -> Response:
         """
         End a running experiment without shipping a variant.
@@ -497,11 +515,14 @@ class EnterpriseExperimentsViewSet(
         experiment: Experiment = self.get_object()
         request_serializer = EndExperimentSerializer(data=request.data)
         request_serializer.is_valid(raise_exception=True)
+        if request_serializer.validated_data["open_cleanup_pr"]:
+            self._check_cleanup_pr_access(request)
         service = ExperimentService(team=self.team, user=request.user)
         ended_experiment = service.end_experiment(
             experiment,
             conclusion=request_serializer.validated_data.get("conclusion"),
             conclusion_comment=request_serializer.validated_data.get("conclusion_comment"),
+            open_cleanup_pr=request_serializer.validated_data["open_cleanup_pr"],
             request=request,
         )
         return Response(ExperimentSerializer(ended_experiment, context=self.get_serializer_context()).data)
@@ -510,7 +531,9 @@ class EnterpriseExperimentsViewSet(
         request=ShipVariantSerializer,
         responses=ExperimentSerializer,
     )
-    @action(methods=["POST"], detail=True, url_path="ship_variant", required_scopes=["experiment:write"])
+    # required_scopes is computed by dangerously_get_required_scopes; opening a cleanup PR
+    # additionally requires task:write.
+    @action(methods=["POST"], detail=True, url_path="ship_variant")
     def ship_variant(self, request: Request, *args: Any, **kwargs: Any) -> Response:
         """
         Ship a variant and (optionally) end the experiment.
@@ -537,6 +560,8 @@ class EnterpriseExperimentsViewSet(
         experiment: Experiment = self.get_object()
         request_serializer = ShipVariantSerializer(data=request.data)
         request_serializer.is_valid(raise_exception=True)
+        if request_serializer.validated_data["open_cleanup_pr"]:
+            self._check_cleanup_pr_access(request)
         service = ExperimentService(team=self.team, user=request.user)
         shipped_experiment = service.ship_variant(
             experiment,
@@ -544,6 +569,7 @@ class EnterpriseExperimentsViewSet(
             release_to_everyone=request_serializer.validated_data["release_to_everyone"],
             conclusion=request_serializer.validated_data.get("conclusion"),
             conclusion_comment=request_serializer.validated_data.get("conclusion_comment"),
+            open_cleanup_pr=request_serializer.validated_data["open_cleanup_pr"],
             request=request,
         )
         return Response(ExperimentSerializer(shipped_experiment, context=self.get_serializer_context()).data)
@@ -983,7 +1009,7 @@ class EnterpriseExperimentsViewSet(
                         "experiment-metrics-recalculation-workflow",
                         MetricsRecalcInputs(recalculation_id=recalculation_id),
                         id=f"experiment-metrics-recalculation-{recalculation_id}",
-                        task_queue=settings.GENERAL_PURPOSE_TASK_QUEUE,
+                        task_queue=settings.EXPERIMENTS_RECALCULATION_TASK_QUEUE,
                     )
                 )
             except Exception:
@@ -1111,6 +1137,6 @@ def _serialize_recalculation(recalc: ExperimentMetricsRecalculation) -> dict:
     `results` field — recomputing per-metric fingerprints once per request is enough.
     """
     results = get_run_results(recalc)
-    payload = build_job_payload(recalc, results=results)
+    payload = build_job_payload(recalc, results=results, include_live_progress=True)
     payload["results"] = results
     return ExperimentMetricsRecalculationSerializer(payload).data

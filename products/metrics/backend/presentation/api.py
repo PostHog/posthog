@@ -9,8 +9,7 @@ from dataclasses import asdict
 
 from django.utils import timezone
 
-from drf_spectacular.types import OpenApiTypes
-from drf_spectacular.utils import OpenApiParameter, extend_schema
+from drf_spectacular.utils import extend_schema
 from rest_framework import serializers, status, viewsets
 from rest_framework.decorators import action
 from rest_framework.exceptions import ParseError
@@ -333,6 +332,27 @@ class _MetricAnomalyReportSerializer(serializers.Serializer):
     )
 
 
+class _HasMetricsResponseSerializer(serializers.Serializer):
+    hasMetrics = serializers.BooleanField(help_text="Whether the team has ingested any metrics.")
+
+
+class _MetricValuesParamsSerializer(serializers.Serializer):
+    value = serializers.CharField(
+        required=False,
+        allow_blank=True,
+        default="",
+        max_length=255,
+        help_text="Substring filter (case-insensitive) applied to metric names.",
+    )
+    limit = serializers.IntegerField(
+        required=False,
+        default=100,
+        min_value=1,
+        max_value=1000,
+        help_text="Max number of names to return. Defaults to 100; maximum 1000.",
+    )
+
+
 class _MetricNameSerializer(serializers.Serializer):
     name = serializers.CharField(help_text="Metric name as it appears in the team's data.")
     metric_type = serializers.CharField(
@@ -419,7 +439,7 @@ class MetricsViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
     scope_object = "metrics"
     serializer_class = _FallbackSerializer
 
-    @extend_schema(responses={200: OpenApiTypes.OBJECT})
+    @extend_schema(responses={200: _HasMetricsResponseSerializer})
     @action(detail=False, methods=["GET"], required_scopes=["metrics:read"])
     def has_metrics(self, request: Request, *args, **kwargs) -> Response:
         tag_queries(product=Product.METRICS, feature=Feature.QUERY)
@@ -436,20 +456,7 @@ class MetricsViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
         return Response({"hasMetrics": has_metrics}, status=status.HTTP_200_OK)
 
     @extend_schema(
-        parameters=[
-            OpenApiParameter(
-                "value",
-                OpenApiTypes.STR,
-                OpenApiParameter.QUERY,
-                description="Substring filter (case-insensitive) applied to metric names.",
-            ),
-            OpenApiParameter(
-                "limit",
-                OpenApiTypes.INT,
-                OpenApiParameter.QUERY,
-                description="Max number of names to return. Defaults to 100; maximum 1000.",
-            ),
-        ],
+        parameters=[_MetricValuesParamsSerializer],
         responses={200: _MetricNamesResponseSerializer},
     )
     @action(
@@ -462,15 +469,13 @@ class MetricsViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
         """Distinct metric names for the team. Backs the picker UI."""
         tag_queries(product=Product.METRICS, feature=Feature.QUERY)
 
-        search = request.query_params.get("value") or ""
-        limit_raw = request.query_params.get("limit") or "100"
-        try:
-            limit = int(limit_raw)
-        except ValueError:
-            raise ParseError("limit must be an integer")
+        params = _MetricValuesParamsSerializer(data=request.query_params)
+        params.is_valid(raise_exception=True)
 
         try:
-            results = list_metric_names(team=self.team, search=search, limit=limit)
+            results = list_metric_names(
+                team=self.team, search=params.validated_data["value"], limit=params.validated_data["limit"]
+            )
         except ValueError as exc:
             raise ParseError(str(exc))
 
