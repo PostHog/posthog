@@ -93,12 +93,22 @@ class TestResolveSQLNodeRun(SimpleTestCase):
             )
 
     def test_unparseable_hogql_naming_a_local_frame_still_routes_to_duckdb(self):
-        # DuckDB-only syntax (QUALIFY isn't HogQL) must still run locally when it reads a local frame.
-        code = "select * from new_events qualify row_number() over (partition by id) = 1"
+        # DuckDB-only syntax (PIVOT isn't HogQL; QUALIFY actually parses) must still run
+        # locally when it names a local frame — this is the regex fallback's positive path.
+        code = "pivot new_events on category"
         node_type, run_code, inputs = resolve_sql_node_run(code, {"new_events": LOCAL})
         self.assertEqual(node_type, "duckdb")
         self.assertEqual(run_code, code)
         self.assertEqual(inputs, [{"name": "new_events", "kind": "local"}])
+
+    def test_frame_named_only_in_a_literal_or_comment_does_not_route_to_duckdb(self):
+        # The fallback scanner must not see the frame name inside a string or comment —
+        # that would reroute the query to DuckDB and materialize a frame it never reads.
+        code = "pivot events on label in ('new_events') -- new_events"
+        node_type, run_code, inputs = resolve_sql_node_run(code, {"new_events": LOCAL})
+        self.assertEqual(node_type, "hogql")
+        self.assertEqual(run_code, code)
+        self.assertEqual(inputs, [])
 
 
 class TestResolveSQLV2References(SimpleTestCase):

@@ -32,6 +32,12 @@ from posthog.hogql.visitor import TraversingVisitor
 
 from products.notebooks.backend.python_analysis import analyze_python_globals
 
+# String literals ('' or backslash escapes) and comments, for the routing fallback to blank
+# out before scanning: a frame name mentioned in a literal or comment must not trigger DuckDB
+# routing. Double-quoted tokens are kept — in DuckDB those are quoted identifiers, i.e. real
+# table references. An unbalanced literal simply doesn't match, degrading to the raw scan.
+_SQL_LITERALS_AND_COMMENTS = re.compile(r"'(?:[^'\\]|\\.|'')*'|--[^\n]*|/\*.*?\*/", re.DOTALL)
+
 
 class SQLV2ReferenceError(Exception):
     """A reference could not be resolved (cycle, or a referenced definition won't parse). User-facing."""
@@ -212,9 +218,11 @@ def resolve_sql_node_run(code: str, refs: dict[str, SQLV2Ref]) -> tuple[str, str
             found = _references(parse_select(code), candidates)
         except ExposedHogQLError:
             # DuckDB-only syntax can't parse as HogQL. If it names a local frame
-            # (word-boundary match), route it to DuckDB and let DuckDB report its own
-            # errors; otherwise fall through so the HogQL path surfaces the parse error.
-            found = {name for name in candidates if re.search(rf"\b{re.escape(name)}\b", code)}
+            # (word-boundary match outside string literals and comments), route it to
+            # DuckDB and let DuckDB report its own errors; otherwise fall through so
+            # the HogQL path surfaces the parse error.
+            searchable = _SQL_LITERALS_AND_COMMENTS.sub(" ", code)
+            found = {name for name in candidates if re.search(rf"\b{re.escape(name)}\b", searchable)}
             if not found & local_names:
                 found = set()
         referenced_locals = found & local_names
