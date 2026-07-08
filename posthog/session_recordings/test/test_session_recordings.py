@@ -1364,8 +1364,8 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
             (
                 "clickhouse_memory_limit",
                 ClickHouseQueryMemoryLimitExceeded(),
-                504,
-                "max memory limit",
+                512,
+                "ran out of memory",
             ),
         ]
     )
