@@ -1,5 +1,8 @@
 import datetime
-from collections.abc import Mapping
+from collections.abc import (  # noqa: F401 — Sequence resolves inherited langchain field annotations lazily in this namespace
+    Mapping,
+    Sequence,
+)
 from functools import cached_property
 from typing import Any, cast
 

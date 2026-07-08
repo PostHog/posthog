@@ -3,6 +3,7 @@ import { expectLogic } from 'kea-test-utils'
 
 import { urls } from 'scenes/urls'
 
+import { resumeKeaLoadersErrors, silenceKeaLoadersErrors } from '~/initKea'
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
 
@@ -479,27 +480,30 @@ describe('llmPlaygroundLogic', () => {
         })
 
         it('should preserve trial models when reload fails', async () => {
-            await expectLogic(runLogic).toFinishAllListeners()
-            expect(modelPickerLogic.values.trialModels).toEqual(MOCK_MODEL_OPTIONS)
+            // The reload deliberately fails the loadTrialModels loader.
+            silenceKeaLoadersErrors()
+            try {
+                await expectLogic(runLogic).toFinishAllListeners()
+                expect(modelPickerLogic.values.trialModels).toEqual(MOCK_MODEL_OPTIONS)
 
-            useMocks({
-                get: {
-                    '/api/llm_proxy/models/': () => {
-                        throw new Error('API Error')
+                useMocks({
+                    get: {
+                        '/api/llm_proxy/models/': () => [500, { detail: 'API Error' }],
+                        '/api/environments/:team_id/llm_analytics/evaluation_config/': () => [
+                            500,
+                            { detail: 'API Error' },
+                        ],
+                        '/api/environments/:team_id/llm_analytics/provider_keys/': () => [500, { detail: 'API Error' }],
                     },
-                    '/api/environments/:team_id/llm_analytics/evaluation_config/': () => {
-                        throw new Error('API Error')
-                    },
-                    '/api/environments/:team_id/llm_analytics/provider_keys/': () => {
-                        throw new Error('API Error')
-                    },
-                },
-            })
+                })
 
-            modelPickerLogic.actions.loadTrialModels()
-            await expectLogic(runLogic).toFinishAllListeners()
+                modelPickerLogic.actions.loadTrialModels()
+                await expectLogic(runLogic).toFinishAllListeners()
 
-            expect(modelPickerLogic.values.trialModels).toEqual(MOCK_MODEL_OPTIONS)
+                expect(modelPickerLogic.values.trialModels).toEqual(MOCK_MODEL_OPTIONS)
+            } finally {
+                resumeKeaLoadersErrors()
+            }
         })
     })
 
@@ -691,25 +695,29 @@ describe('llmPlaygroundLogic', () => {
         })
 
         it('should return trial models when provider keys API fails', async () => {
-            useMocks({
-                get: {
-                    '/api/environments/:team_id/llm_analytics/evaluation_config/': {
-                        active_provider_key: null,
+            // The provider keys loader deliberately fails here.
+            silenceKeaLoadersErrors()
+            try {
+                useMocks({
+                    get: {
+                        '/api/environments/:team_id/llm_analytics/evaluation_config/': {
+                            active_provider_key: null,
+                        },
+                        '/api/environments/:team_id/llm_analytics/provider_keys/': () => [500, { detail: 'API Error' }],
+                        '/api/llm_proxy/models/': MOCK_MODEL_OPTIONS,
                     },
-                    '/api/environments/:team_id/llm_analytics/provider_keys/': () => {
-                        throw new Error('API Error')
-                    },
-                    '/api/llm_proxy/models/': MOCK_MODEL_OPTIONS,
-                },
-            })
+                })
 
-            const testRunLogic = llmPlaygroundRunLogic()
-            testRunLogic.mount()
-            await expectLogic(testRunLogic).toFinishAllListeners()
+                const testRunLogic = llmPlaygroundRunLogic()
+                testRunLogic.mount()
+                await expectLogic(testRunLogic).toFinishAllListeners()
 
-            expect(llmPlaygroundModelLogic.values.effectiveModelOptions).toEqual(MOCK_MODEL_OPTIONS)
+                expect(llmPlaygroundModelLogic.values.effectiveModelOptions).toEqual(MOCK_MODEL_OPTIONS)
 
-            testRunLogic.unmount()
+                testRunLogic.unmount()
+            } finally {
+                resumeKeaLoadersErrors()
+            }
         })
 
         it('should return BYOK models when valid keys exist and models have loaded', async () => {

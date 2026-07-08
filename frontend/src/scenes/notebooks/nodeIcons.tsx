@@ -31,6 +31,7 @@ export const NODE_ICONS: Partial<Record<NotebookNodeType, JSX.Element>> = {
     [NotebookNodeType.Query]: <IconGraph />,
     [NotebookNodeType.HogQLSQL]: <IconHogQL />,
     [NotebookNodeType.DuckSQL]: <IconHogQL />,
+    [NotebookNodeType.SQLV2]: <IconHogQL />,
     [NotebookNodeType.Python]: <IconPython />,
     [NotebookNodeType.Latex]: <IconSquareRoot />,
     [NotebookNodeType.Recording]: <IconRewindPlay />,

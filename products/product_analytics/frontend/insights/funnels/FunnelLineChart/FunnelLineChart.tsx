@@ -1,17 +1,18 @@
 import { useValues } from 'kea'
 import posthog from 'posthog-js'
-import { useMemo, type ErrorInfo } from 'react'
+import { useCallback, useMemo, type ErrorInfo } from 'react'
 
 import { TimeSeriesLineChart } from '@posthog/quill-charts'
 import type {
     ChartLegendConfig,
     PointClickData,
     TimeSeriesLineChartConfig,
-    TooltipConfig,
     TooltipContext,
 } from '@posthog/quill-charts'
 
-import { buildTheme } from 'lib/charts/utils/theme'
+import { useChartConfig, useChartTheme } from 'lib/charts/hooks'
+import { FEATURE_FLAGS } from 'lib/constants'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { funnelDataLogic } from 'scenes/funnels/funnelDataLogic'
 import { funnelPersonsModalLogic } from 'scenes/funnels/funnelPersonsModalLogic'
 import { hasBreakdown } from 'scenes/funnels/funnelUtils'
@@ -21,7 +22,6 @@ import { formatBreakdownLabel } from 'scenes/insights/utils'
 import { teamLogic } from 'scenes/teamLogic'
 import { openPersonsModal } from 'scenes/trends/persons-modal/PersonsModal'
 
-import { themeLogic } from '~/layout/navigation-3000/themeLogic'
 import { cohortsModel } from '~/models/cohortsModel'
 import type { Noun } from '~/models/groupsModel'
 import { groupsModel } from '~/models/groupsModel'
@@ -29,6 +29,8 @@ import { propertyDefinitionsModel } from '~/models/propertyDefinitionsModel'
 import { isFunnelsQuery } from '~/queries/utils'
 import { ChartParams, type FlattenedFunnelStepByBreakdown } from '~/types'
 
+import { InsightSeriesTooltip } from '../../shared/InsightSeriesTooltip'
+import { INSIGHT_TOOLTIP_CONFIG, INSIGHT_TOOLTIP_CONFIG_LEGACY } from '../../shared/tooltipConfig'
 import { AnnotationsLayer } from '../../trends/shared/AnnotationsLayer'
 import { buildBaseLegendConfig } from '../../trends/shared/buildBaseLegendConfig'
 import { FUNNEL_CONVERSION_SERIES_LABEL, type FunnelSeriesMeta } from '../shared/funnelSeriesMeta'
@@ -36,7 +38,6 @@ import { buildFunnelLineSeries, buildFunnelLineTimeSeriesConfig, type IndexedFun
 import { FunnelLineTooltip } from './FunnelLineTooltip'
 import { type FunnelLineChartClickDeps, handleFunnelLineChartClick } from './handleFunnelLineChartClick'
 
-const TOOLTIP_CONFIG: TooltipConfig = { pinnable: true, placement: 'top' }
 const EMPTY_STRINGS: string[] = []
 
 const handleChartError = (error: Error, info: ErrorInfo): void => {
@@ -63,8 +64,10 @@ export function FunnelLineChart({
     inSharedMode,
     showPersonsModal: showPersonsModalProp = true,
 }: Omit<ChartParams, 'filters'>): JSX.Element | null {
-    const { isDarkModeOn } = useValues(themeLogic)
-    const theme = useMemo(() => buildTheme(), [isDarkModeOn])
+    const theme = useChartTheme()
+    const { featureFlags } = useValues(featureFlagLogic)
+    const quillTooltipEnabled = !!featureFlags[FEATURE_FLAGS.PRODUCT_ANALYTICS_INSIGHTS_TOOLTIPS]
+    const TOOLTIP_CONFIG = quillTooltipEnabled ? INSIGHT_TOOLTIP_CONFIG : INSIGHT_TOOLTIP_CONFIG_LEGACY
     const { insightProps, insight, canEditInsight } = useValues(insightLogic)
 
     const {
@@ -134,7 +137,7 @@ export function FunnelLineChart({
         [showLegend, series.length, legendPosition, canEditInsight, inSharedMode]
     )
 
-    const chartConfig: TimeSeriesLineChartConfig = useMemo(
+    const chartConfig: TimeSeriesLineChartConfig = useChartConfig(
         () => ({
             ...buildFunnelLineTimeSeriesConfig({
                 indexedSteps: steps,
@@ -159,58 +162,114 @@ export function FunnelLineChart({
             funnelsFilter?.showTrendLines,
             showValuesOnSeries,
             legendConfig,
+            TOOLTIP_CONFIG,
         ]
     )
-
-    if (!isFunnelsQuery(querySource)) {
-        return null
-    }
 
     const resolvedGroupTypeLabel = resolveGroupTypeLabel(labelGroupType, aggregationLabel)
     const labels = steps[0]?.labels ?? EMPTY_STRINGS
     const annotationDates = steps[0]?.days ?? EMPTY_STRINGS
     const showAnnotations = !inSharedMode && funnelsFilter?.showAnnotations !== false
 
-    const clickDeps: FunnelLineChartClickDeps = {
-        hasPersonsModal: showPersonsModal,
-        querySource,
-        interval,
-        timezone,
-        weekStartDay,
-        resolvedDateRange: insightData?.resolved_date_range ?? null,
-        breakdownFilter,
-        aggregationTargetLabel,
-        cohorts: allCohorts.results,
-        formatPropertyValueForDisplay,
-        openPersonsModal,
-    }
-
-    const onPointClick = (clickData: PointClickData<FunnelSeriesMeta>): void => {
-        if (clickData.series.meta) {
-            handleFunnelLineChartClick(clickData.series.meta, clickData.dataIndex, clickDeps)
-        }
-    }
-
-    const renderTooltip = (ctx: TooltipContext<FunnelSeriesMeta>): JSX.Element => (
-        <FunnelLineTooltip
-            context={ctx}
-            timezone={timezone}
-            interval={interval ?? undefined}
-            breakdownFilter={breakdownFilter ?? undefined}
-            dateRange={insightData?.resolved_date_range ?? undefined}
-            groupTypeLabel={resolvedGroupTypeLabel}
-            onRowClick={
-                showPersonsModal
-                    ? (datum: SeriesDatum) => {
-                          const meta = ctx.seriesData[datum.datasetIndex]?.series.meta
-                          if (meta) {
-                              handleFunnelLineChartClick(meta, datum.dataIndex, clickDeps)
-                          }
-                      }
-                    : undefined
-            }
-        />
+    const clickDeps = useMemo<FunnelLineChartClickDeps>(
+        () => ({
+            hasPersonsModal: showPersonsModal,
+            querySource,
+            interval,
+            timezone,
+            weekStartDay,
+            resolvedDateRange: insightData?.resolved_date_range ?? null,
+            breakdownFilter,
+            aggregationTargetLabel,
+            cohorts: allCohorts.results,
+            formatPropertyValueForDisplay,
+            openPersonsModal,
+        }),
+        [
+            showPersonsModal,
+            querySource,
+            interval,
+            timezone,
+            weekStartDay,
+            insightData?.resolved_date_range,
+            breakdownFilter,
+            aggregationTargetLabel,
+            allCohorts.results,
+            formatPropertyValueForDisplay,
+        ]
     )
+
+    const onPointClick = useCallback(
+        (clickData: PointClickData<FunnelSeriesMeta>): void => {
+            if (clickData.series.meta) {
+                handleFunnelLineChartClick(clickData.series.meta, clickData.dataIndex, clickDeps)
+            }
+        },
+        [clickDeps]
+    )
+
+    const renderTooltip = useCallback(
+        (ctx: TooltipContext<FunnelSeriesMeta>): JSX.Element => {
+            if (quillTooltipEnabled) {
+                return (
+                    <InsightSeriesTooltip
+                        context={ctx}
+                        timezone={timezone}
+                        interval={interval ?? undefined}
+                        breakdownFilter={breakdownFilter ?? undefined}
+                        dateRange={insightData?.resolved_date_range ?? undefined}
+                        groupTypeLabel={resolvedGroupTypeLabel}
+                        renderSeriesOverride={(datum) => datum.label ?? ''}
+                        renderCount={(value) => `${value}%`}
+                        onRowClick={
+                            showPersonsModal
+                                ? (datum) => {
+                                      const meta = ctx.seriesData[datum.datasetIndex]?.series.meta
+                                      if (meta) {
+                                          handleFunnelLineChartClick(meta, datum.dataIndex, clickDeps)
+                                      }
+                                  }
+                                : undefined
+                        }
+                    />
+                )
+            }
+            return (
+                <FunnelLineTooltip
+                    context={ctx}
+                    timezone={timezone}
+                    interval={interval ?? undefined}
+                    breakdownFilter={breakdownFilter ?? undefined}
+                    dateRange={insightData?.resolved_date_range ?? undefined}
+                    groupTypeLabel={resolvedGroupTypeLabel}
+                    onRowClick={
+                        showPersonsModal
+                            ? (datum: SeriesDatum) => {
+                                  const meta = ctx.seriesData[datum.datasetIndex]?.series.meta
+                                  if (meta) {
+                                      handleFunnelLineChartClick(meta, datum.dataIndex, clickDeps)
+                                  }
+                              }
+                            : undefined
+                    }
+                />
+            )
+        },
+        [
+            quillTooltipEnabled,
+            timezone,
+            interval,
+            breakdownFilter,
+            insightData?.resolved_date_range,
+            resolvedGroupTypeLabel,
+            showPersonsModal,
+            clickDeps,
+        ]
+    )
+
+    if (!isFunnelsQuery(querySource)) {
+        return null
+    }
 
     return (
         <TimeSeriesLineChart<FunnelSeriesMeta>

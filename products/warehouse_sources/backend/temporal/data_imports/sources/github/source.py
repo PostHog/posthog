@@ -40,6 +40,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.sch
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.webhook_s3 import WebhookSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import GithubSourceConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.github.github import (
+    GithubEgressIdentity,
     GithubResumeConfig,
     create_repo_webhook,
     delete_repo_webhook,
@@ -230,6 +231,17 @@ If automatic creation failed, your token needs webhook permissions — the **adm
             raise ValueError("GitHub access token not found")
         return integration.access_token
 
+    def _egress_identity(self, config: GithubSourceConfig, team_id: int) -> GithubEgressIdentity:
+        """Resolve the installation id used to gate egress and label telemetry. Empty on the PAT path
+        (no installation budget, token-blind), which makes the source record counter-only and skip the
+        limiter — the pre-limiter behavior. The integration is a cheap PK lookup; resolving it separately
+        from the token keeps ``_get_access_token`` a token-only method (and its tests untouched), at the
+        cost of one extra indexed query per pipeline build (negligible)."""
+        if config.auth_method.selection == "pat" or not config.auth_method.github_integration_id:
+            return GithubEgressIdentity()
+        integration = self.get_oauth_integration(config.auth_method.github_integration_id, team_id)
+        return GithubEgressIdentity(installation_id=GitHubIntegration(integration).github_installation_id)
+
     @staticmethod
     def _schema_for_endpoint(endpoint: str) -> SourceSchema:
         webhook_capable = endpoint in GITHUB_WEBHOOK_RESOURCE_MAP
@@ -322,6 +334,7 @@ If automatic creation failed, your token needs webhook permissions — the **adm
         inputs: SourceInputs,
     ) -> SourceResponse:
         access_token = self._get_access_token(config, inputs.team_id)
+        egress_identity = self._egress_identity(config, inputs.team_id)
         # Only the workflow schemas can be webhook-fed, so skip building the manager — and its
         # webhook_enabled() DB lookup — for the poll-only endpoints (issues, commits, etc.).
         webhook_source_manager = (
@@ -340,4 +353,5 @@ If automatic creation failed, your token needs webhook permissions — the **adm
             else None,
             incremental_field=inputs.incremental_field,
             webhook_source_manager=webhook_source_manager,
+            egress_identity=egress_identity,
         )

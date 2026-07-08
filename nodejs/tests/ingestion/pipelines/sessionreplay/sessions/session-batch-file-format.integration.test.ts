@@ -192,6 +192,7 @@ describe('session recording integration', () => {
             teamId,
             consoleLogIngestionEnabled: false,
             aiTrainingOptedIn: true,
+            firstPartyHosts: [],
         },
         message: {
             distinct_id: 'distinct_id',
@@ -260,7 +261,7 @@ describe('session recording integration', () => {
 
         // Record all messages
         for (const message of messages) {
-            await recorder.record(message)
+            await recorder.record(message, '30d')
         }
 
         // Flush and get metadata

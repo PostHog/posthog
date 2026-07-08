@@ -63,7 +63,13 @@ export function renderHogQLX(value: any): JSX.Element {
 
     if (typeof object === 'object') {
         if (Array.isArray(object)) {
-            return <>{object.map((obj) => renderHogQLX(obj))}</>
+            return (
+                <>
+                    {object.map((obj, index) => (
+                        <React.Fragment key={index}>{renderHogQLX(obj)}</React.Fragment>
+                    ))}
+                </>
+            )
         }
 
         if (object === null) {

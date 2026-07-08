@@ -27,12 +27,48 @@ hcl/
   <layer>/sql/<object>.sql # view/MV query bodies extracted from a layer, referenced as query = file("sql/<object>.sql")
   golden/<env>-<role>.hcl  # resolved composition per node (the desired schema); check.sh diffs against it
   sql/<env>-<role>.sql     # generated build-from-scratch CREATE schema per node (apply to a fresh ClickHouse)
-  check.sh                 # CI guard: validate + diff every node vs golden + verify golden/ & sql/ are fresh
+  check.sh                 # CI guard (offline): validate + diff every node vs golden + verify golden/ & sql/ are fresh
+  dump-live.sh             # CI gate step 1 (live): introspect the migrated OPS/LOGS nodes into HCL dumps
+  check-live.sh            # CI gate step 2 (offline): diff those dumps vs golden — catches migrations that desync from the HCL
+  exclude.hcl              # objects the gate drops (transient + cross-cluster proxies + out-of-band-managed, not in the managed set)
   diff.sh                  # preview the DDL your uncommitted edits produce, per node
   gen-golden.sh            # (re)generate golden/  — hclexp load per node
   gen-sql.sh               # (re)generate sql/
   codegen/gen_migration.py # turn an edit into run_sql_with_exceptions(...) operations
 ```
+
+## Convergence gate: migrations must reproduce the golden (`dump-live.sh` + `check-live.sh`)
+
+`check.sh` is **offline** — it proves the HCL is internally consistent and that `golden/`/`sql/` are
+fresh, but it never contacts a cluster, so it cannot tell whether the imperative migrations in
+`posthog/clickhouse/migrations/` still produce the schema the HCL declares. That gap is how old
+migrations silently desynced the live OPS/LOGS schema from the HCL.
+
+The convergence gate closes it, in **two steps** that run inside the multinode migration smoke
+(`tools/infra-scripts/clickhouse-multinode/`, workflow `ci-clickhouse-multinode-migrations.yml`)
+**after** `manage.py migrate_clickhouse`:
+
+1. **`dump-live.sh [outdir]`** — `hclexp introspect` each managed role's live node into
+   `<outdir>/<env>-<role>.hcl`, dropping unmanaged / transient objects via `exclude.hcl`. Needs the
+   cluster (a `--network host` container, or `HCLEXP_BIN` locally).
+2. **`check-live.sh <dumpdir>`** — for each role, `hclexp diff -format json` the committed
+   `golden/<env>-<role>.hcl` against the dump, drop the ignored operations (named_collections +
+   `exclude.hcl` globs), and require nothing left. Offline — only needs `hclexp`.
+
+```bash
+DUMP=$(bash posthog/clickhouse/hcl/dump-live.sh)   # step 1 -> prints the dump dir
+bash posthog/clickhouse/hcl/check-live.sh "$DUMP"  # step 2
+```
+
+Remaining drift means a migration changed the live schema without the HCL being updated (or vice
+versa). Fix the migration to match the HCL, or — if the change is intended — edit the layer, rerun
+`gen-golden.sh`/`gen-sql.sh`, and add the migration (the normal change flow below). Step 2 is
+**enforced** (drift fails the smoke); export `VERIFY_LIVE_WARN=1` to make it informational while
+reconciling a new role.
+
+Each managed role is compared against its `golden/local-<role>.hcl`. The local LOGS node runs a
+partial/newer schema than the cloud logs nodes, so `local logs` composes a self-contained
+`roles/logs/local` (extracted from the live node) rather than the shared cloud layers.
 
 `node_roles` is **derived**: an object in `roles/shared/` appears in every node's composition →
 `node_roles` = every managed role (currently `[LOGS, OPS]`); an object under `roles/ops/` appears
@@ -54,7 +90,7 @@ HCL=posthog/clickhouse/hcl
 $HCL/bin/hclexp -help
 # it is equivalent to:
 docker run --rm -v "$PWD:/work" -v "${TMPDIR:-/tmp}:${TMPDIR:-/tmp}" -w /work \
-  ghcr.io/posthog/chschema:sha-1871283 -help
+  ghcr.io/posthog/chschema:sha-bf84186 -help
 ```
 
 (For faster local iteration you can build the binary — `go build -o hclexp ./cmd/hclexp` in

@@ -2,40 +2,46 @@ import { LogicWrapper, actions, afterMount, connect, kea, listeners, path, reduc
 import { loaders } from 'kea-loaders'
 import { actionToUrl, router, urlToAction } from 'kea-router'
 
+import { lemonToast } from '@posthog/lemon-ui'
+
 import { ApiConfig, ApiError } from 'lib/api'
 import { dayjs } from 'lib/dayjs'
 import { objectsEqual } from 'lib/utils/objects'
+import { pluralize } from 'lib/utils/strings'
 import { urls } from 'scenes/urls'
 
 import {
     engineeringAnalyticsCiCards,
+    engineeringAnalyticsFlakyTests,
     engineeringAnalyticsPullRequests,
     engineeringAnalyticsQuarantine,
+    engineeringAnalyticsQuarantineRequest,
     engineeringAnalyticsSources,
     engineeringAnalyticsWorkflowHealth,
 } from '../generated/api'
-import type { GitHubSourceApi, PullRequestListItemApi } from '../generated/api.schemas'
+import type {
+    GitHubSourceApi,
+    PullRequestListItemApi,
+    QuarantineRequestApi,
+    QuarantineRequestResultApi,
+} from '../generated/api.schemas'
 import { CIStatus, ciStatusOf } from '../lib/ci'
 import { type FleetSummary, computeFleetSummary } from '../lib/runHealth'
 import { engineeringAnalyticsFiltersLogic } from './engineeringAnalyticsFiltersLogic'
 import type { engineeringAnalyticsLogicType } from './engineeringAnalyticsLogicType'
 
-// Safety bound on the PR table (mirrors the endpoint's server-side limit). Surfaced
-// in copy when hit so a truncated list is never mistaken for the whole picture.
+// Mirrors the endpoint's server-side limit.
 export const PR_TABLE_LIMIT = 1000
 
-// The workflow-health endpoint returns the top workflows by run count (`workflow_health.py` `_LIMIT`).
-// When hit, the fleet header labels its totals as "top N" so they're never read as the whole fleet.
+// Mirrors `workflow_health.py` `_LIMIT` (top workflows by run count).
 export const WORKFLOW_HEALTH_LIMIT = 100
 
-// The endpoints are project-scoped; the generated client takes the id as a string.
 const projectId = (): string => String(ApiConfig.getCurrentProjectId())
 
 export type PRState = 'open' | 'closed' | 'merged'
-/** 'draft' is a lens over open PRs; the other values mirror PRState. */
+/** 'draft' narrows open PRs; the other values mirror PRState. */
 export type PRStateFilter = PRState | 'draft' | 'all'
 export type CIStatusFilter = CIStatus | 'all'
-/** The stat cards double as quick views over the open backlog. */
 export type CardFilter = 'open' | 'failing' | 'stuck'
 
 /** Mirrors the ci_cards "stuck" rule: open, non-draft, non-bot, older than 7 days. */
@@ -60,11 +66,13 @@ export interface PullRequestRow {
     passing: number
     failing: number
     pending: number
-    /** CI triggers in the PR's window: distinct head SHAs across its workflow runs. Fork PRs unattributed. */
+    /** Workflow names behind `failing`, sorted. */
+    failingWorkflows: string[]
+    /** Distinct head SHAs across the PR's workflow runs. Fork PRs unattributed. */
     pushes: number
-    /** Workflow runs attributed to this PR that were a 2nd+ attempt (a re-run). */
+    /** Workflow runs attributed to this PR that were a 2nd+ attempt. */
     rerunCycles: number
-    /** Estimated CI cost (USD) over the PR's jobs (billable runners). Null when no cost / source unsynced. */
+    /** Estimated CI cost (USD) over the PR's billable jobs. Null when the job source isn't synced. */
     estimatedCostUsd: number | null
     /** Billable (self-hosted) minutes over the PR's jobs. Null when the job source isn't synced. */
     billableMinutes: number | null
@@ -77,9 +85,8 @@ export interface CardsData {
     failingCi: number
 }
 
-/** Bucket width of a workflow's history series. 'hour'/'day'/'week' come from the server (time-bucketed
- *  workflow health); 'push' is computed client-side for the PR view, where each bucket is one push. */
-export type WorkflowGranularity = 'hour' | 'day' | 'week' | 'push'
+/** Bucket width of a workflow's history series, picked by the server from the window length. */
+export type WorkflowGranularity = 'hour' | 'day' | 'week'
 
 export interface WorkflowHealthBucket {
     /** Bucket start (ISO), aligned to the granularity (top of hour / midnight / Monday). */
@@ -89,9 +96,6 @@ export interface WorkflowHealthBucket {
     successes: number
     /** Decisive failures only (failure / timed_out); excludes skipped, cancelled, action_required. */
     failures: number
-    /** Pre-formatted sparkline label; when set, used verbatim instead of formatting bucketStart by time
-     *  (push buckets aren't time-aligned, so they carry their own "Push N (sha)" label). */
-    label?: string
 }
 
 export interface WorkflowHealthRow {
@@ -116,16 +120,15 @@ export interface WorkflowHealthRow {
     billableMinutes?: number | null
     /** Estimated $ cost for this workflow within the scope; null when nothing was costable. */
     estimatedCostUsd?: number | null
+    /** Runs in the window that were a 2nd+ attempt. */
+    rerunCycles?: number
+    /** Success rate over the previous equal-length window. */
+    successRatePrev?: number | null
 }
 
-export type WorkflowTrendDirection = 'up' | 'down' | 'flat'
-
 export interface WorkflowFailureSeries {
-    /** Completed runs per bucket — drives total (stacked) bar height, i.e. volume. */
     completed: number[]
-    /** Decisive failures per bucket — the red portion of each stacked bar. */
     failures: number[]
-    /** Per-bucket tooltip label. */
     labels: string[]
 }
 
@@ -140,12 +143,7 @@ function formatBucket(bucketStart: string, granularity: WorkflowGranularity): st
     return at.format('MMM D')
 }
 
-/**
- * Series for the run-status sparkline. Each bar is stacked: total height is completed runs (volume)
- * and the red portion is decisive failures, so the red *fraction* reads as the failure rate — 1% is a
- * sliver, 50% is half-red — which length encodes accurately (unlike shade). Skipped, cancelled, and
- * action_required runs are not failures.
- */
+/** Stacked sparkline series: bar height = completed runs, red portion = decisive failures. */
 export function workflowFailureSeries(
     buckets: WorkflowHealthBucket[],
     granularity: WorkflowGranularity
@@ -153,38 +151,40 @@ export function workflowFailureSeries(
     const completed = buckets.map((b) => b.completed)
     const failures = buckets.map((b) => b.failures)
     const labels = buckets.map((b) => {
-        // Push buckets carry their own label (not time-aligned); time buckets format from bucketStart.
-        const when = b.label ?? formatBucket(b.bucketStart, granularity)
+        const when = formatBucket(b.bucketStart, granularity)
         return b.completed > 0 ? `${when} · ${b.failures} of ${b.completed} failed` : `${when} · no completed runs`
     })
     return { completed, failures, labels }
 }
 
-/** Failure direction: are failures rising in the recent half of the window vs the prior half? */
-export function workflowFailureTrend(buckets: WorkflowHealthBucket[]): WorkflowTrendDirection {
-    if (buckets.length < 2) {
-        return 'flat'
-    }
-    const mid = Math.floor(buckets.length / 2)
-    const sumFailures = (slice: WorkflowHealthBucket[]): number => slice.reduce((total, b) => total + b.failures, 0)
-    const prior = sumFailures(buckets.slice(0, mid))
-    const recent = sumFailures(buckets.slice(mid))
-    if (recent > prior) {
-        return 'up'
-    }
-    if (recent < prior) {
-        return 'down'
-    }
-    return 'flat'
+/** 'failing'/'passing' key off the latest settled run; rows with nothing completed show only under 'all'. */
+export type WorkflowStatusFilter = 'all' | 'failing' | 'passing'
+
+export interface WorkflowFilters {
+    search: string
+    status: WorkflowStatusFilter
+}
+
+export const DEFAULT_WORKFLOW_FILTERS: WorkflowFilters = { search: '', status: 'all' }
+
+export function filterWorkflowHealth(rows: WorkflowHealthRow[], filters: WorkflowFilters): WorkflowHealthRow[] {
+    const search = filters.search.trim().toLowerCase()
+    return rows.filter((row) => {
+        if (filters.status === 'failing' && row.latestRunFailed !== true) {
+            return false
+        }
+        if (filters.status === 'passing' && row.latestRunFailed !== false) {
+            return false
+        }
+        return !search || row.workflowName.toLowerCase().includes(search)
+    })
 }
 
 export function prKeyOf(row: Pick<PullRequestRow, 'repoOwner' | 'repoName' | 'number'>): string {
     return `${row.repoOwner}/${row.repoName}#${row.number}`
 }
 
-/** Map an API PR list item to the table row shape — shared by the PR list and the author page so both
- *  feed the same PullRequestTable. ?? fallbacks degrade gracefully when a new frontend briefly hits an
- *  older backend whose response predates the cost/push fields. */
+/** ?? fallbacks: a new frontend can briefly hit an older backend predating the cost/push fields. */
 export function toPullRequestRow(it: PullRequestListItemApi): PullRequestRow {
     return {
         number: it.number,
@@ -204,6 +204,7 @@ export function toPullRequestRow(it: PullRequestListItemApi): PullRequestRow {
         passing: it.ci.passing,
         failing: it.ci.failing,
         pending: it.ci.pending,
+        failingWorkflows: it.ci.failing_workflows ?? [],
         pushes: it.pushes ?? 0,
         rerunCycles: it.rerun_cycles ?? 0,
         estimatedCostUsd: it.estimated_cost_usd ?? null,
@@ -249,8 +250,7 @@ export function filterPullRequests(
     now: dayjs.Dayjs = dayjs()
 ): PullRequestRow[] {
     const search = filters.search.trim().toLowerCase()
-    // Hoisted out of the per-row check: this selector re-runs on every search keystroke
-    // over up to 1000 rows, so the row loop should not allocate dayjs instances.
+    // Hoisted: re-runs per keystroke over up to 1000 rows — no dayjs allocation in the row loop.
     const stuckCutoffMs = filters.stuckOnly ? now.subtract(STUCK_AFTER_DAYS, 'day').valueOf() : 0
     return rows.filter((row) => {
         if (!matchesStateFilter(row, filters.state)) {
@@ -286,7 +286,6 @@ export type QuarantineSelectorKind = 'product' | 'directory' | 'file' | 'test'
 /** 'past_expiry' groups in_grace + overdue — the states the quarantine check warns or fails on. */
 export type QuarantineLifecycleFilter = 'all' | 'active' | 'expiring_soon' | 'past_expiry'
 export type QuarantineModeFilter = QuarantineMode | 'all'
-/** The stat cards double as quick filters over the entries, like the PR tab. */
 export type QuarantineCard = 'active' | 'expiring_soon' | 'past_expiry' | 'skipped'
 
 export interface QuarantineEntryRow {
@@ -401,12 +400,115 @@ export function quarantineCountsOf(rows: QuarantineEntryRow[]): QuarantineCounts
     return { ...counts, pastExpiry: counts.inGrace + counts.overdue }
 }
 
+/** Leaderboard windows the UI offers; the endpoint accepts any window up to 30 days. */
+export type FlakyTestWindow = '-7d' | '-14d' | '-30d'
+export const DEFAULT_FLAKY_TEST_WINDOW: FlakyTestWindow = '-7d'
+
+export interface FlakyTestRow {
+    /** Reconstructed pytest nodeid (the CI span name) — a stable grouping/display key. */
+    nodeid: string
+    /** Runnable pytest selector for the quarantine action; exact when the CI reporter emitted it. */
+    selector: string
+    /** Failed, then passed on an automatic retry — the strongest flaky signal (rerun-enabled lanes only). */
+    rerunPassedCount: number
+    /** Spans whose final outcome was failed/error. Absolute count, never a rate (denominators are biased). */
+    failedCount: number
+    /** Distinct PRs among the failures; master/branch failures carry no PR and don't count here. */
+    failedPrCount: number
+    /** Distinct branches across the test's flaky-signal spans. */
+    branchCount: number
+    /** Failed while quarantined (xfail) — already masked in CI, still flaky. */
+    xfailedCount: number
+    lastSeenAt: string
+}
+
+export interface FlakyTestsData {
+    rows: FlakyTestRow[]
+    /** True when more tests qualified than the cap; rows are the strongest `limit`. */
+    truncated: boolean
+    limit: number
+}
+
+export type QuarantineRequestAction = 'quarantine' | 'extend' | 'remove'
+
+/** What the tab submits to the write endpoint; the backend opens the issue + PR. */
+export interface QuarantineSubmitInput {
+    action: QuarantineRequestAction
+    selector: string
+    reason: string
+    owner: string
+    /** Existing tracking issue, carried forward on extend/remove. */
+    issue: string
+    /** ISO 'YYYY-MM-DD', or null to let the server default to +14 days. */
+    expires: string | null
+    mode: QuarantineMode
+}
+
+/** Open-modal state for quarantine/extend; null when closed. Remove uses a confirm dialog. */
+export interface QuarantineModalState {
+    action: 'quarantine' | 'extend'
+    selector: string
+    reason: string
+    owner: string
+    issue: string
+    mode: QuarantineMode
+    /** Glanceable confirm presentation for prefilled openers (leaderboard rows); 'Edit details' switches to the form. */
+    confirm?: boolean
+}
+
+/** Data-backed quarantine reason from a leaderboard row — the evidence is the reason; the
+ *  cause is unknown until someone investigates, which is the tracking issue's job. */
+export function flakyEvidenceReason(row: FlakyTestRow, window: FlakyTestWindow): string {
+    const windowLabel = { '-7d': '7 days', '-14d': '14 days', '-30d': '30 days' }[window]
+    const parts: string[] = []
+    if (row.rerunPassedCount > 0) {
+        parts.push(`passed on retry ${row.rerunPassedCount}x`)
+    }
+    if (row.failedCount > 0) {
+        parts.push(
+            row.failedPrCount > 0
+                ? `failed ${row.failedCount}x across ${pluralize(row.failedPrCount, 'PR')}`
+                : `failed ${row.failedCount}x`
+        )
+    }
+    if (row.xfailedCount > 0) {
+        parts.push(`failed while quarantined ${row.xfailedCount}x`)
+    }
+    return `Flaky in CI: ${parts.join(', ')} in the last ${windowLabel}`
+}
+
+/** Suggest an owning team from a product-scoped selector; '' when the selector isn't product-scoped. */
+export function inferOwnerFromSelector(selector: string): string {
+    const trimmed = selector.trim()
+    const product = trimmed.startsWith('product:')
+        ? trimmed.slice('product:'.length)
+        : (trimmed.match(/^products\/([^/]+)\//)?.[1] ?? '').replace(/_/g, '-')
+    return product ? `@PostHog/team-${product}` : ''
+}
+
+function toRequestBody(input: QuarantineSubmitInput, repo: string | null): QuarantineRequestApi {
+    return {
+        // Wire field is 'operation' (a bare 'action' enum collides in the OpenAPI spec).
+        operation: input.action,
+        selector: input.selector,
+        // The repo being viewed, so the PR lands there. Null in local dev.
+        repo,
+        reason: input.reason,
+        owner: input.owner,
+        issue: input.issue,
+        expires: input.expires,
+        mode: input.mode,
+    }
+}
+
+export function quarantineRequestErrorMessage(error: unknown): string {
+    const detail = error as { detail?: string; data?: { detail?: string }; message?: string }
+    return detail?.detail ?? detail?.data?.detail ?? detail?.message ?? 'Could not complete the quarantine request.'
+}
+
 /**
- * Per-loader outcome. The endpoints all resolve the same GitHub source, so a 400
- * (GitHubSourceNotConnectedError) means "connect a source" for every scene; any other
- * failure is a genuine error scoped to the loader that hit it. Tracked per loader so a
- * 500 on one endpoint drives only the scenes that read it — not, say, an error banner on
- * the PR list because workflow health failed.
+ * Per-loader outcome. A 400 means "no GitHub source" for every scene; any other failure stays scoped
+ * to the loader that hit it, so a 500 on one endpoint doesn't error a scene that doesn't read it.
  */
 export type LoaderStatus = 'ok' | 'notConnected' | 'error'
 
@@ -418,9 +520,8 @@ export const engineeringAnalyticsLogic: LogicWrapper<engineeringAnalyticsLogicTy
     kea<engineeringAnalyticsLogicType>([
         path(['products', 'engineering_analytics', 'frontend', 'scenes', 'engineeringAnalyticsLogic']),
 
-        // The Workflows tab reads the shared CI-analytics window; the loader and reload listener use it.
         connect(() => ({
-            values: [engineeringAnalyticsFiltersLogic, ['dateFrom', 'dateTo']],
+            values: [engineeringAnalyticsFiltersLogic, ['dateFrom', 'dateTo', 'appliedBranch']],
         })),
 
         actions({
@@ -429,12 +530,10 @@ export const engineeringAnalyticsLogic: LogicWrapper<engineeringAnalyticsLogicTy
             setRepo: (repo: string | null) => ({ repo }),
             setCiStatusFilter: (ciStatus: CIStatusFilter) => ({ ciStatus }),
             setSearch: (search: string) => ({ search }),
+            setWorkflowSearch: (search: string) => ({ search }),
+            setWorkflowStatusFilter: (status: WorkflowStatusFilter) => ({ status }),
+            resetWorkflowFilters: true,
             setStuckOnly: (stuckOnly: boolean) => ({ stuckOnly }),
-            // Branch is filtered server-side (it's aggregated away in workflow health), so typing only
-            // stages the value in branchInput; applyBranchFilter promotes it to appliedBranch and reloads.
-            setBranchFilter: (branch: string) => ({ branch }),
-            applyBranchFilter: true,
-            setAppliedBranch: (branch: string) => ({ branch }),
             applyCardFilter: (card: CardFilter) => ({ card }),
             setSourceId: (sourceId: string | null) => ({ sourceId }),
             setCostLensEnabled: (enabled: boolean) => ({ enabled }),
@@ -445,6 +544,9 @@ export const engineeringAnalyticsLogic: LogicWrapper<engineeringAnalyticsLogicTy
             setQuarantineOwner: (owner: string | null) => ({ owner }),
             applyQuarantineCard: (card: QuarantineCard) => ({ card }),
             resetQuarantineFilters: true,
+            openQuarantineModal: (state: QuarantineModalState) => ({ state }),
+            closeQuarantineModal: true,
+            setFlakyTestWindow: (window: FlakyTestWindow) => ({ window }),
             refresh: true,
         }),
 
@@ -496,25 +598,21 @@ export const engineeringAnalyticsLogic: LogicWrapper<engineeringAnalyticsLogicTy
                                 p50Seconds: it.p50_seconds,
                                 p95Seconds: it.p95_seconds,
                                 lastFailureAt: it.last_failure_at,
-                                // Defensive ?? null: a new frontend can briefly hit an older backend
-                                // whose response predates this field — degrade to "unknown", not crash.
+                                // ?? fallbacks: a new frontend can briefly hit an older backend predating these fields.
                                 latestRunFailed: it.latest_run_failed ?? null,
                                 latestRunConclusion: it.latest_run_conclusion ?? null,
-                                // Defensive ?? 'day': older backends predate adaptive bucketing.
                                 granularity: (it.granularity ?? 'day') as WorkflowGranularity,
-                                // ?? []: a new frontend can briefly hit an older backend whose response
-                                // predates the buckets field during a rolling deploy — degrade, don't crash.
                                 buckets: (it.buckets ?? []).map((b) => ({
                                     bucketStart: b.bucket_start,
                                     runCount: b.run_count,
                                     completed: b.completed,
                                     successes: b.successes,
-                                    // Defensive ?? 0: a new frontend can briefly hit an older backend whose
-                                    // response predates this field — degrade to 0, don't compute NaN bars.
                                     failures: b.failures ?? 0,
                                 })),
                                 billableMinutes: it.billable_minutes ?? null,
                                 estimatedCostUsd: it.estimated_cost_usd ?? null,
+                                rerunCycles: it.rerun_cycles ?? 0,
+                                successRatePrev: it.success_rate_prev ?? null,
                             })
                         )
                     },
@@ -552,6 +650,48 @@ export const engineeringAnalyticsLogic: LogicWrapper<engineeringAnalyticsLogicTy
                     },
                 },
             ],
+            flakyTests: [
+                null as FlakyTestsData | null,
+                {
+                    loadFlakyTests: async (): Promise<FlakyTestsData> => {
+                        const data = await engineeringAnalyticsFlakyTests(projectId(), {
+                            date_from: values.flakyTestWindow,
+                            source_id: values.sourceId ?? undefined,
+                        })
+                        return {
+                            rows: data.items.map(
+                                (it): FlakyTestRow => ({
+                                    nodeid: it.nodeid,
+                                    selector: it.selector,
+                                    rerunPassedCount: it.rerun_passed_count,
+                                    failedCount: it.failed_count,
+                                    failedPrCount: it.failed_pr_count,
+                                    branchCount: it.branch_count,
+                                    xfailedCount: it.xfailed_count,
+                                    lastSeenAt: it.last_seen_at,
+                                })
+                            ),
+                            truncated: data.truncated,
+                            limit: data.limit,
+                        }
+                    },
+                },
+            ],
+            quarantineSubmit: [
+                null as QuarantineRequestResultApi | null,
+                {
+                    submitQuarantine: async ({
+                        input,
+                    }: {
+                        input: QuarantineSubmitInput
+                    }): Promise<QuarantineRequestResultApi> => {
+                        return await engineeringAnalyticsQuarantineRequest(
+                            projectId(),
+                            toRequestBody(input, values.quarantine?.repoFullName ?? null)
+                        )
+                    },
+                },
+            ],
             githubSources: [
                 [] as GitHubSourceApi[],
                 {
@@ -579,12 +719,7 @@ export const engineeringAnalyticsLogic: LogicWrapper<engineeringAnalyticsLogicTy
                 DEFAULT_FILTERS.search,
                 { setSearch: (_, { search }) => search, resetFilters: () => DEFAULT_FILTERS.search },
             ],
-            // Exact git branch to scope workflow health to; '' means all branches. branchInput is the
-            // staged text in the box; appliedBranch is what the loader sends. Server-side filter, so
-            // appliedBranch persists across date reloads (e.g. "main on last 30d" → "main on last 90d").
-            branchInput: ['', { setBranchFilter: (_, { branch }) => branch }],
-            appliedBranch: ['', { setAppliedBranch: (_, { branch }) => branch }],
-            // Leaving the open backlog (e.g. switching to Merged) exits the stuck lens — stuck implies open.
+            // Changing the state filter exits stuck-only — stuck implies open.
             stuckOnly: [
                 DEFAULT_FILTERS.stuckOnly,
                 {
@@ -593,13 +728,22 @@ export const engineeringAnalyticsLogic: LogicWrapper<engineeringAnalyticsLogicTy
                     resetFilters: () => DEFAULT_FILTERS.stuckOnly,
                 },
             ],
-            // Which connected GitHub source to read; null = the backend default (oldest connected).
-            // URL-synced via `source` so it survives tab switches and deep-links into a PR's detail.
+            workflowSearch: [
+                DEFAULT_WORKFLOW_FILTERS.search,
+                {
+                    setWorkflowSearch: (_, { search }) => search,
+                    resetWorkflowFilters: () => DEFAULT_WORKFLOW_FILTERS.search,
+                },
+            ],
+            workflowStatusFilter: [
+                DEFAULT_WORKFLOW_FILTERS.status,
+                {
+                    setWorkflowStatusFilter: (_, { status }) => status,
+                    resetWorkflowFilters: () => DEFAULT_WORKFLOW_FILTERS.status,
+                },
+            ],
+            // Which GitHub source to read; null = backend default (oldest connected). Synced to `?source=`.
             sourceId: [null as string | null, { setSourceId: (_, { sourceId }) => sourceId }],
-            // Per-loader status. Each endpoint resolves the same GitHub source, so any one 400 means
-            // "not connected" for every scene; a non-400 failure is a per-loader error. Tracked
-            // separately (rather than off cards alone) so notConnected and the scene error states can
-            // each react to the loaders that actually feed them — see the selectors below.
             cardsStatus: [
                 'ok' as LoaderStatus,
                 {
@@ -636,14 +780,36 @@ export const engineeringAnalyticsLogic: LogicWrapper<engineeringAnalyticsLogicTy
                     resetQuarantineFilters: () => DEFAULT_QUARANTINE_FILTERS.owner,
                 },
             ],
-            // The quarantine endpoint only 400s when there is no GitHub source AND no local
-            // checkout (production without a source); a failed load is that canary.
+            // The quarantine endpoint only 400s when there's no GitHub source and no local checkout.
             quarantineLoadFailed: [
                 false,
                 {
                     loadQuarantine: () => false,
                     loadQuarantineSuccess: () => false,
                     loadQuarantineFailure: () => true,
+                },
+            ],
+            // Leaderboard window; transient like the other lenses (no persisted UI in this phase).
+            flakyTestWindow: [
+                DEFAULT_FLAKY_TEST_WINDOW as FlakyTestWindow,
+                { setFlakyTestWindow: (_, { window }) => window },
+            ],
+            // Same tri-state as the other loaders: 'notConnected' (no source) defers to the tab-level
+            // "connect a source" gate; only a real 'error' surfaces the leaderboard's own banner.
+            flakyTestsStatus: [
+                'ok' as LoaderStatus,
+                {
+                    loadFlakyTests: () => 'ok',
+                    loadFlakyTestsSuccess: () => 'ok',
+                    loadFlakyTestsFailure: (_, { errorObject }) => loaderStatusFromError(errorObject),
+                },
+            ],
+            quarantineModal: [
+                null as QuarantineModalState | null,
+                {
+                    openQuarantineModal: (_, { state }) => state,
+                    closeQuarantineModal: () => null,
+                    submitQuarantineSuccess: () => null,
                 },
             ],
             pullRequestsStatus: [
@@ -662,22 +828,40 @@ export const engineeringAnalyticsLogic: LogicWrapper<engineeringAnalyticsLogicTy
                     loadWorkflowHealthFailure: (_, { errorObject }) => loaderStatusFromError(errorObject),
                 },
             ],
-            // Cost & performance lens: surfaces per-PR pushes / re-runs / estimated cost. Transient
-            // (no persisted/stateful UI in this phase, per SPEC).
             costLensEnabled: [true, { setCostLensEnabled: (_, { enabled }) => enabled }],
         }),
 
         selectors({
-            // Fleet verdict + rollups across every workflow row, for the all-workflows health strip.
             fleetSummary: [
                 (s) => [s.workflowHealth],
                 (workflowHealth): FleetSummary => computeFleetSummary(workflowHealth),
             ],
-            // The endpoint caps at the top workflows by run count; when hit, the header's totals cover only
-            // those, so it labels them as "top N" rather than fleet-wide.
             fleetTruncated: [
                 (s) => [s.workflowHealth],
                 (workflowHealth): boolean => workflowHealth.length >= WORKFLOW_HEALTH_LIMIT,
+            ],
+            workflowFilters: [
+                (s) => [s.workflowSearch, s.workflowStatusFilter],
+                (search, status): WorkflowFilters => ({ search, status }),
+            ],
+            filteredWorkflowHealth: [
+                (s) => [s.workflowHealth, s.workflowFilters],
+                (workflowHealth, workflowFilters): WorkflowHealthRow[] =>
+                    filterWorkflowHealth(workflowHealth, workflowFilters),
+            ],
+            hasActiveWorkflowFilters: [
+                (s) => [s.workflowFilters],
+                (workflowFilters): boolean =>
+                    !objectsEqual(
+                        { ...workflowFilters, search: workflowFilters.search.trim() },
+                        DEFAULT_WORKFLOW_FILTERS
+                    ),
+            ],
+            // Until the job-level source syncs every cost field is null — scenes hide the column instead.
+            workflowCostAvailable: [
+                (s) => [s.workflowHealth],
+                (workflowHealth): boolean =>
+                    workflowHealth.some((row) => row.billableMinutes != null || row.estimatedCostUsd != null),
             ],
             filters: [
                 (s) => [s.stateFilter, s.author, s.repo, s.ciStatusFilter, s.search, s.stuckOnly],
@@ -728,23 +912,16 @@ export const engineeringAnalyticsLogic: LogicWrapper<engineeringAnalyticsLogicTy
                 (cardsLoading, pullRequestsLoading, workflowHealthLoading, quarantineLoading): boolean =>
                     cardsLoading || pullRequestsLoading || workflowHealthLoading || quarantineLoading,
             ],
-            // No GitHub source connected: a 400 from any endpoint (they share source resolution).
-            // Drives the "connect a source" state on every scene, regardless of which loaders it renders.
             notConnected: [
                 (s) => [s.cardsStatus, s.pullRequestsStatus, s.workflowHealthStatus],
                 (cardsStatus, pullRequestsStatus, workflowHealthStatus): boolean =>
                     [cardsStatus, pullRequestsStatus, workflowHealthStatus].includes('notConnected'),
             ],
-            // Genuine (non-400) failure of a loader the PR scene renders (cards + the PR list). A 500
-            // here shows the retryable error; a failure of only workflow health does not, so the PR
-            // list isn't hidden behind an error it doesn't depend on.
+            // Each scene's error state reacts only to the loaders it renders (see LoaderStatus).
             pullRequestsLoadError: [
                 (s) => [s.cardsStatus, s.pullRequestsStatus],
                 (cardsStatus, pullRequestsStatus): boolean => cardsStatus === 'error' || pullRequestsStatus === 'error',
             ],
-            // Genuine (non-400) failure of the only loader the Workflows scene renders. Decoupled from
-            // cards so workflow health failing surfaces an error there (not a misleading empty table),
-            // and a cards-only failure doesn't error a scene whose own data loaded fine.
             workflowHealthLoadError: [
                 (s) => [s.workflowHealthStatus],
                 (workflowHealthStatus): boolean => workflowHealthStatus === 'error',
@@ -788,8 +965,13 @@ export const engineeringAnalyticsLogic: LogicWrapper<engineeringAnalyticsLogicTy
                 (filters): boolean =>
                     !objectsEqual({ ...filters, search: filters.search.trim() }, DEFAULT_QUARANTINE_FILTERS),
             ],
-            // Only worth a picker when the team has more than one GitHub source connected.
             hasMultipleSources: [(s) => [s.githubSources], (githubSources): boolean => githubSources.length > 1],
+            // The source reads resolve to: the picked one, else the backend default (oldest connected = first).
+            activeSource: [
+                (s) => [s.githubSources, s.sourceId],
+                (githubSources, sourceId): GitHubSourceApi | null =>
+                    (sourceId ? githubSources.find((source) => source.id === sourceId) : githubSources[0]) ?? null,
+            ],
             sourceOptions: [
                 (s) => [s.githubSources],
                 (githubSources): { value: string; label: string }[] =>
@@ -806,30 +988,14 @@ export const engineeringAnalyticsLogic: LogicWrapper<engineeringAnalyticsLogicTy
                 actions.loadPullRequests()
                 actions.loadWorkflowHealth()
                 actions.loadQuarantine()
+                actions.loadFlakyTests()
             },
-            // Cards, the PR list, workflow health, and the quarantine repo are all per-source — reload them all.
+            setFlakyTestWindow: () => actions.loadFlakyTests(),
             setSourceId: () => actions.refresh(),
-            // The shared window scopes workflow health; reload it when the window changes.
             [engineeringAnalyticsFiltersLogic.actionTypes.setDateRange]: () => {
                 actions.loadWorkflowHealth()
             },
-            setBranchFilter: ({ branch }) => {
-                // The search input's built-in clear (×) only fires onChange(''), never Enter/blur, so
-                // clearing it would otherwise leave the table scoped to the old branch. Apply on empty
-                // so the × resets to all-branches immediately.
-                if (branch.trim() === '') {
-                    actions.applyBranchFilter()
-                }
-            },
-            applyBranchFilter: () => {
-                const next = values.branchInput.trim()
-                // Skip the reload when the box is unchanged (e.g. a focus/blur with no edit).
-                if (next === values.appliedBranch) {
-                    return
-                }
-                actions.setAppliedBranch(next)
-            },
-            setAppliedBranch: () => {
+            [engineeringAnalyticsFiltersLogic.actionTypes.setAppliedBranch]: () => {
                 actions.loadWorkflowHealth()
             },
             applyCardFilter: ({ card }) => {
@@ -853,6 +1019,21 @@ export const engineeringAnalyticsLogic: LogicWrapper<engineeringAnalyticsLogicTy
                     actions.setQuarantineLifecycleFilter(target)
                 }
             },
+            submitQuarantineSuccess: ({ quarantineSubmit }) => {
+                if (!quarantineSubmit) {
+                    return
+                }
+                lemonToast.success(
+                    quarantineSubmit.issue_url
+                        ? 'Opened a quarantine PR and a tracking issue. It takes effect once the PR merges.'
+                        : 'Opened a PR. It takes effect once it merges.',
+                    { button: { label: 'View PR', action: () => window.open(quarantineSubmit.pr_url, '_blank') } }
+                )
+                actions.loadQuarantine()
+            },
+            submitQuarantineFailure: ({ error }) => {
+                lemonToast.error(quarantineRequestErrorMessage(error))
+            },
         })),
 
         actionToUrl(() => ({
@@ -865,44 +1046,21 @@ export const engineeringAnalyticsLogic: LogicWrapper<engineeringAnalyticsLogicTy
                 }
                 return [router.values.location.pathname, searchParams, router.values.hashParams, { replace: true }]
             },
-            // Mirror the applied branch into `?q=` so a branch-scoped view is shareable and survives reload.
-            setAppliedBranch: ({ branch }) => {
-                const searchParams = { ...router.values.searchParams }
-                if (branch) {
-                    searchParams.q = branch
-                } else {
-                    delete searchParams.q
-                }
-                return [router.values.location.pathname, searchParams, router.values.hashParams, { replace: true }]
-            },
         })),
 
         urlToAction(({ actions, values }) => {
-            // The chosen source rides in `?source=` so it survives tab switches and deep-links into a PR's detail.
+            // `?q=` (branch scope) is hydrated by engineeringAnalyticsFiltersLogic, not here.
             const applySource = (source: string | undefined): void => {
                 const next = source ?? null
                 if (next !== values.sourceId) {
                     actions.setSourceId(next)
                 }
             }
-            // `?q=` deep-links a branch-scoped workflow view (e.g. ?q=master). Stage it in the box and apply.
-            const applyBranchFromUrl = (q: string | undefined): void => {
-                const next = (q ?? '').trim()
-                if (next === values.appliedBranch) {
-                    return
-                }
-                actions.setBranchFilter(next)
-                // An empty value already applies+loads via setBranchFilter's listener; a real branch needs the apply.
-                if (next !== '') {
-                    actions.setAppliedBranch(next)
-                }
-            }
             return {
                 [urls.engineeringAnalytics()]: (_, searchParams) => applySource(searchParams.source),
-                [urls.engineeringAnalyticsWorkflows()]: (_, searchParams) => {
-                    applySource(searchParams.source)
-                    applyBranchFromUrl(searchParams.q)
-                },
+                [urls.engineeringAnalyticsPullRequestList()]: (_, searchParams) => applySource(searchParams.source),
+                [urls.engineeringAnalyticsWorkflows()]: (_, searchParams) => applySource(searchParams.source),
+                [urls.engineeringAnalyticsTestHealth()]: (_, searchParams) => applySource(searchParams.source),
             }
         }),
 

@@ -43,8 +43,9 @@ FROM events
 WHERE event = {event}
     AND timestamp >= {date_from}
     AND $session_id = {session_id}
-ORDER BY timestamp ASC
-LIMIT 500
+ORDER BY timestamp ASC, event_id ASC
+LIMIT {limit}
+OFFSET {offset}
 """
 
 
@@ -370,13 +371,22 @@ def _to_session_contract(
     )
 
 
-def list_mcp_tool_calls(team: Team, session_id: str, date_from: datetime | None = None) -> list[contracts.MCPToolCall]:
-    """List a session's $mcp_tool_call events in chronological order.
+def list_mcp_tool_calls(
+    team: Team,
+    session_id: str,
+    limit: int,
+    offset: int,
+    date_from: datetime | None = None,
+) -> contracts.MCPToolCallsPage:
+    """List a page of a session's $mcp_tool_call events in chronological order.
 
     ``date_from`` is the timestamp lower bound that lets the events sort key prune the scan
     (``$session_id`` alone isn't in the sort key). The caller passes the session's start so the
     detail view stays correct for sessions older than the default ``SESSION_EVENTS_LOOKBACK``;
     when omitted it falls back to that window for param-less API/token callers.
+
+    ``limit`` / ``offset`` page through the session's calls; over-fetch one row to report
+    ``has_next`` without a separate count query.
     """
     query = parse_select(
         _MCP_TOOL_CALLS_SQL,
@@ -384,13 +394,17 @@ def list_mcp_tool_calls(team: Team, session_id: str, date_from: datetime | None 
             "event": ast.Constant(value=MCP_TOOL_CALL_EVENT),
             "date_from": ast.Constant(value=date_from or (timezone.now() - intent_generation.SESSION_EVENTS_LOOKBACK)),
             "session_id": ast.Constant(value=session_id),
+            "limit": ast.Constant(value=limit + 1),
+            "offset": ast.Constant(value=offset),
         },
     )
     with tags_context(
         product=Product.MCP_ANALYTICS, feature=Feature.QUERY, team_id=team.id, name="mcp_analytics_sessions_tool_calls"
     ):
         response = execute_hogql_query(query=query, team=team)
-    return [
+    rows = response.results or []
+    has_next = len(rows) > limit
+    results = [
         contracts.MCPToolCall(
             event_id=str(row[0]) if row[0] else "",
             timestamp=row[1],
@@ -400,8 +414,9 @@ def list_mcp_tool_calls(team: Team, session_id: str, date_from: datetime | None 
             error_message=row[5] or "",
             duration_ms=_parse_int(row[6]),
         )
-        for row in (response.results or [])
+        for row in rows[:limit]
     ]
+    return contracts.MCPToolCallsPage(results=results, has_next=has_next)
 
 
 def _parse_int(value: str | int | None) -> int | None:

@@ -2,23 +2,18 @@ import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import { type ComponentType, type ReactNode, useEffect } from 'react'
 
+import { HedgehogChartHog, HedgehogCoffeeRun, HedgehogMagnifyingGlass } from '@posthog/brand/hoggies'
 import { IconCheck, IconChevronDown, IconCrown, IconInfo, IconLock, IconPeople, IconPerson } from '@posthog/icons'
 import { LemonModal, Tooltip } from '@posthog/lemon-ui'
 
-import {
-    DetectiveHog,
-    ExplorerHog,
-    GraphsHog,
-    HeartHog,
-    RunningHog,
-    StarHog,
-    WavingHog,
-} from 'lib/components/hedgehogs'
+import { ExplorerHog, HeartHog, StarHog, WavingHog } from 'lib/components/hedgehogs'
 import { useHogfetti } from 'lib/components/Hogfetti/Hogfetti'
 import { dayjs } from 'lib/dayjs'
+import { Link } from 'lib/lemon-ui/Link'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { humanFriendlyLargeNumber } from 'lib/utils/numbers'
 import { pluralize } from 'lib/utils/strings'
+import { urls } from 'scenes/urls'
 
 import type {
     AchievementDefinitionApi,
@@ -28,6 +23,7 @@ import type {
 import { deriveTrackProgress } from './achievementProgress'
 import { isWebAnalyticsAchievementsEnabled } from './gating'
 import { webAnalyticsAchievementsLogic } from './webAnalyticsAchievementsLogic'
+import { webAnalyticsAchievementsPreferencesLogic } from './webAnalyticsAchievementsPreferencesLogic'
 
 const RING_TRACK_COLOR = 'var(--border)'
 const TIER_COLORS = [
@@ -47,7 +43,7 @@ interface TrackMeta {
 
 const TRACK_META: Record<string, TrackMeta> = {
     streak: {
-        hog: RunningHog,
+        hog: HedgehogCoffeeRun,
         objective: 'Open the Web analytics dashboard on consecutive days to build your streak.',
         unit: 'days',
         effortPhrase: (n, next) =>
@@ -68,7 +64,7 @@ const TRACK_META: Record<string, TrackMeta> = {
             `Explore ${humanFriendlyLargeNumber(n)} more ${pluralize(n, 'time', 'times', false)} to reach "${next}"`,
     },
     detective: {
-        hog: DetectiveHog,
+        hog: HedgehogMagnifyingGlass,
         objective: 'Open a session recording from the Web analytics dashboard.',
         unit: 'recordings',
         effortPhrase: (n, next) =>
@@ -81,7 +77,7 @@ const TRACK_META: Record<string, TrackMeta> = {
         effortPhrase: (n, next) => `${humanFriendlyLargeNumber(n)} more to reach "${next}"`,
     },
     traffic: {
-        hog: GraphsHog,
+        hog: HedgehogChartHog,
         objective: 'Grow your pageviews. This climbs automatically as your site gets more traffic.',
         unit: 'pageviews',
         effortPhrase: (n, next) => `${humanFriendlyLargeNumber(n)} more pageviews until "${next}"`,
@@ -393,7 +389,21 @@ function WebAnalyticsAchievementsModalInner(): JSX.Element {
     return (
         <>
             <HogfettiComponent />
-            <LemonModal isOpen={modalOpen} onClose={closeModal} title="Web analytics achievements" width={820}>
+            <LemonModal
+                isOpen={modalOpen}
+                onClose={closeModal}
+                title="Web analytics achievements"
+                width={820}
+                footer={
+                    <Link
+                        to={urls.settings('user-customization', 'web-analytics-achievements')}
+                        onClick={closeModal}
+                        className="text-xs text-muted"
+                    >
+                        Not interested? Manage in settings →
+                    </Link>
+                }
+            >
                 {definitions.length === 0 ? (
                     <div className="text-muted text-sm py-6 text-center">
                         {achievementsLoading ? 'Loading achievements…' : 'No achievements available yet.'}
@@ -437,7 +447,8 @@ function WebAnalyticsAchievementsModalInner(): JSX.Element {
 
 export function WebAnalyticsAchievementsModal(): JSX.Element | null {
     const { featureFlags } = useValues(featureFlagLogic)
-    if (!isWebAnalyticsAchievementsEnabled(featureFlags)) {
+    const { achievementsOptOut } = useValues(webAnalyticsAchievementsPreferencesLogic)
+    if (!isWebAnalyticsAchievementsEnabled(featureFlags, achievementsOptOut)) {
         return null
     }
     return <WebAnalyticsAchievementsModalInner />

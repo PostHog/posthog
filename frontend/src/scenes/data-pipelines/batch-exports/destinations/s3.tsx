@@ -34,6 +34,7 @@ export const s3Definition: DestinationDefinition = {
                 showEncryption
                 showEndpointUrl
                 showVirtualStyleAddressing
+                migrationNotice="S3 batch exports are moving to integration-based credentials. This export will be migrated automatically to an AWS S3 or S3-compatible destination — no action required."
             />
         )
     },

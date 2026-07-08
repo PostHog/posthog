@@ -12,6 +12,11 @@ import { runSessionReplayPipeline } from '~/ingestion/pipelines/sessionreplay'
 import { defaultAllowLists } from '~/ingestion/pipelines/sessionreplay/anonymize/default-dict'
 import { SessionBatchManager } from '~/ingestion/pipelines/sessionreplay/sessions/session-batch-manager'
 import { SessionBatchRecorder } from '~/ingestion/pipelines/sessionreplay/sessions/session-batch-recorder'
+import {
+    RetentionResolution,
+    RetentionService,
+} from '~/ingestion/pipelines/sessionreplay/shared/retention/retention-service'
+import { SessionMap, SessionSet } from '~/ingestion/pipelines/sessionreplay/shared/session-map'
 import { TeamService } from '~/ingestion/pipelines/sessionreplay/shared/teams/team-service'
 import { TeamForReplay } from '~/ingestion/pipelines/sessionreplay/teams/types'
 import { createMockIngestionOutputs } from '~/tests/helpers/mock-ingestion-outputs'
@@ -45,12 +50,24 @@ describe('ml-mirror-pipeline', () => {
         IngestionOutputs<typeof DLQ_OUTPUT | typeof OVERFLOW_OUTPUT | typeof INGESTION_WARNINGS_OUTPUT>
     >
     const scrubContext = { allow: defaultAllowLists() }
+
+    // Resolves every session to 30d so messages flow through to recording.
+    const retentionService = {
+        resolveSessionRetentions: jest.fn().mockImplementation((sessions: SessionSet) => {
+            const resolutions = new SessionMap<RetentionResolution>()
+            for (const s of sessions) {
+                resolutions.set(s.teamId, s.sessionId, { resolved: true, retentionPeriod: '30d' })
+            }
+            return Promise.resolve(resolutions)
+        }),
+    } as unknown as RetentionService
     const now = DateTime.now()
 
     const team = (aiTrainingOptedIn: boolean): TeamForReplay => ({
         teamId: 1,
         consoleLogIngestionEnabled: false,
         aiTrainingOptedIn,
+        firstPartyHosts: [],
     })
 
     beforeEach(() => {
@@ -58,7 +75,10 @@ describe('ml-mirror-pipeline', () => {
         outputs = createMockIngestionOutputs()
 
         recordMock = jest.fn().mockResolvedValue(undefined)
-        const recorder = { record: recordMock } as unknown as jest.Mocked<SessionBatchRecorder>
+        const recorder = {
+            record: recordMock,
+            getRetention: jest.fn().mockReturnValue(undefined),
+        } as unknown as jest.Mocked<SessionBatchRecorder>
         mockSessionBatchManager = {
             getCurrentBatch: jest.fn().mockReturnValue(recorder),
             shouldFlush: jest.fn().mockReturnValue(false),
@@ -88,6 +108,7 @@ describe('ml-mirror-pipeline', () => {
             overflowEnabled: false,
             promiseScheduler,
             teamService: mockTeamService,
+            retentionService,
             topHog,
             sessionBatchManager: mockSessionBatchManager,
             isDebugLoggingEnabled: () => false,
@@ -120,7 +141,11 @@ describe('ml-mirror-pipeline', () => {
             value: Buffer.from(payload),
             key: Buffer.from('k'),
             timestamp: Date.now(),
-            headers: [{ token: Buffer.from('test-token') }, { session_id: Buffer.from(sessionId) }],
+            headers: [
+                { token: Buffer.from('test-token') },
+                { session_id: Buffer.from(sessionId) },
+                { distinct_id: Buffer.from('user-123') },
+            ],
             size: payload.length,
         } as unknown as Message
     }
@@ -163,7 +188,11 @@ describe('ml-mirror-pipeline', () => {
             value: Buffer.from(payload),
             key: Buffer.from('k'),
             timestamp: Date.now(),
-            headers: [{ token: Buffer.from('test-token') }, { session_id: Buffer.from(sessionId) }],
+            headers: [
+                { token: Buffer.from('test-token') },
+                { session_id: Buffer.from(sessionId) },
+                { distinct_id: Buffer.from('user-123') },
+            ],
             size: payload.length,
         } as unknown as Message
     }

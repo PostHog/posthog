@@ -2,7 +2,6 @@ import { actions, afterMount, kea, key, listeners, path, props, reducers } from 
 import { forms } from 'kea-forms'
 
 import { dayjs } from 'lib/dayjs'
-import { slackChannelId } from 'lib/integrations/slackChannel'
 import { lemonToast } from 'lib/lemon-ui/LemonToast'
 import { teamLogic } from 'scenes/teamLogic'
 
@@ -15,6 +14,7 @@ import {
 import { DeliveryTargetTypeEnumApi } from '../generated/api.schemas'
 import type { VisionActionApi } from '../generated/api.schemas'
 import { CadenceState, cadenceToRrule, DEFAULT_CADENCE, parseRruleToCadence } from './cadence'
+import { visionActionRunsLogic } from './visionActionRunsLogic'
 import type { visionActionsLogicType } from './visionActionsLogicType'
 
 export interface VisionActionsLogicProps {
@@ -55,7 +55,9 @@ export function buildActionBody(form: VisionActionForm, scannerId: string): Para
                       {
                           type: DeliveryTargetTypeEnumApi.Slack,
                           integration_id: form.integration_id,
-                          channel: slackChannelId(form.channel),
+                          // Store the `${id}|#${name}` picker composite so the table can show the
+                          // channel name; delivery.py strips it to the bare id for the Slack destination.
+                          channel: form.channel,
                       },
                   ]
                 : [],
@@ -223,9 +225,18 @@ export const visionActionsLogic = kea<visionActionsLogicType>([
         },
 
         submitVisionActionFormSuccess: () => {
-            lemonToast.success(values.editingAction ? 'Action updated' : 'Action created')
+            // Capture before closeForm() clears editingAction.
+            const edited = values.editingAction
+            lemonToast.success(edited ? 'Action updated' : 'Action created')
             actions.closeForm()
             actions.loadActions()
+            // If this edit came from the action's own page, refresh it in place. findMounted acts only
+            // when that page is open (returns null otherwise) — no key coupling, no accidental mount.
+            if (edited) {
+                const runsLogic = visionActionRunsLogic.findMounted({ actionId: edited.id })
+                runsLogic?.actions.loadAction()
+                runsLogic?.actions.loadRuns()
+            }
         },
 
         submitVisionActionFormFailure: ({ error }: { error?: Error & { detail?: string } }) => {
