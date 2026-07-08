@@ -79,15 +79,17 @@ impl FrameResolver {
     /// expanded from the same address).
     ///
     /// The lead resolves through the normal per-frame path. When its address
-    /// symbolicates to an expansion at least as deep as the client's, the
-    /// server-side expansion supersedes the whole group, so the chain isn't
-    /// duplicated. Otherwise the client expansion passes through verbatim,
-    /// with each member going through the per-frame path too (their `inline`
-    /// marker makes them resolution-free), keeping the per-frame cache and
-    /// stored-record invariants intact. A shallower server expansion loses
-    /// against the client: it typically means the uploaded symbols carry no
-    /// inline debug info (e.g. a stripped binary that kept its build id), and
-    /// the client saw the richer truth at capture time.
+    /// symbolicates to an inline expansion, the server-side expansion
+    /// supersedes the whole group, so the chain isn't duplicated. When it
+    /// symbolicates to a single frame against a multi-layer client group, the
+    /// uploaded symbols carry no inline info for it (e.g. a stripped binary
+    /// that kept its build id): the server's canonical physical frame is kept
+    /// and the client's inline members are salvaged behind it, which stays
+    /// duplicate-free because the member layers are disjoint from the
+    /// physical layer. When it doesn't resolve at all, the client expansion
+    /// passes through verbatim. Members always go through the per-frame path
+    /// (their `inline` marker makes them resolution-free), so every emitted
+    /// frame is backed by the per-frame cache and stored records.
     async fn resolve_frame_unit(
         team_id: i32,
         unit: &[RawFrame],
@@ -104,24 +106,16 @@ impl FrameResolver {
         }
 
         let server_resolved = frames.first().is_some_and(|f| f.resolved);
-        if server_resolved && frames.len() >= unit.len() {
-            metrics::counter!(NATIVE_INLINE_GROUPS, "outcome" => "replaced").increment(1);
-            return Ok(frames);
-        }
-
         if server_resolved {
-            // Resolved, but shallower than the client's expansion: discard the
-            // server frames and keep the client group. The lead passes through
-            // directly (its per-frame path would return the server expansion
-            // again); the resolution stays cached, so repeat events take this
-            // branch consistently.
-            let RawFrame::Native(lead_native) = lead else {
+            if frames.len() > 1 {
+                metrics::counter!(NATIVE_INLINE_GROUPS, "outcome" => "replaced").increment(1);
                 return Ok(frames);
-            };
-            metrics::counter!(NATIVE_INLINE_GROUPS, "outcome" => "kept_deeper_client").increment(1);
-            let mut lead_frame: Frame = lead_native.into();
-            lead_frame.frame_id = lead.frame_id(team_id, 0, debug_images);
-            frames = vec![lead_frame];
+            }
+            // Single-frame resolution against a multi-layer client group: no
+            // inline info in the uploaded symbols. Keep the canonical physical
+            // frame, salvage the client members behind it.
+            metrics::counter!(NATIVE_INLINE_GROUPS, "outcome" => "merged_client_inlines")
+                .increment(1);
         } else {
             metrics::counter!(NATIVE_INLINE_GROUPS, "outcome" => "kept").increment(1);
         }
@@ -390,7 +384,7 @@ mod test {
         let exc = exception_with(group);
 
         let frames = resolved_frames(
-            FrameResolver::resolve_exception_frames(1, exc, debug_images.clone(), stage)
+            FrameResolver::resolve_exception_frames(1, exc, debug_images.clone(), stage.clone())
                 .await
                 .unwrap(),
         );
@@ -411,6 +405,23 @@ mod test {
         for (index, frame) in frames.iter().enumerate() {
             assert_eq!(frame.frame_id, lead.frame_id(1, index, &debug_images));
         }
+
+        // A client group deeper than the server's multi-frame expansion is
+        // still replaced: the server's inline chain is canonical.
+        let mut deeper = client_expanded_group();
+        deeper.push(client_frame(INLINE_ADDR, SLIDE_BASE, true, "client_extra"));
+        let frames = resolved_frames(
+            FrameResolver::resolve_exception_frames(
+                1,
+                exception_with(deeper),
+                debug_images.clone(),
+                stage,
+            )
+            .await
+            .unwrap(),
+        );
+        assert_eq!(frames.len(), 3);
+        assert!(frames.iter().all(|f| f.resolved));
     }
 
     /// When the address can't be symbolicated (no symbols uploaded), the
@@ -449,26 +460,29 @@ mod test {
         assert!(frames.iter().all(|f| f.line == Some(10)));
     }
 
-    /// A resolved-but-shallower server expansion loses to the client's deeper
-    /// group: uploading symbols without inline debug info (e.g. a stripped
-    /// binary that kept its build id) must not downgrade stacks that captured
-    /// the full chain.
+    /// A single-frame resolution against a multi-layer client group means
+    /// the uploaded symbols carry no inline info (e.g. a stripped binary that
+    /// kept its build id): the server's canonical physical frame is kept and
+    /// the client's inline members are salvaged behind it.
     #[sqlx::test(migrations = "./tests/test_migrations")]
-    async fn client_expanded_group_survives_shallower_server_expansion(db: sqlx::PgPool) {
-        let catalog = catalog_for_chunk(&db, INLINE_CHUNK_ID, zip_fixture(INLINE_ELF, None)).await;
-        let stage = resolution_stage(&db, catalog);
-        let debug_images = Arc::new(vec![debug_image_at(INLINE_CHUNK_ID, SLIDE_BASE)]);
+    async fn inline_less_symbols_keep_client_inline_members(db: sqlx::PgPool) {
+        const NOPIE_ELF: &[u8] =
+            include_bytes!("../../../../../tests/static/native/test_binary_nopie");
+        const NOPIE_CHUNK_ID: &str = "7561847b-1054-7eb3-7763-4415adfaa134";
+        // Non-PIE: loads at its link base; 0x14a8 is inside inner_function,
+        // which has no inlined callees, so the lookup yields a single frame.
+        const NOPIE_BASE: u64 = 0x1000000;
+        const NOPIE_ADDR: u64 = NOPIE_BASE + 0x14a8;
 
-        // Four client layers against an address whose uploaded symbols only
-        // expand to three: the client saw a deeper chain than the symbols can
-        // reproduce, so its expansion wins.
-        let mut group = client_expanded_group();
-        group.push(client_frame(
-            INLINE_ADDR,
-            SLIDE_BASE,
-            true,
-            "client_deepest",
-        ));
+        let catalog = catalog_for_chunk(&db, NOPIE_CHUNK_ID, zip_fixture(NOPIE_ELF, None)).await;
+        let stage = resolution_stage(&db, catalog);
+        let debug_images = Arc::new(vec![debug_image_at(NOPIE_CHUNK_ID, NOPIE_BASE)]);
+
+        let group = vec![
+            client_frame(NOPIE_ADDR, NOPIE_BASE, false, "client_physical"),
+            client_frame(NOPIE_ADDR, NOPIE_BASE, true, "client_inline_a"),
+            client_frame(NOPIE_ADDR, NOPIE_BASE, true, "client_inline_b"),
+        ];
         let exc = exception_with(group);
 
         let frames = resolved_frames(
@@ -483,14 +497,11 @@ mod test {
             .collect();
         assert_eq!(
             names,
-            [
-                "client_outer",
-                "client_inner",
-                "client_leaf",
-                "client_deepest"
-            ],
-            "expected the deeper client expansion to be kept"
+            ["inner_function", "client_inline_a", "client_inline_b"],
+            "expected the server physical frame plus the client inline members"
         );
+        assert!(frames[0].resolved);
+        assert!(frames[1..].iter().all(|f| f.resolve_failure.is_none()));
     }
 
     /// The same crash must fingerprint identically under the v2 normalizing
