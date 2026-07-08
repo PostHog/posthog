@@ -134,7 +134,7 @@ class TestGetRows:
         manager = _FakeResumableManager()
         cursor = datetime(2024, 3, 1, tzinfo=UTC)
         expected_path = "/feed/inspections?archived=both&completed=both&modified_after=2024-03-01T00%3A00%3A00.000Z"
-        pages = {expected_path: ([{"id": "a"}], None)}
+        pages: dict[str, tuple[list[dict], str | None]] = {expected_path: ([{"id": "a"}], None)}
         rows = self._collect(
             manager,
             monkeypatch,
