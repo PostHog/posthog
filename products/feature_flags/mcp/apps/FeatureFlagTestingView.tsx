@@ -129,7 +129,6 @@ export function FeatureFlagTestingView({ flag }: FeatureFlagTestingViewProps): R
                                         <CardContent>
                                             <div className="flex items-center gap-2">
                                                 <span className="text-sm font-medium">
-                                                    {/* index < 0: enrollment super condition */}
                                                     {condition.index < 0
                                                         ? 'Early access enrollment:'
                                                         : `Condition #${condition.index + 1}:`}
