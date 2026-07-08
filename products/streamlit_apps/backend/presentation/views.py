@@ -269,12 +269,12 @@ class StreamlitAppViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                 }
             )
 
-        from products.streamlit_apps.backend.logic.app_runtime import _sync_sandbox_status
+        from products.streamlit_apps.backend.logic.app_runtime import sync_sandbox_status
 
         cache_key = f"streamlit_sandbox_status:{sandbox.id}"
         cached = cache.get(cache_key)
         if cached is None:
-            sandbox = _sync_sandbox_status(sandbox)
+            sandbox = sync_sandbox_status(sandbox)
             payload = StreamlitAppSandboxSerializer(sandbox).data
             cache.set(cache_key, payload, _STATUS_CACHE_TTL_SECONDS)
             return Response(payload)

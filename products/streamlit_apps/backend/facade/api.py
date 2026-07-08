@@ -17,7 +17,7 @@ from products.streamlit_apps.backend.logic.app_runtime import (
     AppRuntimeConcurrencyError,
     AppRuntimeError,
     AppRuntimeService,
-    _sync_sandbox_status,
+    sync_sandbox_status,
 )
 from products.streamlit_apps.backend.logic.oauth import (
     create_sandbox_bridge_token,
@@ -109,7 +109,7 @@ def get_app_status(app: StreamlitApp) -> AppSandboxContract | None:
         sandbox = app.sandbox
     except StreamlitAppSandbox.DoesNotExist:
         return None
-    sandbox = _sync_sandbox_status(sandbox)
+    sandbox = sync_sandbox_status(sandbox)
     return _sandbox_to_contract(sandbox)
 
 
