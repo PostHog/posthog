@@ -369,6 +369,17 @@ const GROUPS: ProviderModelGroup[] = [
 ]
 
 describe('parseTrialProviderKeyId', () => {
+    // The 'trial:' case exercises the unknown-provider path, which logs a console.error by design.
+    let consoleErrorSpy: jest.SpyInstance
+
+    beforeEach(() => {
+        consoleErrorSpy = jest.spyOn(console, 'error').mockImplementation()
+    })
+
+    afterEach(() => {
+        consoleErrorSpy.mockRestore()
+    })
+
     it.each([
         ['trial:openai', 'openai'],
         ['trial:anthropic', 'anthropic'],
@@ -377,6 +388,9 @@ describe('parseTrialProviderKeyId', () => {
         ['trial:', null],
     ])('parseTrialProviderKeyId(%s) => %s', (input, expected) => {
         expect(parseTrialProviderKeyId(input)).toBe(expected)
+        if (input === 'trial:') {
+            expect(consoleErrorSpy).toHaveBeenCalledWith(expect.stringContaining('Unknown LLM provider'))
+        }
     })
 })
 

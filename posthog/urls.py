@@ -52,7 +52,11 @@ from products.demo.backend.facade.api import demo_route
 from products.early_access_features.backend.api import early_access_features
 from products.legal_documents.backend.presentation.webhook import legal_document_pandadoc_webhook
 from products.messaging.backend.api.customerio_webhook import CustomerIOWebhookView
-from products.notebooks.backend.facade.sql_v2 import notebook_sql_v2_callback, notebook_sql_v2_data_plane
+from products.notebooks.backend.facade.sql_v2 import (
+    notebook_sql_v2_callback,
+    notebook_sql_v2_data_plane,
+    notebook_sql_v2_data_plane_status,
+)
 from products.product_tours.backend.api import product_tours
 from products.signals.backend import views as signals_views
 from products.signals.backend.views import SignalUserAutonomyConfigView as signals_user_autonomy_view
@@ -462,6 +466,10 @@ urlpatterns = [
     path(
         "internal/notebooks/data_plane/query/",
         csrf_exempt(notebook_sql_v2_data_plane),
+    ),
+    path(
+        "internal/notebooks/data_plane/query/<str:query_id>/",
+        csrf_exempt(notebook_sql_v2_data_plane_status),
     ),
     # Internal service-to-service endpoints (authenticated with POSTHOG_INTERNAL_SERVICE_TOKEN)
     path(

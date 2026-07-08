@@ -9,9 +9,17 @@ import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { humanFriendlyNumber } from 'lib/utils/numbers'
 
 import { logsPatternsLogic } from 'products/logs/frontend/components/LogsPatterns/logsPatternsLogic'
+import type { GroupBySourceEnumApi } from 'products/logs/frontend/generated/api.schemas'
 
 import { logsViewerConfigLogic } from './config/logsViewerConfigLogic'
 import { LogsViewerToolbar } from './LogsViewerToolbar'
+
+// Maps the picker's taxonomic group onto the group-by endpoint's source vocabulary.
+const TAXONOMIC_GROUP_TO_SOURCE: Partial<Record<TaxonomicFilterGroupType, GroupBySourceEnumApi>> = {
+    [TaxonomicFilterGroupType.Logs]: 'column',
+    [TaxonomicFilterGroupType.LogAttributes]: 'log',
+    [TaxonomicFilterGroupType.LogResourceAttributes]: 'resource',
+}
 
 export interface LogsDisplayBarProps {
     id: string
@@ -80,8 +88,12 @@ export const LogsDisplayBar = ({
                         // `message` is not a grouping key — high-cardinality free text is the
                         // Patterns lens's job. Excluding it also drops the message-search item.
                         excludedProperties={{ [TaxonomicFilterGroupType.Logs]: ['message'] }}
-                        value={groupBy ?? undefined}
-                        onChange={(value) => setGroupBy(value || null)}
+                        value={groupBy?.key}
+                        onChange={(value, groupType) =>
+                            setGroupBy(
+                                value ? { key: value, source: TAXONOMIC_GROUP_TO_SOURCE[groupType] ?? 'log' } : null
+                            )
+                        }
                         allowClear
                         placeholder="Group by"
                         renderValue={(value) => (

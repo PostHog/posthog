@@ -11,6 +11,7 @@ import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { databaseTableListLogic } from 'scenes/data-management/database/databaseTableListLogic'
 import { dataWarehouseSettingsSceneLogic } from 'scenes/data-warehouse/settings/dataWarehouseSettingsSceneLogic'
 
+import { resumeKeaLoadersErrors, silenceKeaLoadersErrors } from '~/initKea'
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
 import { mockEventDefinitions, mockEventPropertyDefinitions } from '~/test/mocks'
@@ -452,6 +453,10 @@ describe('infiniteListLogic', () => {
         let staleLogic: ReturnType<typeof infiniteListLogic.build>
         let surveyRequestCount: number
 
+        // The first 'survey' fetch deliberately 500s — silence the loader error log.
+        beforeEach(silenceKeaLoadersErrors)
+        afterEach(resumeKeaLoadersErrors)
+
         beforeEach(() => {
             surveyRequestCount = 0
             useMocks({
@@ -530,6 +535,10 @@ describe('infiniteListLogic', () => {
     })
 
     describe('remote fetch failure settles the list', () => {
+        // Every fetch deliberately 500s — silence the loader error log.
+        beforeEach(silenceKeaLoadersErrors)
+        afterEach(resumeKeaLoadersErrors)
+
         it('falls back to the empty state instead of spinning forever when the fetch fails', async () => {
             useMocks({
                 get: {

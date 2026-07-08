@@ -221,7 +221,7 @@
         }
     },
     "actions-get-all": {
-        "description": "Get actions in the project. Actions are reusable event definitions that can combine multiple trigger conditions (page views, clicks, form submissions) into a single trackable event for use in insights and funnels. Supports pagination with `limit` and `offset`, and case-insensitive name filtering with `search`. Projects can have thousands of actions, so pass `limit` (and `search` when looking for a specific action by name) rather than fetching every action at once.",
+        "description": "Get actions in the project. Actions are reusable event definitions that can combine multiple trigger conditions (page views, clicks, form submissions) into a single trackable event for use in insights and funnels. Supports pagination with `limit` and `offset`, case-insensitive name filtering with `search`, filtering by creator with `created_by` (comma-separated user ids), filtering by tag with `tags` (a JSON-encoded array of tag names), and sorting with `ordering`. Projects can have thousands of actions, so pass `limit` plus the relevant filters rather than fetching every action at once.",
         "category": "Actions",
         "feature": "actions",
         "summary": "Get all actions",
@@ -4891,7 +4891,7 @@
         }
     },
     "llma-prompt-update": {
-        "description": "Publish a new version of an existing LLM prompt by name. Name is immutable after creation.\nYou can either provide the full prompt content via 'prompt', or use 'edits' for incremental\nfind/replace updates. Each edit must have 'old' (text to find, must match exactly once) and\n'new' (replacement text). Edits are applied sequentially. Only one of 'prompt' or 'edits'\nmay be provided.",
+        "description": "Publish a new version of an existing LLM prompt by name. Name is immutable after creation.\nYou can either provide the full prompt content via 'prompt', or use 'edits' for incremental\nfind/replace updates. Each edit must have 'old' (text to find, must match exactly once) and\n'new' (replacement text). Edits are applied sequentially. Only one of 'prompt' or 'edits'\nmay be provided. Pass 'version_description' with a short note on what changed and why —\nit is shown in the prompt's version history.",
         "category": "AI observability",
         "feature": "llm_analytics",
         "summary": "Update prompt",

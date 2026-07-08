@@ -734,18 +734,20 @@ describe('clustersLogic', () => {
                     // filteredSortedClusters reads off the currentRun; seed a run and hydrate the cache.
                     // We pass the run's level so the level-mismatch guard in `sortedClusters` (which
                     // exists to suppress stale cards during a level switch) treats the seed as live.
+                    // Window bounds must be real strings — the summary/metrics loaders interpolate
+                    // them into hogql templates, which reject undefined.
                     logic.actions.loadClusteringRunSuccess({
                         runId: 'test-run',
                         // Without window bounds the success listeners interpolate undefined
                         // into hogql templates and log load failures.
-                        windowStart: '2026-04-19T00:00:00Z',
-                        windowEnd: '2026-04-21T00:00:00Z',
+                        windowStart: '2026-04-13T00:00:00Z',
+                        windowEnd: '2026-04-20T00:00:00Z',
                         clusters: sampleClusters,
                         level: level ?? logic.values.clusteringLevel,
                     } as ClusteringRun)
                 }
 
-                it('returns clusters unchanged when no filter is active', () => {
+                it('returns clusters unchanged when no filter is active', async () => {
                     setEvalLevelAndAttrs()
                     loadClustersAsCurrentRun()
 
@@ -754,9 +756,12 @@ describe('clustersLogic', () => {
                     const byId = Object.fromEntries(result.map((c) => [c.cluster_id, c]))
                     expect(byId[0].size).toBe(3)
                     expect(byId[1].size).toBe(2)
+
+                    // Let the run-triggered background loads settle before unmount.
+                    await expectLogic(logic).toFinishAllListeners()
                 })
 
-                it('drops non-matching traces, rewrites size, and prunes clusters that empty out', () => {
+                it('drops non-matching traces, rewrites size, and prunes clusters that empty out', async () => {
                     setEvalLevelAndAttrs()
                     loadClustersAsCurrentRun()
                     logic.actions.setEvalVerdictsFilter(['pass'])
@@ -767,6 +772,9 @@ describe('clustersLogic', () => {
                     expect(result[0].cluster_id).toBe(0)
                     expect(Object.keys(result[0].traces).sort()).toEqual(['id-pass-a', 'id-pass-b'])
                     expect(result[0].size).toBe(2)
+
+                    // Let the run-triggered background loads settle before unmount.
+                    await expectLogic(logic).toFinishAllListeners()
                 })
 
                 it('narrows clusters by propertyFilteredItemIds (cohort / property filter)', () => {
@@ -797,7 +805,7 @@ describe('clustersLogic', () => {
                     expect(byId[1].size).toBe(1)
                 })
 
-                it('combines property and eval filters (intersection)', () => {
+                it('combines property and eval filters (intersection)', async () => {
                     setEvalLevelAndAttrs()
                     loadClustersAsCurrentRun()
                     // Property filter narrows to {id-pass-a, id-pass-b, id-fail-b}, eval verdict
@@ -811,6 +819,9 @@ describe('clustersLogic', () => {
                     expect(result).toHaveLength(1)
                     expect(result[0].cluster_id).toBe(0)
                     expect(Object.keys(result[0].traces).sort()).toEqual(['id-pass-a', 'id-pass-b'])
+
+                    // Let the run-triggered background loads settle before unmount.
+                    await expectLogic(logic).toFinishAllListeners()
                 })
 
                 it('treats null propertyFilteredItemIds as "no property filter applied"', () => {

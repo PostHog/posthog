@@ -63,6 +63,12 @@ describe('endpointSceneLogic', () => {
 
     beforeEach(async () => {
         jest.clearAllMocks()
+        // The bare jest.fn() in the module mock resolves undefined, which the endpoint
+        // loader would feed straight into its reducer. Echo the requested version so the
+        // URL's version param survives the mount-time viewingVersion sync.
+        ;(api.endpoint.get as jest.Mock).mockImplementation((_name: string, version?: number) =>
+            Promise.resolve(version === undefined ? endpoint : { ...endpoint, version })
+        )
         initKeaTests(false)
         localStorage.clear()
         sessionStorage.clear()
@@ -71,6 +77,9 @@ describe('endpointSceneLogic', () => {
 
         logic = endpointSceneLogic()
         logic.mount()
+        // Let the mount-time load settle with the default mock, so per-test overrides
+        // apply cleanly to the fetches each test triggers
+        await expectLogic(logic).toFinishAllListeners()
     })
 
     afterEach(() => {
