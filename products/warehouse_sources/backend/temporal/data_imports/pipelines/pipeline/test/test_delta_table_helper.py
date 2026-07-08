@@ -17,6 +17,8 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline
     DeltaTableHelper,
     _first_per_pk_table,
     _realign_decimal_buffers,
+    _run_with_transient_retry,
+    is_transient_object_storage_error,
 )
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.utils import evolve_pyarrow_schema
 
@@ -798,7 +800,15 @@ class TestIsTableCorrupted:
             ("opens_fine", True, None, False),
             ("delta_error_is_corrupt", True, deltalake.exceptions.DeltaError("no protocol"), True),
             ("file_not_found_is_corrupt", True, FileNotFoundError("missing data file"), True),
-            ("unknown_error_not_corrupt", True, ValueError("transient"), False),
+            ("unknown_error_not_corrupt", True, ValueError("something odd"), False),
+            # A transient S3/network flake is raised by delta-rs as a DeltaError too; it must NOT be
+            # classified as corrupt, or a momentary hiccup would trigger a destructive reset + rebuild.
+            (
+                "transient_s3_flake_not_corrupt",
+                True,
+                deltalake.exceptions.DeltaError("Generic S3 error: Error getting list response body"),
+                False,
+            ),
         ]
     )
     @pytest.mark.asyncio
@@ -807,6 +817,7 @@ class TestIsTableCorrupted:
         with (
             patch.object(helper, "_get_delta_table_uri", new=AsyncMock(return_value="s3://b/t")),
             patch.object(helper, "_get_credentials", return_value={}),
+            patch(f"{self._MODULE}.asyncio.sleep", new=AsyncMock()),
             patch(f"{self._MODULE}.deltalake.DeltaTable") as mock_dt,
         ):
             mock_dt.is_deltatable = MagicMock(return_value=is_delta)
@@ -815,3 +826,54 @@ class TestIsTableCorrupted:
             result = await helper.is_table_corrupted()
 
         assert result is expected
+
+
+class TestIsTransientObjectStorageError:
+    @parameterized.expand(
+        [
+            ("s3_list_body", deltalake.exceptions.DeltaError("Generic S3 error: Error getting list response body"), True),
+            ("connection_reset", OSError("Connection reset by peer, os error 104"), True),
+            ("decoding_body", Exception("error decoding response body"), True),
+            ("timed_out", OSError("operation timed out"), True),
+            # Genuine, non-transient failures must stay capturable — never swallowed as a flake.
+            ("delta_no_protocol", deltalake.exceptions.DeltaError("no protocol found"), False),
+            ("decimal_overflow", Exception("parse decimal overflow"), False),
+            ("schema_mismatch", Exception("Schema mismatch"), False),
+        ]
+    )
+    def test_classification(self, _name: str, exc: Exception, expected: bool):
+        assert is_transient_object_storage_error(exc) is expected
+
+
+class TestRunWithTransientRetry:
+    _MODULE = "products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.delta_table_helper"
+
+    @pytest.mark.asyncio
+    async def test_retries_transient_then_succeeds(self):
+        calls = {"n": 0}
+
+        def fn():
+            calls["n"] += 1
+            if calls["n"] < 3:
+                raise OSError("Connection reset by peer, os error 104")
+            return "ok"
+
+        with patch(f"{self._MODULE}.asyncio.sleep", new=AsyncMock()):
+            result = await _run_with_transient_retry(fn, logger=_make_logger(), op_name="t", attempts=3)
+
+        assert result == "ok"
+        assert calls["n"] == 3
+
+    @pytest.mark.asyncio
+    async def test_non_transient_error_is_not_retried(self):
+        calls = {"n": 0}
+
+        def fn():
+            calls["n"] += 1
+            raise ValueError("real bug")
+
+        with patch(f"{self._MODULE}.asyncio.sleep", new=AsyncMock()):
+            with pytest.raises(ValueError):
+                await _run_with_transient_retry(fn, logger=_make_logger(), op_name="t", attempts=3)
+
+        assert calls["n"] == 1

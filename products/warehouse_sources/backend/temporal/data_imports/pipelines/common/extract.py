@@ -17,6 +17,7 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.common.l
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.cdp_producer import CDPProducer
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.delta_table_helper import (
     DeltaTableHelper,
+    is_transient_object_storage_error,
 )
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.typings import SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.utils import (
@@ -323,7 +324,10 @@ async def handle_corrupted_delta_log(
         if not await delta_table_helper.is_table_corrupted():
             return False
     except Exception as e:
-        capture_exception(e)
+        # A transient S3/network flake during the corruption check is not a real error — skip the
+        # revive this run and let the next sync retry, without minting a one-off error-tracking issue.
+        if not is_transient_object_storage_error(e):
+            capture_exception(e)
         return False
 
     await logger.awarning(
@@ -575,5 +579,10 @@ async def run_pre_write_defensive_compact(
                 schema.id, schema.team_id, updates={"last_vacuum_version": new_version}
             )
     except Exception as e:
-        capture_exception(e)
-        await logger.aexception(f"Pre-write maintenance failed: {e}", exc_info=e)
+        # Best-effort maintenance: a transient S3/network flake must not mint a one-off
+        # error-tracking issue when the sync itself is unaffected. Downgrade it to a warning.
+        if is_transient_object_storage_error(e):
+            await logger.awarning(f"Pre-write maintenance skipped due to transient object-storage error: {e}")
+        else:
+            capture_exception(e)
+            await logger.aexception(f"Pre-write maintenance failed: {e}", exc_info=e)

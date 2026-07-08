@@ -1,7 +1,7 @@
 import json
 import asyncio
 from collections.abc import Callable, Sequence
-from typing import Any, Literal
+from typing import Any, Literal, TypeVar
 
 from django.conf import settings
 
@@ -49,6 +49,68 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline
 # Tune further once the admin fragmentation view gives per-customer distributions.
 DEFAULT_COMPACT_FILES_PER_PARTITION_THRESHOLD = 200
 DEFAULT_COMPACT_TOTAL_FILES_THRESHOLD = 5000
+
+T = TypeVar("T")
+
+# delta-rs surfaces momentary object-storage hiccups (S3 LIST/GET flakes, TCP resets) as
+# DeltaError / OSError whose message carries a recognisable marker. They clear on retry or by
+# the next sync, so the delta-maintenance and corruption-check paths must neither fail the sync
+# nor mint a fresh error-tracking issue via `capture_exception` over one — they retry, then
+# downgrade to a warning. Matched case-insensitively against the exception message.
+_TRANSIENT_OBJECT_STORAGE_ERROR_MARKERS = (
+    "generic s3 error",
+    "error getting list response body",
+    "error decoding response body",
+    "connection reset by peer",
+    "connection closed",
+    "broken pipe",
+    "os error 104",
+    "timed out",
+    "operation timed out",
+    "request timeout",
+    "dispatch task is gone",
+    "connection refused",
+)
+
+
+def is_transient_object_storage_error(e: BaseException) -> bool:
+    """True for a momentary S3/network flake raised by delta-rs (LIST/GET body errors, TCP resets).
+
+    These bubble up from the `is_deltatable` existence check and the vacuum/compact LIST+delete as
+    DeltaError / OSError with a recognisable message. They are transient, so callers retry them and,
+    if they persist, downgrade to a warning rather than capturing a one-off error-tracking issue.
+    """
+    args = getattr(e, "args", None) or ()
+    message = " ".join(str(arg) for arg in args) or str(e)
+    message = message.lower()
+    return any(marker in message for marker in _TRANSIENT_OBJECT_STORAGE_ERROR_MARKERS)
+
+
+async def _run_with_transient_retry(
+    fn: Callable[[], T],
+    *,
+    logger: FilteringBoundLogger,
+    op_name: str,
+    attempts: int = 3,
+    base_backoff_seconds: float = 0.5,
+) -> T:
+    """Run a blocking delta-rs call in a thread, retrying only on transient object-storage errors.
+
+    Non-transient errors (real corruption, schema mismatches, auth failures) propagate immediately —
+    only the momentary S3/network flakes in `_TRANSIENT_OBJECT_STORAGE_ERROR_MARKERS` are retried,
+    with a short linear backoff. The final failure re-raises so the caller's guard can decide.
+    """
+    for attempt in range(1, attempts + 1):
+        try:
+            return await asyncio.to_thread(fn)
+        except Exception as e:
+            if attempt >= attempts or not is_transient_object_storage_error(e):
+                raise
+            await logger.adebug(
+                f"{op_name}: transient object-storage error (attempt {attempt}/{attempts}), retrying: {e}"
+            )
+            await asyncio.sleep(base_backoff_seconds * attempt)
+    raise AssertionError("unreachable")  # pragma: no cover - loop either returns or raises
 
 
 def _write_deltalake(
@@ -227,15 +289,23 @@ class DeltaTableHelper:
         delta_uri = await self._get_delta_table_uri()
         storage_options = self._get_credentials()
 
-        is_delta = await asyncio.to_thread(
-            deltalake.DeltaTable.is_deltatable, table_uri=delta_uri, storage_options=storage_options
+        is_delta = await _run_with_transient_retry(
+            lambda: deltalake.DeltaTable.is_deltatable(table_uri=delta_uri, storage_options=storage_options),
+            logger=self._logger,
+            op_name="get_delta_table.is_deltatable",
         )
         if is_delta:
             try:
-                return await asyncio.to_thread(
-                    deltalake.DeltaTable, table_uri=delta_uri, storage_options=storage_options
+                return await _run_with_transient_retry(
+                    lambda: deltalake.DeltaTable(table_uri=delta_uri, storage_options=storage_options),
+                    logger=self._logger,
+                    op_name="get_delta_table.open",
                 )
             except Exception as e:
+                # A transient S3/network flake here is not a bugged table — let it propagate so the
+                # activity retries, without minting an error-tracking issue for a momentary hiccup.
+                if is_transient_object_storage_error(e):
+                    raise
                 # Temp fix for bugged tables
                 capture_exception(e)
                 if "parse decimal overflow" in "".join(e.args):
@@ -254,22 +324,32 @@ class DeltaTableHelper:
         The signature of a `_delta_log` left inconsistent by an interrupted repartition swap or an
         OOM-crashed merge — after which every sync fails to open the table and loops. Non-destructive:
         only attempts an open (bypassing the get_delta_table cache). A table that simply doesn't exist is
-        not corrupt; an unknown open error is not classified as corrupt, so a transient failure never
-        triggers a destructive revive.
+        not corrupt; an unknown open error is not classified as corrupt, and a transient S3/network flake
+        (which delta-rs also raises as a DeltaError) never triggers a destructive revive.
         """
         delta_uri = await self._get_delta_table_uri()
         storage_options = self._get_credentials()
 
-        is_delta = await asyncio.to_thread(
-            deltalake.DeltaTable.is_deltatable, table_uri=delta_uri, storage_options=storage_options
+        is_delta = await _run_with_transient_retry(
+            lambda: deltalake.DeltaTable.is_deltatable(table_uri=delta_uri, storage_options=storage_options),
+            logger=self._logger,
+            op_name="is_table_corrupted.is_deltatable",
         )
         if not is_delta:
             return False
 
         try:
-            await asyncio.to_thread(deltalake.DeltaTable, table_uri=delta_uri, storage_options=storage_options)
+            await _run_with_transient_retry(
+                lambda: deltalake.DeltaTable(table_uri=delta_uri, storage_options=storage_options),
+                logger=self._logger,
+                op_name="is_table_corrupted.open",
+            )
             return False
-        except (deltalake.exceptions.DeltaError, FileNotFoundError):
+        except (deltalake.exceptions.DeltaError, FileNotFoundError) as e:
+            # A transient S3/network error is raised as a DeltaError too — do not classify it as
+            # corruption, or a momentary flake would trigger a destructive reset + rebuild.
+            if is_transient_object_storage_error(e):
+                return False
             return True
         except Exception:
             return False
@@ -684,8 +764,10 @@ class DeltaTableHelper:
             raise Exception("Deltatable not found")
 
         await self._logger.adebug("Vacuuming table...")
-        vacuum_stats = await asyncio.to_thread(
-            table.vacuum, retention_hours=24, enforce_retention_duration=False, dry_run=False
+        vacuum_stats = await _run_with_transient_retry(
+            lambda: table.vacuum(retention_hours=24, enforce_retention_duration=False, dry_run=False),
+            logger=self._logger,
+            op_name="vacuum_table",
         )
         await self._logger.adebug(json.dumps(vacuum_stats))
 
@@ -695,7 +777,11 @@ class DeltaTableHelper:
             raise Exception("Deltatable not found")
 
         await self._logger.adebug("Compacting table...")
-        compact_stats = await asyncio.to_thread(table.optimize.compact)
+        compact_stats = await _run_with_transient_retry(
+            lambda: table.optimize.compact(),
+            logger=self._logger,
+            op_name="compact_table",
+        )
         await self._logger.adebug(json.dumps(compact_stats))
 
         await self.vacuum_table()

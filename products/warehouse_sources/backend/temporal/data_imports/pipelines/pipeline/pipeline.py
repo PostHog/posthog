@@ -48,6 +48,7 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.cdp_producer import CDPProducer
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.delta_table_helper import (
     DeltaTableHelper,
+    is_transient_object_storage_error,
 )
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.hogql_schema import HogQLSchema
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.typings import (
@@ -478,8 +479,13 @@ class PipelineNonDLT(Generic[ResumableData]):
         try:
             await self._delta_table_helper.compact_table()
         except Exception as e:
-            capture_exception(e)
-            await self._logger.aexception(f"Compaction failed: {e}", exc_info=e)
+            # A transient S3/network flake here does not fail the sync — the table is already written.
+            # Downgrade it to a warning so a momentary hiccup doesn't mint a one-off error-tracking issue.
+            if is_transient_object_storage_error(e):
+                await self._logger.awarning(f"Compaction skipped due to transient object-storage error: {e}")
+            else:
+                capture_exception(e)
+                await self._logger.aexception(f"Compaction failed: {e}", exc_info=e)
 
         file_uris = await self._delta_table_helper.get_file_uris()
         await self._logger.adebug(f"Preparing S3 files - total parquet files: {len(file_uris)}")
