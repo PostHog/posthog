@@ -23,7 +23,7 @@ from llm_gateway.services.quota_resolver import QuotaResourceStatus
 
 def _make_fake_quota_resolver() -> AsyncMock:
     resolver = AsyncMock()
-    resolver.get_ai_credits_status = AsyncMock(return_value=QuotaResourceStatus(limited=False))
+    resolver.get_resource_status = AsyncMock(return_value=QuotaResourceStatus(limited=False))
     return resolver
 
 

@@ -1,8 +1,10 @@
 """Resolves a team's quota state via the PostHog API quota_limits endpoint.
 
 Mirrors :mod:`llm_gateway.services.plan_resolver` — forwards the caller's
-``Authorization`` header to ``GET /api/projects/{team_id}/quota_limits/`` and
-caches the result per team-and-resource in the gateway's own Redis.
+credentials to ``GET /api/projects/{team_id}/quota_limits/`` and
+caches the result per team-and-resource in the gateway's own Redis. The
+resource key is a Django ``QuotaResource`` value (matches ``CreditBucket``
+values in the product registry — e.g. ``ai_credits``, ``posthog_code_credits``).
 
 Transient upstream failures (network errors, 5xx) are retried within the
 request with exponential backoff. 4xx responses or exhausted retries fall
@@ -20,6 +22,7 @@ from typing import TYPE_CHECKING
 import httpx
 import structlog
 
+from llm_gateway.auth.service import upstream_auth_header
 from llm_gateway.config import get_settings
 
 if TYPE_CHECKING:
@@ -27,8 +30,6 @@ if TYPE_CHECKING:
     from redis.asyncio import Redis
 
 logger = structlog.get_logger(__name__)
-
-_AI_CREDITS_RESOURCE = "ai_credits"
 
 # Cache window for the fail-open path (4xx from Django, or transient failure
 # after retries are exhausted). Long enough to keep a misconfigured client off
@@ -62,19 +63,22 @@ def _redis_key(resource_key: str, team_id: int) -> str:
     return f"quota:{resource_key}:team:{team_id}"
 
 
-async def resolve_quota_status(request: Request, team_id: int | None) -> QuotaResourceStatus:
-    """Resolve the team's AI credits quota state, falling open on errors."""
+async def resolve_quota_status(request: Request, team_id: int | None, resource_key: str) -> QuotaResourceStatus:
+    """Resolve the team's quota state for one resource, falling open on errors."""
     if team_id is None:
         return QuotaResourceStatus(limited=False)
-    auth_header = request.headers.get("Authorization", "")
+    # x-api-key wins over Authorization (see upstream_auth_header): forwarding
+    # only Authorization would let an over-quota caller bypass the check by
+    # sending their token via x-api-key.
+    auth_header = upstream_auth_header(request)
     if not auth_header:
         return QuotaResourceStatus(limited=False)
 
     quota_resolver: QuotaResolver = request.app.state.quota_resolver
     try:
-        return await quota_resolver.get_ai_credits_status(team_id=team_id, auth_header=auth_header)
+        return await quota_resolver.get_resource_status(resource_key, team_id=team_id, auth_header=auth_header)
     except Exception:
-        logger.warning("quota_resolve_failed", team_id=team_id)
+        logger.warning("quota_resolve_failed", resource=resource_key, team_id=team_id)
         return QuotaResourceStatus(limited=False)
 
 
@@ -86,10 +90,7 @@ class QuotaResolver:
         self._http = http_client
         self._cache_ttl = get_settings().quota_cache_ttl
 
-    async def get_ai_credits_status(self, team_id: int, auth_header: str) -> QuotaResourceStatus:
-        return await self._get_resource_status(_AI_CREDITS_RESOURCE, team_id, auth_header)
-
-    async def _get_resource_status(self, resource_key: str, team_id: int, auth_header: str) -> QuotaResourceStatus:
+    async def get_resource_status(self, resource_key: str, team_id: int, auth_header: str) -> QuotaResourceStatus:
         cached = await self._get_cached(resource_key, team_id)
         if cached is not None:
             return cached

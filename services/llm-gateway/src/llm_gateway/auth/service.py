@@ -25,6 +25,25 @@ def extract_token(request: Request) -> str | None:
     return match.group(1).strip() if match else None
 
 
+def upstream_auth_header(request: Request) -> str:
+    """Build the Authorization header to forward to PostHog for the request's token.
+
+    Mirrors :func:`extract_token`'s precedence (x-api-key wins over
+    Authorization). Auth accepts either header, so any upstream check that
+    forwarded only Authorization could be bypassed by sending the same token
+    via x-api-key — e.g. plan resolution returning no plan (and with it any
+    plan-conditioned enforcement), or quota resolution failing open.
+    Returns "" when the request carries no token.
+    """
+    api_key = request.headers.get("x-api-key")
+    if api_key:
+        # Not a route handler: this builds an outbound header value from the
+        # caller's own credential; nothing is rendered to a response body.
+        # nosemgrep: python.flask.security.audit.directly-returned-format-string.directly-returned-format-string
+        return f"Bearer {api_key.strip()}"
+    return request.headers.get("authorization", "")
+
+
 class AuthService:
     """Coordinates authentication with caching and metrics."""
 

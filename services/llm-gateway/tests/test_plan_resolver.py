@@ -4,9 +4,12 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 
 from llm_gateway.services.plan_resolver import (
+    PlanInfo,
     PlanResolver,
     get_billing_period_number,
     is_pro_plan,
+    is_usage_based_plan,
+    resolve_plan_info,
 )
 
 
@@ -27,6 +30,23 @@ class TestIsProPlan:
     )
     def test_is_pro_plan(self, plan_key: str | None, expected: bool) -> None:
         assert is_pro_plan(plan_key) is expected
+
+
+class TestIsUsageBasedPlan:
+    @pytest.mark.parametrize(
+        "plan_key,expected",
+        [
+            ("posthog-code-usage-20260709", True),
+            ("posthog-code-usage-20260901", True),
+            ("posthog-code-pro-200-20260301", False),
+            ("posthog-code-free-20260301", False),
+            ("some-other-plan", False),
+            (None, False),
+            ("", False),
+        ],
+    )
+    def test_is_usage_based_plan(self, plan_key: str | None, expected: bool) -> None:
+        assert is_usage_based_plan(plan_key) is expected
 
 
 class TestGetBillingPeriodNumber:
@@ -252,3 +272,45 @@ class TestPlanResolver:
         assert result.plan_key is None
         assert resolver_with_redis._redis is not None
         resolver_with_redis._redis.set.assert_not_called()  # type: ignore[attr-defined]
+
+
+class TestResolvePlanInfoCredentialForwarding:
+    """Credential forwarding must mirror extract_token: either header
+    authenticates, so either header must reach plan resolution — otherwise
+    x-api-key callers resolve no plan, silently disabling every
+    plan-conditioned control (usage-based cost caps, the plan-scoped
+    credit-bucket exemption)."""
+
+    def _make_request(self, headers: dict[str, str]) -> MagicMock:
+        from starlette.datastructures import Headers
+
+        request = MagicMock()
+        request.headers = Headers(headers)
+        resolver = MagicMock()
+        resolver.get_plan = AsyncMock(
+            return_value=PlanInfo(plan_key="posthog-code-usage-20260709", seat_created_at=None)
+        )
+        request.app.state.plan_resolver = resolver
+        return request
+
+    @pytest.mark.asyncio
+    async def test_forwards_authorization_header(self) -> None:
+        request = self._make_request({"Authorization": "Bearer phx_test"})
+        result = await resolve_plan_info(request, user_id=1, product="posthog_code")
+        assert result.plan_key == "posthog-code-usage-20260709"
+        assert request.app.state.plan_resolver.get_plan.await_args.kwargs["auth_header"] == "Bearer phx_test"
+
+    @pytest.mark.asyncio
+    async def test_forwards_x_api_key_as_bearer(self) -> None:
+        request = self._make_request({"x-api-key": " phx_test "})
+        result = await resolve_plan_info(request, user_id=1, product="posthog_code")
+        assert result.plan_key == "posthog-code-usage-20260709"
+        assert request.app.state.plan_resolver.get_plan.await_args.kwargs["auth_header"] == "Bearer phx_test"
+
+    @pytest.mark.asyncio
+    async def test_x_api_key_takes_precedence_over_authorization(self) -> None:
+        # Matches extract_token — the token that authenticated the request is
+        # the one whose plan gets resolved.
+        request = self._make_request({"x-api-key": "phx_from_api_key", "Authorization": "Bearer phx_from_auth"})
+        await resolve_plan_info(request, user_id=1, product="posthog_code")
+        assert request.app.state.plan_resolver.get_plan.await_args.kwargs["auth_header"] == "Bearer phx_from_api_key"

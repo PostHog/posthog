@@ -359,14 +359,14 @@ class TestUsageEndpoint:
         assert response.status_code == 200
         assert response.json()["user_id"] == 42
 
-    def test_ai_credits_reported_unlimited_for_ungated_product(self, authenticated_usage_client: TestClient) -> None:
-        # posthog_code bills into its own credit bucket, not ai_credits; ai_credits
-        # should be unlimited and not contribute to is_rate_limited even if the
-        # resolver thinks the team is over.
+    def test_credits_reflect_products_own_bucket(self, authenticated_usage_client: TestClient) -> None:
+        # posthog_code's usage reports the posthog_code_credits bucket (under the
+        # legacy `ai_credits` response field), resolved against its own resource key.
         from llm_gateway.services.quota_resolver import QuotaResourceStatus
 
         app = authenticated_usage_client.app
-        app.state.quota_resolver.get_ai_credits_status = AsyncMock(return_value=QuotaResourceStatus(limited=True))
+        resolver_mock = AsyncMock(return_value=QuotaResourceStatus(limited=True))
+        app.state.quota_resolver.get_resource_status = resolver_mock
 
         response = authenticated_usage_client.get(
             "/v1/usage/posthog_code",
@@ -374,14 +374,16 @@ class TestUsageEndpoint:
         )
         assert response.status_code == 200
         data = response.json()
-        assert data["ai_credits"] == {"exhausted": False}
-        assert data["is_rate_limited"] is False
+        assert data["ai_credits"] == {"exhausted": True}
+        assert data["is_rate_limited"] is True
+        assert resolver_mock.call_args.args[0] == "posthog_code_credits"
 
     def test_ai_credits_reflects_resolver_for_billable_product(self, authenticated_usage_client: TestClient) -> None:
         from llm_gateway.services.quota_resolver import QuotaResourceStatus
 
         app = authenticated_usage_client.app
-        app.state.quota_resolver.get_ai_credits_status = AsyncMock(return_value=QuotaResourceStatus(limited=True))
+        resolver_mock = AsyncMock(return_value=QuotaResourceStatus(limited=True))
+        app.state.quota_resolver.get_resource_status = resolver_mock
 
         response = authenticated_usage_client.get(
             "/v1/usage/slack_app",
@@ -391,6 +393,7 @@ class TestUsageEndpoint:
         data = response.json()
         assert data["ai_credits"] == {"exhausted": True}
         assert data["is_rate_limited"] is True
+        assert resolver_mock.call_args.args[0] == "ai_credits"
 
     def test_invalidate_plan_cache_calls_resolver(self, authenticated_usage_client: TestClient) -> None:
         app = authenticated_usage_client.app

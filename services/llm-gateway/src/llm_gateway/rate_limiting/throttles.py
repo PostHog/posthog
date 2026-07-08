@@ -40,7 +40,7 @@ class ThrottleContext:
     plan_key: str | None = None
     seat_created_at: str | None = None
     billing_period_start: str | None = None
-    ai_credits_exhausted: bool = False
+    credits_exhausted: bool = False
 
 
 @dataclass

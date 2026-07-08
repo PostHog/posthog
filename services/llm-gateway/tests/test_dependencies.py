@@ -205,9 +205,8 @@ class TestEnforceThrottles:
 
 
 class TestResolvePlanAndQuota:
-    """The ai_credits quota resolver roundtrip is skipped for products that don't
-    bill into the ai_credits bucket — unbilled ones, and products billing into a
-    bucket without gateway-side quota enforcement (e.g. posthog_code)."""
+    """The quota resolver roundtrip runs for bucket-billed products (against the
+    product's own bucket) and is skipped entirely for unbilled ones."""
 
     async def _run(self, product: str) -> tuple:
         plan_info = PlanInfo(plan_key="pro", seat_created_at=None)
@@ -221,18 +220,21 @@ class TestResolvePlanAndQuota:
         return result, quota_mock
 
     @pytest.mark.asyncio
-    async def test_ai_credits_billed_product_resolves_quota(self) -> None:
-        (_, quota_status), quota_mock = await self._run("slack_app")
+    @pytest.mark.parametrize(
+        ("product", "expected_resource"),
+        [("slack_app", "ai_credits"), ("posthog_code", "posthog_code_credits")],
+    )
+    async def test_bucket_billed_product_resolves_its_own_bucket(self, product: str, expected_resource: str) -> None:
+        (_, quota_status), quota_mock = await self._run(product)
 
         quota_mock.assert_awaited_once()
+        assert quota_mock.call_args.args[2] == expected_resource
         assert quota_status.limited is True
 
     @pytest.mark.asyncio
-    @pytest.mark.parametrize("product", ["posthog_code", "wizard"])
-    async def test_ungated_products_skip_quota_resolver(self, product: str) -> None:
-        # posthog_code bills into its own bucket (no gateway quota enforcement);
-        # wizard is unbilled. Neither should pay for the quota resolver roundtrip.
-        (_, quota_status), quota_mock = await self._run(product)
+    async def test_unbilled_product_skips_quota_resolver(self) -> None:
+        # wizard is unbilled — it shouldn't pay for the quota resolver roundtrip.
+        (_, quota_status), quota_mock = await self._run("wizard")
 
         quota_mock.assert_not_awaited()
         assert quota_status.limited is False
