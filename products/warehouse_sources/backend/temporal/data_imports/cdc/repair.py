@@ -38,6 +38,7 @@ from products.warehouse_sources.backend.models.external_data_schema import (
 )
 from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
 from products.warehouse_sources.backend.temporal.data_imports.cdc.adapters import CDCSourceAdapter, get_cdc_adapter
+from products.warehouse_sources.backend.temporal.data_imports.cdc.naming import cdc_qualified_table_name
 
 logger = structlog.get_logger(__name__)
 
@@ -50,23 +51,6 @@ class CDCRepairError(Exception):
 
 class CDCRepairInProgress(CDCRepairError):
     """Another repair currently holds this source's repair lock."""
-
-
-def cdc_qualified_table_name(schema: ExternalDataSchema, default_schema: str | None) -> str:
-    """Resolve a CDC schema row to its source-qualified `schema.table` name.
-
-    Prefers stored schema_metadata, then a dotted display name, then the source's
-    default schema — so a row stored bare (`orders`) still resolves to its real
-    source location (`public.orders`).
-    """
-    metadata = schema.sync_type_config.get("schema_metadata") or {}
-    src_schema = metadata.get("source_schema")
-    src_table = metadata.get("source_table_name")
-    if isinstance(src_schema, str) and isinstance(src_table, str):
-        return f"{src_schema}.{src_table}"
-    if "." in schema.name:
-        return schema.name
-    return f"{default_schema or 'public'}.{schema.name}"
 
 
 def _repair_lock_key(source_id: str) -> str:
@@ -99,6 +83,10 @@ def _repair_locked(source: ExternalDataSource) -> int:
     log = logger.bind(source_id=str(source.id), team_id=source.team_id)
 
     adapter = get_cdc_adapter(source)
+    # Re-asserted here (not just in the viewset) so any future facade caller inherits the
+    # guard — repairing a CDC-disabled source would provision resources nothing consumes.
+    if not adapter.parse_cdc_config(source).enabled:
+        raise CDCRepairError("CDC is not enabled on this source.")
 
     cdc_schemas = list(
         ExternalDataSchema.objects.filter(
