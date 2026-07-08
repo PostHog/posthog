@@ -1,6 +1,6 @@
 import dataclasses
 from collections.abc import Iterator
-from datetime import date, datetime
+from datetime import UTC, date, datetime
 from typing import Any, Optional
 
 import requests
@@ -48,7 +48,8 @@ def _make_session(api_key: str, api_secret: str) -> requests.Session:
 
 def to_unix_timestamp(value: Any) -> int | None:
     """Convert an incremental watermark (datetime, date, epoch number, or date string) to a UNIX
-    timestamp for ShopWired's `from` query param."""
+    timestamp for ShopWired's `from` query param. Naive datetimes are treated as UTC so the result
+    doesn't depend on the worker's local timezone."""
     if value is None:
         return None
     if isinstance(value, bool):
@@ -56,14 +57,19 @@ def to_unix_timestamp(value: Any) -> int | None:
     if isinstance(value, int | float):
         return int(value)
     if isinstance(value, datetime):
+        if value.tzinfo is None:
+            value = value.replace(tzinfo=UTC)
         return int(value.timestamp())
     if isinstance(value, date):
-        return int(datetime(value.year, value.month, value.day).timestamp())
+        return int(datetime(value.year, value.month, value.day, tzinfo=UTC).timestamp())
     if isinstance(value, str) and value.strip():
         try:
-            return int(parser.parse(value).timestamp())
+            parsed = parser.parse(value)
         except (ValueError, OverflowError):
             return None
+        if parsed.tzinfo is None:
+            parsed = parsed.replace(tzinfo=UTC)
+        return int(parsed.timestamp())
     return None
 
 

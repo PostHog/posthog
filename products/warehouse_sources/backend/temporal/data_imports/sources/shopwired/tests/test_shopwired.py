@@ -1,4 +1,5 @@
-from datetime import UTC, datetime
+import time
+from datetime import UTC, date, datetime
 from typing import Any
 
 import pytest
@@ -152,16 +153,33 @@ class TestToUnixTimestamp:
         [
             ("none", None, None),
             ("datetime", datetime(2024, 1, 1, tzinfo=UTC), 1704067200),
+            # Naive values must be treated as UTC regardless of the worker's local timezone.
+            ("naive_datetime", datetime(2024, 1, 1), 1704067200),
+            ("date", date(2024, 1, 1), 1704067200),
             ("epoch_int", 1704067200, 1704067200),
             ("epoch_float", 1704067200.5, 1704067200),
             ("rfc2822_string", "Mon, 01 Jan 2024 00:00:00 +0000", 1704067200),
             ("iso_string", "2024-01-01T00:00:00+00:00", 1704067200),
+            ("naive_iso_string", "2024-01-01T00:00:00", 1704067200),
             ("unparseable_string", "not-a-date-at-all-99", None),
             ("empty_string", "", None),
         ]
     )
     def test_conversion(self, _name: str, value: Any, expected: int | None) -> None:
         assert to_unix_timestamp(value) == expected
+
+    def test_naive_values_are_utc_regardless_of_local_timezone(self, monkeypatch: Any) -> None:
+        # CI runs in UTC, where a local-time interpretation of naive values happens to give the
+        # right answer — force a non-UTC timezone so a regression to naive .timestamp() fails here.
+        monkeypatch.setenv("TZ", "America/New_York")
+        time.tzset()
+        try:
+            assert to_unix_timestamp(date(2024, 1, 1)) == 1704067200
+            assert to_unix_timestamp(datetime(2024, 1, 1)) == 1704067200
+            assert to_unix_timestamp("2024-01-01T00:00:00") == 1704067200
+        finally:
+            monkeypatch.undo()
+            time.tzset()
 
 
 class TestFetchPage:
